@@ -94,10 +94,30 @@ class SessionCaptureController(
         private set
 
     /**
+     * Move photos lost to supersession when the board never went quiet between commits.
+     *
+     * The photo for a committed move is deferred until the board is quiet; if a new move commits
+     * while the deferred photo is still pending, the earlier ply's frame is lost without trace
+     * (caught on 2026-08-14: ply Nc6 of session 20260814-204855 and ply Nf3 of session
+     * 20260814-210104 committed but had no row in log.jsonl). This counter surfaces the loss so
+     * the user sees that something went wrong, not silent data corruption.
+     *
+     * Reset by [stop].
+     */
+    var supersededFrames: Int = 0
+        private set
+
+    /**
      * Why nothing is being written, most severe first: recording halted, then data actually lost,
      * then a skip that is by design (geometry suspended, inventory violation).
      */
-    val reason: String? get() = stoppedReason ?: writeFailure() ?: gates.reason ?: hooks.reason().takeIf { prefs().enabled }
+    val reason: String?
+        get() =
+            stoppedReason
+                ?: writeFailure()
+                ?: supersededFrameMessage()
+                ?: gates.reason
+                ?: hooks.reason().takeIf { prefs().enabled }
 
     /** Apply a live preference change at a frame/status boundary. Returns true on lifecycle change. */
     fun syncEnabled(): Boolean {
@@ -151,6 +171,11 @@ class SessionCaptureController(
             pending = null
             return
         }
+        // Detect if a pending frame from an earlier ply is being superseded.
+        val oldPending = pending
+        if (oldPending != null && oldPending.ply != ply) {
+            supersededFrames++
+        }
         pending = Pending(ply, fen, san)
         if (clean) flush()
     }
@@ -193,6 +218,7 @@ class SessionCaptureController(
         recorder = null
         pending = null
         failedWrites = 0
+        supersededFrames = 0
         return active.finish().also(hooks.finished)
     }
 
@@ -215,6 +241,13 @@ class SessionCaptureController(
         pending = null
         return true
     }
+
+    private fun supersededFrameMessage(): String? =
+        if (supersededFrames == 0) {
+            null
+        } else {
+            "$supersededFrames move photo(s) lost — board never went quiet between commits"
+        }
 
     private fun writeFailure(): String? = if (failedWrites == 0) null else "frame could not be written — $failedWrites lost"
 }

@@ -7,7 +7,6 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.SystemClock
 import android.util.Log
-import android.util.Size
 import androidx.camera.core.ImageProxy
 import java.io.File
 import java.nio.ByteBuffer
@@ -61,6 +60,32 @@ data class VideoProgress(
 )
 
 /**
+ * The video seam, as its ONE consumer (`RecordingBundleHost`) sees it.
+ *
+ * Arming has an owner, and it is the recorder — not the encoder's own callbacks (double "armed",
+ * 2026-08-14). Naming the seam is what lets that be driven on the JVM, against a fake that counts
+ * who armed what.
+ */
+interface VideoRecorderPort {
+    val videoResolution: DeliveredSize?
+
+    val videoFailure: String?
+
+    val videoSegments: Int
+
+    val videoPreRollNs: Long
+
+    fun startVideo(
+        maxBytes: Long,
+        onProgress: (VideoProgress) -> Unit,
+    ): Boolean
+
+    fun keepVideo(file: File)
+
+    fun stopVideo()
+}
+
+/**
  * Encodes the same QHD YUV frames that feed the tracker.
  *
  * This phone exposes no CameraX QHD Recorder profile and cannot bind VideoCapture beside
@@ -109,7 +134,7 @@ class CameraVideo : AutoCloseable {
         @Synchronized get() = segment + 1
 
     @Volatile
-    var resolution: Size? = null
+    var resolution: DeliveredSize? = null
         private set
 
     @Volatile
@@ -130,21 +155,20 @@ class CameraVideo : AutoCloseable {
 
     /** Returns true only when a newly available source size should be published to the session. */
     @Suppress("ReturnCount")
-    fun sourceAvailable(
-        size: Size,
-        rotation: Int,
-    ): Boolean {
-        val enough = maxOf(size.width, size.height) >= MIN_VIDEO_WIDTH && minOf(size.width, size.height) >= MIN_VIDEO_HEIGHT
+    fun sourceAvailable(delivered: DeliveredSize): Boolean {
+        val enough =
+            maxOf(delivered.width, delivered.height) >= MIN_VIDEO_WIDTH &&
+                minOf(delivered.width, delivered.height) >= MIN_VIDEO_HEIGHT
         if (!enough) {
-            val error = "QHD video unavailable (CameraX delivered ${size.width}x${size.height})"
+            val error = "QHD video unavailable (CameraX delivered ${delivered.width}x${delivered.height})"
             if (failure == error && resolution == null) return false
             failure = error
             resolution = null
             return true
         }
-        rotationDegrees = rotation
-        if (resolution == size && failure == null) return false
-        resolution = size
+        rotationDegrees = delivered.rotationDegrees
+        if (resolution == delivered && failure == null) return false
+        resolution = delivered
         failure = null
         return true
     }

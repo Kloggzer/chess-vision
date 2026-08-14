@@ -257,4 +257,31 @@ class SessionCaptureTest {
         assertNull(controller.recorder)
         assertNull(controller.stop())
     }
+
+    /**
+     * D6. A move photo is lost when the board never goes quiet between two commits (2026-08-14:
+     * ply Nc6 of session 20260814-204855 and ply Nf3 of session 20260814-210104 committed but
+     * had no log.jsonl row). The loss was silent; this test verifies the supersededFrames counter
+     * surfaces it and is reset after the session ends.
+     */
+    @Test
+    fun supersededPendingFrameIsReported() {
+        val controller = controller()
+        controller.queue(1, FEN, "e4", clean = false)
+        // ply 1 is now pending but not yet flushed.
+        assertEquals(0, controller.supersededFrames)
+        controller.queue(2, FEN, "e5", clean = false)
+        // ply 1's pending frame is superseded by ply 2's.
+        assertEquals(1, controller.supersededFrames)
+        assertTrue(controller.reason.orEmpty().contains("move photo(s) lost"), controller.reason)
+        assertTrue(controller.reason.orEmpty().contains("board never went quiet"), controller.reason)
+        // Flush ply 2 and stop.
+        controller.flush()
+        assertEquals(1, controller.recorder?.count)
+        val result = controller.stop()
+        assertEquals(1, result?.frames)
+        // Counter is reset after the session ends.
+        controller.queue(3, FEN, "Nf3", clean = false)
+        assertEquals(0, controller.supersededFrames)
+    }
 }

@@ -1,10 +1,10 @@
 package com.chesslab.tracker.record
 
 import android.os.SystemClock
-import android.util.Size
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.tracker.camera.TrackerCamera
+import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.VideoRecorderPort
 import kotlinx.coroutines.CoroutineScope
 import java.io.File
 
@@ -17,9 +17,18 @@ import java.io.File
  * session first) is what names a file and lets the muxer write. A tracker run that never commits
  * a move therefore leaves no video at all, which is the point: nine of eleven transferred
  * recordings on 2026-08-13/14 carried no game.
+ *
+ * Since 2026-08-14, the session opens (timeline is created) BY the first committed move.
+ * The decision row for the opening move is emitted before the timeline exists and would be lost
+ * — so it is buffered here and written to the fresh timeline as soon as [opened] is called.
+ * This buffers ONLY the most recent decision; the incident is exactly one row.
+ *
+ * This class is also the ONE owner of the arming decision. [armVideo], [opened],
+ * [videoAvailability] and [finished] only *request* an arm; [startVideo] alone decides, against
+ * `videoStarted`, the preference and the size cap. Nothing else may arm — see [finished].
  */
 class RecordingBundleHost(
-    private val camera: TrackerCamera,
+    private val camera: VideoRecorderPort,
     private val settings: RecordingSettings,
     private val sessionsRoot: File,
     private val scope: CoroutineScope,
@@ -37,6 +46,13 @@ class RecordingBundleHost(
     private var closed = false
 
     /**
+     * The most recent decision row, buffered if it arrived before the timeline was created.
+     * Volatile because it may be written from the engine thread and read from the session opener.
+     */
+    @Volatile
+    private var bufferedDecision: Pair<com.chesslab.engine.api.DebugDecision, Long>? = null
+
+    /**
      * Arm the encoder ahead of any session: the ring must already hold the pre-roll when the
      * first move commits. Idempotent, and a no-op while recording is off or the camera cannot
      * deliver QHD yet.
@@ -52,18 +68,32 @@ class RecordingBundleHost(
         // The session exists BECAUSE a ply committed (`SessionCaptureController`'s commit gate),
         // so the pre-roll is due now — idempotent when the event collector got there first.
         camera.keepVideo(File(recorder.dir, VIDEO_FILE))
-    }
-
-    fun finished() {
-        if (videoStarted) {
-            camera.stopVideo()
-        } else {
-            closeCurrent()
+        // Replay the buffered decision row (if any) into the fresh timeline. The decision was
+        // emitted before the timeline existed and was buffered to not be lost. This happens
+        // right after the writer is created but before any further decisions are written.
+        // See: 2026-08-14 incident where ply 1 decision rows were missing from session timelines.
+        bufferedDecision?.let { (decision, elapsedNs) ->
+            next.decision(decision, elapsedNs)
+            bufferedDecision = null
         }
     }
 
+    /**
+     * A session ended: finish the file, then arm ONCE for the next game.
+     *
+     * The re-arm used to hang off the encoder's final callback, which fires for EVERY stop — and a
+     * teardown stops the encoder from two sides. Measured twice on 2026-08-14 (20:36:33, 20:50:22):
+     * the second arm came ~180 ms later and threw away the ring the first had already filled.
+     */
+    fun finished() {
+        camera.stopVideo()
+        // Idempotent: the stop's callback already closed the timeline when a video was running.
+        closeCurrent()
+        startVideo()
+    }
+
     fun videoAvailability(
-        size: Size?,
+        size: DeliveredSize?,
         error: String?,
     ) {
         if (error != null) session?.updateVideo(SessionVideoMeta(0, 0, 0L, 0L, error))
@@ -82,7 +112,19 @@ class RecordingBundleHost(
         timeline?.event(event, SystemClock.elapsedRealtimeNanos(), System.currentTimeMillis())
     }
 
-    fun decision(decision: DebugDecision) = timeline?.decision(decision, SystemClock.elapsedRealtimeNanos())
+    fun decision(decision: DebugDecision) {
+        val elapsedNs = SystemClock.elapsedRealtimeNanos()
+        val tl = timeline
+        if (tl != null) {
+            tl.decision(decision, elapsedNs)
+        } else {
+            // Timeline has not been created yet (session has not opened). Buffer this decision
+            // so it can be written when the session opens. Only the MOST RECENT decision is kept;
+            // earlier ones are overwritten. This is safe because in normal play only ONE decision
+            // races ahead of the session opening.
+            bufferedDecision = decision to elapsedNs
+        }
+    }
 
     fun state(
         from: String,
@@ -107,8 +149,8 @@ class RecordingBundleHost(
             return
         }
         // Snapshotted per arm, never on the sample path: it is a directory walk. A cap already
-        // spent must refuse the arm outright — an encoder that stops on its first sample would be
-        // re-armed by its own final callback, forever.
+        // spent must refuse the arm outright — [finished] arms again after every session, and an
+        // encoder that stops on its first sample would keep taking that arm.
         val used = SessionStore(sessionsRoot).totalBytes()
         if (prefs.capBytes in 1..used) return
         val remaining = if (prefs.capBytes > 0L) prefs.capBytes - used else 0L
@@ -131,7 +173,7 @@ class RecordingBundleHost(
     }
 
     private fun finalizeVideo(
-        size: Size,
+        size: DeliveredSize,
         progress: com.chesslab.tracker.camera.VideoProgress,
     ) {
         session?.updateVideo(
@@ -149,9 +191,9 @@ class RecordingBundleHost(
         timeline = null
         session = null
         videoStarted = false
-        // Re-arm at once: the NEXT game's pre-roll has to be rolling before its first commit,
-        // not from it. On the way out `closed` keeps this from resurrecting a dying encoder.
-        startVideo()
+        // Deliberately no re-arm: this runs for EVERY stop — the cap, the disabled toggle, the
+        // camera being released — and re-arming from here made the encoder its own second owner.
+        // [finished] is what re-arms for the next game.
     }
 
     private fun closeCurrent() {
