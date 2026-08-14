@@ -11,12 +11,14 @@ import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { checkMp4 } from "@/lib/mp4";
+import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
 /** `label` and `propose` are jobs; `confirm` and `relabel` are pages; `done` is nothing left. */
 export type ChainStep = "label" | "confirm" | "export" | "propose" | "relabel";
 
 export type ChainState = {
-  step: ChainStep;
+  /** Null = nothing to do here: the game is flagged useless, and no step is offered at all. */
+  step: ChainStep | null;
   /** The recording the chain runs on, relative to the data dir — null when the bundle has none. */
   video: string | null;
   /** Set when the video cannot be decoded at all, in the words of what is wrong with it. */
@@ -28,6 +30,8 @@ export type ChainState = {
   confirmed: boolean;
   hasSession: boolean;
   hasProposals: boolean;
+  /** The human's "nutzlos" verdict, active only — see `lib/useless.ts`. */
+  useless: UselessFlag | null;
 };
 
 async function exists(file: string): Promise<boolean> {
@@ -73,13 +77,14 @@ async function phonePgn(name: string): Promise<string | null> {
 
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
-  const [video, offeredPgn, hasReference, candidateText, hasSession, hasProposals] = await Promise.all([
+  const [video, offeredPgn, hasReference, candidateText, hasSession, hasProposals, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
     exists(sessionDir(name)),
     exists(path.join(dir, "occluded-proposals.jsonl")),
+    uselessFlag(name),
   ]);
   const confirmed = candidateText !== null && (JSON.parse(candidateText) as { confirmed?: boolean }).confirmed === true;
   // Checked before the button is offered, not after ten minutes of replay.
@@ -93,6 +98,7 @@ export async function chainState(name: string): Promise<ChainState> {
     confirmed,
     hasSession,
     hasProposals,
+    useless,
   };
   return { ...state, step: nextStep(state) };
 }
@@ -102,9 +108,11 @@ export async function chainState(name: string): Promise<ChainState> {
  *
  * Order is the chain's own, with the confirm gate honoured: `export-session` reads
  * `reviewed_plies`, so an unconfirmed candidate has nothing for it to export, and offering the
- * button anyway would produce an empty session and a puzzled user.
+ * button anyway would produce an empty session and a puzzled user. A game the human called
+ * useless has no step at all — that is the whole point of the flag, and it is one click undone.
  */
-export function nextStep(state: Omit<ChainState, "step">): ChainStep {
+export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
+  if (state.useless) return null;
   if (!state.hasCandidate) return "label";
   if (!state.confirmed) return "confirm";
   if (!state.hasSession) return "export";

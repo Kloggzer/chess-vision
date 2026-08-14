@@ -69,6 +69,10 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
     setJob(answer);
   }
 
+  // Flagged useless: there is no next step by definition, and the undo lives on the card.
+  if (step === null) {
+    return <span className="text-muted-foreground text-xs">als nutzlos markiert — kein Schritt offen</span>;
+  }
   if (step === "label" && !state.video) {
     return <span className="text-muted-foreground text-xs">no video in this bundle — nothing to label</span>;
   }

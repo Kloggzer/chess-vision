@@ -34,7 +34,13 @@ describe("nextStep", () => {
     confirmed: false,
     hasSession: false,
     hasProposals: false,
+    useless: null,
   };
+
+  it("offers nothing at all for a game the human called useless", () => {
+    expect(nextStep({ ...base, useless: { at: "2026-08-14T20:00:00Z" } })).toBeNull();
+    expect(nextStep({ ...base, hasCandidate: true, useless: { at: "2026-08-14T20:00:00Z" } })).toBeNull();
+  });
 
   it("walks the chain in order", () => {
     expect(nextStep(base)).toBe("label");

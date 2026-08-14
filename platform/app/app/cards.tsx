@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ChainActions } from "@/app/chain-actions";
+import { UselessButton } from "@/app/useless-button";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 
@@ -12,6 +13,8 @@ export type GameInfo = {
   name: string;
   title: string | null;
   archived: boolean;
+  /** Review PNGs on disk — only counted for bundles with neither video nor candidate. */
+  frames: number;
   createdAt: string | null;
   confirmed: boolean;
   confirmedAt: string | null;
@@ -30,6 +33,30 @@ export type GameInfo = {
 
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
 const when = (iso: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") : null);
+
+/**
+ * A game the human called useless: the flag, its reason, and the way back.
+ *
+ * Collapsed on purpose — every control on it would run work on a recording that was judged not
+ * worth any, and the one thing that must stay reachable is the undo.
+ */
+function UselessCard({ game }: { game: GameInfo }) {
+  const flag = game.chain.useless;
+  return (
+    <li className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm opacity-60">
+      <span className="font-medium">{game.title ?? game.name}</span>
+      {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
+      <Badge variant="secondary">nutzlos</Badge>
+      <span className="text-muted-foreground text-xs">
+        {when(flag?.at ?? null) ?? "?"}
+        {flag?.reason ? ` · ${flag.reason}` : ""}
+      </span>
+      <span className="text-muted-foreground ml-auto text-xs">
+        <UselessButton flagged name={game.name} />
+      </span>
+    </li>
+  );
+}
 
 export function GameCard({ game }: { game: GameInfo }) {
   const router = useRouter();
@@ -60,6 +87,8 @@ export function GameCard({ game }: { game: GameInfo }) {
       input.value = "";
     })();
   }
+
+  if (game.chain.useless) return <UselessCard game={game} />;
 
   return (
     <li
@@ -116,6 +145,7 @@ export function GameCard({ game }: { game: GameInfo }) {
           {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
           <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
         </label>
+        <UselessButton flagged={false} name={game.name} />
         <button
           className="cursor-pointer underline underline-offset-4"
           onClick={act(() =>

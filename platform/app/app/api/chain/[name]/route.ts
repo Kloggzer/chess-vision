@@ -17,6 +17,11 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name
     const body = (await request.json().catch(() => ({}))) as { step?: string; lens?: boolean };
     const state = await chainState(name);
     if (body.step === "adopt-pgn") return Response.json(await adoptPgn(name));
+    // The flag is the whole reason there is no step; running one anyway would be the one thing
+    // the user asked for it to prevent.
+    if (state.step === null) {
+      return Response.json({ error: "als nutzlos markiert — kein Schritt läuft", state }, { status: 409 });
+    }
     if (body.step !== state.step) {
       return Response.json({ error: `next step is "${state.step}", not "${body.step}"`, state }, { status: 409 });
     }
