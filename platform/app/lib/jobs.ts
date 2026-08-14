@@ -547,6 +547,10 @@ async function runChesslab(
   const verb = step === "export" ? "export-session" : "propose-occluded";
   const binary = uvBinary();
   const args = ["run", "chesslab", "realgames", verb, job.name];
+  // Without a model the proposer emits census/grid rows only — 0 of 251,413 rows on disk carried
+  // `probs` (2026-08-15), so "model disagrees with the FEN" matched nothing and the identity
+  // labeling path was structurally dead. The producer refuses sessions the model trained on.
+  if (step === "propose") args.push("--model", process.env.CHESSLAB_PROPOSE_MODEL ?? "data/models/real14-ms-s3-hn-bn80");
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {
