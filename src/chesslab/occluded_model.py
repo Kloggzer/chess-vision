@@ -49,11 +49,19 @@ def trained_on(run_dir: Path) -> set[str]:
     return set(splits.get("train") or [])
 
 
+def _names_session(entry: str, session_id: str) -> bool:
+    """Crops enter datasets under variant prefixes (`occ-rg-…`), which walked past the literal
+    match — the guard then ALLOWED exactly the trained-on sessions (found 2026-08-15)."""
+    return entry == session_id or entry.endswith("-" + session_id)
+
+
 def check_not_circular(run_dir: Path, session_id: str) -> None:
     """Refuse loudly: a model scoring its own training session is a mirror, not a proposer."""
-    if session_id in trained_on(run_dir):
+    hits = sorted(e for e in trained_on(run_dir) if _names_session(e, session_id))
+    if hits:
         raise ValueError(
-            f"{run_dir.name} was TRAINED on {session_id} — its reads there are its own labels. "
+            f"{run_dir.name} was TRAINED on {session_id} (split entries: {', '.join(hits)}) — "
+            f"its reads there are its own labels. "
             f"Use a model trained without this session, or drop --model for this one."
         )
 
