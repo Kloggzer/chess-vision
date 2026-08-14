@@ -14,6 +14,8 @@ import com.chesslab.engine.api.ResyncResult
 internal class VerifyObs(
     private val occupancy: Map<String, Boolean> = mapOf("e4" to true, "e2" to false),
     private val confidence: Map<String, Boolean> = mapOf("e4" to true, "e2" to true),
+    /** Squares whose `occluded` class dominates — the 14-class head's own hand report. */
+    private val occluded: Set<String> = emptySet(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] == true
 
@@ -31,7 +33,7 @@ internal class VerifyObs(
 
     override fun conf(square: String): Double = if (confidence[square] == true) 1.0 else 0.0
 
-    override fun pOccluded(square: String): Double = 0.0
+    override fun pOccluded(square: String): Double = if (square in occluded) 1.0 else 0.0
 
     override fun occupancyOnly(): CnnObservation = this
 }

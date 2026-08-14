@@ -76,6 +76,27 @@ class VerifySingleTest {
     }
 
     /**
+     * The h7h5 incident (session 20260814-203552): an ARRIVING hand reached over the kingside,
+     * the grid map lagged it by one observation (empty at the confirming glances), occupancy read
+     * the covered file as a move, and `cnn_pair` committed a never-played `h5`. The model's
+     * occluded head had flagged the hand on those very glances — since the plausibility filter it
+     * is trustworthy enough to hold the verdict alongside the groove read.
+     */
+    @Test
+    fun anArrivingHandHoldsTheVerdictThroughTheModelHead() {
+        val state = pendingState()
+        state.lastMotionTs = state.nowS // arriving = motion is fresh, the filter lets the head speak
+        val wouldCommit = VerifyEvaluator(occAgree = 1.0, occN = 2)
+        val events = VerifySingle.tick(state, wouldCommit, snapOf(state, VerifyObs(occluded = setOf("h4", "h5"))))
+
+        assertTrue(events.isEmpty())
+        assertEquals(emptyList<String>(), state.history, "an occluded-reading glance must not confirm a pair or single")
+        assertNotNull(state.pending)
+        assertEquals(0, state.pending!!.frames, "not a vote, not a window tick")
+        assertEquals(state.nowS, state.pending!!.lastTickS, "alive — a covered board is not a dead observer")
+    }
+
+    /**
      * The c8 lesson of VID_20260802_222741: ONE square flagged on 73 % of all frames — a piece
      * leaning over its own grooves, standing for minutes — and gating on the raw map blanked the
      * whole replay to zero plies. A lone flag is furniture, not a hand; it must not block. Nor

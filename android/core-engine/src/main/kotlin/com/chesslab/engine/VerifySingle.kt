@@ -104,6 +104,15 @@ internal object VerifySingle {
 /**
  * Does the hand in [snap] withhold a verdict about [pend]?
  *
+ * BOTH hand arms, summed like the recovery clean gate: the groove read and the model's occluded
+ * head through its plausibility filter (`modelHandSquares`). The head joined on 2026-08-14, the
+ * day the filter made it trustworthy — and the same day showed why it must sit here: the h7h5
+ * incident (session 20260814-203552). An ARRIVING hand reached over the kingside, the grid map
+ * lagged it by one observation (`grid=0x0` at the two confirming glances, `0x7000…` 50 ms after
+ * the commit), occupancy read the covered file as "h7 left, h5 arrived", and `cnn_pair` committed
+ * a move that was never played. The head had already flagged 2–5 squares on those very glances —
+ * it was the only witness awake, and nothing consulted it.
+ *
  * Board-wide unless `handTolerantCells` is set, which is the shipped behaviour and the one every
  * measurement on record was taken under.
  */
@@ -111,7 +120,7 @@ private fun EngineState.handHoldsVerdict(
     snap: CnnSnapshot,
     pend: PendingVerify,
 ): Boolean {
-    val hand = gridHandSquares(snap)
+    val hand = gridHandSquares(snap) or modelHandSquares(snap)
     if (hand == 0L) return false
     if (config.handTolerantCells <= 0) return true
     val touched = ofSquares(pend.ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, UCI_SQUARES)) })
