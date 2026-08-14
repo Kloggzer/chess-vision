@@ -431,6 +431,8 @@ def realgames_export_session(
     dirty: bool = typer.Option(True, "--dirty/--no-dirty",
                                help="Also export the commit windows, flagged `dirty: true`."),
     every: int = typer.Option(3, "--every", help="Sample every Nth source frame."),
+    fit: bool = typer.Option(True, "--fit/--no-fit",
+                             help="Fit every written frame's quad to the board's own grid."),
     report_only: bool = typer.Option(False, "--report-only",
                                      help="Compute the yield table, write nothing."),
 ) -> None:
@@ -440,12 +442,15 @@ def realgames_export_session(
     nothing extracted them. A reviewed ply's `fen_after` is the known position from its commit
     to the next one; the margin cuts the hand out of that interval, and `--dirty` keeps those
     cut-out windows as flagged rows for the occluded-class work (specs/53-02/03).
+
+    Every written frame is fitted to the board's own grid on the way out (`--no-fit` to skip),
+    so an export lands where `session scan` + `autofix` used to have to drag it afterwards.
     """
     from . import realgames as realgames_mod
 
     try:
         r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
-                                         dirty=dirty, report_only=report_only)
+                                         dirty=dirty, fit=fit, report_only=report_only)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e

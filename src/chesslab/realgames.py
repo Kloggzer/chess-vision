@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -21,6 +22,7 @@ import yaml
 from . import config
 from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame
+from .recording import Recording
 from .state import GameState
 
 
@@ -191,19 +193,44 @@ def video_path(name: str, candidate: dict) -> Path:
     raise FileNotFoundError(f"{name}: video not found ({rel!r})")
 
 
+#: How far past the FINAL commit its interval may run, in seconds — the whole rule for a ply that
+#: no later commit closes. Nothing witnesses the board after the last commit: the recording keeps
+#: going, the players keep playing, and on 2026-08-14-20-48-55 the tracker went on REJECTING
+#: `Bxd2+` for 18 s while its own `fenAfter` still said the bishop stood on b4. So "the tracker
+#: still agrees" is no witness either, and the tail is cut short instead of guessed.
+LAST_INTERVAL_S = 2.0
+
+
 def known_segments(candidate: dict) -> list[dict]:
     """One segment per REVIEWED ply: `[commit frame, next commit frame)` holds its `fen_after`.
 
     The next commit closes the segment whether or not that ply was reviewed — a commit is where
-    the board changed, and an unreviewed one is still evidence that it did. A reviewed ply with
-    no commit after it has no known end (the tracker stopped, or lost the position), so it
-    contributes nothing rather than a guess about the rest of the video.
+    the board changed, and an unreviewed one is still evidence that it did.
+
+    The LAST ply has no such closer, and used to contribute nothing at all: 2026-08-14-20-48-55
+    confirmed 11 plies and exported 10 intervals, so the position the game ended in — the one the
+    human had just vouched for — was the one position never labelled. It gets [LAST_INTERVAL_S]
+    after its commit and not a frame more; the commit itself is the proof the board was in that
+    position, and nothing past the cap proves anything.
     """
     moves = candidate["moves"]
+    if not moves:
+        return []
     reviewed = set(candidate.get("reviewed_plies") or ())
+    stray = sorted(reviewed - {int(m["ply"]) for m in moves})
+    if stray:
+        # A reviewed ply naming no move means the confirmation and `moves[]` disagree about which
+        # ply is which — every interval after it could carry the wrong position. Never guess.
+        raise ValueError(
+            f"reviewed_plies names ply {stray} which no move carries — confirmation and moves[] "
+            f"disagree; re-run `chesslab realgames confirm` instead of exporting a shifted timeline"
+        )
+    tail = int(moves[-1]["frame"]) + int(round(LAST_INTERVAL_S * video_fps(candidate)))
+    total = int(candidate.get("frames") or 0)
+    ends = [int(m["frame"]) for m in moves[1:]] + [min(tail, total) if total else tail]
     out = []
-    for i, move in enumerate(moves[:-1]):
-        start, end = int(move["frame"]), int(moves[i + 1]["frame"])
+    for i, move in enumerate(moves):
+        start, end = int(move["frame"]), ends[i]
         if int(move["ply"]) not in reviewed or end <= start:
             continue
         out.append(
@@ -217,7 +244,9 @@ def known_segments(candidate: dict) -> list[dict]:
                 # BOTH moves' physical motion. Computed against only the first, the second pair
                 # move's squares (e7/e5 of an e4+e5 pair) went unmarked while the frames already
                 # showed them moved — exactly the mislabel `unknown_squares` exists to stop.
-                "next_touches": changed_squares(move["fen_after"], group_end_fen(moves, i + 1)),
+                "next_touches": changed_squares(move["fen_after"], group_end_fen(moves, i + 1))
+                if i + 1 < len(moves)
+                else [],
             }
         )
     return out
@@ -374,19 +403,13 @@ def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | Non
     a good session would transpose a1<->h8 in every label.
     """
     want_w, want_h = (int(v) for v in candidate["geometry"]["frame_size"])
-    cap = cv2.VideoCapture(str(video))
-    if not cap.isOpened():
-        raise FileNotFoundError(f"cannot open video: {video}")
-    probes, idx = sorted(wanted)[:ROTATION_PROBES], 0
-    try:
+    probes = sorted(wanted)[:ROTATION_PROBES]
+    with closing(Recording(video).frames()) as stream:
         best: tuple[int, int | None] | None = None
         for target in probes:
-            frame = None
-            while idx <= target:
-                ok, frame = cap.read()
-                if not ok:
-                    return best[1] if best else None
-                idx += 1
+            frame = next((f for i, f in stream if i >= target), None)
+            if frame is None:
+                return best[1] if best else None
             got = (frame.shape[1], frame.shape[0])
             rotations: list[int | None] = (
                 [None, cv2.ROTATE_180]
@@ -406,8 +429,6 @@ def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | Non
             f"{video.name}: no rotation reads the board grid through the stored corners "
             f"(best left {best[0] if best else '?'} of 18 lines unread) — geometry and decode disagree."
         )
-    finally:
-        cap.release()
 
 
 def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | None = None) -> set[int]:
@@ -415,8 +436,9 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
 
     Never `CAP_PROP_POS_FRAMES`: seeking a long clip lands next to the requested index (the
     2026-08-06 stale-index defect class), and an index that is off by one here is a wrong LABEL,
-    not a blurry picture. Returns the indices that actually arrived. [rotate] is `detect_rotation`'s
-    verdict, applied to every written frame.
+    not a blurry picture. The walk runs through `Recording`, so a segmented recording is decoded
+    to its end instead of stopping at the first minute. Returns the indices that actually arrived.
+    [rotate] is `detect_rotation`'s verdict, applied to every written frame.
 
     **Frames already on disk are kept, not decoded again.** A re-export is otherwise a full
     forward decode of the whole video for pixels that cannot have changed, which made re-running
@@ -445,23 +467,20 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
             f"are missing. Re-run `:desktop undistort <video> {out_dir} every=<n>` with an "
             f"`every` that covers them — never decode raw frames into an undistorted set."
         )
-    cap = cv2.VideoCapture(str(video))
-    if not cap.isOpened():
-        raise FileNotFoundError(f"cannot open video: {video}")
-    last, decoded, idx = max(todo), set(), 0
-    try:
-        while idx <= last:
-            ok, frame = cap.read()
-            if not ok:
-                break
+    last, decoded = max(todo), set()
+    recording = Recording(video)
+    if len(recording.segments) > 1:
+        print(f"  recording is {len(recording.segments)} segments: "
+              f"{', '.join(p.name for p in recording.segments)}")
+    with closing(recording.frames()) as stream:
+        for idx, frame in stream:
             if idx in todo:
                 cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame if rotate is None else cv2.rotate(frame, rotate))
                 decoded.add(idx)
-            idx += 1
-            if idx % 1000 == 0:
-                print(f"  decoded {idx}/{last + 1} frames, {len(decoded)} written")
-    finally:
-        cap.release()
+            if idx >= last:
+                break
+            if (idx + 1) % 1000 == 0:
+                print(f"  decoded {idx + 1}/{last + 1} frames, {len(decoded)} written")
     arrived = have | decoded
     if len(arrived) < len(wanted):
         print(f"[WARN] {len(wanted) - len(arrived)} planned frames never arrived from {video}")
@@ -508,8 +527,61 @@ def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
     return carried
 
 
+#: What `corners_source` says about a fitted row, one whose inherited quad the fit could not beat,
+#: and one whose grid could not be read at all. Three values and not one "fallback": 167 of
+#: 20-48-55's 637 rows are the middle case, and calling those a failure would send a reader looking
+#: for damage that is not there.
+FIT_SOURCE, FIT_KEPT, FIT_FAILED = "export-fit", "export-fit-kept", "export-fit-failed"
+
+
+def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
+    """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
+
+    The candidate carries one median quad for the whole video, and a median is not a measurement
+    of any single frame: rg-2026-08-13-19-34-23 went out with all 137 frames uniformly ~17 px off
+    their own grooves, and a hand-run `session scan` + `autofix` afterwards brought it to 2.71 px
+    median. That repair is this same fit, so it runs by default instead of being hoped for.
+
+    A frame the fit cannot read — hand over the grid, dark junk — KEEPS the quad it inherited and
+    is marked [FIT_FAILED]. Nothing is dropped: those dirty rows are the wanted material.
+    `improve_quad` returns nothing unless it improves its own frame, so this can only help.
+    """
+    from .alignment import improve_quad
+
+    counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
+    worsts = []
+    for row in rows:
+        frame = cv2.imread(str(session_dir / row["frame"]))
+        quad, before, after = (
+            (None, float("nan"), float("nan"))
+            if frame is None
+            else improve_quad(frame, row["corners"], profile)
+        )
+        if quad is not None:
+            row["corners"] = [[float(x), float(y)] for x, y in quad]
+        worst = after if quad is not None else before
+        source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
+        row["corners_source"] = source
+        counts[source] += 1
+        if worst == worst:
+            row["align_worst_px"] = round(float(worst), 2)
+            worsts.append(row["align_worst_px"])
+    worsts.sort()
+    return {
+        **counts,
+        "median": worsts[len(worsts) // 2] if worsts else None,
+        "max": worsts[-1] if worsts else None,
+    }
+
+
 def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict]) -> Path:
     """`session.yaml` + `log.jsonl` in the §2 shape of `docs/data-pipeline.md`, nothing else."""
+    from .sessions import backup_log
+
+    # A re-export REPLACES a log that may hold hand-set quads or a review's verdicts. Same
+    # `log.jsonl.bak.<stamp>` convention `session scan|autofix|adopt` use, for the same reason.
+    if (session_dir / "log.jsonl").is_file():
+        print(f"  previous log backed up as {backup_log(session_dir / 'log.jsonl')}")
     meta = {
         "session_id": session_dir.name,
         "profile": EXPORT_PROFILE,
@@ -565,6 +637,7 @@ def export_session(
     every: int = 3,
     dirty: bool = True,
     measure: bool = True,
+    fit: bool = True,
     report_only: bool = False,
 ) -> dict:
     """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
@@ -610,6 +683,13 @@ def export_session(
             carried = carry_repaired_geometry(session_dir, rows)
             if carried:
                 print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
+        if fit:
+            # Last, so the fit starts from the best quad this export knows — a carried repair or
+            # the undistorted re-measure — and refines THAT rather than the candidate's median.
+            stats = fit_rows_to_grid(session_dir, rows, load_profile(EXPORT_PROFILE))
+            print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
+                  f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
+                  f"align_worst_px median {stats['median']}, max {stats['max']}")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
@@ -821,42 +901,35 @@ def measure_settle(video: Path, candidate: dict, profile) -> dict[int, dict[str,
     quad = candidate["geometry"]["corners"]
     squares = all_squares()
     moves = candidate["moves"]
-    cap = cv2.VideoCapture(str(video))
-    if not cap.isOpened():
-        raise FileNotFoundError(f"cannot open video: {video}")
+    recording = Recording(video)
     out: dict[int, dict[str, int]] = {}
-    try:
-        for i, move in enumerate(moves):
-            before = moves[i - 1].get("fen_after") if i else candidate.get("start_fen")
-            touched = changed_squares(before, move.get("fen_after"))
-            commit = int(move["frame"])
-            if not touched or commit < SETTLE_BACK:
-                continue
-            lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
-            cap.set(cv2.CAP_PROP_POS_FRAMES, lo)
-            cells, idx = {}, lo
-            while idx <= hi:
-                ok, frame = cap.read()
-                if not ok:
-                    break
+    for i, move in enumerate(moves):
+        before = moves[i - 1].get("fen_after") if i else candidate.get("start_fen")
+        touched = changed_squares(before, move.get("fen_after"))
+        commit = int(move["frame"])
+        if not touched or commit < SETTLE_BACK:
+            continue
+        lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
+        cells = {}
+        with closing(recording.frames(lo)) as stream:
+            for idx, frame in stream:
                 crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
                 cells[idx] = {sq: crops[squares.index(sq)].astype(np.int16) for sq in touched}
-                idx += 1
-            if lo not in cells or hi not in cells:
+                if idx >= hi:
+                    break
+        if lo not in cells or hi not in cells:
+            continue
+        for sq in touched:
+            pre, post = cells[lo][sq], cells[hi][sq]
+            if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
                 continue
-            for sq in touched:
-                pre, post = cells[lo][sq], cells[hi][sq]
-                if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+            for f in range(hi, lo - 1, -1):
+                cell = cells.get(f)
+                if cell is None:
                     continue
-                for f in range(hi, lo - 1, -1):
-                    cell = cells.get(f)
-                    if cell is None:
-                        continue
-                    if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
-                        out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
-                        break
-    finally:
-        cap.release()
+                if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
+                    out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                    break
     return out
 
 

@@ -16,11 +16,13 @@ import pytest
 from chesslab import config
 from chesslab.occluded import interval_reference, score_cells, write_proposals
 from chesslab.realgames import (
+    LAST_INTERVAL_S,
     carry_repaired_geometry,
     confirm,
     decode_frames,
     ensure_export_profile,
     export_session,
+    known_segments,
     lcs_report,
     plan_rows,
     unknown_for,
@@ -174,11 +176,85 @@ def test_a_pair_commit_marks_both_moves_squares_unknown():
         ],
     }
     rows = plan_rows(candidate, margin_frames=30, every=10, dirty=True)
-    assert {r["ply"] for r in rows} == {1}, "the zero-length pair segment contributes nothing"
+    assert {r["ply"] for r in rows} == {1, 3}, "the zero-length pair segment contributes nothing"
+    assert max(int(Path(r["frame"]).stem) for r in rows if r["ply"] == 3) < 300 + 30 * LAST_INTERVAL_S, (
+        "ply 3 is last: its interval is the cap after the commit, not the rest of the video"
+    )
     trailing = [r for r in rows if 270 <= int(Path(r["frame"]).stem) < 300]
     assert trailing and all(r["unknown_squares"] == ["e5", "e7", "f3", "g1"] for r in trailing), (
         "the window before a pair is in doubt about BOTH moves' squares"
     )
+
+
+#: The commit frames of `2026-08-14-20-48-55`, whose 11th ply landed 713 frames before the end.
+REAL_FRAMES = (133, 245, 395, 543, 993, 1129, 1235, 1405, 1609, 1813, 1987)
+REAL_SANS = ("e4", "e5", "Nf3", "Nf6", "Nc3", "Nc6", "d3", "Bb4", "Bd2", "Nxe4", "Nxe4")
+
+
+def _confirmed_eleven(*, frames=2700, reviewed=None):
+    """`2026-08-14-20-48-55` in miniature: 11 plies, all confirmed, recording running well past
+    the last commit — the players went on to play an untracked `Bxd2+` in that tail."""
+    import chess
+
+    board = chess.Board()
+    moves = []
+    for i, (san, frame) in enumerate(zip(REAL_SANS, REAL_FRAMES, strict=True), 1):
+        board.push_san(san)
+        moves.append({"ply": i, "san": san, "frame": frame, "fen_after": board.fen()})
+    return {
+        "clock": {"fps": 30.0},
+        "created_at": "2026-08-14T20:16:41Z",
+        "frames": frames,
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "start_fen": chess.Board().fen(),
+        "moves": moves,
+        "reviewed_plies": list(range(1, 12)) if reviewed is None else reviewed,
+    }
+
+
+def test_every_confirmed_ply_owns_an_interval_including_the_last():
+    """The defect of 2026-08-14: 11 confirmed plies, 10 exported intervals, ZERO rows for ply 11.
+
+    The final position was the one the human had just vouched for and the only one never
+    labelled, because the old rule needed a NEXT commit to close a segment and the last ply has
+    none. It is closed by [LAST_INTERVAL_S] instead.
+    """
+    segs = known_segments(_confirmed_eleven())
+
+    assert [s["ply"] for s in segs] == list(range(1, 12))
+    assert segs[-1]["start"] == 1987 and segs[-1]["end"] == 1987 + 30 * LAST_INTERVAL_S
+    assert segs[-1]["next_touches"] == [], "no next move, so nothing is in doubt"
+    assert [s["end"] for s in segs[:-1]] == list(REAL_FRAMES[1:]), "the others still close on the next commit"
+
+
+def test_nothing_is_exported_past_the_last_intervals_cap():
+    """The tail after the final commit is unwitnessed — and on this recording it was WRONG.
+
+    The tracker kept rejecting `Bxd2+` for 18 s while its own position still had the bishop on
+    b4, so the players' 12th ply is in those frames and no interval may reach it. 2 s of video
+    lost is the price for not labelling ~540 frames with a position that had ended.
+    """
+    cap = 1987 + 30 * LAST_INTERVAL_S
+    rows = plan_rows(_confirmed_eleven(), margin_frames=30, every=3, dirty=True)
+
+    assert [r for r in rows if r["ply"] == 11], "the last ply must reach the log"
+    assert max(int(Path(r["frame"]).stem) for r in rows) < cap
+    assert not [r for r in rows if int(Path(r["frame"]).stem) >= cap]
+
+
+def test_a_capped_tail_never_runs_past_the_recording():
+    """A commit in the last second: the cap is clamped to the frames the video actually holds."""
+    segs = known_segments(_confirmed_eleven(frames=2000))
+
+    assert segs[-1]["end"] == 2000
+
+
+def test_a_reviewed_ply_naming_no_move_is_refused_loudly():
+    """`reviewed_plies` is written from `moves[]` by both confirmers, so a ply that names no move
+    means the two disagree about which ply is which — an off-by-one there shifts every position
+    it stamps. Refuse rather than export the subset that happens to line up."""
+    with pytest.raises(ValueError, match="reviewed_plies names ply"):
+        known_segments(_confirmed_eleven(reviewed=list(range(2, 13))))
 
 
 def test_decode_frames_applies_the_rotation(tmp_path):
@@ -355,6 +431,26 @@ def test_proposals_conform_to_the_pinned_schema(tmp_path):
     assert isinstance(row["score"], float) and isinstance(row["fen_label"], str)
 
 
+def test_decode_frames_walks_past_the_first_segment(tmp_path):
+    """The recorder rotates its container once a minute (2026-08-13), and the candidate's frame
+    indices count the WHOLE recording. Decoding only `video.mp4` cuts a confirmed game at minute
+    one while the row counts still look healthy — so a wanted index that lives in `video-001.mp4`
+    has to arrive, with the pixels of the second segment."""
+    def write(path, value, n):
+        w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (32, 16))
+        for _ in range(n):
+            w.write(np.full((16, 32, 3), value, np.uint8))
+        w.release()
+
+    write(tmp_path / "video.mp4", 20, 4)
+    write(tmp_path / "video-001.mp4", 200, 3)
+    out = tmp_path / "frames"
+
+    assert decode_frames(tmp_path / "video.mp4", {1, 5}, out) == {1, 5}
+    assert cv2.imread(str(out / "000001.png")).mean() < 60, "index 1 is the first segment"
+    assert cv2.imread(str(out / "000005.png")).mean() > 150, "index 5 is the second one"
+
+
 def test_decode_frames_keeps_what_is_already_on_disk(tmp_path):
     """A re-export must not pay for pixels that cannot have changed.
 
@@ -433,6 +529,66 @@ def test_a_pristine_export_is_left_alone_so_new_candidate_geometry_flows_through
 
     assert carry_repaired_geometry(tmp_path, planned) == 0
     assert planned[0]["corners"] == [[0, 0]]
+
+
+def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monkeypatch):
+    """rg-2026-08-13-19-34-23, 2026-08-14: the candidate's ONE median quad went out on all 137
+    frames ~17 px off the board's own grooves, and only a hand-run `session scan` + `autofix`
+    pulled it to 2.71 px. The same fit now runs per written frame at export time.
+
+    A frame the fit cannot read keeps its inherited quad and says so — it must never vanish,
+    because the unreadable ones are hands over the board and that is the material we are after.
+    A frame whose quad the fit could not beat is a THIRD case and says so separately: 167 of
+    20-48-55's 637 rows are that, and filing them under "failed" would invent damage.
+    """
+    from chesslab import alignment
+    from chesslab.realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE, fit_rows_to_grid
+
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    cv2.imwrite(str(frames / "000030.png"), np.zeros((8, 8, 3), np.uint8))  # off the grid
+    cv2.imwrite(str(frames / "000060.png"), np.full((8, 8, 3), 128, np.uint8))  # already on it
+    cv2.imwrite(str(frames / "000090.png"), np.full((8, 8, 3), 255, np.uint8))  # hand over it
+    fitted_quad = [[1.0, 1.0], [9.0, 1.0], [9.0, 9.0], [1.0, 9.0]]
+    verdicts = {0.0: (fitted_quad, 17.4, 2.7), 128.0: (None, 1.9, float("nan"))}
+    monkeypatch.setattr(
+        alignment,
+        "improve_quad",
+        lambda frame, quad, profile: verdicts.get(
+            frame.mean(), (None, float("nan"), float("nan"))
+        ),
+    )
+    median = [[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]
+    rows = [
+        {"frame": f"frames/{i:06d}.png", "corners": median, "corners_source": "realgame-export"}
+        for i in (30, 60, 90)
+    ]
+
+    stats = fit_rows_to_grid(tmp_path, rows, profile=None)
+
+    assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "median": 2.7, "max": 2.7}
+    assert rows[0]["corners"] == fitted_quad and rows[0]["corners_source"] == FIT_SOURCE
+    assert rows[0]["align_worst_px"] == 2.7, "the number a later `session scan` will confirm"
+    assert rows[1]["corners"] == median and rows[1]["corners_source"] == FIT_KEPT
+    assert rows[1]["align_worst_px"] == 1.9, "measurable, just not improvable"
+    assert rows[2]["corners"] == median, "an unreadable frame keeps the quad it inherited"
+    assert rows[2]["corners_source"] == FIT_FAILED and "align_worst_px" not in rows[2]
+
+
+def test_a_re_export_backs_up_the_log_it_replaces(tmp_path, monkeypatch):
+    """A session log can hold hand-set quads and a review's verdicts, and a re-export overwrites
+    it whole. Same `log.jsonl.bak.<stamp>` convention as `session scan|autofix|adopt`."""
+    cand = _export_candidate(tmp_path, monkeypatch)
+    session_dir = config.DATA.sessions / "rg-g"
+    session_dir.mkdir(parents=True)
+    (session_dir / "log.jsonl").write_text('{"frame": "frames/000030.png"}\n', encoding="utf-8")
+
+    write_session(session_dir, "g", cand, [{"frame": "frames/000060.png"}])
+
+    backups = list(session_dir.glob("log.jsonl.bak.*"))
+    assert len(backups) == 1
+    assert "000030" in backups[0].read_text(encoding="utf-8"), "the replaced log, kept whole"
+    assert "000060" in (session_dir / "log.jsonl").read_text(encoding="utf-8")
 
 
 def test_decode_refuses_to_mix_raw_frames_into_an_undistorted_set(tmp_path):
