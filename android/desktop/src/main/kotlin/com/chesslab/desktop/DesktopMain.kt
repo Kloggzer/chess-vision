@@ -365,7 +365,11 @@ internal fun replay(
             optics?.close()
             return
         }
-        val replayStartFrame = (source as? VideoFileSource)?.framesRead ?: 0L
+        // Where locating the board left the decoder — the first frame the tracker will see, and the
+        // origin every prepass numbers its rows from. Read off the source itself rather than off a
+        // `VideoFileSource` cast: a segmented recording is a `ConcatFrameSource`, the cast fell
+        // through to 0, and the prepass then keyed its detections a locate-run short.
+        val replayStartFrame = source.currentDecodedIndex + 1
         // The MODEL owns the crop composition (specs/45), and the desktop was not asking it: crops
         // were cut at `BoardGeometry`'s 128x128 while `id35-80` takes 80x80, so every observation
         // threw inside `CnnObserver` and was swallowed as a warning while the run reported
@@ -385,7 +389,7 @@ internal fun replay(
                 null
             }
         if (!options.cnn) println("cnn: off — the engine uses its no-observation occlusion fallback")
-        val frameClock = FrameClock(source.fps, live = camera != null)
+        val frameClock = FrameClock(source, live = camera != null)
         // The label's plies and the score's run come off the decision sink — streaming, one row
         // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
         val session = plan?.session(quad, geometry.boardSize, source.fps) { publisher.status.value }
@@ -412,7 +416,8 @@ internal fun replay(
         // rec-20260807 — through a path the A/B tests could not pin (liveAlign off and a faster
         // cadence both failed to heal it). Every good measurement on record ran with the
         // repository at codec defaults; that state is now declared rather than accidental, and
-        // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both.
+        // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both. Which
+        // is why nothing here may READ it for a knob the run owns: it holds the defaults.
         val settings = SettingsRepository(MemoryConfigStore, scope)
         val stride = strideOf(options.fps, source.fps, live = camera != null)
         val visualCache =
@@ -422,10 +427,9 @@ internal fun replay(
                     File(path.replace('~', ' ')),
                     video,
                     options.model,
-                    visualCacheSignature(config, settings.config.value, geometry, quad, source, stride, options.lens),
+                    visualCacheSignature(config, geometry, quad, source, stride, options.lens),
                 )
             }
-        val alignConfig = settings.config.value
         val parallelVisual =
             if (options.visualWorkers > 0) {
                 require(video != null && camera == null && !options.lens) {
@@ -465,16 +469,18 @@ internal fun replay(
                 null
             }
         val canPrecomputeMarkers = video != null && !options.lens
-        val needsMarkerDetections = visualCache?.alignmentLookup == null && alignConfig.liveAlign && alignConfig.alignEvery > 0
+        // The RUN's config, the same one `LiveAlign` obeys inside the stack: the prepass answers
+        // the alignments LiveAlign will ask for, so a prepass cut on a different cadence than the
+        // asker is a "marker prepass has no frame N" away from stopping the replay.
+        val needsMarkerDetections = visualCache?.alignmentLookup == null && config.liveAlign && config.alignEvery > 0
         val markerPrepass =
             if (canPrecomputeMarkers && needsMarkerDetections) {
                 AlignmentMarkerPrepass.build(
                     requireNotNull(video),
                     replayStartFrame,
                     stride,
-                    source.fps,
-                    alignConfig.alignEvery,
-                    alignConfig.alignScale,
+                    config.alignEvery,
+                    config.alignScale,
                     geometry.markerDict,
                 )
             } else {
@@ -508,7 +514,7 @@ internal fun replay(
                     training?.frame(index, frame, publisher.status.value, frameClock.now().toDouble())
                 }
             }
-        val frames = drive(source, stack, bus, publisher, view, frameClock, options.dumpEvery, frameHook, stride)
+        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
@@ -618,14 +624,13 @@ private fun drive(
     bus: CameraFrameBus<BufferedImage>,
     publisher: StatusPublisher,
     view: TrackerView?,
-    clock: FrameClock,
     dumpEvery: Int = 0,
     // Fired AFTER the engine saw the frame, with the 0-based index that decoded it. The index and
     // the picture travel in one call — the review-frame writer's whole correctness rests on that.
     frameHook: ((Int, Mat) -> Unit)? = null,
-    // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. The clock
-    // ticks for EVERY decoded frame either way, so skipping changes what the tracker SEES, never
-    // what time it is.
+    // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. Time comes
+    // off each frame's PTS either way, so skipping changes what the tracker SEES, never what time
+    // it is.
     stride: Int = 1,
 ): Int {
     var frames = 0
@@ -637,7 +642,8 @@ private fun drive(
             if (strideDropped > 0) println("stride $stride: dropped $strideDropped of $frames decoded frames, by design")
             return frames
         }
-        clock.tick()
+        // No clock tick: time comes off the frame's own PTS (`FrameClock`), so a stride-skipped
+        // frame still advances it — the property the counted clock had to maintain by hand.
         if (frames % stride != 0) {
             strideDropped += 1
             frames += 1
@@ -670,30 +676,17 @@ private fun strideOf(
 }
 
 /**
- * The clock the engine runs on.
- *
- * A camera's frames arrive when they arrive, so [live] hands back the wall clock unchanged. A
- * recorded file has its own time base — frame N was taken at `N / fps` seconds — and that is the
- * only clock under which a replay means anything: decode speed is a property of this machine, and
- * the engine ages its motion window, its anomaly latch and its CNN cooldowns against whatever it
- * is given. It also makes a replay reproducible, which `EngineState` calls binding and which the
- * wall clock cannot be.
+ * The engine's clock: wall time [live], else the frame's own PTS ([FrameSource.timestampMs]).
+ * NOT `frames x 1000/fps` — that counted clock assumed CFR, which the phone never delivers
+ * (26.35/23.47 fps segments), sheared video time on VFR footage and forced the label verb to
+ * demand lossy re-encodes (2026-08-14, session 143233). PTS is exact and stays reproducible.
  */
 private class FrameClock(
-    fps: Double,
+    private val source: FrameSource,
     private val live: Boolean,
 ) {
-    private val periodMs = if (fps > 0) MS_PER_SECOND / fps else 0.0
-    private var frames = 0L
-
-    fun tick() {
-        frames += 1
-    }
-
-    fun now(): Long = if (live) System.currentTimeMillis() else (frames * periodMs).toLong()
+    fun now(): Long = if (live) System.currentTimeMillis() else source.timestampMs.toLong()
 }
-
-private const val MS_PER_SECOND = 1000.0
 
 /** stdout is this host's logcat. The channel names are the shared code's, unchanged. */
 private class ConsoleLog(

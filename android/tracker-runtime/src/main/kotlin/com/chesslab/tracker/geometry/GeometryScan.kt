@@ -139,7 +139,11 @@ class GeometryScan(
         }
     }
 
-    /** |realised − nominal| inter-frame interval in ms. fps is the replay's CLOCK, not metadata. */
+    /**
+     * |realised − nominal| inter-frame interval in ms — the recorder's cadence health. Since
+     * 2026-08-14 the replay clock reads each frame's own PTS, so a variable rate no longer shears
+     * video time; fps is the NOMINAL rate, and this distribution says how nominal it really is.
+     */
     private fun clockError(): List<Double> {
         if (stampsMs.size < 2 || fps <= 0) return emptyList()
         val nominal = MS_PER_SECOND / fps
@@ -219,12 +223,11 @@ fun geometryRefusals(g: ScannedGeometry): List<String> {
     // QUAD will not do, and that is a fact about the export, not about the footage: `chesslab
     // session scan` measures it per frame and `autofix` re-fits it. It is a warning, and the
     // absolute gate above is what refuses.
-    val clockP90 = g.clockErrorMs.p90
-    val clockLimit = CLOCK_P90_PERIOD_FRAC * MS_PER_SECOND / max(g.fps, 1.0)
-    if (clockP90 != null && clockP90 > clockLimit) {
-        out += "frame interval p90 off by ${"%.2f".format(clockP90)} ms > ${"%.2f".format(clockLimit)} ms: the source " +
-            "is not constant-rate, and fps is the replay's CLOCK. Re-encode first."
-    }
+
+    // Variable frame rate is not here EITHER, since 2026-08-14: it refused every phone recording
+    // (26.35/23.47 fps segments) and demanded a lossy re-encode — while the decoder held the true
+    // per-frame PTS all along. The replay clock reads that PTS now (`DesktopMain.FrameClock`), so
+    // VFR footage carries its own correct time: a `geometryWarnings` observation, not a defect.
     return out
 }
 
@@ -242,16 +245,13 @@ fun geometryWarnings(g: ScannedGeometry): List<String> {
             "footage, so the stored quad is a MEDIAN and does not stand for every frame. Re-fit per frame after " +
             "export: `chesslab session scan <sid>` then `autofix`."
     }
+    val clockP90 = g.clockErrorMs.p90
+    val clockLimit = CLOCK_P90_PERIOD_FRAC * MS_PER_SECOND / max(g.fps, 1.0)
+    if (clockP90 != null && clockP90 > clockLimit) {
+        out += "frame interval p90 off by ${"%.2f".format(clockP90)} ms from the nominal rate: variable-rate " +
+            "footage. The replay runs on each frame's own timestamps, so timing stays true; fps is nominal."
+    }
     return out
-}
-
-/** The command that fixes a variable-rate source — printed, never run (no silent repairs). */
-fun ffmpegCfrHint(
-    videoPath: String,
-    fps: Double,
-): String {
-    val out = videoPath.replace(Regex("\\.[^.\\\\/]+$"), "") + "-cfr.mp4"
-    return "ffmpeg -i \"$videoPath\" -vsync cfr -r ${"%.6g".format(fps)} -c:v libx264 -crf 18 -preset slow -an \"$out\""
 }
 
 /** One human-readable block per scan, next to the numbers the refusals key on. */

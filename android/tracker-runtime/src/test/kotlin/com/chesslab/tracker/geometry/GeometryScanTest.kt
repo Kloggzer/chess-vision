@@ -70,17 +70,12 @@ class GeometryScanTest {
         assertTrue(geometryRefusals(nudged).isEmpty())
         assertTrue(geometryWarnings(nudged).single().contains("does not stand for every frame"))
 
+        // Variable rate is a WARNING since 2026-08-14: the replay clock reads each frame's own
+        // PTS, so VFR footage carries correct time — the phone records it (26.35/23.47 fps
+        // segments), and refusing it demanded a lossy re-encode for nothing.
         val vfr = scanned(alignPassRate = 0.98, aligned = 939, spreadP90 = 0.9, clockP90 = 20.0)
-        val reason = geometryRefusals(vfr).single()
-        assertTrue(reason.contains("not constant-rate")) { reason }
-    }
-
-    @Test
-    fun variableRateFootageGetsAReEncodeHint() {
-        val hint = ffmpegCfrHint("data/testclip-raw/some game.mp4", 30.0)
-        assertTrue(hint.startsWith("ffmpeg")) { hint }
-        assertTrue(hint.contains("-vsync cfr")) { hint }
-        assertTrue(hint.contains("some game-cfr.mp4")) { hint }
+        assertTrue(geometryRefusals(vfr).isEmpty())
+        assertTrue(geometryWarnings(vfr).single().contains("variable-rate")) { geometryWarnings(vfr).toString() }
     }
 
     @Test

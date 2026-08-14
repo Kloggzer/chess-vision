@@ -9,7 +9,6 @@ import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.tracker.geometry.GeometryScan
 import com.chesslab.tracker.geometry.ScannedGeometry
-import com.chesslab.tracker.geometry.ffmpegCfrHint
 import com.chesslab.tracker.geometry.geometryRefusals
 import com.chesslab.tracker.geometry.geometryReport
 import com.chesslab.tracker.geometry.geometryWarnings
@@ -115,7 +114,7 @@ internal fun prepareLabel(
                 println("no sampled frame aligned to the board's grid — is the board in shot?")
                 exitProcess(1)
             }
-    reportGeometry(scan, video)
+    reportGeometry(scan)
     return LabelRun(name, File(REALGAMES_DIR, name), cornersToFlat(scan.corners), scan, lens)
 }
 
@@ -141,18 +140,13 @@ private fun FrameSource.scanGeometry(lens: LensModel?): ScannedGeometry? {
  * ends the run. Keeping the two apart is the point — the spread measures movement, never
  * correctness, and reading it as a gate refused a recording that aligns on 97.2 % of its samples.
  */
-private fun reportGeometry(
-    scan: ScannedGeometry,
-    video: File,
-) {
+private fun reportGeometry(scan: ScannedGeometry) {
     println(geometryReport(scan))
     geometryWarnings(scan).forEach { println("  ! $it") }
     val refusals = geometryRefusals(scan)
     if (refusals.isEmpty()) return
     println("this footage cannot become a candidate:")
     refusals.forEach { println("  - $it") }
-    println("  to re-encode:")
-    println("    ${ffmpegCfrHint(video.path, scan.fps)}")
     exitProcess(1)
 }
 

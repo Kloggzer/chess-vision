@@ -2,7 +2,6 @@ package com.chesslab.tracker.sim
 
 import com.chesslab.tracker.geometry.GeometryScan
 import com.chesslab.tracker.geometry.ScannedGeometry
-import com.chesslab.tracker.geometry.ffmpegCfrHint
 import com.chesslab.tracker.geometry.geometryRefusals
 import com.chesslab.tracker.geometry.geometryReport
 import java.io.File
@@ -16,7 +15,7 @@ import java.io.File
 
 /**
  * Decode once, measure every tenth frame, and either return the evidence-backed geometry or
- * refuse the video with the reasons and the re-encode hint.
+ * refuse the video with the reasons.
  *
  * Refusal is an `error`, not a warning: a label on crooked geometry is worse than no label —
  * the crops straddle their grooves while every count downstream looks healthy (2026-07-31, when
@@ -32,8 +31,7 @@ internal fun measuredGeometryOf(video: File): ScannedGeometry {
     println(geometryReport(measured))
     val refusals = geometryRefusals(measured)
     require(refusals.isEmpty()) {
-        "this footage cannot become a candidate:\n  - " + refusals.joinToString("\n  - ") +
-            "\n\n  to re-encode:\n    " + ffmpegCfrHint(video.path, measured.fps)
+        "this footage cannot become a candidate:\n  - " + refusals.joinToString("\n  - ")
     }
     return measured
 }

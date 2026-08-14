@@ -22,7 +22,6 @@ internal class AlignmentMarkerPrepass private constructor(
             video: File,
             skipDecoded: Long,
             stride: Int,
-            fps: Double,
             alignEvery: Int,
             detectScale: Double,
             dictionary: String,
@@ -40,8 +39,12 @@ internal class AlignmentMarkerPrepass private constructor(
             var received = 0
             val elapsed =
                 measureNanoTime {
-                    val selector = PublishedFrameSelector(skipDecoded, stride, fps)
-                    VideoFileSource(video, selector::keep).use { source ->
+                    val selector = PublishedFrameSelector(skipDecoded, stride)
+                    // The WHOLE recording, exactly what the replay drives. Opened as a single
+                    // `VideoFileSource` this stopped at `video.mp4` and every replay of a
+                    // segmented recording died at the first swap: "marker prepass has no frame
+                    // 1596" on 2026-08-14, 265 detected frames for a 68 s video.
+                    openRecording(video, selector::keep).use { source ->
                         while (true) {
                             val frame = source.next() ?: break
                             while (submitted - received >= workers * QUEUE_PER_WORKER) {
@@ -112,21 +115,29 @@ private data class DetectedMarkers(
     val markers: Map<Int, DoubleArray>,
 )
 
-/** Exact copy of CameraFrameBus's video-time publish gate, without materializing skipped frames. */
+/**
+ * Exact copy of CameraFrameBus's publish gate, without materializing skipped frames.
+ *
+ * It runs on the clock the replay runs on: each frame's own PTS (`FrameClock`), NOT `frames x
+ * 1000/fps`. The counted model held only while the clock counted; against VFR footage it puts the
+ * publishes on other frames than the bus does, and LiveAlign then asks for a frame the prepass
+ * never detected — "marker prepass has no frame 9", labelling 143233 on 2026-08-14.
+ */
 internal class PublishedFrameSelector(
     private val skipDecoded: Long,
     private val stride: Int,
-    private val fps: Double,
 ) {
     private var lastPublishedMs = 0L
 
-    fun keep(decodedIndex: Long): Boolean {
+    fun keep(
+        decodedIndex: Long,
+        timestampMs: Double,
+    ): Boolean {
         if (decodedIndex < skipDecoded || (decodedIndex - skipDecoded) % stride != 0L) return false
-        val relative = decodedIndex - skipDecoded
-        val nowMs = (((relative + 1) * MILLIS_PER_SECOND) / fps).toLong()
-        val due = nowMs - lastPublishedMs >= PREVIEW_INTERVAL_MS
-        if (due) lastPublishedMs = nowMs
-        return due
+        val nowMs = timestampMs.toLong()
+        if (nowMs - lastPublishedMs < PREVIEW_INTERVAL_MS) return false
+        lastPublishedMs = nowMs
+        return true
     }
 }
 
@@ -134,5 +145,4 @@ private const val MIN_WORKERS = 2
 private const val MAX_WORKERS = 8
 private const val QUEUE_PER_WORKER = 2
 private const val NANOS_PER_SECOND = 1_000_000_000.0
-private const val MILLIS_PER_SECOND = 1000.0
 private const val PREVIEW_INTERVAL_MS = 200L

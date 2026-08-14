@@ -19,7 +19,7 @@ import java.io.File
  */
 fun openRecording(
     video: File,
-    select: (Long) -> Boolean = { true },
+    select: (Long, Double) -> Boolean = { _, _ -> true },
 ): FrameSource {
     val segments = recordingSegments(video)
     return if (segments.size == 1) VideoFileSource(video, select) else ConcatFrameSource(segments, select)
@@ -37,39 +37,49 @@ fun recordingSegments(video: File): List<File> {
     return listOf(video) + rest
 }
 
+private const val EXCERPT = 120
+
 /**
  * Several files, played as one stream.
  *
- * `fps` and the delivered size come from the FIRST segment and are not re-read: they are the
- * encoder's settings, which did not change at the swap, and a source whose frame rate moved
- * mid-stream would move the replay's virtual clock with it.
+ * `fps` and the delivered size come from the FIRST segment and are not re-read; they are NOMINAL,
+ * and the segments of one recording do differ (26.35 then 23.47 on session 143233). Nothing times
+ * anything by them: every frame carries its own PTS, and [timestampMs] adds what came before it.
  */
-private const val EXCERPT = 120
-
 private class ConcatFrameSource(
     private val segments: List<File>,
-    private val select: (Long) -> Boolean,
+    private val select: (Long, Double) -> Boolean,
 ) : FrameSource {
     private var index = 0
-    private var decoded = 0L
 
-    /** What the segments before this one were worth, so the clock runs on across the swap. */
+    /**
+     * What the segments before this one were worth. Both come off what the decoder WALKED, not off
+     * what it delivered: [select] is answered with the index and the video time the WHOLE recording
+     * has for that frame, and a filtering selector would otherwise drift by everything it skipped —
+     * which is precisely the case the prepasses use, and they key their rows by those numbers.
+     */
     private var elapsedMs = 0.0
-    private var current: VideoFileSource = VideoFileSource(segments[0]) { select(decoded) }
+    private var decodedBefore = 0L
+    private var current: VideoFileSource = open(segments[0])
 
     override val fps: Double = current.fps
     override val delivered: DeliveredSize = current.delivered
     override val timestampMs: Double get() = elapsedMs + current.timestampMs
+    override val currentDecodedIndex: Long get() = decodedBefore + current.currentDecodedIndex
+
+    private fun open(segment: File): VideoFileSource {
+        val frames = decodedBefore
+        val since = elapsedMs
+        return VideoFileSource(segment) { index, timestampMs -> select(frames + index, since + timestampMs) }
+    }
 
     override fun next(): Mat? {
         while (true) {
             val frame = current.next()
-            if (frame != null) {
-                decoded++
-                return frame
-            }
+            if (frame != null) return frame
             if (index + 1 >= segments.size) return null
-            elapsedMs += current.timestampMs
+            elapsedMs += current.decodedTimestampMs
+            decodedBefore += current.decodedFrames
             current.close()
             index++
             // The LAST segment of a killed recording has no index — that is the normal shape of
@@ -77,7 +87,7 @@ private class ConcatFrameSource(
             // decoded; the run says where it stopped and keeps that, rather than throwing away
             // fifty good minutes because the fifty-first was cut off mid-write.
             current =
-                runCatching { VideoFileSource(segments[index]) { select(decoded) } }
+                runCatching { open(segments[index]) }
                     .getOrElse {
                         println("recording ends at ${segments[index].name}: ${it.message.orEmpty().take(EXCERPT)}")
                         return null

@@ -70,7 +70,9 @@ internal class ParallelVisualPrepass private constructor(
             val elapsed =
                 try {
                     measureNanoTime {
-                        VideoFileSource(video, selector::keep).use { source ->
+                        // The whole recording, like the replay — a bare `VideoFileSource` sees only
+                        // its first segment and comes back short of the expected sequences.
+                        openRecording(video) { index, _ -> selector.keep(index) }.use { source ->
                             while (true) {
                                 val frame = source.next() ?: break
                                 val processed = (source.currentDecodedIndex - skipDecoded) / stride + 1

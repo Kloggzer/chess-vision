@@ -41,13 +41,25 @@ interface FrameSource : AutoCloseable {
      * at every segment boundary would report the recorder as broken once a minute.
      */
     val timestampMs: Double get() = 0.0
+
+    /**
+     * Zero-based index of the frame [next] just returned, over the WHOLE recording; -1 before the
+     * first one and for live sources, which have nothing to count. A prepass keys its rows by the
+     * processed number it derives from this. Read off a bare `VideoFileSource` it stopped at the
+     * first segment, and the replay died with "marker prepass has no frame 1596" (2026-08-14).
+     */
+    val currentDecodedIndex: Long get() = -1
 }
 
 /** A recorded clip, decoded with FFmpeg. Streamed: a 1080p video does not fit in memory twice. */
 class VideoFileSource(
     video: File,
-    /** Zero-based decoded frame index; false skips the costly FFmpeg-plane -> OpenCV copy. */
-    private val select: (Long) -> Boolean = { true },
+    /**
+     * Zero-based decoded frame index and that frame's PTS in ms; false skips the costly
+     * FFmpeg-plane -> OpenCV copy. The PTS is passed because the replay's clock IS the PTS, so a
+     * selector reproducing a time-based gate cannot derive it from the nominal frame rate.
+     */
+    private val select: (Long, Double) -> Boolean = { _, _ -> true },
 ) : FrameSource {
     private val grabber =
         FFmpegFrameGrabber(video).apply {
@@ -97,7 +109,18 @@ class VideoFileSource(
     var framesRead: Long = 0
         private set
 
-    var currentDecodedIndex: Long = -1
+    override var currentDecodedIndex: Long = -1
+        private set
+
+    /**
+     * What the decoder WALKED in this file, the frames [select] skipped included — count and last
+     * PTS. Final once [next] has returned null; a concatenated recording sums both to keep its
+     * indices and its clock continuous whether or not a selector was filtering.
+     */
+    var decodedFrames: Long = 0
+        private set
+
+    var decodedTimestampMs: Double = 0.0
         private set
 
     override val timestampMs: Double get() = currentTimestampMs
@@ -113,7 +136,11 @@ class VideoFileSource(
                 current = decoded.mat
                 decoded.mat
             }
-            DecodedVideoFrame.End -> null
+            is DecodedVideoFrame.End -> {
+                decodedFrames = decoded.decodedFrames
+                decodedTimestampMs = decoded.timestampMs
+                null
+            }
             is DecodedVideoFrame.Failed -> throw IllegalStateException("video decode failed", decoded.cause)
         }
     }
@@ -136,18 +163,20 @@ class VideoFileSource(
 
     private fun decodeFrames() {
         var decodedIndex = 0L
+        var timestampMs = 0.0
         while (!closed.get()) {
             val frame = generateSequence { grabber.grabImage() }.firstOrNull()
             if (frame == null) {
-                ready.put(DecodedVideoFrame.End)
+                ready.put(DecodedVideoFrame.End(decodedIndex, timestampMs))
                 return
             }
             val index = decodedIndex
             decodedIndex += 1
-            if (!select(index)) continue
+            timestampMs = grabber.timestamp / MICROS_PER_MS
+            if (!select(index, timestampMs)) continue
             val out = free.take().also { decoderHeld = it }
             copyInto(frame.image[0] as ByteBuffer, frame.imageStride, out)
-            ready.put(DecodedVideoFrame.Image(out, grabber.timestamp / MICROS_PER_MS, index))
+            ready.put(DecodedVideoFrame.Image(out, timestampMs, index))
             decoderHeld = null
         }
     }
@@ -194,7 +223,10 @@ private sealed interface DecodedVideoFrame {
         val decodedIndex: Long,
     ) : DecodedVideoFrame
 
-    data object End : DecodedVideoFrame
+    data class End(
+        val decodedFrames: Long,
+        val timestampMs: Double,
+    ) : DecodedVideoFrame
 
     data class Failed(
         val cause: Throwable,
