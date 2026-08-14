@@ -17,6 +17,7 @@ import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.settings.SettingsRepository
+import com.chesslab.tracker.settings.withLiveKnobsOf
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -250,7 +251,11 @@ class TrackerStack<T>(
             LiveAlign(
                 scope,
                 seed.geometry,
-                settings.config::value,
+                // THIS RUN's config: `liveAlign`/`alignEvery`/`alignScale` are restart-only, so
+                // reading them off the repository served its DEFAULT to any host whose repository
+                // is not the run's config — a `config=` replay's recorded `alignEvery=2` aligned
+                // every 3rd frame like everything else (20260814-143233, 2026-08-14).
+                { seed.config.withLiveKnobsOf(settings.config.value) },
                 { pipeline.corners = it },
                 seed.logs("chesslabTracker"),
                 dispatcher = seed.observerDispatcher ?: Dispatchers.Default,
@@ -266,21 +271,16 @@ class TrackerStack<T>(
         pipeline.corners = seed.corners
         // The perf line is the one log line both hosts share; from here on it carries the drops.
         timings.extras = ::dropLine
-        // The seed's own values FIRST, synchronously: until the settings flow below delivers, the
-        // observer would run with its constructor defaults — and WHEN that coroutine fires is wall
-        // clock, so a cold first replay observed on a different cadence than a warm one and
-        // diverged at ply 0. The flow still owns every LATER change.
+        // The seed's values, and NOTHING re-applies them: a `settings.config` collector used to,
+        // and since neither knob is live-tunable it could only carry a restart-only value — the
+        // repository's DEFAULT, one tick after start. That is how a replay's `set:cnnVerify=false`
+        // was accepted, printed, and then silently re-enabled (882 observations, `gateOff=0`).
         observer.setIntervalS(seed.config.observerIntervalS)
         observer.setEnabled(seed.config.cnnVerify)
         // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
         // diff-only for a whole session (MEMORY android-live-bringup-2607).
         observer.attach(openClassifier)
         observer.state.onEach { publisher.cnnState = it }.launchIn(scope)
-        settings.config
-            .onEach {
-                observer.setIntervalS(it.observerIntervalS)
-                observer.setEnabled(it.cnnVerify)
-            }.launchIn(scope)
     }
 
     /**

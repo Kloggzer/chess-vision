@@ -2,6 +2,7 @@ package com.chesslab.desktop
 
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.settings.ConfigCodec
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -9,6 +10,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.opencv.core.Mat
 import java.io.File
 
 /**
@@ -47,6 +49,11 @@ class ReplayConfigFileTest {
      * what keeps that diagnosis cheap next time. `cnnOn` never enters this construction:
      * settle/avg/confirm are resolved from the config INSIDE the engine, so there is no arm here
      * to skip.
+     *
+     * Re-measured end to end on 2026-08-14 against `20260814-143233` (`real14-80`, `quiet`): the
+     * no-config run and the all-defaults-envelope run produced the same 15 decision rows and the
+     * same 9 commits, differing only in the config banner and the timings. This seam is a no-op
+     * where it must be; the one below is what was not.
      */
     @Test
     fun `an all-defaults envelope reproduces the no-config path exactly`() {
@@ -77,6 +84,42 @@ class ReplayConfigFileTest {
         )
         val config = ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false)
         assertEquals(TrackerConfig().copy(alignEvery = 2, boardSize = 1104), config)
+    }
+
+    /**
+     * The other half of `config=`: a knob the file DOES carry must reach what reads it.
+     * `alignEvery`/`alignScale`/`liveAlign` did not — `LiveAlign` and the marker prepass took them
+     * off the settings repository, which a replay leaves at defaults, so 20260814-143233's
+     * recorded `alignEvery=2` replayed every 3rd frame, bit-identical to the defaults run.
+     */
+    @Test
+    fun `the recorded alignment knobs reach the run, not the settings defaults`() {
+        val file = File(dir, "settings.json")
+        file.writeText(envelope(TrackerConfig().copy(alignEvery = 2, alignScale = 0.25)))
+        val config = ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false)
+        assertEquals(2, config.alignEvery)
+        assertEquals(0.25, config.alignScale)
+        assertTrue(
+            signatureOf(config).contains("align=true,2,0.25"),
+            "the visual cache signed a run under alignment knobs it did not run: ${signatureOf(config)}",
+        )
+        // ...and a defaults run must still sign as one, or every existing cache is invalidated.
+        val plain = ReplayOptions().trackerConfig(geometry, live = false)
+        assertTrue(signatureOf(plain).contains("align=true,3,0.5"), signatureOf(plain))
+    }
+
+    /** The signature's non-config inputs are fixed here; only the config under test varies. */
+    private fun signatureOf(config: TrackerConfig): String =
+        visualCacheSignature(config, geometry, FloatArray(8) { it.toFloat() }, StillSource, stride = 1, lens = false)
+
+    private object StillSource : FrameSource {
+        override fun next(): Mat? = null
+
+        override val delivered = DeliveredSize(1920, 1080, 0)
+
+        override val fps = 30.0
+
+        override fun close() = Unit
     }
 
     @Test

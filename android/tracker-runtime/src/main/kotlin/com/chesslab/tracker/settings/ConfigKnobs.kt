@@ -46,6 +46,16 @@ class Knob(
     val live: Boolean get() = key in LIVE_TUNABLE_KEYS
 }
 
+/**
+ * This config with only the twelve LIVE knobs taken from [live] — what a RUNNING stack obeys.
+ *
+ * The repository is not every host's run config: a replay leaves it at `ConfigCodec.defaults`, so
+ * a restart-only knob read off it is a DEFAULT served over the value the stack was built with
+ * (2026-08-14: `set:cnnVerify=false` still emitted 882 observations).
+ */
+fun TrackerConfig.withLiveKnobsOf(live: TrackerConfig): TrackerConfig =
+    KNOBS.filter { it.live }.fold(this) { config, knob -> knob.set(config, knob.get(live)) }
+
 /** `null` travels as NaN: a numeric map has no null slot, and NaN cannot collide with a real value. */
 private fun optInt(v: Double): Int? = if (v.isNaN()) null else v.toInt()
 
