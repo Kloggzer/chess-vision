@@ -48,7 +48,7 @@ fun cropsOfVideo(args: List<String>) {
     outDir.mkdirs()
 
     val quads = StringBuilder()
-    val written = VideoFileSource(video).use { cutEach(it, outDir, every, wanted, out, quads) }
+    val written = openRecording(video).use { cutEach(it, outDir, every, wanted, out, quads) }
 
     File(outDir, "crops.jsonl").writeText(quads.toString())
     println("cut ${written * ALL_SQUARES.size} crops from $written frames -> ${outDir.absolutePath}")
@@ -56,7 +56,7 @@ fun cropsOfVideo(args: List<String>) {
 
 /** The loop alone, so the `use` block above stays one statement (detekt's nesting rule). */
 private fun cutEach(
-    source: VideoFileSource,
+    source: FrameSource,
     outDir: File,
     every: Int,
     wanted: Set<Int>?,
@@ -163,7 +163,7 @@ fun packTurntableVideo(args: List<String>) {
     var hand = 0
     var accepted = 0
     FileOutputStream(partial).use { bytes ->
-        VideoFileSource(video).use { source ->
+        openRecording(video).use { source ->
             while (accepted < maxFrames) {
                 val frame = source.next() ?: break
                 val frameNo = decoded++

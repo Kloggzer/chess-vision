@@ -65,7 +65,7 @@ fun packLabeledVideo(args: List<String>) {
     var decoded = 0
     manifest.bufferedWriter().use { rowsOut ->
         FileOutputStream(partial).use { imageOut ->
-            VideoFileSource(video).use { source ->
+            openRecording(video).use { source ->
                 for ((frameNo, row) in rows) {
                     var frame = source.next()
                     while (frame != null && decoded < frameNo) {
@@ -183,7 +183,7 @@ fun packOcclusionVideo(args: List<String>) {
     var decoded = 0
     File(outDir, "manifest.jsonl").bufferedWriter().use { rowsOut ->
         FileOutputStream(partial).use { imageOut ->
-            VideoFileSource(video).use { source ->
+            openRecording(video).use { source ->
                 for ((frameNo, row) in rows) {
                     var frame = source.next()
                     while (frame != null && decoded < frameNo) {

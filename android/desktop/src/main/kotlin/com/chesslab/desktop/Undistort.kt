@@ -38,7 +38,7 @@ fun undistortVideo(args: List<String>) {
     require(every >= 1) { "every= must be at least 1, got $every" }
 
     // The fit consumes frames from the head of the stream, so the writer opens its own source.
-    val model = VideoFileSource(video).use { fitLensFrom(it) }
+    val model = openRecording(video).use { fitLensFrom(it) }
     if (model == null) {
         println("nothing written: no accepted lens fit for ${video.name}")
         return
@@ -84,7 +84,7 @@ private fun writeFrames(
     // `use` on BOTH, nested: an earlier revision of this function unrolled them into try/finally to
     // flatten the nesting detekt complains about, and thereby leaked the video source whenever the
     // Undistorter's constructor threw. The loop is what moves out, not the closing.
-    VideoFileSource(video).use { source ->
+    openRecording(video).use { source ->
         val size = source.delivered
         Undistorter(model, size.width, size.height).use { undistorter ->
             writeEach(source, undistorter, outDir, every, wanted)
@@ -93,7 +93,7 @@ private fun writeFrames(
 
 /** The loop alone, so both `use` blocks above stay one statement each. */
 private fun writeEach(
-    source: VideoFileSource,
+    source: FrameSource,
     undistorter: Undistorter,
     outDir: File,
     every: Int,
