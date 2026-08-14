@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { Chess } from "chess.js";
 import { ChainActions } from "@/app/chain-actions";
 import { chainState } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
 import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
-import { UnmatchedCards } from "./cards";
+import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
+import { ConfirmReview } from "./cards";
 
 /** The recording is here, the tracker's reading of it is not. */
 async function NoCandidate({ name }: { name: string }) {
@@ -23,19 +23,6 @@ async function NoCandidate({ name }: { name: string }) {
       </Link>
     </main>
   );
-}
-
-/** From/to squares of a SAN, replayed from the TRACKER's own position chain (the ply may be
- *  illegal against the reference game, but it was legal against the tracker's board). */
-function moveSquares(fenBefore: string | undefined, san: string): { from: string; to: string } | null {
-  if (!fenBefore) return null;
-  try {
-    const chess = new Chess(fenBefore);
-    const move = chess.move(san);
-    return { from: move.from, to: move.to };
-  } catch {
-    return null;
-  }
 }
 
 export const dynamic = "force-dynamic";
@@ -59,44 +46,19 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   // Every stem on disk once, then per card the window [commit-2, next commit) — the frames that
   // can show the position AFTER this ply. A commit can anchor mid-hand (a verify or pair commit,
   // or a blitz reply already arriving), so ONE picture is sometimes a hand and nothing else; the
-  // card lets the human step through what exists instead of judging a covered board.
+  // card lets the human step through what exists instead of judging a covered board. Plies that
+  // share a commit frame share that window, so they share ONE card (`lib/review-cards.ts`).
   const stems = await listFrameStems(name);
-  const cards = invented.map((index) => {
-    const move = moves[index];
-    const fenBefore = index === 0 ? candidate.start_fen : moves[index - 1].fen_after;
-    const until = moves[index + 1]?.frame ?? move.frame + 90;
-    const window = stems.filter((s) => {
-      const n = Number(s.stem);
-      return n >= move.frame - 2 && n < Math.max(until, move.frame + 3);
-    });
-    // Start on the stem nearest the commit — the old single-frame behaviour, now a position.
-    const start = window.reduce(
-      (best, s, i) =>
-        Math.abs(Number(s.stem) - move.frame) < Math.abs(Number(window[best].stem) - move.frame)
-          ? i
-          : best,
-      0,
-    );
-    // Multi-half commits, both eras. Since the pair fix a group is SEVERAL rows on one frame;
-    // before it a pair was ONE row whose san cannot be replayed from the previous fen (the
-    // collapsed halves) — `moveSquares` failing on a pair/recovery decider is that signature.
-    const group = moves.filter((m) => m.frame === move.frame).map((m) => m.san);
-    const squares = moveSquares(fenBefore, move.san);
-    return {
-      index,
-      ply: move.ply,
-      san: move.san,
-      frame: move.frame,
-      stems: window,
-      start,
-      group: group.length > 1 ? group : [],
-      lastOfGroup: moves.findLast((m) => m.frame === move.frame) === move,
-      collapsed: squares === null && ["cnn_pair", "cnn_recovery"].includes(move.decider ?? ""),
-      decider: move.decider ?? null,
-      duplicate: missedSans.has(move.san),
-      squares,
-    };
+  const cards = buildReviewCards({
+    moves,
+    indices: invented,
+    stems,
+    startFen: candidate.start_fen,
+    missedSans,
   });
+  // The matched plies get the same windows without a verdict: a clean LCS says nothing about
+  // hands, crops or dark frames, and a game that matches perfectly showed the human NOTHING.
+  const gallery = buildGalleryCards({ moves, matched, stems, startFen: candidate.start_fen });
 
   return (
     <main className="space-y-6">
@@ -128,7 +90,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
         </p>
       </header>
 
-      <UnmatchedCards name={name} cards={cards} />
+      <ConfirmReview cards={cards} gallery={gallery} name={name} />
 
       <details className="border-border rounded-lg border p-4">
         <summary className="cursor-pointer text-sm font-medium">
