@@ -19,7 +19,9 @@ page of 60 — clicks are for exceptions, which fall into the tinder band; the c
 the cell marked; `←` keep, `→` occluded, digits = white piece, letters = black, `x` empty, `↓`
 skip, `z` undo, swipe on touch), **board drilldown** (8×8 overlay on the rectified frame; drag
 paints `occluded` over every cell the pointer enters, eraser/right button clears, a click without a
-drag cycles FEN → occluded → empty; writes on navigate-away).
+drag cycles FEN → occluded → empty; writes on navigate-away). A queue's **flags arrive selected**
+and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
+says so live, flags taken off go to `reviewed.jsonl`, `⌫` takes all of them off.
 
 - Corrections go out through `POST /api/corrections` — appended to
   `$CHESSLAB_DATA_DIR/manifests/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
@@ -60,6 +62,7 @@ Every card on `/` shows the ONE step that can run now, read off the disk rather 
 | confirmed, no `data/sessions/rg-<name>/` | **Export session** — `uv run chesslab realgames export-session` |
 | session, no `occluded-proposals.jsonl` | **Propose occluded** — `uv run chesslab realgames propose-occluded` |
 | everything there | **Relabel →** `/relabel/<name>` |
+| `useless.json` set | nothing — the step is `null` until "doch brauchbar" |
 
 `POST /api/chain/<name>` takes `{step}` and REFUSES a step that is not the disk's next one (409 with
 the state), so a stale tab cannot export an unconfirmed candidate. `{step: "adopt-pgn"}` copies a
@@ -77,6 +80,27 @@ A label that fails because no lens fit was accepted offers **Label ohne Linsen-K
 second, explicit press. `replay … label lens` is fail-closed by design (specs/52), and the phone
 camera corrects itself — its grid fit is refused every time (TODO.md, 2026-08-10), so without that
 second button the step is impossible for exactly the recordings the LAN transfer delivers.
+
+## The queues, and "nutzlos"
+
+`/confirm` and `/relabel` list every game whose next chain step is theirs, newest first
+(`lib/queues.ts`; both naming schemes on disk carry the same 14 digits, so `VID_20260802_222741`
+sorts by its clock and not by its `V`). `/relabel` has a second section, **Noch nicht gelesen** —
+a recording with no `candidate.json`, i.e. the machine step in front of the queue that nobody
+started — with the button that starts it, because an empty queue with no explanation reads as a bug.
+
+`data/realgames/<name>/useless.json` is the human's verdict that a recording is not worth work:
+
+```json
+{ "at": "2026-08-14T21:42:28Z", "reason": "Brett halb aus dem Bild", "undone_at": "..." }
+```
+
+A flagged game offers NO chain step (`ChainState.step` is `null`), is in neither queue, and renders
+on `/` as one grey line with the reason and **doch brauchbar**. The undo STAMPS `undone_at` — the
+file is never removed, nothing else on disk is touched, and `POST /api/useless/<name>` with
+`{useless, reason?}` is the only writer. Bundles with neither video nor candidate (18 of them from
+older transfers) collapse into one row, **N Bundles ohne Video**, which states per bundle what it
+does carry (frame count, PGN) and lets each be flagged from there.
 
 ## On a phone
 

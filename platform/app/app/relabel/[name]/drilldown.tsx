@@ -5,6 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { Correction } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
+import {
+  type BoardPlan,
+  type Row,
+  confirmLabel,
+  cycleNext,
+  planBoard,
+  planRejectAll,
+} from "@/lib/selection";
 import { writeRows } from "./write";
 
 export type FrameInfo = {
@@ -107,7 +115,19 @@ export function Drilldown(props: DrilldownProps) {
     return out;
   }, [decided, fen, stem]);
 
-  const labels = useMemo(() => ({ ...base, ...edits[stem] }), [base, edits, stem]);
+  /**
+   * The flags, and what the board makes of them. They arrive SELECTED and every one of them is
+   * one click away from off — the plan says what confirm will write at any moment, so the button
+   * can promise it (`lib/selection.ts`).
+   */
+  const accept = useMemo(() => accepts?.[stem] ?? {}, [accepts, stem]);
+  const onFile = useMemo(() => ({ ...base, ...saved[stem] }), [base, saved, stem]);
+  const plan = useMemo(
+    () => planBoard({ squares: SQUARES, proposals: accept, painted: edits[stem] ?? {}, base, onFile }),
+    [accept, base, edits, onFile, stem],
+  );
+  const labels = plan.labels;
+  const kept = useMemo(() => new Set(plan.selected), [plan]);
   /**
    * Squares a HUMAN has ruled on — this session's edits plus what corrections.jsonl already
    * holds. Everything else carries the FEN's word, which is a good label and NOT a verdict:
@@ -120,16 +140,12 @@ export function Drilldown(props: DrilldownProps) {
       ),
     [decided, edits, stem],
   );
-  const pending: Correction[] = useMemo(
-    () =>
-      SQUARES.filter((sq) => labels[sq] !== (saved[stem]?.[sq] ?? base[sq])).map((sq) => ({
-        session_id: sessionId,
-        frame: stem,
-        square: sq,
-        label: labels[sq],
-      })),
-    [labels, saved, base, stem, sessionId],
+  const rows = useCallback(
+    (list: Row[]): Correction[] => list.map((r) => ({ session_id: sessionId, frame: stem, ...r })),
+    [sessionId, stem],
   );
+  /** PAINT only: a flag must not leave through the navigate-away flush, only through confirm. */
+  const pending = useMemo(() => rows(plan.paintRows), [plan, rows]);
 
   const flush = useCallback(
     async (rows: Correction[]) => {
@@ -206,12 +222,33 @@ export function Drilldown(props: DrilldownProps) {
   };
 
   const paint = (square: string, erase: boolean) => set(square, erase ? fen[square] : brush);
-  const cycle = (square: string) => {
-    // The cycle offers what this square could plausibly be: what the FEN says, what the brush is
-    // loaded with, and empty — deduplicated, so a brush set to `empty` does not stall the cycle.
-    const order = [...new Set([fen[square], brush, "empty"])];
-    set(square, order[(order.indexOf(labels[square]) + 1) % order.length]);
-  };
+  /** One click, one step — the order and its why live in `lib/selection.ts`. */
+  const cycle = (square: string) =>
+    set(
+      square,
+      cycleNext({
+        current: labels[square],
+        proposal: accept[square],
+        base: base[square],
+        fen: fen[square],
+        brush,
+      }),
+    );
+
+  /**
+   * All flags off at once, then click back the few that are real — the fast path on a full board.
+   *
+   * A flag the file ALREADY answers is not "offable" in bulk: taking it off means SUPERSEDING a
+   * correction a human wrote, and no bulk button may do that quietly. Its own cell still can.
+   */
+  const offable = plan.selected.filter((sq) => base[sq] !== accept[sq]);
+  const toggleFlags = () =>
+    setEdits((e) => {
+      const cell = { ...e[stem] };
+      if (offable.length > 0) for (const sq of offable) cell[sq] = base[sq];
+      else for (const sq of plan.rejected) delete cell[sq];
+      return { ...e, [stem]: cell };
+    });
 
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
 
@@ -243,60 +280,54 @@ export function Drilldown(props: DrilldownProps) {
     return frames.length - 1;
   };
 
-  /**
-   * "Yes, the filter is right here" — write the answer for the MATCHED cells only, then move on.
-   *
-   * The point of a filtered queue is that you are not reviewing 64 squares, you are answering one
-   * question about a handful ("nicht immer alles kontrollieren, sondern nur das, wonach ich
-   * gefiltert habe", 2026-08-09). So this touches nothing outside `accept`: the other cells keep
-   * the FEN's word and stay unjudged, which is the honest record of what a human actually looked
-   * at. A cell whose accepted label already matches what is on file writes no row.
-   */
-  const accept = accepts?.[stem] ?? {};
   /** So a half-worked queue does not look untouched — the count is the honest progress bar. */
   const stillOpen = accepts ? frames.filter(open).length : frames.length;
   const acceptCells = Object.keys(accept);
-  const acceptLabels = [...new Set(Object.values(accept))];
-  const acceptable = Object.entries(accept).filter(([sq, label]) => (saved[stem]?.[sq] ?? base[sq]) !== label);
-
-  async function confirmQueue() {
-    // "ich markiere, bestätige das und nächste Seite" (2026-08-10): once the human painted, the
-    // painting IS the whole answer — their cells are corrections, and the flags they left
-    // unpainted were looked at and found clean. Only on an untouched board does confirm mean
-    // "the flags are right as proposed".
-    if (pending.length > 0) return rejectQueue();
-    setEdits((e) => ({ ...e, [stem]: { ...e[stem], ...accept } }));
-    await flush(
-      acceptable.map(([square, label]) => ({ session_id: sessionId, frame: stem, square, label })),
-    );
-    setAt((i) => nextOpen(i + 1));
-  }
 
   /**
-   * The OTHER answer to a flagged board: "not occluded — the FEN is right" ("wie de-occlude ich
-   * was? die fens stimmen", 2026-08-10). The unpainted flagged cells go to the REVIEW ledger with
-   * their standing label — looked at, correct, not a training row (the control bucket's rule) —
-   * so the flag never comes back; anything painted still leaves as a correction first.
+   * Write what the board says and move on — the ONE path both header buttons take.
+   *
+   * Corrections are the training rows; a flag taken off has nothing to correct, so it goes to the
+   * REVIEW ledger as provenance ("looked at, the FEN was right") and never comes back. Both
+   * ledgers were already on the wire — this only decides which cells land in which.
    */
-  async function rejectQueue() {
-    const painted = new Set(pending.map((r) => r.square));
-    const keep = acceptCells.filter((sq) => !painted.has(sq));
+  async function commit(what: BoardPlan) {
+    const reviewed = what.rejected.map((square) => ({ square, label: base[square] }));
     try {
-      await flush(pending);
-      onWritten(
-        await writeRows(
-          keep.map((square) => ({ session_id: sessionId, frame: stem, square, label: base[square] })),
-          "reviewed",
-        ),
-      );
+      await flush(rows(what.corrections));
+      if (reviewed.length > 0) onWritten(await writeRows(rows(reviewed), "reviewed"));
       setEdits((e) => ({
         ...e,
-        [stem]: { ...e[stem], ...Object.fromEntries(keep.map((sq) => [sq, base[sq]])) },
+        [stem]: {
+          ...e[stem],
+          ...Object.fromEntries([...what.committed, ...reviewed].map((r) => [r.square, r.label])),
+        },
       }));
       setAt((i) => nextOpen(i + 1));
     } catch (error) {
       onError(error);
     }
+  }
+
+  /**
+   * "Yes, the filter is right HERE" — the cells still selected, and nothing else.
+   *
+   * A filtered queue is not a 64-square review, it answers one question about a handful ("nicht
+   * immer alles kontrollieren, sondern nur das, wonach ich gefiltert habe", 2026-08-09). Cells
+   * outside the flags keep the FEN's word and stay unjudged unless the brush touched them.
+   */
+  async function confirmQueue() {
+    await commit(plan);
+  }
+
+  /**
+   * The OTHER answer to a flagged board: "not occluded — the FEN is right" ("wie de-occlude ich
+   * was? die fens stimmen", 2026-08-10). Every flag off in one keystroke; brush strokes still
+   * leave as corrections first.
+   */
+  async function rejectQueue() {
+    const off = { squares: SQUARES, proposals: accept, painted: edits[stem] ?? {}, base, onFile };
+    await commit(planRejectAll(off));
   }
 
   if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
@@ -344,7 +375,8 @@ export function Drilldown(props: DrilldownProps) {
           alles occluded
         </Button>
         <span className="text-muted-foreground">
-          drag paints · right button erases · click cycles · keys pick the brush ·{" "}
+          drag paints · right button erases · click cycles · click a flag to take it off · keys pick
+          the brush ·{" "}
           <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
           nobody looked ({judged.size}/64 judged here)
         </span>
@@ -359,29 +391,29 @@ export function Drilldown(props: DrilldownProps) {
         </Button>
       </div>
 
-      {Object.keys(accept).length > 0 ? (
+      {acceptCells.length > 0 ? (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-sky-800 bg-sky-950/40 p-3 text-sm">
           <Button autoFocus={false} className={TOUCH} onClick={() => void confirmQueue()} size="sm">
-            {pending.length > 0
-              ? `✓ ${pending.length} gemalte Zellen schreiben, übrige Flags = sauber → next board`
-              : `✓ confirm ${acceptCells.length} ${acceptCells.length === 1 ? "cell" : "cells"}` +
-                `${acceptLabels.length === 1 ? ` as ${acceptLabels[0]}` : ""} → next board`}
+            ✓ {confirmLabel(plan)}
           </Button>
-          {pending.length === 0 ? (
-            <Button onClick={() => void rejectQueue()} className={TOUCH} size="sm" variant="secondary">
-              ✗ nichts verdeckt — FEN stimmt → next board
-            </Button>
-          ) : null}
+          <Button onClick={() => void rejectQueue()} className={TOUCH} size="sm" variant="secondary">
+            ✗ nichts verdeckt — FEN stimmt → next board
+          </Button>
+          <Button
+            onClick={(event) => {
+              event.currentTarget.blur();
+              toggleFlags();
+            }}
+            className={TOUCH}
+            size="sm"
+            variant="outline"
+          >
+            {offable.length > 0 ? `alle ${offable.length} flags ab` : "alle flags an"}
+          </Button>
           <span className="text-muted-foreground">
-            <kbd className="text-foreground">Enter</kbd> confirms
-            {pending.length === 0 ? (
-              <>
-                , <kbd className="text-foreground">⌫</kbd> rejects (reviewed, not a training row)
-              </>
-            ) : (
-              " your painting"
-            )}
-            . Unflagged cells keep the FEN&apos;s word and stay unjudged.
+            <kbd className="text-foreground">Enter</kbd> commits the {plan.committed.length} selected,{" "}
+            <kbd className="text-foreground">⌫</kbd> takes every flag off (reviewed, not a training
+            row). Unflagged cells keep the FEN&apos;s word and stay unjudged.
           </span>
           <Button className={`ml-auto ${TOUCH}`} onClick={() => void go(1)} size="sm" variant="outline">
             skip this board →
@@ -439,14 +471,21 @@ export function Drilldown(props: DrilldownProps) {
             // cells, because 2 px next to the cell borders was invisible on a real board
             // ("ich sehe nicht was da markiert ist", 2026-08-10). A painted cell keeps its
             // paint colour; the outline alone says the flag.
-            const isFlagged = hits?.[stem]?.includes(sq) ?? false;
-            const flagged = isFlagged ? "outline outline-4 -outline-offset-4 outline-fuchsia-500" : "";
+            const isFlagged = (hits?.[stem]?.includes(sq) ?? false) || accept[sq] !== undefined;
+            // A flag ON is solid; one taken off keeps a dashed ghost, so "I ruled on this one"
+            // stays visible and one more click puts it back.
+            const on = kept.has(sq);
+            const flagged = !isFlagged
+              ? ""
+              : on
+                ? "outline outline-4 -outline-offset-4 outline-fuchsia-500"
+                : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
             const tint =
               label === "occluded"
                 ? "bg-amber-500/45"
                 : label !== fen[sq]
                   ? "bg-sky-500/40"
-                  : isFlagged
+                  : on
                     ? "bg-fuchsia-500/15"
                     : "hover:bg-white/10";
             const read = reads?.[stem]?.[sq];
@@ -470,13 +509,21 @@ export function Drilldown(props: DrilldownProps) {
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
                   <span
                     className={`bg-background/75 rounded px-0.5 ${
-                      judged.has(sq) ? "font-bold text-white" : "text-white/45"
+                      judged.has(sq)
+                        ? "font-bold text-white"
+                        : on
+                          ? "font-bold text-fuchsia-200"
+                          : "text-white/45"
                     }`}
                   >
                     {labels[sq]}
                   </span>
                   {read ? (
-                    <span className="block text-fuchsia-300">
+                    // Struck through once the flag is off: the reading is what RAISED the cell,
+                    // and a rejected reading must not keep shouting.
+                    <span
+                      className={`block ${on || accept[sq] === undefined ? "text-fuchsia-300" : "text-white/35 line-through"}`}
+                    >
                       <span className="bg-background/75 rounded px-0.5">{read}</span>
                     </span>
                   ) : null}
@@ -540,7 +587,12 @@ function Legend() {
     ["bg-amber-500/45", "occluded", "the cell is marked as covered"],
     ["bg-sky-500/40", "differs from FEN", "some other label than the game says here"],
     ["bg-transparent border border-white/25", "as the FEN says", "nothing was changed"],
-    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "filter hit", "the cell your query found"],
+    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "flag on", "confirm commits this cell"],
+    [
+      "outline outline-2 -outline-offset-2 outline-dashed outline-white/40",
+      "flag off",
+      "click took it off — reviewed, not a training row",
+    ],
   ];
   return (
     <span className="flex flex-wrap items-center gap-3 text-xs">
