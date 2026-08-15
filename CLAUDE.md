@@ -24,7 +24,7 @@
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** Web Read-Paths via `manifest_cache.py` (mtime-keyed).
-- **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer.
+- **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer. **Default is NO comment**: a small function (handler, wrapper, one-purpose helper) whose name plus imports tell the story gets none, and a comment longer than its function is wrong — delete it, don't trim it (User, 2026-08-15: "der kommentar ist länger als die funktion und sagt genau nichts").
 
 ## Known Pitfalls (Critical)
 
@@ -50,7 +50,7 @@
 ## Verification
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
-- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`.
+- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Model Guidelines (2026-08-14)
 - **BatchNorm Only:** We only use BatchNorm-trained models. Others are too slow.
