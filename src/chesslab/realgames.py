@@ -947,3 +947,154 @@ def unknown_for(seg: dict, index: int, margin_frames: int, settle: dict | None) 
         named = sorted(sq for sq in touches if index >= measured.get(sq, seg["end"] - margin_frames))
         return named
     return sorted(touches) if index >= seg["end"] - margin_frames else []
+
+
+# --- fit-stored: the PC re-fits the quad an Android "Stored" session logged -------------------
+
+#: The sidecar `packLabeledSession` and the review viewer prefer over the logged marker quad —
+#: contract in `docs/data-pipeline.md` §2.1.
+QUAD_FIT_NAME = "quad-fit.json"
+FIT_METHOD = "grid-fit over printed field edges"
+
+#: `measuredBoardSize` (CalibrationStore.kt) in Python: the pack warps a stored frame at this
+#: size, so the fit measures at it too and `align_worst_px` is in the pixels its cells are cut in.
+BOARD_SIZE_STEP, MIN_BOARD_SIZE, MAX_BOARD_SIZE = 16, 320, 1280
+
+
+def measured_board_size(quad) -> int:
+    """The rectified board size a quad is worth, stepped and clamped like the Kotlin consumer's."""
+    import numpy as np
+
+    pts = np.asarray(quad, np.float64)
+    longest = float(np.linalg.norm(pts - np.roll(pts, -1, axis=0), axis=1).max())
+    stepped = int(round(longest / BOARD_SIZE_STEP)) * BOARD_SIZE_STEP
+    return min(max(stepped, MIN_BOARD_SIZE), MAX_BOARD_SIZE)
+
+
+def field_quad(quad, board_size: int, margin: float) -> list[list[float]]:
+    """The PLAYING FIELD's corners for a quad whose points sit `margin` outside it (a8,h8,h1,a1)."""
+    import numpy as np
+
+    from .calibration import compute_homography
+
+    bs = float(board_size)
+    h = np.array(compute_homography(quad, board_size, margin), np.float64)
+    corners = np.array([[0.0, 0.0, 1.0], [bs, 0.0, 1.0], [bs, bs, 1.0], [0.0, bs, 1.0]]).T
+    out = np.linalg.inv(h) @ corners
+    return [[float(x), float(y)] for x, y in (out[:2] / out[2]).T]
+
+
+def _field_profile(quad, frame_size, board_size: int):
+    """Margin 0, because `quad` already IS the playing field — never saved, only measured through."""
+    from .calibration import CalibrationProfile, CropParams, compute_homography
+
+    return CalibrationProfile(
+        profile="__stored-fit__", camera_index=-1,
+        frame_size=(int(frame_size[0]), int(frame_size[1])), board_size=board_size,
+        image_corners=quad, homography=compute_homography(quad, board_size, 0.0),
+        white_pov=True, crop=CropParams.default(board_size), margin=0.0, source="stored-fit",
+    )
+
+
+def stored_session_dirs(name: str) -> list[Path]:
+    """Every `files/sessions/<id>/` of a bundle that carries a log — Android "Stored" recordings."""
+    root = game_dir(name) / "files" / "sessions"
+    if not root.is_dir():
+        return []
+    return sorted(d for d in root.iterdir() if (d / "log.jsonl").is_file())
+
+
+def stored_rows(session_dir: Path) -> list[dict]:
+    """The logged rows in frame order — every row, since the sidecar is keyed per frame."""
+    log = session_dir / "log.jsonl"
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return sorted((r for r in rows if r.get("frame") and r.get("corners")),
+                  key=lambda r: Path(r["frame"]).stem)
+
+
+def fit_stored_session(session_dir: Path, *,
+                       margin: float = config.DEFAULT_MARKER_MARGIN) -> tuple[dict, list[float]]:
+    """The sidecar payload, plus what the LOGGED quad measured before the fit (the honest before).
+
+    The log carries the MARKER quad and one constant outset for it, and the real one varies per
+    session (measured 2026-08-15: up to 14 px, an eighth of a cell). The margin only has to put
+    the grooves inside the first search window; the grid fit supplies the accuracy from there.
+    """
+    from .alignment import improve_quad
+
+    frames, failed, before_px = {}, [], []
+    for row in stored_rows(session_dir):
+        stem = Path(row["frame"]).stem
+        image = cv2.imread(str(session_dir / row["frame"]))
+        if image is None:
+            failed.append(stem)
+            continue
+        size = measured_board_size(row["corners"])
+        start = field_quad(row["corners"], size, margin)
+        quad, before, after = improve_quad(
+            image, start, _field_profile(start, (image.shape[1], image.shape[0]), size))
+        worst = after if quad is not None else before
+        if worst != worst:  # NaN — no square was measurable at all, so nothing here is trustworthy
+            failed.append(stem)
+            continue
+        frames[stem] = {"corners": [[round(x, 2), round(y, 2)] for x, y in (quad or start)],
+                        "align_worst_px": round(float(worst), 2)}
+        if before == before:
+            before_px.append(round(float(before), 2))
+    payload = {
+        "margin": 0.0,
+        "frames": frames,
+        "failed": failed,
+        "method": FIT_METHOD,
+        "source_margin": float(margin),
+        "written_at": datetime.now(UTC).isoformat(),
+    }
+    return payload, sorted(before_px)
+
+
+def write_quad_fit(session_dir: Path, payload: dict) -> Path:
+    """Atomically — a half-written sidecar would silently move every crop of the session."""
+    path = session_dir / QUAD_FIT_NAME
+    tmp = path.with_suffix(".json.tmp")
+    try:
+        tmp.write_text(json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
+
+
+def _median(values: list[float]) -> float | None:
+    return values[len(values) // 2] if values else None
+
+
+def fit_stored(name: str) -> list[dict]:
+    """Write `quad-fit.json` next to every stored session of one bundle, and say what it moved."""
+    sessions = stored_session_dirs(name)
+    if not sessions:
+        raise FileNotFoundError(f"{name}: no stored session under files/sessions/<id>/log.jsonl")
+    done = []
+    for session_dir in sessions:
+        payload, before = fit_stored_session(session_dir)
+        path = write_quad_fit(session_dir, payload)
+        after = sorted(f["align_worst_px"] for f in payload["frames"].values())
+        print(f"  {name}/{session_dir.name}: {len(payload['frames'])} fitted, "
+              f"{len(payload['failed'])} failed — align_worst_px median {_median(before)} -> "
+              f"{_median(after)}, max {before[-1] if before else None} -> {after[-1] if after else None}")
+        done.append({"name": name, "session": session_dir.name, "path": path,
+                     "fitted": len(payload["frames"]), "failed": payload["failed"],
+                     "before": _median(before), "after": _median(after)})
+    return done
+
+
+def bundles_with_stored() -> list[str]:
+    root = config.DATA.root / "realgames"
+    return sorted(d.name for d in root.iterdir() if stored_session_dirs(d.name)) if root.is_dir() else []
+
+
+def fit_stored_all() -> list[dict]:
+    """Every bundle that carries a stored session, one after the other — ONE worker, no pool."""
+    done = []
+    for name in bundles_with_stored():
+        done += fit_stored(name)
+    return done

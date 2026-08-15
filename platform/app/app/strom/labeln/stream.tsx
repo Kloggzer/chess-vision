@@ -428,6 +428,20 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
             {board ? ` · ${board.stem} · ply ${board.ply}` : ""}
           </span>
         ) : null}
+        {board?.quad ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground font-mono">
+                Quad: {board.quad === "grid-fit" ? "grid-fit" : "Marker (ungefittet)"}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>
+              {board.quad === "grid-fit"
+                ? `quad-fit.json, Feld-Ecken · align_worst_px ${board.quadPx ?? "—"}`
+                : "kein Eintrag in quad-fit.json — geloggter Marker-Quad, margin 0.045"}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="text-muted-foreground ml-auto tabular-nums">

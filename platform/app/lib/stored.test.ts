@@ -3,13 +3,24 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import sharp from "sharp";
-import { storedBoardPng, storedProgress, storedProgressOf, storedSessionId, storedSessions } from "@/lib/stored";
+import { applyMat, boardToImage } from "@/lib/warp";
+import {
+  storedBoardPng,
+  storedFit,
+  storedProgress,
+  storedProgressOf,
+  storedQuad,
+  storedSessionId,
+  storedSessions,
+} from "@/lib/stored";
 
 const BUNDLE = "2026-08-08-22-09-12";
 const ID = "20260808-220912";
 const FEN = "rnbqkb1r/ppp2ppp/3p1n2/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4";
 /** [a8, h8, h1, a1] of a 200x120 frame — the marker quad the tracker logs. */
 const CORNERS = [[20, 20], [180, 20], [180, 100], [20, 100]];
+/** What `chesslab fit-stored` measured for `0000`: the PLAYING FIELD, so margin 0. */
+const FIELD = [[27, 24], [173, 23], [174, 97], [26, 96]];
 
 const row = (n: number, extra: object = {}) => ({
   frame: `frames/${String(n).padStart(4, "0")}.jpg`,
@@ -41,6 +52,19 @@ beforeEach(async () => {
 const writeLog = (...rows: object[]) =>
   writeFile(path.join(session, "log.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
 
+/** The producer's sidecar: `0000` fitted, `0001` given up on — the two paths in one file. */
+const writeFit = () =>
+  writeFile(
+    path.join(session, "quad-fit.json"),
+    JSON.stringify({
+      margin: 0,
+      frames: { "0000": { corners: FIELD, align_worst_px: 2.7 } },
+      failed: ["0001"],
+      source_margin: 0.045,
+    }) + "\n",
+    "utf8",
+  );
+
 /**
  * `packLabeledSession` matches corrections on its `id=` argument, and every pack of these stored
  * sessions ran with `phone-<dir>` — see `session_id` in the `packed_meta.json` of every
@@ -71,6 +95,34 @@ test("a stored frame renders as a square PNG of the asked-for size", async () =>
   const meta = await sharp(png).metadata();
   expect([meta.format, meta.width, meta.height]).toEqual(["png", 64, 64]);
   await expect(storedBoardPng(BUNDLE, "0009", 64)).rejects.toThrow(/no stored frame/);
+});
+
+/**
+ * The whole point of the sidecar: the fitted corners ARE the playing field, so they are warped at
+ * the margin the FILE states, and a frame the fit gave up on keeps the logged marker quad.
+ */
+test("a fitted frame is cut at the sidecar's field quad, an unfitted one at the marker quad", async () => {
+  await writeLog(row(0), row(1));
+  await writeFit();
+  const [stored] = await storedSessions(BUNDLE);
+  const fit = await storedFit(stored.dir);
+
+  expect(storedQuad(fit, stored.rows[0])).toEqual({ corners: FIELD, margin: 0, fitted: true, worstPx: 2.7 });
+  expect(storedQuad(fit, stored.rows[1])).toEqual({ corners: CORNERS, margin: 0.045, fitted: false });
+
+  // Board (0, 0) is a8 itself at margin 0 — the marker path puts it 4.5 % outside instead.
+  const fitted = storedQuad(fit, stored.rows[0]);
+  const at = applyMat(boardToImage(fitted.corners, 928, fitted.margin), 0, 0);
+  expect([Math.round(at[0]), Math.round(at[1])]).toEqual(FIELD[0]);
+});
+
+test("without a sidecar nothing moves: no file, no fit, the marker quad as before", async () => {
+  await writeLog(row(0));
+  const [stored] = await storedSessions(BUNDLE);
+  expect(await storedFit(stored.dir)).toBeNull();
+  expect(storedQuad(null, stored.rows[0])).toEqual({ corners: CORNERS, margin: 0.045, fitted: false });
+  const png = await storedBoardPng(BUNDLE, "0000", 32);
+  expect((await sharp(png).metadata()).width).toBe(32);
 });
 
 test("a board counts as seen once either ledger carries a square of it", async () => {

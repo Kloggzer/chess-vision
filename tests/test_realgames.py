@@ -646,3 +646,136 @@ def test_without_a_measurement_the_fixed_window_still_applies(tmp_path):
 
 def test_a_segment_with_no_next_move_vouches_for_everything():
     assert unknown_for(_seg(touches=()), 399, margin_frames=30, settle={2: {"e5": 1}}) == []
+
+
+# --- fit-stored -----------------------------------------------------------------------------
+
+#: The synthetic session's true playing field (a8, h8, h1, a1) and the board rendered into it.
+FIELD = [[240.0, 180.0], [1180.0, 200.0], [1150.0, 1060.0], [210.0, 1020.0]]
+FIT_BS = 800
+FIT_CELL = FIT_BS / 8
+FIT_BORDER = int(round(0.8 * FIT_CELL))
+#: The outset the markers really have here — the recorder logs its quad as if it were 0.045.
+TRUE_MARGIN = 0.058
+
+
+def _rendered_board():
+    """A rectified board with a surround: alternating squares and a groove on every cell edge."""
+    n = FIT_BS + 2 * FIT_BORDER
+    img = np.full((n, n, 3), 175, np.uint8)
+    img[FIT_BORDER:FIT_BORDER + FIT_BS, FIT_BORDER:FIT_BORDER + FIT_BS] = 205
+    for f in range(8):
+        for r in range(8):
+            if (f + r) % 2 == 0:
+                x, y = FIT_BORDER + int(f * FIT_CELL), FIT_BORDER + int(r * FIT_CELL)
+                img[y:y + int(FIT_CELL), x:x + int(FIT_CELL)] = 70
+    for k in range(9):
+        p = FIT_BORDER + int(round(k * FIT_CELL))
+        img[p - 2:p + 3, :] = 20
+        img[:, p - 2:p + 3] = 20
+    return cv2.GaussianBlur(img, (0, 0), 1.0)
+
+
+def _board_points(margin: float):
+    m = margin * FIT_BS
+    return np.array([[-m, -m, 1.0], [FIT_BS + m, -m, 1.0],
+                     [FIT_BS + m, FIT_BS + m, 1.0], [-m, FIT_BS + m, 1.0]]).T
+
+
+def _to_image(points):
+    from chesslab.calibration import compute_homography
+
+    h = np.array(compute_homography(FIELD, FIT_BS, 0.0), np.float64)
+    out = np.linalg.inv(h) @ points
+    return [[float(x), float(y)] for x, y in (out[:2] / out[2]).T]
+
+
+def _stored_session(tmp_path, monkeypatch):
+    """A bundle whose stored session holds one clean frame and one with the board covered."""
+    from chesslab.calibration import compute_homography
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    session = tmp_path / "data" / "realgames" / "g" / "files" / "sessions" / "20260812-222357"
+    (session / "frames").mkdir(parents=True)
+    h = np.array(compute_homography(FIELD, FIT_BS, 0.0), np.float64)
+    shift = np.eye(3)
+    shift[:2, 2] = (-FIT_BORDER, -FIT_BORDER)
+    frame = cv2.warpPerspective(_rendered_board(), np.linalg.inv(h) @ shift, (1400, 1200))
+    cv2.imwrite(str(session / "frames" / "0000.jpg"), frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    cv2.imwrite(str(session / "frames" / "0001.jpg"), np.full_like(frame, 120))
+    logged = _to_image(_board_points(TRUE_MARGIN))
+    (session / "log.jsonl").write_text(
+        "".join(json.dumps({"frame": f"frames/{s}.jpg", "ply": 1, "fen": START, "corners": logged})
+                + "\n" for s in ("0000", "0001")),
+        encoding="utf-8",
+    )
+    return session, logged
+
+
+def _corner_error(quad) -> float:
+    return float(np.abs(np.asarray(quad, float) - np.asarray(FIELD, float)).max())
+
+
+def test_fit_stored_writes_the_field_quad_the_markers_missed(tmp_path, monkeypatch):
+    """The logged quad carries the recorder's constant 0.045 outset, and the real one differs per
+    session (measured 2026-08-15: up to 14 px, an eighth of a cell, in the crops that are trained
+    on AND labelled). The board's own grid is the ruler that finds the playing field anyway."""
+    from chesslab.realgames import (
+        FIT_METHOD,
+        QUAD_FIT_NAME,
+        field_quad,
+        fit_stored,
+        measured_board_size,
+    )
+
+    session, logged = _stored_session(tmp_path, monkeypatch)
+    size = measured_board_size(logged)
+    assumed = field_quad(logged, size, config.DEFAULT_MARKER_MARGIN)
+    assert _corner_error(assumed) > 5.0, "the fixture must actually be off, or it proves nothing"
+
+    fit_stored("g")
+
+    written = json.loads((session / QUAD_FIT_NAME).read_text(encoding="utf-8"))
+    assert set(written) == {"margin", "frames", "failed", "method", "source_margin", "written_at"}
+    assert written["margin"] == 0.0 and written["source_margin"] == config.DEFAULT_MARKER_MARGIN
+    assert written["method"] == FIT_METHOD
+    assert _corner_error(written["frames"]["0000"]["corners"]) < 2.0
+    assert written["frames"]["0000"]["align_worst_px"] < 0.04 * size / 8
+
+
+def test_a_frame_whose_grid_cannot_be_read_is_named_not_patched(tmp_path, monkeypatch):
+    """A hand over the board must fail LOUDLY: the consumer keeps the logged marker quad for it,
+    and a silently invented quad would move every crop of that frame."""
+    from chesslab.realgames import QUAD_FIT_NAME, fit_stored
+
+    session, _ = _stored_session(tmp_path, monkeypatch)
+
+    fit_stored("g")
+
+    written = json.loads((session / QUAD_FIT_NAME).read_text(encoding="utf-8"))
+    assert written["failed"] == ["0001"]
+    assert "0001" not in written["frames"]
+
+
+def test_a_re_run_replaces_the_sidecar_and_leaves_no_partial(tmp_path, monkeypatch):
+    """Derived file: re-running is how a consumer picks up a fixed fit."""
+    from chesslab.realgames import QUAD_FIT_NAME, fit_stored
+
+    session, _ = _stored_session(tmp_path, monkeypatch)
+    (session / QUAD_FIT_NAME).write_text('{"frames": {}}\n', encoding="utf-8")
+
+    fit_stored("g")
+
+    written = json.loads((session / QUAD_FIT_NAME).read_text(encoding="utf-8"))
+    assert "0000" in written["frames"]
+    assert list(session.glob("*.tmp")) == []
+
+
+def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkeypatch):
+    from chesslab.realgames import fit_stored
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    (tmp_path / "data" / "realgames" / "g").mkdir(parents=True)
+
+    with pytest.raises(FileNotFoundError):
+        fit_stored("g")

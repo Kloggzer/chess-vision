@@ -459,6 +459,35 @@ def realgames_export_session(
           f"(margin {r['margin_frames']} frames) — {where}")
 
 
+@realgames_app.command("fit-stored")
+def realgames_fit_stored(
+    name: str | None = typer.Argument(None, help="Real-game name under data/realgames/."),
+    all_bundles: bool = typer.Option(False, "--all",
+                                     help="Every bundle with a stored session, one after the other."),
+) -> None:
+    """Re-fit an Android Stored session's logged quad and write `files/sessions/<id>/quad-fit.json`.
+
+    The recorder logs the raw MARKER quad and everything downstream assumes one constant outset
+    for it, while the best one varies per session — measured 2026-08-15 at up to 14 px, an eighth
+    of a cell, in the crops that go into training AND into labelling. The board's own grid says
+    where the playing field really is; this writes that as the field quad (margin 0) the pack and
+    the review viewer prefer. A frame the fit cannot read is listed in `failed`, never patched.
+    """
+    from . import realgames as realgames_mod
+
+    if bool(name) == all_bundles:
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    try:
+        done = realgames_mod.fit_stored_all() if all_bundles else realgames_mod.fit_stored(name)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    failed = sum(len(d["failed"]) for d in done)
+    print(f"[OK] {len(done)} stored session(s), {sum(d['fitted'] for d in done)} frames fitted, "
+          f"{failed} left to their logged quad")
+
+
 @realgames_app.command("propose-occluded")
 def realgames_propose_occluded(
     name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
@@ -493,6 +522,25 @@ def realgames_propose_occluded(
     skipped = f", {len(r['skipped_plies'])} plies without a reference" if r["skipped_plies"] else ""
     print(f"[OK] {len(r['rows'])} proposals ({r['occluded']} occluded at hi={hi}){skipped} "
           f"-> {r['path']}")
+
+
+@realgames_app.command("audit-flags")
+def realgames_audit_flags() -> None:
+    """Question every FEN label with the models the proposals already ran — confident learning.
+
+    Per session and class, `t_j` is the mean self-confidence over the cells labelled `j`
+    (Northcutt Eqn. 2) and a cell is flagged when the argmax over the classes reaching their own
+    threshold is not its label (Eqn. 1), ranked by normalized margin. DERIVED: the run rewrites
+    `audit-flags.jsonl` whole, so it is never a ledger — human verdicts live in `corrections.jsonl`.
+    """
+    from . import audit_flags as audit_mod
+
+    r = audit_mod.audit_flags()
+    rate = r["flags"] / r["cells_scanned"] if r["cells_scanned"] else 0.0
+    for s in r["skipped"]:
+        print(f"[SKIP] {s['session']}: {s['reason']}")
+    print(f"[OK] {r['flags']} flags over {r['cells_scanned']} cells ({rate:.1%}) "
+          f"in {len(r['sessions'])} sessions -> {r['path']}")
 
 
 @session_app.command("archive")

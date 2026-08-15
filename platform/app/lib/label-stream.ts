@@ -17,7 +17,7 @@ import { loadProposals, splitStreams, topRead, type Proposal } from "@/lib/propo
 import { unusableBoards } from "@/lib/review-notes";
 import { isBare, recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase } from "@/lib/session";
-import { storedSessions } from "@/lib/stored";
+import { storedFit, storedQuad, storedSessions } from "@/lib/stored";
 import { uselessFlag } from "@/lib/useless";
 
 export type StreamSession = {
@@ -51,6 +51,10 @@ export type StreamBoard = {
   disagreeReads: Record<string, string>;
   /** Has at least one proposal row — the `Alle Bretter` lane and the 3 976 denominator. */
   proposed: boolean;
+  /** Which quad this board's pixels are cut with — Stored boards only (`lib/stored.ts`). */
+  quad?: "grid-fit" | "marker";
+  /** `align_worst_px` of the fit, so the lane can say how good the preferred quad is. */
+  quadPx?: number;
 };
 
 /**
@@ -313,9 +317,11 @@ async function appendStored(
       ]);
       const rows = stored.rows.filter((r) => !unusable.has(r.stem));
       if (rows.length === 0) continue;
+      const fit = await storedFit(stored.dir);
       const index = sessions.length;
       sessions.push({ name, sessionId: stored.sessionId, proposals: false, probs: false, stored: true });
       for (const row of rows) {
+        const quad = storedQuad(fit, row);
         boards.push({
           session: index,
           pos: pos++,
@@ -328,6 +334,8 @@ async function appendStored(
           disagree: {},
           disagreeReads: {},
           proposed: false,
+          quad: quad.fitted ? "grid-fit" : "marker",
+          quadPx: quad.worstPx,
         });
       }
       const stems = new Set(rows.map((r) => r.stem));

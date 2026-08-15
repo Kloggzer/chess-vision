@@ -9,12 +9,15 @@ import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
 import com.chesslab.geometry.gridOccludedSquares
+import com.chesslab.geometry.margins4
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
+import com.chesslab.tracker.geometry.measuredBoardSize
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.imgcodecs.Imgcodecs
@@ -24,6 +27,39 @@ import java.nio.charset.StandardCharsets.UTF_8
 import java.security.MessageDigest
 
 private const val LABELED_EVERY = 8
+
+private const val QUAD_FIT_NAME = "quad-fit.json"
+
+/** One frame's re-fitted quad: the PLAYING FIELD's corners, at the margin the sidecar states. */
+internal class FittedQuad(
+    val corners: FloatArray,
+    val margin: Double,
+)
+
+/**
+ * `<sessionDir>/quad-fit.json`, written by `chesslab fit-stored` (`realgames.py`): the PC's re-fit
+ * of the quads the phone logged. No file, no entry or a failed frame — the caller keeps the logged
+ * marker quad, which is what every pack before this one cut with.
+ */
+internal fun storedQuadFit(sessionDir: File): Map<String, FittedQuad> {
+    val file = File(sessionDir, QUAD_FIT_NAME)
+    if (!file.isFile) return emptyMap()
+    val root = Json.parseToJsonElement(file.readText()) as JsonObject
+    val margin = root.getValue("margin").jsonPrimitive.double
+    val frames = root["frames"] as? JsonObject ?: return emptyMap()
+    return frames.mapValues { (_, entry) -> FittedQuad((entry as JsonObject).corners(), margin) }
+}
+
+/** A fitted quad IS the field, so it is warped at the file's margin — never at the marker outset. */
+internal fun storedGeometry(
+    fitted: FittedQuad?,
+    quad: FloatArray,
+): BoardGeometry =
+    if (fitted == null) {
+        boardGeometryFor(quad)
+    } else {
+        BoardGeometry(boardSize = measuredBoardSize(quad), margin = margins4(fitted.margin))
+    }
 
 /**
  * `labeled-video-pack <video> <log.jsonl> <corrections.jsonl> <outDir> [every=N] [id=name]`.
@@ -260,6 +296,7 @@ fun packLabeledSession(args: List<String>) {
     val occludedFrames = overrides.filterValues { values -> values.values.any { it == "occluded" } }.keys
     val rows = selectStoredRows(log, occludedFrames)
     require(rows.isNotEmpty()) { "no clean labeled rows in ${sessionDir.absolutePath}" }
+    val fit = storedQuadFit(sessionDir)
     outDir.mkdirs()
     val partial = File(outDir, "packed_images.u8.partial")
     val digest = MessageDigest.getInstance("SHA-256")
@@ -267,6 +304,7 @@ fun packLabeledSession(args: List<String>) {
     var crops = 0
     var acceptedFrames = 0
     var handFrames = 0
+    var fittedFrames = 0
     File(outDir, "manifest.jsonl").bufferedWriter().use { rowsOut ->
         FileOutputStream(partial).use { imageOut ->
             for (row in rows) {
@@ -274,8 +312,9 @@ fun packLabeledSession(args: List<String>) {
                 val frame = Imgcodecs.imread(imageFile.absolutePath)
                 require(!frame.empty()) { "could not decode ${imageFile.absolutePath}" }
                 try {
-                    val quad = row.corners()
-                    val geometry = boardGeometryFor(quad)
+                    val fitted = fit[row.frameStem()]
+                    val quad = fitted?.corners ?: row.corners()
+                    val geometry = storedGeometry(fitted, quad)
                     val warped = warpBoardForCrops(frame, geometry, cornersFromFlat(quad))
                     try {
                         if (isHandShape(gridOccludedSquares(warped, geometry, cropBorderPx(geometry)))) {
@@ -284,6 +323,7 @@ fun packLabeledSession(args: List<String>) {
                         }
                         crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides)
                         acceptedFrames++
+                        if (fitted != null) fittedFrames++
                     } finally {
                         warped.release()
                     }
@@ -302,11 +342,15 @@ fun packLabeledSession(args: List<String>) {
             "\"source\":\"${json(sessionDir.absolutePath)}\",\"session_id\":\"${json(id)}\"," +
             "\"stored_frames\":${rows.size},\"accepted_frames\":$acceptedFrames," +
             "\"grid_hand_rejected\":$handFrames,\"occluded_frames_excluded\":${occludedFrames.size}," +
+            // Per PACKED frame, so the sweep report can weigh a run by what its crops were cut with.
+            "\"quad_source\":\"${if (fittedFrames > 0) "grid-fit" else "marker"}\"," +
+            "\"fitted_frames\":$fittedFrames,\"marker_frames\":${acceptedFrames - fittedFrames}," +
             "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
     )
     println(
         "packed $crops labeled 13-class crops from $acceptedFrames stored frames " +
-            "(grid-hand $handFrames) -> ${outDir.absolutePath}",
+            "(grid-hand $handFrames, quads: $fittedFrames grid-fit / ${acceptedFrames - fittedFrames} marker) " +
+            "-> ${outDir.absolutePath}",
     )
 }
 

@@ -18,6 +18,7 @@ export const storedSessionId = (id: string) => `phone-${checkName(id, "stored se
 /** The tracker logs the MARKER quad, which sits `DEFAULT_MARKER_MARGIN` outside the playing field. */
 const MARKER_MARGIN = 0.045;
 const BOARD_SIZE = 928;
+const QUAD_FIT = "quad-fit.json";
 
 export type StoredRow = {
   stem: string;
@@ -36,7 +37,23 @@ export type StoredSession = {
   rows: StoredRow[];
 };
 
+/** `quad-fit.json` (`realgames.py` fit-stored): PLAYING-FIELD corners per frame, and their margin. */
+type QuadFit = {
+  margin: number;
+  frames: Record<string, { corners: number[][]; align_worst_px: number }>;
+};
+
+export type StoredQuad = {
+  corners: number[][];
+  margin: number;
+  /** The grid fit had a word on this frame; `false` is the logged marker quad, unchanged. */
+  fitted: boolean;
+  worstPx?: number;
+};
+
 const cache = new Map<string, { key: number; value: StoredSession }>();
+type FitCache = Map<string, { key: number; value: QuadFit }>;
+const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());
 
 async function loadStored(name: string, dir: string, id: string): Promise<StoredSession | null> {
   const log = path.join(dir, "log.jsonl");
@@ -71,6 +88,29 @@ export async function storedSessions(name: string): Promise<StoredSession[]> {
   return found.filter((s): s is StoredSession => s !== null && s.rows.length > 0);
 }
 
+/** The sidecar of one session, mtime-keyed — `null` while the fit has not run over it. */
+export async function storedFit(dir: string): Promise<QuadFit | null> {
+  const file = path.join(dir, QUAD_FIT);
+  const key = await stat(file).then((s) => s.mtimeMs, () => null);
+  if (key === null) return null;
+  const hit = fits.get(file);
+  if (hit?.key === key) return hit.value;
+  const value = JSON.parse(await readFile(file, "utf8")) as QuadFit;
+  fits.set(file, { key, value });
+  return value;
+}
+
+/**
+ * The quad a stored frame is cut with: the fitted PLAYING FIELD when the sidecar carries it,
+ * else the logged marker quad and its outset. The margin comes from the FILE — the fitted corners
+ * are the field itself, so warping them at `MARKER_MARGIN` would move every crop by 4.5 %.
+ */
+export function storedQuad(fit: QuadFit | null, row: StoredRow): StoredQuad {
+  const frame = fit?.frames?.[row.stem];
+  if (!fit || !frame) return { corners: row.corners, margin: MARKER_MARGIN, fitted: false };
+  return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px };
+}
+
 /**
  * The rectified playing field of one stored frame: the raw JPEG through the row's own quad,
  * exactly as `lib/crops.ts` does it for an exported session — only the margin differs.
@@ -80,13 +120,14 @@ export async function storedBoardPng(name: string, stem: string, size: number): 
   for (const session of await storedSessions(name)) {
     const row = session.rows.find((r) => r.stem === stem);
     if (!row) continue;
+    const quad = storedQuad(await storedFit(session.dir), row);
     const { data, info } = await sharp(await readFile(path.join(session.dir, row.frame)))
       .removeAlpha()
       .raw()
       .toBuffer({ resolveWithObject: true });
     const rgb = sampleBox(
       { data, width: info.width, height: info.height, channels: info.channels },
-      boardToImage(row.corners, BOARD_SIZE, MARKER_MARGIN),
+      boardToImage(quad.corners, BOARD_SIZE, quad.margin),
       { x0: 0, y0: 0, x1: BOARD_SIZE, y1: BOARD_SIZE },
       size,
       size,

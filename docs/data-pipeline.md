@@ -76,6 +76,35 @@ first, so the crop is cut at `board_size / 8` px/square whatever the camera deli
 profile that is 100, and a 173 px/square session loses 42 % of its linear resolution there. See
 **§11**, which is the section to read before quoting any px/square number at a model.
 
+### 2.1 Android "Stored" sessions carry a corrected quad beside their log
+
+An Android Stored recording lands as `data/realgames/<bundle>/files/sessions/<id>/` with the same
+`log.jsonl` shape plus sparse `frames/NNNN.jpg`. Its `corners` are the raw **MARKER** quad, and
+every consumer turns it into a playing field with one constant outset (`DEFAULT_MARKER_MARGIN`
+0.045). The best outset varies per session and per corner — measured 2026-08-15 across the 28
+stored sessions at ±6–14 px, and on `20260812-222357` at 35 px on the h8 marker alone, which no
+single number can express. The consequence is identical in training and in labelling: every crop
+of that session sits a fifth of a cell off its square.
+
+`chesslab realgames fit-stored <bundle> [--all]` measures each stored JPEG against the board's own
+grid (`alignment.improve_quad`, the same fit `export-session` runs per frame) and writes the
+result beside the log:
+
+```json
+{"margin": 0.0, "frames": {"0000": {"corners": [[x,y],[x,y],[x,y],[x,y]], "align_worst_px": 1.8}},
+ "failed": ["0007"], "method": "grid-fit over printed field edges", "source_margin": 0.045,
+ "written_at": "…"}
+```
+
+- `corners` are **playing-field** corners in JPEG pixels, `[a8, h8, h1, a1]`, margin **0** — a
+  consumer warps them directly and applies no outset of its own.
+- `align_worst_px` is the worst square-edge offset in rectified pixels at the board size the pack
+  warps in (`measuredBoardSize`), i.e. the same units §12 flags a session in.
+- A frame whose grid could not be read (a hand over the board) is named in `failed` and gets no
+  entry. The consumer keeps the logged marker quad for it — the failure is visible, never patched.
+- The file is **derived**: re-running overwrites it atomically, and deleting it only returns the
+  session to the uncorrected marker quad.
+
 ---
 
 ## 3. The global crop pool — `data/manifests/squares.jsonl`
