@@ -15,6 +15,7 @@ import {
   meshFromLines,
   type Raster,
   sampleBox,
+  sampleBoxMesh,
   sampleQuad,
   squareCropBox,
   squareMeshBox,
@@ -161,13 +162,18 @@ async function storedCut(
 }
 
 /**
- * The rectified playing field of one stored frame: the raw JPEG through the row's own quad,
- * exactly as `lib/crops.ts` does it for an exported session — only the margin differs.
+ * The rectified playing field of one stored frame: the raw JPEG through the row's own quad, and
+ * globally straightened by the mesh when the sidecar carries one — exactly as `lib/crops.ts`
+ * does it for an exported session, only the margin differs.
  */
 export function storedBoardPng(name: string, stem: string, size: number): Promise<Buffer> {
   return storedCut(name, stem, size, (quad, raster) => {
     const box = { x0: 0, y0: 0, x1: BOARD_SIZE, y1: BOARD_SIZE };
-    return sampleBox(raster, boardToImage(quad.corners, BOARD_SIZE, quad.margin), box, size, size);
+    const h = boardToImage(quad.corners, BOARD_SIZE, quad.margin);
+    const mesh = quad.mesh;
+    return mesh?.tx && mesh.ty
+      ? sampleBoxMesh(raster, h, box, mesh as TiltedMesh, BOARD_SIZE, size, size)
+      : sampleBox(raster, h, box, size, size);
   });
 }
 

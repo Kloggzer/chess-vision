@@ -6,6 +6,7 @@ import {
   boardToImage,
   type GridMesh,
   meshFromLines,
+  meshPoint,
   squareColRow,
   squareCropBox,
   squareMeshBox,
@@ -147,6 +148,28 @@ test("the nominal mesh reproduces squareCropBox", () => {
     for (const key of ["x0", "y0", "x1", "y1"] as const) {
       expect(got[key], `${square}.${key}`).toBeCloseTo(want[key], 9);
     }
+  }
+});
+
+test("a mesh point at a crossing IS that crossing — the cell quads and the board agree", () => {
+  // Both solvers iterate to the same crossing from different seeds, so they agree to their own
+  // residual, not to the last bit — a hundredth of a pixel on a 928 board.
+  const crop = { pad_side: 0, pad_up: 0 };
+  for (const [square, k, l] of [["a8", 0, 0], ["e4", 4, 4], ["h1", 7, 7], ["c6", 2, 2]] as const) {
+    const [tl] = squareMeshQuad(square, MESH_FIXTURE.boardSize, MESH_FIXTURE.mesh, crop);
+    const [x, y] = meshPoint(k / 8, l / 8, MESH_FIXTURE.mesh);
+    expect(Math.abs(x * MESH_FIXTURE.boardSize - tl[0]), `${square}.x`).toBeLessThan(0.01);
+    expect(Math.abs(y * MESH_FIXTURE.boardSize - tl[1]), `${square}.y`).toBeLessThan(0.01);
+  }
+});
+
+test("a nominal mesh moves no pixel — the board warp falls back to itself", () => {
+  const axis = [...Array(9)].map((_, k) => k / 8);
+  const flat = { x: axis, y: axis, tx: Array(9).fill(0), ty: Array(9).fill(0) };
+  for (const [u, v] of [[0, 0], [0.5, 0.5], [0.31, 0.77], [1, 1]]) {
+    const [x, y] = meshPoint(u, v, flat);
+    expect(x).toBeCloseTo(u, 9);
+    expect(y).toBeCloseTo(v, 9);
   }
 });
 

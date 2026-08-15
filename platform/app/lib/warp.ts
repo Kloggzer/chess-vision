@@ -209,6 +209,83 @@ export function squareMeshQuad(
   return corners.map(([x, y]) => [x * boardSize, y * boardSize]);
 }
 
+/** Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS` (CropBox.kt). */
+export const MESH_POINT_ITERATIONS = 3;
+
+/** Where a line of `axis` sits at run `t` along it, in field fractions (`pos(t)` of the mesh). */
+function lineAt(mesh: TiltedMesh, axis: "x" | "y", k: number, t: number): number {
+  const o = axis === "x" ? mesh.x : mesh.y;
+  const tilt = axis === "x" ? mesh.tx : mesh.ty;
+  const curv = axis === "x" ? mesh.cx : mesh.cy;
+  const d = t - 0.5;
+  return o[k] + tilt[k] * d + (curv ? curv[k] * d * d : 0);
+}
+
+/**
+ * The point of the MEASURED board that belongs to the ideal one at `(u, v)` — field fractions in,
+ * field fractions out. Inside a cell the two bounding lines are blended linearly; the two axes are
+ * coupled (each line's position depends on the run along it), so the pair is solved by
+ * [MESH_POINT_ITERATIONS] simultaneous evaluations, exactly as a cell corner is.
+ *
+ * This is what makes a whole board come out straight instead of 64 separately straightened cells.
+ */
+export function meshPoint(u: number, v: number, mesh: TiltedMesh): [number, number] {
+  const cu = Math.max(0, Math.min(7, Math.floor(u * 8)));
+  const cv = Math.max(0, Math.min(7, Math.floor(v * 8)));
+  const fu = u * 8 - cu;
+  const fv = v * 8 - cv;
+  let x = u;
+  let y = v;
+  for (let i = 0; i < MESH_POINT_ITERATIONS; i++) {
+    x = lineAt(mesh, "x", cu, y) * (1 - fu) + lineAt(mesh, "x", cu + 1, y) * fu;
+    y = lineAt(mesh, "y", cv, x) * (1 - fv) + lineAt(mesh, "y", cv + 1, x) * fv;
+  }
+  return [x, y];
+}
+
+/**
+ * `sampleBox` through the mesh: every destination pixel is the ideal board point, looked up where
+ * the board's own lines say it actually is. One extra solve per pixel, no lookup table — a board
+ * PNG is served once per frame, not per crop.
+ */
+export function sampleBoxMesh(
+  src: Raster,
+  h: Mat3,
+  box: { x0: number; y0: number; x1: number; y1: number },
+  mesh: TiltedMesh,
+  boardSize: number,
+  outW: number,
+  outH: number,
+): Buffer {
+  const out = Buffer.alloc(outW * outH * 3);
+  const { data, width, height, channels } = src;
+  for (let j = 0; j < outH; j++) {
+    const by = box.y0 + ((j + 0.5) / outH) * (box.y1 - box.y0);
+    for (let i = 0; i < outW; i++) {
+      const bx = box.x0 + ((i + 0.5) / outW) * (box.x1 - box.x0);
+      const [mx, my] = meshPoint(bx / boardSize, by / boardSize, mesh);
+      const [fx, fy] = applyMat(h, mx * boardSize, my * boardSize);
+      if (fx < 0 || fy < 0 || fx > width - 1 || fy > height - 1) continue;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const x1 = Math.min(x0 + 1, width - 1);
+      const y1 = Math.min(y0 + 1, height - 1);
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const o = (j * outW + i) * 3;
+      for (let c = 0; c < 3; c++) {
+        const p00 = data[(y0 * width + x0) * channels + c];
+        const p10 = data[(y0 * width + x1) * channels + c];
+        const p01 = data[(y1 * width + x0) * channels + c];
+        const p11 = data[(y1 * width + x1) * channels + c];
+        out[o + c] =
+          (p00 * (1 - tx) + p10 * tx) * (1 - ty) + (p01 * (1 - tx) + p11 * tx) * ty + 0.5;
+      }
+    }
+  }
+  return out;
+}
+
 export type Raster = { data: Buffer | Uint8Array; width: number; height: number; channels: number };
 
 /**

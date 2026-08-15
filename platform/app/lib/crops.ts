@@ -17,6 +17,7 @@ import {
   boardToImage,
   type Raster,
   sampleBox,
+  sampleBoxMesh,
   sampleQuad,
   squareCropBox,
   squareMeshBox,
@@ -118,11 +119,22 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   return out;
 }
 
-/** The whole playing field, rectified — the drilldown's canvas and the tinder thumbnail. */
+/**
+ * The whole playing field, rectified — the drilldown's canvas and the tinder thumbnail. With a
+ * mesh the field is pulled straight GLOBALLY (`sampleBoxMesh`): every pixel is looked up where
+ * the board's own lines say it sits, so the grooves come out straight instead of 64 cells being
+ * straightened one by one. Without one, the plain quad warp, unchanged.
+ */
 export async function boardPng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
   const box = { x0: 0, y0: 0, x1: session.boardSize, y1: session.boardSize };
-  const rgb = sampleBox(await frameRaster(name, stem), homographyFor(session, stem), box, size, size);
+  const h = homographyFor(session, stem);
+  const raster = await frameRaster(name, stem);
+  const mesh = session.byStem.get(stem)?.mesh;
+  const rgb =
+    mesh?.tx && mesh.ty
+      ? sampleBoxMesh(raster, h, box, mesh as TiltedMesh, session.boardSize, size, size)
+      : sampleBox(raster, h, box, size, size);
   return png(rgb, size, size);
 }
 
