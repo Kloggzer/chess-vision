@@ -154,8 +154,6 @@ export type LaneCell = {
   note?: string;
 };
 
-const p2 = (n: number) => n.toFixed(2);
-
 /**
  * The identity lanes ask the human to rule on a MODEL's word, so the one-key verdict is "FEN
  * stimmt" and the model's read costs a click: ~51 % of the flags are false alarms (Northcutt 2021,
@@ -179,31 +177,61 @@ function judgedCell(c: {
   };
 }
 
-/** The cells of a cell lane, grouped by square inside each session. Empty for a board lane. */
+/**
+ * Eine Behauptung pro Seite, wie im Audit: FEN-Gruppe → Modell-Wort, größte zuerst. Innerhalb der
+ * Untergruppe Feld+Frame statt Score — Score-Ordnung verstreute die sechs Crops eines Feldes über
+ * sechs Seiten („ich sehe immer noch alte Bilder", 2026-08-09), und DIE Lektion bleibt.
+ */
+function byClaim(cells: LaneCell[]): LaneCell[] {
+  const group = new Map<string, number>();
+  const sub = new Map<string, number>();
+  for (const c of cells) {
+    group.set(c.fen_label, (group.get(c.fen_label) ?? 0) + 1);
+    const key = `${c.fen_label}|${c.exception ?? ""}`;
+    sub.set(key, (sub.get(key) ?? 0) + 1);
+  }
+  return [...cells].sort(
+    (a, b) =>
+      (group.get(b.fen_label) ?? 0) - (group.get(a.fen_label) ?? 0) ||
+      a.fen_label.localeCompare(b.fen_label) ||
+      (sub.get(`${b.fen_label}|${b.exception ?? ""}`) ?? 0) - (sub.get(`${a.fen_label}|${a.exception ?? ""}`) ?? 0) ||
+      (a.exception ?? "").localeCompare(b.exception ?? "") ||
+      a.square.localeCompare(b.square) ||
+      a.stem.localeCompare(b.stem),
+  );
+}
+
+/** The cells of a cell lane, one claim per page. Empty for a board lane. */
 export function laneCells(stream: LabelStream, id: LaneId): LaneCell[] {
   if (id === "audit") {
     return (stream.audit ?? []).map(judgedCell);
   }
   if (id === "classwall") {
-    return groupBySquare(
-      stream.cells.filter((c) => c.kind === "wall"),
-    ).map((c) => judgedCell({ ...c, predicted: c.predicted ?? "", prob: c.prob ?? 0 }));
+    return byClaim(
+      groupBySquare(stream.cells.filter((c) => c.kind === "wall")).map((c) =>
+        judgedCell({ ...c, predicted: c.predicted ?? "", prob: c.prob ?? 0 }),
+      ),
+    );
   }
   const kind = id === "unsure" ? "unsure" : id === "control" ? "control" : null;
   if (kind === null) return [];
-  return groupBySquare(stream.cells.filter((c) => c.kind === kind)).map((c) => ({
-    session: c.session,
-    pos: c.pos,
-    stem: c.stem,
-    square: c.square,
-    fen_label: c.fen_label,
-    // The mid band pre-labels `occluded`; the control sample states the FEN was right, which is
-    // provenance and not a training row (`lib/corrections.ts`).
-    label: kind === "unsure" ? "occluded" : c.fen_label,
-    ledger: kind === "unsure" ? "corrections" : "reviewed",
-    exception: null,
-    caption: `${c.square} ${p2(c.score)}`,
-  }));
+  return byClaim(
+    groupBySquare(stream.cells.filter((c) => c.kind === kind)).map((c) => ({
+      session: c.session,
+      pos: c.pos,
+      stem: c.stem,
+      square: c.square,
+      fen_label: c.fen_label,
+      // EIN ⏎ überall: „FEN stimmt" → reviewed. Die alte Unsicher-Vorbelegung `occluded` schrieb
+      // Trainings-Zeilen, während der Nutzer im Audit-Muster bestätigte — etliche Seiten falsch
+      // (2026-08-15). occluded ist jetzt überall die Rechtsklick-/Pinsel-Antwort, nie der Default.
+      label: c.fen_label,
+      ledger: "reviewed",
+      exception: c.predicted ?? null,
+      caption: `${c.square} · FEN ${c.fen_label}`,
+      ...(c.predicted ? { note: `Modell ${c.predicted}` } : {}),
+    })),
+  );
 }
 
 /** The boards of a board lane, in stream order. Empty for a cell lane. */

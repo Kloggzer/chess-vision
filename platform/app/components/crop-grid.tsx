@@ -43,14 +43,15 @@ export type CropGridProps = {
   wrong?: Set<number>;
   /** Rechtsklick, wo eine Lane ihm eine zweite Antwort gibt (Audit: „das Modell hat recht"). */
   onContextPick?: (index: number) => void;
-  /** Wischen wie mit dem Brett-Pinsel: SETZT den Zustand jeder berührten Zelle, kein Toggle. */
-  onSweep?: (index: number, mode: "left" | "right") => void;
+  /** Wischen wie mit dem Brett-Pinsel: SETZT jede berührte Zelle — oder LÖSCHT, wenn der Wisch
+   *  auf einer schon so markierten Zelle beginnt (der Radierer des Pinsels, 2026-08-15). */
+  onSweep?: (index: number, mode: "left" | "right", erase: boolean) => void;
   /** How many columns `auto-fill` chose — up/down must move by the row the user actually sees. */
   onColumns?: (cols: number) => void;
 };
 
 export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, onSweep, onColumns }: CropGridProps) {
-  const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean } | null>(null);
+  const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
   // The column count is the BROWSER's answer, not ours: `auto-fill` decides it from the width.
@@ -99,7 +100,9 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
             onSweep
               ? (event) => {
                   if (event.button !== 0 && event.button !== 2) return;
-                  painting.current = { mode: event.button === 2 ? "right" : "left", start: i, dragged: false };
+                  const mode = event.button === 2 ? "right" : "left";
+                  const erase = mode === "right" ? marked.has(i) : (wrong?.has(i) ?? false);
+                  painting.current = { mode, start: i, dragged: false, erase };
                 }
               : undefined
           }
@@ -110,9 +113,9 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
                   if (!p) return;
                   if (!p.dragged) {
                     p.dragged = true;
-                    onSweep(p.start, p.mode);
+                    onSweep(p.start, p.mode, p.erase);
                   }
-                  onSweep(i, p.mode);
+                  onSweep(i, p.mode, p.erase);
                 }
               : undefined
           }
@@ -133,7 +136,8 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
         >
           <Image
             alt={cell.alt}
-            className="h-auto w-full"
+            className="pointer-events-none h-auto w-full"
+            draggable={false}
             height={CROP}
             src={cell.src}
             unoptimized

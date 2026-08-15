@@ -148,8 +148,10 @@ test("the FEN-unklar lane pre-selects the FEN's own word, which is what rescues 
 });
 
 test("a cell lane carries its own pre-label and ledger, and the identity lanes never write the model by default", () => {
+  // EIN ⏎ überall: die alte occluded-Vorbelegung des Mittelbands schrieb Trainings-Zeilen,
+  // während im Audit-Muster bestätigt wurde — 615 Fehl-Zeilen am 2026-08-15. Nur noch reviewed.
   const unsure = laneCells(streamOf({ cells: [cell()] }), "unsure")[0];
-  expect(unsure).toMatchObject({ label: "occluded", ledger: "corrections", exception: null });
+  expect(unsure).toMatchObject({ label: "bP", ledger: "reviewed", exception: null });
 
   const control = laneCells(streamOf({ cells: [cell({ kind: "control" })] }), "control")[0];
   expect(control).toMatchObject({ label: "bP", ledger: "reviewed" });

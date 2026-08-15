@@ -30,6 +30,8 @@ const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
 export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlush }: CellLaneProps) {
   const [marked, setMarked] = useState<Set<number>>(new Set());
   const [wrong, setWrong] = useState<Set<number>>(new Set());
+  /** Ein Batch pro ⏎/⌫ — „← zurück" holt seine UNBESCHRIEBENEN Zellen wieder an ihre Position. */
+  const [trail, setTrail] = useState<string[][]>([]);
   const [cursor, setCursor] = useState(0);
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
@@ -93,6 +95,7 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     ];
     await onFlush(slice[0].pos, writes, priorOf(slice));
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
+    setTrail((t) => [...t, slice.map(keyOf)]);
     setMarked(new Set());
     setWrong(new Set());
     setCursor(0);
@@ -101,10 +104,25 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
+    setTrail((t) => [...t, slice.map(keyOf)]);
     setMarked(new Set());
     setWrong(new Set());
     setCursor(0);
   }, [slice]);
+
+  /** Geschriebenes bleibt geschrieben (dafür ist `z` da); nur Offenes kommt zurück in den Blick. */
+  const back = useCallback(() => {
+    const last = trail[trail.length - 1];
+    if (last) {
+      setTrail((t) => t.slice(0, -1));
+      setSkipped((s) => new Set([...s].filter((k) => !last.includes(k))));
+      setMarked(new Set());
+      setWrong(new Set());
+      setCursor(0);
+    } else if (safePage > 0) {
+      setPage(safePage - 1);
+    }
+  }, [safePage, trail]);
 
   /** A palette key states the label for every marked cell, straight into the training input. */
   const brush = useCallback(
@@ -193,6 +211,15 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
           {marked.size > 0 ? ` · ${marked.size}× Modell` : ""}
           {wrong.size > 0 ? ` · ${wrong.size} offen lassen` : ""}
         </Button>
+        <Button
+          className={TOUCH}
+          disabled={trail.length === 0 && safePage === 0}
+          onClick={back}
+          size="sm"
+          variant="outline"
+        >
+          ← zurück
+        </Button>
         <Button className={TOUCH} disabled={safePage + 1 >= pages} onClick={() => setPage(safePage + 1)} size="sm" variant="outline">
           Seite überspringen
         </Button>
@@ -216,23 +243,22 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
           setCursor(i);
           toggleWrong(i);
         }}
-        onSweep={(i, mode) => {
+        onSweep={(i, mode, erase) => {
           setCursor(i);
-          if (mode === "left") {
-            setWrong((w) => new Set(w).add(i));
-            setMarked((m) => {
-              const next = new Set(m);
+          const target = mode === "left" ? setWrong : setMarked;
+          const other = mode === "left" ? setMarked : setWrong;
+          target((s) => {
+            const next = new Set(s);
+            if (erase) next.delete(i);
+            else next.add(i);
+            return next;
+          });
+          if (!erase)
+            other((s) => {
+              const next = new Set(s);
               next.delete(i);
               return next;
             });
-          } else {
-            setMarked((m) => new Set(m).add(i));
-            setWrong((w) => {
-              const next = new Set(w);
-              next.delete(i);
-              return next;
-            });
-          }
         }}
         wrong={wrong}
       />

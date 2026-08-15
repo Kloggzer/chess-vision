@@ -270,7 +270,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
       const kind = kinds.get(`${row.frame}|${row.square}`);
       const board = byStem.get(row.frame);
       if (!kind || !board) continue;
-      const wall = walls.get(`${row.frame}|${row.square}`);
+      // Auch die Unsicher-/Stichproben-Zellen tragen die Modell-Lesart, seit alle Dateien probs
+      // haben — „hier sehe ich nicht was das modell sagt, also kann ich ihm auch nicht recht
+      // geben" (2026-08-15).
+      const read = walls.get(`${row.frame}|${row.square}`) ?? topRead(row);
       cells.push({
         session: index,
         pos: board.pos,
@@ -279,7 +282,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
         fen_label: row.fen_label,
         score: row.score,
         kind,
-        ...(wall ? { predicted: wall.label, prob: wall.p } : {}),
+        ...(read ? { predicted: read.label, prob: read.p } : {}),
       });
     }
     bySession.set(id, { index, byStem });

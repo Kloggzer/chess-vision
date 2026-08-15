@@ -10,7 +10,9 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
+import { sessionDir } from "@/lib/chain";
 import { framePath, loadSession, type Session } from "@/lib/session";
+import path from "node:path";
 import { boardToImage, sampleBox, squareCropBox, type Raster } from "@/lib/warp";
 
 /**
@@ -66,8 +68,13 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__
 
 /** One square, cut with the profile's crop box (pad_side/pad_up), as the CNN would see it. */
 export async function cellPng(name: string, stem: string, square: string, size: number) {
-  const mtime = await stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0);
-  const key = `${name}|${stem}|${square}|${size}|${mtime}`;
+  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Frame-Datei — ein Schlüssel nur
+  // über das Frame servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15).
+  const [frameM, logM] = await Promise.all([
+    stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0),
+    stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
+  ]);
+  const key = `${name}|${stem}|${square}|${size}|${frameM}|${logM}`;
   const hit = cellPngs.get(key);
   if (hit) {
     cellPngs.delete(key);
