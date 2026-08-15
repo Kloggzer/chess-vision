@@ -95,6 +95,33 @@ export const MESH_TILT_LIMIT = 0.05;
 /** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
 export const MESH_CURV_LIMIT = 0.08;
 
+/** 9 finite, strictly increasing numbers — anything else reads as "no mesh", never as an error. */
+const meshAxis = (axis: unknown): axis is number[] =>
+  Array.isArray(axis) &&
+  axis.length === 9 &&
+  axis.every((v, i) => Number.isFinite(v) && (i === 0 || v > (axis[i - 1] as number)));
+
+/** 9 finite values under a shared limit; malformed drops ONE stage, never half an axis pair. */
+const boundedAxis = (axis: unknown, limit: number): axis is number[] =>
+  Array.isArray(axis) && axis.length === 9 && axis.every((v) => Number.isFinite(v) && Math.abs(v) < limit);
+
+/**
+ * `grid_lines` (a sidecar's or a session row's) -> the strongest stage it carries: curved, tilted,
+ * scalar, or nothing. Additive by construction, so a malformed pair costs exactly one stage and a
+ * bad file can never take a page down. Twins: `mesh_from_lines` (calibration.py), `meshOrNull`
+ * (LabeledVideoPack.kt).
+ */
+export function meshFromLines(lines: unknown): GridMesh | undefined {
+  const l = lines as Partial<GridMesh> | null | undefined;
+  if (!l || !meshAxis(l.x) || !meshAxis(l.y)) return undefined;
+  if (!boundedAxis(l.tx, MESH_TILT_LIMIT) || !boundedAxis(l.ty, MESH_TILT_LIMIT)) {
+    return { x: l.x, y: l.y };
+  }
+  const mesh: GridMesh = { x: l.x, y: l.y, tx: l.tx, ty: l.ty };
+  if (!boundedAxis(l.cx, MESH_CURV_LIMIT) || !boundedAxis(l.cy, MESH_CURV_LIMIT)) return mesh;
+  return { ...mesh, cx: l.cx, cy: l.cy };
+}
+
 /**
  * 'e4' -> the crop box cut at the square's four neighbour-line intersections — the mesh cut.
  * Pads scale with the square's own measured cell. Parity twin: `meshCropBoxExact` (CropBox.kt),

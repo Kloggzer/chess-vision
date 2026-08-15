@@ -13,7 +13,16 @@ import sharp from "sharp";
 import { sessionDir } from "@/lib/chain";
 import { framePath, loadSession, type Session } from "@/lib/session";
 import path from "node:path";
-import { boardToImage, sampleBox, squareCropBox, type Raster } from "@/lib/warp";
+import {
+  boardToImage,
+  type Raster,
+  sampleBox,
+  sampleQuad,
+  squareCropBox,
+  squareMeshBox,
+  squareMeshQuad,
+  type TiltedMesh,
+} from "@/lib/warp";
 
 /**
  * A decoded 1080p frame is 6 MB and its PNG costs ~0.25 s to inflate; a page of the bucket grid
@@ -57,6 +66,26 @@ function homographyFor(session: Session, stem: string) {
 }
 
 /**
+ * One square out of one frame, at the board's OWN boundaries when the row carries them: the
+ * cell's perspective quad with tilts (curved corners with the parabola term), its scalar
+ * rectangle with offsets alone, the nominal box without a mesh. The same ladder `storedCellPng`
+ * walks and `crop_square` (labeling.py) cuts the training crop with — the label view has to show
+ * the crop the model will get, not a differently framed one.
+ */
+function cellRgb(session: Session, stem: string, square: string, raster: Raster, size: number) {
+  const h = homographyFor(session, stem);
+  const mesh = session.byStem.get(stem)?.mesh;
+  if (mesh?.tx && mesh.ty) {
+    const quad = squareMeshQuad(square, session.boardSize, mesh as TiltedMesh, session.crop, session.whitePov);
+    return sampleQuad(raster, h, quad, size, size);
+  }
+  const box = mesh
+    ? squareMeshBox(square, session.boardSize, mesh, session.crop, session.whitePov)
+    : squareCropBox(square, session.boardSize, session.crop, session.whitePov);
+  return sampleBox(raster, h, box, size, size);
+}
+
+/**
  * Fertige Zell-PNGs, LRU über Sitzungsgrenzen: die Audit-Sortierung streut eine Seite über ~50
  * VERSCHIEDENE Frames, der 24er-Raster-Cache thrashte zu 100 % und jede Zelle zahlte den vollen
  * Frame-Decode („der cache aufm server ist zu klein", 2026-08-15). mtime im Schlüssel hält einen
@@ -82,8 +111,7 @@ export async function cellPng(name: string, stem: string, square: string, size: 
     return hit;
   }
   const session = await loadSession(name);
-  const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
-  const rgb = sampleBox(await frameRaster(name, stem), homographyFor(session, stem), box, size, size);
+  const rgb = cellRgb(session, stem, square, await frameRaster(name, stem), size);
   const out = await png(rgb, size, size);
   cellPngs.set(key, out);
   if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
@@ -112,10 +140,11 @@ export async function medianPng(name: string, stem: string, square: string, size
   const step = Math.max(1, Math.floor(stems.length / SAMPLES));
   const picked = stems.filter((_, i) => i % step === 0).slice(0, SAMPLES);
 
-  const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
+  // Each sample through ITS OWN mesh: the frames of one interval are cut to the same cell, so the
+  // median stacks the same square and not a slowly sliding one.
   const stack: Buffer[] = [];
   for (const s of picked) {
-    stack.push(sampleBox(await frameRaster(name, s), homographyFor(session, s), box, size, size));
+    stack.push(cellRgb(session, s, square, await frameRaster(name, s), size));
   }
   const out = Buffer.alloc(size * size * 3);
   const lane: number[] = [];

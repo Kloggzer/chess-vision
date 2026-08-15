@@ -87,3 +87,22 @@ test("the last ply has no closing commit, so its interval never reads `before`",
   // An open interval must not print "Infinity s" at the labeler.
   expect(Number.isFinite(last.toS)).toBe(false);
 });
+
+test("a row's grid_lines travel with it, at the stage they hold up to", async () => {
+  const axis = [...Array(9)].map((_, k) => k / 8);
+  const lines = { x: axis, y: axis, tx: Array(9).fill(0.01), ty: Array(9).fill(0) };
+  await write(
+    log(
+      row(110, { grid_lines: { ...lines, cx: Array(9).fill(0.02), cy: Array(9).fill(0) } }),
+      // Tilts over the limit: the row keeps its offsets and loses the stage, never half of it.
+      row(120, { grid_lines: { ...lines, tx: Array(9).fill(0.9) } }),
+      row(130),
+    ),
+  );
+  const { byStem } = await loadSession("g");
+
+  expect(byStem.get("000110")!.mesh!.cx).toEqual(Array(9).fill(0.02));
+  expect(byStem.get("000120")!.mesh!.tx).toBeUndefined();
+  expect(byStem.get("000120")!.mesh!.x).toEqual(axis);
+  expect(byStem.get("000130")!.mesh).toBeUndefined();
+});

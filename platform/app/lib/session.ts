@@ -8,7 +8,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir, loadCandidate } from "@/lib/data";
-import type { CropParams } from "@/lib/warp";
+import { type CropParams, type GridMesh, meshFromLines } from "@/lib/warp";
 
 /**
  * Where a frame sits between the two commits that bound its interval — the labeling context.
@@ -41,6 +41,8 @@ export type SessionRow = {
   toS: number;
   /** Squares the exporter refuses to vouch for on this frame (the next move's footprint). */
   unknown: string[];
+  /** The frame's 18 measured grid lines, when `session fit-mesh` could put them there. */
+  mesh?: GridMesh;
 };
 export type Session = {
   name: string;
@@ -95,6 +97,7 @@ export async function loadSession(name: string): Promise<Session> {
       corners: number[][];
       dirty?: boolean;
       unknown_squares?: string[];
+      grid_lines?: unknown;
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -112,6 +115,7 @@ export async function loadSession(name: string): Promise<Session> {
       sinceS: since / fps,
       toS: to / fps,
       unknown: row.unknown_squares ?? [],
+      mesh: meshFromLines(row.grid_lines),
     });
   }
   const geometry = candidate.geometry ?? {};

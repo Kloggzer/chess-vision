@@ -12,8 +12,7 @@ import { unusableBoards } from "@/lib/review-notes";
 import {
   boardToImage,
   type GridMesh,
-  MESH_CURV_LIMIT,
-  MESH_TILT_LIMIT,
+  meshFromLines,
   type Raster,
   sampleBox,
   sampleQuad,
@@ -114,16 +113,6 @@ export async function storedFit(dir: string): Promise<QuadFit | null> {
   return value;
 }
 
-/** 9 finite, strictly increasing numbers — anything else reads as "no mesh", never as an error. */
-const meshAxis = (axis: unknown): axis is number[] =>
-  Array.isArray(axis) &&
-  axis.length === 9 &&
-  axis.every((v, i) => Number.isFinite(v) && (i === 0 || v > (axis[i - 1] as number)));
-
-/** 9 finite values under a shared limit; malformed drops ONE stage, never half an axis pair. */
-const boundedAxis = (axis: unknown, limit: number): axis is number[] =>
-  Array.isArray(axis) && axis.length === 9 && axis.every((v) => Number.isFinite(v) && Math.abs(v) < limit);
-
 /**
  * The quad a stored frame is cut with: the fitted PLAYING FIELD when the sidecar carries it,
  * else the logged marker quad and its outset. The margin comes from the FILE — the fitted corners
@@ -132,18 +121,9 @@ const boundedAxis = (axis: unknown, limit: number): axis is number[] =>
 export function storedQuad(fit: QuadFit | null, row: StoredRow): StoredQuad {
   const frame = fit?.frames?.[row.stem];
   if (!fit || !frame) return { corners: row.corners, margin: MARKER_MARGIN, fitted: false };
-  const lines = frame.grid_lines;
-  if (!lines || !meshAxis(lines.x) || !meshAxis(lines.y)) {
-    return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px };
-  }
-  let mesh: GridMesh = { x: lines.x, y: lines.y };
-  if (boundedAxis(lines.tx, MESH_TILT_LIMIT) && boundedAxis(lines.ty, MESH_TILT_LIMIT)) {
-    mesh = { ...mesh, tx: lines.tx, ty: lines.ty };
-    if (boundedAxis(lines.cx, MESH_CURV_LIMIT) && boundedAxis(lines.cy, MESH_CURV_LIMIT)) {
-      mesh = { ...mesh, cx: lines.cx, cy: lines.cy };
-    }
-  }
-  return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px, mesh };
+  const mesh = meshFromLines(frame.grid_lines);
+  return { corners: frame.corners, margin: fit.margin, fitted: true,
+           worstPx: frame.align_worst_px, ...(mesh ? { mesh } : {}) };
 }
 
 /** The crop composition every pack of these sessions cuts with (`manifestRow`, LabeledVideoPack.kt). */

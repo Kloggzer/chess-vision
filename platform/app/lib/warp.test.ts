@@ -5,6 +5,7 @@ import { fenLabels } from "@/lib/fen";
 import {
   boardToImage,
   type GridMesh,
+  meshFromLines,
   squareColRow,
   squareCropBox,
   squareMeshBox,
@@ -147,6 +148,19 @@ test("the nominal mesh reproduces squareCropBox", () => {
       expect(got[key], `${square}.${key}`).toBeCloseTo(want[key], 9);
     }
   }
+});
+
+test("meshFromLines drops one stage per defect", () => {
+  const m = MESH_FIXTURE.mesh;
+  expect(meshFromLines(m)!.cx).toEqual(m.cx);
+  // Over its limit, so the curvature pair goes and the tilts stay.
+  expect(meshFromLines({ ...m, cx: Array(9).fill(0.2) })!.cx).toBeUndefined();
+  expect(meshFromLines({ ...m, cx: Array(9).fill(0.2) })!.tx).toEqual(m.tx);
+  expect(meshFromLines({ ...m, tx: Array(9).fill(0.9) })!.tx).toBeUndefined();
+  expect(meshFromLines({ ...m, ty: m.ty.slice(0, 8) })!.ty).toBeUndefined();
+  expect(meshFromLines({ ...m, x: [...m.x].reverse() })).toBeUndefined();
+  expect(meshFromLines({ ...m, y: m.y.map(String) })).toBeUndefined();
+  expect(meshFromLines(undefined)).toBeUndefined();
 });
 
 test("fen labels cover all 64 squares", () => {
