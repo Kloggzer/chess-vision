@@ -26,6 +26,14 @@
   neu ableiten oder parken (nie löschen), (3) Dataset als NEUEN Snapshot bauen (real14-all-80-v2,
   Datasets sind Snapshots), (4) Retrain mit Veto-Metrik als Entscheider. Passt zeitlich zum
   ohnehin geplanten Low-Light-Retrain — ein Rebuild, beide Gründe.
+  **Stand 2026-08-15 nachmittags — (1) und (2) sind ERLEDIGT, (3)/(4) sind die Zündschnur:**
+  alle 27 Stored-Sessions gefittet (521 Frames, 0 failed, align_worst_px max 35→3,3), die 6 Packs
+  als `phone-stored-<id>-80-v2` neu gepackt (packed_meta: quad_source=grid-fit, 100 %), die 637
+  phone-Hard-Empties geparkt (`data/_parked/hard_empty-phone-marker-quads-20260815.jsonl`,
+  Voll-Backup daneben; Neu-Mining braucht einen GPU-Eval-Lauf). Build (3): v1-Konfiguration aus
+  `data/datasets/real14-all-80-v1/dataset.yaml` übernehmen, Name v2 — OFFEN: die v2-Packs tragen
+  dieselben `phone-<id>`-session_ids wie die alten Packs; vor dem Build sicherstellen, dass der
+  Resolver die `-80-v2`-Verzeichnisse zieht (alte Packs parken oder Quelle explizit angeben).
 
 - **Datensatz-Qualität per Zwei-Hälften-Kreuztest** (User, 2026-08-15: *"2 halbe Modelle die die
   andere Hälfte testen, dann die Flags nochmal nachlabeln"*). Korpus in zwei Session-Hälften
