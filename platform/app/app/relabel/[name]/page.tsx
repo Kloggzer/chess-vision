@@ -4,6 +4,7 @@ import { judgedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
 import { classesSeen, framesMatching, loadProposals, proposalKey, splitStreams } from "@/lib/proposals";
+import { boardProgress, loadProposalSummary } from "@/lib/proposal-summaries";
 import { DEFAULT_CLASS, DEFAULT_MIN } from "./filter";
 import { loadSession, sessionId } from "@/lib/session";
 import { Streams } from "./streams";
@@ -52,6 +53,12 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
     };
   });
   const done = rows.filter((r) => decided.has(proposalKey(r))).length;
+  // Bretter sind die Einheit, die ein Mensch abarbeitet; die Zellen stehen daneben (CONCEPT.md 6.2).
+  // Diese Seite liest die Zeilen ohnehin für die Arbeit selbst, also zählen SIE — der Sidecar sagt
+  // hier nur noch, woher die Zellenzahl kam.
+  const summary = await loadProposalSummary(name);
+  const seen = boardProgress(rows.map((r) => r.frame), decided.keys());
+  const boards = seen.boards;
 
   // The hand-painting queue: every board with HAND-SHAPED suspicion, CHRONOLOGICAL — a hand
   // moves gradually, so painting in time order is one continuous gesture per hand, not a
@@ -96,8 +103,18 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
           </Badge>
         </h1>
         <p className="text-muted-foreground text-sm">
-          {rows.length} proposals, {done} already in corrections.jsonl · thresholds hi{" "}
-          <strong className="text-foreground">{thresholds.hi}</strong> / lo{" "}
+          <strong className="text-foreground">{seen.done}</strong>/{boards} Bretter bearbeitet ·{" "}
+          <span
+            title={
+              summary.read === "sidecar"
+                ? "aus occluded-proposals.summary.json"
+                : "aus occluded-proposals.jsonl nachgezählt — der Producer hat hier noch keine summary.json geschrieben"
+            }
+          >
+            {done}/{rows.length} Zellen entschieden
+            {summary.read === "fallback" ? " (nachgezählt)" : ""}
+          </span>{" "}
+          · thresholds hi <strong className="text-foreground">{thresholds.hi}</strong> / lo{" "}
           <strong className="text-foreground">{thresholds.lo}</strong>
           {thresholds.declared ? "" : " (defaults — the file declared none)"} · session{" "}
           <code>{session.sessionId}</code>, board {session.boardSize} px, pad_side{" "}
@@ -112,6 +129,8 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
         </p>
       ) : (
         <Streams
+          boards={boards}
+          boardsDone={seen.done}
           decided={Object.fromEntries(decided)}
           filter={{
             classes: classesSeen(rows),

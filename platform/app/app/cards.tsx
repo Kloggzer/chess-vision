@@ -22,9 +22,16 @@ export type GameInfo = {
   reviewed: number;
   /** Mainline length of `reference.pgn`, or null — no reference on disk. */
   pgnPlies: number | null;
-  total: number;
-  done: number;
+  /** Boards with proposals and how many carry a human verdict — the primary figure (CONCEPT.md 6.2). */
+  boards: number;
+  boardsDone: number;
+  /** The same in cells, second line: it moves with the producer's thresholds, a board does not. */
+  cells: number;
+  /** `null` when the sidecar answered: it carries counts, and this figure needs the cell keys. */
+  cellsDone: number | null;
   source: "pack" | "fixture" | "none";
+  /** Where the board total came from — `fallback` means the sidecar is missing and we counted. */
+  read: "sidecar" | "fallback" | "none";
   /** Where this game sits on the label → confirm → export → propose → relabel ladder. */
   chain: ChainState;
   /** The last job this game ran, so a reload still shows what failed and what answers it. */
@@ -55,6 +62,39 @@ function UselessCard({ game }: { game: GameInfo }) {
         <UselessButton flagged name={game.name} />
       </span>
     </li>
+  );
+}
+
+/**
+ * Bretter oben, Zellen klein darunter — die 57,9-%-Zahl statt der 8,3-%-Zahl (CONCEPT.md 6.2).
+ *
+ * Jede Zahl trägt ihre Einheit: ein nackter Mischwert aus Brettern und Zellen ist genau der
+ * Fehler, den D1 diagnostiziert.
+ */
+function BoardProgress({ game }: { game: GameInfo }) {
+  const pct = Math.round((game.boardsDone / game.boards) * 100);
+  return (
+    <>
+      <span className="text-muted-foreground flex flex-col leading-tight">
+        <span>
+          {game.boardsDone}/{game.boards} Bretter · {pct} %
+        </span>
+        <span
+          className="text-[11px]"
+          title={
+            game.read === "fallback"
+              ? "aus occluded-proposals.jsonl gezählt — der Producer hat noch keine summary.json geschrieben"
+              : "aus occluded-proposals.summary.json — entschiedene Zellen stehen dort nicht drin, Bretter schon"
+          }
+        >
+          {game.cellsDone === null ? game.cells : `${game.cellsDone}/${game.cells}`} Zellen
+          {game.read === "fallback" ? " · nachgezählt" : ""}
+        </span>
+      </span>
+      <span className="bg-muted h-1.5 w-28 overflow-hidden rounded">
+        <span className="bg-primary block h-full" style={{ width: `${pct}%` }} />
+      </span>
+    </>
   );
 }
 
@@ -115,7 +155,7 @@ export function GameCard({ game }: { game: GameInfo }) {
           confirm
         </Link>
       ) : null}
-      {game.total > 0 && game.chain.step !== "relabel" ? (
+      {game.cells > 0 && game.chain.step !== "relabel" ? (
         <Link className="text-muted-foreground text-xs underline underline-offset-4" href={`/relabel/${game.name}`}>
           relabel
         </Link>
@@ -125,19 +165,7 @@ export function GameCard({ game }: { game: GameInfo }) {
         {game.confirmed ? `bestätigt (${game.reviewed} reviewed)` : "unbestätigt"} ·{" "}
         {game.pgnPlies !== null ? `PGN ✓ ${game.pgnPlies}` : "kein PGN"}
       </span>
-      {game.total > 0 ? (
-        <>
-          <span className="text-muted-foreground">
-            {game.done}/{game.total}
-          </span>
-          <span className="bg-muted h-1.5 w-28 overflow-hidden rounded">
-            <span
-              className="bg-primary block h-full"
-              style={{ width: `${Math.round((game.done / game.total) * 100)}%` }}
-            />
-          </span>
-        </>
-      ) : null}
+      {game.boards > 0 ? <BoardProgress game={game} /> : null}
       {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
       {note ? <Badge variant="destructive">{note}</Badge> : null}
       <span className="text-muted-foreground ml-auto flex items-center gap-3 text-xs">

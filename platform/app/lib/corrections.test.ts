@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
@@ -82,6 +82,25 @@ test("a review row is recorded, but never in the training input", async () => {
   // But the work is on the record, and the views read both.
   expect(await decidedKeys("rg-g", "reviewed")).toEqual(new Map([["000030|e4", "wP"]]));
   expect(await judgedKeys("rg-g")).toEqual(new Map([["000030|e4", "wP"]]));
+});
+
+test("the ledger cache follows the file: a foreign append is seen, an unchanged file is not re-split", async () => {
+  // Python and a second tab write this file too, so the cache may only be keyed on the file's own
+  // mtime and size — never on "we last wrote it".
+  await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }]);
+  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("wP");
+
+  await appendFile(
+    correctionsPath(),
+    '{"session_id": "rg-g", "frame": "000030", "square": "e4", "label": "occluded", "ts": "2026-08-15T00:00:00+00:00"}\n',
+    "utf8",
+  );
+  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("occluded");
+
+  // A cached map that leaks would be edited by the merge in `judgedKeys` and stay edited.
+  const before = await decidedKeys("rg-g");
+  before.set("000030|e4", "bK");
+  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("occluded");
 });
 
 test("a correction outranks an older review of the same cell", async () => {

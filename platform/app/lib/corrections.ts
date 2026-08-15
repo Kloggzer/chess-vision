@@ -6,7 +6,7 @@
  * The file is a GLOBAL training input (CLAUDE.md) — every row written here changes every later
  * slice, which is why the writer validates instead of trusting the client.
  */
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir } from "@/lib/data";
 
@@ -69,28 +69,52 @@ export async function appendCorrections(rows: Correction[], ledger: Ledger = "co
   const file = ledgerPath(ledger);
   await mkdir(path.dirname(file), { recursive: true });
   await appendFile(file, rows.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
+  // Our own write is the one case an mtime key can miss (same millisecond, and on a coarse clock
+  // the same stamp), so the entry goes rather than being trusted to look stale.
+  ledgers.delete(file);
   return rows.length;
 }
 
-/** `frame|square` of every square this session already has a verdict for — the progress bar. */
-export async function decidedKeys(session_id: string, ledger: Ledger = "corrections"): Promise<Map<string, string>> {
-  const decided = new Map<string, string>();
-  let text = "";
-  try {
-    text = await readFile(ledgerPath(ledger), "utf8");
-  } catch {
-    return decided;
-  }
+/** One session's verdicts, keyed `frame|square` — the whole ledger, split by session once. */
+type BySession = Map<string, Map<string, string>>;
+type LedgerCache = Map<string, { key: string; value: BySession }>;
+/**
+ * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadProposals`.
+ *
+ * `/` asked for this file once per game and split all of it every time — 36 full parses of a
+ * monotonically growing ledger for one page (REVIEW.md S12). The parse is the same; only how often
+ * it runs changed.
+ */
+const ledgers: LedgerCache = ((globalThis as { __chesslabLedgers?: LedgerCache }).__chesslabLedgers ??= new Map());
+
+async function ledgerRows(ledger: Ledger): Promise<BySession> {
+  const file = ledgerPath(ledger);
+  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const hit = ledgers.get(file);
+  if (hit?.key === key) return hit.value;
+
+  const bySession: BySession = new Map();
+  const text = await readFile(file, "utf8").catch(() => "");
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line) as CorrectionRow;
-      if (row.session_id === session_id) decided.set(`${row.frame}|${row.square}`, row.label);
+      const session = bySession.get(row.session_id) ?? new Map<string, string>();
+      session.set(`${row.frame}|${row.square}`, row.label);
+      bySession.set(row.session_id, session);
     } catch {
       /* a half-written line is not a verdict */
     }
   }
-  return decided;
+  ledgers.set(file, { key, value: bySession });
+  return bySession;
+}
+
+/** `frame|square` of every square this session already has a verdict for — the progress bar. */
+export async function decidedKeys(session_id: string, ledger: Ledger = "corrections"): Promise<Map<string, string>> {
+  // A copy: the cached map outlives the request, and a caller that merges into it would edit the
+  // ledger for every later reader.
+  return new Map((await ledgerRows(ledger)).get(session_id) ?? []);
 }
 
 /**

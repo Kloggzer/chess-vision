@@ -11,7 +11,7 @@ export default async function ConfirmQueuePage() {
   return (
     <main className="space-y-4">
       <QueueNav counts={counts} here="confirm" />
-      <h1 className="text-2xl font-semibold">Zu bestätigen ({queues.confirm.length})</h1>
+      <h1 className="text-2xl font-semibold">Zu bestätigen ({queues.confirm.length} Partien)</h1>
       <p className="text-muted-foreground text-sm">
         Jede Partie, deren nächster Schritt <code>confirm</code> ist: der Tracker hat gelesen, ein
         Mensch hat noch nicht geurteilt. Neueste zuerst.

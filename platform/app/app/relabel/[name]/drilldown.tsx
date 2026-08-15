@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { Correction } from "@/lib/corrections";
+import type { Correction, Ledger } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import {
   type BoardPlan,
@@ -31,7 +31,8 @@ export type DrilldownProps = {
   sessionId: string;
   frames: FrameInfo[];
   decided: Record<string, string>;
-  onWritten: (n: number) => void;
+  /** The rows that landed, not their count: the session panel counts BOARDS and labels (§6.1). */
+  onWritten: (rows: Correction[], ledger: Ledger) => void;
   onError: (error: unknown) => void;
   /** Squares the active filter hit on each frame — outlined, so the eye starts where the work is. */
   hits?: Record<string, string[]>;
@@ -151,7 +152,8 @@ export function Drilldown(props: DrilldownProps) {
     async (rows: Correction[]) => {
       if (rows.length === 0) return;
       try {
-        onWritten(await writeRows(rows));
+        await writeRows(rows);
+        onWritten(rows, "corrections");
         const written = Object.fromEntries(rows.map((r) => [r.square, r.label]));
         setSaved((s) => ({ ...s, [rows[0].frame]: { ...s[rows[0].frame], ...written } }));
       } catch (error) {
@@ -295,7 +297,10 @@ export function Drilldown(props: DrilldownProps) {
     const reviewed = what.rejected.map((square) => ({ square, label: base[square] }));
     try {
       await flush(rows(what.corrections));
-      if (reviewed.length > 0) onWritten(await writeRows(rows(reviewed), "reviewed"));
+      if (reviewed.length > 0) {
+        await writeRows(rows(reviewed), "reviewed");
+        onWritten(rows(reviewed), "reviewed");
+      }
       setEdits((e) => ({
         ...e,
         [stem]: {

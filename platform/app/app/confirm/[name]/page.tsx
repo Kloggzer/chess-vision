@@ -70,13 +70,14 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
           </Badge>
           {truth ? (
             <>
-              {moves.length} candidate plies vs {truth.length} in reference.pgn — matched{" "}
-              <strong className="text-foreground">{matched.length}</strong>, unmatched{" "}
-              <strong className="text-foreground">{invented.length}</strong>, missed {missed.length}
+              {moves.length} Halbzüge im Kandidaten vs {truth.length} in reference.pgn — zugeordnet{" "}
+              <strong className="text-foreground">{matched.length}</strong>, offen{" "}
+              <strong className="text-foreground">{invented.length}</strong>, fehlend{" "}
+              {missed.length} Halbzüge
             </>
           ) : (
             <>
-              {moves.length} candidate plies · <strong className="text-foreground">no
+              {moves.length} Halbzüge im Kandidaten · <strong className="text-foreground">no
               reference.pgn</strong> — nothing to compare against, so every ply is yours to judge.
               Drop a PGN at <code>data/realgames/{name}/reference.pgn</code> and reload to get the
               automatic comparison instead.
@@ -93,8 +94,13 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       <ConfirmReview cards={cards} gallery={gallery} name={name} />
 
       <details className="border-border rounded-lg border p-4">
-        <summary className="cursor-pointer text-sm font-medium">
-          missed — reference only ({missed.length})
+        {/* Ohne reference.pgn ist „0 fehlend" eine Behauptung über einen Vergleich, den niemand
+            angestellt hat — dann steht „—" (CONCEPT.md 4.2). */}
+        <summary
+          className="cursor-pointer text-sm font-medium"
+          title={truth ? undefined : "keine reference.pgn — es gibt nichts, wogegen fehlende Halbzüge zählen könnten"}
+        >
+          missed — reference only ({truth ? `${missed.length} Halbzüge` : "—"})
         </summary>
         <ul className="text-muted-foreground mt-3 grid grid-cols-4 gap-x-4 gap-y-1 font-mono text-xs sm:grid-cols-6">
           {missed.map((i) => (

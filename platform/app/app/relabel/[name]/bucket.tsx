@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import type { Correction, Ledger } from "@/lib/corrections";
 import type { Proposal } from "@/lib/proposals";
 import { writeRows } from "./write";
 
@@ -32,7 +33,8 @@ export type BucketProps = {
   kind: "confirm" | "control";
   decided: Record<string, string>;
   onException: (cells: Proposal[]) => void;
-  onWritten: (n: number) => void;
+  /** The rows that landed, not their count — see `drilldown.tsx`. */
+  onWritten: (rows: Correction[], ledger: Ledger) => void;
   onError: (error: unknown) => void;
   /** Fired once when the LAST page is confirmed — the session-done banner listens. */
   onDone?: () => void;
@@ -104,14 +106,15 @@ export function BucketGrid(props: BucketProps) {
         square: c.square,
         label: kind === "confirm" ? "occluded" : c.fen_label,
       }));
-      const written = await writeRows(rows, kind === "confirm" ? "corrections" : "reviewed");
-      onWritten(written);
+      const ledger: Ledger = kind === "confirm" ? "corrections" : "reviewed";
+      const written = await writeRows(rows, ledger);
+      onWritten(rows, ledger);
       onException(exceptions);
       setNote(
         kind === "confirm"
-          ? `${written} rows written, ${exceptions.length} to the painting queue`
-          : `${written} cells recorded as reviewed (not a training row — the FEN was already ` +
-            `right); ${exceptions.length} to the painting queue`,
+          ? `${written} Zellen geschrieben, ${exceptions.length} in die Mal-Queue`
+          : `${written} Zellen als geprüft vermerkt (keine Trainingszeile — der FEN stimmte ` +
+            `schon); ${exceptions.length} in die Mal-Queue`,
       );
       // The whole page leaves the bucket — accepted as decided, exceptions to the painting queue.
       setHandled((h) => new Set([...h, ...slice.map(keyOf)]));
@@ -167,7 +170,7 @@ export function BucketGrid(props: BucketProps) {
           {kind === "confirm" ? "pre-label: occluded" : "pre-label: keep the FEN label"}
         </strong>
         <span className="text-muted-foreground">
-          {remaining.length} offen von {cells.length} · page {safePage + 1}/{pages} ·{" "}
+          {remaining.length} Zellen offen von {cells.length} · page {safePage + 1}/{pages} ·{" "}
           {marked.size} exceptions
           <span className="hidden sm:inline">
             {" "}· <kbd>Enter</kbd> confirms the page, <kbd>Space</kbd>/click marks an exception,

@@ -4,6 +4,7 @@ import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
 import { loadProposals, proposalKey } from "@/lib/proposals";
+import { boardProgressOf } from "@/lib/proposal-summaries";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
 import { BareBundles } from "./bare-bundles";
@@ -12,12 +13,34 @@ import { QueueNav } from "./queue-nav";
 
 export const dynamic = "force-dynamic";
 
-/** Decided = the proposal has a row in one of the two ledgers (corrections OR reviewed). */
+/**
+ * BRETTER first, cells second (CONCEPT.md 6.2, D1): a board is the unit a human clears, and the
+ * cell count is a function of `hi`/`lo`, so a re-propose would silently rewrite how much work is
+ * done. Decided = the cell has a row in one of the two ledgers (corrections OR reviewed); a board
+ * counts as touched as soon as any of its cells does.
+ *
+ * This is a LIST of nine sessions: with a sidecar it must not parse a single proposal row, which
+ * is why `cellsDone` is `null` there — that one figure needs the cell keys, and the sidecar has
+ * counts. A fixture has no sidecar, so its rows are read and the number is exact.
+ */
 async function progress(name: string) {
-  const { rows, source } = await loadProposals(name);
-  if (rows.length === 0) return { total: 0, done: 0, source };
   const decided = await judgedKeys(sessionId(name));
-  return { total: rows.length, done: rows.filter((r) => decided.has(proposalKey(r))).length, source };
+  const { summary, boards, done } = await boardProgressOf(name, decided.keys());
+  if (summary.read === "none") {
+    return { boards: 0, boardsDone: 0, cells: 0, cellsDone: 0, source: "none" as const, read: summary.read };
+  }
+  if (summary.read === "sidecar") {
+    return { boards, boardsDone: done, cells: summary.cells, cellsDone: null, source: "pack" as const, read: summary.read };
+  }
+  const { rows, source } = await loadProposals(name);
+  return {
+    boards,
+    boardsDone: done,
+    cells: rows.length,
+    cellsDone: rows.filter((r) => decided.has(proposalKey(r))).length,
+    source,
+    read: summary.read,
+  };
 }
 
 async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {

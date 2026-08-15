@@ -42,8 +42,14 @@ function pick(o: Record<string, unknown>, key: string): number | undefined {
   return typeof v === "number" ? v : undefined;
 }
 
-/** 48 641 rows / 6.5 MB on the first real game — mtime-keyed, never re-parsed per request. */
-const cache = new Map<string, { key: string; value: Proposals }>();
+/**
+ * 48 641 rows / 6.5 MB on the first real game — mtime-keyed, never re-parsed per request, and
+ * pinned to `globalThis` like `lib/jobs.ts:56`: a module-level Map dies on every hot reload, which
+ * on the nine files of the corpus is a quarter-million rows re-parsed per dev-server reload
+ * (REVIEW.md S12).
+ */
+type Cache = Map<string, { key: string; value: Proposals }>;
+const cache: Cache = ((globalThis as { __chesslabProposals?: Cache }).__chesslabProposals ??= new Map());
 
 export async function loadProposals(name: string): Promise<Proposals> {
   checkName(name, "game name");
@@ -70,7 +76,12 @@ export async function loadProposals(name: string): Promise<Proposals> {
   let thresholds: Thresholds = { ...DEFAULTS, declared: false };
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
-    const obj = JSON.parse(line) as Record<string, unknown>;
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue; // a half-written line is not a proposal (`lib/pool.ts:24-28`)
+    }
     if ("_thresholds" in obj) {
       const inner = (typeof obj._thresholds === "object" && obj._thresholds
         ? (obj._thresholds as Record<string, unknown>)
@@ -98,6 +109,13 @@ export function splitStreams(rows: Proposal[], t: Thresholds): Streams {
   const confirm = rows.filter((r) => r.score > t.hi && r.proposed === "occluded");
   const unsure = rows.filter((r) => r.score >= t.lo && r.score <= t.hi);
   const below = rows.filter((r) => r.score < t.lo);
-  const step = Math.max(1, Math.ceil(below.length / CONTROL_MAX));
+  const step = controlStep(below.length);
   return { confirm, control: below.filter((_, i) => i % step === 0), unsure };
+}
+
+const controlStep = (below: number) => Math.max(1, Math.ceil(below / CONTROL_MAX));
+
+/** How many cells the control sample holds — the producer computes the same (`occluded.stream_counts`). */
+export function controlSize(below: number): number {
+  return Math.ceil(below / controlStep(below));
 }
