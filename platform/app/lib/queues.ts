@@ -51,11 +51,11 @@ export function isBare(row: QueueRow): boolean {
  * the transfer and `VID_20260802_222741` from the phone's own camera roll. On the raw name the
  * letter sorts above every digit, which put the OLDEST recordings at the top of both queues.
  */
-const clock = (name: string) => name.replace(/\D/g, "").padEnd(14, "0").slice(0, 14);
+export const recordedAt = (name: string) => name.replace(/\D/g, "").padEnd(14, "0").slice(0, 14);
 
 /** Newest first, ties broken by the name so the order never depends on the readdir. */
 const newestFirst = (rows: QueueRow[]) =>
-  [...rows].sort((a, b) => clock(b.name).localeCompare(clock(a.name)) || b.name.localeCompare(a.name));
+  [...rows].sort((a, b) => recordedAt(b.name).localeCompare(recordedAt(a.name)) || b.name.localeCompare(a.name));
 
 /**
  * Who waits on whom.

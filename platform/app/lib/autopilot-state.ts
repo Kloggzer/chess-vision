@@ -1,0 +1,113 @@
+/**
+ * The two files Autopilot keeps beside the inbox: its pause switch and the machine-wide lock.
+ *
+ * Neither is a wire format — nothing on the Python side reads them. The pause has to outlive a
+ * restart (a paused autopilot that starts replaying after `next dev` reloads is the failure the
+ * toggle exists to prevent), and the lock is the only thing a terminal tool could ever honour.
+ */
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { readFile, mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { inboxDir } from "@/lib/ingest";
+
+export type PauseFile = { paused: boolean; at: string };
+/** Written while an Autopilot job runs: pid, what it is, since when (CONCEPT §5.5). */
+export type HeavyLock = { pid: number; job: string; name: string; startedAt: string };
+
+const pausePath = () => path.join(inboxDir(), "autopilot.json");
+export const heavyLockPath = () => path.join(inboxDir(), "heavy.lock");
+
+export async function isPaused(): Promise<boolean> {
+  try {
+    return (JSON.parse(await readFile(pausePath(), "utf8")) as PauseFile).paused === true;
+  } catch {
+    return false;
+  }
+}
+
+export async function setPaused(paused: boolean): Promise<PauseFile> {
+  const row: PauseFile = { paused, at: new Date().toISOString() };
+  await mkdir(inboxDir(), { recursive: true });
+  await writeFile(pausePath(), JSON.stringify(row, null, 2) + "\n", "utf8");
+  return row;
+}
+
+export async function readHeavyLock(): Promise<HeavyLock | null> {
+  try {
+    return JSON.parse(await readFile(heavyLockPath(), "utf8")) as HeavyLock;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Signal 0 asks the OS whether the pid exists without touching it. `EPERM` means it exists and
+ * belongs to someone else — a live process either way, so the lock stands.
+ */
+export function alive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** A lock nobody is holding any more: the process that wrote it is gone, so it says nothing. */
+export function stale(lock: HeavyLock | null): boolean {
+  return lock === null || !alive(lock.pid);
+}
+
+function readLockSync(): HeavyLock | null {
+  try {
+    return JSON.parse(readFileSync(heavyLockPath(), "utf8")) as HeavyLock;
+  } catch {
+    return null;
+  }
+}
+
+/** `wx` is the whole point: the OS decides who created the file, so no read can be raced. */
+function createLock(lock: HeavyLock): boolean {
+  try {
+    writeFileSync(heavyLockPath(), JSON.stringify(lock, null, 2) + "\n", { encoding: "utf8", flag: "wx" });
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+/**
+ * Take the machine-wide lock, or report whose it is.
+ *
+ * A read-then-write claim is two syscalls with a window between them, and the window is exactly one
+ * 6 GB replay wide. So: create exclusively, and only READ when that fails. A stale lock (its writer
+ * is gone) is unlinked and retried ONCE — a killed replay must not block the queue forever, and one
+ * retry means two processes racing on the same stale file cannot both conclude they won.
+ */
+export async function claimHeavyLock(job: string, name: string): Promise<{ held: HeavyLock } | { foreign: HeavyLock }> {
+  await mkdir(inboxDir(), { recursive: true });
+  const lock: HeavyLock = { pid: process.pid, job, name, startedAt: new Date().toISOString() };
+  if (createLock(lock)) return { held: lock };
+
+  const current = readLockSync();
+  // Ours already: the slot is serialized, so re-stamping it would only lose the real start time.
+  if (current && current.pid === process.pid) return { held: current };
+  if (current && !stale(current)) return { foreign: current };
+  try {
+    unlinkSync(heavyLockPath());
+  } catch {
+    /* someone else cleared it first — the retry below decides */
+  }
+  if (createLock(lock)) return { held: lock };
+  const winner = readLockSync();
+  return winner ? { foreign: winner } : { held: lock };
+}
+
+/** Only ever removes OUR lock — another process's file is not this process's to delete. */
+export async function releaseHeavyLock(): Promise<void> {
+  const current = await readHeavyLock();
+  if (current && current.pid !== process.pid) return;
+  await rm(heavyLockPath(), { force: true });
+}

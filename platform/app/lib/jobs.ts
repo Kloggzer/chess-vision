@@ -15,6 +15,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { alive, releaseHeavyLock } from "@/lib/autopilot-state";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 
@@ -45,6 +46,11 @@ export type Job = {
   pack?: PackResult;
   /** Candidate written by a manual replay label job, relative to the UI's real-game name. */
   candidate?: string;
+  /** Label runs only: whether the barrel was removed. `false` crops differ from corrected ones
+   * permanently (specs/52), so the record has to carry it — see `lensFor`. */
+  lens?: boolean;
+  /** The server process that wrote the row. Absent on every row written before this key existed. */
+  pid?: number;
 };
 
 type Queue = { jobs: Map<string, Job>; running: Promise<void> };
@@ -60,6 +66,29 @@ const queue: Queue = ((globalThis as { __chesslabJobs?: Queue }).__chesslabJobs 
 
 export function jobsDir(): string {
   return path.join(inboxDir(), "jobs");
+}
+
+/** Is the one slot taken? The Autopilot's whole precondition — it never widens the queue (§5.5). */
+export function busy(): boolean {
+  return runningJob() !== null;
+}
+
+/** What the slot is chewing on, so a strip can name it instead of saying "etwas läuft". */
+export function runningJob(): Job | null {
+  for (const job of queue.jobs.values()) {
+    if (job.state === "queued" || job.state === "running") return job;
+  }
+  return null;
+}
+
+/**
+ * Resolves when everything queued right now has finished.
+ *
+ * The Autopilot's event tick hangs off this: a finished job starts the next one immediately
+ * instead of up to 30 s later, and the heavy lock is released at the same moment.
+ */
+export function whenIdle(): Promise<void> {
+  return queue.running.then(() => undefined);
 }
 
 function repoDir(): string {
@@ -244,7 +273,21 @@ async function guard(job: Job, run: () => Promise<void>): Promise<void> {
 async function record(job: Job): Promise<void> {
   queue.jobs.set(job.name, job);
   await mkdir(jobsDir(), { recursive: true });
-  await appendFile(path.join(inboxDir(), "jobs.jsonl"), JSON.stringify(job) + "\n", "utf8");
+  // `pid` is what lets a SECOND server tell "a job died with its process" from "another process is
+  // running this right now" — without it every foreign row read as a corpse (see `restartedRows`).
+  await appendFile(path.join(inboxDir(), "jobs.jsonl"), JSON.stringify({ ...job, pid: process.pid }) + "\n", "utf8");
+}
+
+/**
+ * The heavy lock belongs to the SLOT, not to one job.
+ *
+ * `startStep` takes it when a step is enqueued and it is dropped here, once the queue holds nothing
+ * queued or running any more — releasing per job would unlock the machine while the next job of the
+ * same chain is still working, which is the state the lock exists to make impossible.
+ */
+async function releaseWhenIdle(): Promise<void> {
+  if (runningJob()) return;
+  await releaseHeavyLock().catch(() => undefined);
 }
 
 /**
@@ -256,7 +299,7 @@ export async function enqueuePack(name: string): Promise<Job> {
   if (known && (known.state === "queued" || known.state === "running")) return known;
   const job: Job = { name, kind: "pack", state: "queued", queuedAt: new Date().toISOString() };
   queue.jobs.set(name, job);
-  queue.running = queue.running.then(() => guard(job, () => runPack(job)));
+  queue.running = queue.running.then(() => guard(job, () => runPack(job))).then(releaseWhenIdle);
   return job;
 }
 
@@ -267,7 +310,8 @@ export async function enqueueLabel(name: string, lens?: boolean): Promise<Job> {
   if (known && (known.state === "queued" || known.state === "running")) return known;
   const job: Job = { name, kind: "label", state: "queued", queuedAt: new Date().toISOString() };
   queue.jobs.set(name, job);
-  queue.running = queue.running.then(() => guard(job, () => runLabel(job, lens)));  // lens: see lensFor
+  // lens: see lensFor
+  queue.running = queue.running.then(() => guard(job, () => runLabel(job, lens))).then(releaseWhenIdle);
   return job;
 }
 
@@ -489,7 +533,9 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
     });
     return;
   }
-  const args = labelArgs(recording.video, job.name, lens ?? lensFor(recording.video));
+  // Decided ONCE, before the run, never by retry: the source picks it and the record keeps it.
+  const corrected = lens ?? lensFor(recording.video);
+  const args = labelArgs(recording.video, job.name, corrected);
   const log = path.join(jobsDir(), `${job.name}.label.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {
@@ -498,6 +544,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
     startedAt: new Date().toISOString(),
     command: `${binary} ${args.join(" ")}`,
     log,
+    lens: corrected,
   };
   await record(running);
   const code = await runDesktop(binary, args, running, log);
@@ -531,7 +578,7 @@ export async function enqueueChain(
   if (known && (known.state === "queued" || known.state === "running")) return known;
   const job: Job = { name, kind: step, state: "queued", queuedAt: new Date().toISOString() };
   queue.jobs.set(name, job);
-  queue.running = queue.running.then(() => guard(job, () => runChesslab(job, step)));
+  queue.running = queue.running.then(() => guard(job, () => runChesslab(job, step))).then(releaseWhenIdle);
   return job;
 }
 
@@ -597,32 +644,65 @@ exit ${value}
   });
 }
 
-/** In-memory state first, the ledger behind it — a job from before a restart is still a fact. */
-export async function jobs(limit = 25): Promise<Job[]> {
+/** The ledger, last row per [key]. `pid` survives it — it decides whose corpse a row is. */
+async function ledger(key: (row: Job) => string): Promise<Map<string, Job>> {
   const seen = new Map<string, Job>();
   try {
     const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
     for (const line of text.split("\n")) {
       if (!line.trim()) continue;
-      const row = JSON.parse(line) as Job;
-      seen.set(row.name, row);
+      try {
+        const row = JSON.parse(line) as Job;
+        seen.set(key(row), row);
+      } catch {
+        /* a half-written line is not a job */
+      }
     }
   } catch {
     /* no job has ever run */
   }
-  // A ledger row that says "running" but is not in THIS process's queue belongs to a previous one:
-  // the queue is the only thing that runs jobs, so the server was restarted (or killed) underneath
-  // it. Reporting that as still running is the lie this whole page exists to avoid.
-  for (const [name, row] of seen) {
-    if (!queue.jobs.has(name) && (row.state === "running" || row.state === "queued")) {
-      seen.set(name, {
-        ...row,
-        state: "failed",
-        reason: "the server restarted while this job was running — press the step again",
-        finishedAt: row.finishedAt ?? row.startedAt ?? row.queuedAt,
-      });
-    }
-  }
+  return seen;
+}
+
+/**
+ * A ledger row that claims to be working, from a process that no longer is.
+ *
+ * The old rule was "not in THIS process's queue" — which turns every job of a SECOND server into a
+ * corpse, and `/reparatur` then offers its start button while the first server is mid-replay. The
+ * pid is the honest test; rows written before the key existed keep the old rule, since nothing else
+ * can be said about them.
+ */
+function restarted(row: Job): boolean {
+  if (row.state !== "running" && row.state !== "queued") return false;
+  if (row.pid === undefined) return !queue.jobs.has(row.name);
+  return row.pid === process.pid ? !queue.jobs.has(row.name) : !alive(row.pid);
+}
+
+const asFailed = (row: Job): Job => ({
+  ...row,
+  state: "failed",
+  reason: "the server restarted while this job was running — press the step again",
+  finishedAt: row.finishedAt ?? row.startedAt ?? row.queuedAt,
+});
+
+/** In-memory state first, the ledger behind it — a job from before a restart is still a fact. */
+export async function jobs(limit = 25): Promise<Job[]> {
+  const seen = await ledger((row) => row.name);
+  for (const [name, row] of seen) if (restarted(row)) seen.set(name, asFailed(row));
   for (const [name, job] of queue.jobs) seen.set(name, job);
   return [...seen.values()].sort((a, b) => (a.queuedAt < b.queuedAt ? 1 : -1)).slice(0, limit);
+}
+
+/**
+ * The ledger's last row per `<name>|<kind>` — the Autopilot's no-retry marker, per STEP.
+ *
+ * Keyed per name it was not a marker at all: any later job of another kind (a `pack` after a second
+ * transfer) became "the last row" and silently cleared a failed `export`, which then ran again all
+ * night. A step's own history is the only thing that can answer "did THIS step fail".
+ */
+export async function lastByStep(): Promise<Map<string, Job>> {
+  const seen = await ledger((row) => `${row.name}|${row.kind ?? "job"}`);
+  for (const [key, row] of seen) if (restarted(row)) seen.set(key, asFailed(row));
+  for (const job of queue.jobs.values()) seen.set(`${job.name}|${job.kind ?? "job"}`, job);
+  return seen;
 }

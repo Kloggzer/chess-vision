@@ -13,10 +13,12 @@ const LINKS = [
   { href: "/", label: "Partien", key: "home" },
   { href: "/confirm", label: "confirm", key: "confirm" },
   { href: "/relabel", label: "labeling", key: "relabel" },
+  { href: "/corpus", label: "Korpus", key: "corpus" },
   { href: "/transfers", label: "transfers", key: "transfers" },
 ] as const;
 
-export function QueueNav({ counts, here }: { counts: QueueCounts; here: (typeof LINKS)[number]["key"] }) {
+/** [here] may name a page that is not in the list (Reparatur) — then nothing is marked current. */
+export function QueueNav({ counts, here }: { counts: QueueCounts; here: (typeof LINKS)[number]["key"] | "reparatur" }) {
   return (
     <nav className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
       {LINKS.map((link) => {

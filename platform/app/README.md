@@ -10,16 +10,15 @@ the file formats are the only bridge.
 4. Confirm writes `confirmed` / `confirmed_at` / `reviewed_plies` into `candidate.json` — atomically,
    touching nothing else. `npm run lint`, `npx tsc --noEmit`, `npm test` are the gate.
 
-## `/relabel/<name>` — the three streams (phase 03b)
+## `/relabel/<name>` — the streams (phase 03b)
 
 Reads `data/realgames/<name>/occluded-proposals.jsonl` (line 1 = `_thresholds`) and the exported
 session `data/sessions/rg-<name>/`. Streams: **bucket grid** (score > hi, one `Enter` confirms a
-page of 60 — clicks are for exceptions, which fall into the tinder band; the control stream below
-`lo` writes NOTHING), **tinder** (one card: cell crop, the interval's clean median, the board with
-the cell marked; `←` keep, `→` occluded, digits = white piece, letters = black, `x` empty, `↓`
-skip, `z` undo, swipe on touch), **board drilldown** (8×8 overlay on the rectified frame; drag
-paints `occluded` over every cell the pointer enters, eraser/right button clears, a click without a
-drag cycles FEN → occluded → empty; writes on navigate-away). A queue's **flags arrive selected**
+page of 60 — clicks are for exceptions; the mid-band between `lo` and `hi` is its own grid, and the
+control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on the rectified frame;
+drag paints `occluded` over every cell the pointer enters, eraser/right button clears, a click
+without a drag cycles FEN → occluded → empty; writes on navigate-away). The one-card *tinder* view
+was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §S7). A queue's **flags arrive selected**
 and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
 says so live, flags taken off go to `reviewed.jsonl`, `⌫` takes all of them off.
 
@@ -81,6 +80,41 @@ second, explicit press. `replay … label lens` is fail-closed by design (specs/
 camera corrects itself — its grid fit is refused every time (TODO.md, 2026-08-10), so without that
 second button the step is impossible for exactly the recordings the LAN transfer delivers.
 
+## Autopilot — the chain runs itself (Phase 1 of `docs/labeling-ux/CONCEPT.md` §5)
+
+Six machine steps and seventeen PGN copies were sitting on disk waiting for a human to notice a
+card. They are all pure functions of disk state, so a loop runs them:
+
+- **The ticker** is `instrumentation.ts` → `lib/autopilot-engine.ts`: `register()` runs once per
+  server process (Node runtime, never during `next build`), starts a 30 s `setInterval` and pins it
+  to `globalThis` like `lib/jobs.ts`'s queue. A finished job ticks again at once. **No browser is
+  involved** — close every tab and the backlog still drains.
+- **The picker** (`lib/autopilot.ts`, pure and tested) takes the **oldest** non-`useless`,
+  non-`archived` game whose `nextStep()` is a machine step (`label`, `export`, `propose`) and runs
+  it through `lib/chain-run.ts` — the same door the button uses, which re-reads the disk and 409s on
+  a step that is not the next one. `adopt-pgn` is done for every bundle that carries a phone `.pgn`
+  and has no `reference.pgn` (`adoptPgn` never overwrites).
+- **Never a retry.** The marker is the job ledger's last row for that recording: `kind` names the
+  step, `failed`/`skipped` means a human presses or nothing happens. Those rows are the
+  **`/reparatur`** lane, with the tool's own last words and the manual button.
+- **Broken MP4** never starts a job — `checkMp4` says so in milliseconds and the game goes to
+  Reparatur instead of a ten-minute decode.
+- **Lens** is decided before the run by `lensFor` and never retried around; a label run without
+  barrel correction carries `lens: false` in its job row and says `gelabelt OHNE Linsen-Korrektur`.
+- **Guard 5:** no `propose` for a session with a `corrections.jsonl` row younger than 10 minutes —
+  re-proposing rewrites the file under the cursor of whoever is labeling it.
+- **`$CHESSLAB_DATA_DIR/inbox/heavy.lock`** (`{pid, job, name, startedAt}`) is written while an
+  Autopilot job runs. A *foreign* live lock stops the start; a stale one (pid gone) is overwritten.
+  It is one-directional until a terminal tool honours it, which is why the strip prints the rule:
+  **Autopilot pausieren, bevor ein Trainingslauf startet.**
+- **The strip** sits on every page (`app/autopilot-strip.tsx`, `GET/POST /api/autopilot`): state,
+  queue length, Reparatur count, pause toggle. The pause lives in
+  `$CHESSLAB_DATA_DIR/inbox/autopilot.json` and survives a restart. Neither file is a wire format;
+  nothing in Python reads them.
+
+`slice`, `dataset build` and `train` are **not** in this vocabulary, and the slot stays a single
+serialized promise chain — the same one worker `lib/jobs.ts` has always had.
+
 ## The queues, and "nutzlos"
 
 `/confirm` and `/relabel` list every game whose next chain step is theirs, newest first
@@ -116,7 +150,7 @@ there, not assumed:
 Two rules came out of it. Touch sizes are written `max-sm:h-11`, never `h-11 sm:h-8` — both are
 equally specific and Tailwind emits the plain utility last, so the desktop inherited the phone's
 height. And an overlay on a picture that scales must be positioned in per cent, not in the pixels
-of a fixed thumbnail; the tinder card's square marker was the one that broke.
+of a fixed thumbnail — the square marker of the since-deleted tinder card was the one that broke.
 
 Note for agents: Next 16 has breaking changes against most training data - read the guides
 in node_modules/next/dist/docs before writing code here.

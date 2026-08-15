@@ -14,7 +14,7 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
   confirm: { label: "Confirm", hint: "judge the tracker's plies — the human step nothing else can do" },
   export: { label: "Export session", hint: "confirmed intervals → data/sessions/rg-<name>/" },
   propose: { label: "Propose occluded", hint: "score the dirty cells → occluded-proposals.jsonl" },
-  relabel: { label: "Relabel", hint: "bucket, tinder and the board brush" },
+  relabel: { label: "Relabel", hint: "the bucket grid and the board brush" },
 };
 
 const BUSY = new Set(["queued", "running"]);
@@ -122,6 +122,10 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
         >
           PGN übernehmen
         </button>
+      ) : null}
+      {/* Permanent, not a warning: those crops differ from corrected ones (specs/52). */}
+      {job?.kind === "label" && job.lens === false ? (
+        <span className="text-muted-foreground">gelabelt OHNE Linsen-Korrektur</span>
       ) : null}
       {job && job.kind ? (
         <Badge variant={job.state === "failed" ? "destructive" : job.state === "done" ? "default" : "secondary"}>
