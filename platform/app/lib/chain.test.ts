@@ -80,8 +80,16 @@ describe("chainState", () => {
     await video();
     await candidate(true);
     await mkdir(path.join(data, "sessions", `rg-${NAME}`), { recursive: true });
+    await writeFile(path.join(data, "sessions", `rg-${NAME}`, "log.jsonl"), "{}\n");
     await writeFile(game("occluded-proposals.jsonl"), "{}\n");
     expect((await chainState(NAME)).step).toBe("relabel");
+  });
+
+  it("a session directory without log.jsonl is NOT an export — the killed-export case", async () => {
+    await video();
+    await candidate(true);
+    await mkdir(path.join(data, "sessions", `rg-${NAME}`, "frames"), { recursive: true });
+    expect((await chainState(NAME)).step).toBe("export");
   });
 });
 

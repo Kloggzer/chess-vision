@@ -82,7 +82,9 @@ export async function chainState(name: string): Promise<ChainState> {
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
-    exists(sessionDir(name)),
+    // The export writes frames first and log.jsonl LAST, so the directory alone proves nothing:
+    // a killed export left one, the chain said "propose", and Python refused (2026-08-15, pid 15264).
+    exists(path.join(sessionDir(name), "log.jsonl")),
     exists(path.join(dir, "occluded-proposals.jsonl")),
     uselessFlag(name),
   ]);

@@ -51,6 +51,8 @@ export type Job = {
   lens?: boolean;
   /** The server process that wrote the row. Absent on every row written before this key existed. */
   pid?: number;
+  /** The spawned tool's own pid: it outlives a killed server, and today's exports did (2026-08-15). */
+  childPid?: number;
   /** Wall clock before which the picker must not start this step — the boundary commit's undo
    *  window (§4.1.1). Additive, declared in the §9.1 register; nothing in Python reads this file. */
   notBefore?: string;
@@ -397,6 +399,10 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
       resolve(-1);
       return;
     }
+    if (child.pid !== undefined) {
+      running.childPid = child.pid;
+      void record(running);
+    }
     child.stdout.pipe(sink, { end: false });
     child.stderr.pipe(sink, { end: false });
     child.on("error", (error) => {
@@ -689,6 +695,10 @@ async function runChesslab(
     sink.write(`$ ${running.command}
 `);
     const child = spawnTool(binary, args, repoDir());
+    if (child.pid !== undefined) {
+      running.childPid = child.pid;
+      void record(running);
+    }
     child.stdout.pipe(sink, { end: false });
     child.stderr.pipe(sink, { end: false });
     child.on("error", (error) => {
@@ -749,6 +759,8 @@ async function ledger(key: (row: Job) => string): Promise<Map<string, Job>> {
  */
 function restarted(row: Job): boolean {
   if (row.state !== "running" && row.state !== "queued") return false;
+  // A live child means the work is still happening whether or not its server survived it.
+  if (row.childPid !== undefined && alive(row.childPid)) return false;
   if (row.pid === undefined) return !queue.jobs.has(row.name);
   return row.pid === process.pid ? !queue.jobs.has(row.name) : !alive(row.pid);
 }
