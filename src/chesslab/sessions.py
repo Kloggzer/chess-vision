@@ -23,6 +23,7 @@ import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 
 import yaml
 
@@ -632,12 +633,57 @@ def scan_alignment(session_id: str) -> dict:
             "max": vals[-1] if vals else None, "backup": backup}
 
 
+#: Measured frames a carried mesh is the median of. One neighbour can itself be a marginal fit;
+#: the median of a few costs nothing and cannot be dragged off by a single one.
+MESH_CARRY_WINDOW = 5
+
+
+def _carried_mesh(window: list[dict]) -> dict | None:
+    """The per-coefficient median of the measured meshes in `window`, at their COMMON stage.
+
+    A frame whose grid a hand covers gets the geometry of the frames around it — the camera is
+    not rebuilt mid-session — but only where every one of them agrees a stage exists, so a
+    carried mesh never claims a curvature that was measured on one frame alone.
+    """
+    if not window:
+        return None
+    keys = set(window[0]).intersection(*(set(m) for m in window))
+    if not {"x", "y"} <= keys:
+        return None
+    return {k: [round(median([m[k][i] for m in window]), 5) for i in range(9)]
+            for k in ("x", "y", "tx", "ty", "cx", "cy") if k in keys}
+
+
+def _fill_mesh_gaps(rows: list[dict]) -> int:
+    """Give every row without a measured mesh the one its stable neighbours carry.
+
+    Backwards for the rows before the first measurement: "the frames before" is the normal case,
+    but a session that opens with a hand over the board has none, and the camera is the same one.
+    """
+    measured = [i for i, r in enumerate(rows) if r.get("grid_lines")]
+    if not measured:
+        return 0
+    carried = 0
+    for i, row in enumerate(rows):
+        if row.get("grid_lines") or not row.get("corners"):
+            continue
+        before = [j for j in measured if j < i][-MESH_CARRY_WINDOW:]
+        near = before or measured[:MESH_CARRY_WINDOW]
+        mesh = _carried_mesh([rows[j]["grid_lines"] for j in near])
+        if mesh is None:
+            continue
+        row["grid_lines"] = mesh
+        row["grid_lines_source"] = "carried"
+        carried += 1
+    return carried
+
 def fit_mesh_session(session_id: str) -> dict:
     """Measure every frame's 18 grid lines once and store them as `grid_lines`.
 
     The quad says WHERE the board is, the mesh says where its cells are — without it a slice cuts
     at the nominal eighth and bakes the lens' barrel into the crops. Measured through the profile
-    the slice uses, so the fractions describe the warp it actually cuts in.
+    the slice uses, so the fractions describe the warp it actually cuts in. A frame whose grid a
+    hand covers takes its neighbours' mesh (`_fill_mesh_gaps`) and says so.
     """
     import cv2
 
@@ -652,6 +698,7 @@ def fit_mesh_session(session_id: str) -> dict:
     measured, stages = 0, {"curved": 0, "tilted": 0}
     for r in rows:
         r.pop("grid_lines", None)
+        r.pop("grid_lines_source", None)
         if not r.get("corners"):
             continue
         try:
@@ -664,12 +711,14 @@ def fit_mesh_session(session_id: str) -> dict:
         if mesh is None:
             continue
         r["grid_lines"] = mesh
+        r["grid_lines_source"] = "measured"
         measured += 1
         stages["curved" if "cx" in mesh else "tilted"] += 1
+    carried = _fill_mesh_gaps(rows)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
-    return {"session_id": session_id, "measured": measured, "of": len(rows),
-            **stages, "backup": backup}
+    return {"session_id": session_id, "measured": measured, "carried": carried,
+            "of": len(rows), **stages, "backup": backup}
 
 
 def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:

@@ -207,3 +207,77 @@ def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypat
     rows = sessions.read_log(tmp_path / "data" / "sessions" / "meshy")
     assert second["measured"] == 0 and "grid_lines" not in rows[0]
     assert first["backup"] != second["backup"], "never overwrite a backup"
+
+
+def _log_rows(sdir: Path) -> list[dict]:
+    return [json.loads(line) for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
+
+
+def _measured_session(tmp_path, monkeypatch, answers):
+    """A 4-row session whose fit returns `answers` in order — the rest is the sweep under test."""
+    import yaml
+
+    from chesslab import config, realgames
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    sdir = tmp_path / "data" / "sessions" / "carry"
+    (sdir / "frames").mkdir(parents=True)
+    import cv2
+
+    rows = []
+    for i in range(4):
+        cv2.imwrite(str(sdir / "frames" / f"{i:04d}.png"), np.full((8, 8, 3), 9, np.uint8))
+        rows.append({"frame": f"frames/{i:04d}.png", "ply": i, "fen": "f",
+                     "corners": [[0, 0], [8, 0], [8, 8], [0, 8]]})
+    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (sdir / "session.yaml").write_text(
+        yaml.safe_dump({"session_id": "carry", "profile": "test", "mode": "live"}), encoding="utf-8")
+    it = iter(answers)
+    monkeypatch.setattr(realgames, "grid_line_fracs", lambda *a, **k: next(it, None))
+    monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
+        {"boardSize": 8, "padSide": 0.05, "padUp": 0.0, "whitePov": True}))
+    return sdir
+
+
+def _lines(offset: float, curved: bool = True) -> dict:
+    x = [round(k / 8.0 + offset, 5) for k in range(9)]
+    m = {"x": x, "y": list(x), "tx": [0.01] * 9, "ty": [0.0] * 9}
+    return {**m, "cx": [0.02] * 9, "cy": [0.0] * 9} if curved else m
+
+
+def test_an_unreadable_frame_takes_the_mesh_of_the_stable_ones_before_it(tmp_path, monkeypatch):
+    from chesslab import sessions
+
+    sdir = _measured_session(tmp_path, monkeypatch,
+                             [_lines(0.0), _lines(0.002), None, _lines(0.001)])
+    r = sessions.fit_mesh_session("carry")
+    rows = _log_rows(sdir)
+
+    assert (r["measured"], r["carried"]) == (3, 1)
+    assert rows[2]["grid_lines_source"] == "carried"
+    assert rows[2]["grid_lines"]["x"][0] == pytest.approx(0.001), "median of the two before it"
+    assert rows[3]["grid_lines_source"] == "measured", "a measured frame keeps its own"
+
+
+def test_a_carried_mesh_never_claims_a_stage_its_neighbours_disagree_on(tmp_path, monkeypatch):
+    from chesslab import sessions
+
+    _measured_session(tmp_path, monkeypatch,
+                      [_lines(0.0), _lines(0.0, curved=False), None])
+    sessions.fit_mesh_session("carry")
+    rows = _log_rows(tmp_path / "data" / "sessions" / "carry")
+
+    assert "cx" not in rows[2]["grid_lines"], "one neighbour measured no curvature"
+    assert "tx" in rows[2]["grid_lines"]
+
+
+def test_a_session_opening_with_a_hand_carries_backwards(tmp_path, monkeypatch):
+    from chesslab import sessions
+
+    _measured_session(tmp_path, monkeypatch, [None, None, _lines(0.003), _lines(0.003)])
+    r = sessions.fit_mesh_session("carry")
+    rows = _log_rows(tmp_path / "data" / "sessions" / "carry")
+
+    assert (r["measured"], r["carried"]) == (2, 2)
+    assert rows[0]["grid_lines"]["x"][0] == pytest.approx(0.003)

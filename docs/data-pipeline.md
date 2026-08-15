@@ -64,6 +64,10 @@ A `log.jsonl` row:
   mesh carries tilts — instead of at the nominal eighth, so the lens' barrel never reaches a
   training crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh`
   (~0.05 s per frame); without it the slice is unchanged.
+- `grid_lines_source` says whether that mesh was `measured` on the frame or `carried` from the
+  median of the stable frames around it — a hand over the grid hides the lines, not the camera,
+  which is not rebuilt mid-session. Carried meshes only claim a stage all their neighbours agree
+  on, so a curvature measured on one frame alone never spreads.
 - `unusable: true` makes `slice` skip the frame — see §5.3 for the trap.
 - `mode` in `session.yaml` matters for interpretation: `play` and `track` are real games;
   **`lighting-capture` sessions hold an empty board** (`fen: 8/8/8/8/8/8/8/8`) and exist only

@@ -363,14 +363,16 @@ def session_fit_mesh(
             print(f"[FAIL] {r['session_id']}: {r['error']}", flush=True)
             return
         print(f"[OK] {r['session_id']}: {r['measured']}/{r['of']} frames meshed "
-              f"({r['curved']} curved, {r['tilted']} tilted) — backup {r['backup']}", flush=True)
+              f"({r['curved']} curved, {r['tilted']} tilted), {r['carried']} carried from their "
+              f"neighbours — backup {r['backup']}", flush=True)
 
     if not all_sessions:
         say(_session_call(sessions_mod.fit_mesh_session, session))
         return
     rows = sessions_mod.fit_mesh_all(on_done=say)
     done = [r for r in rows if not r.get("error")]
-    print(f"[OK] {sum(r['measured'] for r in done)} frames meshed over {len(done)} sessions, "
+    print(f"[OK] {sum(r['measured'] for r in done)} frames meshed and "
+          f"{sum(r['carried'] for r in done)} carried over {len(done)} sessions, "
           f"{len(rows) - len(done)} failed")
 
 @session_app.command("adopt")
