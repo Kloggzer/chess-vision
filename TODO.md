@@ -9,7 +9,10 @@
 - **Datensatz-Qualität per Zwei-Hälften-Kreuztest** (User, 2026-08-15: *"2 halbe Modelle die die
   andere Hälfte testen, dann die Flags nochmal nachlabeln"*). Korpus in zwei Session-Hälften
   teilen, je ein Modell pro Hälfte trainieren, jedes proposed auf der FREMDEN Hälfte — nie
-  zirkulär, per Konstruktion. Die Disagreements Modell-vs-Label sind die Nachlabel-Flags.
+  zirkulär, per Konstruktion. Die Disagreements Modell-vs-Label sind die Nachlabel-Flags —
+  über ALLE Labels (User, 2026-08-15: *"ich möchte alle labels in frage stellen"*): Figuren,
+  `empty` und `occluded`, voller 14c-Kopf, nicht nur die Occluder-Schiene. Landet in der
+  Audit-Lane des Labeln-Stroms (docs/labeling-ux/CONCEPT.md §4.2, `audit-flags.jsonl`).
   Voraussetzungen liegen seit heute: `check_not_circular` sieht durch Varianten-Präfixe
   (`occ-rg-…`), der Proposer bekommt `--model`, und Proposals tragen `probs`. Interim bis dahin:
   Modell-Rotation pro Session (erstes nicht-zirkuläres Modell aus einer Präferenzliste).

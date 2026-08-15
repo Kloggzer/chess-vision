@@ -450,6 +450,7 @@ diagnoses, so a chip never says a bare number: it says `612 Bretter` or `5 230 Z
 | Klassenwand | **cell grid** | one class ≥ `min` where the FEN says otherwise | cells | `probs`, same precondition |
 | FEN unklar | board | non-empty `unknown_squares` | **its own**: boards with unknown cells, over the 10 exported sessions | `data/sessions/rg-<n>/log.jsonl` |
 | Stichprobe | **cell grid** | the 180-cell control sample | cells | `lib/proposals.ts:101` |
+| Audit | **cell grid** | rows of `audit-flags.jsonl` not yet in `judgedKeys`, ranked by `margin` desc | **its own**: flagged cells | `data/manifests/audit-flags.jsonl`; **`—` until the k-fold audit has run** |
 | Alle Bretter | board | every board with a proposal | boards, of 3 976 | proposals |
 
 **`FEN unklar` is deliberately not indexed against 3 976.** Its boards are a different corpus:
@@ -459,6 +460,32 @@ not in the stream and cannot carry an `n/3976` position. The lane numbers itself
 says which corpus it is counting (1 122 boards on `00-39-57`, **2 927** over the ten exported
 sessions). It is also the one lane that ships **10** sessions rather than 9, because
 `rg-2026-08-14-20-48-55` has a log and no proposal file.
+
+**The Audit lane is where the two-halves label audit lands** (TODO.md "Datensatz-Qualität per
+Zwei-Hälften-Kreuztest", canonical form in `docs/cross-labeling-literature.md`: k = 4–5 out-of-fold,
+per-class thresholds, ranked by normalized margin). The audit is its own project and not a phase of
+this concept; what this concept owes it is the **landing surface**, so UX and audit stop being a
+chicken-and-egg. The producer writes `data/manifests/audit-flags.jsonl`:
+
+```json
+{"session_id":"rg-…","frame":"001482","square":"e5","fen_label":"bP","predicted":"bB",
+ "prob":0.91,"margin":0.62,"fold":2,"model":"…","ts":"…"}
+```
+
+**The audit questions every label, not just `occluded`** (user, 2026-08-15: *"ich möchte alle
+labels in frage stellen"*). `fen_label`/`predicted` are any pair from `config.CLASSES` — piece
+identities, `empty` and `occluded` alike; the k-fold models run the full 14-class head, so the
+`bP→bB 555`-class identity errors of D2 are exactly what the flags surface. Nothing in the lane is
+occlusion-specific: it renders whatever pair the row carries.
+
+The lane renders those cells in the bucket grid, margin-descending, and writes through the normal
+ledgers — a confirmed flag is a `corrections.jsonl` row, a rejected one a `reviewed.jsonl` row, so
+the audit's output flows into training only through the same human gate as everything else. Two
+consequences of the literature are UI facts, not tuning: **~51 % of flags will be false alarms**
+(Northcutt 2021's crowd-confirmed rate), so "FEN stimmt" must stay a one-key verdict and the lane
+must show the model's read (`predicted`, `prob`) beside the FEN's word; and the audit owes a
+**sample in the unflagged remainder** to estimate what the flags miss — that is the existing
+Stichprobe pattern pointed at a second population, not a new mechanism.
 
 **An unavailable lane shows `—`, never `0`.** `Modell ≠ FEN` and `Klassenwand` are empty until the
 re-propose pass of D2 has run, and a chip reading `0` claims "there is no such work", which is false:
@@ -828,9 +855,11 @@ undeclared index is the same sin as undeclared telemetry:
 1. **Pin every read cache to `globalThis`**, the `jobs.ts:56` pattern. No new file, and it removes
    the reload cliff.
 2. **`data/realgames/<n>/occluded-proposals.summary.json`** — written by `propose-occluded` beside
-   its output: `{boards, cells, by_stream:{confirm,unsure,control}, hi, lo, model, written_at}`. The
-   stream header then reads nine files of a few hundred bytes instead of parsing 33 MB. Additive, and
-   absent on old files, in which case the header falls back to a one-time parse and says it did.
+   its output: `{boards, cells, frames, by_stream:{confirm,unsure,control}, hi, lo, model,
+   written_at}`. `frames` is the sorted list of distinct frame stems — counters alone cannot spare
+   the 33 MB parse, because the progress figure is `|touched ∩ proposal frames|` and needs the SET,
+   not its size. Additive, and absent on old files, in which case the header falls back to a
+   one-time parse and says it did.
 3. **`$CHESSLAB_DATA_DIR/inbox/corpus-index/<dataset>.json`** — the per-session, per-class group-by,
    keyed by the manifest's mtime, rebuilt on miss. **Deliberately outside `data/datasets/`**: a
    dataset is a snapshot and `occ-real` in particular must stay byte-identical
@@ -1107,11 +1136,13 @@ same failure as inventing telemetry.
 | `retract: true` on a `corrections.jsonl` row | **new key, existing file** | 3 | no — `load_corrections` takes four keys (`labeling.py:251-262`) and last-wins restores the label the row carries |
 | `data/manifests/review-notes.jsonl` | new file | 3 | no |
 | `$CHESSLAB_DATA_DIR/inbox/heavy.lock` | new file | 1 | no |
+| `$CHESSLAB_DATA_DIR/inbox/autopilot.json` | new file — the strip's pause state, persisted across restarts (§5.5 guard 2) | 1 | no |
 | `notBefore` on a job ledger row | new key, existing file | 3 | no |
 | `data/realgames/<n>/occluded-proposals.summary.json` | new file, written by `propose-occluded` | 2 | no |
-| `model` / `written_at` in the `_thresholds` header | new keys on a header whose inner shape is explicitly unpinned (`lib/proposals.ts:74-80`) | 4 | no |
+| `model` / `written_at` in the `_thresholds` header | new keys on a header whose inner shape is explicitly unpinned (`lib/proposals.ts:74-80`) | 2 — the producer writes them from the first sidecar on; Phase 4's backlog pass fills them corpus-wide | no |
 | `$CHESSLAB_DATA_DIR/inbox/corpus-index/<dataset>.json` | new file, **outside** `data/datasets/` | 2 | no |
 | `via` / `run` on a `reviewed.jsonl` row | new keys, existing file | 5 | no — nothing reads that file |
+| `data/manifests/audit-flags.jsonl` | new file, written by the two-halves audit (its own project) | 3 renders it as `—`; the audit fills it | no — its labels reach Python only via the human's `corrections.jsonl` rows |
 | `luma` on an exported `log.jsonl` row | new key, existing file | 5 | ignored by `slice_session` |
 
 ### 9.2 Phases
