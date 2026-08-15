@@ -102,6 +102,16 @@ result beside the log:
   warps in (`measuredBoardSize`), i.e. the same units §12 flags a session in.
 - A frame whose grid could not be read (a hand over the board) is named in `failed` and gets no
   entry. The consumer keeps the logged marker quad for it — the failure is visible, never patched.
+- `grid_lines` (`{"x": [9], "y": [9], "tx": [9], "ty": [9], "cx": [9], "cy": [9]}`, white POV) is
+  the frame's measured 18-line mesh: per line `pos(t) = x + tx·(t−0.5) + cx·(t−0.5)²` in fractions
+  of the field side. Written only when **every** line was located, offsets strictly monotone,
+  every |tilt| < 0.05; the curvature pair is all-or-nothing on top (|curv| < 0.08 — measured
+  004251 outer lines reach 0.046, a ~10 px sagitta at 928 — its `d` folded into the offsets)
+  and drops alone when unmeasurable. Consumers cut each square as the
+  PERSPECTIVE quad of its four neighbour-line intersections — corners on the parabolas when
+  `cx`/`cy` ride along, so even a bowed outer line comes out straight; lens-agnostic, no
+  undistortion. With offsets alone (older sidecars) the scalar rectangles; absent or malformed,
+  the quad cut, one stage down per defect and never an error.
 - The file is **derived**: re-running overwrites it atomically, and deleting it only returns the
   session to the uncorrected marker quad.
 

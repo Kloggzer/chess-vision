@@ -4,10 +4,12 @@ LCS over SANs decides matches; human sees only disagreements."""
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections.abc import Callable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 
 import chess.pgn
@@ -1012,6 +1014,69 @@ def stored_rows(session_dir: Path) -> list[dict]:
                   key=lambda r: Path(r["frame"]).stem)
 
 
+#: A line steeper than this fraction-per-fraction is a misfit, not a lens — consumers refuse it too
+#: (`MESH_TILT_LIMIT`, CropBox.kt / warp.ts).
+MESH_TILT_LIMIT = 0.05
+
+#: The same for the parabola term. Measured on rg-2026-08-08-11-59-12/004251: the real outer
+#: lines reach c = 0.046 (a ~10 px sagitta at 928) with a clean sign fan; 0.08 leaves ~1.7x
+#: headroom over that, and anything bigger is a piece's shadow, not a lens.
+MESH_CURV_LIMIT = 0.08
+
+
+def _mesh_axis(values: list[float]) -> bool:
+    """Finite and strictly increasing — a NaN in the JSON would break both consumer parsers."""
+    return (all(math.isfinite(v) for v in values)
+            and all(b > a for a, b in pairwise(values)))
+
+
+def _mesh_tilts(values: list[float], limit: float = MESH_TILT_LIMIT) -> bool:
+    return all(math.isfinite(v) and abs(v) < limit for v in values)
+
+
+def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
+    """The curvature pair, ALL-or-nothing: folded offsets plus `cx`/`cy`, or None.
+
+    `d` is folded into the offset so `x` stays "position at the centre" of the PARABOLA — the
+    linear offsets stay untouched when the pair is refused, each stage carrying its own best fit.
+    """
+    if any(c is None for axis in curls for c in axis):
+        return None
+    fold = [[round((lines[a][k][1] + curls[a][k][0] - pad) / board_size, 5) for k in range(9)]
+            for a in (0, 1)]
+    curv = [[round(curls[a][k][1] / board_size, 5) for k in range(9)] for a in (0, 1)]
+    ok = (_mesh_axis(fold[0]) and _mesh_axis(fold[1])
+          and _mesh_tilts(curv[0], MESH_CURV_LIMIT) and _mesh_tilts(curv[1], MESH_CURV_LIMIT))
+    return {"x": fold[0], "y": fold[1], "cx": curv[0], "cy": curv[1]} if ok else None
+
+
+def grid_line_fracs(image, quad, board_size: int) -> dict | None:
+    """The 18 measured lines as fractions of the field side, or None unless ALL are located.
+
+    Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands
+    allow it — the parabola term `cx`/`cy` (`pos(t) = x + tx·(t−0.5) + cx·(t−0.5)²`). Consumers
+    cut each square at the intersections of its four neighbour LINES, one stage per shape.
+    """
+    from .alignment import grid_lines_with_curvature, warp_for_grid
+
+    profile = _field_profile(quad, (image.shape[1], image.shape[0]), board_size)
+    warped, pad = warp_for_grid(image, profile, quad)
+    lines, curls = grid_lines_with_curvature(warped, board_size, pad=pad)
+    if any(line is None for axis in lines for line in axis):
+        return None
+    xs = [round((lines[0][k][1] - pad) / board_size, 5) for k in range(9)]
+    ys = [round((lines[1][k][1] - pad) / board_size, 5) for k in range(9)]
+    txs = [round(lines[0][k][0], 5) for k in range(9)]
+    tys = [round(lines[1][k][0], 5) for k in range(9)]
+    if not (_mesh_axis(xs) and _mesh_axis(ys) and _mesh_tilts(txs) and _mesh_tilts(tys)):
+        return None
+    mesh = {"x": xs, "y": ys, "tx": txs, "ty": tys}
+    curved = _curved_axes(lines, curls, pad, board_size)
+    if curved is not None:
+        mesh.update(curved)
+    return mesh
+
+
 def fit_stored_session(session_dir: Path, *,
                        margin: float = config.DEFAULT_MARKER_MARGIN) -> tuple[dict, list[float]]:
     """The sidecar payload, plus what the LOGGED quad measured before the fit (the honest before).
@@ -1039,6 +1104,9 @@ def fit_stored_session(session_dir: Path, *,
             continue
         frames[stem] = {"corners": [[round(x, 2), round(y, 2)] for x, y in (quad or start)],
                         "align_worst_px": round(float(worst), 2)}
+        mesh = grid_line_fracs(image, quad or start, size)
+        if mesh is not None:
+            frames[stem]["grid_lines"] = mesh
         if before == before:
             before_px.append(round(float(before), 2))
     payload = {

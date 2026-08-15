@@ -228,6 +228,15 @@ def grid_lines(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
     outermost lines in, and inventing them is exactly the habit this function was rewritten to
     drop.
     """
+    samples = line_band_samples(warped, board_size, pad=pad, bands=bands, search_frac=search_frac,
+                                outer=outer, outer_search_frac=outer_search_frac)
+    return _fit_families(samples, board_size, pad)
+
+
+def line_band_samples(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
+                      search_frac: float = SEARCH_FRAC, outer: bool | None = None,
+                      outer_search_frac: float = OUTER_SEARCH_FRAC):
+    """The raw band measurements `[axis][k] = [(mid, pos), ...]` that `grid_lines` fits over."""
     import cv2
 
     if outer is None:
@@ -266,6 +275,10 @@ def grid_lines(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
                 p = lo + found[0]
                 if abs(p - c) <= span:
                     samples[axis][k].append((mid, p))
+    return samples
+
+
+def _fit_families(samples, board_size: int, pad: int) -> list[list[tuple[float, float] | None]]:
     centre = pad + board_size / 2.0
     out: list[list[tuple[float, float] | None]] = [[None] * 9 for _ in range(2)]
     for axis in (0, 1):
@@ -280,6 +293,48 @@ def grid_lines(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
         for k, fit in _fit_axis(ks, lev, pos, present, MIN_BAND_SAMPLES).items():
             out[axis][k] = fit
     return out
+
+
+#: Band samples a line needs before its curvature is fitted: two coefficients from a robust fit
+#: want a couple of degrees of freedom, or the "bow" is a piece's shadow.
+MIN_CURV_SAMPLES = 5
+
+
+def _quad_coeffs(u: np.ndarray, r: np.ndarray) -> tuple[float, float]:
+    """Huber-refit `(d, c)` of `r ≈ d + c·u²` — the parabola the linear fit left in its residual."""
+    m = np.stack([np.ones_like(u), u * u], 1)
+    w = np.ones(len(u))
+    sol = None
+    for _ in range(3):
+        sw = np.sqrt(np.clip(w, 1e-6, None))
+        sol, *_ = np.linalg.lstsq(m * sw[:, None], r * sw, rcond=None)
+        e = np.abs(m @ sol - r)
+        s = max(0.4, 1.4826 * float(np.median(e)))
+        w = np.minimum(1.0, 1.5 * s / np.maximum(e, 1e-9))
+    return float(sol[0]), float(sol[1])
+
+
+def grid_lines_with_curvature(warped, board_size: int, *, pad: int = 0, **kw):
+    """`(lines, curls)` — `grid_lines`' answer plus per line `(d, c)` in warped px, or None.
+
+    `pos(u) = offset + d + slope·u·bs + c·u²` with `u` the run along the line as a fraction about
+    the centre: `c` is the bow the pooled LINEAR fit cannot carry, `d` re-centres the offset for
+    it. Same samples, same robust weighting — no second measurement pass.
+    """
+    samples = line_band_samples(warped, board_size, pad=pad, **kw)
+    lines = _fit_families(samples, board_size, pad)
+    centre = pad + board_size / 2.0
+    curls: list[list[tuple[float, float] | None]] = [[None] * 9 for _ in range(2)]
+    for axis in (0, 1):
+        for k in range(9):
+            line, pts = lines[axis][k], samples[axis][k]
+            if line is None or len(pts) < MIN_CURV_SAMPLES:
+                continue
+            mid = np.array([m for m, _ in pts])
+            u = (mid - centre) / board_size
+            r = np.array([p for _, p in pts]) - (line[0] * (mid - centre) + line[1])
+            curls[axis][k] = _quad_coeffs(u, r)
+    return lines, curls
 
 
 def warp_for_grid(frame, profile, quad):

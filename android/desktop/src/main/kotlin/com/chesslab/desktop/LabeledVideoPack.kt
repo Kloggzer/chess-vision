@@ -5,6 +5,10 @@ package com.chesslab.desktop
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.expectedLabels
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.GRID_LINES_PER_AXIS
+import com.chesslab.geometry.GridMesh
+import com.chesslab.geometry.MESH_CURV_LIMIT
+import com.chesslab.geometry.MESH_TILT_LIMIT
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
@@ -15,9 +19,12 @@ import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.measuredBoardSize
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.double
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.imgcodecs.Imgcodecs
@@ -25,15 +32,18 @@ import java.io.File
 import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets.UTF_8
 import java.security.MessageDigest
+import kotlin.math.abs
 
 private const val LABELED_EVERY = 8
 
 private const val QUAD_FIT_NAME = "quad-fit.json"
 
-/** One frame's re-fitted quad: the PLAYING FIELD's corners, at the margin the sidecar states. */
+/** One frame's re-fitted quad: the PLAYING FIELD's corners, at the margin the sidecar states,
+ *  plus the measured 18-line mesh when the fit could locate every line. */
 internal class FittedQuad(
     val corners: FloatArray,
     val margin: Double,
+    val mesh: GridMesh? = null,
 )
 
 /**
@@ -47,8 +57,46 @@ internal fun storedQuadFit(sessionDir: File): Map<String, FittedQuad> {
     val root = Json.parseToJsonElement(file.readText()) as JsonObject
     val margin = root.getValue("margin").jsonPrimitive.double
     val frames = root["frames"] as? JsonObject ?: return emptyMap()
-    return frames.mapValues { (_, entry) -> FittedQuad((entry as JsonObject).corners(), margin) }
+    return frames.mapValues { (_, entry) -> FittedQuad((entry as JsonObject).corners(), margin, entry.meshOrNull()) }
 }
+
+/** `grid_lines` is additive: absent, short, non-numeric, non-finite or non-monotone reads as
+ *  "no mesh", never as an error — a bad sidecar must not take the whole pack down. A malformed
+ *  pair drops exactly ONE stage (curved -> linear -> scalar), never half an axis pair. */
+private fun JsonObject.meshOrNull(): GridMesh? {
+    val lines = this["grid_lines"] as? JsonObject
+    val xs = lines?.axisOrNull("x")
+    val ys = lines?.axisOrNull("y")
+    if (lines == null || xs == null || ys == null) return null
+    val tx = lines.boundedOrNull("tx", MESH_TILT_LIMIT)
+    val ty = lines.boundedOrNull("ty", MESH_TILT_LIMIT)
+    if (tx == null || ty == null) return GridMesh(xs, ys)
+    val cx = lines.boundedOrNull("cx", MESH_CURV_LIMIT)
+    val cy = lines.boundedOrNull("cy", MESH_CURV_LIMIT)
+    return if (cx != null && cy != null) GridMesh(xs, ys, tx, ty, cx, cy) else GridMesh(xs, ys, tx, ty)
+}
+
+private fun JsonObject.axisOrNull(name: String): DoubleArray? {
+    val values = valuesOrNull(name) ?: return null
+    val monotone =
+        values.all { it.isFinite() } && (1 until values.size).all { values[it] > values[it - 1] }
+    return if (monotone) values.toDoubleArray() else null
+}
+
+private fun JsonObject.boundedOrNull(
+    name: String,
+    limit: Double,
+): DoubleArray? {
+    val values = valuesOrNull(name) ?: return null
+    return if (values.all { it.isFinite() && abs(it) < limit }) values.toDoubleArray() else null
+}
+
+// `takeIf { !it.isString }`: kotlinx parses "0.01" as a number, `Number.isFinite` in the TS
+// twin refuses it — the two consumers must land on the SAME stage for the same sidecar.
+private fun JsonObject.valuesOrNull(name: String): List<Double>? =
+    (this[name] as? JsonArray)
+        ?.mapNotNull { element -> (element as? JsonPrimitive)?.takeIf { !it.isString }?.doubleOrNull }
+        ?.takeIf { it.size == GRID_LINES_PER_AXIS }
 
 /** A fitted quad IS the field, so it is warped at the file's margin — never at the marker outset. */
 internal fun storedGeometry(
@@ -305,6 +353,7 @@ fun packLabeledSession(args: List<String>) {
     var acceptedFrames = 0
     var handFrames = 0
     var fittedFrames = 0
+    var meshFrames = 0
     File(outDir, "manifest.jsonl").bufferedWriter().use { rowsOut ->
         FileOutputStream(partial).use { imageOut ->
             for (row in rows) {
@@ -321,9 +370,10 @@ fun packLabeledSession(args: List<String>) {
                             handFrames++
                             continue
                         }
-                        crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides)
+                        crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides, fitted?.mesh)
                         acceptedFrames++
                         if (fitted != null) fittedFrames++
+                        if (fitted?.mesh != null) meshFrames++
                     } finally {
                         warped.release()
                     }
@@ -345,12 +395,13 @@ fun packLabeledSession(args: List<String>) {
             // Per PACKED frame, so the sweep report can weigh a run by what its crops were cut with.
             "\"quad_source\":\"${if (fittedFrames > 0) "grid-fit" else "marker"}\"," +
             "\"fitted_frames\":$fittedFrames,\"marker_frames\":${acceptedFrames - fittedFrames}," +
+            "\"mesh_frames\":$meshFrames," +
             "\"digest\":\"${digestHex(digest)}\",\"paths\":$paths}\n",
     )
     println(
         "packed $crops labeled 13-class crops from $acceptedFrames stored frames " +
-            "(grid-hand $handFrames, quads: $fittedFrames grid-fit / ${acceptedFrames - fittedFrames} marker) " +
-            "-> ${outDir.absolutePath}",
+            "(grid-hand $handFrames, quads: $fittedFrames grid-fit / ${acceptedFrames - fittedFrames} marker, " +
+            "$meshFrames mesh-cut) -> ${outDir.absolutePath}",
     )
 }
 
@@ -374,6 +425,7 @@ private fun writeLabeledFrame(
     warped: org.opencv.core.Mat,
     geometry: BoardGeometry,
     overrides: Map<String, Map<String, String>>,
+    mesh: GridMesh? = null,
 ): Int {
     val fen = row.getValue("fen").jsonPrimitive.content
     val labels = expectedLabels(Board().apply { loadFromFen(fen) })
@@ -385,7 +437,7 @@ private fun writeLabeledFrame(
         if (square in unknown) continue
         val label = frameOverrides[square] ?: labels.getValue(square)
         if (label == "occluded") continue
-        val crop = cropSquare(warped, square, geometry)
+        val crop = cropSquare(warped, square, geometry, mesh)
         try {
             val packed = resizeForPacking(crop)
             try {

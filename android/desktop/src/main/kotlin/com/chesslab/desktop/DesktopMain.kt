@@ -749,6 +749,7 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "undistort" to ::undistortVideo,
         "rectify" to ::rectifyVideo,
         "crops" to ::cropsOfVideo,
+        "probe-crop" to ::probeCrop,
         "turntable-pack" to ::packTurntableVideo,
         "turntable-preview" to ::previewTurntablePack,
         "turntable-dataset" to ::assembleTurntableDataset,

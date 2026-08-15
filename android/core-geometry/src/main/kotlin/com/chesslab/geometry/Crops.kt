@@ -3,6 +3,8 @@ package com.chesslab.geometry
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfPoint2f
+import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -57,16 +59,28 @@ fun resizeKeepAspect(
  * One square crop out of the BORDERED board (`warpBoardForCrops`).
  * Port of `labeling.py:112 crop_square`.
  *
- * The box comes from `squareToCropBox(clamp = false)` and is shifted by `+B` into the
- * bordered canvas. Overhang is filled with BLACK (never replicate, never reflect) so the crop
- * geometry is constant across all 64 squares, then letterbox-resized to `outW x outH`.
+ * The box comes from `squareToCropBox(clamp = false)` — or from [meshCropBox] when a measured
+ * [mesh] is given — and is shifted by `+B` into the bordered canvas. Overhang is filled with
+ * BLACK (never replicate, never reflect) so the crop geometry is constant across all 64
+ * squares, then letterbox-resized to `outW x outH`. A mesh that carries TILTS is cut
+ * perspectively per cell instead ([cropSquareTilted]); without tilts this path is untouched.
  */
 fun cropSquare(
     boardWarped: Mat,
     square: String,
     geom: BoardGeometry,
+    mesh: GridMesh? = null,
 ): Mat {
-    val box = squareToCropBox(square, geom, clamp = false)
+    if (mesh?.tx != null) {
+        val tilted = cropSquareTilted(boardWarped, square, geom, mesh)
+        if (tilted != null) return tilted
+    }
+    val box =
+        if (mesh == null) {
+            squareToCropBox(square, geom, clamp = false)
+        } else {
+            meshCropBox(square, geom, mesh)
+        }
     val b = cropBorderPx(geom)
     val x0 = box[0] + b
     val y0 = box[1] + b
@@ -89,4 +103,52 @@ fun cropSquare(
         region = bordered
     }
     return resizeKeepAspect(region, geom.outW, geom.outH)
+}
+
+/**
+ * The per-cell PERSPECTIVE cut — the square's padded quad ([meshCellQuadExact]) warped straight
+ * onto the letterboxed content rectangle, so a line the mesh knows as tilted comes out vertical.
+ * Same composition as the rectangle path: aspect from the scalar box, bars and overhang black.
+ */
+private fun cropSquareTilted(
+    boardWarped: Mat,
+    square: String,
+    geom: BoardGeometry,
+    mesh: GridMesh,
+): Mat? {
+    val box = meshCropBoxExact(square, geom, mesh)
+    val w = box[2] - box[0]
+    val h = box[3] - box[1]
+    if (w <= 0.0 || h <= 0.0) return null
+    val s = min(geom.outW / w, geom.outH / h)
+    val nw = max(1, pyRound(w * s))
+    val nh = max(1, pyRound(h * s))
+    val quad = meshCellQuadExact(square, geom, mesh)
+    val b = cropBorderPx(geom).toDouble()
+    val src =
+        MatOfPoint2f(
+            Point(quad[0] + b, quad[1] + b),
+            Point(quad[2] + b, quad[3] + b),
+            Point(quad[4] + b, quad[5] + b),
+            Point(quad[6] + b, quad[7] + b),
+        )
+    val dst =
+        MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point(nw.toDouble(), 0.0),
+            Point(nw.toDouble(), nh.toDouble()),
+            Point(0.0, nh.toDouble()),
+        )
+    val m = Imgproc.getPerspectiveTransform(src, dst)
+    val content = Mat()
+    Imgproc.warpPerspective(boardWarped, content, m, Size(nw.toDouble(), nh.toDouble()))
+    val canvas = Mat.zeros(geom.outH, geom.outW, CvType.CV_8UC3)
+    val x = (geom.outW - nw) / 2
+    val y = (geom.outH - nh) / 2
+    content.copyTo(canvas.submat(y, y + nh, x, x + nw))
+    content.release()
+    m.release()
+    src.release()
+    dst.release()
+    return canvas
 }

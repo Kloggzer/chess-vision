@@ -1,6 +1,16 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "vitest";
 import { fenLabels } from "@/lib/fen";
-import { boardToImage, squareColRow, squareCropBox } from "@/lib/warp";
+import {
+  boardToImage,
+  type GridMesh,
+  squareColRow,
+  squareCropBox,
+  squareMeshBox,
+  squareMeshQuad,
+  type TiltedMesh,
+} from "@/lib/warp";
 
 /**
  * Truth from the Python side: `data/calibration/desktop.yaml`, written by `chesslab calibrate`
@@ -60,6 +70,83 @@ test("the crop box is square_to_crop_box, pads included", () => {
   }
   const e2 = squareCropBox("e2", 928, { pad_up: 0, pad_side: 0 });
   expect([e2.x0, e2.y0]).toEqual([464, 696]);
+});
+
+/** The SAME fixture `MeshCropParityTest.kt` pins `meshCropBoxExact` on — one file, two readers. */
+const MESH_FIXTURE = JSON.parse(
+  readFileSync(
+    path.join(
+      __dirname,
+      "../../../android/core-engine/src/test/resources/parity/_geometry/mesh_crop_parity.json",
+    ),
+    "utf8",
+  ),
+) as {
+  boardSize: number;
+  padSide: number;
+  padUp: number;
+  whitePov: boolean;
+  mesh: Required<GridMesh>;
+  boxes: Record<string, number[]>;
+  quads: Record<string, number[][]>;
+  curvedQuads: Record<string, number[][]>;
+};
+
+const LINEAR_MESH: TiltedMesh = {
+  x: MESH_FIXTURE.mesh.x,
+  y: MESH_FIXTURE.mesh.y,
+  tx: MESH_FIXTURE.mesh.tx,
+  ty: MESH_FIXTURE.mesh.ty,
+};
+
+test("squareMeshBox cuts the Kotlin fixture's rectangles on all 64 squares", () => {
+  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
+  expect(Object.keys(MESH_FIXTURE.boxes).length).toBe(64);
+  for (const [square, [x0, y0, x1, y1]] of Object.entries(MESH_FIXTURE.boxes)) {
+    const box = squareMeshBox(square, MESH_FIXTURE.boardSize, MESH_FIXTURE.mesh, crop, MESH_FIXTURE.whitePov);
+    expect(box.x0, `${square}.x0`).toBeCloseTo(x0, 9);
+    expect(box.y0, `${square}.y0`).toBeCloseTo(y0, 9);
+    expect(box.x1, `${square}.x1`).toBeCloseTo(x1, 9);
+    expect(box.y1, `${square}.y1`).toBeCloseTo(y1, 9);
+  }
+});
+
+test("squareMeshQuad hits the Kotlin fixture's four source points on all 64 squares", () => {
+  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
+  for (const [name, mesh] of [
+    ["quads", LINEAR_MESH],
+    ["curvedQuads", MESH_FIXTURE.mesh],
+  ] as const) {
+    const wanted = MESH_FIXTURE[name];
+    expect(Object.keys(wanted).length).toBe(64);
+    for (const [square, want] of Object.entries(wanted)) {
+      const got = squareMeshQuad(square, MESH_FIXTURE.boardSize, mesh, crop, MESH_FIXTURE.whitePov);
+      for (let corner = 0; corner < 4; corner++) {
+        expect(got[corner][0], `${name} ${square}[${corner}].x`).toBeCloseTo(want[corner][0], 9);
+        expect(got[corner][1], `${name} ${square}[${corner}].y`).toBeCloseTo(want[corner][1], 9);
+      }
+    }
+  }
+});
+
+test("zero tilts put the quad's corners on the scalar box", () => {
+  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
+  const flat = { ...LINEAR_MESH, tx: Array(9).fill(0), ty: Array(9).fill(0) };
+  const box = squareMeshBox("e4", MESH_FIXTURE.boardSize, flat, crop);
+  const quad = squareMeshQuad("e4", MESH_FIXTURE.boardSize, flat, crop);
+  expect(quad[0]).toEqual([box.x0, box.y0]);
+  expect(quad[2]).toEqual([box.x1, box.y1]);
+});
+
+test("the nominal mesh reproduces squareCropBox", () => {
+  const nominal = { x: [...Array(9)].map((_, k) => k / 8), y: [...Array(9)].map((_, k) => k / 8) };
+  for (const square of ["a8", "e4", "h1", "a1", "d5"]) {
+    const want = squareCropBox(square, 928, { pad_up: 0.25, pad_side: 0.05 });
+    const got = squareMeshBox(square, 928, nominal, { pad_up: 0.25, pad_side: 0.05 });
+    for (const key of ["x0", "y0", "x1", "y1"] as const) {
+      expect(got[key], `${square}.${key}`).toBeCloseTo(want[key], 9);
+    }
+  }
 });
 
 test("fen labels cover all 64 squares", () => {

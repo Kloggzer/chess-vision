@@ -9,7 +9,19 @@ import sharp from "sharp";
 import { checkName, gameDir } from "@/lib/data";
 import { judgedKeys } from "@/lib/corrections";
 import { unusableBoards } from "@/lib/review-notes";
-import { boardToImage, sampleBox } from "@/lib/warp";
+import {
+  boardToImage,
+  type GridMesh,
+  MESH_CURV_LIMIT,
+  MESH_TILT_LIMIT,
+  type Raster,
+  sampleBox,
+  sampleQuad,
+  squareCropBox,
+  squareMeshBox,
+  squareMeshQuad,
+  type TiltedMesh,
+} from "@/lib/warp";
 
 /** `phone-<id>`: every pack of these sessions ran with that id (see `packed_meta.json` under
  *  `data/datasets/phone-stored-…`), and `packLabeledSession` matches corrections against it. */
@@ -40,7 +52,7 @@ export type StoredSession = {
 /** `quad-fit.json` (`realgames.py` fit-stored): PLAYING-FIELD corners per frame, and their margin. */
 type QuadFit = {
   margin: number;
-  frames: Record<string, { corners: number[][]; align_worst_px: number }>;
+  frames: Record<string, { corners: number[][]; align_worst_px: number; grid_lines?: GridMesh }>;
 };
 
 export type StoredQuad = {
@@ -49,6 +61,8 @@ export type StoredQuad = {
   /** The grid fit had a word on this frame; `false` is the logged marker quad, unchanged. */
   fitted: boolean;
   worstPx?: number;
+  /** The fit's 18 measured lines — present only when every line was located (mesh cut). */
+  mesh?: GridMesh;
 };
 
 const cache = new Map<string, { key: number; value: StoredSession }>();
@@ -100,6 +114,16 @@ export async function storedFit(dir: string): Promise<QuadFit | null> {
   return value;
 }
 
+/** 9 finite, strictly increasing numbers — anything else reads as "no mesh", never as an error. */
+const meshAxis = (axis: unknown): axis is number[] =>
+  Array.isArray(axis) &&
+  axis.length === 9 &&
+  axis.every((v, i) => Number.isFinite(v) && (i === 0 || v > (axis[i - 1] as number)));
+
+/** 9 finite values under a shared limit; malformed drops ONE stage, never half an axis pair. */
+const boundedAxis = (axis: unknown, limit: number): axis is number[] =>
+  Array.isArray(axis) && axis.length === 9 && axis.every((v) => Number.isFinite(v) && Math.abs(v) < limit);
+
 /**
  * The quad a stored frame is cut with: the fitted PLAYING FIELD when the sidecar carries it,
  * else the logged marker quad and its outset. The margin comes from the FILE — the fitted corners
@@ -108,35 +132,82 @@ export async function storedFit(dir: string): Promise<QuadFit | null> {
 export function storedQuad(fit: QuadFit | null, row: StoredRow): StoredQuad {
   const frame = fit?.frames?.[row.stem];
   if (!fit || !frame) return { corners: row.corners, margin: MARKER_MARGIN, fitted: false };
-  return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px };
+  const lines = frame.grid_lines;
+  if (!lines || !meshAxis(lines.x) || !meshAxis(lines.y)) {
+    return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px };
+  }
+  let mesh: GridMesh = { x: lines.x, y: lines.y };
+  if (boundedAxis(lines.tx, MESH_TILT_LIMIT) && boundedAxis(lines.ty, MESH_TILT_LIMIT)) {
+    mesh = { ...mesh, tx: lines.tx, ty: lines.ty };
+    if (boundedAxis(lines.cx, MESH_CURV_LIMIT) && boundedAxis(lines.cy, MESH_CURV_LIMIT)) {
+      mesh = { ...mesh, cx: lines.cx, cy: lines.cy };
+    }
+  }
+  return { corners: frame.corners, margin: fit.margin, fitted: true, worstPx: frame.align_worst_px, mesh };
+}
+
+/** The crop composition every pack of these sessions cuts with (`manifestRow`, LabeledVideoPack.kt). */
+const STORED_CROP = { pad_side: 0.05, pad_up: 0 };
+
+async function storedRaster(dir: string, frame: string): Promise<Raster> {
+  const { data, info } = await sharp(await readFile(path.join(dir, frame)))
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height, channels: info.channels };
+}
+
+function toPng(rgb: Buffer, size: number): Promise<Buffer> {
+  return sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
+    .png({ compressionLevel: 3 })
+    .toBuffer();
+}
+
+async function storedCut(
+  name: string,
+  stem: string,
+  size: number,
+  rgbOf: (quad: StoredQuad, raster: Raster) => Buffer,
+): Promise<Buffer> {
+  checkName(stem, "frame");
+  for (const session of await storedSessions(name)) {
+    const row = session.rows.find((r) => r.stem === stem);
+    if (!row) continue;
+    const quad = storedQuad(await storedFit(session.dir), row);
+    const raster = await storedRaster(session.dir, row.frame);
+    return toPng(rgbOf(quad, raster), size);
+  }
+  throw new Error(`no stored frame ${stem} in ${name}`);
 }
 
 /**
  * The rectified playing field of one stored frame: the raw JPEG through the row's own quad,
  * exactly as `lib/crops.ts` does it for an exported session — only the margin differs.
  */
-export async function storedBoardPng(name: string, stem: string, size: number): Promise<Buffer> {
-  checkName(stem, "frame");
-  for (const session of await storedSessions(name)) {
-    const row = session.rows.find((r) => r.stem === stem);
-    if (!row) continue;
-    const quad = storedQuad(await storedFit(session.dir), row);
-    const { data, info } = await sharp(await readFile(path.join(session.dir, row.frame)))
-      .removeAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const rgb = sampleBox(
-      { data, width: info.width, height: info.height, channels: info.channels },
-      boardToImage(quad.corners, BOARD_SIZE, quad.margin),
-      { x0: 0, y0: 0, x1: BOARD_SIZE, y1: BOARD_SIZE },
-      size,
-      size,
-    );
-    return sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
-      .png({ compressionLevel: 3 })
-      .toBuffer();
-  }
-  throw new Error(`no stored frame ${stem} in ${name}`);
+export function storedBoardPng(name: string, stem: string, size: number): Promise<Buffer> {
+  return storedCut(name, stem, size, (quad, raster) => {
+    const box = { x0: 0, y0: 0, x1: BOARD_SIZE, y1: BOARD_SIZE };
+    return sampleBox(raster, boardToImage(quad.corners, BOARD_SIZE, quad.margin), box, size, size);
+  });
+}
+
+/**
+ * One square of a stored frame, the Kotlin pack's ladder: the cell's PERSPECTIVE quad when the
+ * sidecar carries tilts (curved corners when it carries the parabola term too), its scalar
+ * rectangle with offsets alone, the nominal box without a mesh.
+ */
+export function storedCellPng(name: string, stem: string, square: string, size: number): Promise<Buffer> {
+  return storedCut(name, stem, size, (quad, raster) => {
+    const h = boardToImage(quad.corners, BOARD_SIZE, quad.margin);
+    const mesh = quad.mesh;
+    if (mesh?.tx && mesh.ty) {
+      return sampleQuad(raster, h, squareMeshQuad(square, BOARD_SIZE, mesh as TiltedMesh, STORED_CROP), size, size);
+    }
+    const box = mesh
+      ? squareMeshBox(square, BOARD_SIZE, mesh, STORED_CROP)
+      : squareCropBox(square, BOARD_SIZE, STORED_CROP);
+    return sampleBox(raster, h, box, size, size);
+  });
 }
 
 export type StoredProgress = { boards: number; seen: number };

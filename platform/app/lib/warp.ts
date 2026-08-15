@@ -81,6 +81,107 @@ export function squareCropBox(square: string, boardSize: number, crop: CropParam
   };
 }
 
+/** The 18 measured grid lines as fractions of the field side (`quad-fit.json` `grid_lines`);
+ *  `tx`/`ty` are their dimensionless tilts about the board centre, `cx`/`cy` their parabola
+ *  terms — each pair complete or absent, curvature only on top of tilts. */
+export type GridMesh = { x: number[]; y: number[]; tx?: number[]; ty?: number[]; cx?: number[]; cy?: number[] };
+
+/** A mesh whose tilt stage is proven present; curvature may still be absent. */
+export type TiltedMesh = GridMesh & { tx: number[]; ty: number[] };
+
+/** A steeper line is a misfit, not a lens — shared with realgames.py and CropBox.kt. */
+export const MESH_TILT_LIMIT = 0.05;
+
+/** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
+export const MESH_CURV_LIMIT = 0.08;
+
+/**
+ * 'e4' -> the crop box cut at the square's four neighbour-line intersections — the mesh cut.
+ * Pads scale with the square's own measured cell. Parity twin: `meshCropBoxExact` (CropBox.kt),
+ * pinned on the shared fixture `parity/_geometry/mesh_crop_parity.json`.
+ */
+export function squareMeshBox(
+  square: string,
+  boardSize: number,
+  mesh: GridMesh,
+  crop: CropParams,
+  whitePov = true,
+) {
+  const [col, row] = squareColRow(square, whitePov);
+  const cw = mesh.x[col + 1] - mesh.x[col];
+  const ch = mesh.y[row + 1] - mesh.y[row];
+  return {
+    x0: (mesh.x[col] - crop.pad_side * cw) * boardSize,
+    y0: (mesh.y[row] - (crop.pad_side + crop.pad_up) * ch) * boardSize,
+    x1: (mesh.x[col + 1] + crop.pad_side * cw) * boardSize,
+    y1: (mesh.y[row + 1] + crop.pad_side * ch) * boardSize,
+  };
+}
+
+function intersect(xi: number, ti: number, yj: number, tj: number): [number, number] {
+  const den = 1 - ti * tj;
+  const x = (xi + ti * (yj - 0.5 * (1 + tj))) / den;
+  return [x, yj + tj * (x - 0.5)];
+}
+
+function curvedCorner(
+  lx: number,
+  tx: number,
+  cx: number,
+  ly: number,
+  ty: number,
+  cy: number,
+): [number, number] {
+  let x = lx;
+  let y = ly;
+  for (let i = 0; i < 3; i++) {
+    const u = x - 0.5;
+    const v = y - 0.5;
+    x = lx + tx * v + cx * v * v;
+    y = ly + ty * u + cy * u * u;
+  }
+  return [x, y];
+}
+
+/**
+ * 'e4' -> the square's padded cell as a QUADRILATERAL `[tl, tr, br, bl]` in board pixels — the
+ * four neighbour lines taken as offset + tilt (+ parabola term when the mesh carries one),
+ * shifted outward by the pads, intersected. With curvature the corner is three simultaneous
+ * evaluations of either parabola at the other's position; `meshCellQuadExact` (CropBox.kt)
+ * argues the residual. Requires tilts; same shared fixture.
+ */
+export function squareMeshQuad(
+  square: string,
+  boardSize: number,
+  mesh: TiltedMesh,
+  crop: CropParams,
+  whitePov = true,
+): number[][] {
+  const [col, row] = squareColRow(square, whitePov);
+  const cw = mesh.x[col + 1] - mesh.x[col];
+  const ch = mesh.y[row + 1] - mesh.y[row];
+  const lx0 = mesh.x[col] - crop.pad_side * cw;
+  const lx1 = mesh.x[col + 1] + crop.pad_side * cw;
+  const ly0 = mesh.y[row] - (crop.pad_side + crop.pad_up) * ch;
+  const ly1 = mesh.y[row + 1] + crop.pad_side * ch;
+  const { tx, ty, cx, cy } = mesh;
+  const corners =
+    cx && cy
+      ? [
+          curvedCorner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
+          curvedCorner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
+          curvedCorner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
+          curvedCorner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1]),
+        ]
+      : [
+          intersect(lx0, tx[col], ly0, ty[row]),
+          intersect(lx1, tx[col + 1], ly0, ty[row]),
+          intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
+          intersect(lx0, tx[col], ly1, ty[row + 1]),
+        ];
+  return corners.map(([x, y]) => [x * boardSize, y * boardSize]);
+}
+
 export type Raster = { data: Buffer | Uint8Array; width: number; height: number; channels: number };
 
 /**
@@ -103,6 +204,46 @@ export function sampleBox(
     for (let i = 0; i < outW; i++) {
       const bx = box.x0 + ((i + 0.5) / outW) * (box.x1 - box.x0);
       const [fx, fy] = applyMat(h, bx, by);
+      if (fx < 0 || fy < 0 || fx > width - 1 || fy > height - 1) continue;
+      const x0 = Math.floor(fx);
+      const y0 = Math.floor(fy);
+      const x1 = Math.min(x0 + 1, width - 1);
+      const y1 = Math.min(y0 + 1, height - 1);
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const o = (j * outW + i) * 3;
+      for (let c = 0; c < 3; c++) {
+        const p00 = data[(y0 * width + x0) * channels + c];
+        const p10 = data[(y0 * width + x1) * channels + c];
+        const p01 = data[(y1 * width + x0) * channels + c];
+        const p11 = data[(y1 * width + x1) * channels + c];
+        out[o + c] =
+          (p00 * (1 - tx) + p10 * tx) * (1 - ty) + (p01 * (1 - tx) + p11 * tx) * ty + 0.5;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Sample a BOARD-space quadrilateral `[tl, tr, br, bl]` onto the full output rectangle — the
+ * projective sibling of `sampleBox`: the quad's corners are lifted through `h` into the frame
+ * and one unit-square homography replaces the box interpolation. Same bilinear tap.
+ */
+export function sampleQuad(src: Raster, h: Mat3, quad: number[][], outW: number, outH: number): Buffer {
+  const corners = quad.map(([bx, by]) => [...applyMat(h, bx, by)]);
+  const unit = [
+    [0, 0],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+  ];
+  const m = perspectiveTransform(unit, corners);
+  const out = Buffer.alloc(outW * outH * 3);
+  const { data, width, height, channels } = src;
+  for (let j = 0; j < outH; j++) {
+    for (let i = 0; i < outW; i++) {
+      const [fx, fy] = applyMat(m, (i + 0.5) / outW, (j + 0.5) / outH);
       if (fx < 0 || fy < 0 || fx > width - 1 || fy > height - 1) continue;
       const x0 = Math.floor(fx);
       const y0 = Math.floor(fy);

@@ -1145,6 +1145,8 @@ same failure as inventing telemetry.
 | `via` / `run` on a `reviewed.jsonl` row | new keys, existing file | 5 | no — nothing reads that file |
 | `data/manifests/audit-flags.jsonl` | new file, written by the two-halves audit (its own project) | 3 renders it as `—`; the audit fills it | no — its labels reach Python only via the human's `corrections.jsonl` rows |
 | `luma` on an exported `log.jsonl` row | new key, existing file | 5 | ignored by `slice_session` |
+| `grid_lines` on a `quad-fit.json` frame entry | new key, existing file — `{"x":[9],"y":[9],"tx":[9],"ty":[9],"cx":[9],"cy":[9]}`: line positions as fractions of the field side, their dimensionless tilts about the board centre, and the parabola terms (`pos(t) = x + tx·(t−0.5) + cx·(t−0.5)²`), written by `fit-stored` only when all 18 lines were located, offsets strictly monotone, every \|tilt\| < 0.05 and (for the pair `cx`/`cy`, all-or-nothing) every \|curv\| < 0.08, sized on the real 004251 outer lines at 0.046; consumers cut per-cell CURVED with curvature, PERSPECTIVE with tilts alone, scalar rectangles with offsets alone (older sidecars), the quad without the key — malformed always steps one stage down, never errors | mesh cut | written by Python (`realgames.grid_line_fracs`), read back by no Python consumer |
+| `mesh_frames` in a `packed_meta.json` | new key, existing file — how many packed frames were cut at the mesh instead of the nominal grid | mesh cut | no — provenance for the sweep report |
 
 ### 9.2 Phases
 

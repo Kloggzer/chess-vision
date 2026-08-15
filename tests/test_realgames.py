@@ -742,6 +742,59 @@ def test_fit_stored_writes_the_field_quad_the_markers_missed(tmp_path, monkeypat
     assert _corner_error(written["frames"]["0000"]["corners"]) < 2.0
     assert written["frames"]["0000"]["align_worst_px"] < 0.04 * size / 8
 
+    # The mesh: offsets near k/8, tilts and curvatures near 0, on this clean rendered board.
+    mesh = written["frames"]["0000"]["grid_lines"]
+    assert sorted(mesh) == ["cx", "cy", "tx", "ty", "x", "y"]
+    assert all(len(mesh[key]) == 9 for key in mesh)
+    for axis in ("x", "y"):
+        assert all(abs(v - k / 8) < 0.01 for k, v in enumerate(mesh[axis]))
+    for axis in ("tx", "ty", "cx", "cy"):
+        assert all(abs(v) < 0.01 for v in mesh[axis])
+
+
+def test_grid_line_fracs_refuses_nan_and_unsorted_lines(monkeypatch):
+    """A NaN in the JSON would break both consumer parsers on the WHOLE sidecar; a bad
+    curvature only costs its own stage, never the linear mesh."""
+    from chesslab.realgames import grid_line_fracs
+
+    img = np.full((120, 120, 3), 128, np.uint8)
+    quad = [[10.0, 10.0], [90.0, 10.0], [90.0, 90.0], [10.0, 90.0]]
+    nominal_x = [round(k / 8, 5) for k in range(9)]
+
+    def fake(slope=0.0, value=None, curl=(0.0, 0.0)):
+        def lines_and_curls(warped, bs, *, pad=0, **kw):
+            lines = [[(0.0, pad + k * bs / 8) for k in range(9)] for _ in range(2)]
+            lines[0][3] = (slope, value if value is not None else lines[0][3][1])
+            return lines, [[curl for _ in range(9)] for _ in range(2)]
+        return lines_and_curls
+
+    from chesslab import alignment
+
+    def patch(f):
+        monkeypatch.setattr(alignment, "grid_lines_with_curvature", f)
+    patch(fake(value=float("nan")))
+    assert grid_line_fracs(img, quad, 80) is None
+    patch(fake(value=0.0))
+    assert grid_line_fracs(img, quad, 80) is None
+    patch(fake(slope=0.06))
+    assert grid_line_fracs(img, quad, 80) is None
+    patch(fake(slope=float("nan")))
+    assert grid_line_fracs(img, quad, 80) is None
+
+    linear = {"x": nominal_x, "y": nominal_x,
+              "tx": [0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.0, 0.0], "ty": [0.0] * 9}
+    patch(fake(slope=0.03, curl=None))
+    assert grid_line_fracs(img, quad, 80) == linear
+    patch(fake(slope=0.03, curl=(0.0, 80 * 0.09)))
+    assert grid_line_fracs(img, quad, 80) == linear
+    patch(fake(slope=0.03, curl=(0.0, float("nan"))))
+    assert grid_line_fracs(img, quad, 80) == linear
+    patch(fake(slope=0.03, curl=(0.8, 80 * 0.01)))
+    assert grid_line_fracs(img, quad, 80) == {
+        **linear, "x": [round(k / 8 + 0.01, 5) for k in range(9)],
+        "y": [round(k / 8 + 0.01, 5) for k in range(9)],
+        "cx": [0.01] * 9, "cy": [0.01] * 9}
+
 
 def test_a_frame_whose_grid_cannot_be_read_is_named_not_patched(tmp_path, monkeypatch):
     """A hand over the board must fail LOUDLY: the consumer keeps the logged marker quad for it,

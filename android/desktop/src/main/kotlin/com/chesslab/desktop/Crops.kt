@@ -12,6 +12,10 @@ import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.quadOf
 import com.github.bhlangonijr.chesslib.Board
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgcodecs.Imgcodecs
@@ -90,6 +94,67 @@ private fun cutEach(
 }
 
 private const val CROPS_EVERY = 400
+
+private const val PROBE_ARGS = 5
+
+/** `probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>` — the pack's own warp and cut as
+ *  PNGs, so a probe montage shows TRAINING pixels and never a Python approximation. A frame the
+ *  sidecar covers is cut exactly like `packLabeledSession` cuts it: fitted field quad, margin 0,
+ *  mesh beside it as `cell-mesh.png`. */
+fun probeCrop(args: List<String>) {
+    require(args.size >= PROBE_ARGS) { "usage: probe-crop <log.jsonl> <framesDir> <stem> <square> <outDir>" }
+    val log = File(args[0].replace('~', ' '))
+    val framesDir = File(args[1].replace('~', ' '))
+    val stem = args[2]
+    val square = args[3]
+    val outDir = File(args[4].replace('~', ' ')).apply { mkdirs() }
+    val row =
+        log
+            .readLines()
+            .asSequence()
+            .map { Json.parseToJsonElement(it) as JsonObject }
+            .first { File(it.getValue("frame").jsonPrimitive.content).nameWithoutExtension == stem }
+    val logged =
+        row
+            .getValue("corners")
+            .jsonArray
+            .flatMap { point -> point.jsonArray.map { it.jsonPrimitive.content.toFloat() } }
+            .toFloatArray()
+    val frameFile =
+        listOf("png", "jpg").map { File(framesDir, "$stem.$it") }.firstOrNull { it.isFile }
+            ?: error("no frame $stem under $framesDir")
+    val frame = Imgcodecs.imread(frameFile.absolutePath)
+    require(!frame.empty()) { "no frame $stem under $framesDir" }
+    val fitted = storedQuadFit(log.absoluteFile.parentFile)[stem]
+    val quad = fitted?.corners ?: logged
+    val geometry = storedGeometry(fitted, quad)
+    val mesh = fitted?.mesh
+    val stage =
+        when {
+            mesh == null -> "none"
+            mesh.tx == null -> "scalar"
+            mesh.cx == null -> "perspective"
+            else -> "curved"
+        }
+    val warped = warpBoardForCrops(frame, geometry, cornersFromFlat(quad))
+    Imgcodecs.imwrite(File(outDir, "warped.png").path, warped)
+    Imgcodecs.imwrite(File(outDir, "cell.png").path, cropSquare(warped, square, geometry))
+    mesh?.let {
+        Imgcodecs.imwrite(File(outDir, "cell-mesh.png").path, cropSquare(warped, square, geometry, it))
+    }
+    File(outDir, "probe.json").writeText(
+        "{\"boardSize\":${geometry.boardSize},\"outW\":${geometry.outW},\"outH\":${geometry.outH}," +
+            "\"padSide\":${geometry.padSide},\"padUp\":${geometry.padUp}," +
+            "\"border\":${cropBorderPx(geometry)}," +
+            "\"quad\":\"${if (fitted == null) "marker" else "grid-fit"}\"," +
+            "\"mesh\":\"$stage\"}\n",
+    )
+    println(
+        "probe-crop $stem/$square: quad=${if (fitted == null) "marker" else "grid-fit"} " +
+            "mesh=$stage boardSize=${geometry.boardSize} " +
+            "out=${geometry.outW}x${geometry.outH} -> ${outDir.absolutePath}",
+    )
+}
 
 /** `turntable-preview <packDir> <out.png>` — an 8x8 contact sheet of the pack's first clean board. */
 fun previewTurntablePack(args: List<String>) {

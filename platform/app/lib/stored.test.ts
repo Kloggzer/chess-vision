@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
@@ -6,6 +6,7 @@ import sharp from "sharp";
 import { applyMat, boardToImage } from "@/lib/warp";
 import {
   storedBoardPng,
+  storedCellPng,
   storedFit,
   storedProgress,
   storedProgressOf,
@@ -52,18 +53,45 @@ beforeEach(async () => {
 const writeLog = (...rows: object[]) =>
   writeFile(path.join(session, "log.jsonl"), rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
 
-/** The producer's sidecar: `0000` fitted, `0001` given up on — the two paths in one file. */
-const writeFit = () =>
-  writeFile(
-    path.join(session, "quad-fit.json"),
+/** The producer's sidecar: `0000` fitted, `0001` given up on — the two paths in one file.
+ *  The mtime is bumped explicitly: rewrites inside one test land within the stat resolution,
+ *  and the mtime-keyed cache would silently serve the previous variant. */
+let fitStamp = 0;
+const writeFit = async (extra: object = {}) => {
+  const file = path.join(session, "quad-fit.json");
+  await writeFile(
+    file,
     JSON.stringify({
       margin: 0,
-      frames: { "0000": { corners: FIELD, align_worst_px: 2.7 } },
+      frames: { "0000": { corners: FIELD, align_worst_px: 2.7, ...extra } },
       failed: ["0001"],
       source_margin: 0.045,
     }) + "\n",
     "utf8",
   );
+  const bumped = new Date(Date.now() + ++fitStamp * 1000);
+  await utimes(file, bumped, bumped);
+};
+
+/** What `grid_line_fracs` writes: 9 positions per axis, fractions of the field side. */
+const MESH = {
+  x: [0.001, 0.126, 0.251, 0.376, 0.5, 0.625, 0.75, 0.874, 0.999],
+  y: [0.002, 0.127, 0.25, 0.375, 0.501, 0.624, 0.749, 0.875, 1.001],
+};
+
+/** The same lines with tilts — the barrel-signature stage. */
+const TILTED = {
+  ...MESH,
+  tx: [-0.02, -0.015, -0.01, -0.005, 0, 0.005, 0.01, 0.015, 0.02],
+  ty: [0.018, 0.013, 0.009, 0.004, 0, -0.005, -0.009, -0.014, -0.019],
+};
+
+/** And with the parabola term — the curved stage. */
+const CURVED = {
+  ...TILTED,
+  cx: [0.011, 0.008, 0.005, 0.002, -0.001, -0.004, -0.007, -0.01, -0.013],
+  cy: [-0.012, -0.009, -0.006, -0.002, 0.001, 0.004, 0.008, 0.011, 0.014],
+};
 
 /**
  * `packLabeledSession` matches corrections on its `id=` argument, and every pack of these stored
@@ -114,6 +142,82 @@ test("a fitted frame is cut at the sidecar's field quad, an unfitted one at the 
   const fitted = storedQuad(fit, stored.rows[0]);
   const at = applyMat(boardToImage(fitted.corners, 928, fitted.margin), 0, 0);
   expect([Math.round(at[0]), Math.round(at[1])]).toEqual(FIELD[0]);
+});
+
+test("tilts ride the mesh when valid, and malformed tilts drop one stage, never the offsets", async () => {
+  await writeLog(row(0), row(1));
+  await writeFit({ grid_lines: TILTED });
+  const [stored] = await storedSessions(BUNDLE);
+  expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(TILTED);
+
+  const badTilts = [
+    { ...TILTED, tx: TILTED.tx.slice(0, 8) },
+    { ...TILTED, ty: [...TILTED.ty.slice(0, 8), 0.06] },
+    { ...TILTED, tx: [...TILTED.tx.slice(0, 8), "0.01"] },
+    { x: TILTED.x, y: TILTED.y, tx: TILTED.tx },
+  ];
+  for (const lines of badTilts) {
+    await writeFit({ grid_lines: lines });
+    expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh, JSON.stringify(lines)).toEqual(MESH);
+  }
+});
+
+test("curvature rides on tilts when valid, and a malformed pair only costs its own stage", async () => {
+  await writeLog(row(0), row(1));
+  await writeFit({ grid_lines: CURVED });
+  const [stored] = await storedSessions(BUNDLE);
+  expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(CURVED);
+
+  // A silent revert of the limit to 0.02 must fail here: 004251's outer lines carry 0.046.
+  const real = { ...CURVED, cx: [0.046, ...CURVED.cx.slice(1, 8), -0.046] };
+  await writeFit({ grid_lines: real });
+  expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(real);
+
+  const badCurvs = [
+    { ...CURVED, cx: CURVED.cx.slice(0, 8) },
+    { ...CURVED, cy: [...CURVED.cy.slice(0, 8), 0.08] },
+    { ...CURVED, cx: [...CURVED.cx.slice(0, 8), "0.01"] },
+    { ...TILTED, cx: CURVED.cx },
+  ];
+  for (const lines of badCurvs) {
+    await writeFit({ grid_lines: lines });
+    expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh, JSON.stringify(lines)).toEqual(TILTED);
+  }
+  // Broken tilts drop curvature WITH them — never a curved cut on an unproven tilt stage.
+  await writeFit({ grid_lines: { ...CURVED, tx: [...CURVED.tx.slice(0, 8), 0.06] } });
+  expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(MESH);
+});
+
+test("grid lines ride along when complete, and a malformed mesh reads as none", async () => {
+  await writeLog(row(0), row(1));
+  await writeFit({ grid_lines: MESH });
+  const [stored] = await storedSessions(BUNDLE);
+  expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(MESH);
+
+  const bad = [
+    { x: [0, 1], y: [0, 1] },
+    { x: [...MESH.x.slice(0, 8), null], y: MESH.y },
+    { x: [...MESH.x.slice(0, 8), "0.999"], y: MESH.y },
+    { x: [...MESH.x.slice(0, 8), 0.5], y: MESH.y },
+    "012345678",
+  ];
+  for (const lines of bad) {
+    await writeFit({ grid_lines: lines });
+    expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh, JSON.stringify(lines)).toBeUndefined();
+  }
+});
+
+test("a stored cell renders through every stage: curved, perspective, scalar, and no mesh", async () => {
+  await writeLog(row(0), row(1));
+  for (const lines of [CURVED, TILTED, MESH]) {
+    await writeFit({ grid_lines: lines });
+    for (const stem of ["0000", "0001"]) {
+      const png = await storedCellPng(BUNDLE, stem, "e4", 48);
+      const meta = await sharp(png).metadata();
+      expect([meta.format, meta.width, meta.height]).toEqual(["png", 48, 48]);
+    }
+  }
+  await expect(storedCellPng(BUNDLE, "0009", "e4", 48)).rejects.toThrow(/no stored frame/);
 });
 
 test("without a sidecar nothing moves: no file, no fit, the marker quad as before", async () => {
