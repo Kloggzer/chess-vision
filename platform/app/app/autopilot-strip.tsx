@@ -1,21 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { AutopilotStatus } from "@/lib/autopilot-engine";
 
 const POLL_MS = 5000;
 
-/**
- * The Autopilot's whole surface: what it is doing, what waits, what is broken, and the pause.
- *
- * On every page because the machine works on every page — a state a user has to navigate to is a
- * state they find out about afterwards. The operating rule is printed here for the same reason:
- * the lock is one-directional until a terminal tool honours it (§5.5).
- */
+// On every page — machine works everywhere; state shouldn't need navigation.
 export function AutopilotStrip() {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  // The strip is client-driven start to finish, so SSR contributes nothing but hydration targets
+  // for whatever edits the DOM before React loads (measured: a pre-hydration `disabled` mismatch
+  // that survived a .next wipe). Until hydration is over it renders inert markup both sides agree on.
+  const mounted = useSyncExternalStore(subscribeNever, snapshotTrue, snapshotFalse);
 
   useEffect(() => {
     const read = () =>
@@ -37,6 +35,15 @@ export function AutopilotStrip() {
     } finally {
       setBusy(false);
     }
+  }
+
+  if (!mounted) {
+    return (
+      <div className="border-border text-muted-foreground mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+        <span className="text-foreground font-medium">Autopilot</span>
+        <span>…</span>
+      </div>
+    );
   }
 
   return (
@@ -71,6 +78,10 @@ export function AutopilotStrip() {
     </div>
   );
 }
+
+const subscribeNever = () => () => {};
+const snapshotTrue = () => true;
+const snapshotFalse = () => false;
 
 function state(status: AutopilotStatus | null): string {
   if (!status) return "…";

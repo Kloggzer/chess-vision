@@ -1,10 +1,4 @@
-/**
- * Autopilot's engine: the ticker, the lock and the strip's numbers (`CONCEPT.md` §5).
- *
- * A loop driven by page loads would make "a recording works its way to the stream by itself" true
- * only while a browser tab is open, so the tick is a `setInterval` started from
- * `instrumentation.ts` — once per server process — plus an event tick when the slot frees.
- */
+// Ticker runs via setInterval (once per process), not page load — survives closed tabs.
 import { readFile } from "node:fs/promises";
 import { adoptPgn } from "@/lib/chain";
 import { refused, startStep } from "@/lib/chain-run";
@@ -77,12 +71,7 @@ async function cachedPlan(): Promise<Plan> {
   return freshPlan();
 }
 
-/**
- * One pass: adopt what is free, then start at most one machine step.
- *
- * A no-op when paused, when the slot is busy, when a foreign process holds the heavy lock, or when
- * nothing is eligible — those are the four ways this loop is allowed to do nothing.
- */
+// One pass: adopt free PGNs, then start one machine step if slot is free and nothing is paused.
 export async function tick(): Promise<void> {
   if (engine.ticking) return;
   engine.ticking = true;

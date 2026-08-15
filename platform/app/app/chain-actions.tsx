@@ -5,28 +5,24 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import type { ChainState, ChainStep } from "@/lib/chain";
+import { failureParts, logName } from "@/lib/failure";
 import type { Job } from "@/lib/jobs";
 import type { Progress } from "@/lib/progress";
 
 /** What each button does, in the words of the thing it produces rather than the command it runs. */
 const STEP: Record<ChainStep, { label: string; hint: string }> = {
-  label: { label: "Label", hint: "replay the recording through the tracker → candidate.json (minutes)" },
-  confirm: { label: "Confirm", hint: "judge the tracker's plies — the human step nothing else can do" },
-  export: { label: "Export session", hint: "confirmed intervals → data/sessions/rg-<name>/" },
-  propose: { label: "Propose occluded", hint: "score the dirty cells → occluded-proposals.jsonl" },
-  relabel: { label: "Relabel", hint: "the bucket grid and the board brush" },
+  label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
+  confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
+  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
+  propose: { label: "Vorschläge erzeugen", hint: "dirty Zellen bewerten → occluded-proposals.jsonl" },
+  relabel: { label: "Labeln", hint: "Brett-Brush und Zellraster" },
 };
 
 const BUSY = new Set(["queued", "running"]);
 
 /**
  * The chain's next step as ONE control.
- *
- * A row of four buttons would be four ways to get an error message: every step needs the previous
- * step's file, and the disk already knows which one is missing. The two steps that are a human's
- * (confirm, relabel) are links, the two that are the machine's are buttons that queue a job — and
- * the job's own state comes back here, because a replay takes minutes and a button that just went
- * quiet is indistinguishable from one that did nothing.
+ * Disk knows what's missing; confirm/relabel are links, machine steps are buttons.
  */
 export function ChainActions({ name, state, lastJob = null }: { name: string; state: ChainState; lastJob?: Job | null }) {
   const router = useRouter();
@@ -74,7 +70,7 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
     return <span className="text-muted-foreground text-xs">als nutzlos markiert — kein Schritt offen</span>;
   }
   if (step === "label" && !state.video) {
-    return <span className="text-muted-foreground text-xs">no video in this bundle — nothing to label</span>;
+    return <span className="text-muted-foreground text-xs">kein Video im Bundle — nichts zu labeln</span>;
   }
   // A replay of an unfinalized MP4 fails after minutes of decoding; the atom chain says so in
   // milliseconds, so the card states it instead of offering the button.
@@ -133,7 +129,7 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
         </Badge>
       ) : null}
       {busy ? <Working progress={progress} /> : null}
-      {job?.reason ? <span className="text-destructive">{job.reason}</span> : null}
+      {job?.reason ? <FailureLine reason={job.reason} /> : null}
       {note ? <span className="text-destructive">{note}</span> : null}
     </span>
   );
@@ -166,6 +162,21 @@ function Working({ progress }: { progress: Progress | null }) {
       <span className="text-muted-foreground max-w-md truncate font-mono">
         {tail.at(-1) ?? (bytes > 0 ? "" : "no output yet")}
       </span>
+    </span>
+  );
+}
+
+function FailureLine({ reason }: { reason: string }) {
+  const { text, log } = failureParts(reason);
+  return (
+    <span className="text-destructive">
+      {text}
+      {log ? (
+        <span className="text-muted-foreground font-mono" title={log}>
+          {" · "}
+          {logName(log)}
+        </span>
+      ) : null}
     </span>
   );
 }

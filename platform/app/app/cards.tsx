@@ -132,58 +132,64 @@ export function GameCard({ game }: { game: GameInfo }) {
 
   return (
     <li
-      className={`border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm ${
+      className={`border-border flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm ${
         game.archived ? "opacity-60" : ""
       }`}
     >
-      <input
-        className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
-        defaultValue={game.title ?? ""}
-        onBlur={(e) => {
-          if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-        }}
-        placeholder={game.name}
-        title="Anzeigename — leer lassen für den Verzeichnisnamen"
-      />
-      {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
-      <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
-      {game.chain.step !== "confirm" && game.chain.hasCandidate ? (
-        <Link className="text-muted-foreground text-xs underline underline-offset-4" href={`/confirm/${game.name}`}>
-          confirm
-        </Link>
-      ) : null}
-      {game.cells > 0 && game.chain.step !== "relabel" ? (
-        <Link className="text-muted-foreground text-xs underline underline-offset-4" href={`/relabel/${game.name}`}>
-          relabel
-        </Link>
-      ) : null}
-      <span className="text-muted-foreground">
-        {when(game.createdAt) ?? "?"} · {game.plies} plies ·{" "}
-        {game.confirmed ? `bestätigt (${game.reviewed} reviewed)` : "unbestätigt"} ·{" "}
-        {game.pgnPlies !== null ? `PGN ✓ ${game.pgnPlies}` : "kein PGN"}
-      </span>
-      {game.boards > 0 ? <BoardProgress game={game} /> : null}
-      {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
-      {note ? <Badge variant="destructive">{note}</Badge> : null}
-      <span className="text-muted-foreground ml-auto flex items-center gap-3 text-xs">
-        <label className="cursor-pointer underline underline-offset-4">
-          {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
-          <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
-        </label>
-        <UselessButton flagged={false} name={game.name} />
-        <button
-          className="cursor-pointer underline underline-offset-4"
-          onClick={act(() =>
-            post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
-          )}
-          type="button"
-        >
-          {game.archived ? "wiederherstellen" : "archivieren"}
-        </button>
-      </span>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <input
+          className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
+          defaultValue={game.title ?? ""}
+          onBlur={(e) => {
+            if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+          }}
+          placeholder={game.name}
+          title="Anzeigename — leer lassen für den Verzeichnisnamen"
+        />
+        {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
+        <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
+        <span className="ml-auto flex items-center gap-3">
+          {game.boards > 0 ? <BoardProgress game={game} /> : null}
+        </span>
+      </div>
+      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span>
+          {when(game.createdAt) ?? "?"} · {game.plies} Halbzüge ·{" "}
+          {game.confirmed ? `bestätigt (${game.reviewed} geprüft)` : "unbestätigt"} ·{" "}
+          {game.pgnPlies !== null ? `PGN ✓ ${game.pgnPlies}` : "kein PGN"}
+        </span>
+        {game.chain.step !== "confirm" && game.chain.hasCandidate ? (
+          <Link className="underline underline-offset-4" href={`/confirm/${game.name}`}>
+            Sichtprüfung
+          </Link>
+        ) : null}
+        {game.cells > 0 && game.chain.step !== "relabel" ? (
+          <Link className="underline underline-offset-4" href={`/relabel/${game.name}`}>
+            Bretter
+          </Link>
+        ) : null}
+        {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
+        {note ? <Badge variant="destructive">{note}</Badge> : null}
+        <span className="ml-auto flex items-center gap-3">
+          <label className="cursor-pointer underline underline-offset-4">
+            {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
+            <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
+          </label>
+          <UselessButton flagged={false} name={game.name} />
+          <button
+            className="cursor-pointer underline underline-offset-4"
+            onClick={act(() =>
+              post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
+            )}
+            type="button"
+          >
+            {game.archived ? "wiederherstellen" : "archivieren"}
+          </button>
+        </span>
+      </div>
     </li>
   );
 }

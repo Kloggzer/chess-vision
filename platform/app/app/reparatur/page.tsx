@@ -1,4 +1,5 @@
 import { chainState } from "@/lib/chain";
+import { failureParts } from "@/lib/failure";
 import { repairPlan } from "@/lib/autopilot-engine";
 import { jobs } from "@/lib/jobs";
 import { queueRows, splitQueues } from "@/lib/queues";
@@ -7,12 +8,7 @@ import { QueueNav } from "@/app/queue-nav";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Where a step goes when it fails — loud, with the tool's own last words and the manual button.
- *
- * Nothing here is retried automatically, ever (`CONCEPT.md` §5.4): a row leaves this list because
- * a human pressed the button, fixed the recording, or flagged the game useless.
- */
+// Failed steps never retry automatically — only manual press or fix moves them out.
 export default async function RepairPage() {
   const [repair, queues, ledger] = await Promise.all([repairPlan(), queueRows().then(splitQueues), jobs(500)]);
   const counts = { confirm: queues.confirm.length, relabel: queues.relabel.length };
@@ -40,7 +36,9 @@ export default async function RepairPage() {
                 <span className="text-muted-foreground text-xs">gelabelt OHNE Linsen-Korrektur</span>
               ) : null}
             </div>
-            <p className="text-destructive text-xs">{row.reason}</p>
+            {row.reason !== row.lastJob?.reason ? (
+              <p className="text-destructive text-xs">{failureParts(row.reason).text}</p>
+            ) : null}
             <ChainActions lastJob={row.lastJob} name={row.name} state={row.state} />
           </li>
         ))}

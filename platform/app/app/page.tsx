@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { chainState } from "@/lib/chain";
 import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
@@ -14,14 +15,8 @@ import { QueueNav } from "./queue-nav";
 export const dynamic = "force-dynamic";
 
 /**
- * BRETTER first, cells second (CONCEPT.md 6.2, D1): a board is the unit a human clears, and the
- * cell count is a function of `hi`/`lo`, so a re-propose would silently rewrite how much work is
- * done. Decided = the cell has a row in one of the two ledgers (corrections OR reviewed); a board
- * counts as touched as soon as any of its cells does.
- *
- * This is a LIST of nine sessions: with a sidecar it must not parse a single proposal row, which
- * is why `cellsDone` is `null` there — that one figure needs the cell keys, and the sidecar has
- * counts. A fixture has no sidecar, so its rows are read and the number is exact.
+ * BRETTER first, cells second (CONCEPT.md 6.2): board is the unit a human clears.
+ * With sidecar, `cellsDone` is null — sidecar has counts, fixture reads rows exactly.
  */
 async function progress(name: string) {
   const decided = await judgedKeys(sessionId(name));
@@ -89,10 +84,37 @@ export default async function Home() {
   // Flagged-but-bare games stay in the useless list: the undo has to be findable.
   const useless = games.filter((g) => !g.archived && g.chain.useless !== null);
 
+  const boards = active.reduce((n, g) => n + g.boards, 0);
+  const boardsDone = active.reduce((n, g) => n + g.boardsDone, 0);
+
   return (
     <main className="space-y-4">
       <QueueNav counts={{ confirm: queues.confirm.length, relabel: queues.relabel.length }} here="home" />
-      <h1 className="text-2xl font-semibold">Real-game candidates</h1>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Link
+          className="border-border hover:bg-muted/40 rounded-lg border p-4 transition-colors"
+          href="/strom/zuege"
+        >
+          <div className="text-lg font-semibold">Züge-Strom →</div>
+          <div className="text-muted-foreground text-sm">
+            {queues.confirm.length === 0
+              ? "nichts wartet auf ein Urteil"
+              : `${queues.confirm.length} ${queues.confirm.length === 1 ? "Partie wartet" : "Partien warten"} auf dein Urteil`}
+          </div>
+        </Link>
+        <Link
+          className="border-border hover:bg-muted/40 rounded-lg border p-4 transition-colors"
+          href="/strom/labeln"
+        >
+          <div className="text-lg font-semibold">Labeln-Strom →</div>
+          <div className="text-muted-foreground text-sm">
+            {boards > 0
+              ? `${boardsDone}/${boards} Bretter bearbeitet · ${Math.round((boardsDone / boards) * 100)} %`
+              : "keine Bretter im Strom"}
+          </div>
+        </Link>
+      </div>
+      <h1 className="text-2xl font-semibold">Partien</h1>
       <ul className="space-y-2">
         {active.map((game) => (
           <GameCard game={game} key={game.name} />
@@ -125,7 +147,7 @@ export default async function Home() {
       ) : null}
       {games.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          Nothing under <code>$CHESSLAB_DATA_DIR/realgames</code>. Check <code>.env.local</code>.
+          Nichts unter <code>$CHESSLAB_DATA_DIR/realgames</code> — <code>.env.local</code> prüfen.
         </p>
       )}
     </main>
