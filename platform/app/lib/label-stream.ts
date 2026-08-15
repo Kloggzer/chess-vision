@@ -9,13 +9,15 @@
  * searches this order instead of resetting it (`lib/lanes.ts` `keepPosition`).
  */
 import { judgedKeys } from "@/lib/corrections";
+import { chainState } from "@/lib/chain";
 import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
 import { loadMeta } from "@/lib/meta";
 import { loadProposals, splitStreams, topRead, type Proposal } from "@/lib/proposals";
 import { unusableBoards } from "@/lib/review-notes";
-import { recordedAt } from "@/lib/queues";
+import { isBare, recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase } from "@/lib/session";
+import { storedSessions } from "@/lib/stored";
 import { uselessFlag } from "@/lib/useless";
 
 export type StreamSession = {
@@ -25,6 +27,8 @@ export type StreamSession = {
   proposals: boolean;
   /** The producer wrote model reads here — the two identity lanes need this and never have it yet. */
   probs: boolean;
+  /** An Android Stored recording out of a bundle without video — the `Abnicken` lane's whole corpus. */
+  stored?: boolean;
 };
 
 export type StreamBoard = {
@@ -135,6 +139,18 @@ async function liveGames(): Promise<string[]> {
     }),
   );
   return newestFirst(live.filter((n): n is string => n !== null));
+}
+
+/** Bundles with neither video nor candidate (`isBare`) — a useless one has no step and drops out. */
+async function bareGames(): Promise<string[]> {
+  const names = await listGames();
+  const bare = await Promise.all(
+    names.map(async (name) => {
+      const [chain, meta] = await Promise.all([chainState(name), loadMeta(name)]);
+      return !meta.archived && isBare({ chain }) ? name : null;
+    }),
+  );
+  return newestFirst(bare.filter((n): n is string => n !== null));
 }
 
 /**
@@ -264,6 +280,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     }
     bySession.set(id, { index, byStem });
   }
+  await appendStored(sessions, boards, decided, pos);
 
   return {
     sessions,
@@ -273,6 +290,52 @@ export async function loadLabelStream(): Promise<LabelStream> {
     decided,
     progress: { boards: proposedBoards, done },
   };
+}
+
+/**
+ * The Stored recordings, appended after the exported sessions and ordered by the same rule.
+ *
+ * They carry no proposal and no model read, so they produce no cell and stay out of every lane
+ * whose denominator is "Bretter mit Vorschlägen" — `Abnicken` is their own.
+ */
+async function appendStored(
+  sessions: StreamSession[],
+  boards: StreamBoard[],
+  decided: Record<string, string>[],
+  from: number,
+): Promise<void> {
+  let pos = from;
+  for (const name of await bareGames()) {
+    for (const stored of await storedSessions(name)) {
+      const [judged, unusable] = await Promise.all([
+        judgedKeys(stored.sessionId),
+        unusableBoards(stored.sessionId),
+      ]);
+      const rows = stored.rows.filter((r) => !unusable.has(r.stem));
+      if (rows.length === 0) continue;
+      const index = sessions.length;
+      sessions.push({ name, sessionId: stored.sessionId, proposals: false, probs: false, stored: true });
+      for (const row of rows) {
+        boards.push({
+          session: index,
+          pos: pos++,
+          stem: row.stem,
+          ply: row.ply,
+          fen: row.fen,
+          unknown: [],
+          hands: {},
+          reads: {},
+          disagree: {},
+          disagreeReads: {},
+          proposed: false,
+        });
+      }
+      const stems = new Set(rows.map((r) => r.stem));
+      decided.push(
+        Object.fromEntries([...judged].filter(([key]) => stems.has(key.slice(0, key.indexOf("|"))))),
+      );
+    }
+  }
 }
 
 /** Audit flags positioned in the stream; a flag on a board no lane shows cannot be rendered. */

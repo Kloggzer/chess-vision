@@ -98,6 +98,25 @@ test("a flag whose base AND fen repeat the proposal still frees the cell in one 
   expect(cycleNext({ ...at, current: "empty" })).toBe("occluded");
 });
 
+test("a FEN-unklar cell reaches the brush by click — that label is the lane's whole purpose", () => {
+  // `labeling.py` DROPS an unknown cell unless a correction exists (CONCEPT.md D5), and here the
+  // flag IS the FEN's word, so a cycle without the brush can only confirm or empty it.
+  const at = { current: "wQ", proposal: "wQ", base: "wQ", fen: "wQ", brush: "wN" };
+  expect(cycleNext(at)).toBe("wN");
+  expect(cycleNext({ ...at, current: "wN" })).toBe("empty");
+  expect(cycleNext({ ...at, current: "empty" })).toBe("wQ");
+
+  const plan = planBoard({
+    squares: ["a1"],
+    proposals: { a1: "wQ" },
+    painted: { a1: "wN" },
+    base: { a1: "wQ" },
+    onFile: { a1: "wQ" },
+  });
+  expect(plan.corrections).toEqual([{ square: "a1", label: "wN" }]);
+  expect(plan.committed).toEqual([{ square: "a1", label: "wN" }]);
+});
+
 test("an unflagged cell keeps the three-step brush cycle", () => {
   const at = { current: "wP", base: "wP", fen: "wP", brush: "bK" };
   expect(cycleNext(at)).toBe("bK");

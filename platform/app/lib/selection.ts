@@ -71,7 +71,11 @@ export function planRejectAll(input: PlanInput): BoardPlan {
   return planBoard({ ...input, painted: { ...off, ...input.painted } });
 }
 
-/** Flagged cells: two-cycle `proposal ⇄ base` (4.2.1). Brush adds third label. Unflagged: three-cycle. */
+/**
+ * Flagged: `proposal ⇄ brush ⇄ base` (4.2.1) — the brush is IN the cycle, deduped, so a flag whose
+ * brush repeats it stays the two-step toggle. Without it the `FEN unklar` lane, whose flag IS the
+ * FEN's word, cycled `wQ ⇄ empty` and the one label it exists to write was unreachable by click.
+ */
 export function cycleNext(at: {
   current: string;
   proposal?: string;
@@ -81,7 +85,7 @@ export function cycleNext(at: {
 }): string {
   const { current, proposal, base, fen, brush } = at;
   const other = proposal === undefined ? base : [base, fen, "empty"].find((l) => l !== proposal) ?? base;
-  const order = proposal === undefined ? [...new Set([fen, brush, "empty"])] : [proposal, other];
+  const order = [...new Set(proposal === undefined ? [fen, brush, "empty"] : [proposal, brush, other])];
   return order[(order.indexOf(current) + 1) % order.length];
 }
 

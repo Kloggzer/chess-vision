@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Progress } from "@/components/progress";
 import { chainState } from "@/lib/chain";
 import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
@@ -8,9 +8,10 @@ import { loadProposals, proposalKey } from "@/lib/proposals";
 import { boardProgressOf } from "@/lib/proposal-summaries";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
+import { storedProgressOf } from "@/lib/stored";
 import { BareBundles } from "./bare-bundles";
 import { GameCard, type GameInfo } from "./cards";
-import { QueueNav } from "./queue-nav";
+import { PageTitle } from "./page-title";
 
 export const dynamic = "force-dynamic";
 
@@ -86,41 +87,23 @@ export default async function Home() {
 
   const boards = active.reduce((n, g) => n + g.boards, 0);
   const boardsDone = active.reduce((n, g) => n + g.boardsDone, 0);
+  const stored = await storedProgressOf(queues.bare.map((r) => r.name));
 
   return (
     <main className="space-y-4">
-      <QueueNav counts={{ confirm: queues.confirm.length, relabel: queues.relabel.length }} here="home" />
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Link
-          className="border-border hover:bg-muted/40 rounded-lg border p-4 transition-colors"
-          href="/strom/zuege"
-        >
-          <div className="text-lg font-semibold">Züge-Strom →</div>
-          <div className="text-muted-foreground text-sm">
-            {queues.confirm.length === 0
-              ? "nichts wartet auf ein Urteil"
-              : `${queues.confirm.length} ${queues.confirm.length === 1 ? "Partie wartet" : "Partien warten"} auf dein Urteil`}
-          </div>
-        </Link>
-        <Link
-          className="border-border hover:bg-muted/40 rounded-lg border p-4 transition-colors"
-          href="/strom/labeln"
-        >
-          <div className="text-lg font-semibold">Labeln-Strom →</div>
-          <div className="text-muted-foreground text-sm">
-            {boards > 0
-              ? `${boardsDone}/${boards} Bretter bearbeitet · ${Math.round((boardsDone / boards) * 100)} %`
-              : "keine Bretter im Strom"}
-          </div>
-        </Link>
-      </div>
-      <h1 className="text-2xl font-semibold">Partien</h1>
-      <ul className="space-y-2">
+      <PageTitle
+        count={active.length}
+        title="Partien"
+        why="Jede Aufnahme mit ihrem nächsten Schritt. Die tägliche Arbeit läuft über die Ströme links — diese Liste ist Ablage und Drilldown: Titel, PGN, nutzlos, Archiv."
+      >
+        {boards > 0 ? <Progress bar="w-32" done={boardsDone} total={boards} unit="Bretter" /> : null}
+      </PageTitle>
+      <ul className="space-y-1.5">
         {active.map((game) => (
           <GameCard game={game} key={game.name} />
         ))}
       </ul>
-      <BareBundles rows={queues.bare} />
+      <BareBundles rows={queues.bare} stored={stored} />
       {useless.length > 0 ? (
         <details>
           <summary className="text-muted-foreground cursor-pointer text-sm">

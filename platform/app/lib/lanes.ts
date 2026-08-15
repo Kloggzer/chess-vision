@@ -19,6 +19,7 @@ export type LaneId =
   | "unknown"
   | "control"
   | "audit"
+  | "stored"
   | "all";
 
 /** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10). */
@@ -27,20 +28,30 @@ export type LaneUnit = "Bretter" | "Zellen";
 
 export type Lane = {
   id: LaneId;
+  /** Its own URL segment under `/strom/labeln` — a lane is a place, so Back and a bookmark work. */
+  slug: string;
   label: string;
   renderer: LaneRenderer;
   unit: LaneUnit;
   /** What the count is measured against, printed next to the chip — never assumed to be 3 976. */
   denominator: string;
+  /**
+   * The whole board goes to `reviewed.jsonl` on commit, minus what the brush corrected.
+   *
+   * A lane without flags has nothing to take off, so `plan.rejected` is empty and the ⌫ path
+   * would write nothing at all — but "der FEN stimmt" about 64 squares is exactly the verdict.
+   */
+  reviewAll?: boolean;
 };
 
 export const LANES: readonly Lane[] = [
-  { id: "hands", label: "Hände", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
-  { id: "unsure", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
-  { id: "disagree", label: "Modell ≠ FEN", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
-  { id: "classwall", label: "Klassenwand", renderer: "cells", unit: "Zellen", denominator: "Zellen mit Modell-Lesart" },
+  { id: "hands", slug: "haende", label: "Hände", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  { id: "unsure", slug: "unsicher", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
+  { id: "disagree", slug: "modell", label: "Modell ≠ FEN", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  { id: "classwall", slug: "klassenwand", label: "Klassenwand", renderer: "cells", unit: "Zellen", denominator: "Zellen mit Modell-Lesart" },
   {
     id: "unknown",
+    slug: "fen-unklar",
     label: "FEN unklar",
     renderer: "board",
     unit: "Bretter",
@@ -48,12 +59,26 @@ export const LANES: readonly Lane[] = [
     // boards are partly outside the 3 976 and cannot carry an `n/3976` position (CONCEPT.md 4.2).
     denominator: "Bretter mit unknown_squares über die exportierten Sessions",
   },
-  { id: "control", label: "Stichprobe", renderer: "cells", unit: "Zellen", denominator: "Kontroll-Stichprobe" },
-  { id: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
-  { id: "all", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  { id: "control", slug: "stichprobe", label: "Stichprobe", renderer: "cells", unit: "Zellen", denominator: "Kontroll-Stichprobe" },
+  { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
+  {
+    id: "stored",
+    slug: "abnicken",
+    label: "Abnicken",
+    renderer: "board",
+    // Its own corpus, like `FEN unklar`: a bundle without video has no proposal file at all, so
+    // these boards can never carry an `n/3976` position.
+    denominator: "Stored-Bretter der Bundles ohne Video",
+    reviewAll: true,
+    unit: "Bretter",
+  },
+  { id: "all", slug: "alle", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
 ];
 
 export const laneById = (id: LaneId): Lane => LANES.find((l) => l.id === id)!;
+export const laneBySlug = (slug: string): Lane | undefined => LANES.find((l) => l.slug === slug);
+export const DEFAULT_LANE = LANES[0];
+export const lanePath = (id: LaneId) => `/strom/labeln/${laneById(id).slug}`;
 
 /** Why a lane is empty, when it is empty because nobody produced its input yet. */
 export const NO_PROBS =
@@ -62,15 +87,25 @@ export const NO_PROBS =
 export const NO_AUDIT =
   "data/manifests/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
 
-export type LaneCount =
-  /** `null` = the producer owes this lane its input; the reason is printed, never a `0`. */
-  { n: number | null; why?: string };
+export type LaneCount = {
+  /** OPEN items — the stream shows nothing else. `null` = the producer owes this lane its input. */
+  n: number | null;
+  why?: string;
+  /** Everything the lane holds, judged or not, so `n` can never be read as the whole corpus. */
+  total?: number;
+  /** Counted from the stream when the static wording cannot say it — "… über 18 Bundles". */
+  denominator?: string;
+};
 
 /** The chip's two strings: the unit always travels with the number, `—` never as `0`. */
 export function laneChip(lane: Lane, count: LaneCount): { text: string; title: string } {
-  const text = count.n === null ? `${lane.label} —` : `${lane.label} ${count.n} ${lane.unit}`;
-  const title = count.n === null ? (count.why ?? "kein Input auf der Platte") : `${count.n} ${lane.unit} · ${lane.denominator}`;
-  return { text, title };
+  const over = count.denominator ?? lane.denominator;
+  if (count.n === null) return { text: `${lane.label} —`, title: count.why ?? "kein Input auf der Platte" };
+  const total = count.total ?? count.n;
+  return {
+    text: `${lane.label} ${count.n}/${total} ${lane.unit}`,
+    title: `${count.n} offen von ${total} ${lane.unit} · ${over}`,
+  };
 }
 
 /**
@@ -177,6 +212,7 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   if (id === "hands") return stream.boards.filter((b) => Object.keys(b.hands).length > 0);
   if (id === "disagree") return stream.boards.filter((b) => Object.keys(b.disagree).length > 0);
   if (id === "unknown") return stream.boards.filter((b) => b.unknown.length > 0);
+  if (id === "stored") return stream.boards.filter((b) => stream.sessions[b.session]?.stored === true);
   if (id === "all") return stream.boards.filter((b) => b.proposed);
   return [];
 }
@@ -228,20 +264,47 @@ export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell
   );
 }
 
-/** A board still worth stopping at. `Alle Bretter` never closes: it is touch-up, not a queue. */
+/**
+ * A board still worth stopping at — the lane's own unit of work, unanswered.
+ *
+ * `Abnicken` closes on ANY square, because its commit writes all 64 at once. `Alle Bretter` is
+ * free-hand touch-up and closes only when every square carries a verdict.
+ */
 export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string, string>): boolean {
-  if (id === "all") return true;
-  const accept = laneAccept(board, id);
-  return Object.keys(accept).some((sq) => decided[`${board.stem}|${sq}`] === undefined);
+  const undecided = (squares: string[]) => squares.some((sq) => decided[`${board.stem}|${sq}`] === undefined);
+  if (id === "all") return undecided(Object.keys(fenLabels(board.fen)));
+  if (id === "stored") return !Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] !== undefined);
+  return undecided(Object.keys(laneAccept(board, id)));
 }
 
-/** The chip's number, or `null` with the reason the producer still owes this lane its input. */
+/**
+ * What the lane still asks for, against the ledger AS LOADED.
+ *
+ * The server's snapshot and not the live overlay: an item answered in this sitting must keep its
+ * place until the next load, or the list would resize under the cursor on every commit and `z`
+ * would land somewhere else than it took the row from.
+ */
+export function openBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
+  return laneBoards(stream, id).filter((b) => laneOpen(b, id, stream.decided[b.session] ?? {}));
+}
+
+export function openCells(stream: LabelStream, id: LaneId): LaneCell[] {
+  return laneCells(stream, id).filter(
+    (c) => (stream.decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined,
+  );
+}
+
+/** Open and total, or `null` with the reason the producer still owes this lane its input. */
 export function laneCount(stream: LabelStream, id: LaneId): LaneCount {
   if (id === "audit" && stream.audit === null) return { n: null, why: NO_AUDIT };
   if ((id === "disagree" || id === "classwall") && !stream.sessions.some((s) => s.probs))
     return { n: null, why: NO_PROBS };
-  const lane = laneById(id);
-  return { n: lane.renderer === "board" ? laneBoards(stream, id).length : laneCells(stream, id).length };
+  const board = laneById(id).renderer === "board";
+  const total = board ? laneBoards(stream, id).length : laneCells(stream, id).length;
+  const n = board ? openBoards(stream, id).length : openCells(stream, id).length;
+  if (id !== "stored") return { n, total };
+  const bundles = new Set(laneBoards(stream, id).map((b) => stream.sessions[b.session].name)).size;
+  return { n, total, denominator: `Stored-Bretter über ${bundles} Bundles ohne Video` };
 }
 
 export type EventGroup<T> = { head: T; members: T[] };

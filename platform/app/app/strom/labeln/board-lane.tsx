@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
-import { BoardLegend, BoardSurface, STREAM_PALETTE, useBoardPaint } from "@/components/board-paint";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { BoardLegend, BoardSurface, GLYPH, SQUARES, STREAM_PALETTE, useBoardPaint } from "@/components/board-paint";
 import { PhaseChip } from "@/app/relabel/[name]/drilldown";
 import type { Correction } from "@/lib/corrections";
 import type { StreamBoard } from "@/lib/label-stream";
@@ -18,6 +19,8 @@ export type BoardLaneProps = {
   accept: Record<string, string>;
   reads: Record<string, string>;
   decided: Record<string, string>;
+  /** `Lane.reviewAll` — the commit vouches for every square the brush did not correct. */
+  reviewAll?: boolean;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
   onStep: (delta: number) => void;
@@ -33,7 +36,7 @@ export type BoardLaneProps = {
  * (REVIEW S3). The arrows step BOARDS instead.
  */
 export function BoardLane(props: BoardLaneProps) {
-  const { name, sessionId, board, accept, reads, decided, actionsRef, onFlush, onStep, onNext, onGrid } = props;
+  const { name, sessionId, board, accept, reads, decided, reviewAll, actionsRef, onFlush, onStep, onNext, onGrid } = props;
   const boardKey = `${board.session}:${board.stem}`;
   const paint = useBoardPaint({ boardKey, fen: board.fen, decided, stem: board.stem, accept });
   const [hover, setHover] = useState<string | null>(null);
@@ -47,7 +50,9 @@ export function BoardLane(props: BoardLaneProps) {
    * has nothing to correct and goes to the review ledger as provenance.
    */
   const commit = async (what: BoardPlan, ply?: number) => {
-    const reviewed = what.rejected.map((square) => ({ square, label: paint.base[square] }));
+    const corrected = new Set(what.corrections.map((r) => r.square));
+    const vouched = reviewAll ? SQUARES.filter((sq) => !corrected.has(sq)) : what.rejected;
+    const reviewed = vouched.map((square) => ({ square, label: paint.base[square] }));
     const prior = Object.fromEntries(
       [...what.corrections, ...reviewed].map((r) => [
         `${sessionId}|${board.stem}|${r.square}`,
@@ -98,7 +103,7 @@ export function BoardLane(props: BoardLaneProps) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Button className={TOUCH} onClick={() => void commit(plan)} size="sm">
-          ⏎ {confirmLabel(plan)}
+          ⏎ {reviewAll ? `${plan.corrections.length} korrigiert · Rest bestätigt` : confirmLabel(plan)}
         </Button>
         <Button className={TOUCH} onClick={() => void commit(paint.rejectAll())} size="sm" variant="secondary">
           ⌫ FEN stimmt → nächstes
@@ -128,30 +133,47 @@ export function BoardLane(props: BoardLaneProps) {
         </span>
       </div>
 
+      {/* Nur die Kürzel: fünfzehn ausgeschriebene Klassennamen sind eine Zeile Lärm über dem Brett. */}
       <div className="flex flex-wrap items-center gap-1">
-        {STREAM_PALETTE.map(([key, label]) => (
-          <Button
-            className={TOUCH}
-            key={label}
-            onClick={(event) => {
-              event.currentTarget.blur();
-              paint.setBrush(label);
-            }}
-            size="sm"
-            variant={paint.brush === label && !paint.eraser ? "default" : "outline"}
-          >
-            <span className="text-muted-foreground mr-1 font-mono">{key}</span>
-            {label}
-          </Button>
-        ))}
-        <Button
-          className={TOUCH}
-          onClick={() => paint.setEraser(!paint.eraser)}
-          size="sm"
-          variant={paint.eraser ? "default" : "outline"}
-        >
-          Radierer
-        </Button>
+        {STREAM_PALETTE.map(([key, label]) => {
+          const on = paint.brush === label && !paint.eraser;
+          return (
+            <Tooltip key={label}>
+              <TooltipTrigger asChild>
+                <button
+                  className={`w-11 cursor-pointer rounded border py-0.5 text-center font-mono text-xs max-sm:h-11 ${
+                    on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                  onClick={(event) => {
+                    event.currentTarget.blur();
+                    paint.setBrush(label);
+                  }}
+                  type="button"
+                >
+                  {key} <span className="text-sm">{GLYPH[label] ?? ""}</span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{label}</TooltipContent>
+            </Tooltip>
+          );
+        })}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className={`ml-1 cursor-pointer rounded border px-2 py-0.5 text-xs max-sm:h-11 ${
+                paint.eraser ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+              onClick={() => paint.setEraser(!paint.eraser)}
+              type="button"
+            >
+              Radierer
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>setzt gestrichene Zellen auf das Wort des FEN zurück</TooltipContent>
+        </Tooltip>
+        <span className="text-muted-foreground ml-auto text-xs">
+          Pinsel <span className="text-foreground font-mono">{paint.eraser ? "Radierer" : paint.brush}</span>
+        </span>
       </div>
 
       <BoardSurface
@@ -164,11 +186,19 @@ export function BoardLane(props: BoardLaneProps) {
         state={paint}
       />
 
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span>
-          <strong className="text-foreground">hell</strong> = entschieden · dunkel = FEN ({judged.size}/64)
+      <div className="text-muted-foreground flex h-5 flex-wrap items-center gap-x-3 text-xs">
+        <span className="font-mono">
+          {hover ? `${hover} · ${paint.labels[hover]}${reads[hover] ? ` · Modell ${reads[hover]}` : ""}` : ""}
         </span>
-        <BoardLegend />
+        <span className="ml-auto flex items-center gap-3">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="tabular-nums">{judged.size}/64 entschieden</span>
+            </TooltipTrigger>
+            <TooltipContent>hell = entschieden, dunkel = das Wort des FEN</TooltipContent>
+          </Tooltip>
+          <BoardLegend />
+        </span>
       </div>
     </div>
   );

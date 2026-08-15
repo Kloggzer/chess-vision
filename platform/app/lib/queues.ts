@@ -42,7 +42,7 @@ export type Queues = {
  * "nothing to label". They are still DATA (frames, maybe a PGN), so they are collapsed and
  * countable, never hidden and never removed.
  */
-export function isBare(row: QueueRow): boolean {
+export function isBare(row: Pick<QueueRow, "chain">): boolean {
   return row.chain.video === null && row.chain.step === "label";
 }
 

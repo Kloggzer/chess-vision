@@ -6,6 +6,27 @@
 
 ## Next up (agreed, not started)
 
+- **Stored-Sessions loggen den unkorrigierten Marker-Quad** (gemessen 2026-08-15): `log.jsonl` der
+  Android-Stored-Sessions trägt den rohen Marker-Quad, `packLabeledSession` und der Abnick-Viewer
+  rechnen beide mit konstantem `DEFAULT_MARKER_MARGIN = 0.045` — real variiert das beste Margin pro
+  Session (0,0375–0,050; Session 20260812-222357: bis 14 px ≙ 12 % einer Zelle Versatz, im Training
+  wie im Labeln identisch; die übrigen gemessenen Sessions ±6–7 px — systemisch, nicht eine
+  Ausreißer-Session). Fix ZWEISTUFIG (User 2026-08-15): (1) Android DARF den grid-korrigierten
+  Quad loggen statt des Marker-Quads, ABER nur ohne Laufzeitkosten — `improveQuad` rechnet im
+  Live-Tracking ohnehin, das Ergebnis wegschreiben ist gratis; neue Rechenarbeit im Recorder ist
+  tabu („ändert aber nicht langsamer macht"). (2) Der PC kontrolliert und korrigiert TROTZDEM
+  nochmal: Grid-Fit über die gespeicherten JPEGs an EINER geteilten Stelle, die
+  `packLabeledSession` UND der Abnick-Viewer nutzen — deckt alle 28 Bestands-Sessions rückwirkend
+  und bleibt das Netz für schiefe Gerät-Quads. Bis dahin Versatz pack-identisch sichtbar.
+  **Folge-Sweep (User 2026-08-15, bestätigt auf der Platte):** die versetzten Crops sind im
+  Training — `real14-all-80-v1` und `real13-all-80-v1` listen `phone-stored-*`-Sessions (6 Packs,
+  ±6–7-px-Klasse), und `hard_empty.jsonl` trägt **637** `phone-*`-Zeilen (aus versetzten Crops
+  gemined — eine „leere" Zelle kann Nachbarinhalt zeigen). Reihenfolge nach dem Grid-Fit-Fix:
+  (1) die 6 phone-stored-Packs mit korrigiertem Quad neu packen, (2) die 637 hard_empty-Zeilen
+  neu ableiten oder parken (nie löschen), (3) Dataset als NEUEN Snapshot bauen (real14-all-80-v2,
+  Datasets sind Snapshots), (4) Retrain mit Veto-Metrik als Entscheider. Passt zeitlich zum
+  ohnehin geplanten Low-Light-Retrain — ein Rebuild, beide Gründe.
+
 - **Datensatz-Qualität per Zwei-Hälften-Kreuztest** (User, 2026-08-15: *"2 halbe Modelle die die
   andere Hälfte testen, dann die Flags nochmal nachlabeln"*). Korpus in zwei Session-Hälften
   teilen, je ein Modell pro Hälfte trainieren, jedes proposed auf der FREMDEN Hälfte — nie

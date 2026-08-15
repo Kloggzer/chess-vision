@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard, StreamCell } from "@/lib/label-stream";
 import {
   GROUP_SPAN,
@@ -12,15 +13,19 @@ import {
   laneAccept,
   laneBoards,
   laneById,
+  laneBySlug,
   laneCells,
   laneChip,
   laneCount,
   laneOpen,
+  lanePath,
+  openBoards,
+  openCells,
 } from "@/lib/lanes";
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(LANES.map((l) => l.id)).toEqual([
-    "hands", "unsure", "disagree", "classwall", "unknown", "control", "audit", "all",
+    "hands", "unsure", "disagree", "classwall", "unknown", "control", "audit", "stored", "all",
   ]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
@@ -31,9 +36,10 @@ test("every lane declares a renderer, a unit and its own denominator", () => {
 });
 
 test("a chip always carries its unit, and an unavailable lane says — with a reason", () => {
-  expect(laneChip(laneById("hands"), { n: 612 })).toEqual({
-    text: "Hände 612 Bretter",
-    title: "612 Bretter · Bretter mit Vorschlägen",
+  // The stream shows only OPEN work, so the chip has to say what the number is measured against.
+  expect(laneChip(laneById("hands"), { n: 128, total: 612 })).toEqual({
+    text: "Hände 128/612 Bretter",
+    title: "128 offen von 612 Bretter · Bretter mit Vorschlägen",
   });
   const empty = laneChip(laneById("disagree"), { n: null, why: NO_PROBS });
   expect(empty.text).toBe("Modell ≠ FEN —");
@@ -91,15 +97,42 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   boards: [], cells: [], audit: null, decided: [{}], progress: { boards: 0, done: 0 }, ...over,
 });
 
-test("a lane with no producer input counts null, and one with input counts its own unit", () => {
+test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
   const stream = streamOf({ boards: [board({ hands: { e5: "occluded" } })], cells: [cell()] });
-  expect(laneCount(stream, "hands")).toEqual({ n: 1 });
-  expect(laneCount(stream, "unsure")).toEqual({ n: 1 });
+  expect(laneCount(stream, "hands")).toEqual({ n: 1, total: 1 });
+  expect(laneCount(stream, "unsure")).toEqual({ n: 1, total: 1 });
+  // Judged in the ledger the page loaded with: still in the corpus, no longer in the stream.
+  const done = streamOf({
+    boards: [board({ hands: { e5: "occluded" } })],
+    cells: [cell()],
+    decided: [{ "000100|e5": "occluded" }],
+  });
+  expect(laneCount(done, "hands")).toEqual({ n: 0, total: 1 });
+  expect(openBoards(done, "hands")).toEqual([]);
+  expect(openCells(done, "unsure")).toEqual([]);
   // `0` would claim there is no such work; the truth is that nobody has been asked (CONCEPT.md D2).
   expect(laneCount(stream, "disagree").n).toBeNull();
   expect(laneCount(stream, "classwall").n).toBeNull();
   expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
-  expect(laneCount(streamOf({ audit: [] }), "audit")).toEqual({ n: 0 });
+  expect(laneCount(streamOf({ audit: [] }), "audit")).toEqual({ n: 0, total: 0 });
+});
+
+test("every lane has a URL segment of its own, and the slugs are unique", () => {
+  expect(LANES.map((l) => l.slug)).toEqual([
+    "haende", "unsicher", "modell", "klassenwand", "fen-unklar", "stichprobe", "audit", "abnicken", "alle",
+  ]);
+  expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
+  expect(laneBySlug("abnicken")?.id).toBe("stored");
+  expect(laneBySlug("nope")).toBeUndefined();
+  expect(lanePath("unknown")).toBe("/strom/labeln/fen-unklar");
+});
+
+test("Alle Bretter closes only when every square is judged — the free-hand lane's own rule", () => {
+  const b = board();
+  expect(laneOpen(b, "all", {})).toBe(true);
+  expect(laneOpen(b, "all", { "000100|a1": "wR" })).toBe(true);
+  const every = Object.fromEntries(Object.keys(fenLabels(b.fen)).map((sq) => [`000100|${sq}`, "empty"]));
+  expect(laneOpen(b, "all", every)).toBe(false);
 });
 
 test("the FEN-unklar lane pre-selects the FEN's own word, which is what rescues the cell", () => {
@@ -134,6 +167,34 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   )[0];
   expect(audit).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
   expect(audit.note).toContain("margin 0.62");
+});
+
+test("Abnicken counts its own bundles and closes a board on the first verdict of any square", () => {
+  const stream = streamOf({
+    sessions: [
+      { name: "g", sessionId: "rg-g", proposals: true, probs: false },
+      { name: "2026-08-08-22-09-12", sessionId: "phone-20260808-220912", proposals: false, probs: false, stored: true },
+    ],
+    boards: [board(), board({ session: 1, pos: 1, stem: "0000", proposed: false })],
+    decided: [{}, {}],
+  });
+  expect(laneBoards(stream, "stored").map((b) => b.stem)).toEqual(["0000"]);
+  // Proposal-less boards must not inflate the lane whose denominator says "mit Vorschlägen".
+  expect(laneBoards(stream, "all").map((b) => b.stem)).toEqual(["000100"]);
+  expect(laneCount(stream, "stored")).toEqual({
+    n: 1,
+    total: 1,
+    denominator: "Stored-Bretter über 1 Bundles ohne Video",
+  });
+  expect(laneChip(laneById("stored"), laneCount(stream, "stored")).title).toContain("über 1 Bundles");
+
+  const stored = laneBoards(stream, "stored")[0];
+  expect(laneAccept(stored, "stored")).toEqual({});
+  expect(laneOpen(stored, "stored", {})).toBe(true);
+  expect(laneOpen(stored, "stored", { "0000|h8": "empty" })).toBe(false);
+  // Without flags `plan.rejected` stays empty, so the whole-board verdict is the lane's own knob.
+  expect(laneById("stored").reviewAll).toBe(true);
+  expect(laneById("all").reviewAll).toBeUndefined();
 });
 
 test("a board lane is answerable crop by crop, which is what the phone renders", () => {

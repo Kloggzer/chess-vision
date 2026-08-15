@@ -1,23 +1,31 @@
 "use client";
 
+import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Why } from "@/app/page-title";
+import { Progress } from "@/components/progress";
 import { STREAM_PALETTE } from "@/components/board-paint";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/corrections";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import {
+  DEFAULT_LANE,
   LANES,
   type LaneId,
   boardCells,
   laneAccept,
   laneBoards,
+  laneBySlug,
   laneCells,
   laneChip,
   laneCount,
   laneById,
   laneOpen,
+  lanePath,
   laneReads,
   keepPosition,
+  openBoards,
+  openCells,
 } from "@/lib/lanes";
 import { addRows, emptyTally } from "@/lib/session-tally";
 import { BoardLane } from "./board-lane";
@@ -86,8 +94,10 @@ const KEYS: [string, string][] = [
 ];
 
 export function LabelnStream({ stream }: { stream: LabelStream }) {
-  const [lane, setLane] = useState<LaneId>("hands");
+  const router = useRouter();
+  const lane = laneBySlug(usePathname().split("/").pop() ?? "")?.id ?? DEFAULT_LANE.id;
   const [at, setAt] = useState(0);
+  const [showDone, setShowDone] = useState(false);
   const [written, setWritten] = useState<Written>({});
   const [thrown, setThrown] = useState<ReadonlySet<string>>(new Set<string>());
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set<number>());
@@ -128,11 +138,21 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
     (b: StreamBoard) => !dropped.has(b.session) && !thrown.has(`${b.session}|${b.stem}`),
     [dropped, thrown],
   );
-  const boards = useMemo(() => laneBoards(stream, lane).filter(live), [live, lane, stream]);
+  // Only OPEN work is in the stream; `Alle Bretter` is the free-hand exception and says so.
+  const withDone = showDone && lane === "all";
+  const boards = useMemo(
+    () => (withDone ? laneBoards(stream, lane) : openBoards(stream, lane)).filter(live),
+    [live, lane, stream, withDone],
+  );
   const cells = useMemo(() => {
-    const raw = laneById(lane).renderer === "cells" ? laneCells(stream, lane) : boardCells(boards, lane);
+    const raw =
+      laneById(lane).renderer === "cells"
+        ? withDone
+          ? laneCells(stream, lane)
+          : openCells(stream, lane)
+        : boardCells(boards, lane);
     return raw.filter((c) => !dropped.has(c.session) && !thrown.has(`${c.session}|${c.stem}`));
-  }, [boards, dropped, lane, stream, thrown]);
+  }, [boards, dropped, lane, stream, thrown, withDone]);
 
   const board = laneById(lane).renderer === "board" ? boards[Math.min(at, boards.length - 1)] : undefined;
   const positions = useMemo(
@@ -145,10 +165,10 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
   function switchLane(id: LaneId) {
     const next =
       laneById(id).renderer === "board"
-        ? laneBoards(stream, id).filter(live).map((b) => b.pos)
-        : (laneById(id).renderer === "cells" ? laneCells(stream, id) : []).map((c) => c.pos);
-    setLane(id);
+        ? openBoards(stream, id).filter(live).map((b) => b.pos)
+        : openCells(stream, id).map((c) => c.pos);
     setAt(keepPosition(next, pos));
+    router.push(lanePath(id));
   }
 
   /** Median seconds between decisions, in memory and reset by a reload — §6.1 allows no other. */
@@ -338,54 +358,90 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-1">
         {LANES.map((l, i) => {
           const chip = laneChip(l, counts[i]);
+          const on = lane === l.id;
+          // The reason sits on the WRAPPER: a disabled button carries no tooltip, and a `—` chip
+          // whose reason cannot be read is the "0" it exists to avoid.
           return (
-            // The reason sits on the WRAPPER: a disabled button carries no tooltip, and a `—` chip
-            // whose reason cannot be read is the "0" it exists to avoid.
-            <span key={l.id} title={chip.title}>
-              <Button
-                className="max-sm:h-11 max-sm:px-3"
-                disabled={counts[i].n === null}
-                // Blurred: the stream listens on `window`, and a focused button eats the Enter.
-                onClick={(event) => {
-                  event.currentTarget.blur();
-                  switchLane(l.id);
-                }}
-                size="sm"
-                variant={lane === l.id ? "default" : "outline"}
-              >
-                {chip.text}
-              </Button>
-            </span>
+            <Tooltip key={l.id}>
+              <TooltipTrigger asChild>
+                <span>
+                  <button
+                    className={`cursor-pointer rounded-md border px-2 py-1 text-xs disabled:opacity-40 max-sm:h-11 max-sm:px-3 ${
+                      on ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-accent/50"
+                    }`}
+                    disabled={counts[i].n === null}
+                    // Blurred: the stream listens on `window`, and a focused button eats the Enter.
+                    onClick={(event) => {
+                      event.currentTarget.blur();
+                      switchLane(l.id);
+                    }}
+                    type="button"
+                  >
+                    {l.label}
+                    <span className={`ml-1.5 tabular-nums ${on ? "opacity-70" : "text-muted-foreground"}`}>
+                      {counts[i].n === null ? "—" : `${counts[i].n}/${counts[i].total ?? counts[i].n} ${l.unit}`}
+                    </span>
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{chip.title}</TooltipContent>
+            </Tooltip>
           );
         })}
+        {lane === "all" ? (
+          <label className="text-muted-foreground ml-1 flex cursor-pointer items-center gap-1 text-xs max-sm:h-11">
+            <input checked={showDone} onChange={(e) => setShowDone(e.target.checked)} type="checkbox" />
+            Fertige zeigen
+          </label>
+        ) : null}
       </div>
 
-      <header className="border-border flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-sm">
-        <span className="text-muted-foreground tabular-nums">
-          {Math.min(at + 1, length)}/{length} {laneById(lane).unit}
+      <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+        <span className="text-foreground text-sm font-medium tabular-nums">
+          {Math.min(at + 1, length)}/{length}{" "}
+          <span className="text-muted-foreground text-xs font-normal">{laneById(lane).unit}</span>
         </span>
-        <span className="text-muted-foreground tabular-nums" title="Bretter mit Vorschlägen, korpusweit">
-          Strom {stream.progress.done}/{stream.progress.boards} Bretter · {pct.toFixed(1)} %
-        </span>
+        <Why>
+          Jedes Brett jeder Session, ein Strom. Die Lanes oben filtern ihn (Position bleibt
+          erhalten). Flags markieren, was der Commit schreibt; ⏎ bestätigt und geht weiter. Die
+          Tasten stehen rechts.
+        </Why>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div>
+              <Progress
+                bar="w-20"
+                done={stream.progress.done}
+                total={stream.progress.boards}
+                unit="Bretter"
+              />
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{`Bretter mit Vorschlägen, korpusweit · ${pct.toFixed(1)} %`}</TooltipContent>
+        </Tooltip>
         {session ? (
-          <span className="text-muted-foreground font-mono text-xs">
+          <span className="text-muted-foreground truncate font-mono">
             {session.sessionId}
             {board ? ` · ${board.stem} · ply ${board.ply}` : ""}
-            {session.proposals ? "" : " · nur wegen unknown_squares im Strom"}
           </span>
         ) : null}
-        <span className="text-muted-foreground ml-auto tabular-nums" title="Median seit dem Laden">
-          {seconds === null ? "— s" : `${(seconds / 1000).toFixed(1)} s`} · Rest ≈{" "}
-          {seconds === null ? "—" : hours((seconds / 1000) * open)}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground ml-auto tabular-nums">
+              {seconds === null ? "— s" : `${(seconds / 1000).toFixed(1)} s`} · Rest ≈{" "}
+              {seconds === null ? "—" : hours((seconds / 1000) * open)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Median der Sekunden zwischen zwei Urteilen, seit dem Laden</TooltipContent>
+        </Tooltip>
       </header>
 
       {note ? <p className="text-muted-foreground text-sm">{note}</p> : null}
 
-      <div className="gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_212px]">
         <div>
           {length === 0 ? (
             <p className="text-muted-foreground text-sm">
@@ -415,6 +471,7 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
               onNext={(ply) => setAt(nextOpen(boards, at, lane, decided, ply))}
               onStep={(delta) => setAt((i) => Math.max(0, Math.min(boards.length - 1, i + delta)))}
               reads={laneReads(board, lane)}
+              reviewAll={laneById(lane).reviewAll === true}
               sessionId={stream.sessions[board.session].sessionId}
             />
           ) : (
@@ -431,11 +488,13 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
           )}
         </div>
 
-        <aside className="mt-4 space-y-3 lg:mt-0">
+        <aside className="mt-4 space-y-2 lg:mt-0">
           <Panel open={open} tally={tally} unit={laneById(lane).unit} />
-          <div className="border-border rounded-lg border px-3 py-2">
-            <p className="text-muted-foreground mb-1 text-xs font-medium">Tasten</p>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+          <details className="border-border rounded-lg border px-3 py-2">
+            <summary className="text-muted-foreground cursor-pointer text-xs font-medium max-sm:h-11">
+              Tasten ({KEYS.length})
+            </summary>
+            <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
               {KEYS.map(([k, what]) => (
                 <Fragment key={k}>
                   <dt>
@@ -445,7 +504,7 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
                 </Fragment>
               ))}
             </dl>
-          </div>
+          </details>
         </aside>
       </div>
 
@@ -505,19 +564,27 @@ function Panel({
     ["Figuren korrigiert", tally.piecesCorrected, "Zeilen mit einem Label außer occluded und empty"],
   ];
   return (
-    <div className="border-border bg-muted/30 rounded-lg border px-3 py-2 text-sm">
-      <p className="text-muted-foreground mb-1 flex items-baseline justify-between text-xs font-medium">
-        DIESE SITZUNG <span className="font-normal">seit dem Laden</span>
-      </p>
+    <div className="border-border bg-muted/30 rounded-lg border px-3 py-2 text-xs">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <p className="text-muted-foreground mb-1 font-medium">Diese Sitzung</p>
+        </TooltipTrigger>
+        <TooltipContent>in memory, ein Reload setzt sie zurück</TooltipContent>
+      </Tooltip>
       <dl className="space-y-0.5">
         {items.map(([label, value, why]) => (
-          <div className="flex items-baseline justify-between" key={label} title={why}>
-            <dt className="text-muted-foreground">{label}</dt>
-            <dd className="text-foreground font-medium tabular-nums">{value}</dd>
-          </div>
+          <Tooltip key={label}>
+            <TooltipTrigger asChild>
+              <div className="flex items-baseline justify-between gap-2">
+                <dt className="text-muted-foreground truncate">{label}</dt>
+                <dd className="text-foreground font-medium tabular-nums">{value}</dd>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>{why}</TooltipContent>
+          </Tooltip>
         ))}
-        <div className="flex items-baseline justify-between">
-          <dt className="text-muted-foreground">offen in dieser Lane</dt>
+        <div className="border-border mt-1 flex items-baseline justify-between gap-2 border-t pt-1">
+          <dt className="text-muted-foreground truncate">offen in dieser Lane</dt>
           <dd className="text-foreground font-medium tabular-nums">
             {open} {unit}
           </dd>

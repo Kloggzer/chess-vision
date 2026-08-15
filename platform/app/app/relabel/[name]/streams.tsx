@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/progress";
 import type { Correction, Ledger } from "@/lib/corrections";
 import type { Proposal, Streams as StreamSets } from "@/lib/proposals";
 import { addRows, emptyTally, type Tally } from "@/lib/session-tally";
@@ -42,7 +43,6 @@ function SessionPanel({
   boardsDone: number;
   tally: Tally;
 }) {
-  const pct = boards > 0 ? Math.round((boardsDone / boards) * 100) : 0;
   const items: [string, number, string][] = [
     ["Bretter fertig", tally.boards.size, "distinkte Frames, die seit dem Laden in ein Ledger geschrieben haben"],
     ["Zellen occluded", tally.cellsOccluded, "Zeilen mit label occluded in corrections.jsonl"],
@@ -50,23 +50,17 @@ function SessionPanel({
     ["Figuren korrigiert", tally.piecesCorrected, "Zeilen mit einem Label außer occluded und empty"],
   ];
   return (
-    <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border px-3 py-2 text-sm">
-      <span className="text-muted-foreground">
-        {boards > 0 ? (
-          <>
-            Session: <strong className="text-foreground">{boardsDone}</strong>/{boards} Bretter · {pct} %
-          </>
-        ) : (
-          <>Session: keine Bretter mit Vorschlägen</>
-        )}
-      </span>
-      <span className="text-muted-foreground">|</span>
+    <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+      {boards > 0 ? (
+        <Progress done={boardsDone} total={boards} unit="Bretter" />
+      ) : (
+        <span className="text-muted-foreground">keine Bretter mit Vorschlägen</span>
+      )}
       {items.map(([label, value, why]) => (
-        <span className="text-muted-foreground" key={label} title={why}>
+        <span className="text-muted-foreground" key={label} title={`${why} — seit dem Laden`}>
           {label} <strong className="text-foreground tabular-nums">{value}</strong>
         </span>
       ))}
-      <span className="text-muted-foreground ml-auto text-xs">seit dem Laden</span>
     </div>
   );
 }
@@ -116,20 +110,18 @@ export function Streams(props: StreamProps) {
   // Producer nichts erzeugt hat — keine `probs`, also keine Klassenliste — steht „—", nie „0".
   const classChip = filter.classes.length > 0 ? `${filter.classes.length} Klassen` : "—";
   const tabs: [Tab, string, string | undefined][] = [
-    ["hands", `hände einzeichnen ${handHits.length} Bretter`, undefined],
-    ["confirm", `bucket · occluded ${streams.confirm.length} Zellen`, undefined],
-    ["unsure", `bucket · unsicher ${streams.unsure.length} Zellen`, undefined],
-    ["control", `bucket · control ${streams.control.length} Zellen`, undefined],
+    ["hands", `Hände ${handHits.length} Bretter`, "jedes Brett mit Okklusionsverdacht, chronologisch"],
+    ["confirm", `occluded ${streams.confirm.length} Zellen`, undefined],
+    ["unsure", `unsicher ${streams.unsure.length} Zellen`, undefined],
+    ["control", `Stichprobe ${streams.control.length} Zellen`, undefined],
     [
       "board",
-      boardQueue
-        ? `board queue ${boardQueue.hits.length} Bretter`
-        : `board drilldown ${frames.length} Bretter`,
+      boardQueue ? `Queue ${boardQueue.hits.length} Bretter` : `Drilldown ${frames.length} Bretter`,
       undefined,
     ],
     [
       "filter",
-      `filter by class ${classChip}`,
+      `Filter ${classChip}`,
       filter.classes.length > 0
         ? undefined
         : "keine Modell-Lesarten in dieser Datei — propose-occluded lief ohne --model, also gibt es nichts zu filtern (nicht: nichts gefunden)",
@@ -201,7 +193,7 @@ export function Streams(props: StreamProps) {
           name={name}
           onError={failed}
           onWritten={wrote}
-          queueNote="Hände einzeichnen — jedes Brett mit Okklusionsverdacht, chronologisch"
+          queueNote="Hände einzeichnen"
           reads={hand.reads}
           sessionId={sessionId}
         />
@@ -226,9 +218,9 @@ export function Streams(props: StreamProps) {
         <>
           {boardQueue ? (
             <div className="flex flex-wrap items-center gap-3 text-sm">
-              <Badge variant="secondary">queue: {boardQueue.label}</Badge>
+              <Badge variant="secondary">Queue: {boardQueue.label}</Badge>
               <Button className="max-sm:h-11 max-sm:px-3" onClick={() => setBoardQueue(null)} size="sm" variant="outline">
-                clear queue — back to all {frames.length} boards
+                zurück zu allen {frames.length} Brettern
               </Button>
             </div>
           ) : null}

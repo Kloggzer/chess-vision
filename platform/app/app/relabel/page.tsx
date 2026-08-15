@@ -1,11 +1,12 @@
 import { ChainActions } from "@/app/chain-actions";
 import { BareBundles } from "@/app/bare-bundles";
-import { QueueNav } from "@/app/queue-nav";
+import { PageTitle } from "@/app/page-title";
 import { QueueRowItem } from "@/app/queue-row";
 import { judgedKeys } from "@/lib/corrections";
 import { boardProgressOf, loadProposalSummary } from "@/lib/proposal-summaries";
 import { queueRows, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
+import { storedProgressOf } from "@/lib/stored";
 import { UselessButton } from "@/app/useless-button";
 
 export const dynamic = "force-dynamic";
@@ -43,21 +44,19 @@ function BlockedRow({ row }: { row: QueueRow }) {
 
 export default async function LabelingQueuePage() {
   const queues = splitQueues(await queueRows());
-  const counts = { confirm: queues.confirm.length, relabel: queues.relabel.length };
   const stats = new Map(
     await Promise.all(queues.relabel.map(async (row) => [row.name, await rowStats(row.name)] as const)),
   );
 
   return (
     <main className="space-y-6">
-      <QueueNav counts={counts} here="relabel" />
-
       <section className="space-y-3">
-        <h1 className="text-2xl font-semibold">Zu labeln ({queues.relabel.length} Partien)</h1>
-        <p className="text-muted-foreground text-sm">
-          Partien mit Proposals: Bucket und der Brett-Pinsel warten. Neueste zuerst.
-        </p>
-        <ul className="space-y-2">
+        <PageTitle
+          count={queues.relabel.length}
+          title="Zu labeln"
+          why="Partien mit Proposals: Bucket und der Brett-Pinsel warten. Neueste zuerst."
+        />
+        <ul className="space-y-1.5">
           {queues.relabel.map((row) => (
             <QueueRowItem
               href={`/relabel/${row.name}`}
@@ -77,12 +76,13 @@ export default async function LabelingQueuePage() {
 
       {queues.blocked.length > 0 ? (
         <section className="space-y-3">
-          <h2 className="text-lg font-medium">Noch nicht gelesen ({queues.blocked.length})</h2>
-          <p className="text-muted-foreground text-sm">
-            Aufnahme da, <code>candidate.json</code> nicht: der Tracker-Replay lief hier nie. Deshalb
-            ist oben nichts zu sehen.
-          </p>
-          <ul className="space-y-2">
+          <PageTitle
+            count={queues.blocked.length}
+            sub
+            title="Noch nicht gelesen"
+            why="Aufnahme da, candidate.json nicht: der Tracker-Replay lief hier nie. Deshalb ist oben nichts zu sehen."
+          />
+          <ul className="space-y-1.5">
             {queues.blocked.map((row) => (
               <BlockedRow key={row.name} row={row} />
             ))}
@@ -90,7 +90,7 @@ export default async function LabelingQueuePage() {
         </section>
       ) : null}
 
-      <BareBundles rows={queues.bare} />
+      <BareBundles rows={queues.bare} stored={await storedProgressOf(queues.bare.map((r) => r.name))} />
     </main>
   );
 }

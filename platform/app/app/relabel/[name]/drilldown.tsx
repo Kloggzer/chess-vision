@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { BoardLegend, BoardSurface, PALETTE, useBoardPaint } from "@/components/board-paint";
+import { BoardLegend, BoardSurface, GLYPH, PALETTE, useBoardPaint } from "@/components/board-paint";
 import type { Correction, Ledger } from "@/lib/corrections";
 import { type BoardPlan, type Row, confirmLabel } from "@/lib/selection";
 import { writeRows } from "./write";
@@ -41,6 +41,10 @@ export type DrilldownProps = {
  * Every control thumb-sized: 44 px squares on phone, 28 px buttons failed (2026-08-13).
  */
 const TOUCH = "max-sm:h-11 max-sm:px-3";
+
+const GESTEN =
+  "Ziehen malt · rechte Taste radiert · Klick blättert durch die Labels · Klick auf ein Flag nimmt es ab · " +
+  "Tasten laden den Pinsel. Hell = du hast entschieden, dunkel = das Wort des FEN, niemand hat hingesehen.";
 
 /**
  * One session's boards with brush (board-paint.tsx).
@@ -184,7 +188,7 @@ export function Drilldown(props: DrilldownProps) {
     await commit(paint.rejectAll());
   }
 
-  if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
+  if (!frame) return <p className="text-muted-foreground text-sm">Keine Vorschlags-Frames.</p>;
 
   return (
     <div className="space-y-3">
@@ -196,7 +200,7 @@ export function Drilldown(props: DrilldownProps) {
         </span>
         <PhaseChip frame={frame} />
         <Button disabled={at === 0} onClick={() => void go(-1)} className={TOUCH} size="sm" variant="outline">
-          previous
+          ←
         </Button>
         <Button
           disabled={at + 1 >= frames.length}
@@ -205,7 +209,7 @@ export function Drilldown(props: DrilldownProps) {
           size="sm"
           variant="outline"
         >
-          next
+          →
         </Button>
         <Button
           onClick={() => paint.setEraser(!paint.eraser)}
@@ -213,7 +217,7 @@ export function Drilldown(props: DrilldownProps) {
           size="sm"
           variant={paint.eraser ? "default" : "outline"}
         >
-          {paint.eraser ? "eraser ON" : `brush: ${paint.brush}`}
+          {paint.eraser ? "Radierer AN" : `Pinsel: ${paint.brush}`}
         </Button>
         <Button
           onClick={(event) => {
@@ -228,11 +232,8 @@ export function Drilldown(props: DrilldownProps) {
           <span className="text-muted-foreground mr-1 font-mono">a</span>
           alles occluded
         </Button>
-        <span className="text-muted-foreground">
-          drag paints · right button erases · click cycles · click a flag to take it off · keys pick
-          the brush ·{" "}
-          <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
-          nobody looked ({judged.size}/64 judged here)
+        <span className="text-muted-foreground tabular-nums" title={GESTEN}>
+          {judged.size}/64 entschieden
         </span>
         <BoardLegend />
         <Button
@@ -241,7 +242,7 @@ export function Drilldown(props: DrilldownProps) {
           onClick={() => void flush(pending)}
           size="sm"
         >
-          write {pending.length} cells
+          {pending.length} Zellen schreiben
         </Button>
       </div>
 
@@ -251,7 +252,7 @@ export function Drilldown(props: DrilldownProps) {
             ✓ {confirmLabel(plan)}
           </Button>
           <Button onClick={() => void rejectQueue()} className={TOUCH} size="sm" variant="secondary">
-            ✗ nichts verdeckt — FEN stimmt → next board
+            ✗ nichts verdeckt — FEN stimmt → nächstes Brett
           </Button>
           <Button
             onClick={(event) => {
@@ -260,37 +261,39 @@ export function Drilldown(props: DrilldownProps) {
             }}
             className={TOUCH}
             size="sm"
+            title={`⌫ nimmt jedes Flag ab (reviewed, keine Trainingszeile); ⏎ schreibt die ${plan.committed.length} gewählten. Ungeflaggte Zellen behalten das Wort des FEN und bleiben unbeurteilt.`}
             variant="outline"
           >
-            {offable.length > 0 ? `alle ${offable.length} flags ab` : "alle flags an"}
+            {offable.length > 0 ? `alle ${offable.length} Flags ab` : "alle Flags an"}
           </Button>
-          <span className="text-muted-foreground">
-            <kbd className="text-foreground">Enter</kbd> commits the {plan.committed.length} selected,{" "}
-            <kbd className="text-foreground">⌫</kbd> takes every flag off (reviewed, not a training
-            row). Unflagged cells keep the FEN&apos;s word and stay unjudged.
-          </span>
           <Button className={`ml-auto ${TOUCH}`} onClick={() => void go(1)} size="sm" variant="outline">
-            skip this board →
+            Brett überspringen →
           </Button>
         </div>
       ) : null}
 
       <div className="flex flex-wrap gap-1">
-        {PALETTE.map(([key, label]) => (
-          <Button
-            key={label}
-            onClick={(event) => {
-              event.currentTarget.blur();
-              paint.setBrush(label);
-            }}
-            className={TOUCH}
-            size="sm"
-            variant={paint.brush === label && !paint.eraser ? "default" : "outline"}
-          >
-            <span className="text-muted-foreground mr-1 font-mono">{key}</span>
-            {label}
-          </Button>
-        ))}
+        {PALETTE.map(([key, label]) => {
+          const on = paint.brush === label && !paint.eraser;
+          return (
+            <button
+              className={`w-11 cursor-pointer rounded border py-0.5 text-center font-mono text-xs max-sm:h-11 ${
+                on
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+              key={label}
+              onClick={(event) => {
+                event.currentTarget.blur();
+                paint.setBrush(label);
+              }}
+              title={label}
+              type="button"
+            >
+              {key} <span className="text-sm">{GLYPH[label] ?? ""}</span>
+            </button>
+          );
+        })}
       </div>
 
       <BoardSurface

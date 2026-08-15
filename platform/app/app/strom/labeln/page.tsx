@@ -1,20 +1,9 @@
-import { QueueNav } from "@/app/queue-nav";
-import { loadLabelStream } from "@/lib/label-stream";
-import { queueRows, splitQueues } from "@/lib/queues";
-import { LabelnStream } from "./stream";
+import { redirect } from "next/navigation";
+import { DEFAULT_LANE, LANES, laneBySlug, lanePath } from "@/lib/lanes";
 
-export const dynamic = "force-dynamic";
-
-export default async function LabelnPage() {
-  const [stream, queues] = await Promise.all([
-    loadLabelStream(),
-    queueRows().then(splitQueues),
-  ]);
-
-  return (
-    <main className="space-y-4">
-      <QueueNav counts={{ confirm: queues.confirm.length, relabel: queues.relabel.length }} here="relabel" />
-      <LabelnStream stream={stream} />
-    </main>
-  );
+/** `?lane=<id>` was the link before the lanes became routes — it keeps working, one hop. */
+export default async function LabelnIndex({ searchParams }: { searchParams: Promise<{ lane?: string }> }) {
+  const { lane } = await searchParams;
+  const hit = LANES.find((l) => l.id === lane) ?? laneBySlug(lane ?? "") ?? DEFAULT_LANE;
+  redirect(lanePath(hit.id));
 }

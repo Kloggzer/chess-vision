@@ -1,5 +1,6 @@
-import Link from "next/link";
+import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/progress";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
@@ -81,45 +82,27 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
     }));
 
   return (
-    <main className="space-y-5">
-      <header className="space-y-2">
-        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
-          <Link className="text-muted-foreground text-base underline underline-offset-4" href="/">
-            ←
-          </Link>
-          {name}
-          <Badge variant={source === "pack" ? "secondary" : "destructive"}>
-            {source === "pack"
-              ? "occluded-proposals.jsonl"
-              : source === "fixture"
-                ? "FIXTURE — phase 02 has not written proposals yet"
-                : "no proposals on disk"}
+    <main className="space-y-3">
+      <PageTitle title={name}>
+        {source === "pack" ? null : (
+          <Badge variant="destructive">
+            {source === "fixture" ? "FIXTURE — propose lief hier nie" : "keine Proposals auf der Platte"}
           </Badge>
-        </h1>
-        <p className="text-muted-foreground text-sm">
-          <strong className="text-foreground">{seen.done}</strong>/{boards} Bretter bearbeitet ·{" "}
-          <span
-            title={
-              summary.read === "sidecar"
-                ? "aus occluded-proposals.summary.json"
-                : "aus occluded-proposals.jsonl nachgezählt — der Producer hat hier noch keine summary.json geschrieben"
-            }
-          >
-            {done}/{rows.length} Zellen entschieden
-            {summary.read === "fallback" ? " (nachgezählt)" : ""}
-          </span>{" "}
-          · thresholds hi <strong className="text-foreground">{thresholds.hi}</strong> / lo{" "}
-          <strong className="text-foreground">{thresholds.lo}</strong>
-          {thresholds.declared ? "" : " (defaults — the file declared none)"} · session{" "}
-          <code>{session.sessionId}</code>, board {session.boardSize} px, pad_side{" "}
-          {session.crop.pad_side}
-        </p>
-      </header>
+        )}
+        <Progress done={seen.done} total={boards} unit="Bretter" />
+      </PageTitle>
+      <p
+        className="text-muted-foreground text-xs tabular-nums"
+        title={`${summary.read === "sidecar" ? "Zellen aus occluded-proposals.summary.json" : "Zellen aus occluded-proposals.jsonl nachgezählt"} · Brett ${session.boardSize} px, pad_side ${session.crop.pad_side}${thresholds.declared ? "" : " · thresholds sind Defaults, die Datei nennt keine"}`}
+      >
+        {done}/{rows.length} Zellen entschieden · hi {thresholds.hi} / lo {thresholds.lo} ·{" "}
+        <code>{session.sessionId}</code>
+      </p>
 
       {rows.length === 0 ? (
         <p className="text-sm">
-          Nothing to review: neither <code>data/realgames/{name}/occluded-proposals.jsonl</code> nor
-          a fixture <code>test-fixtures/occluded-proposals.{name}.jsonl</code> exists.
+          Nichts zu prüfen: weder <code>data/realgames/{name}/occluded-proposals.jsonl</code> noch eine Fixture{" "}
+          <code>test-fixtures/occluded-proposals.{name}.jsonl</code> existiert.
         </p>
       ) : (
         <Streams
