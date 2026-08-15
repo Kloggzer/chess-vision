@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ChainState, ChainStep } from "@/lib/chain";
 import { failureParts, logName } from "@/lib/failure";
 import type { Job } from "@/lib/jobs";
@@ -81,55 +82,73 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
   return (
     <span className="flex flex-wrap items-center gap-2 text-xs">
       {step === "confirm" || step === "relabel" ? (
-        <Link
-          className="border-border inline-flex items-center rounded border px-2 py-0.5 underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
-          href={`/${step}/${name}`}
-          title={STEP[step].hint}
-        >
-          {STEP[step].label} →
-        </Link>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              className="border-border inline-flex items-center rounded border px-2 py-0.5 underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
+              href={`/${step}/${name}`}
+            >
+              {STEP[step].label} →
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>{STEP[step].hint}</TooltipContent>
+        </Tooltip>
       ) : (
-        <button
-          className="border-border cursor-pointer rounded border px-2 py-0.5 disabled:opacity-50 max-sm:h-11 max-sm:px-3"
-          disabled={busy}
-          onClick={() => void post({ step })}
-          title={STEP[step].hint}
-          type="button"
-        >
-          {busy ? `${STEP[step].label}…` : STEP[step].label}
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <button
+                className="border-border cursor-pointer rounded border px-2 py-0.5 disabled:opacity-50 max-sm:h-11 max-sm:px-3"
+                disabled={busy}
+                onClick={() => void post({ step })}
+                type="button"
+              >
+                {busy ? `${STEP[step].label}…` : STEP[step].label}
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{STEP[step].hint}</TooltipContent>
+        </Tooltip>
       )}
       {lensRefused(job) ? (
-        <button
-          className="border-destructive text-destructive cursor-pointer rounded border px-2 py-0.5 max-sm:h-11 max-sm:px-3"
-          onClick={() => void post({ step: "label", lens: false })}
-          title="the verb refused because it could not fit this camera's barrel — the phone camera has none to remove (TODO.md, 2026-08-10). Labels then rest on the raw image."
-          type="button"
-        >
-          Label ohne Linsen-Korrektur
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="border-destructive text-destructive cursor-pointer rounded border px-2 py-0.5 max-sm:h-11 max-sm:px-3"
+              onClick={() => void post({ step: "label", lens: false })}
+              type="button"
+            >
+              Label ohne Linsen-Korrektur
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>the verb refused because it could not fit this camera&apos;s barrel — the phone camera has none to remove (TODO.md, 2026-08-10). Labels then rest on the raw image.</TooltipContent>
+        </Tooltip>
       ) : null}
       {state.offeredPgn ? (
-        <button
-          className="text-muted-foreground cursor-pointer underline underline-offset-4 max-sm:inline-flex max-sm:h-11 max-sm:items-center"
-          onClick={() => void post({ step: "adopt-pgn" })}
-          title="copy the phone's own PGN in as reference.pgn — the confirm screen then compares instead of asking"
-          type="button"
-        >
-          PGN übernehmen
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="text-muted-foreground cursor-pointer underline underline-offset-4 max-sm:inline-flex max-sm:h-11 max-sm:items-center"
+              onClick={() => void post({ step: "adopt-pgn" })}
+              type="button"
+            >
+              PGN übernehmen
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>copy the phone&apos;s own PGN in as reference.pgn — the confirm screen then compares instead of asking</TooltipContent>
+        </Tooltip>
       ) : null}
       {/* Permanent, not a warning: those crops differ from corrected ones (specs/52). */}
       {job?.kind === "label" && job.lens === false ? (
         <span className="text-muted-foreground">gelabelt OHNE Linsen-Korrektur</span>
       ) : null}
-      {job && job.kind ? (
-        <Badge variant={job.state === "failed" ? "destructive" : job.state === "done" ? "default" : "secondary"}>
-          {job.kind}: {job.state}
-        </Badge>
+      {/* Nur ein Scheitern, das den AKTUELLEN Schritt blockiert — eine überholte Ledger-Zeile
+          (die Kette ist weiter, z.B. nach einem CLI-Lauf) ist Geschichte, keine Warnung. */}
+      {job?.kind && job.state === "failed" && job.kind === step ? (
+        <Badge variant="destructive">{job.kind} gescheitert</Badge>
       ) : null}
       {busy ? <Working progress={progress} /> : null}
-      {job?.reason ? <FailureLine reason={job.reason} /> : null}
+      {job?.state === "failed" && job.kind === step && job.reason ? <FailureLine reason={job.reason} /> : null}
       {note ? <span className="text-destructive">{note}</span> : null}
     </span>
   );
@@ -168,16 +187,18 @@ function Working({ progress }: { progress: Progress | null }) {
 
 function FailureLine({ reason }: { reason: string }) {
   const { text, log } = failureParts(reason);
+  if (!log) {
+    return <span className="text-destructive max-w-sm truncate">{text}</span>;
+  }
   return (
-    <span className="text-destructive">
-      {text}
-      {log ? (
-        <span className="text-muted-foreground font-mono" title={log}>
-          {" · "}
-          {logName(log)}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="text-destructive max-w-sm truncate">
+          {text}
         </span>
-      ) : null}
-    </span>
+      </TooltipTrigger>
+      <TooltipContent>{text} · {logName(log)}</TooltipContent>
+    </Tooltip>
   );
 }
 

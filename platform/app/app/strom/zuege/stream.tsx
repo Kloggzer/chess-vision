@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FrameSeries, sequenceLabel, ZoomOverlay, type Zoom } from "@/app/confirm/board-frames";
+import { Why } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ReviewCard } from "@/lib/review-cards";
 import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/zuege";
 
@@ -37,17 +39,6 @@ async function post<T>(url: string, body: unknown): Promise<T> {
   if (!res.ok) throw new Error(answer.error ?? res.statusText);
   return answer;
 }
-
-/** The keymap, on screen — the loop is a keyboard loop and an invisible one is a secret. */
-const KEYS: [string, string][] = [
-  ["k", "behalten"],
-  ["⎵ / j", "verwerfen"],
-  ["← →", "Bilder blättern"],
-  ["x", "Partie raus"],
-  ["z", "zurück"],
-  ["g", "Sichtprüfung"],
-  [".", "/game (neuer Tab)"],
-];
 
 export function ZuegeStream({ games }: { games: StreamGame[] }) {
   const items = useMemo(() => streamItems(games), [games]);
@@ -247,25 +238,32 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
 
   return (
     <section className="space-y-4">
-      <header className="border-border space-y-1 rounded-lg border p-3">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
-          <span className="text-base font-semibold">ZÜGE</span>
-          <span className="text-muted-foreground tabular-nums">
-            Karte {Math.min(at + 1, items.length)}/{items.length} · {Math.max(open, 0)} Partien offen
-          </span>
-          <span className="text-muted-foreground ml-auto tabular-nums" title="Median seit dem Laden">
-            {seconds === null ? "— s/Zug" : `${(seconds / 1000).toFixed(1)} s/Zug`}
-          </span>
-        </div>
+      <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
+        <span className="text-foreground text-sm font-medium tabular-nums">
+          {Math.min(at + 1, items.length)}/{items.length}{" "}
+          <span className="text-muted-foreground text-xs font-normal">Karten</span>
+        </span>
+        <span className="text-muted-foreground tabular-nums">{Math.max(open, 0)} Partien offen</span>
+        <Why>
+          Jede offene Partie, Karte für Karte: Zeigt das Foto die Stellung NACH diesem Zug? k
+          behalten, Leertaste verwerfen (Zweifel = verwerfen). Am Partieende schreibt der Strom die
+          Bestätigung selbst — 90 s lang macht z sie kostenlos rückgängig.
+        </Why>
         {game ? (
-          <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
-            <span className="text-foreground">{game.title ?? game.name}</span>
-            {game.title ? <span>{game.name}</span> : null}
-            <span>{game.plies} Halbzüge</span>
-            {first ? <span>Halbzug {first.ply}</span> : null}
-            {item?.card ? <span>@frame {String(item.card.frame).padStart(6, "0")}</span> : null}
-          </div>
+          <span className="text-muted-foreground truncate font-mono">
+            {game.title ?? game.name} · {game.plies} Halbzüge
+            {first ? ` · Halbzug ${first.ply}` : ""}
+            {item?.card ? ` · @${String(item.card.frame).padStart(6, "0")}` : ""}
+          </span>
         ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground ml-auto tabular-nums">
+              {seconds === null ? "— s/Zug" : `${(seconds / 1000).toFixed(1)} s/Zug`}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Median seit dem Laden</TooltipContent>
+        </Tooltip>
       </header>
 
       {done ? (
@@ -316,33 +314,36 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
             </Link>
           ) : null}
           {item?.card ? (
-            <button
-              className="text-muted-foreground ml-auto cursor-pointer text-xs underline underline-offset-4 disabled:opacity-50"
-              disabled={notedHere}
-              onClick={() => void flagInterval()}
-              title="Hand im Bild, verrutschter Ausschnitt, dunkler Müll? Der Halbzug bleibt behaltbar — das Urteil gilt dem BILD (review-notes.jsonl)"
-              type="button"
-            >
-              {notedHere ? "Intervall vermerkt" : "Intervall taugt nichts"}
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <button
+                    className="text-muted-foreground ml-auto cursor-pointer text-xs underline underline-offset-4 disabled:opacity-50"
+                    disabled={notedHere}
+                    onClick={() => void flagInterval()}
+                    type="button"
+                  >
+                    {notedHere ? "Intervall vermerkt" : "Intervall taugt nichts"}
+                  </button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Hand im Bild, verrutschter Ausschnitt, dunkler Müll? Der Halbzug bleibt behaltbar — das Urteil gilt dem BILD (review-notes.jsonl)</TooltipContent>
+            </Tooltip>
           ) : null}
         </div>
       ) : null}
 
       {note ? <Toast games={games} note={note} now={now} onReexport={reexport} /> : null}
 
-      <p className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
-        {KEYS.map(([k, what]) => (
-          <span key={k}>
-            <kbd className="font-mono">{k}</kbd> {what}
-          </span>
-        ))}
-      </p>
-
-      <footer className="border-border text-muted-foreground rounded-lg border p-3 text-xs">
-        DIESE SITZUNG · {kept + drops} Karten · {kept} behalten · {drops} verworfen · {dropped.size}{" "}
-        {dropped.size === 1 ? "Partie" : "Partien"} raus
-      </footer>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <footer className="text-muted-foreground text-xs tabular-nums">
+            {kept + drops} Karten · {kept} behalten · {drops} verworfen · {dropped.size}{" "}
+            {dropped.size === 1 ? "Partie" : "Partien"} raus
+          </footer>
+        </TooltipTrigger>
+        <TooltipContent>diese Sitzung, in memory — ein Reload setzt sie zurück</TooltipContent>
+      </Tooltip>
 
       {gallery !== null ? (
         <Gallery game={games[gallery]} onClose={() => setGallery(null)} onZoom={setZoom} />
@@ -375,14 +376,28 @@ function CardBody({
       <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
         {sequenceLabel(card)}
         {card.decider === "cnn_recovery" ? (
-          <Badge title="Recovery = der Tracker hat den Zug NACHTRÄGLICH aufgeholt. Das Foto zeigt oft schon spätere Züge — dann verwerfen." variant="secondary">
-            spät committet (recovery)
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Badge variant="secondary">
+                  spät committet (recovery)
+                </Badge>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Recovery = der Tracker hat den Zug NACHTRÄGLICH aufgeholt. Das Foto zeigt oft schon spätere Züge — dann verwerfen.</TooltipContent>
+          </Tooltip>
         ) : null}
         {multi || card.collapsed ? (
-          <Badge title="Mehrere Halbzüge auf einem Frame — es gibt nur EIN Bild, und es zeigt die Stellung nach allen." variant="secondary">
-            Mehrfach-Commit: Bild zeigt die Endstellung
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Badge variant="secondary">
+                  Mehrfach-Commit: Bild zeigt die Endstellung
+                </Badge>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Mehrere Halbzüge auf einem Frame — es gibt nur EIN Bild, und es zeigt die Stellung nach allen.</TooltipContent>
+          </Tooltip>
         ) : null}
         {!card.carriesFrames ? <Badge variant="secondary">trägt 0 Frames bei</Badge> : null}
         {card.duplicate ? <Badge variant="secondary">fehlt auch im PGN</Badge> : null}

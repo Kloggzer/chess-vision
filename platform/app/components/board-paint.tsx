@@ -4,6 +4,7 @@ import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { FILES, fenLabels } from "@/lib/fen";
 import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/selection";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
 /**
  * Rectified board with 8x8 paint overlay and state machine.
@@ -20,6 +21,13 @@ export const PALETTE: [string, string][] = [
   ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
   ["p", "bP"], ["n", "bN"], ["b", "bB"], ["r", "bR"], ["q", "bQ"], ["k", "bK"],
 ];
+
+/** One glyph per class: the key button says WHAT it loads without widening the row. */
+export const GLYPH: Record<string, string> = {
+  wP: "♙", wN: "♘", wB: "♗", wR: "♖", wQ: "♕", wK: "♔",
+  bP: "♟", bN: "♞", bB: "♝", bR: "♜", bQ: "♛", bK: "♚",
+  occluded: "▨", empty: "·",
+};
 
 /** The same palette with `e` for empty — the stream spends `x` on "dieses Brett ist Müll". */
 export const STREAM_PALETTE: [string, string][] = PALETTE.map(([key, label]) =>
@@ -209,7 +217,7 @@ export type BoardSurfaceProps = {
   accept: Labels;
   /** Squares the active lane hit — outlined, so the eye starts where the work is. */
   hits?: string[];
-  /** `{square: "wP 0.87"}` — what the model reads there, printed in the cell. */
+  /** `{square: "wP 0.87"}` — the model's reading, as the cell's tooltip; the caller prints it. */
   reads?: Record<string, string>;
   /** The square under the pointer: `Space` acts on it, so no cell cursor is needed (REVIEW S3). */
   onHover?: (square: string | null) => void;
@@ -245,7 +253,7 @@ export function BoardSurface({ src, alt, state, accept, hits, reads, onHover }: 
 
   return (
     <div
-      className="relative mx-auto aspect-square w-full max-w-[720px] select-none"
+      className="relative mx-auto aspect-square w-full max-w-[min(720px,calc(100dvh-17rem))] select-none"
       onContextMenu={(event) => event.preventDefault()}
       onPointerLeave={() => {
         onHover?.(null);
@@ -287,33 +295,32 @@ export function BoardSurface({ src, alt, state, accept, hits, reads, onHover }: 
                   : "hover:bg-white/10";
           const read = reads?.[sq];
           return (
-            <div
-              className={`relative border border-white/10 ${tint} ${outline}`}
-              key={sq}
-              onPointerDown={(event) => {
-                painting.current = { start: sq, erase: eraser || event.button === 2, dragged: false };
-              }}
-              onPointerEnter={() => enter(sq)}
-            >
-              {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
-                  means a human decided it; DIM means the FEN says so and nobody has looked. */}
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
-                <span
-                  className={`bg-background/75 rounded px-0.5 ${
-                    judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
-                  }`}
+            <Tooltip key={sq}>
+              <TooltipTrigger asChild>
+                <div
+                  className={`relative border border-white/10 ${tint} ${outline}`}
+                  onPointerDown={(event) => {
+                    painting.current = { start: sq, erase: eraser || event.button === 2, dragged: false };
+                  }}
+                  onPointerEnter={() => enter(sq)}
                 >
-                  {label}
-                </span>
-                {read ? (
-                  // Struck through once the flag is off: the reading is what RAISED the cell, and
-                  // a rejected reading must not keep shouting.
-                  <span className={`block ${on || accept[sq] === undefined ? "text-fuchsia-300" : "text-white/35 line-through"}`}>
-                    <span className="bg-background/75 rounded px-0.5">{read}</span>
+                  {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
+                      means a human decided it; DIM means the FEN says so and nobody has looked. */}
+                  <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
+                    <span
+                      className={`bg-background/75 rounded px-0.5 ${
+                        judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
+                      }`}
+                    >
+                      {label}
+                    </span>
                   </span>
-                ) : null}
-              </span>
-            </div>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                {read ? `${sq} · ${label} · Modell ${read}` : `${sq} · ${label}`}
+              </TooltipContent>
+            </Tooltip>
           );
         })}
       </div>
@@ -322,28 +329,26 @@ export function BoardSurface({ src, alt, state, accept, hits, reads, onHover }: 
 }
 
 /**
- * What the states on the board mean. It was asked ("was bedeutet das blaue Kästchen?",
- * 2026-08-09) because the header explained bright-vs-dim and said nothing about the colours.
+ * What the states on the board mean, as swatches — asked once ("was bedeutet das blaue Kästchen?",
+ * 2026-08-09), so the words live in the tooltip and the colour carries the row.
  */
 export function BoardLegend() {
-  const items: [string, string, string][] = [
-    ["bg-amber-500/45", "occluded", "die Zelle ist als verdeckt markiert"],
-    ["bg-sky-500/40", "≠ FEN", "hier steht ein anderes Label als die Partie sagt"],
-    ["bg-transparent border border-white/25", "wie im FEN", "nichts geändert"],
-    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "Flag an", "commit schreibt diese Zelle"],
-    [
-      "outline outline-2 -outline-offset-2 outline-dashed outline-white/40",
-      "Flag aus",
-      "abgewählt — geprüft, keine Trainingszeile",
-    ],
+  const items: [string, string][] = [
+    ["bg-amber-500/45", "occluded — die Zelle ist als verdeckt markiert"],
+    ["bg-sky-500/40", "≠ FEN — hier steht ein anderes Label als die Partie sagt"],
+    ["bg-transparent border border-white/25", "wie im FEN — nichts geändert"],
+    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "Flag an — commit schreibt diese Zelle"],
+    ["outline outline-2 -outline-offset-2 outline-dashed outline-white/40", "Flag aus — geprüft, keine Trainingszeile"],
   ];
   return (
-    <span className="flex flex-wrap items-center gap-3 text-xs">
-      {items.map(([swatch, label, why]) => (
-        <span className="flex items-center gap-1" key={label} title={why}>
-          <span className={`inline-block h-3 w-3 rounded-sm ${swatch}`} />
-          <span className="text-muted-foreground">{label}</span>
-        </span>
+    <span className="flex flex-wrap items-center gap-1.5">
+      {items.map(([swatch, why]) => (
+        <Tooltip key={why}>
+          <TooltipTrigger asChild>
+            <span aria-label={why} className={`inline-block h-3 w-3 rounded-sm ${swatch}`} role="img" />
+          </TooltipTrigger>
+          <TooltipContent>{why}</TooltipContent>
+        </Tooltip>
       ))}
     </span>
   );

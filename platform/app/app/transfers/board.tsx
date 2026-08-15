@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { failureParts, logName } from "@/lib/failure";
 import type { TransferRow } from "@/lib/ingest";
 import type { Job } from "@/lib/jobs";
 
@@ -11,7 +13,11 @@ type Board = { transfers: TransferRow[]; pending: { name: string; bytes: number;
 
 const GB = 1024 * 1024 * 1024;
 const size = (bytes: number) => (bytes >= GB ? `${(bytes / GB).toFixed(2)} GB` : `${Math.round(bytes / (1024 * 1024))} MB`);
-const when = (iso?: string) => (iso ? iso.slice(0, 19).replace("T", " ") : "");
+const when = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "");
+
+const FRESH = 8;
+const ROW = "flex flex-wrap items-baseline gap-x-3 gap-y-0.5";
+const MUTED = "text-muted-foreground tabular-nums";
 
 const TONE: Record<Job["state"], "default" | "secondary" | "destructive" | "outline"> = {
   queued: "outline",
@@ -21,6 +27,87 @@ const TONE: Record<Job["state"], "default" | "secondary" | "destructive" | "outl
   skipped: "outline",
 };
 
+/** The reason in the words that act on it: no path in the sentence, the log file name beside it. */
+function FailureLine({ reason, tone }: { reason: string; tone: string }) {
+  const { text, log } = failureParts(reason);
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`${tone} min-w-0 truncate`}>
+          {text}
+          {log ? <span className="text-muted-foreground"> · {logName(log)}</span> : null}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{reason}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function Older({ count, children }: { count: number; children: React.ReactNode }) {
+  if (count === 0) return null;
+  return (
+    <details>
+      <summary className="text-muted-foreground cursor-pointer text-xs max-sm:min-h-11">ältere anzeigen ({count})</summary>
+      <div className="mt-1">{children}</div>
+    </details>
+  );
+}
+
+function TransferLine({ row }: { row: TransferRow }) {
+  return (
+    <li className={ROW}>
+      <span className="font-mono">{row.name}</span>
+      {row.status === "held" ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline">
+              zurückgehalten
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>liegt in {row.target} — das Ziel gab es schon</TooltipContent>
+        </Tooltip>
+      ) : null}
+      <span className={MUTED}>
+        {when(row.ts)} · {row.files} Dateien · {size(row.bytes)} · {row.device}
+      </span>
+    </li>
+  );
+}
+
+function JobLine({ job, starting, onLabel }: { job: Job; starting: boolean; onLabel: (name: string) => void }) {
+  const relabel = job.state === "skipped" && /no games\/|no game record/.test(job.reason ?? "");
+  return (
+    <li className={ROW}>
+      <span className="font-mono">{job.name}</span>
+      {job.state === "done" ? null : <Badge variant={TONE[job.state]}>{job.state}</Badge>}
+      <span className={MUTED}>{when(job.finishedAt ?? job.startedAt ?? job.queuedAt)}</span>
+      {job.pack ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className={MUTED}>
+              {job.pack.acceptedFrames} Bretter / {job.pack.acceptedCrops} Crops
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>Quarantäne {job.pack.quarantineFrames} Bretter / {job.pack.quarantineCrops} Crops · occluded-Vorschläge {job.pack.occludedProposalCrops} Crops</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {job.candidate ? (
+        <Button asChild size="sm">
+          <Link href={`/confirm/${job.candidate}`}>zur Label-Seite</Link>
+        </Button>
+      ) : null}
+      {relabel ? (
+        <Button disabled={starting} onClick={() => onLabel(job.name)} size="sm" variant="outline">
+          {starting ? "wird gestartet…" : "Aufnahme labeln (Barrel korrigiert)"}
+        </Button>
+      ) : null}
+      {job.reason ? (
+        <FailureLine reason={job.reason} tone={job.state === "failed" ? "text-destructive" : "text-muted-foreground"} />
+      ) : null}
+    </li>
+  );
+}
+
 /**
  * Polls while it is open. Five seconds is chosen against the thing being watched: a transfer runs
  * for minutes and a pack for longer, so a faster poll would only cost the machine that is building
@@ -29,12 +116,14 @@ const TONE: Record<Job["state"], "default" | "secondary" | "destructive" | "outl
 export function TransferBoard() {
   const [board, setBoard] = useState<Board | null>(null);
   const [starting, setStarting] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
   async function startLabel(name: string) {
     setStarting(name);
+    setNote(null);
     try {
       const response = await fetch(`/api/ingest/session/${name}/label`, { method: "POST" });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) return setNote(failureParts(await response.text()).text);
       const job = (await response.json()) as Job;
       setBoard((current) =>
         current ? { ...current, jobs: [job, ...current.jobs.filter((row) => row.name !== name)] } : current,
@@ -59,21 +148,24 @@ export function TransferBoard() {
     };
   }, []);
 
-  if (!board) return <p className="text-muted-foreground text-sm">loading…</p>;
+  if (!board) return <p className="text-muted-foreground text-sm">lädt…</p>;
+  const transfers = [...board.transfers].sort((a, b) => b.ts.localeCompare(a.ts));
 
   return (
-    <div className="space-y-6">
-      <section className="space-y-2">
-        <h2 className="font-medium">In flight</h2>
+    <div className="space-y-5 text-xs">
+      <section className="space-y-1.5">
+        <h2 className="text-base font-semibold">
+          Unterwegs <span className="text-muted-foreground text-sm font-normal">{board.pending.length}</span>
+        </h2>
         {board.pending.length === 0 ? (
-          <p className="text-muted-foreground text-sm">nothing incoming</p>
+          <p className="text-muted-foreground">Nichts kommt gerade an.</p>
         ) : (
-          <ul className="space-y-1 text-sm">
+          <ul className="space-y-1">
             {board.pending.map((row) => (
-              <li className="flex gap-3" key={row.name}>
+              <li className={ROW} key={row.name}>
                 <span className="font-mono">{row.name}</span>
-                <span className="text-muted-foreground">
-                  {row.files} files · {size(row.bytes)} here
+                <span className={MUTED}>
+                  {row.files} Dateien · {size(row.bytes)} hier
                 </span>
               </li>
             ))}
@@ -81,66 +173,43 @@ export function TransferBoard() {
         )}
       </section>
 
-      <section className="space-y-2">
-        <h2 className="font-medium">Arrived</h2>
-        {board.transfers.length === 0 ? (
-          <p className="text-muted-foreground text-sm">no transfer yet</p>
-        ) : (
-          <ul className="space-y-1 text-sm">
-            {board.transfers.map((row) => (
-              <li className="flex flex-wrap items-center gap-3" key={`${row.name}-${row.ts}`}>
-                <span className="font-mono">{row.name}</span>
-                <Badge variant={row.status === "landed" ? "default" : "outline"}>{row.status}</Badge>
-                <span className="text-muted-foreground">
-                  {row.files} files · {size(row.bytes)} · {row.device} · {when(row.ts)}
-                </span>
-                {row.status === "held" ? (
-                  <span className="text-muted-foreground">kept in {row.target} — the target already existed</span>
-                ) : null}
-              </li>
+      <section className="space-y-1.5">
+        <h2 className="text-base font-semibold">
+          Angekommen <span className="text-muted-foreground text-sm font-normal">{transfers.length}</span>
+        </h2>
+        {transfers.length === 0 ? <p className="text-muted-foreground">Noch kein Transfer.</p> : null}
+        <ul className="space-y-1">
+          {transfers.slice(0, FRESH).map((row) => (
+            <TransferLine key={`${row.name}-${row.ts}`} row={row} />
+          ))}
+        </ul>
+        <Older count={Math.max(0, transfers.length - FRESH)}>
+          <ul className="space-y-1">
+            {transfers.slice(FRESH).map((row) => (
+              <TransferLine key={`${row.name}-${row.ts}`} row={row} />
             ))}
           </ul>
-        )}
+        </Older>
       </section>
 
-      <section className="space-y-2">
-        <h2 className="font-medium">training-video-pack</h2>
-        {board.jobs.length === 0 ? (
-          <p className="text-muted-foreground text-sm">no job has run</p>
-        ) : (
-          <ul className="space-y-1 text-sm">
-            {board.jobs.map((job) => (
-              <li className="flex flex-wrap items-center gap-3" key={job.name}>
-                <span className="font-mono">{job.name}</span>
-                <Badge variant={TONE[job.state]}>{job.state}</Badge>
-                <span className="text-muted-foreground">{when(job.finishedAt ?? job.startedAt ?? job.queuedAt)}</span>
-                {job.pack ? (
-                  <span className="text-muted-foreground">
-                    accepted {job.pack.acceptedFrames} boards / {job.pack.acceptedCrops} crops · quarantine{" "}
-                    {job.pack.quarantineFrames} boards / {job.pack.quarantineCrops} crops · occluded proposals{" "}
-                    {job.pack.occludedProposalCrops}
-                  </span>
-                ) : null}
-                {job.candidate ? (
-                  <Button asChild size="sm">
-                    <Link href={`/confirm/${job.candidate}`}>zur Label-Seite</Link>
-                  </Button>
-                ) : null}
-                {job.state === "skipped" && /no games\/|no game record/.test(job.reason ?? "") ? (
-                  <Button
-                    disabled={starting === job.name}
-                    onClick={() => void startLabel(job.name)}
-                    size="sm"
-                    variant="outline"
-                  >
-                    {starting === job.name ? "wird gestartet…" : "Aufnahme labeln (Barrel korrigiert)"}
-                  </Button>
-                ) : null}
-                {job.reason ? <span className="text-destructive">{job.reason}</span> : null}
-              </li>
+      <section className="space-y-1.5">
+        <h2 className="text-base font-semibold">
+          training-video-pack <span className="text-muted-foreground text-sm font-normal">{board.jobs.length}</span>
+        </h2>
+        {board.jobs.length === 0 ? <p className="text-muted-foreground">Es lief noch kein Job.</p> : null}
+        {note ? <p className="text-destructive">{note}</p> : null}
+        <ul className="space-y-1">
+          {board.jobs.slice(0, FRESH).map((job) => (
+            <JobLine job={job} key={job.name} onLabel={(name) => void startLabel(name)} starting={starting === job.name} />
+          ))}
+        </ul>
+        <Older count={Math.max(0, board.jobs.length - FRESH)}>
+          <ul className="space-y-1">
+            {board.jobs.slice(FRESH).map((job) => (
+              <JobLine job={job} key={job.name} onLabel={(name) => void startLabel(name)} starting={starting === job.name} />
             ))}
           </ul>
-        )}
+        </Older>
       </section>
     </div>
   );

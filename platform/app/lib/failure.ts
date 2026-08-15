@@ -1,12 +1,21 @@
-export type Failure = { text: string; log: string | null };
+export type Failure = { text: string; log: string | null; code: number | null };
 
-/** Job reasons read `<what> — see <log path>`; the path drowns the what, so split it off. */
-export function failureParts(reason: string): Failure {
-  const at = reason.indexOf(" — see ");
-  if (at === -1) return { text: reason, log: null };
-  return { text: reason.slice(0, at), log: reason.slice(at + " — see ".length).trim() };
-}
+const SEE = " — see ";
+const EXIT = /\s*\(exit (-?\d+), ([^)]+)\)\s*$/;
+const ABSOLUTE = /"[A-Za-z]:[\\/][^"]*"|"?[A-Za-z]:[\\/]\S+/g;
 
 export function logName(log: string): string {
-  return log.split(/[\\/]/).at(-1) ?? log;
+  return log.replace(/"/g, "").split(/[\\/]/).at(-1) ?? log;
+}
+
+/** A path in the sentence drowns the sentence; the file name is the part a human acts on. */
+export const trimPaths = (text: string) => text.replace(ABSOLUTE, logName);
+
+/** Two shapes on disk: `<what> — see <log>` from the job runner, `(exit n, <log>)` from the tools. */
+export function failureParts(reason: string): Failure {
+  const exit = EXIT.exec(reason);
+  if (exit) return { text: trimPaths(reason.slice(0, exit.index)), log: exit[2].trim(), code: Number(exit[1]) };
+  const at = reason.indexOf(SEE);
+  if (at === -1) return { text: trimPaths(reason), log: null, code: null };
+  return { text: trimPaths(reason.slice(0, at)), log: reason.slice(at + SEE.length).trim(), code: null };
 }

@@ -20,6 +20,11 @@
     --color-chart-3: var(--chart-3);
     --color-chart-2: var(--chart-2);
     --color-chart-1: var(--chart-1);
+    --color-viz-subject: var(--viz-subject);
+    --color-viz-second: var(--viz-second);
+    --color-viz-deep: var(--viz-deep);
+    --color-viz-veto: var(--viz-veto);
+    --color-viz-context: var(--viz-context);
     --color-ring: var(--ring);
     --color-input: var(--input);
     --color-border: var(--border);
@@ -73,6 +78,14 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    /* Roles, not names: subject = what the chart counts, second = the other named class,
+       deep = the same hue one step down for a before/after pair, veto = phantoms, context = the rest.
+       Both columns validated against their surface (dataviz validate_palette.js). */
+    --viz-subject: #2a78d6;
+    --viz-second: #eb6834;
+    --viz-deep: #256abf;
+    --viz-veto: #d03b3b;
+    --viz-context: #898781;
     --radius: 0.625rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
@@ -108,6 +121,11 @@
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
+    --viz-subject: #3987e5;
+    --viz-second: #d95926;
+    --viz-deep: #184f95;
+    --viz-veto: #d03b3b;
+    --viz-context: #898781;
     --sidebar: oklch(0.205 0 0);
     --sidebar-foreground: oklch(0.985 0 0);
     --sidebar-primary: oklch(0.488 0.243 264.376);

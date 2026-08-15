@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Hint } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import type { QueueRow } from "@/lib/queues";
 import { UselessButton } from "./useless-button";
@@ -19,21 +20,25 @@ export function QueueRowItem({
   stats?: { text: string; title?: string };
 }) {
   return (
-    <li className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm">
-      <Link className="font-medium underline underline-offset-4" href={href}>
+    <li className="border-border group hover:bg-muted/20 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm transition-colors">
+      <Link className="font-medium hover:underline hover:underline-offset-4" href={href}>
         {row.title ?? row.name}
       </Link>
       {row.title ? <span className="text-muted-foreground font-mono text-xs">{row.name}</span> : null}
-      <span className="text-muted-foreground">
-        {row.plies} Halbzüge · {row.chain.hasReference ? "reference.pgn ✓" : "kein PGN"}
+      <span className="text-muted-foreground text-xs tabular-nums">
+        {row.plies} Halbzüge · {row.chain.hasReference ? "PGN ✓" : "kein PGN"}
       </span>
-      {stats ? (
-        <span className="text-muted-foreground text-xs" title={stats.title}>
+      {stats && stats.title ? (
+        <Hint className="text-muted-foreground text-xs tabular-nums" tip={stats.title}>
+          {stats.text}
+        </Hint>
+      ) : stats ? (
+        <span className="text-muted-foreground text-xs tabular-nums">
           {stats.text}
         </span>
       ) : null}
       {row.chain.offeredPgn ? <Badge variant="secondary">Phone-PGN da</Badge> : null}
-      <span className="text-muted-foreground ml-auto text-xs">
+      <span className="text-muted-foreground ml-auto text-xs opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
         <UselessButton flagged={row.chain.useless !== null} name={row.name} />
       </span>
     </li>

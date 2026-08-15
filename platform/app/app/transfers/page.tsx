@@ -1,6 +1,7 @@
 import { networkInterfaces } from "node:os";
 import { CHUNK_BYTES, ingestToken } from "@/lib/ingest";
 import { desktopBinary } from "@/lib/jobs";
+import { PageTitle } from "@/app/page-title";
 import { TransferBoard } from "./board";
 
 export const dynamic = "force-dynamic";
@@ -25,31 +26,32 @@ export default async function TransfersPage() {
   const port = process.env.PORT ?? "3000";
 
   return (
-    <main className="space-y-6">
-      <h1 className="text-2xl font-semibold">Transfers from the phone</h1>
+    <main className="space-y-4">
+      <PageTitle title="Transfers" why="Was das Handy hierher schickt: Kopplung, laufende Übertragungen und der Pack-Job." />
 
-      <section className="rounded-lg border p-4 text-sm space-y-2">
-        <h2 className="font-medium">Pairing</h2>
-        <p className="text-muted-foreground">
-          Enter this in the tracker under <span className="font-mono">Settings → Transfer</span>. The phone
-          finds the server on the Wi-Fi by itself; the token has to match once.
-        </p>
-        <p>
-          Token: <span className="font-mono select-all">{token}</span>
-        </p>
-        <p className="text-muted-foreground">
-          If the search finds nothing, the address by hand:{" "}
-          {lanAddresses().map((address) => (
-            <span className="font-mono mr-2 select-all" key={address}>
-              http://{address}:{port}
-            </span>
-          ))}
-        </p>
-        <p className="text-muted-foreground">
-          Chunk {(CHUNK_BYTES / (1024 * 1024)).toFixed(0)} MiB · pack binary{" "}
-          <span className="font-mono">{desktopBinary()}</span>
-        </p>
-      </section>
+      <details className="border-border rounded-lg border px-3 py-2 text-sm">
+        <summary className="cursor-pointer max-sm:min-h-11">
+          Kopplung <span className="text-muted-foreground font-mono select-all">{token}</span>
+        </summary>
+        <div className="text-muted-foreground mt-2 space-y-1 text-xs">
+          <p>
+            Im Tracker unter <span className="font-mono">Settings → Transfer</span> eintragen. Das Handy findet den Server
+            im WLAN selbst; der Token muss einmal stimmen.
+          </p>
+          <p>
+            Findet die Suche nichts, die Adresse von Hand:{" "}
+            {lanAddresses().map((address) => (
+              <span className="mr-2 font-mono select-all" key={address}>
+                http://{address}:{port}
+              </span>
+            ))}
+          </p>
+          <p>
+            Chunk {(CHUNK_BYTES / (1024 * 1024)).toFixed(0)} MiB · Pack-Binary{" "}
+            <span className="font-mono">{desktopBinary()}</span>
+          </p>
+        </div>
+      </details>
 
       <TransferBoard />
     </main>

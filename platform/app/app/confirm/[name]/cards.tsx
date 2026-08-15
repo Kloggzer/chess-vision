@@ -48,33 +48,34 @@ export function ConfirmReview({
   return (
     <section className="space-y-4">
       {cards.length > 0 ? (
-        <div className="border-border bg-muted/30 space-y-2 rounded-lg border p-4 text-sm">
-          <p className="font-medium">Your call, one commit at a time:</p>
-          <p className="text-muted-foreground">
-            The tracker committed these {plyCount} moves on {cards.length} frames, but they do not
-            line up with the reference game. The claimed move is DRAWN on each board: yellow =
-            from, green arrow → to. One question per card:{" "}
-            <strong className="text-foreground">
-              does the photo show the position right AFTER this commit?
-            </strong>{" "}
-            Yes → KEEP (it enters the label timeline). No → DROP. Everything starts as DROP; the
-            square labels on the picture are only the tracker&apos;s belief — trust the wooden
-            pieces, not the text. Click any picture to enlarge.
-          </p>
-          <p className="text-muted-foreground">
-            <Badge variant="secondary">Mehrfach-Commit</Badge>: a recovery bridge or a pair lands
-            SEVERAL halves on one frame. There is only one picture for them and it shows the
-            position after the whole sequence, so they share one card — judge the end position.
-            The halves in between carry no frames and drop out of the export by themselves.
-          </p>
-          <p className="text-muted-foreground">
-            <Badge variant="secondary">also missed in PGN</Badge>: the same move also appears as
-            missing from the reference — usually a real move committed LATE after a resync. Late
-            means the board has already moved on, so the photo will NOT match and DROP is
-            typically right. When in doubt, drop: a dropped ply costs a few crops, a wrongly kept
-            one mislabels a whole interval.
-          </p>
-        </div>
+        <details className="border-border bg-muted/20 rounded-lg border px-3 py-2 text-sm">
+          <summary className="cursor-pointer max-sm:min-h-11">
+            <span className="font-medium">
+              Zeigt das Foto die Stellung NACH diesem Commit? Ja → behalten, sonst verwerfen.
+            </span>{" "}
+            <span className="text-muted-foreground tabular-nums">
+              {plyCount} Halbzüge auf {cards.length} Frames
+            </span>
+          </summary>
+          <div className="text-muted-foreground mt-2 space-y-2">
+            <p>
+              Der Zug ist aufs Brett gezeichnet: gelb = von, grüner Pfeil → nach. Alles startet als
+              verworfen. Die Feld-Labels im Bild sind nur die Vermutung des Trackers — traue den
+              Holzfiguren, nicht dem Text.
+            </p>
+            <p>
+              <Badge variant="secondary">Mehrfach-Commit</Badge>: mehrere Halbzüge auf einem Frame.
+              Es gibt nur ein Bild und es zeigt die Endstellung — beurteile die. Die Halbzüge
+              dazwischen tragen keine Frames und fallen beim Export weg.
+            </p>
+            <p>
+              <Badge variant="secondary">fehlt auch im PGN</Badge>: meist ein echter Zug, der nach
+              einem Resync SPÄT committet wurde. Dann ist das Brett schon weiter und verwerfen ist
+              richtig. Im Zweifel verwerfen: ein verworfener Halbzug kostet ein paar Crops, ein
+              falsch behaltener verdirbt ein ganzes Intervall.
+            </p>
+          </div>
+        </details>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -144,10 +145,7 @@ export function ConfirmReview({
                       Mehrfach-Commit — Bild zeigt Stellung nach allen Halbzügen
                     </Badge>
                   ) : null}
-                  {card.duplicate ? <Badge variant="secondary">also missed in PGN</Badge> : null}
-                  <Badge variant={isKept ? "default" : "outline"}>
-                    {isKept ? "will be KEPT" : "will be dropped"}
-                  </Badge>
+                  {card.duplicate ? <Badge variant="secondary">fehlt auch im PGN</Badge> : null}
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -175,17 +173,16 @@ export function ConfirmReview({
                     className="flex-1"
                     variant={isKept ? "default" : "outline"}
                     onClick={() => setKept((k) => ({ ...k, [card.id]: true }))}
+                    title={multi ? `das Bild zeigt die Stellung nach ${sans.join(" + ")}` : "das Bild zeigt diesen Zug"}
                   >
-                    {multi
-                      ? `keep — the picture shows the position after ${sans.join(" + ")}`
-                      : "keep — the picture shows this move"}
+                    behalten
                   </Button>
                   <Button
                     className="flex-1"
                     variant={isKept ? "outline" : "destructive"}
                     onClick={() => setKept((k) => ({ ...k, [card.id]: false }))}
                   >
-                    drop
+                    verwerfen
                   </Button>
                 </div>
               </CardContent>
@@ -196,17 +193,15 @@ export function ConfirmReview({
 
       {gallery.length > 0 ? (
         <div className="space-y-3">
-          <div className="border-border bg-muted/30 space-y-2 rounded-lg border p-4 text-sm">
-            <p className="font-medium">
-              Sichtprüfung: {seenCount} Halbzüge decken sich mit reference.pgn
-            </p>
-            <p className="text-muted-foreground">
-              Die Referenz verbürgt die ZÜGE, nicht die Bilder. Hier ist jede Commit-Serie zum
-              Durchblättern — Hand im Bild, verrutschter Ausschnitt, dunkler Müll? Dann taugt das
-              Intervall nichts, egal wie sauber der Abgleich aussieht. Nichts zu entscheiden: diese
-              Halbzüge gehen so oder so in die Label-Timeline, das hier ist nur zum Schauen.
-            </p>
-          </div>
+          <h2
+            className="text-base font-semibold"
+            title="Die Referenz verbürgt die ZÜGE, nicht die Bilder. Hand im Bild, verrutschter Ausschnitt, dunkler Müll? Dann taugt das Intervall nichts, egal wie sauber der Abgleich aussieht. Zu entscheiden gibt es hier nichts — nur zum Schauen."
+          >
+            Sichtprüfung{" "}
+            <span className="text-muted-foreground text-sm font-normal tabular-nums">
+              {seenCount} Halbzüge decken sich mit reference.pgn
+            </span>
+          </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {gallery.map((card) => {
               const at = frameAt[card.id] ?? card.start;
@@ -233,17 +228,17 @@ export function ConfirmReview({
         </div>
       ) : null}
 
-      <div className="border-border flex flex-wrap items-center gap-4 rounded-lg border p-4">
-        <Button disabled={state === "writing"} onClick={confirm} size="lg">
+      <div className="border-border flex flex-wrap items-center gap-4 rounded-lg border p-3">
+        <Button
+          disabled={state === "writing"}
+          onClick={confirm}
+          title="schreibt confirmed + reviewed_plies in candidate.json — sonst ändert sich nichts"
+        >
           {cards.length > 0
-            ? `Confirm: keep ${keptCount} of ${cards.length}, drop the rest`
+            ? `Bestätigen — ${keptCount} von ${cards.length} behalten`
             : `Alle ${seenCount} gesehen — bestätigen`}
         </Button>
-        <span className="text-muted-foreground text-sm">
-          {state === "idle"
-            ? "writes confirmed + reviewed_plies into candidate.json — nothing else changes"
-            : state}
-        </span>
+        {state === "idle" ? null : <span className="text-muted-foreground text-sm">{state}</span>}
       </div>
 
       {zoom ? <ZoomOverlay name={name} onClose={() => setZoom(null)} zoom={zoom} /> : null}

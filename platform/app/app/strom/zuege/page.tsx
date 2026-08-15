@@ -1,4 +1,3 @@
-import { QueueNav } from "@/app/queue-nav";
 import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { queueRows, splitQueues, type QueueRow } from "@/lib/queues";
@@ -41,10 +40,5 @@ export default async function ZuegePage() {
   // The queue's own order IS the stream's: newest recording first, `useless` and archived out.
   const games = await Promise.all(queues.confirm.map(streamGame));
 
-  return (
-    <main className="space-y-4">
-      <QueueNav counts={{ confirm: queues.confirm.length, relabel: queues.relabel.length }} here="zuege" />
-      <ZuegeStream games={games} />
-    </main>
-  );
+  return <ZuegeStream games={games} />;
 }

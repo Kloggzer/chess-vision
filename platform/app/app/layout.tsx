@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AutopilotStrip } from "./autopilot-strip";
+import { queueRows, splitQueues } from "@/lib/queues";
+import { Shell } from "./shell";
 
 export const metadata: Metadata = {
-  title: "chesslab relabel",
+  title: "chesslab",
   description: "Local review front-end for chesslab real-game candidates.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export const dynamic = "force-dynamic";
+
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const queues = splitQueues(await queueRows());
   return (
-    <html lang="en" className="dark font-sans">
-      {/* The side margin is 48 px of a 390 px phone — a tenth of the screen the crops need. */}
-      <body className="mx-auto max-w-5xl px-3 py-4 sm:px-6 sm:py-8">
-        {/* On every page: the machine works whether or not a tab is open on the right one. */}
-        <AutopilotStrip />
-        {children}
+    <html className="dark font-sans" lang="de">
+      <body>
+        <Shell counts={{ zuege: queues.confirm.length, labeln: queues.relabel.length }}>{children}</Shell>
       </body>
     </html>
   );

@@ -2,16 +2,14 @@ import { chainState } from "@/lib/chain";
 import { failureParts } from "@/lib/failure";
 import { repairPlan } from "@/lib/autopilot-engine";
 import { jobs } from "@/lib/jobs";
-import { queueRows, splitQueues } from "@/lib/queues";
 import { ChainActions } from "@/app/chain-actions";
-import { QueueNav } from "@/app/queue-nav";
+import { PageTitle } from "@/app/page-title";
 
 export const dynamic = "force-dynamic";
 
 // Failed steps never retry automatically — only manual press or fix moves them out.
 export default async function RepairPage() {
-  const [repair, queues, ledger] = await Promise.all([repairPlan(), queueRows().then(splitQueues), jobs(500)]);
-  const counts = { confirm: queues.confirm.length, relabel: queues.relabel.length };
+  const [repair, ledger] = await Promise.all([repairPlan(), jobs(500)]);
   const lastJobs = new Map(ledger.map((job) => [job.name, job]));
   const rows = await Promise.all(
     repair.map(async (row) => ({ ...row, state: await chainState(row.name), lastJob: lastJobs.get(row.name) ?? null })),
@@ -19,14 +17,12 @@ export default async function RepairPage() {
 
   return (
     <main className="space-y-4">
-      <QueueNav counts={counts} here="reparatur" />
-      <h1 className="text-2xl font-semibold">Reparatur ({rows.length})</h1>
-      <p className="text-muted-foreground text-sm">
-        Schritte, die der Autopilot nicht mehr von selbst anfasst. Ein gescheiterter Schritt wird nie
-        automatisch wiederholt — hier steht, woran er gescheitert ist, und der Knopf daneben ist der
-        Mensch.
-      </p>
-      <ul className="space-y-2">
+      <PageTitle
+        count={rows.length}
+        title="Reparatur"
+        why="Schritte, die der Autopilot nicht mehr von selbst anfasst. Ein gescheiterter Schritt wird nie automatisch wiederholt — hier steht, woran er gescheitert ist, und der Knopf daneben ist der Mensch."
+      />
+      <ul className="space-y-1.5">
         {rows.map((row) => (
           <li className="border-border space-y-1 rounded-lg border px-3 py-2 text-sm" key={row.name}>
             <div className="flex flex-wrap items-center gap-x-3">

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useId } from "react";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import type { MoveSquares, ReviewCard } from "@/lib/review-cards";
 
@@ -128,17 +129,18 @@ export function FrameSeries({
   const entry = card.stems[at] ?? null;
   const height = entry?.kind === "plain" ? 720 : 816;
   const squares = card.plies.flatMap((p) => (p.squares ? [p.squares] : []));
-  if (!entry) return <p className="text-muted-foreground text-sm">no frame on disk for this window</p>;
+  if (!entry) return <p className="text-muted-foreground text-sm">Kein Bild auf der Platte für dieses Fenster.</p>;
   const offset = Number(entry.stem) - card.frame;
   return (
     <>
-      <button
-        className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-        onClick={() => onZoom({ stem: entry.stem, height, squares })}
-        style={{ aspectRatio: `720 / ${height}` }}
-        title="click to enlarge"
-        type="button"
-      >
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
+            onClick={() => onZoom({ stem: entry.stem, height, squares })}
+            style={{ aspectRatio: `720 / ${height}` }}
+            type="button"
+          >
         <Image
           alt={`frame ${entry.stem}`}
           className="object-contain"
@@ -149,27 +151,44 @@ export function FrameSeries({
           unoptimized
         />
         <MoveOverlay height={height} squares={squares} />
-      </button>
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>klicken zum Vergrößern</TooltipContent>
+      </Tooltip>
       {card.stems.length > 1 ? (
         <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-          <Button
-            className="max-sm:h-11"
-            disabled={at === 0}
-            onClick={() => step(-1)}
-            size="sm"
-            variant="outline"
-          >
-            ◀
-          </Button>
-          <Button
-            className="max-sm:h-11"
-            disabled={at + 1 >= card.stems.length}
-            onClick={() => step(1)}
-            size="sm"
-            variant="outline"
-          >
-            ▶
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  className="max-sm:h-11"
+                  disabled={at === 0}
+                  onClick={() => step(-1)}
+                  size="sm"
+                  variant="outline"
+                >
+                  ◀
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>ein Bild zurück (Pfeil links)</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <Button
+                  className="max-sm:h-11"
+                  disabled={at + 1 >= card.stems.length}
+                  onClick={() => step(1)}
+                  size="sm"
+                  variant="outline"
+                >
+                  ▶
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>ein Bild vor (Pfeil rechts)</TooltipContent>
+          </Tooltip>
           <span className="font-mono">
             frame {entry.stem} ({offset >= 0 ? "+" : ""}
             {offset}) · {at + 1}/{card.stems.length}

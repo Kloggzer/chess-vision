@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GameCard, type GameInfo } from "@/app/cards";
+import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { chainState, sessionDir } from "@/lib/chain";
 import { judgedKeys } from "@/lib/corrections";
@@ -62,32 +63,19 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
 
   return (
     <main className="space-y-4">
-      <nav className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <Link className="underline underline-offset-4" href="/">
-          ← Partien
+      <PageTitle title={game.title ?? name}>
+        <Link className="text-muted-foreground hover:text-foreground" href={`/confirm/${name}`}>
+          Sichtprüfung
         </Link>
-        <Link className="underline underline-offset-4" href="/strom/zuege">
-          züge
-        </Link>
-        <Link className="underline underline-offset-4" href="/strom/labeln">
-          labeln
-        </Link>
-        <Link className="underline underline-offset-4" href={`/confirm/${name}`}>
-          confirm-Ansicht
-        </Link>
-        <Link className="underline underline-offset-4" href={`/relabel/${name}`}>
+        <Link className="text-muted-foreground hover:text-foreground" href={`/relabel/${name}`}>
           Brett-Queue
         </Link>
-      </nav>
-
-      <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">{game.title ?? name}</h1>
-        <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
-          <span>{name}</span>
-          <Badge variant="secondary">{game.chain.step ?? "kein Schritt"}</Badge>
-          <span>{sessionDir(name)}</span>
-        </p>
-      </header>
+      </PageTitle>
+      <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
+        <span>{name}</span>
+        <span title="der nächste offene Schritt der Kette">{game.chain.step ?? "kein Schritt"}</span>
+        <span className="truncate">{sessionDir(name)}</span>
+      </p>
 
       <ul>
         <GameCard game={game} />
@@ -111,8 +99,8 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
         {game.chain.videoBroken ? <Fact label="Video">{game.chain.videoBroken}</Fact> : null}
       </section>
 
-      <section className="space-y-2">
-        <h2 className="text-sm font-medium">Job-Log ({history.length})</h2>
+      <section className="space-y-1.5">
+        <PageTitle count={history.length} sub title="Job-Log" />
         {history.map((job, i) => (
           <JobRow job={job} key={`${job.queuedAt}-${i}`} />
         ))}

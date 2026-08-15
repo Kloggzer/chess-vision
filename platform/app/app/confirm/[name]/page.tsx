@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
+import { PageTitle } from "@/app/page-title";
 import { chainState } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
 import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
@@ -11,14 +12,16 @@ async function NoCandidate({ name }: { name: string }) {
   const state = await chainState(name);
   return (
     <main className="space-y-4">
-      <h1 className="text-2xl font-semibold">{name}</h1>
+      <PageTitle title={name} />
       <p className="text-muted-foreground text-sm">
-        No <code>candidate.json</code>: nothing has read this recording yet, so there are no plies to
-        judge. {state.video ? "The replay below writes one — it decodes the whole video and takes minutes." : "This bundle carries no video, so there is nothing to read."}
+        Keine <code>candidate.json</code> —{" "}
+        {state.video
+          ? "der Replay unten schreibt eine; er dekodiert das ganze Video und dauert Minuten."
+          : "dieses Bundle trägt kein Video, es gibt nichts zu lesen."}
       </p>
       <ChainActions name={name} state={state} />
-      <Link className="text-muted-foreground text-sm underline underline-offset-4" href="/">
-        ← all games
+      <Link className="text-muted-foreground hover:text-foreground text-sm" href="/">
+        ← Partien
       </Link>
     </main>
   );
@@ -60,39 +63,33 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   const gallery = buildGalleryCards({ moves, matched, stems, startFen: candidate.start_fen });
 
   return (
-    <main className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">{name}</h1>
-        <p className="text-muted-foreground text-sm">
-          <Badge className="mr-2" variant={candidate.source?.lens ? "default" : "destructive"}>
-            {candidate.source?.lens ? "Barrel korrigiert" : "Barrel-Korrektur nicht belegt"}
+    <main className="space-y-4">
+      <PageTitle title={name}>
+        {candidate.source?.lens ? null : (
+          <Badge variant="destructive" title="candidate.json belegt keine Linsen-Korrektur (specs/52)">
+            Barrel nicht korrigiert
           </Badge>
-          {truth ? (
-            <>
-              {moves.length} Halbzüge im Kandidaten vs {truth.length} in reference.pgn — zugeordnet{" "}
-              <strong className="text-foreground">{matched.length}</strong>, offen{" "}
-              <strong className="text-foreground">{invented.length}</strong>, fehlend{" "}
-              {missed.length} Halbzüge
-            </>
-          ) : (
-            <>
-              {moves.length} Halbzüge im Kandidaten · <strong className="text-foreground">no
-              reference.pgn</strong> — nothing to compare against, so every ply is yours to judge.
-              Drop a PGN at <code>data/realgames/{name}/reference.pgn</code> and reload to get the
-              automatic comparison instead.
-            </>
-          )}
-          {candidate.confirmed ? (
-            <Badge className="ml-2" variant="secondary">
-              already confirmed {candidate.confirmed_at}
-            </Badge>
-          ) : null}
-        </p>
-      </header>
+        )}
+        {candidate.confirmed ? (
+          <span className="text-muted-foreground">bereits bestätigt {candidate.confirmed_at}</span>
+        ) : null}
+      </PageTitle>
+      <p className="text-muted-foreground text-xs tabular-nums">
+        {truth ? (
+          <>
+            {moves.length} Halbzüge · <span className="text-foreground">{matched.length}</span> zugeordnet ·{" "}
+            <span className="text-foreground">{invented.length}</span> offen · {missed.length} fehlend
+          </>
+        ) : (
+          <span title={`ohne data/realgames/${name}/reference.pgn gibt es nichts zu vergleichen — jeder Halbzug ist deiner`}>
+            {moves.length} Halbzüge · keine reference.pgn
+          </span>
+        )}
+      </p>
 
       <ConfirmReview cards={cards} gallery={gallery} name={name} />
 
-      <details className="border-border rounded-lg border p-4">
+      <details className="border-border rounded-lg border px-3 py-2">
         {/* Ohne reference.pgn ist „0 fehlend" eine Behauptung über einen Vergleich, den niemand
             angestellt hat — dann steht „—" (CONCEPT.md 4.2). */}
         <summary

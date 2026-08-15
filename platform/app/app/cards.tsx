@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/progress";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChainActions } from "@/app/chain-actions";
 import { UselessButton } from "@/app/useless-button";
 import type { ChainState } from "@/lib/chain";
@@ -65,36 +67,20 @@ function UselessCard({ game }: { game: GameInfo }) {
   );
 }
 
-/**
- * Bretter oben, Zellen klein darunter — die 57,9-%-Zahl statt der 8,3-%-Zahl (CONCEPT.md 6.2).
- *
- * Jede Zahl trägt ihre Einheit: ein nackter Mischwert aus Brettern und Zellen ist genau der
- * Fehler, den D1 diagnostiziert.
- */
+/** Bretter sind die Einheit, die ein Mensch abarbeitet; die Zellen stehen im Tooltip (CONCEPT.md 6.2). */
 function BoardProgress({ game }: { game: GameInfo }) {
-  const pct = Math.round((game.boardsDone / game.boards) * 100);
+  const cells = game.cellsDone === null ? `${game.cells}` : `${game.cellsDone}/${game.cells}`;
+  const source =
+    game.read === "fallback"
+      ? "aus occluded-proposals.jsonl nachgezählt — noch keine summary.json"
+      : "aus occluded-proposals.summary.json";
   return (
-    <>
-      <span className="text-muted-foreground flex flex-col leading-tight">
-        <span>
-          {game.boardsDone}/{game.boards} Bretter · {pct} %
-        </span>
-        <span
-          className="text-[11px]"
-          title={
-            game.read === "fallback"
-              ? "aus occluded-proposals.jsonl gezählt — der Producer hat noch keine summary.json geschrieben"
-              : "aus occluded-proposals.summary.json — entschiedene Zellen stehen dort nicht drin, Bretter schon"
-          }
-        >
-          {game.cellsDone === null ? game.cells : `${game.cellsDone}/${game.cells}`} Zellen
-          {game.read === "fallback" ? " · nachgezählt" : ""}
-        </span>
-      </span>
-      <span className="bg-muted h-1.5 w-28 overflow-hidden rounded">
-        <span className="bg-primary block h-full" style={{ width: `${pct}%` }} />
-      </span>
-    </>
+    <Progress
+      done={game.boardsDone}
+      title={`${cells} Zellen · ${source}`}
+      total={game.boards}
+      unit="Bretter"
+    />
   );
 }
 
@@ -132,23 +118,27 @@ export function GameCard({ game }: { game: GameInfo }) {
 
   return (
     <li
-      className={`border-border flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm ${
+      className={`border-border group hover:bg-muted/20 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
         game.archived ? "opacity-60" : ""
       }`}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <input
-          className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
-          defaultValue={game.title ?? ""}
-          onBlur={(e) => {
-            if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          placeholder={game.name}
-          title="Anzeigename — leer lassen für den Verzeichnisnamen"
-        />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <input
+              className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
+              defaultValue={game.title ?? ""}
+              onBlur={(e) => {
+                if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              placeholder={game.name}
+            />
+          </TooltipTrigger>
+          <TooltipContent>Anzeigename — leer lassen für den Verzeichnisnamen</TooltipContent>
+        </Tooltip>
         {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
         <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
         <span className="ml-auto flex items-center gap-3">
@@ -156,31 +146,38 @@ export function GameCard({ game }: { game: GameInfo }) {
         </span>
       </div>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-        <span>
-          {when(game.createdAt) ?? "?"} · {game.plies} Halbzüge ·{" "}
-          {game.confirmed ? `bestätigt (${game.reviewed} geprüft)` : "unbestätigt"} ·{" "}
-          {game.pgnPlies !== null ? `PGN ✓ ${game.pgnPlies}` : "kein PGN"}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="tabular-nums">
+              {when(game.createdAt) ?? "?"} · {game.plies} Halbzüge{game.confirmed ? " ✓" : ""} ·{" "}
+              {game.pgnPlies !== null ? `PGN ${game.pgnPlies}` : "kein PGN"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {game.confirmed ? `bestätigt · ${game.reviewed} von ${game.plies} Halbzügen geprüft` : "unbestätigt"}
+          </TooltipContent>
+        </Tooltip>
         {game.chain.step !== "confirm" && game.chain.hasCandidate ? (
-          <Link className="underline underline-offset-4" href={`/confirm/${game.name}`}>
+          <Link className="hover:text-foreground" href={`/confirm/${game.name}`}>
             Sichtprüfung
           </Link>
         ) : null}
         {game.cells > 0 && game.chain.step !== "relabel" ? (
-          <Link className="underline underline-offset-4" href={`/relabel/${game.name}`}>
+          <Link className="hover:text-foreground" href={`/relabel/${game.name}`}>
             Bretter
           </Link>
         ) : null}
         {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
         {note ? <Badge variant="destructive">{note}</Badge> : null}
-        <span className="ml-auto flex items-center gap-3">
-          <label className="cursor-pointer underline underline-offset-4">
+        {/* Ruhig, bis die Karte gebraucht wird: drei Textlinks je Zeile sind auf zwölf Karten eine Wand. */}
+        <span className="ml-auto flex items-center gap-3 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
+          <label className="hover:text-foreground cursor-pointer">
             {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
             <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
           </label>
           <UselessButton flagged={false} name={game.name} />
           <button
-            className="cursor-pointer underline underline-offset-4"
+            className="hover:text-foreground cursor-pointer"
             onClick={act(() =>
               post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
             )}

@@ -3,7 +3,6 @@ app/cards.tsx 6
 app/chain-actions.tsx 7
 app/useless-button.tsx 6
 app/confirm/board-frames.tsx 6
-app/corpus/sections.tsx 7
 app/transfers/page.tsx 8
 app/game/[name]/page.tsx 7
 app/relabel/[name]/filter.tsx 9
