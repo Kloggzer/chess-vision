@@ -20,11 +20,15 @@ import cv2
 from . import config, geometry3d, photometric
 from .calibration import (
     CalibrationProfile,
+    GridMesh,
     board_corners_for_frame,
     crop_border_px,
     load_profile,
     make_tracker,
+    mesh_cell_quad,
+    mesh_from_lines,
     square_to_crop_box,
+    square_to_mesh_box,
     warp_board_for_crops,
 )
 from .imgops import resize_keep_aspect
@@ -109,15 +113,49 @@ def all_squares() -> list[str]:
 _resize_keep_aspect = resize_keep_aspect
 
 
-def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
+def _crop_square_mesh(board_warped, square: str, profile: CalibrationProfile,
+                      out_size: tuple[int, int], mesh: GridMesh):
+    """The per-cell PERSPECTIVE cut: the padded cell quad warped onto the letterboxed content
+    rectangle, so a line the mesh knows as tilted or bowed comes out straight. Aspect from the
+    scalar box, bars black — the composition `resize_keep_aspect` builds. Twin: `cropSquareTilted`.
+    """
+    import numpy as np
+
+    x0, y0, x1, y1 = square_to_mesh_box(square, profile, mesh)
+    w, h = x1 - x0, y1 - y0
+    if w <= 0 or h <= 0:
+        return None
+    ow, oh = int(out_size[0]), int(out_size[1])
+    s = min(ow / w, oh / h)
+    nw, nh = max(1, round(w * s)), max(1, round(h * s))
+    b = crop_border_px(profile)
+    src = np.array([(x + b, y + b) for x, y in mesh_cell_quad(square, profile, mesh)], np.float32)
+    dst = np.array([(0, 0), (nw, 0), (nw, nh), (0, nh)], np.float32)
+    content = cv2.warpPerspective(board_warped, cv2.getPerspectiveTransform(src, dst), (nw, nh))
+    canvas = np.zeros((oh, ow, 3), dtype=np.uint8)
+    x, y = (ow - nw) // 2, (oh - nh) // 2
+    canvas[y:y + nh, x:x + nw] = content
+    return canvas
+
+
+def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int],
+                mesh: GridMesh | None = None):
     """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
 
     `square_to_crop_box` returns the box in board coordinates [0, board_size]; since the data warp
     is offset by `B = crop_border_px(profile)`, the box is shifted by +B into the canvas.
     This ensures edge squares have actual content for their pad_side/pad_up extension. Overhang is
     filled with black (constant geometry across all 64 squares), then scaled losslessly to out_size.
+
+    A `mesh` cuts at the board's OWN measured lines instead of the nominal eighth — perspectively
+    per cell once it carries tilts, so the lens' barrel never reaches the training crop.
     """
-    x0, y0, x1, y1 = square_to_crop_box(square, profile, clamp=False)
+    if mesh is not None and mesh.tilted:
+        crop = _crop_square_mesh(board_warped, square, profile, out_size, mesh)
+        if crop is not None:
+            return crop
+    x0, y0, x1, y1 = (square_to_crop_box(square, profile, clamp=False) if mesh is None
+                      else tuple(round(v) for v in square_to_mesh_box(square, profile, mesh)))
     b = crop_border_px(profile)
     x0, y0, x1, y1 = x0 + b, y0 + b, x1 + b, y1 + b
     if x1 <= x0:
@@ -138,6 +176,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
                     photometry: str = "none",
                     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
                     out_size: tuple[int, int] | None = None,
+                    mesh: GridMesh | None = None,
                     with_meta: bool = False):
     """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice:
     bordered warp OR box3d, then `preprocess_crop`. Single Source for live inference so
@@ -146,6 +185,9 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
     `with_meta=True`: returns (crops, meta) where meta = {"used_box3d": list[bool]} indicates per square
     whether the crop was produced via box3d (True) or warp (False). Used by `slice_session`
     for the `pose_ok` flag in the manifest (de-duplication, Rework 01).
+
+    `mesh`: the frame's measured grid lines (`grid_lines`), which cut every cell at the board's own
+    boundaries instead of the nominal eighth — the warp path only, box3d has its own geometry.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     box3d = geometry == "box3d"
@@ -173,7 +215,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
                                              up=up, out_size=out)
             is_box3d = crop is not None
         if crop is None:
-            crop = crop_square(warped, square, profile, out)
+            crop = crop_square(warped, square, profile, out, mesh)
         if photometry != "none":
             crop = photometric.preprocess_crop(crop, photometry)
         crops.append(crop)
@@ -317,6 +359,7 @@ def slice_session(
     n_unknown = 0
     n_unusable = 0
     n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
+    n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     for entry in log:
         if entry.get("unusable"):
@@ -334,10 +377,14 @@ def slice_session(
                 n_skipped += 1   # no markers in frame -> not usable, skip
                 continue
 
+        # The row's own 18 lines, when the fit could read them: without them the crop keeps the
+        # lens' barrel, and a curved training set is exactly what this pipeline must not produce.
+        mesh = mesh_from_lines(entry.get("grid_lines"))
+        n_mesh += mesh is not None
         # crops_for_frame as single source (Rework 01: de-duplication).
         crops, meta = crops_for_frame(
             frame, corners, prof, geometry=geometry_mode, photometry=photometry,
-            piece_height_cells=piece_height_cells, out_size=out, with_meta=True)
+            piece_height_cells=piece_height_cells, out_size=out, mesh=mesh, with_meta=True)
         used_box3d_list = meta["used_box3d"]
         if box3d:
             n_fallback += sum(1 for v in used_box3d_list if not v)
@@ -412,7 +459,7 @@ def slice_session(
     _replace_session_in_manifest(manifest_path, session_id, new_lines)
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
-            "unknown_dropped": n_unknown,
+            "unknown_dropped": n_unknown, "mesh_frames": n_mesh,
             "fallback": n_fallback}
 
 
@@ -481,6 +528,7 @@ def run_slice(
                 extra += f" [{stats['skipped']} frames without markers skipped]"
             if stats.get("fallback"):
                 extra += f" [{stats['fallback']} box3d->warp fallbacks]"
+            extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
             print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
         except Exception as e:  # noqa: BLE001
             print(f"[FAIL] {sid}: {e}")

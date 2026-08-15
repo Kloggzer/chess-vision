@@ -343,6 +343,8 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         # Zero here on purpose: this export names no `unknown_squares`, so the gate keeps proving
         # that a plain session still yields all 64 crops per frame (see tests/test_labeling_unknown).
         "unknown_dropped": 0,
+        # No `grid_lines` in these rows, so every crop is cut at the nominal eighth.
+        "mesh_frames": 0,
         "fallback": 0,
     }
     manifest = (tmp_path / "squares.jsonl").read_text(encoding="utf-8").splitlines()
@@ -566,9 +568,12 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
         for i in (30, 60, 90)
     ]
 
-    stats = fit_rows_to_grid(tmp_path, rows, profile=None)
+    from chesslab.realgames import _field_profile
 
-    assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "median": 2.7, "max": 2.7}
+    stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8))
+
+    assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0,
+                     "median": 2.7, "max": 2.7}, "8x8 noise carries no grid lines"
     assert rows[0]["corners"] == fitted_quad and rows[0]["corners_source"] == FIT_SOURCE
     assert rows[0]["align_worst_px"] == 2.7, "the number a later `session scan` will confirm"
     assert rows[1]["corners"] == median and rows[1]["corners_source"] == FIT_KEPT

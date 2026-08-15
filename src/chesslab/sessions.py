@@ -632,6 +632,65 @@ def scan_alignment(session_id: str) -> dict:
             "max": vals[-1] if vals else None, "backup": backup}
 
 
+def fit_mesh_session(session_id: str) -> dict:
+    """Measure every frame's 18 grid lines once and store them as `grid_lines`.
+
+    The quad says WHERE the board is, the mesh says where its cells are — without it a slice cuts
+    at the nominal eighth and bakes the lens' barrel into the crops. Measured through the profile
+    the slice uses, so the fractions describe the warp it actually cuts in.
+    """
+    import cv2
+
+    from .labeling import _profile_for_session, read_session_meta
+    from .realgames import grid_line_fracs
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    # The SLICE's profile, not this module's review stand-in: fractions measured through another
+    # margin describe a warp nobody cuts.
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    measured, stages = 0, {"curved": 0, "tilted": 0}
+    for r in rows:
+        r.pop("grid_lines", None)
+        if not r.get("corners"):
+            continue
+        try:
+            frame = cv2.imread(str(frame_path(sdir, r)))
+        except (FileNotFoundError, ValueError):
+            continue
+        if frame is None:
+            continue
+        mesh = grid_line_fracs(frame, r["corners"], prof.board_size, prof)
+        if mesh is None:
+            continue
+        r["grid_lines"] = mesh
+        measured += 1
+        stages["curved" if "cx" in mesh else "tilted"] += 1
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "measured": measured, "of": len(rows),
+            **stages, "backup": backup}
+
+
+def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
+    """`fit_mesh_session` over every active session that has a log — the sweep, one at a time.
+
+    `on_done` is called per finished session, because a corpus-wide sweep runs for many minutes
+    and a caller that only speaks at the end cannot say where it stands or what failed.
+    """
+    out = []
+    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+        if not (sdir / "log.jsonl").is_file():
+            continue
+        try:
+            r = fit_mesh_session(sdir.name)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            r = {"session_id": sdir.name, "error": f"{type(e).__name__}: {e}"}
+        out.append(r)
+        if on_done is not None:
+            on_done(r)
+    return out
+
 def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
     """Re-fit every frame whose worst square sits further than `max_off` px off the grid.
 

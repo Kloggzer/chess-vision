@@ -13,6 +13,7 @@ camera + display.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -386,6 +387,147 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
 
     return fix(x0), fix(y0), fix(x1), fix(y1)
 
+
+#: A grid line steeper than this fraction-per-fraction is a misfit, not a lens; the same for its
+#: parabola term. Parity twins: `MESH_TILT_LIMIT`/`MESH_CURV_LIMIT` in CropBox.kt and `warp.ts`.
+MESH_TILT_LIMIT = 0.05
+MESH_CURV_LIMIT = 0.08
+
+#: 8 cells share 9 boundaries.
+GRID_LINES_PER_AXIS = 9
+
+#: Simultaneous corner evaluations — `meshCellQuadExact` (CropBox.kt) argues the residual.
+CORNER_ITERATIONS = 3
+
+
+@dataclass(frozen=True)
+class GridMesh:
+    """One frame's 18 MEASURED grid lines as fractions of the field side (`grid_lines`).
+
+    Per line `pos(t) = x + tx*(t-0.5) + cx*(t-0.5)^2`. Tilts and curvatures come per PAIR or not
+    at all, curvature only on top of tilts, so a consumer can never cut half a stage.
+    """
+
+    x: list[float]
+    y: list[float]
+    tx: list[float] | None = None
+    ty: list[float] | None = None
+    cx: list[float] | None = None
+    cy: list[float] | None = None
+
+    @property
+    def tilted(self) -> bool:
+        return self.tx is not None and self.ty is not None
+
+
+def _mesh_values(lines: dict, name: str) -> list[float] | None:
+    v = lines.get(name)
+    if not isinstance(v, list) or len(v) != GRID_LINES_PER_AXIS:
+        return None
+    if any(isinstance(e, bool) or not isinstance(e, (int, float)) for e in v):
+        return None
+    return [float(e) for e in v]
+
+
+def _mesh_axis(lines: dict, name: str) -> list[float] | None:
+    v = _mesh_values(lines, name)
+    if v is None or not all(math.isfinite(e) for e in v):
+        return None
+    return v if all(b > a for a, b in zip(v, v[1:], strict=False)) else None
+
+
+def _mesh_bounded(lines: dict, name: str, limit: float) -> list[float] | None:
+    v = _mesh_values(lines, name)
+    if v is None or not all(math.isfinite(e) and abs(e) < limit for e in v):
+        return None
+    return v
+
+
+def mesh_from_lines(lines) -> GridMesh | None:
+    """`grid_lines` -> the strongest stage it carries: curved -> tilted -> scalar -> None.
+
+    Additive by construction: a missing, short or out-of-limit pair costs exactly ONE stage and
+    never half an axis, so a bad sidecar cannot take a slice down. Twin: `meshOrNull`
+    (LabeledVideoPack.kt).
+    """
+    if not isinstance(lines, dict):
+        return None
+    xs, ys = _mesh_axis(lines, "x"), _mesh_axis(lines, "y")
+    if xs is None or ys is None:
+        return None
+    tx = _mesh_bounded(lines, "tx", MESH_TILT_LIMIT)
+    ty = _mesh_bounded(lines, "ty", MESH_TILT_LIMIT)
+    if tx is None or ty is None:
+        return GridMesh(xs, ys)
+    cx = _mesh_bounded(lines, "cx", MESH_CURV_LIMIT)
+    cy = _mesh_bounded(lines, "cy", MESH_CURV_LIMIT)
+    if cx is None or cy is None:
+        return GridMesh(xs, ys, tx, ty)
+    return GridMesh(xs, ys, tx, ty, cx, cy)
+
+
+def square_to_mesh_box(square: str, profile: CalibrationProfile,
+                       mesh: GridMesh) -> tuple[float, float, float, float]:
+    """'e4' -> the crop box cut at the square's four NEIGHBOUR-LINE intersections, unrounded.
+
+    Pads scale with the square's own measured cell, so the composition stays the one
+    `square_to_crop_box` builds. Parity twin: `meshCropBoxExact` (CropBox.kt).
+    """
+    col, row = _square_to_col_row(square, profile.white_pov)
+    bs = profile.board_size
+    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
+    cw = mesh.x[col + 1] - mesh.x[col]
+    ch = mesh.y[row + 1] - mesh.y[row]
+    return ((mesh.x[col] - pad_side * cw) * bs,
+            (mesh.y[row] - (pad_side + pad_up) * ch) * bs,
+            (mesh.x[col + 1] + pad_side * cw) * bs,
+            (mesh.y[row + 1] + pad_side * ch) * bs)
+
+
+def _mesh_intersect(xi: float, ti: float, yj: float, tj: float) -> tuple[float, float]:
+    x = (xi + ti * (yj - 0.5 * (1.0 + tj))) / (1.0 - ti * tj)
+    return x, yj + tj * (x - 0.5)
+
+
+def _mesh_curved_corner(lx: float, tx: float, cx: float,
+                        ly: float, ty: float, cy: float) -> tuple[float, float]:
+    x, y = lx, ly
+    for _ in range(CORNER_ITERATIONS):
+        u, v = x - 0.5, y - 0.5
+        x, y = lx + tx * v + cx * v * v, ly + ty * u + cy * u * u
+    return x, y
+
+
+def mesh_cell_quad(square: str, profile: CalibrationProfile,
+                   mesh: GridMesh) -> list[tuple[float, float]]:
+    """'e4' -> the padded cell as a QUADRILATERAL `[tl, tr, br, bl]` in board pixels.
+
+    The square's four neighbour lines — offset, tilt and, when the mesh carries them, parabola
+    term — pad-shifted and intersected, so even a bowed outer line comes out straight. Parity
+    twin: `meshCellQuadExact` (CropBox.kt).
+    """
+    if not mesh.tilted:
+        raise ValueError("mesh_cell_quad needs tilts")
+    col, row = _square_to_col_row(square, profile.white_pov)
+    bs = profile.board_size
+    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
+    cw = mesh.x[col + 1] - mesh.x[col]
+    ch = mesh.y[row + 1] - mesh.y[row]
+    lx0, lx1 = mesh.x[col] - pad_side * cw, mesh.x[col + 1] + pad_side * cw
+    ly0 = mesh.y[row] - (pad_side + pad_up) * ch
+    ly1 = mesh.y[row + 1] + pad_side * ch
+    tx, ty, cx, cy = mesh.tx, mesh.ty, mesh.cx, mesh.cy
+    if cx is not None and cy is not None:
+        corners = [_mesh_curved_corner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
+                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
+                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
+                   _mesh_curved_corner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1])]
+    else:
+        corners = [_mesh_intersect(lx0, tx[col], ly0, ty[row]),
+                   _mesh_intersect(lx1, tx[col + 1], ly0, ty[row]),
+                   _mesh_intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
+                   _mesh_intersect(lx0, tx[col], ly1, ty[row + 1])]
+    return [(x * bs, y * bs) for x, y in corners]
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
     """Pixel center of the base cell of a square in the rectified board_size image."""

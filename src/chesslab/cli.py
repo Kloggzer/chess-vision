@@ -342,6 +342,37 @@ def session_autofix(
         print(f"     backup: {r['backup']}")
 
 
+@session_app.command("fit-mesh")
+def session_fit_mesh(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Measure every frame's 18 grid lines and store them as `grid_lines` for `slice`.
+
+    The quad places the board, the mesh places its cells: without it every crop is cut at the
+    nominal eighth and the lens' barrel goes straight into the training set. One warp plus the
+    line fit per frame (~0.05 s measured), stored once instead of re-measured per slice.
+    """
+    from . import sessions as sessions_mod
+
+    if not (session or all_sessions):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    def say(r: dict) -> None:
+        if r.get("error"):
+            print(f"[FAIL] {r['session_id']}: {r['error']}", flush=True)
+            return
+        print(f"[OK] {r['session_id']}: {r['measured']}/{r['of']} frames meshed "
+              f"({r['curved']} curved, {r['tilted']} tilted) — backup {r['backup']}", flush=True)
+
+    if not all_sessions:
+        say(_session_call(sessions_mod.fit_mesh_session, session))
+        return
+    rows = sessions_mod.fit_mesh_all(on_done=say)
+    done = [r for r in rows if not r.get("error")]
+    print(f"[OK] {sum(r['measured'] for r in done)} frames meshed over {len(done)} sessions, "
+          f"{len(rows) - len(done)} failed")
+
 @session_app.command("adopt")
 def session_adopt(
     session: str = typer.Argument(..., help="Session ID."),

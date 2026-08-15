@@ -59,6 +59,11 @@ A `log.jsonl` row:
 - `corners` is the board quad in **`[a8, h8, h1, a1]`** order, in image pixels. It is stored
   per frame, so slicing needs no camera and no marker re-detection. If it is absent, `slice`
   falls back to detecting ArUco markers in the frame and **skips the frame** if it cannot.
+- `grid_lines` (the shape §2.1 spells out) is the frame's measured 18-line mesh.
+  With it `slice` cuts every cell at the board's OWN boundaries — perspectively per cell once the
+  mesh carries tilts — instead of at the nominal eighth, so the lens' barrel never reaches a
+  training crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh`
+  (~0.05 s per frame); without it the slice is unchanged.
 - `unusable: true` makes `slice` skip the frame — see §5.3 for the trap.
 - `mode` in `session.yaml` matters for interpretation: `play` and `track` are real games;
   **`lighting-capture` sessions hold an empty board** (`fen: 8/8/8/8/8/8/8/8`) and exist only

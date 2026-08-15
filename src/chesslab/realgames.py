@@ -17,7 +17,7 @@ import cv2
 import yaml
 
 from . import config
-from .calibration import load_profile
+from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
 from .state import GameState
@@ -534,11 +534,14 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     A frame the fit cannot read — hand over the grid, dark junk — KEEPS the quad it inherited and
     is marked [FIT_FAILED]. Nothing is dropped: those dirty rows are the wanted material.
     `improve_quad` returns nothing unless it improves its own frame, so this can only help.
+
+    Every row also gets its `grid_lines` mesh where all 18 lines were readable, so `slice` cuts at
+    the board's own boundaries instead of the nominal eighth (docs/data-pipeline.md §2).
     """
     from .alignment import improve_quad
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts = []
+    worsts, meshed = [], 0
     for row in rows:
         frame = cv2.imread(str(session_dir / row["frame"]))
         quad, before, after = (
@@ -548,6 +551,12 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
         )
         if quad is not None:
             row["corners"] = [[float(x), float(y)] for x, y in quad]
+        mesh = None if frame is None else grid_line_fracs(
+            frame, row["corners"], profile.board_size, profile)
+        row.pop("grid_lines", None)
+        if mesh is not None:
+            row["grid_lines"] = mesh
+            meshed += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
         row["corners_source"] = source
@@ -558,6 +567,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     worsts.sort()
     return {
         **counts,
+        "mesh": meshed,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
     }
@@ -684,7 +694,8 @@ def export_session(
             stats = fit_rows_to_grid(session_dir, rows, load_profile(EXPORT_PROFILE))
             print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
-                  f"align_worst_px median {stats['median']}, max {stats['max']}")
+                  f"align_worst_px median {stats['median']}, max {stats['max']}, "
+                  f"mesh on {stats['mesh']}")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
@@ -1014,14 +1025,9 @@ def stored_rows(session_dir: Path) -> list[dict]:
                   key=lambda r: Path(r["frame"]).stem)
 
 
-#: A line steeper than this fraction-per-fraction is a misfit, not a lens — consumers refuse it too
-#: (`MESH_TILT_LIMIT`, CropBox.kt / warp.ts).
-MESH_TILT_LIMIT = 0.05
-
-#: The same for the parabola term. Measured on rg-2026-08-08-11-59-12/004251: the real outer
-#: lines reach c = 0.046 (a ~10 px sagitta at 928) with a clean sign fan; 0.08 leaves ~1.7x
-#: headroom over that, and anything bigger is a piece's shadow, not a lens.
-MESH_CURV_LIMIT = 0.08
+#: The limits live in `calibration.py` because the CONSUMERS read them (CropBox.kt / warp.ts have
+#: their twins). Measured on rg-2026-08-08-11-59-12/004251: the real outer lines reach c = 0.046,
+#: a ~10 px sagitta at 928, so 0.08 leaves ~1.7x headroom — bigger is a shadow, not a lens.
 
 
 def _mesh_axis(values: list[float]) -> bool:
@@ -1050,16 +1056,20 @@ def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
     return {"x": fold[0], "y": fold[1], "cx": curv[0], "cy": curv[1]} if ok else None
 
 
-def grid_line_fracs(image, quad, board_size: int) -> dict | None:
+def grid_line_fracs(image, quad, board_size: int, profile=None) -> dict | None:
     """The 18 measured lines as fractions of the field side, or None unless ALL are located.
 
     Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands
     allow it — the parabola term `cx`/`cy` (`pos(t) = x + tx·(t−0.5) + cx·(t−0.5)²`). Consumers
     cut each square at the intersections of its four neighbour LINES, one stage per shape.
+
+    `profile`: measure through ITS margin — a session log holds the marker quad, and fractions
+    read at margin 0 would describe a board the slice never warps. Default: `quad` is the field.
     """
     from .alignment import grid_lines_with_curvature, warp_for_grid
 
-    profile = _field_profile(quad, (image.shape[1], image.shape[0]), board_size)
+    if profile is None:
+        profile = _field_profile(quad, (image.shape[1], image.shape[0]), board_size)
     warped, pad = warp_for_grid(image, profile, quad)
     lines, curls = grid_lines_with_curvature(warped, board_size, pad=pad)
     if any(line is None for axis in lines for line in axis):
