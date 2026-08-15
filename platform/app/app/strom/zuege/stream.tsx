@@ -1,0 +1,509 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FrameSeries, sequenceLabel, ZoomOverlay, type Zoom } from "@/app/confirm/board-frames";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import type { ReviewCard } from "@/lib/review-cards";
+import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/zuege";
+
+/**
+ * ZÜGE — every pending game's cards back to back, the game boundary a caption and a commit
+ * (CONCEPT.md §4.1). The human never picks a game and never presses Confirm.
+ *
+ * `g` is the Sichtprüfung gallery of the current game and `.` opens `/game/<name>`: §4.1's table
+ * hands `g` to both, and §3.1 gives the debug surface to `.` on any item.
+ */
+type Verdict = "keep" | "drop";
+type Committed = { plies: number; until: number };
+type Note =
+  | { kind: "committed"; game: number; plies: number; until: number }
+  | { kind: "undone"; game: number; dequeued: boolean }
+  | { kind: "dropped"; game: number }
+  | { kind: "reexport"; game: number }
+  | { kind: "error"; text: string };
+
+const without = <T,>(map: Record<number, T>, index: number): Record<number, T> =>
+  Object.fromEntries(Object.entries(map).filter(([key]) => Number(key) !== index));
+
+async function post<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const answer = (await res.json()) as T & { error?: string };
+  if (!res.ok) throw new Error(answer.error ?? res.statusText);
+  return answer;
+}
+
+/** The keymap, on screen — the loop is a keyboard loop and an invisible one is a secret. */
+const KEYS: [string, string][] = [
+  ["k", "behalten"],
+  ["⎵ / j", "verwerfen"],
+  ["← →", "Bilder blättern"],
+  ["x", "Partie raus"],
+  ["z", "zurück"],
+  ["g", "Sichtprüfung"],
+  [".", "/game (neuer Tab)"],
+];
+
+export function ZuegeStream({ games }: { games: StreamGame[] }) {
+  const items = useMemo(() => streamItems(games), [games]);
+  const [at, setAt] = useState(0);
+  const [decisions, setDecisions] = useState<Record<string, Verdict>>({});
+  const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set<number>());
+  const [committed, setCommitted] = useState<Record<number, Committed>>({});
+  const [frameAt, setFrameAt] = useState<Record<string, number>>({});
+  const [noted, setNoted] = useState<ReadonlySet<string>>(
+    () => new Set(games.flatMap((g, i) => g.noted.map((ply) => `${i}:${ply}`))),
+  );
+  const [gaps, setGaps] = useState<number[]>([]);
+  const [note, setNote] = useState<Note | null>(null);
+  const [gallery, setGallery] = useState<number | null>(null);
+  const [zoom, setZoom] = useState<Zoom | null>(null);
+  /** Ticks the toast's countdown; nothing else in the page depends on the wall clock. */
+  const [now, setNow] = useState(() => Date.now());
+  const decidedAt = useRef<number | null>(null);
+
+  const item = items[at] ?? null;
+  const game = item ? games[item.game] : null;
+  const key = item?.card ? `${item.game}:${item.card.id}` : null;
+  const verdict = key ? decisions[key] : undefined;
+  const done = at >= items.length;
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  /** The boundary IS the write (§4.1.1) — plus the export it owns, held for 90 s. */
+  async function commit(index: number, verdicts: Record<string, Verdict>) {
+    const target = games[index];
+    // An empty candidate has nothing to confirm: `Space` skips it, only `x` is a verdict.
+    if (target.cards.length === 0) return;
+    const kept = target.cards.filter((c) => verdicts[`${index}:${c.id}`] === "keep").flatMap((c) => c.keep);
+    try {
+      const answer = await post<{ reviewed_plies: number[] }>(`/api/zuege/${target.name}`, { action: "commit", kept });
+      const until = Date.now() + EXPORT_HOLD_MS;
+      setCommitted((c) => ({ ...c, [index]: { plies: answer.reviewed_plies.length, until } }));
+      setNote({ kind: "committed", game: index, plies: answer.reviewed_plies.length, until });
+    } catch (error) {
+      setNote({ kind: "error", text: String(error) });
+    }
+  }
+
+  function advance(verdicts: Record<string, Verdict> = decisions) {
+    if (!item) return;
+    if (item.last && !dropped.has(item.game) && committed[item.game] === undefined) void commit(item.game, verdicts);
+    setAt(nextItem(items, at, dropped));
+  }
+
+  function decide(value: Verdict) {
+    if (!key) return;
+    const next = { ...decisions, [key]: value };
+    setDecisions(next);
+    // Median s/Zug, in memory and reset by a reload — §6.1 allows no other kind of counter.
+    const stamp = Date.now();
+    const previous = decidedAt.current;
+    if (previous !== null) setGaps((g) => [...g, stamp - previous]);
+    decidedAt.current = stamp;
+    advance(next);
+  }
+
+  /**
+   * `z` — one card back, across the boundary. Inside the hold the export is dequeued and nothing
+   * ran; after it the session exists and only a re-export repairs it, which the toast says.
+   */
+  async function back() {
+    const target = prevItem(items, at, dropped);
+    if (target < 0) return;
+    setAt(target);
+    const index = items[target].game;
+    const live = committed[index];
+    if (!live) return;
+    setCommitted((c) => without(c, index));
+    const kept = games[index].cards
+      .filter((c) => decisions[`${index}:${c.id}`] === "keep")
+      .flatMap((c) => c.keep);
+    try {
+      const answer = await post<{ dequeued: boolean }>(`/api/zuege/${games[index].name}`, { action: "undo", kept });
+      setNote({ kind: "undone", game: index, dequeued: answer.dequeued });
+    } catch (error) {
+      setNote({ kind: "error", text: String(error) });
+    }
+  }
+
+  /** `x` — the recording is out. No `writeConfirmation`, and its buffered keeps die with it. */
+  async function throwOut() {
+    if (!item || !game) return;
+    const index = item.game;
+    const rest = Object.fromEntries(Object.entries(decisions).filter(([k]) => !k.startsWith(`${index}:`)));
+    const next = new Set(dropped);
+    next.add(index);
+    setDecisions(rest);
+    setDropped(next);
+    setCommitted((c) => without(c, index));
+    setAt(nextItem(items, at, next));
+    setNote({ kind: "dropped", game: index });
+    try {
+      await post(`/api/useless/${game.name}`, { useless: true, reason: "Züge-Strom: x" });
+      // A boundary that already fired has an export on hold; the flag must take that back too.
+      if (committed[index]) await post(`/api/zuege/${game.name}`, { action: "release" });
+    } catch (error) {
+      setNote({ kind: "error", text: String(error) });
+    }
+  }
+
+  async function flagInterval() {
+    if (!item?.card || !game) return;
+    const ply = item.card.plies[0].ply;
+    try {
+      await post(`/api/zuege/${game.name}/note`, { ply });
+      setNoted((n) => new Set(n).add(`${item.game}:${ply}`));
+    } catch (error) {
+      setNote({ kind: "error", text: String(error) });
+    }
+  }
+
+  async function reexport(index: number) {
+    try {
+      await post(`/api/zuege/${games[index].name}`, { action: "reexport" });
+      setNote({ kind: "reexport", game: index });
+    } catch (error) {
+      setNote({ kind: "error", text: String(error) });
+    }
+  }
+
+  const stepFrames = (delta: number) => {
+    if (!item?.card || !key) return;
+    const stems = item.card.stems.length;
+    const current = frameAt[key] ?? item.card.start;
+    setFrameAt((f) => ({ ...f, [key]: Math.max(0, Math.min(stems - 1, current + delta)) }));
+  };
+
+  // The handler reads a lot of state, so the listener is registered ONCE and looks the current one
+  // up through a ref — re-binding it per keystroke-relevant state change is how keys get lost.
+  const handler = useRef<(event: KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => handler.current(event);
+    window.addEventListener("keydown", listener);
+    return () => window.removeEventListener("keydown", listener);
+  }, []);
+  const onKey = (event: KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    const target = event.target as HTMLElement | null;
+    if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
+    if (zoom) {
+      if (event.key === "Escape") setZoom(null);
+      return;
+    }
+    if (gallery !== null) {
+      if (event.key === "Escape") setGallery(null);
+      return;
+    }
+    if (event.key === "z") return void back();
+    if (done) return;
+    switch (event.key) {
+      case "k":
+        event.preventDefault();
+        return item?.card ? decide("keep") : undefined;
+      case " ":
+      case "j":
+        event.preventDefault();
+        return item?.card ? decide("drop") : advance();
+      case "ArrowLeft":
+        event.preventDefault();
+        return stepFrames(-1);
+      case "ArrowRight":
+        event.preventDefault();
+        return stepFrames(1);
+      case "x":
+        event.preventDefault();
+        return void throwOut();
+      case "g":
+        event.preventDefault();
+        return setGallery(item?.game ?? null);
+      case ".":
+        event.preventDefault();
+        if (game) window.open(`/game/${game.name}`, "_blank", "noopener");
+        return;
+      default:
+        return;
+    }
+  };
+  // No dependency array: the listener above reads THIS render's closure through the ref.
+  useEffect(() => {
+    handler.current = onKey;
+  });
+
+  const kept = Object.values(decisions).filter((v) => v === "keep").length;
+  const drops = Object.values(decisions).filter((v) => v === "drop").length;
+  const seconds = median(gaps);
+  const open = games.length - dropped.size - Object.keys(committed).length;
+  const first = item?.card?.plies[0];
+  const notedHere = first ? noted.has(`${item.game}:${first.ply}`) : false;
+
+  return (
+    <section className="space-y-4">
+      <header className="border-border space-y-1 rounded-lg border p-3">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+          <span className="text-base font-semibold">ZÜGE</span>
+          <span className="text-muted-foreground tabular-nums">
+            Karte {Math.min(at + 1, items.length)}/{items.length} · {Math.max(open, 0)} Partien offen
+          </span>
+          <span className="text-muted-foreground ml-auto tabular-nums" title="Median seit dem Laden">
+            {seconds === null ? "— s/Zug" : `${(seconds / 1000).toFixed(1)} s/Zug`}
+          </span>
+        </div>
+        {game ? (
+          <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
+            <span className="text-foreground">{game.title ?? game.name}</span>
+            {game.title ? <span>{game.name}</span> : null}
+            <span>{game.plies} Halbzüge</span>
+            {first ? <span>Halbzug {first.ply}</span> : null}
+            {item?.card ? <span>@frame {String(item.card.frame).padStart(6, "0")}</span> : null}
+          </div>
+        ) : null}
+      </header>
+
+      {done ? (
+        <p className="text-muted-foreground text-sm">
+          Durch — nichts wartet mehr auf ein Urteil. <code>z</code> geht zurück.
+        </p>
+      ) : game && item?.card ? (
+        <CardBody
+          at={frameAt[key ?? ""] ?? item.card.start}
+          card={item.card}
+          name={game.name}
+          onZoom={setZoom}
+          step={stepFrames}
+          verdict={verdict}
+        />
+      ) : game ? (
+        <EmptyCandidate name={game.name} />
+      ) : null}
+
+      {!done ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Button className="max-sm:h-11" disabled={!item?.card} onClick={() => decide("keep")}>
+            k behalten
+          </Button>
+          <Button
+            className="max-sm:h-11"
+            onClick={() => (item?.card ? decide("drop") : advance())}
+            variant="outline"
+          >
+            ⎵ {item?.card ? "verwerfen" : "überspringen"}
+          </Button>
+          <Button className="max-sm:h-11" onClick={() => void throwOut()} variant="destructive">
+            x Partie raus{item?.card ? "" : " (empfohlen)"}
+          </Button>
+          <Button className="max-sm:h-11" onClick={() => void back()} variant="outline">
+            z zurück
+          </Button>
+          <Button className="max-sm:h-11" onClick={() => setGallery(item?.game ?? null)} variant="outline">
+            g Sichtprüfung
+          </Button>
+          {game ? (
+            <Link
+              className="border-border text-muted-foreground inline-flex items-center rounded border px-3 text-sm underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
+              href={`/game/${game.name}`}
+              target="_blank"
+            >
+              . Debug
+            </Link>
+          ) : null}
+          {item?.card ? (
+            <button
+              className="text-muted-foreground ml-auto cursor-pointer text-xs underline underline-offset-4 disabled:opacity-50"
+              disabled={notedHere}
+              onClick={() => void flagInterval()}
+              title="Hand im Bild, verrutschter Ausschnitt, dunkler Müll? Der Halbzug bleibt behaltbar — das Urteil gilt dem BILD (review-notes.jsonl)"
+              type="button"
+            >
+              {notedHere ? "Intervall vermerkt" : "Intervall taugt nichts"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {note ? <Toast games={games} note={note} now={now} onReexport={reexport} /> : null}
+
+      <p className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
+        {KEYS.map(([k, what]) => (
+          <span key={k}>
+            <kbd className="font-mono">{k}</kbd> {what}
+          </span>
+        ))}
+      </p>
+
+      <footer className="border-border text-muted-foreground rounded-lg border p-3 text-xs">
+        DIESE SITZUNG · {kept + drops} Karten · {kept} behalten · {drops} verworfen · {dropped.size}{" "}
+        {dropped.size === 1 ? "Partie" : "Partien"} raus
+      </footer>
+
+      {gallery !== null ? (
+        <Gallery game={games[gallery]} onClose={() => setGallery(null)} onZoom={setZoom} />
+      ) : null}
+      {zoom && game ? <ZoomOverlay name={game.name} onClose={() => setZoom(null)} zoom={zoom} /> : null}
+    </section>
+  );
+}
+
+/** The one card under the question, with the badges the confirm page taught the human to read. */
+function CardBody({
+  name,
+  card,
+  at,
+  step,
+  verdict,
+  onZoom,
+}: {
+  name: string;
+  card: ReviewCard;
+  at: number;
+  step: (delta: number) => void;
+  verdict: "keep" | "drop" | undefined;
+  onZoom: (zoom: Zoom) => void;
+}) {
+  const multi = card.plies.length > 1;
+  const sans = card.plies.map((p) => p.san);
+  return (
+    <article className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2 font-mono text-sm">
+        {sequenceLabel(card)}
+        {card.decider === "cnn_recovery" ? (
+          <Badge title="Recovery = der Tracker hat den Zug NACHTRÄGLICH aufgeholt. Das Foto zeigt oft schon spätere Züge — dann verwerfen." variant="secondary">
+            spät committet (recovery)
+          </Badge>
+        ) : null}
+        {multi || card.collapsed ? (
+          <Badge title="Mehrere Halbzüge auf einem Frame — es gibt nur EIN Bild, und es zeigt die Stellung nach allen." variant="secondary">
+            Mehrfach-Commit: Bild zeigt die Endstellung
+          </Badge>
+        ) : null}
+        {!card.carriesFrames ? <Badge variant="secondary">trägt 0 Frames bei</Badge> : null}
+        {card.duplicate ? <Badge variant="secondary">fehlt auch im PGN</Badge> : null}
+        {verdict ? <Badge variant={verdict === "keep" ? "default" : "outline"}>zuletzt: {verdict}</Badge> : null}
+      </div>
+      <div className="mx-auto max-w-lg space-y-2">
+        <FrameSeries at={at} card={card} name={name} onZoom={onZoom} priority step={step} />
+      </div>
+      <p className="text-sm">
+        Zeigt das Foto die Stellung <strong>NACH</strong> {multi ? `der Sequenz ${sans.join(" + ")}` : "diesem Zug"}?
+        Im Zweifel verwerfen.
+      </p>
+    </article>
+  );
+}
+
+/** The current backlog: four games whose replay read nothing at all (§4.1). */
+function EmptyCandidate({ name }: { name: string }) {
+  return (
+    <article className="border-border space-y-2 rounded-lg border p-4">
+      <p className="font-mono text-sm">{name}</p>
+      <p className="text-sm">
+        0 Halbzüge gelesen. Nichts zu bestätigen — <strong>x</strong> raus (empfohlen),{" "}
+        <strong>Space</strong> überspringen, <strong>.</strong> Job-Log ansehen.
+      </p>
+    </article>
+  );
+}
+
+/** §4.1.1's inline confirmation, with the countdown that says how long the undo stays free. */
+function Toast({
+  note,
+  games,
+  now,
+  onReexport,
+}: {
+  note: Note;
+  games: StreamGame[];
+  now: number;
+  onReexport: (game: number) => void;
+}) {
+  if (note.kind === "error") return <p className="text-destructive text-sm">{note.text}</p>;
+  const name = games[note.game].name;
+  if (note.kind === "committed") {
+    const left = Math.max(0, Math.ceil((note.until - now) / 1000));
+    return (
+      <p className="text-muted-foreground text-sm">
+        bestätigt — {note.plies} reviewed plies · <code>z</code> macht es rückgängig{" "}
+        <span className="tabular-nums">{left > 0 ? `(${left} s)` : "· Export läuft"}</span>
+      </p>
+    );
+  }
+  if (note.kind === "undone") {
+    return note.dequeued ? (
+      <p className="text-muted-foreground text-sm">zurückgenommen — der Export lief nie.</p>
+    ) : (
+      <p className="text-sm">
+        Export läuft bereits — <code>data/sessions/rg-{name}/</code> muss neu exportiert werden.{" "}
+        <Button className="ml-2 max-sm:h-11" onClick={() => onReexport(note.game)} size="sm" variant="outline">
+          neu exportieren
+        </Button>
+      </p>
+    );
+  }
+  if (note.kind === "reexport") return <p className="text-muted-foreground text-sm">{name}: Export neu angestoßen.</p>;
+  return <p className="text-muted-foreground text-sm">{name} ist raus (nutzlos) — nichts wurde bestätigt.</p>;
+}
+
+/**
+ * `g` — the game's Sichtprüfung: the plies the reference already vouched for, same windows, no
+ * verdict. A clean LCS says nothing about hands, crops or dark frames (§8c).
+ */
+function Gallery({
+  game,
+  onClose,
+  onZoom,
+}: {
+  game: StreamGame;
+  onClose: () => void;
+  onZoom: (zoom: Zoom) => void;
+}) {
+  const [frameAt, setFrameAt] = useState<Record<number, number>>({});
+  return (
+    <div className="bg-background/95 fixed inset-0 z-40 overflow-y-auto p-4">
+      <div className="mx-auto max-w-5xl space-y-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="font-medium">Sichtprüfung {game.name}</span>
+          <span className="text-muted-foreground">
+            {game.gallery.reduce((n, c) => n + c.plies.length, 0)} Halbzüge decken sich mit reference.pgn
+          </span>
+          <Button className="ml-auto max-sm:h-11" onClick={onClose} size="sm" variant="outline">
+            Esc zurück
+          </Button>
+        </div>
+        {game.gallery.length === 0 ? (
+          <p className="text-muted-foreground text-sm">Keine gematchten Halbzüge — es gibt nichts zu blättern.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {game.gallery.map((card) => {
+              const at = frameAt[card.id] ?? card.start;
+              return (
+                <div className="border-border space-y-2 rounded-lg border p-2 text-xs" key={card.id}>
+                  <div className="font-mono">{sequenceLabel(card)}</div>
+                  <FrameSeries
+                    at={at}
+                    card={card}
+                    name={game.name}
+                    onZoom={onZoom}
+                    step={(delta) =>
+                      setFrameAt((f) => ({
+                        ...f,
+                        [card.id]: Math.max(0, Math.min(card.stems.length - 1, at + delta)),
+                      }))
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

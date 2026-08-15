@@ -1,10 +1,4 @@
-/**
- * What this sitting has done, counted in the units of CONCEPT.md 6.1 — in memory, since the page
- * loaded, never persisted: a session counter that survives a reload is a lie about one sitting.
- *
- * The count that was wrong before is `Bretter`: the old header counted written ROWS, so one board
- * with twelve flags read as "12".
- */
+/** In-memory only: one board with twelve flags = one board, not twelve (fixed old header bug). */
 import type { Correction, Ledger } from "@/lib/corrections";
 
 export type Tally = {
@@ -22,11 +16,6 @@ export const emptyTally = (): Tally => ({
   piecesCorrected: 0,
 });
 
-/**
- * `reviewed` rows are the confirmations ("the FEN was right"), corrections are the training rows;
- * of those, everything that is not `occluded` or `empty` is the identity work D2 says has not
- * moved in 2 758 rows.
- */
 export function addRows(tally: Tally, rows: Correction[], ledger: Ledger): Tally {
   const next: Tally = { ...tally, boards: new Set(tally.boards) };
   for (const row of rows) {

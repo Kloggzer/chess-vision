@@ -42,14 +42,7 @@ from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
 
-# Copied from the engine, never re-tuned here (phase 02 "Do NOT"). Sources:
-#   OCCL_CENSUS_THR — `TrackerConfig.occlCensusThr`, fixture value in
-#     android/core-engine/src/test/resources/parity/README.md:124 ("occlCensusThr": 24.0)
-#   COLOR_THR       — `TrackerConfig.occlusionColorThr`, same fixture line ("colorThr": 1.5)
-#   CENSUS_SCALE    — `Census.kt` CENSUS_SCALE (255/8: mean Hamming in a gray-diff unit)
-#   COV_REGULARIZER — `Gamut.kt` COV_REGULARIZER
-# Here they are the FLOOR of each channel's per-cell scale, never a verdict: a cell whose quiet
-# excursion is implausibly small must not get a hair trigger.
+# From engine (phase 02, never re-tune). FLOOR of each channel's per-cell scale, not verdict.
 OCCL_CENSUS_THR = 24.0
 COLOR_THR = 1.5
 CENSUS_SCALE = 255.0 / 8.0

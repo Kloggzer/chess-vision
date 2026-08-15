@@ -2,14 +2,9 @@ import { expect, test } from "vitest";
 import { buildGalleryCards, buildReviewCards, type ReviewMove } from "@/lib/review-cards";
 import type { FrameStem } from "@/lib/data";
 
-/** Review frames as they lie on disk: one per commit window, `labeled` like the burst PNGs. */
 const stems = (...ns: number[]): FrameStem[] =>
   ns.map((n) => ({ stem: String(n).padStart(6, "0"), kind: "labeled" as const }));
 
-/**
- * `VID_20260726_233432` shrunk to its bridge: the recovery landed `e4` AND `Nf6` on frame 455,
- * so the only picture that exists there shows the position after BOTH.
- */
 const BRIDGE: ReviewMove[] = [
   {
     ply: 1,
@@ -41,7 +36,6 @@ const BRIDGE: ReviewMove[] = [
   },
 ];
 
-/** `2026-08-14-20-48-55`: recoveries too, but every one of them on a frame of its own. */
 const SINGLES: ReviewMove[] = [
   {
     ply: 1,
@@ -79,7 +73,6 @@ test("plies sharing a commit frame become ONE card with one frame series", () =>
   expect(cards.map((c) => c.plies.map((p) => p.san))).toEqual([["e5"], ["e4", "Nf6"], ["Nxe5"]]);
   const bridge = cards[1];
   expect(bridge.frame).toBe(455);
-  // The window runs to the NEXT commit, not to the frame-mate — one series, shown once.
   expect(bridge.stems.map((s) => Number(s.stem))).toEqual([455, 456, 500]);
   expect(bridge.stems[bridge.start].stem).toBe("000455");
   expect(bridge.carriesFrames).toBe(true);
@@ -92,8 +85,6 @@ test("the bridge keeps only the ply that owns the interval — the halves drop a
     stems: stems(455),
     startFen: START,
   });
-  // `known_segments` skips ply 2 (`end <= start`), so a kept card names ply 3 alone; ply 2 is
-  // reviewed-and-dropped, exactly what the per-ply card marked "trägt 0 Frames bei" produced.
   expect(bridge.keep).toEqual([2]);
   expect(bridge.plies.map((p) => p.index)).toEqual([1, 2]);
   expect(bridge.id).toBe(1);
@@ -127,8 +118,6 @@ test("single-ply commits stay one card each", () => {
   expect(cards[0].stems.map((s) => Number(s.stem))).toEqual([133, 200]);
   expect(cards[0].decider).toBe("cnn_recovery");
   expect(cards[1].duplicate).toBe(true);
-  // The last commit has no next one, but `known_segments` grants it LAST_INTERVAL_S after the
-  // commit — keeping it DOES export frames, and the card must not claim otherwise.
   expect(cards[2].carriesFrames).toBe(true);
   expect(cards[2].keep).toEqual([2]);
 });
@@ -143,15 +132,11 @@ test("a frame-mate the reference already matched shows up as context, not as a s
   expect(cards).toHaveLength(1);
   expect(cards[0].group).toEqual(["e4", "Nf6"]);
   expect(cards[0].plies).toHaveLength(1);
-  // Nothing under review owns the interval here, so the ply itself is posted — the pre-collapse
-  // wire for exactly this card.
   expect(cards[0].carriesFrames).toBe(false);
   expect(cards[0].keep).toEqual([1]);
 });
 
 test("a game that matches its reference still has every commit series to look at", () => {
-  // `2026-08-14-21-01-04`: reference.pgn matches every ply, so nothing is invented — and the page
-  // showed the human NOTHING. The gallery is those same windows, read-only.
   const gallery = buildGalleryCards({
     moves: SINGLES,
     matched: [
@@ -172,7 +157,6 @@ test("a game that matches its reference still has every commit series to look at
 test("the gallery groups a matched multi-commit exactly like a review card", () => {
   const gallery = buildGalleryCards({
     moves: BRIDGE,
-    // Out of order on purpose: `lcsReport` yields pairs, the gallery must read chronologically.
     matched: [
       [1, 2],
       [0, 1],
@@ -187,7 +171,6 @@ test("the gallery groups a matched multi-commit exactly like a review card", () 
 
 test("a pre-pair-fix row is one collapsed card, not a group", () => {
   const [collapsed] = buildReviewCards({
-    // `Nf3 e5` in ONE row: the san cannot be replayed from the start position.
     moves: BRIDGE,
     indices: [0],
     stems: stems(335),

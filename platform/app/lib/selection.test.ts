@@ -1,7 +1,6 @@
 import { expect, test } from "vitest";
 import { confirmLabel, cycleNext, planBoard, planRejectAll, type PlanInput } from "@/lib/selection";
 
-/** Four squares are enough: three flagged, one clean. `d1` is the cell no filter pointed at. */
 const SQUARES = ["a1", "b1", "c1", "d1"];
 const BASE = { a1: "wP", b1: "wN", c1: "empty", d1: "empty" };
 
@@ -26,7 +25,7 @@ test("a board arrives with every flag selected", () => {
     { square: "c1", label: "occluded" },
   ]);
   expect(plan.labels).toEqual({ a1: "occluded", b1: "occluded", c1: "occluded", d1: "empty" });
-  expect(confirmLabel(plan)).toBe("confirm 3 cells as occluded → next board");
+  expect(confirmLabel(plan)).toBe("3 Zellen als occluded → nächstes Brett");
 });
 
 test("flags taken off leave the rest committable — the all-or-nothing bug", () => {
@@ -34,7 +33,7 @@ test("flags taken off leave the rest committable — the all-or-nothing bug", ()
   expect(plan.selected).toEqual(["a1"]);
   expect(plan.rejected).toEqual(["b1", "c1"]);
   expect(plan.corrections).toEqual([{ square: "a1", label: "occluded" }]);
-  expect(confirmLabel(plan)).toBe("confirm 1 cell as occluded · 2 flags off → next board");
+  expect(confirmLabel(plan)).toBe("1 Zelle als occluded · 2 Flags ab → nächstes Brett");
 });
 
 test("a flag off is a review row, never a training row", () => {
@@ -42,7 +41,7 @@ test("a flag off is a review row, never a training row", () => {
   expect(plan.corrections).toEqual([]);
   expect(plan.rejected).toEqual(["a1", "b1", "c1"]);
   expect(plan.committed).toEqual([]);
-  expect(confirmLabel(plan)).toBe("confirm 0 cells · 3 flags off → next board");
+  expect(confirmLabel(plan)).toBe("0 Zellen · 3 Flags ab → nächstes Brett");
 });
 
 test("a flag repainted to a third label writes that label and no review row", () => {
@@ -50,13 +49,13 @@ test("a flag repainted to a third label writes that label and no review row", ()
   expect(plan.selected).toEqual(["b1", "c1"]);
   expect(plan.rejected).toEqual([]);
   expect(plan.corrections).toContainEqual({ square: "a1", label: "bK" });
-  expect(confirmLabel(plan)).toBe("confirm 3 cells → next board");
+  expect(confirmLabel(plan)).toBe("3 Zellen → nächstes Brett");
 });
 
 test("paint outside the flags is committed with them", () => {
   const plan = planBoard(board({ painted: { d1: "occluded" } }));
   expect(plan.committed.map((r) => r.square)).toEqual(["a1", "b1", "c1", "d1"]);
-  expect(confirmLabel(plan)).toBe("confirm 4 cells as occluded → next board");
+  expect(confirmLabel(plan)).toBe("4 Zellen als occluded → nächstes Brett");
 });
 
 test("only PAINTED cells flush on navigate-away — a flag alone writes nothing", () => {
@@ -78,16 +77,25 @@ test("taking off a flag this session already wrote supersedes it instead of revi
   expect(plan.rejected).toEqual([]);
 });
 
-test("the first click on a flag takes it off, it does not paint", () => {
+test("a flagged cell is a two-cycle: one click off, one click back on (CONCEPT 4.2.1 case C)", () => {
   const at = { current: "occluded", proposal: "occluded", base: "wP", fen: "wP", brush: "occluded" };
   expect(cycleNext(at)).toBe("wP");
-  expect(cycleNext({ ...at, current: "wP" })).toBe("empty");
-  expect(cycleNext({ ...at, current: "empty" })).toBe("occluded"); // and back on
+  // Was `empty` before 2026-08-15: restoring a flag cost two clicks and made "3 of 12" an
+  // 8-interaction board. A third label is the brush's job now, not the cycle's.
+  expect(cycleNext({ ...at, current: "wP" })).toBe("occluded");
+  expect(cycleNext({ ...at, current: "empty" })).toBe("occluded"); // painted elsewhere: back on
 });
 
 test("a flag the file ALREADY calls occluded frees the cell instead of painting empty", () => {
   const at = { current: "occluded", proposal: "occluded", base: "occluded", fen: "wP", brush: "occluded" };
   expect(cycleNext(at)).toBe("wP");
+  expect(cycleNext({ ...at, current: "wP" })).toBe("occluded");
+});
+
+test("a flag whose base AND fen repeat the proposal still frees the cell in one click", () => {
+  const at = { current: "occluded", proposal: "occluded", base: "occluded", fen: "occluded", brush: "occluded" };
+  expect(cycleNext(at)).toBe("empty");
+  expect(cycleNext({ ...at, current: "empty" })).toBe("occluded");
 });
 
 test("an unflagged cell keeps the three-step brush cycle", () => {
@@ -104,5 +112,52 @@ test("✗ drops every flag and keeps the brush strokes", () => {
   expect(plan.corrections).toEqual([
     { square: "a1", label: "bK" },
     { square: "d1", label: "occluded" },
+  ]);
+});
+
+const before = (at: { current: string; proposal?: string; base: string; fen: string; brush: string }) => {
+  const order = [...new Set([at.proposal, at.base, at.fen, at.brush, "empty"].filter((l) => l !== undefined))];
+  return order[(order.indexOf(at.current) + 1) % order.length];
+};
+
+/** Clicks it takes to get one cell from `current` to `target` under a cycle. */
+function clicks(cycle: typeof before, at: { current: string; proposal?: string; base: string; fen: string; brush: string }, target: string): number {
+  let current = at.current;
+  for (let n = 1; n <= 8; n++) {
+    current = cycle({ ...at, current });
+    if (current === target) return n;
+  }
+  throw new Error(`${target} is not reachable from ${at.current}`);
+}
+
+test("the interaction table of CONCEPT 4.2.1 holds: no case worse, case C strictly better", () => {
+  const cell = { current: "occluded", proposal: "occluded", base: "wR", fen: "wR", brush: "occluded" };
+  const off = { ...cell, current: "wR" };
+
+  const cases: [string, number, number][] = [
+    // A: every flag right — one Enter, both.
+    ["A alle Flags richtig", 1, 1],
+    // B: nothing occluded — one Backspace, both.
+    ["B nichts verdeckt", 1, 1],
+    // C: 3 of 12. Today: the button hunt, then each flag BACK ON; the loop: `f`, then one click.
+    ["C 3 von 12", 1 + 3 * clicks(before, off, "occluded") + 1, 1 + 3 * clicks(cycleNext, off, "occluded") + 1],
+    // C′: the same board clicked flag by flag — the loop never makes the worse path mandatory.
+    ["C' 3 von 12, einzeln", 9 * clicks(before, cell, "wR") + 1, 9 * clicks(cycleNext, cell, "wR") + 1],
+    // D: 9 of 12 — taking a flag off is the first step of both orders.
+    ["D 9 von 12", 3 * clicks(before, cell, "wR") + 1, 3 * clicks(cycleNext, cell, "wR") + 1],
+    // E and F are brush gestures and touch no cycle: key + drag + Enter, `a` + erase + Enter.
+    ["E zwei Zellen umpinseln", 3, 3],
+    ["F Hand über dem Brett", 3, 3],
+  ];
+
+  for (const [name, today, loop] of cases) expect([name, loop <= today]).toEqual([name, true]);
+  expect(cases.map(([name, today, loop]) => `${name}: ${today} → ${loop}`)).toEqual([
+    "A alle Flags richtig: 1 → 1",
+    "B nichts verdeckt: 1 → 1",
+    "C 3 von 12: 8 → 5",
+    "C' 3 von 12, einzeln: 10 → 10",
+    "D 9 von 12: 4 → 4",
+    "E zwei Zellen umpinseln: 3 → 3",
+    "F Hand über dem Brett: 3 → 3",
   ]);
 });

@@ -38,7 +38,6 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
   const decided = await judgedKeys(sessionId(name));
   const streams = splitStreams(rows, thresholds);
 
-  // The drilldown needs the FEN of every frame a proposal points at — nothing more of the log.
   const stems = [...new Set(rows.map((r) => r.frame))].sort();
   const frames = stems.map((stem) => {
     const row = session.byStem.get(stem);
@@ -60,13 +59,8 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
   const seen = boardProgress(rows.map((r) => r.frame), decided.keys());
   const boards = seen.boards;
 
-  // The hand-painting queue: every board with HAND-SHAPED suspicion, CHRONOLOGICAL — a hand
-  // moves gradually, so painting in time order is one continuous gesture per hand, not a
-  // shuffle. Hand-shaped means the grid channel saw it (any grid_score, deadzone included) or
-  // the merged score clears `hi`; weak census-only cells stay in the unsure bucket — queueing
-  // them here put boards with no visible occlusion in front of the painter ("hat keine
-  // occlusion", 2026-08-10, frame 000342). `accept` is `occluded` for every suspect square,
-  // and the read printed in the cell names the channel that raised it.
+  // Hand-painting queue: boards with HAND-SHAPED suspicion, chronological (CONCEPT.md).
+  // Grid channel OR score > hi; grid_score > 0 filters census-only noise (2026-08-10).
   const hands = framesMatching(rows, { klass: "occluded", min: thresholds.lo })
     .map((f) => ({
       ...f,

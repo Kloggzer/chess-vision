@@ -1134,6 +1134,7 @@ same failure as inventing telemetry.
 | artifact | kind | phase | read by Python? |
 |---|---|---|---|
 | `retract: true` on a `corrections.jsonl` row | **new key, existing file** | 3 | no — `load_corrections` takes four keys (`labeling.py:251-262`) and last-wins restores the label the row carries |
+| `retract: true` on a `reviewed.jsonl` row | new key, existing file — the retract goes into the ledger the original row came from, else the key survives the `judgedKeys` merge and the board never reopens (REVIEW S4) | 3 | no — nothing in Python opens that file |
 | `data/manifests/review-notes.jsonl` | new file | 3 | no |
 | `$CHESSLAB_DATA_DIR/inbox/heavy.lock` | new file | 1 | no |
 | `$CHESSLAB_DATA_DIR/inbox/autopilot.json` | new file — the strip's pause state, persisted across restarts (§5.5 guard 2) | 1 | no |

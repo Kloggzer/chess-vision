@@ -11,10 +11,8 @@ import { UselessButton } from "@/app/useless-button";
 export const dynamic = "force-dynamic";
 
 /**
- * Was diese Partie an Arbeit trägt, in Brettern — die Zellen klein dahinter.
- *
- * Ohne Vorschlagsdatei steht „—", nicht „0": „0 Bretter" behauptet, es gäbe hier nichts zu tun,
- * während in Wahrheit `propose-occluded` nie gelaufen ist (CONCEPT.md 4.2).
+ * What the game carries in work: boards with cells behind.
+ * No proposals = "—", not "0" — `propose-occluded` never ran (CONCEPT.md 4.2).
  */
 async function rowStats(name: string): Promise<{ text: string; title?: string }> {
   const summary = await loadProposalSummary(name);
@@ -29,11 +27,7 @@ async function rowStats(name: string): Promise<{ text: string; title?: string }>
 }
 
 /**
- * A game with a recording and no candidate, with the button that would start it.
- *
- * The honest answer to "why is nothing here to label" is usually "because the machine step in
- * front of it never ran", so the second section names those games AND offers the step, rather
- * than leaving an empty queue that looks like a bug.
+ * Game with recording but no candidate — block shows why and offers the step.
  */
 function BlockedRow({ row }: { row: QueueRow }) {
   return (

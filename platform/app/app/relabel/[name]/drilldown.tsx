@@ -1,18 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { BoardLegend, BoardSurface, PALETTE, useBoardPaint } from "@/components/board-paint";
 import type { Correction, Ledger } from "@/lib/corrections";
-import { FILES, fenLabels } from "@/lib/fen";
-import {
-  type BoardPlan,
-  type Row,
-  confirmLabel,
-  cycleNext,
-  planBoard,
-  planRejectAll,
-} from "@/lib/selection";
+import { type BoardPlan, type Row, confirmLabel } from "@/lib/selection";
 import { writeRows } from "./write";
 
 export type FrameInfo = {
@@ -46,50 +38,19 @@ export type DrilldownProps = {
 };
 
 /**
- * Every control on this screen, thumb-sized.
- *
- * The board draws 44 px squares on a 375 px phone and paints fine; the BUTTONS around it were 28 px
- * — "nahezu unmöglich zu bedienen" (2026-08-13). A fingertip is about 9 mm, so 44 px is the floor
- * on touch; from `sm` up the density of a desktop tool is worth more than the target size.
- *
- * Written as `max-sm:` rather than `h-11 sm:h-8`: both are equally specific and Tailwind emits the
- * plain utility last, so the desktop kept the phone's height. Only touching the small end cannot
- * lose that argument.
+ * Every control thumb-sized: 44 px squares on phone, 28 px buttons failed (2026-08-13).
  */
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
-const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
-
 /**
- * What the brush can be loaded with, and the key that loads it.
- *
- * FEN's own convention, so the keys are the ones a chess player already knows: digits are the
- * white pieces in FEN order, the lower-case letter is the black twin. `o` and `x` are the two
- * that are not pieces at all.
- */
-const PALETTE: [string, string][] = [
-  ["o", "occluded"], ["x", "empty"],
-  ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
-  ["p", "bP"], ["n", "bN"], ["b", "bB"], ["r", "bR"], ["q", "bQ"], ["k", "bK"],
-];
-/** `{stem: {square: label}}` — per frame, so stepping to the next one resets nothing. */
-type ByFrame = Record<string, Record<string, string>>;
-
-/**
- * The rectified board with an 8x8 overlay. An occluder covers a CONTIGUOUS swath, so the primary
- * gesture is a BRUSH: pointer-down and drag marks every cell the pointer enters `occluded`, the
- * eraser (or the right button) puts the FEN label back. A click without a drag keeps the cycle.
- *
- * Pointer-enter bookkeeping over plain divs — one entered cell is one state update, no canvas.
+ * One session's boards with brush (board-paint.tsx).
+ * Queue state here; painting moved out for LABELN stream parity.
  */
 export function Drilldown(props: DrilldownProps) {
   const { name, sessionId, frames, decided, onWritten, onError, hits, reads, accepts, queueNote } = props;
   /**
-   * A board still worth stopping at: one with a matched cell nobody has ruled on. Boards whose
-   * every hit is already decided are behind you, and the queue used to reopen at index 0 on every
-   * mount and reload — so a session that was half done looked untouched ("board queue lässt mich
-   * immer von vorne anfangen", 2026-08-09). Without a filter queue every board qualifies, which
-   * is the old behaviour for the unfiltered drilldown.
+   * Board worth stopping at: matched cell with no verdict.
+   * Queue reopens at index 0 to avoid looking untouched (2026-08-09).
    */
   const open = useCallback(
     (f: FrameInfo) => {
@@ -100,67 +61,31 @@ export function Drilldown(props: DrilldownProps) {
     [accepts, decided],
   );
   const [at, setAt] = useState(() => Math.max(0, frames.findIndex(open)));
-  const [eraser, setEraser] = useState(false);
-  /** What the brush lays down. `occluded` is the common case, not the only one. */
-  const [brush, setBrush] = useState("occluded");
-  const [edits, setEdits] = useState<ByFrame>({});
-  /** What already left through the writer — the baseline the unsaved diff is measured against. */
-  const [saved, setSaved] = useState<ByFrame>({});
 
   const frame = frames[at];
   const stem = frame?.stem ?? "";
-  const fen = useMemo(() => fenLabels(frame?.fen ?? ""), [frame]);
-  const base = useMemo(() => {
-    const out: Record<string, string> = {};
-    for (const sq of SQUARES) out[sq] = decided[`${stem}|${sq}`] ?? fen[sq];
-    return out;
-  }, [decided, fen, stem]);
-
-  /**
-   * The flags, and what the board makes of them. They arrive SELECTED and every one of them is
-   * one click away from off — the plan says what confirm will write at any moment, so the button
-   * can promise it (`lib/selection.ts`).
-   */
   const accept = useMemo(() => accepts?.[stem] ?? {}, [accepts, stem]);
-  const onFile = useMemo(() => ({ ...base, ...saved[stem] }), [base, saved, stem]);
-  const plan = useMemo(
-    () => planBoard({ squares: SQUARES, proposals: accept, painted: edits[stem] ?? {}, base, onFile }),
-    [accept, base, edits, onFile, stem],
-  );
-  const labels = plan.labels;
-  const kept = useMemo(() => new Set(plan.selected), [plan]);
-  /**
-   * Squares a HUMAN has ruled on — this session's edits plus what corrections.jsonl already
-   * holds. Everything else carries the FEN's word, which is a good label and NOT a verdict:
-   * "I painted occluded on e5" says nothing about the pawn on d4 except that nobody looked.
-   */
-  const judged = useMemo(
-    () =>
-      new Set(
-        SQUARES.filter((sq) => decided[`${stem}|${sq}`] !== undefined || edits[stem]?.[sq] !== undefined),
-      ),
-    [decided, edits, stem],
-  );
+  const paint = useBoardPaint({ boardKey: stem, fen: frame?.fen ?? "", decided, stem, accept });
+  const { plan, judged, offable } = paint;
+
   const rows = useCallback(
     (list: Row[]): Correction[] => list.map((r) => ({ session_id: sessionId, frame: stem, ...r })),
     [sessionId, stem],
   );
-  /** PAINT only: a flag must not leave through the navigate-away flush, only through confirm. */
-  const pending = useMemo(() => rows(plan.paintRows), [plan, rows]);
+  const pending = useMemo(() => rows(paint.paintRows), [paint.paintRows, rows]);
 
   const flush = useCallback(
-    async (rows: Correction[]) => {
-      if (rows.length === 0) return;
+    async (batch: Correction[]) => {
+      if (batch.length === 0) return;
       try {
-        await writeRows(rows);
-        onWritten(rows, "corrections");
-        const written = Object.fromEntries(rows.map((r) => [r.square, r.label]));
-        setSaved((s) => ({ ...s, [rows[0].frame]: { ...s[rows[0].frame], ...written } }));
+        await writeRows(batch);
+        onWritten(batch, "corrections");
+        paint.markSaved(batch);
       } catch (error) {
         onError(error);
       }
     },
-    [onWritten, onError],
+    [onWritten, onError, paint],
   );
 
   // Writes on navigate-away, including leaving the view: an unmount cleanup cannot read state,
@@ -172,16 +97,18 @@ export function Drilldown(props: DrilldownProps) {
   const confirmRef = useRef<() => Promise<void>>(async () => {});
   const rejectRef = useRef<() => Promise<void>>(async () => {});
   const floodRef = useRef<() => void>(() => {});
+  const brushRef = useRef(paint.setBrush);
   useEffect(() => {
     latest.current = pending;
     flushRef.current = flush;
     confirmRef.current = confirmQueue;
     rejectRef.current = rejectQueue;
-    floodRef.current = flood;
+    floodRef.current = paint.flood;
+    brushRef.current = paint.setBrush;
   });
   useEffect(() => () => void flushRef.current(latest.current), []);
 
-  // One key, one brush — the same letters the tinder band uses, so the two views are one habit.
+  // One key, one brush — the same letters the stream uses, so the two views are one habit.
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Enter") {
@@ -202,74 +129,11 @@ export function Drilldown(props: DrilldownProps) {
       const hit = PALETTE.find(([k]) => k === event.key);
       if (!hit) return;
       event.preventDefault();
-      setBrush(hit[1]);
-      setEraser(false);
+      brushRef.current(hit[1]);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-
-  const set = (square: string, label: string) =>
-    setEdits((e) => ({ ...e, [stem]: { ...e[stem], [square]: label } }));
-
-  /**
-   * The inverted gesture ("alle außer die sind nicht occluded", 2026-08-10): on a board mostly
-   * under a hand the few CLEAN cells are the work, not the many covered ones. Flood every cell
-   * occluded, arm the eraser, and freeing what is visibly clean is the whole remaining job —
-   * erased cells return to the FEN's word and write nothing.
-   */
-  const flood = () => {
-    setEdits((e) => ({ ...e, [stem]: Object.fromEntries(SQUARES.map((sq) => [sq, "occluded"])) }));
-    setEraser(true);
-  };
-
-  const paint = (square: string, erase: boolean) => set(square, erase ? fen[square] : brush);
-  /** One click, one step — the order and its why live in `lib/selection.ts`. */
-  const cycle = (square: string) =>
-    set(
-      square,
-      cycleNext({
-        current: labels[square],
-        proposal: accept[square],
-        base: base[square],
-        fen: fen[square],
-        brush,
-      }),
-    );
-
-  /**
-   * All flags off at once, then click back the few that are real — the fast path on a full board.
-   *
-   * A flag the file ALREADY answers is not "offable" in bulk: taking it off means SUPERSEDING a
-   * correction a human wrote, and no bulk button may do that quietly. Its own cell still can.
-   */
-  const offable = plan.selected.filter((sq) => base[sq] !== accept[sq]);
-  const toggleFlags = () =>
-    setEdits((e) => {
-      const cell = { ...e[stem] };
-      if (offable.length > 0) for (const sq of offable) cell[sq] = base[sq];
-      else for (const sq of plan.rejected) delete cell[sq];
-      return { ...e, [stem]: cell };
-    });
-
-  const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
-
-  function enter(square: string) {
-    const state = painting.current;
-    if (!state) return;
-    if (!state.dragged) {
-      if (state.start === square) return; // still inside the cell the press started in
-      state.dragged = true;
-      paint(state.start, state.erase);
-    }
-    paint(square, state.erase);
-  }
-
-  function up() {
-    const state = painting.current;
-    painting.current = null;
-    if (state && !state.dragged) cycle(state.start);
-  }
 
   async function go(delta: number) {
     await flush(pending);
@@ -287,27 +151,18 @@ export function Drilldown(props: DrilldownProps) {
   const acceptCells = Object.keys(accept);
 
   /**
-   * Write what the board says and move on — the ONE path both header buttons take.
-   *
-   * Corrections are the training rows; a flag taken off has nothing to correct, so it goes to the
-   * REVIEW ledger as provenance ("looked at, the FEN was right") and never comes back. Both
-   * ledgers were already on the wire — this only decides which cells land in which.
+   * Write board state and advance — one path for both buttons.
+   * Flag off → REVIEW ledger (looked at, FEN was right).
    */
   async function commit(what: BoardPlan) {
-    const reviewed = what.rejected.map((square) => ({ square, label: base[square] }));
+    const reviewed = what.rejected.map((square) => ({ square, label: paint.base[square] }));
     try {
       await flush(rows(what.corrections));
       if (reviewed.length > 0) {
         await writeRows(rows(reviewed), "reviewed");
         onWritten(rows(reviewed), "reviewed");
       }
-      setEdits((e) => ({
-        ...e,
-        [stem]: {
-          ...e[stem],
-          ...Object.fromEntries([...what.committed, ...reviewed].map((r) => [r.square, r.label])),
-        },
-      }));
+      paint.markCommitted([...what.committed, ...reviewed]);
       setAt((i) => nextOpen(i + 1));
     } catch (error) {
       onError(error);
@@ -315,24 +170,18 @@ export function Drilldown(props: DrilldownProps) {
   }
 
   /**
-   * "Yes, the filter is right HERE" — the cells still selected, and nothing else.
-   *
-   * A filtered queue is not a 64-square review, it answers one question about a handful ("nicht
-   * immer alles kontrollieren, sondern nur das, wonach ich gefiltert habe", 2026-08-09). Cells
-   * outside the flags keep the FEN's word and stay unjudged unless the brush touched them.
+   * Confirm: "filter is right HERE" — selected cells only (2026-08-09).
    */
   async function confirmQueue() {
     await commit(plan);
   }
 
   /**
-   * The OTHER answer to a flagged board: "not occluded — the FEN is right" ("wie de-occlude ich
-   * was? die fens stimmen", 2026-08-10). Every flag off in one keystroke; brush strokes still
-   * leave as corrections first.
+   * Reject: "not occluded — FEN is right" (2026-08-10).
+   * Brush strokes still write corrections first.
    */
   async function rejectQueue() {
-    const off = { squares: SQUARES, proposals: accept, painted: edits[stem] ?? {}, base, onFile };
-    await commit(planRejectAll(off));
+    await commit(paint.rejectAll());
   }
 
   if (!frame) return <p className="text-muted-foreground text-sm">No proposal frames.</p>;
@@ -359,17 +208,17 @@ export function Drilldown(props: DrilldownProps) {
           next
         </Button>
         <Button
-          onClick={() => setEraser((e) => !e)}
+          onClick={() => paint.setEraser(!paint.eraser)}
           className={TOUCH}
           size="sm"
-          variant={eraser ? "default" : "outline"}
+          variant={paint.eraser ? "default" : "outline"}
         >
-          {eraser ? "eraser ON" : `brush: ${brush}`}
+          {paint.eraser ? "eraser ON" : `brush: ${paint.brush}`}
         </Button>
         <Button
           onClick={(event) => {
             event.currentTarget.blur();
-            flood();
+            paint.flood();
           }}
           className={TOUCH}
           size="sm"
@@ -385,7 +234,7 @@ export function Drilldown(props: DrilldownProps) {
           <strong className="text-foreground">bright</strong> = you judged it, dim = FEN&apos;s word,
           nobody looked ({judged.size}/64 judged here)
         </span>
-        <Legend />
+        <BoardLegend />
         <Button
           className={`ml-auto ${TOUCH}`}
           disabled={pending.length === 0}
@@ -407,7 +256,7 @@ export function Drilldown(props: DrilldownProps) {
           <Button
             onClick={(event) => {
               event.currentTarget.blur();
-              toggleFlags();
+              paint.toggleFlags();
             }}
             className={TOUCH}
             size="sm"
@@ -432,12 +281,11 @@ export function Drilldown(props: DrilldownProps) {
             key={label}
             onClick={(event) => {
               event.currentTarget.blur();
-              setBrush(label);
-              setEraser(false);
+              paint.setBrush(label);
             }}
             className={TOUCH}
-          size="sm"
-            variant={brush === label && !eraser ? "default" : "outline"}
+            size="sm"
+            variant={paint.brush === label && !paint.eraser ? "default" : "outline"}
           >
             <span className="text-muted-foreground mr-1 font-mono">{key}</span>
             {label}
@@ -445,127 +293,40 @@ export function Drilldown(props: DrilldownProps) {
         ))}
       </div>
 
-      <div
-        className="relative mx-auto aspect-square w-full max-w-[720px] select-none"
-        onContextMenu={(event) => event.preventDefault()}
-        onPointerLeave={up}
-        onPointerMove={(event) => {
-          if (event.pointerType === "mouse" || !painting.current) return;
-          // Touch: a finger fires no pointerenter on the cells it slides over — derive the cell.
-          const r = event.currentTarget.getBoundingClientRect();
-          const col = Math.floor(((event.clientX - r.left) / r.width) * 8);
-          const row = Math.floor(((event.clientY - r.top) / r.height) * 8);
-          if (col >= 0 && col < 8 && row >= 0 && row < 8) enter(`${FILES[col]}${8 - row}`);
-        }}
-        onPointerUp={up}
-        style={{ touchAction: "none" }}
-      >
-        <Image
-          alt={`board ${stem}`}
-          className="object-contain"
-          fill
-          sizes="720px"
-          src={`/api/board/${name}/${stem}?size=720`}
-          unoptimized
-        />
-        <div className="absolute inset-0 grid grid-cols-8">
-          {SQUARES.map((sq) => {
-            const label = labels[sq];
-            // What the filter flagged, before you touch anything — an outline, never a label:
-            // the model asks the question, the brush answers it. 4 px and a fill on untouched
-            // cells, because 2 px next to the cell borders was invisible on a real board
-            // ("ich sehe nicht was da markiert ist", 2026-08-10). A painted cell keeps its
-            // paint colour; the outline alone says the flag.
-            const isFlagged = (hits?.[stem]?.includes(sq) ?? false) || accept[sq] !== undefined;
-            // A flag ON is solid; one taken off keeps a dashed ghost, so "I ruled on this one"
-            // stays visible and one more click puts it back.
-            const on = kept.has(sq);
-            const flagged = !isFlagged
-              ? ""
-              : on
-                ? "outline outline-4 -outline-offset-4 outline-fuchsia-500"
-                : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
-            const tint =
-              label === "occluded"
-                ? "bg-amber-500/45"
-                : label !== fen[sq]
-                  ? "bg-sky-500/40"
-                  : on
-                    ? "bg-fuchsia-500/15"
-                    : "hover:bg-white/10";
-            const read = reads?.[stem]?.[sq];
-            return (
-              <div
-                className={`relative border border-white/10 ${tint} ${flagged}`}
-                key={sq}
-                onPointerDown={(event) => {
-                  painting.current = {
-                    start: sq,
-                    erase: eraser || event.button === 2,
-                    dragged: false,
-                  };
-                }}
-                onPointerEnter={() => enter(sq)}
-              >
-                {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`.
-                    BRIGHT means a human decided it; DIM means the FEN says so and nobody has
-                    looked. Painting occluded on one square says nothing about the other 63, and
-                    the board must not imply otherwise. */}
-                <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
-                  <span
-                    className={`bg-background/75 rounded px-0.5 ${
-                      judged.has(sq)
-                        ? "font-bold text-white"
-                        : on
-                          ? "font-bold text-fuchsia-200"
-                          : "text-white/45"
-                    }`}
-                  >
-                    {labels[sq]}
-                  </span>
-                  {read ? (
-                    // Struck through once the flag is off: the reading is what RAISED the cell,
-                    // and a rejected reading must not keep shouting.
-                    <span
-                      className={`block ${on || accept[sq] === undefined ? "text-fuchsia-300" : "text-white/35 line-through"}`}
-                    >
-                      <span className="bg-background/75 rounded px-0.5">{read}</span>
-                    </span>
-                  ) : null}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <BoardSurface
+        accept={accept}
+        alt={`board ${stem}`}
+        hits={hits?.[stem]}
+        reads={reads?.[stem]}
+        src={`/api/board/${name}/${stem}?size=720`}
+        state={paint}
+      />
     </div>
   );
 }
 
 /**
- * What the frame is a picture OF: the hand leaving the move that just landed, or the next move
- * arriving. A labeler asked for this because the two need different scepticism — after a commit
- * the FEN is true and only the occluders are in question, while before the next one the piece may
- * already sit on its destination with the FEN still describing the position it left.
+ * Frame timing: hand leaving last move or next arriving.
+ * Two moments need different scepticism — after commit FEN is true, before it's not.
  */
-function PhaseChip({ frame }: { frame: FrameInfo }) {
+export function PhaseChip({ frame }: { frame: FrameInfo }) {
   if (!frame.phase) return null;
   const after = frame.phase === "after";
   const seconds = after ? frame.sinceS : frame.toS;
   const gap = seconds === undefined || !Number.isFinite(seconds) ? "" : ` ${seconds.toFixed(1)} s`;
   const [tone, text, why] =
     frame.phase === "settled"
-      ? ["bg-muted text-muted-foreground", "settled — no hand", "clear of both commits; the FEN is simply true"]
+      ? ["bg-muted text-muted-foreground", "ruhig — keine Hand", "weit weg von beiden Commits; der FEN stimmt einfach"]
       : after
         ? [
             "bg-emerald-950 text-emerald-300",
-            `${gap} after the move`,
-            "the hand is leaving the move that just landed — the FEN is true here",
+            `${gap} nach dem Zug`,
+            "die Hand verlässt den gerade gelandeten Zug — der FEN stimmt hier",
           ]
         : [
             "bg-amber-950 text-amber-300",
-            `${gap} before the next move`,
-            "the next move is arriving — a piece may already have moved while the FEN has not",
+            `${gap} vor dem nächsten Zug`,
+            "der nächste Zug kommt an — eine Figur kann schon bewegt sein, während der FEN es noch nicht ist",
           ];
   return (
     <span className="flex items-center gap-2">
@@ -574,39 +335,9 @@ function PhaseChip({ frame }: { frame: FrameInfo }) {
       </span>
       {frame.unknown?.length ? (
         <span className="text-muted-foreground text-xs" title="the exporter vouches for no label here">
-          FEN unknown on {frame.unknown.join(" ")}
+          FEN unklar auf {frame.unknown.join(" ")}
         </span>
       ) : null}
-    </span>
-  );
-}
-
-
-/**
- * What the four states on the board mean. It was asked ("was bedeutet das blaue Kästchen?",
- * 2026-08-09) because the header explained bright-vs-dim and said nothing about the colours —
- * a tint that needs a person to explain it is not a tint, it is a puzzle.
- */
-function Legend() {
-  const items: [string, string, string][] = [
-    ["bg-amber-500/45", "occluded", "the cell is marked as covered"],
-    ["bg-sky-500/40", "differs from FEN", "some other label than the game says here"],
-    ["bg-transparent border border-white/25", "as the FEN says", "nothing was changed"],
-    ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "flag on", "confirm commits this cell"],
-    [
-      "outline outline-2 -outline-offset-2 outline-dashed outline-white/40",
-      "flag off",
-      "click took it off — reviewed, not a training row",
-    ],
-  ];
-  return (
-    <span className="flex flex-wrap items-center gap-3 text-xs">
-      {items.map(([swatch, label, why]) => (
-        <span className="flex items-center gap-1" key={label} title={why}>
-          <span className={`inline-block h-3 w-3 rounded-sm ${swatch}`} />
-          <span className="text-muted-foreground">{label}</span>
-        </span>
-      ))}
     </span>
   );
 }

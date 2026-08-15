@@ -135,6 +135,54 @@ describe("plan — the no-retry marker", () => {
   });
 });
 
+describe("plan — the boundary commit's 90-second export hold (§4.1.1)", () => {
+  const NOW = Date.parse("2026-08-15T12:00:00Z");
+  const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
+  const confirmed = (name: string, at: string | null) =>
+    row(name, { step: "export", hasCandidate: true, confirmed: true }, { confirmedAt: at });
+  const hold = (name: string, notBefore: string): Job => ({
+    name,
+    kind: "export",
+    state: "skipped",
+    reason: "Export gehalten",
+    queuedAt: iso(-1000),
+    notBefore,
+  });
+
+  it("skips an export whose hold row is still in the future — the undo is free until then", () => {
+    const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
+    const held = run(rows, { ...ledger(hold("2026-08-13-19-34-23", iso(60_000))), now: NOW });
+    expect(held).toMatchObject({ eligible: [], repair: [] });
+  });
+
+  it("runs it once the hold has passed — an expired row is neither busy nor a failure", () => {
+    const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
+    const due = run(rows, { ...ledger(hold("2026-08-13-19-34-23", iso(-1000))), now: NOW });
+    expect(due.eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "export" }]);
+    expect(due.repair).toEqual([]);
+  });
+
+  it("skips a game confirmed seconds ago even with NO hold row — another client committed it", () => {
+    const fresh = run([confirmed("2026-08-13-19-34-23", iso(-30_000))], { now: NOW });
+    expect(fresh).toMatchObject({ eligible: [], repair: [] });
+    const aged = run([confirmed("2026-08-13-19-34-23", iso(-91_000))], { now: NOW });
+    expect(aged.eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "export" }]);
+  });
+
+  it("holds only the export: the same game's other steps are not this rule's business", () => {
+    const rows = [row("2026-08-13-19-34-23", { step: "label", video: "v.mp4" }, { confirmedAt: iso(-1000) })];
+    expect(run(rows, { now: NOW }).eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "label" }]);
+  });
+
+  it("a taken-back hold does not become a no-retry marker — nothing ever ran", () => {
+    // `z` inside the window appends the cancelled row; once its `notBefore` passes it must say
+    // nothing at all, or one undo would send the export to Reparatur for good.
+    const cancelled: Job = { ...hold("2026-08-13-19-34-23", iso(-1000)), reason: "z — zurückgenommen" };
+    const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
+    expect(run(rows, { ...ledger(cancelled), now: NOW }).repair).toEqual([]);
+  });
+});
+
 describe("plan — propose guards", () => {
   const session = (name: string) =>
     row(name, { step: "propose", hasCandidate: true, confirmed: true, hasSession: true });

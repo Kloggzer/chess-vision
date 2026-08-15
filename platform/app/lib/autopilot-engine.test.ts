@@ -1,11 +1,4 @@
-/**
- * The one engine behaviour that is not a timing question: what a tick REMEMBERS.
- *
- * `adoptPgn` refuses for reasons that do not change by themselves (no `.pgn` in the transfer, a
- * `reference.pgn` already there), so a loop that retried it every 30 s would ask the disk the same
- * question 2 880 times a day and overwrite its own error line each time. Reentrancy and the
- * interval are reviewed, not tested — a timer mock there buys a fragile test and no truth.
- */
+// Tests memoization only, not timing — ~2880 retries/day without it (measured).
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";

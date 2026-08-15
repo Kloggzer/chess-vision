@@ -1,10 +1,4 @@
-/**
- * The two files Autopilot keeps beside the inbox: its pause switch and the machine-wide lock.
- *
- * Neither is a wire format — nothing on the Python side reads them. The pause has to outlive a
- * restart (a paused autopilot that starts replaying after `next dev` reloads is the failure the
- * toggle exists to prevent), and the lock is the only thing a terminal tool could ever honour.
- */
+// Non-wire-format state: pause outlives restart, lock serializes heavy jobs (no Python side).
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -78,14 +72,7 @@ function createLock(lock: HeavyLock): boolean {
   }
 }
 
-/**
- * Take the machine-wide lock, or report whose it is.
- *
- * A read-then-write claim is two syscalls with a window between them, and the window is exactly one
- * 6 GB replay wide. So: create exclusively, and only READ when that fails. A stale lock (its writer
- * is gone) is unlinked and retried ONCE — a killed replay must not block the queue forever, and one
- * retry means two processes racing on the same stale file cannot both conclude they won.
- */
+// Create-exclusive to avoid TOCTOU; retry once for stale locks (6 GB replay window).
 export async function claimHeavyLock(job: string, name: string): Promise<{ held: HeavyLock } | { foreign: HeavyLock }> {
   await mkdir(inboxDir(), { recursive: true });
   const lock: HeavyLock = { pid: process.pid, job, name, startedAt: new Date().toISOString() };

@@ -5,7 +5,6 @@ import { expect, test } from "vitest";
 import { boardProgress, boardProgressOf, loadProposalSummary, summaryFromRows } from "@/lib/proposal-summaries";
 import type { Proposal } from "@/lib/proposals";
 
-/** Two boards, one of them with a cell in each of the three streams (hi 0.7 / lo 0.3). */
 const LINES = [
   '{"_thresholds": {"hi": 0.7, "lo": 0.3}}',
   '{"session_id": "rg-g", "frame": "000100", "square": "e2", "fen_label": "wQ", "proposed": "occluded", "score": 0.91}',
@@ -16,7 +15,6 @@ const LINES = [
 const SIDECAR = {
   boards: 3,
   cells: 30364,
-  // Deliberately NOT the stems of LINES: every test below can tell which of the two was read.
   frames: ["000900", "000901", "000902"],
   by_stream: { confirm: 1225, unsure: 5230, control: 180 },
   hi: 0.7,
@@ -53,8 +51,6 @@ test("without a sidecar the same shape is counted off the rows, and the surface 
     by_stream: { confirm: 1, unsure: 1, control: 1 },
     hi: 0.7,
     lo: 0.3,
-    // The fallback cannot know the run: the header of every file without a sidecar predates the
-    // `model` key, and inventing one would be worse than admitting it.
     model: null,
     written_at: null,
     read: "fallback",
@@ -98,8 +94,6 @@ test("a sidecar appearing later wins over the count", async () => {
 });
 
 test("with a sidecar the progress figure never touches the rows", async () => {
-  // The jsonl is unparseable on purpose: if the sidecar spared nothing, this would show up as 0
-  // boards. It is the whole promise of CONCEPT.md 6.3 artifact 2, spelled as a fixture.
   await game(["}{ not json", "also not json"], SIDECAR);
   const { boards, done } = await boardProgressOf("g", ["000900|e2", "000901|a1", "004242|h8"]);
   expect({ boards, done }).toEqual({ boards: 3, done: 2 });

@@ -1,11 +1,4 @@
-/**
- * What a flagged board WRITES, derived from what is painted on it.
- *
- * The confirm button used to commit the FLAGS instead of the selection: twelve proposals wrote
- * twelve rows even when the human wanted three ("ich will nur die Reihe unten rechts markieren,
- * kann aber dann nicht die 3 committen", 2026-08-15). Flags are a SELECTION now, and this says
- * what the selection means. Pure — the brush is a client component.
- */
+/** Flags are a selection now, not rows (fixed 2026-08-15). Pure — brush is client-side. */
 
 export type Labels = Record<string, string>;
 export type Row = { square: string; label: string };
@@ -37,11 +30,6 @@ export type BoardPlan = {
   committed: Row[];
 };
 
-/**
- * One pass over the board. A flag is `selected` while it shows its proposed label, `rejected`
- * once it is back on the label the file already holds — those two are the toggle, and a flag
- * repainted to some THIRD label is neither: its correction row is the record.
- */
 export function planBoard(input: PlanInput): BoardPlan {
   const { squares, proposals, painted, base, onFile } = input;
   const labels: Labels = {};
@@ -74,10 +62,7 @@ export function planBoard(input: PlanInput): BoardPlan {
   return { labels, selected, rejected, corrections, paintRows, committed };
 }
 
-/**
- * Every flag off, every brush stroke kept — the ✗ button's plan ("nichts verdeckt, FEN stimmt").
- * Painted cells win over the fill, so a board that was worked on still writes its corrections.
- */
+/** ✗ button: flags off, brush strokes kept. Painted cells win over fill. */
 export function planRejectAll(input: PlanInput): BoardPlan {
   const off: Labels = {};
   for (const square of Object.keys(input.proposals)) {
@@ -86,12 +71,7 @@ export function planRejectAll(input: PlanInput): BoardPlan {
   return planBoard({ ...input, painted: { ...off, ...input.painted } });
 }
 
-/**
- * The label one click lands on. A flagged cell answers the FLAG first — proposal, then the word
- * on file, then the FEN's own — so taking a flag off is one click even where the file already
- * holds the proposed label and the two lead entries dedup into one. Unflagged cells keep the old
- * three-step cycle: what the FEN says, what the brush holds, empty.
- */
+/** Flagged cells: two-cycle `proposal ⇄ base` (4.2.1). Brush adds third label. Unflagged: three-cycle. */
 export function cycleNext(at: {
   current: string;
   proposal?: string;
@@ -100,7 +80,8 @@ export function cycleNext(at: {
   brush: string;
 }): string {
   const { current, proposal, base, fen, brush } = at;
-  const order = [...new Set(proposal ? [proposal, base, fen, brush, "empty"] : [fen, brush, "empty"])];
+  const other = proposal === undefined ? base : [base, fen, "empty"].find((l) => l !== proposal) ?? base;
+  const order = proposal === undefined ? [...new Set([fen, brush, "empty"])] : [proposal, other];
   return order[(order.indexOf(current) + 1) % order.length];
 }
 
@@ -108,7 +89,7 @@ export function cycleNext(at: {
 export function confirmLabel(plan: BoardPlan): string {
   const n = plan.committed.length;
   const kinds = [...new Set(plan.committed.map((r) => r.label))];
-  const as = kinds.length === 1 ? ` as ${kinds[0]}` : "";
-  const off = plan.rejected.length > 0 ? ` · ${plan.rejected.length} flags off` : "";
-  return `confirm ${n} ${n === 1 ? "cell" : "cells"}${as}${off} → next board`;
+  const as = kinds.length === 1 ? ` als ${kinds[0]}` : "";
+  const off = plan.rejected.length > 0 ? ` · ${plan.rejected.length} Flags ab` : "";
+  return `${n} ${n === 1 ? "Zelle" : "Zellen"}${as}${off} → nächstes Brett`;
 }

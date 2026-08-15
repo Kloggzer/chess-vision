@@ -1,0 +1,224 @@
+"use client";
+
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Button } from "@/components/ui/button";
+import { STREAM_PALETTE } from "@/components/board-paint";
+import { CROP } from "@/components/crop-grid";
+import type { Correction, Ledger } from "@/lib/corrections";
+import type { StreamSession } from "@/lib/label-stream";
+import { collapseEvents, groupBySquare, type LaneCell } from "@/lib/lanes";
+import type { Tally } from "@/lib/session-tally";
+import type { Flush, LaneActions } from "./stream";
+
+export type MobileSortProps = {
+  cells: LaneCell[];
+  sessions: StreamSession[];
+  decided: Record<string, string>[];
+  tally: Tally;
+  actionsRef: RefObject<LaneActions>;
+  onFlush: Flush;
+  onUndo: () => void;
+  onThrow: () => void;
+};
+
+/** Swipe distance that counts as a verdict rather than a scroll. */
+const SWIPE = 60;
+/** A finger has to rest this long before a bucket answers for the whole event. */
+const HOLD_MS = 450;
+
+type Bucket = { label: string; write: string; ledger: Ledger };
+const BUCKETS: Bucket[] = [
+  { label: "verdeckt", write: "occluded", ledger: "corrections" },
+  { label: "FEN stimmt", write: "", ledger: "reviewed" },
+  { label: "leer", write: "empty", ledger: "corrections" },
+];
+
+/**
+ * The phone mode (CONCEPT.md §4.3): one crop, four big buckets, a swipe per verdict.
+ *
+ * It inherits the two properties that killed the tinder band without them — grouping BY SQUARE and
+ * EVENT COLLAPSE. A resting hand produces forty identical cards otherwise, and the answer to forty
+ * identical cards is one long press, not forty taps.
+ */
+export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
+  const [done, setDone] = useState<ReadonlySet<string>>(new Set<string>());
+  const [palette, setPalette] = useState(false);
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const held = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** What ⟲ has to put back — the whole group when a long press answered for it. */
+  const last = useRef<{ keys: string[]; wrote: boolean } | null>(null);
+
+  const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
+  const groups = useMemo(() => {
+    const open = groupBySquare(
+      cells.filter(
+        (c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined && !done.has(keyOf(c)),
+      ),
+    );
+    return collapseEvents(open);
+  }, [cells, decided, done]);
+
+  const group = groups[0];
+  const head = group?.head;
+
+  const answer = useCallback(
+    async (label: string, ledger: Ledger, whole: boolean) => {
+      if (!group) return;
+      const picked = whole ? group.members : [group.head];
+      const rows: Correction[] = picked.map((c) => ({
+        session_id: sessions[c.session].sessionId,
+        frame: c.stem,
+        square: c.square,
+        label: label === "" ? c.fen_label : label,
+      }));
+      const before = Object.fromEntries(
+        picked.map((c) => [
+          `${sessions[c.session].sessionId}|${c.stem}|${c.square}`,
+          (decided[c.session] ?? {})[`${c.stem}|${c.square}`],
+        ]),
+      );
+      last.current = { keys: picked.map(keyOf), wrote: true };
+      setDone((d) => new Set([...d, ...picked.map(keyOf)]));
+      setPalette(false);
+      await onFlush(group.head.pos, [{ rows, ledger }], before);
+    },
+    [decided, group, onFlush, sessions],
+  );
+
+  /** Swipe down = skip: no row, and the crop comes back on the next load. */
+  const skip = useCallback(() => {
+    if (!group) return;
+    last.current = { keys: [keyOf(group.head)], wrote: false };
+    setDone((d) => new Set([...d, keyOf(group.head)]));
+  }, [group]);
+
+  const undo = useCallback(() => {
+    const step = last.current;
+    last.current = null;
+    if (step) setDone((d) => new Set([...d].filter((k) => !step.keys.includes(k))));
+    if (step?.wrote !== false) onUndo();
+  }, [onUndo]);
+
+  const now = useRef({ answer, skip });
+  useEffect(() => {
+    now.current = { answer, skip };
+  });
+  useEffect(() => {
+    actionsRef.current = {
+      commit: () => void now.current.answer("occluded", "corrections", false),
+      reject: () => void now.current.answer("", "reviewed", false),
+      brush: (label) => void now.current.answer(label, "corrections", false),
+      undo: () => false,
+    };
+  }, [actionsRef]);
+
+  function press(bucket: Bucket) {
+    held.current = false;
+    timer.current = setTimeout(() => {
+      held.current = true;
+      void answer(bucket.write, bucket.ledger, true);
+    }, HOLD_MS);
+  }
+  function release(bucket: Bucket) {
+    if (timer.current) clearTimeout(timer.current);
+    if (held.current) return;
+    void answer(bucket.write, bucket.ledger, false);
+  }
+
+  if (!head || !group) {
+    return <p className="text-muted-foreground text-sm">Nichts mehr offen — die Lane ist durch.</p>;
+  }
+
+  const session = sessions[head.session];
+  return (
+    <div className="space-y-3">
+      <div className="text-muted-foreground flex items-baseline gap-2 font-mono text-[11px]">
+        <span>{head.stem}</span>
+        <span>{head.square}</span>
+        <span>FEN: {head.fen_label}</span>
+        <span className="ml-auto">{session.sessionId}</span>
+      </div>
+      {group.members.length > 1 ? (
+        <p className="text-xs text-fuchsia-300">⟨ gleiches Ereignis: {group.members.length} ⟩</p>
+      ) : null}
+
+      <div
+        className="relative mx-auto aspect-square w-full max-w-[351px] overflow-hidden rounded"
+        onTouchEnd={(event) => {
+          const start = touch.current;
+          touch.current = null;
+          if (!start) return;
+          const dx = event.changedTouches[0].clientX - start.x;
+          const dy = event.changedTouches[0].clientY - start.y;
+          if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE) {
+            void answer(dx < 0 ? "" : "occluded", dx < 0 ? "reviewed" : "corrections", false);
+          } else if (dy > SWIPE) skip();
+        }}
+        onTouchStart={(event) => {
+          touch.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+        }}
+      >
+        <Image
+          alt={`${head.square} @ ${head.stem}`}
+          className="h-full w-full object-cover"
+          height={CROP}
+          priority
+          src={`/api/cell/${session.name}/${head.stem}/${head.square}?size=512`}
+          unoptimized
+          width={CROP}
+        />
+      </div>
+      <p className="text-muted-foreground text-center text-[11px]">
+        ← FEN stimmt · verdeckt → · ↓ überspringen · lange drücken = ganzes Ereignis
+      </p>
+
+      <div className="grid grid-cols-2 gap-2">
+        {BUCKETS.map((bucket) => (
+          <Button
+            className="h-[88px] text-base"
+            key={bucket.label}
+            onPointerCancel={() => timer.current && clearTimeout(timer.current)}
+            onPointerDown={() => press(bucket)}
+            onPointerUp={() => release(bucket)}
+            variant={bucket.label === "verdeckt" ? "default" : "outline"}
+          >
+            {bucket.label}
+          </Button>
+        ))}
+        <Button className="h-[88px] text-base" onClick={() => setPalette(!palette)} variant="outline">
+          andere ▸
+        </Button>
+      </div>
+
+      {palette ? (
+        <div className="flex flex-wrap gap-2">
+          {STREAM_PALETTE.map(([, label]) => (
+            <Button
+              className="h-11"
+              key={label}
+              onClick={() => void answer(label, "corrections", false)}
+              size="sm"
+              variant="outline"
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex items-center gap-2 text-sm">
+        <Button className="h-11" onClick={undo} variant="outline">
+          ⟲ zurück
+        </Button>
+        <Button className="h-11" onClick={onThrow} variant="destructive">
+          ✕ raus
+        </Button>
+        <span className="text-muted-foreground ml-auto tabular-nums">
+          {tally.cellsOccluded + tally.cellsConfirmed + tally.piecesCorrected} heute
+        </span>
+      </div>
+    </div>
+  );
+}

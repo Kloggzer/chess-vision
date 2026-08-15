@@ -133,13 +133,7 @@ export async function loadProposalSummary(name: string): Promise<ProposalSummary
   return value;
 }
 
-/**
- * The board denominator of CONCEPT.md 6.2 — `|touched ∩ proposed| / |proposed|`.
- *
- * Cells are the wrong noun: their count is a function of `hi`/`lo`, so a re-propose would rewrite
- * how much work is done, while a board is a property of the recording. `judged` carries the
- * `frame|square` keys of both ledgers; a frame outside the proposals is work on another corpus.
- */
+/** Cells are the wrong noun: their count changes with thresholds; a board is stable (CONCEPT.md 6.2). */
 export function boardProgress(
   proposalFrames: Iterable<string>,
   judged: Iterable<string>,
@@ -153,13 +147,7 @@ export function boardProgress(
   return { boards: proposed.size, done: touched.size };
 }
 
-/**
- * The same figure for a whole session, WITHOUT parsing its rows when a sidecar carries `frames`.
- *
- * That is the sidecar's entire purpose: a list surface that still called `loadProposals` for the
- * frame set paid the 33 MB anyway and the file saved nothing. Only a sidecar from before `frames`
- * existed — or none at all — falls back to the rows, and then their board count is the true one.
- */
+/** Sidecars with `frames` skip parsing rows, saving 33 MB; fallback for old sidecars without it. */
 export async function boardProgressOf(
   name: string,
   judged: Iterable<string>,

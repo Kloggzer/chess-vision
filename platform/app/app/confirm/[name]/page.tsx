@@ -7,7 +7,6 @@ import { lcsReport } from "@/lib/lcs";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
 import { ConfirmReview } from "./cards";
 
-/** The recording is here, the tracker's reading of it is not. */
 async function NoCandidate({ name }: { name: string }) {
   const state = await chainState(name);
   return (

@@ -42,12 +42,7 @@ function pick(o: Record<string, unknown>, key: string): number | undefined {
   return typeof v === "number" ? v : undefined;
 }
 
-/**
- * 48 641 rows / 6.5 MB on the first real game — mtime-keyed, never re-parsed per request, and
- * pinned to `globalThis` like `lib/jobs.ts:56`: a module-level Map dies on every hot reload, which
- * on the nine files of the corpus is a quarter-million rows re-parsed per dev-server reload
- * (REVIEW.md S12).
- */
+/** Mtime-keyed to avoid re-parsing 250k rows per hot reload (REVIEW.md S12). */
 type Cache = Map<string, { key: string; value: Proposals }>;
 const cache: Cache = ((globalThis as { __chesslabProposals?: Cache }).__chesslabProposals ??= new Map());
 

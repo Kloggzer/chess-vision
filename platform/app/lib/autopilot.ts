@@ -1,14 +1,9 @@
-/**
- * Autopilot's decision half: which machine step may run now, read off the same disk state the
- * cards already render (`docs/labeling-ux/CONCEPT.md` §5).
- *
- * Pure on purpose — this picker starts a ~6 GB replay with nobody watching, so it is a function of
- * the queue rows, the job ledger and the clock, testable without a data dir or a server.
- */
+// Pure on purpose: testable without disk or server, driven by queue state and clock.
 import type { ChainStep } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 import { recordedAt, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
+import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
 /** The three steps a machine can take alone. `confirm` and `relabel` are the human's, forever. */
 export type MachineStep = "label" | "export" | "propose";
@@ -38,21 +33,28 @@ export type PlanInput = {
   lastSteps: Map<string, Job>;
   /** Session ids with a correction row younger than the hold — guard 5 (§5.5). */
   labeling: ReadonlySet<string>;
+  /** Injected so the two 90-second holds of §4.1.1 are testable without waiting for a clock. */
+  now?: number;
 };
 
-/**
- * Why this step must not start, or null.
- *
- * A failed step is never repeated automatically — one rule, no exceptions, so a broken tool cannot
- * spend the night failing. The marker is the ledger's own last row FOR THAT STEP: keyed per
- * recording it was erased by the next job of any other kind, which handed the failing step back to
- * the loop. No new state file exists for it — `kind` names the step, `state` names the verdict.
- */
-function blocker(last: Job | undefined, step: Job | undefined): { busy: true } | { reason: string } | null {
-  if (last && (last.state === "queued" || last.state === "running")) return { busy: true };
-  if (!step) return null;
+// Unparsed row via `notBefore`: held but neither busy nor no-retry marker until expiry.
+function holding(job: Job | undefined, now: number): boolean {
+  return job?.notBefore !== undefined && Date.parse(job.notBefore) > now;
+}
+
+// Failed steps never retry — marker is THIS step's last ledger row, per recording.
+function blocker(last: Job | undefined, step: Job | undefined, now: number): { busy: true } | { reason: string } | null {
+  if (holding(last, now) || holding(step, now)) return { busy: true };
+  if (last && !last.notBefore && (last.state === "queued" || last.state === "running")) return { busy: true };
+  if (!step || step.notBefore) return null;
   if (step.state === "failed" || step.state === "skipped") return { reason: step.reason ?? "gescheitert, ohne Grund im Ledger" };
   return null;
+}
+
+// Cross-client guard: candidate.json timestamp buys 90 s hold (§4.1.1).
+function freshlyConfirmed(row: QueueRow, now: number): boolean {
+  const at = Date.parse(row.confirmedAt ?? "");
+  return Number.isFinite(at) && at > now - EXPORT_HOLD_MS;
 }
 
 /** Oldest first: the backlog drains in the order it was recorded, never newest-first like the queues. */
@@ -65,7 +67,7 @@ const oldestFirst = <T extends { name: string }>(rows: T[]) => [...rows].sort((a
  * `useless` and `archived` are out by the same filters the queues apply — both flags mean "not my
  * work right now", and an autopilot that ignores them is the one thing they exist to prevent.
  */
-export function plan({ rows, lastJobs, lastSteps, labeling }: PlanInput): Plan {
+export function plan({ rows, lastJobs, lastSteps, labeling, now = Date.now() }: PlanInput): Plan {
   const eligible: Eligible[] = [];
   const repair: Repair[] = [];
   const adopt: string[] = [];
@@ -83,7 +85,9 @@ export function plan({ rows, lastJobs, lastSteps, labeling }: PlanInput): Plan {
       repair.push({ name: row.name, step, reason: chain.videoBroken });
       continue;
     }
-    const blocked = blocker(lastJobs.get(row.name), lastSteps.get(`${row.name}|${step}`));
+    // The undo the stream promised has to still be free while it is promised.
+    if (step === "export" && freshlyConfirmed(row, now)) continue;
+    const blocked = blocker(lastJobs.get(row.name), lastSteps.get(`${row.name}|${step}`), now);
     if (blocked && "reason" in blocked) {
       repair.push({ name: row.name, step, reason: blocked.reason });
       continue;
@@ -98,13 +102,7 @@ export function plan({ rows, lastJobs, lastSteps, labeling }: PlanInput): Plan {
   return { eligible: oldestFirst(eligible), repair: oldestFirst(repair), adopt: adopt.sort(byRecording) };
 }
 
-/**
- * Sessions with a correction row younger than [since], read from the ledger's tail.
- *
- * The file is append-only, so recent rows are the last ones: the scan stops at the first row older
- * than the cutoff. The caller still READS all 17 000 lines — what this saves is the `JSON.parse`
- * per line, every 30 seconds, not the file read.
- */
+// Scans tail only (append-only); saves ~2880 JSON.parse/day (not I/O).
 export function sessionsTouchedSince(text: string, since: number): Set<string> {
   const out = new Set<string>();
   const lines = text.split("\n");

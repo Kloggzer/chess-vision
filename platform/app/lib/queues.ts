@@ -18,6 +18,8 @@ export type QueueRow = {
   /** Review PNGs on disk — counted only for bare bundles, where it is all that is left to judge. */
   frames: number;
   archived: boolean;
+  /** When `confirmed` was stamped, for the export hold of §4.1.1 — absent on rows built elsewhere. */
+  confirmedAt?: string | null;
   /** The whole disk state, so a row can render the same controls a card does without re-reading. */
   chain: ChainState;
 };
@@ -100,6 +102,7 @@ export async function queueRows(): Promise<QueueRow[]> {
         plies: candidate?.moves.length ?? 0,
         frames: await bareFrames(name, chain),
         archived: meta.archived ?? false,
+        confirmedAt: candidate?.confirmed_at ?? null,
         chain,
       };
     }),

@@ -2,7 +2,19 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { labelArgs, lensFor, packArgs, packInputs, verifyPack, videoInput } from "@/lib/jobs";
+import {
+  holdExport,
+  jobHistory,
+  jobLogTail,
+  labelArgs,
+  lastByStep,
+  lensFor,
+  packArgs,
+  packInputs,
+  releaseExportHold,
+  verifyPack,
+  videoInput,
+} from "@/lib/jobs";
 
 let data: string;
 let files: string;
@@ -167,5 +179,66 @@ describe("packArgs", () => {
 
   it("refuses an id that could walk out of the data directory", () => {
     expect(() => packArgs("v.mp4", "g.json", "out", "../etc")).toThrow();
+  });
+});
+
+describe("the boundary commit's export hold (§4.1.1)", () => {
+  const NAME = "2026-08-13-19-34-23";
+
+  it("writes a row the picker can read, with notBefore and without taking the slot", async () => {
+    const job = await holdExport(NAME, 90_000);
+    expect(job).toMatchObject({ name: NAME, kind: "export", state: "skipped" });
+    expect(Date.parse(job.notBefore ?? "")).toBeGreaterThan(Date.now());
+    expect((await lastByStep()).get(`${NAME}|export`)?.notBefore).toBe(job.notBefore);
+  });
+
+  it("dequeues inside the window — nothing ran, and the ledger says so", async () => {
+    await holdExport(NAME, 90_000);
+    const taken = await releaseExportHold(NAME);
+    expect(taken.dequeued).toBe(true);
+    const last = (await lastByStep()).get(`${NAME}|export`);
+    expect(last?.reason).toBe("z — zurückgenommen, der Export lief nie");
+    // The row keeps its notBefore: to the picker a cancelled hold is still "nothing ever ran".
+    expect(last?.notBefore).toBe(taken.held?.notBefore);
+  });
+
+  it("refuses once the hold has expired — then the undo costs a re-export", async () => {
+    await holdExport(NAME, -1);
+    expect(await releaseExportHold(NAME)).toMatchObject({ dequeued: false });
+  });
+
+  it("refuses when no hold was ever written", async () => {
+    expect(await releaseExportHold(NAME)).toEqual({ dequeued: false, held: null });
+  });
+
+  it("keeps both rows in the recording's own job log, newest first", async () => {
+    await holdExport(NAME, 90_000);
+    await releaseExportHold(NAME);
+    const history = await jobHistory(NAME);
+    expect(history).toHaveLength(2);
+    expect(history[0].reason).toBe("z — zurückgenommen, der Export lief nie");
+  });
+});
+
+describe("jobLogTail — `/game/<name>`'s Job-Log", () => {
+  const job = (log?: string) => ({ name: "2026-08-13-19-34-23", state: "done" as const, queuedAt: "", log });
+
+  it("returns the last lines, blank ones dropped", async () => {
+    const log = path.join(data, "run.log");
+    await writeFile(log, ["$ replay", "state: a", "", "state: b", ""].join("\n"));
+    expect(await jobLogTail(job(log), 2)).toEqual(["state: a", "state: b"]);
+  });
+
+  it("reads only the tail of a log a replay grew to megabytes", async () => {
+    const log = path.join(data, "big.log");
+    await writeFile(log, `${"x".repeat(200_000)}\nlast line\n`);
+    const tail = await jobLogTail(job(log));
+    expect(tail.at(-1)).toBe("last line");
+    expect(tail[0].length).toBeLessThan(200_000);
+  });
+
+  it("is empty for a row that never had a log, and for one whose file is gone", async () => {
+    expect(await jobLogTail(job())).toEqual([]);
+    expect(await jobLogTail(job(path.join(data, "nope.log")))).toEqual([]);
   });
 });

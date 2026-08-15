@@ -73,6 +73,35 @@ test("an undo is a superseding row, because load_corrections is last-line-wins",
   expect((await decidedKeys("rg-rec-1")).get("004211|e2")).toBe("wQ");
 });
 
+test("a retract row takes the cell out of the judged map and leaves Python a normal label", async () => {
+  await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "occluded" }]);
+  expect((await judgedKeys("rg-rec-1")).has("004211|e2")).toBe(true);
+
+  // `z` after the flush: the label the cell falls back to, plus the tombstone.
+  const response = await post([
+    { session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wR", retract: true },
+  ]);
+  expect(response.status).toBe(200);
+
+  // The board reopens — this is the half a plain superseding row cannot do.
+  expect((await decidedKeys("rg-rec-1")).has("004211|e2")).toBe(false);
+  expect((await judgedKeys("rg-rec-1")).has("004211|e2")).toBe(false);
+
+  // And `load_corrections` reads four keys with last line winning: `wR` is the training label.
+  const last = JSON.parse((await readFile(file, "utf8")).trimEnd().split("\n").pop()!);
+  expect(last).toMatchObject({ square: "e2", label: "wR", retract: true });
+});
+
+test("the reviewed ledger is untouched by a retract — only corrections carry the tombstone", async () => {
+  await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
+  await appendCorrections([
+    { session_id: "rg-g", frame: "000030", square: "e4", label: "wP", retract: true },
+  ]);
+  // The review row still says a human looked; the corrections ledger holds no verdict.
+  expect((await decidedKeys("rg-g", "reviewed")).has("000030|e4")).toBe(true);
+  expect((await decidedKeys("rg-g")).has("000030|e4")).toBe(false);
+});
+
 test("a review row is recorded, but never in the training input", async () => {
   await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
 

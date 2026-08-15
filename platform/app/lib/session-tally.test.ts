@@ -9,7 +9,6 @@ const row = (frame: string, square: string, label: string) => ({
 });
 
 test("one board with twelve flags is ONE board, not twelve", () => {
-  // The counter this replaces read written ROWS (`streams.tsx:35`), so a single hand read as 12.
   const rows = Array.from({ length: 12 }, (_, i) => row("000100", `a${(i % 8) + 1}`, "occluded"));
   const tally = addRows(emptyTally(), rows, "corrections");
   expect(tally.boards.size).toBe(1);

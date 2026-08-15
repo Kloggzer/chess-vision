@@ -13,11 +13,7 @@ export async function GET() {
   }
 }
 
-/**
- * The pause toggle, persisted so a restart cannot un-pause the machine.
- *
- * Un-pausing ticks at once rather than waiting up to 30 s: the press IS the request to work.
- */
+// Persisted pause; un-pause ticks immediately (press = work request).
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => ({}))) as { paused?: boolean };

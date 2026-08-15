@@ -4,13 +4,7 @@ import { refused, startStep } from "@/lib/chain-run";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * One door for the chain's four steps, so the UI posts a STEP and never a command line.
- *
- * The step is checked against the disk rather than trusted: a button can be stale (a second tab, a
- * job that finished while the page sat open), and running `export-session` on an unconfirmed
- * candidate writes an empty session that looks like a failure of the recording.
- */
+// Single interface: step checked against disk, not trusted (button can be stale).
 export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name]">) {
   const { name } = await ctx.params;
   try {

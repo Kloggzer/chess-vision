@@ -1,13 +1,4 @@
-/**
- * The one door into the chain, for the button and for the Autopilot.
- *
- * The step is checked against the DISK rather than trusted: a button can be stale and an autopilot
- * tick can be a second old, and running `export-session` on an unconfirmed candidate writes an
- * empty session that looks like a failure of the recording. Refusal is a 409 with the state.
- *
- * The heavy lock is taken HERE, not in the Autopilot: a lock only the loop respects is no lock at
- * all — the button starts the same 6 GB replay. It is released when the queue runs dry (`jobs.ts`).
- */
+// Single door for button & autopilot; lock taken here (not loop) — button must respect it too.
 import { chainState, type ChainState } from "@/lib/chain";
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/autopilot-state";
 import { enqueueChain, enqueueLabel, type Job } from "@/lib/jobs";

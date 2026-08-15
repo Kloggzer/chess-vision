@@ -13,7 +13,7 @@
  */
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { appendFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { alive, releaseHeavyLock } from "@/lib/autopilot-state";
 import { checkName, dataDir } from "@/lib/data";
@@ -51,6 +51,9 @@ export type Job = {
   lens?: boolean;
   /** The server process that wrote the row. Absent on every row written before this key existed. */
   pid?: number;
+  /** Wall clock before which the picker must not start this step — the boundary commit's undo
+   *  window (§4.1.1). Additive, declared in the §9.1 register; nothing in Python reads this file. */
+  notBefore?: string;
 };
 
 type Queue = { jobs: Map<string, Job>; running: Promise<void> };
@@ -270,12 +273,17 @@ async function guard(job: Job, run: () => Promise<void>): Promise<void> {
   }
 }
 
-async function record(job: Job): Promise<void> {
-  queue.jobs.set(job.name, job);
+/** The ledger line alone — a row that names no slot (`holdExport`) never enters the queue. */
+async function appendRow(job: Job): Promise<void> {
   await mkdir(jobsDir(), { recursive: true });
   // `pid` is what lets a SECOND server tell "a job died with its process" from "another process is
   // running this right now" — without it every foreign row read as a corpse (see `restartedRows`).
   await appendFile(path.join(inboxDir(), "jobs.jsonl"), JSON.stringify({ ...job, pid: process.pid }) + "\n", "utf8");
+}
+
+async function record(job: Job): Promise<void> {
+  queue.jobs.set(job.name, job);
+  await appendRow(job);
 }
 
 /**
@@ -461,21 +469,8 @@ async function runPack(job: Job): Promise<void> {
   });
 }
 
-/**
- * The most informative line a failed run printed.
- *
- * FFmpeg narrates its container probe over dozens of lines, so the LAST line is usually metadata
- * and the useful one is an exception or a refusal a few lines above it.
- */
-/**
- * Only the CURRENT run's lines.
- *
- * A job appends to `<name>.<kind>.log`, which is right — the history of what a recording was put
- * through is worth keeping. But reading the whole file for "what went wrong" finds the previous
- * run's exception: on 2026-08-13 the card blamed a lens refusal for a run that never asked for a
- * lens fit, while the real refusal (a quad spread of 23 px — the board moved) sat unread below it.
- * Each run starts with its own `$ <command>` line, and that line is the boundary.
- */
+/** Only the CURRENT run's lines — on 2026-08-13 the card blamed a previous run's exception
+ * because the whole file was read. Each run starts with `$ <command>`, the boundary. */
 export function lastRunOf(text: string): string[] {
   const lines = text.split(/\r?\n/);
   const start = lines.map((l, i) => (l.startsWith("$ ") ? i : -1)).filter((i) => i >= 0).at(-1);
@@ -580,6 +575,86 @@ export async function enqueueChain(
   queue.jobs.set(name, job);
   queue.running = queue.running.then(() => guard(job, () => runChesslab(job, step))).then(releaseWhenIdle);
   return job;
+}
+
+/**
+ * The boundary commit's own export row: enqueued, but not before `notBefore` (§4.1.1).
+ *
+ * It is a LEDGER row and no slot: the picker is what starts it once the hold expires, so the
+ * export still passes the pause, the heavy lock and the 409 step check a timer here would jump.
+ * `skipped` is the honest state for a row that has not run — `queued` would read as a corpse to
+ * `restarted()` and would make the recording look busy on every card.
+ */
+export async function holdExport(name: string, holdMs: number): Promise<Job> {
+  checkName(name, "game name");
+  const notBefore = new Date(Date.now() + holdMs).toISOString();
+  const job: Job = {
+    name,
+    kind: "export",
+    state: "skipped",
+    reason: `Export gehalten bis ${notBefore} — z macht die Bestätigung so lange kostenlos rückgängig`,
+    queuedAt: new Date().toISOString(),
+    notBefore,
+  };
+  await appendRow(job);
+  return job;
+}
+
+/**
+ * `z` inside the window: take the held export back. False = there is nothing to take back, either
+ * because the hold expired or because the export has since started — then the undo costs a
+ * re-export and the UI has to say so instead of claiming nothing happened.
+ */
+export async function releaseExportHold(name: string): Promise<{ dequeued: boolean; held: Job | null }> {
+  checkName(name, "game name");
+  const held = (await lastByStep()).get(`${name}|export`) ?? null;
+  if (!held?.notBefore || Date.parse(held.notBefore) <= Date.now()) return { dequeued: false, held };
+  await appendRow({
+    ...held,
+    state: "skipped",
+    reason: "z — zurückgenommen, der Export lief nie",
+    finishedAt: new Date().toISOString(),
+  });
+  return { dequeued: true, held };
+}
+
+const TAIL_BYTES = 64 * 1024;
+
+/** A replay writes megabytes into one log; `/game/<name>` shows its last words, not the file. */
+export async function jobLogTail(job: Job, lines = 30): Promise<string[]> {
+  if (!job.log) return [];
+  const info = await stat(job.log).catch(() => null);
+  if (!info || info.size === 0) return [];
+  const handle = await open(job.log, "r");
+  try {
+    const length = Math.min(TAIL_BYTES, info.size);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, info.size - length);
+    return buffer.toString("utf8").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean).slice(-lines);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Every ledger row of ONE recording, newest first — the job log of `/game/<name>` (§3.1). */
+export async function jobHistory(name: string, limit = 20): Promise<Job[]> {
+  checkName(name, "game name");
+  const rows: Job[] = [];
+  try {
+    const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const row = JSON.parse(line) as Job;
+        if (row.name === name) rows.push(row);
+      } catch {
+        /* a half-written line is not a job */
+      }
+    }
+  } catch {
+    /* no job has ever run */
+  }
+  return rows.reverse().slice(0, limit);
 }
 
 /** `uv` by default, because that is what `README.md` tells a human to type. */

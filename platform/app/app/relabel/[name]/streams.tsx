@@ -30,10 +30,8 @@ export type StreamProps = {
 type Tab = "hands" | "confirm" | "unsure" | "control" | "board" | "filter";
 
 /**
- * Was diese Sitzung getan hat (CONCEPT.md 6.1) — daneben, was die Session insgesamt schuldet.
- *
- * „seit dem Laden" steht dran, weil beim Reload alles auf 0 geht: die dauerhafte Zahl ist der
- * Brett-Anteil links, und der kommt vom Server.
+ * What this session did (CONCEPT.md 6.1) + what it owes overall.
+ * "since load" because reload zeros counters; persistent number from server.
  */
 function SessionPanel({
   boards,
@@ -101,9 +99,7 @@ export function Streams(props: StreamProps) {
   ];
   const allDone = buckets.every(([key, cells]) => doneTabs.has(key) || cells.length === 0);
 
-  // Exceptions thrown out of a bucket page land on the painting queue: their frames join the
-  // hand boards, the thrown squares outlined, so the human RULES on them with the brush instead
-  // of swiping crops one by one.
+  // Exceptions from bucket → painting queue: rule with brush, not crops.
   const handHits: FilterHit[] = useMemo(() => {
     const byStem = new Map(hands.map((h) => [h.stem, { ...h, squares: [...h.squares] }]));
     for (const cell of exceptions) {

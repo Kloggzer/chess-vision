@@ -18,24 +18,19 @@ export const CLASSES = [
   "occluded",
 ] as const;
 
-export type Correction = { session_id: string; frame: string; square: string; label: string };
+/** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
+export type Correction = {
+  session_id: string;
+  frame: string;
+  square: string;
+  label: string;
+  retract?: boolean;
+};
 export type CorrectionRow = Correction & { ts: string };
 
 const SQUARE = /^[a-h][1-8]$/;
 
-/**
- * Two ledgers, one schema, and the difference matters.
- *
- * `corrections` is the GLOBAL TRAINING INPUT: every row changes every later slice. `reviewed` is
- * PROVENANCE — "a human looked at this cell and the FEN was already right". Nothing on the Python
- * side reads it, on purpose: a row that restates the FEN teaches a slice nothing and would only be
- * noise in the file that feeds training.
- *
- * It exists because "looked at and correct" was previously indistinguishable from "never looked
- * at": the control bucket wrote nothing, so its ~180 cells came back identical after every reload
- * ("warum bekomme ich bei bucket keine weiteren Vorschläge sondern immer nur die alten",
- * 2026-08-09). The work was real; only the record was missing.
- */
+/** `corrections` = GLOBAL TRAINING INPUT; `reviewed` = provenance only (Python skips it). Solves 2026-08-09 cache reload issue. */
 export type Ledger = "corrections" | "reviewed";
 
 export function ledgerPath(ledger: Ledger = "corrections"): string {
@@ -59,6 +54,9 @@ export function validate(row: unknown): Correction {
     frame: r.frame as string,
     square: r.square as string,
     label: r.label as string,
+    // Only the literal `true` survives: an absent key must not become `"retract": false` noise in
+    // a file every later slice reads.
+    ...(r.retract === true ? { retract: true as const } : {}),
   };
 }
 
@@ -100,7 +98,10 @@ async function ledgerRows(ledger: Ledger): Promise<BySession> {
     try {
       const row = JSON.parse(line) as CorrectionRow;
       const session = bySession.get(row.session_id) ?? new Map<string, string>();
-      session.set(`${row.frame}|${row.square}`, row.label);
+      // The tombstone of CONCEPT.md 4.2.2: the cell leaves the judged map, so the board reopens.
+      // Python still sees a normal last-wins row and takes `label`.
+      if (row.retract === true) session.delete(`${row.frame}|${row.square}`);
+      else session.set(`${row.frame}|${row.square}`, row.label);
       bySession.set(row.session_id, session);
     } catch {
       /* a half-written line is not a verdict */

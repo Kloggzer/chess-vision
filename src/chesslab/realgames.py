@@ -1,10 +1,5 @@
-"""Real-game candidates: the label is confirmed against the game that was played, or it is nothing.
-
-Everything downstream labels crops from "the position at frame N was X", and the Kotlin writer
-cannot vouch for that claim — `RealGameCandidate.writeCandidate` hardcodes `confirmed: false`.
-Where the true game is on disk as `reference.pgn`, the check is mechanical: an order-preserving
-LCS over SANs decides the agreements, and a human only ever looks at the disagreements.
-"""
+"""Real-game candidates: label confirmed against played game, or nothing.
+LCS over SANs decides matches; human sees only disagreements."""
 
 from __future__ import annotations
 
@@ -58,13 +53,9 @@ def truth_sans(name: str) -> list[str]:
 def lcs_report(
     truth: list[str], cand: list[str]
 ) -> tuple[list[tuple[int, int]], list[int], list[int]]:
-    """Order-preserving match of candidate SANs against the truth SANs.
-
-    Mirrors `RealGameScore.scoreMoves` including its tie-break (truth advances first), so a move
-    committed out of order counts as invented instead of quietly matching a later identical SAN
-    backwards. Returns matched (truth, candidate) index pairs, invented candidate indices and
-    missed truth indices.
-    """
+    """Order-preserving match of candidate SANs.
+    Mirrors `RealGameScore.scoreMoves` (truth advances first).
+    Returns matched pairs, invented indices, missed indices."""
     n, m = len(truth), len(cand)
     table = [[0] * (m + 1) for _ in range(n + 1)]
     for i in range(n - 1, -1, -1):
@@ -108,7 +99,7 @@ def report_lines(
     invented: list[int],
     missed: list[int],
 ) -> list[str]:
-    """The verdict as three lists, never as one accuracy — the two directions do not average."""
+    """Verdict as three lists, never one accuracy — two directions don't average."""
     lines = [
         f"{name}: {len(moves)} candidate plies vs {len(truth)} in reference.pgn",
         f"  matched {len(matched)}",
@@ -142,12 +133,8 @@ def write_confirmation(name: str, candidate: dict, plies: list[int]) -> Path:
 
 
 def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) -> dict:
-    """Compare a candidate to its reference game, then write the human's verdict.
-
-    `ask` decides one invented ply at a time — a resync-era candidate may legitimately hold a
-    ply the PGN has as a later duplicate, and only a human can tell. Without it, and always
-    under `yes`, an unmatched ply is rejected; that is the scripted case.
-    """
+    """Compare candidate to reference game, write verdict.
+    `ask` decides invented plies one at a time; under `yes`, unmatched plies rejected."""
     candidate = load_candidate(name)
     truth = truth_sans(name)
     moves = candidate["moves"]

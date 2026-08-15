@@ -1,10 +1,4 @@
-/**
- * The two files beside the inbox: the machine-wide lock and the pause switch.
- *
- * Both exist for a failure nobody sees while it happens — a second heavy job on a 32 GB machine,
- * and an autopilot that starts replaying because `next dev` reloaded. So they are tested against
- * the disk, not against a mock: the whole point is what the FILE says.
- */
+// Test against disk, not mock — the whole point is file semantics.
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
