@@ -125,7 +125,7 @@ export function Shell({ counts, children }: { counts: NavCounts; children: React
           {rest}
           <span className={`ml-auto h-2 w-2 shrink-0 rounded-full ${autopilotDot(autopilot.status)}`} />
         </nav>
-        <main className="mx-auto w-full max-w-5xl px-3 py-4 sm:px-6 sm:py-6">{children}</main>
+        <main className="mx-auto w-full max-w-5xl px-3 py-4 sm:px-6 sm:py-6 2xl:max-w-[1560px]">{children}</main>
       </div>
     </div>
   );

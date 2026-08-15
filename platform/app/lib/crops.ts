@@ -8,7 +8,7 @@
  * `sharp` is used for exactly two things — PNG in, PNG out. The sampling is `lib/warp.ts`;
  * sharp has no projective warp (only `.affine()`), and Node has no PNG codec.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { framePath, loadSession, type Session } from "@/lib/session";
 import { boardToImage, sampleBox, squareCropBox, type Raster } from "@/lib/warp";
@@ -54,12 +54,33 @@ function homographyFor(session: Session, stem: string) {
   return boardToImage(corners, session.boardSize, session.margin);
 }
 
+/**
+ * Fertige Zell-PNGs, LRU über Sitzungsgrenzen: die Audit-Sortierung streut eine Seite über ~50
+ * VERSCHIEDENE Frames, der 24er-Raster-Cache thrashte zu 100 % und jede Zelle zahlte den vollen
+ * Frame-Decode („der cache aufm server ist zu klein", 2026-08-15). mtime im Schlüssel hält einen
+ * Re-Export ehrlich; ~6000 × ~15 KB deckelt den Speicher.
+ */
+const CELL_PNGS_MAX = 6000;
+type CellPngs = Map<string, Buffer>;
+const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__chesslabCellPngs ??= new Map());
+
 /** One square, cut with the profile's crop box (pad_side/pad_up), as the CNN would see it. */
 export async function cellPng(name: string, stem: string, square: string, size: number) {
+  const mtime = await stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0);
+  const key = `${name}|${stem}|${square}|${size}|${mtime}`;
+  const hit = cellPngs.get(key);
+  if (hit) {
+    cellPngs.delete(key);
+    cellPngs.set(key, hit);
+    return hit;
+  }
   const session = await loadSession(name);
   const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
   const rgb = sampleBox(await frameRaster(name, stem), homographyFor(session, stem), box, size, size);
-  return png(rgb, size, size);
+  const out = await png(rgb, size, size);
+  cellPngs.set(key, out);
+  if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
+  return out;
 }
 
 /** The whole playing field, rectified — the drilldown's canvas and the tinder thumbnail. */

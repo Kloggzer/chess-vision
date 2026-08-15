@@ -159,14 +159,15 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
     "classwall",
   )[0];
   expect(wall).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
-  expect(wall.note).toBe("Modell bB 0.91");
+  expect(wall.note).toBe("Modell bB");
 
   const audit = laneCells(
     streamOf({ audit: [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", predicted: "bB", prob: 0.91, margin: 0.62 }] }),
     "audit",
   )[0];
   expect(audit).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
-  expect(audit.note).toContain("margin 0.62");
+  // Nur die zwei Worte, die das Urteil braucht — prob/margin waren Karten-Lärm (User, 2026-08-15).
+  expect(audit.note).toBe("Modell bB");
 });
 
 test("Abnicken counts its own bundles and closes a board on the first verdict of any square", () => {

@@ -165,7 +165,6 @@ function judgedCell(c: {
   session: number; pos: number; stem: string; square: string; fen_label: string;
   predicted: string; prob: number; margin?: number;
 }): LaneCell {
-  const margin = c.margin === undefined ? "" : ` · margin ${p2(c.margin)}`;
   return {
     session: c.session,
     pos: c.pos,
@@ -175,8 +174,8 @@ function judgedCell(c: {
     label: c.fen_label,
     ledger: "reviewed",
     exception: c.predicted,
-    caption: `${c.square} FEN ${c.fen_label}`,
-    note: `Modell ${c.predicted} ${p2(c.prob)}${margin}`,
+    caption: `${c.square} · FEN ${c.fen_label}`,
+    note: `Modell ${c.predicted}`,
   };
 }
 

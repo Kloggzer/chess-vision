@@ -29,6 +29,7 @@ const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
  */
 export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlush }: CellLaneProps) {
   const [marked, setMarked] = useState<Set<number>>(new Set());
+  const [wrong, setWrong] = useState<Set<number>>(new Set());
   const [cursor, setCursor] = useState(0);
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
@@ -43,6 +44,16 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
   const pages = Math.max(1, Math.ceil(open.length / PAGE));
   const safePage = Math.min(page, pages - 1);
   const slice = useMemo(() => open.slice(safePage * PAGE, safePage * PAGE + PAGE), [open, safePage]);
+
+  // Die nächste Seite wird vorgewärmt, während geurteilt wird: die Crops entstehen serverseitig,
+  // und der Umblätter-Moment war die spürbare Wartezeit (User, 2026-08-15). 1-h-Cache trägt sie.
+  useEffect(() => {
+    const next = open.slice((safePage + 1) * PAGE, (safePage + 2) * PAGE);
+    for (const c of next) {
+      const img = new window.Image();
+      img.src = `/api/cell/${sessions[c.session].name}/${c.stem}/${c.square}?size=${CROP}`;
+    }
+  }, [open, safePage, sessions]);
 
   const rows = useCallback(
     (list: LaneCell[], label: (c: LaneCell) => string): Correction[] =>
@@ -71,7 +82,9 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
    */
   const accept = useCallback(async () => {
     if (slice.length === 0) return;
-    const taken = slice.filter((_, i) => !marked.has(i));
+    // „stimmt nicht"-Zellen schreiben NICHTS: ohne Ledger-Zeile bleiben sie offen und kommen bei
+    // der nächsten Sitzung wieder — genau die versprochene spätere Aufbereitung.
+    const taken = slice.filter((_, i) => !marked.has(i) && !wrong.has(i));
     const exceptions = slice.filter((c, i) => marked.has(i) && c.exception !== null);
     const writes: Verdict[] = [
       { rows: rows(taken.filter((c) => c.ledger === "corrections"), (c) => c.label), ledger: "corrections" },
@@ -81,34 +94,58 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     await onFlush(slice[0].pos, writes, priorOf(slice));
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setMarked(new Set());
+    setWrong(new Set());
     setCursor(0);
-  }, [marked, onFlush, priorOf, rows, slice]);
+  }, [marked, onFlush, priorOf, rows, slice, wrong]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setMarked(new Set());
+    setWrong(new Set());
     setCursor(0);
   }, [slice]);
 
-  /** A palette key states the label for the MARKED cells, straight into the training input. */
+  /** A palette key states the label for every marked cell, straight into the training input. */
   const brush = useCallback(
     async (label: string) => {
-      const picked = slice.filter((_, i) => marked.has(i));
+      const picked = slice.filter((_, i) => marked.has(i) || wrong.has(i));
       if (picked.length === 0) return;
       await onFlush(picked[0].pos, [{ rows: rows(picked, () => label), ledger: "corrections" }], priorOf(picked));
       setSkipped((s) => new Set([...s, ...picked.map(keyOf)]));
       setMarked(new Set());
+      setWrong(new Set());
     },
-    [marked, onFlush, priorOf, rows, slice],
+    [marked, onFlush, priorOf, rows, slice, wrong],
   );
 
-  const toggle = (i: number) =>
+  /** Klick: „stimmt nicht" — undecided, wird NICHT geschrieben und kommt später wieder hoch. */
+  const toggleWrong = (i: number) => {
+    setWrong((w) => {
+      const next = new Set(w);
+      if (!next.delete(i)) next.add(i);
+      return next;
+    });
+    setMarked((m) => {
+      const next = new Set(m);
+      next.delete(i);
+      return next;
+    });
+  };
+
+  /** Rechtsklick: „das Modell hat recht" — sein Wort wird beim Seiten-Commit geschrieben. */
+  const toggleModel = (i: number) => {
     setMarked((m) => {
       const next = new Set(m);
       if (!next.delete(i)) next.add(i);
       return next;
     });
+    setWrong((w) => {
+      const next = new Set(w);
+      next.delete(i);
+      return next;
+    });
+  };
 
   const now = useRef({ accept, discard, brush, cursor, slice });
   useEffect(() => {
@@ -118,7 +155,8 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     actionsRef.current = {
       commit: () => void now.current.accept(),
       reject: () => now.current.discard(),
-      toggleAt: () => toggle(now.current.cursor),
+      toggleAt: () => toggleWrong(now.current.cursor),
+      gridAt: () => toggleModel(now.current.cursor),
       brush: (label) => void now.current.brush(label),
       step: (delta) => setCursor((i) => Math.max(0, Math.min(now.current.slice.length - 1, i + delta))),
       undo: () => false,
@@ -136,13 +174,24 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
   return (
     <div className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
+        {/* Die Behauptung der Seite, GROSS — pro Karte danach suchen war die Beschwerde (2026-08-15). */}
+        <span className="bg-background rounded border px-2 py-0.5 font-mono text-lg font-bold">
+          FEN {[...new Set(slice.map((c) => c.fen_label))].join(" · ") || "—"}
+        </span>
+        {head.exception !== null ? (
+          <span className="bg-background rounded border px-2 py-0.5 font-mono text-lg font-bold text-fuchsia-300">
+            Modell {[...new Set(slice.map((c) => c.exception ?? "—"))].join(" · ")}
+          </span>
+        ) : null}
         <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
         <span className="text-muted-foreground">
-          {open.length} Zellen offen · Seite {safePage + 1}/{pages} · {marked.size} Ausnahmen
-          {head.exception === null ? "" : " (Ausnahme = das Modell hat recht)"}
+          {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick = stimmt nicht (bleibt
+          offen) · Rechtsklick = Modell hat recht
         </span>
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void accept()} size="sm">
-          ⏎ {slice.length - marked.size} Zellen bestätigen
+          ⏎ {slice.length - marked.size - wrong.size} bestätigen
+          {marked.size > 0 ? ` · ${marked.size}× Modell` : ""}
+          {wrong.size > 0 ? ` · ${wrong.size} offen lassen` : ""}
         </Button>
         <Button className={TOUCH} disabled={safePage + 1 >= pages} onClick={() => setPage(safePage + 1)} size="sm" variant="outline">
           Seite überspringen
@@ -159,10 +208,33 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
         }))}
         cursor={cursor}
         marked={marked}
+        onContextPick={(i) => {
+          setCursor(i);
+          toggleModel(i);
+        }}
         onPick={(i) => {
           setCursor(i);
-          toggle(i);
+          toggleWrong(i);
         }}
+        onSweep={(i, mode) => {
+          setCursor(i);
+          if (mode === "left") {
+            setWrong((w) => new Set(w).add(i));
+            setMarked((m) => {
+              const next = new Set(m);
+              next.delete(i);
+              return next;
+            });
+          } else {
+            setMarked((m) => new Set(m).add(i));
+            setWrong((w) => {
+              const next = new Set(w);
+              next.delete(i);
+              return next;
+            });
+          }
+        }}
+        wrong={wrong}
       />
     </div>
   );

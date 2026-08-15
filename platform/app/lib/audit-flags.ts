@@ -73,7 +73,23 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
       /* a half-written line is not a flag */
     }
   }
-  rows.sort((a, b) => b.margin - a.margin);
+  // Grouped by the CLAIMED label and INSIDE that by the model's word, biggest groups first: a page
+  // then carries ONE claim ("FEN bP, Modell empty") and the eye only hunts the outlier (2026-08-15).
+  const groupSize = new Map<string, number>();
+  const subSize = new Map<string, number>();
+  for (const row of rows) {
+    groupSize.set(row.fen_label, (groupSize.get(row.fen_label) ?? 0) + 1);
+    const sub = `${row.fen_label}|${row.predicted}`;
+    subSize.set(sub, (subSize.get(sub) ?? 0) + 1);
+  }
+  rows.sort(
+    (a, b) =>
+      (groupSize.get(b.fen_label) ?? 0) - (groupSize.get(a.fen_label) ?? 0) ||
+      a.fen_label.localeCompare(b.fen_label) ||
+      (subSize.get(`${b.fen_label}|${b.predicted}`) ?? 0) - (subSize.get(`${a.fen_label}|${a.predicted}`) ?? 0) ||
+      a.predicted.localeCompare(b.predicted) ||
+      b.margin - a.margin,
+  );
   const value: AuditFlags = { rows, present: true };
   cache.set(file, { key, value });
   return value;

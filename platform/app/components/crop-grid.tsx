@@ -8,8 +8,9 @@ import { useEffect, useRef, useState } from "react";
  * Cell grid and board reach different work; folding leaves unsure cells unreachable.
  */
 
-/** One page. Sixty crops is what a desktop screen holds without scrolling past the decision. */
-export const PAGE = 60;
+/** One page: 5 Zeilen × 10 Spalten auf dem 16:9-Monitor, ohne Scrollen — die ganze Seite in einem
+ *  Blick ist der Punkt der Eine-Behauptung-pro-Seite-Audits (User, 2026-08-15). */
+export const PAGE = 50;
 
 /**
  * The smallest a crop may be drawn, in CSS pixels — the grid fits as many columns as that allows.
@@ -38,11 +39,18 @@ export type CropGridProps = {
   cursor: number;
   marked: Set<number>;
   onPick: (index: number) => void;
+  /** „stimmt nicht, aber unentschieden" — gestrichelt, wird nirgends geschrieben (Audit-Lane). */
+  wrong?: Set<number>;
+  /** Rechtsklick, wo eine Lane ihm eine zweite Antwort gibt (Audit: „das Modell hat recht"). */
+  onContextPick?: (index: number) => void;
+  /** Wischen wie mit dem Brett-Pinsel: SETZT den Zustand jeder berührten Zelle, kein Toggle. */
+  onSweep?: (index: number, mode: "left" | "right") => void;
   /** How many columns `auto-fill` chose — up/down must move by the row the user actually sees. */
   onColumns?: (cols: number) => void;
 };
 
-export function CropGrid({ cells, cursor, marked, onPick, onColumns }: CropGridProps) {
+export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, onSweep, onColumns }: CropGridProps) {
+  const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
   // The column count is the BROWSER's answer, not ours: `auto-fill` decides it from the width.
@@ -59,17 +67,67 @@ export function CropGrid({ cells, cursor, marked, onPick, onColumns }: CropGridP
   useEffect(() => onColumns?.(cols), [cols, onColumns]);
   return (
     <div
-      className="grid gap-1.5"
+      className="grid select-none grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5 2xl:grid-cols-10"
+      onPointerLeave={() => {
+        painting.current = null;
+      }}
+      onPointerUp={() => {
+        painting.current = null;
+      }}
       ref={grid}
-      style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${MIN_CELL}px, 1fr))` }}
     >
       {cells.map((cell, i) => (
         <div
-          className={`relative cursor-pointer overflow-hidden rounded border-2 ${
-            marked.has(i) ? "border-amber-500" : "border-transparent"
+          className={`cursor-pointer overflow-hidden rounded border-2 ${
+            marked.has(i)
+              ? "border-amber-500"
+              : wrong?.has(i)
+                ? "border-destructive border-dashed"
+                : "border-transparent"
           } ${i === cursor ? "ring-primary ring-2" : ""}`}
           key={cell.key}
-          onClick={() => onPick(i)}
+          onClick={onSweep ? undefined : () => onPick(i)}
+          onContextMenu={
+            onContextPick || onSweep
+              ? (event) => {
+                  event.preventDefault();
+                  if (!onSweep) onContextPick?.(i);
+                }
+              : undefined
+          }
+          onPointerDown={
+            onSweep
+              ? (event) => {
+                  if (event.button !== 0 && event.button !== 2) return;
+                  painting.current = { mode: event.button === 2 ? "right" : "left", start: i, dragged: false };
+                }
+              : undefined
+          }
+          onPointerEnter={
+            onSweep
+              ? () => {
+                  const p = painting.current;
+                  if (!p) return;
+                  if (!p.dragged) {
+                    p.dragged = true;
+                    onSweep(p.start, p.mode);
+                  }
+                  onSweep(i, p.mode);
+                }
+              : undefined
+          }
+          onPointerUp={
+            onSweep
+              ? (event) => {
+                  event.stopPropagation();
+                  const p = painting.current;
+                  painting.current = null;
+                  if (!p) return;
+                  // Ohne Zug bleibt der Klick der Toggle; ein Wisch hat die Zelle schon gesetzt.
+                  if (!p.dragged) (p.mode === "right" ? onContextPick : onPick)?.(i);
+                }
+              : undefined
+          }
           role="button"
           tabIndex={-1}
         >
@@ -81,10 +139,14 @@ export function CropGrid({ cells, cursor, marked, onPick, onColumns }: CropGridP
             unoptimized
             width={CROP}
           />
-          <span className="bg-background/70 absolute bottom-0 left-0 px-1 font-mono text-[11px]">
+          {/* Unter dem Bild, nie darauf: die Pixel SIND die Entscheidung („einfacher wäre es wenn
+              ich das bild ganz sehe und unter der card dann die echten namen", 2026-08-15). */}
+          <div className="px-1 py-0.5 font-mono text-[11px] leading-tight">
             {cell.caption}
-            {cell.note ? <span className="block text-fuchsia-300">{cell.note}</span> : null}
-          </span>
+            {cell.note ? (
+              <span className="block text-sm font-bold text-fuchsia-300">{cell.note}</span>
+            ) : null}
+          </div>
         </div>
       ))}
     </div>
