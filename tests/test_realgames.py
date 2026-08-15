@@ -423,7 +423,9 @@ def test_proposals_conform_to_the_pinned_schema(tmp_path):
     path = write_proposals(tmp_path / "occluded-proposals.jsonl", rows, hi=0.7, lo=0.3)
 
     lines = path.read_text(encoding="utf-8").splitlines()
-    assert json.loads(lines[0]) == {"_thresholds": {"hi": 0.7, "lo": 0.3}}
+    assert json.loads(lines[0]) == {
+        "_thresholds": {"hi": 0.7, "lo": 0.3, "model": None, "written_at": None}
+    }
     row = json.loads(lines[1])
     assert list(row) == ["session_id", "frame", "square", "fen_label", "proposed", "score"]
     assert row["frame"] == "004211" and "/" not in row["frame"] and ".png" not in row["frame"]

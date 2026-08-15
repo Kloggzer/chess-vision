@@ -29,6 +29,8 @@ And one about the samples themselves: they come from a WINDOW of intervals, not 
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
@@ -388,13 +390,92 @@ def _proposal(
     return row
 
 
-def write_proposals(path: Path, rows: list[dict], *, hi: float, lo: float) -> Path:
-    """Line 1 is the thresholds header, then one proposal per line (entry.md's pinned schema)."""
+CONTROL_MAX = 180  # `lib/proposals.ts` CONTROL_MAX — mirrored so the sidecar's `control` count
+# matches the UI stream without re-deriving which rows it sampled (see `stream_counts`).
+
+
+def stream_counts(rows: list[dict], hi: float, lo: float) -> dict[str, int]:
+    """Row counts per UI stream — the score predicates of `splitStreams` (`lib/proposals.ts`).
+
+    `control` is the SIZE of `splitStreams`' step-sampled downsample of the below-`lo` rows: that
+    count depends only on how many rows are below `lo`, not on their order or which ones get
+    picked, so it is safe to reproduce here without the page's score-sorted row list.
+
+    Two DECLARED divergences, both on the page's side: its `confirm` stream narrows to
+    `proposed == "occluded"` (the census here is the file's, the stream is the question the page
+    asks), and on a file with no `_thresholds` header it falls back to its own DEFAULTS
+    (`loadProposals`, hi 0.7 / lo 0.3) instead of the `hi`/`lo` this run was given.
+    """
+    confirm = sum(1 for r in rows if r["score"] > hi)
+    unsure = sum(1 for r in rows if lo <= r["score"] <= hi)
+    below = sum(1 for r in rows if r["score"] < lo)
+    step = max(1, (below + CONTROL_MAX - 1) // CONTROL_MAX)
+    return {"confirm": confirm, "unsure": unsure, "control": (below + step - 1) // step}
+
+
+def write_proposals(
+    path: Path,
+    rows: list[dict],
+    *,
+    hi: float,
+    lo: float,
+    model: Path | None = None,
+    written_at: str | None = None,
+) -> Path:
+    """Line 1 is the thresholds header, then one proposal per line (entry.md's pinned schema).
+
+    `model`/`written_at` are additive keys inside `_thresholds` — CONCEPT.md 5.3's per-session
+    provenance. Its inner shape is unpinned (`lib/proposals.ts:74-80`), so an old reader ignores
+    them and a file written before this change still parses.
+
+    Atomic (tmp + `os.replace`) like `write_summary`: truncate-and-write means a crashed run leaves
+    a HALF file under the real name, and the app reads that name mtime-keyed without a checksum.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"_thresholds": {"hi": hi, "lo": lo}}) + "\n")
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    header = {"hi": hi, "lo": lo, "model": str(model) if model else None, "written_at": written_at}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"_thresholds": header}) + "\n")
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return path
+
+
+def write_summary(
+    path: Path, rows: list[dict], *, hi: float, lo: float, model: Path | None, written_at: str
+) -> Path:
+    """The `occluded-proposals.summary.json` sidecar (CONCEPT.md 6.3, artifact 2).
+
+    `/corpus` needs per-session stream counts on nine sessions at once; this lets it read a few
+    hundred bytes instead of parsing 33 MB of proposal rows. Atomic (tmp + `os.replace`): a
+    half-written sidecar is worse than a missing one, since a missing one just falls back to
+    parsing the jsonl.
+
+    `frames` is the sorted list of distinct stems, not just their count (CONCEPT.md 6.3): the
+    progress figure is `|touched ∩ proposal frames|` and needs the SET — a counter alone would
+    leave every reader parsing the jsonl anyway, which is the cost this file exists to remove.
+    """
+    frames = sorted({r["frame"] for r in rows})
+    summary = {
+        "boards": len(frames),
+        "cells": len(rows),
+        "frames": frames,
+        "by_stream": stream_counts(rows, hi, lo),
+        "hi": hi,
+        "lo": lo,
+        "model": str(model) if model else None,
+        "written_at": written_at,
+    }
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(json.dumps(summary) + "\n", encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
     return path
 
 
@@ -406,16 +487,25 @@ def propose_occluded(
     model_dir: Path | None = None,
     grid_on: bool = True,
 ) -> dict:
-    """Score every dirty cell of `data/sessions/rg-<name>/` into `occluded-proposals.jsonl`."""
+    """Score every dirty cell of `data/sessions/rg-<name>/` into `occluded-proposals.jsonl`,
+    plus the `occluded-proposals.summary.json` sidecar `/corpus` reads instead (CONCEPT.md 6.3)."""
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not (session_dir / "log.jsonl").exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     rows, skipped = proposal_rows(session_dir, hi=hi, model_dir=model_dir, grid_on=grid_on)
+    written_at = datetime.now(UTC).isoformat()
+    game_dir = config.DATA.root / "realgames" / name
     path = write_proposals(
-        config.DATA.root / "realgames" / name / "occluded-proposals.jsonl", rows, hi=hi, lo=lo
+        game_dir / "occluded-proposals.jsonl", rows, hi=hi, lo=lo, model=model_dir,
+        written_at=written_at,
+    )
+    summary_path = write_summary(
+        game_dir / "occluded-proposals.summary.json", rows, hi=hi, lo=lo, model=model_dir,
+        written_at=written_at,
     )
     return {
         "path": path,
+        "summary_path": summary_path,
         "rows": rows,
         "occluded": sum(1 for r in rows if r["proposed"] == "occluded"),
         "skipped_plies": skipped,
