@@ -194,7 +194,6 @@ export function Streams(props: StreamProps) {
           onError={failed}
           onWritten={wrote}
           queueNote="Hände einzeichnen"
-          reads={hand.reads}
           sessionId={sessionId}
         />
       ) : null}
@@ -229,7 +228,6 @@ export function Streams(props: StreamProps) {
             decided={decided}
             frames={boardQueue ? queueFrames(boardQueue.hits) : frames}
             hits={boardQueue ? queued.hits : undefined}
-            reads={boardQueue ? queued.reads : undefined}
             key={boardQueue?.label ?? "all"}
             name={name}
             onError={failed}

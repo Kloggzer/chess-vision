@@ -158,6 +158,8 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
 # --- export-session: a confirmed video becomes a session `slice` can eat ---------------------
 
 EXPORT_PROFILE = "desktop"
+#: Frames between progress lines. The log IS the progress channel (`platform/app/lib/progress.ts`).
+PROGRESS_EVERY = 100
 YIELD_HEADER = f"{'population':10} {'rows':>6} {'crops':>8} {'cells':>6} {'cap4':>7} {'cap16':>7}"
 
 
@@ -466,6 +468,10 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
             if idx in todo:
                 cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame if rotate is None else cv2.rotate(frame, rotate))
                 decoded.add(idx)
+                # The card reads this out of the log (`lib/progress.ts`): a step that prints
+                # nothing for half an hour is indistinguishable from a hung one.
+                if len(decoded) % PROGRESS_EVERY == 0:
+                    print(f"  decode {len(decoded)}/{len(todo)} frames", flush=True)
             if idx >= last:
                 break
             if (idx + 1) % 1000 == 0:
@@ -545,7 +551,9 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
     worsts, meshed, hands = [], 0, 0
     pad = crop_border_px(profile)
-    for row in rows:
+    for done, row in enumerate(rows, 1):
+        if done % PROGRESS_EVERY == 0:
+            print(f"  grid fit {done}/{len(rows)} frames, hands on {hands}", flush=True)
         frame = cv2.imread(str(session_dir / row["frame"]))
         quad, before, after = (
             (None, float("nan"), float("nan"))

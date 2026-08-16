@@ -181,7 +181,6 @@ export function BoardLane(props: BoardLaneProps) {
         alt={`board ${board.stem}`}
         hits={acceptCells}
         onHover={setHover}
-        reads={reads}
         src={`/api/board/${name}/${board.stem}?size=720`}
         state={paint}
       />

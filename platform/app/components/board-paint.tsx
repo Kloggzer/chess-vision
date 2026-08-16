@@ -217,8 +217,6 @@ export type BoardSurfaceProps = {
   accept: Labels;
   /** Squares the active lane hit — outlined, so the eye starts where the work is. */
   hits?: string[];
-  /** `{square: "wP 0.87"}` — the model's reading, as the cell's tooltip; the caller prints it. */
-  reads?: Record<string, string>;
   /** The square under the pointer: `Space` acts on it, so no cell cursor is needed (REVIEW S3). */
   onHover?: (square: string | null) => void;
 };
@@ -228,7 +226,7 @@ export type BoardSurfaceProps = {
  * marks every cell the pointer enters, the eraser (or the right button) puts the FEN label back.
  * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
  */
-export function BoardSurface({ src, alt, state, accept, hits, reads, onHover }: BoardSurfaceProps) {
+export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSurfaceProps) {
   const { labels, fen, kept, judged, paint, cycle, eraser } = state;
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
@@ -293,34 +291,30 @@ export function BoardSurface({ src, alt, state, accept, hits, reads, onHover }: 
                 : on
                   ? "bg-fuchsia-500/15"
                   : "hover:bg-white/10";
-          const read = reads?.[sq];
           return (
-            <Tooltip key={sq}>
-              <TooltipTrigger asChild>
-                <div
-                  className={`relative border border-white/10 ${tint} ${outline}`}
-                  onPointerDown={(event) => {
-                    painting.current = { start: sq, erase: eraser || event.button === 2, dragged: false };
-                  }}
-                  onPointerEnter={() => enter(sq)}
+            // No per-cell tooltip: it pops up under the brush on every cell the drag enters. The
+            // model's word lives in the lane's hover line instead (`board-lane.tsx`), where it
+            // does not follow the pointer.
+            <div
+              className={`relative border border-white/10 ${tint} ${outline}`}
+              key={sq}
+              onPointerDown={(event) => {
+                painting.current = { start: sq, erase: eraser || event.button === 2, dragged: false };
+              }}
+              onPointerEnter={() => enter(sq)}
+            >
+              {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
+                  means a human decided it; DIM means the FEN says so and nobody has looked. */}
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
+                <span
+                  className={`bg-background/75 rounded px-0.5 ${
+                    judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
+                  }`}
                 >
-                  {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
-                      means a human decided it; DIM means the FEN says so and nobody has looked. */}
-                  <span className="pointer-events-none absolute inset-x-0 bottom-0 text-center font-mono text-[10px] leading-tight">
-                    <span
-                      className={`bg-background/75 rounded px-0.5 ${
-                        judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
-                      }`}
-                    >
-                      {label}
-                    </span>
-                  </span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                {read ? `${sq} · ${label} · Modell ${read}` : `${sq} · ${label}`}
-              </TooltipContent>
-            </Tooltip>
+                  {label}
+                </span>
+              </span>
+            </div>
           );
         })}
       </div>

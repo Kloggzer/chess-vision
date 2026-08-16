@@ -22,7 +22,12 @@ from .data import (
 
 
 def _train_lock_path() -> Path:
-    return config.DATA.models / ".train.lock"
+    """The SAME file the web app's Autopilot serializes on (`platform/app/lib/autopilot-state.ts`).
+
+    Two locks that do not know each other are no lock: the Autopilot started a replay onto the GPU
+    while a training held it, and the only remedy was pausing it by hand (2026-08-16).
+    """
+    return config.DATA.heavy_lock
 
 
 def _pid_alive(pid: int) -> bool:
@@ -70,18 +75,21 @@ def _acquire_train_lock(desc: str) -> bool:
     if lock.exists():
         try:
             info = json.loads(lock.read_text(encoding="utf-8"))
-            pid = int(info.get("pid", -1))
+            # `childPid` is the JOB, `pid` the process that claimed the slot — the web app claims
+            # with the SERVER's pid and stamps the child once it exists.
+            pid = int(info.get("childPid") or info.get("pid") or -1)
         except Exception:  # noqa: BLE001 — corrupt lock: treat as stale
             pid, info = -1, {}
         if pid > 0 and pid != os.getpid() and _pid_alive(pid):
-            print(f"[FAIL] Another training is already running (PID {pid}, started "
-                  f"{info.get('ts', '?')}): {info.get('desc', '')}. Only one training can use the "
-                  "GPU at a time - stop it first (Training tab 'Stop', or kill the process) or wait.")
+            print(f"[FAIL] {info.get('job', 'a job')} {info.get('name', '')} is already running "
+                  f"(PID {pid}, started {info.get('startedAt', '?')}). The GPU takes one at a time "
+                  "- stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
             return False
         # else: dead/stale PID → reclaim below
     lock.parent.mkdir(parents=True, exist_ok=True)
-    lock.write_text(json.dumps({"pid": os.getpid(), "desc": desc,
-                                "ts": datetime.now().isoformat()}), encoding="utf-8")
+    lock.write_text(json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": "train",
+                                "name": desc, "startedAt": datetime.now().isoformat()},
+                               indent=2), encoding="utf-8")
     return True
 
 
@@ -166,6 +174,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+    # Held apart from the local `split`, which is REBOUND to the loaded policy dict further down —
+    # the collision wrote that dict into config.json and left the guard reading a dict as a path.
+    split_file = split
     if dataset:
         from ..dataset_build import dataset_dir
         dd = dataset_dir(dataset)
@@ -173,7 +184,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # One packed corpus, several splits over it (cross-validation folds): the memmap is
         # 9 GB and packing it per fold copies the same crops four times. `occluded_model.
         # trained_on` reads the name back out of config.json, so the circularity guard follows.
-        split_path = dd / (split or "split.json")
+        split_path = dd / (split_file or "split.json")
         if not manifest_path.exists() or not split_path.exists():
             print(f"[FAIL] Dataset '{dataset}' not built ({dd}). First build it in the Datasets tab "
                   "(`chesslab dataset build`), then train.")
@@ -449,7 +460,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
-        "dataset": dataset, "split": split, "resumed_from": resumed_from, "head": head,
+        "dataset": dataset, "split_file": split_file, "split": split, "resumed_from": resumed_from, "head": head,
         **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
         # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets

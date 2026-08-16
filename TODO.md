@@ -35,6 +35,22 @@
   dieselben `phone-<id>`-session_ids wie die alten Packs; vor dem Build sicherstellen, dass der
   Resolver die `-80-v2`-Verzeichnisse zieht (alte Packs parken oder Quelle explizit angeben).
 
+- **Sessions direkt in eine Memmap, mehrere Memmaps im Training** (User, 2026-08-16). Heute liegen
+  82 GB Frame-PNGs und 6.4 GB Crop-PNGs auf der Platte, erzeugt aus 954 MB Video — Faktor 86. Der
+  Cache spart dabei nichts: **gemessen 249 Frames/s beim Vorwärts-Dekodieren gegen 32 Frames/s beim
+  Lesen der gecachten PNGs**, also achtmal langsamer als die Quelle. Wiederverwendet wird er 4–7 mal
+  je Session (`log.jsonl.bak.*`), drei von 18 Sessions nie.
+  **Ziel:** `session pack <id>` schreibt Video → Crops → `data/packs/<session>/` (Memmap + Manifest),
+  mit demselben Gate wie der Slice. Der Loader liest MEHRERE Packs: `path2idx` wird `(pack, index)`,
+  `PackedSquareDataset` hält eine Memmap je Pack, weiterhin lazy pro Worker (Windows-Spawn).
+  `build_dataset` nimmt Packs statt eines Crop-Pools. Danach `slice` und die Frame-PNGs zurückbauen.
+  **Gewinn:** ~98 GB → ~9.4 GB; eine neue Session ist eine neue Memmap statt eines Neupackens des
+  ganzen Korpus (heute Minuten, mehrmals täglich); und die Kotlin-Packs (`labeled-video-pack`,
+  `turntable-pack`) werden wieder nutzbar — heute verweigert `pack_dataset` ihre `mm://`-Zeilen,
+  weshalb das Turntable-Material nicht in die Fold-Datensätze kam.
+  **Preis, bewusst:** eine Memmap friert Crop-Größe, `pad_side` und Mesh ein. Wer daran dreht, muss
+  zurück ans Video — das ist heute nicht anders, nur verdeckt.
+
 - **Eine Seite statt neun Lanes, nach Wert sortiert** (User, 2026-08-16: *"prinzipiell eine
   Seite"*). Der Labeln-Strom zeigt nicht mehr Lanes zur Auswahl, sondern die nächste Frage —
   sortiert nach `wert = p_fehler × klassengewicht × neuheit`. `p_fehler` kommt aus dem Kreuztest

@@ -16,7 +16,7 @@ def _run(tmp_path, monkeypatch, *, split_name, splits):
     run = tmp_path / "data" / "models" / "fold0"
     run.mkdir(parents=True)
     (run / "config.json").write_text(
-        json.dumps({"dataset": "xval-80", "split": split_name}), encoding="utf-8")
+        json.dumps({"dataset": "xval-80", "split_file": split_name}), encoding="utf-8")
     return run
 
 

@@ -29,8 +29,6 @@ export type DrilldownProps = {
   onError: (error: unknown) => void;
   /** Squares the active filter hit on each frame — outlined, so the eye starts where the work is. */
   hits?: Record<string, string[]>;
-  /** `{stem: {square: "wP 0.87"}}` — what the model reads there, printed in the cell. */
-  reads?: Record<string, Record<string, string>>;
   /** `{stem: {square: label}}` — what "yes, correct" writes per matched cell. The API decides it,
    *  because only the query knows what it asked (see the filter route). */
   accepts?: Record<string, Record<string, string>>;
@@ -52,7 +50,7 @@ const GESTEN =
  * Queue state here; painting moved out for LABELN stream parity.
  */
 export function Drilldown(props: DrilldownProps) {
-  const { name, sessionId, frames, decided, onWritten, onError, hits, reads, accepts, queueNote } = props;
+  const { name, sessionId, frames, decided, onWritten, onError, hits, accepts, queueNote } = props;
   /**
    * Board worth stopping at: matched cell with no verdict.
    * Queue reopens at index 0 to avoid looking untouched (2026-08-09).
@@ -301,7 +299,6 @@ export function Drilldown(props: DrilldownProps) {
         accept={accept}
         alt={`board ${stem}`}
         hits={hits?.[stem]}
-        reads={reads?.[stem]}
         src={`/api/board/${name}/${stem}?size=720`}
         state={paint}
       />

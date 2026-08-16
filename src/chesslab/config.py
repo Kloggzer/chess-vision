@@ -497,6 +497,15 @@ class Paths:
         return self.root / "sessions"
 
     @property
+    def inbox(self) -> Path:
+        """Where the web app keeps its own state — and the heavy lock BOTH sides serialize on."""
+        return self.root / "inbox"
+
+    @property
+    def heavy_lock(self) -> Path:
+        return self.inbox / "heavy.lock"
+
+    @property
     def sessions_archive(self) -> Path:
         """Archived sessions: removed from the active dataset, but not deleted."""
         return self.root / "sessions_archive"

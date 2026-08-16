@@ -163,8 +163,15 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
  */
 function Working({ progress }: { progress: Progress | null }) {
   if (!progress) return <span className="text-muted-foreground">starting…</span>;
-  const { atSeconds, totalSeconds, plies, tail, bytes } = progress;
-  const pct = atSeconds !== null && totalSeconds ? Math.min(100, Math.round((atSeconds / totalSeconds) * 100)) : null;
+  const { atSeconds, totalSeconds, plies, frames, tail, bytes } = progress;
+  // Seconds of video where the replay reports them, frames where a chesslab step counts its own.
+  const pct = atSeconds !== null && totalSeconds
+    ? Math.min(100, Math.round((atSeconds / totalSeconds) * 100))
+    : frames ? Math.min(100, Math.round((frames.at / frames.total) * 100))
+    : null;
+  const unit = atSeconds !== null && totalSeconds
+    ? `${Math.round(atSeconds)}/${Math.round(totalSeconds)} s`
+    : frames ? `${frames.at}/${frames.total} Frames` : "";
   return (
     <span className="flex flex-wrap items-center gap-2">
       {pct !== null ? (
@@ -173,7 +180,7 @@ function Working({ progress }: { progress: Progress | null }) {
             <span className="bg-primary block h-full transition-all" style={{ width: `${pct}%` }} />
           </span>
           <span className="text-muted-foreground tabular-nums">
-            {pct} % · {Math.round(atSeconds ?? 0)}/{Math.round(totalSeconds ?? 0)} s
+            {pct} % · {unit}
           </span>
         </>
       ) : null}

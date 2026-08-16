@@ -20,6 +20,8 @@ export type Progress = {
   totalSeconds: number | null;
   /** Plies the tracker has committed so far — the number a chess player actually reads. */
   plies: number;
+  /** A chesslab step's own denominator: frames done of frames planned. */
+  frames: { at: number; total: number } | null;
   /** The last few lines the tool printed, newest last. */
   tail: string[];
   /** Bytes the log holds; 0 means the tool has printed nothing yet. */
@@ -72,11 +74,12 @@ export async function progressOf(name: string, log: string | undefined): Promise
   checkName(name, "game name");
   // A queued job has no log yet, but the recording's length is already known — "0 of 412 s" is
   // what a waiting user wants to see, and it is the only honest number available at that moment.
-  if (!log) return { atSeconds: null, totalSeconds: await recordingSeconds(name), plies: 0, tail: [], bytes: 0 };
+  if (!log) return { atSeconds: null, totalSeconds: await recordingSeconds(name), plies: 0, frames: null, tail: [], bytes: 0 };
   const { tail, bytes } = await tailOf(log);
   const text = await readFile(log, "utf8").catch(() => "");
   let atSeconds: number | null = null;
   let plies = 0;
+  let frames: { at: number; total: number } | null = null;
   // The current run only — the log is appended across runs, and a position carried over from the
   // previous one shows a bar that starts half full and never moves.
   for (const line of lastRunOf(text)) {
@@ -88,6 +91,10 @@ export async function progressOf(name: string, log: string | undefined): Promise
     // a dot is why the bar stayed empty on the first real run (2026-08-13).
     const at = /\bat (\d+[.,]\d+)s\b/.exec(line);
     if (at) atSeconds = Math.max(atSeconds ?? 0, Number(at[1].replace(",", ".")));
+    // A chesslab step counts FRAMES, not seconds of video (`realgames.PROGRESS_EVERY`): without
+    // this the export shows a spinner for half an hour and reads exactly like a hung job.
+    const step = /(\d+)\/(\d+) frames/.exec(line);
+    if (step && Number(step[2]) > 0) frames = { at: Number(step[1]), total: Number(step[2]) };
   }
-  return { atSeconds, totalSeconds: await recordingSeconds(name), plies, tail, bytes };
+  return { atSeconds, totalSeconds: await recordingSeconds(name), plies, frames, tail, bytes };
 }

@@ -15,7 +15,7 @@ import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { alive, releaseHeavyLock } from "@/lib/autopilot-state";
+import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/autopilot-state";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 
@@ -408,6 +408,8 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
     if (child.pid !== undefined) {
       running.childPid = child.pid;
       void record(running);
+      // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
+      void stampHeavyLockChild(child.pid).catch(() => undefined);
     }
     child.stdout.pipe(sink, { end: false });
     child.stderr.pipe(sink, { end: false });
@@ -704,6 +706,8 @@ async function runChesslab(
     if (child.pid !== undefined) {
       running.childPid = child.pid;
       void record(running);
+      // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
+      void stampHeavyLockChild(child.pid).catch(() => undefined);
     }
     child.stdout.pipe(sink, { end: false });
     child.stderr.pipe(sink, { end: false });

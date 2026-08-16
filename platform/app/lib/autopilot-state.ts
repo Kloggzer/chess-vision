@@ -6,7 +6,16 @@ import { inboxDir } from "@/lib/ingest";
 
 export type PauseFile = { paused: boolean; at: string };
 /** Written while an Autopilot job runs: pid, what it is, since when (CONCEPT §5.5). */
-export type HeavyLock = { pid: number; job: string; name: string; startedAt: string };
+export type HeavyLock = {
+  /** Who CLAIMED the slot — the server, or a `chesslab` process writing this file itself. */
+  pid: number;
+  /** The job's own process, stamped once it exists. A killed job then frees the slot by dying;
+   *  without it the server's pid holds the lock forever and the Autopilot never runs again. */
+  childPid?: number;
+  job: string;
+  name: string;
+  startedAt: string;
+};
 
 const pausePath = () => path.join(inboxDir(), "autopilot.json");
 export const heavyLockPath = () => path.join(inboxDir(), "heavy.lock");
@@ -50,7 +59,9 @@ export function alive(pid: number): boolean {
 
 /** A lock nobody is holding any more: the process that wrote it is gone, so it says nothing. */
 export function stale(lock: HeavyLock | null): boolean {
-  return lock === null || !alive(lock.pid);
+  if (lock === null) return true;
+  // The JOB decides, not the claimer: the server outlives every job it starts.
+  return !alive(lock.childPid ?? lock.pid);
 }
 
 function readLockSync(): HeavyLock | null {
@@ -90,6 +101,13 @@ export async function claimHeavyLock(job: string, name: string): Promise<{ held:
   if (createLock(lock)) return { held: lock };
   const winner = readLockSync();
   return winner ? { foreign: winner } : { held: lock };
+}
+
+/** The job's pid, once spawned — see `HeavyLock.childPid`. Silent if the lock is not ours. */
+export async function stampHeavyLockChild(childPid: number): Promise<void> {
+  const current = await readHeavyLock();
+  if (!current || current.pid !== process.pid) return;
+  await writeFile(heavyLockPath(), JSON.stringify({ ...current, childPid }, null, 2) + "\n", "utf8");
 }
 
 /** Only ever removes OUR lock — another process's file is not this process's to delete. */

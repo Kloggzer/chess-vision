@@ -42,7 +42,7 @@ def trained_on(run_dir: Path) -> set[str]:
         return set()
     from . import config
 
-    split = config.DATA.datasets / dataset / (cfg.get("split") or "split.json")
+    split = config.DATA.datasets / dataset / (cfg.get("split_file") or "split.json")
     if not split.exists():
         return set()
     splits = json.loads(split.read_text(encoding="utf-8")).get("splits") or {}

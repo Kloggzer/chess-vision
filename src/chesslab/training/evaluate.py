@@ -59,7 +59,11 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     if ds_name:
         from ..dataset_build import dataset_dir
         dd = dataset_dir(ds_name)
-        manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
+        # The run's OWN split, not the corpus-wide one: a cross-validation fold shares the packed
+        # dataset with three others, and `split.json` there names every session — evaluating a
+        # fold against it would measure the sessions it trained on.
+        manifest_path = dd / "manifest.jsonl"
+        split_path = dd / (cfg.get("split_file") or "split.json")
     else:
         manifest_path = config.DATA.manifests / "squares.jsonl"
         split_path = config.DATA.manifests / "split.json"
