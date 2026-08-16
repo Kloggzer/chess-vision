@@ -616,6 +616,8 @@ def scan_alignment(session_id: str) -> dict:
     rows = read_log(sdir)
     prof = session_profile(sdir)
     measured = 0
+    if (why := missing_source_frames(sdir, rows)):
+        return {"session_id": session_id, "error": why}
     for r in rows:
         if not r.get("corners"):
             r.pop("align_worst_px", None)
@@ -678,6 +680,21 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
         row["grid_lines_source"] = "carried"
         carried += 1
     return carried
+
+def missing_source_frames(sdir: Path, rows: list[dict]) -> str | None:
+    """Why a step that measures the SOURCE picture cannot run here, or None.
+
+    `scan`, `autofix`, `fit-mesh` and `mark-hands` all fit against the raw frame, and a parked
+    session only keeps its boards. Without this they skip every row and report "0 of 2 608
+    measured" — a session that looks empty rather than one whose frames are elsewhere.
+    """
+    want = [r for r in rows if r.get("frame")]
+    if want and not any((sdir / r["frame"]).is_file() for r in want[:8]):
+        return (f"no source frames in {sdir / 'frames'} — this step fits against the raw picture, "
+                f"not the board. Restore them from `data/_parked/frames/{sdir.name}`, or re-run "
+                f"`chesslab realgames export-session`, which re-measures all of it from the video.")
+    return None
+
 
 def park_frames_session(session_id: str) -> dict:
     """Move the source frames of every boarded row to `data/_parked/frames/<session>/`.
@@ -761,6 +778,8 @@ def fit_mesh_session(session_id: str) -> dict:
     # The SLICE's profile, not this module's review stand-in: fractions measured through another
     # margin describe a warp nobody cuts.
     prof = _profile_for_session(read_session_meta(sdir), None)
+    if (why := missing_source_frames(sdir, rows)):
+        return {"session_id": session_id, "error": why}
     measured, stages = 0, {"curved": 0, "tilted": 0}
     for r in rows:
         r.pop("grid_lines", None)
@@ -805,6 +824,8 @@ def mark_hands_session(session_id: str) -> dict:
     rows = read_log(sdir)
     prof = _profile_for_session(read_session_meta(sdir), None)
     pad = crop_border_px(prof)
+    if (why := missing_source_frames(sdir, rows)):
+        return {"session_id": session_id, "error": why}
     seen = added = 0
     for r in rows:
         r.pop("hand_squares", None)
@@ -883,6 +904,8 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     prof = session_profile(sdir)
+    if (why := missing_source_frames(sdir, rows)):
+        return {"session_id": session_id, "error": why}
     targets = []
     for i, r in enumerate(rows):
         if not r.get("corners"):
