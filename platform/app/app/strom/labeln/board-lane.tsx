@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BoardLegend, BoardSurface, GLYPH, SQUARES, STREAM_PALETTE, useBoardPaint } from "@/components/board-paint";
-import { PhaseChip } from "@/app/relabel/[name]/drilldown";
+import { PhaseChip } from "@/components/phase-chip";
 import type { Correction } from "@/lib/corrections";
 import type { StreamBoard } from "@/lib/label-stream";
 import { confirmLabel, type BoardPlan } from "@/lib/selection";

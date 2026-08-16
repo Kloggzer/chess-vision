@@ -90,3 +90,46 @@ export function classesSeen(rows: Proposal[]): string[] {
 export function proposalKey(p: { frame: string; square: string }): string {
   return `${p.frame}|${p.square}`;
 }
+
+/** The thresholds a human actually asks for — 0.05 is the "show me anything at all" end. */
+export const STEPS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9];
+
+/**
+ * What `Klassenwand` asks before anyone touches it. The sharpest end first: 11 091 cells over the
+ * corpus against 52 285 at 0.1, and a confident contradiction is the likeliest real label error
+ * (Northcutt 2021). Every wider question is one click away in the lane head.
+ */
+export const DEFAULT_WALL: Filter = { klass: DISAGREE, min: 0.9 };
+
+/**
+ * The `Klassenwand` predicate (CONCEPT.md 4.2): one class ≥ `min` WHERE THE FEN SAYS OTHERWISE —
+ * `matches` alone answers "P(bQ) ≥ 0.5" on the cells the FEN already calls bQ too, a wall of
+ * agreement that asks no labeling question. [DISAGREE] carries its contradiction itself.
+ */
+export function contradicts(row: Proposal, f: Filter): boolean {
+  return matches(row, f) && (f.klass === DISAGREE || f.klass !== row.fen_label);
+}
+
+/** How a query reads in a chip or a header — a lane prints its question, never a bare number. */
+export const queryText = (f: Filter): string =>
+  f.klass === DISAGREE ? `Modell ≠ FEN ab ${f.min}` : `${f.klass} ≥ ${f.min}`;
+
+/** One BOARD of an answer: cell keys and the two words per cell, never the rows behind them. */
+export type QueryHit = {
+  session: string;
+  stem: string;
+  squares: string[];
+  reads: Record<string, string>;
+  /** What agreeing with the query writes here (`acceptLabel`) — the server decides, not the page. */
+  accept: Record<string, string>;
+};
+
+export type QueryAnswer = {
+  classes: string[];
+  filter: Filter;
+  phase: string;
+  hits: QueryHit[];
+  cells: number;
+  /** Server milliseconds of the scan, printed in the lane head — it reads 309 k rows and says so. */
+  ms: number;
+};

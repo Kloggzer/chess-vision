@@ -35,6 +35,24 @@
   dieselben `phone-<id>`-session_ids wie die alten Packs; vor dem Build sicherstellen, dass der
   Resolver die `-80-v2`-Verzeichnisse zieht (alte Packs parken oder Quelle explizit angeben).
 
+- **Eine Seite statt neun Lanes, nach Wert sortiert** (User, 2026-08-16: *"prinzipiell eine
+  Seite"*). Der Labeln-Strom zeigt nicht mehr Lanes zur Auswahl, sondern die nächste Frage —
+  sortiert nach `wert = p_fehler × klassengewicht × neuheit`. `p_fehler` kommt aus dem Kreuztest
+  (Out-of-Fold), `klassengewicht` steht fertig in `split.json` (`wK` 3.404 gegen `empty` 0.318),
+  `neuheit` liefert `collapseEvents`. Jede Frage trägt sichtbar ihre Herkunft (Hand, Identität,
+  Regelbruch, Audit), das FEN-Wort und die Modell-Lesart; Klasse und Schwelle bleiben als
+  Verengung, sind aber nicht mehr der Weg zur Arbeit.
+  **D1 wird aufgelöst, nicht umgangen:** die Einheit ist die FRAGE, nicht Brett oder Zelle — ein
+  Brett mit vier verdächtigen Feldern sind vier Fragen. Ein Nenner für alles, Renderer bleibt frei.
+  **Die Kontroll-Stichprobe darf nicht in die Sortierung:** jede n-te Frage wird gleichverteilt
+  gezogen und ist als solche markiert. Ohne diesen eingewobenen Zufall gibt es keinen Weg zu
+  Brodleys E2 („wie viel Schlechtes blieb drin"), und keine Genauigkeitszahl auf dem Korpus ist
+  danach noch vergleichbar.
+  Reihenfolge: Kreuztest fertig → Flags einmal von Hand ansehen, ob die Sortierung trägt → dann
+  bauen. Trägt sie nicht, ist der Umbau gespart. Das CONCEPT steht nicht im Weg: seine Entscheidung
+  „zwei Ströme" begründet sich mit unvereinbaren Modi von *Züge* gegen *Labeln*, nicht mit den
+  Lanes innerhalb von Labeln.
+
 - **Datensatz-Qualität per Zwei-Hälften-Kreuztest** (User, 2026-08-15: *"2 halbe Modelle die die
   andere Hälfte testen, dann die Flags nochmal nachlabeln"*). Korpus in zwei Session-Hälften
   teilen, je ein Modell pro Hälfte trainieren, jedes proposed auf der FREMDEN Hälfte — nie

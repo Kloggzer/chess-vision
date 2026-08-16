@@ -10,6 +10,7 @@
 
 import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
+import type { QueryHit } from "@/lib/query";
 
 export type LaneId =
   | "hands"
@@ -19,6 +20,7 @@ export type LaneId =
   | "unknown"
   | "control"
   | "audit"
+  | "rules"
   | "stored"
   | "all";
 
@@ -48,7 +50,7 @@ export const LANES: readonly Lane[] = [
   { id: "hands", slug: "haende", label: "Hände", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
   { id: "unsure", slug: "unsicher", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
   { id: "disagree", slug: "modell", label: "Modell ≠ FEN", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
-  { id: "classwall", slug: "klassenwand", label: "Klassenwand", renderer: "cells", unit: "Zellen", denominator: "Zellen mit Modell-Lesart" },
+  { id: "classwall", slug: "klassenwand", label: "Klassenwand", renderer: "cells", unit: "Zellen", denominator: "Zellen, auf die die Abfrage im Lane-Kopf passt" },
   {
     id: "unknown",
     slug: "fen-unklar",
@@ -61,6 +63,16 @@ export const LANES: readonly Lane[] = [
   },
   { id: "control", slug: "stichprobe", label: "Stichprobe", renderer: "cells", unit: "Zellen", denominator: "Kontroll-Stichprobe" },
   { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
+  {
+    id: "rules",
+    slug: "regelbruch",
+    label: "Regelbruch",
+    renderer: "board",
+    unit: "Bretter",
+    // Its own corpus: a violated frame is in the lane because its LEDGER says so, whether or not
+    // it ever carried a proposal row, so it cannot be indexed against the 3 976.
+    denominator: "Bretter, deren korrigierte Stellung eine Regel bricht",
+  },
   {
     id: "stored",
     slug: "abnicken",
@@ -84,8 +96,13 @@ export const lanePath = (id: LaneId) => `/strom/labeln/${laneById(id).slug}`;
 export const NO_PROBS =
   "keine Modell-Lesarten auf der Platte — propose-occluded lief ohne --model. " +
   "Das heißt „noch nicht gefragt“, nicht „nichts gefunden“ (CONCEPT.md D2).";
+export const NO_QUERY =
+  "/api/query hat nicht geantwortet — die Klassenwand ist eine serverseitige Abfrage, und ohne " +
+  "ihre Antwort ist die Zahl unbekannt, nicht null.";
 export const NO_AUDIT =
   "data/manifests/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
+export const NO_RULES =
+  "data/manifests/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
 
 export type LaneCount = {
   /** OPEN items — the stream shows nothing else. `null` = the producer owes this lane its input. */
@@ -201,17 +218,48 @@ function byClaim(cells: LaneCell[]): LaneCell[] {
   );
 }
 
+/** The `Klassenwand` answer as the lane sees it: its cells, and the question that produced them. */
+export type WallQuery = { cells: LaneCell[]; text: string };
+
+/**
+ * The query's hits placed IN THE STREAM — the server answers with session ids and frame stems, the
+ * ordinal and the FEN come from the boards the stream already carries. A hit on a board no lane
+ * shows (unusable, thrown out) has no ordinal and drops here rather than being answered off-screen.
+ */
+export function wallCells(hits: readonly QueryHit[], stream: LabelStream): LaneCell[] {
+  const index = new Map(stream.sessions.map((s, i) => [s.sessionId, i]));
+  const boards = new Map(stream.boards.map((b) => [`${b.session}|${b.stem}`, b]));
+  const out: LaneCell[] = [];
+  for (const hit of hits) {
+    const session = index.get(hit.session);
+    if (session === undefined) continue;
+    const board = boards.get(`${session}|${hit.stem}`);
+    if (!board) continue;
+    const fen = fenLabels(board.fen);
+    for (const square of hit.squares) {
+      out.push(
+        judgedCell({
+          session,
+          pos: board.pos,
+          stem: hit.stem,
+          square,
+          fen_label: fen[square] ?? "empty",
+          predicted: hit.accept[square] ?? "",
+          prob: 0,
+        }),
+      );
+    }
+  }
+  return out;
+}
+
 /** The cells of a cell lane, one claim per page. Empty for a board lane. */
-export function laneCells(stream: LabelStream, id: LaneId): LaneCell[] {
+export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
   if (id === "audit") {
     return (stream.audit ?? []).map(judgedCell);
   }
   if (id === "classwall") {
-    return byClaim(
-      groupBySquare(stream.cells.filter((c) => c.kind === "wall")).map((c) =>
-        judgedCell({ ...c, predicted: c.predicted ?? "", prob: c.prob ?? 0 }),
-      ),
-    );
+    return byClaim(groupBySquare(wall?.cells ?? []));
   }
   const kind = id === "unsure" ? "unsure" : id === "control" ? "control" : null;
   if (kind === null) return [];
@@ -239,6 +287,7 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   if (id === "hands") return stream.boards.filter((b) => Object.keys(b.hands).length > 0);
   if (id === "disagree") return stream.boards.filter((b) => Object.keys(b.disagree).length > 0);
   if (id === "unknown") return stream.boards.filter((b) => b.unknown.length > 0);
+  if (id === "rules") return stream.boards.filter((b) => b.violations.length > 0);
   if (id === "stored") return stream.boards.filter((b) => stream.sessions[b.session]?.stored === true);
   if (id === "all") return stream.boards.filter((b) => b.proposed);
   return [];
@@ -254,6 +303,9 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
 export function laneAccept(board: StreamBoard, id: LaneId): Record<string, string> {
   if (id === "hands") return board.hands;
   if (id === "disagree") return board.disagree;
+  // Was auf der Platte steht, nicht was zu schreiben wäre: der Regelbruch beweist, dass Korrektur
+  // ODER FEN falsch ist, nie welche von beiden. Ein Klick zykelt Korrektur ⇄ FEN-Wort.
+  if (id === "rules") return board.violating;
   if (id === "unknown") {
     const fen = fenLabels(board.fen);
     return Object.fromEntries(board.unknown.map((sq) => [sq, fen[sq] ?? "empty"]));
@@ -295,10 +347,13 @@ export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell
  * A board still worth stopping at — the lane's own unit of work, unanswered.
  *
  * `Abnicken` closes on ANY square, because its commit writes all 64 at once. `Alle Bretter` is
- * free-hand touch-up and closes only when every square carries a verdict.
+ * free-hand touch-up and closes only when every square carries a verdict. `Regelbruch` never
+ * closes: its squares are corrections ON FILE, so the ledger calls them judged by construction —
+ * the board leaves the lane when the audit runs again and drops its row.
  */
 export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string, string>): boolean {
   const undecided = (squares: string[]) => squares.some((sq) => decided[`${board.stem}|${sq}`] === undefined);
+  if (id === "rules") return true;
   if (id === "all") return undecided(Object.keys(fenLabels(board.fen)));
   if (id === "stored") return !Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] !== undefined);
   return undecided(Object.keys(laneAccept(board, id)));
@@ -315,20 +370,23 @@ export function openBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   return laneBoards(stream, id).filter((b) => laneOpen(b, id, stream.decided[b.session] ?? {}));
 }
 
-export function openCells(stream: LabelStream, id: LaneId): LaneCell[] {
-  return laneCells(stream, id).filter(
+export function openCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
+  return laneCells(stream, id, wall).filter(
     (c) => (stream.decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined,
   );
 }
 
 /** Open and total, or `null` with the reason the producer still owes this lane its input. */
-export function laneCount(stream: LabelStream, id: LaneId): LaneCount {
+export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCount {
   if (id === "audit" && stream.audit === null) return { n: null, why: NO_AUDIT };
+  if (id === "rules" && !stream.rules) return { n: null, why: NO_RULES };
   if ((id === "disagree" || id === "classwall") && !stream.sessions.some((s) => s.probs))
     return { n: null, why: NO_PROBS };
+  if (id === "classwall" && !wall) return { n: null, why: NO_QUERY };
   const board = laneById(id).renderer === "board";
-  const total = board ? laneBoards(stream, id).length : laneCells(stream, id).length;
-  const n = board ? openBoards(stream, id).length : openCells(stream, id).length;
+  const total = board ? laneBoards(stream, id).length : laneCells(stream, id, wall).length;
+  const n = board ? openBoards(stream, id).length : openCells(stream, id, wall).length;
+  if (id === "classwall") return { n, total, denominator: `Zellen, auf die »${wall!.text}« passt` };
   if (id !== "stored") return { n, total };
   const bundles = new Set(laneBoards(stream, id).map((b) => stream.sessions[b.session].name)).size;
   return { n, total, denominator: `Stored-Bretter über ${bundles} Bundles ohne Video` };

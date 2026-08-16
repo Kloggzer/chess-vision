@@ -1,11 +1,14 @@
 import { expect, test } from "vitest";
 import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard, StreamCell } from "@/lib/label-stream";
+import type { QueryHit } from "@/lib/query";
 import {
   GROUP_SPAN,
   LANES,
   NO_AUDIT,
   NO_PROBS,
+  NO_QUERY,
+  NO_RULES,
   boardCells,
   collapseEvents,
   groupBySquare,
@@ -21,11 +24,12 @@ import {
   lanePath,
   openBoards,
   openCells,
+  wallCells,
 } from "@/lib/lanes";
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(LANES.map((l) => l.id)).toEqual([
-    "hands", "unsure", "disagree", "classwall", "unknown", "control", "audit", "stored", "all",
+    "hands", "unsure", "disagree", "classwall", "unknown", "control", "audit", "rules", "stored", "all",
   ]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
@@ -85,16 +89,22 @@ test("an event is one square, one FEN word and frames within GROUP_SPAN", () => 
 
 const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
   session: 0, pos: 0, stem: "000100", ply: 4, fen: "8/8/8/8/8/8/8/R6R w - - 0 1",
-  unknown: [], hands: {}, reads: {}, disagree: {}, disagreeReads: {}, proposed: true, ...over,
+  unknown: [], violations: [], violating: {}, hands: {}, reads: {}, disagree: {}, disagreeReads: {},
+  proposed: true, ...over,
 });
 
 const cell = (over: Partial<StreamCell> = {}): StreamCell => ({
   session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", score: 0.5, kind: "unsure", ...over,
 });
 
+const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
+  session: "rg-g", stem: "000100", squares: ["a1"], reads: { a1: "bB 0.91" }, accept: { a1: "bB" },
+  ...over,
+});
+
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: false }],
-  boards: [], cells: [], audit: null, decided: [{}], progress: { boards: 0, done: 0 }, ...over,
+  boards: [], cells: [], audit: null, rules: true, decided: [{}], progress: { boards: 0, done: 0 }, ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
@@ -114,12 +124,14 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
   expect(laneCount(stream, "disagree").n).toBeNull();
   expect(laneCount(stream, "classwall").n).toBeNull();
   expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
+  expect(laneCount(streamOf({ rules: false }), "rules")).toEqual({ n: null, why: NO_RULES });
   expect(laneCount(streamOf({ audit: [] }), "audit")).toEqual({ n: 0, total: 0 });
 });
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual([
-    "haende", "unsicher", "modell", "klassenwand", "fen-unklar", "stichprobe", "audit", "abnicken", "alle",
+    "haende", "unsicher", "modell", "klassenwand", "fen-unklar", "stichprobe", "audit", "regelbruch",
+    "abnicken", "alle",
   ]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
   expect(laneBySlug("abnicken")?.id).toBe("stored");
@@ -156,11 +168,12 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   const control = laneCells(streamOf({ cells: [cell({ kind: "control" })] }), "control")[0];
   expect(control).toMatchObject({ label: "bP", ledger: "reviewed" });
 
-  const wall = laneCells(
-    streamOf({ cells: [cell({ kind: "wall", predicted: "bB", prob: 0.91 })] }),
-    "classwall",
-  )[0];
-  expect(wall).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
+  const walled = streamOf({ boards: [board()] });
+  const wall = laneCells(walled, "classwall", {
+    cells: wallCells([hit()], walled),
+    text: "bB ≥ 0.5",
+  })[0];
+  expect(wall).toMatchObject({ label: "wR", ledger: "reviewed", exception: "bB" });
   expect(wall.note).toBe("Modell bB");
 
   const audit = laneCells(
@@ -200,6 +213,24 @@ test("Abnicken counts its own bundles and closes a board on the first verdict of
   expect(laneById("all").reviewAll).toBeUndefined();
 });
 
+test("Regelbruch outlines the corrections on file and never counts itself done", () => {
+  const broken = board({ violations: ["TOO_MANY_WHITE_PAWNS"], violating: { a1: "wP" } });
+  const stream = streamOf({ boards: [broken, board({ pos: 1, stem: "000200" })] });
+  expect(laneBoards(stream, "rules").map((b) => b.stem)).toEqual(["000100"]);
+  // Highlighted, not proposed: the correction IS what is on file, so committing writes nothing and
+  // a click cycles it against the FEN's word — which of the two fell is a look at the crop.
+  expect(laneAccept(broken, "rules")).toEqual({ a1: "wP" });
+  // Its squares are judged by construction, so the ledger can never close this board — only a
+  // re-run of `audit-corrections` drops the row.
+  expect(laneOpen(broken, "rules", { "000100|a1": "wP" })).toBe(true);
+  expect(laneCount(stream, "rules")).toEqual({ n: 1, total: 1 });
+  expect(laneChip(laneById("rules"), laneCount(stream, "rules"))).toEqual({
+    text: "Regelbruch 1/1 Bretter",
+    title: "1 offen von 1 Bretter · Bretter, deren korrigierte Stellung eine Regel bricht",
+  });
+  expect(boardCells([broken], "rules")).toMatchObject([{ square: "a1", label: "wP", ledger: "corrections" }]);
+});
+
 test("a board lane is answerable crop by crop, which is what the phone renders", () => {
   const boards = [board({ hands: { e5: "occluded" }, reads: { e5: "grid 0.85" } })];
   expect(boardCells(boards, "hands")).toEqual([
@@ -208,4 +239,38 @@ test("a board lane is answerable crop by crop, which is what the phone renders",
       label: "occluded", ledger: "corrections", exception: null, caption: "e5 grid 0.85",
     },
   ]);
+});
+
+test("the Klassenwand joins the server's answer to the stream, and never invents an ordinal", () => {
+  const stream = streamOf({ boards: [board({ pos: 7 })] });
+  expect(wallCells([hit()], stream)).toEqual([
+    {
+      session: 0, pos: 7, stem: "000100", square: "a1", fen_label: "wR", label: "wR",
+      ledger: "reviewed", exception: "bB", caption: "a1 · FEN wR", note: "Modell bB",
+    },
+  ]);
+  // A hit on a board no lane shows (unusable, thrown) has no place in the stream and drops.
+  expect(wallCells([hit({ stem: "999999" })], stream)).toEqual([]);
+  expect(wallCells([hit({ session: "rg-other" })], stream)).toEqual([]);
+  // The FEN's own word is the pre-label; the query's class is the exception, never the default.
+  expect(wallCells([hit({ accept: { a1: "wQ" } })], stream)[0]).toMatchObject({
+    label: "wR", ledger: "reviewed", exception: "wQ",
+  });
+});
+
+test("the Klassenwand counts its own query, and says — while the answer is missing", () => {
+  const stream = streamOf({
+    sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: true }],
+    boards: [board()],
+  });
+  const wall = { cells: wallCells([hit({ squares: ["a1", "h1"], accept: { a1: "bB", h1: "bN" } })], stream), text: "bB ≥ 0.5" };
+  expect(laneCount(stream, "classwall", wall)).toEqual({
+    n: 2, total: 2, denominator: "Zellen, auf die »bB ≥ 0.5« passt",
+  });
+  // The denominator travels with the number: a bare 2 would not say which question was asked.
+  expect(laneChip(laneById("classwall"), laneCount(stream, "classwall", wall)).title).toContain("»bB ≥ 0.5«");
+  const done = { ...stream, decided: [{ "000100|a1": "wR" }] };
+  expect(laneCount(done, "classwall", wall)).toMatchObject({ n: 1, total: 2 });
+  // No answer is not "no work": the query is server-side and may simply not have come back.
+  expect(laneCount(stream, "classwall")).toEqual({ n: null, why: NO_QUERY });
 });

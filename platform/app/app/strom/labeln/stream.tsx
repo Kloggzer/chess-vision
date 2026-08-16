@@ -26,12 +26,15 @@ import {
   keepPosition,
   openBoards,
   openCells,
+  wallCells,
 } from "@/lib/lanes";
+import { queryText, type Filter, type QueryAnswer } from "@/lib/query";
 import { addRows, emptyTally } from "@/lib/session-tally";
 import { BoardLane } from "./board-lane";
 import { CellLane } from "./cell-lane";
 import { MobileSort } from "./mobile-sort";
 import { SquareGrid } from "./square-grid";
+import { WallQueryBar } from "./wall-query";
 
 /**
  * LABELN — every board of every session, one continuous feed (CONCEPT.md §4.2).
@@ -93,9 +96,11 @@ const KEYS: [string, string][] = [
   [".", "/game (neuer Tab)"],
 ];
 
-export function LabelnStream({ stream }: { stream: LabelStream }) {
+export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: QueryAnswer }) {
   const router = useRouter();
   const lane = laneBySlug(usePathname().split("/").pop() ?? "")?.id ?? DEFAULT_LANE.id;
+  const [answer, setAnswer] = useState(wall);
+  const [asking, setAsking] = useState(false);
   const [at, setAt] = useState(0);
   const [showDone, setShowDone] = useState(false);
   const [written, setWritten] = useState<Written>({});
@@ -118,6 +123,46 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
     query.addEventListener("change", read);
     return () => query.removeEventListener("change", read);
   }, []);
+
+  /**
+   * `Klassenwand` is a server-side question (`lib/corpus-query.ts`), and the URL is its answer's
+   * address: the lane is "a place" (CONCEPT.md 4.2), so a chosen query has to survive a bookmark.
+   * `replaceState` and not the router — a navigation here would re-render the lane under the answer.
+   */
+  const ask = useCallback(async (next: Filter, nextPhase: string) => {
+    const search = `class=${encodeURIComponent(next.klass)}&min=${next.min}&phase=${nextPhase}`;
+    setAsking(true);
+    try {
+      const res = await fetch(`/api/query?${search}`);
+      const body = (await res.json()) as QueryAnswer & { error?: string };
+      if (!res.ok) throw new Error(body.error);
+      setAnswer(body);
+      setAt(0);
+      window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
+    } catch (error) {
+      setNote(String(error));
+    } finally {
+      setAsking(false);
+    }
+  }, []);
+
+  // A shared link carries a query the server's default answer is not. Scheduled, not called: the
+  // fetch is the external system this effect talks to, and the render must not wait on it.
+  useEffect(() => {
+    const url = new URLSearchParams(window.location.search);
+    const klass = url.get("class");
+    const min = Number(url.get("min"));
+    const phase = url.get("phase") ?? "any";
+    const same = klass === wall.filter.klass && min === wall.filter.min && phase === wall.phase;
+    if (!klass || !Number.isFinite(min) || same) return;
+    const timer = setTimeout(() => void ask({ klass, min }, phase), 0);
+    return () => clearTimeout(timer);
+  }, [ask, wall]);
+
+  const wallLane = useMemo(
+    () => ({ cells: wallCells(answer.hits, stream), text: queryText(answer.filter) }),
+    [answer, stream],
+  );
 
   const decided = useMemo(
     () =>
@@ -148,11 +193,11 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
     const raw =
       laneById(lane).renderer === "cells"
         ? withDone
-          ? laneCells(stream, lane)
-          : openCells(stream, lane)
+          ? laneCells(stream, lane, wallLane)
+          : openCells(stream, lane, wallLane)
         : boardCells(boards, lane);
     return raw.filter((c) => !dropped.has(c.session) && !thrown.has(`${c.session}|${c.stem}`));
-  }, [boards, dropped, lane, stream, thrown, withDone]);
+  }, [boards, dropped, lane, stream, thrown, wallLane, withDone]);
 
   const board = laneById(lane).renderer === "board" ? boards[Math.min(at, boards.length - 1)] : undefined;
   const positions = useMemo(
@@ -166,7 +211,7 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
     const next =
       laneById(id).renderer === "board"
         ? openBoards(stream, id).filter(live).map((b) => b.pos)
-        : openCells(stream, id).map((c) => c.pos);
+        : openCells(stream, id, wallLane).map((c) => c.pos);
     setAt(keepPosition(next, pos));
     router.push(lanePath(id));
   }
@@ -349,12 +394,14 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
   });
 
   const session = stream.sessions[here?.session ?? 0];
-  const counts = useMemo(() => LANES.map((l) => laneCount(stream, l.id)), [stream]);
+  const counts = useMemo(() => LANES.map((l) => laneCount(stream, l.id, wallLane)), [stream, wallLane]);
   const seconds = median(gaps);
   const open = laneById(lane).renderer === "board"
     ? boards.filter((b) => laneOpen(b, lane, decided[b.session] ?? {})).length
     : cells.filter((c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined).length;
   const pct = stream.progress.boards > 0 ? (stream.progress.done / stream.progress.boards) * 100 : 0;
+  // A new query is a new corpus, not a new page of the old one — the renderer starts over.
+  const laneKey = lane === "classwall" ? `${lane}|${wallLane.text}|${answer.phase}` : lane;
 
   return (
     <section className="space-y-3">
@@ -399,6 +446,18 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
         ) : null}
       </div>
 
+      {lane === "classwall" ? (
+        <WallQueryBar
+          busy={asking}
+          cells={answer.cells}
+          classes={answer.classes}
+          filter={answer.filter}
+          ms={answer.ms}
+          onAsk={(next, nextPhase) => void ask(next, nextPhase)}
+          phase={answer.phase}
+        />
+      ) : null}
+
       <header className="border-border flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
           {Math.min(at + 1, length)}/{length}{" "}
@@ -442,6 +501,17 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
             </TooltipContent>
           </Tooltip>
         ) : null}
+        {lane === "rules" && board && board.violations.length > 0 ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="font-mono text-amber-500">{board.violations.join(" · ")}</span>
+            </TooltipTrigger>
+            <TooltipContent>
+              Entweder die markierte Korrektur oder das FEN ist falsch — welche von beiden, sagt die
+              Regel nicht. Klick zykelt Korrektur ⇄ FEN-Wort; x wirft das Brett raus.
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="text-muted-foreground ml-auto tabular-nums">
@@ -466,7 +536,7 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
               actionsRef={actions}
               cells={cells}
               decided={decided}
-              key={lane}
+              key={laneKey}
               onFlush={flush}
               onThrow={() => void throwBoard()}
               onUndo={() => void undoFlushed()}
@@ -494,7 +564,7 @@ export function LabelnStream({ stream }: { stream: LabelStream }) {
               at={at}
               cells={cells}
               decided={decided}
-              key={lane}
+              key={laneKey}
               onAt={setAt}
               onFlush={flush}
               sessions={stream.sessions}

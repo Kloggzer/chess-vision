@@ -12,6 +12,7 @@ import { judgedKeys } from "@/lib/corrections";
 import { chainState } from "@/lib/chain";
 import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
+import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
 import { loadMeta } from "@/lib/meta";
 import { loadProposals, splitStreams, topRead, type Proposal } from "@/lib/proposals";
 import { unusableBoards } from "@/lib/review-notes";
@@ -43,6 +44,10 @@ export type StreamBoard = {
   toS?: number;
   /** Squares the exporter refuses to vouch for — the `FEN unklar` lane's whole predicate. */
   unknown: string[];
+  /** python-chess status names this frame's CORRECTED board trips — the `Regelbruch` predicate. */
+  violations: string[];
+  /** `{square: label}` of the corrections that produced them; on file already, never a proposal. */
+  violating: Record<string, string>;
   /** `{square: "occluded"}` the hand channel raised here, with the read that raised it. */
   hands: Record<string, string>;
   reads: Record<string, string>;
@@ -59,7 +64,7 @@ export type StreamBoard = {
 
 /**
  * `hi` = above the confirm threshold, `unsure` = the mid band, `control` = the 180-cell sample,
- * `wall` = the model reads a class the FEN contradicts (empty until the re-propose pass of D2).
+ * `wall` = the model's argmax contradicts the FEN and no band claimed the cell first.
  */
 export type CellKind = "hi" | "unsure" | "control" | "wall";
 
@@ -94,6 +99,8 @@ export type LabelStream = {
   cells: StreamCell[];
   /** `null` = `audit-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   audit: StreamAuditCell[] | null;
+  /** `false` = `correction-violations.jsonl` does not exist; same `—`, for the same reason. */
+  rules: boolean;
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
   /** Boards with proposals corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
@@ -134,7 +141,7 @@ function disagreement(row: Proposal): { label: string; p: number } | null {
 }
 
 /** Games a stream may show: a recording flagged `nutzlos` or archived asks for no work. */
-async function liveGames(): Promise<string[]> {
+export async function liveGames(): Promise<string[]> {
   const names = await listGames();
   const live = await Promise.all(
     names.map(async (name) => {
@@ -168,6 +175,13 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const cells: StreamCell[] = [];
   const decided: Record<string, string>[] = [];
   const auditRows = await loadAuditFlags();
+  const ruleRows = await loadCorrectionViolations();
+  const violated = new Map<string, Map<string, CorrectionViolation>>();
+  for (const row of ruleRows.rows) {
+    const byStem = violated.get(row.session_id) ?? new Map<string, CorrectionViolation>();
+    byStem.set(row.frame, row);
+    violated.set(row.session_id, byStem);
+  }
   const bySession = new Map<string, { index: number; byStem: Map<string, StreamBoard> }>();
 
   let pos = 0;
@@ -188,31 +202,32 @@ export async function loadLabelStream(): Promise<LabelStream> {
       unusableBoards(id),
     ]);
 
+    const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
     const hands = handCells(rows, thresholds.hi, thresholds.lo);
     const streams = splitStreams(rows, thresholds);
     const kinds = new Map<string, CellKind>();
     for (const c of streams.confirm) kinds.set(`${c.frame}|${c.square}`, "hi");
     for (const c of streams.unsure) kinds.set(`${c.frame}|${c.square}`, "unsure");
     for (const c of streams.control) kinds.set(`${c.frame}|${c.square}`, "control");
-    // The identity evidence: the same cells, rendered as boards by `Modell ≠ FEN` and as a grid by
-    // `Klassenwand`. Both stay empty until a propose run carries `--model` (CONCEPT.md D2).
+    // The argmax evidence of `Modell ≠ FEN`. It no longer OVERWRITES a bucket: the class question
+    // is `/api/query` now, and a mid-band cell that is also a wall is still `Unsicher`'s work.
     const walls = new Map<string, { label: string; p: number }>();
     const wallsByFrame = new Map<string, Proposal[]>();
     for (const row of rows) {
       const hit = disagreement(row);
       if (!hit) continue;
       walls.set(`${row.frame}|${row.square}`, hit);
-      kinds.set(`${row.frame}|${row.square}`, "wall");
+      if (!kinds.has(`${row.frame}|${row.square}`)) kinds.set(`${row.frame}|${row.square}`, "wall");
       const list = wallsByFrame.get(row.frame);
       if (list) list.push(row);
       else wallsByFrame.set(row.frame, [row]);
     }
 
-    // A board is in the stream when it carries a proposal OR an unknown square — the second is the
-    // `FEN unklar` lane, whose boards are partly outside the proposal corpus by construction.
+    // A board is in the stream when it carries a proposal, an unknown square OR a rule violation —
+    // the latter two lanes are partly outside the proposal corpus by construction.
     const proposedStems = new Set(rows.map((r) => r.frame));
     const stems = session.rows
-      .filter((r) => (proposedStems.has(r.stem) || r.unknown.length > 0) && !unusable.has(r.stem))
+      .filter((r) => (proposedStems.has(r.stem) || r.unknown.length > 0 || broke.has(r.stem)) && !unusable.has(r.stem))
       .sort((a, b) => a.stem.localeCompare(b.stem));
     if (stems.length === 0) continue;
 
@@ -239,6 +254,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
         sinceS: row.sinceS,
         toS: Number.isFinite(row.toS) ? row.toS : undefined,
         unknown: row.unknown,
+        violations: broke.get(row.stem)?.violations ?? [],
+        violating: broke.get(row.stem)?.corrections ?? {},
         hands: Object.fromEntries(flagged.map((c) => [c.square, "occluded"])),
         reads: Object.fromEntries(flagged.map((c) => [c.square, read(c)])),
         disagree: Object.fromEntries(wall.map((c) => [c.square, walls.get(`${c.frame}|${c.square}`)!.label])),
@@ -294,6 +311,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     boards,
     cells,
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
+    rules: ruleRows.present,
     decided,
     progress: { boards: proposedBoards, done },
   };
@@ -332,6 +350,8 @@ async function appendStored(
           ply: row.ply,
           fen: row.fen,
           unknown: [],
+          violations: [],
+          violating: {},
           hands: {},
           reads: {},
           disagree: {},
