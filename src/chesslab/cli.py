@@ -375,6 +375,39 @@ def session_fit_mesh(
           f"{sum(r['carried'] for r in done)} carried over {len(done)} sessions, "
           f"{len(rows) - len(done)} failed")
 
+@session_app.command("mark-hands")
+def session_mark_hands(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Read the board's grooves per frame and mark the frames a hand lies on as `dirty`.
+
+    The exporter only calls a frame dirty inside a 1 s window around a reviewed commit, so a hand
+    that adjusts a piece or crosses the board goes unflagged and its crops reach training under
+    the FEN label. This is the model-free read; it only ever adds the flag, never clears it.
+    """
+    from . import sessions as sessions_mod
+
+    if not (session or all_sessions):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+
+    def say(r: dict) -> None:
+        if r.get("error"):
+            print(f"[FAIL] {r['session_id']}: {r['error']}", flush=True)
+            return
+        print(f"[OK] {r['session_id']}: hands on {r['hands']}/{r['of']} frames, "
+              f"{r['newly_dirty']} newly dirty — backup {r['backup']}", flush=True)
+
+    if not all_sessions:
+        say(_session_call(sessions_mod.mark_hands_session, session))
+        return
+    rows = sessions_mod.mark_hands_all(on_done=say)
+    done = [r for r in rows if not r.get("error")]
+    print(f"[OK] {sum(r['newly_dirty'] for r in done)} frames newly dirty over {len(done)} "
+          f"sessions, {len(rows) - len(done)} failed")
+
+
 @session_app.command("adopt")
 def session_adopt(
     session: str = typer.Argument(..., help="Session ID."),

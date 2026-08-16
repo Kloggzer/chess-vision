@@ -721,6 +721,69 @@ def fit_mesh_session(session_id: str) -> dict:
             "of": len(rows), **stages, "backup": backup}
 
 
+def mark_hands_session(session_id: str) -> dict:
+    """Set `dirty` where the board's own grooves say a hand lies on them.
+
+    The exporter's `dirty` is a +/-1 s window around a reviewed commit, not a sensor: measured
+    2026-08-16 over 2 228 frames, 424 of them show a plain hand and carry no flag. This is the
+    model-free witness (`grid_occlusion`, mirror of `GridOcclusion.kt`) and it only ever ADDS —
+    a commit window stays dirty whether or not the grooves survived it.
+    """
+    import cv2
+
+    from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
+    from .imgops import skin_patch
+    from .labeling import _profile_for_session, read_session_meta
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    pad = crop_border_px(prof)
+    seen = added = 0
+    for r in rows:
+        r.pop("hand_squares", None)
+        if not r.get("corners"):
+            continue
+        try:
+            frame = cv2.imread(str(frame_path(sdir, r)))
+        except (FileNotFoundError, ValueError):
+            continue
+        if frame is None:
+            continue
+        padded = warp_padded(frame, r["corners"], prof, pad)
+        gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+        squares = hand_squares(missing_edges(gray, prof.board_size, pad, white_pov=prof.white_pov))
+        if squares:
+            # The cells the read accuses, so relabeling can offer them instead of all 64.
+            r["hand_squares"] = sorted(squares)
+        elif not skin_patch(padded[pad:pad + prof.board_size, pad:pad + prof.board_size],
+                            prof.board_size / 8.0, prof.crop.pad_side):
+            continue
+        seen += 1
+        added += not r.get("dirty")
+        r["dirty"] = True
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "hands": seen, "newly_dirty": added, "of": len(rows),
+            "backup": backup}
+
+
+def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
+    """`mark_hands_session` over every session with a log — minutes long, so it reports per session."""
+    out = []
+    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+        if not (sdir / "log.jsonl").is_file():
+            continue
+        try:
+            r = mark_hands_session(sdir.name)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            r = {"session_id": sdir.name, "error": f"{type(e).__name__}: {e}"}
+        out.append(r)
+        if on_done is not None:
+            on_done(r)
+    return out
+
+
 def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
     """`fit_mesh_session` over every active session that has a log — the sweep, one at a time.
 

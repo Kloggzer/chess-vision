@@ -336,7 +336,8 @@ def slice_session(
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
     `label_overrides` replaces the FEN-derived label per (session, frame, square) with
-    a human correction (web relabel). Returns the number of applied overrides.
+    a human correction (web relabel). Returns the number of applied overrides. It is also the
+    only way a cell of a `dirty` frame reaches the pool at all — see the loop below.
 
     `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
     via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
@@ -357,6 +358,8 @@ def slice_session(
     n_skipped = 0
     #: Cells dropped because the FEN lags there and no human ruled on them (`unknown_squares`).
     n_unknown = 0
+    #: Cells dropped because a hand was in the frame and no human ruled on them (`dirty`).
+    n_dirty = 0
     n_unusable = 0
     n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
     n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
@@ -407,6 +410,12 @@ def slice_session(
         # "occluded" (or naming the piece) knows something the FEN does not. Only the cells nobody
         # ruled on are dropped.
         unknown_set = set(entry.get("unknown_squares") or ())
+        # A hand in the frame means a MOVE is being made, and the FEN only catches up at the
+        # commit — so every cell of the frame is suspect, not just the ones under the hand.
+        # A dirty frame therefore contributes exactly what a human named on it and nothing else.
+        # `carried` counts as dirty: the mesh is a neighbour's because THIS frame's grooves were
+        # unreadable, and measured over 2 228 frames that is a hand 94.5 % of the time.
+        dirty = bool(entry.get("dirty")) or entry.get("grid_lines_source") == "carried"
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
         for i, square in enumerate(squares):
@@ -417,6 +426,9 @@ def slice_session(
             )
             if square in unknown_set and corrected is None:
                 n_unknown += 1
+                continue
+            if dirty and corrected is None:
+                n_dirty += 1
                 continue
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
             if square in occluded_set:
@@ -459,7 +471,7 @@ def slice_session(
     _replace_session_in_manifest(manifest_path, session_id, new_lines)
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
-            "unknown_dropped": n_unknown, "mesh_frames": n_mesh,
+            "unknown_dropped": n_unknown, "dirty_dropped": n_dirty, "mesh_frames": n_mesh,
             "fallback": n_fallback}
 
 
@@ -529,6 +541,8 @@ def run_slice(
             if stats.get("fallback"):
                 extra += f" [{stats['fallback']} box3d->warp fallbacks]"
             extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
+            if stats.get("dirty_dropped"):
+                extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
             print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
         except Exception as e:  # noqa: BLE001
             print(f"[FAIL] {sid}: {e}")

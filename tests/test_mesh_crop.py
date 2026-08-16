@@ -184,8 +184,6 @@ def test_slice_cuts_at_the_rows_own_grid_lines(tmp_path):
 
 def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypatch):
     """A re-fit must not leave a mesh from an older geometry standing — it would cut somewhere else."""
-    import yaml
-
     from chesslab import config, realgames, sessions
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))

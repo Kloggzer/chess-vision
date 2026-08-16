@@ -539,9 +539,12 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     the board's own boundaries instead of the nominal eighth (docs/data-pipeline.md §2).
     """
     from .alignment import improve_quad
+    from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
+    from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed = [], 0
+    worsts, meshed, hands = [], 0, 0
+    pad = crop_border_px(profile)
     for row in rows:
         frame = cv2.imread(str(session_dir / row["frame"]))
         quad, before, after = (
@@ -557,6 +560,26 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
         if mesh is not None:
             row["grid_lines"] = mesh
             meshed += 1
+        # The exporter's own `dirty` is a 1 s window around a commit, so a hand that adjusts a
+        # piece or crosses the board goes unflagged and its crops reach training under the FEN
+        # label (measured 2026-08-16: 424 of 2 228 frames). The grooves are the witness, and the
+        # frame is already decoded here. Only ADDS the flag; a commit window stays dirty.
+        row.pop("hand_squares", None)
+        padded = None if frame is None else warp_padded(frame, row["corners"], profile, pad)
+        found = None if padded is None else hand_squares(missing_edges(
+            cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY), profile.board_size, pad,
+            white_pov=profile.white_pov))
+        if found:
+            row["hand_squares"] = sorted(found)
+        # The groove read needs an adjacent PAIR, so it is blind to the hand that only grazes the
+        # outer rank — 263 of 7 358 otherwise open frames (2026-08-16), every one an edge hand.
+        # The colour read catches 259 of them at zero cost on 600 clean frames, so it decides the
+        # flag alongside; naming the cells stays the grooves' job.
+        if found or (padded is not None and skin_patch(
+                padded[pad:pad + profile.board_size, pad:pad + profile.board_size],
+                profile.board_size / 8.0, profile.crop.pad_side)):
+            row["dirty"] = True
+            hands += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
         row["corners_source"] = source
@@ -568,6 +591,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     return {
         **counts,
         "mesh": meshed,
+        "hands": hands,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
     }
@@ -695,7 +719,7 @@ def export_session(
             print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "
-                  f"mesh on {stats['mesh']}")
+                  f"mesh on {stats['mesh']}, hands on {stats['hands']}")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)

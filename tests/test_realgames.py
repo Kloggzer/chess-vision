@@ -317,7 +317,10 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     from chesslab.labeling import slice_session
 
     cand = _export_candidate(tmp_path, monkeypatch)
-    rows = plan_rows(cand, margin_frames=30, every=3, dirty=True)[:3]
+    planned = plan_rows(cand, margin_frames=30, every=3, dirty=True)
+    # Three quiet rows carry the conformance check; the dirty one pins the gate that holds a
+    # hand-frame back until a human names its cells (tests/test_labeling_dirty.py).
+    rows = [r for r in planned if not r.get("dirty")][:3] + [r for r in planned if r.get("dirty")][:1]
     session_dir = config.DATA.sessions / "rg-g"
     (session_dir / "frames").mkdir(parents=True)
     for row in rows:
@@ -335,7 +338,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
 
     assert stats == {
         "session_id": "rg-g",
-        "frames": 3,
+        "frames": 4,
         "crops": 192,
         "overrides": 0,
         "skipped": 0,
@@ -343,6 +346,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         # Zero here on purpose: this export names no `unknown_squares`, so the gate keeps proving
         # that a plain session still yields all 64 crops per frame (see tests/test_labeling_unknown).
         "unknown_dropped": 0,
+        "dirty_dropped": 64,
         # No `grid_lines` in these rows, so every crop is cut at the nominal eighth.
         "mesh_frames": 0,
         "fallback": 0,
@@ -572,7 +576,11 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
 
     stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8))
 
-    assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0,
+    # `hands: 3` is the groove read's documented "full resolution or nothing": at 1 px per cell
+    # every edge segment reads missing, so it accuses the whole board. Real exports run at 928+
+    # (the 2026-08-16 sweep flagged 25 of 713 frames on 13-12-46-24), and a board this unreadable
+    # has nothing labelable on it anyway — the flag only holds its crops back.
+    assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0, "hands": 3,
                      "median": 2.7, "max": 2.7}, "8x8 noise carries no grid lines"
     assert rows[0]["corners"] == fitted_quad and rows[0]["corners_source"] == FIT_SOURCE
     assert rows[0]["align_worst_px"] == 2.7, "the number a later `session scan` will confirm"
