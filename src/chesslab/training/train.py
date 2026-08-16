@@ -6,6 +6,7 @@ import atexit
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -106,7 +107,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               class_weight: dict[str, float] | None = None,
               sched: str = "cosine",
               jitter_translate: float | None = None,
-              hard_negative_multiplier: float = 1.0) -> int:
+              hard_negative_multiplier: float = 1.0,
+              split: str | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -168,7 +170,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         from ..dataset_build import dataset_dir
         dd = dataset_dir(dataset)
         manifest_path = dd / "manifest.jsonl"
-        split_path = dd / "split.json"
+        # One packed corpus, several splits over it (cross-validation folds): the memmap is
+        # 9 GB and packing it per fold copies the same crops four times. `occluded_model.
+        # trained_on` reads the name back out of config.json, so the circularity guard follows.
+        split_path = dd / (split or "split.json")
         if not manifest_path.exists() or not split_path.exists():
             print(f"[FAIL] Dataset '{dataset}' not built ({dd}). First build it in the Datasets tab "
                   "(`chesslab dataset build`), then train.")
@@ -444,7 +449,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
-        "dataset": dataset, "resumed_from": resumed_from, "head": head,
+        "dataset": dataset, "split": split, "resumed_from": resumed_from, "head": head,
         **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
         # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets
@@ -469,6 +474,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     epochs_no_improve = 0
     print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
     for epoch in range(epochs):
+        t_epoch = time.perf_counter()
         model.train()
         running = 0.0
         seen = 0
@@ -490,10 +496,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             running += loss.item() * x.size(0)
             seen += x.size(0)
         scheduler.step()
+        t_train = time.perf_counter() - t_epoch
 
+        t0 = time.perf_counter()
         val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=batch_size, num_workers=nw)
+        t_val = time.perf_counter() - t0
+        t0 = time.perf_counter()
         score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
         bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
+        t_score = time.perf_counter() - t0
         rec = {
             "epoch": epoch,
             "train_loss": running / max(seen, 1),
@@ -505,6 +516,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_occ_board_acc": score[0],
             "val_piece_acc": bd["piece_acc"],
             "lr": scheduler.get_last_lr()[0],
+            # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:
+            # the eval loader, the metric block and the checkpoint are three different suspects.
+            "t_train_s": round(t_train, 2), "t_val_s": round(t_val, 2), "t_score_s": round(t_score, 2),
         }
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")

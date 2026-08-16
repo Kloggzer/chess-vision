@@ -117,7 +117,9 @@ def load_priority_paths(paths=None) -> set[str] | None:
     p = (paths or config.DATA).manifests / "hard_empty.jsonl"
     if not p.exists():
         return None
-    return {json.loads(ln)["path"] for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()}
+    # utf-8-SIG, not utf-8: PowerShell's `Out-File`/`Set-Content` stamp a BOM by default on this
+    # platform, and one BOM made every dataset build die at the preflight (2026-08-16).
+    return {json.loads(ln)["path"] for ln in p.read_text(encoding="utf-8-sig").splitlines() if ln.strip()}
 
 
 def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,

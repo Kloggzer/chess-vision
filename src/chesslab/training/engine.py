@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import weakref
+
 import numpy as np
 import torch
 
@@ -14,6 +16,11 @@ def get_device(require_gpu: bool):
     if require_gpu:
         raise RuntimeError("no usable GPU (torch.cuda.is_available()==False).")
     return torch.device("cpu")
+
+
+#: Eval loaders per dataset — see `evaluate_dataset`. WeakKey, not `id()`: an id is reused after
+#: the object is collected, and the next dataset would silently inherit the wrong loader.
+_LOADERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 
 @torch.no_grad()
@@ -30,7 +37,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     kw = {"batch_size": batch_size, "shuffle": False, "num_workers": num_workers, "pin_memory": True}
     if num_workers > 0:
         kw["prefetch_factor"] = 4
-    loader = DataLoader(dataset, **kw)
+        kw["persistent_workers"] = True
+    # Kept across calls: the training loop evaluates once per EPOCH, and a fresh loader spawns
+    # `num_workers` processes that each re-import torch — on Windows spawn that is the idle gap
+    # between epochs, and it grows with the worker count instead of shrinking.
+    per_ds = _LOADERS.setdefault(dataset, {})
+    loader = per_ds.get((batch_size, num_workers))
+    if loader is None:
+        loader = per_ds[(batch_size, num_workers)] = DataLoader(dataset, **kw)
     model.eval()
     trues: list[int] = []
     preds: list[int] = []

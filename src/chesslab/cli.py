@@ -590,6 +590,26 @@ def realgames_propose_occluded(
           f"-> {r['path']}")
 
 
+@realgames_app.command("audit-corrections")
+def realgames_audit_corrections() -> None:
+    """Check the correction ledger against the rules of chess — the audit that PROVES.
+
+    `audit-flags` asks a model and skips every cell a human ruled on, so a wrong correction is
+    invisible to it by construction. This one applies the ledger to each frame's FEN and reports
+    the boards that then break a rule no occlusion can explain (two kings, nine pawns, 33 pieces).
+    """
+    from . import label_audit
+
+    r = label_audit.audit_corrections()
+    path = label_audit.write_report(r["rows"], config.DATA.manifests / "correction-violations.jsonl")
+    print(f"[OK] {r['frames']} frames break a rule after their corrections "
+          f"({r['cells']} correction cells of {r['corrections_total']}) -> {path}")
+    for rule, n in sorted(r["per_rule"].items(), key=lambda kv: -kv[1]):
+        print(f"  {rule:28} {n}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n} frames")
+
+
 @realgames_app.command("audit-flags")
 def realgames_audit_flags() -> None:
     """Question every FEN label with the models the proposals already ran — confident learning.
@@ -1033,6 +1053,9 @@ def train_cmd(
           "--hard-negative-multiplier",
           help="Sampling weight for paths in data/manifests/hard_empty.jsonl (1 = disabled).",
       ),
+    split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
+                                     "(default: split.json). Lets several folds share ONE packed "
+                                     "corpus instead of packing the same crops per fold."),
     loss: str = typer.Option("ce", "--loss", help="ce | focal — focal down-weights the easy, "
                                                   "already-solved crops (needs --head combined)."),
     focal_gamma: float = typer.Option(2.0, "--focal-gamma", help="Focal loss gamma (0 = weighted CE)."),
@@ -1065,7 +1088,7 @@ def train_cmd(
                                head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
-                                 hard_negative_multiplier=hard_negative_multiplier))
+                                 hard_negative_multiplier=hard_negative_multiplier, split=split))
 
 
 @app.command("eval")
