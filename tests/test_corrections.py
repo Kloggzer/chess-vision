@@ -18,7 +18,7 @@ import numpy as np
 import yaml
 
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
-from chesslab.labeling import slice_session
+from chesslab.labeling import CROP_SUFFIX, slice_session
 
 
 def test_labels_to_fen_estimation():
@@ -95,6 +95,6 @@ def test_slice_applies_label_override(tmp_path):
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     e2 = next(r for r in rows if r["square"] == "e2")
     assert e2["label"] == "empty"
-    assert (squares / "empty" / "s1_0000_e2.png").exists()
+    assert (squares / "empty" / f"s1_0000_e2{CROP_SUFFIX}").exists()
     # a non-overridden square keeps its FEN label
     assert next(r for r in rows if r["square"] == "e1")["label"] == "wK"

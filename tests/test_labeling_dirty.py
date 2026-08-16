@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from chesslab import config
-from chesslab.labeling import slice_session
+from chesslab.labeling import CROP_SUFFIX, slice_session
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -59,7 +59,7 @@ def test_a_dirty_frame_contributes_nothing_on_its_own(session):
 
     assert res["dirty_dropped"] == 128, "the carried frame counts too"
     assert res["crops"] == 64, "the quiet frame is untouched"
-    written = {p.name for p in (session[2] / "squares").rglob("*.png")}
+    written = {p.name for p in (session[2] / "squares").rglob(f"*{CROP_SUFFIX}")}
     assert not [n for n in written if n.startswith("s1_000001_")]
 
 
@@ -70,8 +70,9 @@ def test_labeling_recovers_the_cells_a_human_named(session):
 
     assert res["dirty_dropped"] == 126
     assert res["crops"] == 66
-    assert {p.name for p in (session[2] / "squares" / "occluded").glob("*.png")} == {"s1_000001_e2.png"}
-    assert "s1_000001_d4.png" in {p.name for p in (session[2] / "squares" / "wP").glob("*.png")}
+    assert ({p.name for p in (session[2] / "squares" / "occluded").glob(f"*{CROP_SUFFIX}")}
+            == {f"s1_000001_e2{CROP_SUFFIX}"})
+    assert f"s1_000001_d4{CROP_SUFFIX}" in {p.name for p in (session[2] / "squares" / "wP").glob(f"*{CROP_SUFFIX}")}
 
 
 def test_a_carried_mesh_is_treated_as_a_hand(session):
@@ -79,5 +80,5 @@ def test_a_carried_mesh_is_treated_as_a_hand(session):
     2 228 frames that is a hand 94.5 % of the time, against 1.1 % on hand-free frames."""
     _slice(session)
 
-    written = {p.name for p in (session[2] / "squares").rglob("*.png")}
+    written = {p.name for p in (session[2] / "squares").rglob(f"*{CROP_SUFFIX}")}
     assert not [n for n in written if n.startswith("s1_000003_")]

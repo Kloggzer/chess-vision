@@ -9,6 +9,7 @@
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit. The CNN path is asynchronous and sparse. `docs/tracker-flow.md` records a measured break ("no snapshot ever reached the engine"); specs/53 later measured `CnnSnapshot.gridOccluded` reaching the verify ladder in replay, so the break is unconfirmed for live — re-measure before quoting it.
 - **Data Pipeline (`docs/data-pipeline.md`):** Sessions → Slice → Crop Pool → Dataset. *Note:* `unusable` flag is not retroactive; Parking does not prune the pool.
+- **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is the raw warp — the mesh straightens it at cut time, so never straighten the store too.
 - **Calibration:**
     - `lens`: Optical correction (Barrel Distortion) → `data/lens/calib.npz`.
     - `calibrate`: Board geometry (ArUco + Grid-Fit). ArUco is only "Coarse"; Grid provides accuracy. Markerless Cold Start is **not** supported.

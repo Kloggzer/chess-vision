@@ -342,6 +342,65 @@ def session_autofix(
         print(f"     backup: {r['backup']}")
 
 
+@session_app.command("boards")
+def session_boards(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Write every row's rectified board (`boards/NNNNNN.webp`) from its frame.
+
+    The board is what `slice` cuts and what the label view shows — one raster instead of two
+    independent cuts of the same frame, at 115 KB against the source frame's 3.3 MB. The export
+    writes it as it fits; this retrofits a session that predates the store, and repairs one whose
+    quad a later `autofix` or `adopt` moved.
+    """
+    from . import sessions as sessions_mod
+
+    if not (session or all_sessions):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.write_boards_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        missing = f", {r['missing']} without a readable frame" if r["missing"] else ""
+        print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing} — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
+@session_app.command("park-frames")
+def session_park_frames(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log."),
+) -> None:
+    """Move the source frames of boarded rows to `data/_parked/frames/`.
+
+    The board carries the picture at a thirtieth of the size, so the decode is scratch that the
+    video regenerates. Parked and not deleted: a frame is data, and only the user says otherwise.
+    """
+    from . import sessions as sessions_mod
+
+    if not (session or all_sessions):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    total = 0.0
+    for sid in ids:
+        r = _session_call(sessions_mod.park_frames_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            continue
+        total += r["freed_mb"]
+        print(f"[OK] {sid}: {r['moved']}/{r['of']} frames parked, {r['freed_mb']} MB -> {r['parked_to']}", flush=True)
+    if all_sessions:
+        print(f"[OK] {total / 1024:.1f} GB parked over {len(ids)} sessions")
+
+
 @session_app.command("fit-mesh")
 def session_fit_mesh(
     session: str = typer.Argument(None, help="Session ID."),

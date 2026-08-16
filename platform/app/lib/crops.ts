@@ -1,20 +1,19 @@
 /**
- * Cell crops and rectified boards, cut server-side out of the RAW session frames.
+ * Cell crops and rectified boards, cut out of the session's stored board (`cutSource`).
  *
- * The review PNGs under `data/realgames/<name>/frames/` are already rectified but cover only the
- * commit bursts — measured on rec-20260808-003957: 60 of 1 729 session stems (3.5 %), so they
- * cannot serve the proposal frames. Everything here therefore goes through the per-frame quad.
- *
- * `sharp` is used for exactly two things — PNG in, PNG out. The sampling is `lib/warp.ts`;
- * sharp has no projective warp (only `.affine()`), and Node has no PNG codec.
+ * The review PNGs under `data/realgames/<name>/frames/` are rectified but cover only the commit
+ * bursts (60 of 1 729 stems on rec-20260808-003957), so they cannot serve the proposal frames.
+ * `sharp` only decodes and encodes here; the sampling is `lib/warp.ts`, which has the projective
+ * warp sharp lacks.
  */
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { sessionDir } from "@/lib/chain";
-import { framePath, loadSession, type Session } from "@/lib/session";
+import { boardPath, boardToStored, framePath, loadSession, type Session } from "@/lib/session";
 import path from "node:path";
 import {
   boardToImage,
+  type Mat3,
   type Raster,
   sampleBox,
   sampleBoxMesh,
@@ -34,8 +33,23 @@ const CACHE_MAX = 24;
 const decoded = new Map<string, Raster>();
 const inFlight = new Map<string, Promise<Raster>>();
 
-async function frameRaster(name: string, stem: string): Promise<Raster> {
-  const file = framePath(name, stem);
+/**
+ * The raster a cut reads: the session's STORED board when it has one, the raw frame otherwise.
+ *
+ * The board is the rectified frame under the row's own quad (`realgames.write_board`) — the same
+ * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. Reading
+ * it here is what makes "the label view shows the crop the model will get" structural instead of
+ * two independent cuts that happen to agree.
+ */
+async function cutSource(session: Session, name: string, stem: string): Promise<{ raster: Raster; h: Mat3 }> {
+  const board = session.byStem.get(stem)?.board;
+  if (board && (await stat(boardPath(name, stem)).then(() => true, () => false))) {
+    return { raster: await rasterOf(boardPath(name, stem)), h: boardToStored(session, board) };
+  }
+  return { raster: await rasterOf(framePath(name, stem)), h: homographyFor(session, stem) };
+}
+
+async function rasterOf(file: string): Promise<Raster> {
   const hit = decoded.get(file);
   if (hit) return hit;
   const pending = inFlight.get(file);
@@ -73,8 +87,7 @@ function homographyFor(session: Session, stem: string) {
  * walks and `crop_square` (labeling.py) cuts the training crop with — the label view has to show
  * the crop the model will get, not a differently framed one.
  */
-function cellRgb(session: Session, stem: string, square: string, raster: Raster, size: number) {
-  const h = homographyFor(session, stem);
+function cellRgb(session: Session, stem: string, square: string, raster: Raster, h: Mat3, size: number) {
   const mesh = session.byStem.get(stem)?.mesh;
   if (mesh?.tx && mesh.ty) {
     const quad = squareMeshQuad(square, session.boardSize, mesh as TiltedMesh, session.crop, session.whitePov);
@@ -100,11 +113,13 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__
 export async function cellPng(name: string, stem: string, square: string, size: number) {
   // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Frame-Datei — ein Schlüssel nur
   // über das Frame servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15).
-  const [frameM, logM] = await Promise.all([
-    stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0),
+  // Die Quelle selbst muss drinstehen, nicht das Frame: `session boards` schreibt das Brett neu,
+  // ohne das Log anzufassen, und ein geparktes Frame liefert für jeden Stem dieselbe 0.
+  const [srcM, logM] = await Promise.all([
+    stat(boardPath(name, stem)).then((s) => s.mtimeMs, () => stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0)),
     stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
   ]);
-  const key = `${name}|${stem}|${square}|${size}|${frameM}|${logM}`;
+  const key = `${name}|${stem}|${square}|${size}|${srcM}|${logM}`;
   const hit = cellPngs.get(key);
   if (hit) {
     cellPngs.delete(key);
@@ -112,7 +127,8 @@ export async function cellPng(name: string, stem: string, square: string, size: 
     return hit;
   }
   const session = await loadSession(name);
-  const rgb = cellRgb(session, stem, square, await frameRaster(name, stem), size);
+  const { raster, h } = await cutSource(session, name, stem);
+  const rgb = cellRgb(session, stem, square, raster, h, size);
   const out = await png(rgb, size, size);
   cellPngs.set(key, out);
   if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
@@ -128,8 +144,7 @@ export async function cellPng(name: string, stem: string, square: string, size: 
 export async function boardPng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
   const box = { x0: 0, y0: 0, x1: session.boardSize, y1: session.boardSize };
-  const h = homographyFor(session, stem);
-  const raster = await frameRaster(name, stem);
+  const { raster, h } = await cutSource(session, name, stem);
   const mesh = session.byStem.get(stem)?.mesh;
   const rgb =
     mesh?.tx && mesh.ty
@@ -156,7 +171,8 @@ export async function medianPng(name: string, stem: string, square: string, size
   // median stacks the same square and not a slowly sliding one.
   const stack: Buffer[] = [];
   for (const s of picked) {
-    stack.push(cellRgb(session, s, square, await frameRaster(name, s), size));
+    const { raster, h } = await cutSource(session, name, s);
+    stack.push(cellRgb(session, s, square, raster, h, size));
   }
   const out = Buffer.alloc(size * size * 3);
   const lane: number[] = [];

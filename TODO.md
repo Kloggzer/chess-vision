@@ -282,3 +282,20 @@
   `unknown_squares` existed, because re-running the export meant decoding the whole video again.
   Re-export is cheap now (frames on disk are kept) and non-destructive (a repaired quad is carried
   over), so after any change to `plan_rows`, re-export and check the field is actually there.
+
+## Lens: die Krümmung, die im Brett-Store sichtbar wurde (2026-08-17)
+
+Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`. Befund, gemessen:
+
+- Das gespeicherte Brett ist der **rohe** rektifizierte Warp. Sowohl der Trainings-Crop
+  (`crop_square(..., mesh)`) als auch die Label-Ansicht (`sampleBoxMesh`) begradigen mit dem
+  gemessenen Mesh — dessen `cx`/`cy` sind die Parabelterme genau dieser Wölbung. `/api/board`
+  liefert das Brett gerade; nur die Datei selbst ist krumm.
+- Die Zell-GRENZEN sind damit richtig. Was bleibt, ist der Barrel INNERHALB einer Zelle.
+- Gemessene Wölbung über das 928er Brett, Mittel über 200 Frames je Session: die eine
+  undistortete Session (`00-39-57`, k1 = −0,269) liegt bei 13,7 px in x, alle rohen bei 15–56 px.
+- Der Fit gehört laut `Undistort.kt` bewusst nach Kotlin (`data/lens/calib.npz` wurde bei
+  2560×1440 mit RMS 5,46 px gefittet, die Kamera liefert 1920×1080). Das ANWENDEN eines
+  gefitteten Modells ist dagegen ein `cv2.undistort` und könnte im Stream vor dem Warp laufen —
+  dann bräuchte Undistortion nicht mehr den PNG-Umweg über `frames/`.
+- Offen: 19 von 20 Sessions sind nie durch `:desktop undistort` gegangen.

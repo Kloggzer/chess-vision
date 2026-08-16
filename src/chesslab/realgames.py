@@ -6,11 +6,12 @@ from __future__ import annotations
 import json
 import math
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import chess.pgn
 import cv2
@@ -529,8 +530,86 @@ def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
 FIT_SOURCE, FIT_KEPT, FIT_FAILED = "export-fit", "export-fit-kept", "export-fit-failed"
 
 
-def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
+#: The session's working picture: the board, rectified with the row's FINAL quad and the crop
+#: border, as WebP. It replaces the 3.3 MB source frame — 82 GB of PNG for 12.7 GB of video — at
+#: 115 KB per board, and it is the exact raster `crop_square` cuts from, so the label view and the
+#: training crop stop being two independent cuts of the same frame. Written by `fit_rows_to_grid`
+#: because the quad is only final there; a later quad change must rewrite it (`session boards`).
+BOARD_DIR = "boards"
+BOARD_SUFFIX = ".webp"
+#: What a row says about its board — the file, and the scale its pixels are in (`write_board`).
+BOARD_KEYS = ("board", "board_size", "board_border")
+BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+
+
+def board_rel(stem: str) -> str:
+    """The board's path inside the session — `row["board"]`, as `row["frame"]` names the frame."""
+    return f"{BOARD_DIR}/{stem}{BOARD_SUFFIX}"
+
+
+#: Processes a per-frame pass uses, and the row count that makes a pool worth its start-up.
+#: Measured over 240 frames of 20-19-54 (10.5 MB each): serial 166 ms/frame, then 41.6 / 37.2 /
+#: 33.0 / 31.9 at 6 / 8 / 12 / 16 — 12 is 5.05x and 16 only 5.23x, so the last four processes buy
+#: 3 %. THREADS plateau at 1.9x: the work is numpy and Python and the GIL is the wall, which is why
+#: the CPU sat at 1.6 of 20 cores. (A 40-frame run says 8 saturates — that is pool start-up.)
+POOL_WORKERS = 12
+POOL_MIN_ROWS = 32
+
+
+def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
+    """One frame -> one board, for the retrofit pool: only paths cross the process boundary."""
+    session_dir, frame_rel, corners, profile = job
+    frame = cv2.imread(str(session_dir / frame_rel))
+    if frame is None:
+        return None
+    return write_board(session_dir, Path(frame_rel).stem, frame, corners, profile)
+
+
+def write_board(session_dir: Path, stem: str, frame, corners, profile) -> dict:
+    """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two agree only
+    while `pad_up == 0`, and the store has to be the crop's raster under any profile.
+
+    Returns the row's `board` keys — the path AND the scale the pixels are in. A homography hides
+    that scale (board coordinates cancel against it), a stored raster does not: the candidate's
+    geometry says 1008 where the export profile says 928, and a reader that assumed its own number
+    cut every cell 8 % off (measured: 14 dB against the training crop).
+    """
+    from .calibration import crop_border_px, warp_board_for_crops
+
+    rel = board_rel(stem)
+    out = session_dir / rel
+    out.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners), BOARD_ENCODE)
+    return {"board": rel, "board_size": int(profile.board_size), "board_border": crop_border_px(profile)}
+
+
+def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator[tuple[dict, Any]]:
+    """(row, frame) for every planned row, decoded STRICTLY forward out of the recording.
+
+    The frame never touches the disk: `video -> webp -> labeling -> crop -> training` (User,
+    2026-08-16). Writing it out first cost 3.3 MB per frame — 82 GB of session tree for 12.7 GB of
+    video — to hand the very next step a picture it already had in memory. Forward only, for the
+    reason `decode_frames` gives: a seek lands NEXT to the asked-for index, and an index off by one
+    here is a wrong label rather than a blurry crop.
+    """
+    wanted = {int(Path(r["frame"]).stem): r for r in rows}
+    if not wanted:
+        return
+    last = max(wanted)
+    with closing(Recording(video).frames()) as stream:
+        for idx, frame in stream:
+            if (row := wanted.get(idx)) is not None:
+                yield row, frame if rotate is None else cv2.rotate(frame, rotate)
+            if idx >= last:
+                break
+
+
+def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
+                     frames: Iterator[tuple[dict, Any]] | None = None) -> dict:
     """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
+
+    `frames`: (row, picture) pairs from `stream_frames`; without it every row is read from
+    `frames/`, the path a session predating the board store takes.
 
     The candidate carries one median quad for the whole video, and a median is not a measurement
     of any single frame: rg-2026-08-13-19-34-23 went out with all 137 frames uniformly ~17 px off
@@ -549,12 +628,15 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
     from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed, hands = [], 0, 0
+    worsts, meshed, hands, boards = [], 0, 0, 0
     pad = crop_border_px(profile)
-    for done, row in enumerate(rows, 1):
+    pairs = frames if frames is not None else (
+        (row, cv2.imread(str(session_dir / row["frame"]))) for row in rows)
+    seen = []
+    for done, (row, frame) in enumerate(pairs, 1):
+        seen.append(row)
         if done % PROGRESS_EVERY == 0:
             print(f"  grid fit {done}/{len(rows)} frames, hands on {hands}", flush=True)
-        frame = cv2.imread(str(session_dir / row["frame"]))
         quad, before, after = (
             (None, float("nan"), float("nan"))
             if frame is None
@@ -588,6 +670,12 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
                 profile.board_size / 8.0, profile.crop.pad_side)):
             row["dirty"] = True
             hands += 1
+        # The quad is final HERE, so this is the only place the stored board can be cut from it.
+        for key in BOARD_KEYS:
+            row.pop(key, None)
+        if frame is not None:
+            row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"], profile))
+            boards += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
         row["corners_source"] = source
@@ -600,6 +688,8 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile) -> dict:
         **counts,
         "mesh": meshed,
         "hands": hands,
+        "boards": boards,
+        "arrived": seen,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
     }
@@ -695,17 +785,28 @@ def export_session(
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty, settle=settle)
     if not rows:
+        # `confirmed: true` with an EMPTY `reviewed_plies` is a reachable state — confirming a
+        # candidate before its reference PGN is in place vouches for nothing — and blaming the
+        # margin for it sent the user hunting a timing problem that was not there (20-19-54).
+        if not (candidate.get("reviewed_plies") or ()):
+            raise ValueError(
+                f"{name}: confirmed, but not one ply is reviewed — re-run the confirmation "
+                f"(its {len(candidate['moves'])} moves have nothing vouching for them)")
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = config.DATA.sessions / f"rg-{name}"
     if not report_only:
-        planned = {int(Path(r["frame"]).stem) for r in rows}
-        arrived = decode_frames(
-            video_path(name, candidate),
-            planned,
-            session_dir / "frames",
-            rotate=rotation,
-        )
-        rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
+        # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
+        # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
+        # other export goes video -> board and keeps no 3.3 MB copy of what it already had.
+        on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
+        if on_disk:
+            arrived = decode_frames(
+                video_path(name, candidate),
+                {int(Path(r["frame"]).stem) for r in rows},
+                session_dir / "frames",
+                rotate=rotation,
+            )
+            rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
         if (session_dir / "frames" / "lens.json").is_file():
             # Undistorting MOVES the board in the image, so a quad measured on the raw frames — and
             # any repair fitted to them — describes a picture that no longer exists. Re-measure on
@@ -723,7 +824,12 @@ def export_session(
         if fit:
             # Last, so the fit starts from the best quad this export knows — a carried repair or
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
-            stats = fit_rows_to_grid(session_dir, rows, load_profile(EXPORT_PROFILE))
+            stats = fit_rows_to_grid(
+                session_dir, rows, load_profile(EXPORT_PROFILE),
+                frames=None if on_disk else stream_frames(video_path(name, candidate), rows, rotation))
+            # What the decoder actually handed over — a row past the end of a truncated recording
+            # has no picture, and carrying it would name a board that was never written.
+            rows = stats["arrived"]
             print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "

@@ -86,6 +86,14 @@ def labels_to_fen(labels: dict) -> str:
     return "/".join(rows)
 
 
+#: The crop store's format. PNG cost 23.8 KB per 128 px crop and 12 GB for the corpus; WebP q95
+#: costs 2.1 KB, and over 400 crops through `xval-f0-bn80` it moved the softmax by 0.00055 on
+#: average and flipped no argmax at all (q92 flipped one, on a crop already at p=0.67). The source
+#: is H.264, so this is not the first lossy stage — it is the first cheap one.
+CROP_SUFFIX = ".webp"
+CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+
+
 def parse_out_size(s: str) -> tuple[int, int]:
     """'96x128' -> (96, 128) = (W, H)."""
     try:
@@ -138,6 +146,20 @@ def _crop_square_mesh(board_warped, square: str, profile: CalibrationProfile,
     return canvas
 
 
+def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
+    """Whether this row's stored board is the raster [profile] would cut from.
+
+    `crop_square` derives the border from the profile it is HANDED, so a `--pad-side` override cuts
+    the stored board at an offset it was never warped with — a silent half-cell error. The row
+    carries the two numbers the board was written with, so the mismatch is answerable instead of
+    assumed; the frame is then the source, as it was before the store existed.
+    """
+    if not entry.get("board"):
+        return False
+    return (entry.get("board_size") == int(profile.board_size)
+            and entry.get("board_border") == crop_border_px(profile))
+
+
 def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int],
                 mesh: GridMesh | None = None):
     """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
@@ -177,20 +199,23 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
                     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
                     out_size: tuple[int, int] | None = None,
                     mesh: GridMesh | None = None,
+                    board=None,
                     with_meta: bool = False):
     """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice:
     bordered warp OR box3d, then `preprocess_crop`. Single Source for live inference so
     the model sees exactly the same crop live as during training.
 
-    `with_meta=True`: returns (crops, meta) where meta = {"used_box3d": list[bool]} indicates per square
-    whether the crop was produced via box3d (True) or warp (False). Used by `slice_session`
-    for the `pose_ok` flag in the manifest (de-duplication, Rework 01).
-
-    `mesh`: the frame's measured grid lines (`grid_lines`), which cut every cell at the board's own
-    boundaries instead of the nominal eighth — the warp path only, box3d has its own geometry.
+    `with_meta=True`: also returns {"used_box3d": list[bool]} per square, which `slice_session`
+    writes as the manifest's `pose_ok` (de-duplication, Rework 01).
+    `mesh`: the frame's measured grid lines, cutting each cell at the board's own boundaries
+    instead of the nominal eighth — warp path only, box3d has its own geometry.
+    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may then
+    be None — box3d is the exception, it reprojects from the source frame.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     box3d = geometry == "box3d"
+    if box3d and frame is None:
+        raise ValueError("box3d needs the source frame — a stored board is already rectified.")
     cell = profile.board_size / 8.0
     pose = None
     up = 1.0
@@ -203,7 +228,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: st
             up = geometry3d.up_sign(pose[0], pose[1])
     ph_units = float(piece_height_cells) * cell
     ps_units = config.EXP_BOX3D_PAD_SIDE_CELLS * cell
-    warped = warp_board_for_crops(frame, profile, corners)   # warp-Crop + box3d-Fallback
+    warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
     crops = []
     used_box3d = []
     for square in all_squares():
@@ -341,7 +366,7 @@ def slice_session(
 
     `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
     via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
-    INTO the PNGs (train/inference parity). `piece_height_cells`: extrusion height for box3d.
+    INTO the crops (train/inference parity). `piece_height_cells`: extrusion height for box3d.
     """
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
@@ -368,10 +393,19 @@ def slice_session(
         if entry.get("unusable"):
             n_unusable += 1
             continue
-        frame_path = session_dir / entry["frame"]
-        frame = cv2.imread(str(frame_path))
-        if frame is None:
-            raise FileNotFoundError(f"Frame not readable: {frame_path}")
+        # The stored board is the rectified frame under this row's own quad, so cutting from it is
+        # the same operation minus the warp — and it is what the label view shows, which is the
+        # point. The source frame is only read when there is no board (or for box3d, which
+        # reprojects from it); it is no longer kept on disk for sessions that carry one.
+        board = cv2.imread(str(session_dir / entry["board"])) if usable_board(entry, prof) else None
+        frame = None
+        if board is None or box3d:
+            frame_path = session_dir / entry["frame"]
+            frame = cv2.imread(str(frame_path))
+            if frame is None:
+                raise FileNotFoundError(
+                    f"Neither board nor frame readable: {frame_path}"
+                    + ("" if entry.get("board") else " — run `chesslab session boards` for this session"))
         corners = entry.get("corners")
         if not corners:
             # Fallback (sessions without saved corners): per frame from the markers.
@@ -387,7 +421,8 @@ def slice_session(
         # crops_for_frame as single source (Rework 01: de-duplication).
         crops, meta = crops_for_frame(
             frame, corners, prof, geometry=geometry_mode, photometry=photometry,
-            piece_height_cells=piece_height_cells, out_size=out, mesh=mesh, with_meta=True)
+            piece_height_cells=piece_height_cells, out_size=out, mesh=mesh, board=board,
+            with_meta=True)
         used_box3d_list = meta["used_box3d"]
         if box3d:
             n_fallback += sum(1 for v in used_box3d_list if not v)
@@ -439,8 +474,8 @@ def slice_session(
             crop = crops[i]
             out_dir = squares_root / label
             out_dir.mkdir(parents=True, exist_ok=True)
-            fname = f"{session_id}_{frame_stem}_{square}.png"
-            cv2.imwrite(str(out_dir / fname), crop)
+            fname = f"{session_id}_{frame_stem}_{square}{CROP_SUFFIX}"
+            cv2.imwrite(str(out_dir / fname), crop, CROP_ENCODE)
             row = {
                 "path": str((out_dir / fname).as_posix()),
                 "label": label,

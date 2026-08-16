@@ -25,7 +25,7 @@ lib/autopilot.ts 6
 lib/chain.ts 9
 lib/corpus.ts 8
 lib/corrections.ts 8
-lib/crops.ts 10
+lib/crops.ts 8
 lib/data.ts 8
 lib/ingest.ts 13
 lib/jobs.ts 13

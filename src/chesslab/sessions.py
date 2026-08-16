@@ -1,7 +1,7 @@
 """Session management: list, archive, restore, delete recorded training sessions.
 
 `collect` creates a directory per session under `data/sessions/<id>` (frames + log.jsonl +
-session.yaml); `slice` produces crops (`data/squares/<label>/<id>_*.png`) and manifest
+session.yaml); `slice` produces crops (`data/squares/<label>/<id>_*.webp`) and manifest
 lines from them. These functions keep these three locations consistent:
 
 - **archive** removes the crops + manifest lines (session no longer counts toward the dataset)
@@ -82,8 +82,10 @@ def _crop_pools(paths: config.Paths) -> list[Path]:
 
 
 def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
-    # Crop filename = "{session_id}_{frame}_{square}.png" in <pool>/<label>/
-    return [f for root in _crop_pools(paths) for f in root.glob(f"*/{session_id}_*.png")]
+    # Crop filename = "{session_id}_{frame}_{square}.<ext>" in <pool>/<label>/. The extension is
+    # NOT pinned: the store moved to WebP (`labeling.CROP_SUFFIX`) and the old PNGs outlive it in
+    # the same pools, so a suffix here parks half a session and calls it done.
+    return [f for root in _crop_pools(paths) for f in root.glob(f"*/{session_id}_*.*")]
 
 
 def _crop_count_from_manifest(session_id: str, paths: config.Paths, manifest=None) -> int:
@@ -146,7 +148,7 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
     removed = 0
     for root in _crop_pools(paths):
         for stem in frame_stems:
-            for f in root.glob(f"*/{session_id}_{stem}_*.png"):
+            for f in root.glob(f"*/{session_id}_{stem}_*.*"):
                 f.unlink()
                 removed += 1
     return removed
@@ -676,6 +678,70 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
         row["grid_lines_source"] = "carried"
         carried += 1
     return carried
+
+def park_frames_session(session_id: str) -> dict:
+    """Move the source frames of every boarded row to `data/_parked/frames/<session>/`.
+
+    The decode is scratch: 3.3 MB per frame against the board's 115 KB, and the session tree stood
+    at 82 GB for 12.7 GB of video. Parked, not deleted, and only where the board is actually on
+    disk — a frame whose fit failed keeps its source. The video regenerates either.
+    """
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    dest = config.DATA.root / "_parked" / "frames" / session_id
+    moved, freed = 0, 0
+    for r in rows:
+        board = r.get("board")
+        frame = sdir / r["frame"] if r.get("frame") else None
+        if not board or not (sdir / board).is_file() or frame is None or not frame.is_file():
+            continue
+        dest.mkdir(parents=True, exist_ok=True)
+        freed += frame.stat().st_size
+        frame.replace(dest / frame.name)
+        moved += 1
+    return {"session_id": session_id, "moved": moved, "of": len(rows),
+            "freed_mb": round(freed / 1024**2, 1), "parked_to": str(dest)}
+
+
+def write_boards_session(session_id: str) -> dict:
+    """Cut every row's stored board from its frame, under the row's CURRENT quad.
+
+    The export writes these as it fits (`realgames.fit_rows_to_grid`); this is the retrofit for
+    the sessions that predate the store, and the repair for any step that moves a quad afterwards
+    (`autofix`, `adopt`) — a board warped with a quad the log no longer holds is a crop cut wrong.
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    from .labeling import _profile_for_session, read_session_meta
+    from .realgames import BOARD_KEYS, POOL_MIN_ROWS, POOL_WORKERS, PROGRESS_EVERY, board_from_frame
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    for r in rows:
+        for key in BOARD_KEYS:
+            r.pop(key, None)
+    todo = [r for r in rows if r.get("corners") and r.get("frame")]
+    jobs = [(sdir, r["frame"], r["corners"], prof) for r in todo]
+    if len(jobs) >= POOL_MIN_ROWS:
+        with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
+            made = list(pool.map(board_from_frame, jobs, chunksize=4))
+    else:
+        made = [board_from_frame(j) for j in jobs]
+    written = 0
+    for r, keys in zip(todo, made, strict=True):
+        if keys is None:
+            continue
+        r.update(keys)
+        written += 1
+        if written % PROGRESS_EVERY == 0:
+            print(f"  {written}/{len(jobs)} frames", flush=True)
+    missing = len(jobs) - written
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "written": written, "of": len(rows),
+            "missing": missing, "backup": backup}
+
 
 def fit_mesh_session(session_id: str) -> dict:
     """Measure every frame's 18 grid lines once and store them as `grid_lines`.

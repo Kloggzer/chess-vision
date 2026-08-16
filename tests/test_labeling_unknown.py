@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from chesslab import config
-from chesslab.labeling import slice_session
+from chesslab.labeling import CROP_SUFFIX, slice_session
 
 START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
@@ -53,8 +53,8 @@ def test_a_square_the_fen_cannot_vouch_for_writes_no_crop(session):
 
     assert res["unknown_dropped"] == 2
     assert res["crops"] == 62, "the other 62 squares are unaffected"
-    written = {p.name for p in (session[2] / "squares").rglob("*.png")}
-    assert not [n for n in written if n.endswith(("_e2.png", "_e4.png"))]
+    written = {p.name for p in (session[2] / "squares").rglob(f"*{CROP_SUFFIX}")}
+    assert not [n for n in written if n.endswith((f"_e2{CROP_SUFFIX}", f"_e4{CROP_SUFFIX}"))]
 
 
 def test_a_human_ruling_outranks_the_doubt(session):
@@ -64,5 +64,5 @@ def test_a_human_ruling_outranks_the_doubt(session):
 
     assert res["unknown_dropped"] == 1, "only e4 is still unruled"
     assert res["crops"] == 63
-    written = {p.name for p in (session[2] / "squares" / "occluded").glob("*.png")}
-    assert written == {"s1_000001_e2.png"}
+    written = {p.name for p in (session[2] / "squares" / "occluded").glob(f"*{CROP_SUFFIX}")}
+    assert written == {f"s1_000001_e2{CROP_SUFFIX}"}

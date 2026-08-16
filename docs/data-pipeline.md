@@ -13,10 +13,10 @@
 
 ```mermaid
 flowchart TD
-    C["chesslab collect<br/>(camera + FEN)"] --> S["data/sessions/&lt;id&gt;/<br/>frames/*.png + log.jsonl + session.yaml"]
+    C["chesslab collect<br/>(camera + FEN)"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
     S --> SL["chesslab slice<br/>(labeling.slice_session)"]
     CAL["data/calibration/&lt;profile&gt;.yaml<br/>+ per-frame ArUco corners in log.jsonl"] --> SL
-    SL --> SQ["data/squares/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.png<br/>64 PNGs per usable frame"]
+    SL --> SQ["data/squares/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.webp<br/>64 crops per usable frame"]
     SL --> MF["data/manifests/squares.jsonl<br/>THE GLOBAL CROP POOL — one row per crop"]
     SYN["chesslab synth render<br/>→ chesslab dataset build-synth"] --> DS
     MF --> DB["chesslab dataset build<br/>(dataset_build.build_dataset)"]
@@ -36,7 +36,32 @@ flowchart TD
 | Train | `chesslab train --dataset <name>` | `data/models/<run>/` | `training/train.py` |
 
 Capture and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
-(frame, FEN, corners), so re-slicing a session reproduces its crops exactly.
+(board, FEN, mesh), so re-slicing a session reproduces its crops exactly.
+
+### The board store — what a session actually keeps (2026-08-17)
+
+A session no longer keeps its source frames. `boards/NNNNNN.webp` is the frame rectified under
+that row's own quad, with the crop border, written by the export as it fits the grid
+(`realgames.fit_rows_to_grid`) or retrofitted by `chesslab session boards`. It is the **same
+raster `crop_square` cuts the training crop from**, so the label view and the training crop stopped
+being two independent cuts of one frame: `/api/cell` reads it too (`lib/crops.ts` `cutSource`).
+
+Measured: 115 KB against the frame's 3.3 MB — the session tree went from 96 GB to 4.5 GB — and the
+extra WebP stage moves the model's softmax by 0.0006 with one argmax flip in 998 crops.
+
+Two things the row has to carry beside the path, and both cost real time to learn:
+
+- **`board_size` / `board_border`.** A homography lets board coordinates cancel against it; a
+  stored raster does not. The candidate's geometry says 1008 where the export profile says 928, and
+  a reader assuming its own number cut cells up to 59 px off on a 128 px crop. `usable_board`
+  refuses a board whose numbers do not match the profile doing the cutting (`--pad-side` overrides).
+- **The board is the RAW warp, not straightened.** Its lens bow is still in it; both consumers pull
+  it straight with the row's `grid_lines` (`cx`/`cy` are that bow's parabola terms). Do not
+  straighten the store as well — that corrects twice.
+
+`video -> webp -> labeling -> crop -> training`: the export decodes forward and warps in memory
+(`realgames.stream_frames`), so no PNG is written on the way. Frames are still written for an
+undistorted set (`frames/lens.json`, which the video cannot reproduce) and for `--no-fit`.
 
 ---
 

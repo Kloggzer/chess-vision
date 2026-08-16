@@ -9,6 +9,7 @@ import pytest
 
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 from chesslab.labeling import (
+    CROP_SUFFIX,
     all_squares,
     parse_out_size,
     slice_session,
@@ -102,7 +103,7 @@ def test_slice_start_position(tmp_path):
 
     assert e1["out_size"] == [config.CROP.out_w, config.CROP.out_h]  # follows CropDefaults (square since pad_up=0)
     # crop file actually written, ImageFolder-style
-    assert (squares_root / "wK" / "sess1_0000_e1.png").exists()
+    assert (squares_root / "wK" / f"sess1_0000_e1{CROP_SUFFIX}").exists()
 
 
 def test_crop_square_is_square_and_undistorted():
@@ -186,5 +187,5 @@ def test_reslice_with_new_params_is_reproducible(tmp_path):
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 64                          # session replaced, not duplicated
     assert all(r["out_size"] == [64, 64] for r in rows)
-    img = cv2.imread(str(squares_root / "wK" / "sess1_0000_e1.png"))
+    img = cv2.imread(str(squares_root / "wK" / f"sess1_0000_e1{CROP_SUFFIX}"))
     assert img.shape[:2] == (64, 64)                # (H, W)

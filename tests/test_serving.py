@@ -147,9 +147,20 @@ def test_photometry_clahe_differs_from_raw(tmp_path):
 # Test 4: Slice parity (BEFORE the slice_session refactoring)
 # ---------------------------------------------------------------------------
 
+def assert_same_crop(stored, live, what: str) -> None:
+    """The stored crop IS the live crop, through the store's own codec — still exact.
+
+    Comparing raw pixels stopped working when the store became WebP, and a PSNR threshold cannot
+    replace it: measured on this material a 1 px quad error scores 40.5 dB median while the codec's
+    worst cell is 35.5, so no line separates them. Encoding the live crop the same way does.
+    """
+    ours = cv2.imdecode(cv2.imencode(labeling.CROP_SUFFIX, live, labeling.CROP_ENCODE)[1], cv2.IMREAD_COLOR)
+    assert np.array_equal(stored, ours), f"{what}: store and crops_for_frame disagree"
+
+
 def test_slice_parity_crops_vs_slice_session(tmp_path):
-    """crops_for_frame(with_meta=True) liefert pixel-identische Crops zu slice_session-PNGs,
-    und used_box3d-Zählung ist konsistent mit n_fallback."""
+    """crops_for_frame(with_meta=True) cuts what slice_session stores, und die used_box3d-Zählung
+    ist konsistent mit n_fallback."""
     sdir = _synthetic_session(tmp_path, bs=640)
     prof = _identity_profile(640)
     out_size = (96, 128)
@@ -188,9 +199,7 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
     manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
     for i, sq in enumerate(squares):
-        png = cv2.imread(by_sq[sq]["path"])
-        crop = crops[i]
-        assert np.array_equal(png, crop), f"Feld {sq}: PNG vs crop_for_frame nicht identisch"
+        assert_same_crop(cv2.imread(by_sq[sq]["path"]), crops[i], f"Feld {sq}")
 
     # 4. used_box3d Konsistenz: bei warp sind alle False → n_fallback muss 0 sein
     assert stats["fallback"] == 0
@@ -198,8 +207,8 @@ def test_slice_parity_crops_vs_slice_session(tmp_path):
 
 
 def test_slice_parity_with_clahe(tmp_path):
-    """Slice parity also with photometry='clahe' — photometry is applied IN crops_for_frame
-    angewandt, also muss sie in den PNGs und in den crops identisch sein."""
+    """Slice parity also with photometry='clahe' — it is applied IN crops_for_frame, so it has to
+    show up in the store and in the live crop alike."""
     sdir = _synthetic_session(tmp_path, bs=640)
     prof = _identity_profile(640)
     out_size = (96, 128)
@@ -225,9 +234,7 @@ def test_slice_parity_with_clahe(tmp_path):
     manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
     for i, sq in enumerate(squares):
-        png = cv2.imread(by_sq[sq]["path"])
-        crop = crops[i]
-        assert np.array_equal(png, crop), f"Feld {sq} (clahe): PNG vs crop_for_frame nicht identisch"
+        assert_same_crop(cv2.imread(by_sq[sq]["path"]), crops[i], f"Feld {sq} (clahe)")
 
 
 # ---------------------------------------------------------------------------

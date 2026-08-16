@@ -8,7 +8,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir, loadCandidate } from "@/lib/data";
-import { type CropParams, type GridMesh, meshFromLines } from "@/lib/warp";
+import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
 
 /**
  * Where a frame sits between the two commits that bound its interval — the labeling context.
@@ -43,6 +43,9 @@ export type SessionRow = {
   unknown: string[];
   /** The frame's 18 measured grid lines, when `session fit-mesh` could put them there. */
   mesh?: GridMesh;
+  /** The stored board's own scale (`realgames.write_board`). A homography lets board coordinates
+   *  cancel against it; a stored raster does not, so it has to be read and never assumed. */
+  board?: { size: number; border: number };
 };
 export type Session = {
   name: string;
@@ -66,6 +69,23 @@ export function sessionDir(name: string): string {
 
 export function framePath(name: string, stem: string): string {
   return path.join(sessionDir(name), "frames", `${checkName(stem, "frame")}.png`);
+}
+
+/** The session's stored board — `realgames.board_rel`, the raster the training crop is cut from. */
+export function boardPath(name: string, stem: string): string {
+  return path.join(sessionDir(name), "boards", `${checkName(stem, "frame")}.webp`);
+}
+
+/**
+ * Board coordinates -> pixels of the STORED board: scale to its side, then shift past its border.
+ *
+ * The candidate's geometry says 1008 where the export profile says 928, and the two only ever
+ * agreed because a homography absorbs the difference. Reading the row's own numbers is what keeps
+ * the label view on the training crop instead of 8 % beside it (measured at 14 dB before this).
+ */
+export function boardToStored(session: Session, board: { size: number; border: number }): Mat3 {
+  const s = board.size / session.boardSize;
+  return [s, 0, board.border, 0, s, board.border, 0, 0, 1];
 }
 
 const cache = new Map<string, { key: number; value: Session }>();
@@ -98,6 +118,9 @@ export async function loadSession(name: string): Promise<Session> {
       dirty?: boolean;
       unknown_squares?: string[];
       grid_lines?: unknown;
+      board?: string;
+      board_size?: number;
+      board_border?: number;
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -116,6 +139,7 @@ export async function loadSession(name: string): Promise<Session> {
       toS: to / fps,
       unknown: row.unknown_squares ?? [],
       mesh: meshFromLines(row.grid_lines),
+      board: row.board && row.board_size ? { size: row.board_size, border: row.board_border ?? 0 } : undefined,
     });
   }
   const geometry = candidate.geometry ?? {};
