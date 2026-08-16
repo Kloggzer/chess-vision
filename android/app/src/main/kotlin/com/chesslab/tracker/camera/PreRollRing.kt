@@ -3,12 +3,11 @@ package com.chesslab.tracker.camera
 /**
  * The pre-roll window, in seconds of encoded footage kept ahead of the first committed move.
  *
- * The user's number, verbatim: "das video erst festhalten wenn mindestens ein Zug erkannt wurde,
- * und dann ab 20 s vor dem Zug". Twenty seconds is the reach-and-think before a first move; the
- * board setup, marker taping and calibration that preceded it are exactly what must NOT survive
- * (measured 2026-08-13/14: nine of eleven transferred recordings carried no game — 4.7 GB).
+ * Was 20 s ("das video erst festhalten wenn mindestens ein Zug erkannt wurde, und dann ab 20 s vor
+ * dem Zug"). Raised 2026-08-16: the desktop replay needs board BEFORE the first move, and twenty
+ * transferred recordings carried 4-19.6 s of it. [PRE_ROLL_MAX_BYTES] stays the heap bound.
  */
-const val PRE_ROLL_SECONDS: Long = 20L
+const val PRE_ROLL_SECONDS: Long = 45L
 
 /**
  * The hard heap cap on the buffered samples.

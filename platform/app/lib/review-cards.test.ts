@@ -3,7 +3,7 @@ import { buildGalleryCards, buildReviewCards, type ReviewMove } from "@/lib/revi
 import type { FrameStem } from "@/lib/data";
 
 const stems = (...ns: number[]): FrameStem[] =>
-  ns.map((n) => ({ stem: String(n).padStart(6, "0"), kind: "labeled" as const }));
+  ns.map((n) => ({ stem: String(n).padStart(6, "0"), kind: "labeled" as const, width: 720, height: 816 }));
 
 const BRIDGE: ReviewMove[] = [
   {

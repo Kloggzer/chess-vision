@@ -26,6 +26,8 @@ import org.opencv.core.Mat
 import java.io.File
 import kotlin.system.exitProcess
 
+private const val MS_PER_SECOND = 1000.0
+
 // The `label` and `score` verbs' machinery, kept beside the replay rather than inside it.
 //
 // `label`: measure the geometry with the shipping stack, refuse footage that cannot carry a
@@ -38,6 +40,7 @@ internal class ReplayPlan(
     private val labelRun: LabelRun?,
     private val scoreCandidate: File?,
     private val framesDir: File?,
+    private val timeline: PlyTimeline?,
 ) {
     /** The quad the run is pinned to, when the plan carries one — measured or the label's own. */
     fun quad(): FloatArray? = labelRun?.quad ?: scoreCandidate?.let(::quadFromCandidate)
@@ -50,7 +53,7 @@ internal class ReplayPlan(
         boardSize: Int,
         fps: Double,
         status: () -> TrackerStatus?,
-    ): LabelSession = LabelSession(labelRun, scoreCandidate, framesDir, quad, boardSize, fps, status)
+    ): LabelSession = LabelSession(labelRun, scoreCandidate, framesDir, quad, boardSize, fps, status, timeline)
 }
 
 internal fun replayPlanFor(
@@ -76,7 +79,7 @@ internal fun replayPlanFor(
         } else {
             null
         }
-    return ReplayPlan(labelRun, scoreCandidate, framesDir)
+    return ReplayPlan(labelRun, scoreCandidate, framesDir, video?.let { sessionTimeline(it, emptyList()) })
 }
 
 /** What a `label` run measured before it replayed: the name, the directory, the quad, the scan. */
@@ -175,10 +178,10 @@ internal fun quadFromCandidate(candidate: File): FloatArray {
  * Everything a label/score/frames run collects WHILE the replay drives, and what it does
  * afterwards. Owns the decision collector, the annotated-frame writers, and the epilogue.
  *
- * Both writers emit the NORMALISED picture: the rectified board the engine reasons about, with
- * its verdict tints and the position it believes — never the raw camera frame. The review writer
- * triggers on COMMITS (what a human confirms); the decisive writer triggers on every decision
- * row, rejections included, because a refusal is exactly the moment worth looking at.
+ * Both writers emit the NORMALISED picture — the rectified board, never the raw camera frame.
+ * The review writer triggers on COMMITS (what a human confirms) and paints nothing on it; the
+ * decisive writer triggers on every decision row, rejections included, and keeps the engine's
+ * verdicts on the picture, because a refusal is exactly the moment worth looking at.
  */
 internal class LabelSession(
     private val labelRun: LabelRun?,
@@ -188,25 +191,39 @@ internal class LabelSession(
     boardSize: Int,
     fps: Double,
     private val status: () -> TrackerStatus?,
+    private val timeline: PlyTimeline?,
 ) {
     val collector = DecisionCollector(fps) { status()?.alarm?.kind }
-    private val review = labelRun?.let { AnnotatedFrames(File(it.dir, "frames"), quad, boardSize) }
+
+    // Plain board, no verdict tints: these are what a human judges the move on, and the engine's
+    // opinion painted over the picture is the one thing that must not steer that judgement.
+    private val review = labelRun?.let { AnnotatedFrames(File(it.dir, "frames"), quad, boardSize, annotate = false) }
     private val decisive = framesDir?.let { AnnotatedFrames(it, quad, boardSize) }
+    private val phonePlies = mutableListOf<CommittedPly>()
+    private var lastMs = -1.0
     private var pliesSeen = 0
     private var rowsSeen = 0
 
-    /** Index and picture in ONE call — the frame writers' whole correctness rests on that. */
-    val frameHook: ((Int, Mat) -> Unit)? =
+    /**
+     * What the candidate proposes: the phone's own commits when the recording carries them, and
+     * the replay's otherwise. A replay that lost the position proposed NOTHING on four transferred
+     * sessions (2026-08-15, "0 Halbzüge"), while the phone had written every move down.
+     */
+    private val plies: List<CommittedPly> get() = if (timeline == null) collector.plies else phonePlies
+
+    /** Index, picture and video time in ONE call — the frame writers' correctness rests on that. */
+    val frameHook: ((Int, Mat, Double) -> Unit)? =
         if (review == null && decisive == null) {
             null
         } else {
-            { index, frame ->
+            { index, frame, timeMs ->
                 val st = status()
-                val plies = collector.plies.size
+                timeline?.crossed(lastMs, timeMs)?.forEach { mark -> phonePlies += mark.committed(index, timeMs) }
+                lastMs = timeMs
                 val rows = collector.rows
-                review?.onFrame(index, frame, st, decisive = plies > pliesSeen)
+                review?.onFrame(index, frame, st, decisive = plies.size > pliesSeen)
                 decisive?.onFrame(index, frame, st, decisive = rows > rowsSeen)
-                pliesSeen = plies
+                pliesSeen = plies.size
                 rowsSeen = rows
             }
         }
@@ -221,7 +238,7 @@ internal class LabelSession(
         if (labelRun != null && review != null) {
             val outcome =
                 LabelOutcome(
-                    collector.plies,
+                    plies,
                     totals.note,
                     totals.observations,
                     totals.frames,
@@ -236,10 +253,29 @@ internal class LabelSession(
             it.close()
         }
         if (scoreCandidate != null) {
+            // `collector.plies`, never [plies]: score measures THIS replay against a stored label,
+            // and on a transferred session the phone's list is what the label already holds —
+            // scoring it against itself is a perfect score that says nothing.
             printScore(scoreCandidate, labelPlies(scoreCandidate), collector.plies.map { ScoredPly(it.san, it.frame, it.decider) })
         }
     }
 }
+
+/** A phone-logged move as a candidate row: the tracker never decided it, the recorder did. */
+private fun PlyMark.committed(
+    frame: Int,
+    timeMs: Double,
+): CommittedPly =
+    CommittedPly(
+        ply = ply,
+        san = san,
+        uci = uci,
+        frame = frame,
+        t = timeMs / MS_PER_SECOND,
+        decider = "phone_log",
+        alarm = null,
+        fenAfter = fen,
+    )
 
 /** What one finished run measured about itself — the four values travel together into the label. */
 internal class RunTotals(

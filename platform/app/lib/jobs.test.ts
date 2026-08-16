@@ -174,7 +174,13 @@ describe("packArgs", () => {
       "C:/x/files/games/g.json",
       "C:/x/training-pack",
       "id=2026-08-13-19-34-23",
+      `config=${path.join("C:/x/files/sessions/20260813-193423", "settings.json")}`,
     ]);
+  });
+
+  it("hands the pack the recording's own settings — alignEvery decides how the cells are cut", () => {
+    const args = packArgs("C:/x/files/sessions/20260813-193423/video.mp4", "C:/x/g.json", "C:/x/out", "2026-08-13-19-34-23");
+    expect(args[args.length - 1]).toBe(`config=${path.join("C:/x/files/sessions/20260813-193423", "settings.json")}`);
   });
 
   it("refuses an id that could walk out of the data directory", () => {

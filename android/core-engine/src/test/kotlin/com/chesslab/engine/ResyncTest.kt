@@ -21,7 +21,7 @@ class ResyncTest {
     /** Alarm latched at seq 3 (`desyncObsN`), auto arm set to [votes] consistent looks. */
     private fun alarmedAutoState(votes: Int): Triple<EngineState, RecoveryEvaluator, RecoveryObs> {
         val state =
-            EngineState(recoveryConfig().copy(autoResyncObsN = votes), NF3_NO_CASTLING, whitePov = true).armed()
+            EngineState(recoveryConfig().copy(autoResyncObsN = votes), NF3_NO_CASTLING, whitePov = true).armed().underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
         for (seq in 1L..3L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
@@ -31,8 +31,8 @@ class ResyncTest {
 
     @Test
     fun autoResyncFiresAfterNConsistentLooksAndKeepsTheHistory() {
+        // The ply is already on the record — `alarmedAutoState` needs one to latch at all.
         val (state, cnn, obs) = alarmedAutoState(votes = 3)
-        state.history.add("Nf3")
         val abandoned = state.board.fen()
         val expected = state.cnnAdoptedFen(obs, state.config.cnnConfThr)
 
@@ -136,7 +136,7 @@ class ResyncTest {
 
     @Test
     fun zeroKeepsTheDoorShut() {
-        val state = recoveryState(NF3_NO_CASTLING)
+        val state = recoveryState(NF3_NO_CASTLING).underWay()
         val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
         val before = state.board.fen()

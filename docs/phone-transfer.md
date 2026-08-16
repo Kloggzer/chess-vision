@@ -40,7 +40,12 @@ recording ends
 - **What is sent.** The session directory (video, `log.jsonl`, `timeline.jsonl`, `session.yaml`,
   `settings.json`, reference frames) plus every game record whose `sessionId` names it — `.json`
   and `.pgn`. The game record is not decoration: `training-video-pack` labels frames off its move
-  list. `settings.json` is the recording's provenance — the full `TrackerConfig` in ConfigCodec
+  list, and since 2026-08-16 it labels them at the times `log.jsonl` gives: the ply on the board
+  comes from the phone's own commit timestamps, anchored at `session.yaml::video_pre_roll_ns`
+  (the ring is flushed exactly at the first commit), not from a replay re-deriving the game. One
+  missed opening move used to desync a whole recording — `2026-08-15-22-51-38` packed 0 of 851
+  frames, and 332 boards after. Without a `log.jsonl` beside the video the old FEN match still
+  runs. `settings.json` is the recording's provenance — the full `TrackerConfig` in ConfigCodec
   envelope form, the app-level choices (model, execution provider, resolution, orientation), the
   build, and a history of any knob that moved mid-session. It exists because
   `2026-08-13-19-34-23` could not answer "which config recorded this?", and it is what

@@ -352,6 +352,12 @@ internal fun replay(
                 ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
                 ?: camera?.let { openLens(source, it, wanted = true) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
+        // The recording starts BEFORE the game. The phone flushes its pre-roll ring at the first
+        // commit (`video_pre_roll_ns`), so tracking from frame 0 means tracking board setup and
+        // hands that the phone's own engine never saw — and an alarm latched there has no user to
+        // clear it, which cost `2026-08-15-22-48-04` all 19 of its plies. Skipped BEFORE the board
+        // is located, so the quad is measured on the game rather than on the setup.
+        skipPreRoll(source, video, options)?.let { println(it) }
         // Which quad a run stood on is part of its provenance: the two sources are a measured
         // ±6-25 plies apart on real videos (specs/52 "geometry A/B", still open), and on
         // 2026-08-14 a label-plan baseline was compared against locateBoard runs without anyone
@@ -505,13 +511,13 @@ internal fun replay(
                 parallelVisual = parallelVisual,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
-        val frameHook: ((Int, Mat) -> Unit)? =
+        val frameHook: ((Int, Mat, Double) -> Unit)? =
             if (session == null && training == null) {
                 null
             } else {
-                { index, frame ->
-                    session?.frameHook?.invoke(index, frame)
-                    training?.frame(index, frame, publisher.status.value, frameClock.now().toDouble())
+                { index, frame, timeMs ->
+                    session?.frameHook?.invoke(index, frame, timeMs)
+                    training?.frame(index, frame, publisher.status.value, timeMs)
                 }
             }
         val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride)
@@ -528,6 +534,27 @@ internal fun replay(
         view?.close()
     }
     scope.cancel()
+}
+
+/** Seconds of lead kept before the first commit: the move's own motion has to stay on the video. */
+private const val PRE_ROLL_LEAD_MS = 2_000.0
+
+/**
+ * Wind the decoder to where the game starts, and say so. Null when there is nothing to skip —
+ * a camera-roll video, or a run that asked for `start=0` to look at the pre-roll itself.
+ */
+private fun skipPreRoll(
+    source: FrameSource,
+    video: File?,
+    options: ReplayOptions,
+): String? {
+    val target =
+        options.startSeconds?.times(1000.0)
+            ?: video?.parentFile?.let { preRollMs(File(it, "session.yaml")) }?.minus(PRE_ROLL_LEAD_MS)
+    if (target == null || target <= 0.0) return null
+    var skipped = 0
+    while (source.timestampMs < target && source.next() != null) skipped++
+    return "pre-roll: $skipped frames skipped, tracking starts at ${"%.1f".format(source.timestampMs / 1000)}s"
 }
 
 /**
@@ -627,7 +654,7 @@ private fun drive(
     dumpEvery: Int = 0,
     // Fired AFTER the engine saw the frame, with the 0-based index that decoded it. The index and
     // the picture travel in one call — the review-frame writer's whole correctness rests on that.
-    frameHook: ((Int, Mat) -> Unit)? = null,
+    frameHook: ((Int, Mat, Double) -> Unit)? = null,
     // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. Time comes
     // off each frame's PTS either way, so skipping changes what the tracker SEES, never what time
     // it is.
@@ -650,7 +677,7 @@ private fun drive(
             continue
         }
         stack.coordinator.onFrame(frame, source.delivered)
-        frameHook?.invoke(frames, frame)
+        frameHook?.invoke(frames, frame, source.timestampMs)
         frames += 1
         view?.show(bus.boardPreview.value, publisher.status.value)
         if (dumpEvery > 0 && frames % dumpEvery == 0) {

@@ -3,7 +3,7 @@
  *
  * Nothing here imports or shells out to chesslab (specs/53 entry.md, ownership registry).
  */
-import { readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { open, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
@@ -84,11 +84,26 @@ export async function truthSans(name: string): Promise<string[] | null> {
 }
 
 /**
- * `labeled` = the decisive burst the label verb writes (720x816, the tracker's belief drawn on),
- * `plain` = a `:desktop rectify` board under `frames-extra/` (square playing field, no strip) —
- * the dense windows a human asked for when every burst frame held a hand.
+ * `labeled` = the burst the label verb writes under `frames/`, `plain` = a `:desktop rectify`
+ * board under `frames-extra/`. The SIZE is read off the file rather than assumed: review frames
+ * were 720x816 with the tracker's belief drawn under the board until 2026-08-16 and are the bare
+ * square board since, and the move overlay has to land on the squares of both.
  */
-export type FrameStem = { stem: string; kind: "labeled" | "plain" };
+export type FrameStem = { stem: string; kind: "labeled" | "plain"; width: number; height: number };
+
+/** Width and height out of the PNG header — 24 bytes, no decode, no dependency. */
+async function pngSize(file: string): Promise<{ width: number; height: number }> {
+  const handle = await open(file, "r");
+  try {
+    const head = Buffer.alloc(24);
+    await handle.read(head, 0, 24, 0);
+    return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+  } catch {
+    return { width: 720, height: 816 };
+  } finally {
+    await handle.close();
+  }
+}
 
 /** Every review-frame stem on disk, both sources, numerically sorted; `labeled` wins a tie. */
 export async function listFrameStems(name: string): Promise<FrameStem[]> {
@@ -102,10 +117,17 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
   };
   const labeled = await stemsOf("frames");
   const seen = new Set(labeled);
-  const out: FrameStem[] = labeled.map((stem) => ({ stem, kind: "labeled" as const }));
+  const found: { stem: string; kind: FrameStem["kind"]; dir: string }[] = labeled.map((stem) => ({
+    stem,
+    kind: "labeled",
+    dir: "frames",
+  }));
   for (const stem of await stemsOf("frames-extra")) {
-    if (!seen.has(stem)) out.push({ stem, kind: "plain" });
+    if (!seen.has(stem)) found.push({ stem, kind: "plain", dir: "frames-extra" });
   }
+  const out: FrameStem[] = await Promise.all(
+    found.map(async ({ stem, kind, dir }) => ({ stem, kind, ...(await pngSize(path.join(gameDir(name), dir, `${stem}.png`))) })),
+  );
   return out.sort((a, b) => a.stem.localeCompare(b.stem));
 }
 

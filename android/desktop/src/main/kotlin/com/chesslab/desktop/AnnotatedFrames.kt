@@ -12,9 +12,9 @@ import java.io.File
 import javax.imageio.ImageIO
 
 /**
- * The DECISIVE frames of a run, normalised and labeled: not the raw camera picture but the
- * rectified board the engine reasons about, with its per-square verdicts and the position it
- * believes — rendered through the same canvas the live window paints ([renderBoardShot]).
+ * The DECISIVE frames of a run: not the raw camera picture but the rectified board the engine
+ * reasons about. [annotate] decides whether the engine's verdicts are painted on top
+ * ([renderBoardShot]) — the debug writer wants them, the human confirming a move wants the board.
  *
  * Written at every trigger frame and a symmetric neighbourhood of [context] on each side, during
  * the decode. The ring stores DEFENSIVE COPIES of the raw frame plus the status that was current
@@ -32,6 +32,7 @@ internal class AnnotatedFrames(
     quad: FloatArray,
     private val boardSize: Int,
     private val context: Int = REVIEW_CONTEXT,
+    private val annotate: Boolean = true,
 ) {
     private val homography = computeHomography(cornersFromFlat(quad), boardSize, margins4(DEFAULT_MARKER_MARGIN))
     private val ring = ArrayDeque<Buffered>()
@@ -70,7 +71,8 @@ internal class AnnotatedFrames(
         val image = matToImage(warped)
         warped.release()
         if (image == null) return
-        ImageIO.write(renderBoardShot(image, buffered.status), "png", File(dir, "%06d.png".format(buffered.index)))
+        val shot = if (annotate) renderBoardShot(image, buffered.status) else image
+        ImageIO.write(shot, "png", File(dir, "%06d.png".format(buffered.index)))
     }
 
     private class Buffered(

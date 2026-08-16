@@ -350,7 +350,13 @@ export function labelArgs(video: string, name: string, lens = true): string[] {
  * human's verdict would silently rule on another recording's crop.
  */
 export function packArgs(video: string, game: string, out: string, id: string): string[] {
-  return ["training-video-pack", video, game, out, `id=${checkName(id, "transfer name")}`];
+  const args = ["training-video-pack", video, game, out, `id=${checkName(id, "transfer name")}`];
+  // The recording's own knobs, for the PACK only. `alignEvery` is a crop-geometry knob — it decides
+  // how often the quad is re-measured, i.e. how straight the training cells are cut — and the
+  // desktop default of 3 cuts them at a cadence the phone never recorded at. Tracking does not get
+  // this file: which moves a replay finds is not supposed to depend on a recording's settings.
+  const settings = path.join(path.dirname(video), "settings.json");
+  return [...args, `config=${settings}`];
 }
 
 function desktopWorkDir(): string {

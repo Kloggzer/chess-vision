@@ -116,11 +116,9 @@ private data class DetectedMarkers(
 )
 
 /**
- * Exact copy of CameraFrameBus's publish gate, without materializing skipped frames.
- *
- * It runs on the clock the replay runs on: each frame's own PTS (`FrameClock`), NOT `frames x
- * 1000/fps`. The counted model held only while the clock counted; against VFR footage it puts the
- * publishes on other frames than the bus does, and LiveAlign then asks for a frame the prepass
+ * Exact copy of CameraFrameBus's publish gate, without materializing skipped frames. It runs on
+ * each frame's own PTS (`FrameClock`), NOT `frames x 1000/fps`: against VFR footage the counted
+ * model publishes on other frames than the bus does, and LiveAlign then asks for one the prepass
  * never detected — "marker prepass has no frame 9", labelling 143233 on 2026-08-14.
  */
 internal class PublishedFrameSelector(

@@ -391,7 +391,8 @@ class DispatchTest {
     @Test
     fun persistentCnnMisreadEscalatesVetoToAlarm() {
         val ref = grayFrame()
-        val state = detectState(ref = ref)
+        // A ply on the record: the alarm may not latch before the first commit (`Alarm.alarmable`).
+        val state = detectState(ref = ref).underWay()
         state.cnnRun = true
         val cnn = RecoveryEvaluator(guess = "g1g3")
         val obs = movedPieceObs()

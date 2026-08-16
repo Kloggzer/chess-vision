@@ -70,15 +70,21 @@ class EngineSeamIntegrationTest {
         // the desync streak runs. `hasOccupancyConflict` / `guessIllegalMove` are the seam calls.
         val rig = Rig()
         rig.captureReference()
-        val obs = observationOf(STARTPOS, mapOf("e2" to ("empty" to 0.99)))
+        // One ply on the record first: the latch is refused before the first commit
+        // (`Alarm.alarmable`), because a board that has never moved is one being set up.
+        val played = observationOf(fenAfter("e2e4"))
+        rig.observe(played)
+        rig.observe(played)
+        assertEquals(fenAfter("e2e4"), rig.engine.status().fen, "precondition: a ply is committed")
 
+        val obs = observationOf(fenAfter("e2e4"), mapOf("d2" to ("empty" to 0.99)))
         assertNull(rig.alarmOf(rig.observe(obs)), "one glance is not a desync")
         assertNull(rig.alarmOf(rig.observe(obs)), "two glances are not a desync")
         val alarm = requireNotNull(rig.alarmOf(rig.observe(obs))) { "three stable glances must alarm" }
 
         assertEquals("illegal_move", alarm.kind)
-        assertEquals(listOf("e2"), alarm.conflicts)
-        assertEquals(STARTPOS, rig.engine.status().fen, "an alarm never moves the game state")
+        assertEquals(listOf("d2"), alarm.conflicts)
+        assertEquals(fenAfter("e2e4"), rig.engine.status().fen, "an alarm never moves the game state")
     }
 
     /** A [TrackerEngine] fed synthetic warps, with the real evaluator injected. */

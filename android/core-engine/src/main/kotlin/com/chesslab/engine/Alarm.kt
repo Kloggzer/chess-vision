@@ -47,6 +47,14 @@ internal fun EngineState.onStableMismatch(
 }
 
 /**
+ * May the board be declared lost at all? Not before the first commit: until a ply is on the record
+ * the engine established no reference, only the position it was handed, and disagreeing with THAT
+ * is a board being set up. The latch has no automatic way out ([clearAlarm]), so raising it there
+ * costs the run — `2026-08-15-22-48-04` alarmed at video t=0.8 s and replayed 0 of 19 plies.
+ */
+private val EngineState.alarmable: Boolean get() = alarm == null && history.isNotEmpty()
+
+/**
  * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
  *
  * The veto hands the standoff to CNN recovery, but recovery can only end it when a LEGAL move
@@ -71,7 +79,7 @@ internal fun EngineState.desyncEvidence(
     conflicts: List<String>,
 ): List<TrackerEvent> {
     advanceDesyncStreak(snap.seq, conflicts)
-    val due = alarm == null && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN
     val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
     if (guess != null) {
         val raised = latchAlarm(conflicts, guess)
@@ -90,7 +98,7 @@ internal fun EngineState.desyncEvidence(
     // automatic way out — a recovery that explains every conflict square. On an identity run the
     // alarm is a stop sign; on an occupancy-only run it would be a trap. No labels, no latch.
     val standoffDue =
-        alarm == null &&
+        alarmable &&
             config.desyncStandoffObsN > 0 &&
             desyncObs >= config.desyncStandoffObsN &&
             Squares.ALL.any { snap.obs.label(it) != null }
@@ -163,7 +171,7 @@ private fun EngineState.raiseAlarmIfDue(
     obs: CnnObservation,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    val due = alarm == null && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN
     if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
     return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
 }

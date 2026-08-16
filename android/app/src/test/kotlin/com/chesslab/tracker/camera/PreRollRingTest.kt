@@ -80,16 +80,16 @@ class PreRollRingTest {
     @Test
     fun `a real feed keeps the full window, not the newest GOP`() {
         // The shape of the phone's stream, not a miniature: the shipped caps, 1 s GOPs at 30 fps,
-        // ~83 kB a sample (20 Mbit/s), fed for a minute. Measured on the device 2026-08-14 the
-        // finished recording carried 1.4 s — one GOP — ahead of the commit, so the assertion that
-        // matters is the FLOOR: whatever the trim drops, a full window must survive it.
+        // ~83 kB a sample (20 Mbit/s), fed for a minute. At that bitrate the BYTE cap binds before
+        // the 45 s window does (80 MB ≈ 32 s), and the assertion that matters is the floor:
+        // whatever the trim drops, half a minute of board must survive it.
         val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, PRE_ROLL_MAX_BYTES)
         val frameUs = SECOND_US / 30
         for (frame in 0 until 30 * 60) {
             ring.add(sample(frame * frameUs, sync = frame % 30 == 0, bytes = 83_000))
         }
         assertTrue(
-            ring.durationUs >= 19 * SECOND_US,
+            ring.durationUs >= 30 * SECOND_US,
             "the ring held ${ring.durationUs / SECOND_US}s of a ${PRE_ROLL_SECONDS}s window",
         )
         assertTrue(ring.durationUs <= PRE_ROLL_SECONDS * SECOND_US, "and never more than the window")

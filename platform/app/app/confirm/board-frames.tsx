@@ -15,26 +15,27 @@ import type { MoveSquares, ReviewCard } from "@/lib/review-cards";
  */
 
 /** What a click on a picture opens full-screen. */
-export type Zoom = { stem: string; height: number; squares: MoveSquares[] };
+export type Zoom = { stem: string; width: number; height: number; squares: MoveSquares[] };
 
 /**
  * The claimed move(s), drawn ONTO the rectified board so the human answers yes/no by looking.
- * The review PNG is 720x816 with the board as the top 720x720 and a8 at the top-left, so a
- * square is a plain 90 px grid cell; the SVG shares the image's viewBox and scales with it.
+ * The board is the image's top [width] x [width] with a8 at the top-left — square on a bare
+ * board, and the same 8x8 grid above the strip on an older 720x816 burst PNG.
  * A multi-commit draws every half of the sequence — the picture shows the end of all of them.
  */
 export function MoveOverlay({
   squares,
+  width = 720,
   height = 816,
 }: {
   squares: MoveSquares[];
-  /** 816 for the labeled burst PNGs (board + strip), 720 for a plain rectified board. */
+  width?: number;
   height?: number;
 }) {
   /** One marker per overlay instance — several cards draw arrows on the same page. React's id
    *  carries punctuation that has no business inside a `url(#…)`, so only the letters survive. */
   const markerId = `arrow${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
-  const cell = 90;
+  const cell = width / 8;
   const pos = (sq: string) => ({
     x: (sq.charCodeAt(0) - 97) * cell,
     y: (8 - Number(sq[1])) * cell,
@@ -44,7 +45,7 @@ export function MoveOverlay({
     <svg
       aria-hidden
       className="pointer-events-none absolute inset-0 h-full w-full"
-      viewBox={`0 0 720 ${height}`}
+      viewBox={`0 0 ${width} ${height}`}
     >
       <defs>
         <marker
@@ -127,7 +128,8 @@ export function FrameSeries({
   priority?: boolean;
 }) {
   const entry = card.stems[at] ?? null;
-  const height = entry?.kind === "plain" ? 720 : 816;
+  const width = entry?.width ?? 720;
+  const height = entry?.height ?? 816;
   const squares = card.plies.flatMap((p) => (p.squares ? [p.squares] : []));
   if (!entry) return <p className="text-muted-foreground text-sm">Kein Bild auf der Platte für dieses Fenster.</p>;
   const offset = Number(entry.stem) - card.frame;
@@ -137,8 +139,8 @@ export function FrameSeries({
         <TooltipTrigger asChild>
           <button
             className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-            onClick={() => onZoom({ stem: entry.stem, height, squares })}
-            style={{ aspectRatio: `720 / ${height}` }}
+            onClick={() => onZoom({ stem: entry.stem, width, height, squares })}
+            style={{ aspectRatio: `${width} / ${height}` }}
             type="button"
           >
         <Image
@@ -150,7 +152,7 @@ export function FrameSeries({
           src={`/api/frame/${name}/${entry.stem}`}
           unoptimized
         />
-        <MoveOverlay height={height} squares={squares} />
+        <MoveOverlay height={height} squares={squares} width={width} />
           </button>
         </TooltipTrigger>
         <TooltipContent>klicken zum Vergrößern</TooltipContent>
@@ -203,7 +205,7 @@ export function FrameSeries({
 export function ZoomOverlay({ name, zoom, onClose }: { name: string; zoom: Zoom; onClose: () => void }) {
   return (
     <button className="fixed inset-0 z-50 cursor-zoom-out bg-black/90" onClick={onClose} type="button">
-      <span className="relative mx-auto block h-full" style={{ aspectRatio: `720 / ${zoom.height}` }}>
+      <span className="relative mx-auto block h-full" style={{ aspectRatio: `${zoom.width} / ${zoom.height}` }}>
         <Image
           alt={`frame ${zoom.stem} enlarged`}
           className="object-contain"
@@ -212,7 +214,7 @@ export function ZoomOverlay({ name, zoom, onClose }: { name: string; zoom: Zoom;
           src={`/api/frame/${name}/${zoom.stem}`}
           unoptimized
         />
-        <MoveOverlay height={zoom.height} squares={zoom.squares} />
+        <MoveOverlay height={zoom.height} squares={zoom.squares} width={zoom.width} />
       </span>
     </button>
   );

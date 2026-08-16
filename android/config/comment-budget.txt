@@ -14,7 +14,7 @@ app/src/main/kotlin/com/chesslab/tracker/camera/CameraLookControl.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/CameraModels.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/CameraVideo.kt 4
 app/src/main/kotlin/com/chesslab/tracker/camera/OpticsLock.kt 3
-app/src/main/kotlin/com/chesslab/tracker/camera/PreRollRing.kt 3
+app/src/main/kotlin/com/chesslab/tracker/camera/PreRollRing.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/ReconnectPolicy.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/ResolutionMismatchLogger.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/TorchLamp.kt 1
@@ -230,8 +230,8 @@ desktop/src/main/kotlin/com/chesslab/desktop/Cost.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Crops.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopCnn.kt 2
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopLens.kt 2
-desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt 6
-desktop/src/main/kotlin/com/chesslab/desktop/FrameSource.kt 4
+desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt 5
+desktop/src/main/kotlin/com/chesslab/desktop/FrameSource.kt 3
 desktop/src/main/kotlin/com/chesslab/desktop/LabelVerb.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/LensProbe.kt 2
 desktop/src/main/kotlin/com/chesslab/desktop/Mp4Index.kt 1

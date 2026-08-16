@@ -111,7 +111,8 @@ fun packTrainingVideo(args: List<String>) {
     require(every >= 1 && stableNeeded >= 2) { "every must be >= 1 and stable must be >= 2" }
     require(!outDir.exists()) { "refusing to overwrite ${outDir.absolutePath}" }
 
-    val capture = TrainingVideoCapture(video, gameFile, outDir, every, stableNeeded, trackerFps, model, id)
+    val timeline = sessionTimeline(video, options)
+    val capture = TrainingVideoCapture(video, gameFile, outDir, every, stableNeeded, trackerFps, model, id, timeline)
     replay(
         openRecording(video),
         video.name,
@@ -167,6 +168,7 @@ private class TrainingVideoCapture(
     private val trackerFps: Double?,
     private val model: String,
     private val id: String,
+    private val timeline: PlyTimeline?,
 ) : ReplayTrainingSink {
     private val positions = gamePositions(gameFile)
     private val gate = VideoPositionGate()
@@ -179,6 +181,16 @@ private class TrainingVideoCapture(
     private var sampled = 0
     private var stable = 0
     private var lastFen: String? = null
+    private var lastPly: Int? = null
+
+    // A log from a different run would label every crop with someone else's game — the one way
+    // this can go wrong silently, so it is checked before a single frame is read.
+    init {
+        timeline?.marks?.forEach { mark ->
+            val known = positions.getOrNull(mark.ply)?.fen?.substringBefore(' ')
+            require(known == mark.placement) { "log.jsonl ply ${mark.ply} does not match the game record" }
+        }
+    }
 
     override fun configure(
         geometry: BoardGeometry,
@@ -219,43 +231,38 @@ private class TrainingVideoCapture(
                 audit.row(frameNo, timeMs, "quarantine_occluded", extras = ",\"squares\":${jsonArray(squares)}")
                 return
             }
-            // `verifyState` is the last verdict as well as the active verifier state: after a
-            // successful commit it deliberately remains "confirmed" while the engine is already
-            // back in waiting. `state` is the lifecycle gate; treating every non-null verdict as
-            // active verification rejects the entire quiet plateau after every move.
-            if (status.state != "waiting" || status.alarm != null) {
-                reject(frameNo, timeMs, status.alarm?.let { "alarm_${it.kind}" } ?: status.state)
+            // `state` is the lifecycle gate, not `verifyState`: after a commit the verdict stays
+            // "confirmed" while the engine is already waiting again. A latched ALARM disqualifies
+            // the frame only while the tracker IS the ply source — on the time axis it describes a
+            // replay that lost the game, not the picture.
+            val alarm = status.alarm?.takeIf { timeline == null }
+            if (status.state != "waiting" || alarm != null) {
+                reject(frameNo, timeMs, alarm?.let { "alarm_${it.kind}" } ?: status.state)
                 return
             }
-            stable = if (status.fen == lastFen) stable + 1 else 1
-            lastFen = status.fen
-            if (stable < stableNeeded) {
-                audit.row(frameNo, timeMs, "settling")
-                return
-            }
-            val mismatches = positions.map { if (it.fen == status.fen) 0 else MAX_OCCUPANCY_MISMATCHES + 1 }
-            val match = gate.accept(mismatches)
-            if (match.ply == null) {
-                audit.row(frameNo, timeMs, match.reason)
-                return
-            }
-            val risk = trainingFrameRisk(status.cnnOccluded, status.cnnConflicts, status.occlusionVetoed)
+            val ply = (if (timeline != null) timedPly(frameNo, timeMs) else matchedPly(frameNo, timeMs, status)) ?: return
+            // A CNN conflict is measured against the ENGINE's board, which is the thing the time
+            // axis exists to stop trusting — a desynced replay would conflict on every frame and
+            // quarantine the whole recording. Occlusion warnings stay: they are about the picture.
+            val conflicts = if (timeline == null) status.cnnConflicts else emptySet()
+            val risk = trainingFrameRisk(status.cnnOccluded, conflicts, status.occlusionVetoed)
             if (risk.reasons.isNotEmpty()) {
-                quarantine.writeReviewBoard(frameNo, warped, geometry, positions[match.ply].labels, risk.reasons.joinToString("+"))
+                quarantine.writeReviewBoard(frameNo, warped, geometry, positions[ply].labels, risk.reasons.joinToString("+"))
                 audit.row(
                     frameNo,
                     timeMs,
                     "quarantine",
                     extras =
-                        ",\"ply\":${match.ply},\"reasons\":${jsonArray(risk.reasons)}," +
+                        ",\"ply\":$ply,\"reasons\":${jsonArray(risk.reasons)}," +
                             "\"squares\":${jsonArray(risk.squares.sorted())}",
                 )
                 stable = 0
                 lastFen = null
+                lastPly = null
                 return
             }
-            accepted.writeBoard(frameNo, warped, geometry, positions[match.ply].labels)
-            audit.row(frameNo, timeMs, "accepted", extras = ",\"ply\":${match.ply}")
+            accepted.writeBoard(frameNo, warped, geometry, positions[ply].labels)
+            audit.row(frameNo, timeMs, "accepted", extras = ",\"ply\":$ply")
         } finally {
             warped.release()
         }
@@ -274,12 +281,53 @@ private class TrainingVideoCapture(
                 "\"occluded_proposal_frames\":${occludedProposals.frames}," +
                 "\"occluded_proposal_crops\":${occludedProposals.crops}," +
                 "\"tracker_fps\":$recordedTrackerFps,\"every\":$every,\"stable\":$stableNeeded," +
+                "\"ply_source\":\"${if (timeline != null) "log_timestamps" else "fen_match"}\"," +
                 "\"model\":\"${escape(model)}\",\"decision_source\":\"windows_kotlin_tracker\"}\n",
         )
         println(
             "tracker extraction: ${accepted.frames} accepted boards + ${quarantine.frames} quarantined boards + " +
                 "${occludedProposals.crops} occluded proposals -> ${outDir.absolutePath}",
         )
+    }
+
+    /** The ply the phone's clock puts on the board, once it has held still for [stableNeeded]. */
+    private fun timedPly(
+        frameNo: Int,
+        timeMs: Double,
+    ): Int? {
+        val ply = timeline?.plyAt(timeMs)
+        if (ply == null) {
+            reject(frameNo, timeMs, "move")
+            return null
+        }
+        stable = if (ply == lastPly) stable + 1 else 1
+        lastPly = ply
+        if (stable < stableNeeded) {
+            audit.row(frameNo, timeMs, "settling")
+            return null
+        }
+        return ply
+    }
+
+    /** The tracker's own FEN, matched against the game — the only source a camera-roll video has. */
+    private fun matchedPly(
+        frameNo: Int,
+        timeMs: Double,
+        status: TrackerStatus,
+    ): Int? {
+        stable = if (status.fen == lastFen) stable + 1 else 1
+        lastFen = status.fen
+        if (stable < stableNeeded) {
+            audit.row(frameNo, timeMs, "settling")
+            return null
+        }
+        val mismatches = positions.map { if (it.fen == status.fen) 0 else MAX_OCCUPANCY_MISMATCHES + 1 }
+        val match = gate.accept(mismatches)
+        if (match.ply == null) {
+            audit.row(frameNo, timeMs, match.reason)
+            return null
+        }
+        return match.ply
     }
 
     private fun reject(
@@ -289,6 +337,7 @@ private class TrainingVideoCapture(
     ) {
         stable = 0
         lastFen = null
+        lastPly = null
         audit.row(frameNo, timeMs, reason)
     }
 }
@@ -425,17 +474,18 @@ private fun jsonArray(values: List<String>): String = values.joinToString(",", "
 
 private fun escape(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
-private fun List<String>.stringOption(name: String): String? = firstOrNull { it.startsWith("$name=") }?.substringAfter('=')
+internal fun List<String>.stringOption(name: String): String? = firstOrNull { it.startsWith("$name=") }?.substringAfter('=')
 
 private fun List<String>.intOption(
     name: String,
     fallback: Int,
 ): Int = stringOption(name)?.toIntOrNull() ?: fallback
 
-private fun List<String>.doubleOption(name: String): Double? = stringOption(name)?.toDoubleOrNull()?.takeIf { it > 0.0 }
+internal fun List<String>.doubleOption(name: String): Double? = stringOption(name)?.toDoubleOrNull()?.takeIf { it > 0.0 }
 
 private fun trainingVideoUsage(): Nothing =
     error(
         "usage: training-video-pack <video> <game.json> <outDir> " +
-            "[every=N] [stable=N] [fps=N] [model=name] [visualcache=file] [id=name]",
+            "[every=N] [stable=N] [fps=N] [model=name] [visualcache=file] [id=name] " +
+            "[log=file] [preroll=ms] [after=ms] [before=ms]",
     )

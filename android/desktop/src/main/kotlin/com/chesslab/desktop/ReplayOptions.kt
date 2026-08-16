@@ -93,6 +93,11 @@ data class ReplayOptions(
      */
     val fps: Double? = null,
     /**
+     * `start=<seconds>` — where tracking begins in the video, instead of the recording's own
+     * pre-roll boundary. `start=0` tracks the pre-roll too, which is what a diagnosis of it wants.
+     */
+    val startSeconds: Double? = null,
+    /**
      * `config=<file>` — a RECORDED config as the run's base, instead of the defaults: a session's
      * `settings.json` (the phone writes one per recording since 2026-08-14; its `config` block is
      * read) or a raw ConfigCodec envelope (the `tracker_config_json` DataStore slot). This is what
@@ -156,6 +161,12 @@ data class ReplayOptions(
                         fps =
                             word.removePrefix("fps=").toDoubleOrNull()?.takeIf { it > 0 }
                                 ?: error("fps= wants a positive frame rate, got '$word'"),
+                    )
+                word.startsWith("start=") ->
+                    options.copy(
+                        startSeconds =
+                            word.removePrefix("start=").toDoubleOrNull()?.takeIf { it >= 0 }
+                                ?: error("start= wants seconds, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("config=") ->

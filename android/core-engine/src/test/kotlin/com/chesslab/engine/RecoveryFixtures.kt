@@ -152,6 +152,14 @@ internal fun EngineState.armed(): EngineState {
     return this
 }
 
+/**
+ * A game already under way. The alarm may not latch before the first commit (`alarmable` in
+ * `Alarm.kt`), so a scenario that needs a latched alarm has to put a ply on the record — which is
+ * what any run that has been tracking for a while has. [san] defaults to the move `NF3_NO_CASTLING`
+ * was reached by.
+ */
+internal fun EngineState.underWay(san: String = "Nf3"): EngineState = apply { history.add(san) }
+
 /** One observation of the current position. [gray] is the anchor warp (`null` = none delivered). */
 internal fun recoverySnap(
     state: EngineState,
@@ -184,7 +192,7 @@ internal fun EngineState.recoveryGlances(
 
 /** Latch the alarm the way `_alarmed_tracker` does: three distinct stable mismatching glances. */
 internal fun alarmedState(): Pair<EngineState, RecoveryEvaluator> {
-    val state = recoveryState(NF3_NO_CASTLING)
+    val state = recoveryState(NF3_NO_CASTLING).underWay()
     val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
     val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
     for (seq in 1L..3L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
