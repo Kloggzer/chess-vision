@@ -12,6 +12,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -19,6 +20,9 @@ private const val PERIODIC = "chesslab-sync-periodic"
 private const val ONCE = "chesslab-sync-now"
 private const val EVERY_MINUTES = 15L
 private const val PERCENT = 100L
+
+/** One transfer at a time in this process — the two work chains would otherwise send in parallel. */
+private val running = Mutex()
 
 /**
  * The transfer, as a job the system owns.
@@ -40,26 +44,38 @@ class SyncWorker(
     // blocking `HttpURLConnection` work that would otherwise sit on a CPU-sized thread pool.
     override suspend fun doWork(): Result =
         withContext(Dispatchers.IO) {
-            val settings = SyncHost.get(applicationContext)
-            val prefs = settings.load()
-            val run =
-                SyncRun(
-                    sessionsDir = sessionsDirOf(applicationContext),
-                    gamesDir = gamesDirOf(applicationContext),
-                    device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
-                    clientFor = { token -> HttpIngestClient(token) },
-                    ownAddress = { lanAddressOf(applicationContext) },
-                )
-            val report =
-                run.run(prefs) { sessionId, sent, total ->
-                    SyncHost.publishProgress("$sessionId · ${percent(sent, total)} %")
-                }
-            SyncHost.publish(report)
-            report.base?.let { settings.rememberHost(it) }
-            // A failure RETRIES rather than disappearing: the usual cause is the Wi-Fi going away
-            // mid-transfer, and the resume costs only what is still missing.
-            if (report.failed.isEmpty()) Result.success() else Result.retry()
+            // The periodic net and the one-shot at the end of a game are separate WorkManager
+            // chains and DO overlap: on 2026-08-16 both sent the same session, every chunk that
+            // raced landed on the server twice, and a doubled file can never be sealed.
+            if (!running.tryLock()) return@withContext Result.success()
+            try {
+                transfer()
+            } finally {
+                running.unlock()
+            }
         }
+
+    private suspend fun transfer(): Result {
+        val settings = SyncHost.get(applicationContext)
+        val prefs = settings.load()
+        val run =
+            SyncRun(
+                sessionsDir = sessionsDirOf(applicationContext),
+                gamesDir = gamesDirOf(applicationContext),
+                device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                clientFor = { token -> HttpIngestClient(token) },
+                ownAddress = { lanAddressOf(applicationContext) },
+            )
+        val report =
+            run.run(prefs) { sessionId, sent, total ->
+                SyncHost.publishProgress("$sessionId · ${percent(sent, total)} %")
+            }
+        SyncHost.publish(report)
+        report.base?.let { settings.rememberHost(it) }
+        // A failure RETRIES rather than disappearing: the usual cause is the Wi-Fi going away
+        // mid-transfer, and the resume costs only what is still missing.
+        return if (report.failed.isEmpty()) Result.success() else Result.retry()
+    }
 
     private fun percent(
         sent: Long,

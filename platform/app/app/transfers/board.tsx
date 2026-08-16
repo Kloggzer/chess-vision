@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { failureParts, logName } from "@/lib/failure";
+import { when } from "@/lib/when";
 import type { TransferRow } from "@/lib/ingest";
 import type { Job } from "@/lib/jobs";
 
@@ -13,7 +14,6 @@ type Board = { transfers: TransferRow[]; pending: { name: string; bytes: number;
 
 const GB = 1024 * 1024 * 1024;
 const size = (bytes: number) => (bytes >= GB ? `${(bytes / GB).toFixed(2)} GB` : `${Math.round(bytes / (1024 * 1024))} MB`);
-const when = (iso?: string) => (iso ? iso.slice(0, 16).replace("T", " ") : "");
 
 const FRESH = 8;
 const ROW = "flex flex-wrap items-baseline gap-x-3 gap-y-0.5";

@@ -10,6 +10,7 @@ import { ChainActions } from "@/app/chain-actions";
 import { UselessButton } from "@/app/useless-button";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
+import { when as localWhen } from "@/lib/when";
 
 export type GameInfo = {
   name: string;
@@ -41,7 +42,7 @@ export type GameInfo = {
 };
 
 /** ISO timestamps rendered deterministically (no locale) so SSR and client agree. */
-const when = (iso: string | null) => (iso ? iso.slice(0, 16).replace("T", " ") : null);
+const when = (iso: string | null) => localWhen(iso) || null;
 
 /**
  * A game the human called useless: the flag, its reason, and the way back.

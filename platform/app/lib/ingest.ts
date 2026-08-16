@@ -12,7 +12,7 @@
  * `realgames/`, so a consumer never sees a half-written session.
  */
 import { createWriteStream } from "node:fs";
-import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
@@ -122,9 +122,38 @@ export async function declare(manifest: Manifest): Promise<{ name: string; have:
   const have: Record<string, number> = {};
   for (const file of manifest.files) {
     const landed = await sizeOf(path.join(targetDir(name), file.path));
-    have[file.path] = landed === file.bytes ? file.bytes : Math.max(0, await sizeOf(path.join(staging, file.path + ".partial")));
+    have[file.path] = landed === file.bytes ? file.bytes : await resumePoint(path.join(staging, file.path + ".partial"), file.bytes);
   }
   return { name, have, chunk: CHUNK_BYTES };
+}
+
+/**
+ * Where a resumed file continues — 0 when the staged bytes OVERSHOOT the declaration.
+ * A partial longer than its file is not a resume point but a dead end: the phone seeks past the
+ * end, sends nothing, and `complete` refuses the session on every retry, forever.
+ */
+async function resumePoint(partial: string, bytes: number): Promise<number> {
+  const have = await sizeOf(partial);
+  if (have <= bytes) return Math.max(0, have);
+  await truncate(partial, 0);
+  return 0;
+}
+
+/**
+ * One writer per staged file: two runs that raced here appended the same chunk twice (2026-08-16).
+ * On `globalThis` for the same reason the job queue is — a hot reload must not hand out a second
+ * lock for a chunk that is still being written.
+ */
+const writers: Map<string, Promise<unknown>> = ((globalThis as { __chesslabWriters?: Map<string, Promise<unknown>> }).__chesslabWriters ??= new Map());
+
+function serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
+  const run = (writers.get(key) ?? Promise.resolve()).then(work, work);
+  const settled = run.catch(() => {});
+  writers.set(key, settled);
+  void settled.then(() => {
+    if (writers.get(key) === settled) writers.delete(key);
+  });
+  return run;
 }
 
 export async function loadManifest(name: string): Promise<Manifest> {
@@ -142,11 +171,13 @@ export async function appendChunk(
   body: ReadableStream<Uint8Array> | null,
 ): Promise<{ have: number }> {
   const partial = path.join(stagingDir(name), checkRelPath(relPath) + ".partial");
-  const have = Math.max(0, await sizeOf(partial));
-  if (offset !== have) throw Object.assign(new Error(`offset ${offset} != ${have}`), { have, conflict: true });
-  await mkdir(path.dirname(partial), { recursive: true });
-  if (body) await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(partial, { flags: "a" }));
-  return { have: await sizeOf(partial) };
+  return serialize(partial, async () => {
+    const have = Math.max(0, await sizeOf(partial));
+    if (offset !== have) throw Object.assign(new Error(`offset ${offset} != ${have}`), { have, conflict: true });
+    await mkdir(path.dirname(partial), { recursive: true });
+    if (body) await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(partial, { flags: "a" }));
+    return { have: await sizeOf(partial) };
+  });
 }
 
 /**

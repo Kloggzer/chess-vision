@@ -96,6 +96,26 @@ describe("a transfer", () => {
     await expect(appendChunk(name, "sessions/20260813-193423/log.jsonl", 0, stream("abc"))).rejects.toMatchObject({ have: 3 });
   });
 
+  it("appends once when two runs push the same chunk at the same time", async () => {
+    const { name } = await declare(manifest(6));
+    const file = "sessions/20260813-193423/log.jsonl";
+    const both = await Promise.allSettled([appendChunk(name, file, 0, stream("abc")), appendChunk(name, file, 0, stream("abc"))]);
+
+    expect(both.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect((await declare(manifest(6))).have[file]).toBe(3);
+  });
+
+  it("restarts a file whose staged bytes overshoot the declaration", async () => {
+    const { name } = await declare(manifest(6));
+    const file = "sessions/20260813-193423/log.jsonl";
+    await appendChunk(name, file, 0, stream("abcdef"));
+    await appendChunk(name, file, 6, stream("abcdef"));
+
+    expect((await declare(manifest(6))).have[file]).toBe(0);
+    await appendChunk(name, file, 0, stream("abcdef"));
+    expect((await complete(name)).status).toBe("landed");
+  });
+
   it("refuses to complete while a file is short", async () => {
     const { name } = await declare(manifest(6));
     await appendChunk(name, "sessions/20260813-193423/log.jsonl", 0, stream("abc"));
