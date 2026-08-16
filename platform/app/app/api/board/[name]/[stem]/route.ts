@@ -1,4 +1,4 @@
-import { boardPng } from "@/lib/crops";
+import { boardPng, CUT_MIME } from "@/lib/crops";
 import { storedBoardPng } from "@/lib/stored";
 
 /** The rectified playing field of one session frame — the drilldown canvas, a8 top left. */
@@ -13,7 +13,7 @@ export async function GET(
     // A bundle without video was never exported, so the same frame lives only as a stored JPEG.
     const png = await boardPng(name, stem, size).catch(() => storedBoardPng(name, stem, size));
     return new Response(new Uint8Array(png), {
-      headers: { "content-type": "image/png", "cache-control": "public, max-age=3600" },
+      headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
     return new Response(String(error), { status: 404 });

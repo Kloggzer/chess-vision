@@ -1,4 +1,4 @@
-import { cellPng, medianPng } from "@/lib/crops";
+import { cellPng, CUT_MIME, medianPng } from "@/lib/crops";
 import { loadSession } from "@/lib/session";
 import { storedCellPng } from "@/lib/stored";
 
@@ -23,7 +23,7 @@ export async function GET(
     const exported = await loadSession(name).then(() => true, () => false);
     const png = exported ? await cut(name, stem, square, px) : await storedCellPng(name, stem, square, px);
     return new Response(new Uint8Array(png), {
-      headers: { "content-type": "image/png", "cache-control": "public, max-age=3600" },
+      headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
     return new Response(String(error), { status: 404 });

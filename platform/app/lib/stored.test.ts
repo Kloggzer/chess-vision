@@ -117,11 +117,11 @@ test("a bundle without a stored session reports nothing rather than an empty one
   expect(await storedProgressOf([BUNDLE, "nope"])).toEqual({});
 });
 
-test("a stored frame renders as a square PNG of the asked-for size", async () => {
+test("a stored frame renders as a square image of the asked-for size", async () => {
   await writeLog(row(0));
   const png = await storedBoardPng(BUNDLE, "0000", 64);
   const meta = await sharp(png).metadata();
-  expect([meta.format, meta.width, meta.height]).toEqual(["png", 64, 64]);
+  expect([meta.format, meta.width, meta.height]).toEqual(["webp", 64, 64]);
   await expect(storedBoardPng(BUNDLE, "0009", 64)).rejects.toThrow(/no stored frame/);
 });
 
@@ -214,7 +214,7 @@ test("a stored cell renders through every stage: curved, perspective, scalar, an
     for (const stem of ["0000", "0001"]) {
       const png = await storedCellPng(BUNDLE, stem, "e4", 48);
       const meta = await sharp(png).metadata();
-      expect([meta.format, meta.width, meta.height]).toEqual(["png", 48, 48]);
+      expect([meta.format, meta.width, meta.height]).toEqual(["webp", 48, 48]);
     }
   }
   await expect(storedCellPng(BUNDLE, "0009", "e4", 48)).rejects.toThrow(/no stored frame/);

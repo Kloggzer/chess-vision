@@ -140,7 +140,7 @@ async function storedRaster(dir: string, frame: string): Promise<Raster> {
 
 function toPng(rgb: Buffer, size: number): Promise<Buffer> {
   return sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
-    .png({ compressionLevel: 3 })
+    .webp({ quality: 92 })
     .toBuffer();
 }
 
