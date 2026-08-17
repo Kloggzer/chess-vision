@@ -93,6 +93,15 @@ def labels_to_fen(labels: dict) -> str:
 CROP_SUFFIX = ".webp"
 CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 
+#: How far a cell may sit from its ply interval's settled board and still be trusted
+#: (`realgames.settle_for_ply`). At 15 the montage above it holds fingers on squares labelled
+#: `empty`, PIECES on squares labelled `empty`, and hands closed around the piece they name; the
+#: band just below holds ordinary cells. Measured over the 858 363 cells that reach the corpus: 15
+#: costs 5.3 % of them and catches 96.4 % of what the groove sensor independently accuses, where 40
+#: costs 1.0 % and catches only 79 %. A human correction outranks it, exactly as with `dirty` — the
+#: gate is a doubt, not a verdict.
+SETTLE_LIMIT = 15.0
+
 
 def parse_out_size(s: str) -> tuple[int, int]:
     """'96x128' -> (96, 128) = (W, H)."""
@@ -385,6 +394,8 @@ def slice_session(
     n_unknown = 0
     #: Cells dropped because a hand was in the frame and no human ruled on them (`dirty`).
     n_dirty = 0
+    #: Cells whose pixels left the position they are labelled with (`SETTLE_LIMIT`).
+    n_unsettled = 0
     n_unusable = 0
     n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
     n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
@@ -451,6 +462,10 @@ def slice_session(
         # `carried` counts as dirty: the mesh is a neighbour's because THIS frame's grooves were
         # unreadable, and measured over 2 228 frames that is a hand 94.5 % of the time.
         dirty = bool(entry.get("dirty")) or entry.get("grid_lines_source") == "carried"
+        # How far each cell sits from its own ply interval's settled board (`session settle-scan`).
+        # A row from too short an interval has none, and then this gate does not fire — see
+        # `SETTLE_LIMIT`. Absent on every session that predates the scan, which is the same thing.
+        settle = entry.get("settle_dev") or ()
         frame_stem = Path(entry["frame"]).stem  # '0007'
         squares = all_squares()
         for i, square in enumerate(squares):
@@ -464,6 +479,9 @@ def slice_session(
                 continue
             if dirty and corrected is None:
                 n_dirty += 1
+                continue
+            if i < len(settle) and settle[i] >= SETTLE_LIMIT and corrected is None:
+                n_unsettled += 1
                 continue
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
             if square in occluded_set:
@@ -506,7 +524,8 @@ def slice_session(
     _replace_session_in_manifest(manifest_path, session_id, new_lines)
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
-            "unknown_dropped": n_unknown, "dirty_dropped": n_dirty, "mesh_frames": n_mesh,
+            "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
+            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh,
             "fallback": n_fallback}
 
 
@@ -578,6 +597,8 @@ def run_slice(
             extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
             if stats.get("dirty_dropped"):
                 extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
+            if stats.get("unsettled_dropped"):
+                extra += f" [{stats['unsettled_dropped']} cells held back as unsettled]"
             print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
         except Exception as e:  # noqa: BLE001
             print(f"[FAIL] {sid}: {e}")
