@@ -122,6 +122,27 @@ test("single-ply commits stay one card each", () => {
   expect(cards[2].keep).toEqual([2]);
 });
 
+test("every card names the picture its move started from", () => {
+  const cards = buildReviewCards({
+    moves: SINGLES,
+    indices: [0, 1, 2],
+    stems: stems(133, 200, 245, 300, 395),
+    startFen: START,
+    missedSans: new Set(["e5"]),
+  });
+
+  // The PREVIOUS commit, not two frames back: the card's own window reaches 133-2, which is still
+  // mid-move. At the previous commit the position this move started from is standing still. The
+  // FIRST card gets one only where the review set reaches before the opening commit — here it
+  // starts exactly on it, so there is honestly nothing earlier to show.
+  expect(cards.map((c) => c.before?.stem ?? null)).toEqual([null, "000133", "000245"]);
+  // Never a frame at or after its own commit — that would show the answer instead of the question.
+  for (const card of cards) {
+    if (card.before) expect(Number(card.before.stem)).toBeLessThan(card.frame);
+  }
+});
+
+
 test("a frame-mate the reference already matched shows up as context, not as a second card", () => {
   const cards = buildReviewCards({
     moves: BRIDGE,

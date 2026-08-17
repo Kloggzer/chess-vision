@@ -403,12 +403,28 @@ function CardBody({
         {card.duplicate ? <Badge variant="secondary">fehlt auch im PGN</Badge> : null}
         {verdict ? <Badge variant={verdict === "keep" ? "default" : "outline"}>zuletzt: {verdict}</Badge> : null}
       </div>
-      <div className="mx-auto max-w-lg space-y-2">
-        <FrameSeries at={at} card={card} name={name} onZoom={onZoom} priority step={step} />
+      <div className="mx-auto flex max-w-3xl items-start justify-center gap-3">
+        {card.before ? (
+          <figure className="w-64 shrink-0 space-y-1 max-sm:hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element -- same raw review frame the series shows */}
+            <img
+              alt={`Stellung vor ${sans[0]}`}
+              className="w-full rounded border opacity-90"
+              src={`/api/frame/${name}/${card.before.stem}`}
+            />
+            <figcaption className="text-muted-foreground text-center font-mono text-xs">
+              vorher · frame {card.before.stem}
+            </figcaption>
+          </figure>
+        ) : null}
+        <div className="max-w-lg flex-1 space-y-2">
+          <FrameSeries at={at} card={card} name={name} onZoom={onZoom} priority step={step} />
+        </div>
       </div>
       <p className="text-sm">
         Zeigt das Foto die Stellung <strong>NACH</strong> {multi ? `der Sequenz ${sans.join(" + ")}` : "diesem Zug"}?
         Im Zweifel verwerfen.
+        {card.before ? " Links steht, wovon der Zug ausging." : null}
       </p>
     </article>
   );

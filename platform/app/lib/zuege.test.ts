@@ -8,6 +8,7 @@ const card = (id: number): ReviewCard => ({
   frame: 100 + id,
   stems: [],
   start: 0,
+  before: null,
   keep: [id],
   group: ["e4"],
   carriesFrames: true,

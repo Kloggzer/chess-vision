@@ -31,6 +31,12 @@ export type ReviewCard = {
   stems: FrameStem[];
   /** Index into [stems] nearest the commit — where the card opens. */
   start: number;
+  /**
+   * The picture the move STARTED from — the frame nearest the previous commit, where that position
+   * has settled. "Shows the photo the position AFTER this move?" is unanswerable without it, and
+   * the card's own window reaches only 2 frames back, which is still mid-move (User, 2026-08-17).
+   */
+  before: FrameStem | null;
   /** Indices posted as `kept` when the human says the picture matches. */
   keep: number[];
   /** SANs of EVERY ply committed on this frame, including ones the LCS already matched. */
@@ -89,6 +95,16 @@ function groupByFrame(moves: ReviewMove[], indices: number[]): number[][] {
   return out;
 }
 
+/** The frame on disk closest to [at] — the review set is sparse, so an exact index rarely exists. */
+function nearestStem(stems: FrameStem[], at: number): FrameStem | null {
+  return stems.reduce<FrameStem | null>(
+    (best, s) =>
+      best === null || Math.abs(Number(s.stem) - at) < Math.abs(Number(best.stem) - at) ? s : best,
+    null,
+  );
+}
+
+
 export function buildReviewCards({
   moves,
   indices,
@@ -102,8 +118,13 @@ export function buildReviewCards({
   startFen?: string;
   missedSans?: ReadonlySet<string>;
 }): ReviewCard[] {
+  // The previous group's commit, carried across the map: that is where the position this card's
+  // move started from is standing still.
+  let settledAt: number | null = null;
   return groupByFrame(moves, indices).map((members) => {
     const frame = moves[members[0]].frame;
+    const before = nearestStem(stems, settledAt ?? Number(stems[0]?.stem ?? frame));
+    settledAt = frame;
     let last = members[members.length - 1];
     while (moves[last + 1]?.frame === frame) last++;
     const until = moves[last + 1]?.frame ?? frame + 90;
@@ -130,6 +151,7 @@ export function buildReviewCards({
       frame,
       stems: window,
       start,
+      before: before && Number(before.stem) < frame ? before : null,
       keep: owning.length > 0 ? owning : members,
       group: moves.filter((m) => m.frame === frame).map((m) => m.san),
       carriesFrames: owning.length > 0,
