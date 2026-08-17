@@ -32,6 +32,8 @@ export type GridCell = {
   caption: string;
   /** Second line — the audit lane's `predicted` beside the FEN's word (CONCEPT.md 4.2). */
   note?: string;
+  /** What the brush has put here, unwritten — the card says the class, not just "markiert". */
+  paint?: string;
 };
 
 export type CropGridProps = {
@@ -46,11 +48,16 @@ export type CropGridProps = {
   /** Wischen wie mit dem Brett-Pinsel: SETZT jede berührte Zelle — oder LÖSCHT, wenn der Wisch
    *  auf einer schon so markierten Zelle beginnt (der Radierer des Pinsels, 2026-08-15). */
   onSweep?: (index: number, mode: "left" | "right", erase: boolean) => void;
+  /** Was „schon so markiert" heißt, wo die Marke mehr als an/aus ist — der Pinsel kennt seine Farbe. */
+  erasing?: (index: number, mode: "left" | "right") => boolean;
+  /** Hält die Pinsel-Zeile frei, auch wo nichts gemalt ist: sonst wächst die Karte unterm Klick. */
+  paintable?: boolean;
   /** How many columns `auto-fill` chose — up/down must move by the row the user actually sees. */
   onColumns?: (cols: number) => void;
 };
 
-export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, onSweep, onColumns }: CropGridProps) {
+export function CropGrid(props: CropGridProps) {
+  const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable, onColumns } = props;
   const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
@@ -80,11 +87,13 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
       {cells.map((cell, i) => (
         <div
           className={`cursor-pointer overflow-hidden rounded border-2 ${
-            marked.has(i)
-              ? "border-amber-500"
-              : wrong?.has(i)
-                ? "border-destructive border-dashed"
-                : "border-transparent"
+            cell.paint
+              ? "border-primary"
+              : marked.has(i)
+                ? "border-amber-500"
+                : wrong?.has(i)
+                  ? "border-destructive border-dashed"
+                  : "border-transparent"
           } ${i === cursor ? "ring-primary ring-2" : ""}`}
           key={cell.key}
           onClick={onSweep ? undefined : () => onPick(i)}
@@ -101,7 +110,11 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
               ? (event) => {
                   if (event.button !== 0 && event.button !== 2) return;
                   const mode = event.button === 2 ? "right" : "left";
-                  const erase = mode === "right" ? marked.has(i) : (wrong?.has(i) ?? false);
+                  const erase = erasing
+                    ? erasing(i, mode)
+                    : mode === "right"
+                      ? marked.has(i)
+                      : (wrong?.has(i) ?? false);
                   painting.current = { mode, start: i, dragged: false, erase };
                 }
               : undefined
@@ -149,6 +162,11 @@ export function CropGrid({ cells, cursor, marked, onPick, wrong, onContextPick, 
             {cell.caption}
             {cell.note ? (
               <span className="block text-sm font-bold text-fuchsia-300">{cell.note}</span>
+            ) : null}
+            {paintable ? (
+              <span className="text-primary block h-5 text-sm leading-5 font-bold">
+                {cell.paint ? `→ ${cell.paint}` : ""}
+              </span>
             ) : null}
           </div>
         </div>

@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { BoardLegend, BoardSurface, GLYPH, SQUARES, STREAM_PALETTE, useBoardPaint } from "@/components/board-paint";
+import { BoardLegend, BoardSurface, SQUARES, useBoardPaint } from "@/components/board-paint";
+import { PaletteRow } from "@/components/palette-row";
 import { PhaseChip } from "@/components/phase-chip";
 import type { Correction } from "@/lib/corrections";
 import type { StreamBoard } from "@/lib/label-stream";
@@ -133,30 +134,8 @@ export function BoardLane(props: BoardLaneProps) {
         </span>
       </div>
 
-      {/* Nur die Kürzel: fünfzehn ausgeschriebene Klassennamen sind eine Zeile Lärm über dem Brett. */}
       <div className="flex flex-wrap items-center gap-1">
-        {STREAM_PALETTE.map(([key, label]) => {
-          const on = paint.brush === label && !paint.eraser;
-          return (
-            <Tooltip key={label}>
-              <TooltipTrigger asChild>
-                <button
-                  className={`w-11 cursor-pointer rounded border py-0.5 text-center font-mono text-xs max-sm:h-11 ${
-                    on ? "border-primary bg-primary text-primary-foreground" : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                  onClick={(event) => {
-                    event.currentTarget.blur();
-                    paint.setBrush(label);
-                  }}
-                  type="button"
-                >
-                  {key} <span className="text-sm">{GLYPH[label] ?? ""}</span>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{label}</TooltipContent>
-            </Tooltip>
-          );
-        })}
+        <PaletteRow active={paint.eraser ? undefined : paint.brush} onPick={paint.setBrush} />
         <Tooltip>
           <TooltipTrigger asChild>
             <button

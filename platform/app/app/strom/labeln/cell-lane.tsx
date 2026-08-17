@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { CROP, CropGrid, PAGE } from "@/components/crop-grid";
+import { PaletteRow } from "@/components/palette-row";
 import type { Correction } from "@/lib/corrections";
 import type { StreamSession } from "@/lib/label-stream";
 import type { LaneCell } from "@/lib/lanes";
@@ -22,26 +23,41 @@ const TOUCH = "max-sm:h-11 max-sm:px-3";
 const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
 
 /**
- * A cell lane, rendered as the bucket grid the buckets already were (REVIEW S10).
- *
- * A page is one keypress. The cells are grouped BY SQUARE, so a page is a handful of squares seen
- * at a few moments each instead of six scattered crops of the same one.
+ * Die zwei Marken, die keine Klasse sind. OHNE Pinsel heißt der Klick weiter „unsicher" — er
+ * schreibt nichts, und die Zelle kommt wieder; `MODEL` schreibt das Wort des Modells.
+ */
+const UNSURE = "";
+const MODEL = "modell";
+const isClass = (v: string | undefined): v is string => v !== undefined && v !== UNSURE && v !== MODEL;
+
+/** What one cell of the page carries before it is written: a class, or one of the two non-classes. */
+type Picks = Record<number, string>;
+
+/**
+ * A cell lane, rendered as the bucket grid the buckets already were (REVIEW S10). A page is one
+ * keypress, grouped BY SQUARE — a handful of squares at a few moments each, not six scattered
+ * crops of the same one. The palette loads a BRUSH like the board's: a click paints the armed
+ * class, and one Enter writes the page.
  */
 export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlush }: CellLaneProps) {
-  const [marked, setMarked] = useState<Set<number>>(new Set());
-  const [wrong, setWrong] = useState<Set<number>>(new Set());
-  /** Ein Batch pro ⏎/⌫ — „← zurück" holt seine UNBESCHRIEBENEN Zellen wieder an ihre Position. */
+  const [brush, setBrush] = useState<string>(UNSURE);
+  const [pick, setPick] = useState<Picks>({});
+  /** Ein Batch pro Enter/Backspace — „zurück" holt seine UNBESCHRIEBENEN Zellen an ihre Position. */
   const [trail, setTrail] = useState<string[][]>([]);
   const [cursor, setCursor] = useState(0);
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set<string>());
+  /** Von „zurück" wieder hergeholt: die Zelle steht im Ledger und wird trotzdem noch mal gezeigt. */
+  const [revived, setRevived] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
 
   const open = useMemo(
     () =>
-      cells.filter(
-        (c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined && !skipped.has(keyOf(c)),
-      ),
-    [cells, decided, skipped],
+      cells.filter((c) => {
+        const key = keyOf(c);
+        if (skipped.has(key)) return false;
+        return revived.has(key) || (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined;
+      }),
+    [cells, decided, revived, skipped],
   );
   const pages = Math.max(1, Math.ceil(open.length / PAGE));
   const safePage = Math.min(page, pages - 1);
@@ -58,12 +74,12 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
   }, [open, safePage, sessions]);
 
   const rows = useCallback(
-    (list: LaneCell[], label: (c: LaneCell) => string): Correction[] =>
-      list.map((c) => ({
-        session_id: sessions[c.session].sessionId,
-        frame: c.stem,
-        square: c.square,
-        label: label(c),
+    (list: { cell: LaneCell; label: string }[]): Correction[] =>
+      list.map(({ cell, label }) => ({
+        session_id: sessions[cell.session].sessionId,
+        frame: cell.stem,
+        square: cell.square,
+        label,
       })),
     [sessions],
   );
@@ -78,92 +94,83 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     [decided, sessions],
   );
 
+  const clear = () => {
+    setPick({});
+    setCursor(0);
+  };
+
+  const counts = useMemo(() => {
+    const values = slice.map((_, i) => pick[i]);
+    return {
+      painted: values.filter(isClass).length,
+      model: values.filter((v) => v === MODEL).length,
+      unsure: values.filter((v) => v === UNSURE).length,
+      taken: values.filter((v) => v === undefined).length,
+    };
+  }, [pick, slice]);
+
   /**
-   * Enter takes the page's own answer; a marked cell takes the exception's, and where a lane has
-   * none it simply leaves the page undecided for a board lane to reach.
+   * Enter writes the page: what the brush painted, the exceptions the model won, and for every
+   * untouched cell the lane's own default. Unsicher schreibt NICHTS — ohne Ledger-Zeile kommt die
+   * Zelle bei der nächsten Sitzung wieder, genau die versprochene spätere Aufbereitung.
    */
   const accept = useCallback(async () => {
     if (slice.length === 0) return;
-    // „stimmt nicht"-Zellen schreiben NICHTS: ohne Ledger-Zeile bleiben sie offen und kommen bei
-    // der nächsten Sitzung wieder — genau die versprochene spätere Aufbereitung.
-    const taken = slice.filter((_, i) => !marked.has(i) && !wrong.has(i));
-    const exceptions = slice.filter((c, i) => marked.has(i) && c.exception !== null);
+    const taken = slice.filter((_, i) => pick[i] === undefined);
     const writes: Verdict[] = [
-      { rows: rows(taken.filter((c) => c.ledger === "corrections"), (c) => c.label), ledger: "corrections" },
-      { rows: rows(taken.filter((c) => c.ledger === "reviewed"), (c) => c.label), ledger: "reviewed" },
-      { rows: rows(exceptions, (c) => c.exception!), ledger: "corrections" },
+      {
+        rows: rows([
+          ...taken.filter((c) => c.ledger === "corrections").map((cell) => ({ cell, label: cell.label })),
+          ...slice.flatMap((cell, i) => (isClass(pick[i]) ? [{ cell, label: pick[i] }] : [])),
+          ...slice.flatMap((cell, i) =>
+            pick[i] === MODEL && cell.exception !== null ? [{ cell, label: cell.exception }] : [],
+          ),
+        ]),
+        ledger: "corrections",
+      },
+      {
+        rows: rows(taken.filter((c) => c.ledger === "reviewed").map((cell) => ({ cell, label: cell.label }))),
+        ledger: "reviewed",
+      },
     ];
     await onFlush(slice[0].pos, writes, priorOf(slice));
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setTrail((t) => [...t, slice.map(keyOf)]);
-    setMarked(new Set());
-    setWrong(new Set());
-    setCursor(0);
-  }, [marked, onFlush, priorOf, rows, slice, wrong]);
+    clear();
+  }, [onFlush, pick, priorOf, rows, slice]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setTrail((t) => [...t, slice.map(keyOf)]);
-    setMarked(new Set());
-    setWrong(new Set());
-    setCursor(0);
+    clear();
   }, [slice]);
 
-  /** Geschriebenes bleibt geschrieben (dafür ist `z` da); nur Offenes kommt zurück in den Blick. */
+  /**
+   * Die letzte Seite noch einmal ansehen — auch die schon geschriebenen Zellen. Geschriebenes
+   * bleibt geschrieben (zurücknehmen tut `z`), aber seit der Pinsel die Seite VOLL schreibt hatte
+   * der Knopf sonst nie etwas zurückzuholen und sah tot aus (User, 2026-08-17).
+   */
   const back = useCallback(() => {
     const last = trail[trail.length - 1];
     if (last) {
       setTrail((t) => t.slice(0, -1));
       setSkipped((s) => new Set([...s].filter((k) => !last.includes(k))));
-      setMarked(new Set());
-      setWrong(new Set());
-      setCursor(0);
+      setRevived((r) => new Set([...r, ...last]));
     } else if (safePage > 0) {
       setPage(safePage - 1);
     }
+    clear();
   }, [safePage, trail]);
 
-  /** A palette key states the label for every marked cell, straight into the training input. */
-  const brush = useCallback(
-    async (label: string) => {
-      const picked = slice.filter((_, i) => marked.has(i) || wrong.has(i));
-      if (picked.length === 0) return;
-      await onFlush(picked[0].pos, [{ rows: rows(picked, () => label), ledger: "corrections" }], priorOf(picked));
-      setSkipped((s) => new Set([...s, ...picked.map(keyOf)]));
-      setMarked(new Set());
-      setWrong(new Set());
-    },
-    [marked, onFlush, priorOf, rows, slice, wrong],
-  );
-
-  /** Klick: „stimmt nicht" — undecided, wird NICHT geschrieben und kommt später wieder hoch. */
-  const toggleWrong = (i: number) => {
-    setWrong((w) => {
-      const next = new Set(w);
-      if (!next.delete(i)) next.add(i);
+  /** Zweimal dieselbe Farbe nimmt sie wieder ab — der Radierer des Bretts, ohne eigene Taste. */
+  const put = (i: number, label: string) =>
+    setPick((p) => {
+      const next = { ...p };
+      if (next[i] === label) delete next[i];
+      else next[i] = label;
       return next;
     });
-    setMarked((m) => {
-      const next = new Set(m);
-      next.delete(i);
-      return next;
-    });
-  };
-
-  /** Rechtsklick: „das Modell hat recht" — sein Wort wird beim Seiten-Commit geschrieben. */
-  const toggleModel = (i: number) => {
-    setMarked((m) => {
-      const next = new Set(m);
-      if (!next.delete(i)) next.add(i);
-      return next;
-    });
-    setWrong((w) => {
-      const next = new Set(w);
-      next.delete(i);
-      return next;
-    });
-  };
 
   const now = useRef({ accept, discard, brush, cursor, slice });
   useEffect(() => {
@@ -173,9 +180,9 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     actionsRef.current = {
       commit: () => void now.current.accept(),
       reject: () => now.current.discard(),
-      toggleAt: () => toggleWrong(now.current.cursor),
-      gridAt: () => toggleModel(now.current.cursor),
-      brush: (label) => void now.current.brush(label),
+      toggleAt: () => put(now.current.cursor, now.current.brush),
+      gridAt: () => put(now.current.cursor, MODEL),
+      brush: (label) => setBrush((b) => (b === label ? UNSURE : label)),
       step: (delta) => setCursor((i) => Math.max(0, Math.min(now.current.slice.length - 1, i + delta))),
       undo: () => false,
     };
@@ -203,13 +210,14 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
         ) : null}
         <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
         <span className="text-muted-foreground">
-          {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick = stimmt nicht (bleibt
-          offen) · Rechtsklick = Modell hat recht
+          {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
+          Rechtsklick = Modell hat recht
         </span>
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void accept()} size="sm">
-          ⏎ {slice.length - marked.size - wrong.size} bestätigen
-          {marked.size > 0 ? ` · ${marked.size}× Modell` : ""}
-          {wrong.size > 0 ? ` · ${wrong.size} offen lassen` : ""}
+          ⏎ {counts.taken} bestätigen
+          {counts.painted > 0 ? ` · ${counts.painted} gemalt` : ""}
+          {counts.model > 0 ? ` · ${counts.model}× Modell` : ""}
+          {counts.unsure > 0 ? ` · ${counts.unsure} unsicher` : ""}
         </Button>
         <Button
           className={TOUCH}
@@ -225,42 +233,46 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
         </Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1">
+        <PaletteRow active={brush} onPick={(label) => setBrush((b) => (b === label ? UNSURE : label))} />
+        <span className="text-muted-foreground ml-auto text-xs">
+          Pinsel{" "}
+          <span className="text-foreground font-mono">{brush === UNSURE ? "keiner — Klick = unsicher" : brush}</span>
+        </span>
+      </div>
+
       <CropGrid
-        cells={slice.map((cell) => ({
+        cells={slice.map((cell, i) => ({
           key: keyOf(cell),
           src: `/api/cell/${sessions[cell.session].name}/${cell.stem}/${cell.square}?size=${CROP}`,
           alt: `${cell.square} @ ${cell.stem}`,
           caption: cell.caption,
           note: cell.note,
+          ...(isClass(pick[i]) ? { paint: pick[i] } : {}),
         }))}
         cursor={cursor}
-        marked={marked}
+        erasing={(i, mode) => pick[i] === (mode === "right" ? MODEL : brush)}
+        marked={new Set(slice.flatMap((_, i) => (pick[i] === MODEL ? [i] : [])))}
         onContextPick={(i) => {
           setCursor(i);
-          toggleModel(i);
+          put(i, MODEL);
         }}
         onPick={(i) => {
           setCursor(i);
-          toggleWrong(i);
+          put(i, brush);
         }}
+        paintable
         onSweep={(i, mode, erase) => {
           setCursor(i);
-          const target = mode === "left" ? setWrong : setMarked;
-          const other = mode === "left" ? setMarked : setWrong;
-          target((s) => {
-            const next = new Set(s);
-            if (erase) next.delete(i);
-            else next.add(i);
+          const label = mode === "right" ? MODEL : brush;
+          setPick((p) => {
+            const next = { ...p };
+            if (erase) delete next[i];
+            else next[i] = label;
             return next;
           });
-          if (!erase)
-            other((s) => {
-              const next = new Set(s);
-              next.delete(i);
-              return next;
-            });
         }}
-        wrong={wrong}
+        wrong={new Set(slice.flatMap((_, i) => (pick[i] === UNSURE ? [i] : [])))}
       />
     </div>
   );
