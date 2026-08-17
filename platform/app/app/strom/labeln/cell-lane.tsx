@@ -177,9 +177,25 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
       return next;
     });
 
+  /** Die ganze Seite auf das Wort des Modells; ein zweiter Druck räumt sie wieder ab. Nur Zellen,
+   *  die eines HABEN — ohne `exception` schriebe die Marke beim Bestätigen nichts (`accept`). */
+  const allToModel = useCallback(() => {
+    const eligible = slice.flatMap((c, i) => (c.exception !== null ? [i] : []));
+    setPick((p) => {
+      if (eligible.every((i) => p[i] === MODEL)) {
+        const next = { ...p };
+        for (const i of eligible) delete next[i];
+        return next;
+      }
+      return { ...p, ...Object.fromEntries(eligible.map((i) => [i, MODEL])) };
+    });
+  }, [slice]);
+
   const now = useRef({ accept, discard, brush, cursor, slice });
+  const nowFlood = useRef(allToModel);
   useEffect(() => {
     now.current = { accept, discard, brush, cursor, slice };
+    nowFlood.current = allToModel;
   });
   useEffect(() => {
     actionsRef.current = {
@@ -187,6 +203,7 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
       reject: () => now.current.discard(),
       toggleAt: () => put(now.current.cursor, now.current.brush),
       gridAt: () => put(now.current.cursor, MODEL),
+      floodModel: () => nowFlood.current(),
       brush: (label) => setBrush((b) => (b === label ? UNSURE : label)),
       step: (delta) => setCursor((i) => Math.max(0, Math.min(now.current.slice.length - 1, i + delta))),
       undo: () => false,
@@ -250,6 +267,18 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
           variant={peek ? "default" : "outline"}
         >
           🔍 Brett
+        </Button>
+        <Button
+          className={TOUCH}
+          disabled={slice.every((c) => c.exception === null)}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            allToModel();
+          }}
+          size="sm"
+          variant="outline"
+        >
+          A alle: Modell
         </Button>
         <span className="text-muted-foreground ml-auto text-xs">
           Pinsel{" "}

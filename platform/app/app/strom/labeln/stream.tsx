@@ -61,6 +61,8 @@ export type LaneActions = {
   toggleAt?: () => void;
   gridAt?: () => void;
   flood?: () => void;
+  /** Die ganze Seite auf das Wort des Modells — die Zell-Lanes fragen nichts anderes. */
+  floodModel?: () => void;
   step?: (delta: number) => void;
   nextPly?: () => void;
   brush?: (label: string) => void;
@@ -359,6 +361,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       case "a":
         event.preventDefault();
         return now.flood?.();
+      case "A":
+        event.preventDefault();
+        return now.floodModel?.();
       case "ArrowLeft":
         event.preventDefault();
         return now.step?.(-1);
