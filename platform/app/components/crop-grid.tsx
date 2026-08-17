@@ -58,6 +58,25 @@ export type CropGridProps = {
   onColumns?: (cols: number) => void;
 };
 
+/**
+ * Eat the ONE context menu a right-drag ends with, wherever the pointer happens to be.
+ *
+ * The grid swallows its own, but a wisch that leaves it entirely fires the menu on whatever element
+ * it was released over — and a browser menu opening mid-brush is exactly what it feels like.
+ * Capture phase, once, and self-removing so a later honest right-click still works.
+ */
+function swallowNextContextMenu(): void {
+  const eat = (event: Event) => {
+    event.preventDefault();
+    document.removeEventListener("contextmenu", eat, true);
+  };
+  document.addEventListener("contextmenu", eat, true);
+  // A right-press that never becomes a menu (the pointer left the window) must not leave the
+  // listener armed for the next honest click somewhere else.
+  window.setTimeout(() => document.removeEventListener("contextmenu", eat, true), 2000);
+}
+
+
 export function CropGrid(props: CropGridProps) {
   const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable,
     onHover, onColumns } = props;
@@ -79,6 +98,9 @@ export function CropGrid(props: CropGridProps) {
   return (
     <div
       className="grid select-none grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5 2xl:grid-cols-10"
+      // Auch auf der FLÄCHE, nicht nur auf den Zellen: ein Rechts-Wisch, der in einer Lücke oder
+      // neben dem Raster endet, liess sonst das Browser-Menü aufspringen — mitten im Pinseln.
+      onContextMenu={onSweep || onContextPick ? (event) => event.preventDefault() : undefined}
       onPointerLeave={() => {
         painting.current = null;
       }}
@@ -119,6 +141,7 @@ export function CropGrid(props: CropGridProps) {
                       ? marked.has(i)
                       : (wrong?.has(i) ?? false);
                   painting.current = { mode, start: i, dragged: false, erase };
+                  if (mode === "right") swallowNextContextMenu();
                 }
               : undefined
           }
