@@ -3,9 +3,10 @@
  *
  * Nothing here imports or shells out to chesslab (specs/53 entry.md, ownership registry).
  */
-import { open, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
+import sharp from "sharp";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 
 export type Move = {
@@ -91,18 +92,29 @@ export async function truthSans(name: string): Promise<string[] | null> {
  */
 export type FrameStem = { stem: string; kind: "labeled" | "plain"; width: number; height: number };
 
-/** Width and height out of the PNG header — 24 bytes, no decode, no dependency. */
-async function pngSize(file: string): Promise<{ width: number; height: number }> {
-  const handle = await open(file, "r");
+/** `AnnotatedFrames.REVIEW_SUFFIX` first, then what every run before 2026-08-17 wrote. */
+const REVIEW_EXTS = [".webp", ".png"];
+
+/** Width and height without decoding the pixels — sharp reads either container's header. */
+async function frameSize(file: string): Promise<{ width: number; height: number }> {
   try {
-    const head = Buffer.alloc(24);
-    await handle.read(head, 0, 24, 0);
-    return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+    const meta = await sharp(file).metadata();
+    return { width: meta.width ?? 720, height: meta.height ?? 816 };
   } catch {
     return { width: 720, height: 816 };
-  } finally {
-    await handle.close();
   }
+}
+
+/** Where a review frame actually is — a run writes WebP, everything older left PNG behind. */
+export async function reviewFramePath(name: string, stem: string): Promise<string | null> {
+  const safe = checkName(stem, "frame");
+  for (const dir of ["frames", "frames-extra"]) {
+    for (const ext of REVIEW_EXTS) {
+      const file = path.join(gameDir(name), dir, `${safe}${ext}`);
+      if (await stat(file).then(() => true, () => false)) return file;
+    }
+  }
+  return null;
 }
 
 /** Every review-frame stem on disk, both sources, numerically sorted; `labeled` wins a tie. */
@@ -110,7 +122,7 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
   const stemsOf = async (dir: string) => {
     try {
       const entries = await readdir(path.join(gameDir(name), dir));
-      return entries.filter((e) => /^\d+\.png$/.test(e)).map((e) => e.replace(/\.png$/, ""));
+      return entries.filter((e) => /^\d+\.(webp|png)$/.test(e)).map((e) => e.replace(/\.\w+$/, ""));
     } catch {
       return [];
     }
@@ -126,18 +138,19 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
     if (!seen.has(stem)) found.push({ stem, kind: "plain", dir: "frames-extra" });
   }
   const out: FrameStem[] = await Promise.all(
-    found.map(async ({ stem, kind, dir }) => ({ stem, kind, ...(await pngSize(path.join(gameDir(name), dir, `${stem}.png`))) })),
+    found.map(async ({ stem, kind }) => ({
+      stem,
+      kind,
+      ...(await frameSize((await reviewFramePath(name, stem)) ?? "")),
+    })),
   );
   return out.sort((a, b) => a.stem.localeCompare(b.stem));
 }
 
 export async function framePng(name: string, stem: string): Promise<Buffer> {
-  const file = `${checkName(stem, "frame")}.png`;
-  try {
-    return await readFile(path.join(gameDir(name), "frames", file));
-  } catch {
-    return readFile(path.join(gameDir(name), "frames-extra", file));
-  }
+  const file = await reviewFramePath(name, stem);
+  if (file === null) throw new Error(`no review frame ${stem} for ${name}`);
+  return readFile(file);
 }
 
 /**

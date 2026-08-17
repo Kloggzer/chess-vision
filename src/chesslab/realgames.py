@@ -88,10 +88,15 @@ def lcs_report(
 
 
 def frame_anchor(name: str, move: dict) -> str:
-    """One unmatched ply as a line the human can act on: the ply, and the PNG that shows it."""
+    """One unmatched ply as a line the human can act on: the ply, and the picture that shows it.
+
+    The replay writes `.webp` (`AnnotatedFrames.REVIEW_SUFFIX`); runs before 2026-08-17 left PNG.
+    """
     stem = f"{int(move['frame']):06d}"
-    png = (game_dir(name) / "frames" / f"{stem}.png").as_posix()
-    return f"ply {move['ply']} {move['san']} @frame {stem} -> {png}"
+    frames = game_dir(name) / "frames"
+    shot = next((p for ext in (".webp", ".png") if (p := frames / f"{stem}{ext}").is_file()),
+                frames / f"{stem}.webp")
+    return f"ply {move['ply']} {move['san']} @frame {stem} -> {shot.as_posix()}"
 
 
 def report_lines(
