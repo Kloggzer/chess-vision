@@ -342,6 +342,38 @@ def session_autofix(
         print(f"     backup: {r['backup']}")
 
 
+@session_app.command("settle-scan")
+def session_settle_scan(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Score every cell against its own ply interval's settled board, as `settle_dev`.
+
+    Within one interval the position stands still, so the pixel median over its boards IS that
+    position. A cell that departs from it is occluded, mid-move, or already holds what the next
+    move puts there while the FEN still says otherwise. Measures only — nothing is dropped here;
+    the threshold is set from the distribution this writes.
+    """
+    from . import sessions as sessions_mod
+
+    if not (session or all_sessions):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.settle_scan_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        short = f", {r['too_short']} in zu kurzen Intervallen" if r["too_short"] else ""
+        print(f"[OK] {sid}: {r['scored']}/{r['of']} Frames bewertet über {r['plies']} Intervalle"
+              f"{short} — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
 @session_app.command("boards")
 def session_boards(
     session: str = typer.Argument(None, help="Session ID."),

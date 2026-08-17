@@ -720,6 +720,50 @@ def park_frames_session(session_id: str) -> dict:
             "freed_mb": round(freed / 1024**2, 1), "parked_to": str(dest)}
 
 
+def settle_scan_session(session_id: str) -> dict:
+    """Score every cell against its own ply interval's settled board — measure only, drop nothing.
+
+    A hand is not the whole danger: during a move something HAPPENS on the board, and a square that
+    already holds the piece the next move puts there still carries the old FEN's label. The
+    exporter's `unknown_squares` covers only the next move's footprint; this covers any cell whose
+    pixels stopped matching the position they are labelled with.
+    """
+    from collections import defaultdict
+    from concurrent.futures import ProcessPoolExecutor
+
+    from .labeling import _profile_for_session, read_session_meta
+    from .realgames import POOL_WORKERS, SETTLE_MIN_FRAMES, settle_for_ply
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    for r in rows:
+        r.pop("settle_dev", None)
+
+    by_ply: dict[object, list[dict]] = defaultdict(list)
+    for r in rows:
+        if r.get("board") and (sdir / r["board"]).is_file():
+            by_ply[r.get("ply")].append(r)
+    jobs = [(sdir, rs, prof) for rs in by_ply.values() if len(rs) >= SETTLE_MIN_FRAMES]
+    short = sum(len(rs) for rs in by_ply.values() if len(rs) < SETTLE_MIN_FRAMES)
+
+    if len(jobs) > 1:
+        with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
+            parts = list(pool.map(settle_for_ply, jobs))
+    else:
+        parts = [settle_for_ply(j) for j in jobs]
+    scored = {stem: dev for part in parts for stem, dev in part.items()}
+
+    for r in rows:
+        dev = scored.get(Path(r["frame"]).stem)
+        if dev is not None:
+            r["settle_dev"] = dev
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "scored": len(scored), "of": len(rows),
+            "plies": len(jobs), "too_short": short, "backup": backup}
+
+
 def write_boards_session(session_id: str) -> dict:
     """Cut every row's stored board from its frame, under the row's CURRENT quad.
 

@@ -561,6 +561,69 @@ POOL_WORKERS = 12
 POOL_MIN_ROWS = 32
 
 
+#: The settle score's shape. `SETTLE_CELL_PX` is small on purpose — the question is whether the
+#: cell's CONTENT changed, not how sharp it is, and 32 px averages the sensor noise away for free.
+#: `SETTLE_MIN_FRAMES` is what a median needs before it describes anything: below it the majority
+#: that is supposed to be the settled board is a coin toss. `SETTLE_MEDIAN_MAX` bounds the memory
+#: one ply can take (60 x 64 x 32 x 32 x 3 as int16 is ~24 MB) and costs nothing — `spread` samples
+#: the interval evenly, and a median over 60 frames is not measurably worse than over 300.
+SETTLE_CELL_PX = 32
+SETTLE_MIN_FRAMES = 5
+SETTLE_MEDIAN_MAX = 60
+
+
+def cell_deviations(cells, median) -> Any:
+    """Mean absolute distance per (frame, cell) from [median] — the settle score, unrounded.
+
+    Split out from the reading so it can be tested on arrays alone: a cell covered in two of seven
+    frames must score high in exactly those two, and its neighbours must not move.
+    """
+    import numpy as np
+
+    return np.abs(cells.astype(np.int16) - median).mean(axis=(2, 3, 4))
+
+
+def settle_for_ply(job: tuple[Path, list[dict], object]) -> dict[str, list[float]]:
+    """One ply interval -> `{frame stem: 64 deviations}`, in `all_squares()` order.
+
+    Within one interval the position stands still, so the pixel-wise MEDIAN over its boards is the
+    settled position — the same argument `frame_activity` makes for a static recording, applied per
+    cell. A cell that departs from it is occluded, mid-move, or already holds what the next move
+    puts there while the FEN still says otherwise. Only paths cross the process boundary.
+    """
+    import numpy as np
+
+    from .labeling import all_squares, crop_square, mesh_from_lines
+
+    session_dir, rows, profile = job
+    if len(rows) < SETTLE_MIN_FRAMES:
+        return {}
+    squares = all_squares()
+    out = (SETTLE_CELL_PX, SETTLE_CELL_PX)
+
+    def cells_of(row):
+        board = cv2.imread(str(session_dir / row["board"]))
+        if board is None:
+            return None
+        mesh = mesh_from_lines(row.get("grid_lines"))
+        return np.stack([crop_square(board, s, profile, out, mesh) for s in squares])
+
+    step = max(1, len(rows) // SETTLE_MEDIAN_MAX)
+    reference = [c for c in (cells_of(r) for r in rows[::step]) if c is not None]
+    if len(reference) < SETTLE_MIN_FRAMES:
+        return {}
+    median = np.median(np.stack(reference).astype(np.int16), axis=0)
+
+    scores = {}
+    for row in rows:
+        cells = cells_of(row)
+        if cells is None:
+            continue
+        dev = cell_deviations(cells[None, ...], median)[0]
+        scores[Path(row["frame"]).stem] = [round(float(v), 2) for v in dev]
+    return scores
+
+
 def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
     """One frame -> one board, for the retrofit pool: only paths cross the process boundary."""
     session_dir, frame_rel, corners, profile = job
