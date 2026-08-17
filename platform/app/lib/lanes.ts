@@ -49,8 +49,10 @@ export type Lane = {
 export const LANES: readonly Lane[] = [
   { id: "hands", slug: "haende", label: "Hände", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
   { id: "unsure", slug: "unsicher", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
-  { id: "disagree", slug: "modell", label: "Modell ≠ FEN", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
-  { id: "classwall", slug: "klassenwand", label: "Klassenwand", renderer: "cells", unit: "Zellen", denominator: "Zellen, auf die die Abfrage im Lane-Kopf passt" },
+  { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  // Named after its QUESTION, not after the wall metaphor: it is the same "Modell ≠ FEN" one cell
+  // at a time, and nobody looking for that found it under `Klassenwand` (User, 2026-08-17).
+  { id: "classwall", slug: "modell-zellen", label: "Modell ≠ FEN · Zellen", renderer: "cells", unit: "Zellen", denominator: "Zellen, auf die die Abfrage im Lane-Kopf passt" },
   {
     id: "unknown",
     slug: "fen-unklar",

@@ -46,7 +46,7 @@ test("a chip always carries its unit, and an unavailable lane says — with a re
     title: "128 offen von 612 Bretter · Bretter mit Vorschlägen",
   });
   const empty = laneChip(laneById("disagree"), { n: null, why: NO_PROBS });
-  expect(empty.text).toBe("Modell ≠ FEN —");
+  expect(empty.text).toBe("Modell ≠ FEN · Bretter —");
   expect(empty.text).not.toContain("0");
   expect(empty.title).toBe(NO_PROBS);
 });
@@ -130,7 +130,8 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual([
-    "haende", "unsicher", "modell", "klassenwand", "fen-unklar", "stichprobe", "audit", "regelbruch",
+    "haende", "unsicher", "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit",
+    "regelbruch",
     "abnicken", "alle",
   ]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { CROP, CropGrid, PAGE } from "@/components/crop-grid";
+import { BoardPeek } from "@/components/board-peek";
 import { PaletteRow } from "@/components/palette-row";
 import type { Correction } from "@/lib/corrections";
 import type { StreamSession } from "@/lib/label-stream";
@@ -41,6 +42,10 @@ type Picks = Record<number, string>;
  */
 export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlush }: CellLaneProps) {
   const [brush, setBrush] = useState<string>(UNSURE);
+  // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
+  // sobald der Zeiger nur vorbeizieht. Ohne sie kostet der Hover nichts.
+  const [peek, setPeek] = useState(false);
+  const [hover, setHover] = useState<number | null>(null);
   const [pick, setPick] = useState<Picks>({});
   /** Ein Batch pro Enter/Backspace — „zurück" holt seine UNBESCHRIEBENEN Zellen an ihre Position. */
   const [trail, setTrail] = useState<string[][]>([]);
@@ -235,11 +240,30 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
 
       <div className="flex flex-wrap items-center gap-1">
         <PaletteRow active={brush} onPick={(label) => setBrush((b) => (b === label ? UNSURE : label))} />
+        <Button
+          className={TOUCH}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            setPeek((v) => !v);
+          }}
+          size="sm"
+          variant={peek ? "default" : "outline"}
+        >
+          🔍 Brett
+        </Button>
         <span className="text-muted-foreground ml-auto text-xs">
           Pinsel{" "}
           <span className="text-foreground font-mono">{brush === UNSURE ? "keiner — Klick = unsicher" : brush}</span>
         </span>
       </div>
+
+      {peek && hover !== null && slice[hover] ? (
+        <BoardPeek
+          caption={`${slice[hover].square} · ${sessions[slice[hover].session].name} · ${slice[hover].stem}`}
+          square={slice[hover].square}
+          src={`/api/board/${sessions[slice[hover].session].name}/${slice[hover].stem}?size=512`}
+        />
+      ) : null}
 
       <CropGrid
         cells={slice.map((cell, i) => ({
@@ -261,6 +285,7 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
           setCursor(i);
           put(i, brush);
         }}
+        onHover={peek ? setHover : undefined}
         paintable
         onSweep={(i, mode, erase) => {
           setCursor(i);

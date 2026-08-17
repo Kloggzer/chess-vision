@@ -52,12 +52,15 @@ export type CropGridProps = {
   erasing?: (index: number, mode: "left" | "right") => boolean;
   /** Hält die Pinsel-Zeile frei, auch wo nichts gemalt ist: sonst wächst die Karte unterm Klick. */
   paintable?: boolean;
+  /** Welche Zelle der Zeiger gerade berührt, `null` beim Verlassen — die Lupe hängt daran. */
+  onHover?: (index: number | null) => void;
   /** How many columns `auto-fill` chose — up/down must move by the row the user actually sees. */
   onColumns?: (cols: number) => void;
 };
 
 export function CropGrid(props: CropGridProps) {
-  const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable, onColumns } = props;
+  const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable,
+    onHover, onColumns } = props;
   const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
@@ -120,10 +123,11 @@ export function CropGrid(props: CropGridProps) {
               : undefined
           }
           onPointerEnter={
-            onSweep
+            onSweep || onHover
               ? () => {
+                  onHover?.(i);
                   const p = painting.current;
-                  if (!p) return;
+                  if (!p || !onSweep) return;
                   if (!p.dragged) {
                     p.dragged = true;
                     onSweep(p.start, p.mode, p.erase);
@@ -132,6 +136,7 @@ export function CropGrid(props: CropGridProps) {
                 }
               : undefined
           }
+          onPointerLeave={onHover ? () => onHover(null) : undefined}
           onPointerUp={
             onSweep
               ? (event) => {
