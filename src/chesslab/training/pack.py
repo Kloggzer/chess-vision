@@ -97,8 +97,15 @@ def _pack_chunk(task) -> tuple[int, int]:
     return start, len(items)
 
 
-def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None) -> dict:
-    """Decode every crop of dataset ``name`` once into a single (N,H,W,3) uint8 memmap (parallel)."""
+def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None,
+                 out_size: tuple[int, int] | None = None) -> dict:
+    """Decode every crop of dataset ``name`` once into a single (N,H,W,3) uint8 memmap (parallel).
+
+    ``out_size`` (W, H) packs at the MODEL's resolution instead of the file's. The two stopped
+    being the same thing when the crop store went to 128 px for the label view: packing that
+    verbatim cost 22.6 GB where the 80 px recipe needs 9.5, and every batch then paid a
+    128 -> 80 resize (+9 % measured). The scaling happens once, here.
+    """
     from multiprocessing import Pool
 
     from ..dataset_build import dataset_dir
@@ -112,7 +119,7 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         # files to decode — re-packing would overwrite the pixels with garbage.
         raise ValueError(f"dataset '{name}' is a fused synth build — it is already packed and has "
                          f"no crop files. Re-create it with `chesslab dataset build-synth`.")
-    w, h = (int(rows[0]["out_size"][0]), int(rows[0]["out_size"][1]))   # out_size = [W, H]
+    w, h = out_size or (int(rows[0]["out_size"][0]), int(rows[0]["out_size"][1]))   # [W, H]
     n = len(rows)
     img_path, meta_path = _packed_paths(dd)
     progress_path = meta_path.with_name("packed_progress.json")

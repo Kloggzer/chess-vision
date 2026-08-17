@@ -110,6 +110,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               head: str = "combined", scales: list[int] | None = None,
+              input_size: str | None = None,
               erase_p: float | None = None, bg_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
@@ -204,9 +205,26 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
     classes = split["classes"]
-    out_size = None
+    # The FILE's size and the MODEL's size stopped being the same thing when the crop store went
+    # to 128 px for the label view (2026-08-17). Reading the manifest silently made the store
+    # decide the recipe; `input_size` says it out loud, and `build_transform` does the scaling in
+    # memory, so one store serves every deployment resolution.
+    from ..labeling import parse_out_size
+
+    out_size = parse_out_size(input_size) if input_size else None
+    # A pack built with `--pack-size` already holds the model's resolution, and it is what the
+    # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
+    # to the 128 px the FILES are, which is worse than either.
+    src = "--input-size"
+    if out_size is None and dataset:
+        from .pack import load_packed
+
+        if (info := load_packed(dataset)) is not None:
+            out_size, src = (info[1][2], info[1][1]), "the pack"
     for r in manifest:
-        out_size = tuple(r["out_size"])
+        out_size, src = (out_size, src) if out_size else (tuple(r["out_size"]), "the manifest")
+        print(f"[size] training at {out_size[0]}x{out_size[1]} from {r['out_size'][0]}x"
+              f"{r['out_size'][1]} crops (from {src})")
         break
     if out_size is None:
         print("[FAIL] empty manifest.")

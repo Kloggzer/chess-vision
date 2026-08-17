@@ -374,6 +374,7 @@ def build_dataset(
     add_test: Sequence[str] = (),
     add_train: Sequence[str] = (),
     pack: bool = True,
+    pack_size: tuple[int, int] | None = None,
     #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
     class_mode: str | None = None,
 ) -> dict:
@@ -539,7 +540,7 @@ def build_dataset(
     if pack and n_final >= _PACK_MIN_CROPS:            # only big sets — small ones load fine per-PNG
         try:
             from .training.pack import pack_dataset
-            packed_info = pack_dataset(name, paths)
+            packed_info = pack_dataset(name, paths, out_size=pack_size)
         except Exception as e:  # noqa: BLE001 — packing is an optimization, never fail the build
             print(f"  ! packing skipped ({e}); training will use the per-PNG loader.")
     return {"name": name, "counts": cfg["counts"], "split_counts": split["counts"],

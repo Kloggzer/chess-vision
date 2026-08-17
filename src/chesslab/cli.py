@@ -915,6 +915,9 @@ def dataset_build_cmd(
                                      "on disk and contradicts the fixed-camera assumption)."),
     allow_degenerate: bool = typer.Option(False, "--allow-degenerate", help="Allow degenerate dataset (class only in one session etc.)."),
     no_pack: bool = typer.Option(False, "--no-pack", help="Skip packing crops into a memmap (default: pack for fast training)."),
+    pack_size: str = typer.Option(
+        None, "--pack-size",
+        help="Pack at the MODEL's size (e.g. 80x80) instead of the crop file's. Scales once."),
     source_manifest: str | None = typer.Option(None, "--source-manifest",
                                                help="Crop pool(s) to filter, comma-separated. Default: "
                                                     "manifests/squares.jsonl. Needed after `ingest --tag X "
@@ -960,6 +963,7 @@ def dataset_build_cmd(
                                phash_hamming=hamming,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
+                               pack_size=labeling_mod.parse_out_size(pack_size) if pack_size else None,
                                class_mode=classes, like=like,
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
                                add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()])
@@ -1067,6 +1071,9 @@ def train_cmd(
     ),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
+    input_size: str = typer.Option(
+        None, "--input-size",
+        help="Model input WxH (e.g. 80x80), scaled in memory. Default: the crop's own size."),
     lr: float = typer.Option(config.DEFAULT_LR, "--lr"),
     no_amp: bool = typer.Option(False, "--no-amp", help="Disable AMP/autocast."),
     seed: int = typer.Option(config.SEED, "--seed"),
@@ -1144,7 +1151,8 @@ def train_cmd(
                                input_repr=input_repr, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
-                               head=head, scales=scale_list, erase_p=erase_p, bg_p=bg_p,
+                               head=head, scales=scale_list, input_size=input_size,
+                               erase_p=erase_p, bg_p=bg_p,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split))
