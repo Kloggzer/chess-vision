@@ -658,6 +658,58 @@ def _carried_mesh(window: list[dict]) -> dict | None:
             for k in ("x", "y", "tx", "ty", "cx", "cy") if k in keys}
 
 
+#: How far one measured line may sit from the session's median before it counts as a mis-lock
+#: rather than real movement, as a fraction of ONE cell.
+MESH_LINE_TOLERANCE = 0.04
+#: What each coefficient of `pos(t) = x + tx*(t-0.5) + cx*(t-0.5)^2` can actually move a line by:
+#: |t-0.5| <= 0.5 and its square <= 0.25. Without this the curvature — the term that scatters most —
+#: would be judged against a tolerance meant for a straight offset.
+MESH_TERM_WEIGHT = {"x": 1.0, "y": 1.0, "tx": 0.5, "ty": 0.5, "cx": 0.25, "cy": 0.25}
+
+
+def _repair_mesh_outliers(rows: list[dict]) -> tuple[int, bool]:
+    """Pull single mis-located grid lines back onto the session's own median. -> (repaired, static)
+
+    `grid_line_fracs` puts a line where it finds an edge, and on the back rank the tall pieces ARE
+    the edge. Measured on the 4K turntable clip (2026-08-17): the 8/7 boundary scattered four times
+    wider than any other line and stretched rank 7 by 14 %, while the median over 40 frames landed
+    every cell within 2 % of an eighth. Nothing downstream notices, because `mesh_from_lines` only
+    checks that the lines rise — a plausible line in the wrong place passes every gate.
+    """
+    meshes = [r["grid_lines"] for r in rows if r.get("grid_lines_source") == "measured"]
+    if len(meshes) < 3:
+        return 0, False
+    tol = MESH_LINE_TOLERANCE / 8.0
+    # Per key over the meshes that CARRY it: a session mixes curved with merely tilted frames, and
+    # demanding every mesh have `cx` drops the very term that scatters most.
+    have = {k: [m for m in meshes if k in m] for k in MESH_TERM_WEIGHT}
+    med = {k: [median([m[k][i] for m in ms]) for i in range(9)]
+           for k, ms in have.items() if len(ms) >= 3}
+    if {"x", "y"} - set(med):
+        return 0, False
+    # Trust the median only where that ONE line actually holds still: a rig that moved makes every
+    # line's typical deviation large, and then its own measurement is the better answer. Judged per
+    # line, not per frame — with 9 lines over 6 terms nearly every frame is off somewhere.
+    stable = {(k, i) for k in med for i in range(9)
+              if median([abs(m[k][i] - med[k][i]) for m in have[k]]) * MESH_TERM_WEIGHT[k] <= tol}
+    # "The rig held still" is a statement about the LINES, not the tilts — those stay trivially
+    # stable while the whole board slides, and would license a repair against a meaningless median.
+    if not any(k in ("x", "y") for k, _ in stable):
+        return 0, False
+
+    def off_lines(lines: dict) -> list[tuple[str, int]]:
+        return [(k, i) for k, i in stable if k in lines
+                if abs(lines[k][i] - med[k][i]) * MESH_TERM_WEIGHT[k] > tol]
+
+    todo = [r for r in rows
+            if r.get("grid_lines_source") == "measured" and off_lines(r["grid_lines"])]
+    for r in todo:
+        for k, i in off_lines(r["grid_lines"]):
+            r["grid_lines"][k][i] = round(med[k][i], 5)
+        r["grid_lines_source"] = "repaired"
+    return len(todo), True
+
+
 def _fill_mesh_gaps(rows: list[dict]) -> int:
     """Give every row without a measured mesh the one its stable neighbours carry.
 
@@ -843,11 +895,13 @@ def fit_mesh_session(session_id: str) -> dict:
         r["grid_lines_source"] = "measured"
         measured += 1
         stages["curved" if "cx" in mesh else "tilted"] += 1
+    repaired, static = _repair_mesh_outliers(rows)
     carried = _fill_mesh_gaps(rows)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "measured": measured, "carried": carried,
-            "of": len(rows), **stages, "backup": backup}
+            "repaired": repaired, "static_rig": static, "of": len(rows), **stages,
+            "backup": backup}
 
 
 def mark_hands_session(session_id: str) -> dict:
@@ -911,6 +965,43 @@ def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict
             r = {"session_id": sdir.name, "error": f"{type(e).__name__}: {e}"}
         out.append(r)
         if on_done is not None:
+            on_done(r)
+    return out
+
+
+def repair_mesh_session(session_id: str) -> dict:
+    """Run only the outlier repair over the lines a session ALREADY stores — no source frames.
+
+    Re-measuring needs `frames/`, and a parked session keeps only its boards, so the sessions most
+    in need of the fix are exactly the ones `fit_mesh_session` can no longer touch.
+    """
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    for r in rows:                       # logs written before the source was recorded
+        if r.get("grid_lines") and not r.get("grid_lines_source"):
+            r["grid_lines_source"] = "measured"
+    if not any(r.get("grid_lines") for r in rows):
+        return {"session_id": session_id, "error": "no grid_lines stored — run fit-mesh first"}
+    repaired, static = _repair_mesh_outliers(rows)
+    backup = backup_log(sdir / "log.jsonl") if repaired else None
+    if repaired:
+        _write_log(sdir, rows)
+    return {"session_id": session_id, "repaired": repaired, "static_rig": static,
+            "of": len(rows), "backup": backup}
+
+
+def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
+    """`repair_mesh_session` over every active session that has a log."""
+    out = []
+    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+        if not (sdir / "log.jsonl").is_file():
+            continue
+        try:
+            r = repair_mesh_session(sdir.name)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            r = {"session_id": sdir.name, "error": str(e)}
+        out.append(r)
+        if on_done:
             on_done(r)
     return out
 

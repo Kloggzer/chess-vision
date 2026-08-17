@@ -45,6 +45,10 @@ app.add_typer(realgames_app, name="realgames")
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
+occluders_app = typer.Typer(help="Occluder plates — hands/arms cut free for 2.5D compositing.",
+                            no_args_is_help=True)
+app.add_typer(occluders_app, name="occluders")
+
 experiment_app = typer.Typer(help="Stage 7 — Geometry×Photometry bake-off.", no_args_is_help=True)
 app.add_typer(experiment_app, name="experiment")
 
@@ -437,6 +441,10 @@ def session_park_frames(
 def session_fit_mesh(
     session: str = typer.Argument(None, help="Session ID."),
     all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+    repair_only: bool = typer.Option(
+        False, "--repair-only",
+        help="Skip measuring; only pull outlier lines back onto the session's median. Works "
+             "without source frames, so a parked session can still be fixed."),
 ) -> None:
     """Measure every frame's 18 grid lines and store them as `grid_lines` for `slice`.
 
@@ -449,6 +457,22 @@ def session_fit_mesh(
     if not (session or all_sessions):
         print("[FAIL] specify a session ID or --all.")
         raise typer.Exit(1)
+    if repair_only:
+        def said(r: dict) -> None:
+            if r.get("error"):
+                print(f"[FAIL] {r['session_id']}: {r['error']}", flush=True)
+            else:
+                print(f"[OK] {r['session_id']}: {r['repaired']}/{r['of']} frames repaired "
+                      f"(static rig: {r['static_rig']}) — backup {r['backup']}", flush=True)
+
+        rows = (sessions_mod.repair_mesh_all(on_done=said) if all_sessions
+                else [_session_call(sessions_mod.repair_mesh_session, session)])
+        if not all_sessions:
+            said(rows[0])
+        ok = [r for r in rows if not r.get("error")]
+        print(f"[OK] {sum(r['repaired'] for r in ok)} frames repaired over {len(ok)} sessions.")
+        return
+
     def say(r: dict) -> None:
         if r.get("error"):
             print(f"[FAIL] {r['session_id']}: {r['error']}", flush=True)
@@ -885,6 +909,74 @@ def split_cmd(
                                            allow_degenerate=allow_degenerate))
 
 
+@occluders_app.command("composite")
+def occluders_composite(
+    video: str = typer.Option(..., "--video", help="Board clip (ArUco per frame)."),
+    fen: str = typer.Option(..., "--fen", help="The position the board holds for the whole clip."),
+    plates: str = typer.Option("data/occluders/plates", "--plates", help="RGBA tiles."),
+    tag: str = typer.Option("comp", "--tag", help="Crop pool `data/squares__<tag>/` + manifest."),
+    stride: int = typer.Option(15, "--stride", help="Take every Nth frame of the clip."),
+    board_size: int = typer.Option(1280, "--board-size", help="Warp resolution (px)."),
+    out_size: str = typer.Option("80x80", "--out-size", help="Crop size WxH."),
+    seed: int = typer.Option(42, "--seed"),
+) -> None:
+    """Lay occluder plates over a board clip and cut crops with an EXACT coverage per cell.
+
+    The second target replaces the hand-marked `occluded` class: coverage is a fraction the
+    composite knows, not a yes/no somebody had to judge (docs/occluder-plates.md)."""
+    from pathlib import Path
+
+    from . import composite as comp
+
+    res = comp.build_from_video(
+        video=Path(video), plate_dir=Path(plates),
+        out_root=config.DATA.root / f"squares__{tag}",
+        manifest=config.DATA.manifests / f"squares__{tag}.jsonl",
+        fen=fen, board_size=board_size, out_size=labeling_mod.parse_out_size(out_size),
+        stride=stride, seed=seed)
+    if res.get("error"):
+        print(f"[FAIL] {res['error']}")
+        raise typer.Exit(1)
+    print(f"[OK] {res['crops']} Kacheln aus {res['frames']} Brettern "
+          f"({res['skipped']} ohne Marker uebersprungen), "
+          f"{res['covered_over_half']} ueber 50% verdeckt ({res['share']:.1%}).")
+
+
+@occluders_app.command("extract")
+def occluders_extract(
+    src: str = typer.Option("data/occluders", "--in", help="Folder of clips shot over a backdrop."),
+    out: str = typer.Option("data/occluders/plates", "--out", help="Where the RGBA tiles land."),
+    stride: int = typer.Option(2, "--stride", help="Take every Nth frame before novelty filtering."),
+    max_iou: float = typer.Option(0.85, "--max-iou",
+                                  help="Overlap above which a pose counts as one already kept."),
+    min_cover: float = typer.Option(0.02, "--min-cover",
+                                    help="Skip frames covering less than this share of the stage."),
+) -> None:
+    """Cut hands/arms free of their backdrop into RGBA tiles (alpha = exact coverage).
+
+    No green screen and no clean plate needed: the backdrop is the clip's own temporal median, and
+    the matte keys on chroma against it. Shadow is treated as background on purpose — a shaded
+    square stays readable, and counting it would rebuild the over-flagging this replaces."""
+    import json
+    from pathlib import Path
+
+    from . import occluders as occ
+
+    clips = sorted(Path(src).glob("*.mp4"))
+    if not clips:
+        print(f"[FAIL] no .mp4 in {src}")
+        raise typer.Exit(1)
+    total, summaries = 0, []
+    for clip in clips:
+        s = occ.extract(clip, Path(out), stride=stride, max_iou=max_iou, min_cover=min_cover)
+        summaries.append(s)
+        total += s.get("written", 0)
+        print(f"  {s['video']:<28} {s.get('written', 0):>4} Kacheln  "
+              f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
+    (Path(out) / "plates.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+    print(f"[OK] {total} Kacheln in {out}")
+
+
 @dataset_app.command("verify")
 def dataset_verify() -> None:
     """Consistency checks: files exist/loadable, out_size, labels, split disjointness."""
@@ -1133,7 +1225,10 @@ def train_cmd(
     norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
-    head: str = typer.Option("combined", "--head", help="combined | factored | twostage (two-stage Occupancy→Piece)."),
+    head: str = typer.Option("combined", "--head",
+                             help="combined | factored | twostage | occlusion. `occlusion` adds a "
+                                  "sigmoid coverage unit beside the classes and trains it from the "
+                                  "manifest's `coverage` — see docs/occluder-plates.md."),
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),

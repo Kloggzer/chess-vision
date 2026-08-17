@@ -474,3 +474,45 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
             f"unknown backbone {backbone!r}. "
             f"Es ist weder intern registriert noch über timm ladbar. Fehler: {e}"
         )
+
+
+def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:
+    """Warm-start [model] from [checkpoint]: adopt every tensor that fits, skip the rest.
+
+    Returns `(adopted, skipped)`. Skipping is the POINT: the head has a different class count
+    whenever the corpus gained a class (13 -> 14 when `occluded` arrived), and a strict load dies
+    on exactly that — which is how `scripts/lr_range_test.py` came to be unusable against the base
+    model while `train` warm-started from it fine.
+
+    `--head factored/twostage` wraps the timm backbone inside `DecoupledModel._mobile`, `combined`
+    IS the timm model. Matching keys verbatim across that boundary adopts ZERO tensors and warm
+    starts from nothing, which reads as a bad result rather than a bug — so both spellings are
+    tried.
+    """
+    import torch
+
+    sd = torch.load(checkpoint, map_location=device)
+    msd = model.state_dict()
+
+    def candidates(k: str) -> list[str]:
+        return [k, k[len("_mobile."):]] if k.startswith("_mobile.") else [k, "_mobile." + k]
+
+    keep = {}
+    for k, v in sd.items():
+        for cand in candidates(k):
+            if cand in msd and msd[cand].shape == v.shape:
+                keep[cand] = v
+                break
+    model.load_state_dict(keep, strict=False)
+    return len(keep), len(sd) - len(keep)
+
+
+def checkpoint_of(run_dir):
+    """A run's weights: `best.pt`, else `last.pt`, else None — the order every caller wants."""
+    from pathlib import Path
+
+    d = Path(run_dir)
+    for name in ("best.pt", "last.pt"):
+        if (d / name).is_file():
+            return d / name
+    return None

@@ -48,6 +48,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     model.eval()
     trues: list[int] = []
     preds: list[int] = []
+    cover: list[float] = []
+    probs: list[float] = []
     loss_sum = 0.0
     n = 0
     n_out = 0
@@ -60,6 +62,13 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         n_out = int(logits.shape[1])
         if criterion is not None:
             loss_sum += float(criterion(logits, y)) * x.size(0)
+        # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
+        # coverage — the class metrics must look past both or they score a regression head.
+        occluding = y.dim() == 2
+        if occluding:
+            cover.extend(y[:, 1].cpu().tolist())
+            probs.extend(torch.sigmoid(logits[:, -1]).cpu().tolist())
+            logits, y = logits[:, :-1], y[:, 0].long()
         p = logits.argmax(1)
         trues.extend(y.cpu().tolist())
         preds.extend(p.cpu().tolist())
@@ -103,7 +112,15 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "board_acc": board_acc,
         "trues": trues_a,
         "preds": preds_a,
+        **({"occ_mae": float(np.abs(np.array(probs) - np.array(cover)).mean()),
+            "occ_recall": _hit_rate(probs, cover)} if cover else {}),
     }
+
+
+def _hit_rate(probs: list[float], cover: list[float], cut: float = 0.5) -> float:
+    """Share of truly covered cells the output also calls covered — the veto's own metric."""
+    want = np.array(cover) > cut
+    return float(((np.array(probs) > cut) & want).sum() / max(1, want.sum()))
 
 
 def confusion_matrix(trues: np.ndarray, preds: np.ndarray, n_classes: int) -> np.ndarray:

@@ -417,10 +417,16 @@ def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
+def _target(y: int, row: dict) -> torch.Tensor:
+    """Class and coverage in ONE tensor, so the loader contract stays `(x, y)`."""
+    return torch.tensor([float(y), float(row.get("coverage", 0.0))])
+
+
 class SquareDataset(Dataset):
     def __init__(self, rows, classes, transform, bg_randomize: bool = False,
-                 policy=config.AUGMENT) -> None:
+                 policy=config.AUGMENT, with_coverage: bool = False) -> None:
         self.rows = rows
+        self.with_coverage = with_coverage
         self.transform = transform
         self.c2i = class_to_idx(classes)
         # Class-conditional background randomization (train only). See config.AugmentPolicy.bg_*.
@@ -471,7 +477,7 @@ class SquareDataset(Dataset):
                 img = paste_neighbour_strip(img, donor, self.policy.neighbour_frac)
         x = self.transform(img)
         y = self.c2i[r["label"]]
-        return x, y
+        return (x, _target(y, r)) if self.with_coverage else (x, y)
 
 
 class PackedSquareDataset(Dataset):
@@ -480,8 +486,9 @@ class PackedSquareDataset(Dataset):
     randomization is intentionally not applied here (packed is used for the big synth pretrain,
     which runs bg_p=0); the small real finetune keeps the per-PNG SquareDataset + bg augment."""
 
-    def __init__(self, rows, classes, transform, packed) -> None:
+    def __init__(self, rows, classes, transform, packed, with_coverage: bool = False) -> None:
         path, shape, path2idx = packed
+        self.with_coverage = with_coverage
         c2i = class_to_idx(classes)
         self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
         self.transform = transform
@@ -490,6 +497,7 @@ class PackedSquareDataset(Dataset):
         # the memmap itself are NOT stored (they don't pickle to Windows workers). Built once here.
         self.idx = np.array([path2idx[r["path"]] for r in rows], dtype=np.int64)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
+        self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
         self._path = path
         self._shape = shape
         self._mm = None
@@ -515,7 +523,9 @@ class PackedSquareDataset(Dataset):
     def __getitem__(self, i):
         arr = np.array(self._memmap()[self.idx[i]])            # copy out of the read-only memmap
         x = self.transform(Image.fromarray(arr))
-        return x, int(self.labels[i])
+        if not self.with_coverage:
+            return x, int(self.labels[i])
+        return x, torch.tensor([float(self.labels[i]), float(self.cover[i])])
 
 
 def class_weights_tensor(split: dict, classes: list[str]) -> torch.Tensor:

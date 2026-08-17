@@ -205,6 +205,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
     classes = split["classes"]
+    # `occlusion` shares the final linear layer and reads its LAST unit as the coverage logit —
+    # one output tensor, so the exported graph keeps its shape (`evaluate.ONNX_BATCH`).
+    occluding = head == "occlusion"
     # The FILE's size and the MODEL's size stopped being the same thing when the crop store went
     # to 128 px for the label view (2026-08-17). Reading the manifest silently made the store
     # decide the recipe; `input_size` says it out loud, and `build_transform` does the scaling in
@@ -307,18 +310,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if packed is not None:
         n, h, w = packed[1]
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
-        train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed)
-        val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed)
+        train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed,
+                                       with_coverage=occluding)
+        val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed,
+                                     with_coverage=occluding)
     else:
-        train_ds = SquareDataset(train_rows, classes, train_tf,
+        train_ds = SquareDataset(train_rows, classes, train_tf, with_coverage=occluding,
                                  bg_randomize=True, policy=policy)
-        val_ds = SquareDataset(val_rows, classes, val_tf)
+        val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
     device = get_device(require_gpu=True)
-    model = build_model(backbone, len(classes), pretrained=(backbone != "smallcnn"), norm=norm_eff,
-                        head=head, classes=classes, in_chans=in_chans).to(device)
+    model = build_model(backbone, len(classes) + occluding, pretrained=(backbone != "smallcnn"),
+                        norm=norm_eff, head="combined" if occluding else head,
+                        classes=classes, in_chans=in_chans).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
 
@@ -327,37 +333,20 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # such as after adding `occluded`) are skipped -> the body transfers, the head learns anew.
     resumed_from = None
     if resume:
+        from .model import adopt_weights, checkpoint_of
+
         rd = config.DATA.models / resume
-        ckpt = rd / "best.pt"
-        if not ckpt.exists():
-            ckpt = rd / "last.pt"
-        if not (rd / "config.json").exists() or not ckpt.exists():
+        ckpt = checkpoint_of(rd)
+        if not (rd / "config.json").exists() or ckpt is None:
             print(f"[FAIL] Resume run '{resume}' incomplete or not found ({rd}).")
             return 1
         rcfg = json.loads((rd / "config.json").read_text(encoding="utf-8"))
         if rcfg.get("backbone") != backbone:
             print(f"[FAIL] Resume backbone {rcfg.get('backbone')!r} != {backbone!r} — choose the same backbone.")
             return 1
-        sd = torch.load(ckpt, map_location=device)
-        msd = model.state_dict()
-        # `--head factored/twostage` wraps the timm backbone inside `DecoupledModel._mobile`,
-        # `--head combined` IS the timm model. Matching keys verbatim across that boundary
-        # adopts ZERO tensors and silently warm-starts from nothing, which looks like a bad
-        # result rather than a bug. Try the un/prefixed name too — the head keys still miss
-        # (different module names AND a changed class count), which is what we want.
-        def _candidates(k: str) -> list[str]:
-            return [k, k[len("_mobile."):]] if k.startswith("_mobile.") else [k, "_mobile." + k]
-
-        keep: dict[str, torch.Tensor] = {}
-        for k, v in sd.items():
-            for cand in _candidates(k):
-                if cand in msd and msd[cand].shape == v.shape:
-                    keep[cand] = v
-                    break
-        model.load_state_dict(keep, strict=False)
+        keep, skipped = adopt_weights(model, ckpt, device)
         resumed_from = resume
-        skipped = len(sd) - len(keep)
-        print(f"[OK] Resumed from '{resume}': {len(keep)} tensors adopted"
+        print(f"[OK] Resumed from '{resume}': {keep} tensors adopted"
               + (f", {skipped} skipped (head with changed class count)" if skipped else ""))
         if not keep:
             print("[FAIL] warm start adopted 0 tensors — the checkpoint does not fit this model. "
@@ -381,7 +370,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print("[loss] class-weight override: "
               + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
-    if loss == "ce":
+    if occluding:
+        from .occlusion import OcclusionLoss
+        criterion = OcclusionLoss(weights).to(device)
+    elif loss == "ce":
         criterion = nn.CrossEntropyLoss(weight=weights)
     elif loss == "focal":
         from .losses import FocalLoss
