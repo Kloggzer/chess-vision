@@ -22,7 +22,7 @@ import json
 import logging
 import random
 import shutil
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -352,6 +352,25 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
     return out
 
 
+def keep_per_position(rows: list[dict], per_position: int) -> list[dict]:
+    """Whole boards, `per_position` of them per distinct FEN, spread evenly over the interval.
+
+    The corpus is 246 positions over 9 386 boards — 38 near-identical takes each, because the rig
+    records every 0.1 s while the board stands still. Measured: 16 per position beats the full set
+    on macro recall (0.79 vs 0.71). Frames, never single crops, so boards stay complete.
+    """
+    groups: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for r in rows:
+        groups[(r["session_id"], str(r.get("fen", "")).split()[0])].add(str(r["frame"]))
+    keep: dict[str, set[str]] = defaultdict(set)
+    for (sid, _fen), frames in groups.items():
+        f = sorted(frames)
+        step = (len(f) - 1) / (per_position - 1) if per_position > 1 and len(f) > per_position else 0
+        keep[sid] |= ({f[round(i * step)] for i in range(per_position)} if step
+                      else set(f[:per_position]))
+    return [r for r in rows if str(r["frame"]) in keep[r["session_id"]]]
+
+
 def build_dataset(
     name: str,
     session_ids: list[str],
@@ -364,6 +383,7 @@ def build_dataset(
     test_frac: float = config.DEFAULT_TEST_FRAC,
     max_empty_ratio: float | None = config.DEFAULT_MAX_EMPTY_RATIO,
     max_class_ratio: float | None = None,
+    per_position: int | None = None,
     seed: int = config.SEED,
     paths: config.Paths | None = None,
     source_manifest: Path | str | Sequence[Path | str] | None = None,
@@ -436,6 +456,9 @@ def build_dataset(
     wanted = set(session_ids)
     rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
     n_raw = len(rows)
+    if per_position:
+        rows = keep_per_position(rows, per_position)
+        print(f"[position] {per_position} boards per position: {n_raw} -> {len(rows)} crops")
     if not rows:
         raise ValueError(
             f"no crops for the selected sessions in {', '.join(str(p.name) for p in srcs)} "

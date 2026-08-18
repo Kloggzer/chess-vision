@@ -980,10 +980,31 @@ def occluders_extract(
     print(f"[OK] {total} Kacheln in {out}")
 
 
+@occluders_app.command("scan-session")
+def occluders_scan_session(
+    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+) -> None:
+    """Model-free pass over a session: which frames carry a hand, and which of them a NEW pose.
+
+    29 ms a frame on the CPU. It is what makes the corpus affordable — 40 % of frames carry a
+    hand, but only half of those a pose the matting has not seen yet."""
+    from . import matte as matte_mod
+
+    try:
+        res = matte_mod.scan_session(name)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    print(f"[OK] {res['hand_frames']} von {res['frames']} Frames mit Hand, "
+          f"davon {res['poses']} neue Posen -> {res['path']}")
+
+
 @occluders_app.command("matte-session")
 def occluders_matte_session(
     name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
-    limit: int = typer.Option(0, "--limit", help="Stop after N dirty frames (0 = all)."),
+    limit: int = typer.Option(0, "--limit", help="Stop after N frames (0 = all)."),
+    poses: bool = typer.Option(True, "--poses/--all",
+                               help="Only the scan's distinct poses, or every frame."),
 ) -> None:
     """Cut the hand out of every dirty frame of a session: alpha per frame, coverage per square.
 
@@ -993,7 +1014,7 @@ def occluders_matte_session(
     from . import matte as matte_mod
 
     try:
-        res = matte_mod.matte_session(name, limit=limit or None)
+        res = matte_mod.matte_session(name, limit=limit or None, poses_only=poses)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -1060,6 +1081,11 @@ def dataset_build_cmd(
                                     "pixel-identical, and cost 42 misses against 17. See "
                                     "config.DedupDefaults."),
     hamming: int = typer.Option(config.DEDUP.phash_hamming, "--hamming"),
+    per_position: int = typer.Option(
+        None, "--per-position",
+        help="Keep only N boards per distinct position, spread over the interval. The rig records "
+             "every 0.1 s while the board stands still, so the corpus is 246 positions over 9 386 "
+             "boards; 16 per position measured BETTER on macro recall than all of them."),
     rotate: bool = typer.Option(False, "--rotate/--no-rotate",
                                 help="90/180/270° augmentation (off by default: quadruples the train split "
                                      "on disk and contradicts the fixed-camera assumption)."),
@@ -1110,7 +1136,7 @@ def dataset_build_cmd(
     try:
         res = db.build_dataset(name, sids, source_manifest=srcs,
                                per_cell_cap=per_cell_cap, phash_enabled=phash,
-                               phash_hamming=hamming,
+                               phash_hamming=hamming, per_position=per_position,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
                                pack_size=labeling_mod.parse_out_size(pack_size) if pack_size else None,

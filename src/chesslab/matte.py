@@ -108,8 +108,58 @@ def matte_frame(board: np.ndarray, entry: dict, profile) -> tuple[np.ndarray | N
                          "cells_over_half": sum(v > 0.5 for v in coverage.values())}
 
 
+#: Two hand reads count as the same pose above this overlap of their flagged squares. The scan is
+#: what makes a corpus affordable: 40 % of frames carry a hand, but only half of those a NEW one.
+POSE_IOU = 0.7
+
+
+def scan_session(name: str, *, progress: bool = True) -> dict:
+    """The cheap pass: which frames carry a hand at all, and which of them are a new pose.
+
+    Model-free and CPU-only (29 ms a frame), so the expensive matting runs on a fifth of the
+    session instead of all of it — `docs/session-mattes.md`.
+    """
+    import json
+
+    from .calibration import load_profile
+
+    session_dir = config.DATA.sessions / f"rg-{name}"
+    if not (session_dir / "log.jsonl").exists():
+        raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    rows, last = [], set()
+    entries = [e for e in read_log(session_dir) if usable_board(e, profile)]
+    for n, entry in enumerate(entries, 1):
+        board = cv2.imread(str(session_dir / entry["board"]), cv2.IMREAD_GRAYSCALE)
+        squares = set() if board is None else grid.hand_squares(
+            grid.missing_edges(board, int(entry["board_size"]), int(entry["board_border"])))
+        if not squares:
+            last = set()
+            continue
+        overlap = len(squares & last) / len(squares | last) if last else 0.0
+        pose = overlap < POSE_IOU
+        if pose:
+            last = squares
+        rows.append({"frame": Path(entry["board"]).stem, "ply": entry.get("ply"),
+                     "dirty": bool(entry.get("dirty")), "squares": sorted(squares), "pose": pose})
+        if progress and n % 500 == 0:
+            print(f"  {n}/{len(entries)} frames, {len(rows)} with a hand", flush=True)
+    path = session_dir / "matte-scan.jsonl"
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return {"path": path, "frames": len(entries), "hand_frames": len(rows),
+            "poses": sum(r["pose"] for r in rows)}
+
+
+def read_scan(session_dir: Path) -> dict[str, dict]:
+    """`frame stem -> scan row`, empty when the session was never scanned."""
+    from .ioutil import read_jsonl
+
+    path = Path(session_dir) / "matte-scan.jsonl"
+    return {r["frame"]: r for r in read_jsonl(path)} if path.exists() else {}
+
+
 def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
-                  resume: bool = True) -> dict:
+                  resume: bool = True, poses_only: bool = True) -> dict:
     """Every frame of `data/sessions/rg-<name>/` into `mattes/` + `matte.jsonl`.
 
     Not only the dirty ones: a resting hand sits in quiet windows too (1 % here) and would reach
@@ -125,6 +175,9 @@ def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     profile = load_profile(read_session_meta(session_dir)["profile"])
     entries = [e for e in read_log(session_dir) if usable_board(e, profile)]
+    scan = read_scan(session_dir)
+    if scan and poses_only:
+        entries = [e for e in entries if scan.get(Path(e["board"]).stem, {}).get("pose")]
     entries = entries[:limit] if limit else entries
     out_dir = session_dir / "mattes"
     out_dir.mkdir(exist_ok=True)
@@ -134,6 +187,16 @@ def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
     for n, entry in enumerate(entries, 1):
         if (kept := done.get(Path(entry["board"]).stem)) is not None:
             rows.append(kept)
+            continue
+        stem = Path(entry["board"]).stem
+        if resume and (alpha_path := out_dir / f"{stem}.webp").exists():
+            # An alpha on disk without a row is a run that was cut short. Its coverage is a crop
+            # operation, not a model pass, so it is recomputed instead of re-segmented.
+            alpha = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+            rows.append({"frame": stem, "ply": entry.get("ply"), "dirty": bool(entry.get("dirty")),
+                         "coverage": (cov := coverage_of(alpha, entry, profile)),
+                         "cells_over_half": sum(v > 0.5 for v in cov.values())})
+            written += 1
             continue
         board = cv2.imread(str(session_dir / entry["board"]))
         if board is None:
