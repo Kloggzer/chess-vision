@@ -676,6 +676,31 @@ function uvBinary(): string {
   return process.env.CHESSLAB_UV ?? "uv";
 }
 
+export type ToolRun = { code: number; stdout: string; stderr: string; command: string };
+
+/**
+ * `uv run chesslab …` with stdout handed BACK, for the short verbs a request waits on.
+ *
+ * The queue above answers "started" and writes a log file, which is no answer for a dry run whose
+ * whole product is the line it prints. Same binary, same cwd, same `spawnTool` — deliberately NOT
+ * a second way to run Python. Uninterruptible on purpose: killing a half-rewritten manifest is
+ * worse than a slow request, so there is no timeout here.
+ */
+export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
+  const binary = uvBinary();
+  const argv = ["run", "chesslab", ...args];
+  const command = `${binary} ${argv.join(" ")}`;
+  return new Promise<ToolRun>((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    const child = spawnTool(binary, argv, repoDir());
+    child.stdout.on("data", (chunk) => (stdout += String(chunk)));
+    child.stderr.on("data", (chunk) => (stderr += String(chunk)));
+    child.on("error", (error) => resolve({ code: -1, stdout, stderr: error.message, command }));
+    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr, command }));
+  });
+}
+
 async function runChesslab(
   job: Job,
   step: "export" | "propose",

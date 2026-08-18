@@ -1,6 +1,7 @@
 import { Hint, Why } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { BarRows, Legend, Meter, PairBars, Tile, type Bar, type Tone } from "@/components/chart";
+import { SessionDelete } from "@/components/session-delete";
 import { maxOf, niceMax } from "@/lib/chart";
 import { LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import type { ClassScheme, CorpusIndex, Shares, Split } from "@/lib/corpus";
@@ -492,6 +493,22 @@ export function PacksBlock({ bundles, dirty }: { bundles: Bundle[]; dirty: Sessi
           </Why>
         </div>
         <BarRows bars={bars} max={1} />
+        <details className={MUTED}>
+          <summary className={SUMMARY}>Session löschen ({dirty.length})</summary>
+          {/* Die Zahlen im Dialog zählt `session delete --dry-run`, nicht diese Seite. */}
+          <p className="mt-1">
+            Endgültig, mit ihren Crops, Manifest-Zeilen und Korrekturen. Reversibel wäre <code>archive</code>.
+          </p>
+          <ul className="mt-1 space-y-0.5">
+            {dirty.map((session) => (
+              <li className="flex flex-wrap items-center gap-x-3 tabular-nums" key={session.sessionId}>
+                <span className="text-foreground font-mono">{session.sessionId}</span>
+                <span>{num(session.rows)} Frames · {num(session.dirty)} dirty</span>
+                <SessionDelete className="ml-auto" sessionId={session.sessionId} />
+              </li>
+            ))}
+          </ul>
+        </details>
       </section>
     </div>
   );

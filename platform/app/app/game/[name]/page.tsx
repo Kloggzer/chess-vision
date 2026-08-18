@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { GameCard, type GameInfo } from "@/app/cards";
 import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
+import { SessionDelete } from "@/components/session-delete";
 import { chainState, sessionDir } from "@/lib/chain";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
@@ -88,7 +89,10 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
         </Fact>
         <Fact label="reference.pgn">{game.pgnPlies === null ? "keine" : `${game.pgnPlies} Halbzüge`}</Fact>
         <Fact label="Aufnahme">{game.chain.video ?? "keine im Bundle"}</Fact>
-        <Fact label="Session">{game.chain.hasSession ? "exportiert" : "nicht exportiert"}</Fact>
+        <Fact label="Session">
+          {game.chain.hasSession ? "exportiert" : "nicht exportiert"}
+          {game.chain.hasSession ? <SessionDelete className="ml-3" sessionId={sessionId(name)} /> : null}
+        </Fact>
         <Fact label="Bretter">
           {game.boardsDone}/{game.boards} · {game.cellsDone}/{game.cells} Zellen ({game.read})
         </Fact>
