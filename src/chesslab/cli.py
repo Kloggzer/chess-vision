@@ -414,15 +414,23 @@ def session_boards(
 def session_delete(
     session_id: str = typer.Argument(..., help="Session ID under data/sessions/."),
     yes: bool = typer.Option(False, "--yes", help="Delete without asking."),
+    dry_run: bool = typer.Option(False, "--dry-run",
+                                 help="Print what would go, as JSON, and delete nothing."),
 ) -> None:
     """Remove a session for good: directory, crops, manifest rows and its corrections.
 
     `archive` is the reversible door and stays the default answer. This one exists for what
     archiving would only hoard — an empty export, a session with no readable board.
     """
+    import json as json_mod
+
     from . import sessions as sessions_mod
 
     counts = _session_call(sessions_mod.deletion_cost, session_id)
+    if dry_run:
+        # The UI shows THIS, then runs the same command without the flag — one count, one truth.
+        print(json_mod.dumps(counts))
+        raise typer.Exit(0)
     print(f"[--] {session_id}: {counts['frames']} Zeilen, {counts['crops']} Crops, "
           f"{counts['corrections']} Korrekturen")
     if counts["corrections"] and not yes:
