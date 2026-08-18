@@ -299,3 +299,42 @@ Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`. Befund
   gefitteten Modells ist dagegen ein `cv2.undistort` und könnte im Stream vor dem Warp laufen —
   dann bräuchte Undistortion nicht mehr den PNG-Umweg über `frames/`.
 - Offen: 19 von 20 Sessions sind nie durch `:desktop undistort` gegangen.
+
+## Hände in „sauberen" Frames — wie viele rutschen durch? (2026-08-18)
+
+Frage vom User: wie sicher sind wir, dass die nicht-`dirty` Frames keine Hände enthalten?
+
+Stand, gemessen:
+
+- `hand_squares` ohne `dirty` gibt es **null** — aber nur per Konstruktion: `mark_hands_session`
+  setzt `dirty`, sobald der Gitter-Sensor anschlägt. Die Zahl sagt nichts über das, was er
+  **übersieht**.
+- Vor Einführung des Sensors zeigten laut seinem eigenen Docstring **424 von 2 228** Frames eine
+  deutliche Hand ohne Flag (19 %). Die Trefferquote des Sensors selbst wurde nie gemessen.
+- Sichtprobe an **40 zufälligen nicht-`dirty` Brettern** aus allen 20 Sessions: in etwa einem
+  Drittel ist Haut zu sehen. Ein Teil davon liegt auf dem Randstreifen und berührt kein Feld —
+  aber nicht alles. Auge, keine Messung.
+
+Korpusweit: 51,9 % der 27 958 Frames sind `dirty`, 25,9 % tragen `hand_squares`.
+
+**Was die Zahl liefern würde:** der Verdeckungs-Ausgang (`--head occlusion`), sobald er auf den
+komponierten Daten trainiert ist. Über die nicht-`dirty` Frames laufen lassen, Überdeckung je Zelle
+schätzen, und die Verteilung ist die Antwort. Das ist derselbe Lauf, der die Labelvorschläge für
+das Tool erzeugt — also kein Extraaufwand, nur Reihenfolge.
+
+**Vorher nötig:** ein zweites Turntable-Video mit anderer Aufstellung (das vorhandene trägt nur die
+Grundstellung), damit der Compositing-Datensatz auch Figurenmaterial hat.
+
+## Sampler: Metadaten als Strata (2026-08-18)
+
+Der Coreset stratifiziert heute nach Stellung und streut innerhalb nach Aussehen (k-center greedy).
+Der User weist zu Recht darauf hin, dass `hand_squares`, `dirty` und der Ply-Wechsel ebenfalls
+Schlüsselereignisse sind und eigene Strata verdienen — um Ereignisse herum dichter abtasten.
+
+Gemessen spricht dafür: über 60 s eines Session-Videos bewegt sich das Brett-Aussehen in 0,1 s nur
+das 2,6-fache eines Einzelframes (glatt wäre 3,0) — Licht und Schatten sind auf dem 0,1-s-Raster
+also vollständig erfasst. Der maximale Einzelframe-Sprung liegt aber bei **17,97 gegen Median
+0,72**, Faktor 25: das sind die schnellen Ereignisse, und die trifft das Raster nur zufällig.
+
+Also: für Licht/Schatten/Stellung reicht das vorhandene Extrakt, für Hände nicht. Erst angehen,
+wenn der Verdeckungs-Zweig steht.
