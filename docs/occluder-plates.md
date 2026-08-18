@@ -50,12 +50,22 @@ ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** und ein **kontinuierliches
   weiter (0,62 gegen 0,22), der Abstand ist also größer, er sitzt nur woanders.
 - **Schatten ist Hintergrund.** Ein beschattetes Feld bleibt lesbar; würde der Schatten als
   Verdeckung zählen, wäre die Überflaggung wieder da, die das Ganze ersetzen soll.
+- **Zusätzliches Licht auch.** Der Spiegelsatz dazu, und er hat gefehlt: eine Helligkeitsschwelle
+  (`ratio > 1.3`) hielt im letzten Fünftel von `230602` die beleuchtete Matte fest, als eine Lampe
+  darüberstrich — 88 % einer Kachel war Hintergrund, auf einem Frame ganz ohne Hand. Global rechnet
+  `rebalance` so etwas heraus, ein lokaler Lichtstreifen bleibt aber stehen. Der Zweig ist raus; die
+  beiden sauberen Clips verlieren dadurch unter 0,2 % der Fläche, weil ein Objekt, das heller ist
+  als der Hintergrund UND dieselbe Farbe hat, praktisch nicht vorkommt.
 - **Dunkler Ärmel ≠ Schatten.** Ein Schatten nimmt nur Licht weg und fällt nie unter etwa 45 % des
   Hintergrunds; darunter ist es ein Objekt. Gemessen: leeres Tuch 118, schwarzer Ärmel 20–26,
   Restschatten 39–61.
 - **Morphologie darf keinen Schatten annektieren.** `CLOSE` überbrückt Lücken, und ein Schattenband
   am Ärmel ist so eine Lücke — es wird erst korrekt verworfen und danach wieder eingesammelt.
   Deshalb werden sichere Schattenpixel nach der Morphologie ausgestanzt.
+- **Doppelte Posen** werden über die IoU verworfen, und zwar auf 1/8 verkleinerten Silhouetten.
+  Gemessen: der Vergleich in voller Auflösung kostet bei 500 gehaltenen Posen 823 ms gegen die
+  konstanten 360 ms des Schnitts selbst und wächst weiter; über 3 160 echte Kachelpaare verschiebt
+  die Verkleinerung die IoU um höchstens 0,006 und kippt am Schnitt 0,85 keine Entscheidung.
 
 ## Aufnahme
 

@@ -23,6 +23,8 @@ EDGE_CUT, EDGE_SOFT = 0.58, 0.30
 #: A shadow only takes light away and never drops this far — anything darker is an object, which is
 #: how a black sleeve stops being mistaken for the shade beside it.
 SHADOW_FLOOR = 0.45
+#: Divisor for the silhouettes the novelty test compares. See `silhouette`.
+NOVELTY_SCALE = 8
 
 
 @dataclass(frozen=True)
@@ -174,7 +176,11 @@ def alpha_of(frame: np.ndarray, plate: Plate) -> np.ndarray:
     ratio = f.sum(2) / (plate.median + 1.0).sum(2)
     chroma = chroma_distance(frame, plate.median)
 
-    fg = ((chroma > plate.chroma_cut) | (ratio > 1.3) | (ratio < SHADOW_FLOOR)) & on
+    # Added light is background too, the mirror of the shadow rule: a lamp swept the mat late in
+    # 230602 and a brightness branch kept the lit backdrop — 88 % of one plate was mat, on a frame
+    # with no hand at all. Dropping it costs the two clean clips under 0.2 % of the kept area,
+    # because an object brighter than the backdrop AND the same colour as it barely exists.
+    fg = ((chroma > plate.chroma_cut) | (ratio < SHADOW_FLOOR)) & on
     shadow = (~fg) & (ratio < 0.85) & on
 
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
@@ -208,13 +214,23 @@ def blurred_pairs(cap: cv2.VideoCapture, n_frames: int, stride: int,
         yield cv2.addWeighted(a, 0.5, b, 0.5, 0.0)
 
 
-def is_novel(alpha: np.ndarray, kept: list[np.ndarray], max_iou: float) -> bool:
+def silhouette(alpha: np.ndarray) -> np.ndarray:
+    """The shape an overlap test needs, at `NOVELTY_SCALE`. Profiled: comparing full-resolution
+    masks costs 823 ms once 500 are kept against `alpha_of`'s constant 360, and it keeps growing.
+    Measured over 3 160 real plate pairs, the reduction moves IoU by at most 0.006 and flips no
+    decision at the 0.85 cut."""
+    h, w = alpha.shape
+    small = cv2.resize((alpha > 0.5).astype(np.float32), (w // NOVELTY_SCALE, h // NOVELTY_SCALE),
+                       interpolation=cv2.INTER_AREA)
+    return small > 0.5
+
+
+def is_novel(silhouettes: np.ndarray, kept: list[np.ndarray], max_iou: float) -> bool:
     """A clip at 60 fps holds a few hundred poses, not a few thousand — near-duplicates only teach
     the net that one hand shape matters more than the others."""
-    m = alpha > 0.5
     for prev in kept:
-        union = (m | prev).sum()
-        if union and (m & prev).sum() / union > max_iou:
+        union = (silhouettes | prev).sum()
+        if union and (silhouettes & prev).sum() / union > max_iou:
             return False
     return True
 
@@ -246,10 +262,11 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
         if (a > 0.5).sum() < min_cover * on.sum():
             skipped_thin += 1
             continue
-        if not is_novel(a, kept, max_iou):
+        sil = silhouette(a)
+        if not is_novel(sil, kept, max_iou):
             skipped_dup += 1
             continue
-        kept.append(a > 0.5)
+        kept.append(sil)
         rgba = np.dstack([frame[y0:y1, x0:x1],
                           (a[y0:y1, x0:x1] * 255).astype(np.uint8)])
         cv2.imwrite(str(out_dir / f"{video.stem}_{i:05d}.webp"), rgba,

@@ -322,8 +322,9 @@ komponierten Daten trainiert ist. Über die nicht-`dirty` Frames laufen lassen, 
 schätzen, und die Verteilung ist die Antwort. Das ist derselbe Lauf, der die Labelvorschläge für
 das Tool erzeugt — also kein Extraaufwand, nur Reihenfolge.
 
-**Vorher nötig:** ein zweites Turntable-Video mit anderer Aufstellung (das vorhandene trägt nur die
-Grundstellung), damit der Compositing-Datensatz auch Figurenmaterial hat.
+**Erledigt (User, 2026-08-19):** ein zweites Turntable-Video braucht es nicht. „I don't care about
+the position on the board for our second stage." Der Crop-Pool aus `VID_20260817_214400.mp4` steht
+(`data/squares__comp/`, siehe `docs/occlusion-handover.md`).
 
 ## Verdeckte Stellungen: Frames zurückgewinnen statt dichter exportieren (2026-08-18)
 

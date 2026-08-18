@@ -80,20 +80,53 @@ ist die Verdeckung. Eine Ausgabe, also bleibt der exportierte Graph in Form.
 
 Fertig, getestet, committet:
 
-- `occluders.py` + `chesslab occluders extract` — 215 Kacheln aus drei Clips liegen in
-  `data/occluders/plates/`
+- `occluders.py` + `chesslab occluders extract` — Kacheln aus drei Clips. `data/occluders/plates/`
+  trägt 1 461 aus dem Lauf vom 2026-08-18, davon **177 (12 %) mit Hintergrund darin**, fast alle aus
+  `230602` (160 von 479, im letzten Fünftel des Clips 147 von 152). Ursache und Fix stehen in
+  `docs/occluder-plates.md` unter „Zusätzliches Licht"; `data/occluders/plates-v2/` ist der
+  Neuschnitt danach.
 - `composite.py` + `chesslab occluders composite` — erzeugt Crops mit `coverage` im Manifest
 - `training/occlusion.py` + `--head occlusion` — Verlust, Metriken, Datenpfad
-- `data/turntable/VID_20260817_214400.mp4` — 4K, 30 fps, ArUco 26/26, 161 px je Feld,
-  Grundstellung (Ballkranz auf d1/d8 = Dame, Schlitz auf e1/e8 = König, **nicht** vertauscht)
+- `data/turntable/VID_20260817_214400.mp4` — 4K, 30 fps, 3 986 Frames, ArUco auf jedem geprüften
+  Frame, 161 px je Feld. Grundstellung — die Angabe stammt aus diesem Dokument (2026-08-18), vom
+  Nutzer ist sie **nicht** gegengezeichnet: `rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1`.
+  Gegen die geschnittenen Crops nachgesehen (`tmp/occluder-probe-20260819/04_back_ranks.png`):
+  Ballkranz auf d1/d8 = Dame, Schlitz auf e1/e8 = König, **nicht** vertauscht — die Stellung sitzt
+  also im erkannten a1..h8-Rahmen richtig herum.
+- Ein Durchlauf über 10 Bretter (`--stride 400`): 640 Crops, kein Frame ohne Marker, 13 % der
+  Zellen über 0,5 verdeckt. Bei `--stride 8` sind es 499 Bretter zu je ~1,8 s, also ~15 min.
+
+## Die drei Stufen (User, 2026-08-19)
+
+Verdeckung wird in Stufen gelernt, und jede Stufe hat ihre eigene Quelle:
+
+| Stufe | Material | Was sie lehrt |
+|---|---|---|
+| 2 | Turntable-Clip + aufkomponierte Hände (`data/squares__comp/`) | wie ein Feld UNTER einem Occluder aussieht, mit exakt bekanntem Coverage-Ziel |
+| 3 | echte Partien, von SAM 3 gelabelt (`matte.jsonl` -> `coverage`) | dasselbe an echten Händen, echten Ärmeln, echtem Licht |
+
+Zwei Regeln folgen daraus:
+
+- **SAM 3 ist nur für Stufe 3.** Die Turntable-Aufnahmen braucht es nicht anzufassen — dort ist
+  die Verdeckung konstruiert und damit ohnehin exakt bekannt.
+- **Turntable-Material gehört nicht in den Partien-Korpus.** Es entstand ausschliesslich für
+  Stufe 2. Der Compositing-Pool traegt deshalb sein eigenes Variant-Tag (`squares__comp`) und
+  mischt sich nicht unter die Realpartien.
 
 ## Was noch fehlt, in dieser Reihenfolge
 
-1. **Ein zweites Turntable-Video mit anderer Aufstellung.** Das vorhandene trägt nur die
-   Grundstellung, also 12 Figurenstellungen. Für den Verdeckungsausgang allein reicht das (dem ist
-   die Figur darunter egal), für den Figurenkopf nicht.
-2. **Den Compositing-Datensatz bauen** und mit `--head occlusion` trainieren. Der Verdeckungsteil
-   kann sofort starten, er braucht Punkt 1 nicht.
+1. **Ein zweites Turntable-Video: nicht nötig.** Der Nutzer am 2026-08-19: „I don't care about the
+   position on the board for our second stage." Diese Stufe lehrt, wie ein Feld UNTER einem
+   Occluder aussieht, und liefert das Coverage-Ziel; die Figurenvielfalt kommt aus Stufe 3, den
+   echten Partien. Die Grundstellung genügt damit.
+2. **Den Compositing-Datensatz bauen** und mit `--head occlusion` trainieren. Der Crop-Pool steht
+   (2026-08-19): `data/squares__comp/` + `data/manifests/squares__comp.jsonl`, 31 936 Kacheln aus
+   499 Brettern, kein Frame ohne Marker, sechs Blöcke als Pseudo-Sessions. Verdeckung verteilt sich
+   auf 80,6 % bei 0, 4,5 % unter 0,15, 4,3 % bis 0,5 und 10,6 % darüber. **Provisorisch**: geschnitten
+   mit den 1 284 sauberen Kacheln aus `plates/`, nicht mit `plates-v2/` — nach dem Neuschnitt einmal
+   mit `--plates data/occluders/plates-v2` wiederholen, das überschreibt an Ort und Stelle.
+   Dann `chesslab dataset build`; `--cap` muss hoch, der Default 4 je (Session, Feld, Figur) wirft
+   genau die Verdeckungsvielfalt weg, für die der Pool existiert.
 3. **Über den echten Korpus laufen lassen.** Das Modell schätzt dann pro Zelle eine Überdeckung.
    Zwei Ergebnisse in einem Lauf:
    - die Antwort auf „wie viele Hände stecken in den nicht-`dirty` Frames?" (Sichtprobe an 40

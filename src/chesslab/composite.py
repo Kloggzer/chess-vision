@@ -188,7 +188,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         detect_board_corners_aruco,
         load_profile,
     )
-    from .labeling import CROP_ENCODE, CROP_SUFFIX
+    from .labeling import CROP_ENCODE, CROP_SUFFIX, square_color
 
     tiles = load_tiles(plate_dir)
     if not tiles:
@@ -232,7 +232,8 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
             path.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(path), crop, CROP_ENCODE)
             rows.append({"path": path.as_posix(), "label": label, "coverage": round(cov[sq], 4),
-                         "session_id": sid, "frame": stem, "square": sq, "fen": fen,
+                         "session_id": sid, "frame": stem, "square": sq,
+                         "square_color": square_color(sq), "fen": fen,
                          "out_size": list(out_size), "pad_side": prof.crop.pad_side,
                          "pad_up": prof.crop.pad_up})
             written += 1
