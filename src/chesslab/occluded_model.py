@@ -25,8 +25,11 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 
+from .calibration import load_profile, mesh_from_lines
+from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
 
 OCCLUDED = "occluded"
@@ -101,6 +104,20 @@ def sparse(probs: list[float], classes: list[str], floor: float = PROB_FLOOR) ->
     return {c: round(p, 3) for c, p in zip(classes, probs, strict=True) if p >= floor}
 
 
+def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
+    """The 64 BGR crops of one logged row — through `crops_for_frame`, the slice's own path.
+
+    From the stored BOARD, like `slice_session`: a session has kept no source stills since the
+    board store landed (2026-08-17), and reading `row["frame"]` failed on every session.
+    """
+    path = session_dir / (row.get("board") or row["frame"])
+    board = cv2.imread(str(path))
+    if board is None:
+        raise FileNotFoundError(f"board not readable: {path}")
+    return crops_for_frame(None, row["corners"], profile, board=board,
+                           mesh=mesh_from_lines(row.get("grid_lines")))
+
+
 #: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a
 #: side effect of hunting occlusion — which SAM 3 measures now, so the reads travel alone.
 READS_FILE = "model-reads.jsonl"
@@ -114,9 +131,6 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
     """
     from . import config
-    from .calibration import load_profile
-    from .labeling import all_squares, read_log, read_session_meta
-    from .occluded import frame_cells
     from .realgames import PROGRESS_EVERY, game_dir
 
     session_dir = config.DATA.sessions / f"rg-{name}"

@@ -21,7 +21,7 @@ def _row(frame, square, label, probs, session="rg-g"):
 
 
 def _write_proposals(root, name, rows, *, model=MODEL, header_model=True):
-    path = root / "realgames" / name / "occluded-proposals.jsonl"
+    path = root / "realgames" / name / "model-reads.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     header = {"hi": 0.7, "lo": 0.3}
     if header_model:

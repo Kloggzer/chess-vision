@@ -39,15 +39,20 @@ def ledger_labels(*paths: Path) -> dict[Cell, str]:
 
 
 def read_proposals(path: Path) -> tuple[str | None, list[dict]]:
-    """The `_thresholds` model name and every row that carries `probs`."""
+    """The model that wrote `model-reads.jsonl`, and every row that carries `probs`.
+
+    Reads the old `_thresholds` header too: a session whose reads predate `realgames model-read`
+    still audits, it just came from a producer that also guessed at occlusion.
+    """
     rows = []
     with Path(path).open(encoding="utf-8") as fh:
-        header = json.loads(fh.readline() or "{}").get("_thresholds", {})
+        head = json.loads(fh.readline() or "{}")
+        model = head.get("_model") or head.get("_thresholds", {}).get("model")
         for line in fh:
             row = json.loads(line)
             if "probs" in row:
                 rows.append(row)
-    return header.get("model"), rows
+    return model, rows
 
 
 def class_thresholds(cells: list[tuple[str, dict[str, float]]]) -> dict[str, float]:
@@ -161,13 +166,13 @@ def audit_flags() -> dict:
     sessions: list[str] = []
     skipped: list[dict] = []
     scanned = 0
-    for path in sorted((config.DATA.root / "realgames").glob("*/occluded-proposals.jsonl")):
+    for path in sorted((config.DATA.root / "realgames").glob("*/model-reads.jsonl")):
         model, rows = read_proposals(path)
         reason = None
         if not rows:
             reason = "no row carries `probs` — nothing to audit"
         elif not model:
-            reason = "no model in `_thresholds` — provenance and non-circularity unknown"
+            reason = "no model in the header — provenance and non-circularity unknown"
         else:
             reason = circularity_reason(model, rows[0]["session_id"])
         if reason:

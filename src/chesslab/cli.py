@@ -762,42 +762,6 @@ def realgames_model_read(
           f"({_Path(res['model']).name}) -> {res['path']}")
 
 
-@realgames_app.command("propose-occluded")
-def realgames_propose_occluded(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
-    hi: float = typer.Option(0.7, "--hi", help="Score above which a cell is PROPOSED occluded."),
-    lo: float = typer.Option(0.3, "--lo",
-                             help="Lower band edge — the review UI's boundary, not the producer's."),
-    model: str | None = typer.Option(None, "--model",
-                                     help="Run dir of a 14-class model that PROPOSES too "
-                                          "(e.g. data/models/occ-14c-occl-lre3). Refused on a "
-                                          "session the model was trained on."),
-    grid: bool = typer.Option(True, "--grid/--no-grid",
-                              help="The grid-groove hand read as a third channel, including the "
-                                   "+-3-frame low-confidence deadzone around each hand."),
-) -> None:
-    """Score every dirty cell of the exported session against its interval's clean median.
-
-    The `occluded` class has no honest producer: the model's own reads are circular and the
-    ledger's `occl=` field is structurally 0.0 under every 13-class model. Inside a confirmed
-    interval the position IS known, so a census mismatch plus a colour-gamut escape against that
-    interval's own quiet frames separates "something replaced the content" from "a shadow fell on
-    it" — and the board's own grid grooves say WHERE a hand lies, model-free
-    (`grid_occlusion.py`). This proposes; a human decides (specs/53-02/03).
-    """
-    from . import occluded as occluded_mod
-
-    try:
-        r = occluded_mod.propose_occluded(
-            name, hi=hi, lo=lo, model_dir=Path(model) if model else None, grid_on=grid)
-    except (FileNotFoundError, ValueError, KeyError) as e:
-        print(f"[ERR] {e}")
-        raise typer.Exit(1) from e
-    skipped = f", {len(r['skipped_plies'])} plies without a reference" if r["skipped_plies"] else ""
-    print(f"[OK] {len(r['rows'])} proposals ({r['occluded']} occluded at hi={hi}){skipped} "
-          f"-> {r['path']}")
-
-
 @realgames_app.command("audit-corrections")
 def realgames_audit_corrections() -> None:
     """Check the correction ledger against the rules of chess — the audit that PROVES.

@@ -230,7 +230,13 @@ def run_export(run: str, fmt: str = "torchscript",
               "not record `pad_side`/`pad_up` for all its rows. Every consumer will keep its own "
               "calibration profile's pads, which is the silent domain shift specs/45 is about — "
               "re-slice the sessions to fix it.")
-    if infer_size is not None or crop is not None:
+    # The occlusion head ships ONE extra output beside the classes, and it is a sigmoid coverage,
+    # not a class. Declared rather than inferred from `head`: a consumer reading `classes.size`
+    # logits off a graph one wider would softmax the coverage into every probability.
+    covering = cfg.get("head") == "occlusion"
+    if covering:
+        cfg["coverage_output"] = True
+    if infer_size is not None or crop is not None or covering:
         # Write it before tracing: the graph must be what the config declares, and the config is
         # what every consumer resizes and pads its crops to.
         (run_dir / "config.json").write_text(json.dumps(cfg, indent=2, ensure_ascii=False),
