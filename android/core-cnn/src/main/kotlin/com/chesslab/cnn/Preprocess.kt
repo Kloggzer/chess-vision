@@ -191,6 +191,12 @@ fun softmax(logProbs: FloatArray): FloatArray {
 }
 
 /**
+ * The occlusion head's coverage unit (`training/occlusion.py` regresses it with `BCEWithLogits`).
+ * It is an INDEPENDENT sigmoid, never part of [softmax] — see `ModelSpec.coverageOutput`.
+ */
+fun sigmoid(logit: Float): Float = (1.0 / (1.0 + exp(-logit.toDouble()))).toFloat()
+
+/**
  * `(x - mean) / std` computed over EACH crop, channels together — the port of
  * `torch_data._PerCropStandardize`.
  *

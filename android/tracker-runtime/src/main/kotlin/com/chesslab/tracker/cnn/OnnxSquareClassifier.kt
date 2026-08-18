@@ -4,6 +4,7 @@ import ai.onnxruntime.OrtEnvironment
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.preprocessInto
+import com.chesslab.cnn.sigmoid
 import com.chesslab.cnn.softmax
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.tracker.settings.EpRequest
@@ -107,7 +108,7 @@ internal interface SessionRunner : AutoCloseable {
      */
     val declaredInputShape: LongArray? get() = null
 
-    /** @return `batch * classes` logits, flat and row-major. */
+    /** @return `batch * ModelSpec.outputWidth` logits, flat and row-major. */
     fun run(
         input: FloatBuffer,
         shape: LongArray,
@@ -208,10 +209,17 @@ class OnnxSquareClassifier internal constructor(
         val started = System.nanoTime()
         val logits = runner.run(input, shape)
         lastRunMs = (System.nanoTime() - started) / NANOS_PER_MS
-        val width = spec.classes.size
+        val classCount = spec.classes.size
+        val width = spec.outputWidth
         require(logits.size == batch * width) { "model returned ${logits.size} logits, expected ${batch * width}" }
-        // The head emits log-probabilities (HierarchicalHead); softmax over them is correct.
-        return Array(batch) { row -> softmax(logits.copyOfRange(row * width, (row + 1) * width)) }
+        // The head emits log-probabilities (HierarchicalHead); softmax over them is correct. The
+        // coverage unit is NOT one of them — it rides along as its own sigmoid, so the softmax
+        // stops at `classCount` and the class probabilities still sum to 1.
+        return Array(batch) { row ->
+            val start = row * width
+            val probs = softmax(logits.copyOfRange(start, start + classCount))
+            if (width == classCount) probs else probs + sigmoid(logits[start + classCount])
+        }
     }
 
     /**

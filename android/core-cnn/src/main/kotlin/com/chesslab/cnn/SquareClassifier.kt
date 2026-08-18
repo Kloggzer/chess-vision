@@ -10,8 +10,10 @@ import com.chesslab.engine.api.BgrImage
 interface SquareClassifier {
     /**
      * @param crops 64 BGR crops in [ALL_SQUARES] order.
-     * @return 64 x `classes.size` PROBABILITIES (the softmax happens inside the
-     *   implementation — the model head emits log-probabilities, see [softmax]).
+     * @return 64 rows of `classes.size` PROBABILITIES (the softmax happens inside the
+     *   implementation — the model head emits log-probabilities, see [softmax]), followed by ONE
+     *   coverage value when the run declares a `coverage_output` — that one is a [sigmoid] and not
+     *   a class, so it stays outside the softmax and outside the argmax.
      */
     fun classify(crops: List<BgrImage>): Array<FloatArray>
 

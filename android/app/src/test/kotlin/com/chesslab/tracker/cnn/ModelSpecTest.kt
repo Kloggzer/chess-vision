@@ -179,6 +179,32 @@ class ModelSpecTest {
         }
     }
 
+    /**
+     * A 13-class coverage model and the old 14-class one are BOTH 14 columns wide, so the width
+     * may only come from the declaration: an absent key has to keep meaning "every column is a
+     * class", or the shipped models would have their last class softmaxed as a coverage value.
+     */
+    @Test
+    fun readsTheCoverageOutputAndTreatsAnAbsentOneAsFalse() {
+        val covering = ModelSpec.parse(config(classes = PIECES13_CLASSES, coverageOutput = true))
+        assertTrue(covering.coverageOutput)
+        assertEquals(PIECES13_CLASSES.size + 1, covering.outputWidth)
+
+        val legacy = ModelSpec.parse(config())
+        assertFalse(legacy.coverageOutput, "an absent key must never read as a coverage model")
+        assertEquals(EXPECTED_CLASSES.size, legacy.outputWidth)
+    }
+
+    /** Every model in the APK is the old 14-class kind — none of them may start reading as one. */
+    @Test
+    fun noBundledModelDeclaresACoverageOutput() {
+        for (dir in bundledAssetDirs()) {
+            val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+            assertFalse(spec.coverageOutput, "${dir.name} declares a coverage output")
+            assertEquals(spec.classes.size, spec.outputWidth, "${dir.name} must stay classes-wide")
+        }
+    }
+
     private fun config(
         classes: List<String> = EXPECTED_CLASSES,
         outSize: List<Int> = listOf(128, 128),
@@ -187,14 +213,16 @@ class ModelSpecTest {
         inferSize: List<Int>? = null,
         padSide: Double? = null,
         padUp: Double? = null,
+        coverageOutput: Boolean = false,
     ): String {
         val normalize =
             mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
         val repr = inputRepr?.let { ", \"input_repr\": \"$it\"" }.orEmpty()
         val infer = inferSize?.let { ", \"infer_size\": ${it.joinToString(",", "[", "]")}" }.orEmpty()
         val crop = (padSide?.let { ", \"pad_side\": $it" }.orEmpty()) + (padUp?.let { ", \"pad_up\": $it" }.orEmpty())
+        val coverage = if (coverageOutput) ", \"coverage_output\": true" else ""
         return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr}"""
+            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr$coverage}"""
     }
 }
 

@@ -2,22 +2,27 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.EXPECTED_CLASSES
+import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.tracker.log.RecordingLog
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.abs
+import kotlin.math.exp
 
 private const val CROP = 128
 
 /** The ORT session is unavailable on the desktop JVM, so the wrapper is driven against this seam. */
 private class FakeRunner(
     private val ran: String? = "CPUExecutionProvider",
+    private val classCount: Int = EXPECTED_CLASSES.size,
+    private val coverageLogit: Float? = null,
 ) : SessionRunner {
     override val requested = Ep.CPU
     override val model = MODEL_FP32_FILE
@@ -37,9 +42,17 @@ private class FakeRunner(
         shapes += shape
         buffers += input
         firstInput = input.get(0)
-        val width = EXPECTED_CLASSES.size
-        // Row r peaks on class r % width, so the argmax is row-dependent and checkable.
-        return FloatArray(ALL_SQUARES.size * width) { i -> if (i % width == (i / width) % width) 2.0f else 0.0f }
+        val width = classCount + if (coverageLogit == null) 0 else 1
+        // Row r peaks on class r % classCount, so the argmax is row-dependent and checkable; the
+        // coverage column, when there is one, carries a constant so its sigmoid is checkable too.
+        return FloatArray(ALL_SQUARES.size * width) { i ->
+            val col = i % width
+            when {
+                col == classCount -> coverageLogit!!
+                col == (i / width) % classCount -> 2.0f
+                else -> 0.0f
+            }
+        }
     }
 
     override fun close() = Unit
@@ -89,6 +102,36 @@ class OnnxSquareClassifierContractTest {
             val top = values.indices.maxBy { values[it] }
             assertEquals(row % EXPECTED_CLASSES.size, top)
         }
+    }
+
+    /**
+     * 13 classes plus the coverage unit is the SAME 14 columns the old model emits, and only the
+     * declaration tells them apart. The classes must still sum to 1 and the coverage must arrive as
+     * a sigmoid: softmaxing all 14 would turn it into a class probability and bend every other one.
+     */
+    @Test
+    fun coverageRidesBesideTheClassProbabilitiesAsItsOwnSigmoid() {
+        val covering = spec.copy(classes = PIECES13_CLASSES, coverageOutput = true)
+        val runner = FakeRunner(classCount = PIECES13_CLASSES.size, coverageLogit = 1.0f)
+        val probs = OnnxSquareClassifier(covering, runner).classify(crops())
+        probs.forEachIndexed { row, values ->
+            assertEquals(PIECES13_CLASSES.size + 1, values.size)
+            val classMass = values.dropLast(1).sum()
+            assertTrue(abs(classMass - 1.0f) < 1e-5f, "row $row classes sum to $classMass")
+            assertEquals(1f / (1f + exp(-1.0f)), values.last(), 1e-6f)
+        }
+    }
+
+    /** A graph that disagrees with its declaration must still fail loudly, not quietly re-align. */
+    @Test
+    fun refusesAGraphNarrowerThanTheDeclaredCoverageWidth() {
+        val covering = spec.copy(classes = PIECES13_CLASSES, coverageOutput = true)
+        val runner = FakeRunner(classCount = PIECES13_CLASSES.size)
+        val error = assertThrows<IllegalArgumentException> { OnnxSquareClassifier(covering, runner).classify(crops()) }
+        assertTrue(
+            error.message!!.contains("expected ${ALL_SQUARES.size * (PIECES13_CLASSES.size + 1)}"),
+            error.message,
+        )
     }
 
     @Test

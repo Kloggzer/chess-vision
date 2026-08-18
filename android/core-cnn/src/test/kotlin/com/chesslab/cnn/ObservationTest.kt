@@ -36,6 +36,24 @@ class ObservationTest {
         assertEquals("wP", obs.label("e2"))
     }
 
+    /**
+     * The occlusion head parks ONE coverage value past the classes, and that is what `pOccluded`
+     * reads on a 13-class run — the CNN arm of the hand veto was blind until this column existed
+     * (CLAUDE.md pitfall). It is not a class: it may neither win the argmax nor be the runner-up.
+     */
+    @Test
+    fun `the coverage column past the classes feeds pOccluded`() {
+        val row = DoubleArray(PIECES13_CLASSES.size + 1)
+        row[PIECES13_CLASSES.indexOf("wN")] = 1.0
+        row[PIECES13_CLASSES.size] = 0.8
+        val obs = observationFromProbs(mapOf("e4" to row), PIECES13_CLASSES)
+        assertClose(0.8, obs.pOccluded.getValue("e4"), "coverage")
+        assertEquals("wN", obs.label("e4"))
+        assertClose(1.0, obs.conf("e4"), "the coverage must not win the argmax")
+        assertClose(0.0, obs.runnerUpConf("e4"), "nor be the runner-up")
+        assertFalse(obs.confident("e4", THR), "a covered square is never confident")
+    }
+
     @Test
     fun `confident gates on both the occupancy peak and the occluded mass`() {
         assertTrue(single(pEmpty = 0.9, pOccluded = 0.05).confident("e4", THR))

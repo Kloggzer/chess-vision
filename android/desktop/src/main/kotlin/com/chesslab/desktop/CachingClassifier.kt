@@ -68,7 +68,9 @@ internal class CachingClassifier(
             DataInputStream(file.inputStream().buffered()).use { input ->
                 val n = input.readInt()
                 val width = input.readInt()
-                if (n != rows || width != classes.size) return null
+                // A coverage row is one wider than `classes`; the width is the file's, never
+                // `classes.size`, or a cached coverage column reads back as the next row's class.
+                if (n != rows || width !in classes.size..classes.size + 1) return null
                 Array(n) { FloatArray(width) { input.readFloat() } }
             }
         }.getOrNull()
@@ -82,7 +84,7 @@ internal class CachingClassifier(
         val tmp = File(dir, "${file.name}.tmp")
         DataOutputStream(tmp.outputStream().buffered()).use { output ->
             output.writeInt(probs.size)
-            output.writeInt(classes.size)
+            output.writeInt(probs.firstOrNull()?.size ?: classes.size)
             for (row in probs) for (p in row) output.writeFloat(p)
         }
         if (!tmp.renameTo(file)) tmp.delete()

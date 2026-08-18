@@ -6,6 +6,7 @@ import com.chesslab.cnn.InputRepr
 import com.chesslab.cnn.requireExpectedClasses
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -62,9 +63,20 @@ data class ModelSpec(
      * a tensor of the wrong width, which is why it is read rather than assumed.
      */
     val repr: InputRepr = InputRepr.RGB,
+    /**
+     * `coverage_output` — the graph carries ONE sigmoid unit BESIDE the classes (`head: occlusion`,
+     * `training/occlusion.py`). A 13-class coverage run and the old 14-class run are both 14 columns
+     * wide, so the width may only ever come from this declaration: a reader that softmaxes all 14
+     * turns the coverage into a class probability and bends every other one. Absent = false, which
+     * is what every model shipped before the occlusion head declares.
+     */
+    val coverageOutput: Boolean = false,
 ) {
     /** Channels the ONNX input expects — [repr]'s, never a literal 3. */
     val channels: Int get() = repr.channels
+
+    /** Columns the graph emits: the classes, plus the coverage unit when the run declares one. */
+    val outputWidth: Int get() = classes.size + if (coverageOutput) 1 else 0
 
     /**
      * False for a run that names no crop — the one thing every consumer has to be able to ASK,
@@ -113,6 +125,7 @@ data class ModelSpec(
                 std = normalize.floats("std") ?: IMAGENET_STD,
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
+                coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
             )
         }
 

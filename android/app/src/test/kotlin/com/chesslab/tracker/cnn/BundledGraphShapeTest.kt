@@ -52,9 +52,9 @@ class BundledGraphShapeTest {
      * `config.json` — read through [ModelSpec], the one runtime reader, so the graph is compared
      * against what the app will really do with it and not against constants that happen to match.
      *
-     * NOT [ALL_SQUARES]-plus-literals: `channels` follows the run's `input_repr` and the input size
-     * follows its `infer_size` (specs/22) — 96, 80 and 128 px across the three bundled models, none
-     * of which is the 128 their training crops were built at. Each graph is compared against the
+     * NOT [ALL_SQUARES]-plus-literals: `channels` follows the run's `input_repr`, the input size
+     * follows its `infer_size` (specs/22) — 96, 80 and 128 px across the three bundled models — and
+     * the OUTPUT width follows its `coverage_output`. Each graph is compared against the
      * `config.json` **beside it**, never against another model's. The batch IS a literal, because
      * that one is the bug being guarded.
      */
@@ -90,11 +90,16 @@ class BundledGraphShapeTest {
                 "${dir.name}/${file.name}: input must be a fixed 64-crop batch at the config's " +
                     "${spec.outWidth}x${spec.outHeight}, got ${input.toList()}",
             )
+            // NOT `classes.size`: an occlusion run emits one sigmoid coverage unit BESIDE its
+            // classes, so the width is the config's declaration (`coverage_output`) and not the
+            // class count. Both kinds are 14 columns wide, which is why only the declaration can
+            // tell them apart — a graph wider than it declares is exactly the failure to catch.
             assertArrayEquals(
-                longArrayOf(ALL_SQUARES.size.toLong(), spec.classes.size.toLong()),
+                longArrayOf(ALL_SQUARES.size.toLong(), spec.outputWidth.toLong()),
                 output,
-                "${dir.name}/${file.name}: output must be 64 rows of the bundled config's classes, " +
-                    "got ${output.toList()}",
+                "${dir.name}/${file.name}: output must be 64 rows of the bundled config's " +
+                    "${spec.classes.size} classes plus ${spec.outputWidth - spec.classes.size} " +
+                    "coverage column(s), got ${output.toList()}",
             )
         }
     }

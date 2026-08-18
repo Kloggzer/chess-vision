@@ -24,8 +24,9 @@ data class TrackerStatus(
      */
     val cnnConflicts: Set<String> = emptySet(),
     /**
-     * Fresh squares whose 14-class observation is dominated by `occluded`, filtered to
-     * hand-plausible flags (`modelHandSquares`). Empty for 13c models.
+     * Fresh squares the observation reads as covered — the `occluded` class on a 14-class run, the
+     * coverage output beside the classes on an occlusion run — filtered to hand-plausible flags
+     * (`modelHandSquares`). Empty for a 13c model that declares no coverage output.
      */
     val cnnOccluded: Set<String> = emptySet(),
     val bestLl: Double,
