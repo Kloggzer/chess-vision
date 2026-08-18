@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { IDENTITY_CLASSES, LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
+import { IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
 import { FILES, fenLabels } from "@/lib/fen";
 import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/selection";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -210,10 +210,14 @@ export type BoardSurfaceProps = {
   accept: Labels;
   /** Squares the active lane hit — outlined, so the eye starts where the work is. */
   hits?: string[];
-  /** `matte.jsonl`'s measured fraction per square; cells past `PIECE_VISIBLE_MAX` read as covered. */
+  /** `matte.jsonl`'s measured fraction per square, printed per cell — the alpha draws the shape. */
   coverage?: Record<string, number>;
   /** Drawn between the board and the paint grid — the matte review puts its alpha here. */
   overlay?: React.ReactNode;
+  /** Drawn ABOVE the grid — the matte review's pen, which has to swallow the grid's own clicks. */
+  tool?: React.ReactNode;
+  /** No label chip on `empty` squares; the coverage number stays (User, 2026-08-19). */
+  hideEmpty?: boolean;
   /** The square under the pointer: `Space` acts on it, so no cell cursor is needed (REVIEW S3). */
   onHover?: (square: string | null) => void;
 };
@@ -223,7 +227,7 @@ export type BoardSurfaceProps = {
  * marks every cell the pointer enters, the eraser (or the right button) puts the FEN label back.
  * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
  */
-export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, onHover }: BoardSurfaceProps) {
+export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, tool, hideEmpty, onHover }: BoardSurfaceProps) {
   const { labels, fen, kept, judged, paint, cycle, eraser } = state;
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
@@ -282,18 +286,18 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
               ? "outline outline-4 -outline-offset-4 outline-fuchsia-500"
               : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
           const cov = coverage?.[sq];
-          // Covered beats every other state: past 0.15 the crop is not a piece example at all, so
-          // whatever the cell is labelled says nothing about what the model will be taught here.
+          const chip = hideEmpty && label === "empty" ? null : label === LEGACY_LABEL ? "▨ alt" : label;
+          // Nothing tints a covered cell: the alpha overlay says it in its real shape and can be
+          // toggled off, while a solid square hid the very pixels the human came to judge ("ich
+          // kann nicht gut gucken", 2026-08-19). The measured number stays — the alpha has none.
           const tint =
-            cov !== undefined && cov > PIECE_VISIBLE_MAX
-              ? "bg-amber-500/45 outline outline-2 -outline-offset-2 outline-amber-400"
-              : label === LEGACY_LABEL
-                ? "bg-amber-500/20"
-                : label !== fen[sq]
-                  ? "bg-sky-500/40"
-                  : on
-                    ? "bg-fuchsia-500/15"
-                    : "hover:bg-white/10";
+            label === LEGACY_LABEL
+              ? "bg-amber-500/20"
+              : label !== fen[sq]
+                ? "bg-sky-500/40"
+                : on
+                  ? "bg-fuchsia-500/15"
+                  : "hover:bg-white/10";
           return (
             // No per-cell tooltip: it pops up under the brush on every cell the drag enters. The
             // model's word lives in the lane's hover line instead (`board-lane.tsx`), where it
@@ -313,19 +317,22 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
               ) : null}
               {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
                   means a human decided it; DIM means the FEN says so and nobody has looked. */}
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
-                <span
-                  className={`bg-background/75 rounded px-0.5 ${
-                    judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
-                  }`}
-                >
-                  {label === LEGACY_LABEL ? "▨ alt" : label}
+              {chip === null ? null : (
+                <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
+                  <span
+                    className={`bg-background/75 rounded px-0.5 ${
+                      judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
+                    }`}
+                  >
+                    {chip}
+                  </span>
                 </span>
-              </span>
+              )}
             </div>
           );
         })}
       </div>
+      {tool}
     </div>
   );
 }
@@ -336,7 +343,6 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
  */
 export function BoardLegend() {
   const items: [string, string][] = [
-    ["bg-amber-500/45", `coverage > ${PIECE_VISIBLE_MAX} — gemessen verdeckt, kein Figur-Beispiel mehr`],
     ["bg-amber-500/20", "▨ alt — eine Altzeile aus der Zeit, als occluded von Hand gemalt wurde"],
     ["bg-sky-500/40", "≠ FEN — hier steht ein anderes Label als die Partie sagt"],
     ["bg-transparent border border-white/25", "wie im FEN — nichts geändert"],

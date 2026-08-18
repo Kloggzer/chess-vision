@@ -268,3 +268,36 @@ def test_a_corrected_alpha_is_recut_and_sams_own_survives(tmp_path, monkeypatch)
     assert before["coverage"]["a8"] == 0.0 and after["coverage"]["a8"] > 0.5
     assert after["alpha"] == "fixed", "the row says which alpha it used"
     assert (sdir / "mattes" / "000001.webp").exists(), "SAM's own cut is not overwritten"
+
+
+def test_a_recut_refuses_to_overwrite_the_running_worker(tmp_path, monkeypatch):
+    """`recut_fixed` rewrites matte.jsonl whole while `alpha_worker` appends — one of them loses."""
+    import json
+
+    import pytest
+
+    pad = crop_border_px(_profile())
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    rows = [{"frame": "frames/000001.png", "board": "dirty/000001.webp", "ply": 1, "fen": fen,
+             "dirty": True, "dirty_reason": "occluded", "corners": _profile().image_corners,
+             "board_size": SIDE, "board_border": pad}]
+    sdir = _session(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+    matte.alpha_worker("s1", progress=False)
+    side = SIDE + 2 * pad
+    cv2.imwrite(str(sdir / "mattes" / f"000001{matte.FIXED_SUFFIX}"), np.zeros((side, side), np.uint8))
+
+    real = matte.coverage_of
+
+    def touch_then_cut(*a, **k):
+        with (sdir / "matte.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"frame": "000002", "coverage": {}}) + "\n")
+        return real(*a, **k)
+
+    monkeypatch.setattr(matte, "coverage_of", touch_then_cut)
+    with pytest.raises(ValueError, match="changed while recutting"):
+        matte.recut_fixed("s1", progress=False)
+
+    kept = (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(kept) == 2, "the worker's row survives — nothing was written over it"

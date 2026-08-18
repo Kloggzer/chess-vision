@@ -140,6 +140,9 @@ def recut_fixed(name: str, *, progress: bool = True) -> dict:
         raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
     profile = load_profile(read_session_meta(session_dir)["profile"])
     entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    # This rewrites the file WHOLE while `alpha_worker` appends to it. A row the worker adds
+    # between our read and our write would die, so the file must not move underneath us.
+    stamp = path.stat().st_mtime_ns
     rows, redone = [], 0
     for row in read_jsonl(path):
         fixed = session_dir / "mattes" / f"{row['frame']}{FIXED_SUFFIX}"
@@ -153,6 +156,10 @@ def recut_fixed(name: str, *, progress: bool = True) -> dict:
             if progress and redone % 10 == 0:
                 print(f"  {redone} corrected alphas recut", flush=True)
         rows.append(row)
+    if path.stat().st_mtime_ns != stamp:
+        raise ValueError(
+            f"{name}: matte.jsonl changed while recutting — the alpha worker is writing it. "
+            f"Let it finish and run this again; nothing was written.")
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     return {"path": path, "frames": len(rows), "recut": redone}
 

@@ -3,10 +3,13 @@ import path from "node:path";
 import { expect, test } from "vitest";
 import { fenLabels } from "@/lib/fen";
 import {
+  applyMat,
   boardToImage,
   type GridMesh,
+  invertMat,
   meshFromLines,
   meshPoint,
+  meshPointInverse,
   squareColRow,
   squareCropBox,
   squareMeshBox,
@@ -193,4 +196,29 @@ test("fen labels cover all 64 squares", () => {
   expect(labels.e3).toBe("wP");
   expect(labels.e2).toBe("empty");
   expect(labels.d1).toBe("wQ");
+});
+
+test("invertMat undoes boardToImage, corners and centre alike", () => {
+  const h = boardToImage(CORNERS, 928, 0.045);
+  const inv = invertMat(h);
+  for (const [bx, by] of [[0, 0], [928, 0], [464, 464], [928, 928], [-40, 970]]) {
+    const [ix, iy] = applyMat(h, bx, by);
+    const [rx, ry] = applyMat(inv, ix, iy);
+    expect(rx).toBeCloseTo(bx, 6);
+    expect(ry).toBeCloseTo(by, 6);
+  }
+});
+
+test("meshPointInverse lands back on the ideal point meshPoint came from", () => {
+  for (const mesh of [LINEAR_MESH, MESH_FIXTURE.mesh as TiltedMesh]) {
+    for (let u = 0.02; u < 1; u += 0.11) {
+      for (let v = 0.03; v < 1; v += 0.13) {
+        const [mx, my] = meshPoint(u, v, mesh);
+        const [ru, rv] = meshPointInverse(mx, my, mesh);
+        // Sub-pixel on a 720 px board is the bar: a stroke may not slide off what was painted.
+        expect(Math.abs(ru - u) * 720).toBeLessThan(0.5);
+        expect(Math.abs(rv - v) * 720).toBeLessThan(0.5);
+      }
+    }
+  }
 });

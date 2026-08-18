@@ -6,7 +6,7 @@
 import { judgedKeys } from "@/lib/corrections";
 import { liveGames } from "@/lib/label-stream";
 import { coveredSquares } from "@/lib/classes";
-import { loadMatte } from "@/lib/matte";
+import { type AlphaState, alphaState, fixedAlphas, loadMatte, matteStamp } from "@/lib/matte";
 import { badIntervals, frameReviews, unusableBoards, type FrameReview } from "@/lib/review-notes";
 import { loadSession, sessionId } from "@/lib/session";
 
@@ -29,6 +29,8 @@ export type VerifyFrame = {
   review: FrameReview;
   /** The human already called this interval's FEN uncertain (`bad-interval`). */
   intervalFlagged: boolean;
+  /** Whose alpha `coverage` came from — `pending` means a correction the recut has not read. */
+  alpha: AlphaState;
 };
 
 export type VerifyStream = {
@@ -57,11 +59,13 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
       continue; // no exported log — nothing to put the alpha against
     }
     const id = sessionId(name);
-    const [judged, unusable, reviews, bad] = await Promise.all([
+    const [judged, unusable, reviews, bad, fixed, recutAt] = await Promise.all([
       judgedKeys(id),
       unusableBoards(id),
       frameReviews(id),
       badIntervals(id),
+      fixedAlphas(name),
+      matteStamp(name),
     ]);
 
     const index = sessions.length;
@@ -84,6 +88,7 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
         concepts: alpha.concepts,
         review,
         intervalFlagged: bad.has(row.ply),
+        alpha: alphaState(alpha, fixed.get(row.stem), recutAt),
       });
     }
     if (mine.length === 0) continue;

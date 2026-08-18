@@ -39,3 +39,30 @@ test("a session without a matte answers empty, which is not an error", async () 
   const { loadMatte } = await import("@/lib/matte");
   expect((await loadMatte("g")).size).toBe(0);
 });
+
+test("a recut row says whose alpha its numbers came from", async () => {
+  const { loadMatte } = await import("@/lib/matte");
+  await write([
+    JSON.stringify({ frame: "000144", coverage: { a1: 0.9 }, alpha: "fixed" }),
+    JSON.stringify({ frame: "000145", coverage: { a1: 0.9 } }),
+  ]);
+  const matte = await loadMatte("g");
+  expect(matte.get("000144")?.alpha).toBe("fixed");
+  expect(matte.get("000145")?.alpha).toBeUndefined();
+});
+
+test("painted pixels are pending until a recut newer than them has read the file", async () => {
+  const { alphaState } = await import("@/lib/matte");
+  const sam = { stem: "1", concepts: {}, coverage: {} };
+  const fixed = { ...sam, alpha: "fixed" };
+  expect(alphaState(sam, undefined, 100)).toBe("sam");
+  expect(alphaState(sam, 90, 100)).toBe("pending");
+  expect(alphaState(fixed, 90, 100)).toBe("fixed");
+  // Painted AGAIN after the recut: the numbers on screen are SAM's once more.
+  expect(alphaState(fixed, 110, 100)).toBe("pending");
+});
+
+test("a session without corrected alphas answers an empty map, not an error", async () => {
+  const { fixedAlphas } = await import("@/lib/matte");
+  expect((await fixedAlphas("g")).size).toBe(0);
+});

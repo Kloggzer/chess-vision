@@ -50,6 +50,18 @@ export function boardToImage(corners: number[][], boardSize: number, margin: num
   return perspectiveTransform(markerQuad(boardSize, margin), corners);
 }
 
+/** The inverse of a board->image 3x3 — the adjugate; the scale cancels in `applyMat`. */
+export function invertMat(h: Mat3): Mat3 {
+  const c = [
+    h[4] * h[8] - h[5] * h[7], h[5] * h[6] - h[3] * h[8], h[3] * h[7] - h[4] * h[6],
+    h[2] * h[7] - h[1] * h[8], h[0] * h[8] - h[2] * h[6], h[1] * h[6] - h[0] * h[7],
+    h[1] * h[5] - h[2] * h[4], h[2] * h[3] - h[0] * h[5], h[0] * h[4] - h[1] * h[3],
+  ];
+  const det = h[0] * c[0] + h[1] * c[1] + h[2] * c[2];
+  if (Math.abs(det) < 1e-12) throw new Error("singular matrix");
+  return [c[0], c[3], c[6], c[1], c[4], c[7], c[2], c[5], c[8]].map((v) => v / det);
+}
+
 export function applyMat(h: Mat3, x: number, y: number): [number, number] {
   const w = h[6] * x + h[7] * y + h[8];
   return [(h[0] * x + h[1] * y + h[2]) / w, (h[3] * x + h[4] * y + h[5]) / w];
@@ -241,6 +253,25 @@ export function meshPoint(u: number, v: number, mesh: TiltedMesh): [number, numb
     y = lineAt(mesh, "y", cv, x) * (1 - fv) + lineAt(mesh, "y", cv + 1, x) * fv;
   }
   return [x, y];
+}
+
+/** Fixed-point steps of `meshPointInverse`; the map is near-identity, so this converges fast. */
+const MESH_INVERSE_ITERATIONS = 8;
+
+/**
+ * The inverse of [meshPoint]: a point of the MEASURED board back to the ideal one it belongs to.
+ * What straightens a stroke painted on the straightened board back onto the raw raster it has to
+ * be written into (`lib/matte-fix.ts`).
+ */
+export function meshPointInverse(x: number, y: number, mesh: TiltedMesh): [number, number] {
+  let u = x;
+  let v = y;
+  for (let i = 0; i < MESH_INVERSE_ITERATIONS; i++) {
+    const [px, py] = meshPoint(u, v, mesh);
+    u += x - px;
+    v += y - py;
+  }
+  return [u, v];
 }
 
 /**

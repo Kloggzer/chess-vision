@@ -9,7 +9,7 @@
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { sessionDir } from "@/lib/chain";
-import { mattePath } from "@/lib/matte";
+import { alphaPath } from "@/lib/matte";
 import { boardPath, boardToStored, framePath, loadSession, type Session } from "@/lib/session";
 import path from "node:path";
 import {
@@ -48,6 +48,11 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
     return { raster: await rasterOf(boardPath(name, board.rel)), h: boardToStored(session, board) };
   }
   return { raster: await rasterOf(framePath(name, stem)), h: homographyFor(session, stem) };
+}
+
+/** The pen overwrites a file this cache keys by PATH alone — a stale raster would outlive it. */
+export function forgetRaster(file: string): void {
+  decoded.delete(file);
 }
 
 async function rasterOf(file: string): Promise<Raster> {
@@ -163,14 +168,16 @@ function field(session: Session, stem: string, src: { raster: Raster; h: Mat3 },
 }
 
 /**
- * SAM 3's alpha, cut with the SAME quad and mesh as the board under it — the matte is written
- * over the stored raster (`matte.alpha_sam3`), so anything else would overlay it a border off.
+ * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad and mesh as the
+ * board under it: the matte is written over the stored raster (`matte.alpha_sam3`), so anything
+ * else would overlay it a border off.
  */
 export async function mattePng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
-  const src = { raster: await rasterOf(mattePath(name, stem)), h: boardToStored(session, board) };
+  const file = await alphaPath(name, stem);
+  const src = { raster: await rasterOf(file), h: boardToStored(session, board) };
   return encode(field(session, stem, src, size), size, size);
 }
 
