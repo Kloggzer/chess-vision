@@ -83,8 +83,10 @@ Fertig, getestet, committet:
 - `occluders.py` + `chesslab occluders extract` — Kacheln aus drei Clips. `data/occluders/plates/`
   trägt 1 461 aus dem Lauf vom 2026-08-18, davon **177 (12 %) mit Hintergrund darin**, fast alle aus
   `230602` (160 von 479, im letzten Fünftel des Clips 147 von 152). Ursache und Fix stehen in
-  `docs/occluder-plates.md` unter „Zusätzliches Licht"; `data/occluders/plates-v2/` ist der
-  Neuschnitt danach.
+  `docs/occluder-plates.md` unter „Zusätzliches Licht". **`data/occluders/plates-v2/` ist der
+  Neuschnitt danach und die Bibliothek, die gilt**: 1 434 Kacheln, davon **null** mit Hintergrund
+  darin — auch im Schwanz von `230602` nicht, der vorher 147 von 152 verlor. Gegenüberstellung
+  derselben 20 späten Posen: `tmp/occluder-probe-20260819/09a_230602_tail_before.png` und `09b_*_after.png`.
 - `composite.py` + `chesslab occluders composite` — erzeugt Crops mit `coverage` im Manifest
 - `training/occlusion.py` + `--head occlusion` — Verlust, Metriken, Datenpfad
 - `data/turntable/VID_20260817_214400.mp4` — 4K, 30 fps, 3 986 Frames, ArUco auf jedem geprüften
@@ -121,10 +123,9 @@ Zwei Regeln folgen daraus:
    echten Partien. Die Grundstellung genügt damit.
 2. **Den Compositing-Datensatz bauen** und mit `--head occlusion` trainieren. Der Crop-Pool steht
    (2026-08-19): `data/squares__comp/` + `data/manifests/squares__comp.jsonl`, 31 936 Kacheln aus
-   499 Brettern, kein Frame ohne Marker, sechs Blöcke als Pseudo-Sessions. Verdeckung verteilt sich
-   auf 80,6 % bei 0, 4,5 % unter 0,15, 4,3 % bis 0,5 und 10,6 % darüber. **Provisorisch**: geschnitten
-   mit den 1 284 sauberen Kacheln aus `plates/`, nicht mit `plates-v2/` — nach dem Neuschnitt einmal
-   mit `--plates data/occluders/plates-v2` wiederholen, das überschreibt an Ort und Stelle.
+   499 Brettern, kein Frame ohne Marker, sechs Blöcke als Pseudo-Sessions, geschnitten mit
+   `plates-v2`. Verdeckung verteilt sich auf 80,6 % bei 0, 4,1 % unter 0,15, 4,3 % bis 0,5 und
+   11,1 % darüber. Probe je Coverage-Band: `tmp/occluder-probe-20260819/08_pool_by_coverage.png`.
    Dann `chesslab dataset build`; `--cap` muss hoch, der Default 4 je (Session, Feld, Figur) wirft
    genau die Verdeckungsvielfalt weg, für die der Pool existiert.
 3. **Über den echten Korpus laufen lassen.** Das Modell schätzt dann pro Zelle eine Überdeckung.
