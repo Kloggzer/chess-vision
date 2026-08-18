@@ -20,11 +20,13 @@ import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGam
  */
 type Verdict = "keep" | "drop";
 type Committed = { plies: number; until: number };
+//: The NAME, never the index: `games` comes from the server and loses a game the moment it is
+//: confirmed, while the toast outlives that render. An index then points past the end.
 type Note =
-  | { kind: "committed"; game: number; plies: number; until: number }
-  | { kind: "undone"; game: number; dequeued: boolean }
-  | { kind: "dropped"; game: number }
-  | { kind: "reexport"; game: number }
+  | { kind: "committed"; name: string; plies: number; until: number }
+  | { kind: "undone"; name: string; dequeued: boolean }
+  | { kind: "dropped"; name: string }
+  | { kind: "reexport"; name: string }
   | { kind: "error"; text: string };
 
 const without = <T,>(map: Record<number, T>, index: number): Record<number, T> =>
@@ -80,7 +82,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
       const answer = await post<{ reviewed_plies: number[] }>(`/api/zuege/${target.name}`, { action: "commit", kept });
       const until = Date.now() + EXPORT_HOLD_MS;
       setCommitted((c) => ({ ...c, [index]: { plies: answer.reviewed_plies.length, until } }));
-      setNote({ kind: "committed", game: index, plies: answer.reviewed_plies.length, until });
+      setNote({ kind: "committed", name: target.name, plies: answer.reviewed_plies.length, until });
     } catch (error) {
       setNote({ kind: "error", text: String(error) });
     }
@@ -121,7 +123,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
       .flatMap((c) => c.keep);
     try {
       const answer = await post<{ dequeued: boolean }>(`/api/zuege/${games[index].name}`, { action: "undo", kept });
-      setNote({ kind: "undone", game: index, dequeued: answer.dequeued });
+      setNote({ kind: "undone", name: games[index].name, dequeued: answer.dequeued });
     } catch (error) {
       setNote({ kind: "error", text: String(error) });
     }
@@ -138,7 +140,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
     setDropped(next);
     setCommitted((c) => without(c, index));
     setAt(nextItem(items, at, next));
-    setNote({ kind: "dropped", game: index });
+    setNote({ kind: "dropped", name: games[index].name });
     try {
       await post(`/api/useless/${game.name}`, { useless: true, reason: "Züge-Strom: x" });
       // A boundary that already fired has an export on hold; the flag must take that back too.
@@ -159,10 +161,10 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
     }
   }
 
-  async function reexport(index: number) {
+  async function reexport(name: string) {
     try {
-      await post(`/api/zuege/${games[index].name}`, { action: "reexport" });
-      setNote({ kind: "reexport", game: index });
+      await post(`/api/zuege/${name}`, { action: "reexport" });
+      setNote({ kind: "reexport", name });
     } catch (error) {
       setNote({ kind: "error", text: String(error) });
     }
@@ -337,7 +339,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
         </div>
       ) : null}
 
-      {note ? <Toast games={games} note={note} now={now} onReexport={reexport} /> : null}
+      {note ? <Toast note={note} now={now} onReexport={reexport} /> : null}
 
       <Tooltip>
         <TooltipTrigger asChild>
@@ -450,17 +452,15 @@ function EmptyCandidate({ name }: { name: string }) {
 /** §4.1.1's inline confirmation, with the countdown that says how long the undo stays free. */
 function Toast({
   note,
-  games,
   now,
   onReexport,
 }: {
   note: Note;
-  games: StreamGame[];
   now: number;
-  onReexport: (game: number) => void;
+  onReexport: (name: string) => void;
 }) {
   if (note.kind === "error") return <p className="text-destructive text-sm">{note.text}</p>;
-  const name = games[note.game].name;
+  const name = note.name;
   if (note.kind === "committed") {
     const left = Math.max(0, Math.ceil((note.until - now) / 1000));
     return (
@@ -476,7 +476,7 @@ function Toast({
     ) : (
       <p className="text-sm">
         Export läuft bereits — <code>data/sessions/rg-{name}/</code> muss neu exportiert werden.{" "}
-        <Button className="ml-2 max-sm:h-11" onClick={() => onReexport(note.game)} size="sm" variant="outline">
+        <Button className="ml-2 max-sm:h-11" onClick={() => onReexport(note.name)} size="sm" variant="outline">
           neu exportieren
         </Button>
       </p>
