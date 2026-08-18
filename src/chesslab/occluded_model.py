@@ -22,9 +22,12 @@ hand-rolled resize here would measure a domain shift instead of the model.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
+
+from .state import GameState
 
 OCCLUDED = "occluded"
 
@@ -96,3 +99,50 @@ def sparse(probs: list[float], classes: list[str], floor: float = PROB_FLOOR) ->
     the rows stay small. A class absent from the dict is below the floor, not unknown.
     """
     return {c: round(p, 3) for c, p in zip(classes, probs, strict=True) if p >= floor}
+
+
+#: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a
+#: side effect of hunting occlusion — which SAM 3 measures now, so the reads travel alone.
+READS_FILE = "model-reads.jsonl"
+
+
+def read_session(name: str, model_dir: Path, *, device: str = "cpu",
+                 progress: bool = True) -> dict:
+    """Every square of every board, as the model reads it, into `model-reads.jsonl`.
+
+    EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
+    trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
+    """
+    from . import config
+    from .calibration import load_profile
+    from .labeling import all_squares, read_log, read_session_meta
+    from .occluded import frame_cells
+    from .realgames import PROGRESS_EVERY, game_dir
+
+    session_dir = config.DATA.sessions / f"rg-{name}"
+    if not (session_dir / "log.jsonl").exists():
+        raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
+    meta = read_session_meta(session_dir)
+    check_not_circular(model_dir, meta["session_id"])
+    profile = load_profile(meta["profile"])
+    classes = model_classes(model_dir)
+    squares = all_squares()
+    rows = [r for r in read_log(session_dir) if r.get("board") or r.get("frame")]
+    path = game_dir(name) / READS_FILE
+    written = 0
+    with path.open("w", encoding="utf-8") as fh:
+        fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
+                             "_written_at": datetime.now(UTC).isoformat()}) + "\n")
+        for n, row in enumerate(rows, 1):
+            probs = all_probs(model_dir, frame_cells(session_dir, row, profile), device)
+            stem = Path(row["frame"]).stem
+            labels = GameState(row["fen"]).labels()
+            for sq, p in zip(squares, probs, strict=True):
+                fh.write(json.dumps({
+                    "session_id": meta["session_id"], "frame": stem, "square": sq,
+                    "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
+                    "probs": sparse(p, classes)}) + "\n")
+                written += 1
+            if progress and n % PROGRESS_EVERY == 0:
+                print(f"  {n}/{len(rows)} boards, {written} cells", flush=True)
+    return {"path": path, "boards": len(rows), "cells": written, "model": str(model_dir)}

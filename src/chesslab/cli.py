@@ -736,6 +736,32 @@ def realgames_fit_stored(
           f"{failed} left to their logged quad")
 
 
+@realgames_app.command("model-read")
+def realgames_model_read(
+    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    model: str = typer.Option(..., "--model", help="Run dir of a model that did NOT train on "
+                                                   "this session (refused if it did)."),
+    device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
+) -> None:
+    """Read every square of a session with a model into `model-reads.jsonl`.
+
+    This is what `propose-occluded` produced as a side effect while hunting occlusion. SAM 3
+    measures occlusion now, so the reads travel alone — and over EVERY board, not just the
+    dirty ones, because a wrong piece on a clean board is what the p8 stock trains on.
+    """
+    from pathlib import Path as _Path
+
+    from . import occluded_model
+
+    try:
+        res = occluded_model.read_session(name, _Path(model), device=device)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    print(f"[OK] {res['cells']} Zellen aus {res['boards']} Brettern "
+          f"({_Path(res['model']).name}) -> {res['path']}")
+
+
 @realgames_app.command("propose-occluded")
 def realgames_propose_occluded(
     name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
