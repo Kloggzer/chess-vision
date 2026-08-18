@@ -23,6 +23,13 @@ const ABLAGE: readonly Item[] = [
 
 const REPARATUR: Item = { href: "/reparatur", label: "Reparatur" };
 
+//: Which nav entries carry a badge. `/strom/matte` has none — its work only exists once the alpha
+//: worker has run, and a 0 there would read as "nothing to check" rather than "not measured yet".
+const COUNT_OF: Record<string, ((c: NavCounts) => number) | undefined> = {
+  "/strom/zuege": (c) => c.zuege,
+  "/strom/labeln": (c) => c.labeln,
+};
+
 function active(path: string, item: Item): boolean {
   if ((item.also ?? []).some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) return true;
   return item.href === "/" ? path === "/" : path === item.href || path.startsWith(`${item.href}/`);
@@ -91,10 +98,13 @@ function AutopilotBlock({ autopilot }: { autopilot: Autopilot }) {
 export function Shell({ counts, children }: { counts: NavCounts; children: React.ReactNode }) {
   const autopilot = useAutopilot();
   const repair = autopilot.status?.repair ?? 0;
+  // Mapped, not indexed: `/strom/matte` sat in STROM for a day without ever being drawn, because
+  // the two Rows were written out by hand and the third entry had no line of its own.
   const items = (
     <>
-      <Row count={counts.zuege} item={STROM[0]} />
-      <Row count={counts.labeln} item={STROM[1]} />
+      {STROM.map((item) => (
+        <Row count={COUNT_OF[item.href]?.(counts)} item={item} key={item.href} />
+      ))}
     </>
   );
   const rest = (
