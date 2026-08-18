@@ -1,5 +1,5 @@
 /**
- * The exported session (`data/sessions/rg-<name>/`, phase 01) as the relabel views need it:
+ * The exported session (`data/sessions/rg-<name>/`, phase 01) as the label views need it:
  * one row per FRAME with its ply, its FEN and its own corner quad.
  *
  * Read paths are mtime-keyed (CLAUDE.md: never re-read a whole manifest per request) — the log

@@ -2,7 +2,8 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import Link from "next/link";
 import { PageTitle } from "@/app/page-title";
-import { corpusIndex, datasetDir, listDatasets, trainShares, type DatasetEntry } from "@/lib/corpus";
+import { LEGACY_LABEL } from "@/lib/classes";
+import { classScheme, corpusIndex, datasetDir, listDatasets, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus";
 import { listPacks, sessionDirty } from "@/lib/packs";
 import { groupByPack, loadPerf, sweepLog } from "@/lib/perf";
 import { loadPool, occludedFit, snapshotOccluded, type Pool } from "@/lib/pool";
@@ -26,8 +27,11 @@ async function datasetView(name: string, entries: DatasetEntry[], pool: Pool): P
   if (!split) return null;
   const index = await corpusIndex(name);
   const shares = trainShares(index, split);
-  const fit = occludedFit(pool, snapshotOccluded(index, split));
-  return { name, split, index, shares, fit, hasReal: shares.rows.some((row) => row.real) };
+  const scheme = classScheme(split, await loadDatasetMeta(name));
+  // Only a snapshot that HAS the bucket can be measured against the pool's occluded cells.
+  const carries = (split.classes ?? []).includes(LEGACY_LABEL);
+  const fit = carries ? occludedFit(pool, snapshotOccluded(index, split)) : null;
+  return { name, split, scheme, index, shares, fit, hasReal: shares.rows.some((row) => row.real) };
 }
 
 /** Default is the dataset whose `split.json` was written last — the one a rebuild just produced. */

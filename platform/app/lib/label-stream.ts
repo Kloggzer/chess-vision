@@ -108,10 +108,8 @@ export type LabelStream = {
 const newestFirst = (names: string[]) =>
   [...names].sort((a, b) => recordedAt(b).localeCompare(recordedAt(a)) || b.localeCompare(a));
 
-/**
- * The filter bar's own floor (`app/relabel/[name]/filter.tsx:37`) — the identity lanes ask the same
- * question the class filter asks, so they must not answer it with a different threshold.
- */
+/** The wall query's own floor (`lib/query.ts` STEPS) — the identity lanes ask the same question,
+ *  so they must not answer it with a different threshold. */
 const DISAGREE_MIN = 0.1;
 
 /** The model's argmax against the FEN's word. `occluded` is the hand lane's job, not an identity. */

@@ -13,7 +13,6 @@ import {
   type Filter,
   type Proposal,
   classesSeen,
-  framesMatching,
   matches,
   acceptLabel,
   proposalKey,
@@ -21,7 +20,7 @@ import {
   DISAGREE,
 } from "@/lib/query";
 
-export { acceptLabel, classesSeen, DISAGREE, framesMatching, matches, proposalKey, topRead };
+export { acceptLabel, classesSeen, DISAGREE, matches, proposalKey, topRead };
 export type { Filter, Proposal };
 
 export type Thresholds = { hi: number; lo: number; declared: boolean };

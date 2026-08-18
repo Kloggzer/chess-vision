@@ -5,7 +5,6 @@ app/useless-button.tsx 6
 app/confirm/board-frames.tsx 6
 app/transfers/page.tsx 8
 app/game/[name]/page.tsx 7
-app/relabel/[name]/filter.tsx 9
 app/strom/labeln/board-lane.tsx 7
 app/strom/labeln/cell-lane.tsx 6
 app/strom/labeln/mobile-sort.tsx 7

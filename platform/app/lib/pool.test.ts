@@ -55,6 +55,7 @@ const INDEX: CorpusIndex = {
   dataset: "d",
   key: "k",
   rows: 3,
+  coverage: null,
   written_at: "",
   sessions: {
     "occ-rg-2026-08-07": { total: 2120, classes: { occluded: 2120 } },

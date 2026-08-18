@@ -164,7 +164,7 @@ export function GameCard({ game }: { game: GameInfo }) {
           </Link>
         ) : null}
         {game.cells > 0 && game.chain.step !== "relabel" ? (
-          <Link className="hover:text-foreground" href={`/relabel/${game.name}`}>
+          <Link className="hover:text-foreground" href="/strom/labeln">
             Bretter
           </Link>
         ) : null}

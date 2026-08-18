@@ -2,7 +2,8 @@ import { Hint, Why } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { BarRows, Legend, Meter, PairBars, Tile, type Bar, type Tone } from "@/components/chart";
 import { maxOf, niceMax } from "@/lib/chart";
-import type { CorpusIndex, Shares, Split } from "@/lib/corpus";
+import { LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
+import type { ClassScheme, CorpusIndex, Shares, Split } from "@/lib/corpus";
 import type { Bundle, PackSummary, SessionDirty } from "@/lib/packs";
 import { decidedRatio } from "@/lib/packs";
 import type { PackGroup } from "@/lib/perf";
@@ -19,12 +20,29 @@ const SUMMARY = "cursor-pointer max-sm:min-h-11";
 export type DatasetView = {
   name: string;
   split: Split;
+  /** What this snapshot's labels mean — read off the snapshot, never assumed (`lib/corpus.ts`). */
+  scheme: ClassScheme;
   index: CorpusIndex;
   shares: Shares;
-  fit: OccludedFit;
+  /** `null` where the snapshot carries no `occluded` bucket to compare the pool against. */
+  fit: OccludedFit | null;
   /** False for turntable, synth and phone packs: their train split holds no recorded game. */
   hasReal: boolean;
 };
+
+/**
+ * Occlusion under `pieces13`: a per-row float, not a class. `null` = no row carried the field,
+ * which is "not measured" and must never be drawn as a zero.
+ */
+function coverageOf(view: DatasetView | null) {
+  const cov = view?.index.coverage ?? null;
+  if (!cov || cov.rows === 0) return null;
+  return { ...cov, share: cov.over / cov.rows };
+}
+
+const COVERAGE_WHY =
+  `Verdeckung ist im 13er-Schema eine Zahl je Zeile, keine Klasse. Über ${PIECE_VISIBLE_MAX} ist ein Crop ` +
+  `kein Figur-Beispiel mehr — OcclusionLoss nimmt ihn aus dem Klassen-Term, die Zeile bleibt im Datensatz.`;
 
 /** A line that is cut to its column; the whole of it belongs in the tooltip, not in the layout. */
 function Note({ why, className, children }: { why: string; className?: string; children: React.ReactNode }) {
@@ -40,9 +58,32 @@ const poolWhy = (pool: Pool) =>
   `FEN-Label mit corrections.jsonl last-wins auf (session_id, frame, square). Ein Slice schneidet aus einer Zelle einen ` +
   `Crop; ${num(pool.orphans)} Korrekturzeilen liegen auf keinem exportierten Frame.`;
 
+function OccludedTile({ pool, view }: { pool: Pool; view: DatasetView | null }) {
+  const snapshot = view?.split.train_class_counts?.[LEGACY_LABEL] ?? 0;
+  const diff = occludedDiff(pool.classes[LEGACY_LABEL] ?? 0, snapshot);
+  return (
+    <Tile
+      label="DIFF occluded (Rebuild heute)"
+      sub={view?.hasReal ? `POOL ${num(pool.classes[LEGACY_LABEL] ?? 0)} ▸ SNAPSHOT ${num(snapshot)}` : "keine Realpartie im train-Split"}
+      value={view?.hasReal ? `${diff > 0 ? "−" : diff < 0 ? "+" : ""}${num(Math.abs(diff))} Zellen` : "—"}
+      why="Positiv = der Pool ist dem Snapshot voraus; das ist, was ein Rebuild heute hinzufügen würde."
+    />
+  );
+}
+
+function CoverageTile({ view }: { view: DatasetView | null }) {
+  const cov = coverageOf(view);
+  return (
+    <Tile
+      label={`Zeilen über coverage ${PIECE_VISIBLE_MAX}`}
+      sub={cov ? `${num(cov.over)} von ${num(cov.rows)} Zeilen mit coverage` : "keine Zeile trägt ein coverage-Feld"}
+      value={cov ? pct(cov.share) : "—"}
+      why={COVERAGE_WHY}
+    />
+  );
+}
+
 export function Tiles({ pool, view, provenance }: { pool: Pool; view: DatasetView | null; provenance: ProvenanceSummary }) {
-  const snapshot = view?.split.train_class_counts?.occluded ?? 0;
-  const diff = occludedDiff(pool.classes.occluded ?? 0, snapshot);
   return (
     <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
       <Tile
@@ -51,12 +92,7 @@ export function Tiles({ pool, view, provenance }: { pool: Pool; view: DatasetVie
         value={`${num(pool.cells)} Zellen`}
         why={poolWhy(pool)}
       />
-      <Tile
-        label="DIFF occluded (Rebuild heute)"
-        sub={view?.hasReal ? `POOL ${num(pool.classes.occluded ?? 0)} ▸ SNAPSHOT ${num(snapshot)}` : "keine Realpartie im train-Split"}
-        value={view?.hasReal ? `${diff > 0 ? "−" : diff < 0 ? "+" : ""}${num(Math.abs(diff))} Zellen` : "—"}
-        why="Positiv = der Pool ist dem Snapshot voraus; das ist, was ein Rebuild heute hinzufügen würde."
-      />
+      {view === null || view.scheme === "pieces14" ? <OccludedTile pool={pool} view={view} /> : <CoverageTile view={view} />}
       <Tile
         label="Realpartien im train-Split"
         sub={view ? `${num(view.shares.real)} von ${num(view.shares.total)} Crops` : "kein Datensatz gewählt"}
@@ -101,10 +137,10 @@ export function D2Banner({ entries, summary }: { entries: Provenance[]; summary:
   );
 }
 
-const classTone = (klass: string): Tone => (klass === "occluded" ? "subject" : klass === "empty" ? "second" : "context");
+const classTone = (klass: string): Tone => (klass === LEGACY_LABEL ? "subject" : klass === "empty" ? "second" : "context");
 
 const CLASS_LEGEND: { tone: Tone; label: string }[] = [
-  { tone: "subject", label: "occluded" },
+  { tone: "subject", label: LEGACY_LABEL },
   { tone: "second", label: "empty" },
   { tone: "context", label: "Figuren" },
 ];
@@ -176,10 +212,87 @@ export function BalanceCard({ view, pool }: { view: DatasetView; pool: Pool }) {
   );
 }
 
-/** §7.1's second half: what a rebuild would move, as the two bars it is the difference of. */
+/**
+ * §7.1's second half, in the scheme the snapshot was BUILT in: `pieces14` compares its occluded
+ * bucket against the pool, `pieces13` has no such bucket and reports its coverage instead. Old
+ * snapshots keep reading exactly as before — the page branches, it does not convert.
+ */
 export function PoolCard({ view, pool }: { view: DatasetView; pool: Pool }) {
-  const snapshot = view.split.train_class_counts?.occluded ?? 0;
-  const poolOccluded = pool.classes.occluded ?? 0;
+  return view.scheme === "pieces14" && view.fit ? (
+    <OccludedPool fit={view.fit} pool={pool} view={view} />
+  ) : (
+    <CoveragePool pool={pool} view={view} />
+  );
+}
+
+function CoveragePool({ view, pool }: { view: DatasetView; pool: Pool }) {
+  const cov = coverageOf(view);
+  const legacy = pool.classes[LEGACY_LABEL] ?? 0;
+  const max = niceMax(cov?.rows ?? 0);
+
+  return (
+    <section className={CARD}>
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <h3 className="text-sm font-semibold">
+          Verdeckung: coverage statt Klasse
+          <span className={`${MUTED} ml-2 font-mono`}>{view.scheme}</span>
+        </h3>
+        <Why>{COVERAGE_WHY}</Why>
+      </div>
+      {cov ? (
+        <>
+          <BarRows
+            bars={[
+              {
+                key: "over",
+                label: `> ${PIECE_VISIBLE_MAX}`,
+                value: cov.over,
+                text: `${num(cov.over)} Zeilen`,
+                tone: "subject",
+                why: `verdeckt: kein Figur-Beispiel, aber weiter Trainingssignal für den coverage-Ausgang`,
+              },
+              {
+                key: "under",
+                label: `≤ ${PIECE_VISIBLE_MAX}`,
+                value: cov.rows - cov.over,
+                text: `${num(cov.rows - cov.over)} Zeilen`,
+                tone: "deep",
+                why: "sichtbar genug: zählt voll in den Klassen-Term",
+              },
+            ]}
+            labelClass="max-w-24"
+            max={max}
+          />
+          <p className="text-2xl leading-tight font-semibold tabular-nums">
+            {pct(cov.share)}{" "}
+            <span className="text-muted-foreground text-xs font-normal">
+              der {num(cov.rows)} Zeilen mit coverage liegen über {PIECE_VISIBLE_MAX}
+            </span>
+          </p>
+        </>
+      ) : (
+        <Note
+          className={MUTED}
+          why="manifest.jsonl trägt das Feld erst, wenn die Session eine matte.jsonl hat (labeling.slice_session)."
+        >
+          Keine Zeile dieses Manifests trägt <code>coverage</code> — nicht gemessen, nicht null.
+        </Note>
+      )}
+      {legacy > 0 ? (
+        <Note
+          className={`${MUTED} truncate`}
+          why="Die Zeilen bleiben lesbar und werden nie umgeschrieben; in diesem Schema tragen sie nur keinen Crop mehr."
+        >
+          POOL hält {num(legacy)} Alt-Zellen <code>{LEGACY_LABEL}</code> — in diesem Schema wird daraus kein Crop.
+        </Note>
+      ) : null}
+    </section>
+  );
+}
+
+function OccludedPool({ view, pool, fit }: { view: DatasetView; pool: Pool; fit: OccludedFit }) {
+  const snapshot = view.split.train_class_counts?.[LEGACY_LABEL] ?? 0;
+  const poolOccluded = pool.classes[LEGACY_LABEL] ?? 0;
   const diff = occludedDiff(poolOccluded, snapshot);
   const max = niceMax(Math.max(poolOccluded, snapshot));
 
@@ -217,18 +330,15 @@ export function PoolCard({ view, pool }: { view: DatasetView; pool: Pool }) {
               {diff > 0 ? "Zellen fehlen dem Snapshot" : diff < 0 ? "Zellen mehr im Snapshot als im Pool" : "gleichauf"}
             </span>
           </p>
-          <Note className={`${MUTED} truncate`} why={view.fit.inside.map((hit) => hit.datasetSessionId).join(" · ") || "—"}>
+          <Note className={`${MUTED} truncate`} why={fit.inside.map((hit) => hit.datasetSessionId).join(" · ") || "—"}>
             drin:{" "}
-            {view.fit.inside.length === 0
+            {fit.inside.length === 0
               ? "—"
-              : view.fit.inside.map((hit) => `${hit.datasetSessionId} (${num(hit.crops)})`).join(" · ")}
+              : fit.inside.map((hit) => `${hit.datasetSessionId} (${num(hit.crops)})`).join(" · ")}
           </Note>
-          <Note className={`${MUTED} truncate`} why={view.fit.outside.join(" · ") || "—"}>
-            NICHT drin: {view.fit.outside.length === 0 ? "—" : view.fit.outside.join(" · ")}
+          <Note className={`${MUTED} truncate`} why={fit.outside.join(" · ") || "—"}>
+            NICHT drin: {fit.outside.length === 0 ? "—" : fit.outside.join(" · ")}
           </Note>
-          {view.split.classes?.includes("occluded") ? null : (
-            <p className={MUTED}>Dieser Datensatz hat gar keine <code>occluded</code>-Klasse — der Snapshot kann keine tragen.</p>
-          )}
         </>
       ) : (
         <p className={MUTED}>keine Realpartie-Session im train-Split — POOL/DIFF ist hier nicht anwendbar.</p>

@@ -67,7 +67,7 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
         <Link className="text-muted-foreground hover:text-foreground" href={`/confirm/${name}`}>
           Sichtprüfung
         </Link>
-        <Link className="text-muted-foreground hover:text-foreground" href={`/relabel/${name}`}>
+        <Link className="text-muted-foreground hover:text-foreground" href="/strom/labeln">
           Brett-Queue
         </Link>
       </PageTitle>

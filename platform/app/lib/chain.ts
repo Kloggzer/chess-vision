@@ -43,7 +43,7 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
-/** `data/sessions/rg-<name>/` — what `export-session` writes and `/relabel` reads. */
+/** `data/sessions/rg-<name>/` — what `export-session` writes and the label streams read. */
 export function sessionDir(name: string): string {
   return path.join(dataDir(), "sessions", `rg-${checkName(name, "game name")}`);
 }

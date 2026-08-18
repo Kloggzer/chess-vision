@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import { corpusIndex, corpusIndexDir, datasetDir, isRealGame, sameSession, tallyLines, trainShares, type Split } from "@/lib/corpus";
+import { classScheme, corpusIndex, corpusIndexDir, datasetDir, INDEX_VERSION, isRealGame, loadDatasetMeta, sameSession, tallyLines, trainShares, type Split } from "@/lib/corpus";
 
 /** Two sessions, one of them a real game under its `occ-` alias — the shape §7.2 groups by. */
 const MANIFEST = [
@@ -74,7 +74,7 @@ test("an unchanged manifest is answered from the index file, not from a second p
 
 test("shares are of the train split alone, and the real games are summed apart", () => {
   const shares = trainShares(
-    { dataset: "d1", key: "k", rows: 3, written_at: "", sessions: { "train80-VID_1": { total: 90, classes: {} }, "occ-rg-2026-08-07": { total: 10, classes: {} }, "test80-x": { total: 500, classes: {} } } },
+    { dataset: "d1", key: "k", rows: 3, coverage: null, written_at: "", sessions: { "train80-VID_1": { total: 90, classes: {} }, "occ-rg-2026-08-07": { total: 10, classes: {} }, "test80-x": { total: 500, classes: {} } } },
     SPLIT,
   );
   expect(shares.total).toBe(100);
@@ -82,6 +82,46 @@ test("shares are of the train split alone, and the real games are summed apart",
   expect(shares.rows[1].share).toBeCloseTo(0.1);
   expect(shares.real).toBe(10);
   expect(shares.realShare).toBeCloseTo(0.1);
+});
+
+test("a snapshot's scheme comes from the snapshot, never from a default", async () => {
+  const thirteen: Split = { ...SPLIT, classes: ["empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK"] };
+  expect(classScheme(SPLIT, { classMode: "pieces14" })).toBe("pieces14");
+  expect(classScheme(SPLIT, { classMode: "pieces13" })).toBe("pieces13"); // the file's word outranks the list
+  expect(classScheme({ ...SPLIT, classes: ["empty", "occupied"] }, { classMode: "occupancy" })).toBe("other");
+  // Four packs on disk say the older `class_mode: pieces` and carry 14 classes — the list decides.
+  expect(classScheme(SPLIT, { classMode: "pieces" })).toBe("pieces14");
+  expect(classScheme(thirteen, { classMode: "pieces" })).toBe("pieces13");
+  // No `dataset.yaml`: the class list is the same evidence one step later.
+  expect(classScheme(SPLIT, { classMode: null })).toBe("pieces14");
+  expect(classScheme(thirteen, { classMode: null })).toBe("pieces13");
+  expect(classScheme({ ...SPLIT, classes: ["empty", "occupied"] }, { classMode: null })).toBe("other");
+  expect(await loadDatasetMeta("d1")).toEqual({ classMode: null });
+  await writeFile(path.join(datasetDir("d1"), "dataset.yaml"), "name: d1\nclass_mode: pieces13\n", "utf8");
+  expect(await loadDatasetMeta("d1")).toEqual({ classMode: "pieces13" });
+});
+
+test("coverage is counted where the rows carry it, and stays null where they do not", async () => {
+  const bare = await tallyLines(MANIFEST.split("\n"));
+  expect(bare.coverage).toBeNull();
+  const measured = await tallyLines([
+    '{"session_id":"rg-a","label":"wP","coverage":0.0}',
+    '{"session_id":"rg-a","label":"wP","coverage":0.15}',
+    '{"session_id":"rg-a","label":"wP","coverage":0.94}',
+  ]);
+  expect(measured.coverage).toEqual({ rows: 3, over: 1 });
+});
+
+test("an index written by an older pass is rebuilt, not read as if it counted coverage", async () => {
+  const first = await corpusIndex("d1");
+  expect(first.version).toBe(INDEX_VERSION);
+  await writeFile(
+    path.join(corpusIndexDir(), "d1.json"),
+    JSON.stringify({ ...first, version: undefined, rows: 999 }),
+    "utf8",
+  );
+  clearMemo();
+  expect((await corpusIndex("d1")).rows).toBe(3);
 });
 
 test("a variant prefix is not a different session", () => {

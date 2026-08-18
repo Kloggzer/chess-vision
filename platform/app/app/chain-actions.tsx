@@ -16,7 +16,7 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
   export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
   propose: { label: "Vorschläge erzeugen", hint: "dirty Zellen bewerten → occluded-proposals.jsonl" },
-  relabel: { label: "Labeln", hint: "Brett-Brush und Zellraster" },
+  relabel: { label: "Labeln", hint: "Brett-Pinsel und Zellraster im Strom" },
 };
 
 const BUSY = new Set(["queued", "running"]);
@@ -86,7 +86,7 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
           <TooltipTrigger asChild>
             <Link
               className="border-border inline-flex items-center rounded border px-2 py-0.5 underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
-              href={`/${step}/${name}`}
+              href={step === "relabel" ? "/strom/labeln" : `/${step}/${name}`}
             >
               {STEP[step].label} →
             </Link>

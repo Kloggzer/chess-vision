@@ -66,20 +66,6 @@ export function acceptLabel(row: Proposal, f: Filter): string | null {
   return topRead(row)?.label ?? null;
 }
 
-/** The BOARDS a filter hits: one entry per frame, with the cells that matched on it. */
-export function framesMatching(rows: Proposal[], f: Filter): { stem: string; cells: Proposal[] }[] {
-  const byFrame = new Map<string, Proposal[]>();
-  for (const row of rows) {
-    if (!matches(row, f)) continue;
-    const list = byFrame.get(row.frame);
-    if (list) list.push(row);
-    else byFrame.set(row.frame, [row]);
-  }
-  return [...byFrame.entries()]
-    .map(([stem, cells]) => ({ stem, cells }))
-    .sort((a, b) => b.cells.length - a.cells.length || a.stem.localeCompare(b.stem));
-}
-
 /** Every class the model actually emitted, so the filter offers real options only. */
 export function classesSeen(rows: Proposal[]): string[] {
   const seen = new Set<string>();
