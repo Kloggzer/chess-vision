@@ -487,10 +487,14 @@ def slice_session(
         # `SETTLE_LIMIT`. Absent on every session that predates the scan, which is the same thing.
         settle = entry.get("settle_dev") or ()
         frame_stem = Path(entry["frame"]).stem  # '0007'
-        # A hand the tracker never noticed is still a hand: the settle detector reacts to pieces
-        # moving, and an arm resting over the board moves nothing (1 % of this corpus' quiet
-        # frames). The matte sees it, so the frame leaves the pool by the same door.
-        if any(v > MATTE_DIRTY for v in matte.get(frame_stem, {}).values()):
+        cover = matte.get(frame_stem, {})
+        # An `occluded` frame is a hand over a position the commit still vouches for, and its
+        # matte says how much of each square is hidden. That makes its cells labelable: the FEN
+        # gives the class, the coverage takes the hidden ones out of the loss. Only WITH the
+        # measurement — coverage 0.0 under a hand would be a lie (`docs/frame-scan.md`).
+        if entry.get("dirty_reason") == "occluded" and cover:
+            dirty = False
+        elif any(v > MATTE_DIRTY for v in cover.values()):
             dirty = True
         squares = all_squares()
         for i, square in enumerate(squares):
