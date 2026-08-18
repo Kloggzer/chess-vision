@@ -117,6 +117,46 @@ def coverage_of(alpha: np.ndarray, entry: dict, profile) -> dict[str, float]:
 ALPHA_REASON = "occluded"
 
 
+#: A hand-corrected alpha lands beside SAM's, never on top of it: the model's own cut stays
+#: readable, and which one a row used is written down rather than guessed from a timestamp.
+FIXED_SUFFIX = ".fixed.webp"
+
+
+def recut_fixed(name: str, *, progress: bool = True) -> dict:
+    """Recompute coverage for every frame whose alpha a human corrected.
+
+    The cut has ONE implementation — `coverage_of`, the same `crops_for_frame` call the image goes
+    through. The UI paints pixels and hands them over; it never computes a coverage number itself.
+    """
+    import json
+
+    from .calibration import load_profile
+    from .ioutil import read_jsonl
+    from .labeling import read_log, read_session_meta
+
+    session_dir = config.DATA.sessions / f"rg-{name}"
+    path = session_dir / "matte.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    rows, redone = [], 0
+    for row in read_jsonl(path):
+        fixed = session_dir / "mattes" / f"{row['frame']}{FIXED_SUFFIX}"
+        entry = entries.get(row["frame"])
+        if fixed.exists() and entry is not None:
+            alpha = cv2.imread(str(fixed), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
+            cov = coverage_of(alpha, entry, profile)
+            row = row | {"coverage": cov, "alpha": "fixed",
+                         "cells_over_half": sum(v > 0.5 for v in cov.values())}
+            redone += 1
+            if progress and redone % 10 == 0:
+                print(f"  {redone} corrected alphas recut", flush=True)
+        rows.append(row)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    return {"path": path, "frames": len(rows), "recut": redone}
+
+
 def alpha_worker(name: str, *, limit: int | None = None, reason: str = ALPHA_REASON,
                  progress: bool = True) -> dict:
     """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.

@@ -239,3 +239,32 @@ def test_the_limit_is_a_target_not_a_batch(tmp_path, monkeypatch):
         [json.loads(x) for x in (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()]
     ))) == 4
     assert matte.alpha_worker("s1", limit=4, progress=False)["alphas"] == 0, "asking again is free"
+
+
+def test_a_corrected_alpha_is_recut_and_sams_own_survives(tmp_path, monkeypatch):
+    """The paint tool writes pixels; the numbers come from the one cut, never from the browser."""
+    import json
+
+    pad = crop_border_px(_profile())
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    rows = [{"frame": "frames/000001.png", "board": "dirty/000001.webp", "ply": 1, "fen": fen,
+             "dirty": True, "dirty_reason": "occluded", "corners": _profile().image_corners,
+             "board_size": SIDE, "board_border": pad}]
+    sdir = _session(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+    matte.alpha_worker("s1", progress=False)
+    before = json.loads((sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()[0])
+
+    side = SIDE + 2 * pad
+    painted = np.zeros((side, side), np.uint8)
+    painted[pad:pad + CELL, pad:pad + CELL] = 255                  # a8 von Hand zugemalt
+    cv2.imwrite(str(sdir / "mattes" / f"000001{matte.FIXED_SUFFIX}"), painted)
+
+    res = matte.recut_fixed("s1", progress=False)
+    after = json.loads((sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()[0])
+
+    assert res["recut"] == 1
+    assert before["coverage"]["a8"] == 0.0 and after["coverage"]["a8"] > 0.5
+    assert after["alpha"] == "fixed", "the row says which alpha it used"
+    assert (sdir / "mattes" / "000001.webp").exists(), "SAM's own cut is not overwritten"

@@ -1036,6 +1036,26 @@ def occluders_extract(
     print(f"[OK] {total} Kacheln in {out}")
 
 
+@occluders_app.command("recut")
+def occluders_recut(
+    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+) -> None:
+    """Recompute coverage for every frame whose alpha a human corrected in the matte view.
+
+    The paint tool writes pixels (`mattes/<stem>.fixed.webp`); the numbers come from here, through
+    the same `crops_for_frame` cut the training image goes through. One cut, one truth.
+    """
+    from . import matte as matte_mod
+
+    try:
+        res = matte_mod.recut_fixed(name)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    print(f"[OK] {res['recut']} korrigierte Alphas neu geschnitten "
+          f"({res['frames']} Zeilen) -> {res['path']}")
+
+
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
     name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
