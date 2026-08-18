@@ -42,7 +42,7 @@ test("no client component imports a value from a filesystem-touching lib module"
     [...text].filter(([f, t]) => f.includes(`${path.sep}lib${path.sep}`) && NODE_IMPORT.test(t)).map(([f]) => path.basename(f, ".ts")),
   );
   // If this is empty the test proves nothing — the loader must still be a filesystem module.
-  expect(touchesFs).toContain("proposals");
+  expect(touchesFs).toContain("model-reads");
 
   const offences: string[] = [];
   for (const [file, body] of text) {

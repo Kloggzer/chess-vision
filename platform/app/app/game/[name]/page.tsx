@@ -9,8 +9,7 @@ import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { jobHistory, jobLogTail, type Job } from "@/lib/jobs";
 import { loadMeta } from "@/lib/meta";
-import { boardProgressOf, type ProposalSummary } from "@/lib/proposal-summaries";
-import { loadProposals, proposalKey } from "@/lib/proposals";
+import { boardProgressOf, loadModelReads, readKey, type ReadCensus } from "@/lib/model-reads";
 import { bareFrames } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
 
@@ -20,10 +19,10 @@ export const dynamic = "force-dynamic";
  * `/game/<name>` — one recording, everything (CONCEPT.md §3.1). The daily loop never opens it; `.`
  * in a stream does, in a new tab, when a card raises a question the stream cannot answer.
  *
- * It is the ONE page that may be slow: the exact `cellsDone` costs a parse of this game's proposal
- * rows, which is precisely what the list surfaces refuse to pay and what a debug surface is for.
+ * It is the ONE page that may be slow: the exact `cellsDone` costs a parse of this game's model
+ * reads, which is precisely what the list surfaces refuse to pay and what a debug surface is for.
  */
-async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: GameInfo; summary: ProposalSummary }> {
+async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: GameInfo; census: ReadCensus }> {
   const [meta, candidate, chain, pgn] = await Promise.all([
     loadMeta(name),
     loadCandidate(name).catch(() => null),
@@ -31,8 +30,8 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
     truthSans(name).catch(() => null),
   ]);
   const decided = await judgedKeys(sessionId(name));
-  const { summary, boards, done } = await boardProgressOf(name, decided.keys());
-  const { rows, source } = await loadProposals(name);
+  const { census, boards, done } = await boardProgressOf(name, decided.keys());
+  const { rows } = await loadModelReads(name);
   const info: GameInfo = {
     name,
     sessionId: sessionId(name),
@@ -47,21 +46,20 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
     pgnPlies: pgn ? pgn.length : null,
     boards,
     boardsDone: done,
-    cells: rows.length,
-    cellsDone: rows.filter((r) => decided.has(proposalKey(r))).length,
-    source,
-    read: summary.read,
+    cells: census.cells,
+    cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
+    measured: census.present,
     chain,
     lastJob,
   };
-  return { info, summary };
+  return { info, census };
 }
 
 export default async function GamePage({ params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
   if (!(await listGames()).includes(name)) notFound();
   const history = await jobHistory(name, 12);
-  const { info: game, summary } = await gameInfo(name, history[0] ?? null);
+  const { info: game, census } = await gameInfo(name, history[0] ?? null);
 
   return (
     <main className="space-y-4">
@@ -95,11 +93,12 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
           {game.chain.hasSession ? <SessionDelete className="ml-3" sessionId={sessionId(name)} /> : null}
         </Fact>
         <Fact label="Bretter">
-          {game.boardsDone}/{game.boards} · {game.cellsDone}/{game.cells} Zellen ({game.read})
+          {census.present ? `${game.boardsDone}/${game.boards} · ${game.cellsDone}/${game.cells} Zellen` : "—"}
         </Fact>
-        <Fact label="Propose-Lauf">
-          {summary.model ?? "Modell unbekannt"} · hi {summary.hi} / lo {summary.lo} ·{" "}
-          {summary.written_at ?? "ohne Datum"}
+        <Fact label="Modell-Lesarten">
+          {census.present
+            ? `${census.model ?? "Modell unbekannt"} · ${census.writtenAt ?? "ohne Datum"}`
+            : "— nicht gemessen: model-reads.jsonl fehlt"}
         </Fact>
         {game.chain.videoBroken ? <Fact label="Video">{game.chain.videoBroken}</Fact> : null}
       </section>

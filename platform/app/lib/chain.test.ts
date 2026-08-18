@@ -33,7 +33,7 @@ describe("nextStep", () => {
     hasCandidate: false,
     confirmed: false,
     hasSession: false,
-    hasProposals: false,
+    hasModelReads: false,
     useless: null,
   };
 
@@ -46,8 +46,8 @@ describe("nextStep", () => {
     expect(nextStep(base)).toBe("label");
     expect(nextStep({ ...base, hasCandidate: true })).toBe("confirm");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true })).toBe("export");
-    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true })).toBe("propose");
-    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true, hasProposals: true })).toBe("labeln");
+    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true })).toBe("model-read");
+    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true, hasModelReads: true })).toBe("labeln");
   });
 
   it("never offers export before a human confirmed — an unconfirmed candidate exports nothing", () => {
@@ -76,12 +76,12 @@ describe("chainState", () => {
     expect((await chainState(NAME)).offeredPgn).toBeNull();
   });
 
-  it("moves to labeln once the session and the proposals exist", async () => {
+  it("moves to labeln once the session and the model reads exist", async () => {
     await video();
     await candidate(true);
     await mkdir(path.join(data, "sessions", `rg-${NAME}`), { recursive: true });
     await writeFile(path.join(data, "sessions", `rg-${NAME}`, "log.jsonl"), "{}\n");
-    await writeFile(game("occluded-proposals.jsonl"), "{}\n");
+    await writeFile(game("model-reads.jsonl"), "{}\n");
     expect((await chainState(NAME)).step).toBe("labeln");
   });
 

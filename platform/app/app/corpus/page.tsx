@@ -7,7 +7,7 @@ import { classScheme, corpusIndex, datasetDir, listDatasets, loadDatasetMeta, tr
 import { listPacks, sessionDirty } from "@/lib/packs";
 import { groupByPack, loadPerf, sweepLog } from "@/lib/perf";
 import { loadPool, occludedFit, snapshotOccluded, type Pool } from "@/lib/pool";
-import { proposalProvenance, summarize } from "@/lib/provenance";
+import { modelReadProvenance, summarize } from "@/lib/provenance";
 import { BalanceCard, D2Banner, LightBlock, PacksBlock, PoolCard, SharesBlock, Tiles, VetoStrip, type DatasetView } from "./sections";
 
 export const dynamic = "force-dynamic";
@@ -69,7 +69,7 @@ export default async function CorpusPage({ searchParams }: PageProps<"/corpus">)
   const selected = built.some((entry) => entry.name === asked) ? asked : await newest(built);
   const view = selected ? await datasetView(selected, built, pool) : null;
   const [entries, bundles, dirty, perf, sweep] = await Promise.all([
-    proposalProvenance(),
+    modelReadProvenance(),
     listPacks(),
     sessionDirty(),
     loadPerf(),

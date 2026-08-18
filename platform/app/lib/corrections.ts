@@ -73,7 +73,7 @@ export async function appendCorrections(rows: Correction[], ledger: Ledger = "co
 type BySession = Map<string, Map<string, string>>;
 type LedgerCache = Map<string, { key: string; value: BySession }>;
 /**
- * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadProposals`.
+ * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadModelReads`.
  *
  * `/` asked for this file once per game and split all of it every time — 36 full parses of a
  * monotonically growing ledger for one page (REVIEW.md S12). The parse is the same; only how often

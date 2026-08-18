@@ -1,16 +1,12 @@
 // Ticker runs via setInterval (once per process), not page load — survives closed tabs.
-import { readFile } from "node:fs/promises";
 import { adoptPgn } from "@/lib/chain";
 import { refused, startStep } from "@/lib/chain-run";
-import { ledgerPath } from "@/lib/corrections";
 import { busy, jobs, lastByStep, runningJob, whenIdle, type Job } from "@/lib/jobs";
-import { plan, sessionsTouchedSince, type Eligible, type Plan } from "@/lib/autopilot";
+import { plan, type Eligible, type Plan } from "@/lib/autopilot";
 import { isPaused, readHeavyLock, stale } from "@/lib/autopilot-state";
 import { queueRows } from "@/lib/queues";
 
 const TICK_MS = 30_000;
-/** Guard 5: a session with a correction row this fresh is being labeled right now (§5.5). */
-const LABELING_HOLD_MS = 10 * 60_000;
 /** The strip polls; two polls inside this window share one pass over `realgames/`. */
 const SNAPSHOT_MS = 10_000;
 
@@ -43,24 +39,10 @@ const engine: Engine = ((globalThis as { __chesslabAutopilot?: Engine }).__chess
 engine.errors ??= [];
 engine.adoptFailed ??= new Map();
 
-async function labelingSessions(): Promise<Set<string>> {
-  try {
-    const text = await readFile(ledgerPath("corrections"), "utf8");
-    return sessionsTouchedSince(text, Date.now() - LABELING_HOLD_MS);
-  } catch {
-    return new Set();
-  }
-}
-
 async function freshPlan(): Promise<Plan> {
-  const [rows, ledger, lastSteps, labeling] = await Promise.all([
-    queueRows(),
-    jobs(500),
-    lastByStep(),
-    labelingSessions(),
-  ]);
+  const [rows, ledger, lastSteps] = await Promise.all([queueRows(), jobs(500), lastByStep()]);
   const lastJobs = new Map<string, Job>(ledger.map((job) => [job.name, job]));
-  const next = plan({ rows, lastJobs, lastSteps, labeling });
+  const next = plan({ rows, lastJobs, lastSteps });
   engine.snapshot = { at: Date.now(), plan: next };
   return next;
 }

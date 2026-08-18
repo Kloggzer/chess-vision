@@ -12,7 +12,7 @@ the file formats are the only bridge.
 
 ## `/relabel/<name>` — the streams (phase 03b)
 
-Reads `data/realgames/<name>/occluded-proposals.jsonl` (line 1 = `_thresholds`) and the exported
+Reads `data/realgames/<name>/model-reads.jsonl` (line 1 = `_model`/`_classes`/`_written_at`) and the exported
 session `data/sessions/rg-<name>/`. Streams: **bucket grid** (score > hi, one `Enter` confirms a
 page of 60 — clicks are for exceptions; the mid-band between `lo` and `hi` is its own grid, and the
 control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on the rectified frame;
@@ -29,8 +29,9 @@ says so live, flags taken off go to `reviewed.jsonl`, `⌫` takes all of them of
   RAW session frames through the per-frame quad (`lib/warp.ts`, calibrated against
   `data/calibration/desktop.yaml` in `warp.test.ts`). The rectified review PNGs cover only the
   commit bursts — 60 of 1 729 session frames on rec-20260808-003957 — so they cannot serve here.
-- Without a proposals file the routes fall back to `test-fixtures/occluded-proposals.<name>.jsonl`
-  and say so in the header; both go through the same parser.
+- Without `model-reads.jsonl` a session is NOT MEASURED: the identity lanes print `—` with the
+  reason, never `0`. One session of 43 carries reads (2026-08-19); a corpus-wide run waits on a
+  retrained model.
 
 ## `/transfers` — the phone's recordings arrive by themselves
 
@@ -59,7 +60,7 @@ Every card on `/` shows the ONE step that can run now, read off the disk rather 
 | no `candidate.json` | **Label** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
 | candidate, not confirmed | **Confirm →** `/confirm/<name>`, the human step |
 | confirmed, no `data/sessions/rg-<name>/` | **Export session** — `uv run chesslab realgames export-session` |
-| session, no `occluded-proposals.jsonl` | **Propose occluded** — `uv run chesslab realgames propose-occluded` |
+| session, no `model-reads.jsonl` | **Modell-Lesarten** — `uv run chesslab realgames model-read <name> --model <run dir>` |
 | everything there | **Relabel →** `/relabel/<name>` |
 | `useless.json` set | nothing — the step is `null` until "doch brauchbar" |
 
@@ -90,7 +91,7 @@ card. They are all pure functions of disk state, so a loop runs them:
   to `globalThis` like `lib/jobs.ts`'s queue. A finished job ticks again at once. **No browser is
   involved** — close every tab and the backlog still drains.
 - **The picker** (`lib/autopilot.ts`, pure and tested) takes the **oldest** non-`useless`,
-  non-`archived` game whose `nextStep()` is a machine step (`label`, `export`, `propose`) and runs
+  non-`archived` game whose `nextStep()` is a machine step (`label`, `export`) and runs
   it through `lib/chain-run.ts` — the same door the button uses, which re-reads the disk and 409s on
   a step that is not the next one. `adopt-pgn` is done for every bundle that carries a phone `.pgn`
   and has no `reference.pgn` (`adoptPgn` never overwrites).
@@ -101,8 +102,11 @@ card. They are all pure functions of disk state, so a loop runs them:
   Reparatur instead of a ten-minute decode.
 - **Lens** is decided before the run by `lensFor` and never retried around; a label run without
   barrel correction carries `lens: false` in its job row and says `gelabelt OHNE Linsen-Korrektur`.
-- **Guard 5:** no `propose` for a session with a `corrections.jsonl` row younger than 10 minutes —
-  re-proposing rewrites the file under the cursor of whoever is labeling it.
+- **`model-read` is not a machine step.** `realgames model-read` REQUIRES `--model <run dir>` and
+  refuses a run that trained on the session (`check_not_circular`), so which run is right is a
+  per-session choice no tick can make. The button reads `CHESSLAB_MODEL_READ_RUN` and 409s with
+  that sentence when it is unset. Guard 5 (the 10-minute labeling hold) went with it: nothing the
+  loop runs rewrites a session's files under a labeler's cursor any more.
 - **`$CHESSLAB_DATA_DIR/inbox/heavy.lock`** (`{pid, job, name, startedAt}`) is written while an
   Autopilot job runs. A *foreign* live lock stops the start; a stale one (pid gone) is overwritten.
   It is one-directional until a terminal tool honours it, which is why the strip prints the rule:

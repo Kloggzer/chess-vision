@@ -29,17 +29,14 @@ export type GameInfo = {
   reviewed: number;
   /** Mainline length of `reference.pgn`, or null — no reference on disk. */
   pgnPlies: number | null;
-  /** Boards with proposals and how many carry a human verdict — the primary figure (CONCEPT.md 6.2). */
+  /** Boards a model has read and how many carry a human verdict (CONCEPT.md 6.2). */
   boards: number;
   boardsDone: number;
-  /** The same in cells, second line: it moves with the producer's thresholds, a board does not. */
   cells: number;
-  /** `null` when the sidecar answered: it carries counts, and this figure needs the cell keys. */
-  cellsDone: number | null;
-  source: "pack" | "fixture" | "none";
-  /** Where the board total came from — `fallback` means the sidecar is missing and we counted. */
-  read: "sidecar" | "fallback" | "none";
-  /** Where this game sits on the label → confirm → export → propose → labeln ladder. */
+  cellsDone: number;
+  /** `false` = no `model-reads.jsonl`, so the bar prints `—` instead of claiming zero of zero. */
+  measured: boolean;
+  /** Where this game sits on the label → confirm → export → model-read → labeln ladder. */
   chain: ChainState;
   /** The last job this game ran, so a reload still shows what failed and what answers it. */
   lastJob: Job | null;
@@ -74,15 +71,22 @@ function UselessCard({ game }: { game: GameInfo }) {
 
 /** Bretter sind die Einheit, die ein Mensch abarbeitet; die Zellen stehen im Tooltip (CONCEPT.md 6.2). */
 function BoardProgress({ game }: { game: GameInfo }) {
-  const cells = game.cellsDone === null ? `${game.cells}` : `${game.cellsDone}/${game.cells}`;
-  const source =
-    game.read === "fallback"
-      ? "aus occluded-proposals.jsonl nachgezählt — noch keine summary.json"
-      : "aus occluded-proposals.summary.json";
+  if (!game.measured) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="text-muted-foreground text-xs">Lesarten —</span>
+        </TooltipTrigger>
+        <TooltipContent>
+          keine model-reads.jsonl für diese Aufnahme — nicht gemessen, nicht null
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
   return (
     <Progress
       done={game.boardsDone}
-      title={`${cells} Zellen · ${source}`}
+      title={`${game.cellsDone}/${game.cells} Zellen · aus model-reads.jsonl`}
       total={game.boards}
       unit="Bretter"
     />
@@ -147,7 +151,7 @@ export function GameCard({ game }: { game: GameInfo }) {
         {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
         <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
         <span className="ml-auto flex items-center gap-3">
-          {game.boards > 0 ? <BoardProgress game={game} /> : null}
+          <BoardProgress game={game} />
         </span>
       </div>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
@@ -172,7 +176,6 @@ export function GameCard({ game }: { game: GameInfo }) {
             Bretter
           </Link>
         ) : null}
-        {game.source === "fixture" ? <Badge variant="destructive">fixture</Badge> : null}
         {note ? <Badge variant="destructive">{note}</Badge> : null}
         {/* Ruhig, bis die Karte gebraucht wird: drei Textlinks je Zeile sind auf zwölf Karten eine Wand. */}
         <span className="ml-auto flex items-center gap-3 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">

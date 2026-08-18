@@ -7,11 +7,11 @@ import {
   contradicts,
   matches,
   queryText,
-  type Proposal,
+  type ModelRead,
 } from "@/lib/query";
 
-const row = (over: Partial<Proposal> = {}): Proposal => ({
-  session_id: "rg-g", frame: "000100", square: "a1", fen_label: "wR", proposed: "wR", score: 0.02,
+const row = (over: Partial<ModelRead> = {}): ModelRead => ({
+  session_id: "rg-g", frame: "000100", square: "a1", fen_label: "wR",
   probs: { wR: 0.3, wQ: 0.6, occluded: 0.05 }, ...over,
 });
 
@@ -28,7 +28,7 @@ test("Klassenwand asks for a class WHERE THE FEN SAYS OTHERWISE, which matches a
   // A row with no model read answers nothing at all — and `occluded` is no longer a question the
   // wall can ask: coverage is measured per square (`matte.jsonl`), never queried out of a score.
   expect(contradicts(row({ probs: undefined }), { klass: "wQ", min: 0.05 })).toBe(false);
-  expect(contradicts(row({ probs: undefined, score: 0.9 }), { klass: "occluded", min: 0.5 })).toBe(false);
+  expect(contradicts(row({ probs: undefined }), { klass: "occluded", min: 0.5 })).toBe(false);
 });
 
 test("a threshold query is answered by its own class, a disagree query by the top read", () => {

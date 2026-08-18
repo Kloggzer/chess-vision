@@ -6,7 +6,7 @@ import {
   GROUP_SPAN,
   LANES,
   NO_AUDIT,
-  NO_PROBS,
+  NO_READS,
   NO_QUERY,
   NO_RULES,
   boardCells,
@@ -45,10 +45,10 @@ test("a chip prints ONE number, and an unavailable lane says — with a reason",
     text: "Alle Bretter 128",
     title: "128 offen von 612 Bretter · Bretter im Strom",
   });
-  const empty = laneChip(laneById("disagree"), { n: null, why: NO_PROBS });
+  const empty = laneChip(laneById("disagree"), { n: null, why: NO_READS });
   expect(empty.text).toBe("Modell ≠ FEN · Bretter —");
   expect(empty.text).not.toContain("0");
-  expect(empty.title).toBe(NO_PROBS);
+  expect(empty.title).toBe(NO_READS);
 });
 
 test("switching a lane lands on the first item at or after the position you were on", () => {
@@ -90,7 +90,7 @@ test("an event is one square, one FEN word and frames within GROUP_SPAN", () => 
 const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
   session: 0, pos: 0, stem: "000100", ply: 4, fen: "8/8/8/8/8/8/8/R6R w - - 0 1",
   unknown: [], violations: [], violating: {}, disagree: {}, disagreeReads: {},
-  proposed: true, ...over,
+  read: true, ...over,
 });
 
 const cell = (over: Partial<StreamCell> = {}): StreamCell => ({
@@ -103,9 +103,9 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 });
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
-  sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: false }],
+  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false }],
   boards: [], cells: [], audit: null, rules: true, decided: [{}],
-  proposals: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, ...over,
+  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
@@ -127,9 +127,9 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
   expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
   // Der Rest des Korpus ist NICHT GEMESSEN, nicht etwa einig — der Tooltip muss das sagen.
   const read = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: true }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true }],
     boards: [board({ disagree: { e5: "bP" } })],
-    proposals: { boards: 1, without: 0 },
+    reads: { boards: 1, without: 0 },
   });
   expect(laneChip(laneById("disagree"), laneCount(read, "disagree")).title).toContain("nicht gemessen");
   expect(laneCount(streamOf({ rules: false }), "rules")).toEqual({ n: null, why: NO_RULES });
@@ -237,7 +237,7 @@ test("the Klassenwand joins the server's answer to the stream, and never invents
 
 test("the Klassenwand counts its own query, and says — while the answer is missing", () => {
   const stream = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: true }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true }],
     boards: [board()],
   });
   const wall = { cells: wallCells([hit({ squares: ["a1", "h1"], accept: { a1: "bB", h1: "bN" } })], stream), text: "bB ≥ 0.5" };

@@ -29,7 +29,7 @@ const CHAIN: ChainState = {
   hasCandidate: true,
   confirmed: false,
   hasSession: false,
-  hasProposals: false,
+  hasModelReads: false,
   useless: null,
 };
 const ROW: QueueRow = { name: "2026-08-14-09-23-19", title: null, plies: 0, frames: 0, archived: false, chain: CHAIN };

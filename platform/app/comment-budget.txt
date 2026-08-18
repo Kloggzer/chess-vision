@@ -36,8 +36,6 @@ lib/packs.ts 7
 lib/perf.ts 7
 lib/pool.ts 8
 lib/progress.ts 11
-lib/proposal-summaries.ts 7
-lib/proposals.ts 8
 lib/provenance.ts 7
 lib/query.ts 9
 lib/queues.ts 7

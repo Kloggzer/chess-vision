@@ -15,7 +15,7 @@ const CHAIN: ChainState = {
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
-  hasProposals: false,
+  hasModelReads: false,
   useless: null,
 };
 

@@ -1,11 +1,11 @@
 /**
  * The identity query over the WHOLE corpus — `app/api/filter/[name]`, for every live session at once.
- * All 308 705 proposal rows carry `probs`; shipping those to the browser is 58 MB, so the question is
- * answered here and only the cell keys it selects travel (CONCEPT.md 4.2, lane `Klassenwand`).
+ * Every row of `model-reads.jsonl` carries `probs`, and shipping those to the browser is tens of MB,
+ * so the question is answered here and only the cell keys travel (CONCEPT.md 4.2, `Klassenwand`).
  */
 import { isIdentity } from "@/lib/classes";
 import { liveGames } from "@/lib/label-stream";
-import { loadProposals } from "@/lib/proposals";
+import { loadModelReads } from "@/lib/model-reads";
 import {
   DISAGREE,
   acceptLabel,
@@ -13,14 +13,14 @@ import {
   contradicts,
   topRead,
   type Filter,
-  type Proposal,
+  type ModelRead,
   type QueryAnswer,
   type QueryHit,
 } from "@/lib/query";
 import { loadSession, sessionId } from "@/lib/session";
 
 /** The read that ANSWERS the query, so a card's word and what ⏎ agrees to can never diverge. */
-function evidence(row: Proposal, f: Filter): number {
+function evidence(row: ModelRead, f: Filter): number {
   if (f.klass === DISAGREE) return topRead(row)?.p ?? 0;
   return row.probs?.[f.klass] ?? 0;
 }
@@ -36,7 +36,7 @@ export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryA
   let cells = 0;
 
   for (const name of await liveGames()) {
-    const { rows } = await loadProposals(name).catch(() => ({ rows: [] }));
+    const { rows } = await loadModelReads(name).catch(() => ({ rows: [] }));
     if (rows.length === 0) continue;
     for (const klass of classesSeen(rows)) classes.add(klass);
     // Only when asked for: `loadSession` parses a log the query itself has no use for.

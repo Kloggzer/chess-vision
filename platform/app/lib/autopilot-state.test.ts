@@ -42,7 +42,7 @@ test("a stale lock is taken over — a killed replay must not block the queue fo
   await writeFile(heavyLockPath(), JSON.stringify(dead), "utf8");
   expect(stale(dead)).toBe(true);
 
-  expect(await claimHeavyLock("propose", "meine-partie")).toMatchObject({ held: { pid: process.pid, job: "propose" } });
+  expect(await claimHeavyLock("model-read", "meine-partie")).toMatchObject({ held: { pid: process.pid, job: "model-read" } });
   expect(await readHeavyLock()).toMatchObject({ pid: process.pid, name: "meine-partie" });
 });
 

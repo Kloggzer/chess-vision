@@ -6,7 +6,7 @@ import { queryCorpus } from "@/lib/corpus-query";
 import { DISAGREE } from "@/lib/query";
 
 const cell = (game: string, frame: string, square: string, fen: string, probs: Record<string, number>) =>
-  JSON.stringify({ session_id: `rg-${game}`, frame, square, fen_label: fen, proposed: fen, score: 0.02, probs });
+  JSON.stringify({ session_id: `rg-${game}`, frame, square, fen_label: fen, dirty_reason: null, probs });
 
 /** Two games, so the answer has to be corpus-wide and not one session's (`api/filter/[name]`). */
 async function corpus() {
@@ -23,7 +23,7 @@ async function corpus() {
     ]],
   ] as [string, string[]][]) {
     await mkdir(path.join(root, "realgames", game), { recursive: true });
-    await writeFile(path.join(root, "realgames", game, "occluded-proposals.jsonl"), lines.join("\n") + "\n", "utf8");
+    await writeFile(path.join(root, "realgames", game, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
   }
   process.env.CHESSLAB_DATA_DIR = root;
 }

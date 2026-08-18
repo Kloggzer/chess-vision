@@ -49,37 +49,25 @@ test("a pack header only states crops and boards the runs agree on", () => {
   expect(agreed([...same, ...parsePerf("b.json", FLAT).runs], "crops")).toBeNull();
 });
 
-test("the header model is read on either level and absence stays absent", () => {
-  expect(headerModel({ _thresholds: { hi: 0.7, lo: 0.3 } })).toBeNull();
-  expect(headerModel({ _thresholds: { hi: 0.7, model: "real14-ms-s3-hn-bn80" } })).toBe("real14-ms-s3-hn-bn80");
-  expect(headerModel({ model: "real14-ms-s3-hn-bn80" })).toBe("real14-ms-s3-hn-bn80");
+test("the run dir comes off the `_model` header, and absence stays absent", () => {
+  expect(headerModel({ _classes: ["empty", "wP"] })).toBeNull();
+  expect(headerModel({ _model: "data/models/d16-f0" })).toBe("data/models/d16-f0");
+  expect(headerModel({ model: "data/models/d16-f0" })).toBeNull();
 });
 
-test("probs are counted by scan, and a producer that never ran reports nothing", () => {
-  expect(countProbs('{"score":0.1}\n{"probs":{"empty":0.9}}\n{"probs":{}}')).toBe(2);
+test("probs are counted by scan, and sessions nobody read stay UNMEASURED, never zero", () => {
+  expect(countProbs('{"square":"a1"}\n{"probs":{"empty":0.9}}\n{"probs":{}}')).toBe(2);
   const entries: Provenance[] = [
-    { name: "a", rows: 100, probs: 100, model: null, source: "parsed" },
-    { name: "b", rows: 50, probs: null, model: "m", source: "sidecar" },
+    { name: "a", rows: 100, probs: 100, model: "data/models/d16-f0", writtenAt: "2026-08-18T22:22:47Z" },
+    { name: "b", rows: 40, probs: 40, model: null, writtenAt: null },
+    { name: "c", rows: null, probs: null, model: null, writtenAt: null },
   ];
   expect(summarize(entries)).toEqual({
-    files: 2,
-    withModel: 1,
-    rows: 150,
-    sidecars: 1,
-    counted: 1,
-    countedRows: 100,
-    withProbs: 1,
-    probRows: 100,
-    unknown: 1,
+    sessions: 3,
+    read: 2,
+    withoutModel: 1,
+    rows: 140,
+    probRows: 140,
+    models: ["data/models/d16-f0"],
   });
-});
-
-test("a sidecar-only corpus reports UNKNOWN probs, never zero", () => {
-  // The regression: `(e.probs ?? 0)` made every sidecar a file with no probs, so the banner
-  // announced "0 von 9 Dateien" the moment the producer started writing sidecars.
-  const entries: Provenance[] = [
-    { name: "a", rows: 40, probs: null, model: "m", source: "sidecar" },
-    { name: "b", rows: 60, probs: null, model: "m", source: "sidecar" },
-  ];
-  expect(summarize(entries)).toMatchObject({ counted: 0, countedRows: 0, withProbs: 0, probRows: 0, unknown: 2 });
 });

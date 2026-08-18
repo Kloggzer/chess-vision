@@ -138,7 +138,10 @@ def alpha_worker(name: str, *, limit: int | None = None, reason: str = ALPHA_REA
     todo = [e for e in read_log(session_dir)
             if e.get("dirty") and (reason == "all" or e.get("dirty_reason") == reason)
             and Path(e["board"]).stem not in done]
-    todo = todo[:limit] if limit else todo
+    # `limit` is the TARGET per session, not the batch size: a second round asking for 80 on a
+    # session that already has 40 computes 40, not another 80. Idempotent, and it matches how one
+    # says it out loud — "bring the frames to 80".
+    todo = todo[:max(0, limit - len(done))] if limit else todo
     out_dir = session_dir / "mattes"
     out_dir.mkdir(exist_ok=True)
     written, skipped = 0, {}

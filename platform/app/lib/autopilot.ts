@@ -2,13 +2,16 @@
 import type { ChainStep } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 import { recordedAt, type QueueRow } from "@/lib/queues";
-import { sessionId } from "@/lib/session";
 import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
-/** The three steps a machine can take alone. `confirm` and `labeln` are the human's, forever. */
-export type MachineStep = "label" | "export" | "propose";
+/**
+ * The steps a machine can take alone. `confirm` and `labeln` are the human's, forever — and so is
+ * `model-read` since 2026-08-19: `realgames model-read` requires `--model` and refuses a run that
+ * trained on the session, so WHICH run is a per-session choice no tick can make (`chain-run.ts`).
+ */
+export type MachineStep = "label" | "export";
 
-const MACHINE: ReadonlySet<ChainStep> = new Set<ChainStep>(["label", "export", "propose"]);
+const MACHINE: ReadonlySet<ChainStep> = new Set<ChainStep>(["label", "export"]);
 
 function isMachineStep(step: ChainStep | null): step is MachineStep {
   return step !== null && MACHINE.has(step);
@@ -31,8 +34,6 @@ export type PlanInput = {
   lastJobs: Map<string, Job>;
   /** `<name>|<kind>` → that STEP's last row (`jobs.lastByStep`). THIS is the no-retry marker. */
   lastSteps: Map<string, Job>;
-  /** Session ids with a correction row younger than the hold — guard 5 (§5.5). */
-  labeling: ReadonlySet<string>;
   /** Injected so the two 90-second holds of §4.1.1 are testable without waiting for a clock. */
   now?: number;
 };
@@ -67,7 +68,7 @@ const oldestFirst = <T extends { name: string }>(rows: T[]) => [...rows].sort((a
  * `useless` and `archived` are out by the same filters the queues apply — both flags mean "not my
  * work right now", and an autopilot that ignores them is the one thing they exist to prevent.
  */
-export function plan({ rows, lastJobs, lastSteps, labeling, now = Date.now() }: PlanInput): Plan {
+export function plan({ rows, lastJobs, lastSteps, now = Date.now() }: PlanInput): Plan {
   const eligible: Eligible[] = [];
   const repair: Repair[] = [];
   const adopt: string[] = [];
@@ -93,32 +94,8 @@ export function plan({ rows, lastJobs, lastSteps, labeling, now = Date.now() }: 
       continue;
     }
     if (blocked) continue;
-    // Re-proposing rewrites `occluded-proposals.jsonl` under the cursor of whoever is labeling that
-    // session right now (`loadProposals` is mtime-keyed), so a fresh ledger row holds the step.
-    if (step === "propose" && (chain.hasProposals || labeling.has(sessionId(row.name)))) continue;
     eligible.push({ name: row.name, step });
   }
 
   return { eligible: oldestFirst(eligible), repair: oldestFirst(repair), adopt: adopt.sort(byRecording) };
-}
-
-// Scans tail only (append-only); saves ~2880 JSON.parse/day (not I/O).
-export function sessionsTouchedSince(text: string, since: number): Set<string> {
-  const out = new Set<string>();
-  const lines = text.split("\n");
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    let row: { session_id?: string; ts?: string };
-    try {
-      row = JSON.parse(line) as { session_id?: string; ts?: string };
-    } catch {
-      continue;
-    }
-    const at = Date.parse(row.ts ?? "");
-    if (!Number.isFinite(at)) continue;
-    if (at < since) break;
-    if (row.session_id) out.add(row.session_id);
-  }
-  return out;
 }

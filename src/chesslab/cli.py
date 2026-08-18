@@ -1039,7 +1039,9 @@ def occluders_extract(
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
     name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
-    limit: int = typer.Option(0, "--limit", help="Stop after N frames (0 = all)."),
+    limit: int = typer.Option(0, "--limit",
+                              help="Target mattes per session (0 = all). Counts what is already "
+                                   "there, so a second round only fills the gap."),
     reason: str = typer.Option("occluded", "--reason",
                                help="Which dirty rows to matte: `occluded` (FEN still valid, the "
                                     "labelable ones) or `all`."),

@@ -20,7 +20,7 @@ import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 
 export type JobState = "queued" | "running" | "done" | "failed" | "skipped";
-export type JobKind = "pack" | "label" | "export" | "propose";
+export type JobKind = "pack" | "label" | "export" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -571,7 +571,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
 }
 
 /**
- * The two chesslab steps of the chain, as jobs: `export-session` and `propose-occluded`.
+ * The two chesslab steps of the chain, as jobs: `export-session` and `model-read`.
  *
  * Spawned, never imported — the platform's rule is that the file formats are the only bridge to the
  * Python side (`README.md`), and a CLI in its own process keeps that true while still giving the UI
@@ -580,7 +580,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
  */
 export async function enqueueChain(
   name: string,
-  step: "export" | "propose",
+  step: "export" | "model-read",
 ): Promise<Job> {
   checkName(name, "game name");
   const known = queue.jobs.get(name);
@@ -671,6 +671,15 @@ export async function jobHistory(name: string, limit = 20): Promise<Job[]> {
   return rows.reverse().slice(0, limit);
 }
 
+/**
+ * The run dir `realgames model-read` is given, from `CHESSLAB_MODEL_READ_RUN`. No default: the
+ * verb REFUSES a model that trained on the session, so which run is right is a per-session choice
+ * a human makes, and a hardcoded one would mark half the corpus failed-for-good in the ledger.
+ */
+export function modelReadRun(): string | null {
+  return process.env.CHESSLAB_MODEL_READ_RUN?.trim() || null;
+}
+
 /** `uv` by default, because that is what `README.md` tells a human to type. */
 function uvBinary(): string {
   return process.env.CHESSLAB_UV ?? "uv";
@@ -703,15 +712,13 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
 
 async function runChesslab(
   job: Job,
-  step: "export" | "propose",
+  step: "export" | "model-read",
 ): Promise<void> {
-  const verb = step === "export" ? "export-session" : "propose-occluded";
+  const verb = step === "export" ? "export-session" : "model-read";
   const binary = uvBinary();
   const args = ["run", "chesslab", "realgames", verb, job.name];
-  // Without a model the proposer emits census/grid rows only — 0 of 251,413 rows on disk carried
-  // `probs` (2026-08-15), so "model disagrees with the FEN" matched nothing and the identity
-  // labeling path was structurally dead. The producer refuses sessions the model trained on.
-  if (step === "propose") args.push("--model", process.env.CHESSLAB_PROPOSE_MODEL ?? "data/models/real14-ms-s3-hn-bn80");
+  const run = modelReadRun();
+  if (step === "model-read" && run) args.push("--model", run);
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {

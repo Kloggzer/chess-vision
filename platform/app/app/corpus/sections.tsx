@@ -100,39 +100,38 @@ export function Tiles({ pool, view, provenance }: { pool: Pool; view: DatasetVie
         why="gemessen: 5,3 % → 2 Phantome (specs/53 STATUS:85); 50 % → 105 Phantome (TODO.md:203). Dazwischen ist nichts gemessen."
       />
       <Tile
-        label="Sidecar-Stand (D2)"
-        sub={`${provenance.withProbs}/${provenance.counted} Dateien mit probs · ${provenance.withModel}/${provenance.files} mit model`}
-        value={`${provenance.sidecars}/${provenance.files} Sidecars`}
-        why="Ohne probs in den Zeilen ist die Lane „Modell ≠ FEN“ auf jeder Session leer, was die Seite sonst auch zeigt."
+        label="Modell-Lesarten (D2)"
+        sub={`${num(provenance.rows)} Zellen · ${provenance.models.join(", ") || "kein Modell benannt"}`}
+        value={`${provenance.read}/${provenance.sessions} Sessions`}
+        why="Ohne model-reads.jsonl sind die Lanes „Modell ≠ FEN“ auf dieser Session leer — nicht gemessen, nicht null. Ein korpusweiter Lauf wartet auf ein nachtrainiertes Modell."
       />
     </div>
   );
 }
 
-/** D2 per file: a `model` in the `_thresholds` header and `probs` on the rows, or the lane stays empty. */
+/** D2 per session: which run read it and when, or `—` for the ones no model has read yet. */
 export function D2Banner({ entries, summary }: { entries: Provenance[]; summary: ProvenanceSummary }) {
   return (
     <details className={CARD}>
       <summary className={`${SUMMARY} text-sm`}>
-        <span className="font-semibold">Herkunft der Vorschläge (D2)</span>
+        <span className="font-semibold">Herkunft der Modell-Lesarten (D2)</span>
         <span className="text-muted-foreground ml-3 tabular-nums">
-          {summary.withProbs}/{summary.counted} mit <code>probs</code> · {summary.withModel}/{summary.files} mit{" "}
-          <code>model</code>
-          {summary.unknown > 0 ? ` · ${summary.unknown} nur per Sidecar gelesen` : ""}
+          {summary.read}/{summary.sessions} Sessions gelesen · {num(summary.probRows)} Zeilen mit <code>probs</code>
+          {summary.withoutModel > 0 ? ` · ${summary.withoutModel} ohne Modellangabe` : ""}
         </span>
       </summary>
       <ul className="mt-2 space-y-0.5 font-mono text-xs">
         {entries.map((entry) => (
           <li className="flex flex-wrap gap-x-3" key={entry.name}>
             <span className="min-w-56">{entry.name}</span>
-            <span className="tabular-nums">{orDash(entry.rows)} Zeilen</span>
+            <span className="tabular-nums">{orDash(entry.rows)} Zellen</span>
             <span className="tabular-nums">probs {orDash(entry.probs)}</span>
             <span>model {entry.model ?? "—"}</span>
-            <span className={MUTED}>{entry.source === "sidecar" ? "aus Sidecar" : "Datei geparst (kein Sidecar)"}</span>
+            <span className={MUTED}>{entry.rows === null ? "nicht gemessen" : (entry.writtenAt ?? "ohne Datum")}</span>
           </li>
         ))}
       </ul>
-      {entries.length === 0 ? <p className={MUTED}>Keine <code>occluded-proposals.jsonl</code> auf der Platte.</p> : null}
+      {entries.length === 0 ? <p className={MUTED}>Keine Sessions unter <code>data/realgames/</code>.</p> : null}
     </details>
   );
 }

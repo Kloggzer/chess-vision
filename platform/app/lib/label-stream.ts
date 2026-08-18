@@ -14,7 +14,7 @@ import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
 import { loadMeta } from "@/lib/meta";
-import { loadProposals, topRead, type Proposal } from "@/lib/proposals";
+import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
 import { unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
@@ -23,9 +23,9 @@ import { uselessFlag } from "@/lib/useless";
 export type StreamSession = {
   name: string;
   sessionId: string;
-  /** No proposal file: the session is in the stream for its `unknown_squares` alone (REVIEW S9). */
-  proposals: boolean;
-  /** The producer wrote model reads here — the two identity lanes need this and never have it yet. */
+  /** No `model-reads.jsonl`: the session is in the stream for its `unknown_squares` alone (REVIEW S9). */
+  reads: boolean;
+  /** Rows carrying `probs` — what the two identity lanes need, and what only one session has. */
   probs: boolean;
 };
 
@@ -43,13 +43,13 @@ export type StreamBoard = {
   unknown: string[];
   /** python-chess status names this frame's CORRECTED board trips — the `Regelbruch` predicate. */
   violations: string[];
-  /** `{square: label}` of the corrections that produced them; on file already, never a proposal. */
+  /** `{square: label}` of the corrections that produced them; on file already, never a model read. */
   violating: Record<string, string>;
   /** `{square: <the model's word>}` where its argmax contradicts the FEN — empty without `probs`. */
   disagree: Record<string, string>;
   disagreeReads: Record<string, string>;
-  /** Has at least one proposal row — the `Alle Bretter` lane and the 3 976 denominator. */
-  proposed: boolean;
+  /** A model read this board — the denominator the two identity lanes are measured against. */
+  read: boolean;
 };
 
 /**
@@ -87,10 +87,10 @@ export type LabelStream = {
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
   /**
-   * How far `propose-occluded` still reaches: boards it names, and sessions it never named at all.
-   * Measured 2026-08-19 at 3 377 of 7 593 — the corpus was re-exported under the producer.
+   * How far `model-read` reaches: boards a model has read, and sessions no model has read at all.
+   * One session of 43 on 2026-08-19 — a corpus-wide run waits on a retrained model.
    */
-  proposals: { boards: number; without: number };
+  reads: { boards: number; without: number };
   /** Boards in the stream corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
   progress: { boards: number; done: number };
 };
@@ -104,7 +104,7 @@ const newestFirst = (names: string[]) =>
 const DISAGREE_MIN = 0.1;
 
 /** The model's argmax against the FEN's word. `occluded` is the hand lane's job, not an identity. */
-function disagreement(row: Proposal): { label: string; p: number } | null {
+function disagreement(row: ModelRead): { label: string; p: number } | null {
   const top = topRead(row);
   if (!top || top.p < DISAGREE_MIN) return null;
   return top.label !== row.fen_label && top.label !== "occluded" ? top : null;
@@ -123,9 +123,8 @@ export async function liveGames(): Promise<string[]> {
 }
 
 /**
- * One pass over the corpus. Costly by construction — no sidecar on disk carries `frames` yet, so
- * `loadProposalSummary` would parse the same rows anyway (CONCEPT.md 6.3) — but every read path it
- * uses is mtime-keyed and `globalThis`-pinned, so it is paid once per changed file, not per request.
+ * One pass over the corpus. Costly by construction, but every read path it uses is mtime-keyed and
+ * `globalThis`-pinned, so it is paid once per changed file and not once per request.
  */
 export async function loadLabelStream(): Promise<LabelStream> {
   const sessions: StreamSession[] = [];
@@ -143,7 +142,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const bySession = new Map<string, { index: number; byStem: Map<string, StreamBoard> }>();
 
   let pos = 0;
-  let proposedBoards = 0;
+  let readBoards = 0;
   let without = 0;
 
   for (const name of await liveGames()) {
@@ -155,14 +154,14 @@ export async function loadLabelStream(): Promise<LabelStream> {
     }
     const id = sessionId(name);
     const [{ rows }, judged, unusable] = await Promise.all([
-      loadProposals(name).catch(() => ({ rows: [] as Proposal[] })),
+      loadModelReads(name).catch(() => ({ rows: [] as ModelRead[] })),
       judgedKeys(id),
       unusableBoards(id),
     ]);
 
     const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
     const walls = new Map<string, { label: string; p: number }>();
-    const wallsByFrame = new Map<string, Proposal[]>();
+    const wallsByFrame = new Map<string, ModelRead[]>();
     for (const row of rows) {
       const hit = disagreement(row);
       if (!hit) continue;
@@ -172,9 +171,9 @@ export async function loadLabelStream(): Promise<LabelStream> {
       else wallsByFrame.set(row.frame, [row]);
     }
 
-    // Every exported frame, as CONCEPT.md 4.2 says — the proposal file used to be the gate, and it
-    // now names 3 377 of 7 593 boards, so gating on it hid half the corpus from the free-hand lane.
-    const proposedStems = new Set(rows.map((r) => r.frame));
+    // Every exported frame, as CONCEPT.md 4.2 says: the reads are a model pass over one session at
+    // a time, and gating the stream on them would hide 42 of 43 recordings from the free-hand lane.
+    const readStems = new Set(rows.map((r) => r.frame));
     const stems = session.rows
       .filter((r) => !unusable.has(r.stem))
       .sort((a, b) => a.stem.localeCompare(b.stem));
@@ -185,7 +184,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     sessions.push({
       name,
       sessionId: id,
-      proposals: rows.length > 0,
+      reads: rows.length > 0,
       probs: rows.some((r) => r.probs !== undefined),
     });
 
@@ -212,11 +211,11 @@ export async function loadLabelStream(): Promise<LabelStream> {
             return [c.square, `${hit.label} ${hit.p.toFixed(2)}`];
           }),
         ),
-        proposed: proposedStems.has(row.stem),
+        read: readStems.has(row.stem),
       };
       boards.push(board);
       byStem.set(row.stem, board);
-      if (board.proposed) proposedBoards++;
+      if (board.read) readBoards++;
     }
     // Only the stream's own frames: the ledgers hold verdicts for boards no lane shows.
     for (const [key, label] of judged) {
@@ -235,7 +234,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
     rules: ruleRows.present,
     decided,
-    proposals: { boards: proposedBoards, without },
+    reads: { boards: readBoards, without },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
   };
 }

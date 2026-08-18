@@ -4,8 +4,7 @@ import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
-import { loadProposals, proposalKey } from "@/lib/proposals";
-import { boardProgressOf } from "@/lib/proposal-summaries";
+import { boardProgressOf, loadModelReads, readKey } from "@/lib/model-reads";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
 import { BareBundles } from "./bare-bundles";
@@ -14,27 +13,17 @@ import { PageTitle } from "./page-title";
 
 export const dynamic = "force-dynamic";
 
-/**
- * BRETTER first, cells second (CONCEPT.md 6.2): board is the unit a human clears.
- * With sidecar, `cellsDone` is null — sidecar has counts, fixture reads rows exactly.
- */
+/** BRETTER first, cells second (CONCEPT.md 6.2): the board is the unit a human clears. */
 async function progress(name: string) {
   const decided = await judgedKeys(sessionId(name));
-  const { summary, boards, done } = await boardProgressOf(name, decided.keys());
-  if (summary.read === "none") {
-    return { boards: 0, boardsDone: 0, cells: 0, cellsDone: 0, source: "none" as const, read: summary.read };
-  }
-  if (summary.read === "sidecar") {
-    return { boards, boardsDone: done, cells: summary.cells, cellsDone: null, source: "pack" as const, read: summary.read };
-  }
-  const { rows, source } = await loadProposals(name);
+  const { census, boards, done } = await boardProgressOf(name, decided.keys());
+  const { rows } = await loadModelReads(name);
   return {
     boards,
     boardsDone: done,
-    cells: rows.length,
-    cellsDone: rows.filter((r) => decided.has(proposalKey(r))).length,
-    source,
-    read: summary.read,
+    cells: census.cells,
+    cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
+    measured: census.present,
   };
 }
 

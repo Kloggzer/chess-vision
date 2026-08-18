@@ -1,26 +1,22 @@
 /**
- * The proposal SCHEMA and the questions you can ask of it — pure, and deliberately free of
- * `node:fs`.
+ * The `model-reads.jsonl` SCHEMA and the questions you can ask of it — pure, and deliberately free
+ * of `node:fs`.
  *
- * Split out of `lib/proposals.ts` on 2026-08-09 because the filter bar is a client component and
+ * Split out of the file reader on 2026-08-09 because the filter bar is a client component and
  * imported one constant from it: a single value import drags the whole module, `node:fs/promises`
  * included, into the browser bundle, and Turbopack fails the page at runtime. Types are erased and
  * were harmless; the constant was not. Anything a client component needs belongs here.
  */
 import { isIdentity } from "@/lib/classes";
 
-export type Proposal = {
+export type ModelRead = {
   session_id: string;
   frame: string;
   square: string;
   fen_label: string;
-  proposed: string;
-  score: number;
-  /** Pixel channel alone, present only when a model also scored the cell. */
-  pixel_score?: number;
-  /** The grid-groove hand read (0.35 = blur fringe, 0.5/0.7/0.85 = 2/3/4 missing edges). */
-  grid_score?: number;
-  /** The model's sparse per-class softmax (classes under 1 % omitted) — the filter's input. */
+  /** Why the frame scan called this board dirty, `null` on a clean one — the reads cover both. */
+  dirty_reason?: string | null;
+  /** The model's sparse per-class softmax; a class under 0.01 is BELOW THE FLOOR, not unknown. */
   probs?: Record<string, number>;
 };
 
@@ -34,7 +30,7 @@ export type Filter = {
 };
 
 /** Cells a filter selects. `disagree` needs no threshold beyond the model's own confidence. */
-export function matches(row: Proposal, f: Filter): boolean {
+export function matches(row: ModelRead, f: Filter): boolean {
   const probs = row.probs;
   if (!probs) return false;
   if (f.klass !== DISAGREE) return (probs[f.klass] ?? 0) >= f.min;
@@ -43,7 +39,7 @@ export function matches(row: Proposal, f: Filter): boolean {
 }
 
 /** The model's own verdict for a cell: its best class and how sure it is. */
-export function topRead(row: Proposal): { label: string; p: number } | null {
+export function topRead(row: ModelRead): { label: string; p: number } | null {
   const probs = row.probs;
   if (!probs) return null;
   const [label, p] = Object.entries(probs).reduce((a, b) => (b[1] > a[1] ? b : a), ["", 0]);
@@ -55,19 +51,19 @@ export function topRead(row: Proposal): { label: string; p: number } | null {
  * the model's top read. `null` where that word is not one of the 13 identities: `occluded` is
  * measured now and `validate` rejects it, so a page of them would fail as a whole batch.
  */
-export function acceptLabel(row: Proposal, f: Filter): string | null {
+export function acceptLabel(row: ModelRead, f: Filter): string | null {
   const label = f.klass === DISAGREE ? topRead(row)?.label : f.klass;
   return label !== undefined && isIdentity(label) ? label : null;
 }
 
 /** Every IDENTITY the model emitted — its `occluded` head asks a question coverage answers. */
-export function classesSeen(rows: Proposal[]): string[] {
+export function classesSeen(rows: ModelRead[]): string[] {
   const seen = new Set<string>();
   for (const row of rows) for (const k of Object.keys(row.probs ?? {})) if (isIdentity(k)) seen.add(k);
   return [...seen].sort();
 }
 
-export function proposalKey(p: { frame: string; square: string }): string {
+export function readKey(p: { frame: string; square: string }): string {
   return `${p.frame}|${p.square}`;
 }
 
@@ -86,7 +82,7 @@ export const DEFAULT_WALL: Filter = { klass: DISAGREE, min: 0.9 };
  * `matches` alone answers "P(bQ) ≥ 0.5" on the cells the FEN already calls bQ too, a wall of
  * agreement that asks no labeling question. [DISAGREE] carries its contradiction itself.
  */
-export function contradicts(row: Proposal, f: Filter): boolean {
+export function contradicts(row: ModelRead, f: Filter): boolean {
   return matches(row, f) && (f.klass === DISAGREE || f.klass !== row.fen_label);
 }
 

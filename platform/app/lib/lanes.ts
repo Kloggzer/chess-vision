@@ -38,7 +38,7 @@ export type Lane = {
 };
 
 export const LANES: readonly Lane[] = [
-  { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Modell-Lesarten" },
   // Named after its QUESTION, not after the wall metaphor: it is the same "Modell ≠ FEN" one cell
   // at a time, and nobody looking for that found it under `Klassenwand` (User, 2026-08-17).
   { id: "classwall", slug: "modell-zellen", label: "Modell ≠ FEN · Zellen", renderer: "cells", unit: "Zellen", denominator: "Zellen, auf die die Abfrage im Lane-Kopf passt" },
@@ -48,8 +48,8 @@ export const LANES: readonly Lane[] = [
     label: "FEN unklar",
     renderer: "board",
     unit: "Bretter",
-    // Its own corpus on purpose: `occluded.py` emits no proposal row for an unknown cell, so these
-    // boards lie partly outside the proposer's reach and are not measured against it.
+    // Its own corpus on purpose: an unknown square is the exporter's own doubt, measured on every
+    // exported session whether or not a model has ever read it.
     denominator: "Bretter mit unknown_squares über die exportierten Sessions",
   },
   {
@@ -58,8 +58,8 @@ export const LANES: readonly Lane[] = [
     label: "Stichprobe",
     renderer: "cells",
     unit: "Zellen",
-    // Its own corpus, and no longer the proposer's: the sample is drawn from the session log, so
-    // it covers the rebuilt recordings instead of the third of them a proposal row still names.
+    // Its own corpus: the sample is drawn from the session log, so it covers every exported
+    // recording instead of the one session a model has read.
     denominator: "Kontroll-Stichprobe über die ruhigen Frames der exportierten Sessions",
   },
   { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
@@ -70,7 +70,7 @@ export const LANES: readonly Lane[] = [
     renderer: "board",
     unit: "Bretter",
     // Its own corpus: a violated frame is in the lane because its LEDGER says so, whether or not
-    // it ever carried a proposal row.
+    // a model ever read it.
     denominator: "Bretter, deren korrigierte Stellung eine Regel bricht",
   },
   { id: "all", slug: "alle", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter im Strom" },
@@ -82,9 +82,9 @@ export const DEFAULT_LANE = LANES[0];
 export const lanePath = (id: LaneId) => `/strom/labeln/${laneById(id).slug}`;
 
 /** Why a lane is empty, when it is empty because nobody produced its input yet. */
-export const NO_PROBS =
-  "keine Modell-Lesarten auf der Platte — propose-occluded lief ohne --model. " +
-  "Das heißt „noch nicht gefragt“, nicht „nichts gefunden“ (CONCEPT.md D2).";
+export const NO_READS =
+  "keine Modell-Lesarten auf der Platte — `chesslab realgames model-read <name> --model <run>` " +
+  "lief noch nicht. Das heißt „noch nicht gefragt“, nicht „nichts gefunden“ (CONCEPT.md D2).";
 export const NO_QUERY =
   "/api/query hat nicht geantwortet — die Klassenwand ist eine serverseitige Abfrage, und ohne " +
   "ihre Antwort ist die Zahl unbekannt, nicht null.";
@@ -363,16 +363,15 @@ export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   if (id === "audit" && stream.audit === null) return { n: null, why: NO_AUDIT };
   if (id === "rules" && !stream.rules) return { n: null, why: NO_RULES };
   if ((id === "disagree" || id === "classwall") && !stream.sessions.some((s) => s.probs))
-    return { n: null, why: NO_PROBS };
+    return { n: null, why: NO_READS };
   if (id === "classwall" && !wall) return { n: null, why: NO_QUERY };
   const board = laneById(id).renderer === "board";
   const total = board ? laneBoards(stream, id).length : laneCells(stream, id, wall).length;
   const n = board ? openBoards(stream, id).length : openCells(stream, id, wall).length;
   if (id === "classwall") return { n, total, denominator: `Zellen, auf die »${wall!.text}« passt` };
-  // Der Produzent reicht nicht über den Korpus: seit dem Neu-Export nennt eine Vorschlagszeile
-  // nur noch einen Teil der Bretter, und der Rest ist NICHT GEMESSEN, nicht etwa einig.
+  // Ein Modell hat bisher EINE Session gelesen; der Rest des Korpus ist NICHT GEMESSEN, nicht einig.
   if (id === "disagree")
-    return { n, total, denominator: `Bretter mit Modell-Lesarten — ${stream.proposals.boards} von ${stream.boards.length}, der Rest ist nicht gemessen` };
+    return { n, total, denominator: `Bretter mit Modell-Lesarten — ${stream.reads.boards} von ${stream.boards.length}, der Rest ist nicht gemessen` };
   return { n, total };
 }
 

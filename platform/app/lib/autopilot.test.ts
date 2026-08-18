@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { plan, sessionsTouchedSince, type PlanInput } from "@/lib/autopilot";
+import { plan, type PlanInput } from "@/lib/autopilot";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 import type { QueueRow } from "@/lib/queues";
@@ -13,7 +13,7 @@ const CHAIN: ChainState = {
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
-  hasProposals: false,
+  hasModelReads: false,
   useless: null,
 };
 
@@ -42,7 +42,7 @@ const ledger = (...rows: Job[]): Pick<PlanInput, "lastJobs" | "lastSteps"> => ({
 });
 
 const run = (rows: QueueRow[], input: Partial<PlanInput> = {}) =>
-  plan({ rows, lastJobs: new Map(), lastSteps: new Map(), labeling: new Set(), ...input });
+  plan({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
 
 describe("plan — which machine step runs next", () => {
   it("takes the OLDEST recording, across both naming schemes", () => {
@@ -58,13 +58,16 @@ describe("plan — which machine step runs next", () => {
     ]);
   });
 
-  it("runs only the three machine steps — confirm and labeln are the human's", () => {
+  it("runs label and export alone — confirm, labeln and model-read need a human", () => {
     const rows = [
       row("2026-08-13-00-00-01", { step: "confirm", hasCandidate: true }),
       row("2026-08-13-00-00-02", { step: "labeln", hasCandidate: true }),
-      row("2026-08-13-00-00-03", { step: "propose", hasCandidate: true, confirmed: true, hasSession: true }),
+      // `realgames model-read` requires `--model` and refuses a run trained on the session, so no
+      // tick can choose it: the step is offered as a button and never taken by the loop.
+      row("2026-08-13-00-00-03", { step: "model-read", hasCandidate: true, confirmed: true, hasSession: true }),
+      row("2026-08-13-00-00-04", { step: "export", hasCandidate: true, confirmed: true }),
     ];
-    expect(run(rows).eligible).toEqual([{ name: "2026-08-13-00-00-03", step: "propose" }]);
+    expect(run(rows).eligible).toEqual([{ name: "2026-08-13-00-00-04", step: "export" }]);
   });
 
   it("leaves useless and archived games alone, PGN offer included", () => {
@@ -183,20 +186,12 @@ describe("plan — the boundary commit's 90-second export hold (§4.1.1)", () =>
   });
 });
 
-describe("plan — propose guards", () => {
+describe("plan — model-read is nobody's automatic step", () => {
   const session = (name: string) =>
-    row(name, { step: "propose", hasCandidate: true, confirmed: true, hasSession: true });
+    row(name, { step: "model-read", hasCandidate: true, confirmed: true, hasSession: true });
 
-  it("holds a propose for a session that was labeled in the last ten minutes", () => {
-    const held = run([session("2026-08-08-00-39-57")], { labeling: new Set(["rg-2026-08-08-00-39-57"]) });
-    // Held, not broken: it comes back by itself once the ledger row ages out.
-    expect(held).toMatchObject({ eligible: [], repair: [] });
-    expect(run([session("2026-08-08-00-39-57")]).eligible).toHaveLength(1);
-  });
-
-  it("never re-proposes a session that already has a proposals file", () => {
-    const rows = [row("2026-08-08-00-39-57", { step: "propose", hasSession: true, hasProposals: true, confirmed: true })];
-    expect(run(rows).eligible).toEqual([]);
+  it("never queues one, and never reports one as broken either", () => {
+    expect(run([session("2026-08-08-00-39-57")])).toMatchObject({ eligible: [], repair: [] });
   });
 });
 
@@ -208,30 +203,5 @@ describe("plan — adopt-pgn", () => {
       row("2026-08-12-01-18-44", { offeredPgn: null }),
     ];
     expect(run(rows).adopt).toEqual(["2026-08-13-12-46-24", "2026-08-14-09-23-19"]);
-  });
-});
-
-describe("sessionsTouchedSince", () => {
-  const line = (session: string, ts: string) =>
-    JSON.stringify({ session_id: session, frame: "001482", square: "e5", label: "occluded", ts });
-  const now = Date.parse("2026-08-15T01:00:00+00:00");
-
-  it("reads the ledger's tail and stops at the first row older than the cutoff", () => {
-    const text = [
-      line("rg-old", "2026-08-15T00:10:00+00:00"),
-      line("rg-fresh", "2026-08-15T00:55:00+00:00"),
-      line("rg-fresh", "2026-08-15T00:59:30+00:00"),
-      "",
-    ].join("\n");
-    expect(sessionsTouchedSince(text, now - 10 * 60_000)).toEqual(new Set(["rg-fresh"]));
-  });
-
-  it("survives a half-written last line and a row without a timestamp", () => {
-    const text = [line("rg-fresh", "2026-08-15T00:59:00+00:00"), '{"session_id":"rg-x"', ""].join("\n");
-    expect(sessionsTouchedSince(text, now - 10 * 60_000)).toEqual(new Set(["rg-fresh"]));
-  });
-
-  it("is empty on an empty ledger", () => {
-    expect(sessionsTouchedSince("", now)).toEqual(new Set());
   });
 });

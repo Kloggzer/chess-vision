@@ -214,3 +214,28 @@ def test_the_p8_slot_borrows_from_beside_it_when_its_own_frame_has_a_hand():
     assert pick_spread(items, lambda i: i > 15, 4) == [16, 17, 18, 19], "all four still arrive"
     assert pick_spread(items, lambda i: i == 3, 4) == [3], "never the same frame twice"
     assert pick_spread([], lambda i: True, 4) == []
+
+
+def test_the_limit_is_a_target_not_a_batch(tmp_path, monkeypatch):
+    """"Bring the frames to 80" on a session holding 40 means 40 more, never another 80."""
+    import json
+
+    pad = crop_border_px(_profile())
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    rows = [{"frame": f"frames/{i:06d}.png", "board": f"dirty/{i:06d}.webp", "ply": 1, "fen": fen,
+             "dirty": True, "dirty_reason": "occluded", "corners": _profile().image_corners,
+             "board_size": SIDE, "board_border": pad} for i in range(1, 7)]
+    sdir = _session(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+
+    assert matte.alpha_worker("s1", limit=2, progress=False)["alphas"] == 2
+    second = matte.alpha_worker("s1", limit=4, progress=False)
+
+    assert second["already"] == 2, "the two it already has are counted, not redone"
+    assert second["alphas"] == 2, "it fills the gap to four"
+    assert len(json.loads(json.dumps(
+        [json.loads(x) for x in (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()]
+    ))) == 4
+    assert matte.alpha_worker("s1", limit=4, progress=False)["alphas"] == 0, "asking again is free"

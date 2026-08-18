@@ -15,7 +15,10 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
   label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
   export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
-  propose: { label: "Vorschläge erzeugen", hint: "dirty Zellen bewerten → occluded-proposals.jsonl" },
+  "model-read": {
+    label: "Modell-Lesarten",
+    hint: "jede Zelle der Session von einem Modell lesen lassen → model-reads.jsonl (braucht ein Modell, das NICHT auf ihr trainiert hat)",
+  },
   labeln: { label: "Labeln", hint: "Brett-Pinsel und Zellraster im Strom" },
 };
 
