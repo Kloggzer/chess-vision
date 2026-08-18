@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -1080,8 +1081,13 @@ def occluders_alpha_worker(
         raise typer.Exit(1) from e
     skipped = ", ".join(f"{k}: {v}" for k, v in sorted(res["skipped"].items())) or "keine"
     print(f"[OK] {res['alphas']} Alphas aus {res['frames']} Frames "
-          f"({res['already']} lagen schon vor) -> {res['path']}")
-    print(f"     uebersprungen — {skipped}")
+          f"({res['already']} lagen schon vor) -> {res['path']}", flush=True)
+    print(f"     uebersprungen — {skipped}", flush=True)
+    # Measured twice on 2026-08-19: the run finishes its frames, writes them, and then never
+    # exits — the ROCm teardown wedges and the loop above it waits out its timeout. Everything is
+    # already on disk here (each row is appended and flushed), so leave without unwinding.
+    sys.stdout.flush()
+    os._exit(0)
 
 
 @dataset_app.command("verify")
