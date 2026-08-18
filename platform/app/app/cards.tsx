@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/progress";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChainActions } from "@/app/chain-actions";
+import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
@@ -14,6 +15,9 @@ import { when as localWhen } from "@/lib/when";
 
 export type GameInfo = {
   name: string;
+  //: Handed down, not derived: this is a client component and `lib/session` reaches the disk
+  //: through `sharp` — `client-boundary.test.ts` guards exactly that import.
+  sessionId: string;
   title: string | null;
   archived: boolean;
   /** Review PNGs on disk — only counted for bundles with neither video nor candidate. */
@@ -186,6 +190,7 @@ export function GameCard({ game }: { game: GameInfo }) {
           >
             {game.archived ? "wiederherstellen" : "archivieren"}
           </button>
+          {game.chain.hasSession ? <SessionDelete sessionId={game.sessionId} /> : null}
         </span>
       </div>
     </li>

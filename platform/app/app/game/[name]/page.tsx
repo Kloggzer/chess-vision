@@ -35,6 +35,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
   const { rows, source } = await loadProposals(name);
   const info: GameInfo = {
     name,
+    sessionId: sessionId(name),
     title: meta.title ?? null,
     archived: meta.archived ?? false,
     frames: await bareFrames(name, chain),

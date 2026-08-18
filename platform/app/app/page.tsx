@@ -46,6 +46,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {
   const pgn = await truthSans(name).catch(() => null);
   return {
     name,
+    sessionId: sessionId(name),
     title: meta.title ?? null,
     archived: meta.archived ?? false,
     frames: await bareFrames(name, chain),
