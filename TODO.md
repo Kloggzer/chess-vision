@@ -325,6 +325,29 @@ das Tool erzeugt — also kein Extraaufwand, nur Reihenfolge.
 **Vorher nötig:** ein zweites Turntable-Video mit anderer Aufstellung (das vorhandene trägt nur die
 Grundstellung), damit der Compositing-Datensatz auch Figurenmaterial hat.
 
+## Verdeckte Stellungen: Frames zurückgewinnen statt dichter exportieren (2026-08-18)
+
+Gemessen an 003957 (66 Stellungen, Export `--every 3`): je Stellung liegen median 47 Frames vor,
+davon **median 11 sauber** — und **45 der 66 Stellungen (68 %) haben weniger als 16**. Mit
+`--per-position 16` liefern zwei Drittel der Stellungen also weniger, als der Sampler will.
+
+Der naheliegende Fix wäre ein dichterer Export (`--every 1`, dreifacher Brettspeicher). **Verworfen
+(User 2026-08-18):** lieber weniger Bretter für eine verdeckte Stellung als dreimal so viel Material
+für alle. Die Reduktion bleibt am Ende der Pipeline, wo sie hingehört.
+
+**Die Idee, die noch aussteht:** in einem zweiten Durchgang Frames zurückholen, die heute pauschal
+fallen. Kandidaten, in aufsteigender Schwierigkeit:
+
+- Frames im `dirty`-Fenster (±1 s um den Commit), auf denen **keine** Hand zu sehen ist und deren
+  Stellung sich nachweislich nicht ändert — das Fenster ist eine Zeitregel, kein Sensor.
+- Frames mit Hand, aber nur auf Feldern, die für diese Stellung ohnehin nicht gebraucht werden:
+  die Matte weiß pro Feld, wie viel verdeckt ist, also können 60 saubere Felder bleiben, während 4
+  fallen. Heute fliegt der ganze Frame (`labeling.MATTE_DIRTY`).
+- Stellungen unter dem Ziel gezielt auffüllen, statt gleichmäßig über alle zu streuen.
+
+Der Preis der letzten beiden ist, dass ein Brett dann nicht mehr vollständig ist — `keep_per_position`
+wählt heute bewusst ganze Bretter. Also erst messen, ob unvollständige Bretter dem Sampler schaden.
+
 ## Sampler: Metadaten als Strata (2026-08-18)
 
 Der Coreset stratifiziert heute nach Stellung und streut innerhalb nach Aussehen (k-center greedy).

@@ -111,7 +111,7 @@ def test_the_alpha_survives_the_webp_roundtrip(tmp_path):
 
 
 def test_the_slice_carries_the_matte_into_the_manifest(tmp_path, monkeypatch):
-    """The coverage the matte measured has to reach the row the trainer reads, and only there."""
+    """Coverage under the drop threshold reaches the row the trainer reads, and only there."""
     import json
 
     import yaml
@@ -131,10 +131,10 @@ def test_the_slice_carries_the_matte_into_the_manifest(tmp_path, monkeypatch):
     (sdir / "session.yaml").write_text(
         yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8")
     (sdir / "matte.jsonl").write_text(
-        json.dumps({"frame": "000001", "coverage": {"a8": 0.9, "h1": 0.0}}) + "\n"
+        json.dumps({"frame": "000001", "coverage": {"a8": 0.12, "h1": 0.0}}) + "\n"
         + json.dumps({"frame": "000002", "skipped": "no grid hand"}) + "\n", encoding="utf-8")
 
-    assert read_matte(sdir) == {"000001": {"a8": 0.9, "h1": 0.0}}
+    assert read_matte(sdir) == {"000001": {"a8": 0.12, "h1": 0.0}}
 
     prof = replace(_profile(), profile="p", frame_size=(320, 240), board_size=128,
                    image_corners=corners,
@@ -145,6 +145,51 @@ def test_the_slice_carries_the_matte_into_the_manifest(tmp_path, monkeypatch):
                   squares_root=tmp_path / "squares", out_size=(32, 32))
     lines = (tmp_path / "m.jsonl").read_text(encoding="utf-8").splitlines()
     rows = {r["square"]: r for r in (json.loads(line) for line in lines)}
-    assert rows["a8"]["coverage"] == 0.9
+    assert rows["a8"]["coverage"] == 0.12
     assert rows["h1"]["coverage"] == 0.0
     assert rows["d4"]["coverage"] == 0.0, "a square the matte does not name is uncovered, not absent"
+
+
+def test_a_hand_the_tracker_missed_still_takes_the_frame_out(tmp_path, monkeypatch):
+    """The settle detector reacts to pieces moving; a resting arm moves none. The matte does."""
+    import json
+
+    import yaml
+
+    from chesslab import config
+    from chesslab.labeling import slice_session
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    sdir = tmp_path / "data" / "sessions" / "s1"
+    (sdir / "frames").mkdir(parents=True)
+    corners = [[20, 20], [300, 20], [300, 220], [20, 220]]
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    rows = []
+    for stem in ("000001", "000002"):
+        cv2.imwrite(str(sdir / "frames" / f"{stem}.png"), np.full((240, 320, 3), 128, np.uint8))
+        rows.append({"frame": f"frames/{stem}.png", "fen": fen, "ply": 1, "corners": corners})
+    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (sdir / "session.yaml").write_text(
+        yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8")
+    (sdir / "matte.jsonl").write_text(
+        json.dumps({"frame": "000001", "coverage": {"a8": 0.9}}) + "\n", encoding="utf-8")
+
+    prof = replace(_profile(), profile="p", frame_size=(320, 240), board_size=128,
+                   image_corners=corners, homography=compute_homography(corners, 128, 0.0),
+                   crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)),
+                   margin=0.0)
+    res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
+                        squares_root=tmp_path / "squares", out_size=(32, 32))
+
+    assert res["dirty_dropped"] == 64, "the matted frame leaves, the clean one stays"
+    assert res["crops"] == 64
+
+
+def test_the_export_samples_by_position_not_by_time():
+    """A position that stood ten seconds and one that stood two must weigh the same."""
+    from chesslab.realgames import spread_indices
+
+    assert spread_indices(100, 200, 8) == [100, 114, 128, 142, 157, 171, 185, 199]
+    assert spread_indices(0, 3, 8) == [0, 1, 2], "never more boards than frames"
+    assert spread_indices(5, 6, 4) == [5]
+    assert spread_indices(7, 7, 4) == []

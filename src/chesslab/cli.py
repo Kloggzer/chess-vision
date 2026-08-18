@@ -612,7 +612,10 @@ def realgames_export_session(
                                          help="Declared hand margin around each commit."),
     dirty: bool = typer.Option(True, "--dirty/--no-dirty",
                                help="Also export the commit windows, flagged `dirty: true`."),
-    every: int = typer.Option(3, "--every", help="Sample every Nth source frame."),
+    every: int = typer.Option(3, "--every", help="Sample every Nth source frame of a HAND window."),
+    per_position: int = typer.Option(8, "--per-position",
+                                     help="Quiet boards per position (0 = fall back to --every). "
+                                          "The corpus is short of positions, not of frames."),
     fit: bool = typer.Option(True, "--fit/--no-fit",
                              help="Fit every written frame's quad to the board's own grid."),
     report_only: bool = typer.Option(False, "--report-only",
@@ -632,6 +635,7 @@ def realgames_export_session(
 
     try:
         r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
+                                         per_position=per_position or None,
                                          dirty=dirty, fit=fit, report_only=report_only)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
@@ -1005,6 +1009,9 @@ def occluders_matte_session(
     limit: int = typer.Option(0, "--limit", help="Stop after N frames (0 = all)."),
     poses: bool = typer.Option(True, "--poses/--all",
                                help="Only the scan's distinct poses, or every frame."),
+    backend: str = typer.Option("gsam", "--backend",
+                                help="gsam (Grounding DINO + SAM 2.1, 1.2 s/frame — finds frames) "
+                                     "or sam3 (11.9 s/frame — the cleaner alpha to train on)."),
 ) -> None:
     """Cut the hand out of every dirty frame of a session: alpha per frame, coverage per square.
 
@@ -1014,7 +1021,8 @@ def occluders_matte_session(
     from . import matte as matte_mod
 
     try:
-        res = matte_mod.matte_session(name, limit=limit or None, poses_only=poses)
+        res = matte_mod.matte_session(name, limit=limit or None, poses_only=poses,
+                                      backend=backend)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e

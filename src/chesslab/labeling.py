@@ -353,6 +353,11 @@ def upsert_corrections(items: list[dict], path: Path) -> int:
     return len(merged)
 
 
+#: A square this covered is no longer a piece example (`training/occlusion.PIECE_VISIBLE_MAX`),
+#: so a frame carrying one is as dirty as one the tracker flagged — whatever the log says.
+MATTE_DIRTY = 0.15
+
+
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
 
@@ -482,6 +487,11 @@ def slice_session(
         # `SETTLE_LIMIT`. Absent on every session that predates the scan, which is the same thing.
         settle = entry.get("settle_dev") or ()
         frame_stem = Path(entry["frame"]).stem  # '0007'
+        # A hand the tracker never noticed is still a hand: the settle detector reacts to pieces
+        # moving, and an arm resting over the board moves nothing (1 % of this corpus' quiet
+        # frames). The matte sees it, so the frame leaves the pool by the same door.
+        if any(v > MATTE_DIRTY for v in matte.get(frame_stem, {}).values()):
+            dirty = True
         squares = all_squares()
         for i, square in enumerate(squares):
             if square in ambiguous_set:

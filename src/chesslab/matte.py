@@ -1,4 +1,4 @@
-"""Occluder mattes for a session: SAM 3 reads the stored board, the grid grooves veto it.
+"""Occluder mattes for a session: a text prompt finds the hand, the grid grooves veto it.
 
 A model, where `occluded.py` uses none, because a light change between intervals reads as "not
 the reference" and lights up a whole board. Numbers, rivals, prompts: `docs/session-mattes.md`.
@@ -15,37 +15,62 @@ from . import grid_occlusion as grid
 from .calibration import mesh_from_lines
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta, usable_board
 
+DINO_REPO = "IDEA-Research/grounding-dino-base"
+SAM2_REPO = "facebook/sam2.1-hiera-large"
+#: One detection pass, then one mask pass. `a person` rides along because it is what closes a
+#: ring: the enumeration alone leaves the metal as a hole (569 px on 005745, 96 px with it), and
+#: a hole is a label that says "board" where there is none.
+PROMPT = "a person. a hand. an arm. a sleeve. a wristwatch."
+BOX_THR, TEXT_THR = 0.30, 0.25
 SAM3_REPO = "facebook/sam3"
-#: Unioned concept prompts. `person` is what closes a ring: an enumeration leaves the metal as a
-#: hole in the matte (2074 px on 005745, 4 px with `person`), and a hole is a label that says
-#: "board" where there is none. Long descriptions score worse than nouns — SAM 3 wants phrases.
+#: SAM 3's concepts, one pass each. Ten times the cost of the pair above for a cleaner cut — the
+#: ring closes to 4 px instead of 96. Worth it for the alpha we train on, not for finding frames.
 CONCEPTS = ("person", "hand", "arm", "sleeve", "wristwatch")
-SCORE_THR = 0.5
 #: Past this share of the board it is not an arm reaching in. Nothing measured here came close.
 MAX_ZONE_FRAC = 0.60
 
 _MODEL: tuple = ()
+_SAM3: tuple = ()
 
 
-def _sam3():
+def _models():
     """Loaded once, lazily — importing torch costs seconds the rest of the CLI must not pay."""
     global _MODEL
     if not _MODEL:
         import torch
 
         try:
-            from transformers import Sam3Model, Sam3Processor
+            from transformers import (
+                AutoModelForZeroShotObjectDetection,
+                AutoProcessor,
+                Sam2Model,
+                Sam2Processor,
+            )
         except ImportError as e:  # optional, like every other heavy extra in this repo
-            raise ImportError("matte-session needs transformers and an accepted licence for "
-                              f"{SAM3_REPO}: uv run --with transformers, then `hf auth login`") from e
+            raise ImportError("matte-session needs transformers: uv run --with transformers") from e
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        _MODEL = (Sam3Processor.from_pretrained(SAM3_REPO),
-                  Sam3Model.from_pretrained(SAM3_REPO).to(device).eval(), device)
+        _MODEL = (AutoProcessor.from_pretrained(DINO_REPO),
+                  AutoModelForZeroShotObjectDetection.from_pretrained(DINO_REPO).to(device).eval(),
+                  Sam2Processor.from_pretrained(SAM2_REPO),
+                  Sam2Model.from_pretrained(SAM2_REPO).to(device).eval(), device)
     return _MODEL
 
 
-def alpha_for(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
-    """Union of the concept masks over one board raster, plus each concept's best score."""
+def _sam3():
+    """SAM 3, loaded lazily and separately — the finder must not pay for the matter's weights."""
+    global _SAM3
+    if not _SAM3:
+        import torch
+        from transformers import Sam3Model, Sam3Processor
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        _SAM3 = (Sam3Processor.from_pretrained(SAM3_REPO),
+                 Sam3Model.from_pretrained(SAM3_REPO).to(device).eval(), device)
+    return _SAM3
+
+
+def alpha_sam3(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
+    """The union of SAM 3's concept masks — the better cut, for the alpha that becomes a target."""
     import torch
 
     processor, model, device = _sam3()
@@ -57,7 +82,7 @@ def alpha_for(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
         with torch.no_grad():
             out = model(**inputs)
         found = processor.post_process_instance_segmentation(
-            out, threshold=SCORE_THR, mask_threshold=0.5,
+            out, threshold=0.5, mask_threshold=0.5,
             target_sizes=inputs.get("original_sizes").tolist())[0]
         if not len(found["masks"]):
             continue
@@ -65,6 +90,36 @@ def alpha_for(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
         alpha = np.maximum(alpha, cv2.resize(mask, (board.shape[1], board.shape[0])))
         hits[concept] = round(float(found["scores"].max()), 3)
     return alpha, hits
+
+
+def alpha_for(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
+    """The occluder over one board raster, plus what the detector called it.
+
+    Detected per frame rather than tracked: a propagated mask keeps following something after the
+    hand has left, and did so here for whole boards (`docs/session-mattes.md`).
+    """
+    import torch
+
+    dino_proc, dino, sam_proc, sam, device = _models()
+    rgb = cv2.cvtColor(board, cv2.COLOR_BGR2RGB)
+    inputs = dino_proc(images=rgb, text=PROMPT, return_tensors="pt").to(device)
+    with torch.no_grad():
+        detected = dino(**inputs)
+    found = dino_proc.post_process_grounded_object_detection(
+        detected, inputs.input_ids, threshold=BOX_THR, text_threshold=TEXT_THR,
+        target_sizes=[board.shape[:2]])[0]
+    boxes = [[float(v) for v in b] for b in found["boxes"]]
+    if not boxes:
+        return np.zeros(board.shape[:2], np.float32), {}
+    prompted = sam_proc(images=rgb, input_boxes=[boxes], return_tensors="pt").to(device)
+    with torch.no_grad():
+        out = sam(**prompted, multimask_output=False)
+    masks = sam_proc.post_process_masks(out.pred_masks.cpu(), prompted["original_sizes"],
+                                        binarize=False)[0]
+    labels = found.get("text_labels", found.get("labels")) or []
+    hits = {str(name): round(float(score), 3)
+            for name, score in zip(labels, found["scores"].tolist(), strict=False)}
+    return torch.sigmoid(masks.float()).amax(dim=(0, 1)).numpy(), hits
 
 
 def coverage_of(alpha: np.ndarray, entry: dict, profile) -> dict[str, float]:
@@ -94,13 +149,17 @@ def veto(board: np.ndarray, entry: dict) -> str:
     return ""
 
 
-def matte_frame(board: np.ndarray, entry: dict, profile) -> tuple[np.ndarray | None, dict]:
-    """One frame's matte and its row, or `(None, row)` when a veto fired."""
+def matte_frame(board: np.ndarray, entry: dict, profile,
+                backend: str = "gsam") -> tuple[np.ndarray | None, dict]:
+    """One frame's matte and its row, or `(None, row)` when a veto fired.
+
+    `gsam` finds frames (1.2 s), `sam3` cuts the alpha we train on (11.9 s) — same interface.
+    """
     row = {"frame": Path(entry["board"]).stem, "ply": entry.get("ply"),
-           "dirty": bool(entry.get("dirty"))}
+           "dirty": bool(entry.get("dirty")), "backend": backend}
     if reason := veto(board, entry):
         return None, row | {"skipped": reason}
-    alpha, hits = alpha_for(board)
+    alpha, hits = alpha_sam3(board) if backend == "sam3" else alpha_for(board)
     if float((alpha > 0.5).mean()) > MAX_ZONE_FRAC:
         return None, row | {"skipped": "zone too big"}
     coverage = coverage_of(alpha, entry, profile)
@@ -159,7 +218,7 @@ def read_scan(session_dir: Path) -> dict[str, dict]:
 
 
 def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
-                  resume: bool = True, poses_only: bool = True) -> dict:
+                  resume: bool = True, poses_only: bool = True, backend: str = "gsam") -> dict:
     """Every frame of `data/sessions/rg-<name>/` into `mattes/` + `matte.jsonl`.
 
     Not only the dirty ones: a resting hand sits in quiet windows too (1 % here) and would reach
@@ -194,6 +253,7 @@ def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
             # operation, not a model pass, so it is recomputed instead of re-segmented.
             alpha = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE).astype(np.float32) / 255.0
             rows.append({"frame": stem, "ply": entry.get("ply"), "dirty": bool(entry.get("dirty")),
+                         "backend": "on disk",
                          "coverage": (cov := coverage_of(alpha, entry, profile)),
                          "cells_over_half": sum(v > 0.5 for v in cov.values())})
             written += 1
@@ -202,7 +262,7 @@ def matte_session(name: str, *, limit: int | None = None, progress: bool = True,
         if board is None:
             rows.append({"frame": Path(entry["board"]).stem, "skipped": "board unreadable"})
             continue
-        alpha, row = matte_frame(board, entry, profile)
+        alpha, row = matte_frame(board, entry, profile, backend)
         if alpha is not None:
             cv2.imwrite(str(out_dir / f"{row['frame']}.webp"), (alpha * 255).astype(np.uint8))
             written += 1

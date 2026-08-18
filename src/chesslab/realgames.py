@@ -269,8 +269,24 @@ def changed_squares(before: str | None, after: str | None) -> list[str]:
     return sorted(sq for sq in a if a[sq] != b.get(sq))
 
 
+def spread_indices(lo: int, hi: int, n: int) -> list[int]:
+    """`n` source indices spread evenly over `[lo, hi)`, ends included, never duplicated.
+
+    This is what `per_position` samples a quiet window with: a position that stood for ten seconds
+    and one that stood for two then weigh the same. Positions are what the corpus is short of —
+    246 of them over 9 386 boards (`docs/sampling.md`).
+    """
+    span = hi - lo
+    if span <= 0 or n <= 0:
+        return []
+    n = min(n, span)          # a short window has fewer frames than boards asked for
+    if n == 1:
+        return [lo]
+    return [lo + round(i * (span - 1) / (n - 1)) for i in range(n)]
+
+
 def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
-              settle: dict | None = None) -> list[dict]:
+              settle: dict | None = None, per_position: int | None = None) -> list[dict]:
     """Every log row the export will write, in frame order — the whole interval model.
 
     Quiet rows sit `margin_frames` clear of both commits, so no hand is declared to be in them.
@@ -303,7 +319,10 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
         for lo, hi, is_dirty in windows:
             if is_dirty and not dirty:
                 continue
-            for idx in range(lo + (-lo) % every, hi, every):
+            indices = (spread_indices(lo, hi, per_position)
+                       if per_position and not is_dirty
+                       else range(lo + (-lo) % every, hi, every))
+            for idx in indices:
                 row = {
                     "frame": f"frames/{idx:06d}.png",
                     "ply": seg["ply"],
@@ -824,6 +843,7 @@ def export_session(
     *,
     quiet_margin_s: float = 1.0,
     every: int = 3,
+    per_position: int | None = 8,
     dirty: bool = True,
     measure: bool = True,
     fit: bool = True,
@@ -851,7 +871,8 @@ def export_session(
         settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
-    rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty, settle=settle)
+    rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty,
+                     settle=settle, per_position=per_position)
     if not rows:
         # `confirmed: true` with an EMPTY `reviewed_plies` is a reachable state — confirming a
         # candidate before its reference PGN is in place vouches for nothing — and blaming the
