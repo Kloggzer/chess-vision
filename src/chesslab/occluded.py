@@ -38,7 +38,7 @@ import numpy as np
 
 from . import config
 from . import grid_occlusion as grid
-from .calibration import load_profile
+from .calibration import load_profile, mesh_from_lines
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
 
@@ -150,12 +150,17 @@ def cell_score(structural: float, chroma: float) -> float:
 
 
 def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
-    """The 64 BGR crops of one logged row — through `crops_for_frame`, the slice's own path."""
-    path = session_dir / row["frame"]
-    frame = cv2.imread(str(path))
-    if frame is None:
-        raise FileNotFoundError(f"frame not readable: {path}")
-    return crops_for_frame(frame, row["corners"], profile)
+    """The 64 BGR crops of one logged row — through `crops_for_frame`, the slice's own path.
+
+    From the stored BOARD, like `slice_session`: a session has kept no source stills since the
+    board store landed (2026-08-17), and reading `row["frame"]` failed on every session.
+    """
+    path = session_dir / (row.get("board") or row["frame"])
+    board = cv2.imread(str(path))
+    if board is None:
+        raise FileNotFoundError(f"board not readable: {path}")
+    return crops_for_frame(None, row["corners"], profile, board=board,
+                           mesh=mesh_from_lines(row.get("grid_lines")))
 
 
 def interval_reference(pool_cells: list[list[np.ndarray]], keep: list[list[bool]]) -> dict:
@@ -215,10 +220,12 @@ def grid_channel(session_dir: Path, intervals: dict, profile) -> dict[str, dict[
     pad = grid.crop_border_px(profile)
     hands: dict[int, dict[str, int]] = {}
     for row in dirty:
-        frame = cv2.imread(str(session_dir / row["frame"]))
-        if frame is None:
+        # The stored board IS a warp already; `warp_padded` would rectify a rectified board.
+        board = cv2.imread(str(session_dir / (row.get("board") or row["frame"])))
+        if board is None:
             continue
-        warped = grid.warp_padded(frame, row["corners"], profile, pad)
+        warped = board if row.get("board") else grid.warp_padded(
+            board, row["corners"], profile, pad)
         gray = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY).astype(np.float32)
         edges = grid.missing_edges(gray, profile.board_size, pad, white_pov=profile.white_pov)
         squares = grid.hand_squares(edges)
