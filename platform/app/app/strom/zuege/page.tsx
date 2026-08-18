@@ -2,6 +2,7 @@ import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { queueRows, splitQueues, type QueueRow } from "@/lib/queues";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
+import { referenceOrigin } from "@/lib/chain";
 import { badIntervals } from "@/lib/review-notes";
 import { sessionId } from "@/lib/session";
 import type { StreamGame } from "@/lib/zuege";
@@ -32,6 +33,7 @@ async function streamGame(row: QueueRow): Promise<StreamGame> {
     cards: buildReviewCards({ moves, indices: invented, stems, startFen: candidate.start_fen, missedSans }),
     gallery: buildGalleryCards({ moves, matched, stems, startFen: candidate.start_fen }),
     noted: [...(await badIntervals(sessionId(row.name)))],
+    reference: await referenceOrigin(row.name),
   };
 }
 

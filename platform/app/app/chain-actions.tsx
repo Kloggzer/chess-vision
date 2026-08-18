@@ -56,13 +56,9 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
   async function post(body: Record<string, string | boolean>) {
     setNote(null);
     const res = await fetch(`/api/chain/${name}`, { method: "POST", body: JSON.stringify(body) });
-    const answer = (await res.json()) as Job & { error?: string; reason?: string; adopted?: string };
+    const answer = (await res.json()) as Job & { error?: string; reason?: string };
     if (!res.ok) return setNote(answer.error ?? res.statusText);
     if (answer.reason && !answer.state) return setNote(answer.reason);
-    if (answer.adopted) {
-      setNote(`reference.pgn ← ${answer.adopted}`);
-      return router.refresh();
-    }
     setJob(answer);
   }
 
@@ -122,20 +118,6 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
             </button>
           </TooltipTrigger>
           <TooltipContent>the verb refused because it could not fit this camera&apos;s barrel — the phone camera has none to remove (TODO.md, 2026-08-10). Labels then rest on the raw image.</TooltipContent>
-        </Tooltip>
-      ) : null}
-      {state.offeredPgn ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              className="text-muted-foreground cursor-pointer underline underline-offset-4 max-sm:inline-flex max-sm:h-11 max-sm:items-center"
-              onClick={() => void post({ step: "adopt-pgn" })}
-              type="button"
-            >
-              PGN übernehmen
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>copy the phone&apos;s own PGN in as reference.pgn — the confirm screen then compares instead of asking</TooltipContent>
         </Tooltip>
       ) : null}
       {/* Permanent, not a warning: those crops differ from corrected ones (specs/52). */}

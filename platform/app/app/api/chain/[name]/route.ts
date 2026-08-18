@@ -1,4 +1,4 @@
-import { adoptPgn, chainState } from "@/lib/chain";
+import { chainState } from "@/lib/chain";
 import { refused, startStep } from "@/lib/chain-run";
 
 export const runtime = "nodejs";
@@ -9,7 +9,6 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name
   const { name } = await ctx.params;
   try {
     const body = (await request.json().catch(() => ({}))) as { step?: string; lens?: boolean };
-    if (body.step === "adopt-pgn") return Response.json(await adoptPgn(name));
     // `lens` is passed through UNTOUCHED: absent means "let the source decide" (`lensFor`), and the
     // old `body.lens !== false` turned every ordinary press back into an explicit `lens: true`,
     // which is exactly the refusal the automation exists to avoid.

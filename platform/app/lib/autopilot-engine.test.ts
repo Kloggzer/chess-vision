@@ -72,3 +72,13 @@ test("an adopt that works is not remembered at all", async () => {
   await tick();
   expect((await autopilotStatus()).error).toBeNull();
 });
+
+// Pause stops heavy compute; copying the PGN the phone wrote for this is neither heavy nor a step.
+test("a paused autopilot still adopts, because the reference is not a machine step", async () => {
+  const { setPaused } = await import("@/lib/autopilot-state");
+  await setPaused(true);
+  fake.adopt.mockResolvedValue({ adopted: "game.pgn" });
+  await tick();
+  expect(fake.adopt).toHaveBeenCalledTimes(1);
+  expect((await autopilotStatus()).paused).toBe(true);
+});

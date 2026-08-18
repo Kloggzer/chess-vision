@@ -71,23 +71,33 @@ async function cachedPlan(): Promise<Plan> {
   return freshPlan();
 }
 
+/**
+ * The phone writes that PGN so it can be used, so adopting it is the chain's default rather than a
+ * press. Non-destructive by construction (`adoptPgn` never overwrites), so a refusal is news — and
+ * it is the SAME news every 30 s, so it is remembered instead of retried until a human acts.
+ */
+async function adoptOffered(names: readonly string[]): Promise<void> {
+  for (const name of names) {
+    if (engine.adoptFailed.has(name)) continue;
+    const adopted = await adoptPgn(name);
+    if ("reason" in adopted) engine.adoptFailed.set(name, `PGN ${name}: ${adopted.reason}`);
+  }
+}
+
 // One pass: adopt free PGNs, then start one machine step if slot is free and nothing is paused.
 export async function tick(): Promise<void> {
   if (engine.ticking) return;
   engine.ticking = true;
   try {
+    const next = await freshPlan();
+    // BEFORE the pause gate: pausing stops heavy compute — a replay, an export — and copying the
+    // text file the phone wrote for this is neither. The reference has to be there when the human
+    // opens the confirm screen, which is exactly what they paused the machine steps to do.
+    await adoptOffered(next.adopt);
     if (await isPaused()) return;
     // Cleared per pass: this list says why the loop cannot work RIGHT NOW. What failed for good is
     // in `repair` and in `adoptFailed`, neither of which a tick rewrites.
     engine.errors = [];
-    const next = await freshPlan();
-    for (const name of next.adopt) {
-      if (engine.adoptFailed.has(name)) continue;
-      const adopted = await adoptPgn(name);
-      // Non-destructive by construction (`adoptPgn` never overwrites), so a refusal is news — and
-      // it is the SAME news every 30 s, so it is remembered instead of retried until a human acts.
-      if ("reason" in adopted) engine.adoptFailed.set(name, `PGN ${name}: ${adopted.reason}`);
-    }
     if (busy() || next.eligible.length === 0) return;
     const pick = next.eligible[0];
     // The heavy lock is `startStep`'s — the same door the button goes through, so a manual press

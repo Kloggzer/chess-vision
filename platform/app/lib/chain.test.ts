@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { adoptPgn, chainState, nextStep } from "@/lib/chain";
+import { adoptPgn, chainState, nextStep, referenceOrigin } from "@/lib/chain";
 
 let data: string;
 const NAME = "2026-08-13-12-10-55";
@@ -110,6 +110,37 @@ describe("adoptPgn", () => {
 
   it("says plainly when the transfer carries no PGN at all", async () => {
     expect(await adoptPgn(NAME)).toMatchObject({ reason: expect.stringContaining("no .pgn") });
+  });
+});
+
+describe("referenceOrigin", () => {
+  it("calls an adopted reference the phone's own — the confirm screen has to say so", async () => {
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "2026-08-13_1941.pgn"), "1. e4 e5");
+    expect(await referenceOrigin(NAME)).toBe("none");
+    await adoptPgn(NAME);
+    expect(await referenceOrigin(NAME)).toBe("phone");
+  });
+
+  it("calls a notation that matches no bundle PGN an outside one", async () => {
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "2026-08-13_1941.pgn"), "1. e4 e5");
+    await writeFile(game("reference.pgn"), "1. d4 d5");
+    expect(await referenceOrigin(NAME)).toBe("outside");
+  });
+
+  it("is outside, not phone, when the bundle carries no games directory to have written it", async () => {
+    await writeFile(game("reference.pgn"), "1. d4 d5");
+    expect(await referenceOrigin(NAME)).toBe("outside");
+  });
+
+  // Byte-for-byte, like `realgames.reference_is_the_phones_own`: an edited copy is a human's word.
+  it("stops calling it the phone's once a human has edited it", async () => {
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "2026-08-13_1941.pgn"), "1. e4 e5");
+    await adoptPgn(NAME);
+    await writeFile(game("reference.pgn"), "1. e4 e5 2. Nf3");
+    expect(await referenceOrigin(NAME)).toBe("outside");
   });
 });
 

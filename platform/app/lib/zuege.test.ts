@@ -24,6 +24,7 @@ const game = (name: string, cards: number): StreamGame => ({
   plies: cards,
   cards: Array.from({ length: cards }, (_, i) => card(i)),
   gallery: [],
+  reference: "phone",
   noted: [],
 });
 

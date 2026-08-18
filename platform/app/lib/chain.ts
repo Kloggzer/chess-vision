@@ -7,6 +7,7 @@
  * so the next step is not a decision — it is READ OFF THE DISK. The UI therefore offers exactly one
  * button, and never one whose input does not exist yet.
  */
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir, gameDir } from "@/lib/data";
@@ -123,10 +124,11 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
 }
 
 /**
- * Copy the phone's PGN in as `reference.pgn`.
+ * Copy the phone's PGN in as `reference.pgn` — the chain's default, run by `tick`, never a button.
  *
  * Never overwrites: an existing reference is a human's choice (uploaded by hand, or edited), and
- * the phone's own move list is exactly the thing the confirm screen exists to doubt.
+ * the phone's own move list is exactly the thing the confirm screen exists to doubt — which is why
+ * `referenceOrigin` has to say so wherever the adopted file is used.
  */
 export async function adoptPgn(name: string): Promise<{ adopted: string } | { reason: string }> {
   const target = path.join(gameDir(name), "reference.pgn");
@@ -135,4 +137,37 @@ export async function adoptPgn(name: string): Promise<{ adopted: string } | { re
   if (!source) return { reason: "the transfer carries no .pgn — the phone never finished a game for it" };
   await writeFile(target, await readFile(source, "utf8"), "utf8");
   return { adopted: path.basename(source) };
+}
+
+/** `phone` = the reference IS the phone's own move list, so confirming is a self-check. */
+export type ReferenceOrigin = "none" | "phone" | "outside";
+
+const md5 = (bytes: Buffer) => createHash("md5").update(bytes).digest("hex");
+
+/**
+ * Where `reference.pgn` came from, by digest against every `files/games/*.pgn`.
+ *
+ * The same test `realgames.reference_is_the_phones_own` makes — deliberately not a second
+ * definition, because `chesslab realgames confirm --yes` REFUSES on `phone` and a screen that drew
+ * the line elsewhere would wave through what the CLI blocks.
+ */
+export async function referenceOrigin(name: string): Promise<ReferenceOrigin> {
+  const dir = gameDir(name);
+  let digest: string;
+  try {
+    digest = md5(await readFile(path.join(dir, "reference.pgn")));
+  } catch {
+    return "none";
+  }
+  const games = path.join(dir, "files", "games");
+  let pgns: string[] = [];
+  try {
+    pgns = (await readdir(games)).filter((f) => f.endsWith(".pgn"));
+  } catch {
+    return "outside"; // no bundle to have written it
+  }
+  for (const file of pgns) {
+    if (md5(await readFile(path.join(games, file))) === digest) return "phone";
+  }
+  return "outside";
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FrameSeries, sequenceLabel, ZoomOverlay, type Zoom } from "@/app/confirm/board-frames";
 import { Why } from "@/app/page-title";
+import { ReferenceChip } from "@/components/reference-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -250,11 +251,14 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
           Bestätigung selbst — 90 s lang macht z sie kostenlos rückgängig.
         </Why>
         {game ? (
-          <span className="text-muted-foreground truncate font-mono">
-            {game.title ?? game.name} · {game.plies} Halbzüge
-            {first ? ` · Halbzug ${first.ply}` : ""}
-            {item?.card ? ` · @${String(item.card.frame).padStart(6, "0")}` : ""}
-          </span>
+          <>
+            <span className="text-muted-foreground truncate font-mono">
+              {game.title ?? game.name} · {game.plies} Halbzüge
+              {first ? ` · Halbzug ${first.ply}` : ""}
+              {item?.card ? ` · @${String(item.card.frame).padStart(6, "0")}` : ""}
+            </span>
+            <ReferenceChip origin={game.reference} />
+          </>
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -504,6 +508,7 @@ function Gallery({
           <span className="text-muted-foreground">
             {game.gallery.reduce((n, c) => n + c.plies.length, 0)} Halbzüge decken sich mit reference.pgn
           </span>
+          <ReferenceChip origin={game.reference} />
           <Button className="ml-auto max-sm:h-11" onClick={onClose} size="sm" variant="outline">
             Esc zurück
           </Button>

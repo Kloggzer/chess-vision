@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
-import { chainState } from "@/lib/chain";
+import { chainState, referenceOrigin } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
+import { ReferenceChip } from "@/components/reference-chip";
 import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
@@ -36,7 +37,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   // is nothing to confirm yet, and the page that says so is also the page that offers the step.
   const candidate = await loadCandidate(name).catch(() => null);
   if (!candidate) return <NoCandidate name={name} />;
-  const truth = await truthSans(name);
+  const [truth, origin] = await Promise.all([truthSans(name), referenceOrigin(name)]);
   const moves = candidate.moves;
   // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
   // judge — the same review, minus the machine narrowing it down first.
@@ -65,6 +66,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   return (
     <main className="space-y-4">
       <PageTitle title={name}>
+        <ReferenceChip origin={origin} />
         {candidate.source?.lens ? null : (
           <Badge variant="destructive" title="candidate.json belegt keine Linsen-Korrektur (specs/52)">
             Barrel nicht korrigiert

@@ -4,6 +4,7 @@
  *
  * Pure on purpose — the client component owns the loop and imports this, the page owns the disk.
  */
+import type { ReferenceOrigin } from "@/lib/chain";
 import type { ReviewCard } from "@/lib/review-cards";
 
 /**
@@ -27,6 +28,8 @@ export type StreamGame = {
   gallery: ReviewCard[];
   /** Plies already called `bad-interval` in `review-notes.jsonl` — the verdict is reload-proof. */
   noted: number[];
+  /** Where `reference.pgn` came from: `phone` makes every match below a self-check, not a check. */
+  reference: ReferenceOrigin;
 };
 
 /** One entry per card, and ONE for a game whose candidate is empty: it still needs a verdict. */
