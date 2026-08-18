@@ -5,7 +5,7 @@ import { recordedAt, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
 import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
-/** The three steps a machine can take alone. `confirm` and `relabel` are the human's, forever. */
+/** The three steps a machine can take alone. `confirm` and `labeln` are the human's, forever. */
 export type MachineStep = "label" | "export" | "propose";
 
 const MACHINE: ReadonlySet<ChainStep> = new Set<ChainStep>(["label", "export", "propose"]);

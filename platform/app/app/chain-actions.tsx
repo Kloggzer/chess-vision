@@ -16,14 +16,14 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
   export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
   propose: { label: "Vorschläge erzeugen", hint: "dirty Zellen bewerten → occluded-proposals.jsonl" },
-  relabel: { label: "Labeln", hint: "Brett-Pinsel und Zellraster im Strom" },
+  labeln: { label: "Labeln", hint: "Brett-Pinsel und Zellraster im Strom" },
 };
 
 const BUSY = new Set(["queued", "running"]);
 
 /**
  * The chain's next step as ONE control.
- * Disk knows what's missing; confirm/relabel are links, machine steps are buttons.
+ * Disk knows what's missing; confirm/labeln are links, machine steps are buttons.
  */
 export function ChainActions({ name, state, lastJob = null }: { name: string; state: ChainState; lastJob?: Job | null }) {
   const router = useRouter();
@@ -81,12 +81,12 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
 
   return (
     <span className="flex flex-wrap items-center gap-2 text-xs">
-      {step === "confirm" || step === "relabel" ? (
+      {step === "confirm" || step === "labeln" ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Link
               className="border-border inline-flex items-center rounded border px-2 py-0.5 underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
-              href={step === "relabel" ? "/strom/labeln" : `/${step}/${name}`}
+              href={step === "labeln" ? "/strom/labeln" : `/${step}/${name}`}
             >
               {STEP[step].label} →
             </Link>

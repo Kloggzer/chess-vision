@@ -15,7 +15,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html className="dark font-sans" lang="de">
       <body>
-        <Shell counts={{ zuege: queues.confirm.length, labeln: queues.relabel.length }}>{children}</Shell>
+        <Shell counts={{ zuege: queues.confirm.length, labeln: queues.labeln.length }}>{children}</Shell>
       </body>
     </html>
   );

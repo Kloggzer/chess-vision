@@ -35,7 +35,7 @@ export type GameInfo = {
   source: "pack" | "fixture" | "none";
   /** Where the board total came from — `fallback` means the sidecar is missing and we counted. */
   read: "sidecar" | "fallback" | "none";
-  /** Where this game sits on the label → confirm → export → propose → relabel ladder. */
+  /** Where this game sits on the label → confirm → export → propose → labeln ladder. */
   chain: ChainState;
   /** The last job this game ran, so a reload still shows what failed and what answers it. */
   lastJob: Job | null;
@@ -163,7 +163,7 @@ export function GameCard({ game }: { game: GameInfo }) {
             Sichtprüfung
           </Link>
         ) : null}
-        {game.cells > 0 && game.chain.step !== "relabel" ? (
+        {game.cells > 0 && game.chain.step !== "labeln" ? (
           <Link className="hover:text-foreground" href="/strom/labeln">
             Bretter
           </Link>

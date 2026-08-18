@@ -1,5 +1,5 @@
 /**
- * The ladder from a transferred recording to a relabel screen, as a STATE rather than a procedure.
+ * The ladder from a transferred recording to the labelling stream, as a STATE, not a procedure.
  *
  * The chain is four steps with a human in the middle (`docs/phone-transfer.md`): the tracker
  * proposes a move list, a person judges it, the confirmed intervals become a session, and the
@@ -13,8 +13,8 @@ import { checkName, dataDir, gameDir } from "@/lib/data";
 import { checkMp4 } from "@/lib/mp4";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
-/** `label` and `propose` are jobs; `confirm` and `relabel` are pages; `done` is nothing left. */
-export type ChainStep = "label" | "confirm" | "export" | "propose" | "relabel";
+/** `label` and `propose` are jobs; `confirm` and `labeln` are pages; `done` is nothing left. */
+export type ChainStep = "label" | "confirm" | "export" | "propose" | "labeln";
 
 export type ChainState = {
   /** Null = nothing to do here: the game is flagged useless, and no step is offered at all. */
@@ -119,7 +119,7 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   if (!state.confirmed) return "confirm";
   if (!state.hasSession) return "export";
   if (!state.hasProposals) return "propose";
-  return "relabel";
+  return "labeln";
 }
 
 /**

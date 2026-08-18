@@ -58,10 +58,10 @@ describe("plan — which machine step runs next", () => {
     ]);
   });
 
-  it("runs only the three machine steps — confirm and relabel are the human's", () => {
+  it("runs only the three machine steps — confirm and labeln are the human's", () => {
     const rows = [
       row("2026-08-13-00-00-01", { step: "confirm", hasCandidate: true }),
-      row("2026-08-13-00-00-02", { step: "relabel", hasCandidate: true }),
+      row("2026-08-13-00-00-02", { step: "labeln", hasCandidate: true }),
       row("2026-08-13-00-00-03", { step: "propose", hasCandidate: true, confirmed: true, hasSession: true }),
     ];
     expect(run(rows).eligible).toEqual([{ name: "2026-08-13-00-00-03", step: "propose" }]);

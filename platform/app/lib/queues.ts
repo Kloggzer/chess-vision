@@ -27,8 +27,8 @@ export type QueueRow = {
 export type Queues = {
   /** Waiting for the human confirm screen. */
   confirm: QueueRow[];
-  /** Waiting for the human relabel screen. */
-  relabel: QueueRow[];
+  /** Waiting for the human at the labelling stream. */
+  labeln: QueueRow[];
   /** Has a recording but no candidate — the MACHINE step nobody started yet, hence unreviewable. */
   blocked: QueueRow[];
   /** Neither video nor candidate: nothing any step can act on (see `isBare`). */
@@ -69,7 +69,7 @@ export function splitQueues(rows: QueueRow[]): Queues {
   const live = newestFirst(rows.filter((r) => !r.chain.useless && !r.archived));
   return {
     confirm: live.filter((r) => r.chain.step === "confirm"),
-    relabel: live.filter((r) => r.chain.step === "relabel"),
+    labeln: live.filter((r) => r.chain.step === "labeln"),
     blocked: live.filter((r) => r.chain.step === "label" && r.chain.video !== null),
     bare: live.filter(isBare),
   };

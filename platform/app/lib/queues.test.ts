@@ -35,7 +35,7 @@ describe("splitQueues", () => {
   const rows = [
     row("2026-08-12-01-18-44", { step: "confirm", hasCandidate: true, hasReference: true }, { plies: 41 }),
     row("2026-08-14-09-23-19", { step: "confirm", hasCandidate: true }, { plies: 12 }),
-    row("2026-08-13-01-31-43", { step: "relabel", hasCandidate: true }),
+    row("2026-08-13-01-31-43", { step: "labeln", hasCandidate: true }),
     row("2026-08-13-12-12-18", { step: "label", video: "v.mp4" }),
     row("2026-08-08-11-55-19", { step: "label" }),
     row("2026-08-11-23-55-04", { step: "export", hasCandidate: true }),
@@ -50,11 +50,11 @@ describe("splitQueues", () => {
 
   it("reads both naming schemes as the same clock — a `VID_` name is not the newest by its V", () => {
     const mixed = [
-      row("VID_20260802_222741", { step: "relabel", hasCandidate: true }),
-      row("2026-08-13-19-34-23", { step: "relabel", hasCandidate: true }),
-      row("VID_20260726_233432", { step: "relabel", hasCandidate: true }),
+      row("VID_20260802_222741", { step: "labeln", hasCandidate: true }),
+      row("2026-08-13-19-34-23", { step: "labeln", hasCandidate: true }),
+      row("VID_20260726_233432", { step: "labeln", hasCandidate: true }),
     ];
-    expect(splitQueues(mixed).relabel.map((r) => r.name)).toEqual([
+    expect(splitQueues(mixed).labeln.map((r) => r.name)).toEqual([
       "2026-08-13-19-34-23",
       "VID_20260802_222741",
       "VID_20260726_233432",
@@ -62,9 +62,9 @@ describe("splitQueues", () => {
   });
 
   it("puts every game in exactly the queue of its own next step", () => {
-    const { confirm, relabel, blocked, bare } = splitQueues(rows);
+    const { confirm, labeln, blocked, bare } = splitQueues(rows);
     expect(confirm).toHaveLength(2);
-    expect(relabel.map((r) => r.name)).toEqual(["2026-08-13-01-31-43"]);
+    expect(labeln.map((r) => r.name)).toEqual(["2026-08-13-01-31-43"]);
     // A video without a candidate is the machine step nobody ran — shown, but not as reviewable.
     expect(blocked.map((r) => r.name)).toEqual(["2026-08-13-12-12-18"]);
     expect(bare.map((r) => r.name)).toEqual(["2026-08-08-11-55-19"]);
@@ -73,10 +73,10 @@ describe("splitQueues", () => {
   it("drops useless and archived games out of every queue, bare count included", () => {
     const flagged = [
       row("2026-08-14-09-23-19", { step: null, hasCandidate: true, useless: FLAG }),
-      row("2026-08-13-01-31-43", { step: "relabel" }, { archived: true }),
+      row("2026-08-13-01-31-43", { step: "labeln" }, { archived: true }),
       row("2026-08-08-11-55-19", { step: null, useless: FLAG }),
     ];
-    expect(splitQueues(flagged)).toEqual({ confirm: [], relabel: [], blocked: [], bare: [] });
+    expect(splitQueues(flagged)).toEqual({ confirm: [], labeln: [], blocked: [], bare: [] });
   });
 
   it("counts a broken recording as blocked, not as bare — the bundle still holds a video", () => {

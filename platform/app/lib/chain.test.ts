@@ -47,7 +47,7 @@ describe("nextStep", () => {
     expect(nextStep({ ...base, hasCandidate: true })).toBe("confirm");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true })).toBe("export");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true })).toBe("propose");
-    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true, hasProposals: true })).toBe("relabel");
+    expect(nextStep({ ...base, hasCandidate: true, confirmed: true, hasSession: true, hasProposals: true })).toBe("labeln");
   });
 
   it("never offers export before a human confirmed — an unconfirmed candidate exports nothing", () => {
@@ -76,13 +76,13 @@ describe("chainState", () => {
     expect((await chainState(NAME)).offeredPgn).toBeNull();
   });
 
-  it("moves to relabel once the session and the proposals exist", async () => {
+  it("moves to labeln once the session and the proposals exist", async () => {
     await video();
     await candidate(true);
     await mkdir(path.join(data, "sessions", `rg-${NAME}`), { recursive: true });
     await writeFile(path.join(data, "sessions", `rg-${NAME}`, "log.jsonl"), "{}\n");
     await writeFile(game("occluded-proposals.jsonl"), "{}\n");
-    expect((await chainState(NAME)).step).toBe("relabel");
+    expect((await chainState(NAME)).step).toBe("labeln");
   });
 
   it("a session directory without log.jsonl is NOT an export — the killed-export case", async () => {
