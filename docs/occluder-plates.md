@@ -21,6 +21,18 @@ Folgen, auf dem Fold-2-Testsplit über 3 Seeds gemessen:
 | Recall `wK` | 0,268 | 0,471 |
 | Recall `bK` | 0,224 | 0,690 |
 
+Über den **ganzen** Korpus bestätigt (2026-08-18, vier Folds, repariertes Mesh, gleiches Rezept,
+gleicher Seed — nur `occluded` unterscheidet sie). Gepaart gelesen, weil dieselben Folds verglichen
+werden: **4 von 4 verbessern sich** bei `square_acc` und bei `wK`.
+
+| Fold | sq_acc mit | ohne | wK mit | ohne |
+|---|---|---|---|---|
+| f0 | 0,8594 | **0,9221** | 0,33 | **1,00** |
+| f1 | 0,8592 | **0,9229** | 0,65 | **0,98** |
+| f2 | 0,8590 | **0,8784** | 0,64 | **0,72** |
+| f3 | 0,8739 | **0,9036** | 0,10 | **0,48** |
+| Median | 0,8593 | **0,9129** | 0,483 | **0,851** |
+
 Die Klasse wird trotzdem gebraucht — als Veto, damit kein Zug ausgelöst wird, während eine Hand über
 dem Brett liegt. Nur gehört sie nicht in denselben Softmax: eine Zelle trägt ein Label, also
 konkurriert „könnte beeinflusst sein" mit „das ist ein Bauer" und gewinnt dort, wo das Modell
