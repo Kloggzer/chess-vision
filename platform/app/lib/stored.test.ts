@@ -8,8 +8,6 @@ import {
   storedBoardPng,
   storedCellPng,
   storedFit,
-  storedProgress,
-  storedProgressOf,
   storedQuad,
   storedSessionId,
   storedSessions,
@@ -113,8 +111,6 @@ test("the log's rows become boards, chronological, without the ones the pack ref
 
 test("a bundle without a stored session reports nothing rather than an empty one", async () => {
   expect(await storedSessions("nope")).toEqual([]);
-  expect(await storedProgress(BUNDLE)).toBeNull();
-  expect(await storedProgressOf([BUNDLE, "nope"])).toEqual({});
 });
 
 test("a stored frame renders as a square image of the asked-for size", async () => {
@@ -229,15 +225,3 @@ test("without a sidecar nothing moves: no file, no fit, the marker quad as befor
   expect((await sharp(png).metadata()).width).toBe(32);
 });
 
-test("a board counts as seen once either ledger carries a square of it", async () => {
-  await writeLog(row(0), row(1));
-  expect(await storedProgress(BUNDLE)).toEqual({ boards: 2, seen: 0 });
-
-  const reviewed = { session_id: "phone-20260808-220912", frame: "0000", square: "e4", label: "wP", ts: "t" };
-  await writeFile(path.join(root, "manifests", "reviewed.jsonl"), JSON.stringify(reviewed) + "\n", "utf8");
-  expect(await storedProgress(BUNDLE)).toEqual({ boards: 2, seen: 1 });
-
-  const thrown = { session_id: "phone-20260808-220912", frame: "0001", verdict: "unusable-board", ts: "t" };
-  await writeFile(path.join(root, "manifests", "review-notes.jsonl"), JSON.stringify(thrown) + "\n", "utf8");
-  expect(await storedProgressOf([BUNDLE])).toEqual({ [BUNDLE]: { boards: 2, seen: 2 } });
-});

@@ -8,9 +8,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir } from "@/lib/data";
-import { controlSize, loadProposals, type Proposal, type Thresholds } from "@/lib/proposals";
-
-export type StreamCounts = { confirm: number; unsure: number; control: number };
+import { loadProposals, type Proposal, type Thresholds } from "@/lib/proposals";
 
 export type ProposalSummary = {
   /** Distinct frames with a proposal row — the denominator a human clears (CONCEPT.md 6.2). */
@@ -21,7 +19,6 @@ export type ProposalSummary = {
    * `|touched ∩ proposed|`, so a counter alone leaves every reader parsing 33 MB anyway.
    */
   frames: string[] | null;
-  by_stream: StreamCounts;
   hi: number;
   lo: number;
   /** The propose run, when the producer recorded it — `null` means unknown, never "no model". */
@@ -35,7 +32,6 @@ const NONE: ProposalSummary = {
   boards: 0,
   cells: 0,
   frames: [],
-  by_stream: { confirm: 0, unsure: 0, control: 0 },
   hi: 0,
   lo: 0,
   model: null,
@@ -43,27 +39,14 @@ const NONE: ProposalSummary = {
   read: "none",
 };
 
-/**
- * The producer's own arithmetic (`occluded.stream_counts`), reproduced so a sidecar and a fallback
- * are interchangeable. `confirm` here is every cell above `hi`; `splitStreams` narrows it further
- * to `proposed == occluded`, which is the page's question, not the file's census.
- */
+/** The file's own census, so a sidecar and a fallback are interchangeable on `/` and `/game`. */
 export function summaryFromRows(rows: Proposal[], t: Thresholds): Omit<ProposalSummary, "read"> {
-  let confirm = 0;
-  let unsure = 0;
-  let below = 0;
   const frames = new Set<string>();
-  for (const row of rows) {
-    frames.add(row.frame);
-    if (row.score > t.hi) confirm++;
-    else if (row.score >= t.lo) unsure++;
-    else below++;
-  }
+  for (const row of rows) frames.add(row.frame);
   return {
     boards: frames.size,
     cells: rows.length,
     frames: [...frames].sort(),
-    by_stream: { confirm, unsure, control: controlSize(below) },
     hi: t.hi,
     lo: t.lo,
     model: null,
@@ -82,17 +65,11 @@ function parseSidecar(text: string): ProposalSummary | null {
   const boards = num(o, "boards");
   const cells = num(o, "cells");
   if (boards === undefined || cells === undefined) return null;
-  const s = (typeof o.by_stream === "object" && o.by_stream ? o.by_stream : {}) as Record<string, unknown>;
   const frames = Array.isArray(o.frames) && o.frames.every((f) => typeof f === "string") ? (o.frames as string[]) : null;
   return {
     boards,
     cells,
     frames,
-    by_stream: {
-      confirm: num(s, "confirm") ?? 0,
-      unsure: num(s, "unsure") ?? 0,
-      control: num(s, "control") ?? 0,
-    },
     hi: num(o, "hi") ?? 0,
     lo: num(o, "lo") ?? 0,
     model: str(o, "model"),

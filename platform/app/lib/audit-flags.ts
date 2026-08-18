@@ -2,13 +2,13 @@
  * `data/manifests/audit-flags.jsonl` — the landing surface for the two-halves label audit
  * (CONCEPT.md 4.2, TODO "Datensatz-Qualität per Zwei-Hälften-Kreuztest").
  *
- * READ ONLY. The audit is its own project and writes this file; the stream renders whatever pair
- * of labels a row carries — piece identities, `empty` and `occluded` alike — ranked by `margin`.
- * The file does not exist today, and its absence is a `—` chip, never an empty lane pretending to
- * be finished.
+ * READ ONLY. The audit is its own project and writes this file; the stream renders the pair of
+ * labels a row carries, ranked by `margin`. Its absence is a `—` chip, never an empty lane
+ * pretending to be finished.
  */
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isIdentity } from "@/lib/classes";
 import { dataDir } from "@/lib/data";
 
 export type AuditFlag = {
@@ -60,6 +60,10 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
     try {
       const o = JSON.parse(line) as Record<string, unknown>;
       if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
+      // 11 088 of 36 891 rows read `occluded`, which the 14-class audit models still emit. That
+      // claim is measured now (`matte.jsonl` -> coverage) and unwritable, so agreeing with it
+      // would 400 the whole page — the lane keeps the identity pairs it can act on.
+      if (!isIdentity(String(o.predicted ?? ""))) continue;
       rows.push({
         session_id: o.session_id,
         frame: String(o.frame),

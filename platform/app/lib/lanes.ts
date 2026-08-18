@@ -2,25 +2,24 @@
  * The lanes of the LABELN stream (CONCEPT.md 4.2) — pure, so the stream's client half can import
  * it (`lib/client-boundary.test.ts`).
  *
- * A lane is a FILTER over one stream, never a page: it declares its renderer, its unit and its own
- * denominator. Mixing the units is the defect D1 diagnoses, so a chip never prints a bare number,
- * and a lane the producer has not filled yet prints `—` with its reason — `0` would claim there is
- * no such work when the truth is that nobody has been asked.
+ * A lane is a FILTER over one stream, never a page. The chip prints ONE number, because the only
+ * question it answers is whether work is left ("da reicht eine zahl", User 2026-08-18); the unit
+ * and the denominator moved into its tooltip. A lane the producer has not filled yet prints `—`
+ * with its reason — `0` would claim there is no such work when nobody has been asked.
  */
 
+import { isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
 export type LaneId =
-  | "unsure"
   | "disagree"
   | "classwall"
   | "unknown"
   | "control"
   | "audit"
   | "rules"
-  | "stored"
   | "all";
 
 /** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10). */
@@ -34,19 +33,11 @@ export type Lane = {
   label: string;
   renderer: LaneRenderer;
   unit: LaneUnit;
-  /** What the count is measured against, printed next to the chip — never assumed to be 3 976. */
+  /** What the count is measured against — the chip's tooltip, never the chip itself. */
   denominator: string;
-  /**
-   * The whole board goes to `reviewed.jsonl` on commit, minus what the brush corrected.
-   *
-   * A lane without flags has nothing to take off, so `plan.rejected` is empty and the ⌫ path
-   * would write nothing at all — but "der FEN stimmt" about 64 squares is exactly the verdict.
-   */
-  reviewAll?: boolean;
 };
 
 export const LANES: readonly Lane[] = [
-  { id: "unsure", slug: "unsicher", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
   { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
   // Named after its QUESTION, not after the wall metaphor: it is the same "Modell ≠ FEN" one cell
   // at a time, and nobody looking for that found it under `Klassenwand` (User, 2026-08-17).
@@ -58,10 +49,19 @@ export const LANES: readonly Lane[] = [
     renderer: "board",
     unit: "Bretter",
     // Its own corpus on purpose: `occluded.py` emits no proposal row for an unknown cell, so these
-    // boards are partly outside the 3 976 and cannot carry an `n/3976` position (CONCEPT.md 4.2).
+    // boards lie partly outside the proposer's reach and are not measured against it.
     denominator: "Bretter mit unknown_squares über die exportierten Sessions",
   },
-  { id: "control", slug: "stichprobe", label: "Stichprobe", renderer: "cells", unit: "Zellen", denominator: "Kontroll-Stichprobe" },
+  {
+    id: "control",
+    slug: "stichprobe",
+    label: "Stichprobe",
+    renderer: "cells",
+    unit: "Zellen",
+    // Its own corpus, and no longer the proposer's: the sample is drawn from the session log, so
+    // it covers the rebuilt recordings instead of the third of them a proposal row still names.
+    denominator: "Kontroll-Stichprobe über die ruhigen Frames der exportierten Sessions",
+  },
   { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
   {
     id: "rules",
@@ -70,21 +70,10 @@ export const LANES: readonly Lane[] = [
     renderer: "board",
     unit: "Bretter",
     // Its own corpus: a violated frame is in the lane because its LEDGER says so, whether or not
-    // it ever carried a proposal row, so it cannot be indexed against the 3 976.
+    // it ever carried a proposal row.
     denominator: "Bretter, deren korrigierte Stellung eine Regel bricht",
   },
-  {
-    id: "stored",
-    slug: "abnicken",
-    label: "Abnicken",
-    renderer: "board",
-    // Its own corpus, like `FEN unklar`: a bundle without video has no proposal file at all, so
-    // these boards can never carry an `n/3976` position.
-    denominator: "Stored-Bretter der Bundles ohne Video",
-    reviewAll: true,
-    unit: "Bretter",
-  },
-  { id: "all", slug: "alle", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
+  { id: "all", slug: "alle", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter im Strom" },
 ];
 
 export const laneById = (id: LaneId): Lane => LANES.find((l) => l.id === id)!;
@@ -114,13 +103,13 @@ export type LaneCount = {
   denominator?: string;
 };
 
-/** The chip's two strings: the unit always travels with the number, `—` never as `0`. */
+/** ONE number — is there anything left here. What it is measured against is the tooltip's job. */
 export function laneChip(lane: Lane, count: LaneCount): { text: string; title: string } {
   const over = count.denominator ?? lane.denominator;
   if (count.n === null) return { text: `${lane.label} —`, title: count.why ?? "kein Input auf der Platte" };
   const total = count.total ?? count.n;
   return {
-    text: `${lane.label} ${count.n}/${total} ${lane.unit}`,
+    text: `${lane.label} ${count.n}`,
     title: `${count.n} offen von ${total} ${lane.unit} · ${over}`,
   };
 }
@@ -180,6 +169,9 @@ function judgedCell(c: {
   session: number; pos: number; stem: string; square: string; fen_label: string;
   predicted: string; prob: number; margin?: number;
 }): LaneCell {
+  // Only one of the 13: `occluded` is measured now and `validate` rejects it, so offering it as
+  // "das Modell hat recht" would 400 the whole page instead of writing one row.
+  const predicted = isIdentity(c.predicted) ? c.predicted : null;
   return {
     session: c.session,
     pos: c.pos,
@@ -188,9 +180,9 @@ function judgedCell(c: {
     fen_label: c.fen_label,
     label: c.fen_label,
     ledger: "reviewed",
-    exception: c.predicted,
+    exception: predicted,
     caption: `${c.square} · FEN ${c.fen_label}`,
-    note: `Modell ${c.predicted}`,
+    ...(predicted ? { note: `Modell ${predicted}` } : {}),
   };
 }
 
@@ -261,23 +253,19 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   if (id === "classwall") {
     return byClaim(groupBySquare(wall?.cells ?? []));
   }
-  const kind = id === "unsure" ? "unsure" : id === "control" ? "control" : null;
-  if (kind === null) return [];
+  if (id !== "control") return [];
+  // EIN ⏎ überall: „FEN stimmt" → reviewed. Ohne Modellwort, weil die Stichprobe blind sein muss.
   return byClaim(
-    groupBySquare(stream.cells.filter((c) => c.kind === kind)).map((c) => ({
+    groupBySquare(stream.cells).map((c) => ({
       session: c.session,
       pos: c.pos,
       stem: c.stem,
       square: c.square,
       fen_label: c.fen_label,
-      // EIN ⏎ überall: „FEN stimmt" → reviewed. Die alte Unsicher-Vorbelegung `occluded` schrieb
-      // Trainings-Zeilen, während der Nutzer im Audit-Muster bestätigte — etliche Seiten falsch
-      // (2026-08-15). occluded ist jetzt überall die Rechtsklick-/Pinsel-Antwort, nie der Default.
       label: c.fen_label,
-      ledger: "reviewed",
-      exception: c.predicted ?? null,
+      ledger: "reviewed" as const,
+      exception: null,
       caption: `${c.square} · FEN ${c.fen_label}`,
-      ...(c.predicted ? { note: `Modell ${c.predicted}` } : {}),
     })),
   );
 }
@@ -287,8 +275,7 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   if (id === "disagree") return stream.boards.filter((b) => Object.keys(b.disagree).length > 0);
   if (id === "unknown") return stream.boards.filter((b) => b.unknown.length > 0);
   if (id === "rules") return stream.boards.filter((b) => b.violations.length > 0);
-  if (id === "stored") return stream.boards.filter((b) => stream.sessions[b.session]?.stored === true);
-  if (id === "all") return stream.boards.filter((b) => b.proposed);
+  if (id === "all") return stream.boards;
   return [];
 }
 
@@ -343,16 +330,14 @@ export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell
 /**
  * A board still worth stopping at — the lane's own unit of work, unanswered.
  *
- * `Abnicken` closes on ANY square, because its commit writes all 64 at once. `Alle Bretter` is
- * free-hand touch-up and closes only when every square carries a verdict. `Regelbruch` never
- * closes: its squares are corrections ON FILE, so the ledger calls them judged by construction —
- * the board leaves the lane when the audit runs again and drops its row.
+ * `Alle Bretter` is free-hand touch-up and closes only when every square carries a verdict.
+ * `Regelbruch` never closes: its squares are corrections ON FILE, so the ledger calls them judged
+ * by construction — the board leaves the lane when the audit runs again and drops its row.
  */
 export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string, string>): boolean {
   const undecided = (squares: string[]) => squares.some((sq) => decided[`${board.stem}|${sq}`] === undefined);
   if (id === "rules") return true;
   if (id === "all") return undecided(Object.keys(fenLabels(board.fen)));
-  if (id === "stored") return !Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] !== undefined);
   return undecided(Object.keys(laneAccept(board, id)));
 }
 
@@ -384,9 +369,11 @@ export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   const total = board ? laneBoards(stream, id).length : laneCells(stream, id, wall).length;
   const n = board ? openBoards(stream, id).length : openCells(stream, id, wall).length;
   if (id === "classwall") return { n, total, denominator: `Zellen, auf die »${wall!.text}« passt` };
-  if (id !== "stored") return { n, total };
-  const bundles = new Set(laneBoards(stream, id).map((b) => stream.sessions[b.session].name)).size;
-  return { n, total, denominator: `Stored-Bretter über ${bundles} Bundles ohne Video` };
+  // Der Produzent reicht nicht über den Korpus: seit dem Neu-Export nennt eine Vorschlagszeile
+  // nur noch einen Teil der Bretter, und der Rest ist NICHT GEMESSEN, nicht etwa einig.
+  if (id === "disagree")
+    return { n, total, denominator: `Bretter mit Modell-Lesarten — ${stream.proposals.boards} von ${stream.boards.length}, der Rest ist nicht gemessen` };
+  return { n, total };
 }
 
 export type EventGroup<T> = { head: T; members: T[] };

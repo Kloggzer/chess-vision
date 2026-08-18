@@ -9,16 +9,15 @@
  * searches this order instead of resetting it (`lib/lanes.ts` `keepPosition`).
  */
 import { judgedKeys } from "@/lib/corrections";
-import { chainState } from "@/lib/chain";
+import { FILES, fenLabels } from "@/lib/fen";
 import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
 import { loadMeta } from "@/lib/meta";
-import { loadProposals, splitStreams, topRead, type Proposal } from "@/lib/proposals";
+import { loadProposals, topRead, type Proposal } from "@/lib/proposals";
 import { unusableBoards } from "@/lib/review-notes";
-import { isBare, recordedAt } from "@/lib/queues";
-import { loadSession, sessionId, type FramePhase } from "@/lib/session";
-import { storedFit, storedQuad, storedSessions } from "@/lib/stored";
+import { recordedAt } from "@/lib/queues";
+import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
 import { uselessFlag } from "@/lib/useless";
 
 export type StreamSession = {
@@ -28,8 +27,6 @@ export type StreamSession = {
   proposals: boolean;
   /** The producer wrote model reads here — the two identity lanes need this and never have it yet. */
   probs: boolean;
-  /** An Android Stored recording out of a bundle without video — the `Abnicken` lane's whole corpus. */
-  stored?: boolean;
 };
 
 export type StreamBoard = {
@@ -53,18 +50,12 @@ export type StreamBoard = {
   disagreeReads: Record<string, string>;
   /** Has at least one proposal row — the `Alle Bretter` lane and the 3 976 denominator. */
   proposed: boolean;
-  /** Which quad this board's pixels are cut with — Stored boards only (`lib/stored.ts`). */
-  quad?: "grid-fit" | "marker";
-  /** `align_worst_px` of the fit, so the lane can say how good the preferred quad is. */
-  quadPx?: number;
 };
 
 /**
- * `hi` = above the confirm threshold, `unsure` = the mid band, `control` = the 180-cell sample,
- * `wall` = the model's argmax contradicts the FEN and no band claimed the cell first.
+ * One cell of the control sample. It carries no model read on purpose: a control that is primed
+ * with a guess measures the guess, not the FEN.
  */
-export type CellKind = "hi" | "unsure" | "control" | "wall";
-
 export type StreamCell = {
   session: number;
   /** Its BOARD's ordinal, so a cell lane keeps position with the board lanes. */
@@ -72,11 +63,6 @@ export type StreamCell = {
   stem: string;
   square: string;
   fen_label: string;
-  score: number;
-  kind: CellKind;
-  /** The model's own word, on `wall` cells only — printed beside the FEN's. */
-  predicted?: string;
-  prob?: number;
 };
 
 export type StreamAuditCell = {
@@ -100,7 +86,12 @@ export type LabelStream = {
   rules: boolean;
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
-  /** Boards with proposals corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
+  /**
+   * How far `propose-occluded` still reaches: boards it names, and sessions it never named at all.
+   * Measured 2026-08-19 at 3 377 of 7 593 — the corpus was re-exported under the producer.
+   */
+  proposals: { boards: number; without: number };
+  /** Boards in the stream corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
   progress: { boards: number; done: number };
 };
 
@@ -131,18 +122,6 @@ export async function liveGames(): Promise<string[]> {
   return newestFirst(live.filter((n): n is string => n !== null));
 }
 
-/** Bundles with neither video nor candidate (`isBare`) — a useless one has no step and drops out. */
-async function bareGames(): Promise<string[]> {
-  const names = await listGames();
-  const bare = await Promise.all(
-    names.map(async (name) => {
-      const [chain, meta] = await Promise.all([chainState(name), loadMeta(name)]);
-      return !meta.archived && isBare({ chain }) ? name : null;
-    }),
-  );
-  return newestFirst(bare.filter((n): n is string => n !== null));
-}
-
 /**
  * One pass over the corpus. Costly by construction — no sidecar on disk carries `frames` yet, so
  * `loadProposalSummary` would parse the same rows anyway (CONCEPT.md 6.3) — but every read path it
@@ -164,8 +143,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const bySession = new Map<string, { index: number; byStem: Map<string, StreamBoard> }>();
 
   let pos = 0;
-  let done = 0;
   let proposedBoards = 0;
+  let without = 0;
 
   for (const name of await liveGames()) {
     let session;
@@ -175,39 +154,32 @@ export async function loadLabelStream(): Promise<LabelStream> {
       continue; // not exported yet — the chain owes this one an `export-session`
     }
     const id = sessionId(name);
-    const [{ rows, thresholds }, judged, unusable] = await Promise.all([
-      loadProposals(name).catch(() => ({ rows: [] as Proposal[], thresholds: { hi: 0.7, lo: 0.3, declared: false } })),
+    const [{ rows }, judged, unusable] = await Promise.all([
+      loadProposals(name).catch(() => ({ rows: [] as Proposal[] })),
       judgedKeys(id),
       unusableBoards(id),
     ]);
 
     const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
-    const streams = splitStreams(rows, thresholds);
-    const kinds = new Map<string, CellKind>();
-    for (const c of streams.confirm) kinds.set(`${c.frame}|${c.square}`, "hi");
-    for (const c of streams.unsure) kinds.set(`${c.frame}|${c.square}`, "unsure");
-    for (const c of streams.control) kinds.set(`${c.frame}|${c.square}`, "control");
-    // The argmax evidence of `Modell ≠ FEN`. It no longer OVERWRITES a bucket: the class question
-    // is `/api/query` now, and a mid-band cell that is also a wall is still `Unsicher`'s work.
     const walls = new Map<string, { label: string; p: number }>();
     const wallsByFrame = new Map<string, Proposal[]>();
     for (const row of rows) {
       const hit = disagreement(row);
       if (!hit) continue;
       walls.set(`${row.frame}|${row.square}`, hit);
-      if (!kinds.has(`${row.frame}|${row.square}`)) kinds.set(`${row.frame}|${row.square}`, "wall");
       const list = wallsByFrame.get(row.frame);
       if (list) list.push(row);
       else wallsByFrame.set(row.frame, [row]);
     }
 
-    // A board is in the stream when it carries a proposal, an unknown square OR a rule violation —
-    // the latter two lanes are partly outside the proposal corpus by construction.
+    // Every exported frame, as CONCEPT.md 4.2 says — the proposal file used to be the gate, and it
+    // now names 3 377 of 7 593 boards, so gating on it hid half the corpus from the free-hand lane.
     const proposedStems = new Set(rows.map((r) => r.frame));
     const stems = session.rows
-      .filter((r) => (proposedStems.has(r.stem) || r.unknown.length > 0 || broke.has(r.stem)) && !unusable.has(r.stem))
+      .filter((r) => !unusable.has(r.stem))
       .sort((a, b) => a.stem.localeCompare(b.stem));
     if (stems.length === 0) continue;
+    if (rows.length === 0) without += 1;
 
     const index = sessions.length;
     sessions.push({
@@ -247,40 +219,15 @@ export async function loadLabelStream(): Promise<LabelStream> {
       if (board.proposed) proposedBoards++;
     }
     // Only the stream's own frames: the ledgers hold verdicts for boards no lane shows.
-    const touched = new Set<string>();
     for (const [key, label] of judged) {
-      const stem = key.slice(0, key.indexOf("|"));
-      const board = byStem.get(stem);
-      if (!board) continue;
-      seen[key] = label;
-      if (board.proposed) touched.add(stem);
+      if (byStem.has(key.slice(0, key.indexOf("|")))) seen[key] = label;
     }
-    done += touched.size;
     decided.push(seen);
-
-    for (const row of rows) {
-      const kind = kinds.get(`${row.frame}|${row.square}`);
-      const board = byStem.get(row.frame);
-      if (!kind || !board) continue;
-      // Auch die Unsicher-/Stichproben-Zellen tragen die Modell-Lesart, seit alle Dateien probs
-      // haben — „hier sehe ich nicht was das modell sagt, also kann ich ihm auch nicht recht
-      // geben" (2026-08-15).
-      const read = walls.get(`${row.frame}|${row.square}`) ?? topRead(row);
-      cells.push({
-        session: index,
-        pos: board.pos,
-        stem: row.frame,
-        square: row.square,
-        fen_label: row.fen_label,
-        score: row.score,
-        kind,
-        ...(read ? { predicted: read.label, prob: read.p } : {}),
-      });
-    }
+    cells.push(...controlCells(index, stems, byStem));
     bySession.set(id, { index, byStem });
   }
-  await appendStored(sessions, boards, decided, pos);
 
+  const touched = decided.map((seen) => new Set(Object.keys(seen).map((k) => k.slice(0, k.indexOf("|")))));
   return {
     sessions,
     boards,
@@ -288,58 +235,44 @@ export async function loadLabelStream(): Promise<LabelStream> {
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
     rules: ruleRows.present,
     decided,
-    progress: { boards: proposedBoards, done },
+    proposals: { boards: proposedBoards, without },
+    progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
   };
 }
 
+/** Cells the control takes per recording — enough to estimate a rate, few enough to be finished. */
+const CONTROL_MAX = 180;
+
 /**
- * The Stored recordings, appended after the exported sessions and ordered by the same rule.
- *
- * They carry no proposal and no model read, so they produce no cell and stay out of every lane
- * whose denominator is "Bretter mit Vorschlägen" — `Abnicken` is their own.
+ * The control sample, from the session log alone: settled frames (the exporter saw no hand), one
+ * square each, spread over the whole recording. It asks the question that is left — does the piece
+ * the FEN names really stand there — on cells no flag pointed at, which is the unflagged-remainder
+ * estimate the k-fold audit owes (CONCEPT.md 4.2).
  */
-async function appendStored(
-  sessions: StreamSession[],
-  boards: StreamBoard[],
-  decided: Record<string, string>[],
-  from: number,
-): Promise<void> {
-  let pos = from;
-  for (const name of await bareGames()) {
-    for (const stored of await storedSessions(name)) {
-      const [judged, unusable] = await Promise.all([
-        judgedKeys(stored.sessionId),
-        unusableBoards(stored.sessionId),
-      ]);
-      const rows = stored.rows.filter((r) => !unusable.has(r.stem));
-      if (rows.length === 0) continue;
-      const fit = await storedFit(stored.dir);
-      const index = sessions.length;
-      sessions.push({ name, sessionId: stored.sessionId, proposals: false, probs: false, stored: true });
-      for (const row of rows) {
-        const quad = storedQuad(fit, row);
-        boards.push({
-          session: index,
-          pos: pos++,
-          stem: row.stem,
-          ply: row.ply,
-          fen: row.fen,
-          unknown: [],
-          violations: [],
-          violating: {},
-          disagree: {},
-          disagreeReads: {},
-          proposed: false,
-          quad: quad.fitted ? "grid-fit" : "marker",
-          quadPx: quad.worstPx,
-        });
-      }
-      const stems = new Set(rows.map((r) => r.stem));
-      decided.push(
-        Object.fromEntries([...judged].filter(([key]) => stems.has(key.slice(0, key.indexOf("|"))))),
-      );
-    }
+function controlCells(
+  index: number,
+  stems: readonly SessionRow[],
+  byStem: Map<string, StreamBoard>,
+): StreamCell[] {
+  const settled = stems.filter((r) => r.phase === "settled");
+  const stride = Math.max(1, Math.floor(settled.length / CONTROL_MAX));
+  const out: StreamCell[] = [];
+  for (let i = 0, n = 0; i < settled.length && out.length < CONTROL_MAX; i += stride, n++) {
+    const row = settled[i];
+    const board = byStem.get(row.stem);
+    if (!board) continue;
+    // 7 is coprime with 64, so consecutive frames walk every square before one repeats.
+    const at = (n * 7) % 64;
+    const square = `${FILES[at % 8]}${1 + Math.floor(at / 8)}`;
+    out.push({
+      session: index,
+      pos: board.pos,
+      stem: row.stem,
+      square,
+      fen_label: fenLabels(row.fen)[square] ?? "empty",
+    });
   }
+  return out;
 }
 
 /** Audit flags positioned in the stream; a flag on a board no lane shows cannot be rendered. */

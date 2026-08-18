@@ -29,7 +29,7 @@ import {
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(LANES.map((l) => l.id)).toEqual([
-    "unsure", "disagree", "classwall", "unknown", "control", "audit", "rules", "stored", "all",
+    "disagree", "classwall", "unknown", "control", "audit", "rules", "all",
   ]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
@@ -39,11 +39,11 @@ test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(laneById("unknown").denominator).toContain("exportierten Sessions");
 });
 
-test("a chip always carries its unit, and an unavailable lane says — with a reason", () => {
-  // The stream shows only OPEN work, so the chip has to say what the number is measured against.
+test("a chip prints ONE number, and an unavailable lane says — with a reason", () => {
+  // „nur wichtig ist ob da noch was zu tun ist" (User, 2026-08-18) — der Nenner lebt im Tooltip.
   expect(laneChip(laneById("all"), { n: 128, total: 612 })).toEqual({
-    text: "Alle Bretter 128/612 Bretter",
-    title: "128 offen von 612 Bretter · Bretter mit Vorschlägen",
+    text: "Alle Bretter 128",
+    title: "128 offen von 612 Bretter · Bretter im Strom",
   });
   const empty = laneChip(laneById("disagree"), { n: null, why: NO_PROBS });
   expect(empty.text).toBe("Modell ≠ FEN · Bretter —");
@@ -94,7 +94,7 @@ const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
 });
 
 const cell = (over: Partial<StreamCell> = {}): StreamCell => ({
-  session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", score: 0.5, kind: "unsure", ...over,
+  session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", ...over,
 });
 
 const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
@@ -104,13 +104,14 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: false }],
-  boards: [], cells: [], audit: null, rules: true, decided: [{}], progress: { boards: 0, done: 0 }, ...over,
+  boards: [], cells: [], audit: null, rules: true, decided: [{}],
+  proposals: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
   const stream = streamOf({ boards: [board({ unknown: ["e5"] })], cells: [cell()] });
   expect(laneCount(stream, "unknown")).toEqual({ n: 1, total: 1 });
-  expect(laneCount(stream, "unsure")).toEqual({ n: 1, total: 1 });
+  expect(laneCount(stream, "control")).toEqual({ n: 1, total: 1 });
   // Judged in the ledger the page loaded with: still in the corpus, no longer in the stream.
   const done = streamOf({
     boards: [board({ unknown: ["e5"] })],
@@ -119,23 +120,29 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
   });
   expect(laneCount(done, "unknown")).toEqual({ n: 0, total: 1 });
   expect(openBoards(done, "unknown")).toEqual([]);
-  expect(openCells(done, "unsure")).toEqual([]);
+  expect(openCells(done, "control")).toEqual([]);
   // `0` would claim there is no such work; the truth is that nobody has been asked (CONCEPT.md D2).
   expect(laneCount(stream, "disagree").n).toBeNull();
   expect(laneCount(stream, "classwall").n).toBeNull();
   expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
+  // Der Rest des Korpus ist NICHT GEMESSEN, nicht etwa einig — der Tooltip muss das sagen.
+  const read = streamOf({
+    sessions: [{ name: "g", sessionId: "rg-g", proposals: true, probs: true }],
+    boards: [board({ disagree: { e5: "bP" } })],
+    proposals: { boards: 1, without: 0 },
+  });
+  expect(laneChip(laneById("disagree"), laneCount(read, "disagree")).title).toContain("nicht gemessen");
   expect(laneCount(streamOf({ rules: false }), "rules")).toEqual({ n: null, why: NO_RULES });
   expect(laneCount(streamOf({ audit: [] }), "audit")).toEqual({ n: 0, total: 0 });
 });
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual([
-    "unsicher", "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit",
-    "regelbruch",
-    "abnicken", "alle",
+    "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit", "regelbruch", "alle",
   ]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
-  expect(laneBySlug("abnicken")?.id).toBe("stored");
+  // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen (User, 2026-08-18).
+  expect(laneBySlug("abnicken")).toBeUndefined();
   expect(laneBySlug("nope")).toBeUndefined();
   expect(lanePath("unknown")).toBe("/strom/labeln/fen-unklar");
 });
@@ -163,10 +170,7 @@ test("the FEN-unklar lane pre-selects the FEN's own word, which is what rescues 
 test("a cell lane carries its own pre-label and ledger, and the identity lanes never write the model by default", () => {
   // EIN ⏎ überall: die alte occluded-Vorbelegung des Mittelbands schrieb Trainings-Zeilen,
   // während im Audit-Muster bestätigt wurde — 615 Fehl-Zeilen am 2026-08-15. Nur noch reviewed.
-  const unsure = laneCells(streamOf({ cells: [cell()] }), "unsure")[0];
-  expect(unsure).toMatchObject({ label: "bP", ledger: "reviewed", exception: null });
-
-  const control = laneCells(streamOf({ cells: [cell({ kind: "control" })] }), "control")[0];
+  const control = laneCells(streamOf({ cells: [cell()] }), "control")[0];
   expect(control).toMatchObject({ label: "bP", ledger: "reviewed" });
 
   const walled = streamOf({ boards: [board()] });
@@ -186,34 +190,6 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   expect(audit.note).toBe("Modell bB");
 });
 
-test("Abnicken counts its own bundles and closes a board on the first verdict of any square", () => {
-  const stream = streamOf({
-    sessions: [
-      { name: "g", sessionId: "rg-g", proposals: true, probs: false },
-      { name: "2026-08-08-22-09-12", sessionId: "phone-20260808-220912", proposals: false, probs: false, stored: true },
-    ],
-    boards: [board(), board({ session: 1, pos: 1, stem: "0000", proposed: false })],
-    decided: [{}, {}],
-  });
-  expect(laneBoards(stream, "stored").map((b) => b.stem)).toEqual(["0000"]);
-  // Proposal-less boards must not inflate the lane whose denominator says "mit Vorschlägen".
-  expect(laneBoards(stream, "all").map((b) => b.stem)).toEqual(["000100"]);
-  expect(laneCount(stream, "stored")).toEqual({
-    n: 1,
-    total: 1,
-    denominator: "Stored-Bretter über 1 Bundles ohne Video",
-  });
-  expect(laneChip(laneById("stored"), laneCount(stream, "stored")).title).toContain("über 1 Bundles");
-
-  const stored = laneBoards(stream, "stored")[0];
-  expect(laneAccept(stored, "stored")).toEqual({});
-  expect(laneOpen(stored, "stored", {})).toBe(true);
-  expect(laneOpen(stored, "stored", { "0000|h8": "empty" })).toBe(false);
-  // Without flags `plan.rejected` stays empty, so the whole-board verdict is the lane's own knob.
-  expect(laneById("stored").reviewAll).toBe(true);
-  expect(laneById("all").reviewAll).toBeUndefined();
-});
-
 test("Regelbruch outlines the corrections on file and never counts itself done", () => {
   const broken = board({ violations: ["TOO_MANY_WHITE_PAWNS"], violating: { a1: "wP" } });
   const stream = streamOf({ boards: [broken, board({ pos: 1, stem: "000200" })] });
@@ -226,7 +202,7 @@ test("Regelbruch outlines the corrections on file and never counts itself done",
   expect(laneOpen(broken, "rules", { "000100|a1": "wP" })).toBe(true);
   expect(laneCount(stream, "rules")).toEqual({ n: 1, total: 1 });
   expect(laneChip(laneById("rules"), laneCount(stream, "rules"))).toEqual({
-    text: "Regelbruch 1/1 Bretter",
+    text: "Regelbruch 1",
     title: "1 offen von 1 Bretter · Bretter, deren korrigierte Stellung eine Regel bricht",
   });
   expect(boardCells([broken], "rules")).toMatchObject([{ square: "a1", label: "wP", ledger: "corrections" }]);

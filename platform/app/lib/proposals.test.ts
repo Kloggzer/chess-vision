@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, test } from "vitest";
-import { acceptLabel, DISAGREE, loadProposals, matches, splitStreams } from "@/lib/proposals";
+import { acceptLabel, DISAGREE, loadProposals, matches } from "@/lib/proposals";
 
 /** The pinned schema of specs/53-cnn-headroom/entry.md, header line included. */
 const LINES = [
@@ -24,16 +24,11 @@ async function withFile(lines: string[]) {
   return loadProposals("g");
 }
 
-test("header, rows and the three streams", async () => {
+test("header and rows, score descending", async () => {
   const { rows, thresholds, source } = await withFile(LINES);
   expect(source).toBe("pack");
   expect(thresholds).toEqual({ hi: 0.8, lo: 0.2, declared: true });
-  expect(rows.map((r) => r.score)).toEqual([0.91, 0.55, 0.04]); // score descending
-
-  const { confirm, unsure, control } = splitStreams(rows, thresholds);
-  expect(confirm.map((r) => r.square)).toEqual(["e2"]);
-  expect(unsure.map((r) => r.square)).toEqual(["e3"]);
-  expect(control.map((r) => r.square)).toEqual(["a1"]);
+  expect(rows.map((r) => r.score)).toEqual([0.91, 0.55, 0.04]);
 });
 
 test("a file without a header falls back to defaults and SAYS so", async () => {
@@ -66,28 +61,21 @@ test("the hand-written fixture parses exactly like the real artifact", async () 
       "square",
     ]);
   }
-  const streams = splitStreams(rows, thresholds);
-  expect(streams.confirm.length).toBeGreaterThan(60); // a full page plus exceptions
-  expect(streams.unsure.length).toBeGreaterThan(0);
-  expect(streams.control.length).toBeGreaterThan(0);
 });
 
-test("the occluded question is answered by score when no model ran", () => {
-  // The 2026-08-10 bug: `matches` required `probs`, so a session proposed without --model
-  // answered "nothing" to every occluded query and the filter could not be run at all.
+test("the proposer's occlusion score is no longer a question a human is asked", () => {
+  // Verdeckung wird gemessen (SAM 3 -> `matte.jsonl` coverage), nicht mehr aus dem Score gefragt:
+  // ein Score-Kanal ohne Modell-Lesart trifft keine Zelle, und `occluded` ist nicht schreibbar.
   const row = { frame: "1", square: "g3", fen_label: "empty", proposed: "keep", score: 0.55,
                 session_id: "s", grid_score: 0.5 };
-  expect(matches(row, { klass: "occluded", min: 0.5 })).toBe(true);
-  expect(matches(row, { klass: "occluded", min: 0.7 })).toBe(false);
+  expect(matches(row, { klass: "occluded", min: 0.5 })).toBe(false);
   expect(matches(row, { klass: "wP", min: 0.5 })).toBe(false); // identity still needs a model
 });
 
-test("confirming a threshold query writes its class, not the model's argmax", () => {
-  // The cell reads wP most strongly but carries enough occluded mass to match the query. The
-  // human answered the question that was ASKED — "is this occluded" — so `occluded` is written.
+test("a threshold query never writes occluded, whatever mass the model put there", () => {
   const row = { frame: "1", square: "e4", fen_label: "empty", proposed: "occluded", score: 0.6,
                 session_id: "s", probs: { wP: 0.55, occluded: 0.4 } };
-  expect(acceptLabel(row, { klass: "occluded", min: 0.3 })).toBe("occluded");
+  expect(acceptLabel(row, { klass: "occluded", min: 0.3 })).toBeNull();
 });
 
 test("confirming a disagree query writes the model's own reading", () => {

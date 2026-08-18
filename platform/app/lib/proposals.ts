@@ -33,8 +33,6 @@ export type Proposals = {
 
 /** Only used when phase 02 has not emitted a header — shown in the view as "defaults". */
 const DEFAULTS = { hi: 0.7, lo: 0.3 };
-/** Enough of the control stream to notice a producer that is wrong at the bottom end. */
-const CONTROL_MAX = 180;
 
 function pick(o: Record<string, unknown>, key: string): number | undefined {
   const v = o[key];
@@ -91,25 +89,4 @@ export async function loadProposals(name: string): Promise<Proposals> {
   const value: Proposals = { rows, thresholds, source };
   cache.set(file, { key, value });
   return value;
-}
-
-export type Streams = { confirm: Proposal[]; control: Proposal[]; unsure: Proposal[] };
-
-/**
- * The three streams: confirm by the page, the unsure mid-band (also by the page — the one-at-a-
- * time tinder view is gone, "tinder nervt", 2026-08-10), and a sample of the bottom as control.
- */
-export function splitStreams(rows: Proposal[], t: Thresholds): Streams {
-  const confirm = rows.filter((r) => r.score > t.hi && r.proposed === "occluded");
-  const unsure = rows.filter((r) => r.score >= t.lo && r.score <= t.hi);
-  const below = rows.filter((r) => r.score < t.lo);
-  const step = controlStep(below.length);
-  return { confirm, control: below.filter((_, i) => i % step === 0), unsure };
-}
-
-const controlStep = (below: number) => Math.max(1, Math.ceil(below / CONTROL_MAX));
-
-/** How many cells the control sample holds — the producer computes the same (`occluded.stream_counts`). */
-export function controlSize(below: number): number {
-  return Math.ceil(below / controlStep(below));
 }

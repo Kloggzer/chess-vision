@@ -7,6 +7,8 @@
  * included, into the browser bundle, and Turbopack fails the page at runtime. Types are erased and
  * were harmless; the constant was not. Anything a client component needs belongs here.
  */
+import { isIdentity } from "@/lib/classes";
+
 export type Proposal = {
   session_id: string;
   frame: string;
@@ -33,11 +35,6 @@ export type Filter = {
 
 /** Cells a filter selects. `disagree` needs no threshold beyond the model's own confidence. */
 export function matches(row: Proposal, f: Filter): boolean {
-  // The occluded question is answered by EVERY channel the producer has, not only a model's
-  // softmax: `score` is already the max of pixel, model and grid. Requiring `probs` here meant a
-  // session proposed without --model answered "nothing" to "show me occlusion" — the filter that
-  // could not be run at all (2026-08-10).
-  if (f.klass === "occluded") return Math.max(row.score, row.probs?.occluded ?? 0) >= f.min;
   const probs = row.probs;
   if (!probs) return false;
   if (f.klass !== DISAGREE) return (probs[f.klass] ?? 0) >= f.min;
@@ -54,22 +51,19 @@ export function topRead(row: Proposal): { label: string; p: number } | null {
 }
 
 /**
- * What "yes, correct" WRITES for a matched cell — only the query knows what it asked.
- *
- * A threshold query is answered by its own class: "occluded >= 0.5" means the human confirms
- * OCCLUDED, even where the model's argmax is something else, because a threshold question is not
- * an argmax question. The disagree query has no class of its own, so there the answer is the
- * model's top read, and a cell with no reading at all cannot be confirmed.
+ * What "yes, correct" WRITES for a matched cell — a class query its own class, a disagree query
+ * the model's top read. `null` where that word is not one of the 13 identities: `occluded` is
+ * measured now and `validate` rejects it, so a page of them would fail as a whole batch.
  */
 export function acceptLabel(row: Proposal, f: Filter): string | null {
-  if (f.klass !== DISAGREE) return f.klass;
-  return topRead(row)?.label ?? null;
+  const label = f.klass === DISAGREE ? topRead(row)?.label : f.klass;
+  return label !== undefined && isIdentity(label) ? label : null;
 }
 
-/** Every class the model actually emitted, so the filter offers real options only. */
+/** Every IDENTITY the model emitted — its `occluded` head asks a question coverage answers. */
 export function classesSeen(rows: Proposal[]): string[] {
   const seen = new Set<string>();
-  for (const row of rows) for (const k of Object.keys(row.probs ?? {})) seen.add(k);
+  for (const row of rows) for (const k of Object.keys(row.probs ?? {})) if (isIdentity(k)) seen.add(k);
   return [...seen].sort();
 }
 

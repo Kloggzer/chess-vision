@@ -3,6 +3,7 @@
  * All 308 705 proposal rows carry `probs`; shipping those to the browser is 58 MB, so the question is
  * answered here and only the cell keys it selects travel (CONCEPT.md 4.2, lane `Klassenwand`).
  */
+import { isIdentity } from "@/lib/classes";
 import { liveGames } from "@/lib/label-stream";
 import { loadProposals } from "@/lib/proposals";
 import {
@@ -21,11 +22,14 @@ import { loadSession, sessionId } from "@/lib/session";
 /** The read that ANSWERS the query, so a card's word and what ⏎ agrees to can never diverge. */
 function evidence(row: Proposal, f: Filter): number {
   if (f.klass === DISAGREE) return topRead(row)?.p ?? 0;
-  if (f.klass === "occluded") return Math.max(row.score, row.probs?.occluded ?? 0);
   return row.probs?.[f.klass] ?? 0;
 }
 
 export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryAnswer> {
+  // Refused, not answered with an empty set: `occluded` was an askable class until 2026-08-18 and
+  // a bookmark still carries it. Zero hits would read as "nothing covered", which is a claim.
+  if (filter.klass !== DISAGREE && !isIdentity(filter.klass))
+    throw new Error(`${filter.klass} ist keine Identität — Verdeckung wird gemessen (matte.jsonl), nicht gefragt`);
   const started = Date.now();
   const classes = new Set<string>();
   const hits: QueryHit[] = [];

@@ -16,7 +16,6 @@ const SIDECAR = {
   boards: 3,
   cells: 30364,
   frames: ["000900", "000901", "000902"],
-  by_stream: { confirm: 1225, unsure: 5230, control: 180 },
   hi: 0.7,
   lo: 0.3,
   model: "data/models/real14-ms-s3-hn-bn80",
@@ -35,8 +34,9 @@ async function game(lines: string[], sidecar?: unknown, name = "g") {
   return dir;
 }
 
-test("the sidecar is read verbatim and says so", async () => {
-  await game(LINES, SIDECAR);
+test("the sidecar is read verbatim, and its dead stream counts are not carried along", async () => {
+  // `by_stream` zählte die drei Occlusion-Bänder; die Frage stellt niemand mehr (matte.jsonl).
+  await game(LINES, { ...SIDECAR, by_stream: { confirm: 1225, unsure: 5230, control: 180 } });
   const summary = await loadProposalSummary("g");
   expect(summary).toEqual({ ...SIDECAR, read: "sidecar" });
 });
@@ -48,7 +48,6 @@ test("without a sidecar the same shape is counted off the rows, and the surface 
     boards: 2,
     cells: 3,
     frames: ["000100", "000200"],
-    by_stream: { confirm: 1, unsure: 1, control: 1 },
     hi: 0.7,
     lo: 0.3,
     model: null,

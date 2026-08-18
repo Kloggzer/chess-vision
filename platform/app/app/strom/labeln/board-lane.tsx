@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { BoardLegend, BoardSurface, SQUARES, useBoardPaint } from "@/components/board-paint";
+import { BoardLegend, BoardSurface, useBoardPaint } from "@/components/board-paint";
 import { PaletteRow } from "@/components/palette-row";
 import { PhaseChip } from "@/components/phase-chip";
 import type { Correction } from "@/lib/corrections";
@@ -20,8 +20,6 @@ export type BoardLaneProps = {
   accept: Record<string, string>;
   reads: Record<string, string>;
   decided: Record<string, string>;
-  /** `Lane.reviewAll` — the commit vouches for every square the brush did not correct. */
-  reviewAll?: boolean;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
   onStep: (delta: number) => void;
@@ -36,7 +34,7 @@ export type BoardLaneProps = {
  * (REVIEW S3). The arrows step BOARDS instead.
  */
 export function BoardLane(props: BoardLaneProps) {
-  const { name, sessionId, board, accept, reads, decided, reviewAll, actionsRef, onFlush, onStep, onNext } = props;
+  const { name, sessionId, board, accept, reads, decided, actionsRef, onFlush, onStep, onNext } = props;
   const boardKey = `${board.session}:${board.stem}`;
   const paint = useBoardPaint({ boardKey, fen: board.fen, decided, stem: board.stem, accept });
   const [hover, setHover] = useState<string | null>(null);
@@ -50,9 +48,7 @@ export function BoardLane(props: BoardLaneProps) {
    * has nothing to correct and goes to the review ledger as provenance.
    */
   const commit = async (what: BoardPlan, ply?: number) => {
-    const corrected = new Set(what.corrections.map((r) => r.square));
-    const vouched = reviewAll ? SQUARES.filter((sq) => !corrected.has(sq)) : what.rejected;
-    const reviewed = vouched.map((square) => ({ square, label: paint.base[square] }));
+    const reviewed = what.rejected.map((square) => ({ square, label: paint.base[square] }));
     const prior = Object.fromEntries(
       [...what.corrections, ...reviewed].map((r) => [
         `${sessionId}|${board.stem}|${r.square}`,
@@ -98,7 +94,7 @@ export function BoardLane(props: BoardLaneProps) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <Button className={TOUCH} onClick={() => void commit(plan)} size="sm">
-          ⏎ {reviewAll ? `${plan.corrections.length} korrigiert · Rest bestätigt` : confirmLabel(plan)}
+          ⏎ {confirmLabel(plan)}
         </Button>
         <Button className={TOUCH} onClick={() => void commit(paint.rejectAll())} size="sm" variant="secondary">
           ⌫ FEN stimmt → nächstes

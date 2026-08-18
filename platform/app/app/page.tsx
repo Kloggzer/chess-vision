@@ -8,7 +8,6 @@ import { loadProposals, proposalKey } from "@/lib/proposals";
 import { boardProgressOf } from "@/lib/proposal-summaries";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
-import { storedProgressOf } from "@/lib/stored";
 import { BareBundles } from "./bare-bundles";
 import { GameCard, type GameInfo } from "./cards";
 import { PageTitle } from "./page-title";
@@ -88,7 +87,6 @@ export default async function Home() {
 
   const boards = active.reduce((n, g) => n + g.boards, 0);
   const boardsDone = active.reduce((n, g) => n + g.boardsDone, 0);
-  const stored = await storedProgressOf(queues.bare.map((r) => r.name));
 
   return (
     <main className="space-y-4">
@@ -104,7 +102,7 @@ export default async function Home() {
           <GameCard game={game} key={game.name} />
         ))}
       </ul>
-      <BareBundles rows={queues.bare} stored={stored} />
+      <BareBundles rows={queues.bare} />
       {useless.length > 0 ? (
         <details>
           <summary className="text-muted-foreground cursor-pointer text-sm">

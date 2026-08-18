@@ -39,3 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# npm is this app's package manager (package-lock.json is tracked); a stray bun.lock
+# reappeared in three commits before it was ignored.
+bun.lock

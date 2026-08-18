@@ -7,8 +7,6 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { checkName, gameDir } from "@/lib/data";
-import { judgedKeys } from "@/lib/corrections";
-import { unusableBoards } from "@/lib/review-notes";
 import {
   boardToImage,
   type GridMesh,
@@ -194,30 +192,4 @@ export function storedCellPng(name: string, stem: string, square: string, size: 
       : squareCropBox(square, BOARD_SIZE, STORED_CROP);
     return sampleBox(raster, h, box, size, size);
   });
-}
-
-export type StoredProgress = { boards: number; seen: number };
-
-/** How much of a bundle's stored boards already carry a verdict — `null` when it has none. */
-export async function storedProgress(name: string): Promise<StoredProgress | null> {
-  const sessions = await storedSessions(name);
-  if (sessions.length === 0) return null;
-  let boards = 0;
-  let seen = 0;
-  for (const session of sessions) {
-    const [judged, unusable] = await Promise.all([
-      judgedKeys(session.sessionId),
-      unusableBoards(session.sessionId),
-    ]);
-    const stems = new Set([...judged.keys()].map((k) => k.slice(0, k.indexOf("|"))));
-    boards += session.rows.length;
-    seen += session.rows.filter((r) => stems.has(r.stem) || unusable.has(r.stem)).length;
-  }
-  return { boards, seen };
-}
-
-/** The same, for a list of bundles — bundles without a stored session are simply absent. */
-export async function storedProgressOf(names: string[]): Promise<Record<string, StoredProgress>> {
-  const found = await Promise.all(names.map(async (name) => [name, await storedProgress(name)] as const));
-  return Object.fromEntries(found.filter((e): e is [string, StoredProgress] => e[1] !== null));
 }

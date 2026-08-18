@@ -422,7 +422,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
                   >
                     {l.label}
                     <span className={`ml-1.5 tabular-nums ${on ? "opacity-70" : "text-muted-foreground"}`}>
-                      {counts[i].n === null ? "—" : `${counts[i].n}/${counts[i].total ?? counts[i].n} ${l.unit}`}
+                      {counts[i].n === null ? "—" : counts[i].n}
                     </span>
                   </button>
                 </span>
@@ -480,20 +480,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
             {board ? ` · ${board.stem} · ply ${board.ply}` : ""}
           </span>
         ) : null}
-        {board?.quad ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-muted-foreground font-mono">
-                Quad: {board.quad === "grid-fit" ? "grid-fit" : "Marker (ungefittet)"}
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>
-              {board.quad === "grid-fit"
-                ? `quad-fit.json, Feld-Ecken · align_worst_px ${board.quadPx ?? "—"}`
-                : "kein Eintrag in quad-fit.json — geloggter Marker-Quad, margin 0.045"}
-            </TooltipContent>
-          </Tooltip>
-        ) : null}
         {lane === "rules" && board && board.violations.length > 0 ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -547,7 +533,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               onNext={(ply) => setAt(nextOpen(boards, at, lane, decided, ply))}
               onStep={(delta) => setAt((i) => Math.max(0, Math.min(boards.length - 1, i + delta)))}
               reads={laneReads(board, lane)}
-              reviewAll={laneById(lane).reviewAll === true}
               sessionId={stream.sessions[board.session].sessionId}
             />
           ) : (

@@ -25,9 +25,10 @@ test("Klassenwand asks for a class WHERE THE FEN SAYS OTHERWISE, which matches a
   expect(contradicts(row(), { klass: DISAGREE, min: 0.25 })).toBe(true);
   expect(contradicts(row({ probs: { wR: 0.6, wQ: 0.3 } }), { klass: "wQ", min: 0.25 })).toBe(true);
   expect(contradicts(row({ probs: { wR: 0.6, wQ: 0.3 } }), { klass: DISAGREE, min: 0.25 })).toBe(false);
-  // A row with no model read answers nothing at all; occluded still rides every channel.
+  // A row with no model read answers nothing at all — and `occluded` is no longer a question the
+  // wall can ask: coverage is measured per square (`matte.jsonl`), never queried out of a score.
   expect(contradicts(row({ probs: undefined }), { klass: "wQ", min: 0.05 })).toBe(false);
-  expect(contradicts(row({ probs: undefined, score: 0.9 }), { klass: "occluded", min: 0.5 })).toBe(true);
+  expect(contradicts(row({ probs: undefined, score: 0.9 }), { klass: "occluded", min: 0.5 })).toBe(false);
 });
 
 test("a threshold query is answered by its own class, a disagree query by the top read", () => {
