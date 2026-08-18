@@ -124,13 +124,18 @@ export function buildReviewCards({
   return groupByFrame(moves, indices).map((members) => {
     const frame = moves[members[0]].frame;
     const before = nearestStem(stems, settledAt ?? Number(stems[0]?.stem ?? frame));
+    const previous = settledAt;
     settledAt = frame;
     let last = members[members.length - 1];
     while (moves[last + 1]?.frame === frame) last++;
     const until = moves[last + 1]?.frame ?? frame + 90;
+    // Open at the PREVIOUS commit, not at this one: the phone writes its review frames just
+    // BEFORE a commit — they are the evidence it decided from. Cutting at `frame - 2` dropped
+    // them and left the next commit's cluster, so every card showed the position one half-move
+    // too far along (14-32-33: commit 238 rendered frame 296, black had already replied).
     const window = stems.filter((s) => {
       const n = Number(s.stem);
-      return n >= frame - 2 && n < Math.max(until, frame + 3);
+      return n > (previous ?? -1) && n < Math.max(until, frame + 3);
     });
     const start = window.reduce(
       (best, s, i) =>

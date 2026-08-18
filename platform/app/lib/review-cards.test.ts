@@ -73,7 +73,9 @@ test("plies sharing a commit frame become ONE card with one frame series", () =>
   expect(cards.map((c) => c.plies.map((p) => p.san))).toEqual([["e5"], ["e4", "Nf6"], ["Nxe5"]]);
   const bridge = cards[1];
   expect(bridge.frame).toBe(455);
-  expect(bridge.stems.map((s) => Number(s.stem))).toEqual([455, 456, 500]);
+  // Back to the PREVIOUS commit, because the phone writes its review burst just BEFORE a commit:
+  // 400 is this card's own evidence, not the last card's. It still OPENS at the nearest stem.
+  expect(bridge.stems.map((s) => Number(s.stem))).toEqual([400, 455, 456, 500]);
   expect(bridge.stems[bridge.start].stem).toBe("000455");
   expect(bridge.carriesFrames).toBe(true);
 });
@@ -171,7 +173,9 @@ test("a game that matches its reference still has every commit series to look at
 
   expect(buildReviewCards({ moves: SINGLES, indices: [], stems: stems(133) })).toEqual([]);
   expect(gallery.map((c) => c.plies.map((p) => p.san))).toEqual([["e4"], ["e5"], ["Nf3"]]);
-  expect(gallery.map((c) => c.stems.length)).toEqual([2, 2, 1]);
+  expect(gallery.map((c) => c.stems.length)).toEqual([2, 3, 2]);
+  // Every card opens on the frame nearest its own commit — widening the reach must not move that.
+  expect(gallery.map((c) => c.stems[c.start].stem)).toEqual(["000133", "000245", "000395"]);
   expect(gallery[0].plies[0].squares).toEqual({ from: "e2", to: "e4" });
 });
 
@@ -199,4 +203,25 @@ test("a pre-pair-fix row is one collapsed card, not a group", () => {
   });
   expect(collapsed.plies[0].squares).toBeNull();
   expect(collapsed.collapsed).toBe(true);
+});
+
+test("a card shows the burst its own commit was decided from, not the next one's", () => {
+  // 14-32-33 as it really is: the phone writes five frames ~20 before each commit. Cutting the
+  // window at `frame - 2` left commit 238 with only 296-300 — the NEXT commit's burst, by which
+  // time black had replied, and the card looked like a double move.
+  const moves: ReviewMove[] = [
+    { ply: 2, san: "e5", frame: 168, decider: "cnn_occupancy", fen_after: "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2" },
+    { ply: 3, san: "Nf3", frame: 238, decider: "cnn_occupancy", fen_after: "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2" },
+    { ply: 4, san: "Nf6", frame: 317, decider: "cnn_occupancy", fen_after: "rnbqkb1r/pppp1ppp/5n2/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3" },
+  ];
+  const [, nf3] = buildReviewCards({
+    moves,
+    indices: [0, 1, 2],
+    stems: stems(142, 146, 216, 220, 296, 300),
+    startFen: START,
+  });
+
+  expect(nf3.frame).toBe(238);
+  expect(nf3.stems[nf3.start].stem).toBe("000220");
+  expect(nf3.stems.map((s) => Number(s.stem))).toEqual([216, 220, 296, 300]);
 });
