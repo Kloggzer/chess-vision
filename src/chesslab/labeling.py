@@ -353,6 +353,20 @@ def upsert_corrections(items: list[dict], path: Path) -> int:
     return len(merged)
 
 
+def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
+    """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
+
+    The mattes are written per frame (`chesslab occluders matte-session`); a quiet frame simply
+    has no entry, and 0.0 is then the right answer rather than a missing one.
+    """
+    from .ioutil import read_jsonl
+
+    path = Path(session_dir) / "matte.jsonl"
+    if not path.exists():
+        return {}
+    return {r["frame"]: r["coverage"] for r in read_jsonl(path) if r.get("coverage")}
+
+
 def slice_session(
     session_dir: Path,
     *,
@@ -382,6 +396,7 @@ def slice_session(
     session_id = meta["session_id"]
     log = read_log(session_dir)
 
+    matte = read_matte(session_dir)
     prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
     box3d = geometry_mode == "box3d"
@@ -515,6 +530,10 @@ def slice_session(
                 "photometry": photometry,
                 "ts": datetime.now(UTC).isoformat(),
             }
+            if matte:
+                # The second training target, from a real hand instead of a composited one. Only
+                # written where mattes exist, so no manifest changes shape behind anyone's back.
+                row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
             if box3d:
                 row["piece_height_cells"] = float(piece_height_cells)
                 row["pose_ok"] = used_box3d_list[i]

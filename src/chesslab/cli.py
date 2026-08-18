@@ -10,6 +10,7 @@ import typer
 
 from . import calibration as calibration_mod
 from . import collect as collect_mod
+from . import composite as composite_mod
 from . import config
 from . import dataset as dataset_mod
 from . import doctor as doctor_mod
@@ -915,7 +916,9 @@ def occluders_composite(
     fen: str = typer.Option(..., "--fen", help="The position the board holds for the whole clip."),
     plates: str = typer.Option("data/occluders/plates", "--plates", help="RGBA tiles."),
     tag: str = typer.Option("comp", "--tag", help="Crop pool `data/squares__<tag>/` + manifest."),
-    stride: int = typer.Option(15, "--stride", help="Take every Nth frame of the clip."),
+    stride: int = typer.Option(composite_mod.STRIDE, "--stride",
+                               help="Frames between two boards. On the turntable that is an "
+                                    "ANGLE: 0.43 deg per frame, so 8 is ~3.4 deg."),
     board_size: int = typer.Option(1280, "--board-size", help="Warp resolution (px)."),
     out_size: str = typer.Option("80x80", "--out-size", help="Crop size WxH."),
     seed: int = typer.Option(42, "--seed"),
@@ -975,6 +978,29 @@ def occluders_extract(
               f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
     (Path(out) / "plates.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"[OK] {total} Kacheln in {out}")
+
+
+@occluders_app.command("matte-session")
+def occluders_matte_session(
+    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    limit: int = typer.Option(0, "--limit", help="Stop after N dirty frames (0 = all)."),
+) -> None:
+    """Cut the hand out of every dirty frame of a session: alpha per frame, coverage per square.
+
+    The grid grooves decide WHETHER a hand is there, SAM 3 decides where — a split the numbers
+    forced: the model-free score flags a whole board when the light changes between two
+    intervals (`docs/session-mattes.md`)."""
+    from . import matte as matte_mod
+
+    try:
+        res = matte_mod.matte_session(name, limit=limit or None)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    skipped = ", ".join(f"{k}: {v}" for k, v in sorted(res["skipped"].items())) or "keine"
+    print(f"[OK] {res['mattes']} Matten aus {res['frames']} Frames, "
+          f"{res['cells_over_half']} Zellen ueber 50% verdeckt -> {res['path']}")
+    print(f"     uebersprungen — {skipped}")
 
 
 @dataset_app.command("verify")

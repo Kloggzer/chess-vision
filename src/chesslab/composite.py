@@ -20,6 +20,9 @@ from .occluders import WORK_SIZE
 #: free scale. Set by eye against the board footage; the jitter covers the rest.
 RIG_SCALE = 0.60
 SCALE_JITTER = (0.85, 1.15)
+#: Frames between two boards. The turntable turns 0.43 deg/frame, so this is ~3.4 deg —
+#: the historical ingest step, and below it consecutive crops shift by under a pixel.
+STRIDE = 8
 
 
 @dataclass(frozen=True)
@@ -168,7 +171,7 @@ def labels_of(fen: str) -> dict[str, str]:
 
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
                      board_size: int = 1280, out_size: tuple[int, int] = (80, 80),
-                     stride: int = 15, tiles_per_frame: tuple[int, int] = (0, 2),
+                     stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
                      blocks: int = 6) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
