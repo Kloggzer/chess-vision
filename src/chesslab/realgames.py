@@ -140,6 +140,22 @@ def write_confirmation(name: str, candidate: dict, plies: list[int]) -> Path:
     return path
 
 
+def reference_is_the_phones_own(name: str) -> bool:
+    """Is `reference.pgn` a copy of the phone's own PGN (the UI's `adopt-pgn`)?
+
+    Then `confirm` compares the tracker's replay against the tracker's live run — same algorithm,
+    same video. It catches a divergence between the two, never a move both got wrong.
+    """
+    import hashlib
+
+    ref = game_dir(name) / "reference.pgn"
+    games = game_dir(name) / "files" / "games"
+    if not ref.exists() or not games.is_dir():
+        return False
+    digest = hashlib.md5(ref.read_bytes()).hexdigest()
+    return any(hashlib.md5(p.read_bytes()).hexdigest() == digest for p in games.glob("*.pgn"))
+
+
 def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) -> dict:
     """Compare candidate to reference game, write verdict.
     `ask` decides invented plies one at a time; under `yes`, unmatched plies rejected."""
@@ -149,6 +165,10 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
     matched, invented, missed = lcs_report(truth, [m["san"] for m in moves])
     for line in report_lines(name, moves, truth, matched, invented, missed):
         print(line)
+    if yes and reference_is_the_phones_own(name):
+        raise ValueError(
+            f"{name}: reference.pgn IS the phone's own PGN, so `--yes` would confirm the tracker "
+            f"against itself. Confirm it by hand, or put an outside notation in place first.")
     kept = [] if yes or ask is None else [j for j in invented if ask(moves[j])]
     plies = reviewed_plies(moves, matched, kept)
     return {

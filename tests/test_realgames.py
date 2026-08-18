@@ -856,3 +856,45 @@ def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkey
 
     with pytest.raises(FileNotFoundError):
         fit_stored("g")
+
+
+def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch):
+    """`adopt-pgn` copies the phone's own PGN in — matching it then proves nothing (2026-08-19)."""
+    import json
+
+    import pytest
+
+    from chesslab import config, realgames
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    g = tmp_path / "data" / "realgames" / "g1"
+    (g / "files" / "games").mkdir(parents=True)
+    pgn = "[Event \"?\"]\n\n1. e4 e5 *\n"
+    (g / "reference.pgn").write_text(pgn, encoding="utf-8")
+    (g / "files" / "games" / "live.pgn").write_text(pgn, encoding="utf-8")
+    (g / "candidate.json").write_text(json.dumps({
+        "name": "g1", "moves": [{"ply": 1, "san": "e4", "frame": 10, "fen_after": "x"}]}),
+        encoding="utf-8")
+
+    assert realgames.reference_is_the_phones_own("g1")
+    with pytest.raises(ValueError, match="against itself"):
+        realgames.confirm("g1", yes=True)
+
+
+def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
+    """A reference the phone did not write is the witness `--yes` is allowed to trust."""
+    import json
+
+    from chesslab import config, realgames
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    g = tmp_path / "data" / "realgames" / "g2"
+    (g / "files" / "games").mkdir(parents=True)
+    (g / "reference.pgn").write_text("[Event \"?\"]\n\n1. e4 e5 *\n", encoding="utf-8")
+    (g / "files" / "games" / "live.pgn").write_text("[Event \"?\"]\n\n1. d4 d5 *\n", encoding="utf-8")
+    (g / "candidate.json").write_text(json.dumps({
+        "name": "g2", "moves": [{"ply": 1, "san": "e4", "frame": 10, "fen_after": "x"}]}),
+        encoding="utf-8")
+
+    assert not realgames.reference_is_the_phones_own("g2")
+    assert realgames.confirm("g2", yes=True)["matched"] == 1
