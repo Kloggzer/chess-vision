@@ -456,13 +456,13 @@ def test_occupancy_build_preserves_per_session_split(tmp_path, monkeypatch):
 
 
 def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
-    """`--classes pieces` (the default) is the regression floor: the explicit mode and the
-    default must produce a byte-identical split.json."""
+    """`--classes pieces13` is the default since 2026-08-18: the explicit mode and the default
+    must produce a byte-identical split.json. `occluded` is a coverage target now, not a class."""
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
     db.build_dataset("a", sids, phash_enabled=False, pack=False)
-    db.build_dataset("b", sids, phash_enabled=False, pack=False, class_mode="pieces")
+    db.build_dataset("b", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     assert ((db.dataset_dir("a") / "split.json").read_bytes()
             == (db.dataset_dir("b") / "split.json").read_bytes())
 

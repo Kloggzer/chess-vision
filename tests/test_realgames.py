@@ -584,11 +584,15 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
     # (the 2026-08-16 sweep flagged 25 of 713 frames on 13-12-46-24), and a board this unreadable
     # has nothing labelable on it anyway — the flag only holds its crops back.
     assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0, "hands": 3,
-                     "boards": 3, "arrived": rows, "median": 2.7, "max": 2.7},         "8x8 noise carries no grid lines"
+                     "late": 3, "boards": 3, "arrived": rows, "median": 2.7, "max": 2.7},         "8x8 noise carries no grid lines"
     # Every frame the fit SAW got its board, including the one it could not read: the row keeps its
     # inherited quad, and a crop cut with that quad is exactly what the label view has to show.
-    assert sorted(p.name for p in (tmp_path / "boards").iterdir()) == [
+    # They land in the dirty pile because the grooves flagged them and the plan had not — a frame
+    # the scan called clean and the fit's own quad calls occupied is `grid-late`, never silent.
+    assert sorted(p.name for p in (tmp_path / "dirty").iterdir()) == [
         "000030.webp", "000060.webp", "000090.webp"]
+    assert not (tmp_path / "boards").exists(), "boards/ is the clean p8 stock and nothing else"
+    assert {r["dirty_reason"] for r in rows} == {"grid-late"}
     assert rows[0]["corners"] == fitted_quad and rows[0]["corners_source"] == FIT_SOURCE
     assert rows[0]["align_worst_px"] == 2.7, "the number a later `session scan` will confirm"
     assert rows[1]["corners"] == median and rows[1]["corners_source"] == FIT_KEPT

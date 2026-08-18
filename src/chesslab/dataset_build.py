@@ -70,8 +70,8 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
     directory — the path is the identity, the label is metadata.
 
     Both narrower modes DROP `occluded` rather than bin it: `pieces13` has no such output at all
-    and `occupancy` has no bucket it honestly belongs in. The corpus contains none, so this is a
-    guard, not a filter — but it must stay loud if that ever changes.
+    and `occupancy` has no bucket it honestly belongs in. It is a real filter now — the hand-painted
+    `occluded` corrections are exactly what the coverage target replaces.
     """
     if class_mode == "pieces":
         return rows
@@ -432,7 +432,9 @@ def build_dataset(
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
-    class_mode = class_mode or "pieces"
+    # 13 + coverage since 2026-08-18: `occluded` is a regression target now, not a class, and the
+    # pipeline measures it per square instead of a human painting it (`docs/frame-scan.md`).
+    class_mode = class_mode or "pieces13"
     classes = class_list_for(class_mode)
     d = config.DEDUP
     per_cell_cap = d.per_cell_cap if per_cell_cap is None else per_cell_cap

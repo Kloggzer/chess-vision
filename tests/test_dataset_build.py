@@ -104,15 +104,20 @@ def test_build_dataset_filters_dedups_records_rotations(tmp_path):
 
 
 def test_build_with_occluded_class(tmp_path):
-    """Dataset with occluded rows builds/splits cleanly (14 classes, no occluded warning)."""
+    """`--classes pieces` still keeps them (14 classes, no occluded warning) — the default no longer
+    does, because a hand-painted `occluded` is what the measured coverage replaces."""
     paths = config.Paths(root=tmp_path)
     rows = [_row(paths, "wP", "s1", "0000", "e2", (180, 180, 180)),
             _row(paths, "occluded", "s1", "0001", "d4", (10, 10, 10)),
             _row(paths, "occluded", "s2", "0000", "d4", (10, 10, 10))]
     _global_manifest(paths, rows)
+    dropped = DB.build_dataset("occ13", ["s1", "s2"], per_cell_cap=4, phash_enabled=False,
+                               rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
+                               allow_degenerate=True)
+    assert dropped["counts"]["final"] == 1, "the default is pieces13 and drops them"
     res = DB.build_dataset("occ", ["s1", "s2"], per_cell_cap=4, phash_enabled=False,
                            rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
-                           allow_degenerate=True)
+                           allow_degenerate=True, class_mode="pieces")
     assert res["counts"]["final"] == 3
     stats = json.loads((paths.datasets / "occ" / "stats.json").read_text())
     assert stats["counts"]["occluded"] == 2

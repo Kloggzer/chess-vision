@@ -1,7 +1,8 @@
 # Session-Matten — die Hand aus dem Video statt aus der Hand gelabelt
 
-Warum `chesslab occluders matte-session` ein Modell benutzt, wo `occluded.py` bewusst keines
+Warum `chesslab occluders alpha-worker` ein Modell benutzt, wo `occluded.py` bewusst keines
 benutzt, und welche Verfahren dafür gegeneinander angetreten sind. Code: `chesslab/matte.py`.
+Welche Frames der Worker überhaupt bekommt, entscheidet der Scan: `docs/frame-scan.md`.
 
 > Alle Zahlen unten stammen von `rg-2026-08-08-00-39-57`, gemessen am 2026-08-18. Zeuge ist
 > `grid_occlusion.hand_squares` — der einzige Sensor, der mit keinem Kandidaten Arithmetik teilt.
@@ -88,12 +89,27 @@ Substantivphrasen, einzeln geprompted, Masken vereinigt. Gemessen wurde neben de
 - **Lange Beschreibungen sind schlechter als Substantive**: `arm with hand and accessories` kam auf
   0,53 Konfidenz und fiel dreimal ganz aus.
 
+## Was übrig blieb (2026-08-18)
+
+Grounding DINO und SAM 2.1 sind **entfernt**. Sie saßen zwischen den beiden Aufgaben und machten
+keine davon besser:
+
+- **Finden** macht jetzt RT-DETR im Frame-Scan: 24,6 ms gegen DINOs 405 ms, bei gleichem Urteil
+  (`docs/frame-scan.md`). Verkleinern ließ DINO sich nicht — bei 512 px flaggte es 23 von 24
+  sauberen Brettern.
+- **Matten** macht SAM 3, weil nur dessen Kante ein Label trägt (Ring 4 px statt 96 px).
+- Die Maske von SAM 2.1 war im Messlauf sogar gratis (482 ms gegen 511 ms für DINO allein) — sie
+  hing nur an einem Detektor, den wir nicht mehr brauchen.
+
 ## Die Sperren
 
-1. **`grid_occlusion.hand_squares` muss eine Hand sehen.** Der Zeuge entscheidet, OB, das Modell nur,
-   WO. Damit hängt kein Frame allein an einem Foundation-Modell.
-2. **Zone über 60 % des Bretts → Frame verwerfen.** Das ist Licht, kein Arm.
-3. Coverage wird mit demselben `crops_for_frame`-Aufruf geschnitten wie das Bild — die Label-Region
+1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Drei Zeugen entscheiden, OB
+   eine Hand da ist (Rillen, RT-DETR, `skin_patch`), das Modell nur WO. Damit hängt kein Frame
+   allein an einem Foundation-Modell.
+2. **Nur `occluded`, nicht `stale`.** Ein Alpha über einer Stellung, die niemand kennt, ist 11,9 s
+   für nichts — die FEN muss unter der Hand noch gelten.
+3. **Zone über 60 % des Bretts → Frame verwerfen.** Das ist Licht, kein Arm.
+4. Coverage wird mit demselben `crops_for_frame`-Aufruf geschnitten wie das Bild — die Label-Region
    ist per Konstruktion die Crop-Region, Mesh und Pads eingeschlossen.
 
 Verpasste Hände kosten nichts, erfundene Flächen kosten das Training (User, 2026-08-18). Deshalb

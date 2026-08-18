@@ -285,6 +285,79 @@ def spread_indices(lo: int, hi: int, n: int) -> list[int]:
     return [lo + round(i * (span - 1) / (n - 1)) for i in range(n)]
 
 
+def pick_spread(items: list, ok, n: int, *, prefer=(), tol: int = 0) -> list:
+    """`n` of `items` spread evenly over the position, each the nearest one `ok` accepts.
+
+    A slot whose own frame carries a hand borrows from beside it instead of going empty — dropping
+    it is what starved the corpus (20 % of positions kept 8, median 5). An item in `prefer` takes
+    the slot while it stays within `tol` places of the nearest one.
+    """
+    usable = [i for i, it in enumerate(items) if ok(it)]
+    taken: set[int] = set()
+    for slot in spread_indices(0, len(items), n):
+        free = [i for i in usable if i not in taken]
+        if not free:
+            break
+        best = min(free, key=lambda i: (abs(i - slot), i))
+        near = [i for i in free if items[i] in prefer and abs(i - slot) <= abs(best - slot) + tol]
+        taken.add(min(near, key=lambda i: (abs(i - slot), i)) if near else best)
+    return [items[i] for i in sorted(taken)]
+
+
+def _export_row(seg: dict, idx: int, corners: list, base, fps: float,
+                margin_frames: int, settle: dict | None) -> dict:
+    """One log row for one source index: the interval's FEN, and what is in doubt on it."""
+    row = {"frame": f"frames/{idx:06d}.png", "ply": seg["ply"], "fen": seg["fen"],
+           "ts": (base + timedelta(seconds=idx / fps)).isoformat(),
+           "corners": corners, "corners_source": "realgame-export"}
+    if unknown := unknown_for(seg, idx, margin_frames, settle):
+        row["unknown_squares"] = unknown
+    return row
+
+
+def corrected_frames(session_id: str) -> set[int]:
+    """Source indices carrying a hand correction a 13-class model can still use.
+
+    31 271 of 39 996 corrections say `occluded` — the class this pipeline replaces, so they steer
+    nothing. The 8 725 identity ones name a picture, and a picture is a frame index.
+    """
+    from .config import DATA, IDENTITY_CLASSES
+    from .labeling import load_corrections
+
+    out = set()
+    for (sid, frame, _square), label in load_corrections(DATA.corrections).items():
+        if sid == session_id and label in IDENTITY_CLASSES and str(frame).isdigit():
+            out.add(int(frame))
+    return out
+
+
+def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
+                 settle: dict | None = None, per_position: int = 8,
+                 dirty_per_position: int = 8, prefer=()) -> list[dict]:
+    """The rows to store, picked from MEASURED frames instead of from a window around the commit.
+
+    The window let 23 % hands into the clean pool and condemned half its dirty frames for nothing
+    (`docs/frame-scan.md`). Each dirty row keeps its `dirty_reason`, so what it is good for later
+    is written down instead of guessed again.
+    """
+    from . import framescan
+
+    corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
+    base, fps = base_time(candidate), video_fps(candidate)
+    rows = []
+    for seg in known_segments(candidate):
+        reasons = framescan.classify(seg, scan)
+        clean, dirty = framescan.select(reasons, per_position=per_position,
+                                        dirty_per_position=dirty_per_position, prefer=prefer)
+        for idx in clean:
+            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle))
+        for idx in dirty:
+            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                        | {"dirty": True, "dirty_reason": reasons[idx]})
+    rows.sort(key=lambda r: r["frame"])
+    return rows
+
+
 def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
               settle: dict | None = None, per_position: int | None = None) -> list[dict]:
     """Every log row the export will write, in frame order — the whole interval model.
@@ -560,15 +633,18 @@ FIT_SOURCE, FIT_KEPT, FIT_FAILED = "export-fit", "export-fit-kept", "export-fit-
 #: training crop stop being two independent cuts of the same frame. Written by `fit_rows_to_grid`
 #: because the quad is only final there; a later quad change must rewrite it (`session boards`).
 BOARD_DIR = "boards"
+#: The dirty pile lives apart so `boards/` is literally the p8 stock — readers follow
+#: `row["board"]`, so a second directory costs them nothing (`docs/frame-scan.md`).
+DIRTY_DIR = "dirty"
 BOARD_SUFFIX = ".webp"
 #: What a row says about its board — the file, and the scale its pixels are in (`write_board`).
 BOARD_KEYS = ("board", "board_size", "board_border")
 BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 
 
-def board_rel(stem: str) -> str:
+def board_rel(stem: str, dirty: bool = False) -> str:
     """The board's path inside the session — `row["board"]`, as `row["frame"]` names the frame."""
-    return f"{BOARD_DIR}/{stem}{BOARD_SUFFIX}"
+    return f"{DIRTY_DIR if dirty else BOARD_DIR}/{stem}{BOARD_SUFFIX}"
 
 
 #: Processes a per-frame pass uses, and the row count that makes a pool worth its start-up.
@@ -652,7 +728,8 @@ def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
     return write_board(session_dir, Path(frame_rel).stem, frame, corners, profile)
 
 
-def write_board(session_dir: Path, stem: str, frame, corners, profile) -> dict:
+def write_board(session_dir: Path, stem: str, frame, corners, profile,
+                dirty: bool = False) -> dict:
     """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two agree only
     while `pad_up == 0`, and the store has to be the crop's raster under any profile.
 
@@ -663,7 +740,7 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile) -> dict:
     """
     from .calibration import crop_border_px, warp_board_for_crops
 
-    rel = board_rel(stem)
+    rel = board_rel(stem, dirty)
     out = session_dir / rel
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners), BOARD_ENCODE)
@@ -715,7 +792,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
     from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed, hands, boards = [], 0, 0, 0
+    worsts, meshed, hands, boards, late = [], 0, 0, 0, 0
     pad = crop_border_px(profile)
     pairs = frames if frames is not None else (
         (row, cv2.imread(str(session_dir / row["frame"]))) for row in rows)
@@ -755,13 +832,18 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
         if found or (padded is not None and skin_patch(
                 padded[pad:pad + profile.board_size, pad:pad + profile.board_size],
                 profile.board_size / 8.0, profile.crop.pad_side)):
-            row["dirty"] = True
             hands += 1
+            if not row.get("dirty"):
+                # The scan called this frame clean on the candidate's quad and the fit's own quad
+                # disagrees. Rare, and a hand in the clean pool costs more than a missing slot.
+                row["dirty"], row["dirty_reason"] = True, "grid-late"
+                late += 1
         # The quad is final HERE, so this is the only place the stored board can be cut from it.
         for key in BOARD_KEYS:
             row.pop(key, None)
         if frame is not None:
-            row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"], profile))
+            row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
+                                   profile, bool(row.get("dirty"))))
             boards += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
@@ -775,6 +857,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
         **counts,
         "mesh": meshed,
         "hands": hands,
+        "late": late,
         "boards": boards,
         "arrived": seen,
         "median": worsts[len(worsts) // 2] if worsts else None,
@@ -844,12 +927,15 @@ def export_session(
     quiet_margin_s: float = 1.0,
     every: int = 3,
     per_position: int | None = 8,
+    dirty_per_position: int = 8,
     dirty: bool = True,
     measure: bool = True,
     fit: bool = True,
     report_only: bool = False,
 ) -> dict:
     """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
+    from . import framescan
+
     candidate = load_candidate(name)
     if not candidate.get("confirmed"):
         raise ValueError(f"{name}: not confirmed — run `chesslab realgames confirm {name}` first")
@@ -871,8 +957,19 @@ def export_session(
         settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
-    rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty,
-                     settle=settle, per_position=per_position)
+    scan = framescan.read_scan(name)
+    if scan:
+        prefer = corrected_frames(f"rg-{name}")
+        rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
+                            per_position=per_position or 8,
+                            dirty_per_position=dirty_per_position, prefer=prefer)
+        print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected — "
+              f"picking on data instead of on a {quiet_margin_s}s margin")
+    else:
+        print(f"[WARN] {name}: no scan.jsonl, falling back to the margin windows. Run "
+              f"`chesslab realgames scan-video {name}` first — the margin admitted 23 % hands.")
+        rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty,
+                         settle=settle, per_position=per_position)
     if not rows:
         # `confirmed: true` with an EMPTY `reviewed_plies` is a reachable state — confirming a
         # candidate before its reference PGN is in place vouches for nothing — and blaming the

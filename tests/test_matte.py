@@ -1,10 +1,9 @@
-"""The session matte: the grid decides whether, the model decides where, the cut is the crop's."""
+"""The alpha worker: only what still carries its FEN, resumable, and cut like the crop."""
 
 from dataclasses import replace
 
 import cv2
 import numpy as np
-import pytest
 
 from chesslab import matte
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
@@ -22,32 +21,9 @@ def _profile() -> CalibrationProfile:
     )
 
 
-def _board(pad: int) -> np.ndarray:
-    """White board with all 9 grid lines per axis — the clean case the groove read expects."""
-    img = np.full((SIDE + 2 * pad, SIDE + 2 * pad, 3), 255, np.uint8)
-    for i in range(9):
-        p = pad + i * CELL
-        img[:, p - 1:p + 2] = 0
-        img[p - 1:p + 2, :] = 0
-    return img
-
-
 def _entry(pad: int) -> dict:
     return {"board": "boards/000001.webp", "board_size": SIDE, "board_border": pad,
             "corners": _profile().image_corners, "ply": 3}
-
-
-def test_a_clean_board_is_vetoed_before_the_model_runs():
-    """No grooves missing, no hand — and the model must not even be asked (it is not loaded)."""
-    pad = crop_border_px(_profile())
-    assert matte.veto(_board(pad), _entry(pad)) == "no grid hand"
-
-
-def test_an_erased_block_passes_the_veto():
-    pad = crop_border_px(_profile())
-    board = _board(pad)
-    board[pad + 5 * CELL - 4:pad + 7 * CELL + 4, pad + 6 * CELL - 4:pad + 8 * CELL + 4] = 255
-    assert matte.veto(board, _entry(pad)) == ""
 
 
 def test_coverage_lands_on_the_squares_the_alpha_covers():
@@ -61,44 +37,77 @@ def test_coverage_lands_on_the_squares_the_alpha_covers():
     assert cov["h1"] == 0.0
 
 
-def test_a_zone_over_the_cap_is_dropped(monkeypatch):
-    """A matte covering most of the board is a light change, not an arm — ply 55 covered 97 %."""
-    prof = _profile()
-    pad = crop_border_px(prof)
-    board = _board(pad)
-    board[pad:pad + 2 * CELL, pad:pad + 2 * CELL] = 255
-    monkeypatch.setattr(matte, "alpha_for",
-                        lambda b: (np.ones(b.shape[:2], np.float32), {"person": 0.9}))
-    alpha, row = matte.matte_frame(board, _entry(pad), prof)
-    assert alpha is None
-    assert row["skipped"] == "zone too big"
+def _session(tmp_path, monkeypatch, rows):
+    """A session carrying a dirty pile, the shape `alpha_worker` reads."""
+    import json
+
+    import yaml
+
+    from chesslab import config
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    sdir = tmp_path / "data" / "sessions" / "rg-s1"
+    (sdir / "dirty").mkdir(parents=True)
+    for r in rows:
+        cv2.imwrite(str(sdir / r["board"]), np.full((SIDE, SIDE, 3), 128, np.uint8))
+    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (sdir / "session.yaml").write_text(
+        yaml.safe_dump({"session_id": "rg-s1", "profile": "t", "mode": "track"}), encoding="utf-8")
+    return sdir
 
 
-def test_a_plausible_matte_is_kept_with_its_scores(monkeypatch):
-    prof = _profile()
-    pad = crop_border_px(prof)
-    board = _board(pad)
-    board[pad:pad + 2 * CELL, pad:pad + 2 * CELL] = 255
-    mask = np.zeros((SIDE + 2 * pad, SIDE + 2 * pad), np.float32)
-    mask[pad:pad + 2 * CELL, pad:pad + 2 * CELL] = 1.0
-    monkeypatch.setattr(matte, "alpha_for", lambda b: (mask, {"person": 0.98}))
-    alpha, row = matte.matte_frame(board, _entry(pad), prof)
-    assert alpha is not None
-    assert row["concepts"] == {"person": 0.98}
-    assert row["cells_over_half"] == 4
+def _dirty_rows(pad):
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    return [{"frame": f"frames/00000{i}.png", "board": f"dirty/00000{i}.webp", "ply": 1,
+             "fen": fen, "dirty": True, "dirty_reason": reason, "corners": _profile().image_corners,
+             "board_size": SIDE, "board_border": pad}
+            for i, reason in enumerate(("occluded", "stale"), 1)]
 
 
-@pytest.mark.parametrize("share, kept", [(0.5, True), (0.7, False)])
-def test_the_cap_is_a_share_of_the_board(monkeypatch, share, kept):
-    prof = _profile()
-    pad = crop_border_px(prof)
-    board = _board(pad)
-    board[pad:pad + 2 * CELL, pad:pad + 2 * CELL] = 255
-    h = board.shape[0]
-    mask = np.zeros((h, h), np.float32)
-    mask[:int(h * share)] = 1.0
-    monkeypatch.setattr(matte, "alpha_for", lambda b: (mask, {}))
-    assert (matte.matte_frame(board, _entry(pad), prof)[0] is not None) is kept
+def test_the_worker_only_mattes_what_still_carries_its_fen(tmp_path, monkeypatch):
+    """A `stale` frame's alpha would mask a position nobody knows — SAM 3 time for nothing."""
+    pad = crop_border_px(_profile())
+    rows = _dirty_rows(pad)
+    sdir = _session(tmp_path, monkeypatch, rows)
+    seen = []
+    monkeypatch.setattr(matte, "alpha_sam3",
+                        lambda b: (seen.append(1), (np.zeros(b.shape[:2], np.float32), {}))[1])
+    monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+
+    res = matte.alpha_worker("s1", progress=False)
+
+    assert res["frames"] == 1 and len(seen) == 1, "only the occluded row"
+    assert (sdir / "mattes" / "000001.webp").exists()
+    assert not (sdir / "mattes" / "000002.webp").exists()
+
+
+def test_the_worker_resumes_where_it_was_killed(tmp_path, monkeypatch):
+    """11.9 s a frame: a row lands the moment it is done, so a kill costs one frame, not the run."""
+    pad = crop_border_px(_profile())
+    _session(tmp_path, monkeypatch, _dirty_rows(pad))
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+
+    matte.alpha_worker("s1", progress=False)
+    again = matte.alpha_worker("s1", progress=False)
+
+    assert again["frames"] == 0 and again["already"] == 1, "the finished row is not redone"
+
+
+def test_an_alpha_over_most_of_the_board_is_dropped(tmp_path, monkeypatch):
+    """A matte covering the board is a light change, not an arm — ply 55 covered 97 %."""
+    pad = crop_border_px(_profile())
+    sdir = _session(tmp_path, monkeypatch, _dirty_rows(pad))
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.ones(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+
+    res = matte.alpha_worker("s1", progress=False)
+
+    assert res["alphas"] == 0
+    assert res["skipped"] == {"zone too big": 1}
+    assert not (sdir / "mattes" / "000001.webp").exists()
 
 
 def test_the_alpha_survives_the_webp_roundtrip(tmp_path):
@@ -193,3 +202,15 @@ def test_the_export_samples_by_position_not_by_time():
     assert spread_indices(0, 3, 8) == [0, 1, 2], "never more boards than frames"
     assert spread_indices(5, 6, 4) == [5]
     assert spread_indices(7, 7, 4) == []
+
+
+def test_the_p8_slot_borrows_from_beside_it_when_its_own_frame_has_a_hand():
+    """8 boards per position, spread — a slot the hand sits in takes the nearest clean neighbour."""
+    from chesslab.realgames import pick_spread
+
+    items = list(range(20))
+    assert pick_spread(items, lambda i: True, 4) == [0, 6, 13, 19]
+    assert pick_spread(items, lambda i: i % 2 == 0, 4) == [0, 6, 12, 18]
+    assert pick_spread(items, lambda i: i > 15, 4) == [16, 17, 18, 19], "all four still arrive"
+    assert pick_spread(items, lambda i: i == 3, 4) == [3], "never the same frame twice"
+    assert pick_spread([], lambda i: True, 4) == []

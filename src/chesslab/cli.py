@@ -605,6 +605,31 @@ def realgames_confirm(
           f"({len(r['kept'])} unmatched kept)")
 
 
+@realgames_app.command("scan-video")
+def realgames_scan_video(
+    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    stride: int = typer.Option(0, "--stride", help="Scan every Nth frame (0 = the measured 3)."),
+    rescan: bool = typer.Option(False, "--rescan", help="Redo a scan that is already on disk."),
+) -> None:
+    """Measure every Nth frame of the recording before anything is picked from it.
+
+    The old export planned first and flagged afterwards, so a flagged slot simply went missing:
+    20 % of positions kept their 8 clean boards. Measuring first takes that to 93 %, because the
+    clean frames were always there — they were sorted wrong (`docs/frame-scan.md`).
+    """
+    from . import framescan
+
+    try:
+        r = framescan.scan_video(name, stride=stride or framescan.SCAN_STRIDE, resume=not rescan)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    if r.get("resumed"):
+        print(f"[--] {r['frames']} frames already scanned -> {r['path']} (--rescan to redo)")
+        return
+    print(f"[OK] {r['frames']} frames measured, {r['hands']} with a hand -> {r['path']}")
+
+
 @realgames_app.command("export-session")
 def realgames_export_session(
     name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
@@ -614,8 +639,11 @@ def realgames_export_session(
                                help="Also export the commit windows, flagged `dirty: true`."),
     every: int = typer.Option(3, "--every", help="Sample every Nth source frame of a HAND window."),
     per_position: int = typer.Option(8, "--per-position",
-                                     help="Quiet boards per position (0 = fall back to --every). "
+                                     help="Clean boards per position (0 = fall back to --every). "
                                           "The corpus is short of positions, not of frames."),
+    dirty_per_position: int = typer.Option(8, "--dirty-per-position",
+                                          help="Boards per position for the dirty pile, "
+                                               "withdrawal after the commit first."),
     fit: bool = typer.Option(True, "--fit/--no-fit",
                              help="Fit every written frame's quad to the board's own grid."),
     report_only: bool = typer.Option(False, "--report-only",
@@ -636,6 +664,7 @@ def realgames_export_session(
     try:
         r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
                                          per_position=per_position or None,
+                                         dirty_per_position=dirty_per_position,
                                          dirty=dirty, fit=fit, report_only=report_only)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
@@ -984,51 +1013,29 @@ def occluders_extract(
     print(f"[OK] {total} Kacheln in {out}")
 
 
-@occluders_app.command("scan-session")
-def occluders_scan_session(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
-) -> None:
-    """Model-free pass over a session: which frames carry a hand, and which of them a NEW pose.
-
-    29 ms a frame on the CPU. It is what makes the corpus affordable — 40 % of frames carry a
-    hand, but only half of those a pose the matting has not seen yet."""
-    from . import matte as matte_mod
-
-    try:
-        res = matte_mod.scan_session(name)
-    except (FileNotFoundError, ValueError, KeyError) as e:
-        print(f"[ERR] {e}")
-        raise typer.Exit(1) from e
-    print(f"[OK] {res['hand_frames']} von {res['frames']} Frames mit Hand, "
-          f"davon {res['poses']} neue Posen -> {res['path']}")
-
-
-@occluders_app.command("matte-session")
-def occluders_matte_session(
+@occluders_app.command("alpha-worker")
+def occluders_alpha_worker(
     name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
     limit: int = typer.Option(0, "--limit", help="Stop after N frames (0 = all)."),
-    poses: bool = typer.Option(True, "--poses/--all",
-                               help="Only the scan's distinct poses, or every frame."),
-    backend: str = typer.Option("gsam", "--backend",
-                                help="gsam (Grounding DINO + SAM 2.1, 1.2 s/frame — finds frames) "
-                                     "or sam3 (11.9 s/frame — the cleaner alpha to train on)."),
+    reason: str = typer.Option("occluded", "--reason",
+                               help="Which dirty rows to matte: `occluded` (FEN still valid, the "
+                                    "labelable ones) or `all`."),
 ) -> None:
-    """Cut the hand out of every dirty frame of a session: alpha per frame, coverage per square.
+    """Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.
 
-    The grid grooves decide WHETHER a hand is there, SAM 3 decides where — a split the numbers
-    forced: the model-free score flags a whole board when the light changes between two
-    intervals (`docs/session-mattes.md`)."""
+    Runs long by design (11.9 s a frame) and appends every row as it lands, so it can be stopped
+    and resumed at any point. The pile itself was chosen by the frame scan (`docs/frame-scan.md`).
+    """
     from . import matte as matte_mod
 
     try:
-        res = matte_mod.matte_session(name, limit=limit or None, poses_only=poses,
-                                      backend=backend)
+        res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
     skipped = ", ".join(f"{k}: {v}" for k, v in sorted(res["skipped"].items())) or "keine"
-    print(f"[OK] {res['mattes']} Matten aus {res['frames']} Frames, "
-          f"{res['cells_over_half']} Zellen ueber 50% verdeckt -> {res['path']}")
+    print(f"[OK] {res['alphas']} Alphas aus {res['frames']} Frames "
+          f"({res['already']} lagen schon vor) -> {res['path']}")
     print(f"     uebersprungen — {skipped}")
 
 
@@ -1107,7 +1114,7 @@ def dataset_build_cmd(
                                                     "manifests/squares.jsonl. Needed after `ingest --tag X "
                                                     "--no-build`, which writes manifests/squares__X.jsonl."),
     classes: str | None = typer.Option(None, "--classes",
-                                       help="pieces (14, default) | pieces13 (14 minus `occluded`, "
+                                       help="pieces13 (13, default) | pieces (14, with `occluded`, "
                                             "which has zero rows in the corpus) | occupancy (2: "
                                             "empty/occupied). The narrower modes NARROW the existing "
                                             "labels at build time — no crop is re-labelled, no row "
@@ -1186,8 +1193,8 @@ def dataset_build_synth_cmd(
                                      "`dataset build`: it contradicts the fixed-camera assumption "
                                      "and diverse renders already carry the variance."),
     workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
-    classes: str = typer.Option("pieces", "--classes",
-                                help="pieces (14, default) | pieces13 (14 minus `occluded`) | "
+    classes: str = typer.Option("pieces13", "--classes",
+                                help="pieces13 (13, default) | pieces (14, with `occluded`) | "
                                      "occupancy (2: empty/occupied). The narrower modes narrow the "
                                      "FEN labels at build time."),
 ) -> None:
@@ -1285,8 +1292,8 @@ def train_cmd(
     norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
-    head: str = typer.Option("combined", "--head",
-                             help="combined | factored | twostage | occlusion. `occlusion` adds a "
+    head: str = typer.Option("occlusion", "--head",
+                             help="occlusion (default) | combined | factored | twostage. `occlusion` adds a "
                                   "sigmoid coverage unit beside the classes and trains it from the "
                                   "manifest's `coverage` — see docs/occluder-plates.md."),
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "

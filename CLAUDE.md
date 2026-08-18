@@ -21,13 +21,28 @@
 - **Stack:** Python 3.11+, uv, Typer, OpenCV/NumPy/Pillow, python-chess, PyTorch (ROCm/CUDA), Android/Kotlin. License: GPL-3.0.
 
 ## Conventions
-- **Classes (14):** `wP`..`bK`, `empty`, `occluded`.
+- **Classes (13 + coverage, 2026-08-18):** `wP`..`bK` + `empty` (`config.IDENTITY_CLASSES`).
+  `occluded` is a **regression target**, not a class: `dataset build` defaults to `pieces13` and
+  `train` to `--head occlusion`, which reads the manifest's `coverage` and masks every cell over
+  `PIECE_VISIBLE_MAX = 0.15` out of the classification loss. Nobody paints occlusion any more —
+  the human only checks that the alpha and the shown position are right.
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** Web Read-Paths via `manifest_cache.py` (mtime-keyed).
 - **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer. **Default is NO comment**: a small function (handler, wrapper, one-purpose helper) whose name plus imports tell the story gets none, and a comment longer than its function is wrong — delete it, don't trim it (User, 2026-08-15: "der kommentar ist länger als die funktion und sagt genau nichts").
 
 ## Known Pitfalls (Critical)
+
+### 0. Frame selection (2026-08-18)
+- **Measure first, pick after.** `framescan.py` scans every 3rd frame (grooves + RT-DETR `person`
+  + `skin_patch`, 45 ms) before anything is chosen; `classify` then rules per frame. The old
+  export planned 8 boards per position and flagged afterwards, so a flagged slot went missing:
+  20 % of positions kept their 8, now 91 % (`docs/frame-scan.md`).
+- **The board is the witness, not the hand.** Labels hold while the position still looks like the
+  commit's. A hand over an unchanged board is `occluded` and KEEPS its FEN — that material is what
+  the occlusion labels are made of. Only `next_touches` decides `stale`; all 64 cells flagged the
+  player's shadow on rank 1 (median 7 cells).
+- **`boards/` is the clean p8 stock, `dirty/` the pile**, each row carrying `dirty_reason`.
 
 ### 1. Model & Normalization
 - **Occlusion:** Models without the `occluded` class have `pOccluded = 0.0`. Hand verification must rely on the **MODEL-FREE** arm (`gridOccluded`) because the CNN arm is blind. Measured on 003957's 67-ply reference: 38/67 plies with 4 invented → **67/67 with 0 invented** (raw map), **LCS 65/67** under the adjacency rule. The gate only counts HAND-SHAPED flags (≥ 1 orthogonally adjacent pair): counting any flag blanks a whole replay on one leaning piece (c8), and a count threshold of 3 lets the leaving hand's 2-flag tail commit the fabrication it exists to stop.
