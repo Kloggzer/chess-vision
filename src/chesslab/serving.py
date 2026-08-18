@@ -430,6 +430,12 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                 logits = model(batch)
 
     with torch.no_grad():
+        # The occlusion head carries ONE sigmoid coverage unit beside the classes. Softmaxing it
+        # together with them bends every probability, and `classes[argmax]` runs off the end as
+        # soon as the argmax lands on it (`training/occlusion.py`).
+        cover = None
+        if logits.shape[1] == len(classes) + 1:
+            logits, cover = logits[:, :-1], torch.sigmoid(logits[:, -1].float()).cpu()
         # ONE device->host transfer for the whole batch: per-row `probs[i].tolist()`
         # on a GPU tensor forced 64 separate syncs (~5 ms of the observation).
         probs = torch.softmax(logits.float(), dim=1).cpu()
@@ -438,6 +444,8 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     results: list[dict] = []
     for i, (c, ix) in enumerate(zip(conf.tolist(), idx.tolist(), strict=False)):
         entry: dict = {"pred_label": classes[int(ix)], "confidence": round(float(c), 4)}
+        if cover is not None:
+            entry["coverage"] = round(float(cover[i]), 4)
         if return_probs:
             entry["probs"] = [round(float(p), 6) for p in probs_np[i]]
         results.append(entry)

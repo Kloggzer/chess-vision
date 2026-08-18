@@ -287,6 +287,25 @@ def set_session_reviewed(session_id: str, reviewed: bool,
     return {"session_id": sid, "reviewed": bool(reviewed)}
 
 
+def deletion_cost(session_id: str, paths: config.Paths = config.DATA) -> dict:
+    """What `delete_session` would destroy — counted BEFORE anything is removed.
+
+    The corrections are the only irreplaceable part: crops and manifest rows come back from a
+    re-slice, a human's verdict does not.
+    """
+    sid = _safe_id(session_id)
+    target = next((d for d in (paths.sessions / sid, paths.sessions_archive / sid) if d.exists()), None)
+    if target is None:
+        raise FileNotFoundError(f"Session '{sid}' not found.")
+    log = target / "log.jsonl"
+    frames = len([x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]) if log.exists() else 0
+    crops = sum(1 for m in _manifest_files(paths) if m.exists() for line in
+                m.read_text(encoding="utf-8").splitlines() if f'"session_id": "{sid}"' in line)
+    corrections = (sum(1 for line in paths.corrections.read_text(encoding="utf-8").splitlines()
+                       if f'"session_id": "{sid}"' in line) if paths.corrections.exists() else 0)
+    return {"session_id": sid, "frames": frames, "crops": crops, "corrections": corrections}
+
+
 def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     """Permanently remove session: directory + crops + manifest + correction lines."""
     sid = _safe_id(session_id)

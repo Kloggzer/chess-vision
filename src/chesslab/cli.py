@@ -410,6 +410,31 @@ def session_boards(
         raise typer.Exit(1)
 
 
+@session_app.command("delete")
+def session_delete(
+    session_id: str = typer.Argument(..., help="Session ID under data/sessions/."),
+    yes: bool = typer.Option(False, "--yes", help="Delete without asking."),
+) -> None:
+    """Remove a session for good: directory, crops, manifest rows and its corrections.
+
+    `archive` is the reversible door and stays the default answer. This one exists for what
+    archiving would only hoard — an empty export, a session with no readable board.
+    """
+    from . import sessions as sessions_mod
+
+    counts = _session_call(sessions_mod.deletion_cost, session_id)
+    print(f"[--] {session_id}: {counts['frames']} Zeilen, {counts['crops']} Crops, "
+          f"{counts['corrections']} Korrekturen")
+    if counts["corrections"] and not yes:
+        print("[FAIL] die Korrekturen sind Handarbeit — mit --yes bestaetigen, wenn das so gemeint ist")
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(f"  {session_id} endgueltig loeschen?", default=False):
+        print("[--] nichts geloescht")
+        raise typer.Exit(0)
+    res = _session_call(sessions_mod.delete_session, session_id)
+    print(f"[OK] {res['session_id']} geloescht ({res['removed_crops']} Crops mit)")
+
+
 @session_app.command("park-frames")
 def session_park_frames(
     session: str = typer.Argument(None, help="Session ID."),

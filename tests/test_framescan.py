@@ -1,5 +1,7 @@
 """Measure first, pick after: what a frame is worth, and which eight of them the position keeps."""
 
+import pytest
+
 from chesslab import framescan as fs
 
 SEG = {"start": 0, "end": 120, "ply": 3}
@@ -195,3 +197,95 @@ def test_an_occluded_frame_without_a_matte_stays_out(tmp_path, monkeypatch):
                         squares_root=tmp_path / "squares", out_size=(32, 32))
 
     assert res["crops"] == 0 and res["dirty_dropped"] == 64, "no measurement, no contribution"
+
+
+def test_an_occlusion_run_can_be_loaded_back(tmp_path):
+    """`--head occlusion` is the default now, and a run nobody can reload has no eval and no export."""
+    import json
+
+    torch = pytest.importorskip("torch")
+
+    from chesslab.training.evaluate import load_run
+    from chesslab.training.model import build_model
+
+    classes = ["empty", "wP", "bP"]
+    run = tmp_path / "r"
+    run.mkdir()
+    (run / "config.json").write_text(json.dumps({
+        "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
+        "out_size": [32, 32]}), encoding="utf-8")
+    trained = build_model("smallcnn", len(classes) + 1, head="combined", classes=classes)
+    torch.save(trained.state_dict(), run / "best.pt")
+
+    model, cfg = load_run(run)
+
+    out = model(torch.zeros(1, 3, 32, 32))
+    assert out.shape[-1] == len(classes) + 1, "the coverage unit rides beside the classes"
+    assert cfg["classes"] == classes
+
+
+def test_the_coverage_unit_never_reaches_the_softmax(tmp_path, monkeypatch):
+    """13 classes + coverage is 14 wide like the old 14-class model — same shape, other meaning."""
+    import json
+
+    import numpy as np
+    torch = pytest.importorskip("torch")
+
+    from chesslab import serving
+    from chesslab.training.model import build_model
+
+    classes = ["empty", "wP", "bP"]
+    run = tmp_path / "r"
+    run.mkdir()
+    (run / "config.json").write_text(json.dumps({
+        "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
+        "out_size": [32, 32], "infer_size": [32, 32]}), encoding="utf-8")
+    torch.save(build_model("smallcnn", len(classes) + 1, head="combined",
+                           classes=classes).state_dict(), run / "best.pt")
+
+    out = serving.predict_arrays(run, [np.zeros((32, 32, 3), np.uint8)], return_probs=True)
+
+    assert out[0]["pred_label"] in classes, "the argmax can never name the coverage unit"
+    assert len(out[0]["probs"]) == len(classes), "the softmax runs over the classes only"
+    assert 0.0 <= out[0]["coverage"] <= 1.0, "and the coverage comes back as its own number"
+
+
+def test_an_archived_game_is_not_exported(tmp_path, monkeypatch):
+    """The UI's archive flag was Python-invisible, so a re-export wrote three of them back in."""
+    import json
+
+    from chesslab import config, realgames
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    g = tmp_path / "data" / "realgames" / "g1"
+    g.mkdir(parents=True)
+    (g / "ui-meta.json").write_text(json.dumps({"archived": True}), encoding="utf-8")
+
+    assert realgames.is_archived("g1")
+    with pytest.raises(ValueError, match="archived"):
+        realgames.export_session("g1")
+
+    (g / "ui-meta.json").write_text(json.dumps({"title": "kept"}), encoding="utf-8")
+    assert not realgames.is_archived("g1"), "un-archiving in the UI is enough to let it back"
+
+
+def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
+    """Crops come back from a re-slice, a human's verdict does not — so it is counted, not guessed."""
+    import json
+
+    from chesslab import config, sessions
+
+    paths = config.Paths(root=tmp_path / "data")
+    sdir = paths.sessions / "s1"
+    sdir.mkdir(parents=True)
+    (sdir / "log.jsonl").write_text("".join(
+        json.dumps({"frame": f"frames/00000{i}.png"}) + "\n" for i in (1, 2)), encoding="utf-8")
+    paths.manifests.mkdir(parents=True, exist_ok=True)
+    paths.corrections.write_text(
+        json.dumps({"session_id": "s1", "frame": "000001", "square": "a1", "label": "wP"}) + "\n"
+        + json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
+        encoding="utf-8")
+
+    cost = sessions.deletion_cost("s1", paths)
+
+    assert cost == {"session_id": "s1", "frames": 2, "crops": 0, "corrections": 1}

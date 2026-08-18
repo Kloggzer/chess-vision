@@ -22,9 +22,14 @@ def load_run(run_dir: Path):
     from .torch_data import input_repr_of
 
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
-    model = build_model(cfg["backbone"], len(cfg["classes"]), norm=cfg.get("norm", "batchnorm"),
-                        head=cfg.get("head", "combined"), classes=cfg["classes"],
-                        in_chans=input_repr_of(cfg)[1])
+    # `occlusion` is a COMBINED head with one sigmoid coverage unit beside the classes — the same
+    # arithmetic `train.py` uses. Rebuilding it under its own name raised "unknown head", so every
+    # run trained with it was unloadable: no eval, no confusion, no export.
+    occluding = cfg.get("head") == "occlusion"
+    model = build_model(cfg["backbone"], len(cfg["classes"]) + occluding,
+                        norm=cfg.get("norm", "batchnorm"),
+                        head="combined" if occluding else cfg.get("head", "combined"),
+                        classes=cfg["classes"], in_chans=input_repr_of(cfg)[1])
     ckpt = run_dir / "best.pt"
     if not ckpt.exists():
         ckpt = run_dir / "last.pt"

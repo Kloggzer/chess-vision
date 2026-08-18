@@ -140,6 +140,22 @@ def write_confirmation(name: str, candidate: dict, plies: list[int]) -> Path:
     return path
 
 
+def is_archived(name: str) -> bool:
+    """The UI's `ui-meta.json` archive flag — a human saying "not this one".
+
+    Python ignored it, so a re-export happily wrote three archived games back into the corpus
+    (2026-08-19). Hiding a game from a list and keeping it out of the training data are the same
+    intent, and two truths about one game are worth less than one.
+    """
+    meta = game_dir(name) / "ui-meta.json"
+    if not meta.exists():
+        return False
+    try:
+        return bool(json.loads(meta.read_text(encoding="utf-8")).get("archived"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+
 def reference_is_the_phones_own(name: str) -> bool:
     """Is `reference.pgn` a copy of the phone's own PGN (the UI's `adopt-pgn`)?
 
@@ -956,6 +972,9 @@ def export_session(
     """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
     from . import framescan
 
+    if is_archived(name):
+        raise ValueError(
+            f"{name}: archived in the UI — un-archive it there if it belongs in the corpus")
     candidate = load_candidate(name)
     if not candidate.get("confirmed"):
         raise ValueError(f"{name}: not confirmed — run `chesslab realgames confirm {name}` first")
