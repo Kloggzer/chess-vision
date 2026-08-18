@@ -99,14 +99,12 @@ export function Drilldown(props: DrilldownProps) {
   // the key listener is subscribed once and must still call the CURRENT closure.
   const confirmRef = useRef<() => Promise<void>>(async () => {});
   const rejectRef = useRef<() => Promise<void>>(async () => {});
-  const floodRef = useRef<() => void>(() => {});
   const brushRef = useRef(paint.setBrush);
   useEffect(() => {
     latest.current = pending;
     flushRef.current = flush;
     confirmRef.current = confirmQueue;
     rejectRef.current = rejectQueue;
-    floodRef.current = paint.flood;
     brushRef.current = paint.setBrush;
   });
   useEffect(() => () => void flushRef.current(latest.current), []);
@@ -122,11 +120,6 @@ export function Drilldown(props: DrilldownProps) {
       if (event.key === "Backspace") {
         event.preventDefault();
         void rejectRef.current();
-        return;
-      }
-      if (event.key === "a") {
-        event.preventDefault();
-        floodRef.current();
         return;
       }
       const hit = PALETTE.find(([k]) => k === event.key);
@@ -179,10 +172,7 @@ export function Drilldown(props: DrilldownProps) {
     await commit(plan);
   }
 
-  /**
-   * Reject: "not occluded — FEN is right" (2026-08-10).
-   * Brush strokes still write corrections first.
-   */
+  /** Reject: "der FEN stimmt hier" (2026-08-10). Brush strokes still write corrections first. */
   async function rejectQueue() {
     await commit(paint.rejectAll());
   }
@@ -217,19 +207,6 @@ export function Drilldown(props: DrilldownProps) {
           variant={paint.eraser ? "default" : "outline"}
         >
           {paint.eraser ? "Radierer AN" : `Pinsel: ${paint.brush}`}
-        </Button>
-        <Button
-          onClick={(event) => {
-            event.currentTarget.blur();
-            paint.flood();
-          }}
-          className={TOUCH}
-          size="sm"
-          title="alles occluded, Radierer an — dann die sichtbaren Zellen freiradieren"
-          variant="outline"
-        >
-          <span className="text-muted-foreground mr-1 font-mono">a</span>
-          alles occluded
         </Button>
         <span className="text-muted-foreground tabular-nums" title={GESTEN}>
           {judged.size}/64 entschieden

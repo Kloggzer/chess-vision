@@ -26,7 +26,6 @@ export type BoardLaneProps = {
   onFlush: Flush;
   onStep: (delta: number) => void;
   onNext: (ply?: number) => void;
-  onGrid: (square: string) => void;
 };
 
 /**
@@ -37,7 +36,7 @@ export type BoardLaneProps = {
  * (REVIEW S3). The arrows step BOARDS instead.
  */
 export function BoardLane(props: BoardLaneProps) {
-  const { name, sessionId, board, accept, reads, decided, reviewAll, actionsRef, onFlush, onStep, onNext, onGrid } = props;
+  const { name, sessionId, board, accept, reads, decided, reviewAll, actionsRef, onFlush, onStep, onNext } = props;
   const boardKey = `${board.session}:${board.stem}`;
   const paint = useBoardPaint({ boardKey, fen: board.fen, decided, stem: board.stem, accept });
   const [hover, setHover] = useState<string | null>(null);
@@ -73,9 +72,9 @@ export function BoardLane(props: BoardLaneProps) {
   };
 
   // The one keymap lives in the stream; this publishes what the board can answer with.
-  const current = useRef({ commit, paint, hover, board, onStep, onGrid, onNext });
+  const current = useRef({ commit, paint, hover, board, onStep, onNext });
   useEffect(() => {
-    current.current = { commit, paint, hover, board, onStep, onGrid, onNext };
+    current.current = { commit, paint, hover, board, onStep, onNext };
   });
   useEffect(() => {
     actionsRef.current = {
@@ -87,11 +86,6 @@ export function BoardLane(props: BoardLaneProps) {
         const square = current.current.hover;
         if (square) current.current.paint.cycle(square);
       },
-      gridAt: () => {
-        const square = current.current.hover;
-        if (square) current.current.onGrid(square);
-      },
-      flood: () => current.current.paint.flood(),
       step: (delta) => current.current.onStep(delta),
       brush: (label) => current.current.paint.setBrush(label),
       undo: () => current.current.paint.undo(),

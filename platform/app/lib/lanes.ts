@@ -13,7 +13,6 @@ import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
 export type LaneId =
-  | "hands"
   | "unsure"
   | "disagree"
   | "classwall"
@@ -47,7 +46,6 @@ export type Lane = {
 };
 
 export const LANES: readonly Lane[] = [
-  { id: "hands", slug: "haende", label: "Hände", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
   { id: "unsure", slug: "unsicher", label: "Unsicher", renderer: "cells", unit: "Zellen", denominator: "Zellen im Mittelband lo…hi" },
   { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Vorschlägen" },
   // Named after its QUESTION, not after the wall metaphor: it is the same "Modell ≠ FEN" one cell
@@ -286,7 +284,6 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
 
 /** The boards of a board lane, in stream order. Empty for a cell lane. */
 export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
-  if (id === "hands") return stream.boards.filter((b) => Object.keys(b.hands).length > 0);
   if (id === "disagree") return stream.boards.filter((b) => Object.keys(b.disagree).length > 0);
   if (id === "unknown") return stream.boards.filter((b) => b.unknown.length > 0);
   if (id === "rules") return stream.boards.filter((b) => b.violations.length > 0);
@@ -303,7 +300,6 @@ export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
  * it (CONCEPT.md D5). `Alle Bretter` pre-selects nothing — it is free-hand paint.
  */
 export function laneAccept(board: StreamBoard, id: LaneId): Record<string, string> {
-  if (id === "hands") return board.hands;
   if (id === "disagree") return board.disagree;
   // Was auf der Platte steht, nicht was zu schreiben wäre: der Regelbruch beweist, dass Korrektur
   // ODER FEN falsch ist, nie welche von beiden. Ein Klick zykelt Korrektur ⇄ FEN-Wort.
@@ -316,7 +312,6 @@ export function laneAccept(board: StreamBoard, id: LaneId): Record<string, strin
 }
 
 export function laneReads(board: StreamBoard, id: LaneId): Record<string, string> {
-  if (id === "hands") return board.reads;
   if (id === "disagree") return board.disagreeReads;
   return {};
 }

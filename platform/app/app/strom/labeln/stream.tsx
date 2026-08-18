@@ -33,7 +33,6 @@ import { addRows, emptyTally } from "@/lib/session-tally";
 import { BoardLane } from "./board-lane";
 import { CellLane } from "./cell-lane";
 import { MobileSort } from "./mobile-sort";
-import { SquareGrid } from "./square-grid";
 import { WallQueryBar } from "./wall-query";
 
 /**
@@ -60,7 +59,6 @@ export type LaneActions = {
   flagsOff?: () => void;
   toggleAt?: () => void;
   gridAt?: () => void;
-  flood?: () => void;
   /** Die ganze Seite auf das Wort des Modells — die Zell-Lanes fragen nichts anderes. */
   floodModel?: () => void;
   step?: (delta: number) => void;
@@ -88,8 +86,7 @@ const KEYS: [string, string][] = [
   ["⌫", "Flags aus → nächstes"],
   ["f", "Flags aus, hier bleiben"],
   ["⎵", "Flag unter dem Zeiger"],
-  ["⇧⎵", "Raster für dieses Feld"],
-  ["a", "alles occluded"],
+  ["⇧⎵", "Modell hat recht (Zell-Lanes)"],
   ["← →", "Brett blättern"],
   ["⇧⏎", "nächster Halbzug"],
   ["z", "zurück"],
@@ -111,7 +108,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const [tally, setTally] = useState(emptyTally);
   const [history, setHistory] = useState<Batch[]>([]);
   const [note, setNote] = useState<string | null>(null);
-  const [grid, setGrid] = useState<{ session: number; square: string } | null>(null);
   const [gaps, setGaps] = useState<number[]>([]);
   const [phone, setPhone] = useState(false);
   const actions = useRef<LaneActions>({});
@@ -339,11 +335,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const target = event.target as HTMLElement | null;
     if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
-    // The accelerator grid owns the keyboard while it is up: Enter must not commit the board behind it.
-    if (grid) {
-      if (event.key === "Escape") setGrid(null);
-      return;
-    }
     const now = actions.current;
     switch (event.key) {
       case "Enter":
@@ -358,9 +349,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       case " ":
         event.preventDefault();
         return event.shiftKey ? now.gridAt?.() : now.toggleAt?.();
-      case "a":
-        event.preventDefault();
-        return now.flood?.();
       case "A":
         event.preventDefault();
         return now.floodModel?.();
@@ -556,7 +544,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               decided={decided[board.session] ?? {}}
               name={stream.sessions[board.session].name}
               onFlush={flush}
-              onGrid={(square) => setGrid({ session: board.session, square })}
               onNext={(ply) => setAt(nextOpen(boards, at, lane, decided, ply))}
               onStep={(delta) => setAt((i) => Math.max(0, Math.min(boards.length - 1, i + delta)))}
               reads={laneReads(board, lane)}
@@ -597,17 +584,6 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         </aside>
       </div>
 
-      {grid ? (
-        <SquareGrid
-          cells={stream.cells.filter((c) => c.session === grid.session && c.square === grid.square)}
-          decided={decided[grid.session] ?? {}}
-          name={stream.sessions[grid.session].name}
-          onClose={() => setGrid(null)}
-          onFlush={flush}
-          sessionId={stream.sessions[grid.session].sessionId}
-          square={grid.square}
-        />
-      ) : null}
     </section>
   );
 }
@@ -648,7 +624,6 @@ function Panel({
 }) {
   const items: [string, number, string][] = [
     ["Bretter fertig", tally.boards.size, "distinkte Frames, die seit dem Laden in ein Ledger geschrieben haben"],
-    ["Zellen occluded", tally.cellsOccluded, "Zeilen mit label occluded in corrections.jsonl"],
     ["Zellen bestätigt", tally.cellsConfirmed, "Zeilen in reviewed.jsonl — der FEN stimmte"],
     ["Figuren korrigiert", tally.piecesCorrected, "Zeilen mit einem Label außer occluded und empty"],
   ];

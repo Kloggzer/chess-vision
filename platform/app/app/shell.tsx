@@ -12,6 +12,7 @@ type Item = { href: string; label: string; also?: readonly string[] };
 const STROM: readonly Item[] = [
   { href: "/strom/zuege", label: "Züge", also: ["/confirm"] },
   { href: "/strom/labeln", label: "Labeln", also: ["/relabel"] },
+  { href: "/strom/matte", label: "Matte", also: [] },
 ];
 
 const ABLAGE: readonly Item[] = [

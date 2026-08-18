@@ -48,9 +48,6 @@ export type StreamBoard = {
   violations: string[];
   /** `{square: label}` of the corrections that produced them; on file already, never a proposal. */
   violating: Record<string, string>;
-  /** `{square: "occluded"}` the hand channel raised here, with the read that raised it. */
-  hands: Record<string, string>;
-  reads: Record<string, string>;
   /** `{square: <the model's word>}` where its argmax contradicts the FEN — empty without `probs`. */
   disagree: Record<string, string>;
   disagreeReads: Record<string, string>;
@@ -110,22 +107,6 @@ export type LabelStream = {
 /** Newest recording first, the same reading of the two naming schemes the queues use. */
 const newestFirst = (names: string[]) =>
   [...names].sort((a, b) => recordedAt(b).localeCompare(recordedAt(a)) || b.localeCompare(a));
-
-/** Hand-shaped: grid saw it or merged score > hi; weak cells stay unsure to avoid painter-facing empty boards (2026-08-10). */
-function handCells(rows: Proposal[], hi: number, lo: number): Map<string, Proposal[]> {
-  const byFrame = new Map<string, Proposal[]>();
-  for (const row of rows) {
-    if (Math.max(row.score, row.probs?.occluded ?? 0) < lo) continue;
-    if ((row.grid_score ?? 0) <= 0 && row.score <= hi) continue;
-    const list = byFrame.get(row.frame);
-    if (list) list.push(row);
-    else byFrame.set(row.frame, [row]);
-  }
-  return byFrame;
-}
-
-const read = (c: Proposal) =>
-  c.grid_score ? `grid ${c.grid_score.toFixed(2)}` : `score ${c.score.toFixed(2)}`;
 
 /**
  * The filter bar's own floor (`app/relabel/[name]/filter.tsx:37`) — the identity lanes ask the same
@@ -203,7 +184,6 @@ export async function loadLabelStream(): Promise<LabelStream> {
     ]);
 
     const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
-    const hands = handCells(rows, thresholds.hi, thresholds.lo);
     const streams = splitStreams(rows, thresholds);
     const kinds = new Map<string, CellKind>();
     for (const c of streams.confirm) kinds.set(`${c.frame}|${c.square}`, "hi");
@@ -242,7 +222,6 @@ export async function loadLabelStream(): Promise<LabelStream> {
     const byStem = new Map<string, StreamBoard>();
     const seen: Record<string, string> = {};
     for (const row of stems) {
-      const flagged = hands.get(row.stem) ?? [];
       const wall = wallsByFrame.get(row.stem) ?? [];
       const board: StreamBoard = {
         session: index,
@@ -256,8 +235,6 @@ export async function loadLabelStream(): Promise<LabelStream> {
         unknown: row.unknown,
         violations: broke.get(row.stem)?.violations ?? [],
         violating: broke.get(row.stem)?.corrections ?? {},
-        hands: Object.fromEntries(flagged.map((c) => [c.square, "occluded"])),
-        reads: Object.fromEntries(flagged.map((c) => [c.square, read(c)])),
         disagree: Object.fromEntries(wall.map((c) => [c.square, walls.get(`${c.frame}|${c.square}`)!.label])),
         disagreeReads: Object.fromEntries(
           wall.map((c) => {
@@ -352,8 +329,6 @@ async function appendStored(
           unknown: [],
           violations: [],
           violating: {},
-          hands: {},
-          reads: {},
           disagree: {},
           disagreeReads: {},
           proposed: false,

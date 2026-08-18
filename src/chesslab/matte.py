@@ -146,7 +146,8 @@ def alpha_worker(name: str, *, limit: int | None = None, reason: str = ALPHA_REA
         for n, entry in enumerate(todo, 1):
             stem = Path(entry["board"]).stem
             board = cv2.imread(str(session_dir / entry["board"]))
-            row = {"frame": stem, "ply": entry.get("ply"), "reason": entry.get("dirty_reason")}
+            row = {"frame": stem, "ply": entry.get("ply"),
+                   "dirty_reason": entry.get("dirty_reason")}
             if board is None:
                 row["skipped"] = "board unreadable"
             else:

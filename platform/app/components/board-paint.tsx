@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
+import { IDENTITY_CLASSES, LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { FILES, fenLabels } from "@/lib/fen";
 import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/selection";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -13,20 +14,24 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 export const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 - Math.floor(i / 8)}`);
 
 /**
- * Brush loads: digits=white FEN order, lowercase=black.
- * `o`/`x` are not pieces; stream uses `e` for empty (CONCEPT.md 4.2).
+ * Brush loads: digits=white FEN order, lowercase=black. `x` is not a piece; stream uses `e` for
+ * empty (CONCEPT.md 4.2). Thirteen keys, no `o` — occlusion is measured, not painted.
  */
 export const PALETTE: [string, string][] = [
-  ["o", "occluded"], ["x", "empty"],
+  ["x", "empty"],
   ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
   ["p", "bP"], ["n", "bN"], ["b", "bB"], ["r", "bR"], ["q", "bQ"], ["k", "bK"],
 ];
 
-/** One glyph per class: the key button says WHAT it loads without widening the row. */
+/** The palette IS the writable class list — a key that writes something else is a bug. */
+if (PALETTE.length !== IDENTITY_CLASSES.length) throw new Error("palette is not config.IDENTITY_CLASSES");
+
+/** One glyph per class: the key button says WHAT it loads without widening the row. `occluded`
+ *  has none to load and is here for the LEGACY rows the board still renders. */
 export const GLYPH: Record<string, string> = {
   wP: "♙", wN: "♘", wB: "♗", wR: "♖", wQ: "♕", wK: "♔",
   bP: "♟", bN: "♞", bB: "♝", bR: "♜", bQ: "♛", bK: "♚",
-  occluded: "▨", empty: "·",
+  [LEGACY_LABEL]: "▨", empty: "·",
 };
 
 /** The same palette with `e` for empty — the stream spends `x` on "dieses Brett ist Müll". */
@@ -68,7 +73,6 @@ export type PaintState = {
   rejectAll: () => BoardPlan;
   paint: (square: string, erase: boolean) => void;
   cycle: (square: string) => void;
-  flood: () => void;
   toggleFlags: () => void;
   /** In-memory pop — `z` before anything has left (CONCEPT.md 4.2.2, first regime). */
   undo: () => boolean;
@@ -81,7 +85,7 @@ export type PaintState = {
 export function useBoardPaint(input: PaintInput): PaintState {
   const { boardKey, fen: fenText, decided, stem, accept } = input;
   const [eraser, setEraser] = useState(false);
-  const [brush, setBrushLabel] = useState("occluded");
+  const [brush, setBrushLabel] = useState("empty");
   /** Loading the brush disarms the eraser — otherwise picking `wP` still rubbed the FEN back on. */
   const setBrush = useCallback((label: string) => {
     setBrushLabel(label);
@@ -134,17 +138,6 @@ export function useBoardPaint(input: PaintInput): PaintState {
       set(square, cycleNext({ current: plan.labels[square], proposal: accept[square], base: base[square], fen: fen[square], brush })),
     [accept, base, brush, fen, plan, set],
   );
-
-  /**
-   * The inverted gesture ("alle außer die sind nicht occluded", 2026-08-10): on a board mostly
-   * under a hand the few CLEAN cells are the work. Flood, arm the eraser, free what is visible —
-   * erased cells return to the FEN's word and write nothing.
-   */
-  const flood = useCallback(() => {
-    setHistory((h) => [...h, ...SQUARES.map((sq) => ({ board: boardKey, square: sq, before: edits[boardKey]?.[sq] }))]);
-    setEdits((e) => ({ ...e, [boardKey]: Object.fromEntries(SQUARES.map((sq) => [sq, "occluded"])) }));
-    setEraser(true);
-  }, [boardKey, edits]);
 
   /**
    * Bulk toggle flags: all off, click back the real ones (CONCEPT.md 4.2.1).
@@ -205,7 +198,7 @@ export function useBoardPaint(input: PaintInput): PaintState {
     brush, eraser, setBrush, setEraser,
     fen, base, plan, labels: plan.labels, kept, judged, offable,
     paintRows: plan.paintRows,
-    rejectAll, paint, cycle, flood, toggleFlags, undo, markSaved, markCommitted,
+    rejectAll, paint, cycle, toggleFlags, undo, markSaved, markCommitted,
   };
 }
 
@@ -217,6 +210,10 @@ export type BoardSurfaceProps = {
   accept: Labels;
   /** Squares the active lane hit — outlined, so the eye starts where the work is. */
   hits?: string[];
+  /** `matte.jsonl`'s measured fraction per square; cells past `PIECE_VISIBLE_MAX` read as covered. */
+  coverage?: Record<string, number>;
+  /** Drawn between the board and the paint grid — the matte review puts its alpha here. */
+  overlay?: React.ReactNode;
   /** The square under the pointer: `Space` acts on it, so no cell cursor is needed (REVIEW S3). */
   onHover?: (square: string | null) => void;
 };
@@ -226,7 +223,7 @@ export type BoardSurfaceProps = {
  * marks every cell the pointer enters, the eraser (or the right button) puts the FEN label back.
  * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
  */
-export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSurfaceProps) {
+export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, onHover }: BoardSurfaceProps) {
   const { labels, fen, kept, judged, paint, cycle, eraser } = state;
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
@@ -269,6 +266,7 @@ export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSu
       style={{ touchAction: "none" }}
     >
       <Image alt={alt} className="object-contain" fill sizes="720px" src={src} unoptimized />
+      {overlay}
       <div className="absolute inset-0 grid grid-cols-8">
         {SQUARES.map((sq) => {
           const label = labels[sq];
@@ -283,14 +281,19 @@ export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSu
             : on
               ? "outline outline-4 -outline-offset-4 outline-fuchsia-500"
               : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
+          const cov = coverage?.[sq];
+          // Covered beats every other state: past 0.15 the crop is not a piece example at all, so
+          // whatever the cell is labelled says nothing about what the model will be taught here.
           const tint =
-            label === "occluded"
-              ? "bg-amber-500/45"
-              : label !== fen[sq]
-                ? "bg-sky-500/40"
-                : on
-                  ? "bg-fuchsia-500/15"
-                  : "hover:bg-white/10";
+            cov !== undefined && cov > PIECE_VISIBLE_MAX
+              ? "bg-amber-500/45 outline outline-2 -outline-offset-2 outline-amber-400"
+              : label === LEGACY_LABEL
+                ? "bg-amber-500/20"
+                : label !== fen[sq]
+                  ? "bg-sky-500/40"
+                  : on
+                    ? "bg-fuchsia-500/15"
+                    : "hover:bg-white/10";
           return (
             // No per-cell tooltip: it pops up under the brush on every cell the drag enters. The
             // model's word lives in the lane's hover line instead (`board-lane.tsx`), where it
@@ -303,6 +306,11 @@ export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSu
               }}
               onPointerEnter={() => enter(sq)}
             >
+              {cov !== undefined && cov > 0 ? (
+                <span className="bg-background/70 pointer-events-none absolute top-0 right-0 rounded-bl px-0.5 font-mono text-[9px] leading-tight tabular-nums text-amber-200">
+                  {cov.toFixed(2)}
+                </span>
+              ) : null}
               {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
                   means a human decided it; DIM means the FEN says so and nobody has looked. */}
               <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
@@ -311,7 +319,7 @@ export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSu
                     judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
                   }`}
                 >
-                  {label}
+                  {label === LEGACY_LABEL ? "▨ alt" : label}
                 </span>
               </span>
             </div>
@@ -328,7 +336,8 @@ export function BoardSurface({ src, alt, state, accept, hits, onHover }: BoardSu
  */
 export function BoardLegend() {
   const items: [string, string][] = [
-    ["bg-amber-500/45", "occluded — die Zelle ist als verdeckt markiert"],
+    ["bg-amber-500/45", `coverage > ${PIECE_VISIBLE_MAX} — gemessen verdeckt, kein Figur-Beispiel mehr`],
+    ["bg-amber-500/20", "▨ alt — eine Altzeile aus der Zeit, als occluded von Hand gemalt wurde"],
     ["bg-sky-500/40", "≠ FEN — hier steht ein anderes Label als die Partie sagt"],
     ["bg-transparent border border-white/25", "wie im FEN — nichts geändert"],
     ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "Flag an — commit schreibt diese Zelle"],

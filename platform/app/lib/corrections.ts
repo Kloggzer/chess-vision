@@ -8,15 +8,10 @@
  */
 import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { isIdentity } from "@/lib/classes";
 import { checkName, dataDir } from "@/lib/data";
 
-/** `config.CLASSES`, all 14. Free-form on write per the schema, checked here anyway. */
-export const CLASSES = [
-  "empty",
-  "wP", "wN", "wB", "wR", "wQ", "wK",
-  "bP", "bN", "bB", "bR", "bQ", "bK",
-  "occluded",
-] as const;
+export { CLASSES, IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
@@ -47,8 +42,9 @@ export function validate(row: unknown): Correction {
   checkName(String(r.session_id), "session_id");
   checkName(String(r.frame), "frame");
   if (!SQUARE.test(String(r.square))) throw new Error(`bad square: ${r.square}`);
-  if (!CLASSES.includes(String(r.label) as (typeof CLASSES)[number]))
-    throw new Error(`bad label: ${r.label}`);
+  // Reads keep the legacy rows; a WRITE may only say one of the 13. Occlusion comes from
+  // `matte.jsonl` now, and a hand-painted 14th class would contradict a measured `coverage`.
+  if (!isIdentity(String(r.label))) throw new Error(`bad label: ${r.label}`);
   return {
     session_id: r.session_id as string,
     frame: r.frame as string,

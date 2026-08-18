@@ -43,9 +43,11 @@ export type SessionRow = {
   unknown: string[];
   /** The frame's 18 measured grid lines, when `session fit-mesh` could put them there. */
   mesh?: GridMesh;
-  /** The stored board's own scale (`realgames.write_board`). A homography lets board coordinates
-   *  cancel against it; a stored raster does not, so it has to be read and never assumed. */
-  board?: { size: number; border: number };
+  /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
+   *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
+  board?: { rel: string; size: number; border: number };
+  /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
+  dirtyReason?: string;
 };
 export type Session = {
   name: string;
@@ -71,9 +73,10 @@ export function framePath(name: string, stem: string): string {
   return path.join(sessionDir(name), "frames", `${checkName(stem, "frame")}.png`);
 }
 
-/** The session's stored board — `realgames.board_rel`, the raster the training crop is cut from. */
-export function boardPath(name: string, stem: string): string {
-  return path.join(sessionDir(name), "boards", `${checkName(stem, "frame")}.webp`);
+/** The row's OWN `board` path: a dirty frame's raster lives under `dirty/`, a clean one under
+ *  `boards/`, and assuming either one serves the wrong pixels for half the session. */
+export function boardPath(name: string, rel: string): string {
+  return path.join(sessionDir(name), ...rel.split("/").map((part) => checkName(part, "board path")));
 }
 
 /**
@@ -121,6 +124,7 @@ export async function loadSession(name: string): Promise<Session> {
       board?: string;
       board_size?: number;
       board_border?: number;
+      dirty_reason?: string;
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -139,7 +143,10 @@ export async function loadSession(name: string): Promise<Session> {
       toS: to / fps,
       unknown: row.unknown_squares ?? [],
       mesh: meshFromLines(row.grid_lines),
-      board: row.board && row.board_size ? { size: row.board_size, border: row.board_border ?? 0 } : undefined,
+      board: row.board && row.board_size
+        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0 }
+        : undefined,
+      dirtyReason: row.dirty_reason,
     });
   }
   const geometry = candidate.geometry ?? {};

@@ -78,7 +78,9 @@ export default async function RelabelPage({ params }: PageProps<"/relabel/[name]
           c.grid_score ? `grid ${c.grid_score.toFixed(2)}` : `score ${c.score.toFixed(2)}`,
         ]),
       ),
-      accept: Object.fromEntries(f.cells.map((c) => [c.square, "occluded"])),
+      // Flagged, not answered: the suspicion outlines the square and the brush writes an
+      // IDENTITY there. Pre-filling `occluded` would write a class that no longer exists.
+      accept: {},
     }));
 
   return (

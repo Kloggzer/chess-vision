@@ -29,7 +29,7 @@ import {
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(LANES.map((l) => l.id)).toEqual([
-    "hands", "unsure", "disagree", "classwall", "unknown", "control", "audit", "rules", "stored", "all",
+    "unsure", "disagree", "classwall", "unknown", "control", "audit", "rules", "stored", "all",
   ]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
@@ -41,8 +41,8 @@ test("every lane declares a renderer, a unit and its own denominator", () => {
 
 test("a chip always carries its unit, and an unavailable lane says — with a reason", () => {
   // The stream shows only OPEN work, so the chip has to say what the number is measured against.
-  expect(laneChip(laneById("hands"), { n: 128, total: 612 })).toEqual({
-    text: "Hände 128/612 Bretter",
+  expect(laneChip(laneById("all"), { n: 128, total: 612 })).toEqual({
+    text: "Alle Bretter 128/612 Bretter",
     title: "128 offen von 612 Bretter · Bretter mit Vorschlägen",
   });
   const empty = laneChip(laneById("disagree"), { n: null, why: NO_PROBS });
@@ -89,7 +89,7 @@ test("an event is one square, one FEN word and frames within GROUP_SPAN", () => 
 
 const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
   session: 0, pos: 0, stem: "000100", ply: 4, fen: "8/8/8/8/8/8/8/R6R w - - 0 1",
-  unknown: [], violations: [], violating: {}, hands: {}, reads: {}, disagree: {}, disagreeReads: {},
+  unknown: [], violations: [], violating: {}, disagree: {}, disagreeReads: {},
   proposed: true, ...over,
 });
 
@@ -108,17 +108,17 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
 });
 
 test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
-  const stream = streamOf({ boards: [board({ hands: { e5: "occluded" } })], cells: [cell()] });
-  expect(laneCount(stream, "hands")).toEqual({ n: 1, total: 1 });
+  const stream = streamOf({ boards: [board({ unknown: ["e5"] })], cells: [cell()] });
+  expect(laneCount(stream, "unknown")).toEqual({ n: 1, total: 1 });
   expect(laneCount(stream, "unsure")).toEqual({ n: 1, total: 1 });
   // Judged in the ledger the page loaded with: still in the corpus, no longer in the stream.
   const done = streamOf({
-    boards: [board({ hands: { e5: "occluded" } })],
+    boards: [board({ unknown: ["e5"] })],
     cells: [cell()],
-    decided: [{ "000100|e5": "occluded" }],
+    decided: [{ "000100|e5": "empty" }],
   });
-  expect(laneCount(done, "hands")).toEqual({ n: 0, total: 1 });
-  expect(openBoards(done, "hands")).toEqual([]);
+  expect(laneCount(done, "unknown")).toEqual({ n: 0, total: 1 });
+  expect(openBoards(done, "unknown")).toEqual([]);
   expect(openCells(done, "unsure")).toEqual([]);
   // `0` would claim there is no such work; the truth is that nobody has been asked (CONCEPT.md D2).
   expect(laneCount(stream, "disagree").n).toBeNull();
@@ -130,7 +130,7 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual([
-    "haende", "unsicher", "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit",
+    "unsicher", "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit",
     "regelbruch",
     "abnicken", "alle",
   ]);
@@ -233,11 +233,11 @@ test("Regelbruch outlines the corrections on file and never counts itself done",
 });
 
 test("a board lane is answerable crop by crop, which is what the phone renders", () => {
-  const boards = [board({ hands: { e5: "occluded" }, reads: { e5: "grid 0.85" } })];
-  expect(boardCells(boards, "hands")).toEqual([
+  const boards = [board({ disagree: { e5: "bP" }, disagreeReads: { e5: "bP 0.85" } })];
+  expect(boardCells(boards, "disagree")).toEqual([
     {
       session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty",
-      label: "occluded", ledger: "corrections", exception: null, caption: "e5 grid 0.85",
+      label: "bP", ledger: "corrections", exception: null, caption: "e5 bP 0.85",
     },
   ]);
 });

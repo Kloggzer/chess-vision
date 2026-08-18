@@ -29,7 +29,6 @@ const HOLD_MS = 450;
 
 type Bucket = { label: string; write: string; ledger: Ledger };
 const BUCKETS: Bucket[] = [
-  { label: "verdeckt", write: "occluded", ledger: "corrections" },
   { label: "FEN stimmt", write: "", ledger: "reviewed" },
   { label: "leer", write: "empty", ledger: "corrections" },
 ];
@@ -107,7 +106,7 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
   });
   useEffect(() => {
     actionsRef.current = {
-      commit: () => void now.current.answer("occluded", "corrections", false),
+      commit: () => void now.current.answer("", "reviewed", false),
       reject: () => void now.current.answer("", "reviewed", false),
       brush: (label) => void now.current.answer(label, "corrections", false),
       undo: () => false,
@@ -152,9 +151,8 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
           if (!start) return;
           const dx = event.changedTouches[0].clientX - start.x;
           const dy = event.changedTouches[0].clientY - start.y;
-          if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > SWIPE) {
-            void answer(dx < 0 ? "" : "occluded", dx < 0 ? "reviewed" : "corrections", false);
-          } else if (dy > SWIPE) skip();
+          if (Math.abs(dx) > Math.abs(dy) && dx < -SWIPE) void answer("", "reviewed", false);
+          else if (dy > SWIPE) skip();
         }}
         onTouchStart={(event) => {
           touch.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
@@ -171,7 +169,7 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
         />
       </div>
       <p className="text-muted-foreground text-center text-[11px]">
-        ← FEN stimmt · verdeckt → · ↓ überspringen · lange drücken = ganzes Ereignis
+        ← FEN stimmt · ↓ überspringen · lange drücken = ganzes Ereignis
       </p>
 
       <div className="grid grid-cols-2 gap-2">
@@ -182,7 +180,7 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
             onPointerCancel={() => timer.current && clearTimeout(timer.current)}
             onPointerDown={() => press(bucket)}
             onPointerUp={() => release(bucket)}
-            variant={bucket.label === "verdeckt" ? "default" : "outline"}
+            variant={bucket.ledger === "reviewed" ? "default" : "outline"}
           >
             {bucket.label}
           </Button>
@@ -216,7 +214,7 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
           ✕ raus
         </Button>
         <span className="text-muted-foreground ml-auto tabular-nums">
-          {tally.cellsOccluded + tally.cellsConfirmed + tally.piecesCorrected} heute
+          {tally.cellsConfirmed + tally.piecesCorrected} heute
         </span>
       </div>
     </div>

@@ -3,8 +3,16 @@ import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir } from "@/lib/data";
 
+/**
+ * Frame verdicts of the matte review: is SAM 3's alpha right, is the interval's FEN what the
+ * board shows. "I cannot read this square" is deliberately NOT one of them — such a square sits
+ * under a hand, its `coverage` is past `PIECE_VISIBLE_MAX` and the loss drops it by itself.
+ */
+export const FRAME_VERDICTS = ["unusable-board", "matte-ok", "matte-bad", "position-ok"] as const;
+export type FrameVerdict = (typeof FRAME_VERDICTS)[number];
+
 export type ReviewNote =
-  | { session_id: string; frame: string; verdict: "unusable-board"; reason?: string }
+  | { session_id: string; frame: string; verdict: FrameVerdict; reason?: string }
   | { session_id: string; ply: number; verdict: "bad-interval"; reason?: string };
 
 export type ReviewNoteRow = ReviewNote & { ts: string };
@@ -18,9 +26,9 @@ export function validateNote(row: unknown): ReviewNote {
   if (!r || typeof r !== "object") throw new Error("row is not an object");
   checkName(String(r.session_id), "session_id");
   const reason = r.reason === undefined ? {} : { reason: String(r.reason) };
-  if (r.verdict === "unusable-board") {
+  if (FRAME_VERDICTS.includes(r.verdict as FrameVerdict)) {
     checkName(String(r.frame), "frame");
-    return { session_id: String(r.session_id), frame: String(r.frame), verdict: "unusable-board", ...reason };
+    return { session_id: String(r.session_id), frame: String(r.frame), verdict: r.verdict as FrameVerdict, ...reason };
   }
   if (r.verdict === "bad-interval") {
     const ply = Number(r.ply);
@@ -40,7 +48,9 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
   return rows.length;
 }
 
-type BySession = Map<string, { boards: Set<string>; plies: Set<number> }>;
+/** Per frame, the last word on each question — `undefined` means nobody was asked yet. */
+export type FrameReview = { matte?: "ok" | "bad"; position?: "ok" };
+type BySession = Map<string, { boards: Set<string>; plies: Set<number>; frames: Map<string, FrameReview> }>;
 type Cache = Map<string, { key: string; value: BySession }>;
 const cache: Cache = ((globalThis as { __chesslabReviewNotes?: Cache }).__chesslabReviewNotes ??= new Map());
 
@@ -56,9 +66,16 @@ async function bySession(): Promise<BySession> {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line) as ReviewNoteRow;
-      const entry = value.get(row.session_id) ?? { boards: new Set<string>(), plies: new Set<number>() };
-      if (row.verdict === "unusable-board") entry.boards.add(row.frame);
+      const entry = value.get(row.session_id)
+        ?? { boards: new Set<string>(), plies: new Set<number>(), frames: new Map<string, FrameReview>() };
       if (row.verdict === "bad-interval") entry.plies.add(row.ply);
+      else if (row.verdict === "unusable-board") entry.boards.add(row.frame);
+      else {
+        const seen = entry.frames.get(row.frame) ?? {};
+        entry.frames.set(row.frame, row.verdict === "position-ok"
+          ? { ...seen, position: "ok" }
+          : { ...seen, matte: row.verdict === "matte-ok" ? "ok" : "bad" });
+      }
       value.set(row.session_id, entry);
     } catch {
       /* a half-written line is not a verdict */
@@ -71,6 +88,11 @@ async function bySession(): Promise<BySession> {
 /** Frames the human threw out of this session — "never show it again", reload-proof. */
 export async function unusableBoards(session_id: string): Promise<Set<string>> {
   return new Set((await bySession()).get(session_id)?.boards ?? []);
+}
+
+/** What the human already answered per frame — the matte review's own progress. */
+export async function frameReviews(session_id: string): Promise<Map<string, FrameReview>> {
+  return new Map((await bySession()).get(session_id)?.frames ?? []);
 }
 
 /** Plies whose interval the human called junk — the picture, not the move. */

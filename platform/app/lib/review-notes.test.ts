@@ -49,6 +49,24 @@ test("validate refuses what the wire must never carry", async () => {
   });
 });
 
+test("the matte review's two questions are answered per frame, last row winning", async () => {
+  const { appendReviewNotes, frameReviews, unusableBoards } = await load();
+  await appendReviewNotes([
+    { session_id: "rg-a", frame: "000144", verdict: "matte-bad" },
+    { session_id: "rg-a", frame: "000144", verdict: "matte-ok" },
+    { session_id: "rg-a", frame: "000144", verdict: "position-ok" },
+  ]);
+  expect(await frameReviews("rg-a")).toEqual(new Map([["000144", { matte: "ok", position: "ok" }]]));
+  // A frame verdict is not a thrown-out board — the two must never bleed into each other.
+  expect(await unusableBoards("rg-a")).toEqual(new Set());
+});
+
+test("nothing may write an unreadable-square verdict — coverage answers that", async () => {
+  const { validateNote } = await load();
+  expect(() => validateNote({ session_id: "rg-a", frame: "000144", verdict: "unreadable" })).toThrow(/verdict/);
+  expect(() => validateNote({ session_id: "rg-a", frame: "000144", verdict: "occluded" })).toThrow(/verdict/);
+});
+
 test("a half-written trailing line is skipped, not fatal", async () => {
   const { appendReviewNotes, unusableBoards, reviewNotesPath } = await load();
   await appendReviewNotes([{ session_id: "rg-a", frame: "000001", verdict: "unusable-board" }]);

@@ -15,7 +15,6 @@ export type BucketProps = {
   sessionId: string;
   cells: Proposal[];
   /** `confirm` writes one row per crop; `control` is the pre-label CHECK and writes nothing. */
-  kind: "confirm" | "control";
   decided: Record<string, string>;
   onException: (cells: Proposal[]) => void;
   /** The rows that landed, not their count — see `drilldown.tsx`. */
@@ -32,7 +31,7 @@ const keyOf = (c: Proposal) => `${c.frame}|${c.square}`;
  * Bucket empties and stays empty on reload; confirm/control record to different ledgers.
  */
 export function BucketGrid(props: BucketProps) {
-  const { name, sessionId, cells, kind, decided, onException, onWritten, onError, onDone } = props;
+  const { name, sessionId, cells, decided, onException, onWritten, onError, onDone } = props;
   const [page, setPage] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [marked, setMarked] = useState<Set<number>>(new Set());
@@ -72,25 +71,22 @@ export function BucketGrid(props: BucketProps) {
     const exceptions = slice.filter((_, i) => marked.has(i));
     const accepted = slice.filter((_, i) => !marked.has(i));
     try {
-      // Both kinds write; they write to different LEDGERS. `confirm` states a new label and
-      // belongs in the training input; `control` states that the FEN was already right, which
-      // teaches a slice nothing and belongs in the review record — but it is still work, and
-      // recording it is what stops the same page coming back after every reload.
+      // Recording it is what stops the same page coming back after every reload.
+      // Both buckets write the FEN's own word into the REVIEW ledger now: the old `confirm`
+      // answer was `occluded`, and that label is measured (`matte.jsonl`), never asked.
       const rows = accepted.map((c) => ({
         session_id: sessionId,
         frame: c.frame,
         square: c.square,
-        label: kind === "confirm" ? "occluded" : c.fen_label,
+        label: c.fen_label,
       }));
-      const ledger: Ledger = kind === "confirm" ? "corrections" : "reviewed";
+      const ledger: Ledger = "reviewed";
       const written = await writeRows(rows, ledger);
       onWritten(rows, ledger);
       onException(exceptions);
       setNote(
-        kind === "confirm"
-          ? `${written} Zellen geschrieben, ${exceptions.length} in die Mal-Queue`
-          : `${written} Zellen als geprüft vermerkt (keine Trainingszeile — der FEN stimmte ` +
-            `schon); ${exceptions.length} in die Mal-Queue`,
+        `${written} Zellen als geprüft vermerkt (keine Trainingszeile — der FEN stimmte schon); ` +
+          `${exceptions.length} in die Mal-Queue`,
       );
       // The whole page leaves the bucket — accepted as decided, exceptions to the painting queue.
       setHandled((h) => new Set([...h, ...slice.map(keyOf)]));
@@ -99,7 +95,7 @@ export function BucketGrid(props: BucketProps) {
     } catch (error) {
       onError(error);
     }
-  }, [slice, marked, kind, sessionId, onException, onWritten, onError]);
+  }, [slice, marked, sessionId, onException, onWritten, onError]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -130,7 +126,7 @@ export function BucketGrid(props: BucketProps) {
     <div className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
         <strong>
-          {kind === "confirm" ? "pre-label: occluded" : "pre-label: keep the FEN label"}
+          pre-label: keep the FEN label
         </strong>
         <span className="text-muted-foreground">
           {remaining.length} Zellen offen von {cells.length} · page {safePage + 1}/{pages} ·{" "}
@@ -141,7 +137,7 @@ export function BucketGrid(props: BucketProps) {
           </span>
         </span>
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void confirmPage()} size="sm">
-          {kind === "confirm" ? `confirm ${slice.length - marked.size} as occluded` : "checked"}
+          checked
         </Button>
       </div>
       {note ? <p className="text-muted-foreground text-sm">{note}</p> : null}

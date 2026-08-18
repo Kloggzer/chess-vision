@@ -9,6 +9,7 @@
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { sessionDir } from "@/lib/chain";
+import { mattePath } from "@/lib/matte";
 import { boardPath, boardToStored, framePath, loadSession, type Session } from "@/lib/session";
 import path from "node:path";
 import {
@@ -43,8 +44,8 @@ const inFlight = new Map<string, Promise<Raster>>();
  */
 async function cutSource(session: Session, name: string, stem: string): Promise<{ raster: Raster; h: Mat3 }> {
   const board = session.byStem.get(stem)?.board;
-  if (board && (await stat(boardPath(name, stem)).then(() => true, () => false))) {
-    return { raster: await rasterOf(boardPath(name, stem)), h: boardToStored(session, board) };
+  if (board && (await stat(boardPath(name, board.rel)).then(() => true, () => false))) {
+    return { raster: await rasterOf(boardPath(name, board.rel)), h: boardToStored(session, board) };
   }
   return { raster: await rasterOf(framePath(name, stem)), h: homographyFor(session, stem) };
 }
@@ -115,12 +116,14 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__
 
 /** One square, cut with the profile's crop box (pad_side/pad_up), as the CNN would see it. */
 export async function cellPng(name: string, stem: string, square: string, size: number) {
+  const session = await loadSession(name);
+  const rel = session.byStem.get(stem)?.board?.rel;
   // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Frame-Datei — ein Schlüssel nur
   // über das Frame servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15).
   // Die Quelle selbst muss drinstehen, nicht das Frame: `session boards` schreibt das Brett neu,
   // ohne das Log anzufassen, und ein geparktes Frame liefert für jeden Stem dieselbe 0.
   const [srcM, logM] = await Promise.all([
-    stat(boardPath(name, stem)).then((s) => s.mtimeMs, () => stat(framePath(name, stem)).then((s) => s.mtimeMs, () => 0)),
+    stat(rel ? boardPath(name, rel) : framePath(name, stem)).then((s) => s.mtimeMs, () => 0),
     stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
   ]);
   // CUT_MIME too: this map holds ENCODED bytes and deliberately survives HMR on `globalThis`, so
@@ -132,7 +135,6 @@ export async function cellPng(name: string, stem: string, square: string, size: 
     cellPngs.set(key, hit);
     return hit;
   }
-  const session = await loadSession(name);
   const { raster, h } = await cutSource(session, name, stem);
   const rgb = cellRgb(session, stem, square, raster, h, size);
   const out = await encode(rgb, size, size);
@@ -149,14 +151,27 @@ export async function cellPng(name: string, stem: string, square: string, size: 
  */
 export async function boardPng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
+  return encode(field(session, stem, await cutSource(session, name, stem), size), size, size);
+}
+
+function field(session: Session, stem: string, src: { raster: Raster; h: Mat3 }, size: number) {
   const box = { x0: 0, y0: 0, x1: session.boardSize, y1: session.boardSize };
-  const { raster, h } = await cutSource(session, name, stem);
   const mesh = session.byStem.get(stem)?.mesh;
-  const rgb =
-    mesh?.tx && mesh.ty
-      ? sampleBoxMesh(raster, h, box, mesh as TiltedMesh, session.boardSize, size, size)
-      : sampleBox(raster, h, box, size, size);
-  return encode(rgb, size, size);
+  return mesh?.tx && mesh.ty
+    ? sampleBoxMesh(src.raster, src.h, box, mesh as TiltedMesh, session.boardSize, size, size)
+    : sampleBox(src.raster, src.h, box, size, size);
+}
+
+/**
+ * SAM 3's alpha, cut with the SAME quad and mesh as the board under it — the matte is written
+ * over the stored raster (`matte.alpha_sam3`), so anything else would overlay it a border off.
+ */
+export async function mattePng(name: string, stem: string, size: number) {
+  const session = await loadSession(name);
+  const board = session.byStem.get(stem)?.board;
+  if (!board) throw new Error(`frame ${stem} carries no stored board`);
+  const src = { raster: await rasterOf(mattePath(name, stem)), h: boardToStored(session, board) };
+  return encode(field(session, stem, src, size), size, size);
 }
 
 /**

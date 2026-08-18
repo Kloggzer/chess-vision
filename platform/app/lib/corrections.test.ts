@@ -31,7 +31,7 @@ async function post(rows: unknown) {
 
 test("the corrections POST appends schema-valid rows and rewrites nothing", async () => {
   const response = await post([
-    { session_id: "rg-rec-1", frame: "004211", square: "e2", label: "occluded" },
+    { session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wP" },
     { session_id: "rg-rec-1", frame: "004211", square: "e3", label: "wQ" },
   ]);
   expect(response.status).toBe(200);
@@ -48,7 +48,7 @@ test("the corrections POST appends schema-valid rows and rewrites nothing", asyn
     session_id: "rg-rec-1",
     frame: "004211",
     square: "e2",
-    label: "occluded",
+    label: "wP",
   });
   expect(row.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/);
   expect(text.endsWith("\n")).toBe(true);
@@ -58,6 +58,8 @@ test("a row outside the schema is refused whole — nothing of the batch lands",
   for (const bad of [
     { session_id: "rg-rec-1", frame: "004211", square: "e9", label: "occluded" },
     { session_id: "rg-rec-1", frame: "004211", square: "e2", label: "hand" },
+    // The 14th class is history: it is read back below, and never written again.
+    { session_id: "rg-rec-1", frame: "004211", square: "e2", label: "occluded" },
     { session_id: "../escape", frame: "004211", square: "e2", label: "empty" },
     { session_id: "rg-rec-1", frame: "../../etc", square: "e2", label: "empty" },
   ]) {
@@ -67,14 +69,14 @@ test("a row outside the schema is refused whole — nothing of the batch lands",
 });
 
 test("an undo is a superseding row, because load_corrections is last-line-wins", async () => {
-  await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "occluded" }]);
+  await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wP" }]);
   await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wQ" }]);
   const { decidedKeys } = await import("@/lib/corrections");
   expect((await decidedKeys("rg-rec-1")).get("004211|e2")).toBe("wQ");
 });
 
 test("a retract row takes the cell out of the judged map and leaves Python a normal label", async () => {
-  await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "occluded" }]);
+  await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wP" }]);
   expect((await judgedKeys("rg-rec-1")).has("004211|e2")).toBe(true);
 
   // `z` after the flush: the label the cell falls back to, plus the tombstone.
@@ -111,6 +113,12 @@ test("a review row is recorded, but never in the training input", async () => {
   // But the work is on the record, and the views read both.
   expect(await decidedKeys("rg-g", "reviewed")).toEqual(new Map([["000030|e4", "wP"]]));
   expect(await judgedKeys("rg-g")).toEqual(new Map([["000030|e4", "wP"]]));
+});
+
+test("a legacy occluded row stays readable, it just cannot be written again", async () => {
+  expect((await decidedKeys("rg-old")).get("000001|a1")).toBe("occluded");
+  expect((await post([{ session_id: "rg-old", frame: "000001", square: "a1", label: "occluded" }])).status).toBe(400);
+  expect(await readFile(file, "utf8")).toBe(EXISTING);
 });
 
 test("the ledger cache follows the file: a foreign append is seen, an unchanged file is not re-split", async () => {

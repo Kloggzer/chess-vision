@@ -45,9 +45,8 @@ function SessionPanel({
 }) {
   const items: [string, number, string][] = [
     ["Bretter fertig", tally.boards.size, "distinkte Frames, die seit dem Laden in ein Ledger geschrieben haben"],
-    ["Zellen occluded", tally.cellsOccluded, "Zeilen mit label occluded in corrections.jsonl"],
     ["Zellen bestätigt", tally.cellsConfirmed, "Zeilen in reviewed.jsonl — der FEN stimmte"],
-    ["Figuren korrigiert", tally.piecesCorrected, "Zeilen mit einem Label außer occluded und empty"],
+    ["Figuren korrigiert", tally.piecesCorrected, "Zeilen mit einem Label außer empty"],
   ];
   return (
     <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
@@ -99,7 +98,6 @@ export function Streams(props: StreamProps) {
     for (const cell of exceptions) {
       const hit = byStem.get(cell.frame) ?? { stem: cell.frame, squares: [] };
       if (!hit.squares.includes(cell.square)) hit.squares.push(cell.square);
-      hit.accept = { ...hit.accept, [cell.square]: "occluded" };
       byStem.set(cell.frame, hit);
     }
     return [...byStem.values()].sort((a, b) => a.stem.localeCompare(b.stem));
@@ -111,7 +109,7 @@ export function Streams(props: StreamProps) {
   const classChip = filter.classes.length > 0 ? `${filter.classes.length} Klassen` : "—";
   const tabs: [Tab, string, string | undefined][] = [
     ["hands", `Hände ${handHits.length} Bretter`, "jedes Brett mit Okklusionsverdacht, chronologisch"],
-    ["confirm", `occluded ${streams.confirm.length} Zellen`, undefined],
+    ["confirm", `hoch ${streams.confirm.length} Zellen`, undefined],
     ["unsure", `unsicher ${streams.unsure.length} Zellen`, undefined],
     ["control", `Stichprobe ${streams.control.length} Zellen`, undefined],
     [
@@ -203,7 +201,6 @@ export function Streams(props: StreamProps) {
           key={tab}
           cells={buckets.find(([key]) => key === tab)![1]}
           decided={decided}
-          kind={tab === "control" ? "control" : "confirm"}
           name={name}
           onDone={markDone(tab)}
           onException={(cells) => setExceptions((q) => [...q, ...cells])}
