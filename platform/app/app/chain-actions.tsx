@@ -15,6 +15,10 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
   label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
   export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
+  matte: {
+    label: "Matten",
+    hint: "SAM 3 schneidet die Hand aus verdeckten Frames → mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
+  },
   "model-read": {
     label: "Modell-Lesarten",
     hint: "jede Zelle der Session von einem Modell lesen lassen → model-reads.jsonl (braucht ein Modell, das NICHT auf ihr trainiert hat)",
@@ -23,6 +27,20 @@ const STEP: Record<ChainStep, { label: string; hint: string }> = {
 };
 
 const BUSY = new Set(["queued", "running"]);
+
+/** Half-matted is the ordinary state, so the button carries the count instead of claiming a start. */
+function stepLabel(step: ChainStep, state: ChainState): string {
+  const { done, total } = state.mattes;
+  return step === "matte" && done > 0 ? `${STEP.matte.label} ${done}/${total}` : STEP[step].label;
+}
+
+/** The press is a `--limit` run, so it says what it will compute — an unannounced GPU hour is not on. */
+function stepHint(step: ChainStep, state: ChainState): string {
+  const { done, target, total } = state.mattes;
+  if (step !== "matte") return STEP[step].hint;
+  const rest = total > target ? ` — die restlichen ${total - target} holt "occluders alpha-worker" im Terminal` : "";
+  return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.`;
+}
 
 /**
  * The chain's next step as ONE control.
@@ -37,6 +55,8 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
   const [note, setNote] = useState<string | null>(null);
   const step = state.step;
   const busy = job !== null && BUSY.has(job.state);
+  const label = step ? stepLabel(step, state) : "";
+  const hint = step ? stepHint(step, state) : "";
 
   // Every two seconds while a job runs: a replay decodes a whole video and the only honest sign of
   // life is what it has printed. Idle cards poll nothing.
@@ -87,10 +107,10 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
               className="border-border inline-flex items-center rounded border px-2 py-0.5 underline-offset-4 hover:underline max-sm:h-11 max-sm:px-3"
               href={step === "labeln" ? "/strom/labeln" : `/${step}/${name}`}
             >
-              {STEP[step].label} →
+              {label} →
             </Link>
           </TooltipTrigger>
-          <TooltipContent>{STEP[step].hint}</TooltipContent>
+          <TooltipContent>{hint}</TooltipContent>
         </Tooltip>
       ) : (
         <Tooltip>
@@ -102,11 +122,11 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
                 onClick={() => void post({ step })}
                 type="button"
               >
-                {busy ? `${STEP[step].label}…` : STEP[step].label}
+                {busy ? `${label}…` : label}
               </button>
             </span>
           </TooltipTrigger>
-          <TooltipContent>{STEP[step].hint}</TooltipContent>
+          <TooltipContent>{hint}</TooltipContent>
         </Tooltip>
       )}
       {lensRefused(job) ? (

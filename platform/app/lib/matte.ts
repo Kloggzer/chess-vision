@@ -101,3 +101,54 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
   cache.set(file, { key, value });
   return value;
 }
+
+export type MatteCensus = {
+  /** Distinct frames with a row — `alpha_worker` counts `--limit` against the same set. */
+  done: number;
+  /** Every occluded frame of the session: the pile a targeted run deliberately does not finish. */
+  total: number;
+  /** What ONE run aims for, capped by the pile — the bar the chain reads. */
+  target: number;
+};
+
+/** Frames per session one run brings the file to (`--limit`), as the overnight `--all` is driven. */
+export function matteTarget(): number {
+  const raw = Number(process.env.CHESSLAB_MATTE_TARGET);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 80;
+}
+
+type Counts = Map<string, { key: string; value: number }>;
+const counts: Counts = ((globalThis as { __chesslabMatteCounts?: Counts }).__chesslabMatteCounts ??= new Map());
+
+const FRAME = /"frame":\s*"([^"]+)"/g;
+const OCCLUDED = /"dirty_reason":\s*"occluded"/g;
+
+/** Distinct, not lines: `recut_fixed` rewrites the file whole, and 27 stems came back twice on
+ *  14-32-33 — line counts then read "done" while frames of the pile are still missing. */
+const frames = (text: string) => new Set([...text.matchAll(FRAME)].map((m) => m[1])).size;
+const occluded = (text: string) => (text.match(OCCLUDED) ?? []).length;
+
+/** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
+async function counted(file: string, tag: string, count: (text: string) => number): Promise<number> {
+  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const id = `${file}|${tag}`;
+  const hit = counts.get(id);
+  if (hit?.key === key) return hit.value;
+  const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
+  const value = count(text);
+  counts.set(id, { key, value });
+  return value;
+}
+
+/**
+ * `done` and `total` are measured; only `target` is an intention — and it is what "done" means to
+ * the chain, because 80 of 394 is the instruction carried out, not a run that stopped short.
+ */
+export async function matteCensus(name: string): Promise<MatteCensus> {
+  const dir = sessionDir(name);
+  const [done, total] = await Promise.all([
+    counted(path.join(dir, "matte.jsonl"), "frames", frames),
+    counted(path.join(dir, "log.jsonl"), "occluded", occluded),
+  ]);
+  return { done, total, target: Math.min(matteTarget(), total) };
+}

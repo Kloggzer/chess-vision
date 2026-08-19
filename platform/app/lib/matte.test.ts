@@ -12,6 +12,10 @@ beforeEach(async () => {
   (globalThis as { __chesslabMattes?: Map<string, unknown> }).__chesslabMattes?.clear();
 });
 
+/** `n` occluded rows, as the exporter writes them — the pile a matte run is measured against. */
+const pile = (n: number) =>
+  Array.from({ length: n }, (_, i) => JSON.stringify({ frame: `f${i}.png`, dirty: true, dirty_reason: "occluded" })).join("\n") + "\n";
+
 const write = (lines: string[]) =>
   writeFile(path.join(dir, "sessions", "rg-g", "matte.jsonl"), lines.join("\n") + "\n", "utf8");
 
@@ -65,4 +69,39 @@ test("painted pixels are pending until a recut newer than them has read the file
 test("a session without corrected alphas answers an empty map, not an error", async () => {
   const { fixedAlphas } = await import("@/lib/matte");
   expect((await fixedAlphas("g")).size).toBe(0);
+});
+
+test("the census counts DISTINCT frames — a recut leaves the same stem twice", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
+  // rg-2026-08-14-14-32-33 on disk: 93 lines, 66 stems, 27 of them twice. Counting lines says
+  // 93/66 — "done" by accident, and on a half-matted session it hides the frames still missing.
+  await write([
+    JSON.stringify({ frame: "000001", coverage: { a1: 0.9 } }),
+    JSON.stringify({ frame: "000002", skipped: "zone too big" }),
+    JSON.stringify({ frame: "000001", coverage: { a1: 0.8 }, alpha: "fixed" }),
+  ]);
+  expect(await matteCensus("g")).toEqual({ done: 2, total: 3, target: 3 });
+});
+
+test("a session at the run's target is done, with the untouched pile still on the record", async () => {
+  const { matteCensus, matteTarget } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  await writeFile(path.join(dir, "log.jsonl"), pile(394), "utf8");
+  await write(Array.from({ length: matteTarget() }, (_, i) => JSON.stringify({ frame: `f${i}` })));
+  // rg-2026-08-08-00-39-57: 80 of 394 by intent. The target caps the bar, the pile stays visible.
+  expect(await matteCensus("g")).toEqual({ done: 80, total: 394, target: 80 });
+});
+
+test("only occluded rows are the pile, and a session nobody exported has none", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  expect(await matteCensus("g")).toEqual({ done: 0, total: 0, target: 0 });
+  await writeFile(path.join(dir, "log.jsonl"), [
+    JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
+    JSON.stringify({ frame: "2.png", dirty: true, dirty_reason: "grid-late" }),
+    JSON.stringify({ frame: "3.png" }),
+  ].join("\n") + "\n", "utf8");
+  expect(await matteCensus("g")).toEqual({ done: 0, total: 1, target: 1 });
 });

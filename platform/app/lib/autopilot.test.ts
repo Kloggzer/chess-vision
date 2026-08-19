@@ -13,6 +13,7 @@ const CHAIN: ChainState = {
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
+  mattes: { done: 0, total: 0, target: 0 },
   hasModelReads: false,
   useless: null,
 };
@@ -58,13 +59,16 @@ describe("plan — which machine step runs next", () => {
     ]);
   });
 
-  it("runs label and export alone — confirm, labeln and model-read need a human", () => {
+  it("runs label and export alone — confirm, labeln, matte and model-read need a human", () => {
     const rows = [
       row("2026-08-13-00-00-01", { step: "confirm", hasCandidate: true }),
       row("2026-08-13-00-00-02", { step: "labeln", hasCandidate: true }),
       // `realgames model-read` requires `--model` and refuses a run trained on the session, so no
       // tick can choose it: the step is offered as a button and never taken by the loop.
       row("2026-08-13-00-00-03", { step: "model-read", hasCandidate: true, confirmed: true, hasSession: true }),
+      // `occluders alpha-worker` takes no model and repeats for free, but it holds the GPU for
+      // hours and the Python side takes no heavy lock — a hand-started `--all` is invisible.
+      row("2026-08-13-00-00-05", { step: "matte", hasCandidate: true, confirmed: true, hasSession: true }),
       row("2026-08-13-00-00-04", { step: "export", hasCandidate: true, confirmed: true }),
     ];
     expect(run(rows).eligible).toEqual([{ name: "2026-08-13-00-00-04", step: "export" }]);

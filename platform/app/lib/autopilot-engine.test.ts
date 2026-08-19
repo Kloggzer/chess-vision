@@ -29,6 +29,7 @@ const CHAIN: ChainState = {
   hasCandidate: true,
   confirmed: false,
   hasSession: false,
+  mattes: { done: 0, total: 0, target: 0 },
   hasModelReads: false,
   useless: null,
 };

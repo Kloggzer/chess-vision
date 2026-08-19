@@ -5,9 +5,10 @@ import { recordedAt, type QueueRow } from "@/lib/queues";
 import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
 /**
- * The steps a machine can take alone. `confirm` and `labeln` are the human's, forever — and so is
- * `model-read` since 2026-08-19: `realgames model-read` requires `--model` and refuses a run that
- * trained on the session, so WHICH run is a per-session choice no tick can make (`chain-run.ts`).
+ * The steps a machine can take alone. `confirm` and `labeln` are the human's; `model-read` needs a
+ * `--model` no tick can choose (`chain-run.ts`), and `matte` holds the GPU for hours behind a lock
+ * the Python side never takes — a hand-started `occluders alpha-worker --all` is invisible to it,
+ * so the press IS the interlock. Both stay buttons.
  */
 export type MachineStep = "label" | "export";
 

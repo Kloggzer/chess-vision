@@ -11,7 +11,7 @@ export async function startStep(name: string, step: string, lens?: boolean): Pro
   // user asked it to prevent.
   if (state.step === null) return { error: "als nutzlos markiert — kein Schritt läuft", state, status: 409 };
   if (step !== state.step) return { error: `next step is "${state.step}", not "${step}"`, state, status: 409 };
-  if (state.step !== "label" && state.step !== "export" && state.step !== "model-read") {
+  if (state.step !== "label" && state.step !== "export" && state.step !== "matte" && state.step !== "model-read") {
     return { error: `"${state.step}" is a page, not a job`, state, status: 400 };
   }
   // Refused here rather than after a spawn: the verb requires `--model` and rejects a run that

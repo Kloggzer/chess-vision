@@ -18,9 +18,10 @@ import path from "node:path";
 import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/autopilot-state";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
+import { matteTarget } from "@/lib/matte";
 
 export type JobState = "queued" | "running" | "done" | "failed" | "skipped";
-export type JobKind = "pack" | "label" | "export" | "model-read";
+export type JobKind = "pack" | "label" | "export" | "matte" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -571,7 +572,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
 }
 
 /**
- * The two chesslab steps of the chain, as jobs: `export-session` and `model-read`.
+ * The chesslab steps of the chain, as jobs: `export-session`, `alpha-worker`, `model-read`.
  *
  * Spawned, never imported — the platform's rule is that the file formats are the only bridge to the
  * Python side (`README.md`), and a CLI in its own process keeps that true while still giving the UI
@@ -580,7 +581,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
  */
 export async function enqueueChain(
   name: string,
-  step: "export" | "model-read",
+  step: "export" | "matte" | "model-read",
 ): Promise<Job> {
   checkName(name, "game name");
   const known = queue.jobs.get(name);
@@ -712,13 +713,17 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
 
 async function runChesslab(
   job: Job,
-  step: "export" | "model-read",
+  step: "export" | "matte" | "model-read",
 ): Promise<void> {
-  const verb = step === "export" ? "export-session" : "model-read";
+  const verb = step === "export" ? "realgames export-session"
+    : step === "matte" ? "occluders alpha-worker" : "realgames model-read";
   const binary = uvBinary();
-  const args = ["run", "chesslab", "realgames", verb, job.name];
+  const args = ["run", "chesslab", ...verb.split(" "), job.name];
   const run = modelReadRun();
   if (step === "model-read" && run) args.push("--model", run);
+  // The same target the overnight `--all` is given, counted against the rows already there: one
+  // press costs at most those frames, not the hour a 394-frame pile would be.
+  if (step === "matte") args.push("--limit", String(matteTarget()));
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {
@@ -766,7 +771,7 @@ exit ${value}
         ? undefined
         : code === -1
           ? `could not start "${binary}" — is uv on PATH? Set CHESSLAB_UV to its full path.`
-          : `chesslab realgames ${verb} exited ${code} — see ${log}`,
+          : `chesslab ${verb} exited ${code} — see ${log}`,
     finishedAt: new Date().toISOString(),
   });
 }

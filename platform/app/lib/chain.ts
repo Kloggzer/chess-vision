@@ -1,9 +1,9 @@
 /**
  * The ladder from a transferred recording to the labelling stream, as a STATE, not a procedure.
  *
- * The chain is four steps with a human in the middle (`docs/phone-transfer.md`): the tracker
- * proposes a move list, a person judges it, the confirmed intervals become a session, and a model
- * reads every square of it. Each step's input is the previous step's file,
+ * The chain is five steps with a human in the middle (`docs/phone-transfer.md`): the tracker
+ * proposes a move list, a person judges it, the confirmed intervals become a session, SAM cuts the
+ * hand out of its occluded frames, and a model reads it. Each step's input is the previous file,
  * so the next step is not a decision — it is READ OFF THE DISK. The UI therefore offers exactly one
  * button, and never one whose input does not exist yet.
  */
@@ -11,11 +11,12 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir, gameDir } from "@/lib/data";
+import { type MatteCensus, matteCensus } from "@/lib/matte";
 import { checkMp4 } from "@/lib/mp4";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
-/** `label` and `model-read` are jobs; `confirm` and `labeln` are pages; `done` is nothing left. */
-export type ChainStep = "label" | "confirm" | "export" | "model-read" | "labeln";
+/** `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
+export type ChainStep = "label" | "confirm" | "export" | "matte" | "model-read" | "labeln";
 
 export type ChainState = {
   /** Null = nothing to do here: the game is flagged useless, and no step is offered at all. */
@@ -30,6 +31,8 @@ export type ChainState = {
   hasCandidate: boolean;
   confirmed: boolean;
   hasSession: boolean;
+  /** Alphas on disk, the occluded pile, and what one run targets of it (`lib/matte.ts`). */
+  mattes: MatteCensus;
   hasModelReads: boolean;
   /** The human's "nutzlos" verdict, active only — see `lib/useless.ts`. */
   useless: UselessFlag | null;
@@ -78,7 +81,7 @@ async function phonePgn(name: string): Promise<string | null> {
 
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
-  const [video, offeredPgn, hasReference, candidateText, hasSession, hasModelReads, useless] = await Promise.all([
+  const [video, offeredPgn, hasReference, candidateText, hasSession, mattes, hasModelReads, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
@@ -86,6 +89,7 @@ export async function chainState(name: string): Promise<ChainState> {
     // The export writes frames first and log.jsonl LAST, so the directory alone proves nothing:
     // a killed export left one, the chain offered the next step, and Python refused (2026-08-15).
     exists(path.join(sessionDir(name), "log.jsonl")),
+    matteCensus(name),
     exists(path.join(dir, "model-reads.jsonl")),
     uselessFlag(name),
   ]);
@@ -100,6 +104,7 @@ export async function chainState(name: string): Promise<ChainState> {
     hasCandidate: candidateText !== null,
     confirmed,
     hasSession,
+    mattes,
     hasModelReads,
     useless,
   };
@@ -119,6 +124,10 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   if (!state.hasCandidate) return "label";
   if (!state.confirmed) return "confirm";
   if (!state.hasSession) return "export";
+  // Before `model-read`, which needs a model picked by hand: the alphas need nothing but the
+  // export. The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out,
+  // and a step waiting for the other 314 would strand the biggest sessions on this rung forever.
+  if (state.mattes.done < state.mattes.target) return "matte";
   if (!state.hasModelReads) return "model-read";
   return "labeln";
 }

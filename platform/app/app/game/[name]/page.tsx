@@ -95,6 +95,11 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
         <Fact label="Bretter">
           {census.present ? `${game.boardsDone}/${game.boards} · ${game.cellsDone}/${game.cells} Zellen` : "—"}
         </Fact>
+        <Fact label="Matten">
+          {game.chain.mattes.total === 0
+            ? "— keine verdeckten Frames"
+            : `${game.chain.mattes.done}/${game.chain.mattes.total} Alphas · Ziel ${game.chain.mattes.target}`}
+        </Fact>
         <Fact label="Modell-Lesarten">
           {census.present
             ? `${census.model ?? "Modell unbekannt"} · ${census.writtenAt ?? "ohne Datum"}`
