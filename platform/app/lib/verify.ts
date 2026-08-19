@@ -38,8 +38,8 @@ export type VerifyStream = {
   frames: VerifyFrame[];
   /** Per session, `stem|square -> label` from both ledgers — what the board must not re-ask. */
   decided: Record<string, string>[];
-  /** Frames with an alpha corpus-wide, and how many already carry a matte verdict. */
-  progress: { frames: number; done: number };
+  /** Corpus-wide, never page-bounded: alphas, those already judged, and those still open. */
+  progress: { frames: number; done: number; open: number };
 };
 
 export async function loadVerifyStream(): Promise<VerifyStream> {
@@ -48,6 +48,7 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
   const decided: Record<string, string>[] = [];
   let total = 0;
   let done = 0;
+  let open = 0;
 
   for (const name of await liveGames()) {
     const matte = await loadMatte(name);
@@ -91,13 +92,16 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
         alpha: alphaState(alpha, fixed.get(row.stem), recutAt),
       });
     }
-    if (mine.length === 0) continue;
+    open += mine.length;
+    // Counting runs over EVERY session, only the page stops at VERIFY_PAGE. The break used to sit
+    // in this loop, so "357/560 · 64 %" was the progress of whatever fitted on page one — measured
+    // 2026-08-19 the corpus held 1292 alphas, and the headline claimed 64 % where it was 28 %.
+    if (mine.length === 0 || frames.length >= VERIFY_PAGE) continue;
     sessions.push({ name, sessionId: id });
     frames.push(...mine.slice(0, Math.max(0, VERIFY_PAGE - frames.length)));
     const stems = new Set(mine.map((f) => f.stem));
     decided.push(Object.fromEntries([...judged].filter(([key]) => stems.has(key.slice(0, key.indexOf("|"))))));
-    if (frames.length >= VERIFY_PAGE) break;
   }
 
-  return { sessions, frames, decided, progress: { frames: total, done } };
+  return { sessions, frames, decided, progress: { frames: total, done, open } };
 }

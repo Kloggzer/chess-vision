@@ -208,8 +208,14 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     <section className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
-          {index + 1}/{frames.length} <span className="text-muted-foreground text-xs font-normal">Frames</span>
+          {index + 1}/{stream.progress.open} <span className="text-muted-foreground text-xs font-normal">Frames</span>
         </span>
+        {/* Sonst liest sich die Seitengroesse wie der Rest: "2/200", waehrend 1292 offen sind. */}
+        {frames.length < stream.progress.open ? (
+          <span className="text-muted-foreground text-xs">
+            {frames.length} geladen — der Rest kommt beim Neuladen
+          </span>
+        ) : null}
         <span className="text-muted-foreground truncate font-mono">
           {session.sessionId} · {frame.stem} · ply {frame.ply}
           {frame.reason ? ` · ${frame.reason}` : ""}
