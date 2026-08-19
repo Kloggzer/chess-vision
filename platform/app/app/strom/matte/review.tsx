@@ -208,13 +208,13 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     <section className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
-          {index + 1}/{stream.progress.open} <span className="text-muted-foreground text-xs font-normal">Frames</span>
+          noch {stream.progress.open - index}{" "}
+          <span className="text-muted-foreground text-xs font-normal">Frames</span>
         </span>
-        {/* Sonst liest sich die Seitengroesse wie der Rest: "2/200", waehrend 1292 offen sind. */}
+        {/* Die Liste endet bei VERIFY_PAGE, der Zaehler nicht — ohne den Hinweis sieht das Ende
+            der Seite wie ein Fehler aus, waehrend noch Hunderte offen sind. */}
         {frames.length < stream.progress.open ? (
-          <span className="text-muted-foreground text-xs">
-            {frames.length} geladen — der Rest kommt beim Neuladen
-          </span>
+          <span className="text-muted-foreground text-xs">{frames.length} geladen</span>
         ) : null}
         <span className="text-muted-foreground truncate font-mono">
           {session.sessionId} · {frame.stem} · ply {frame.ply}
