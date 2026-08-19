@@ -652,8 +652,8 @@ private fun drive(
     publisher: StatusPublisher,
     view: TrackerView?,
     dumpEvery: Int = 0,
-    // Fired AFTER the engine saw the frame, with the 0-based index that decoded it. The index and
-    // the picture travel in one call — the review-frame writer's whole correctness rests on that.
+    // Fired AFTER the engine saw the frame, with its WHOLE-RECORDING index. The index and the
+    // picture travel in one call — the review-frame writer's whole correctness rests on that.
     frameHook: ((Int, Mat, Double) -> Unit)? = null,
     // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. Time comes
     // off each frame's PTS either way, so skipping changes what the tracker SEES, never what time
@@ -677,7 +677,7 @@ private fun drive(
             continue
         }
         stack.coordinator.onFrame(frame, source.delivered)
-        frameHook?.invoke(frames, frame, source.timestampMs)
+        frameHook?.invoke(hookIndex(source.currentDecodedIndex, frames), frame, source.timestampMs)
         frames += 1
         view?.show(bus.boardPreview.value, publisher.status.value)
         if (dumpEvery > 0 && frames % dumpEvery == 0) {
@@ -685,6 +685,18 @@ private fun drive(
         }
     }
 }
+
+/**
+ * What a hooked frame is CALLED, over the whole recording.
+ *
+ * `drive` counts from its own first frame, which is `skipPreRoll` plus the locate walk into the
+ * video — 878 frames on 2026-08-16-20-41-33, whose every exported label then sat 29 s ahead of its
+ * picture. A live camera has nothing to count from and keeps the counter.
+ */
+internal fun hookIndex(
+    decoded: Long,
+    counted: Int,
+): Int = if (decoded >= 0) decoded.toInt() else counted
 
 /**
  * `fps=<n>` -> the frame stride, announced. Refused live: a camera already drops what the

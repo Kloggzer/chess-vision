@@ -832,3 +832,38 @@ def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
 
     assert not realgames.reference_is_the_phones_own("g2")
     assert realgames.confirm("g2", yes=True)["matched"] == 1
+
+
+def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
+    """The scan misses a hand that neither moved a piece nor covered a marker; the human does not.
+
+    Reported frames must leave the clean p8 — a hand in the clean stock is the mislabel the whole
+    frame scan exists to prevent — and keep their FEN, which is what `occluded` means here.
+    """
+    from chesslab import realgames
+
+    candidate = {
+        "geometry": {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]},
+        "created_at": "2026-08-19T00:00:00Z",
+        "clock": {"fps": 30.0},
+        "frames": 400,
+        "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "reviewed_plies": [1],
+        "moves": [{"ply": 1, "san": "e4", "frame": 100, "t": 3.33,
+                   "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"}],
+    }
+    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [0.0] * 64}
+            for i in range(100, 200, 3)]
+    plain = realgames.plan_scanned(candidate, scan, margin_frames=30)
+    reported = {103, 106, 109}
+    marked = realgames.plan_scanned(candidate, scan, margin_frames=30, reported=reported)
+
+    def stems(rows, dirty):
+        return {int(Path(r["frame"]).stem) for r in rows if bool(r.get("dirty")) is dirty}
+
+    assert reported & stems(plain, dirty=False), "the scan called these clean, or the test proves nothing"
+    assert not (reported & stems(marked, dirty=False)), "a reported frame stayed in the clean pool"
+    for row in marked:
+        if int(Path(row["frame"]).stem) in reported:
+            assert row["dirty_reason"] == "occluded"
+            assert row["fen"] == candidate["moves"][0]["fen_after"], "an occluded board keeps its FEN"

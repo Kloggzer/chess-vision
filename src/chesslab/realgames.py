@@ -367,9 +367,34 @@ def corrected_frames(session_id: str) -> set[int]:
     return out
 
 
+def reported_dirty(session_id: str) -> set[int]:
+    """Source indices a human called dirty in the labeling stream (`review-notes.jsonl`).
+
+    The scan measures grooves and a person, and it misses a hand that neither moved a piece nor
+    reached over the markers. The human sees it, and the honest word for the frame is the same one
+    the scan would have used: the board is unchanged, so the FEN still holds.
+    """
+    import json
+
+    from .config import DATA
+
+    path = DATA.manifests / "review-notes.jsonl"
+    out = set()
+    if not path.exists():
+        return out
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if (row.get("session_id") == session_id and row.get("verdict") == "dirty-frame"
+                and str(row.get("frame", "")).isdigit()):
+            out.add(int(row["frame"]))
+    return out
+
+
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                  settle: dict | None = None, per_position: int = 8,
-                 dirty_per_position: int = 8, prefer=()) -> list[dict]:
+                 dirty_per_position: int = 8, prefer=(), reported=()) -> list[dict]:
     """The rows to store, picked from MEASURED frames instead of from a window around the commit.
 
     The window let 23 % hands into the clean pool and condemned half its dirty frames for nothing
@@ -383,6 +408,9 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
     rows = []
     for seg in known_segments(candidate):
         reasons = framescan.classify(seg, scan)
+        for idx in reported:
+            if idx in reasons:
+                reasons[idx] = "occluded"
         clean, dirty = framescan.select(reasons, per_position=per_position,
                                         dirty_per_position=dirty_per_position, prefer=prefer)
         for idx in clean:
@@ -999,10 +1027,12 @@ def export_session(
     scan = framescan.read_scan(name)
     if scan:
         prefer = corrected_frames(f"rg-{name}")
+        reported = reported_dirty(f"rg-{name}")
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
-                            per_position=per_position or 8,
-                            dirty_per_position=dirty_per_position, prefer=prefer)
-        print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected — "
+                            per_position=per_position or 8, dirty_per_position=dirty_per_position,
+                            prefer=prefer, reported=reported)
+        print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected, "
+              f"{len(reported)} reported dirty by hand — "
               f"picking on data instead of on a {quiet_margin_s}s margin")
     else:
         print(f"[WARN] {name}: no scan.jsonl, falling back to the margin windows. Run "

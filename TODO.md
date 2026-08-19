@@ -362,3 +362,17 @@ also vollständig erfasst. Der maximale Einzelframe-Sprung liegt aber bei **17,9
 
 Also: für Licht/Schatten/Stellung reicht das vorhandene Extrakt, für Hände nicht. Erst angehen,
 wenn der Verdeckungs-Zweig steht.
+
+## Pre-roll-Offset im Label-Export (2026-08-19, behoben)
+
+`drive` gab dem Label-Hook seinen eigenen Frame-Zähler, der erst nach `skipPreRoll` + Locate-Walk
+bei 0 anfängt; Python löst `moves[].frame` gegen die GANZE Aufnahme auf. Jede Telefon-Session seit
+2026-08-14 trug ihre FEN darum bis zu 29 s vor dem Bild (`hookIndex`, DesktopMain.kt;
+`scripts/repair_candidate_frames.py` für die Kandidaten auf Platte).
+
+Offen:
+- Die alten Einzeldatei-Sessions liegen 1 Frame daneben (Locate-Walk). 33 ms — nicht repariert,
+  weil ein Re-Export jeden Stem neu plant und die Labels dort entwertet.
+- `rg-VID_20260802_222203` ist mit vertauschtem b8/c8 aufgebaut worden (Läufer auf b8). Von Hand
+  korrigiert; die 298 Crops davon in gebauten Datasets tragen den Tausch bis zum nächsten Rebuild.
+- Aufbau-Check vor Zug 1 fehlt weiterhin — genau dieser Fall.
