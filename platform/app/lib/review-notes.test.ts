@@ -61,6 +61,29 @@ test("the matte review's two questions are answered per frame, last row winning"
   expect(await unusableBoards("rg-a")).toEqual(new Set());
 });
 
+test("a reported hand is a frame verdict, never a thrown board — the FEN still holds", async () => {
+  const { appendReviewNotes, frameReviews, unusableBoards } = await load();
+  await appendReviewNotes([
+    { session_id: "rg-a", frame: "000447", verdict: "dirty-frame", reason: "Labeln-Strom: d" },
+    { session_id: "rg-a", frame: "000447", verdict: "matte-ok" },
+  ]);
+  expect(await frameReviews("rg-a")).toEqual(new Map([["000447", { dirty: true, matte: "ok" }]]));
+  expect(await unusableBoards("rg-a")).toEqual(new Set());
+});
+
+test("eine zurückgenommene dirty-Meldung verschwindet aus der Datei — sonst exportiert sie weiter", async () => {
+  const { appendReviewNotes, dropReviewNotes, frameReviews, unusableBoards } = await load();
+  await appendReviewNotes([
+    { session_id: "rg-a", frame: "006186", verdict: "dirty-frame", reason: "Labeln-Strom: Crop-Ecke" },
+    { session_id: "rg-a", frame: "006512", verdict: "dirty-frame" },
+    { session_id: "rg-a", frame: "006186", verdict: "unusable-board" },
+  ]);
+  await dropReviewNotes([{ session_id: "rg-a", frame: "006186", verdict: "dirty-frame" }]);
+  expect(await frameReviews("rg-a")).toEqual(new Map([["006512", { dirty: true }]]));
+  // Nur die eine Frage wird zurückgenommen, die anderen Urteile über dasselbe Frame bleiben.
+  expect(await unusableBoards("rg-a")).toEqual(new Set(["006186"]));
+});
+
 test("nothing may write an unreadable-square verdict — coverage answers that", async () => {
   const { validateNote } = await load();
   expect(() => validateNote({ session_id: "rg-a", frame: "000144", verdict: "unreadable" })).toThrow(/verdict/);

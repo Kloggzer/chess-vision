@@ -8,7 +8,7 @@
  * with its reason — `0` would claim there is no such work when nobody has been asked.
  */
 
-import { isIdentity } from "@/lib/classes";
+import { coveragePct, isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
@@ -144,6 +144,19 @@ export function groupBySquare<T extends { session: number; square: string; stem:
  * the failure that killed the tinder band.
  */
 export const GROUP_SPAN = 150;
+
+/**
+ * What SAM measured on ONE crop, as its card prints it. A page mixes frames and sessions, so the
+ * lookup takes the whole map; `null` covers both "no alpha was ever cut here" and "nothing worth
+ * printing", because a card has no room to tell those apart — the lane head's chip does.
+ */
+export function cellCoverage(
+  coverage: Record<string, Record<string, number>>[],
+  cell: { session: number; stem: string; square: string },
+): string | null {
+  const value = coverage[cell.session]?.[cell.stem]?.[cell.square];
+  return value === undefined ? null : coveragePct(value);
+}
 
 export type LaneCell = {
   session: number;

@@ -7,6 +7,8 @@ import { Progress } from "@/components/progress";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/corrections";
+import { coveragePct, coveredSquares } from "@/lib/classes";
+import { dirtyRows, frameKey } from "@/lib/dirty-frames";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import {
   DEFAULT_LANE,
@@ -90,10 +92,39 @@ const KEYS: [string, string][] = [
   ["← →", "Brett blättern"],
   ["⇧⏎", "nächster Halbzug"],
   ["z", "zurück"],
+  ["d", "Hand drauf → ganzes Frame dirty"],
   ["x", "Brett raus"],
   ["X", "Aufnahme raus"],
   [".", "/game (neuer Tab)"],
 ];
+
+/**
+ * What is known about a hand on THIS frame: SAM's measurement, and the human's own report.
+ *
+ * Both lanes need it — a cell lane shows one square at a time and never the hand beside it, which
+ * is how a covered crop reaches the eye with nothing saying so (User, 2026-08-19).
+ */
+function OcclusionChip({ coverage, reported }: { coverage?: Record<string, number>; reported: boolean }) {
+  const over = coverage === undefined ? [] : coveredSquares(coverage);
+  const [tone, text, why] =
+    coverage === undefined
+      ? ["text-muted-foreground", "Alpha —", "kein SAM-Alpha für dieses Frame (`occluders alpha-worker`)"]
+      : over.length === 0
+        ? ["text-muted-foreground", "frei", "SAM hat gemessen: kein Feld über PIECE_VISIBLE_MAX"]
+        : ["text-amber-500", `${over.length} verdeckt`,
+           `über PIECE_VISIBLE_MAX: ${over.map((sq) => `${sq} ${coveragePct(coverage[sq]) ?? "<1 %"}`).join(" · ")}`];
+  return (
+    <span className="flex items-center gap-2">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className={`font-mono text-xs ${tone}`}>{text}</span>
+        </TooltipTrigger>
+        <TooltipContent>{why}</TooltipContent>
+      </Tooltip>
+      {reported ? <span className="font-mono text-xs text-amber-500">· dirty gemeldet</span> : null}
+    </span>
+  );
+}
 
 export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: QueryAnswer }) {
   const router = useRouter();
@@ -105,7 +136,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const [written, setWritten] = useState<Written>({});
   const [thrown, setThrown] = useState<ReadonlySet<string>>(new Set<string>());
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set<number>());
+  /** Reported dirty this session — the frame STAYS labelable, so it only wears a mark. */
+  const [reported, setReported] = useState<ReadonlySet<string>>(new Set<string>());
   const [tally, setTally] = useState(emptyTally);
+  /** Was `z` zurücknehmen kann, mit dem Zeitpunkt — die jüngste Tat gewinnt gegen den Flush. */
+  const [dirtyTrail, setDirtyTrail] = useState<{ session: number; stem: string; at: number }[]>([]);
   const [history, setHistory] = useState<Batch[]>([]);
   const [note, setNote] = useState<string | null>(null);
   const [gaps, setGaps] = useState<number[]>([]);
@@ -293,6 +328,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   /** The frame under the cursor, whichever renderer is up — a cell lane throws ITS board out too. */
   const here = board ?? cells[Math.min(at, cells.length - 1)];
+  /** `{square: coverage}` of the frame under the cursor; `undefined` while no alpha was ever cut. */
+  const coverage = here ? stream.coverage[here.session]?.[here.stem] : undefined;
+  const dirtyHere = here !== undefined && reported.has(frameKey(here));
 
   /** `x` — the picture is junk. A verdict, never a label, so training input cannot be corrupted. */
   async function throwBoard() {
@@ -307,6 +345,44 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     } catch (error) {
       setNote(String(error));
     }
+  }
+
+  /** Eine Hand, die der Scan verpasst hat — auf dem GANZEN Frame, nicht auf dem einen Feld. Kein
+   *  Label und kein Rauswurf: das FEN bleibt, der nächste Export legt alle 64 Felder auf den Stapel. */
+  const markDirty = useCallback(
+    async (index: number, stem: string, on: boolean, reason: string) => {
+      const key = `${index}|${stem}`;
+      const flip = (set: ReadonlySet<string>, add: boolean) => {
+        const next = new Set(set);
+        if (add) next.add(key);
+        else next.delete(key);
+        return next;
+      };
+      // Erst die Marke, dann der POST: der Crop muss beim Klick umspringen, nicht nach der Antwort.
+      setReported((r) => flip(r, on));
+      setDirtyTrail((t) => (on ? [...t, { session: index, stem, at: Date.now() }] : t.filter((d) => `${d.session}|${d.stem}` !== key)));
+      setNote(
+        on
+          ? `${stem}: ganzes Frame als dirty gemeldet — FEN bleibt, alle 64 Felder gehen auf den Stapel`
+          : `${stem}: dirty-Meldung zurückgenommen — das Frame zählt wieder als sauber`,
+      );
+      try {
+        const rows = dirtyRows(stream.sessions[index].sessionId, stem, reason);
+        await post("/api/review-notes", on ? { rows } : { rows, retract: true });
+      } catch (error) {
+        setReported((r) => flip(r, !on));
+        setNote(`dirty-Meldung fehlgeschlagen, Marke zurückgesetzt: ${String(error)}`);
+      }
+    },
+    [stream.sessions],
+  );
+
+  /** `z` nimmt die JÜNGSTE Tat zurück — ein Zettel zählt nur, solange nach ihm nichts geschrieben wurde. */
+  function undoDirty(): boolean {
+    const last = dirtyTrail[dirtyTrail.length - 1];
+    if (!last || last.at < (decidedAt.current ?? 0)) return false;
+    void markDirty(last.session, last.stem, false, "Labeln-Strom: z");
+    return true;
   }
 
   /** `X` — the whole recording. The rows it already wrote stay: the ledger is append-only. */
@@ -360,7 +436,12 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         return now.step?.(1);
       case "z":
         event.preventDefault();
-        if (!now.undo?.()) void undoFlushed();
+        if (now.undo?.() || undoDirty()) return;
+        void undoFlushed();
+        return;
+      case "d":
+        event.preventDefault();
+        if (here) void markDirty(here.session, here.stem, !dirtyHere, "Labeln-Strom: d");
         return;
       case "x":
         event.preventDefault();
@@ -480,6 +561,30 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
             {board ? ` · ${board.stem} · ply ${board.ply}` : ""}
           </span>
         ) : null}
+        {here ? (
+          <>
+            <OcclusionChip coverage={coverage} reported={dirtyHere} />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className={`cursor-pointer rounded-md border px-2 py-1 font-mono text-xs max-sm:h-11 ${
+                    dirtyHere ? "border-amber-500 bg-amber-500 text-black" : "border-border hover:bg-accent/50"
+                  }`}
+                  onClick={(event) => {
+                    event.currentTarget.blur();
+                    void markDirty(here.session, here.stem, !dirtyHere, "Labeln-Strom: Kopf");
+                  }}
+                  type="button"
+                >
+                  {dirtyHere ? "🖐 dirty — zurücknehmen" : "🖐 Frame dirty"}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {`Meldet das GANZE Frame ${here.stem} — alle 64 Felder, nicht das einzelne Feld. Die Stellung bleibt, der nächste Export legt es auf den dirty-Stapel (Taste d).`}
+              </TooltipContent>
+            </Tooltip>
+          </>
+        ) : null}
         {lane === "rules" && board && board.violations.length > 0 ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -527,6 +632,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               accept={laneAccept(board, lane)}
               actionsRef={actions}
               board={board}
+              coverage={coverage}
               decided={decided[board.session] ?? {}}
               name={stream.sessions[board.session].name}
               onFlush={flush}
@@ -540,10 +646,13 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               actionsRef={actions}
               at={at}
               cells={cells}
+              coverage={stream.coverage}
               decided={decided}
               key={laneKey}
               onAt={setAt}
+              onDirty={(cell, on) => void markDirty(cell.session, cell.stem, on, "Labeln-Strom: Crop-Ecke")}
               onFlush={flush}
+              reported={reported}
               sessions={stream.sessions}
             />
           )}

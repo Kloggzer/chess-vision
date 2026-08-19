@@ -7,15 +7,21 @@ import { BoardPeek } from "@/components/board-peek";
 import { PaletteRow } from "@/components/palette-row";
 import type { Correction } from "@/lib/corrections";
 import type { StreamSession } from "@/lib/label-stream";
-import type { LaneCell } from "@/lib/lanes";
+import { dirtyOnPage } from "@/lib/dirty-frames";
+import { cellCoverage, type LaneCell } from "@/lib/lanes";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
   cells: LaneCell[];
   sessions: StreamSession[];
   decided: Record<string, string>[];
+  /** Per session, `stem -> {square: coverage}` — a page mixes frames, so the lookup is per cell. */
+  coverage: Record<string, Record<string, number>>[];
   at: number;
   onAt: (at: number) => void;
+  /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
+  reported: ReadonlySet<string>;
+  onDirty: (cell: LaneCell, on: boolean) => void;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
 };
@@ -40,7 +46,8 @@ type Picks = Record<number, string>;
  * crops of the same one. The palette loads a BRUSH like the board's: a click paints the armed
  * class, and one Enter writes the page.
  */
-export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlush }: CellLaneProps) {
+export function CellLane(props: CellLaneProps) {
+  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, actionsRef, onFlush } = props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
   // sobald der Zeiger nur vorbeizieht. Ohne sie kostet der Hover nichts.
@@ -210,6 +217,9 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
     };
   }, [actionsRef]);
 
+  /** Gemeldet ist das FRAME: jede Karte desselben `session|stem` trägt die Marke sofort mit. */
+  const dirty = useMemo(() => dirtyOnPage(slice, reported), [reported, slice]);
+
   // The header counts in the LANE's order, so the position survives a switch to a board lane.
   const head = slice[0];
   useEffect(() => {
@@ -233,7 +243,7 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
         <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
         <span className="text-muted-foreground">
           {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
-          Rechtsklick = Modell hat recht
+          Rechtsklick = Modell hat recht · 🖐 in der Crop-Ecke meldet das GANZE Frame als dirty
         </span>
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void accept()} size="sm">
           ⏎ {counts.taken} bestätigen
@@ -301,11 +311,14 @@ export function CellLane({ cells, sessions, decided, at, onAt, actionsRef, onFlu
           alt: `${cell.square} @ ${cell.stem}`,
           caption: cell.caption,
           note: cell.note,
+          ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
+          ...(dirty.has(i) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),
         }))}
         cursor={cursor}
         erasing={(i, mode) => pick[i] === (mode === "right" ? MODEL : brush)}
         marked={new Set(slice.flatMap((_, i) => (pick[i] === MODEL ? [i] : [])))}
+        onDirty={(i) => onDirty(slice[i], !dirty.has(i))}
         onContextPick={(i) => {
           setCursor(i);
           put(i, MODEL);

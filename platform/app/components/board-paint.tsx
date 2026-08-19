@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useMemo, useRef, useState } from "react";
-import { IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
+import { coveragePct, IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
 import { FILES, fenLabels } from "@/lib/fen";
 import { type BoardPlan, type Labels, type Row, cycleNext, planBoard, planRejectAll } from "@/lib/selection";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
@@ -310,11 +310,11 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
               }}
               onPointerEnter={() => enter(sq)}
             >
-              {cov !== undefined && cov > 0 ? (
+              {cov === undefined || coveragePct(cov) === null ? null : (
                 <span className="bg-background/70 pointer-events-none absolute top-0 right-0 rounded-bl px-0.5 font-mono text-[9px] leading-tight tabular-nums text-amber-200">
-                  {cov.toFixed(2)}
+                  {coveragePct(cov)}
                 </span>
-              ) : null}
+              )}
               {/* What will be WRITTEN, always — colour alone does not say `wP` from `bP`. BRIGHT
                   means a human decided it; DIM means the FEN says so and nobody has looked. */}
               {chip === null ? null : (

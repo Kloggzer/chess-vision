@@ -1,14 +1,14 @@
 /** UI-only ledger: verdicts on unusable boards and bad intervals (not training input). */
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { checkName, dataDir } from "@/lib/data";
 
 /**
- * Frame verdicts of the matte review: is SAM 3's alpha right, is the interval's FEN what the
- * board shows. "I cannot read this square" is deliberately NOT one of them — such a square sits
- * under a hand, its `coverage` is past `PIECE_VISIBLE_MAX` and the loss drops it by itself.
+ * Is SAM's alpha right, is the interval's FEN what the board shows. "I cannot read this square" is
+ * NOT one of them: that square sits under a hand and the loss drops it by itself. `dirty-frame` is
+ * the hand the scan missed — `plan_scanned` moves that frame to the dirty pile as `occluded`.
  */
-export const FRAME_VERDICTS = ["unusable-board", "matte-ok", "matte-bad", "position-ok"] as const;
+export const FRAME_VERDICTS = ["unusable-board", "matte-ok", "matte-bad", "position-ok", "dirty-frame"] as const;
 export type FrameVerdict = (typeof FRAME_VERDICTS)[number];
 
 export type ReviewNote =
@@ -48,8 +48,34 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
   return rows.length;
 }
 
+/**
+ * Eine Meldung wieder wegnehmen. Anhängen kann das nicht: `realgames.reported_dirty` sammelt jede
+ * `dirty-frame`-Zeile ein und kennt keinen Widerruf, also muss die Zeile verschwinden.
+ */
+export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const file = reviewNotesPath();
+  const text = await readFile(file, "utf8").catch(() => "");
+  if (!text) return 0;
+  const drop = new Set(rows.map(noteKey));
+  const kept = text.split("\n").filter((line) => {
+    if (!line.trim()) return false;
+    try {
+      return !drop.has(noteKey(JSON.parse(line) as ReviewNote));
+    } catch {
+      return true;
+    }
+  });
+  await writeFile(file, kept.length > 0 ? kept.join("\n") + "\n" : "", "utf8");
+  cache.delete(file);
+  return kept.length;
+}
+
+const noteKey = (r: ReviewNote): string =>
+  `${r.session_id}|${"frame" in r ? r.frame : r.ply}|${r.verdict}`;
+
 /** Per frame, the last word on each question — `undefined` means nobody was asked yet. */
-export type FrameReview = { matte?: "ok" | "bad"; position?: "ok" };
+export type FrameReview = { matte?: "ok" | "bad"; position?: "ok"; dirty?: true };
 type BySession = Map<string, { boards: Set<string>; plies: Set<number>; frames: Map<string, FrameReview> }>;
 type Cache = Map<string, { key: string; value: BySession }>;
 const cache: Cache = ((globalThis as { __chesslabReviewNotes?: Cache }).__chesslabReviewNotes ??= new Map());
@@ -72,9 +98,9 @@ async function bySession(): Promise<BySession> {
       else if (row.verdict === "unusable-board") entry.boards.add(row.frame);
       else {
         const seen = entry.frames.get(row.frame) ?? {};
-        entry.frames.set(row.frame, row.verdict === "position-ok"
-          ? { ...seen, position: "ok" }
-          : { ...seen, matte: row.verdict === "matte-ok" ? "ok" : "bad" });
+        if (row.verdict === "position-ok") entry.frames.set(row.frame, { ...seen, position: "ok" });
+        else if (row.verdict === "dirty-frame") entry.frames.set(row.frame, { ...seen, dirty: true });
+        else entry.frames.set(row.frame, { ...seen, matte: row.verdict === "matte-ok" ? "ok" : "bad" });
       }
       value.set(row.session_id, entry);
     } catch {

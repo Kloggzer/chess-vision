@@ -25,6 +25,7 @@ import {
   openBoards,
   openCells,
   wallCells,
+  cellCoverage,
 } from "@/lib/lanes";
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
@@ -105,7 +106,7 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false }],
   boards: [], cells: [], audit: null, rules: true, decided: [{}],
-  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, ...over,
+  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
@@ -250,4 +251,17 @@ test("the Klassenwand counts its own query, and says — while the answer is mis
   expect(laneCount(done, "classwall", wall)).toMatchObject({ n: 1, total: 2 });
   // No answer is not "no work": the query is server-side and may simply not have come back.
   expect(laneCount(stream, "classwall")).toEqual({ n: null, why: NO_QUERY });
+});
+
+test("a crop card prints SAM's number, and stays silent where nothing was measured", () => {
+  const coverage = [{ "000447": { g1: 0.244, h1: 0.605, a1: 0.003 } }];
+  const at = (stem: string, square: string) => cellCoverage(coverage, { session: 0, stem, square });
+  expect(at("000447", "h1")).toBe("61 %");
+  expect(at("000447", "g1")).toBe("24 %");
+  // Half a percent of a crop is not an occlusion, and a card that says `0 %` reads as a measurement.
+  expect(at("000447", "a1")).toBeNull();
+  // No row for the square, no row for the frame, no session: all three are "nobody measured".
+  expect(at("000447", "e4")).toBeNull();
+  expect(at("000999", "h1")).toBeNull();
+  expect(cellCoverage([], { session: 3, stem: "000447", square: "h1" })).toBeNull();
 });

@@ -34,6 +34,10 @@ export type GridCell = {
   note?: string;
   /** What the brush has put here, unwritten — the card says the class, not just "markiert". */
   paint?: string;
+  /** SAM's coverage on THIS square, already formatted; a crop lane never shows the board beside it. */
+  covered?: string;
+  /** Das FRAME dieser Karte ist als dirty gemeldet — jede Geschwisterkarte trägt dieselbe Marke. */
+  dirty?: boolean;
 };
 
 export type CropGridProps = {
@@ -56,6 +60,8 @@ export type CropGridProps = {
   onHover?: (index: number | null) => void;
   /** How many columns `auto-fill` chose — up/down must move by the row the user actually sees. */
   onColumns?: (cols: number) => void;
+  /** Die Ecken-Hand: meldet das GANZE Frame der Karte, ein zweiter Druck nimmt es zurück. */
+  onDirty?: (index: number) => void;
 };
 
 /**
@@ -79,7 +85,7 @@ function swallowNextContextMenu(): void {
 
 export function CropGrid(props: CropGridProps) {
   const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable,
-    onHover, onColumns } = props;
+    onHover, onColumns, onDirty } = props;
   const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
@@ -111,7 +117,7 @@ export function CropGrid(props: CropGridProps) {
     >
       {cells.map((cell, i) => (
         <div
-          className={`cursor-pointer overflow-hidden rounded border-2 ${
+          className={`group relative cursor-pointer overflow-hidden rounded border-2 ${
             cell.paint
               ? "border-primary"
               : marked.has(i)
@@ -184,6 +190,43 @@ export function CropGrid(props: CropGridProps) {
             unoptimized
             width={CROP}
           />
+          {onDirty ? (
+            // Ein eigener Knopf, kein Klick aufs Bild: links malt der Pinsel, rechts gewinnt das
+            // Modell, und beide dürfen von der Hand-Marke nicht getroffen werden.
+            <button
+              aria-label={cell.dirty ? "dirty-Meldung des Frames zurücknehmen" : "ganzes Frame als dirty melden"}
+              className={`absolute top-0 left-0 z-10 rounded-br px-1 font-mono text-[11px] leading-tight ${
+                cell.dirty
+                  ? "bg-amber-500 font-bold text-black"
+                  : "bg-background/70 text-muted-foreground pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 hover:bg-amber-500 hover:text-black"
+              }`}
+              onClick={(event) => {
+                event.stopPropagation();
+                event.currentTarget.blur();
+                onDirty(i);
+              }}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onPointerUp={(event) => event.stopPropagation()}
+              tabIndex={-1}
+              title={
+                cell.dirty
+                  ? "Dieses FRAME ist als dirty gemeldet (alle 64 Felder) — klicken nimmt die Meldung zurück"
+                  : "Hand drauf? Meldet das GANZE Frame dieser Karte, nicht nur dieses Feld"
+              }
+              type="button"
+            >
+              {cell.dirty ? "🖐 dirty" : "🖐"}
+            </button>
+          ) : null}
+          {cell.covered ? (
+            <span className="bg-background/70 pointer-events-none absolute top-0 right-0 rounded-bl px-1 font-mono text-[11px] leading-tight tabular-nums text-amber-200">
+              {cell.covered}
+            </span>
+          ) : null}
           {/* Unter dem Bild, nie darauf: die Pixel SIND die Entscheidung („einfacher wäre es wenn
               ich das bild ganz sehe und unter der card dann die echten namen", 2026-08-15). */}
           <div className="px-1 py-0.5 font-mono text-[11px] leading-tight">

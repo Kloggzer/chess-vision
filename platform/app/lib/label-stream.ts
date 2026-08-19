@@ -18,6 +18,7 @@ import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
 import { unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
+import { loadMatte } from "@/lib/matte";
 import { uselessFlag } from "@/lib/useless";
 
 export type StreamSession = {
@@ -93,6 +94,12 @@ export type LabelStream = {
   reads: { boards: number; without: number };
   /** Boards in the stream corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
   progress: { boards: number; done: number };
+  /**
+   * Per session, `stem -> {square: coverage}` — SAM's measurement, carried per square so a board
+   * and a crop can both print it. A stem missing from the map has no alpha at all, which is a
+   * different statement from "nothing is covered" and reads as `—`. Squares at 0 are dropped.
+   */
+  coverage: Record<string, Record<string, number>>[];
 };
 
 /** Newest recording first, the same reading of the two naming schemes the queues use. */
@@ -131,6 +138,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const boards: StreamBoard[] = [];
   const cells: StreamCell[] = [];
   const decided: Record<string, string>[] = [];
+  const coverage: Record<string, Record<string, number>>[] = [];
   const auditRows = await loadAuditFlags();
   const ruleRows = await loadCorrectionViolations();
   const violated = new Map<string, Map<string, CorrectionViolation>>();
@@ -153,10 +161,11 @@ export async function loadLabelStream(): Promise<LabelStream> {
       continue; // not exported yet — the chain owes this one an `export-session`
     }
     const id = sessionId(name);
-    const [{ rows }, judged, unusable] = await Promise.all([
+    const [{ rows }, judged, unusable, matte] = await Promise.all([
       loadModelReads(name).catch(() => ({ rows: [] as ModelRead[] })),
       judgedKeys(id),
       unusableBoards(id),
+      loadMatte(name),
     ]);
 
     const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
@@ -222,6 +231,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
       if (byStem.has(key.slice(0, key.indexOf("|")))) seen[key] = label;
     }
     decided.push(seen);
+    coverage.push(Object.fromEntries([...matte].map(([stem, frame]) => [
+      stem,
+      Object.fromEntries(Object.entries(frame.coverage).filter(([, v]) => v > 0)),
+    ])));
     cells.push(...controlCells(index, stems, byStem));
     bySession.set(id, { index, byStem });
   }
@@ -236,6 +249,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     decided,
     reads: { boards: readBoards, without },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
+    coverage,
   };
 }
 

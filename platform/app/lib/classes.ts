@@ -31,3 +31,7 @@ export const PIECE_VISIBLE_MAX = 0.15;
 
 export const coveredSquares = (coverage: Record<string, number>): string[] =>
   Object.keys(coverage).filter((sq) => coverage[sq] > PIECE_VISIBLE_MAX).sort();
+
+/** SAM's fraction as the human reads it. Below half a percent there is nothing to print. */
+export const coveragePct = (v: number): string | null =>
+  v >= 0.005 ? `${Math.round(v * 100)} %` : null;

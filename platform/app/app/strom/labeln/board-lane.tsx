@@ -20,6 +20,8 @@ export type BoardLaneProps = {
   accept: Record<string, string>;
   reads: Record<string, string>;
   decided: Record<string, string>;
+  /** `{square: coverage}` of this frame, when an alpha was cut for it. */
+  coverage?: Record<string, number>;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
   onStep: (delta: number) => void;
@@ -34,7 +36,7 @@ export type BoardLaneProps = {
  * (REVIEW S3). The arrows step BOARDS instead.
  */
 export function BoardLane(props: BoardLaneProps) {
-  const { name, sessionId, board, accept, reads, decided, actionsRef, onFlush, onStep, onNext } = props;
+  const { name, sessionId, board, accept, reads, decided, coverage, actionsRef, onFlush, onStep, onNext } = props;
   const boardKey = `${board.session}:${board.stem}`;
   const paint = useBoardPaint({ boardKey, fen: board.fen, decided, stem: board.stem, accept });
   const [hover, setHover] = useState<string | null>(null);
@@ -148,6 +150,7 @@ export function BoardLane(props: BoardLaneProps) {
       <BoardSurface
         accept={accept}
         alt={`board ${board.stem}`}
+        coverage={coverage}
         hits={acceptCells}
         onHover={setHover}
         src={`/api/board/${name}/${board.stem}?size=720`}
