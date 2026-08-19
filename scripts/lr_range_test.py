@@ -54,6 +54,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dataset", required=True)
+    ap.add_argument("--split", default="split.json",
+                    help="Split-Datei im Datensatz — eine Fold-Datei misst den Fold, den man auch traniert.")
     ap.add_argument("--norm", required=True, choices=("batchnorm", "groupnorm", "none"))
     ap.add_argument("--backbone", default="mobilenetv4_conv_small_035")
     ap.add_argument("--head", default="combined")
@@ -67,7 +69,9 @@ def main() -> int:
     ap.add_argument("--lr-max", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--erase-p", type=float, default=0.25)
-    ap.add_argument("--bg-p", type=float, default=0.6)
+    # 0, nicht 0.6: bg-Randomisierung braucht Crop-DATEIEN und umgeht damit den Pack. Der Test lief
+    # dadurch auf dem langsamen Loader, ohne es zu sagen — hier zaehlt die Kurve, nicht die Aug.
+    ap.add_argument("--bg-p", type=float, default=0.0)
     ap.add_argument("--csv", default=None, help="write the raw curve here")
     args = ap.parse_args()
 
@@ -75,7 +79,7 @@ def main() -> int:
     np.random.seed(args.seed)
 
     dd = dataset_dir(args.dataset)
-    manifest, split = load_manifest(dd / "manifest.jsonl"), load_split(dd / "split.json")
+    manifest, split = load_manifest(dd / "manifest.jsonl"), load_split(dd / args.split)
     classes = split["classes"]
     out_size = tuple(next(iter(manifest))["out_size"])
     ts = split.get("train_subsample") or {}
@@ -101,12 +105,17 @@ def main() -> int:
     model = build_model(args.backbone, len(classes), pretrained=False, norm=args.norm,
                         head=args.head, classes=classes, in_chans=3).to(device)
     if args.resume:
-        checkpoint = config.DATA.models / args.resume / "best.pt"
-        if not checkpoint.is_file():
-            raise FileNotFoundError(checkpoint)
-        state = torch.load(checkpoint, map_location=device)
-        model.load_state_dict(state)
-        print(f"[range] warm start: {checkpoint}")
+        # Dieselbe Uebernahme wie `chesslab train` (`model.adopt_weights`): der Kopf des
+        # Basismodells hat 13 Klassen, dieser Korpus 14 — ein striktes load_state_dict stirbt daran.
+        from chesslab.training.model import adopt_weights, checkpoint_of
+
+        checkpoint = checkpoint_of(config.DATA.models / args.resume)
+        if checkpoint is None:
+            raise FileNotFoundError(config.DATA.models / args.resume)
+        keep, skipped = adopt_weights(model, checkpoint, device)
+        print(f"[range] warm start: {checkpoint} — {keep} Tensoren uebernommen, {skipped} uebersprungen")
+        if not keep:
+            raise RuntimeError("warm start adopted 0 tensors — Backbone/Head passen nicht")
     crit = nn.CrossEntropyLoss(weight=class_weights_tensor(split, classes).to(device))
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr_min)
     scales = [int(s) for s in args.scales.split(",") if s.strip()]
