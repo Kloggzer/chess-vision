@@ -76,25 +76,32 @@ def person_score(board: np.ndarray) -> float:
 
 
 def alpha_sam3(board: np.ndarray) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks — the better cut, for the alpha that becomes a target."""
+    """The union of SAM 3's concept masks — the better cut, for the alpha that becomes a target.
+
+    The five concepts share ONE image, so the vision encoder runs once instead of five times.
+    Measured 2026-08-19: 13.7 s -> 2.9 s a frame, masks bit-identical (maxdiff 0.0). It is 95 % of
+    the cost — `get_text_features` is 15 ms of 2316 and caching THAT would buy nothing.
+    """
     import torch
 
     processor, model, device = _sam3()
     rgb = cv2.cvtColor(board, cv2.COLOR_BGR2RGB)
     alpha = np.zeros(board.shape[:2], np.float32)
     hits: dict[str, float] = {}
-    for concept in CONCEPTS:
-        inputs = processor(images=rgb, text=concept, return_tensors="pt").to(device)
-        with torch.no_grad():
-            out = model(**inputs)
-        found = processor.post_process_instance_segmentation(
-            out, threshold=0.5, mask_threshold=0.5,
-            target_sizes=inputs.get("original_sizes").tolist())[0]
-        if not len(found["masks"]):
-            continue
-        mask = found["masks"].float().amax(0).cpu().numpy()
-        alpha = np.maximum(alpha, cv2.resize(mask, (board.shape[1], board.shape[0])))
-        hits[concept] = round(float(found["scores"].max()), 3)
+    prompts = {c: processor(images=rgb, text=c, return_tensors="pt").to(device) for c in CONCEPTS}
+    with torch.no_grad():
+        vision = model.vision_encoder(pixel_values=prompts[CONCEPTS[0]]["pixel_values"])
+        for concept, inputs in prompts.items():
+            out = model(vision_embeds=vision, input_ids=inputs["input_ids"],
+                        attention_mask=inputs.get("attention_mask"))
+            found = processor.post_process_instance_segmentation(
+                out, threshold=0.5, mask_threshold=0.5,
+                target_sizes=inputs.get("original_sizes").tolist())[0]
+            if not len(found["masks"]):
+                continue
+            mask = found["masks"].float().amax(0).cpu().numpy()
+            alpha = np.maximum(alpha, cv2.resize(mask, (board.shape[1], board.shape[0])))
+            hits[concept] = round(float(found["scores"].max()), 3)
     return alpha, hits
 
 
