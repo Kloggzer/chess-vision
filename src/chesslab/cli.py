@@ -1059,7 +1059,10 @@ def occluders_recut(
 
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    name: str | None = typer.Argument(None, help="Real-game name under data/sessions/rg-<name>/."),
+    all_sessions: bool = typer.Option(False, "--all",
+                                      help="Every exported session in ONE process — the weights "
+                                           "load once instead of per session (6-10 min each)."),
     limit: int = typer.Option(0, "--limit",
                               help="Target mattes per session (0 = all). Counts what is already "
                                    "there, so a second round only fills the gap."),
@@ -1072,8 +1075,19 @@ def occluders_alpha_worker(
     Runs long by design (11.9 s a frame) and appends every row as it lands, so it can be stopped
     and resumed at any point. The pile itself was chosen by the frame scan (`docs/frame-scan.md`).
     """
+    from . import config
     from . import matte as matte_mod
 
+    if bool(name) == all_sessions:
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    if all_sessions:
+        names = sorted(d.name[3:] for d in config.DATA.sessions.glob("rg-*") if d.is_dir())
+        res = matte_mod.alpha_worker_all(names, limit=limit or None, reason=reason)
+        print(f"[OK] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
+              f"({res['already']} lagen schon vor)", flush=True)
+        sys.stdout.flush()
+        os._exit(0)
     try:
         res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason)
     except (FileNotFoundError, ValueError, KeyError) as e:

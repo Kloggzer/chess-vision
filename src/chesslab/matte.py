@@ -164,6 +164,25 @@ def recut_fixed(name: str, *, progress: bool = True) -> dict:
     return {"path": path, "frames": len(rows), "recut": redone}
 
 
+def alpha_worker_all(names: list[str], *, limit: int | None = None,
+                     reason: str = ALPHA_REASON, progress: bool = True) -> dict:
+    """Every session in ONE process, so SAM 3's weights are loaded once instead of per session.
+
+    Measured 2026-08-19: a fresh invocation costs 6-10 min before the first frame, against 10 s
+    of work per frame. Twenty sessions that way is two and a half hours of loading nothing.
+    """
+    out = []
+    for n, name in enumerate(names, 1):
+        if progress:
+            print(f"=== {name} ({n}/{len(names)})", flush=True)
+        try:
+            out.append(alpha_worker(name, limit=limit, reason=reason, progress=progress) | {"session": name})
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            print(f"[ERR] {name}: {e}", flush=True)
+    return {"sessions": len(out), "alphas": sum(r["alphas"] for r in out),
+            "already": sum(r["already"] for r in out), "runs": out}
+
+
 def alpha_worker(name: str, *, limit: int | None = None, reason: str = ALPHA_REASON,
                  progress: bool = True) -> dict:
     """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.
