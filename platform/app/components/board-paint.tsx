@@ -53,6 +53,7 @@ export type PaintInput = {
   stem: string;
   /** `{square: label}` the lane flagged here — pre-selected, individually answerable. */
   accept: Labels;
+  prefilled?: Labels;
 };
 
 export type PaintState = {
@@ -66,6 +67,7 @@ export type PaintState = {
   labels: Labels;
   kept: Set<string>;
   judged: Set<string>;
+  suggested: Set<string>;
   /** Flags that can be taken off in bulk — one the FILE already answers is not one of them. */
   offable: string[];
   /** PAINT only: a flag must not leave through the navigate-away flush, only through a commit. */
@@ -83,7 +85,7 @@ export type PaintState = {
 };
 
 export function useBoardPaint(input: PaintInput): PaintState {
-  const { boardKey, fen: fenText, decided, stem, accept } = input;
+  const { boardKey, fen: fenText, decided, stem, accept, prefilled = {} } = input;
   const [eraser, setEraser] = useState(false);
   const [brush, setBrushLabel] = useState("empty");
   /** Loading the brush disarms the eraser — otherwise picking `wP` still rubbed the FEN back on. */
@@ -94,6 +96,7 @@ export function useBoardPaint(input: PaintInput): PaintState {
   const [edits, setEdits] = useState<ByBoard>({});
   const [saved, setSaved] = useState<ByBoard>({});
   const [history, setHistory] = useState<Step[]>([]);
+  const [claimed, setClaimed] = useState<Record<string, Set<string>>>({});
 
   const fen = useMemo(() => fenLabels(fenText), [fenText]);
   const base = useMemo(() => {
@@ -102,13 +105,33 @@ export function useBoardPaint(input: PaintInput): PaintState {
     return out;
   }, [decided, fen, stem]);
 
+  const inherited = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(prefilled).filter(([square]) => !claimed[boardKey]?.has(square)),
+      ),
+    [boardKey, claimed, prefilled],
+  );
+
   const painted = useMemo(() => edits[boardKey] ?? {}, [boardKey, edits]);
   const onFile = useMemo(() => ({ ...base, ...saved[boardKey] }), [base, saved, boardKey]);
   const plan = useMemo(
-    () => planBoard({ squares: SQUARES, proposals: accept, painted, base, onFile }),
-    [accept, base, painted, onFile],
+    () =>
+      planBoard({
+        squares: SQUARES,
+        proposals: accept,
+        painted,
+        prefilled: inherited,
+        base,
+        onFile,
+      }),
+    [accept, base, inherited, painted, onFile],
   );
   const kept = useMemo(() => new Set(plan.selected), [plan]);
+  const suggested = useMemo(
+    () => new Set(Object.keys(inherited).filter((square) => painted[square] === undefined)),
+    [inherited, painted],
+  );
   /**
    * Squares a HUMAN has ruled on. Everything else carries the FEN's word, which is a good label
    * and NOT a verdict: "I painted occluded on e5" says nothing about the pawn on d4 except that
@@ -121,6 +144,11 @@ export function useBoardPaint(input: PaintInput): PaintState {
 
   const set = useCallback(
     (square: string, label: string) => {
+      setClaimed((current) => {
+        const here = new Set(current[boardKey] ?? []);
+        here.add(square);
+        return { ...current, [boardKey]: here };
+      });
       setHistory((h) => [...h, { board: boardKey, square, before: edits[boardKey]?.[square] }]);
       setEdits((e) => ({ ...e, [boardKey]: { ...e[boardKey], [square]: label } }));
     },
@@ -196,7 +224,7 @@ export function useBoardPaint(input: PaintInput): PaintState {
 
   return {
     brush, eraser, setBrush, setEraser,
-    fen, base, plan, labels: plan.labels, kept, judged, offable,
+    fen, base, plan, labels: plan.labels, kept, judged, suggested, offable,
     paintRows: plan.paintRows,
     rejectAll, paint, cycle, toggleFlags, undo, markSaved, markCommitted,
   };
@@ -228,7 +256,7 @@ export type BoardSurfaceProps = {
  * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
  */
 export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, tool, hideEmpty, onHover }: BoardSurfaceProps) {
-  const { labels, fen, kept, judged, paint, cycle, eraser } = state;
+  const { labels, fen, kept, judged, suggested, paint, cycle, eraser } = state;
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
 
@@ -321,7 +349,13 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
                   <span
                     className={`bg-background/75 rounded px-0.5 ${
-                      judged.has(sq) ? "font-bold text-white" : on ? "font-bold text-fuchsia-200" : "text-white/45"
+                      judged.has(sq)
+                        ? "font-bold text-white"
+                        : suggested.has(sq)
+                          ? "font-bold text-cyan-200"
+                          : on
+                            ? "font-bold text-fuchsia-200"
+                            : "text-white/45"
                     }`}
                   >
                     {chip}
@@ -341,7 +375,7 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
  * What the states on the board mean, as swatches — asked once ("was bedeutet das blaue Kästchen?",
  * 2026-08-09), so the words live in the tooltip and the colour carries the row.
  */
-export function BoardLegend() {
+export function BoardLegend({ showPrefilled = false }: { showPrefilled?: boolean }) {
   const items: [string, string][] = [
     ["bg-amber-500/20", "▨ alt — eine Altzeile aus der Zeit, als occluded von Hand gemalt wurde"],
     ["bg-sky-500/40", "≠ FEN — hier steht ein anderes Label als die Partie sagt"],
@@ -349,6 +383,12 @@ export function BoardLegend() {
     ["outline outline-2 -outline-offset-2 outline-fuchsia-400", "Flag an — commit schreibt diese Zelle"],
     ["outline outline-2 -outline-offset-2 outline-dashed outline-white/40", "Flag aus — geprüft, keine Trainingszeile"],
   ];
+  if (showPrefilled) {
+    items.push([
+      "outline outline-2 -outline-offset-2 outline-dashed outline-cyan-300",
+      "Vorschlag — aus einem bestätigten Frame desselben Ply vorgefüllt",
+    ]);
+  }
   return (
     <span className="flex flex-wrap items-center gap-1.5">
       {items.map(([swatch, why]) => (

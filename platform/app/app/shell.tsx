@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -97,6 +99,37 @@ function StepButton({ drain, entry, wide }: { drain: Drain; entry: (typeof STEPS
 
 /** The app's primary control: one press per step, and the one line that says what is running. */
 function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className={wide ? "space-y-1.5 px-2 pt-1.5" : "flex items-center gap-1.5 px-2 py-1.5"}>
+        {STEPS.map((entry) => (
+          <span className={wide ? "block" : "shrink-0"} key={entry.step}>
+            <button
+              aria-label={`${entry.label}: lädt`}
+              className={`border-border flex items-center justify-between gap-2 rounded-md border px-3 py-2.5 text-sm font-medium opacity-40 ${
+                wide ? "w-full" : "h-11 shrink-0"
+              } cursor-default`}
+              disabled
+              type="button"
+            >
+              <span className="truncate">{entry.label}</span>
+              <span className="text-muted-foreground text-xs tabular-nums">…</span>
+            </button>
+          </span>
+        ))}
+        <p className={`text-muted-foreground flex items-center gap-2 truncate text-xs ${wide ? "" : "ml-auto"}`}>
+          <span className="bg-muted-foreground/40 h-2 w-2 shrink-0 rounded-full" />
+          <span className="truncate">…</span>
+        </p>
+      </div>
+    );
+  }
   const { status, busy, stop, note } = drain;
   const stoppable = status !== null && (status.drain !== null || status.running !== null);
   return (

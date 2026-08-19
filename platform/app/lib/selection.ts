@@ -9,6 +9,7 @@ export type PlanInput = {
   proposals: Labels;
   /** What the human painted this session, per square. Paint beats the flag. */
   painted: Labels;
+  prefilled?: Labels;
   /** The FEN's word, or the correction already on file at page load — where a flag off lands. */
   base: Labels;
   /** `base` plus what this session already wrote — nothing here needs writing again. */
@@ -31,7 +32,7 @@ export type BoardPlan = {
 };
 
 export function planBoard(input: PlanInput): BoardPlan {
-  const { squares, proposals, painted, base, onFile } = input;
+  const { squares, proposals, painted, prefilled = {}, base, onFile } = input;
   const labels: Labels = {};
   const selected: string[] = [];
   const rejected: string[] = [];
@@ -42,7 +43,7 @@ export function planBoard(input: PlanInput): BoardPlan {
   for (const square of squares) {
     const fallback = base[square];
     const proposal = proposals[square];
-    const label = painted[square] ?? proposal ?? fallback;
+    const label = painted[square] ?? prefilled[square] ?? proposal ?? fallback;
     labels[square] = label;
 
     const differs = label !== (onFile[square] ?? fallback);

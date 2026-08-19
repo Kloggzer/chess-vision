@@ -10,8 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
 import type { Correction } from "@/lib/corrections";
+import {
+  carryPositionCorrections,
+  type PositionPrefills,
+  verifyFrameKey,
+} from "@/lib/position-carry";
 import type { ReviewNote } from "@/lib/review-notes";
-import type { VerifyFrame, VerifyStream } from "@/lib/verify";
+import type { VerifyStream } from "@/lib/verify";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
@@ -49,19 +54,24 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
   const [painted, setPainted] = useState<Record<string, number>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [prefilled, setPrefilled] = useState<PositionPrefills>({});
+  const [carryNotice, setCarryNotice] = useState<{
+    session: number;
+    ply: number;
+    count: number;
+  } | null>(null);
 
   const frames = stream.frames;
-  const keyOf = (f: VerifyFrame) => `${f.session}|${f.stem}`;
   /**
    * Die Position hängt am FRAME, nicht am Index. Der alpha-worker legt alle ~12 s eine Zeile
    * nach; über einen Index würde die neue Liste den Menschen mitten im Strich auf ein anderes
    * Brett schieben („nervt, wenn ich die alpha anmale", 2026-08-19).
    */
-  const found = frames.findIndex((f) => keyOf(f) === at.key);
+  const found = frames.findIndex((f) => verifyFrameKey(f) === at.key);
   const index = Math.max(0, found >= 0 ? found : Math.min(at.index, frames.length - 1));
   const frame = frames[index];
   const session = frame ? stream.sessions[frame.session] : undefined;
-  const key = frame ? keyOf(frame) : "";
+  const key = frame ? verifyFrameKey(frame) : "";
   const decided = frame ? (stream.decided[frame.session] ?? {}) : {};
 
   const paint = useBoardPaint({
@@ -70,6 +80,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     decided,
     stem: frame?.stem ?? "",
     accept: {},
+    prefilled: prefilled[key] ?? {},
   });
   const pen = useAlphaPen(key);
 
@@ -82,7 +93,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
 
   const step = useCallback((delta: number) => {
     const next = Math.max(0, Math.min(frames.length - 1, index + delta));
-    setAt({ key: frames[next] ? keyOf(frames[next]) : "", index: next });
+    setAt({ key: frames[next] ? verifyFrameKey(frames[next]) : "", index: next });
   }, [frames, index]);
 
   const write = useCallback(
@@ -126,11 +137,37 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
         verdicts.unshift({ session_id: session.sessionId, frame: frame.stem, verdict: "matte-ok" });
       }
       await write(verdicts, verdicts.map((v) => v.verdict));
+
+      const carried = carryPositionCorrections({
+        frames,
+        from: index,
+        corrections: paint.plan.corrections,
+        decided: stream.decided,
+        current: prefilled,
+      });
+      setPrefilled(carried.prefilled);
+      setCarryNotice(
+        carried.count > 0
+          ? { session: frame.session, ply: frame.ply, count: carried.count }
+          : null,
+      );
+
       step(1);
     } catch (e) {
       setError(String(e));
     }
-  }, [frame, matte, paint, session, step, write]);
+  }, [
+    frame,
+    frames,
+    index,
+    matte,
+    paint,
+    prefilled,
+    session,
+    step,
+    stream.decided,
+    write,
+  ]);
 
   /** „Den FEN kann ich hier nicht garantieren" — das ganze Intervall, nicht Zelle für Zelle. */
   const flagInterval = useCallback(() => {
@@ -220,7 +257,13 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
           {session.sessionId} · {frame.stem} · ply {frame.ply}
           {frame.reason ? ` · ${frame.reason}` : ""}
         </span>
-        <Tooltip>
+        {carryNotice &&
+carryNotice.session === frame.session &&
+carryNotice.ply === frame.ply ? (
+  <span className="text-cyan-300">
+    {carryNotice.count} {carryNotice.count === 1 ? "Frame" : "Frames"} dieses Ply vorgefüllt
+  </span>
+) : null}<Tooltip>
           <TooltipTrigger asChild>
             <span className="font-mono text-amber-300 tabular-nums">
               {frame.covered.length} Felder &gt; {PIECE_VISIBLE_MAX}
@@ -343,7 +386,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       {error ? <p className="text-destructive text-xs">{error}</p> : null}
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs">
-        <BoardLegend />
+        <BoardLegend showPrefilled />
         <span className="ml-auto flex flex-wrap gap-x-3">
           {KEYS.map(([k, what]) => (
             <span key={k}>

@@ -18,12 +18,12 @@ export type Drain = {
 };
 
 /**
- * What runs and what waits, polled on every page — it works whether or not a tab is open.
+ * What runs and what waits, polled on every page â€” it works whether or not a tab is open.
  * No mounted-gate: SSR already renders `status === null`, so a gate changes nothing there, but it
  * makes every re-render during hydration fall back to null and mismatch the DOM the poll just wrote.
  */
 export function useDrain(): Drain {
-  const [status, setStatus] = useState<DrainStatus | null>(null);
+const [status, setStatus] = useState<DrainStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -59,17 +59,17 @@ export function useDrain(): Drain {
 
 /** One line: what is in the slot right now, and how far the running backlog has got. */
 export function runState(status: DrainStatus | null): string {
-  if (!status) return "…";
+  if (!status) return "â€¦";
   // Not a defect: another process holds the slot, and its job is really running.
   const foreign = status.foreignLock;
-  if (foreign) return `läuft (pid ${foreign.pid}): ${foreign.job} ${foreign.name}`;
+  if (foreign) return `lÃ¤uft (pid ${foreign.pid}): ${foreign.job} ${foreign.name}`;
   const running = status.running ? `${status.running.step} ${status.running.name}` : null;
   const drain = status.drain;
   if (drain) {
     const rest = drain.stopped ? "gestoppt" : `noch ${drain.left}`;
-    return `${drain.step} ${drain.done} fertig, ${rest}${running ? ` · ${running.split(" ")[1]}` : ""}`;
+    return `${drain.step} ${drain.done} fertig, ${rest}${running ? ` Â· ${running.split(" ")[1]}` : ""}`;
   }
-  return running ? `läuft · ${running}` : "nichts läuft";
+  return running ? `lÃ¤uft Â· ${running}` : "nichts lÃ¤uft";
 }
 
 export function runDot(status: DrainStatus | null): string {
