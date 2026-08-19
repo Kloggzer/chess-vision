@@ -241,6 +241,30 @@ def test_the_limit_is_a_target_not_a_batch(tmp_path, monkeypatch):
     assert matte.alpha_worker("s1", limit=4, progress=False)["alphas"] == 0, "asking again is free"
 
 
+def test_a_re_export_does_not_let_orphan_rows_eat_the_target(tmp_path, monkeypatch):
+    """Rows for frames the re-export dropped are dead weight, not progress toward `limit`."""
+    import json
+
+    pad = crop_border_px(_profile())
+    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    rows = [{"frame": f"frames/{i:06d}.png", "board": f"dirty/{i:06d}.webp", "ply": 1, "fen": fen,
+             "dirty": True, "dirty_reason": "occluded", "corners": _profile().image_corners,
+             "board_size": SIDE, "board_border": pad} for i in range(1, 5)]
+    sdir = _session(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+    # Two mattes for frames the next export no longer picks — the shape of 20-48-55 on 2026-08-19.
+    (sdir / "matte.jsonl").write_text(
+        "".join(json.dumps({"frame": f"{i:06d}", "coverage": {}}) + "\n" for i in (900, 901)),
+        encoding="utf-8")
+
+    res = matte.alpha_worker("s1", limit=2, progress=False)
+
+    assert res["already"] == 0, "an orphan is not an alpha this session has"
+    assert res["alphas"] == 2, "the target is filled from the frames that still exist"
+
+
 def test_a_corrected_alpha_is_recut_and_sams_own_survives(tmp_path, monkeypatch):
     """The paint tool writes pixels; the numbers come from the one cut, never from the browser."""
     import json

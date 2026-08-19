@@ -142,7 +142,7 @@ def recut_fixed(name: str, *, progress: bool = True) -> dict:
     entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
     # This rewrites the file WHOLE while `alpha_worker` appends to it. A row the worker adds
     # between our read and our write would die, so the file must not move underneath us.
-    stamp = path.stat().st_mtime_ns
+    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
     rows, redone = [], 0
     for row in read_jsonl(path):
         fixed = session_dir / "mattes" / f"{row['frame']}{FIXED_SUFFIX}"
@@ -156,7 +156,9 @@ def recut_fixed(name: str, *, progress: bool = True) -> dict:
             if progress and redone % 10 == 0:
                 print(f"  {redone} corrected alphas recut", flush=True)
         rows.append(row)
-    if path.stat().st_mtime_ns != stamp:
+    # Size as well as mtime: an append inside the same filesystem tick left the timestamp equal,
+    # and the guard waved a concurrent worker through (caught by the suite's own ordering).
+    if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
         raise ValueError(
             f"{name}: matte.jsonl changed while recutting — the alpha worker is writing it. "
             f"Let it finish and run this again; nothing was written.")
@@ -200,8 +202,13 @@ def alpha_worker(name: str, *, limit: int | None = None, reason: str = ALPHA_REA
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     profile = load_profile(read_session_meta(session_dir)["profile"])
     path = session_dir / "matte.jsonl"
-    done = {r["frame"] for r in read_jsonl(path)} if path.exists() else set()
-    todo = [e for e in read_log(session_dir)
+    rows = read_log(session_dir)
+    live = {Path(e["board"]).stem for e in rows if e.get("board")}
+    # Only rows whose frame still exists count as done. A re-export picks other frames, and the
+    # orphans left behind ate the target instead: 57 of 80 on 20-48-55, so 47 verdeckte Frames
+    # never got an alpha while the file looked full (2026-08-19).
+    done = ({r["frame"] for r in read_jsonl(path)} & live) if path.exists() else set()
+    todo = [e for e in rows
             if e.get("dirty") and (reason == "all" or e.get("dirty_reason") == reason)
             and Path(e["board"]).stem not in done]
     # `limit` is the TARGET per session, not the batch size: a second round asking for 80 on a
