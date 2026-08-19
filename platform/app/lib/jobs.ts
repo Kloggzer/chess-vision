@@ -11,16 +11,16 @@
  * records. A failure is written down with its REASON and surfaced on the transfers page: silent
  * fallback is the defect, not the failure.
  */
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/autopilot-state";
+import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteTarget } from "@/lib/matte";
 
-export type JobState = "queued" | "running" | "done" | "failed" | "skipped";
+export type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
 export type JobKind = "pack" | "label" | "export" | "matte" | "model-read";
 export type PackResult = {
   output: string;
@@ -59,7 +59,9 @@ export type Job = {
   notBefore?: string;
 };
 
-type Queue = { jobs: Map<string, Job>; running: Promise<void> };
+/** The process in the slot right now — held so Stopp can kill it, not just decline the next. */
+type Live = { name: string; child: ChildProcess };
+type Queue = { jobs: Map<string, Job>; running: Promise<void>; live: Live | null; stopped: Set<string> };
 
 /**
  * Survives the dev server's module reloads — a queue that resets on every hot reload would start a
@@ -68,13 +70,18 @@ type Queue = { jobs: Map<string, Job>; running: Promise<void> };
 const queue: Queue = ((globalThis as { __chesslabJobs?: Queue }).__chesslabJobs ??= {
   jobs: new Map(),
   running: Promise.resolve(),
+  live: null,
+  stopped: new Set(),
 });
+// An object pinned by older code lacks the fields added since (see `autopilot`/`drain`).
+queue.live ??= null;
+queue.stopped ??= new Set();
 
 export function jobsDir(): string {
   return path.join(inboxDir(), "jobs");
 }
 
-/** Is the one slot taken? The Autopilot's whole precondition — it never widens the queue (§5.5). */
+/** Is the one slot taken? Every press asks first — nothing ever widens the queue (§5.5). */
 export function busy(): boolean {
   return runningJob() !== null;
 }
@@ -90,8 +97,8 @@ export function runningJob(): Job | null {
 /**
  * Resolves when everything queued right now has finished.
  *
- * The Autopilot's event tick hangs off this: a finished job starts the next one immediately
- * instead of up to 30 s later, and the heavy lock is released at the same moment.
+ * A drain hangs off this: the next recording of the backlog starts the moment the last one is
+ * done, and the heavy lock is released at the same moment.
  */
 export function whenIdle(): Promise<void> {
   return queue.running.then(() => undefined);
@@ -393,6 +400,46 @@ function spawnTool(binary: string, args: string[], cwd: string) {
   });
 }
 
+/**
+ * Kill the whole tree, not our child: the chain is `uv` → `chesslab.exe` → python, so a `.kill()`
+ * on the shim leaves the worker on the GPU — measured 2026-08-19, three SAM 3 processes at once.
+ */
+export function killTree(pid: number): Promise<void> {
+  if (process.platform !== "win32") {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      /* already gone */
+    }
+    return Promise.resolve();
+  }
+  return new Promise<void>((resolve) => {
+    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    killer.on("error", () => resolve());
+    killer.on("close", () => resolve());
+  });
+}
+
+/**
+ * Stopp: end what is in the slot NOW. The user watched an 11-second-per-frame job keep going after
+ * pressing stop (2026-08-19) — "alles stehen und liegen lassen". `alpha_worker` appends to
+ * `matte.jsonl` and flushes per frame, and export/label rewrite their output from scratch, so the
+ * kill costs the frame in flight and nothing else.
+ */
+export async function stopRunning(): Promise<{ stopped: string } | { error: string }> {
+  const live = queue.live;
+  if (!live?.child.pid) return { error: "kein Prozess läuft" };
+  queue.stopped.add(live.name);
+  await killTree(live.child.pid);
+  return { stopped: live.name };
+}
+
+/** The row a killed job writes: `stopped`, so it reads as a decision and stays retryable. */
+function endState(name: string, code: number): { state: JobState; stopped: boolean } {
+  const stopped = queue.stopped.delete(name);
+  return { state: stopped ? "stopped" : code === 0 ? "done" : "failed", stopped };
+}
+
 async function runDesktop(binary: string, args: string[], running: Job, log: string): Promise<number> {
   return new Promise<number>((resolve) => {
     const sink = createWriteStream(log, { flags: "a" });
@@ -408,6 +455,7 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
     }
     if (child.pid !== undefined) {
       running.childPid = child.pid;
+      queue.live = { name: running.name, child };
       void record(running);
       // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
       void stampHeavyLockChild(child.pid).catch(() => undefined);
@@ -419,6 +467,7 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
       resolve(-1);
     });
     child.on("close", (value) => {
+      if (queue.live?.child === child) queue.live = null;
       sink.end(`\nexit ${value}\n`);
       resolve(value ?? -1);
     });
@@ -474,12 +523,13 @@ async function runPack(job: Job): Promise<void> {
     }
   }
 
+  const end = endState(job.name, code);
   await record({
     ...running,
-    state: code === 0 ? "done" : "failed",
+    state: end.state,
     code,
     pack,
-    reason: code === 0 ? undefined : `training-video-pack exited ${code} — see ${log}`,
+    reason: end.stopped ? STOPPED : code === 0 ? undefined : `training-video-pack exited ${code} — see ${log}`,
     finishedAt: new Date().toISOString(),
   });
 }
@@ -561,7 +611,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
   const madeCandidate = code === 0 && (await exists(candidate));
   await record({
     ...running,
-    state: madeCandidate ? "done" : "failed",
+    state: endState(job.name, madeCandidate ? 0 : 1).state,
     code,
     candidate: madeCandidate ? job.name : undefined,
     // The tool's own last words, not just a path: "see the log" is what a user reads instead of
@@ -632,6 +682,8 @@ export async function releaseExportHold(name: string): Promise<{ dequeued: boole
   });
   return { dequeued: true, held };
 }
+
+const STOPPED = "gestoppt — der Prozess wurde beendet; ein neuer Druck fängt wieder an";
 
 const TAIL_BYTES = 64 * 1024;
 
@@ -742,6 +794,7 @@ async function runChesslab(
     const child = spawnTool(binary, args, repoDir());
     if (child.pid !== undefined) {
       running.childPid = child.pid;
+      queue.live = { name: running.name, child };
       void record(running);
       // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
       void stampHeavyLockChild(child.pid).catch(() => undefined);
@@ -755,6 +808,7 @@ spawn failed: ${error.message}
       resolve(-1);
     });
     child.on("close", (value) => {
+      if (queue.live?.child === child) queue.live = null;
       sink.end(`
 exit ${value}
 `);
@@ -762,12 +816,14 @@ exit ${value}
     });
   });
 
+  const end = endState(job.name, code);
   await record({
     ...running,
-    state: code === 0 ? "done" : "failed",
+    state: end.state,
     code,
-    reason:
-      code === 0
+    reason: end.stopped
+      ? STOPPED
+      : code === 0
         ? undefined
         : code === -1
           ? `could not start "${binary}" — is uv on PATH? Set CHESSLAB_UV to its full path.`
@@ -828,7 +884,7 @@ export async function jobs(limit = 25): Promise<Job[]> {
 }
 
 /**
- * The ledger's last row per `<name>|<kind>` — the Autopilot's no-retry marker, per STEP.
+ * The ledger's last row per `<name>|<kind>` — the no-retry marker, per STEP.
  *
  * Keyed per name it was not a marker at all: any later job of another kind (a `pack` after a second
  * transfer) became "the last row" and silently cleared a failed `export`, which then ran again all

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { plan, type PlanInput } from "@/lib/autopilot";
+import { backlog, type BacklogInput } from "@/lib/backlog";
+import { nextStep } from "@/lib/chain";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 import type { QueueRow } from "@/lib/queues";
@@ -36,81 +37,89 @@ const job = (name: string, kind: Job["kind"], state: Job["state"], reason?: stri
   queuedAt: "2026-08-15T00:00:00Z",
 });
 
-/** The two views `jobs.ts` hands the planner, in ledger order — last row per name, per name|kind. */
-const ledger = (...rows: Job[]): Pick<PlanInput, "lastJobs" | "lastSteps"> => ({
+/** The two views `jobs.ts` hands the pass, in ledger order — last row per name, per name|kind. */
+const ledger = (...rows: Job[]): Pick<BacklogInput, "lastJobs" | "lastSteps"> => ({
   lastJobs: new Map(rows.map((row) => [row.name, row])),
   lastSteps: new Map(rows.map((row) => [`${row.name}|${row.kind}`, row])),
 });
 
-const run = (rows: QueueRow[], input: Partial<PlanInput> = {}) =>
-  plan({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
+const run = (rows: QueueRow[], input: Partial<BacklogInput> = {}) =>
+  backlog({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
 
-describe("plan — which machine step runs next", () => {
+/** Nothing waits anywhere — the shape every "not my work" case has to have. */
+const NONE = { label: [], export: [], matte: [], "model-read": [] };
+
+describe("backlog — what waits on which step", () => {
   it("takes the OLDEST recording, across both naming schemes", () => {
     const rows = [
       row("2026-08-14-20-35-52", { step: "export", hasCandidate: true, confirmed: true }),
       row("VID_20260726_233432", { step: "export", hasCandidate: true, confirmed: true }),
       row("2026-08-13-12-46-24", { step: "export", hasCandidate: true, confirmed: true }),
     ];
-    expect(run(rows).eligible.map((e) => e.name)).toEqual([
+    expect(run(rows).waiting.export).toEqual([
       "VID_20260726_233432",
       "2026-08-13-12-46-24",
       "2026-08-14-20-35-52",
     ]);
   });
 
-  it("runs label and export alone — confirm, labeln, matte and model-read need a human", () => {
+  it("counts every JOB step and no page — confirm and labeln are the screens", () => {
     const rows = [
       row("2026-08-13-00-00-01", { step: "confirm", hasCandidate: true }),
       row("2026-08-13-00-00-02", { step: "labeln", hasCandidate: true }),
-      // `realgames model-read` requires `--model` and refuses a run trained on the session, so no
-      // tick can choose it: the step is offered as a button and never taken by the loop.
+      // `realgames model-read` requires `--model` and refuses a run trained on the session — the
+      // press is that choice, which is why it has a button of its own.
       row("2026-08-13-00-00-03", { step: "model-read", hasCandidate: true, confirmed: true, hasSession: true }),
-      // `occluders alpha-worker` takes no model and repeats for free, but it holds the GPU for
-      // hours and the Python side takes no heavy lock — a hand-started `--all` is invisible.
+      // `occluders alpha-worker` holds the GPU for hours and the Python side takes no heavy lock:
+      // a hand-started `--all` is invisible to us, so the press IS the interlock.
       row("2026-08-13-00-00-05", { step: "matte", hasCandidate: true, confirmed: true, hasSession: true }),
       row("2026-08-13-00-00-04", { step: "export", hasCandidate: true, confirmed: true }),
     ];
-    expect(run(rows).eligible).toEqual([{ name: "2026-08-13-00-00-04", step: "export" }]);
+    expect(run(rows).waiting).toEqual({
+      label: [],
+      export: ["2026-08-13-00-00-04"],
+      matte: ["2026-08-13-00-00-05"],
+      "model-read": ["2026-08-13-00-00-03"],
+    });
   });
 
-  it("leaves useless and archived games alone, PGN offer included", () => {
+  it("leaves useless and archived games alone", () => {
     const rows = [
-      row("2026-08-13-00-00-01", { step: null, useless: { at: "2026-08-14T20:00:00Z" }, offeredPgn: "g.pgn" }),
-      row("2026-08-13-00-00-02", { offeredPgn: "g.pgn" }, { archived: true }),
+      row("2026-08-13-00-00-01", { step: null, useless: { at: "2026-08-14T20:00:00Z" } }),
+      row("2026-08-13-00-00-02", {}, { archived: true }),
     ];
-    expect(run(rows)).toEqual({ eligible: [], repair: [], adopt: [] });
+    expect(run(rows)).toEqual({ waiting: NONE, repair: [] });
   });
 
   it("never starts on a broken recording — it goes to Reparatur with the atom chain's words", () => {
     const rows = [row("2026-08-13-12-12-18", { videoBroken: "no moov" })];
-    const { eligible, repair } = run(rows);
-    expect(eligible).toEqual([]);
+    const { waiting, repair } = run(rows);
+    expect(waiting).toEqual(NONE);
     expect(repair).toEqual([{ name: "2026-08-13-12-12-18", step: "label", reason: "no moov" }]);
   });
 
   it("says nothing about a bundle with no recording at all", () => {
-    expect(run([row("2026-08-08-11-55-19", { video: null })])).toMatchObject({ eligible: [], repair: [] });
+    expect(run([row("2026-08-08-11-55-19", { video: null })])).toEqual({ waiting: NONE, repair: [] });
   });
 });
 
-describe("plan — the no-retry marker", () => {
+describe("backlog — the no-retry marker", () => {
   const rows = [row("2026-08-14-09-23-19")];
 
   it("never repeats a step the ledger says failed", () => {
-    const { eligible, repair } = run(rows, ledger(job("2026-08-14-09-23-19", "label", "failed", "kein lens fit (exit 1)")));
-    expect(eligible).toEqual([]);
+    const { waiting, repair } = run(rows, ledger(job("2026-08-14-09-23-19", "label", "failed", "kein lens fit (exit 1)")));
+    expect(waiting).toEqual(NONE);
     expect(repair).toEqual([{ name: "2026-08-14-09-23-19", step: "label", reason: "kein lens fit (exit 1)" }]);
   });
 
   it("treats a skipped job the same — it could not run, so pressing it again is a human's call", () => {
     const marked = ledger(job("2026-08-14-09-23-19", "label", "skipped", "no sessions/ in the transfer"));
-    expect(run(rows, marked).eligible).toEqual([]);
+    expect(run(rows, marked).waiting).toEqual(NONE);
   });
 
   it("blocks only the step that failed: a failed pack does not stop the label", () => {
     const marked = ledger(job("2026-08-14-09-23-19", "pack", "failed", "no desktop distribution"));
-    expect(run(rows, marked).eligible).toEqual([{ name: "2026-08-14-09-23-19", step: "label" }]);
+    expect(run(rows, marked).waiting.label).toEqual(["2026-08-14-09-23-19"]);
   });
 
   it("a later job of ANOTHER kind does not clear the failed step's marker", () => {
@@ -121,28 +130,34 @@ describe("plan — the no-retry marker", () => {
       job("2026-08-14-09-23-19", "export", "failed", "export-session exited 1"),
       job("2026-08-14-09-23-19", "pack", "done"),
     );
-    const { eligible, repair } = run(confirmed, marked);
-    expect(eligible).toEqual([]);
+    const { waiting, repair } = run(confirmed, marked);
+    expect(waiting).toEqual(NONE);
     expect(repair).toEqual([{ name: "2026-08-14-09-23-19", step: "export", reason: "export-session exited 1" }]);
   });
 
   it("runs the NEXT step after a step that succeeded", () => {
     const confirmed = [row("2026-08-14-09-23-19", { step: "export", hasCandidate: true, confirmed: true })];
     const marked = ledger(job("2026-08-14-09-23-19", "label", "done"));
-    expect(run(confirmed, marked).eligible).toEqual([{ name: "2026-08-14-09-23-19", step: "export" }]);
+    expect(run(confirmed, marked).waiting.export).toEqual(["2026-08-14-09-23-19"]);
   });
 
   it("stays out of the way while a job of its own is queued or running", () => {
-    expect(run(rows, ledger(job("2026-08-14-09-23-19", "label", "running")))).toMatchObject({ eligible: [], repair: [] });
+    expect(run(rows, ledger(job("2026-08-14-09-23-19", "label", "running")))).toEqual({ waiting: NONE, repair: [] });
+  });
+
+  // A killed job is a decision, not a defect: the press that stopped it may press again.
+  it("a stopped job is no marker at all — Stopp does not send a recording to Reparatur", () => {
+    const marked = ledger(job("2026-08-14-09-23-19", "label", "stopped", "gestoppt"));
+    expect(run(rows, marked)).toEqual({ waiting: { ...NONE, label: ["2026-08-14-09-23-19"] }, repair: [] });
   });
 
   it("lets a repaired step run again — the marker is that STEP's last row, not a scar", () => {
     const marked = ledger(job("2026-08-14-09-23-19", "label", "failed", "x"), job("2026-08-14-09-23-19", "label", "done"));
-    expect(run(rows, marked).eligible).toEqual([{ name: "2026-08-14-09-23-19", step: "label" }]);
+    expect(run(rows, marked).waiting.label).toEqual(["2026-08-14-09-23-19"]);
   });
 });
 
-describe("plan — the boundary commit's 90-second export hold (§4.1.1)", () => {
+describe("backlog — the boundary commit's 90-second export hold (§4.1.1)", () => {
   const NOW = Date.parse("2026-08-15T12:00:00Z");
   const iso = (offsetMs: number) => new Date(NOW + offsetMs).toISOString();
   const confirmed = (name: string, at: string | null) =>
@@ -159,26 +174,26 @@ describe("plan — the boundary commit's 90-second export hold (§4.1.1)", () =>
   it("skips an export whose hold row is still in the future — the undo is free until then", () => {
     const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
     const held = run(rows, { ...ledger(hold("2026-08-13-19-34-23", iso(60_000))), now: NOW });
-    expect(held).toMatchObject({ eligible: [], repair: [] });
+    expect(held).toEqual({ waiting: NONE, repair: [] });
   });
 
   it("runs it once the hold has passed — an expired row is neither busy nor a failure", () => {
     const rows = [confirmed("2026-08-13-19-34-23", iso(-5 * 60_000))];
     const due = run(rows, { ...ledger(hold("2026-08-13-19-34-23", iso(-1000))), now: NOW });
-    expect(due.eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "export" }]);
+    expect(due.waiting.export).toEqual(["2026-08-13-19-34-23"]);
     expect(due.repair).toEqual([]);
   });
 
   it("skips a game confirmed seconds ago even with NO hold row — another client committed it", () => {
     const fresh = run([confirmed("2026-08-13-19-34-23", iso(-30_000))], { now: NOW });
-    expect(fresh).toMatchObject({ eligible: [], repair: [] });
+    expect(fresh).toEqual({ waiting: NONE, repair: [] });
     const aged = run([confirmed("2026-08-13-19-34-23", iso(-91_000))], { now: NOW });
-    expect(aged.eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "export" }]);
+    expect(aged.waiting.export).toEqual(["2026-08-13-19-34-23"]);
   });
 
   it("holds only the export: the same game's other steps are not this rule's business", () => {
     const rows = [row("2026-08-13-19-34-23", { step: "label", video: "v.mp4" }, { confirmedAt: iso(-1000) })];
-    expect(run(rows, { now: NOW }).eligible).toEqual([{ name: "2026-08-13-19-34-23", step: "label" }]);
+    expect(run(rows, { now: NOW }).waiting.label).toEqual(["2026-08-13-19-34-23"]);
   });
 
   it("a taken-back hold does not become a no-retry marker — nothing ever ran", () => {
@@ -190,22 +205,47 @@ describe("plan — the boundary commit's 90-second export hold (§4.1.1)", () =>
   });
 });
 
-describe("plan — model-read is nobody's automatic step", () => {
-  const session = (name: string) =>
-    row(name, { step: "model-read", hasCandidate: true, confirmed: true, hasSession: true });
+describe("waiting — what the step buttons's count and drain", () => {
+  const exported = { hasCandidate: true, confirmed: true, hasSession: true };
 
-  it("never queues one, and never reports one as broken either", () => {
-    expect(run([session("2026-08-08-00-39-57")])).toMatchObject({ eligible: [], repair: [] });
-  });
-});
-
-describe("plan — adopt-pgn", () => {
-  it("offers every bundle that carries a phone PGN and has no reference yet, oldest first", () => {
+  it("counts per job step, oldest recording first, and never a page step", () => {
     const rows = [
-      row("2026-08-14-09-23-19", { offeredPgn: "g.pgn", hasReference: false }),
-      row("2026-08-13-12-46-24", { offeredPgn: "g.pgn", hasReference: false }),
-      row("2026-08-12-01-18-44", { offeredPgn: null }),
+      row("2026-08-13-00-00-09", { step: "matte", ...exported }),
+      row("2026-08-13-00-00-01", { step: "matte", ...exported }),
+      row("2026-08-13-00-00-05", { step: "confirm", hasCandidate: true }),
+      row("2026-08-13-00-00-06", { step: "model-read", ...exported }),
+      row("2026-08-13-00-00-07", { step: "labeln", ...exported }),
+      row("2026-08-13-00-00-08", { step: "export", hasCandidate: true, confirmed: true }),
     ];
-    expect(run(rows).adopt).toEqual(["2026-08-13-12-46-24", "2026-08-14-09-23-19"]);
+    const { waiting } = run(rows);
+    expect(waiting.matte).toEqual(["2026-08-13-00-00-01", "2026-08-13-00-00-09"]);
+    expect(waiting["model-read"]).toEqual(["2026-08-13-00-00-06"]);
+    expect(waiting.export).toEqual(["2026-08-13-00-00-08"]);
+    expect(waiting.label).toEqual([]);
+  });
+
+  // The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out.
+  it("a matte session at its target waits on nothing; one below it waits", () => {
+    const settled: ChainState = { ...CHAIN, ...exported, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 } };
+    const open: ChainState = { ...settled, mattes: { done: 12, total: 394, target: 80 } };
+    expect(nextStep(settled)).toBe("labeln");
+    expect(nextStep(open)).toBe("matte");
+    const { waiting } = run([
+      row("2026-08-13-00-00-02", { ...settled, step: nextStep(settled) }),
+      row("2026-08-13-00-00-03", { ...open, step: nextStep(open) }),
+    ]);
+    expect(waiting.matte).toEqual(["2026-08-13-00-00-03"]);
+  });
+
+  it("the same blockers as the loop: a failed step and a busy recording are not waiting", () => {
+    const rows = [
+      row("2026-08-13-00-00-04", { step: "matte", ...exported }),
+      row("2026-08-13-00-00-05", { step: "matte", ...exported }),
+    ];
+    const waiting = run(rows, ledger(
+      job("2026-08-13-00-00-04", "matte", "failed", "SAM 3 hat abgelehnt"),
+      job("2026-08-13-00-00-05", "pack", "running"),
+    )).waiting;
+    expect(waiting.matte).toEqual([]);
   });
 });

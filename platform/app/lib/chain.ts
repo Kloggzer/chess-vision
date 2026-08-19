@@ -148,6 +148,31 @@ export async function adoptPgn(name: string): Promise<{ adopted: string } | { re
   return { adopted: path.basename(source) };
 }
 
+/**
+ * Every offered PGN adopted, wherever the queue is read — there is no ticker to do it any more.
+ * A refusal is remembered, not retried: it is the same news on every read until a human acts, and
+ * silence about it is the defect (see `docs/labeling-ux/CONCEPT.md` §5).
+ */
+export async function adoptOffered(names: readonly string[]): Promise<void> {
+  for (const name of names) {
+    if (refusals.has(name)) continue;
+    const adopted = await adoptPgn(name);
+    if ("reason" in adopted) refusals.set(name, `PGN ${name}: ${adopted.reason}`);
+  }
+}
+
+// Pinned so a hot reload cannot turn a remembered refusal back into work on every render.
+const refusals: Map<string, string> = ((globalThis as { __chesslabAdoptFailed?: Map<string, string> }).__chesslabAdoptFailed ??= new Map());
+
+export function adoptFailures(): string[] {
+  return [...refusals.values()];
+}
+
+/** A press is the human answering the refusal: ask again on the next read of the queue. */
+export function clearAdoptFailures(): void {
+  refusals.clear();
+}
+
 /** `phone` = the reference IS the phone's own move list, so confirming is a self-check. */
 export type ReferenceOrigin = "none" | "phone" | "outside";
 

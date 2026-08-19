@@ -1,15 +1,15 @@
 import { chainState } from "@/lib/chain";
 import { failureParts } from "@/lib/failure";
-import { repairPlan } from "@/lib/autopilot-engine";
+import { repairs } from "@/lib/drain";
 import { jobs } from "@/lib/jobs";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
 
 export const dynamic = "force-dynamic";
 
-// Failed steps never retry automatically — only manual press or fix moves them out.
+// A failed step is never taken again by a button — only a fix, or a press on the card here.
 export default async function RepairPage() {
-  const [repair, ledger] = await Promise.all([repairPlan(), jobs(500)]);
+  const [repair, ledger] = await Promise.all([repairs(), jobs(500)]);
   const lastJobs = new Map(ledger.map((job) => [job.name, job]));
   const rows = await Promise.all(
     repair.map(async (row) => ({ ...row, state: await chainState(row.name), lastJob: lastJobs.get(row.name) ?? null })),
@@ -20,7 +20,7 @@ export default async function RepairPage() {
       <PageTitle
         count={rows.length}
         title="Reparatur"
-        why="Schritte, die der Autopilot nicht mehr von selbst anfasst. Ein gescheiterter Schritt wird nie automatisch wiederholt — hier steht, woran er gescheitert ist, und der Knopf daneben ist der Mensch."
+        why="Schritte, die kein Knopf mehr anfasst: ein gescheiterter Schritt wird nie wiederholt. Hier steht, woran er gescheitert ist, und der Knopf daneben ist der Mensch."
       />
       <ul className="space-y-1.5">
         {rows.map((row) => (

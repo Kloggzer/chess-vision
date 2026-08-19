@@ -19,7 +19,6 @@ app/api/zuege/[name]/note/route.ts 7
 app/api/ingest/session/[name]/chunk/route.ts 8
 app/api/ingest/session/[name]/complete/route.ts 7
 lib/audit-flags.ts 8
-lib/autopilot.ts 6
 lib/chain.ts 9
 lib/corpus.ts 8
 lib/corrections.ts 8

@@ -25,6 +25,7 @@ const TONE: Record<Job["state"], "default" | "secondary" | "destructive" | "outl
   done: "default",
   failed: "destructive",
   skipped: "outline",
+  stopped: "outline",
 };
 
 /** The reason in the words that act on it: no path in the sentence, the log file name beside it. */

@@ -4,15 +4,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
-import {
-  claimHeavyLock,
-  heavyLockPath,
-  isPaused,
-  readHeavyLock,
-  releaseHeavyLock,
-  setPaused,
-  stale,
-} from "@/lib/autopilot-state";
+import { claimHeavyLock, heavyLockPath, readHeavyLock, releaseHeavyLock, stale } from "@/lib/heavy-lock";
 
 beforeEach(async () => {
   process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-lock-"));
@@ -61,13 +53,4 @@ test("release removes OUR lock and never a foreign one", async () => {
   await writeFile(heavyLockPath(), JSON.stringify(foreign), "utf8");
   await releaseHeavyLock();
   expect(existsSync(heavyLockPath())).toBe(true);
-});
-
-test("the pause outlives the process that set it — it is a file, not a flag", async () => {
-  expect(await isPaused()).toBe(false);
-  await setPaused(true);
-  // "Restart": nothing in memory is reused, the next process reads the same directory.
-  expect(await isPaused()).toBe(true);
-  await setPaused(false);
-  expect(await isPaused()).toBe(false);
 });

@@ -1,39 +1,22 @@
-// Non-wire-format state: pause outlives restart, lock serializes heavy jobs (no Python side).
+// Non-wire-format state: one lock serializes heavy jobs across processes (no Python side).
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readFile, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inboxDir } from "@/lib/ingest";
 
-export type PauseFile = { paused: boolean; at: string };
-/** Written while an Autopilot job runs: pid, what it is, since when (CONCEPT §5.5). */
+/** Written while a heavy job runs: pid, what it is, since when (CONCEPT §5.5). */
 export type HeavyLock = {
   /** Who CLAIMED the slot — the server, or a `chesslab` process writing this file itself. */
   pid: number;
   /** The job's own process, stamped once it exists. A killed job then frees the slot by dying;
-   *  without it the server's pid holds the lock forever and the Autopilot never runs again. */
+   *  without it the server's pid holds the lock forever and no press ever gets the slot. */
   childPid?: number;
   job: string;
   name: string;
   startedAt: string;
 };
 
-const pausePath = () => path.join(inboxDir(), "autopilot.json");
 export const heavyLockPath = () => path.join(inboxDir(), "heavy.lock");
-
-export async function isPaused(): Promise<boolean> {
-  try {
-    return (JSON.parse(await readFile(pausePath(), "utf8")) as PauseFile).paused === true;
-  } catch {
-    return false;
-  }
-}
-
-export async function setPaused(paused: boolean): Promise<PauseFile> {
-  const row: PauseFile = { paused, at: new Date().toISOString() };
-  await mkdir(inboxDir(), { recursive: true });
-  await writeFile(pausePath(), JSON.stringify(row, null, 2) + "\n", "utf8");
-  return row;
-}
 
 export async function readHeavyLock(): Promise<HeavyLock | null> {
   try {

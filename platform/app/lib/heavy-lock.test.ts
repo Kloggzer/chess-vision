@@ -17,7 +17,7 @@ afterEach(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const load = () => import("@/lib/autopilot-state");
+const load = () => import("@/lib/heavy-lock");
 
 test("a lock whose job died is stale, even while the claimer lives", async () => {
   const { stale } = await load();

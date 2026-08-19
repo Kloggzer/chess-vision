@@ -6,7 +6,7 @@
  * The split is pure so it can be tested without a data dir; only `queueRows` touches the disk.
  */
 import type { ChainState } from "@/lib/chain";
-import { chainState } from "@/lib/chain";
+import { adoptOffered, chainState } from "@/lib/chain";
 import { listFrameStems, listGames, loadCandidate } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
 
@@ -86,10 +86,18 @@ export async function bareFrames(name: string, chain: ChainState): Promise<numbe
   return (await listFrameStems(name)).length;
 }
 
+/**
+ * Bundles whose phone `.pgn` may become `reference.pgn`. Archived and useless ones are nobody's
+ * work right now, exactly as the queues treat them everywhere else.
+ */
+export function offeredPgns(rows: readonly QueueRow[]): string[] {
+  return rows.filter((r) => !r.archived && !r.chain.useless && r.chain.offeredPgn).map((r) => r.name);
+}
+
 /** Every game as a queue row. One candidate read per game, same as the home page does. */
 export async function queueRows(): Promise<QueueRow[]> {
   const names = await listGames();
-  return Promise.all(
+  const rows = await Promise.all(
     names.map(async (name) => {
       const [chain, meta, candidate] = await Promise.all([
         chainState(name),
@@ -107,4 +115,8 @@ export async function queueRows(): Promise<QueueRow[]> {
       };
     }),
   );
+  // The phone writes that PGN so it can be used, and `adoptPgn` never overwrites — so the read of
+  // the queue is where it lands now that nothing ticks. One row per bundle, once.
+  await adoptOffered(offeredPgns(rows));
+  return rows;
 }

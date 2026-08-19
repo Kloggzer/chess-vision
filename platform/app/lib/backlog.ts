@@ -5,31 +5,29 @@ import { recordedAt, type QueueRow } from "@/lib/queues";
 import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
 /**
- * The steps a machine can take alone. `confirm` and `labeln` are the human's; `model-read` needs a
- * `--model` no tick can choose (`chain-run.ts`), and `matte` holds the GPU for hours behind a lock
- * the Python side never takes — a hand-started `occluders alpha-worker --all` is invisible to it,
- * so the press IS the interlock. Both stay buttons.
+ * The chain steps that are JOBS — one button each. `confirm` and `labeln` are the human's pages.
+ * Nothing here ever starts by itself: every one of the four is a press (2026-08-18, "ich will die
+ * immer selbst starten"), which is also the interlock `matte` and `model-read` always needed.
  */
-export type MachineStep = "label" | "export";
+export type JobStep = "label" | "export" | "matte" | "model-read";
+export const JOB_STEPS = ["label", "export", "matte", "model-read"] as const satisfies readonly JobStep[];
 
-const MACHINE: ReadonlySet<ChainStep> = new Set<ChainStep>(["label", "export"]);
+const JOBS: ReadonlySet<ChainStep> = new Set<ChainStep>(JOB_STEPS);
 
-function isMachineStep(step: ChainStep | null): step is MachineStep {
-  return step !== null && MACHINE.has(step);
+export function isJobStep(step: string | null): step is JobStep {
+  return step !== null && JOBS.has(step as ChainStep);
 }
 
-export type Eligible = { name: string; step: MachineStep };
 /** A step that will not run again by itself: the human presses, or nothing happens (§5.4). */
-export type Repair = { name: string; step: MachineStep; reason: string };
-export type Plan = {
-  /** Runnable now, oldest recording first — the Autopilot takes the head and nothing else. */
-  eligible: Eligible[];
+export type Repair = { name: string; step: JobStep; reason: string };
+/** Per job step, the recordings sitting on it, oldest first — the backlog one press drains. */
+export type Waiting = Record<JobStep, string[]>;
+export type Backlog = {
+  waiting: Waiting;
   repair: Repair[];
-  /** Bundles whose phone `.pgn` can become `reference.pgn` — free, and never overwrites. */
-  adopt: string[];
 };
 
-export type PlanInput = {
+export type BacklogInput = {
   rows: QueueRow[];
   /** Name → the last job the ledger holds for it, of any kind. Only "is this recording busy". */
   lastJobs: Map<string, Job>;
@@ -61,25 +59,23 @@ function freshlyConfirmed(row: QueueRow, now: number): boolean {
 
 /** Oldest first: the backlog drains in the order it was recorded, never newest-first like the queues. */
 const byRecording = (a: string, b: string) => recordedAt(a).localeCompare(recordedAt(b)) || a.localeCompare(b);
-const oldestFirst = <T extends { name: string }>(rows: T[]) => [...rows].sort((a, b) => byRecording(a.name, b.name));
+
+const noneWaiting = (): Waiting => ({ label: [], export: [], matte: [], "model-read": [] });
 
 /**
- * The whole tick's decision in one pass.
- *
- * `useless` and `archived` are out by the same filters the queues apply — both flags mean "not my
- * work right now", and an autopilot that ignores them is the one thing they exist to prevent.
+ * What waits on which step, in one pass over the disk state the cards already read. `useless` and
+ * `archived` are out by the same filters the queues apply — both flags mean "not my work right
+ * now", and a button that counts them is the one thing they exist to prevent.
  */
-export function plan({ rows, lastJobs, lastSteps, now = Date.now() }: PlanInput): Plan {
-  const eligible: Eligible[] = [];
+export function backlog({ rows, lastJobs, lastSteps, now = Date.now() }: BacklogInput): Backlog {
+  const waiting = noneWaiting();
   const repair: Repair[] = [];
-  const adopt: string[] = [];
 
   for (const row of rows) {
     const { chain } = row;
     if (row.archived || chain.useless) continue;
-    if (chain.offeredPgn) adopt.push(row.name);
     const step = chain.step;
-    if (!isMachineStep(step)) continue;
+    if (!isJobStep(step)) continue;
     // A bundle with no recording has nothing to replay; a broken one costs ten minutes of decoding
     // to learn what the atom chain already said. Neither is a job, and only the second is a defect.
     if (step === "label" && chain.video === null) continue;
@@ -95,8 +91,9 @@ export function plan({ rows, lastJobs, lastSteps, now = Date.now() }: PlanInput)
       continue;
     }
     if (blocked) continue;
-    eligible.push({ name: row.name, step });
+    waiting[step].push(row.name);
   }
 
-  return { eligible: oldestFirst(eligible), repair: oldestFirst(repair), adopt: adopt.sort(byRecording) };
+  for (const step of JOB_STEPS) waiting[step].sort(byRecording);
+  return { waiting, repair: repair.sort((a, b) => byRecording(a.name, b.name)) };
 }

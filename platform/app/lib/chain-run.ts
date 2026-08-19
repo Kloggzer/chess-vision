@@ -1,7 +1,7 @@
-// Single door for button & autopilot; lock taken here (not loop) — button must respect it too.
+// Single door for every press; the lock is taken HERE, so no two heavy jobs can overlap.
 import { chainState, type ChainState } from "@/lib/chain";
-import { claimHeavyLock, releaseHeavyLock } from "@/lib/autopilot-state";
-import { enqueueChain, enqueueLabel, modelReadRun, type Job } from "@/lib/jobs";
+import { claimHeavyLock, releaseHeavyLock } from "@/lib/heavy-lock";
+import { enqueueChain, enqueueLabel, modelReadRun, runningJob, type Job } from "@/lib/jobs";
 
 export type StepRefusal = { error: string; state: ChainState; status: 400 | 409 };
 
@@ -18,6 +18,13 @@ export async function startStep(name: string, step: string, lens?: boolean): Pro
   // trained on this session, so a missing choice is a question for a human, not a failed job.
   if (state.step === "model-read" && !modelReadRun()) {
     return { error: "kein Modell gewählt — CHESSLAB_MODEL_READ_RUN auf ein Run-Verzeichnis setzen, das NICHT auf dieser Session trainiert hat", state, status: 409 };
+  }
+
+  // Refused, not queued: a press is a decision about what the panel shows RIGHT NOW, and a job
+  // that starts minutes later, unwatched, is how three SAM workers ended up on one GPU (2026-08-19).
+  const running = runningJob();
+  if (running) {
+    return { error: `es läuft schon ${running.kind ?? "ein Job"} ${running.name} — erst Stopp drücken oder abwarten`, state, status: 409 };
   }
 
   const lock = await claimHeavyLock(state.step, name);

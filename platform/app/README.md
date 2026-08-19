@@ -81,20 +81,22 @@ second, explicit press. `replay … label lens` is fail-closed by design (specs/
 camera corrects itself — its grid fit is refused every time (TODO.md, 2026-08-10), so without that
 second button the step is impossible for exactly the recordings the LAN transfer delivers.
 
-## Autopilot — the chain runs itself (Phase 1 of `docs/labeling-ux/CONCEPT.md` §5)
+## Die Schritte — vier Knöpfe, sonst nichts (Phase 1 of `docs/labeling-ux/CONCEPT.md` §5)
 
-Six machine steps and seventeen PGN copies were sitting on disk waiting for a human to notice a
-card. They are all pure functions of disk state, so a loop runs them:
+There is **no ticker**. Nothing starts a job except a press — the user's call on 2026-08-18
+("entferne das AUTOPILOT DING ich will die immer selbst starten"), and now a correctness rule:
+starting the dev server must not touch the corpus.
 
-- **The ticker** is `instrumentation.ts` → `lib/autopilot-engine.ts`: `register()` runs once per
-  server process (Node runtime, never during `next build`), starts a 30 s `setInterval` and pins it
-  to `globalThis` like `lib/jobs.ts`'s queue. A finished job ticks again at once. **No browser is
-  involved** — close every tab and the backlog still drains.
-- **The picker** (`lib/autopilot.ts`, pure and tested) takes the **oldest** non-`useless`,
-  non-`archived` game whose `nextStep()` is a machine step (`label`, `export`) and runs
-  it through `lib/chain-run.ts` — the same door the button uses, which re-reads the disk and 409s on
-  a step that is not the next one. `adopt-pgn` is done for every bundle that carries a phone `.pgn`
-  and has no `reference.pgn` (`adoptPgn` never overwrites).
+- **The panel** (`app/shell.tsx` → `app/drain-status.tsx`, `GET/POST /api/drain`) is the app's
+  primary control: one big button per job step (`label`, `export`, `matte`, `model-read`), each
+  carrying the number of recordings waiting on it, plus the line that says what runs right now.
+- **A press drains that step**: oldest recording first, one at a time, through `lib/chain-run.ts` —
+  the same door the card button uses, which re-reads the disk and 409s on a step that is not the
+  next one. **Stopp** ends the drain after the recording in the slot; it never kills a running job.
+  Only one drain exists at a time, because the slot is one.
+- **The counts** come from `lib/backlog.ts` (pure and tested): per step, every non-`useless`,
+  non-`archived` recording whose `nextStep()` is that step and whose ledger says it is neither busy
+  nor failed. `lib/drain.ts` caches one pass for 10 s, so polling does not re-walk `realgames/`.
 - **Never a retry.** The marker is the job ledger's last row for that recording: `kind` names the
   step, `failed`/`skipped` means a human presses or nothing happens. Those rows are the
   **`/reparatur`** lane, with the tool's own last words and the manual button.
@@ -102,19 +104,18 @@ card. They are all pure functions of disk state, so a loop runs them:
   Reparatur instead of a ten-minute decode.
 - **Lens** is decided before the run by `lensFor` and never retried around; a label run without
   barrel correction carries `lens: false` in its job row and says `gelabelt OHNE Linsen-Korrektur`.
-- **`model-read` is not a machine step.** `realgames model-read` REQUIRES `--model <run dir>` and
-  refuses a run that trained on the session (`check_not_circular`), so which run is right is a
-  per-session choice no tick can make. The button reads `CHESSLAB_MODEL_READ_RUN` and 409s with
-  that sentence when it is unset. Guard 5 (the 10-minute labeling hold) went with it: nothing the
-  loop runs rewrites a session's files under a labeler's cursor any more.
-- **`$CHESSLAB_DATA_DIR/inbox/heavy.lock`** (`{pid, job, name, startedAt}`) is written while an
-  Autopilot job runs. A *foreign* live lock stops the start; a stale one (pid gone) is overwritten.
-  It is one-directional until a terminal tool honours it, which is why the strip prints the rule:
-  **Autopilot pausieren, bevor ein Trainingslauf startet.**
-- **The strip** sits on every page (`app/autopilot-strip.tsx`, `GET/POST /api/autopilot`): state,
-  queue length, Reparatur count, pause toggle. The pause lives in
-  `$CHESSLAB_DATA_DIR/inbox/autopilot.json` and survives a restart. Neither file is a wire format;
-  nothing in Python reads them.
+- **`model-read` needs a model.** `realgames model-read` REQUIRES `--model <run dir>` and refuses a
+  run that trained on the session (`check_not_circular`), so the button reads
+  `CHESSLAB_MODEL_READ_RUN` and 409s with that sentence when it is unset — on the button, not in a
+  log nobody reads.
+- **`adopt-pgn` rides on the queue read** (`lib/queues.ts` → `chain.adoptOffered`): every bundle
+  that carries a phone `.pgn` and has no `reference.pgn` gets one, whenever any page reads the
+  queue. `adoptPgn` never overwrites, and a refusal is remembered and printed in the panel instead
+  of retried on every render.
+- **`$CHESSLAB_DATA_DIR/inbox/heavy.lock`** (`{pid, job, name, startedAt}`) is written while a
+  pressed job runs. A *foreign* live lock stops the start; a stale one (pid gone) is overwritten.
+  It is one-directional until a terminal tool honours it, which is why the panel names the holder:
+  a `chesslab` run started in a terminal is visible there, not silently overrun.
 
 `slice`, `dataset build` and `train` are **not** in this vocabulary, and the slot stays a single
 serialized promise chain — the same one worker `lib/jobs.ts` has always had.
