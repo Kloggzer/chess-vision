@@ -58,9 +58,9 @@ export const LANES: readonly Lane[] = [
     label: "Stichprobe",
     renderer: "cells",
     unit: "Zellen",
-    // Its own corpus: the sample is drawn from the session log, so it covers every exported
-    // recording instead of the one session a model has read.
-    denominator: "Kontroll-Stichprobe über die ruhigen Frames der exportierten Sessions",
+    // Its own corpus, and it renews: the draw is a fresh one over the still UNBEURTEILTEN quiet
+    // cells of every exported session, not a fixed list that retires once it is answered.
+    denominator: "Kontroll-Stichprobe über die noch unbeurteilten ruhigen Zellen der exportierten Sessions",
   },
   { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
   {
@@ -92,6 +92,13 @@ export const NO_AUDIT =
   "data/manifests/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
 export const NO_RULES =
   "data/manifests/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
+
+/** What an empty lane says. Only the Stichprobe can run DRY — it redraws over the unjudged cells,
+ *  so nothing left there means the corpus is through, not that no work has arrived yet. */
+export const laneEmpty = (id: LaneId): string =>
+  id === "control"
+    ? "Stichprobe erschöpft — jede ruhige Zelle des Korpus trägt ein Urteil."
+    : "Diese Lane ist leer — nichts wartet hier auf ein Urteil.";
 
 export type LaneCount = {
   /** OPEN items — the stream shows nothing else. `null` = the producer owes this lane its input. */

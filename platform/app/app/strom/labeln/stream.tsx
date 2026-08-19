@@ -22,6 +22,7 @@ import {
   laneChip,
   laneCount,
   laneById,
+  laneEmpty,
   laneOpen,
   lanePath,
   laneReads,
@@ -612,9 +613,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       <div className="gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_212px]">
         <div>
           {length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Diese Lane ist leer — nichts wartet hier auf ein Urteil.
-            </p>
+            <p className="text-muted-foreground text-sm">{laneEmpty(lane)}</p>
           ) : phone ? (
             <MobileSort
               actionsRef={actions}

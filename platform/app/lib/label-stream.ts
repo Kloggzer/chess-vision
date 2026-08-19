@@ -235,7 +235,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
       stem,
       Object.fromEntries(Object.entries(frame.coverage).filter(([, v]) => v > 0)),
     ])));
-    cells.push(...controlCells(index, stems, byStem));
+    cells.push(...controlCells(index, stems, byStem, judged));
     bySession.set(id, { index, byStem });
   }
 
@@ -253,36 +253,74 @@ export async function loadLabelStream(): Promise<LabelStream> {
   };
 }
 
-/** Cells the control takes per recording — enough to estimate a rate, few enough to be finished. */
+/** Cells the control takes per recording — enough to estimate a rate, few enough for one sitting. */
 const CONTROL_MAX = 180;
+const SQUARES = 64;
 
 /**
- * The control sample, from the session log alone: settled frames (the exporter saw no hand), one
- * square each, spread over the whole recording. It asks the question that is left — does the piece
- * the FEN names really stand there — on cells no flag pointed at, which is the unflagged-remainder
- * estimate the k-fold audit owes (CONCEPT.md 4.2).
+ * FNV-1a over a frame stem. The draw has to come out the same on every load of the same ledger, or
+ * the list would resize under the cursor while the user commits (`lib/lanes.ts` `openCells`) — so
+ * the spread comes from a hash of the data, never from `Math.random`.
+ */
+function hash(key: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+}
+
+/** The frame's first square without a verdict, in steps of 7 — coprime with 64, so the walk sees
+ *  every square, and the hashed start keeps the sample off one file. */
+function freeSquare(stem: string, judged: Map<string, string>): string | null {
+  const start = hash(stem) % SQUARES;
+  for (let j = 0; j < SQUARES; j++) {
+    const at = (start + j * 7) % SQUARES;
+    const square = `${FILES[at % 8]}${1 + Math.floor(at / 8)}`;
+    if (!judged.has(`${stem}|${square}`)) return square;
+  }
+  return null;
+}
+
+/**
+ * The control sample: settled frames (the exporter saw no hand), one square each, one per equal
+ * slice of the recording. It is drawn from the UNJUDGED cells, and that is the point — the k-fold
+ * audit owes an estimate of the error rate where nobody has ruled yet (CONCEPT.md 4.2), and a cell
+ * with a verdict is measured, not estimated. Excluding them keeps the sample unbiased for that
+ * population AND lets it renew: the old blind stride redrew the same 2 336 cells until they retired.
  */
 function controlCells(
   index: number,
   stems: readonly SessionRow[],
   byStem: Map<string, StreamBoard>,
+  judged: Map<string, string>,
 ): StreamCell[] {
-  const settled = stems.filter((r) => r.phase === "settled");
-  const stride = Math.max(1, Math.floor(settled.length / CONTROL_MAX));
+  const settled = stems.filter((r) => r.phase === "settled" && byStem.has(r.stem));
+  const verdicts = new Map<string, number>();
+  for (const key of judged.keys()) {
+    const stem = key.slice(0, key.indexOf("|"));
+    verdicts.set(stem, (verdicts.get(stem) ?? 0) + 1);
+  }
+  const strata = Math.min(CONTROL_MAX, settled.length);
   const out: StreamCell[] = [];
-  for (let i = 0, n = 0; i < settled.length && out.length < CONTROL_MAX; i += stride, n++) {
-    const row = settled[i];
-    const board = byStem.get(row.stem);
-    if (!board) continue;
-    // 7 is coprime with 64, so consecutive frames walk every square before one repeats.
-    const at = (n * 7) % 64;
-    const square = `${FILES[at % 8]}${1 + Math.floor(at / 8)}`;
+  for (let s = 0; s < strata; s++) {
+    const to = Math.floor(((s + 1) * settled.length) / strata);
+    let pick: SessionRow | undefined;
+    let rank = Number.POSITIVE_INFINITY;
+    // Fewest verdicts wins the slice: that is what makes the next sitting move to another frame
+    // instead of walking this one square by square.
+    for (let i = Math.floor((s * settled.length) / strata); i < to; i++) {
+      const row = settled[i];
+      const n = verdicts.get(row.stem) ?? 0;
+      const score = n * 2 ** 32 + hash(row.stem);
+      if (n < SQUARES && score < rank) [rank, pick] = [score, row];
+    }
+    const square = pick ? freeSquare(pick.stem, judged) : null;
+    if (!pick || !square) continue;
     out.push({
       session: index,
-      pos: board.pos,
-      stem: row.stem,
+      pos: byStem.get(pick.stem)!.pos,
+      stem: pick.stem,
       square,
-      fen_label: fenLabels(row.fen)[square] ?? "empty",
+      fen_label: fenLabels(pick.fen)[square] ?? "empty",
     });
   }
   return out;
