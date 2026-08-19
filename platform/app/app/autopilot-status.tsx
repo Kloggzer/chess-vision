@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AutopilotStatus } from "@/lib/autopilot-engine";
 
 const POLL_MS = 5000;
@@ -13,13 +13,12 @@ export type Autopilot = {
 
 /**
  * The machine's state, polled on every page — it works whether or not a tab is open on the right one.
- * `mounted` gates the first paint: the strip is client-driven, and SSR markup only produced
- * hydration targets for whatever edits the DOM before React loads.
+ * No mounted-gate: SSR already renders `status === null`, so a gate changes nothing there, but it
+ * makes every re-render during hydration fall back to null and mismatch the DOM the poll just wrote.
  */
 export function useAutopilot(): Autopilot {
   const [status, setStatus] = useState<AutopilotStatus | null>(null);
   const [busy, setBusy] = useState(false);
-  const mounted = useSyncExternalStore(subscribeNever, snapshotTrue, snapshotFalse);
 
   useEffect(() => {
     const read = () =>
@@ -41,12 +40,8 @@ export function useAutopilot(): Autopilot {
       .finally(() => setBusy(false));
   }, [status]);
 
-  return { status: mounted ? status : null, busy, toggle };
+  return { status, busy, toggle };
 }
-
-const subscribeNever = () => () => {};
-const snapshotTrue = () => true;
-const snapshotFalse = () => false;
 
 export function autopilotState(status: AutopilotStatus | null): string {
   if (!status) return "…";
