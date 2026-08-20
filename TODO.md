@@ -420,3 +420,27 @@ da fehlt also nichts. Genau **6 Videos** existierten nur auf dem Gerät (2,4 GB,
 
 Die Entscheidung bleibt trotzdem offen: sollen die Quellvideos beim Export automatisch mitkommen,
 damit dieser Zustand nicht wieder entsteht?
+
+## Parität zwischen den webp-Exporten (2026-08-21)
+
+**Ziel: bytegleiche Frames.** Kotlins `training-video-pack` und die Python-Kette
+(`export-session` → `slice`) schneiden aus **derselben** Quelle — demselben Video, derselben
+Aufnahme — und müssen dasselbe Bild liefern. Heute ist das ungeprüft.
+
+Gemessen an `2026-08-15-22-48-04`: Kotlin nimmt 238 Frames und schreibt 15 232 Crops in
+`training-pack/accepted/`, Python schneidet 17 114. Die Zahlen dürfen abweichen — die beiden
+wählen bewusst verschieden aus —, aber **wo beide denselben Frame und dasselbe Feld schneiden,
+müssen die Bytes gleich sein.**
+
+Der Test dafür: eine Aufnahme, die beides hat (11 der 43 haben ein `training-pack`), die
+Schnittmenge über (Frame, Feld) bilden und `sha256` je Crop vergleichen. Eine Abweichung ist eine
+echte Divergenz in Warp, Mesh-Schnitt, Resize oder webp-Kodierung — und dann ist zu klären, welche
+Seite recht hat.
+
+Warum das zählt: die Geometrie ist über `mesh_crop_parity.json` schon dreifach gepinnt (Python,
+Kotlin, TS, auf `1e-9`) — aber das pinnt **Kästchen-Koordinaten, nicht Pixel**. Kein Test hat je
+ein Bild verglichen. Solange das offen ist, kann ein Modell auf Crops trainiert werden, die anders
+aussehen als die, die der Tracker auf dem Gerät sieht.
+
+Verwandt: der Sampler-Unterschied zwischen Python (`cv2.resize`, `INTER_AREA` beim Verkleinern) und
+der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser Datei.

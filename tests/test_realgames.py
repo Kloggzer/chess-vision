@@ -509,9 +509,9 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
         for i in (30, 60, 90)
     ]
 
-    from chesslab.realgames import _field_profile
-
-    stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8))
+    from chesslab.realgames import _field_profile, disk_frames
+    stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8),
+                             frames=disk_frames(tmp_path, rows))
 
     # `hands: 3` is the groove read's documented "full resolution or nothing": at 1 px per cell
     # every edge segment reads missing, so it accuses the whole board. Real exports run at 928+

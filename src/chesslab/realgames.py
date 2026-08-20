@@ -839,12 +839,23 @@ def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator
                 break
 
 
+def disk_frames(session_dir: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
+    """(row, frame) read from `frames/NNNNNN.png` — the source for a set the video cannot make.
+
+    The sibling of `stream_frames`. Undistorted frames are Kotlin's output and a re-decode of the
+    raw video would produce a different picture, so those rows come off the disk; everything else
+    streams. One exporter, two sources, chosen by the caller.
+    """
+    for row in rows:
+        yield row, cv2.imread(str(session_dir / row["frame"]))
+
+
 def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
-                     frames: Iterator[tuple[dict, Any]] | None = None) -> dict:
+                     frames: Iterator[tuple[dict, Any]]) -> dict:
     """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
 
-    `frames`: (row, picture) pairs from `stream_frames`; without it every row is read from
-    `frames/`, the path a session predating the board store takes.
+    `frames`: (row, picture) pairs — `stream_frames` or `disk_frames`. Required: which pictures
+    to fit is the caller's decision, not a fallback guessed at here.
 
     The candidate carries one median quad for the whole video, and a median is not a measurement
     of any single frame: rg-2026-08-13-19-34-23 went out with all 137 frames uniformly ~17 px off
@@ -865,8 +876,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
     worsts, meshed, hands, boards, late = [], 0, 0, 0, 0
     pad = crop_border_px(profile)
-    pairs = frames if frames is not None else (
-        (row, cv2.imread(str(session_dir / row["frame"]))) for row in rows)
+    pairs = frames
     seen = []
     for done, (row, frame) in enumerate(pairs, 1):
         seen.append(row)
@@ -1090,7 +1100,8 @@ def export_session(
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
             stats = fit_rows_to_grid(
                 session_dir, rows, load_profile(EXPORT_PROFILE),
-                frames=None if on_disk else stream_frames(video_path(name), rows, rotation))
+                frames=(disk_frames(session_dir, rows) if on_disk
+                        else stream_frames(video_path(name), rows, rotation)))
             # What the decoder actually handed over — a row past the end of a truncated recording
             # has no picture, and carrying it would name a board that was never written.
             rows = stats["arrived"]
