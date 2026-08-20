@@ -66,7 +66,7 @@ const val MESH_TILT_LIMIT: Double = 0.05
 /** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
 const val MESH_CURV_LIMIT: Double = 0.08
 
-/** Simultaneous corner evaluations — argued at [meshCellQuadExact], shared with the fixture. */
+/** Simultaneous evaluations per point — three leaves the residual far inside a pixel. */
 const val CORNER_ITERATIONS: Int = 3
 
 /**

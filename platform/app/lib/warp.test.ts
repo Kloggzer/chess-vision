@@ -75,7 +75,7 @@ test("the crop box is square_to_crop_box, pads included", () => {
   expect([e2.x0, e2.y0]).toEqual([464, 696]);
 });
 
-/** The SAME fixture `MeshCropParityTest.kt` pins `meshCropBoxExact` on — one file, two readers. */
+/** The SAME fixture `MeshPointParityTest.kt` pins `meshPoint` on — one file, three readers. */
 const MESH_FIXTURE = JSON.parse(
   readFileSync(
     path.join(
