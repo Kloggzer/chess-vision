@@ -256,6 +256,10 @@ def main() -> None:
     d, _ = sessions.session_dir(args.session)
     prof = labeling._profile_for_session(labeling.read_session_meta(d), None)
     log = labeling.read_log(d)
+    gone = sessions.missing_source_frames(d, log)
+    if gone:
+        print(f"[FAIL] {args.session}: {gone}")
+        return 1
     rows = list(enumerate(log))[::max(1, args.sample)]
     cell = prof.board_size / 8
     print(f"session {args.session}: {len(log)} frames, checking {len(rows)}, "

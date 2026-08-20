@@ -61,35 +61,11 @@ def _root() -> None:
 @app.command()
 def doctor(
     gpu: bool = typer.Option(False, "--gpu", help="Also run ROCm/PyTorch GPU validation (required before training)."),
-    camera: int | None = typer.Option(None, "--camera", help="Camera check for index N (open + read one frame)."),
     json_out: bool = typer.Option(False, "--json", help="Also output machine-readable JSON report."),
 ) -> None:
-    """Pre-flight: validate Python, app deps, optional GPU (ROCm) and camera."""
-    code = doctor_mod.run(gpu=gpu, camera=camera, json_out=json_out)
+    """Pre-flight: validate Python, app deps and optional GPU (ROCm)."""
+    code = doctor_mod.run(gpu=gpu, json_out=json_out)
     raise typer.Exit(code)
-
-
-@app.command()
-def cameras(
-    index: int | None = typer.Option(None, "--index", help="Probe only this camera index (else all)."),
-    probe: bool = typer.Option(True, "--probe/--no-probe", help="Measure the real resolutions/fps per index."),
-    grab: int = typer.Option(20, "--grab", help="Frames to time per mode when probing."),
-) -> None:
-    """List connected cameras and probe the resolutions/fps they REALLY deliver.
-
-    The name/index list shows what's connected; the probe table forces MJPG and times real
-    frames per mode (CAP_PROP_FPS lies). USB 4K cams need a direct USB-3 port to reach 4K."""
-    from .camera import cli_cameras
-    raise typer.Exit(cli_cameras(index=index, do_probe=probe, grab=grab))
-
-
-@calibrate_app.command("check")
-def calibrate_check(
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profile name."),
-    camera: int = typer.Option(0, "--camera", help="Camera index."),
-) -> None:
-    """Live overlay of the 8×8 grid on the camera image for visual inspection."""
-    raise typer.Exit(calibration_mod.calibrate_check(camera=camera, profile=profile))
 
 
 @calibrate_app.command("list")
@@ -107,50 +83,7 @@ def calibrate_markers(
     """Generate printable ArUco marker sheet (glue onto a8/h8/h1/a1)."""
     p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
     print(f"[OK] Marker sheet: {p} — print out, cut out, glue one marker centered on each "
-          "corner a8/h8/h1/a1. Then run `chesslab calibrate auto`.")
-
-
-@calibrate_app.command("auto")
-def calibrate_auto(
-    camera: int = typer.Option(0, "--camera"),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
-    board_size: int = typer.Option(config.DEFAULT_BOARD_SIZE, "--board-size"),
-    dict_name: str = typer.Option("DICT_4X4_50", "--dict"),
-    margin: float = typer.Option(config.DEFAULT_MARKER_MARGIN, "--margin", help="Fraction by which markers sit OUTSIDE the board (adjust live in --preview with w/e)."),
-    min_markers: int = typer.Option(4, "--min-markers", help="Required markers (4 = robust; 2/3 only useful with top-down camera)."),
-    preview: bool = typer.Option(False, "--preview", help="Show marker box + board box live (adjust with w/e, s=save)."),
-) -> None:
-    """Auto-calibrate via ArUco markers (markers outside, board inset; no clicking)."""
-    raise typer.Exit(calibration_mod.calibrate_auto(camera=camera, profile=profile, board_size=board_size,
-                                                    dict_name=dict_name, margin=margin, preview=preview,
-                                                    min_markers=min_markers))
-
-
-@lens_app.command("calibrate")
-def lens_calibrate(
-    camera: int = typer.Option(0, "--camera", help="Camera index (the rig camera whose lens this is)."),
-    out: str = typer.Option(None, "--out", help="Target .npz (default: data/lens/calib.npz)."),
-    min_frames: int = typer.Option(15, "--min-frames", help="Minimum accepted views before solving."),
-    cols: int = typer.Option(7, "--cols", help="INNER corners across (7 for a normal 8x8 board)."),
-    rows: int = typer.Option(7, "--rows", help="INNER corners down (7 for a normal 8x8 board)."),
-    square_mm: float = typer.Option(1.0, "--square-mm", help="Square edge length (world scale only; K/D do not depend on it)."),
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing calibration file."),
-    alpha: float = typer.Option(None, "--alpha", help="0 = no black borders, 1 = keep all pixels (default: config.LENS.alpha)."),
-) -> None:
-    """Measure the lens distortion by waving a printed chessboard in front of the camera.
-
-    Frames are captured AUTOMATICALLY (novel pose + cooldown), a live HUD shows which image
-    regions are still uncovered, and the solve starts by itself once coverage is adequate.
-    Keys: q = quit, space = force capture, u = undo last.
-
-    WARNING: with the 5-50 mm VARIFOCAL lens the result is only valid at the zoom/focus it
-    was shot at. Re-run this after touching the lens ring, otherwise undistortion silently
-    bends straight lines the wrong way. Board profiles are re-stamped automatically.
-    """
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_calibrate(camera=camera, out=out, min_frames=min_frames,
-                                             cols=cols, rows=rows, square_mm=square_mm,
-                                             force=force, alpha=alpha))
+          "corner a8/h8/h1/a1.")
 
 
 @lens_app.command("calibrate-board")
@@ -282,10 +215,7 @@ def session_settle_scan(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
         r = _session_call(sessions_mod.settle_scan_session, sid)
@@ -314,10 +244,7 @@ def session_boards(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
         r = _session_call(sessions_mod.write_boards_session, sid)
@@ -376,10 +303,7 @@ def session_park_frames(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     total = 0.0
     for sid in ids:
         r = _session_call(sessions_mod.park_frames_session, sid)
@@ -762,6 +686,21 @@ def session_trim(
     r = _session_call(sessions_mod.trim_session, session, keep)
     print(f"[OK] {session} trimmed to {keep} frames — "
           f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")
+
+
+def _target_sessions(session: str | None, every: bool) -> list[str]:
+    """One session, or every ACTIVE one — archived sessions stay out of bulk verbs.
+
+    Archiving is a retirement with a stated reason; re-boarding or re-parking one behind the
+    user's back undoes that. `list_sessions` returns both kinds, so the filter belongs here.
+    """
+    if not (session or every):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    if not every:
+        return [session]
+    from . import sessions as sessions_mod
+    return [s["session_id"] for s in sessions_mod.list_sessions() if not s["archived"]]
 
 
 def _session_call(fn, *args):

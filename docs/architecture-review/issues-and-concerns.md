@@ -64,6 +64,41 @@ Read them as a record of what the code once did.
   the synthetic adapter (without Blender, against example JSON).
 - **Severity:** Critical (synthetic) / High (move_tracker)
 
+### C4 — chesslib Applies Illegal Moves, Even With `fullValidation = true` (Android/Kotlin)
+
+- **Issue:** `Board.doMove(move)` does **not** check legality — and neither does
+  `doMove(move, fullValidation = true)`. Measured 2026-08-03 (`specs/42`): handed `e2e5` from the
+  start position it moves the pawn to e5 and **returns**. The boolean return value is therefore not
+  an illegality signal either.
+- **Impact:** Every position after such a ply is a fabrication that the screen renders as fact, or
+  that a labeler writes out as training data. This is a **live footgun for any new replay, review or
+  export code** — the API reads as if it validated.
+- **The rule:** call `MoveGenerator.generateLegalMoves(board)` and check membership **first**; an
+  unplayable ply is a no-op. Never rely on `fullValidation` and never on `doMove`'s return.
+- **Already guarded:** `games/GameView.kt:92-93` (pinned by
+  `GameViewTest.anIllegalStoredPlyIsANoOpAndNeverMovesAPiece`), `games/LiveGame.kt:113`
+  (`continues()`), `games/SeamClosing.kt:82-105,221-248`, `analysis/GameReview.kt:482-509`
+  (`lineFrames`), `analysis/MateLineResolver.kt:79-81`, `analysis/OpeningBook.kt:81-152`,
+  `core-cnn/cnn/Recovery.kt:100,181,194`, `core-cnn/cnn/DeepSearch.kt:110`,
+  `desktop/PhoneLog.kt:164-170` (`Board.moveTo`).
+- **Not guarded (found 2026-08-20, unfixed):**
+  - `desktop/PhoneLog.kt:116` and `desktop/TrainingVideoPack.kt:136` both do
+    `require(board.doMove(Move(uci, board.sideToMove))) { "... illegal move ..." }` — **those
+    `require`s cannot fire** on an illegal-but-well-formed UCI, because `doMove` returns anyway.
+    `TrainingVideoPack` generates *labeled training data* from the resulting positions.
+    `PhoneLog.kt:164-170` in the same file already does it correctly, so the fix pattern is local.
+  - `core-cnn/cnn/Recovery.kt:127` (`verifyMove`) and `:145` (`verifyMoveIdentity`) build a move
+    with a bare `Move(uci, sideToMove)` (`:288-290`) and `doMove` it with no membership check. The
+    UCI arrives from outside as a string; an illegal one silently yields a fabricated `after` board
+    that occupancy/identity agreement is then scored against.
+  - `games/LiveGame.kt:177` (`positionsAfter`) wraps `doMove` in `runCatching` only. `continues()`
+    checks the sequence's **first** ply on the argument that the engine generated the rest — which
+    holds only while the emitter really is the engine.
+  - `core-engine/Game.kt:46-48` (`push`) is unguarded **by design** — the raw primitive; every
+    caller found feeds it from `legalMoves()`.
+- **Severity:** Critical (data integrity, via `TrainingVideoPack`) / High (fabricated positions
+  rendered as fact)
+
 ---
 
 ## HIGH

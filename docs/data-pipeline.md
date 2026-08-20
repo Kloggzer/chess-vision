@@ -685,6 +685,8 @@ they are reproducible outputs, not inputs.
 - `docs/architecture-review/architecture-overview.md` — component map.
 - `README.md` — every CLI command, per stage.
 - `src/chesslab/dataset.py:177` — the split assigner's docstring, which is its specification.
+- **§13** — the alignment graveyard: every approach measured and rejected, so nobody re-tries the
+  saddle-point detector. This is what `src/chesslab/alignment.py`'s "see what lost" pointers mean.
 - **§11** — what the camera delivers vs. what the network is fed (`board_size`, `out_size`,
   `infer_size`), and what the splits actually are. `specs/22-inference-resolution/STATUS.md` holds
   the raw measurement.
@@ -763,6 +765,30 @@ middle ground and nobody has measured them. Note that even at 0 the discarded cr
 
 `per_cell_cap` (default 4) still bounds the case this policy exists for — a piece that never
 moved across a long session. That cap is metadata-based and exact; it needs no visual guess.
+
+### 5.14 The recorded splits do not reproduce, and the cause is still unknown
+
+`specs/33` tested the standing explanation ("dict ordering") and **refuted** it: the mechanism is
+real but needs equally-sized sessions, and over **400 random manifest orders this corpus yields
+exactly one split**. The recorded splits of `occ-real5nd` / `occ-real6` still do not reproduce
+from their own parameters (verified against the raw pre-dedup pool, not the stored manifest), and
+the last change to `assign_sessions_to_splits` predates both builds. No candidate cause is on
+record. The rule stands and is the only defence: reuse `split.json`, build twins with `--like`.
+
+### 5.15 A packed memmap can serve the pixels of a previous geometry — `occ-real5nd-13c` did
+
+`_manifest_digest` covers path + label + `out_size`, so it cannot see a crop whose **pixels**
+changed under an unchanged path — which is exactly what a corpus re-slice does to every row at
+once. Audited by mtime over all 12 packed datasets (`specs/33`): `occ-real6a`, `occ-real7a`,
+`occ-warm`, `occ-orange` clean; **`occ-real5nd-13c` poisoned** — packed 2026-07-31 00:45, all 400
+sampled crops rewritten after, digest still matching, and `load_packed` was still serving it.
+No conclusion of record rests on it (its `specs/29` numbers are void under §12 anyway), but it was
+live.
+
+Closed since: `load_packed` stats `_STALE_SAMPLE = 256` evenly spread rows against the **memmap's
+own** mtime, not the sidecar's (`src/chesslab/training/pack.py:195`, `_rewritten_since_pack`).
+Miss probability for a re-slice touching 5 % of rows is 0.95^256 ~ 2e-6. A false positive costs the
+slower per-PNG loader; a false negative trains a model on the previous geometry with no warning.
 
 ---
 
@@ -980,9 +1006,38 @@ rectified pixels (one cell = 100 px):
 | before | 3.2 – 6.5 per session | up to 8.9 | **14.8** | 14 of 447 sampled |
 | after | 2.0 – 3.3 | up to 3.3 | **4.3** | 0 of 447 |
 
+> ⚠ **Those numbers are on the PINNED ruler and are misleading today.** `line_positions` pinned
+> line index 0 and 8 at 0 and `board_size` — the values the warp puts there by construction — so a
+> uniform SCALE error read 25 % short and the metric was partly a statement about its own
+> assumption. `specs/41` (2026-08-03) unpinned it — `grid_lines` reads all 9 lines per axis in a
+> padded warp, and `line_positions` / `board_lattice` / `line_geometry` are gone from both
+> languages — and re-read the **same eight already-realigned sessions**, worst square offset per
+> frame, median (max):
+>
+> | ruler | as recorded | after `correct_quad` |
+> |---|---|---|
+> | pinned (the table above) | 2.0 – 3.3 | — |
+> | **unpinned (today's)** | **3.0 (3.2) – 5.8 (9.3)** | **2.0 (2.2) – 3.3 (4.9)** |
+>
+> The corpus did not get worse; the ruler got longer. Every session still improves under the fit,
+> none regresses. **Any offset recorded before 2026-08-03 is not comparable to one recorded
+> after**, and the flag counts in the tables of this section moved on that account alone (39 → 42
+> on the same 267 frames, `specs/30`).
+
 Note what the "before" column is not: it is not a few broken frames. **No session sat near zero.**
 The two largest sessions of 2026-07-21, which dominate the training corpus, were the worst
 (median 5.4 and 6.5, max 12.2 and 14.8).
+
+**Where 7.7 px comes from** (`specs/30` entry, derived once, do not re-derive): the reference board
+has 2 mm grooves and a 29.3 cm playing field including the outer grooves; warped to `board_size`
+800 that is 1 px = 0.364 mm, a groove is 5.5 px, and a crop tolerates
+`pad_side (5 px) + half a groove (2.7 px)` = **7.7 px**. The user independently eyeballed 9 px.
+The code has since moved off the absolute number: `alignment.MAX_OFFSET_FRAC = 0.04`
+(`src/chesslab/alignment.py:115`, `Alignment.kt:66`) — a **fraction of a cell**, so it means the
+same at cell 100 and cell 200, and the verdict additionally requires all 18 grid lines read.
+7.7 px on an 800 board is 7.7 %; the 4 % gate is argued from the repaired band of this section
+(damage starts at 3.2 %, repaired sessions reach 3.3 % median / 4.3 max) and has **never been
+swept against phantom count** — `specs/41` flags that as owed.
 
 ### 12.2 Why it went unnoticed for so long
 
@@ -1024,6 +1079,13 @@ The argmax miss count rises 12 → 19, which is not a regression: at the operati
 - **Every path-A number on record.** Path A re-cuts from the session frames through the current
   profile *and the logged corners*, so all of them shifted the moment the corners did. Re-measure
   the reference in the same run as any candidate; never carry a row over.
+  `specs/26` hit this from the other side and it is the cleanest proof on file: its reference row
+  (0 phantoms / 11 misses / margin 0.238 / 0.343) failed to reproduce — same frozen command, same
+  checkpoint, **empty `git diff` over `src/` and `scripts/`** — returning 1 / 12 / 0.316 / 0.512.
+  Cause: `data/calibration/phone.yaml` was recalibrated at 15:17 while `occ-real6` was built at
+  15:11. A recalibration silently invalidates every earlier path-A number. Hence the rule
+  **every phase measures its own baseline in the same run as its candidate**, same command, same
+  day, both rows reported side by side.
 - **The hard-negative mining of 2026-07-21 and 2026-07-31.** 9 260 of 9 290 mined errors sat on
   **dark** squares, diagnosed since July as "neighbour-crown bleed" — which is what a crop box
   displaced across a groove produces. Those keep-lists mine a geometry artefact and should be
@@ -1043,3 +1105,71 @@ uv run python scripts/check_alignment.py --session <sid> --sample 0 --max-off 0.
 `log.jsonl` is backed up as `log.jsonl.bak-<stamp>` before anything is written and the corrected
 rows are marked `corners_source: "auto-corrected"`, so the review UI keeps showing what was measured
 and what was computed. Re-slice afterwards — the crops do not follow the log on their own.
+
+---
+
+## 13. The alignment graveyard — what was measured and LOST
+
+> Source: `specs/30-sharper-alignment/STATUS.md` (session `20260731-102458`, `board_size` 800,
+> 1 cell = 100 px, pinned ruler) and `specs/41-the-board-is-its-own-ruler/STATUS.md`
+> (`VID_20260802_222741.mp4`, unpinned ruler). **This is the section `src/chesslab/alignment.py`'s
+> "see what lost" pointers mean.** What SHIPPED is in that module's own docstring; what is here is
+> the list of things already tried, so nobody re-tries them.
+>
+> ⚠ The two packs use different rulers (§12). Within one row the instrument is the same on both
+> sides, so the ranking holds; absolute values across packs do not compare.
+
+### 13.1 The losers
+
+| approach | measured | why it lost | spec |
+|---|---|---|---|
+| **`cv2.findChessboardCornersSB`** for the 81 intersections (Duda & Frese, BMVC 2018) | **0 of 30 configurations** found the 7×7 interior lattice: {raw frame, rectified warp} × {blur σ 0, 0.8, 1.5, 3.0, 5.0} × {NORMALIZE+EXHAUSTIVE+ACCURACY, NORMALIZE, no flags}. `CALIB_CB_LARGER` reaches a 3×3/4×4 sub-grid on the raw frame at 1.2–1.6 s/frame, 7×3 on the piece-free middle strip | The groove is a hard valley wider than SB's ±4 px box kernel, and its occlusion cliff sits at blob ≈ 0.8 × cell — exactly where real pieces sit | `41` |
+| **2-D saddle-point detector** as an addition to the band fit | 27–38 of 49 interior crossings found; lattice residual rms **2.32 px vs the collapsed profile's 1.10**; against the human 7.89 px vs the band lattice's 5.14; *adding* it makes things **worse** (5.73 vs 5.14). `cv2.cornerSubPix` seeded at nominal lands between (1.80 px at a 15 px window, 2.38 at 11) | A whole-board collapse averages 800 rows; a corner window averages 45×45 px. Narrow, low-contrast grooves, often under a piece | `30` |
+| **RANSAC instead of Huber** | **7.28 px vs 5.35** on perturb-and-recover | The bad samples are not sparse outliers but a systematic minority (grooves under pieces); a hard inlier/outlier cut throws away good data with them | `30` |
+| **Weighting by notch depth** | **5.37 vs 5.35** — nothing | `_groove_centre` (today `_notch_centre`) was discarding a confidence signal that carries no information | `30` |
+| **Number of bands** 2 / 4 / 8 | **5.26 / 5.13 / 5.23** — flat | As the noise algebra predicts: B bands cost sqrt(B) per sample and buy B samples | `30` |
+| **Similarity fit instead of affine** | best in the small-error regime (**2.66**) and worst from the real recorded quads (**7.37**) | The error it refuses to model is really there | `30` |
+| **Removing the leftover bias as a constant** | residual after correction is 97 % systematic per frame (4.07 px systematic vs 0.28 px random over 5 draws) — but subtracting the leave-one-out mean over the 14 hand frames made it **worse, 5.47 vs 5.13** | Systematic per frame, not constant across frames | `30` |
+| **Undistorting first** | lattice residual **1.48 → 4.24 px** | These frames are already corrected. `session.yaml` says `undistorted: true` while `scripts/ingest_video_session.py` says it stores frames raw — the flag is right, the ingest comment is not | `30` |
+| **Blur before measuring** | 5.25 vs 5.13 | The notch is 3–5 px wide; blurring it discards the signal | `30` |
+| **Symmetrising the notch estimator** | bit-identical | The shipped half-depth segment centroid is already symmetric | `30` |
+| **Every other notch estimator** (old p90-baseline centroid, plain linear-baseline centroid, 3-point parabola, half-depth parabola) | 5.13 / 5.28 / 5.28 / 5.13 / 5.23 against the human; 4.49 vs 4.45 on the noise floor | All inside the noise. **The estimator was never the problem** | `30` |
+| **Modelling the board's own line irregularity** | real and stable (per-line offsets from two disjoint session halves agree to 0.17 px) but only ±0.75 px peak-to-peak after what a homography absorbs; changed nothing | The grooves genuinely are not at exact eighths, and it is far too small to matter | `30` |
+| **CLAHE before the line search** | 3.04 / 2.22 / 1.93 / 2.37 / 2.67 / 2.32 px **against** 3.12 / 2.21 / 1.80 / 2.24 / 2.46 / 2.25 without | `_notch_centre` already removes a *local* baseline over a third of a cell, so the 6× illumination gradient (per-square mean luma 25 → 168 in one frame) never reaches it | `41` |
+| **Affine fit over 2-D lattice intersections** (fix the lattice, keep the fit) | 22.60 / 21.19 / 8.31 / 19.75 / 13.11 / 21.14 px — worse than the affine fit over 1-D samples | The DOF, not the correspondences, was the limit | `41` |
+| **Per-line slope regression** (9 independent 8-sample fits) | frame 900: **36 mrad of invented tilt** on the rank-7/8 line, 16.3 px at the board edge, on a quad that was correct | Pooled `a + b·k` per axis instead: nine 8-sample regressions invent tilt, two parameters over ~70 samples do not | `41` |
+| **Direct 7×7 lattice refit over `line_positions`** (the since-deleted pinned reader; 2026-08-03, pre-pack) | 11.1–18.0 px, and 14.1–31.7 px including the pinned outer lines | The fix was 2-D correspondences + a projective fit, not a better 1-D fit | `41` |
+| **Mean band collapse instead of median** | within 0.1 px on clean frames | Median kept, but the win is small — the bands and the notch-width test do the work | `41` |
+
+Literature already consulted, so it does not have to be again (`specs/41`): Duda & Frese BMVC 2018;
+chesscog (Wölflein & Arandjelović, *J. Imaging* 2021 — its "rectify first, then recover the lines in
+the rectified frame" IS the architecture in use); ChESS (Bennett & Lasenby 2014); ROCHADE; OCPAD
+(no public implementation); libcbdetect / PyCBD; LSD; ELSED; Steger; Frangi/Sato/Meijering valley
+filters (**scikit-image not installed**); phase congruency (`phasepack`, not installed); ChessReD2K
+(2 078 real smartphone images with hand-annotated corners — the obvious external benchmark, unused).
+The environment has `opencv-python`, **not** contrib: no `ximgproc`, no `createFastLineDetector`,
+no `createStructuredEdgeDetection`.
+
+### 13.2 `quad_spread` is PRECISION, not accuracy — never read it as a correctness gate
+
+It compares each frame's quad against the **median of the same quads**. On
+`VID_20260802_222741.mp4` it scored **p90 0.93 rectified px with 99.9 % "detected" while every quad
+in the video was 27–33 px out**, and it hid that for a day (`specs/41`). It is kept only as a
+board-**movement** check and is labelled as such in the report and in `candidate.json`
+(`GeometryScan.kt:270`). The absolute per-frame verdict is `alignment_of` / `alignmentOf`
+(`src/chesslab/alignment.py:434`, pinned by
+`tests/test_alignment.py:348`): worst offset ≤ `MAX_OFFSET_FRAC` **and** all 18 lines read.
+
+### 13.3 The one corpus-wide component the per-frame fit does NOT remove
+
+The signed per-line residuals say the error is systematic per setup, not noise: two sessions of the
+same setup agree to 0.1 px, different setups disagree in **sign**, and the between-session spread
+(1.1–2.5 % of a cell) is as large as the corpus mean. A single global constant would therefore have
+been wrong — but one component is shared. The **y residual runs `+1.2 +3.1 +1.8 −1.6 −0.7 −1.1 0.0`
+% of a cell on every rig, the phone included** (`specs/30`, after the 19-session re-fit).
+
+That is a candidate for a **profile-level** fix, it is not what the per-frame fit removes, and
+**nobody has taken it**. Also untried, and named in `specs/30` as the most promising remaining lead:
+giving `improve_quad` the FEN, so grooves under a piece can be **excluded** instead of down-weighted
+— the residual 5.1 px to the human is bias, not noise (the fit converges to within 0.28 px), so a
+better estimator is proven not to close it.

@@ -73,7 +73,8 @@ config, JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - **Calibration profiles** are geometry config (board size, orientation, crop
   params), not stored positions — corners are detected per frame from ArUco.
   `calibration.ensure_profile` still holds the carry-over rule Kotlin mirrors, but
-  since the capture rig went no command calls it; `calibrate auto` is the way in.
+  no command calls it since the capture rig went; `scripts/ingest_video_session.py` is the
+  remaining door into profile creation.
 - **Crop counts per session** go through `chesslab/manifest_cache.py` (mtime-keyed
   aggregates) — never re-read whole manifests per request.
 

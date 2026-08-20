@@ -2,16 +2,15 @@
 
 NOT to be confused with `calibration.py`, which is BOARD geometry (ArUco corners,
 homography, per-square crops). This module knows only about the lens: it loads an
-intrinsics file (`calib.npz`, written by `chesslab lens calibrate`) and remaps raw
+intrinsics file (`calib.npz`, written by `chesslab lens calibrate-board`) and remaps raw
 camera frames so that straight lines in the world stay straight in the image.
 
-**Single application point.** The only place undistortion is applied is
-`camera.open_capture()`, which wraps the capture in `_UndistortCapture`. Everything
-that replays ALREADY-RECORDED pixels — `labeling.py`, `ingest.py`,
-`web/routers/sessions.py` — reads frames with `cv2.imread` and never goes through
-`open_capture`. A recorded session therefore can never be undistorted twice: the frame
-on disk and the board corners stored next to it were captured together and stay
-internally consistent. Never remap on replay.
+**Never remap on replay.** Python stopped opening the live camera on 2026-08-20 (Kotlin
+owns it), so nothing here is applied at capture time any more. Everything that replays
+ALREADY-RECORDED pixels — `labeling.py`, `ingest.py`, `web/routers/sessions.py` — reads
+frames with `cv2.imread`: the frame on disk and the board corners stored next to it were
+captured together and stay internally consistent. `active()` hands out the undistorter
+for a source that genuinely still needs one.
 
 **Output size is preserved.** We deliberately do NOT crop to the valid ROI returned by
 `getOptimalNewCameraMatrix`, so an undistorted frame has exactly the same (w, h) as the
@@ -20,7 +19,7 @@ border against field of view (0 = no black borders, 1 = keep all source pixels).
 
 **Varifocal warning.** The rig's 5–50 mm CS-mount lens changes its intrinsics whenever
 zoom or focus is touched. A calibration is only valid for the setting it was shot at —
-`DriftMonitor` watches for that and tells the user to re-run `chesslab lens calibrate`.
+`DriftMonitor` watches for that and tells the user to re-run `lens calibrate-board`.
 """
 
 from __future__ import annotations
@@ -707,219 +706,10 @@ def stamp_profile(profile, frame_size=None, source=None) -> bool:
     return changed
 
 
-# --- `chesslab lens calibrate` / `lens show` -------------------------------------------
-
-def _banner(img, text: str, colour) -> None:
-    cv2.rectangle(img, (0, 0), (img.shape[1], 40), (0, 0, 0), -1)
-    cv2.putText(img, text, (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, colour, 2, cv2.LINE_AA)
-
-
-def _draw_coverage(img, cov: CoverageGrid) -> None:
-    """Small HUD in the bottom-left: which image regions still lack pattern views."""
-    cell, pad = 26, 10
-    y0 = img.shape[0] - pad - cov.n * cell
-    for r in range(cov.n):
-        for c in range(cov.n):
-            x, y = pad + c * cell, y0 + r * cell
-            hit = cov.hits[r, c] > 0
-            cv2.rectangle(img, (x, y), (x + cell - 3, y + cell - 3),
-                          (0, 180, 0) if hit else (40, 40, 40), -1)
-            cv2.rectangle(img, (x, y), (x + cell - 3, y + cell - 3), (200, 200, 200), 1)
-
-
-# The classic detector is a VGA-era algorithm: on SHARP hi-res frames its quad filters choke
-# on wood grain and oversized squares (user observation: works on a blurry image, fails on the
-# crisp 1440p one). Standard practice: detect on a DOWNSCALED copy, then map the hits back and
-# let cornerSubPix refine at full resolution. SB (sector-based) detector is tried first — it
-# is resolution-robust and subpixel-accurate out of the box.
-_DETECT_MAX_W = 960
-
-
-def _find_corners(gray, pattern, *, fast: bool):
-    """Robust corner detection for any resolution: SB first, then classic on a downscaled copy
-    (hits scaled back up; `_refine` re-polishes at full res afterwards)."""
-    if not fast:
-        try:
-            ok, corners = cv2.findChessboardCornersSB(gray, pattern, cv2.CALIB_CB_EXHAUSTIVE)
-            if ok:
-                return True, corners
-        except cv2.error:
-            pass                              # SB unavailable/failed -> classic path below
-    scale = 1.0
-    small = gray
-    if gray.shape[1] > _DETECT_MAX_W:
-        scale = _DETECT_MAX_W / gray.shape[1]
-        small = cv2.resize(gray, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    flags = cv2.CALIB_CB_ADAPTIVE_THRESH | cv2.CALIB_CB_NORMALIZE_IMAGE
-    if fast:
-        flags |= cv2.CALIB_CB_FAST_CHECK
-    ok, corners = cv2.findChessboardCorners(small, pattern, flags)
-    if ok and scale != 1.0:
-        corners = corners / scale
-    return bool(ok), corners
-
-
 _SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
 
-def _refine(gray, corners):
-    return cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), _SUBPIX_CRITERIA)
-
-
-def lens_calibrate(camera: int | str = 0, out: str | None = None, min_frames: int = 15,
-                   cols: int = 7, rows: int = 7, square_mm: float = 1.0,
-                   force: bool = False, alpha: float | None = None,
-                   preview_max_w: int = 960, novelty_px: float = 30.0,
-                   cooldown_s: float = 0.8) -> int:
-    """Interactive lens calibration with AUTO-CAPTURE — the user just moves the board.
-
-    A frame is stored automatically when the pattern is found, the view is sufficiently
-    NOVEL (mean corner displacement vs. every stored view above `novelty_px`) and a short
-    cooldown has passed. Keys are only q = quit, space = force capture, u = undo last.
-    Calibration finishes by itself once the image coverage is adequate and `min_frames`
-    views are in.
-    """
-    from .camera import CameraSpec, open_camera
-
-    out_path = Path(out) if out else default_path()
-    if out_path.exists() and not force:
-        print(f"[FAIL] {out_path} already exists — pass --force to overwrite.")
-        return 1
-
-    # MUST calibrate on RAW frames: undistort=False, else we would model the residual of
-    # an already-corrected image.
-    cap = open_camera(camera, spec=CameraSpec(source=camera, undistort=False))
-    if not cap.isOpened():
-        print(f"[FAIL] camera {camera!r} could not be opened.")
-        return 1
-
-    pattern = (int(cols), int(rows))
-    objp = object_points(cols, rows, square_mm)
-    obj_points: list[np.ndarray] = []
-    img_points: list[np.ndarray] = []
-    accepted: list[np.ndarray] = []
-    cov: CoverageGrid | None = None
-    best_tilt = 0.0
-    size: tuple[int, int] | None = None
-    last_capture = 0.0
-
-    win = "chesslab lens calibrate"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-    print(f"Hold a printed {cols}x{rows}-inner-corner chessboard (a normal 8x8 board) in view.")
-    print("Frames are captured AUTOMATICALLY — just move the board around slowly: corners,")
-    print("edges, and tilted from several angles. q = quit, space = force capture, u = undo.")
-    print("NOTE: click the camera window first so key presses register.")
-
-    import time as _time
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
-                    print("[FAIL] no frame from camera.")
-                    return 1
-                continue
-            h, w = frame.shape[:2]
-            if size is None:
-                size, cov = (w, h), CoverageGrid(w, h)
-
-            # Preview detection runs on a DOWNSCALED copy with FAST_CHECK — full-res
-            # detection at 1440p/4K would drop the preview to a crawl.
-            scale = min(1.0, preview_max_w / float(w))
-            small = (cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                     if scale < 1.0 else frame)
-            gray_small = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
-            found, corners_small = _find_corners(gray_small, pattern, fast=True)
-
-            view = small.copy()
-            if found:
-                cv2.drawChessboardCorners(view, pattern, corners_small, True)
-                _banner(view, f"PATTERN FOUND   {len(img_points)}/{min_frames}", (0, 255, 0))
-            else:
-                _banner(view, f"PATTERN NOT FOUND   {len(img_points)}/{min_frames}", (0, 0, 255))
-            if cov is not None:
-                _draw_coverage(view, cov)
-                miss = cov.missing()
-                hint = ("move board to " + miss[0]) if miss else (
-                    "tilt the board more" if best_tilt < 0.12 else "coverage OK")
-                cv2.putText(view, hint, (10, view.shape[0] - 16), cv2.FONT_HERSHEY_SIMPLEX,
-                            0.6, (0, 220, 255), 2, cv2.LINE_AA)
-            cv2.imshow(win, view)
-            key = cv2.waitKey(1) & 0xFF
-
-            if key in (ord("q"), 27):
-                break
-            if key == ord("u") and img_points:
-                obj_points.pop(); img_points.pop(); accepted.pop()
-                print(f"[undo] {len(img_points)} views left (coverage HUD keeps its history).")
-                continue
-
-            now = _time.time()
-            forced = key == ord(" ")
-            if not found or (not forced and (now - last_capture) < cooldown_s):
-                continue
-            # Scale the preview corners back and re-detect at FULL resolution — sub-pixel
-            # accuracy is the whole point and cannot come from a downscaled image.
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            ok_full, corners = _find_corners(gray, pattern, fast=False)
-            if not ok_full:
-                continue
-            corners = _refine(gray, corners)
-            nov = pose_novelty(corners, accepted)
-            if not forced and nov < novelty_px:
-                continue
-
-            obj_points.append(objp.copy())
-            img_points.append(corners)
-            accepted.append(corners.reshape(-1, 2).copy())
-            if cov is not None:
-                cov.add(corners.reshape(-1, 2))
-            best_tilt = max(best_tilt, tilt_score(corners.reshape(-1, 2)))
-            last_capture = now
-            print(f"[capture] view {len(img_points)} (novelty {nov:.0f}px, "
-                  f"coverage {cov.fraction:.0%} , tilt {best_tilt:.2f})")
-
-            # Auto-finish: enough views AND the image is adequately covered.
-            if len(img_points) >= min_frames and cov is not None and cov.fraction >= 0.9:
-                print("[auto] coverage adequate — calibrating.")
-                break
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
-
-    if len(img_points) < min_frames:
-        print(f"[FAIL] only {len(img_points)}/{min_frames} views captured — nothing saved.")
-        return 1
-
-    return _solve_and_save(obj_points, img_points, size, out_path, alpha=alpha, pattern=pattern)
-
-
-def _solve_and_save(obj_points, img_points, size, out_path: Path, *, alpha: float | None,
-                    pattern: tuple[int, int]) -> int:
-    """Run `calibrateCamera`, report RMS + per-view error, persist the result."""
-    rms, k, d, rvecs, tvecs = cv2.calibrateCamera(obj_points, img_points, size, None, None)
-    print(f"\nRMS reprojection error: {rms:.4f} px  ({len(img_points)} views, {size[0]}x{size[1]})")
-    for i, (rv, tv) in enumerate(zip(rvecs, tvecs, strict=True)):
-        proj, _ = cv2.projectPoints(obj_points[i], rv, tv, k, d)
-        err = float(cv2.norm(img_points[i], proj, cv2.NORM_L2) / len(proj))
-        print(f"  view {i:>2}: {err:.4f} px")
-    if rms > 1.0:
-        print("[WARN] RMS > 1.0 px — the solve is poor. Re-shoot with a flat, well-lit board "
-              "and more tilt/coverage variety.")
-    print(f"\nK = fx {k[0, 0]:.1f}  fy {k[1, 1]:.1f}  cx {k[0, 2]:.1f}  cy {k[1, 2]:.1f}")
-    print("D = " + " ".join(f"{v:.5f}" for v in np.asarray(d).ravel()))
-
-    calib = LensCalibration(camera_matrix=np.asarray(k, dtype=np.float64),
-                            dist_coeffs=np.asarray(d, dtype=np.float64).ravel(),
-                            image_size=(int(size[0]), int(size[1])), rms=float(rms),
-                            created_at=datetime.now(UTC).isoformat(),
-                            id=calib_id(k, d))
-    save(out_path, calib, n_frames=len(img_points), pattern=pattern)
-    print(f"\n[OK] lens calibration saved: {out_path}  (id {calib.id})")
-    if alpha is not None:
-        print(f"     (--alpha {alpha} is a capture-time knob; set config.LENS.alpha to persist it)")
-    _invalidate_profiles(calib)
-    return 0
+# --- `chesslab lens show` -------------------------------------------------------------
 
 
 def profile_source(profile):
@@ -938,7 +728,7 @@ def profile_source(profile):
 
 
 def _invalidate_profiles(calib: LensCalibration) -> None:
-    """Re-stamp every board profile so nobody has to re-run `calibrate auto` by hand.
+    """Re-stamp every board profile so nobody has to re-stamp by hand.
 
     The profiles' K/D now describe the WRONG optics (raw lens on undistorted frames), so
     we write the new optimal K + zero distortion straight into them. Corner geometry

@@ -20,8 +20,13 @@ Guardian test: `tests/test_ingest_synthetic.py::test_synthetic_ingest_orientatio
 ## 1. Turntable Capture
 
 ```bash
-python synth/capture_turntable.py --piece P --out data/turntable/P/
+# Handy als IP-Kamera (der uebliche Weg), ENTER pro Foto:
+uv run python synth/capture_turntable.py --source https://<PHONE-IP>:4444/video/snapshot --out data/turntable/P/
+# USB-Kamera mit gesperrter Optik (Pflicht fuer Photogrammetrie):
+uv run python synth/capture_turntable.py --source 0 --exposure -6 --wb 4000 --focus 0 --out data/turntable/P/
 ```
+
+Es gibt kein `--piece`: der Zielordner benennt die Figur.
 
 **Anti-Flicker Note:** Dim room lights, disable camera image stabilization,
 fix white balance and exposure (no auto mode). Camera on tripod.

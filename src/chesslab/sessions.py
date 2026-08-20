@@ -787,6 +787,7 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
         carried += 1
     return carried
 
+
 def missing_source_frames(sdir: Path, rows: list[dict]) -> str | None:
     """Why a step that measures the SOURCE picture cannot run here, or None.
 

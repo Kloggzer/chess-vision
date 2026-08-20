@@ -6,8 +6,8 @@ profile provides the 64 square crops deterministically for each frame.
 
 The core mapping function `square_to_crop_box` lives here centrally (profile-bound) and
 is imported by Stage 3 (`labeling.py`). Profile loading/saving and the geometry
-are usable and tested headless (without camera/GUI); only `calibrate auto`/`check` need
-camera + display.
+are usable and tested headless — the live-camera verbs (`calibrate auto`/`check`) were
+removed with `chesslab.camera` (2026-08-20); Kotlin owns the live camera.
 """
 
 from __future__ import annotations
@@ -25,7 +25,6 @@ import numpy as np
 import yaml
 
 from . import config
-from .camera import open_camera
 
 log = logging.getLogger("chesslab.calibration")
 
@@ -234,19 +233,18 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
 
 
 def ensure_profile(profile: str, source: int | str | None = None, *,
-                   save: bool = True, attempts: int = 30, camera_mode: str | None = None,
+                   save: bool = True, attempts: int = 30,
                    **kwargs) -> CalibrationProfile:
     """Load `profile`; if it does not exist, auto-calibrate it from `source` via ArUco.
 
     This removes the mandatory separate calibration step: `track`/`collect` can create a
-    missing profile from the first frames of their own camera source, as long as the
-    markers are on the board. `calibrate auto` stays available for interactive margin
-    tuning. Raises FileNotFoundError if the profile is missing and no usable source or
-    no markers are found.
+    missing profile from the first frames of their own source, as long as the markers are
+    on the board. Raises FileNotFoundError if the profile is missing and no usable source
+    or no markers are found.
 
     A profile whose LENS stamp no longer matches the active lens state (e.g. the user just
     ran `chesslab lens calibrate`) is treated like a missing one and regenerated from the
-    source — nobody has to re-run `calibrate auto` by hand. If it cannot be regenerated,
+    source — nobody has to re-stamp by hand. If it cannot be regenerated,
     the stale profile is re-stamped in place and used, never crashed on.
 
     Regenerating a STALE profile only replaces what is actually measured — the pixel
@@ -256,9 +254,8 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     reset a hand-set `white_pov: false` and transpose every label of the next session.
     Explicit caller kwargs still win over the carried-over values.
 
-    `camera_mode` is a named capture mode (`config.CAMERA_MODES`): auto-calibration then
-    opens the source at THAT resolution, so the recorded pixel corners + `frame_size` match
-    the mode the caller is about to run at."""
+    `source` is a video file or a frame image — the live-camera path was removed with
+    `chesslab.camera` (2026-08-20)."""
     from . import lens
 
     stale_prof: CalibrationProfile | None = None
@@ -289,11 +286,7 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
         gen_kwargs.setdefault("white_pov", stale_prof.white_pov)
 
     src = int(source) if isinstance(source, str) and source.isdigit() else source
-    if camera_mode:
-        from .camera import spec_for_mode
-        cap = open_camera(src, spec=spec_for_mode(camera_mode, source=src))
-    else:
-        cap = open_camera(src)
+    cap = cv2.VideoCapture(src)
     prof: CalibrationProfile | None = None
     try:
         if not cap.isOpened():
@@ -325,8 +318,7 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
             return stale_prof
         raise FileNotFoundError(
             f"profile '{profile}' missing and auto-calibration from {source!r} found no "
-            "ArUco markers — tape the markers to the board (calibrate markers) or run "
-            "'chesslab calibrate auto'.")
+            "ArUco markers — tape the markers to the board (calibrate markers).")
     if stale_prof is not None:
         # `crop` is a user setting (pad_up/pad_side/out_size), never measured from a frame.
         prof.crop = stale_prof.crop
@@ -648,10 +640,6 @@ def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True)
             cy = int((row + 0.5) * bs / 8.0)
             cv2.putText(img, sq, (cx - 12, cy + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
     return img
-
-
-# Camera opening moved to `chesslab.camera` (open_camera is imported at the top of this
-# module for the calibration helpers below).
 
 
 # --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------
@@ -986,140 +974,6 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), sheet)
     return out_path
-
-
-def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = "DICT_4X4_50",
-                   white_pov: bool = True, preview: bool = False,
-                   margin=config.DEFAULT_MARKER_MARGIN,
-                   min_markers: int = 4) -> int:
-    """Detect markers → marker box + inset playing field → save profile (no clicking).
-
-    `margin`: fraction by which the markers lie OUTSIDE the playing field. With `--preview` live
-    adjust via +/- until the green playing field box aligns with the real board.
-    """
-    out_path = profile_path(profile)
-    if out_path.exists():
-        import typer
-
-        if not typer.confirm(f"Profile '{profile}' already exists ({out_path}). Overwrite?"):
-            print("Aborted.")
-            return 1
-
-    cap = open_camera(camera)
-    if not cap.isOpened():
-        print(f"[FAIL] Camera {camera} could not be opened.")
-        return 1
-    try:
-        def build_from(f, p, m: float) -> CalibrationProfile:
-            hh, ww = f.shape[:2]
-            return CalibrationProfile(
-                profile=profile, camera_index=camera, frame_size=(ww, hh), board_size=board_size,
-                image_corners=p, homography=compute_homography(p, board_size, m),
-                white_pov=white_pov, crop=CropParams.default(board_size),
-                margin=margins4(m), marker_dict=dict_name,
-            )
-
-        if preview:
-            # LIVE video: each frame is read anew + markers re-detected, boxes track along.
-            win = "chesslab auto-calibrate"
-            cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-            print("Live video: w = box LARGER, e or - = SMALLER, r = reset, s = save, q = quit")
-            tracker = MarkerTracker()
-            last_pts, frame, m = None, None, margin
-            while True:
-                ok, f = cap.read()
-                if ok and f is not None:
-                    frame = f
-                    tracker.update(detect_board_markers(frame, dict_name, corner="center"))
-                seen = len(tracker.last)
-                if seen >= min_markers:
-                    res = resolve_board_corners(tracker.last, board_size=board_size)
-                    if res is not None:
-                        last_pts = res[0]
-                if frame is None:
-                    if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
-                        cv2.destroyAllWindows()
-                        print("[FAIL] no frame from camera.")
-                        return 1
-                    continue
-                if last_pts and seen >= min_markers:
-                    overlay = draw_calibration_overlay(frame, last_pts, build_from(frame, last_pts, m))
-                    cv2.putText(overlay, f"margin={m:.3f}  {seen}/4 markers  w/e=adjust  s=save  q=quit",
-                                (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                else:
-                    overlay = frame.copy()
-                    cv2.putText(overlay, f"Waiting for all {min_markers} markers ({seen}/4 known)...",
-                                (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-                cv2.imshow(win, overlay)
-                k = cv2.waitKey(30) & 0xFF
-                if k in (ord("w"), ord("+"), ord("=")):       # larger
-                    m += 0.005
-                elif k in (ord("e"), ord("-"), ord("_")):     # smaller
-                    m = max(0.0, m - 0.005)
-                elif k == ord("r"):
-                    m = margin
-                elif k == ord("s") and last_pts:
-                    cv2.destroyAllWindows()
-                    build_from(frame, last_pts, m).save(out_path)
-                    print(f"[OK] Auto-calibration saved: {out_path} (margin={m:.3f})")
-                    return 0
-                elif k in (ord("q"), 27):
-                    cv2.destroyAllWindows()
-                    print("Discarded.")
-                    return 1
-
-        # Non-interactive: collect over multiple frames until all min_markers are known.
-        tracker = MarkerTracker()
-        frame = None
-        for _ in range(120):
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                continue
-            tracker.update(detect_board_markers(frame, dict_name, corner="center"))
-            if len(tracker.last) >= min_markers:
-                break
-        if frame is None or len(tracker.last) < min_markers:
-            print(f"[FAIL] not all {min_markers} markers (id 0-3) detected — check lighting/visibility, "
-                  "markers must be fully & flatly visible.")
-            return 1
-        pts = resolve_board_corners(tracker.last, board_size=board_size)[0]
-        build_from(frame, pts, margin).save(out_path)
-        print(f"[OK] Auto-calibration saved: {out_path} (margin={margin:.3f})")
-        return 0
-    finally:
-        cap.release()
-
-
-# --- Interactive commands (need camera + display) ----------------------------------
-
-_WIN = "chesslab calibrate"
-def calibrate_check(camera: int, profile: str) -> int:
-    """Live overlay of the grid on the rectified camera image."""
-    try:
-        prof = load_profile(profile)
-    except FileNotFoundError as e:
-        print(f"[FAIL] {e}")
-        return 1
-
-    cap = open_camera(camera)
-    if not cap.isOpened():
-        print(f"[FAIL] Camera {camera} could not be opened.")
-        return 1
-    print("q = quit")
-    cv2.namedWindow(_WIN, cv2.WINDOW_NORMAL)
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                print("[FAIL] no frame read.")
-                return 1
-            board = draw_board_grid(warp_board(frame, prof), prof)
-            cv2.imshow(_WIN, board)
-            if (cv2.waitKey(20) & 0xFF) == ord("q"):
-                return 0
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
 
 
 def calibrate_list() -> int:

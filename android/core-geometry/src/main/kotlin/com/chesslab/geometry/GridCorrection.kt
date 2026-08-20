@@ -22,7 +22,7 @@ import org.opencv.imgproc.Imgproc
  *
  * Rectified space, not frame space, is what makes it reusable: the correction says "the grid sits
  * this far off inside the warp", which is a property of the board and the lens, not of where the
- * quad currently is. `specs/30` measured that residual as systematic per setup — two sessions of
+ * quad currently is. The residual is systematic per setup (`docs/data-pipeline.md` §13.3) — two sessions of
  * the same rig agree to 0.1 px — while differing in SIGN between setups, which is exactly the
  * profile of something worth measuring once per calibration and carrying.
  *

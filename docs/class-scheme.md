@@ -2,8 +2,8 @@
 
 Die Zahl der Klassen hat sich viermal geändert, und jedes Mal blieb die vorige Fassung irgendwo
 stehen. Dieses Dokument sagt, was heute je Oberfläche gilt und woran man ein Schema erkennt.
-Das *Warum* der letzten Änderung steht in `docs/occluder-plates.md`, die Messreihe dahinter in
-`specs/53-cnn-headroom/04-the-fourteenth-class-pays-or-it-does-not-ship.md`.
+Das *Warum* der letzten Änderung steht in `docs/occluder-plates.md`, die Messreihe dahinter
+unten unter „Die fünf Trainingsrunden".
 
 ## Chronik
 
@@ -87,6 +87,56 @@ Solange kein Occlusion-Kopf exportiert und gebündelt ist, gilt der Eintrag in `
 das Hand-Veto muss sich auf den **modellfreien** Arm (`gridOccluded`) verlassen. Und die offene
 Klage aus `TODO.md` — `real14-80` ist bei `occluded` zu aggressiv — beschreibt genau die Klasse,
 die Python inzwischen abgeschafft hat.
+
+## Der Korpus-Zensus, der die 13 erzwang (`specs/29`, 2026-07-31)
+
+`data/manifests/squares.jsonl`, alle Zeilen:
+
+`empty 42 848 · wP 3 055 · bP 2 982 · bR 807 · wR 716 · wB 694 · bB 670 · bN 561 · wN 511 ·
+wK 441 · bK 441 · bQ 378 · wQ 360` — **null `occluded`**.
+
+Aufgenommen wurde nur bei freiem Brett, also gab es die Klasse im Pool nicht. Ein 14-Klassen-Lauf
+hätte eine Klasse ohne ein einziges Trainingsbeispiel getragen, deren Logit ein Argmax auf
+ungewöhnlicher Eingabe trotzdem gewinnen kann — und ungewöhnliche Eingabe unter einer Hand ist genau
+der Fall, um den es geht. Daher die Zeile 2026-07-31 oben.
+
+## Die fünf Trainingsrunden (`specs/53` Phase 04, 2026-08-09, über Nacht)
+
+Vorlauf: der Nutzer labelte 2 114 `occluded`-Zellen (473 auf 003957, 1 641 auf 115912; 3 199
+Rohzeilen, last-line-wins). Beide Sessions neu geschnitten — damit existierte `occluded` erstmals im
+Crop-Pool. Path A, gegen den Champion `occ-v10bn35-13c-hn` **im selben Lauf** gemessen.
+
+| # | Trainingskorpus | occluded | Misses | Phantome | Margin p99.9/max |
+|---|---|---|---:|---:|---|
+| 1 | donor + rg (50 % rg), 14c, **from scratch** | 2 114 | — | — | `val_acc` 0,08 — unbrauchbar |
+| 2 | donor + rg (50 % rg), 14c, Warmstart, lr 1e-3 / 3e-4 | 2 114 | 0 / 0 | **133 / 105** | 0,64 / 0,52 |
+| 3 | donor + rg (50 % rg), **13c-Kontrolle** | verworfen | **165** | 0 | 0,39 |
+| 4 | donor + rg **auf 5,3 % gedeckelt** | 2 114 | 1 | **2** | 0,155 |
+| 5 | donor + **nur die `occluded`-Zeilen** (1,8 %) | 2 114 | 8 | **0** | **0,028 / 0,087** |
+| — | Champion `occ-v10bn35-13c-hn` (Referenz, gleicher Lauf) | — | 3 | 0 | 0,065 / 0,328 |
+
+Drei Befunde, gemessen:
+
+1. **Ein 14-Klassen-Kopf trainiert nicht from scratch** in 15 Epochen (`val_acc` 0,08). `--resume`
+   vom Champion ist Pflicht; der Resume-Pfad behandelt den Klassenzahl-Wechsel by design
+   (276 Tensoren übernommen, 2 übersprungen).
+2. **Die Ursache ist Domänen-Dominanz, nicht die neue Klasse.** Die zwei exportierten Sessions
+   stellten 63 354 von 127 162 Trainingszeilen — **50 %**, jede 2–3× größer als die größte
+   Donor-Session. Runde 3 isoliert die Variable: derselbe Korpus macht bei 13 Klassen 165 Misses und
+   **null** Phantome, bei 14 Klassen 105–133 Phantome. Deckeln auf 5,3 % → 2 Phantome; nur die
+   `occluded`-Zeilen (1,8 %) → **null**, mit der besten Margin, die hier je gemessen wurde.
+   Eine Geometrie-Hypothese wurde zuerst geprüft und **widerlegt**: `session scan` liest nach
+   `autofix` 3,16 / 2,97 px Median, innerhalb des 3,0–5,8-px-Bandes des guten Korpus.
+3. **`pOccluded` lebte.** Mit `occl14-80` druckt das Ledger auf rec-20260807 **772×** ein
+   `occl=` ungleich null — zum ersten Mal hatten die fünf Sicherungen überhaupt einen Sensor.
+
+**Regel daraus:** eine neue Session ist eine **Ergänzung**, nie die Masse; `--source-manifest` mit
+per-cell-Vorabdeckel ist das Werkzeug. Und: das Modell **ging nicht aufs Handy** — das Kriterium war
+25/0/0 auf rec-20260807 unter dichter Auswertung, und der dichte Arm wurde auf beiden Videos
+schlechter (rec-20260807 14/11/6 → 17/8/12; 115912 229 Plies/0 erfunden → 106). Die specs/52-These
+(„ein Sensor für ‚da ist eine Hand im Bild' würde genau die Reads sperren, die das ruhige Video
+brechen") ist damit **in dieser Form widerlegt** — die Sicherungen feuern, die Phantome kommen
+trotzdem.
 
 ## Ein Schema erkennen
 

@@ -73,11 +73,17 @@ cnn=run  cnnAgree=0.000  cnnReads=0/0  cnnSnaps=0/0/0/0
 ```
 
 `cnnSnaps` counts snapshots as they arrive and splits them by where they go — to the verify
-ladder, to a missing evaluator, to a closed schedule gate. All four are zero, so **no snapshot
-ever reached the engine**. Neither engine-side gate closed; nothing got that far.
+ladder, to a missing evaluator, to a closed schedule gate. All four are zero, so in **this
+measurement** no snapshot ever reached the engine. Neither engine-side gate closed; nothing got
+that far.
 
 That places the break in the dotted edge from the detection warp to the crop store, or in the
 observer behind it — not in the engine, which is where six earlier rounds looked.
+
+> **Not confirmed for live.** `specs/53` later measured `CnnSnapshot.gridOccluded` reaching the
+> verify ladder in REPLAY, which the reading above says is impossible. One of the two measurements
+> does not describe the live path. Re-measure before quoting either as the state of the tracker —
+> the rest of this section is written as if the break still stands, and it may not.
 
 ## What the diff path does without it
 
@@ -96,3 +102,285 @@ perfectly — `changed=[e2, e4]`, `best=e2e4`, no stuck reason — and the posit
 
 Without `quiet` or `dump` a window opens showing the rectified board with each square tinted by
 what the engine did with it, and it STOPS when the engine gets stuck.
+
+---
+
+# The engine's binding rules
+
+Everything below moved out of the retired spec tree (`docs/specs-index.md`) because it is still
+true and was recorded nowhere else. Each row names the spec it came from, so
+`git show fd9c1908:specs/<pack>/…` still reaches the original. What holds today across the whole
+project is in `CLAUDE.md`; the turning points and the measured dead ends are in
+`docs/how-we-got-here.md`.
+
+## The 14 correctness invariants (`specs/17`)
+
+The traps that broke the first Kotlin port. Violating one is silent and fatal. Each has a named
+test; the anchors below were re-checked against the tree on 2026-08-20.
+
+| # | Invariant | Anchor today |
+|---|---|---|
+| 1 | **Two warps per frame.** Detection runs at `detSize = boardSize × detectScale` = 1600 × 0.5 = **800**. CNN crops come from a *separate* full-resolution **bordered** warp (`cropBorderPx`). `refGray`, `refBgr` and every `CnnSnapshot.warped/gray` are at `detSize`. | `api/TrackerConfig.detSize` |
+| 2 | **Shadow veto removes a square from `changed` but PRESERVES its z.** Vacate evidence must survive — a vacated square very often reads as uniform darkening to the HSV test. **Occlusion veto ZEROES z.** Swapping them breaks everything quietly. | `Vetoes.applyVetoes` (preserve) vs `Taint.kt` (zero) |
+| 3 | The `>2 → occluded` state gate counts the **raw undilated** occluded core, never the dilated set. | `BaselineOcclusion.core` |
+| 4 | **Tainted/latched squares count toward `maxChanged`** (`blockedN = tainted.countOneBits()`) even though their z is zeroed. | `Hypothesis.kt` |
+| 5 | **Anchoring is path-specific — do not generalise it.** *Recovery* anchors on `snap.gray` / `snap.warped`, the frame the CNN actually looked at. *Verify* anchors on `pending.cur` / `pending.curBgr`, the averaged frame the candidate was raised from. **Neither may anchor on `lastCur`** — that is the bug class this invariant exists for. | `CnnTick.kt` vs `VerifySingle.kt` / `VerifyPair.kt` |
+| 6 | `setRef(fromCommit = true)` must **NOT** rebuild the colour gamut. Only the quiet re-anchor may. | `Commit.setRef`: `if (!fromCommit) markGamutStale(curBgr)` |
+| 7 | Census `eps` stays **0**, padding is **BORDER_REPLICATE**, never a wrap/roll. Any `eps > 0` breaks monotone-brightness invariance; a roll compares row 0 against the last row. | `Census.kt` |
+| 8 | `censusThr` (**40.0**) compares against the **RAW** census channel, not the median-normalized one — keep a raw copy (`censRaw`). The normalized channel lets normalization pull a structurally changed destination square under the threshold: the phantom-shadow-as-destination class. | `Vetoes.kt`, `censForVeto` |
+| 9 | **The alarm freezes noise learning AND blocks every commit, re-anchor and pending candidate.** Release only via explicit user correction or a verified restore — otherwise the alarm "heals" by drift instead of by correction. | `NoiseLearning.kt`: `if (alarm != null) return` |
+| 10 | **`cnn_overrule` must be expressible**: the verify verdict carries a *replacement move*. Legacy D3 could not — the real move landed a cycle late. | decider `cnn_overrule`, `core-cnn/Recovery.kt` |
+| 11 | Corner order is `[a8, h8, h1, a1]` for all geometry. CNN crop order is `all_squares()` = `a1,b1,…,h1,a2,…,h8` (rank-major from rank 1). Do not confuse them. | `api/TrackerStatus.kt`, `Bitboard.kt` |
+| 12 | **`src/chesslab/config.py` is the only source of truth for the Python-side defaults.** *Partly obsolete:* the two documents this invariant named as stale — `docs/move-tracker-flow.md` and `src/chesslab/move_tracker/README.md` — were deleted with the Python tracker on 2026-08-07. The rule survives; its examples do not. | `src/chesslab/config.py` |
+| 13 | Every terminal in the verify ladder passes the multi-glance vote (`verifyObsVotes = 2` consecutive identical outcomes) — never act on one glance. | `api/TrackerConfig.verifyObsVotes` |
+| 14 | **`LatestFrame` semantics:** the frame source must **never** deliver the same frame twice. A repeated frame diffs to zero and reads as "stable" while a hand is waving. | `STRATEGY_KEEP_ONLY_LATEST`, `TrackerCamera.kt` |
+
+Three of these numbers appear nowhere else in `docs/`: `censusThr = 40.0`, `maxChanged = 6` and
+`occlCensusThr = 24.0`. All three live in `api/TrackerConfig.kt` and in `config.py`'s
+`TRACK_DEFAULTS`.
+
+## What the engine remembers — the survey (`specs/39`, verified against the tree 2026-08-02)
+
+The pack answered *"apart from undo, do other functions base decisions on previous decisions?"*
+Answer: **almost nothing does, and mostly it should stay that way** — most ways of adding memory
+here make the tracker confidently wrong for longer, which is the failure it already has.
+
+| Finding | Detail |
+|---|---|
+| **`decisionLog` is write-only as evidence** | Read in exactly four places, none of which informs a decision: the undo trim (`api/TrackerEngine.kt`), the `setFen` clear, the fold in `DecisionLog.kt`, and the debug payload. A fifth egress is not a read — `DecisionLog` fires the sink on every `add`, which is how rows reach the diagnostics file. |
+| **The diff channel never ranks the null hypothesis** | `loglikScores` scores only legal moves (`Scoring.kt`); "nothing moved" exists only indirectly, as `commitLlFloor` / `reanchorLlFloor`. The **recovery** channel does rank it — `deriveMovesDeepFull` seeds the empty sequence. The two channels differ here and the difference is documented nowhere else. |
+| **`stuckCount` saturates at 3** | It counts repeats of the same stuck reason (`Guards.kt`) and is read exactly once, as `stuckCount >= settleFrames` in `CnnTick.evaluationDue`. `SETTLE_FRAMES_CNN = 3`, so past 3 it does nothing. That is the mechanism behind "68 rejections, nothing escalates". |
+| **`cnnMarginSquares = 1` IS the fabrication mechanism** | A recovery bridge is accepted on `(best − second) >= marginSquares`, with the null hypothesis among the rivals. **One chronically-misread square is one square** — enough to buy a whole fabricated bridge. It is a margin question, not a memory question. |
+| **One repetition mechanism already exists** | `anomalySince` / `anomalyStart[64]`: a square persistently changed with no move to explain it is healed into the reference on a per-square timer, and it is **deliberately disabled while the CNN disagrees** (`AnomalyPatcher.kt`). Healing a real desync into the reference makes the tracker agree with the wrong position permanently. |
+
+Two counters from the same survey: the standoff of 2026-08-02 could not escalate because
+`guessIllegalMove` returns non-null only for **exactly one** vacated **and exactly one** received
+square, while a 0.980-agreement conflict set over ~60 confident squares is about one square — never
+1-and-1. Closed by `desyncStandoffObsN = 12` (0 = off). And the recovery confirmer was single-shot
+with the CNN attached (`confirmFrames(cnnOn) = 1`) until `RECOVERY_MIN_VOTES = 2` landed
+(`EngineState.kt`).
+
+## The refusal table (`specs/39` entry, `specs/10`)
+
+Recorded so nobody re-proposes them without new evidence. `docs/how-we-got-here.md` lists the
+dead ends that died on a *measurement*; these were refused on **structure**.
+
+| Idea | Why it was refused |
+|---|---|
+| Beam / multi-hypothesis over positions | Structurally the right tool, **and it does not address these failures**: its own text says *"Does NOT fix illegal moves: no branch contains an illegal move."* The 2026-08-02 bridge was legal. Approved, never built — see below. |
+| HMM / Viterbi smoothing over the position chain | Smoothing assumes conditionally independent observation noise. Here the error is **systematic per square** (`f4` misread in 90 of 186 observations); correlated noise makes a smoother *more* confident in the wrong answer over time. |
+| Lower a gate when a candidate keeps failing it | It manufactures phantoms, and phantoms are the veto metric. |
+| Suppress a chronically-conflicting square in the recovery channel | Plausible — it is the exact fabrication driver (`cnnMarginSquares = 1`). But the same square is also the only evidence that a real desync happened, so suppressing it cuts both ways. **Undecidable** without the diagnostics query "which squares are chronically wrong". |
+| Condition the CNN on the believed position (logit prior · prior-as-input-channel · two-crop change detection) | All three improve the *verify* path and none helps *recovery*, which is where 13 of 21 commits and every failure were. The first two actively **hurt** recovery: the prior is by construction wrong exactly when recovery runs. Refused on direction, not on cost — the corpus can supply before/after pairs for the third. |
+
+**The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
+candidate boards, score each frame's evidence against each branch's legal moves, merge branches
+reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
+by design: **K ≤ 4 live branches, divergence depth ≤ 4 plies**, branching gated by the existing
+`z >= zThr/2` soft gate. Branches share the reference image and diverge only in FEN; the
+quiet-board re-anchor may run only on the **consensus** of all live branches; noise-learning
+exclusion is the **union** of all branches' candidate squares; the CNN identity observation is the
+arbiter that collapses the beam. While the illegal-move alarm is latched the beam is **frozen**. It
+is **explicitly not a replacement for the alarm.**
+
+## The frame-seq contract (`specs/11`)
+
+**A decision made at frame N may only be verified or arbitrated by an observation with
+`seq >= N`.** Before it, the pairing was implicit in call order — a candidate raised at frame N was
+verified by whatever observation happened next, "usually-but-not-provably" from a later frame. That
+"usually" is how the `lastCur` anchoring bug (invariant 5) happened.
+
+| Consumer | Rule |
+|---|---|
+| Pending candidates | Carry the seq of the newest frame in the averaged buffer that produced them. |
+| Verify, single and pair | Return immediately — no evaluation, no frame count — when `snap.seq < pending.seq`. A stale observation must neither confirm nor reject a newer candidate. |
+| Occlusion filter | A freshness bound rather than a seq: fall back to the no-CNN heuristic when the cached observation is older than `_OBS_MAX_AGE_S = 3.0`. |
+| Alarm / desync counting | Counts **distinct observations**, not evaluations — one snapshot counts once. `desyncObsN` means "persistent over seconds", not "evaluated three times". |
+
+`android/core-engine/.../Alarm.kt` cites this pack by name ("Spec 11 seq contract") on
+`advanceDesyncStreak`; that citation resolves here. One Kotlin-side refinement the Python spec did
+not have: an unstable conflict set restarts the streak at **one**, never at zero — this observation
+is itself evidence.
+
+The premise the contract rests on: steady-state inference ~30 ms against a 25–40 fps loop, so "the
+result is already there" is the common case and `seq >= N` waits are rare.
+
+## Resync: the auto arm (`specs/37` phase 02, measured in `specs/52`)
+
+`autoResyncObsN` = consecutive clean CNN looks that adopt the observed board while the alarm is
+latched. **0 = off, and 0 is the phone default** — the phone keeps the show-then-press door. Three
+measured iterations, each disproving a design guess:
+
+| n | Result |
+|---|---|
+| **12** | Never fired. 2 914 of 3 069 snapshots discarded as not-due (evaluations run every 0.7–3 s, not at observation rate); 12 consecutive anything does not exist at blitz pace. |
+| **3** | Never fired either — the gate failed **binarily**. Of 699 alarmed evaluations, 222 were hand-free and **221 of those failed the kings guard**: deep in the drift the believed king square confidently reads empty while the real king square is not confidently a king → kingless → null. Exactly **one** clean adoptable read existed, early, near the divergence point — carrying the true position. |
+| **1** | Fires, and it is the largest single gain since the cadence: rec-20260808-115912 **61 → 87 plies**, 13 alarms each resolved by a resync instead of killing the game; **85 of 87** committed plies match the reference PGN by LCS, zero fabrications-from-nothing. Guards clean (rec-20260807 stays 25/0/0; 003957 stays 67 plies — the arm is inert where it is not needed). |
+
+Two consequences survived the ladder: hand reads now **pause** the streak instead of resetting it (a
+covered board is a non-observation), and the auto arm can only fire **near the divergence point** —
+deep-drift adoption needs composite reads. n=1 under the standing gates (standoff/illegal alarm +
+full identity axis + hand-free + kings-guarded minimal edit + position ≠ believed) is the working
+**replay** setting.
+
+### Reachability, not playability (`specs/53`)
+
+A blitz run died at ply 70: `MoveGeneratorException … ArrayIndexOutOfBoundsException: Index 64`,
+out of `DeepSearch.expand → legalMoves → generateCastleMoves → isKingAttacked →
+getPawnAttacks(Square.NONE)`. Cause: **an auto-resync had adopted a position where the side NOT to
+move stood in check.** `cnnAdoptedFen` only counted kings, and such a board generates moves
+perfectly well — so the guard passed it, the deep search then captured the exposed king with a legal
+move, and the *next* generator call on the kingless result threw, four call layers and dozens of
+plies from the adoption that caused it.
+
+The guard is now **reachability**: flip the side to move on a probe board and refuse the adoption if
+the opponent is in check (`TrackerEngine.reachable`, plus
+`ResyncTest.aPositionWithTheOpponentInCheckIsNeverAdopted`, which reproduces the exact board).
+**The first guard written — "can it generate moves" — passed the crashing position**; only writing
+the failing test proved it. The defect predates the 14-class model and is not occluded-specific; it
+needed a model that steered the search there.
+
+## Dense evaluation is not a default (`specs/52`, `specs/53`)
+
+Dense evaluation = `cnnCheckIntervalS 0.15` + `cnnCooldownS 0.07` (the *engine's* evaluation
+cadence, not the observer's), on top of `autoResyncObsN = 1`.
+
+| video | n=1 alone | n=1 + dense |
+|---|---|---|
+| rec-20260808-115912 (blitz, 237 plies) | 87 plies, 85 real | **229 plies, 229 real (LCS vs PGN), 0 invented, 4 alarms** |
+| rec-20260807 (calm) | 25 / 0 / 0 | **14 / 11 / 6 — six phantoms, 9 alarms: VETO** |
+| rec-20260808-003957 (night) | 67 plies | 33 plies, 34 alarms |
+
+Dense sampling hits exactly the mid-hand moments the sparse cadence skips. With `pOccluded ≡ 0.0`
+on every bundled model those reads are indistinguishable from clean ones until an engine taint
+latches → false mismatches → false alarms → n=1 adopts hand-distorted positions → phantoms.
+
+**`specs/52` predicted an `occluded` class would close this; `specs/53` refuted the prediction as
+stated.** With `occl14-80` served the safeguards *did* fire (772 and 2 789 non-zero `occl=` reads)
+and the dense arm got **worse on both videos** — rec-20260807 17/8/**12**, and the blitz video
+reached 106 of the blind model's 229. 229/229 is what dense evaluation can reach; nothing yet buys
+it without the phantoms.
+
+## The 12-phantom autopsy (`specs/53`, 2026-08-09)
+
+The dense arm's 12 phantoms on rec-20260807-135238. Two named suspects — resync adoptions of
+hand-distorted positions, and verify-ladder commits — are **both wrong**: **all 12 are
+`cnn_recovery`.** The 7 resyncs in the same pass invented nothing; the ladder contributed none.
+
+They arrive in bursts at one frame (4103 ×2, 4519 ×1, 4767 ×4, 6641 ×2, 8437 ×3), and two bursts
+sit **on** a missed real ply:
+
+| missed, label frame | invented, run frame |
+|---|---|
+| `Bd7` 4770 | `Rc7 Kd1 Rd7 Ke1` 4767 |
+| `Qb4` 6635 | `b4 Qxb4+` 6641 |
+
+The same board difference explained by a **longer** sequence. `Kd1` then `Ke1` is a round trip that
+changes nothing — parity filler, because the observation demands two consecutive BLACK moves. The
+placement-keyed dedup cannot collapse it: there is no shorter legal path to that placement.
+
+**Mechanism: `deriveMovesDeepFull` ranked on hits first, with length only as a tiebreak**, at
+`marginSquares = 1`. One extra explained square bought four plies — and B↔R is the identity head's
+documented top confusion, so that square is exactly what a misread supplies. *The diagnosis is
+historical:* the ranking now prices length (`cnnPlyCostSquares`, default 1 since 2026-08-09; the
+0/1/2 sweep is in `docs/how-we-got-here.md`), and the margin compares the **scores**, not raw hits.
+
+Refuted in the same autopsy: `P_OCCLUDED_THR` is **not** involved. At four of the five phantom
+frames the head reads `occl = 0` across the eight preceding observations; at 4767 a hand of 20–21
+cells had just cleared. **No lower threshold prevents any of the 12.** The per-observation
+distribution is sharply bimodal — 3 638 of 4 410 at zero, then a broad hump at 13–20 cells, max 27
+— a hand and forearm, not a jittery threshold. Do not spend a round retuning it.
+
+## Holds and deadlines (`specs/19`)
+
+### `motion_hold_s` — the ladder (§7.1)
+
+Cited by `src/chesslab/config.py` at `"motion_hold_s"`, which names `specs/19 … section 7`.
+Latency is `motion_hold_s + 0.05…0.07` at 30 fps in **every** run of the sweep, so the latency
+column needs no separate experiment. All measurements deterministic (virtual clock, every frame).
+
+| # | Configuration | Diff-path latency @30 fps | + CNN verify, 1 vote | Gives up | Evidence |
+|---|---|---|---|---|---|
+| 0 | was shipped: `hold 0.40`, `max_changed 6`, `cnn_verify` on | 0.47 | ~0.68 | — | clips 20/20 |
+| 1 | **Python ships this**: `hold 0.34` | 0.41 | ~0.62 | nothing any instrument sees | clips 21/21; 0.32 loses `blender-scholars` |
+| 2 | `hold 0.30` + `max_changed 7` | 0.37 | ~0.58 | occlusion gate widened 17 % | clips 20/20 |
+| 3 | `hold 0.15` + `max_changed 7` | **0.22** | ~0.43 | same, plus 2 quiet frames of settling | clips 20/20 |
+| 4 | rung 3 with `cnn_verify` **off** | **0.22** | **0.22** | the pre-commit ghost filter, entirely | clips 20/20 |
+| 5 | shipped thresholds, `cnn_verify` off | 0.47 | 0.47 | the ghost filter | clips 20/20 |
+
+`max_changed 7` is what unlocks everything below `hold 0.34`. The phantom question was answered as
+asked: `Kd2` does **not** return at mc7 — the mc6 and mc7 runs on `VID_20260726_155132` are
+identical move for move and score for score at both holds — and the five clips whose expected list
+is empty still commit nothing.
+
+**Why mc7 is still not proposed as a default:** on real recordings the committed move list is **not
+a smooth function of any parameter**. Sweeping the geometry inset alone on `vid1244` (ground truth
+`d4 d5 Nf3 Nf6 Nc3`): 0.040 right, 0.045 wrong, 0.050 right, 0.055 overshoots, 0.060 — the device
+profile — wrong. Alternating, not a plateau. `motion_hold_s` behaves the same way: committed plies
+go 0.40 → 9, 0.35 → 18, 0.30 → 6, 0.25 → 14, 0.15 → **0**. A single-run A/B on this material cannot
+support a threshold decision in either direction.
+
+**Kotlin's 0.20 is a physical choice, not a measured one** — the time a hand needs to leave the
+board after releasing a piece. The 0.34 floor is *Python's* measurement at 30 fps; the 18-clip
+Kotlin simulation runs at 12 fps and never reads that default at all, so it can neither reproduce
+nor refute it.
+
+### `verifyTimeoutS = 1.5` and the latency identity (§14)
+
+Cited by `android/core-engine/.../api/TrackerConfig.kt` on both `verifyTimeoutS` and `motionHoldS`.
+`verifyWindow` counts **observations**, and what one costs is set by the CNN — unbounded if the
+observer stalls. The seconds deadline is what bounds the dead time, and it guards a **stalled
+observer**, which no model speed fixes.
+
+Over 66 pending candidates across 15 clips + 3 real recordings:
+
+| population | n | local agreement | observations to verdict |
+|---|---|---|---|
+| pairs that commit | 6 | **1.000** (6/6) | **1** |
+| singles that commit | 55 | **1.000** (55/55) | 2 (one lost to the seq gate) |
+| shadow (correctly, no move) | 1 | 0.000 | 3 |
+| pairs discarded | 3 (+1 at EOF) | 0.500 / 0.500 / 0.667–0.75 / 0.75 | 8 (the whole window) |
+
+- **The two populations separate completely.** `cnnMinAgreement = 0.97` sits inside a 0.25-wide
+  empty gap: the threshold is not the problem and does not need tuning.
+- **Local agreement never rises inside a window** — in none of the 66 traces. Max, first and latest
+  are the same number, so *"weight the first observation over the later ones" is a NO-OP*, and for
+  a better reason than decay: the later observations carry no information at all.
+- **Why 1.5 s:** the slowest terminal verdict in all 66 traces was a 3-observation shadow = 0.9 s at
+  device rate, and the worst single observation on the phone was 544 ms, so two of them is 1.1 s.
+- **Why expiry discards rather than commits:** at expiry a candidate has, in 66/66 traces, local
+  agreement flat at or below 0.75. Discarding cannot manufacture a commit; it can only remove a late
+  one, and no late commit exists in the data.
+- The unbounded pending and the pair failure were **the same defect from two ends**, which is why
+  one constant fixes both: the ladder's own window end, plus a frame-loop watchdog for a candidate
+  whose ticks stopped entirely.
+
+The figures the timeout was written against (146 ms and 290 ms per observation) were the wide
+GroupNorm model's; `id35-80` measures 16 ms median for 64 crops live.
+
+## Two engine cache keys, not one (`specs/46`)
+
+They answer different questions and are both tested. The pack asked for one key; the implementation
+shipped two, deliberately.
+
+| | FEN fields kept | Symbol |
+|---|---|---|
+| Engine cache | placement, side, castling, en passant, **halfmove clock** (5) — the fullmove number is dropped | `canonicalEnginePosition`, `analysis/ReviewStore.kt` |
+| Opening name | placement, side, castling (3) | `openingPositionKey`, `analysis/OpeningBook.kt`; `position_key` in `android/scripts/generate_opening_book.py` |
+
+The fifty-move clock stays in the **engine** key against the pack's own "the move counters do not
+belong": it changes what the engine may claim, so a shared draw score across different clocks would
+be a wrong answer rather than a missed hit. It is correctly absent from the **opening** key, where a
+name cannot depend on it. The budget is *in* the key, not beside it — `cacheIdentity` folds nodes,
+cap, threads, hash and MultiPV into the hashed name.
+
+## Still open
+
+**The diff reference re-anchors only on a commit, so a replay that never commits never recovers.**
+It used to jam at ply 0; it now jams at **ply 22** (`specs/40`, `specs/41`). On the 2026-08-02 game
+the terminal note is *"Much change (18 squares + 0 occluded) — occluded/unstable, no move committed
+(base truth unchanged)"*, with the last commit at **t = 130.37 s of a 319 s video** — 22 plies of a
+game that ran 83 plies live. That is not "the CNN got 22 and the rest were hard"; it is the same
+deadlock, entered later. With the geometry fixed (`specs/41`) both the diff evidence and the CNN
+observations are good at that point, so the failure is in how they are **combined**, not in what
+they see.

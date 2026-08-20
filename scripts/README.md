@@ -14,12 +14,6 @@ replay regression set in parallel.
 the Python move tracker — their subject was the tracker's detectors and the clip replay harness,
 both Kotlin now. The rendered clips they produced are still in `tests/data/testclips/`.
 
-### `capture_empty_session.py`
-The only live-camera tool left after `chesslab collect` went. Auto-snaps one frame per interval
-of a FIXED position into a standard session directory (`SessionWriter`), so varying the light
-over an empty board yields 64 auto-labeled `empty` crops per frame. Then `chesslab slice
---session <sid>`.
-
 ### `dump_warp.py`
 Grab a single frame from a clip, run marker detection + warp, and save
 `raw.jpg` (with corners overlaid) and `warp.jpg` (with rectified grid) for visual
@@ -51,15 +45,10 @@ colour transfer in Lab space. Useful when two scan sessions had different lighti
 
 ---
 
-## Standalone tools
+## Live camera: gone from Python (2026-08-20)
 
-`scripts/calibrate_from_frame.py` and `scripts/feed_preview.py` are standalone helpers
-for the phone-camera feed when `chesslab calibrate` cannot open the camera source
-directly (e.g. an HTTPS snapshot URL).
-
-- **`calibrate_from_frame.py`** — Grab a single frame from an IP camera snapshot URL,
-  detect ArUco markers (ids 0–3), build a `CalibrationProfile`, and save it with a
-  control overlay for visual margin adjustment.
-- **`feed_preview.py`** — Quick live preview: grab frames from any source (camera
-  index, stream URL, or still image) and split into an 8×8 grid. Without `--profile`
-  uses a naive uniform grid; with `--profile` applies the real calibration rectification.
+`capture_empty_session.py`, `calibrate_from_frame.py`, `feed_preview.py` and the three
+`probe_camera*.py` were deleted with `chesslab.camera`. Kotlin owns the live camera and the
+calibration on the device; a second Python implementation could only diverge, and nothing
+compared the two. `synth/capture_turntable.py` survives because photogrammetry scanning is a
+different job — it carries its own snapshot grabber now.

@@ -97,7 +97,7 @@ export function Tiles({ pool, view, provenance }: { pool: Pool; view: DatasetVie
         label="Realpartien im train-Split"
         sub={view ? `${num(view.shares.real)} von ${num(view.shares.total)} Crops` : "kein Datensatz gewählt"}
         value={view ? pct(view.shares.realShare) : "—"}
-        why="gemessen: 5,3 % → 2 Phantome (specs/53 STATUS:85); 50 % → 105 Phantome (TODO.md:203). Dazwischen ist nichts gemessen."
+        why="gemessen 2026-08-10: 5,3 % → 2 Phantome, 50 % → 105. Dazwischen ist nichts gemessen."
       />
       <Tile
         label="Modell-Lesarten (D2)"
@@ -353,7 +353,7 @@ function nextVersion(name: string): string {
 }
 
 const MARKS = [
-  { at: 0.053, label: "5,3 %", why: "gemessen: 5,3 % Realpartien-Anteil → 2 Phantome (specs/53 STATUS:85)" },
+  { at: 0.053, label: "5,3 %", why: "gemessen 2026-08-10: 5,3 % Realpartien-Anteil → 2 Phantome" },
   { at: 0.5, label: "50 %", why: "gemessen: 50 % → 105 Phantome (TODO.md:203). Dazwischen ist nichts gemessen." },
 ];
 

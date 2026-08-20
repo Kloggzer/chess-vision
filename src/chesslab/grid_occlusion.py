@@ -6,7 +6,7 @@ segments. The read is the alignment fit's band-wise groove search kept per segme
 collapsed into lines — 2 axes x 9 lines x 8 bands is one segment per cell edge, and a square
 reads occluded at >= 2 missing edges.
 
-Two rules are load-bearing, both measured (specs/53 STATUS, 2026-08-09/10):
+Two rules are load-bearing, both measured 2026-08-09/10 (`docs/occluder-plates.md`):
 
 - **Full resolution or nothing.** At detection scale the grooves are 1-2 px and the noise floor
   is 30-40 of 144 segments; at the crop warp's resolution a clean frame drops ~2.

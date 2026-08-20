@@ -275,3 +275,45 @@ wenn der Verdeckungs-Zweig steht.
 - `rg-VID_20260802_222203` ist mit vertauschtem b8/c8 aufgebaut worden (Läufer auf b8). Von Hand
   korrigiert; die 298 Crops davon in gebauten Datasets tragen den Tausch bis zum nächsten Rebuild.
 - Aufbau-Check vor Zug 1 fehlt weiterhin — genau dieser Fall.
+
+## Bretterkennung per CNN statt ArUco (2026-08-20, nur ein Gedanke)
+
+Das Nicht-Ziel „kein Deep Learning für die Bretterkennung" ist **unbelegt**: `specs/15` hatte fünf
+Phasen `todo` und hat nie gemessen, die 34–50 % in der Doku sind Literatur. Nachgerechnet, damit
+das morgen nicht nochmal jemand herleiten muss:
+
+- **Geschwindigkeit kauft nichts.** Auf dem Gerät wird einmal pro Aufbau kalibriert und das Quad
+  gehalten; im Export läuft der Fit pro Frame, aber offline. Niemand wartet darauf.
+- **Genauigkeit auch nicht.** Ein Netz besetzt den GROBEN Platz, den ArUco füllt. Die 1,86–2,10 px
+  kommen vom Grid-Fit, der die 18 eigenen Linien des Bretts liest — ein Keypoint-Netz startet bei
+  4–8 px Quantisierung und bräuchte zur Verfeinerung genau diesen Grid-Fit. Kette wäre
+  CNN→Grid-Fit statt ArUco→Grid-Fit.
+- **Der Gewinn wäre: die Marker fallen weg** (markerloser Kaltstart), und mit ihnen
+  `margin = 0.045`, das es nur gibt, weil ArUco-Ecken nicht die Feldecken sind.
+- **Die Labels sind umsonst:** 7 344 Frames tragen schon `corners` aus `export-fit`.
+- **Das Risiko ist der Fehler, der den klassischen Detektor erledigt hat.** 9 unterscheidbare
+  Aufbauten über 20 Aufnahmen; `board_corners_from_lines` rastete auf Schreibtisch- und
+  Monitorkanten ein, 775 px daneben. Ein CNN darauf scheitert **selbstbewusst**, ArUco laut.
+
+Falls je gebaut: CNN schlägt vor, **Grid-Fit hat das Veto** (findet er nicht alle 18 Linien
+innerhalb `MAX_OFFSET_FRAC`, wird abgelehnt, nicht gemittelt), und das Abnahmekriterium ist das
+Maß des Grid-Fits — ein falsches Maß hat hier schon 302 Frames zertifiziert, deren Gitter mit
+blossem Auge falsch war. Erst mehr Aufbauten, sonst misst man auswendig gelerntes Mobiliar.
+
+## `board_size` folgt nicht dem gemessenen Quad (2026-08-20, gemessen)
+
+`board_size` ist konstant 928 für jede Aufnahme, aber wie gross das Brett im Bild sitzt, schwankt
+von **96,3 bis 125,4 px/Feld** — 30 %. **14 von 20 Aufnahmen sind nicht 1:1:** zwölf verkleinern um
+6–8 % (die Richtung, vor der `config.py` selbst warnt), und zwei vergrössern —
+`VID_20260726_233432` (0,83) und `VID_20260727_233929` (0,87) erfinden 17–21 % Pixel, bevor
+überhaupt jemand schneidet. Das trifft nicht nur die Oberfläche: das Modell trainiert auf 128 aus
+demselben Store.
+
+Fix wäre, `board_size` pro Aufnahme aus dem gemessenen Quad abzuleiten (auf ein Vielfaches von 8
+gerundet) statt zu setzen, und die beiden Aufnahmen neu zu exportieren.
+
+Getrennt davon: die Labeling-Oberfläche holt `CROP = 192` aus einem 127,6-px-Kasten, also 1,5×
+bilinear hoch — Kette von der Quelle bis zum Auge 1,53× bis 1,99×. Die Kästen selbst sind über
+Python/Kotlin/TS bytegleich gepinnt (`mesh_crop_parity.json`, 1e-9), die PIXEL nicht: Python
+rundet den Kasten auf ganze Pixel und skaliert mit `cv2.resize`, TS sampelt bilinear pro
+Ausgabepixel. Kein Test vergleicht je ein Bild.

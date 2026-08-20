@@ -119,7 +119,7 @@ private fun applyFit(
  * Two dimensions, not two collapsed profiles. The previous version fitted over samples that each
  * pinned ONE coordinate and carried the band's centre in the other, which is enough to constrain an
  * affine map and not enough to constrain a homography — a fit over those came out WORSE than its own
- * input on one frame (31.7 px, `specs/41` STATUS). Intersecting the fitted lines gives real 2D
+ * input on one frame (31.7 px; `docs/data-pipeline.md` §13). Intersecting the fitted lines gives real 2D
  * correspondences, up to 81 of them, and the perspective parameters then have something to be
  * estimated from.
  */

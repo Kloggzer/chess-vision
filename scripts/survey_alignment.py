@@ -4,6 +4,10 @@
 corners and reports the same measurement per session, so a decision about re-aligning the corpus is
 made on the corpus and not on the one session that happened to look wrong.
 
+This fits against the RAW frame, not the board store: the grid search needs `GRID_PAD_CELLS`
+of surround (29 px at board_size=928) and a stored board keeps 12. A parked session is therefore
+named and skipped, not silently counted as clean.
+
 Each session is measured through its OWN calibration profile, because `board_size` differs per rig
 (800 on the desk camera, 1600 on the phone) and an offset in rectified pixels is only comparable to
 a tolerance expressed in the same units. The `px/cell` column is what makes the rows commensurable.
@@ -53,6 +57,10 @@ def main() -> int:
             prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
         except Exception as exc:  # a session whose profile is gone is a finding, not a crash
             print(f"{sid:<24}{len(rows):>7}   no profile: {exc}")
+            continue
+        gone = sessions.missing_source_frames(sdir, rows)
+        if gone:
+            print(f"{sid:<24}{len(rows):>7}   {gone.split(' — ')[0]}")
             continue
         cell = prof.board_size / 8.0
         tol = cell * args.tol_frac

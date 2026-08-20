@@ -68,7 +68,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
       <PageTitle title={name}>
         <ReferenceChip origin={origin} />
         {candidate.source?.lens ? null : (
-          <Badge variant="destructive" title="candidate.json belegt keine Linsen-Korrektur (specs/52)">
+          <Badge variant="destructive" title="candidate.json belegt keine Linsen-Korrektur">
             Barrel nicht korrigiert
           </Badge>
         )}

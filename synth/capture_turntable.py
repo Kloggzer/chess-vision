@@ -13,27 +13,65 @@ sperren. ~24 Fotos/Ring × 2–3 Ringe (flach / halbhoch / steil von oben — To
 from __future__ import annotations
 
 import argparse
+import ssl
+import urllib.request
 from pathlib import Path
 
 import cv2
+import numpy as np
 
-from chesslab.camera import CameraSpec, open_capture
+
+class _SnapshotUrl:
+    """`cv2.VideoCapture`-compatible grabber for a JPEG snapshot URL (Android IP Camera
+    `/video/snapshot`). `cv2.VideoCapture` fails on the app's self-signed HTTPS, so the bytes
+    come over urllib with verification off and are decoded here."""
+
+    def __init__(self, url: str, timeout: float = 8.0) -> None:
+        self.url, self.timeout = url, timeout
+        self._ctx = ssl.create_default_context()
+        self._ctx.check_hostname = False
+        self._ctx.verify_mode = ssl.CERT_NONE
+
+    def read(self):
+        try:
+            data = urllib.request.urlopen(self.url, timeout=self.timeout, context=self._ctx).read()
+        except Exception as exc:
+            print(f"[capture] {self.url}: {exc}")
+            return False, None
+        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+        return img is not None, img
+
+    def release(self) -> None:
+        pass
 
 
 def open_source(source: str, width: int = 3840, height: int = 2160, timeout: float = 8.0,
                 exposure=None, gain=None, wb=None, focus=None):
-    """USB index → 4K via the camera lib with optics locked (constant exposure/WB/focus over
-    ALL photos = photogrammetry must + anti-flicker); URL → snapshot grabber. Optics controls
-    are applied by the lib; DSHOW `exposure` is log2(seconds), e.g. -6 = 1/64 s."""
-    if str(source).isdigit():
-        locked = any(v is not None for v in (exposure, gain, wb, focus))
-        if locked:
-            print("[capture] Optik gesperrt (konstant über alle Fotos, Anti-Flicker).")
-        spec = CameraSpec(source=int(source), width=width, height=height, warmup=8,
-                          exposure=exposure, gain=gain, white_balance=wb, focus=focus)
-        return open_capture(spec)
-    from chesslab.camera import UrlSnapshotCapture
-    return UrlSnapshotCapture(source, timeout=timeout)
+    """URL → snapshot grabber; USB index → 4K with the optics locked (constant exposure/WB/focus
+    over ALL photos = photogrammetry must + anti-flicker). DSHOW `exposure` is log2(seconds),
+    e.g. -6 = 1/64 s. Self-contained since `chesslab.camera` was retired on 2026-08-20."""
+    if not str(source).isdigit():
+        return _SnapshotUrl(source, timeout=timeout)
+    cap = cv2.VideoCapture(int(source), cv2.CAP_DSHOW)
+    # FOURCC BEFORE the resolution: set the other way round the 4K cam accepts MJPG and silently
+    # keeps YUY2 (opencv#7013), which caps the rate and the size.
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    for prop, value, auto in ((cv2.CAP_PROP_EXPOSURE, exposure, cv2.CAP_PROP_AUTO_EXPOSURE),
+                              (cv2.CAP_PROP_GAIN, gain, None),
+                              (cv2.CAP_PROP_WB_TEMPERATURE, wb, cv2.CAP_PROP_AUTO_WB),
+                              (cv2.CAP_PROP_FOCUS, focus, cv2.CAP_PROP_AUTOFOCUS)):
+        if value is None:
+            continue
+        if auto is not None:
+            cap.set(auto, 0)
+        cap.set(prop, float(value))
+    if any(v is not None for v in (exposure, gain, wb, focus)):
+        print("[capture] Optik gesperrt (konstant ueber alle Fotos, Anti-Flicker).")
+    for _ in range(8):                          # warmup: the first frames come out under-exposed
+        cap.read()
+    return cap
 
 
 def grab(cap):

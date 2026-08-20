@@ -216,10 +216,12 @@ camera only). `chesslab calibrate` models the **board** — where the 8×8 grid 
 `lens` first: a new lens calibration re-stamps every board profile.
 
 ```bash
-uv run chesslab lens calibrate --camera 0    # wave a printed board; auto-captures and solves
 uv run chesslab lens calibrate-board         # zero interaction: solves from sessions on disk
 uv run chesslab lens show                    # K, distortion, RMS, the resolution it was shot at
 ```
+
+The interactive `lens calibrate` went with the live-camera path on 2026-08-20; `calibrate-board`
+was always the better door and is now the only one.
 
 `calibrate-board` needs no pattern and no interaction, because the physical board already is
 one: it reads the 7×7 inner checker corners out of recorded sessions and saves only when a
@@ -232,8 +234,6 @@ them. The saved profile is a seed, not the record.
 
 ```bash
 uv run chesslab calibrate markers --out data/calibration/markers.png   # print, cut, tape to the corners
-uv run chesslab calibrate auto --camera 0 --preview                    # tune --margin live (w/e), s=save
-uv run chesslab calibrate check --profile default                      # grid overlay to eyeball
 uv run chesslab calibrate list
 ```
 
@@ -258,8 +258,7 @@ uv run chesslab slice --preview <id>                                   # label v
 
 Output is `data/crops/default/<class>/…webp` plus one manifest line per crop in that same pool's
 `data/crops/default/manifest.jsonl` — a pool describes itself, and `--variant-tag X` puts both
-under `data/crops/X/`. `chesslab cameras` probes what your cameras really deliver, which is
-rarely what they advertise.
+under `data/crops/X/`.
 
 The capture rig (`chesslab collect` and its OpenCV dashboard) was **deleted on 2026-08-20**:
 every session now arrives from the phone tracker or from `chesslab ingest`. `SessionWriter`,

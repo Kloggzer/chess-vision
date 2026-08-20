@@ -99,56 +99,32 @@ CROP = CropDefaults()
 CROP_WARP_BORDER_CELLS: float = 0.1
 
 
-# --- Camera capture defaults (used by chesslab.camera when a caller sets nothing) -----
+# --- Rig capture reference resolution -------------------------------------------------
 @dataclass(frozen=True)
 class CameraDefaults:
-    """Default capture mode for local USB cameras. Applied by `chesslab.camera.open_capture`
-    whenever a `CameraSpec` leaves a field as `None`. This is the ONE place to switch the
-    house default between 1440p and 4K.
+    """The resolution the rig camera records at. Python no longer opens the camera (Kotlin
+    owns it since 2026-08-20); this is the reference `doctor` checks the lens calibration
+    against.
 
     Why 1440p is the default: 2560×1440 delivers 30 fps, while true 4K (3840×2160) runs at
     ~19 fps and only on a direct USB-3 port — overkill for the chessboard's small per-square
     crops. To force 4K instead, set width=3840, height=2160 here.
 
-    On `fourcc`: "MJPG" is requested but does NOT take effect, and that is a deliberate
-    trade-off rather than an accident — setting FOURCC before the resolution is what makes
-    OpenCV's DSHOW backend fall back to YUY2 (opencv#7013; full explanation in `camera.py`).
-    Engaging MJPG was measured and is not worth it: +5% fps at 1440p, ~5% SLOWER at 4K, and
-    an extra ~0.7 CPU cores burned on JPEG decode. The rates above are therefore the
-    datasheet's YUY2 limits. Uncompressed 4K is ~380 MB/s, which is why it stalls near
-    20 fps on USB-3."""
+    The rates are the datasheet's YUY2 limits — uncompressed 4K is ~380 MB/s, which is why
+    it stalls near 20 fps on USB-3."""
 
     width: int = 2560          # → 3840 for 4K
     height: int = 1440         # → 2160 for 4K
     fps: int = 30
-    fourcc: str = "MJPG"
-    backend: str = "auto"      # auto = DSHOW on Windows (MSMF caps 4K on this cam), else default
 
 
 CAMERA = CameraDefaults()
-
-# Named capture modes offered by the UI/CLI (`chesslab track --res`, the track web UI's
-# resolution selector) and mapped to a `CameraSpec` by `camera.spec_for_mode`. The ONE
-# place this list is defined — the UI derives its dropdown from `GET /api/camera/modes`,
-# it never hardcodes resolutions. `None` = leave the resolution unset, i.e. fall back to
-# `CAMERA` above. A camera is free to IGNORE a requested mode (UVC drivers silently pick
-# the nearest supported one), so callers must always read the delivered size back from an
-# actually grabbed frame instead of trusting the request.
-DEFAULT_CAMERA_MODE: str = "default"
-CAMERA_MODES: dict[str, tuple[int, int] | None] = {
-    DEFAULT_CAMERA_MODE: None,     # whatever config.CAMERA says (currently 1440p)
-    "720p": (1280, 720),
-    "1080p": (1920, 1080),
-    "1440p": (2560, 1440),
-    "4k": (3840, 2160),
-}
-
 
 # --- Lens undistortion (optics, NOT board geometry) -----------------------------------
 @dataclass(frozen=True)
 class LensDefaults:
     """Barrel/pincushion removal for the rig camera. Applied at exactly one place —
-    `chesslab.camera.open_capture` wraps the capture in an undistort decorator. The
+    `lens.active()` builds the undistorter a caller applies to raw frames. The
     intrinsics come from `chesslab lens calibrate` (see `chesslab/lens.py`); this is the
     LENS model and has nothing to do with `calibration.py` (BOARD geometry).
 
@@ -648,8 +624,7 @@ TRACK_DEFAULTS: dict = {
                                    # `too_many_changed`, and the eventual single commit swallows
                                    # the queen. Going lower needs `max_changed` = 7, which widens
                                    # the occlusion gate — a detection-quality trade the user has
-                                   # ruled out (specs/19-live-hardening/STATUS.md, section 7).
-                                   # Do not lower it without re-running `pytest -m clips`.
+                                   # ruled out. The six-rung ladder is in `docs/tracker-flow.md`.
     "occlusion_color_thr": 3.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off).
                                    # NOTE: the historic 1.5 was "tuned" while the gamut was never built (veto dead);
                                    # now that it is live, 1.5 over-fires — 3.0 is the validated-conservative start.

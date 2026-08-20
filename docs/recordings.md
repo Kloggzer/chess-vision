@@ -186,3 +186,105 @@ quad instead of a settled one, and it is still well inside the criterion. And
 all four.
 
 **The geometry is not the open question for any recording.** What is on them is.
+
+---
+
+## How a recording is refused — and why it is NOT a pass rate
+
+`ALIGN_PASS_MIN = 0.85` measured **playing speed, not footage quality**. `rec-20260808-003957` — a
+famous-game reenactment at ~10 s/move — reads **82.5 %** align-pass on flawless geometry (worst
+offset median 2.9 px at cell 116, quiet spread, exact clock, 4 markers on 847/1014 samples). The
+failing samples are hands, and a hand says nothing about the board; the 0.85 had been calibrated on
+a ~2 %-hands live game and its own comment said "seven times handsier" would break it (`specs/52`).
+
+Replaced 2026-08-08 by **`MIN_ALIGNED_SAMPLES = 100`** (`GeometryScan.kt:296`, refusal at `:214`):
+every aligned sample has already passed `alignmentOf`'s per-frame gate (worst offset within 4 % of a
+cell AND all 18 grid lines), a nudged board is the spread gate's job, and what a median quad needs
+is *enough* of them. The rate is still reported, labelled as a playing-speed number.
+
+| video | rate (old gate) | aligned samples | result under the new gate |
+|---|---|---|---|
+| `rec-20260808-003957` | 82.5 % → REFUSED | 837 | **42 plies, 200 review frames** |
+| `rec-20260808-115912` | 82.4 % → REFUSED | 1 765 | **72 plies, 325 review frames** |
+
+The label replays through the scan's static median quad, so its ply count differs from a live-align
+quiet run (003957: 42 vs 67 — worse; 115912: 72 vs 61 — better). The label is the review PROPOSAL.
+
+## `start_frame` DROPS leading frames, it does not seek
+
+Recorded from `scripts/replay_clip_cnn.py` before that file was deleted with the Python tracker
+(`specs/52`). The clock never sees the dropped frames, so the replay is exactly the replay of a
+trimmed clip. It exists because `VID_20260802_222741` changes illumination **locally** over its
+first ~1 s — the a-file corner gains 32–38 % of its luma between frames 20 and 30 while h8 loses
+20 % and the whole-board mean does not move — after which a reference taken at frame 0 reads
+a1/a2/b1 as changed in 178 of the next 200 frames, forever, and the tracker sits in `no_legal_move`
+from frame 14.
+
+It turned out **not to be needed** on that video: replayed at `--start-frame 60` and at 0 the
+committed move list is byte-identical (all 22 plies, same order); only the decider mix moves
+(`cnn_recovery` 5 vs 3, `cnn_occupancy` 11 vs 13). It is a decode-side skip, never a threshold
+override. **The Kotlin harness has no equivalent.**
+
+## What the on-device recorder used to lose (2026-07-27, `specs/19` phase 03)
+
+Six defects, ordered by how much recorded data each cost. All six are **fixed** (`ccce33d`,
+`a164c05`) and the fixes are in the current tree; they are kept here because the recordings made
+before them are the ones on disk, and because D1's shape recurs.
+
+| # | defect | cost |
+|---|---|---|
+| **D1** | `GameSessionController.onEvent` handled only `MoveCommitted`; `TrackerEvent.SequenceCommitted` fell into `else -> Unit`. The engine commits plies through **two** events — `Commit.kt` `commitSequence` (decider `diff_pair`, fast play: half-move + reply) and `CnnTick` (decider `cnn_recovery`) — and queues a session photo for both | **every pair commit and every CNN recovery produced no `log.jsonl` row, no JPEG and no move in the saved game/PGN.** Five other consumers of the same bus handled the event (notification counter, `MoveList`, `SpectatorController`, `MoveAnnouncer`, `StatusUiModel`); the recorder's driver was the only one that did not — which is exactly the user report that the move list counts more moves than the app saves |
+| D2 | the deferred photo flushed on **every** `ReAnchored`; Python flushes only when the occlusion set is empty | frames taken with a hand over the board, i.e. 64 crops labelled as pieces that cannot be seen — invisible until someone runs `chesslab slice` weeks later |
+| D3 | `startRecorder` created `frames/`, `log.jsonl` and `session.yaml` **before** `capReached` was evaluated | the only path producing a session directory with a zero-byte `log.jsonl` and no frames; it then counted against the next `totalBytes()` |
+| D4 | a failed frame write returned 0 and was swallowed — no counter, no reason, no log, `pending` already cleared | the mechanism behind "recording doesn't work well" being all anyone could say |
+| D5 | `RecordingGates.reason` was set and never cleared | one transient geometry blip made the only diagnostic the UI shows report a stale skip forever |
+| D6 | nothing reported frames written | a recorder that has written zero frames for ten minutes was indistinguishable from a working one |
+
+Fix state today: `SequenceCommitted` routes into `onCommitted` (`GameSessionController.kt:90`,
+one photo per commit not per ply), the `ReAnchored` flush is gated on `isClean(status)` (`:96`),
+`capReached()` is evaluated before the recorder opens (`SessionCapture.kt:199`), `failedWrites`
+exists (`:93`) and `recordedFrames` is surfaced (`GameSessionController.kt:36`,
+`RecordingSection.kt:200`).
+
+Negative results from the same audit, recorded so they are not re-investigated: one `log.jsonl`
+line per frame file was **already** true and passed unfixed; the write path was already off the
+analyzer thread; and the Python `auto_record` session leak has **no Android equivalent**.
+Whether these six are *the* mechanism behind the two suspect directories on the phone is unproven —
+no device was attached when they were found.
+
+## Recorded games were not games
+
+Four of five stored games were **not legal sequences from their own `startFen`** (broke at plies 1,
+2, 18 and 28). The engine cannot commit an illegal move — its board jumps BETWEEN commits (alarm
+resolved, FEN resync, accepted recovery) and `GameSessionController` dropped `Alarm`/`AlarmCleared`
+via `else -> Unit`. Such a file is unusable as a game **and** as labelled data. `LiveGame.continues`
+(`LiveGame.kt:110`) now ends the record at the seam.
+
+In the same pass: all 77 recorded plies stored `provenance: null`, **including sessions recorded
+with debug ON**, because the decider was read from the debug payload and matched by
+`accepted && uci`. It is taken from the commit event directly now.
+
+## The stored device profile carries its margin forward — "recalibrate" does not adopt 0.045
+
+`config.DEFAULT_MARKER_MARGIN = 0.045` has two independent instruments behind it: a grid-line
+alignment sweep over four recordings (two phone, two rendered; optimum 0.040–0.050) and a
+committed-ply sweep against a played game on a recording that was not in that four.
+
+| margin | grid-line alignment | committed plies (`vid1244`) |
+|---|---|---|
+| 0.030–0.035 | outside the optimum | wrong (3 of 5 plies) |
+| **0.040–0.050** | **optimum** | 0.040 and 0.050 reproduce the played game exactly |
+| 0.060 | over-indented | wrong (3 of 5 plies) |
+
+They disagree on exactly one point: alignment's optimum is 0.045, and the ply count at 0.045 is
+wrong while both neighbours are right — the ply count alternates across the whole sweep
+(0.040 right, 0.045 wrong, 0.050 right), so that is the second instrument's chaos, not evidence.
+
+The trap: the phone's stored profile carried **margin 0.06**, the superseded default, and
+`CalibrationStore.carryOver` writes `margin = marginOverride ?: existing.margin`
+(`CalibrationStore.kt:141`). `marginOverride` is non-null only when the user has **touched the
+per-corner sliders in this session**. So "recalibrate the board" never adopts 0.045 — only moving
+the sliders does. The carry-forward is the right design (per-corner outset is measured geometry;
+re-detecting corners is no reason to discard it); the gap is that **nothing ever measures it**, so
+a stale value and a tuned one are indistinguishable. On `vid1244` that is the difference between 3
+committed plies and the whole game.

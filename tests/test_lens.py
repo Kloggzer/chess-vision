@@ -1,10 +1,9 @@
-"""Tests for lens undistortion (`chesslab.lens`) and its single hook in `chesslab.camera`.
+"""Tests for lens undistortion (`chesslab.lens`).
 
-No hardware: `cv2.VideoCapture` is patched with the same `FakeCap` pattern
-`tests/test_camera.py` uses, and calibration files are synthesized into `tmp_path`.
-The behavioural crux covered here is (a) undistortion is OFF unless a calibration exists,
-(b) the remap maps are built exactly ONCE (never `cv2.undistort` per frame), and (c) the
-source policy — the phone/IP cam and recorded files must never be remapped.
+No hardware: calibration files are synthesized into `tmp_path`. The behavioural crux
+covered here is (a) undistortion is OFF unless a calibration exists, (b) the remap maps
+are built exactly ONCE (never `cv2.undistort` per frame), and (c) the source policy —
+the phone/IP cam and recorded files must never be remapped.
 """
 
 from __future__ import annotations
@@ -17,42 +16,9 @@ import numpy as np
 import pytest
 from typer.testing import CliRunner
 
-from chesslab import camera as cam
 from chesslab import config, lens
 from chesslab.calibration import CalibrationProfile, CropParams
 from chesslab.cli import app
-
-
-class FakeCap:
-    """Minimal cv2.VideoCapture stand-in that yields real-sized frames."""
-
-    def __init__(self, index=0, backend=None, *, opened=True, w=640, h=480):
-        self.index = index
-        self.backend = backend
-        self.sets: list[tuple[int, float]] = []
-        self.reads = 0
-        self.w, self.h = w, h
-        self._opened = opened
-
-    def isOpened(self):
-        return self._opened
-
-    def set(self, prop, val):
-        self.sets.append((int(prop), val))
-        return True
-
-    def get(self, prop):
-        return {cv2.CAP_PROP_FRAME_WIDTH: float(self.w),
-                cv2.CAP_PROP_FRAME_HEIGHT: float(self.h)}.get(int(prop), 0.0)
-
-    def read(self):
-        self.reads += 1
-        if not self._opened:
-            return False, None
-        return True, np.full((self.h, self.w, 3), 128, np.uint8)
-
-    def release(self):
-        self._opened = False
 
 
 @pytest.fixture(autouse=True)
@@ -65,19 +31,6 @@ def _reset_lens_state(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "LENS", replace(config.LENS, path=str(tmp_path / "calib.npz")))
     yield
     lens._MAP_CACHE.clear()
-
-
-@pytest.fixture
-def fake_vc(monkeypatch):
-    created: list[FakeCap] = []
-
-    def factory(index, backend=None):
-        c = FakeCap(index, backend)
-        created.append(c)
-        return c
-
-    monkeypatch.setattr(cam.cv2, "VideoCapture", factory)
-    return created
 
 
 def _write_calib(path, w=640, h=480, k1=-0.25):
@@ -114,61 +67,9 @@ def test_load_roundtrips_a_saved_calibration(tmp_path):
     assert calib.id == lens.calib_id(calib.camera_matrix, calib.dist_coeffs)
 
 
-# --- open_capture wiring --------------------------------------------------------------
-
-def test_no_calibration_means_capture_is_not_wrapped(fake_vc):
-    """Regression guard: without calib.npz nothing about existing behaviour may change."""
-    cap = cam.open_capture(cam.CameraSpec(source=0, warmup=0))
-    assert cap is fake_vc[0]
-    assert not isinstance(cap, cam._UndistortCapture)
-
-
-def test_capture_is_wrapped_when_calibration_exists(fake_vc, tmp_path):
-    _write_calib(tmp_path / "calib.npz")
-    cap = cam.open_capture(cam.CameraSpec(source=0, warmup=0))
-    assert isinstance(cap, cam._UndistortCapture)
-    ok, frame = cap.read()
-    assert ok
-    assert frame.shape == (480, 640, 3)      # size preserved — no ROI crop
-
-
-def test_url_and_file_sources_are_not_wrapped_by_default(fake_vc, tmp_path, monkeypatch):
-    _write_calib(tmp_path / "calib.npz")
-    monkeypatch.setattr(cam, "_UrlMjpegCapture", lambda url, **k: FakeCap(url))
-    url_cap = cam.open_capture(cam.CameraSpec(source="https://phone/video/m.jpeg"))
-    file_cap = cam.open_capture(cam.CameraSpec(source="clip.mp4", warmup=0))
-    assert not isinstance(url_cap, cam._UndistortCapture)
-    assert not isinstance(file_cap, cam._UndistortCapture)
-
-
-def test_undistort_true_forces_wrapping_of_a_file_source(fake_vc, tmp_path):
-    _write_calib(tmp_path / "calib.npz")
-    cap = cam.open_capture(cam.CameraSpec(source="clip.mp4", warmup=0, undistort=True))
-    assert isinstance(cap, cam._UndistortCapture)
-
-
-def test_undistort_false_disables_wrapping_for_an_index(fake_vc, tmp_path):
-    _write_calib(tmp_path / "calib.npz")
-    cap = cam.open_capture(cam.CameraSpec(source=0, warmup=0, undistort=False))
-    assert cap is fake_vc[0]
-
-
-def test_latest_frame_and_undistort_compose_with_timeout(fake_vc, tmp_path):
-    """Undistort must sit ON TOP of LatestFrame and forward read(timeout=...)."""
-    _write_calib(tmp_path / "calib.npz")
-    cap = cam.open_capture(cam.CameraSpec(source=0, warmup=0, latest=True))
-    try:
-        assert isinstance(cap, cam._UndistortCapture)
-        assert isinstance(cap._cap, cam.LatestFrame)
-        ok, frame = cap.read(timeout=2.0)
-        assert ok and frame.shape == (480, 640, 3)
-    finally:
-        cap.release()
-
-
 # --- the performance contract ---------------------------------------------------------
 
-def test_maps_are_built_once_and_undistort_is_never_called(fake_vc, tmp_path, monkeypatch):
+def test_maps_are_built_once_and_undistort_is_never_called(tmp_path, monkeypatch):
     _write_calib(tmp_path / "calib.npz")
     calls = {"maps": 0, "undistort": 0}
     real_maps = cv2.initUndistortRectifyMap
@@ -184,10 +85,12 @@ def test_maps_are_built_once_and_undistort_is_never_called(fake_vc, tmp_path, mo
     monkeypatch.setattr(lens.cv2, "initUndistortRectifyMap", counting_maps)
     monkeypatch.setattr(lens.cv2, "undistort", forbidden_undistort)
 
-    cap = cam.open_capture(cam.CameraSpec(source=0, warmup=0))
+    und = lens.active("clip.mp4", override=True, path=tmp_path / "calib.npz")
+    assert und is not None
+    frame = np.full((480, 640, 3), 128, np.uint8)
     for _ in range(10):
-        ok, _f = cap.read()
-        assert ok
+        out = und.apply(frame)
+        assert out.shape == frame.shape
     assert calls["maps"] == 1
     assert calls["undistort"] == 0
 

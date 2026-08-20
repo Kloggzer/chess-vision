@@ -89,3 +89,75 @@ bezieht und nicht auf die leere Bühne.
 Gemessen wird über den **Crop**-Ausschnitt, geschnitten mit `crops_for_frame` — demselben Aufruf,
 der auch das Bild schneidet. Damit ist die Label-Region per Konstruktion die Crop-Region, Mesh und
 Pads eingeschlossen, und genau die Körnungslücke von oben kann nicht zurückkommen.
+
+---
+
+## Was der gelöschte Vorschlags-Produzent gemessen hat (`specs/53`, 2026-08-09)
+
+> ⚠ **Das Werkzeug existiert nicht mehr.** `src/chesslab/occluded.py` (512 Zeilen) und
+> `realgames propose-occluded` sind am 2026-08-19 mit `fbbe5a34` gelöscht worden — der Pixel-Score
+> gegen den Intervall-Median ist durch die SAM-3-Alpha ersetzt, der Modell-Kanal heißt jetzt
+> `realgames model-read`, und der Rillen-Kanal lebt als `src/chesslab/grid_occlusion.py` im
+> Frame-Scan weiter. `fbbe5a34` parkte die 42 alten Vorschlagsdateien (131 MB) nach
+> `data/_parked/occluded-proposals-2026-08-19/` — dieses Verzeichnis ist im aktuellen
+> Arbeitsverzeichnis **nicht mehr da**. Die Zahlen unten sind **historisch** und stehen
+> hier, weil sie die einzige Präzisionsmessung sind, die es zu diesem Übergang gibt.
+
+Erzeugt wurden 126 720 Vorschläge über beide Sessions, 1 410 bei `hi 0.7`:
+
+| Session | Zeilen | `occluded` @0,7 | p50 | p90 | p99 | >0,5 | =1,0 | ungültig |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| rg-rec-20260808-003957 | 48 640 | 495 (1,02 %) | 0,015 | 0,230 | 0,701 | 1 748 | 41 | 0 |
+| rg-rec-20260808-115912 | 78 080 | 915 (1,17 %) | 0,011 | 0,242 | 0,719 | 2 872 | 148 | 0 |
+
+### Die 30-Zellen-Konfusionstabelle (`hi = 0.7`, `lo = 0.3`)
+
+30 Zellen, `numpy`-Seed 42, geschichtet über die drei Score-Bänder (12/9/9) über **beide** Sessions,
+jede aus dem Session-Frame durch denselben Warp gerendert, den der Scorer benutzt (Zelle plus
+1,5 Zellen Halo, Zelle umrandet), und per Augenschein klassifiziert. Die Review-PNGs unter
+`data/realgames/*/frames/` wurden **nicht** benutzt: deren Farbverdikt-Overlay verdeckt genau die
+Pixel, auf denen die Entscheidung ruht. Das Schichten nach Band ist es, was Präzision bei `hi`
+direkt schätzbar macht — Band A ist eine gleichverteilte Ziehung aus `score > hi`.
+
+| Band | n | occluder | shadow | clean |
+|---|---:|---:|---:|---:|
+| A: score > 0,7 (Vorschlag `occluded`) | 12 | **12** | 0 | 0 |
+| B: 0,3 < score ≤ 0,7 (Tinder-Band der UI) | 9 | 8 | 0 | 1 |
+| C: score ≤ 0,3 | 9 | 0 | 0 | 9 |
+
+**precision(occluder | score > 0,7) = 12/12 = 1,00**, über der 0,9-Latte. `lo = 0.3` bestätigt sich
+von der anderen Seite: Band C ist 9/9 clean.
+
+Zwei ehrliche Einschränkungen, und beide gelten weiter:
+
+- **Recall bei `hi` ist niedrig.** Band B ist 8/9 occluder — die meisten verdeckten Zellen sitzen im
+  Review-Band, nicht im Vorschlag. Der Trade ist hier richtig (ein falsches `occluded` vergiftet das
+  Training, ein Miss lässt nur das FEN-Label stehen), aber die `hi`-Menge allein ist nicht die Klasse.
+- **In 30 Ziehungen kam kein einziges `shadow` vor.** Die benannte Falsch-Positiv-Klasse ist nicht
+  aufgetreten, also ist die Schatten-Invarianz des Census-Kanals **durch diese Tabelle ungetestet** —
+  belegt nur durch den synthetischen Vertrag in `tests/test_realgames.py`.
+
+## Der Rillen-Sensor: Auflösung ist tragend, und c8 ist der stehende Falsch-Positive
+
+Der modellfreie Hand-Sensor (`core-geometry/GridOcclusion.kt`, Python-Spiegel
+`src/chesslab/grid_occlusion.py`) hält den bandweisen Rillen-Read des Alignment-Fits **pro Segment**
+statt ihn zu Linien einzusammeln: 2 Achsen × 9 Linien × 8 Bänder = ein Segment je Feldkante, ein Feld
+liest `occluded` ab **2 fehlenden Kanten**.
+
+- **Auflösung entscheidet:** im vollen Crop-Warp **2 / 11 / 2** fehlende Segmente auf
+  sauber / Hand / sauber (die 11 exakt unter der Hand geclustert); bei **detSize 30–40 von 144**
+  ersäuft das Signal. Der Sensor wird deshalb dort gestempelt, wo die Crops geschnitten werden.
+- **Der stehende Falsch-Positive:** auf `VID_20260802_222741` liest **ein** Feld — c8, eine Figur,
+  die über ihre eigenen Rillen lehnt — auf **73 % aller Frames** geflaggt, minutenlang am Stück.
+
+Daraus die Gate-Regel, gemessen gegen beide Versagensarten (`specs/53`, 2026-08-10):
+
+| Gate-Regel | 003957 (67-Ply-Referenz) | 222741 (keine Referenz; ohne Gate 28) |
+|---|---|---|
+| jedes Flag (Rohkarte) | **67/67, 0 erfunden** | **0 Plies** — c8 blankt das Replay |
+| Zählschwelle ≥ 3 | 39 Plies (`g4` durch den 2-Flag-Schwanz) | 28 |
+| **orthogonal benachbartes Paar** | **67 Plies, LCS 65/67** | **28** |
+
+Die abziehende Hand läuft über 2-Flag-Frames aus (h3+h2 — immer Nachbarn), deshalb committet eine
+Zählschwelle von 3 genau die Fabrikation, die das Gate verhindern soll. Die Regel ist **räumlich, pro
+Observation, ohne Zeitzustand** (`gridHandSquares`, `SQ_NEIGHBOURS`).
