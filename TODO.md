@@ -226,6 +226,29 @@ einem Trainings-Crop. Befund, gemessen:
   trainiertes Modell 003957 von 67 auf 15 Plies fallen lässt. Reihenfolge: erst auf dem geraden
   Korpus neu trainieren, dann Tracker-seitig begradigen.
 
+## Zwei Aufnahmen behalten ihren Bogen — die Kruemmung war nie messbar (2026-08-21)
+
+Der Store ist geradegezogen, aber der Mesh kann nur den Bogen nehmen, den er GEMESSEN hat.
+`_curved_axes` (realgames.py) gibt die `cx`/`cy` nur alles-oder-nichts heraus: jede der 18 Linien
+braucht >= `MIN_CURV_SAMPLES` Punkte, und keine darf ueber `MESH_CURV_LIMIT` liegen. Wo das
+scheitert, bleibt eine Zeile bei Versaetzen und Neigungen.
+
+Seit 2026-08-21 leiht ein Frame ohne Kruemmung die der Aufnahme (Median ueber die sauberen Frames,
+die eine tragen, mindestens `MESH_POOL_MIN` = 3) — das rettete `20-35-52` von 6,35 auf 1,70 px.
+Zwei Aufnahmen haben aber gar keine zu leihen:
+
+| Aufnahme | saubere Frames mit Kruemmung | Bogen danach |
+|---|---|---|
+| `2026-08-13-19-34-23` | 1 von 55 | 5,5 px |
+| `2026-08-14-20-48-55` | 0 von 105 | 5,4 px |
+
+Zum Vergleich: der Korpus-Median liegt bei 0,97 px, roh waren es 6,07.
+
+Zu klaeren, falls das stoert: WARUM die Kruemmung dort durchfaellt (zu wenige Bandpunkte auf
+einzelnen Linien, oder Linien ueber dem Limit). Die Alles-oder-nichts-Regel selbst ist bewusst so —
+"ein Konsument darf nie eine halbe Stufe schneiden" — und sollte nicht aufgeweicht werden, um eine
+Zahl schoener zu machen.
+
 ## `labeled-session-pack` liest Frames, die es nicht mehr gibt (gefunden 2026-08-21)
 
 `packLabeledSession` (LabeledVideoPack.kt) oeffnet `row["frame"]`, also ein PNG unter `frames/`.

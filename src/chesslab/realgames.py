@@ -835,6 +835,8 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
     frames reached 1.0). The camera does not move inside a recording, so everyone else borrows the
     nearest clean frames — 1.2 px against 1.0 for a frame's own, and available for all of them.
     """
+    from dataclasses import replace
+
     from .calibration import mesh_from_lines, pooled_mesh
 
     clean = {int(Path(r["frame"]).stem): mesh_from_lines(r["grid_lines"]) for r in rows
@@ -848,6 +850,15 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
             near = sorted((j for j in clean if j != idx), key=lambda j: (abs(j - idx), j))
             own = pooled_mesh([clean[j] for j in near[:MESH_NEIGHBOURS]])
         out[idx] = own
+    # The bow is optical and the camera is fixed, so a curvature measured on ANY clean frame of the
+    # recording describes all of them — and a mesh without it cannot take a bow out at all. Three
+    # recordings carry curvature on under 5 % of their frames and stayed at 5.3-6.4 px without this,
+    # against 0.97 where it was present (2026-08-21).
+    session = pooled_mesh(list(clean.values()))
+    if session is not None and session.cx is not None:
+        out = {i: (replace(m, cx=session.cx, cy=session.cy)
+                   if m is not None and m.tilted and m.cx is None else m)
+               for i, m in out.items()}
     return out
 
 

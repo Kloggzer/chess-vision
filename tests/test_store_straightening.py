@@ -29,8 +29,9 @@ def _mesh(tilt: float) -> GridMesh:
     return GridMesh(list(EIGHTHS), list(EIGHTHS), [tilt] * 9, [0.0] * 9)
 
 
-def _lines(tilt: float) -> dict:
-    return {"x": list(EIGHTHS), "y": list(EIGHTHS), "tx": [tilt] * 9, "ty": [0.0] * 9}
+def _lines(tilt: float, curv: float | None = None) -> dict:
+    out = {"x": list(EIGHTHS), "y": list(EIGHTHS), "tx": [tilt] * 9, "ty": [0.0] * 9}
+    return out if curv is None else {**out, "cx": [curv] * 9, "cy": [0.0] * 9}
 
 
 def _drawn(tilt: float):
@@ -64,11 +65,11 @@ def _session(tmp_path, rows: list[dict], mattes: tuple[str, ...] = ()):
     return sdir, board
 
 
-def _row(idx: int, tilt: float | None, hand: bool = False) -> dict:
+def _row(idx: int, tilt: float | None, hand: bool = False, curv: float | None = None) -> dict:
     row = {"frame": f"frames/{idx:06d}.png", "board": f"boards/{idx:06d}.webp",
            "board_size": BS, "board_border": BORDER}
     if tilt is not None:
-        row["grid_lines"] = _lines(tilt)
+        row["grid_lines"] = _lines(tilt, curv)
     if hand:
         row["hand_squares"] = ["e4"]
     return row
@@ -119,3 +120,24 @@ def test_the_matte_follows_its_board(tmp_path):
     assert straighten_boards(sdir, rows)["mattes"] == 2
     for stem in ("000000", "000000.fixed"):
         assert line_spread(cv2.imread(str(sdir / MATTE_DIR / f"{stem}.webp"))) <= 2
+
+
+def test_a_frame_without_curvature_borrows_the_recordings(tmp_path):
+    """A mesh with no `cx` cannot take a bow out at all, and most frames of a recording have none.
+
+    Measured 2026-08-21: three recordings carry curvature on under 5 % of their frames and stayed
+    at 5.3-6.4 px without this; where it was present the same rule reached 0.97.
+    """
+    curved = [_row(i, TILT, curv=0.03) for i in (0, 3, 6)]
+    flat = [_row(i, TILT) for i in (9, 12)]
+    meshes = meshes_for_boards(curved + flat)
+    assert [m.cx for m in meshes.values()] == [[0.03] * 9] * 5
+    assert meshes[9].tx == pytest.approx([TILT] * 9), "its own tilts stay its own"
+
+
+def test_two_curved_frames_are_too_few_to_graft_from(tmp_path):
+    """`MESH_POOL_MIN`: one frame's curvature could be noise, and grafting noise onto 500 boards
+    is worse than leaving a measured bow in five."""
+    meshes = meshes_for_boards([_row(0, TILT, curv=0.03), _row(3, TILT, curv=0.03),
+                                _row(6, TILT), _row(9, TILT)])
+    assert meshes[6].cx is None and meshes[9].cx is None

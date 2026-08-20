@@ -391,23 +391,37 @@ def mesh_from_lines(lines) -> GridMesh | None:
     return GridMesh(xs, ys, tx, ty, cx, cy)
 
 
+#: How many meshes must carry a term before its median is trusted. Same number, same argument as
+#: `sessions._repair_mesh_outliers`.
+MESH_POOL_MIN = 3
+
+
 def pooled_mesh(meshes) -> GridMesh | None:
-    """One mesh for a whole recording: per coefficient the median over the frames given.
+    """One mesh out of many: per TERM the median over the meshes that carry that term.
 
     A hand over the grooves moves single lines, and the per-frame mesh it produces can leave the
     board WORSE than no mesh at all (measured 2026-08-21 on 13-52-38: 15.21 px raw against 12.36
     with its own mesh). The camera does not move, so feed this the CLEAN frames and every frame of
-    the recording — hand or not — can be straightened by a mesh no hand ever touched.
+    the recording can be straightened by a mesh no hand ever touched.
+
+    Per TERM, not per mesh: a recording mixes curved frames with merely tilted ones, and demanding
+    that every mesh carry `cx` drops the one term that takes the bow out.
     """
     have = [m for m in meshes if m is not None]
     if not have:
         return None
-    def med(name):
+
+    def med(name: str, need: int):
         vals = [getattr(m, name) for m in have if getattr(m, name) is not None]
-        return None if len(vals) < len(have) else np.median(np.array(vals), axis=0).tolist()
-    return GridMesh(np.median(np.array([m.x for m in have]), axis=0).tolist(),
-                    np.median(np.array([m.y for m in have]), axis=0).tolist(),
-                    med("tx"), med("ty"), med("cx"), med("cy"))
+        return None if len(vals) < need else np.median(np.array(vals), axis=0).tolist()
+
+    tx, ty = med("tx", MESH_POOL_MIN), med("ty", MESH_POOL_MIN)
+    xs = np.median(np.array([m.x for m in have]), axis=0).tolist()
+    ys = np.median(np.array([m.y for m in have]), axis=0).tolist()
+    if tx is None or ty is None:
+        return GridMesh(xs, ys)
+    cx, cy = med("cx", MESH_POOL_MIN), med("cy", MESH_POOL_MIN)
+    return GridMesh(xs, ys, tx, ty, cx, cy) if cx is not None and cy is not None         else GridMesh(xs, ys, tx, ty)
 
 
 #: Simultaneous evaluations per point. Three was measured to leave the residual far inside a pixel
