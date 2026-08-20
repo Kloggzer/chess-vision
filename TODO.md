@@ -226,6 +226,19 @@ einem Trainings-Crop. Befund, gemessen:
   trainiertes Modell 003957 von 67 auf 15 Plies fallen lässt. Reihenfolge: erst auf dem geraden
   Korpus neu trainieren, dann Tracker-seitig begradigen.
 
+## `labeled-session-pack` liest Frames, die es nicht mehr gibt (gefunden 2026-08-21)
+
+`packLabeledSession` (LabeledVideoPack.kt) oeffnet `row["frame"]`, also ein PNG unter `frames/`.
+Seit dem Brett-Store (2026-08-17) haelt keine Aufnahme mehr Quellframes — das Verb kann auf dem
+heutigen Korpus gar nicht laufen und faellt mit "could not decode" hin, bevor es irgendetwas packt.
+
+Zu tun, wenn es gebraucht wird: aus `row["board"]` lesen statt zu warpen, `board_size`/
+`board_border` der Zeile als Geometrie nehmen (wie Pythons `usable_board` es prueft) und ein
+Brett ohne `board_straightened` verweigern statt es stumm zu schneiden. Der Warp entfaellt dabei
+ganz — das gespeicherte Brett IST der Warp, und seit 2026-08-21 auch schon gerade.
+
+Solange das offen ist, ist Pythons `slice` der einzige Weg von einer Session zu Trainings-Crops.
+
 ## Hände in „sauberen" Frames — wie viele rutschen durch? (2026-08-18)
 
 Frage vom User: wie sicher sind wir, dass die nicht-`dirty` Frames keine Hände enthalten?
