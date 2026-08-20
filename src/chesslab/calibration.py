@@ -88,15 +88,6 @@ class CalibrationProfile:
     # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics, so each
     # camera is a self-contained profile.
     source: str | None = None
-    camera_matrix: list[list[float]] | None = None
-    dist_coeffs: list[float] | None = None
-    # Lens state this profile was made under (see chesslab/lens.py). On UNDISTORTED frames
-    # the correct intrinsics above are the NEW optimal camera matrix and ZERO distortion —
-    # a profile still carrying the raw-lens K/D would compensate the distortion a SECOND
-    # time. `lens_calib_id` pins WHICH lens calibration that was.
-    # Defaults keep old YAML (written before undistortion existed) loadable as raw frames.
-    undistorted: bool = False
-    lens_calib_id: str | None = None
 
     def __post_init__(self) -> None:
         # A scalar is still the natural thing to write at a call site ("all four the same"),
@@ -121,17 +112,13 @@ class CalibrationProfile:
             "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
             "source": self.source,
-            "camera_matrix": (None if self.camera_matrix is None
-                              else [[float(v) for v in row] for row in self.camera_matrix]),
-            "dist_coeffs": (None if self.dist_coeffs is None else [float(v) for v in self.dist_coeffs]),
-            "undistorted": bool(self.undistorted),
-            "lens_calib_id": self.lens_calib_id,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> CalibrationProfile:
-        cm = d.get("camera_matrix")
-        dc = d.get("dist_coeffs")
+        # Profiles written before 2026-08-20 carry `undistorted`, `lens_calib_id`,
+        # `camera_matrix` and `dist_coeffs`. They are ignored: the lens state is derived from
+        # `calib.npz` at use time, so a stored copy could only go stale.
         return cls(
             profile=d["profile"],
             created_at=d.get("created_at", ""),
@@ -146,10 +133,6 @@ class CalibrationProfile:
             margin=margins4(d.get("margin", 0.0)),
             marker_dict=d.get("marker_dict", "DICT_4X4_50"),
             source=d.get("source"),
-            camera_matrix=(None if cm is None else [[float(v) for v in row] for row in cm]),
-            dist_coeffs=(None if dc is None else [float(v) for v in dc]),
-            undistorted=bool(d.get("undistorted", False)),
-            lens_calib_id=d.get("lens_calib_id"),
         )
 
     def save(self, path: Path, *, backup: bool = False) -> Path:
@@ -221,14 +204,6 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
         margin=margins4(margin),
         marker_dict=dict_name,
     )
-    # Stamp the lens state AND the intrinsics that match it: on undistorted frames the
-    # correct values are the new optimal camera matrix + zero distortion, never the raw
-    # lens K/D (which would compensate the distortion a second time).
-    # camera_index -1 = "not from a live local camera" (recorded frame / URL) — route it
-    # through the non-index branch of the source policy so it is NOT marked undistorted.
-    from . import lens
-    lens.stamp_profile(prof, frame_size=(w, h),
-                       source=camera_index if camera_index >= 0 else "offline")
     return prof
 
 
@@ -243,58 +218,29 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     or no markers are found.
 
     A profile whose LENS stamp no longer matches the active lens state (e.g. the user just
-    ran `chesslab lens calibrate`) is treated like a missing one and regenerated from the
+    ran `chesslab lens calibrate-board`) is treated like a missing one and regenerated from the
     source — nobody has to re-stamp by hand. If it cannot be regenerated,
     the stale profile is re-stamped in place and used, never crashed on.
 
-    Regenerating a STALE profile only replaces what is actually measured — the pixel
-    corners, the homography and the lens stamp. Everything the user configured
-    (`board_size`, `margin`, `marker_dict`, `white_pov`, `crop`) is CARRIED OVER, because
-    only the lens changed, not the board. Silently falling back to the defaults here would
-    reset a hand-set `white_pov: false` and transpose every label of the next session.
-    Explicit caller kwargs still win over the carried-over values.
+    An existing profile is returned as it lies. Until 2026-08-20 it was first tested against
+    the active lens and regenerated when the stamp disagreed; profiles carry no lens stamp any
+    more, so there is nothing left to disagree.
 
     `source` is a video file or a frame image — the live-camera path was removed with
     `chesslab.camera` (2026-08-20)."""
-    from . import lens
-
-    stale_prof: CalibrationProfile | None = None
     try:
-        prof0 = load_profile(profile)
-        is_stale, why = lens.profile_is_stale(prof0, source)
-        if not is_stale:
-            return prof0
-        print(f"[WARN] calibration profile '{profile}' is stale: {why} — regenerating from "
-              f"{source!r}.")
-        stale_prof = prof0
-        if source is None:
-            lens.stamp_profile(stale_prof, source=source)
-            if save:                # persist — otherwise every process re-warns + re-stamps
-                stale_prof.save(profile_path(profile), backup=True)
-            return stale_prof
+        return load_profile(profile)
     except FileNotFoundError:
         if source is None:
             raise
 
-    # Carry the stale profile's own geometry settings into the regeneration (see docstring);
-    # `setdefault` keeps an explicit caller kwarg authoritative.
     gen_kwargs = dict(kwargs)
-    if stale_prof is not None:
-        gen_kwargs.setdefault("board_size", stale_prof.board_size)
-        gen_kwargs.setdefault("margin", stale_prof.margin)
-        gen_kwargs.setdefault("dict_name", stale_prof.marker_dict)
-        gen_kwargs.setdefault("white_pov", stale_prof.white_pov)
 
     src = int(source) if isinstance(source, str) and source.isdigit() else source
     cap = cv2.VideoCapture(src)
     prof: CalibrationProfile | None = None
     try:
         if not cap.isOpened():
-            if stale_prof is not None:      # keep working: re-stamp instead of crashing
-                lens.stamp_profile(stale_prof, source=source)
-                if save:
-                    stale_prof.save(profile_path(profile), backup=True)
-                return stale_prof
             raise FileNotFoundError(
                 f"profile '{profile}' missing and source {source!r} could not be opened "
                 "for auto-calibration.")
@@ -309,19 +255,9 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     finally:
         cap.release()
     if prof is None:
-        if stale_prof is not None:          # no markers right now — re-stamp and carry on
-            print(f"[WARN] could not regenerate '{profile}' (no ArUco markers visible) — "
-                  "re-stamping the existing profile for the current lens instead.")
-            lens.stamp_profile(stale_prof, source=source)
-            if save:
-                stale_prof.save(profile_path(profile), backup=True)
-            return stale_prof
         raise FileNotFoundError(
             f"profile '{profile}' missing and auto-calibration from {source!r} found no "
             "ArUco markers — tape the markers to the board (calibrate markers).")
-    if stale_prof is not None:
-        # `crop` is a user setting (pad_up/pad_side/out_size), never measured from a frame.
-        prof.crop = stale_prof.crop
     if save:
         out = profile_path(profile)
         out.parent.mkdir(parents=True, exist_ok=True)

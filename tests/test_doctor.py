@@ -46,3 +46,36 @@ def test_validate_gpu_returns_tuple():
     ok, checks = doctor.validate_gpu()
     assert isinstance(ok, bool)
     assert isinstance(checks, list)
+
+
+def test_lens_profile_check_names_which_profiles_the_lens_applies_to(tmp_path, monkeypatch):
+    """Unreachable without a `calib.npz`, so nothing on the dev machine ever runs it.
+
+    Since 2026-08-20 profiles carry no lens stamp, so the check no longer asks "does the stamp
+    disagree" but "does this lens touch this profile at all" — decided by the source policy.
+    """
+    import numpy as np
+
+    from chesslab import config, lens
+    from chesslab.calibration import CalibrationProfile, CropParams
+
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    lens.save(config.DATA.root / "lens" / "calib.npz",
+              lens.LensCalibration(camera_matrix=np.eye(3), dist_coeffs=np.zeros(5),
+                                   image_size=(640, 480), rms=0.3, created_at="", id="abc123"))
+
+    def _prof(name, **kw):
+        CalibrationProfile(profile=name, camera_index=kw.pop("camera_index", -1),
+                           frame_size=(640, 480), board_size=800,
+                           image_corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
+                           homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                           white_pov=True, crop=CropParams.default(800), **kw
+                           ).save(config.DATA.calibration / f"{name}.yaml")
+
+    _prof("rig", camera_index=0)                       # local index -> the rig lens applies
+    _prof("phone", source="https://phone:4444/snap")   # a URL is never undistorted
+
+    checks = {c.name: c for c in doctor.lens_checks()}
+    assert checks["lens.calibration"].status == doctor.PASS
+    msg = checks["lens.profiles"].detail
+    assert "rig" in msg and "phone" not in msg, msg

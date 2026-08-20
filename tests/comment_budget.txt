@@ -1,5 +1,5 @@
 src/chesslab/alignment.py 37
-src/chesslab/calibration.py 21
+src/chesslab/calibration.py 18
 src/chesslab/cli.py 11
 src/chesslab/config.py 16
 src/chesslab/dataset.py 32

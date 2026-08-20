@@ -125,7 +125,7 @@ CAMERA = CameraDefaults()
 class LensDefaults:
     """Barrel/pincushion removal for the rig camera. Applied at exactly one place —
     `lens.active()` builds the undistorter a caller applies to raw frames. The
-    intrinsics come from `chesslab lens calibrate` (see `chesslab/lens.py`); this is the
+    intrinsics come from `chesslab lens calibrate-board` (see `chesslab/lens.py`); this is the
     LENS model and has nothing to do with `calibration.py` (BOARD geometry).
 
     `path` "" resolves to `DATA.lens / "calib.npz"`. `alpha` trades black borders against

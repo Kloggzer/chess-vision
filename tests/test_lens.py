@@ -215,67 +215,27 @@ def _profile(**kw) -> CalibrationProfile:
     return CalibrationProfile(**base)
 
 
-def test_profile_roundtrips_lens_fields():
-    prof = _profile(undistorted=True, lens_calib_id="abc123def456")
-    back = CalibrationProfile.from_dict(prof.to_dict())
-    assert back.undistorted is True
-    assert back.lens_calib_id == "abc123def456"
+def test_a_profile_written_before_2026_08_20_still_loads_and_its_lens_keys_are_ignored():
+    """Every profile on disk carries the four retired keys; loading must not trip over them.
 
-
-def test_legacy_profile_yaml_without_lens_keys_loads_as_raw():
+    They are dropped, not honoured: the lens state is derived from `calib.npz` at use time, so a
+    stored copy could only disagree with reality.
+    """
     d = _profile().to_dict()
-    d.pop("undistorted")
-    d.pop("lens_calib_id")
+    d |= {"undistorted": True, "lens_calib_id": "deadbeef",
+          "camera_matrix": [[9, 0, 1], [0, 9, 1], [0, 0, 1]], "dist_coeffs": [-0.25, 0, 0, 0, 0]}
     back = CalibrationProfile.from_dict(d)
-    assert back.undistorted is False
-    assert back.lens_calib_id is None
+    assert back.board_size == 800 and back.white_pov is True
+    assert not any(hasattr(back, k) for k in
+                   ("undistorted", "lens_calib_id", "camera_matrix", "dist_coeffs"))
 
 
-def test_profile_is_stale_when_lens_state_changed(tmp_path):
-    prof = _profile()
-    assert lens.profile_is_stale(prof, 0) == (False, "")   # no calib yet, profile says raw
-    _write_calib(tmp_path / "calib.npz")
-    stale, why = lens.profile_is_stale(prof, 0)
-    assert stale is True and "raw" in why
-
-
-def test_stamp_profile_writes_new_k_and_zero_distortion(tmp_path):
-    _write_calib(tmp_path / "calib.npz")
-    prof = _profile(camera_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], dist_coeffs=[-0.25, 0, 0, 0, 0])
-    assert lens.stamp_profile(prof, frame_size=(640, 480), source=0) is True
-    assert prof.undistorted is True
-    assert prof.lens_calib_id == lens.load(tmp_path / "calib.npz").id
-    assert prof.dist_coeffs == [0.0] * 5          # the remap already removed it
-    assert prof.camera_matrix[0][0] != 1.0        # replaced by the new optimal K
-    assert lens.profile_is_stale(prof, 0) == (False, "")
-
-
-def test_stamp_profile_clears_stamp_when_no_calibration_exists():
-    prof = _profile(undistorted=True, lens_calib_id="stale")
-    assert lens.stamp_profile(prof, source=0) is True
-    assert prof.undistorted is False and prof.lens_calib_id is None
-
-
-def test_stamp_profile_does_not_claim_undistortion_on_a_mismatched_aspect(tmp_path):
-    """C3: the calibration is 4:3, the driver fell back to a 16:9 mode → `maps_for` refuses
-    and frames pass through FULLY DISTORTED. The stamp must say so, otherwise
-    `profile_is_stale` reports clean and `collect` writes `undistorted: true` into a session
-    recorded through raw optics."""
-    _write_calib(tmp_path / "calib.npz", w=640, h=480)
-    prof = _profile(frame_size=(1920, 1080), undistorted=True, lens_calib_id="whatever",
-                    camera_matrix=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-                    dist_coeffs=[-0.25, 0, 0, 0, 0])
-    assert lens.stamp_profile(prof, frame_size=(1920, 1080), source=0) is True
-    assert prof.undistorted is False
-    assert prof.lens_calib_id is None
-    assert prof.camera_matrix == [[1, 0, 0], [0, 1, 0], [0, 0, 1]]   # raw K left alone
-    assert prof.dist_coeffs == [-0.25, 0, 0, 0, 0]
-
-
-def test_stamp_profile_returns_false_when_nothing_changed():
-    """The docstring promises 'True if anything changed' — it used to hardcode True."""
-    prof = _profile(undistorted=False, lens_calib_id=None)
-    assert lens.stamp_profile(prof, source=0) is False
+def test_the_profiles_actually_on_disk_still_load():
+    """A regression the unit fixture cannot catch: the real YAMLs predate the removal."""
+    from chesslab import config
+    for path in sorted(config.DATA.calibration.glob("*.yaml")):
+        prof = CalibrationProfile.load(path)
+        assert prof.profile and prof.board_size > 0, path
 
 
 # --- `lens calibrate` re-stamping of existing board profiles ---------------------------
@@ -287,58 +247,6 @@ def calib_dir(monkeypatch, tmp_path):
     d.mkdir(parents=True)
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     return d
-
-
-def test_invalidate_profiles_stamps_k_for_the_profiles_own_resolution(calib_dir, tmp_path):
-    """C4: lens calibrated at 1280x960, board profile shot at 640x480. The profile's K must
-    match ITS resolution — its `image_corners` are 640x480 pixels, so a 2x-too-large fx would
-    describe a different picture than the corners do."""
-    _write_calib(tmp_path / "calib.npz", w=1280, h=960)
-    calib = lens.load(tmp_path / "calib.npz")
-    _profile(profile="rig", camera_index=0, frame_size=(640, 480)).save(calib_dir / "rig.yaml")
-
-    lens._invalidate_profiles(calib)
-
-    prof = CalibrationProfile.load(calib_dir / "rig.yaml")
-    assert prof.undistorted is True
-    assert prof.lens_calib_id == calib.id
-    # K for 640x480 — roughly half the 1280x960 focal length, and never the 1280-scale one.
-    fx, cx, cy = prof.camera_matrix[0][0], prof.camera_matrix[0][2], prof.camera_matrix[1][2]
-    assert fx < calib.camera_matrix[0, 0]
-    assert 0 < cx < 640 and 0 < cy < 480
-    assert (calib_dir / "rig.yaml.bak").exists()          # H7: the old file is recoverable
-
-
-def test_invalidate_profiles_leaves_url_profiles_untouched(calib_dir, tmp_path):
-    """C6: `phone.yaml` is an IP-cam profile with a completely different lens. Re-stamping it
-    with the RIG's K + `undistorted: true` breaks `track --profile phone` (its default)."""
-    _write_calib(tmp_path / "calib.npz", w=640, h=480)
-    calib = lens.load(tmp_path / "calib.npz")
-    phone = _profile(profile="phone", camera_index=-1, frame_size=(1920, 1080),
-                     source="https://phone.local/video/mjpeg",
-                     camera_matrix=[[900, 0, 960], [0, 900, 540], [0, 0, 1]],
-                     dist_coeffs=[0.1, 0.0, 0.0, 0.0, 0.0])
-    phone.save(calib_dir / "phone.yaml")
-    before = (calib_dir / "phone.yaml").read_text(encoding="utf-8")
-
-    lens._invalidate_profiles(calib)
-
-    assert (calib_dir / "phone.yaml").read_text(encoding="utf-8") == before
-    back = CalibrationProfile.load(calib_dir / "phone.yaml")
-    assert back.undistorted is False
-    assert back.lens_calib_id is None
-    assert back.camera_matrix[0][0] == 900
-
-
-def test_invalidate_profiles_leaves_offline_profiles_untouched(calib_dir, tmp_path):
-    """camera_index -1 with no source = ingested/recorded frames — never remapped either."""
-    _write_calib(tmp_path / "calib.npz", w=640, h=480)
-    calib = lens.load(tmp_path / "calib.npz")
-    _profile(profile="synthetic", camera_index=-1).save(calib_dir / "synthetic.yaml")
-
-    lens._invalidate_profiles(calib)
-
-    assert CalibrationProfile.load(calib_dir / "synthetic.yaml").undistorted is False
 
 
 def test_profile_source_policy():

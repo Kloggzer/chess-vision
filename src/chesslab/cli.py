@@ -109,7 +109,7 @@ def lens_calibrate_board(
     logged corners (piece-occluded intersections are rejected), poses are gated for
     diversity, and the solve is VALIDATED on a held-out frame: it is only saved when the
     board's grid lines actually get straighter. Board profiles are re-stamped on save,
-    same as after `lens calibrate`.
+    same as after `lens calibrate-board`.
     """
     from . import lens as lens_mod
     raise typer.Exit(lens_mod.lens_calibrate_board(

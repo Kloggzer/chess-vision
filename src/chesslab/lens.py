@@ -101,7 +101,7 @@ def load(path: Path | str | None = None) -> LensCalibration | None:
             _warned = True
             log.warning(
                 "no lens calibration at %s — frames stay raw (barrel distortion NOT removed). "
-                "Run `chesslab lens calibrate` to create one.", p)
+                "Run `chesslab lens calibrate-board` to create one.", p)
         return None
     try:
         with np.load(str(p), allow_pickle=False) as z:
@@ -195,7 +195,7 @@ class Undistorter:
                 self._size_warned = True
                 log.warning(
                     "frame %dx%d has a different aspect ratio than the lens calibration %dx%d — "
-                    "passing frames through UNDISTORTED. Re-run `chesslab lens calibrate` in the "
+                    "passing frames through UNDISTORTED. Re-run `chesslab lens calibrate-board` in the "
                     "resolution you actually capture at.", w, h, *self.calib.image_size)
             self._passthrough = True
             return None
@@ -578,7 +578,7 @@ class DriftMonitor:
                 log.warning(
                     "board geometry drifted %.1f%% from the calibrated profile — the lens "
                     "zoom/focus or the camera position has most likely changed. Re-run "
-                    "`chesslab lens calibrate` and let the board profiles regenerate.",
+                    "`chesslab lens calibrate-board` and let the board profiles regenerate.",
                     (self._geom.median or 0.0) * 100.0)
         return dev
 
@@ -610,7 +610,7 @@ class DriftMonitor:
             return True
         if not self._warned:
             log.warning("capture is %sx%s but the lens calibration was shot at %dx%d — "
-                        "undistortion is approximate; re-run `chesslab lens calibrate`.",
+                        "undistortion is approximate; re-run `chesslab lens calibrate-board`.",
                         size[0], size[1], *calib.image_size)
         return False
 
@@ -629,7 +629,7 @@ class DriftMonitor:
                 self._warned = True
                 log.warning(
                     "board edges still bow by %.1f%% of their length after undistortion — the "
-                    "lens appears to have been moved/zoomed. Re-run `chesslab lens calibrate`.",
+                    "lens appears to have been moved/zoomed. Re-run `chesslab lens calibrate-board`.",
                     worst * 100.0)
         else:
             self._bad = 0
@@ -639,71 +639,15 @@ class DriftMonitor:
 # --- Board-profile consistency (auto-invalidation) ------------------------------------
 
 def profile_lens_state(source=None, *, override: bool | None = None):
-    """(undistorted, lens_calib_id) that a profile captured from `source` NOW should carry."""
+    """`(undistorted, lens_calib_id)` for frames arriving from `source` right now.
+
+    Derived on every call, never stored on a profile — a stored copy could only go stale.
+    `session_writer` freezes the answer into `session.yaml`, because THAT describes a capture
+    that already happened and cannot be recomputed later."""
     und = active(source, override=override)
     if und is None:
         return False, None
     return True, und.calib.id
-
-
-def profile_is_stale(profile, source=None) -> tuple[bool, str]:
-    """Does this board profile's lens stamp disagree with the currently active lens state?
-
-    A profile carrying raw-lens K/D while frames arrive undistorted would compensate the
-    distortion a SECOND time — silent, systematic geometry error. This is the check that
-    catches it; the caller regenerates or re-stamps.
-    """
-    want_und, want_id = profile_lens_state(source)
-    have_und = bool(getattr(profile, "undistorted", False))
-    have_id = getattr(profile, "lens_calib_id", None)
-    if have_und != want_und:
-        return True, (f"profile was made on {'undistorted' if have_und else 'raw'} frames but "
-                      f"capture is now {'undistorted' if want_und else 'raw'}")
-    if want_und and have_id != want_id:
-        return True, f"profile lens {have_id!r} != active lens {want_id!r}"
-    return False, ""
-
-
-def stamp_profile(profile, frame_size=None, source=None) -> bool:
-    """Write the CORRECT intrinsics for the current lens state into a board profile.
-
-    On undistorted frames the right values are the NEW optimal camera matrix and ZERO
-    distortion — the remap has already removed it. Returns True if the profile's lens stamp
-    or intrinsics were actually modified.
-
-    CRUCIAL: the stamp must describe what really happens to frames OF THIS SIZE. A
-    calibration exists is not enough — `Undistorter.maps_for` refuses a frame whose aspect
-    ratio differs from the calibration's and passes those frames through UNTOUCHED. Frames
-    are then fully distorted, so the profile must say `undistorted=False`; claiming
-    otherwise makes `profile_is_stale` report clean, `doctor` print PASS, and `collect`
-    stamp `undistorted: true` into a session recorded through raw optics — exactly the
-    distorted/undistorted mixing this metadata exists to prevent.
-    """
-    had = (bool(getattr(profile, "undistorted", False)),
-           getattr(profile, "lens_calib_id", None))
-    und = active(source)
-    maps = None
-    size = tuple(frame_size or getattr(profile, "frame_size", ()) or ())
-    if und is not None and len(size) == 2:
-        maps = und.maps_for(int(size[0]), int(size[1]))
-    if und is None or maps is None:
-        if und is not None:
-            log.warning(
-                "board profile %r is NOT marked undistorted: the lens calibration cannot be "
-                "applied to %s frames.", getattr(profile, "profile", "?"),
-                "x".join(str(int(v)) for v in size) or "unknown-size")
-        profile.undistorted = False
-        profile.lens_calib_id = None
-        return had != (False, None)
-    k = und.new_camera_matrix
-    profile.undistorted = True
-    profile.lens_calib_id = und.calib.id
-    changed = had != (True, und.calib.id)
-    if k is not None:
-        profile.camera_matrix = [[float(v) for v in row] for row in np.asarray(k)]
-        profile.dist_coeffs = [0.0] * 5
-        changed = True
-    return changed
 
 
 _SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
@@ -725,50 +669,6 @@ def profile_source(profile):
     idx = getattr(profile, "camera_index", -1)
     idx = -1 if idx is None else int(idx)     # NOT `or -1`: index 0 is a valid camera
     return idx if idx >= 0 else "offline"
-
-
-def _invalidate_profiles(calib: LensCalibration) -> None:
-    """Re-stamp every board profile so nobody has to re-stamp by hand.
-
-    The profiles' K/D now describe the WRONG optics (raw lens on undistorted frames), so
-    we write the new optimal K + zero distortion straight into them. Corner geometry
-    itself is re-detected per frame from ArUco anyway, and a profile that cannot be
-    re-stamped is simply left for `ensure_profile` to regenerate on next use.
-
-    Two things are strictly per-profile here:
-
-    * The SOURCE. This lens belongs to the rig camera; a profile for the phone/IP cam (a
-      URL) or for recorded frames is never undistorted, so it must be left completely
-      alone. Re-stamping it with the rig's K would corrupt `track --profile phone`.
-    * The RESOLUTION. K scales with the frame size, so the stamp must be computed for the
-      PROFILE's `frame_size`, not for the size the lens happened to be calibrated at —
-      otherwise a 1440p profile gets 4K intrinsics while its `image_corners` stay in 1440p
-      pixels, and the two no longer describe the same picture.
-    """
-    from .calibration import CalibrationProfile
-
-    d = config.DATA.calibration
-    if not d.is_dir():
-        return
-    for p in sorted(d.glob("*.yaml")):
-        try:
-            prof = CalibrationProfile.load(p)
-            src = profile_source(prof)
-            if not should_undistort(src):
-                log.info("board profile '%s' (source %r) is never undistorted — left untouched.",
-                         prof.profile, src)
-                continue
-            size = tuple(prof.frame_size or ())
-            if len(size) != 2 or not all(int(v) > 0 for v in size):
-                log.warning("board profile '%s' has no usable frame_size — not re-stamped.",
-                            prof.profile)
-                continue
-            if not stamp_profile(prof, frame_size=size, source=src):
-                continue
-            prof.save(p, backup=True)
-            print(f"[OK] board profile '{prof.profile}' re-stamped for lens {calib.id}.")
-        except Exception as e:  # noqa: BLE001 — never let bookkeeping break the calibration
-            log.warning("could not re-stamp board profile %s: %r", p.name, e)
 
 
 # --- `chesslab lens calibrate-board` — zero-interaction calibration from sessions ------
@@ -963,13 +863,14 @@ def gate_board_views(views, image_size, *, min_views: int = 8, novelty_px: float
         refusal = (f"only {len(accepted)} sufficiently distinct board poses (need "
                    f">= {min_views}) — the recorded sessions are near-identical (same "
                    "fixed mount). Record sessions with the camera at different "
-                   "heights/angles, or run `chesslab lens calibrate` (pattern waving) once.")
+                   "heights/angles, or run `chesslab lens calibrate-board` once — it solves from the "
+                   "sessions already on disk.")
     elif cov.covered < min_coverage:
         refusal = (f"grid points cover only {cov.covered}/{cov.n * cov.n} image regions "
                    f"(need >= {min_coverage}); missing: {', '.join(cov.missing())}. "
                    "Distortion cannot be constrained where the board was never seen — "
                    "record sessions with the board nearer the frame edges, or run "
-                   "`chesslab lens calibrate` once.")
+                   "`chesslab lens calibrate-board` once.")
     return accepted, cov, best_tilt, refusal
 
 
@@ -1174,7 +1075,7 @@ def lens_calibrate_board(sessions: str | None = None, out: str | None = None,
           "detectable grid.")
     if not views:
         print("[FAIL] no usable board views found — record real sessions first (collect/"
-              "track), or run `chesslab lens calibrate` (pattern waving).")
+              "track), or run `chesslab lens calibrate-board`, which solves from recorded sessions.")
         return 1
 
     # One calibration is only valid for ONE capture resolution — group and pick.
@@ -1230,7 +1131,8 @@ def lens_calibrate_board(sessions: str | None = None, out: str | None = None,
                             id=calib_id(k, d))
     save(out_path, calib, n_frames=res.n_views, pattern=(7, 7))
     print(f"\n[OK] lens calibration saved: {out_path}  (id {calib.id})")
-    _invalidate_profiles(calib)
+    # No profiles to re-stamp: since 2026-08-20 they carry no lens state, so a new
+    # calibration is picked up by the next `active()` on its own.
     return 0
 
 
@@ -1238,7 +1140,7 @@ def lens_show(path: str | None = None) -> int:
     """Print the stored lens calibration (or explain that there is none)."""
     p = Path(path) if path else default_path()
     if not p.exists():
-        print(f"[FAIL] no lens calibration at {p} — run `chesslab lens calibrate`.")
+        print(f"[FAIL] no lens calibration at {p} — run `chesslab lens calibrate-board`.")
         return 1
     calib = load(p)
     if calib is None:
@@ -1253,5 +1155,5 @@ def lens_show(path: str | None = None) -> int:
           f"cx {calib.camera_matrix[0, 2]:.1f}  cy {calib.camera_matrix[1, 2]:.1f}")
     print("  dist        " + " ".join(f"{v:.5f}" for v in calib.dist_coeffs))
     print("\nNOTE: with the 5-50 mm varifocal lens this is only valid at the zoom/focus it was "
-          "shot at — re-run `chesslab lens calibrate` after touching the lens.")
+          "shot at — re-run `chesslab lens calibrate-board` after touching the lens.")
     return 0

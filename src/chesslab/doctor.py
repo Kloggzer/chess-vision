@@ -234,7 +234,7 @@ def lens_checks(frame_size: tuple[int, int] | None = None) -> list[Check]:
     if calib is None:
         out.append(Check("lens.calibration", WARN,
                          f"none at {path} — frames stay raw (barrel distortion NOT removed). "
-                         "Run `chesslab lens calibrate`."))
+                         "Run `chesslab lens calibrate-board`."))
         return out
 
     out.append(Check("lens.calibration", PASS,
@@ -259,25 +259,28 @@ def lens_checks(frame_size: tuple[int, int] | None = None) -> list[Check]:
     if not profiles:
         out.append(Check("lens.profiles", WARN, f"no board profiles in {d} yet."))
         return out
-    stale: list[str] = []
+    # Until 2026-08-20 this compared each profile's stored lens stamp against the active
+    # calibration. Profiles carry no stamp any more, so the answerable question is the one
+    # that decides whether this lens touches them at all: the source policy.
+    bad: list[str] = []
+    undistorted: list[str] = []
     for p in profiles:
         try:
             prof = CalibrationProfile.load(p)
         except Exception as e:  # noqa: BLE001
-            stale.append(f"{p.name} (unreadable: {e!r})")
+            bad.append(f"{p.name} (unreadable: {e!r})")
             continue
-        # Check against the profile's ACTUAL source (URL profiles carry camera_index=-1,
-        # which would validate against the wrong lens state).
-        is_stale, why = lens.profile_is_stale(prof, lens.profile_source(prof))
-        if is_stale:
-            stale.append(f"{prof.profile} ({why})")
-    if stale:
+        if lens.should_undistort(lens.profile_source(prof)):
+            undistorted.append(prof.profile)
+    if bad:
         out.append(Check("lens.profiles", WARN,
-                         f"{len(stale)}/{len(profiles)} board profile(s) disagree with the active "
-                         f"lens: {'; '.join(stale)} — they are regenerated on next use."))
+                         f"{len(bad)}/{len(profiles)} board profile(s) could not be read: "
+                         f"{'; '.join(bad)}."))
     else:
+        named = ", ".join(undistorted) if undistorted else "none"
         out.append(Check("lens.profiles", PASS,
-                         f"all {len(profiles)} board profile(s) stamped for lens {calib.id}."))
+                         f"{len(profiles)} board profile(s) readable; lens {calib.id} applies to: "
+                         f"{named}."))
     out += _drift_check(lens)
     return out
 
@@ -298,7 +301,7 @@ def _drift_check(lens) -> list[Check]:
     alarm = bool(st.get("geometry_alarm") or st.get("residual_alarm"))
     return [Check("lens.drift", WARN if alarm else PASS,
                   "; ".join(parts) + (" — the lens appears to have been moved/zoomed; re-run "
-                                      "`chesslab lens calibrate`." if alarm else "."))]
+                                      "`chesslab lens calibrate-board`." if alarm else "."))]
 
 
 # --- Reporting ------------------------------------------------------------------------
