@@ -1,6 +1,7 @@
 # Spec-Index — der zurückgezogene Baum
 
-47 Pakete, 382 Dateien, 138 869 Zeilen, letzte Änderung 2026-08-13. Sie lagen im
+47 Pakete, 382 Dateien — 254 Text mit 46 416 Zeilen, 123 PNG, 5 SVG/HTML. Letzte Änderung
+2026-08-13. Sie lagen im
 Arbeitsverzeichnis, obwohl sie nichts mehr trieben. Diese Seite hält die Landkarte, damit die
 340 `specs/NN`-Verweise in Code und Doku weiter auf etwas zeigen; der Volltext steht in git.
 
