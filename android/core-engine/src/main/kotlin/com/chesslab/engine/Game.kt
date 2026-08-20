@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.IllegalMoveException
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.CastleRight
 import com.github.bhlangonijr.chesslib.Piece
@@ -43,7 +44,15 @@ internal class Game(
 
     fun legalMoves(): List<Move> = MoveGenerator.generateLegalMoves(board)
 
+    /**
+     * The chokepoint: a move that is not legal HERE never reaches the board.
+     *
+     * `doMove` applies an illegal move and returns at every validation level — `isMoveLegal` reads
+     * king safety and castling rights, `fullValidation` adds owner, side and promotion shape, and
+     * no level checks geometry — so asking the generator is the only real check.
+     */
     fun push(move: Move) {
+        if (legalMoves().none { it == move }) throw IllegalMoveException(uciOf(move), fen())
         board.doMove(move)
     }
 

@@ -1,10 +1,12 @@
 package com.chesslab.cnn
 
+import com.chesslab.engine.api.IllegalMoveException
 import com.github.bhlangonijr.chesslib.Board
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 class RecoveryTest {
     @Test
@@ -115,6 +117,23 @@ class RecoveryTest {
         assertEquals(32, check32.n)
         assertTrue(!check32.inconclusive && !check32.match)
         assertEquals(listOf("b8"), check32.conflicts)
+    }
+
+    /**
+     * The seam takes the move as a STRING, so this is where a fabrication would enter the module.
+     * It refuses by THROWING: an abstention is indistinguishable from "too few confident squares",
+     * and those two mean different things to the verify ladder.
+     */
+    @Test
+    fun `verify_move refuses an illegal uci and stays distinguishable from an unreadable one`() {
+        val blind = FakeSquareClassifier(START_FEN, overrides = occluded(ALL_SQUARES)).observe()
+        assertEquals(NO_AGREEMENT to 0, RECOVERY.verifyMove(START_FEN, "e2e4", blind), "unreadable abstains")
+
+        val obs = FakeSquareClassifier(START_FEN).observe()
+        val refused = assertThrows<IllegalMoveException> { RECOVERY.verifyMove(START_FEN, "e2e5", obs) }
+        assertEquals("e2e5", refused.uci)
+        assertEquals(START_FEN, refused.fen)
+        assertThrows<IllegalMoveException> { RECOVERY.verifyMoveIdentity(startBoard(), "e2e5", obs) }
     }
 
     private fun occluded(squares: List<String>): Map<String, Pair<String, Double>> = squares.associateWith { "occluded" to 0.99 }

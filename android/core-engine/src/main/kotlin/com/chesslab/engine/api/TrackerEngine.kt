@@ -31,6 +31,7 @@ import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
 import com.chesslab.engine.moveTouchedMask
 import com.chesslab.engine.performResync
+import com.chesslab.engine.refuseIllegalMove
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
@@ -154,29 +155,34 @@ class TrackerEngine(
      * `Stuck` and `Note` are emitted only on a CHANGE (Python rewrites both every frame; one event
      * per frame would be pure spam on a bus that phase 06 turns into UI).
      */
-    fun onFrame(input: FrameInput): List<TrackerEvent> {
-        val noteBefore = state.note
-        val stuckBefore = state.stuckReason
-        val stateBefore = state.state
-        val events = mutableListOf<TrackerEvent>()
-        // `avgFrames` and `confirmFrames` are CNN-conditional, and `cnnOn` has a third input the two
-        // call sites below do not cover: `cnnFailed`. This used to say "which the verify path raises
-        // mid-game" — nothing raises it (see `EngineState.cnnFailed`), so these two calls are
-        // currently defensive rather than load-bearing. One integer comparison per frame is the
-        // price of them staying correct if it ever is raised.
-        state.syncAvgWindow()
-        state.syncConfirmWindow()
-        val outcome = loop.step(input)
-        if (outcome is FrameOutcome.Detect) {
-            events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq, cnn)
+    fun onFrame(input: FrameInput): List<TrackerEvent> =
+        // The catch is where a refused fabrication leaves the engine. Throwing out of here would
+        // only repeat 2026-08-09 one layer up; the alarm stops commits and names uci and position.
+        try {
+            val noteBefore = state.note
+            val stuckBefore = state.stuckReason
+            val stateBefore = state.state
+            val events = mutableListOf<TrackerEvent>()
+            // `avgFrames` and `confirmFrames` are CNN-conditional, and `cnnOn` has a third input the
+            // two call sites below do not cover: `cnnFailed`. This used to say "which the verify path
+            // raises mid-game" — nothing raises it (see `EngineState.cnnFailed`), so these two calls
+            // are currently defensive rather than load-bearing. One integer comparison per frame is
+            // the price of them staying correct if it ever is raised.
+            state.syncAvgWindow()
+            state.syncConfirmWindow()
+            val outcome = loop.step(input)
+            if (outcome is FrameOutcome.Detect) {
+                events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq, cnn)
+            }
+            val stuck = state.stuckReason
+            if (stuck != null && stuck != stuckBefore) events += TrackerEvent.Stuck(stuck)
+            val note = state.note
+            if (note != null && note != noteBefore) events += TrackerEvent.Note(note)
+            if (state.state != stateBefore) stateSink(stateBefore, state.state, state.nowS)
+            events
+        } catch (refused: IllegalMoveException) {
+            state.refuseIllegalMove(refused)
         }
-        val stuck = state.stuckReason
-        if (stuck != null && stuck != stuckBefore) events += TrackerEvent.Stuck(stuck)
-        val note = state.note
-        if (note != null && note != noteBefore) events += TrackerEvent.Note(note)
-        if (state.state != stateBefore) stateSink(stateBefore, state.state, state.nowS)
-        return events
-    }
 
     private var cnn: CnnEvaluator? = null
 
@@ -204,18 +210,23 @@ class TrackerEngine(
      * Pending work has **priority** over the periodic check. A promotion prompt consumes identity
      * observations first; an ordinary candidate goes through the pre-commit ghost filter.
      */
-    fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> {
-        state.cnnSnap = snap
-        state.cnnSnapsSeen += 1
-        return when {
-            state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
-            state.pending != null -> {
-                state.cnnSnapsToVerify += 1
-                VerifySingle.tick(state, cnn, snap)
+    fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent> =
+        // See [onFrame]: the verify ladder reaches `:core-cnn` across a seam that takes the move as
+        // a STRING, so this is the other entry a refusal can come back out of.
+        try {
+            state.cnnSnap = snap
+            state.cnnSnapsSeen += 1
+            when {
+                state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
+                state.pending != null -> {
+                    state.cnnSnapsToVerify += 1
+                    VerifySingle.tick(state, cnn, snap)
+                }
+                else -> state.cnnTick(cnn, snap)
             }
-            else -> state.cnnTick(cnn, snap)
+        } catch (refused: IllegalMoveException) {
+            state.refuseIllegalMove(refused)
         }
-    }
 
     private var debugEnabled = false
 
@@ -293,8 +304,19 @@ class TrackerEngine(
     /** `reset_to_start()` — start position plus "I just set up this position". */
     fun resetToStart(): List<TrackerEvent> = setFen(STARTPOS)
 
-    /** `reset_to_start(fen)`. */
+    /**
+     * `reset_to_start(fen)` — and the position chokepoint.
+     *
+     * The only adoption path that took a FEN from outside unchecked: [cnnAdoptedFen] has screened
+     * its own since the 2026-08-09 crash, this one screened nothing, so an unparseable string
+     * threw four layers out and an en-prise king was adopted silently. Refused positions REPORT.
+     */
     fun setFen(fen: String): List<TrackerEvent> {
+        if (!reachable(fen, needsMoves = false)) {
+            val why = "position refused: '$fen' is unreadable or leaves the side not to move in check"
+            state.note = why
+            return listOf(TrackerEvent.Note(why))
+        }
         state.board = Game(fen)
         state.history.clear()
         state.lastMove = null
@@ -673,12 +695,19 @@ internal fun EngineState.cnnAdoptedFen(
  * The test is therefore not "can it generate moves" but "would the opponent be in check" —
  * asked by flipping the side to move on a probe board. A refused resync is a state the tracker
  * knows how to be in; a kingless board is not.
+ *
+ * [needsMoves] is the ADOPTION half and only [cnnAdoptedFen] wants it — a resync onto a finished
+ * game is pointless, but a mate a user sets up by hand through `setFen` is legitimate. The king
+ * test doubles as the FEN parse check: an unreadable string cannot answer, so it is refused.
  */
-private fun reachable(fen: String): Boolean =
+private fun reachable(
+    fen: String,
+    needsMoves: Boolean = true,
+): Boolean =
     runCatching {
         val fields = fen.split(' ')
         val flipped = fields.toMutableList().also { it[1] = if (it[1] == "w") "b" else "w" }
-        !Game(flipped.joinToString(" ")).result().inCheck && Game(fen).legalMoves().isNotEmpty()
+        !Game(flipped.joinToString(" ")).result().inCheck && (!needsMoves || Game(fen).legalMoves().isNotEmpty())
     }.getOrDefault(false)
 
 /** `config.label_from_piece` inverted; `"empty"` and `"occluded"` are not pieces. */
