@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import sharp from "sharp";
 import { beforeEach, expect, test } from "vitest";
 import { cellPng } from "@/lib/crops";
 
@@ -36,4 +37,18 @@ test("a row with no board names the recording and the stem", async () => {
 test("a board the export never wrote names the file it looked for", async () => {
   await write({ ...ROW, board: "boards/000110.webp", board_size: 1008, board_border: 40 });
   await expect(cellPng("g", "000110", "e4", 64)).rejects.toThrow(/board boards\/000110\.webp is missing/);
+});
+
+// The bow comes out of the STORE now, once. A board that skipped that would put it back into
+// every crop and nothing on screen would say so — hence a refusal rather than a silent cut.
+test("a board that was never straightened is refused, not cut", async () => {
+  await mkdir(path.join(root, "recordings", "g", "boards"), { recursive: true });
+  const png = await sharp({
+    create: { width: 8, height: 8, channels: 3, background: { r: 0, g: 0, b: 0 } },
+  })
+    .webp()
+    .toBuffer();
+  await writeFile(path.join(root, "recordings", "g", "boards", "000110.webp"), png);
+  await write({ ...ROW, board: "boards/000110.webp", board_size: 928, board_border: 12 });
+  await expect(cellPng("g", "000110", "e4", 64)).rejects.toThrow(/not straightened/);
 });

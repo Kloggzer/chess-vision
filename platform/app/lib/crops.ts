@@ -47,6 +47,11 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
   if (!(await stat(file).then(() => true, () => false))) {
     throw new Error(`${name}/${stem}: board ${board.rel} is missing — re-export the recording`);
   }
+  // The store is where the bow comes out, once. Cutting a board that has not been through that
+  // would put the barrel back into every crop, silently — so say so instead.
+  if (!board.straightened) {
+    throw new Error(`${name}/${stem}: board is not straightened — run \`chesslab session straighten\``);
+  }
   return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
@@ -92,14 +97,7 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
  * the crop the model will get, not a differently framed one.
  */
 function cellRgb(session: Session, stem: string, square: string, raster: Raster, h: Mat3, size: number) {
-  const mesh = session.byStem.get(stem)?.mesh;
-  if (mesh?.tx && mesh.ty) {
-    const quad = squareMeshQuad(square, session.boardSize, mesh as TiltedMesh, session.crop, session.whitePov);
-    return sampleQuad(raster, h, quad, size, size);
-  }
-  const box = mesh
-    ? squareMeshBox(square, session.boardSize, mesh, session.crop, session.whitePov)
-    : squareCropBox(square, session.boardSize, session.crop, session.whitePov);
+  const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
   return sampleBox(raster, h, box, size, size);
 }
 
@@ -141,28 +139,20 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   return out;
 }
 
-/**
- * The whole playing field, rectified — the drilldown's canvas. With a
- * mesh the field is pulled straight GLOBALLY (`sampleBoxMesh`): every pixel is looked up where
- * the board's own lines say it sits, so the grooves come out straight instead of 64 cells being
- * straightened one by one. Without one, the plain quad warp, unchanged.
- */
+/** The whole playing field — the drilldown's canvas. Straight already: see `cutSource`. */
 export async function boardPng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
-  return encode(field(session, stem, await cutSource(session, name, stem), size), size, size);
+  return encode(field(session, await cutSource(session, name, stem), size), size, size);
 }
 
-function field(session: Session, stem: string, src: { raster: Raster; h: Mat3 }, size: number) {
+function field(session: Session, src: { raster: Raster; h: Mat3 }, size: number) {
   const box = { x0: 0, y0: 0, x1: session.boardSize, y1: session.boardSize };
-  const mesh = session.byStem.get(stem)?.mesh;
-  return mesh?.tx && mesh.ty
-    ? sampleBoxMesh(src.raster, src.h, box, mesh as TiltedMesh, session.boardSize, size, size)
-    : sampleBox(src.raster, src.h, box, size, size);
+  return sampleBox(src.raster, src.h, box, size, size);
 }
 
 /**
- * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad and mesh as the
- * board under it: the matte is written over the stored raster (`matte.alpha_sam3`), so anything
+ * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad as the board under
+ * it: the matte IS that raster (`matte.alpha_sam3`) and was pulled straight with it, so anything
  * else would overlay it a border off.
  */
 export async function mattePng(name: string, stem: string, size: number) {
@@ -171,7 +161,7 @@ export async function mattePng(name: string, stem: string, size: number) {
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
   const file = await alphaPath(name, stem);
   const src = { raster: await rasterOf(file), h: boardToStored(session, board) };
-  return encode(field(session, stem, src, size), size, size);
+  return encode(field(session, src, size), size, size);
 }
 
 /**

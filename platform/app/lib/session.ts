@@ -45,7 +45,7 @@ export type SessionRow = {
   mesh?: GridMesh;
   /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
    *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
-  board?: { rel: string; size: number; border: number };
+  board?: { rel: string; size: number; border: number; straightened: boolean };
   /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
   dirtyReason?: string;
 };
@@ -126,6 +126,7 @@ export async function loadSession(name: string): Promise<Session> {
       board?: string;
       board_size?: number;
       board_border?: number;
+      board_straightened?: boolean;
       dirty_reason?: string;
     };
     const stem = path.basename(row.frame, ".png");
@@ -146,7 +147,8 @@ export async function loadSession(name: string): Promise<Session> {
       unknown: row.unknown_squares ?? [],
       mesh: meshFromLines(row.grid_lines),
       board: row.board && row.board_size
-        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0 }
+        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0,
+            straightened: row.board_straightened === true }
         : undefined,
       dirtyReason: row.dirty_reason,
     });

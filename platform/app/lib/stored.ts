@@ -176,20 +176,17 @@ export function storedBoardPng(name: string, stem: string, size: number): Promis
 }
 
 /**
- * One square of a stored frame, the Kotlin pack's ladder: the cell's PERSPECTIVE quad when the
- * sidecar carries tilts (curved corners when it carries the parabola term too), its scalar
- * rectangle with offsets alone, the nominal box without a mesh.
+ * One square of a stored frame — the nominal box, sampled through the sidecar's mesh when there
+ * is one. Same global straightening as `storedBoardPng`, cut down to one cell, so this square is
+ * the square inside that board rather than a second answer to the same question.
  */
 export function storedCellPng(name: string, stem: string, square: string, size: number): Promise<Buffer> {
   return storedCut(name, stem, size, (quad, raster) => {
     const h = boardToImage(quad.corners, BOARD_SIZE, quad.margin);
+    const box = squareCropBox(square, BOARD_SIZE, STORED_CROP);
     const mesh = quad.mesh;
-    if (mesh?.tx && mesh.ty) {
-      return sampleQuad(raster, h, squareMeshQuad(square, BOARD_SIZE, mesh as TiltedMesh, STORED_CROP), size, size);
-    }
-    const box = mesh
-      ? squareMeshBox(square, BOARD_SIZE, mesh, STORED_CROP)
-      : squareCropBox(square, BOARD_SIZE, STORED_CROP);
-    return sampleBox(raster, h, box, size, size);
+    return mesh?.tx && mesh.ty
+      ? sampleBoxMesh(raster, h, box, mesh as TiltedMesh, BOARD_SIZE, size, size)
+      : sampleBox(raster, h, box, size, size);
   });
 }
