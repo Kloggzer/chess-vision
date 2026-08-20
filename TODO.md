@@ -317,3 +317,37 @@ bilinear hoch — Kette von der Quelle bis zum Auge 1,53× bis 1,99×. Die Käst
 Python/Kotlin/TS bytegleich gepinnt (`mesh_crop_parity.json`, 1e-9), die PIXEL nicht: Python
 rundet den Kasten auf ganze Pixel und skaliert mit `cv2.resize`, TS sampelt bilinear pro
 Ausgabepixel. Kein Test vergleicht je ein Bild.
+
+## Compose-Layouts sind unprüfbar (2026-08-21, zweiter Vorfall)
+
+**Null `@Preview`, null Compose-Tests im ganzen Projekt.** Jedes Layout ist ausschliesslich
+durch Starten der App prüfbar, und beide Vorfälle an derselben Karte musste ein Mensch finden:
+
+| | Opfer | Abhilfe damals |
+|---|---|---|
+| 2026-08-02 | die Aktionsleiste UNTER der Karte, 1-2 mm hoch, nicht drückbar | `heightIn(max = 200)` auf der Prosa |
+| 2026-08-21 | "Accept CNN position" als Haarstrich | Prosa auf `weight(1f, fill = false)` |
+
+**Derselbe Mechanismus beide Male:** eine `Column` misst ihre NICHT-gewichteten Kinder zuerst
+und der Reihe nach, jedes mit dem Rest als Deckel. In `Watching` ist die Reihenfolge Infozeile →
+`BoardRow` (quadratisch, also so hoch wie das Gerät breit ist) → Karte → Aktionsleiste. Wer
+später kommt, bekommt Krümel. **Begrenzen ist nicht bevorzugen** — der Deckel von 2026-08-02
+trägt nur, solange die Karte selbst genug Platz hat.
+
+Die eine Zusicherung, die beide Vorfälle gefangen hätte: *in einem auf 220 dp gedeckelten
+Container ist die gemessene Höhe jedes Aktionsknopfes mindestens das Touch-Ziel von 48 dp.*
+
+Drei Instrumente, nach Kosten:
+
+- **`@Preview` der Karte im gedeckelten Container** — ~15 Zeilen, sofort in Android Studio
+  sichtbar, fängt es aber nur, wenn jemand hinschaut. Landet im APK, sofern nicht in einem
+  eigenen `debug`-Source-Set.
+- **Robolectric + `compose-ui-test`** — eine Abhängigkeit und etwas Konfiguration, läuft dann in
+  `:app:testDebugUnitTest` mit und kann die 48-dp-Zusicherung wirklich prüfen. Das ist das
+  Instrument, das die Regression zum Test macht statt zum Blick.
+- **Screenshot-Tests (Paparazzi/Roborazzi)** — fängt auch Farbe, Abstand und Umbruch, kostet
+  dafür Referenzbilder, die gepflegt werden wollen.
+
+Randbedingung: `:app` steht bei 457 Testfällen und muss grün bleiben; `:app:detekt` hat einen
+vorbestehenden Fund (`ModelSpecTest` LongParameterList), der nicht durch neue Testinfrastruktur
+wachsen darf.
