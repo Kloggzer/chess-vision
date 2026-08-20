@@ -165,6 +165,36 @@ def test_slice_cuts_at_the_rows_own_grid_lines(tmp_path):
     assert meshed["crops"] == plain["crops"] == 64
 
 
+def test_slice_counts_a_stored_board_nobody_pulled_straight(tmp_path):
+    """Nothing in a crop says whether its board still carries the barrel — so the slice must."""
+    import cv2
+
+    from chesslab import labeling
+
+    bs = 800
+    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
+    prof = CalibrationProfile(
+        profile="test", camera_index=0, frame_size=(bs, bs), board_size=bs,
+        image_corners=corners, homography=compute_homography(corners, bs), white_pov=True,
+        crop=CropParams.default(bs))
+    border = crop_border_px(prof)
+    for flag, want in ((False, 1), (True, 0)):
+        sdir = _session_with_mesh(tmp_path / f"b{flag}", None)
+        (sdir / "boards").mkdir()
+        rng = np.random.default_rng(5)
+        cv2.imwrite(str(sdir / "boards" / "0000.webp"),
+                    rng.integers(0, 255, (bs + 2 * border, bs + 2 * border, 3), dtype=np.uint8))
+        row = json.loads((sdir / "log.jsonl").read_text(encoding="utf-8").strip())
+        row.update(board="boards/0000.webp", board_size=bs, board_border=border)
+        if flag:
+            row["board_straightened"] = True
+        (sdir / "log.jsonl").write_text(json.dumps(row) + chr(10), encoding="utf-8")
+        stats = labeling.slice_session(sdir, profile=prof,
+                                       manifest_path=tmp_path / f"m{flag}.jsonl",
+                                       squares_root=tmp_path / f"sq{flag}")
+        assert stats["bowed_boards"] == want, f"board_straightened={flag}"
+
+
 def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypatch):
     """A re-fit must not leave a mesh from an older geometry standing — it would cut somewhere else."""
     from chesslab import config, realgames, sessions

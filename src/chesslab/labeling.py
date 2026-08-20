@@ -329,7 +329,8 @@ def slice_session(
     #: Cells whose pixels left the position they are labelled with (`SETTLE_LIMIT`).
     n_unsettled = 0
     n_unusable = 0
-    n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
+    n_mesh = 0       # frames straightened HERE, i.e. warped from a frame rather than a store
+    n_bowed = 0      # stored boards nobody pulled straight — the barrel goes into these crops
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     for entry in log:
         if entry.get("unusable"):
@@ -360,6 +361,7 @@ def slice_session(
         # still has to be warped from its frame carries its own lines here.
         mesh = None if board is not None else mesh_from_lines(entry.get("grid_lines"))
         n_mesh += mesh is not None
+        n_bowed += board is not None and not entry.get("board_straightened")
         # crops_for_frame as single source (Rework 01: de-duplication).
         crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
 
@@ -458,7 +460,7 @@ def slice_session(
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
             "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
-            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh}
+            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh, "bowed_boards": n_bowed}
 
 
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
@@ -520,7 +522,12 @@ def run_slice(
             extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
             if stats.get("skipped"):
                 extra += f" [{stats['skipped']} frames without markers skipped]"
-            extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
+            if stats.get("mesh_frames"):
+                extra += f" [{stats['mesh_frames']} frames straightened here, no stored board]"
+            # Loud, because nothing in a crop says whether its board was pulled straight.
+            if stats.get("bowed_boards"):
+                extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT geradegezogen — "
+                          f"`chesslab session straighten {sid}`]")
             if stats.get("dirty_dropped"):
                 extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
             if stats.get("unsettled_dropped"):
