@@ -70,6 +70,10 @@ Read them as a record of what the code once did.
   `doMove(move, fullValidation = true)`. Measured 2026-08-03 (`specs/42`): handed `e2e5` from the
   start position it moves the pawn to e5 and **returns**. The boolean return value is therefore not
   an illegality signal either.
+- **Mechanism** (read out of `chesslib-1.3.4-sources.jar`, 2026-08-20, so the rule is not folklore):
+  `doMove(Move)` is literally `doMove(move, false)`. `isMoveLegal` checks **king safety and castling
+  rights only**; `fullValidation` adds owner, side-to-move and promotion shape — **no level checks
+  move geometry at all**. Only `MoveGenerator` knows what a piece can do.
 - **Impact:** Every position after such a ply is a fabrication that the screen renders as fact, or
   that a labeler writes out as training data. This is a **live footgun for any new replay, review or
   export code** — the API reads as if it validated.
@@ -81,16 +85,20 @@ Read them as a record of what the code once did.
   (`lineFrames`), `analysis/MateLineResolver.kt:79-81`, `analysis/OpeningBook.kt:81-152`,
   `core-cnn/cnn/Recovery.kt:100,181,194`, `core-cnn/cnn/DeepSearch.kt:110`,
   `desktop/PhoneLog.kt:164-170` (`Board.moveTo`).
-- **Not guarded (found 2026-08-20, unfixed):**
-  - `desktop/PhoneLog.kt:116` and `desktop/TrainingVideoPack.kt:136` both do
-    `require(board.doMove(Move(uci, board.sideToMove))) { "... illegal move ..." }` — **those
-    `require`s cannot fire** on an illegal-but-well-formed UCI, because `doMove` returns anyway.
-    `TrainingVideoPack` generates *labeled training data* from the resulting positions.
-    `PhoneLog.kt:164-170` in the same file already does it correctly, so the fix pattern is local.
+- **Fixed 2026-08-20:** `desktop/PhoneLog.kt` and `desktop/TrainingVideoPack.kt` did
+  `require(board.doMove(Move(uci, board.sideToMove)))` — those `require`s could not fire on an
+  illegal-but-well-formed UCI, and `TrainingVideoPack` generates *labeled training data* from the
+  resulting positions. Both now check `generateLegalMoves` membership before the move.
+- **Still not guarded:**
   - `core-cnn/cnn/Recovery.kt:127` (`verifyMove`) and `:145` (`verifyMoveIdentity`) build a move
-    with a bare `Move(uci, sideToMove)` (`:288-290`) and `doMove` it with no membership check. The
-    UCI arrives from outside as a string; an illegal one silently yields a fabricated `after` board
-    that occupancy/identity agreement is then scored against.
+    with a bare `Move(uci, sideToMove)` (`:288-290`) and `doMove` it with no membership check.
+    **Not reachable today** (traced 2026-08-20): the only production caller is
+    `VerifySingle.kt:368`, which passes `uciOf(move)` for a `Move` that `Dispatch.pendingMoves`
+    already filtered through `probe.legalMoves()` — and that loop `break`s on the first
+    non-match. So the string is always a round-trip of an engine-generated legal move. Left
+    unguarded ON PURPOSE: the verify ladder is pinned byte-for-byte by the 18-clip replay, and a
+    guard there buys nothing while the provenance holds. **It stops holding the moment any
+    external UCI is wired into `verifyMove` — add the membership check in the same commit.**
   - `games/LiveGame.kt:177` (`positionsAfter`) wraps `doMove` in `runCatching` only. `continues()`
     checks the sequence's **first** ply on the argument that the engine generated the rest — which
     holds only while the emitter really is the engine.

@@ -14,6 +14,7 @@ import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
+import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
@@ -133,7 +134,14 @@ private fun gamePositions(file: File): List<KnownPosition> {
     val out = mutableListOf(KnownPosition(board.getFen(true, true), expectedLabels(board)))
     for (row in root.getValue("moves").jsonArray) {
         val uci = (row as JsonObject).getValue("uci").jsonPrimitive.content
-        require(board.doMove(Move(uci, board.sideToMove))) { "illegal mapped move $uci" }
+        // `doMove(Move)` is `doMove(move, false)`, and even `fullValidation` never checks move
+        // GEOMETRY — only king safety and castling rights. A garbage uci would be applied and
+        // silently label every later position. Only the generator knows what a piece can do.
+        val move = Move(uci, board.sideToMove)
+        require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
+            "illegal mapped move $uci"
+        }
+        board.doMove(move)
         out += KnownPosition(board.getFen(true, true), expectedLabels(board))
     }
     return out
