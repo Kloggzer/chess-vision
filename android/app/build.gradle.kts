@@ -73,6 +73,10 @@ android {
     }
 
     testOptions {
+        // Robolectric needs the merged manifest and the compiled resources: the Compose layout
+        // tests inflate real strings and plurals from `res/`.
+        unitTests.isIncludeAndroidResources = true
+
         unitTests.all {
             it.useJUnitPlatform()
             // The end-to-end clip simulation (`com.chesslab.tracker.sim`) decodes 18 videos and
@@ -239,6 +243,14 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.server.test.host)
     testRuntimeOnly(libs.junit.platform.launcher)
+
+    // Compose layout assertions on the desktop JVM (AlarmCardLayoutTest). Robolectric is a JUnit4
+    // runner, so the vintage engine is what lets the JUnit Platform see it at all. No APK gains
+    // anything: `ui-test-manifest` is deliberately absent, see ComponentActivityRule.
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.junit4)
+    testRuntimeOnly(libs.junit.vintage.engine)
 
     // Instrumented tests run on the device, where JUnit5 has no runner — JUnit4 is what
     // AndroidJUnitRunner drives, so this source set uses a different framework from the JVM one.
