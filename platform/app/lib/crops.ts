@@ -18,8 +18,6 @@ import {
   sampleBoxMesh,
   sampleQuad,
   squareCropBox,
-  squareMeshBox,
-  squareMeshQuad,
   type TiltedMesh,
 } from "@/lib/warp";
 

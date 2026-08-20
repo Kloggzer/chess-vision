@@ -839,7 +839,7 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
 
     clean = {int(Path(r["frame"]).stem): mesh_from_lines(r["grid_lines"]) for r in rows
              if r.get("grid_lines") and not r.get("hand_squares")}
-    clean = {i: m for i, m in clean.items() if m is not None and m.tilted}
+    clean = {i: m for i, m in clean.items() if m is not None}
     out: dict[int, Any] = {}
     for row in rows:
         idx = int(Path(row["frame"]).stem)

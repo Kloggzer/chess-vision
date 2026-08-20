@@ -14,6 +14,7 @@ import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
 import com.chesslab.geometry.gridOccludedSquares
 import com.chesslab.geometry.margins4
+import com.chesslab.geometry.straightenBoard
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.measuredBoardSize
@@ -364,13 +365,20 @@ fun packLabeledSession(args: List<String>) {
                     val fitted = fit[row.frameStem()]
                     val quad = fitted?.corners ?: row.corners()
                     val geometry = storedGeometry(fitted, quad)
-                    val warped = warpBoardForCrops(frame, geometry, cornersFromFlat(quad))
+                    val raw = warpBoardForCrops(frame, geometry, cornersFromFlat(quad))
+                    // Straight FIRST, whole raster, exactly as the board store is written: the cuts
+                    // below are plain rectangles and cannot take a bow out on their own any more.
+                    val warped =
+                        fitted?.mesh?.let {
+                            straightenBoard(raw, it, geometry.boardSize, cropBorderPx(geometry))
+                                .also { raw.release() }
+                        } ?: raw
                     try {
                         if (isHandShape(gridOccludedSquares(warped, geometry, cropBorderPx(geometry)))) {
                             handFrames++
                             continue
                         }
-                        crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides, fitted?.mesh)
+                        crops += writeLabeledFrame(imageOut, rowsOut, paths, digest, id, row, warped, geometry, overrides)
                         acceptedFrames++
                         if (fitted != null) fittedFrames++
                         if (fitted?.mesh != null) meshFrames++
@@ -425,7 +433,6 @@ private fun writeLabeledFrame(
     warped: org.opencv.core.Mat,
     geometry: BoardGeometry,
     overrides: Map<String, Map<String, String>>,
-    mesh: GridMesh? = null,
 ): Int {
     val fen = row.getValue("fen").jsonPrimitive.content
     val labels = expectedLabels(Board().apply { loadFromFen(fen) })
@@ -437,7 +444,7 @@ private fun writeLabeledFrame(
         if (square in unknown) continue
         val label = frameOverrides[square] ?: labels.getValue(square)
         if (label == "occluded") continue
-        val crop = cropSquare(warped, square, geometry, mesh)
+        val crop = cropSquare(warped, square, geometry)
         try {
             val packed = resizeForPacking(crop)
             try {

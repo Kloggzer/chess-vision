@@ -184,7 +184,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
-    if mesh is not None and mesh.tilted:
+    if mesh is not None:
         warped = straighten_board(warped, mesh, profile.board_size, crop_border_px(profile))
     return [crop_square(warped, square, profile, out) for square in all_squares()]
 

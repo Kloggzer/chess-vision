@@ -3,8 +3,6 @@ package com.chesslab.geometry
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
-import org.opencv.core.MatOfPoint2f
-import org.opencv.core.Point
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
@@ -59,28 +57,16 @@ fun resizeKeepAspect(
  * One square crop out of the BORDERED board (`warpBoardForCrops`).
  * Port of `labeling.py:112 crop_square`.
  *
- * The box comes from `squareToCropBox(clamp = false)` — or from [meshCropBox] when a measured
- * [mesh] is given — and is shifted by `+B` into the bordered canvas. Overhang is filled with
- * BLACK (never replicate, never reflect) so the crop geometry is constant across all 64
- * squares, then letterbox-resized to `outW x outH`. A mesh that carries TILTS is cut
- * perspectively per cell instead ([cropSquareTilted]); without tilts this path is untouched.
+ * A plain rectangle, always — the board's lines are pulled straight once, over the whole raster
+ * ([straightenBoard]). Overhang is BLACK (never replicate, never reflect) so the crop geometry is
+ * constant across all 64 squares, then letterbox-resized to `outW x outH`.
  */
 fun cropSquare(
     boardWarped: Mat,
     square: String,
     geom: BoardGeometry,
-    mesh: GridMesh? = null,
 ): Mat {
-    if (mesh?.tx != null) {
-        val tilted = cropSquareTilted(boardWarped, square, geom, mesh)
-        if (tilted != null) return tilted
-    }
-    val box =
-        if (mesh == null) {
-            squareToCropBox(square, geom, clamp = false)
-        } else {
-            meshCropBox(square, geom, mesh)
-        }
+    val box = squareToCropBox(square, geom, clamp = false)
     val b = cropBorderPx(geom)
     val x0 = box[0] + b
     val y0 = box[1] + b
@@ -106,49 +92,36 @@ fun cropSquare(
 }
 
 /**
- * The per-cell PERSPECTIVE cut — the square's padded quad ([meshCellQuadExact]) warped straight
- * onto the letterboxed content rectangle, so a line the mesh knows as tilted comes out vertical.
- * Same composition as the rectangle path: aspect from the scalar box, bars and overhang black.
+ * A bordered board pulled straight GLOBALLY: every pixel read where the board's OWN lines say it
+ * sits. The pipeline's only straightening — cuts after it are plain rectangles, and a second pass
+ * corrects twice. Twins: `calibration.straighten_board`, `sampleBoxMesh` (`lib/warp.ts`).
  */
-private fun cropSquareTilted(
+fun straightenBoard(
     boardWarped: Mat,
-    square: String,
-    geom: BoardGeometry,
     mesh: GridMesh,
-): Mat? {
-    val box = meshCropBoxExact(square, geom, mesh)
-    val w = box[2] - box[0]
-    val h = box[3] - box[1]
-    if (w <= 0.0 || h <= 0.0) return null
-    val s = min(geom.outW / w, geom.outH / h)
-    val nw = max(1, pyRound(w * s))
-    val nh = max(1, pyRound(h * s))
-    val quad = meshCellQuadExact(square, geom, mesh)
-    val b = cropBorderPx(geom).toDouble()
-    val src =
-        MatOfPoint2f(
-            Point(quad[0] + b, quad[1] + b),
-            Point(quad[2] + b, quad[3] + b),
-            Point(quad[4] + b, quad[5] + b),
-            Point(quad[6] + b, quad[7] + b),
-        )
-    val dst =
-        MatOfPoint2f(
-            Point(0.0, 0.0),
-            Point(nw.toDouble(), 0.0),
-            Point(nw.toDouble(), nh.toDouble()),
-            Point(0.0, nh.toDouble()),
-        )
-    val m = Imgproc.getPerspectiveTransform(src, dst)
-    val content = Mat()
-    Imgproc.warpPerspective(boardWarped, content, m, Size(nw.toDouble(), nh.toDouble()))
-    val canvas = Mat.zeros(geom.outH, geom.outW, CvType.CV_8UC3)
-    val x = (geom.outW - nw) / 2
-    val y = (geom.outH - nh) / 2
-    content.copyTo(canvas.submat(y, y + nh, x, x + nw))
-    content.release()
-    m.release()
-    src.release()
-    dst.release()
-    return canvas
+    boardSize: Int,
+    border: Int,
+): Mat {
+    val rows = boardWarped.rows()
+    val cols = boardWarped.cols()
+    val mapX = Mat(rows, cols, CvType.CV_32FC1)
+    val mapY = Mat(rows, cols, CvType.CV_32FC1)
+    val bs = boardSize.toDouble()
+    val rowX = FloatArray(cols)
+    val rowY = FloatArray(cols)
+    for (y in 0 until rows) {
+        val v = (y - border) / bs
+        for (x in 0 until cols) {
+            val p = meshPoint((x - border) / bs, v, mesh)
+            rowX[x] = (p[0] * bs + border).toFloat()
+            rowY[x] = (p[1] * bs + border).toFloat()
+        }
+        mapX.put(y, 0, rowX)
+        mapY.put(y, 0, rowY)
+    }
+    val out = Mat()
+    Imgproc.remap(boardWarped, out, mapX, mapY, Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE)
+    mapX.release()
+    mapY.release()
+    return out
 }

@@ -324,9 +324,6 @@ MESH_CURV_LIMIT = 0.08
 #: 8 cells share 9 boundaries.
 GRID_LINES_PER_AXIS = 9
 
-#: Simultaneous corner evaluations — `meshCellQuadExact` (CropBox.kt) argues the residual.
-CORNER_ITERATIONS = 3
-
 
 @dataclass(frozen=True)
 class GridMesh:
@@ -402,7 +399,7 @@ def pooled_mesh(meshes) -> GridMesh | None:
     with its own mesh). The camera does not move, so feed this the CLEAN frames and every frame of
     the recording — hand or not — can be straightened by a mesh no hand ever touched.
     """
-    have = [m for m in meshes if m is not None and m.tilted]
+    have = [m for m in meshes if m is not None]
     if not have:
         return None
     def med(name):
@@ -413,70 +410,8 @@ def pooled_mesh(meshes) -> GridMesh | None:
                     med("tx"), med("ty"), med("cx"), med("cy"))
 
 
-def square_to_mesh_box(square: str, profile: CalibrationProfile,
-                       mesh: GridMesh) -> tuple[float, float, float, float]:
-    """'e4' -> the crop box cut at the square's four NEIGHBOUR-LINE intersections, unrounded.
-
-    Pads scale with the square's own measured cell, so the composition stays the one
-    `square_to_crop_box` builds. Parity twin: `meshCropBoxExact` (CropBox.kt).
-    """
-    col, row = _square_to_col_row(square, profile.white_pov)
-    bs = profile.board_size
-    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
-    cw = mesh.x[col + 1] - mesh.x[col]
-    ch = mesh.y[row + 1] - mesh.y[row]
-    return ((mesh.x[col] - pad_side * cw) * bs,
-            (mesh.y[row] - (pad_side + pad_up) * ch) * bs,
-            (mesh.x[col + 1] + pad_side * cw) * bs,
-            (mesh.y[row + 1] + pad_side * ch) * bs)
-
-
-def _mesh_intersect(xi: float, ti: float, yj: float, tj: float) -> tuple[float, float]:
-    x = (xi + ti * (yj - 0.5 * (1.0 + tj))) / (1.0 - ti * tj)
-    return x, yj + tj * (x - 0.5)
-
-
-def _mesh_curved_corner(lx: float, tx: float, cx: float,
-                        ly: float, ty: float, cy: float) -> tuple[float, float]:
-    x, y = lx, ly
-    for _ in range(CORNER_ITERATIONS):
-        u, v = x - 0.5, y - 0.5
-        x, y = lx + tx * v + cx * v * v, ly + ty * u + cy * u * u
-    return x, y
-
-
-def mesh_cell_quad(square: str, profile: CalibrationProfile,
-                   mesh: GridMesh) -> list[tuple[float, float]]:
-    """'e4' -> the padded cell as a QUADRILATERAL `[tl, tr, br, bl]` in board pixels.
-
-    The square's four neighbour lines — offset, tilt and, when the mesh carries them, parabola
-    term — pad-shifted and intersected, so even a bowed outer line comes out straight. Parity
-    twin: `meshCellQuadExact` (CropBox.kt).
-    """
-    if not mesh.tilted:
-        raise ValueError("mesh_cell_quad needs tilts")
-    col, row = _square_to_col_row(square, profile.white_pov)
-    bs = profile.board_size
-    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
-    cw = mesh.x[col + 1] - mesh.x[col]
-    ch = mesh.y[row + 1] - mesh.y[row]
-    lx0, lx1 = mesh.x[col] - pad_side * cw, mesh.x[col + 1] + pad_side * cw
-    ly0 = mesh.y[row] - (pad_side + pad_up) * ch
-    ly1 = mesh.y[row + 1] + pad_side * ch
-    tx, ty, cx, cy = mesh.tx, mesh.ty, mesh.cx, mesh.cy
-    if cx is not None and cy is not None:
-        corners = [_mesh_curved_corner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
-                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
-                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
-                   _mesh_curved_corner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1])]
-    else:
-        corners = [_mesh_intersect(lx0, tx[col], ly0, ty[row]),
-                   _mesh_intersect(lx1, tx[col + 1], ly0, ty[row]),
-                   _mesh_intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
-                   _mesh_intersect(lx0, tx[col], ly1, ty[row + 1])]
-    return [(x * bs, y * bs) for x, y in corners]
-
-#: Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS`.
+#: Simultaneous evaluations per point. Three was measured to leave the residual far inside a pixel
+#: at the mesh limits. Parity twin: `CORNER_ITERATIONS` (CropBox.kt).
 MESH_POINT_ITERATIONS = 3
 
 
@@ -492,20 +427,21 @@ def mesh_point(u, v, mesh: GridMesh):
 
     Inside a cell the two bounding lines blend linearly, and the axes are coupled (each line's
     position depends on the run along it), so the pair is solved by simultaneous evaluations
-    exactly as a cell corner is. Parity twin: `meshPoint` (warp.ts).
+    exactly as a cell corner is. A mesh without tilts is carried as tilt 0 — its measured OFFSETS
+    are still a correction, and refusing it would silently drop the scalar stage. Twin: `meshPoint`.
     """
-    if not mesh.tilted:
-        raise ValueError("mesh_point needs tilts")
+    zero = [0.0] * GRID_LINES_PER_AXIS
+    tx, ty = mesh.tx or zero, mesh.ty or zero
     u, v = np.asarray(u, np.float64), np.asarray(v, np.float64)
     cu = np.clip(np.floor(u * 8.0), 0, 7).astype(np.int32)
     cv_ = np.clip(np.floor(v * 8.0), 0, 7).astype(np.int32)
     fu, fv = u * 8.0 - cu, v * 8.0 - cv_
     x, y = u, v
     for _ in range(MESH_POINT_ITERATIONS):
-        x = (_mesh_line_at(mesh.x, mesh.tx, mesh.cx, cu, y) * (1.0 - fu)
-             + _mesh_line_at(mesh.x, mesh.tx, mesh.cx, cu + 1, y) * fu)
-        y = (_mesh_line_at(mesh.y, mesh.ty, mesh.cy, cv_, x) * (1.0 - fv)
-             + _mesh_line_at(mesh.y, mesh.ty, mesh.cy, cv_ + 1, x) * fv)
+        x = (_mesh_line_at(mesh.x, tx, mesh.cx, cu, y) * (1.0 - fu)
+             + _mesh_line_at(mesh.x, tx, mesh.cx, cu + 1, y) * fu)
+        y = (_mesh_line_at(mesh.y, ty, mesh.cy, cv_, x) * (1.0 - fv)
+             + _mesh_line_at(mesh.y, ty, mesh.cy, cv_ + 1, x) * fv)
     return x, y
 
 

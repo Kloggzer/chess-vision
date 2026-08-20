@@ -134,114 +134,25 @@ export function meshFromLines(lines: unknown): GridMesh | undefined {
   return { ...mesh, cx: l.cx, cy: l.cy };
 }
 
-/**
- * 'e4' -> the crop box cut at the square's four neighbour-line intersections — the mesh cut.
- * Pads scale with the square's own measured cell. Parity twin: `meshCropBoxExact` (CropBox.kt),
- * pinned on the shared fixture `parity/_geometry/mesh_crop_parity.json`.
- */
-export function squareMeshBox(
-  square: string,
-  boardSize: number,
-  mesh: GridMesh,
-  crop: CropParams,
-  whitePov = true,
-) {
-  const [col, row] = squareColRow(square, whitePov);
-  const cw = mesh.x[col + 1] - mesh.x[col];
-  const ch = mesh.y[row + 1] - mesh.y[row];
-  return {
-    x0: (mesh.x[col] - crop.pad_side * cw) * boardSize,
-    y0: (mesh.y[row] - (crop.pad_side + crop.pad_up) * ch) * boardSize,
-    x1: (mesh.x[col + 1] + crop.pad_side * cw) * boardSize,
-    y1: (mesh.y[row + 1] + crop.pad_side * ch) * boardSize,
-  };
-}
-
-function intersect(xi: number, ti: number, yj: number, tj: number): [number, number] {
-  const den = 1 - ti * tj;
-  const x = (xi + ti * (yj - 0.5 * (1 + tj))) / den;
-  return [x, yj + tj * (x - 0.5)];
-}
-
-function curvedCorner(
-  lx: number,
-  tx: number,
-  cx: number,
-  ly: number,
-  ty: number,
-  cy: number,
-): [number, number] {
-  let x = lx;
-  let y = ly;
-  for (let i = 0; i < 3; i++) {
-    const u = x - 0.5;
-    const v = y - 0.5;
-    x = lx + tx * v + cx * v * v;
-    y = ly + ty * u + cy * u * u;
-  }
-  return [x, y];
-}
-
-/**
- * 'e4' -> the square's padded cell as a QUADRILATERAL `[tl, tr, br, bl]` in board pixels — the
- * four neighbour lines taken as offset + tilt (+ parabola term when the mesh carries one),
- * shifted outward by the pads, intersected. With curvature the corner is three simultaneous
- * evaluations of either parabola at the other's position; `meshCellQuadExact` (CropBox.kt)
- * argues the residual. Requires tilts; same shared fixture.
- */
-export function squareMeshQuad(
-  square: string,
-  boardSize: number,
-  mesh: TiltedMesh,
-  crop: CropParams,
-  whitePov = true,
-): number[][] {
-  const [col, row] = squareColRow(square, whitePov);
-  const cw = mesh.x[col + 1] - mesh.x[col];
-  const ch = mesh.y[row + 1] - mesh.y[row];
-  const lx0 = mesh.x[col] - crop.pad_side * cw;
-  const lx1 = mesh.x[col + 1] + crop.pad_side * cw;
-  const ly0 = mesh.y[row] - (crop.pad_side + crop.pad_up) * ch;
-  const ly1 = mesh.y[row + 1] + crop.pad_side * ch;
-  const { tx, ty, cx, cy } = mesh;
-  const corners =
-    cx && cy
-      ? [
-          curvedCorner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
-          curvedCorner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
-          curvedCorner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
-          curvedCorner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1]),
-        ]
-      : [
-          intersect(lx0, tx[col], ly0, ty[row]),
-          intersect(lx1, tx[col + 1], ly0, ty[row]),
-          intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
-          intersect(lx0, tx[col], ly1, ty[row + 1]),
-        ];
-  return corners.map(([x, y]) => [x * boardSize, y * boardSize]);
-}
-
 /** Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS` (CropBox.kt). */
 const MESH_POINT_ITERATIONS = 3;
 
 /** Where a line of `axis` sits at run `t` along it, in field fractions (`pos(t)` of the mesh). */
-function lineAt(mesh: TiltedMesh, axis: "x" | "y", k: number, t: number): number {
+function lineAt(mesh: GridMesh, axis: "x" | "y", k: number, t: number): number {
   const o = axis === "x" ? mesh.x : mesh.y;
   const tilt = axis === "x" ? mesh.tx : mesh.ty;
   const curv = axis === "x" ? mesh.cx : mesh.cy;
   const d = t - 0.5;
-  return o[k] + tilt[k] * d + (curv ? curv[k] * d * d : 0);
+  return o[k] + (tilt ? tilt[k] * d : 0) + (curv ? curv[k] * d * d : 0);
 }
 
 /**
- * The point of the MEASURED board that belongs to the ideal one at `(u, v)` — field fractions in,
- * field fractions out. Inside a cell the two bounding lines are blended linearly; the two axes are
- * coupled (each line's position depends on the run along it), so the pair is solved by
- * [MESH_POINT_ITERATIONS] simultaneous evaluations, exactly as a cell corner is.
- *
- * This is what makes a whole board come out straight instead of 64 separately straightened cells.
+ * The point of the MEASURED board that belongs to the ideal one at `(u, v)` — field fractions both
+ * ways. A cell's two bounding lines blend linearly and the axes are coupled, so the pair is solved
+ * by [MESH_POINT_ITERATIONS] simultaneous evaluations. A mesh without tilts is carried as tilt 0:
+ * its offsets alone are still a correction. Twins: `calibration.mesh_point`, `meshPoint` (Kotlin).
  */
-export function meshPoint(u: number, v: number, mesh: TiltedMesh): [number, number] {
+export function meshPoint(u: number, v: number, mesh: GridMesh): [number, number] {
   const cu = Math.max(0, Math.min(7, Math.floor(u * 8)));
   const cv = Math.max(0, Math.min(7, Math.floor(v * 8)));
   const fu = u * 8 - cu;
@@ -263,7 +174,7 @@ const MESH_INVERSE_ITERATIONS = 8;
  * What straightens a stroke painted on the straightened board back onto the raw raster it has to
  * be written into (`lib/matte-fix.ts`).
  */
-export function meshPointInverse(x: number, y: number, mesh: TiltedMesh): [number, number] {
+export function meshPointInverse(x: number, y: number, mesh: GridMesh): [number, number] {
   let u = x;
   let v = y;
   for (let i = 0; i < MESH_INVERSE_ITERATIONS; i++) {
@@ -283,7 +194,7 @@ export function sampleBoxMesh(
   src: Raster,
   h: Mat3,
   box: { x0: number; y0: number; x1: number; y1: number },
-  mesh: TiltedMesh,
+  mesh: GridMesh,
   boardSize: number,
   outW: number,
   outH: number,

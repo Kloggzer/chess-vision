@@ -12,9 +12,9 @@ import kotlin.math.abs
 
 /**
  * The point of the tilt and curvature stages: a board whose line family fans AND bows like a
- * barrel residual is drawn synthetically. After the curved per-cell cut every edge stands
- * vertical in its crop and the edge STITCHED down a whole column is straight — while the linear
- * stage provably still shows the bow the coordinator measured on real frame 004251.
+ * barrel residual is drawn synthetically. After [straightenBoard] every edge stands vertical in
+ * its plain crop and the edge STITCHED down a whole column is straight — while the linear stage
+ * provably still shows the bow the coordinator measured on real frame 004251.
  */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class MeshStraightnessTest {
@@ -72,9 +72,10 @@ class MeshStraightnessTest {
     // border and its black overhang would poison the centroid; its interior neighbour still
     // carries a real-magnitude bow (c = 0.0375, an 8 px sagitta over this board).
     private fun columnEdges(mesh: GridMesh): List<Triple<Double, Double, Double>> {
-        val warped = board()
+        // Once, over the whole raster — then the cut is the same plain rectangle every consumer uses.
+        val warped = straightenBoard(board(), mesh, BS, cropBorderPx(geom))
         return (1..8).map { rank ->
-            val crop = cropSquare(warped, "b$rank", geom, mesh)
+            val crop = cropSquare(warped, "b$rank", geom)
             Triple(lineCentre(crop, TOP), lineCentre(crop, MIDDLE), lineCentre(crop, BOTTOM))
         }
     }

@@ -1,5 +1,6 @@
 package com.chesslab.geometry
 
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
@@ -104,109 +105,42 @@ class GridMesh(
     }
 }
 
+/** Where line [k] of one axis sits at run [t] along it, in field fractions (`pos(t)`). */
+private fun lineAt(
+    offs: DoubleArray,
+    tilts: DoubleArray,
+    curvs: DoubleArray?,
+    k: Int,
+    t: Double,
+): Double {
+    val d = t - HALF
+    return offs[k] + tilts[k] * d + (curvs?.let { it[k] * d * d } ?: 0.0)
+}
+
 /**
- * The crop box cut at the square's four NEIGHBOUR-LINE intersections instead of the nominal
- * eighth — the lens-agnostic mesh cut. Pads scale with the square's own measured cell, so the
- * composition matches [squareToCropBox]. Parity twin: `squareMeshBox` (`lib/warp.ts`).
+ * The point of the MEASURED board belonging to the ideal one at ([u], [v]) — field fractions both
+ * ways. The two bounding lines of a cell blend linearly and the axes are coupled, so the pair is
+ * solved by [CORNER_ITERATIONS] simultaneous evaluations. A mesh without tilts is carried as tilt
+ * 0: its offsets alone are still a correction. Twins: `calibration.mesh_point`, `lib/warp.ts`.
  */
-fun meshCropBoxExact(
-    square: String,
-    geom: BoardGeometry,
+fun meshPoint(
+    u: Double,
+    v: Double,
     mesh: GridMesh,
 ): DoubleArray {
-    val (col, row) = squareToColRow(square, geom.whitePov)
-    val bs = geom.boardSize.toDouble()
-    val cw = mesh.xs[col + 1] - mesh.xs[col]
-    val ch = mesh.ys[row + 1] - mesh.ys[row]
-    return doubleArrayOf(
-        (mesh.xs[col] - geom.padSide * cw) * bs,
-        (mesh.ys[row] - (geom.padSide + geom.padUp) * ch) * bs,
-        (mesh.xs[col + 1] + geom.padSide * cw) * bs,
-        (mesh.ys[row + 1] + geom.padSide * ch) * bs,
-    )
-}
-
-/** [meshCropBoxExact] rounded like [squareToCropBox] (unclamped) — what `cropSquare` cuts. */
-fun meshCropBox(
-    square: String,
-    geom: BoardGeometry,
-    mesh: GridMesh,
-): IntArray {
-    val box = meshCropBoxExact(square, geom, mesh)
-    return IntArray(box.size) { pyRound(box[it]) }
-}
-
-private fun intersect(
-    xi: Double,
-    ti: Double,
-    yj: Double,
-    tj: Double,
-): DoubleArray {
-    val den = 1.0 - ti * tj
-    val x = (xi + ti * (yj - HALF * (1.0 + tj))) / den
-    val y = yj + tj * (x - HALF)
-    return doubleArrayOf(x, y)
-}
-
-private fun curvedCorner(
-    lx: Double,
-    tx: Double,
-    cx: Double,
-    ly: Double,
-    ty: Double,
-    cy: Double,
-): DoubleArray {
-    var x = lx
-    var y = ly
+    val tx = mesh.tx ?: DoubleArray(GRID_LINES_PER_AXIS)
+    val ty = mesh.ty ?: DoubleArray(GRID_LINES_PER_AXIS)
+    val cu = floor(u * BOARD_SIDE_D).toInt().coerceIn(0, BOARD_SIDE - 1)
+    val cv = floor(v * BOARD_SIDE_D).toInt().coerceIn(0, BOARD_SIDE - 1)
+    val fu = u * BOARD_SIDE_D - cu
+    val fv = v * BOARD_SIDE_D - cv
+    var x = u
+    var y = v
     repeat(CORNER_ITERATIONS) {
-        val u = x - HALF
-        val v = y - HALF
-        x = lx + tx * v + cx * v * v
-        y = ly + ty * u + cy * u * u
+        x = lineAt(mesh.xs, tx, mesh.cx, cu, y) * (1.0 - fu) + lineAt(mesh.xs, tx, mesh.cx, cu + 1, y) * fu
+        y = lineAt(mesh.ys, ty, mesh.cy, cv, x) * (1.0 - fv) + lineAt(mesh.ys, ty, mesh.cy, cv + 1, x) * fv
     }
     return doubleArrayOf(x, y)
-}
-
-/**
- * The square's padded cell as a QUADRILATERAL `[tl, tr, br, bl]` flat in board px: its four
- * neighbour lines (offset + tilt + optional parabola term), pad-shifted, intersected — curved
- * corners via [CORNER_ITERATIONS] simultaneous evaluations, residual < 0.1 px at the limits.
- * Parity twin: `squareMeshQuad` (`lib/warp.ts`), pinned on the shared fixture.
- */
-fun meshCellQuadExact(
-    square: String,
-    geom: BoardGeometry,
-    mesh: GridMesh,
-): DoubleArray {
-    val tx = requireNotNull(mesh.tx) { "meshCellQuadExact needs tilts" }
-    val ty = requireNotNull(mesh.ty)
-    val (col, row) = squareToColRow(square, geom.whitePov)
-    val bs = geom.boardSize.toDouble()
-    val cw = mesh.xs[col + 1] - mesh.xs[col]
-    val ch = mesh.ys[row + 1] - mesh.ys[row]
-    val lx0 = mesh.xs[col] - geom.padSide * cw
-    val lx1 = mesh.xs[col + 1] + geom.padSide * cw
-    val ly0 = mesh.ys[row] - (geom.padSide + geom.padUp) * ch
-    val ly1 = mesh.ys[row + 1] + geom.padSide * ch
-    val cx = mesh.cx
-    val cy = mesh.cy
-    val corners =
-        if (cx != null && cy != null) {
-            arrayOf(
-                curvedCorner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
-                curvedCorner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
-                curvedCorner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
-                curvedCorner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1]),
-            )
-        } else {
-            arrayOf(
-                intersect(lx0, tx[col], ly0, ty[row]),
-                intersect(lx1, tx[col + 1], ly0, ty[row]),
-                intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
-                intersect(lx0, tx[col], ly1, ty[row + 1]),
-            )
-        }
-    return DoubleArray(corners.size * 2) { corners[it / 2][it % 2] * bs }
 }
 
 /** Pixel centre of the base cell. Port of `calibration.py:377 square_center`. */

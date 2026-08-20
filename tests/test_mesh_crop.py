@@ -17,13 +17,10 @@ from chesslab.calibration import (
     GridMesh,
     compute_homography,
     crop_border_px,
-    mesh_cell_quad,
     mesh_from_lines,
-    square_to_crop_box,
-    square_to_mesh_box,
+    mesh_point,
     straighten_board,
 )
-from chesslab.labeling import all_squares, crop_square
 
 FIXTURE = (Path(__file__).resolve().parents[1]
            / "android/core-engine/src/test/resources/parity/_geometry/mesh_crop_parity.json")
@@ -54,48 +51,26 @@ def _mesh(fx: dict, *, curved: bool) -> GridMesh:
                     m["cx"] if curved else None, m["cy"] if curved else None)
 
 
-def test_all_64_mesh_boxes_match_the_shared_fixture(fx):
-    prof, mesh = _profile(fx), _mesh(fx, curved=False)
-    assert len(fx["boxes"]) == 64
-    for square, want in fx["boxes"].items():
-        assert square_to_mesh_box(square, prof, mesh) == pytest.approx(want, abs=TOL)
+@pytest.mark.parametrize("key,curved", [("meshPoints", False), ("curvedMeshPoints", True)])
+def test_the_mesh_map_matches_the_shared_fixture(fx, key, curved):
+    """The one map all three straighteners run — the per-cell boxes it replaced are gone."""
+    mesh = _mesh(fx, curved=curved)
+    assert len(fx[key]) == 100
+    for u, v, wx, wy in fx[key]:
+        assert mesh_point(u, v, mesh) == pytest.approx((wx, wy), abs=TOL)
 
 
-@pytest.mark.parametrize("key,curved", [("quads", False), ("curvedQuads", True)])
-def test_all_64_cell_quads_match_the_shared_fixture(fx, key, curved):
-    prof, mesh = _profile(fx), _mesh(fx, curved=curved)
-    assert len(fx[key]) == 64
-    for square, want in fx[key].items():
-        got = [c for corner in mesh_cell_quad(square, prof, mesh) for c in corner]
-        assert got == pytest.approx([c for corner in want for c in corner], abs=TOL)
-
-
-def test_zero_tilts_put_the_quads_corners_on_the_scalar_box(fx):
-    prof = _profile(fx)
-    flat = GridMesh(fx["mesh"]["x"], fx["mesh"]["y"], [0.0] * 9, [0.0] * 9)
-    for square in all_squares():
-        x0, y0, x1, y1 = square_to_mesh_box(square, prof, flat)
-        got = [c for corner in mesh_cell_quad(square, prof, flat) for c in corner]
-        assert got == pytest.approx([x0, y0, x1, y0, x1, y1, x0, y1], abs=TOL)
-
-
-def test_zero_curvature_lands_on_the_closed_form_intersection(fx):
-    """The iterated corner and the exact intersection agree far inside a pixel — CORNER_ITERATIONS."""
-    prof = _profile(fx)
-    m = fx["mesh"]
-    tilted = GridMesh(m["x"], m["y"], m["tx"], m["ty"])
-    zero = GridMesh(m["x"], m["y"], m["tx"], m["ty"], [0.0] * 9, [0.0] * 9)
-    got = [c for corner in mesh_cell_quad("e4", prof, zero) for c in corner]
-    want = [c for corner in mesh_cell_quad("e4", prof, tilted) for c in corner]
-    assert got == pytest.approx(want, abs=1e-3)
-
-
-def test_the_nominal_mesh_reproduces_square_to_crop_box(fx):
-    prof = _profile(fx)
+def test_the_nominal_mesh_moves_no_point(fx):
     nominal = GridMesh([k / 8.0 for k in range(9)], [k / 8.0 for k in range(9)])
-    for square in all_squares():
-        box = tuple(round(v) for v in square_to_mesh_box(square, prof, nominal))
-        assert box == square_to_crop_box(square, prof, clamp=False)
+    for u in (0.0, 0.0625, 0.5, 0.9375, 1.0):
+        assert mesh_point(u, 1.0 - u, nominal) == pytest.approx((u, 1.0 - u), abs=TOL)
+
+
+def test_a_mesh_without_tilts_still_moves_by_its_offsets(fx):
+    """The scalar stage: offsets alone ARE a correction, and dropping them would be a silent loss."""
+    shifted = [k / 8.0 + 0.01 for k in range(9)]
+    scalar = GridMesh(shifted, list(shifted))
+    assert mesh_point(0.5, 0.5, scalar) == pytest.approx((0.51, 0.51), abs=TOL)
 
 
 def test_mesh_from_lines_drops_one_stage_per_defect(fx):
