@@ -122,7 +122,7 @@ def test_the_matte_follows_its_board(tmp_path):
         assert line_spread(cv2.imread(str(sdir / MATTE_DIR / f"{stem}.webp"))) <= 2
 
 
-def test_a_frame_without_curvature_borrows_the_recordings(tmp_path):
+def test_a_frame_without_curvature_borrows_the_recordings():
     """A mesh with no `cx` cannot take a bow out at all, and most frames of a recording have none.
 
     Measured 2026-08-21: three recordings carry curvature on under 5 % of their frames and stayed
@@ -135,7 +135,7 @@ def test_a_frame_without_curvature_borrows_the_recordings(tmp_path):
     assert meshes[9].tx == pytest.approx([TILT] * 9), "its own tilts stay its own"
 
 
-def test_two_curved_frames_are_too_few_to_graft_from(tmp_path):
+def test_two_curved_frames_are_too_few_to_graft_from():
     """`MESH_POOL_MIN`: one frame's curvature could be noise, and grafting noise onto 500 boards
     is worse than leaving a measured bow in five."""
     meshes = meshes_for_boards([_row(0, TILT, curv=0.03), _row(3, TILT, curv=0.03),
