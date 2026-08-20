@@ -574,72 +574,9 @@ def compute_homography(image_corners, board_size: int, margin=0.0) -> list[list[
     return H.tolist()
 
 
-def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, labels: bool = False):
-    """On the camera image: marker box (outer, orange) + actual playing field + grid (inner, green).
-
-    `labels=True` additionally labels each of the 64 squares (a1..h8) at its cell center —
-    resolution-adaptive, so it remains readable in the web UI at any stream/snapshot size.
-    """
-    img = frame.copy()
-    bs = profile.board_size
-    h_inv = np.linalg.inv(np.array(profile.homography, dtype=np.float64))
-
-    def to_img(board_pts):
-        a = np.array(board_pts, dtype=np.float32).reshape(-1, 1, 2)
-        return cv2.perspectiveTransform(a, h_inv).reshape(-1, 2)
-
-    cell = bs / 8.0
-    # Estimate cell size in image pixels -> scale line thickness/font (stream vs snapshot).
-    o, ex = to_img([[0.0, 0.0]])[0], to_img([[cell, 0.0]])[0]
-    cell_px = float(np.hypot(*(ex - o))) or 40.0
-    grid_th = max(1, int(round(cell_px / 60)))
-    for i in range(9):  # back-project 8x8 grid
-        p = i * cell
-        v = to_img([[p, 0], [p, bs]]).astype(int)
-        hh = to_img([[0, p], [bs, p]]).astype(int)
-        cv2.line(img, tuple(v[0]), tuple(v[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
-        cv2.line(img, tuple(hh[0]), tuple(hh[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
-    field = to_img([[0, 0], [bs, 0], [bs, bs], [0, bs]]).astype(np.int32)
-    cv2.polylines(img, [field], True, (0, 255, 0), grid_th + 1, cv2.LINE_AA)  # playing field (green)
-
-    if labels:
-        fs = max(0.3, cell_px / 150.0)            # font size ~ cell size
-        th = max(1, int(round(cell_px / 90)))
-        off = int(cell_px * 0.18)
-        for rank in range(1, 9):
-            for fl in _FILES:
-                col, row = _square_to_col_row(f"{fl}{rank}", profile.white_pov)
-                c = to_img([[(col + 0.5) * cell, (row + 0.5) * cell]])[0].astype(int)
-                cv2.putText(img, f"{fl}{rank}", (c[0] - off, c[1] + off // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 255), th, cv2.LINE_AA)
-
-    mb = np.array(marker_pts, dtype=np.int32)
-    cv2.polylines(img, [mb], True, (0, 180, 255), grid_th + 1, cv2.LINE_AA)   # marker box (orange)
-    for p in marker_pts:
-        cv2.circle(img, (int(p[0]), int(p[1])), max(4, int(cell_px / 18)), (0, 180, 255), -1, cv2.LINE_AA)
-    return img
-
-
 def warp_board(frame, profile: CalibrationProfile):
     H = np.array(profile.homography, dtype=np.float64)
     return cv2.warpPerspective(frame, H, (profile.board_size, profile.board_size))
-
-
-def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True):
-    """Draw 8x8 grid (+ corner/center labels) on the rectified board."""
-    img = board_img.copy()
-    bs = profile.board_size
-    for i in range(9):
-        p = int(round(i * bs / 8.0))
-        cv2.line(img, (p, 0), (p, bs), (0, 255, 0), 1)
-        cv2.line(img, (0, p), (bs, p), (0, 255, 0), 1)
-    if labels:
-        for sq in ("a8", "h8", "a1", "h1", "e4"):
-            col, row = _square_to_col_row(sq, profile.white_pov)
-            cx = int((col + 0.5) * bs / 8.0)
-            cy = int((row + 0.5) * bs / 8.0)
-            cv2.putText(img, sq, (cx - 12, cy + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-    return img
 
 
 # --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------

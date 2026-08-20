@@ -314,11 +314,6 @@ DEFAULT_PATIENCE: int = 7
 # serves only as a label source (per-square classifier), not as a playable position.
 DEFAULT_INVENTORY: dict[str, int] = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
 
-# --- Collection-UI thresholds (Stage 6) -----------------------------------------------
-UI_EMPTY_TARGET_RATIO: float = 1.5      # empty target = ratio * largest piece class
-UI_WARN_FRAC: float = 0.5               # < 50 % -> red, 50–99 % -> yellow, >= 100 % -> green
-UI_TOTAL_TARGET: int = 5000             # Total crop target for the progress bar
-
 
 def label_from_piece(symbol: str | None) -> str:
     """Map a python-chess piece symbol (FEN letter) to a class label.
