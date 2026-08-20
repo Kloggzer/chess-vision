@@ -1006,9 +1006,14 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
         if worst == worst:
             row["align_worst_px"] = round(float(worst), 2)
             worsts.append(row["align_worst_px"])
+    # After the loop, not inside it: a hand frame borrows its clean neighbours' mesh, and none of
+    # them is known until every row has been measured.
+    pulled = straighten_boards(session_dir, seen)
     worsts.sort()
     return {
         **counts,
+        "straight": pulled["straightened"],
+        "bowed": pulled["no_mesh"],
         "mesh": meshed,
         "hands": hands,
         "late": late,
@@ -1182,11 +1187,8 @@ def export_session(
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "
                   f"mesh on {stats['mesh']}, hands on {stats['hands']}")
-            # After the fit, because a hand frame borrows its neighbours' meshes and none of them
-            # is known until every row has been measured.
-            pulled = straighten_boards(session_dir, rows)
-            print(f"  boards pulled straight: {pulled['straightened']}, "
-                  f"{pulled['no_mesh']} left bowed for want of any mesh")
+            print(f"  boards pulled straight: {stats['straight']}, "
+                  f"{stats['bowed']} left bowed for want of any mesh")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
