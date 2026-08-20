@@ -219,20 +219,22 @@ def base_time(candidate: dict) -> datetime:
 
 
 def video_path(name: str) -> Path:
-    """`<recording>/video.mp4`. One place, no search.
+    """The recording's video HEAD — the file `Recording` expands into its segments.
 
-    It used to try three, because the tracker wrote `realgames/<name>/video.mp4` and the phone
-    upload put the file under `files/sessions/<id>/`. All three missed after the 2026-08-20 rename
-    to `data/recordings/`, so every candidate failed at once — a fallback that hides a wrong path
-    until every branch is wrong. The recordings were normalised instead (2026-08-21): a phone
-    upload keeps its raw `files/` tree and gains a HARDLINK at the root, so the bytes exist once.
+    Two real shapes, not a fallback: an early recording keeps `video.mp4` at its root, a phone
+    upload keeps the whole raw tree and its video sits in `files/sessions/<id>/`. It must be the
+    file where it really lies — `recording_segments` finds `video-001.mp4` BESIDE the head, so a
+    copy at the root would hide the other 8 parts of a 9-part game and truncate it silently.
+
+    It used to try three paths, all of which missed after the 2026-08-20 rename to
+    `data/recordings/`: 24 of 24 candidates failed at once, because a fallback hides a wrong path
+    until every branch is wrong.
     """
-    p = game_dir(name) / "video.mp4"
-    if p.exists():
-        return p
-    raise FileNotFoundError(
-        f"{name}: no video at {p}. A phone upload gets one by hardlinking "
-        f"files/sessions/<id>/video.mp4; a recording without a source video has none.")
+    root = game_dir(name)
+    for p in (root / "video.mp4", *sorted(root.glob("files/sessions/*/video.mp4"))):
+        if p.is_file():
+            return p
+    raise FileNotFoundError(f"{name}: no video.mp4 under {root}")
 
 
 #: How far past the FINAL commit its interval may run, in seconds — the whole rule for a ply that
