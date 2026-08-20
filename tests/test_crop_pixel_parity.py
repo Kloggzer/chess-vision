@@ -18,6 +18,13 @@ quad). The bar is exact equality, not a tolerance. Two things had to be right, a
   at 0.0 the warp keeps that border inside the 8x8 and every crop lands a third of a cell off.
 * the **rotation**: a phone recording decodes portrait in OpenCV while Kotlin reads it landscape.
 
+**What this does NOT cover.** Both sides cut a RAW warp here, because `:desktop crops` is a
+diagnostic verb and warps the frame itself. The production path does not: the board is pulled
+straight once when it is stored (`realgames.straighten_boards`, 2026-08-21) and both sides then cut
+plain rectangles out of that same file. Byte equality on this fixture therefore proves the crop
+CONSTRUCTION agrees, not that a training crop and a device crop agree — the straightening sits
+before it. Do not read this test as covering more than it does; that mistake was made once already.
+
 Regenerate with `scripts/crop_parity.py`. The fixtures live beside the geometry one so a Kotlin test
 can read them too, and cost 3.5 MB.
 """
