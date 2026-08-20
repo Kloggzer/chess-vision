@@ -7,6 +7,19 @@ Welche Frames der Worker überhaupt bekommt, entscheidet der Scan: `docs/frame-s
 > Alle Zahlen unten stammen von `rg-2026-08-08-00-39-57`, gemessen am 2026-08-18. Zeuge ist
 > `grid_occlusion.hand_squares` — der einzige Sensor, der mit keinem Kandidaten Arithmetik teilt.
 
+## Die Matte IST das Brett-Raster (2026-08-21)
+
+Eine Alpha wird über das gespeicherte Brett gerechnet und hat dessen Maße (952 × 952 bei
+`board_size` 928). Daraus folgt zweierlei, und beides ist gebaut:
+
+- **Sie folgt dem Brett durch die Begradigung.** `realgames.straighten_boards` zieht Brett und
+  Matte durch denselben Mesh, handkorrigierte Alphas eingeschlossen — sie werden mitgezogen, nie
+  neu gerechnet. Eine gebogene Alpha gegen eine gerade Zelle wäre eine falsche Verdeckungszahl.
+- **Die alten Zahlen bleiben gültig.** `matte.jsonl` wurde auf dem gebogenen Alpha mit dem
+  Zell-Mesh gerechnet, heute liegt eine gerade Alpha unter einem geraden Schnitt. Nachgerechnet
+  über 10 Frames von `rg-2026-08-08-11-55-19`: Median-Abweichung **0,0000**, p90 0,0098, max
+  0,047 — gegen `PIECE_VISIBLE_MAX = 0,15`. Kein Neurechnen nötig.
+
 ## Der Ausgangspunkt
 
 Die Kamera steht fest, die Stellung ist pro Intervall bekannt, also **ist** der Median der ruhigen
