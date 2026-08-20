@@ -42,8 +42,8 @@ from chesslab.calibration import (  # noqa: E402
     CalibrationProfile,
     CropParams,
     compute_homography,
-    pooled_mesh,
     mesh_from_lines,
+    pooled_mesh,
     straighten_board,
 )
 from chesslab.realgames import detect_rotation, grid_line_fracs, video_path  # noqa: E402
