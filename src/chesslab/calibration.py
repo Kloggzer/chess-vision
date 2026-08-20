@@ -394,6 +394,25 @@ def mesh_from_lines(lines) -> GridMesh | None:
     return GridMesh(xs, ys, tx, ty, cx, cy)
 
 
+def median_mesh(meshes) -> GridMesh | None:
+    """One mesh for a whole recording: per coefficient the median over the frames given.
+
+    A hand over the grooves moves single lines, and the per-frame mesh it produces can leave the
+    board WORSE than no mesh at all (measured 2026-08-21 on 13-52-38: 15.21 px raw against 12.36
+    with its own mesh). The camera does not move, so feed this the CLEAN frames and every frame of
+    the recording — hand or not — can be straightened by a mesh no hand ever touched.
+    """
+    have = [m for m in meshes if m is not None and m.tilted]
+    if not have:
+        return None
+    def med(name):
+        vals = [getattr(m, name) for m in have if getattr(m, name) is not None]
+        return None if len(vals) < len(have) else np.median(np.array(vals), axis=0).tolist()
+    return GridMesh(np.median(np.array([m.x for m in have]), axis=0).tolist(),
+                    np.median(np.array([m.y for m in have]), axis=0).tolist(),
+                    med("tx"), med("ty"), med("cx"), med("cy"))
+
+
 def square_to_mesh_box(square: str, profile: CalibrationProfile,
                        mesh: GridMesh) -> tuple[float, float, float, float]:
     """'e4' -> the crop box cut at the square's four NEIGHBOUR-LINE intersections, unrounded.
@@ -456,6 +475,53 @@ def mesh_cell_quad(square: str, profile: CalibrationProfile,
                    _mesh_intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
                    _mesh_intersect(lx0, tx[col], ly1, ty[row + 1])]
     return [(x * bs, y * bs) for x, y in corners]
+
+#: Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS`.
+MESH_POINT_ITERATIONS = 3
+
+
+def _mesh_line_at(offs, tilts, curvs, k, t):
+    """Where line `k` of one axis sits at run `t` along it, in field fractions. Arrays welcome."""
+    d = t - 0.5
+    curved = 0.0 if curvs is None else np.asarray(curvs)[k] * d * d
+    return np.asarray(offs)[k] + np.asarray(tilts)[k] * d + curved
+
+
+def mesh_point(u, v, mesh: GridMesh):
+    """The MEASURED board point belonging to the ideal one at `(u, v)` — field fractions both ways.
+
+    Inside a cell the two bounding lines blend linearly, and the axes are coupled (each line's
+    position depends on the run along it), so the pair is solved by simultaneous evaluations
+    exactly as a cell corner is. Parity twin: `meshPoint` (warp.ts).
+    """
+    if not mesh.tilted:
+        raise ValueError("mesh_point needs tilts")
+    u, v = np.asarray(u, np.float64), np.asarray(v, np.float64)
+    cu = np.clip(np.floor(u * 8.0), 0, 7).astype(np.int32)
+    cv_ = np.clip(np.floor(v * 8.0), 0, 7).astype(np.int32)
+    fu, fv = u * 8.0 - cu, v * 8.0 - cv_
+    x, y = u, v
+    for _ in range(MESH_POINT_ITERATIONS):
+        x = (_mesh_line_at(mesh.x, mesh.tx, mesh.cx, cu, y) * (1.0 - fu)
+             + _mesh_line_at(mesh.x, mesh.tx, mesh.cx, cu + 1, y) * fu)
+        y = (_mesh_line_at(mesh.y, mesh.ty, mesh.cy, cv_, x) * (1.0 - fv)
+             + _mesh_line_at(mesh.y, mesh.ty, mesh.cy, cv_ + 1, x) * fv)
+    return x, y
+
+
+def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
+    """A bordered board pulled straight GLOBALLY — every pixel read where its own lines say it is.
+
+    This REPLACES the per-cell mesh cut, it does not join it: a board straightened here is cut at
+    the nominal eighth afterwards, and straightening twice corrects twice. Twin: `sampleBoxMesh`.
+    """
+    h, w = board.shape[:2]
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float64)
+    mx, my = mesh_point((xs - border) / board_size, (ys - border) / board_size, mesh)
+    return cv2.remap(board, (mx * board_size + border).astype(np.float32),
+                     (my * board_size + border).astype(np.float32),
+                     cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
     """Pixel center of the base cell of a square in the rectified board_size image."""
