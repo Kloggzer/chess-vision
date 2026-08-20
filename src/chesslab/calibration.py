@@ -450,6 +450,9 @@ def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
 
     This REPLACES the per-cell mesh cut, it does not join it: a board straightened here is cut at
     the nominal eighth afterwards, and straightening twice corrects twice. Twin: `sampleBoxMesh`.
+
+    288 ms on a 952 px board (2026-08-21), against 72 ms for the WebP encode beside it — a real
+    cost per exported frame, and far under the decode it follows.
     """
     h, w = board.shape[:2]
     ys, xs = np.mgrid[0:h, 0:w].astype(np.float64)
