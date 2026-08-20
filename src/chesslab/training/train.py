@@ -439,6 +439,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
+    # Deterministic validation loader for the extra occlusion diagnostics below.
+    # shuffle=False is important because its batches must stay aligned with val_rows.
+    val_loader = DataLoader(val_ds, shuffle=False, drop_last=False, **loader_kw)
+
         # Runs are self-describing: geometry/photometry/extrusion height from the first
     # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
     # this field via a manifest scan). This way `serving.run_spec` knows the
@@ -526,6 +530,122 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
         bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
         t_score = time.perf_counter() - t0
+        # --- occlusion validation diagnostics ---
+        # The regular class metrics intentionally still score every crop for backwards
+        # compatibility.  For an occlusion-head run we additionally measure:
+        #   * continuous coverage quality
+        #   * class/occupancy quality only where the piece is actually visible
+        #
+        # This is a second validation pass only; it does NOT change gradients, loss,
+        # BatchNorm statistics, checkpoint selection or training samples.
+        occ_diag = {}
+        if occluding:
+            from .occlusion import PIECE_VISIBLE_MAX
+
+            cov_abs_sum = 0.0
+            cov_n = 0
+
+            occ_tp = 0
+            occ_want = 0
+            occ_hit = 0
+
+            vis_correct = 0
+            vis_occ_correct = 0
+            vis_n = 0
+
+            # (session_id, frame) -> whether every VISIBLE square has correct occupancy.
+            visible_boards: dict[tuple[str, str], bool] = {}
+
+            row_offset = 0
+            model.eval()
+
+            with torch.no_grad():
+                for vx, vy in val_loader:
+                    vx = vx.to(device, non_blocking=True)
+                    vy = vy.to(device, non_blocking=True)
+
+                    vlogits = model(vx)
+
+                    true_cls = vy[:, 0].long()
+                    cov_true = vy[:, 1]
+                    cov_pred = torch.sigmoid(vlogits[:, -1])
+                    pred_cls = vlogits[:, :-1].argmax(1)
+
+                    # Continuous coverage quality.
+                    cov_abs_sum += float((cov_pred - cov_true).abs().sum())
+                    cov_n += int(cov_true.numel())
+
+                    # Binary diagnostics at the tracker's adjustable 0.5 cut.
+                    want = cov_true > 0.5
+                    hit = cov_pred > 0.5
+                    occ_tp += int((want & hit).sum())
+                    occ_want += int(want.sum())
+                    occ_hit += int(hit.sum())
+
+                    # Piece identity is only a meaningful target while the crop is visible.
+                    visible = cov_true <= PIECE_VISIBLE_MAX
+
+                    if bool(visible.any()):
+                        vis_correct += int(
+                            (pred_cls[visible] == true_cls[visible]).sum()
+                        )
+
+                        true_occ = true_cls != classes.index("empty")
+                        pred_occ = pred_cls != classes.index("empty")
+                        vis_occ_correct += int(
+                            (true_occ[visible] == pred_occ[visible]).sum()
+                        )
+                        vis_n += int(visible.sum())
+
+                    # Validation DataLoader is ordered, so rows line up with predictions.
+                    vis_cpu = visible.cpu().tolist()
+                    true_cpu = true_cls.cpu().tolist()
+                    pred_cpu = pred_cls.cpu().tolist()
+
+                    for j, is_visible in enumerate(vis_cpu):
+                        if not is_visible:
+                            continue
+
+                        idx = row_offset + j
+                        if idx >= len(val_rows):
+                            continue
+
+                        row = val_rows[idx]
+                        key = (row["session_id"], str(row["frame"]))
+
+                        t_occ = classes[int(true_cpu[j])] != "empty"
+                        p_occ = classes[int(pred_cpu[j])] != "empty"
+                        square_ok = t_occ == p_occ
+
+                        visible_boards[key] = (
+                            visible_boards.get(key, True) and square_ok
+                        )
+
+                    row_offset += int(vx.size(0))
+
+            occ_diag = {
+                "val_occ_mae": (
+                    cov_abs_sum / cov_n if cov_n else float("nan")
+                ),
+                "val_occ_recall": (
+                    occ_tp / occ_want if occ_want else 0.0
+                ),
+                "val_occ_precision": (
+                    occ_tp / occ_hit if occ_hit else 0.0
+                ),
+                "val_visible_acc": (
+                    vis_correct / vis_n if vis_n else float("nan")
+                ),
+                "val_visible_occ_acc": (
+                    vis_occ_correct / vis_n if vis_n else float("nan")
+                ),
+                "val_visible_occ_board_acc": (
+                    sum(visible_boards.values()) / len(visible_boards)
+                    if visible_boards else float("nan")
+                ),
+                "val_visible_n": vis_n,
+            }
+
         rec = {
             "epoch": epoch,
             "train_loss": running / max(seen, 1),
@@ -541,10 +661,23 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             # the eval loader, the metric block and the checkpoint are three different suspects.
             "t_train_s": round(t_train, 2), "t_val_s": round(t_val, 2), "t_score_s": round(t_score, 2),
         }
+        if occ_diag:
+            rec.update(occ_diag)
+
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_acc {rec['val_acc']:.4f} "
               f"| macro_recall {rec['val_macro_recall']:.4f} | occ_board_acc {score[0]:.4f}")
+
+        if occ_diag:
+            print(
+                f"          coverage_mae {occ_diag['val_occ_mae']:.4f} "
+                f"| cov_recall@0.5 {occ_diag['val_occ_recall']:.4f} "
+                f"| cov_precision@0.5 {occ_diag['val_occ_precision']:.4f} "
+                f"| visible_acc {occ_diag['val_visible_acc']:.4f} "
+                f"| visible_occ_acc {occ_diag['val_visible_occ_acc']:.4f} "
+                f"| visible_occ_board_acc {occ_diag['val_visible_occ_board_acc']:.4f}"
+            )
 
         torch.save(model.state_dict(), run_dir / "last.pt")
         if score > best_score:
