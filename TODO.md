@@ -129,7 +129,14 @@
   Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
   Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
 
-- **Lens end-to-end für die Rig-Kamera** (2026-08-10: *"ich würde gerne überall die Bilder sehen
+- **ERLEDIGT ANDERS, 2026-08-21: der Mesh nimmt die Wölbung, nicht die Linse.** Gemessen über
+  drei Rig-Aufnahmen mit Hold-out (`scripts/straighten_ab.py`): roher Brett-Bogen 15,2–16,6 px,
+  Gitter-Mesh allein 0,9–1,1, gefittete Linse allein 3,0–4,4, beides 0,4–0,7. Auf 116 px
+  Zellbreite ist ein Pixel unter einem Prozent einer Zelle, also ist die Linse den Fit pro
+  Aufnahme nicht wert. Der Store wird stattdessen einmal geradegezogen
+  (`realgames.straighten_boards`). Was unten steht, ist der ALTE Plan und nur noch Historie.
+
+- ~~**Lens end-to-end für die Rig-Kamera**~~ (2026-08-10: *"ich würde gerne überall die Bilder sehen
   die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
   korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
   dieser Reihenfolge und nie einzeln: (1) alle Rig-Sessions im Pool undistorten + re-slicen
@@ -192,22 +199,32 @@
   Re-export is cheap now (frames on disk are kept) and non-destructive (a repaired quad is carried
   over), so after any change to `plan_rows`, re-export and check the field is actually there.
 
-## Lens: die Krümmung, die im Brett-Store sichtbar wurde (2026-08-17)
+## Lens: die Krümmung, die im Brett-Store sichtbar wurde (2026-08-17, gelöst 2026-08-21)
 
-Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`. Befund, gemessen:
+Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`, und am 2026-08-20 in
+einem Trainings-Crop. Befund, gemessen:
 
-- Das gespeicherte Brett ist der **rohe** rektifizierte Warp. Sowohl der Trainings-Crop
-  (`crop_square(..., mesh)`) als auch die Label-Ansicht (`sampleBoxMesh`) begradigen mit dem
-  gemessenen Mesh — dessen `cx`/`cy` sind die Parabelterme genau dieser Wölbung. `/api/board`
-  liefert das Brett gerade; nur die Datei selbst ist krumm.
-- Die Zell-GRENZEN sind damit richtig. Was bleibt, ist der Barrel INNERHALB einer Zelle.
+- **Die Ursache war die Hand, nicht die Linse.** 1 116 der 7 344 exportierten Frames trugen gar
+  keinen Mesh, und das waren AUSNAHMSLOS Frames mit einer Hand auf dem Brett; wo doch einer
+  zustande kam, war er von der Hand verzogen (Hand-Frames blieben bei 15,6–15,7 px Bogen,
+  saubere bei 1,0). Das ist genau das Occlusion-Material.
+- **Gelöst**: der Store wird beim Schreiben einmal geradegezogen, ein Hand-Frame leiht den Mesh
+  seiner fünf nächsten sauberen Nachbarn (die Kamera steht fest). Gemessen an 207 echten
+  Brettern: sauber 16,57 → 0,99 px, mit Hand 15,78 → 1,95 px.
+- Das gespeicherte Brett WAR der rohe rektifizierte Warp; Trainings-Crop und Label-Ansicht
+  begradigten jeder für sich. Beides ist weg — es gibt eine Begradigung, im Store.
 - Gemessene Wölbung über das 928er Brett, Mittel über 200 Frames je Session: die eine
   undistortete Session (`00-39-57`, k1 = −0,269) liegt bei 13,7 px in x, alle rohen bei 15–56 px.
 - Der Fit gehört laut `Undistort.kt` bewusst nach Kotlin (`data/lens/calib.npz` wurde bei
   2560×1440 mit RMS 5,46 px gefittet, die Kamera liefert 1920×1080). Das ANWENDEN eines
   gefitteten Modells ist dagegen ein `cv2.undistort` und könnte im Stream vor dem Warp laufen —
   dann bräuchte Undistortion nicht mehr den PNG-Umweg über `frames/`.
-- Offen: 19 von 20 Sessions sind nie durch `:desktop undistort` gegangen.
+- Offen bleibt NUR die Inferenz: der Tracker warpt roh und kennt gar keinen Mesh (Kotlin kann
+  Gitterlinien messen, aber `gridLinesWithCurvature`/`gridLineFracs` sind nicht portiert). Solange
+  das so ist, sieht das Gerät eine andere Geometrie als der neue Trainingskorpus. Das darf NICHT
+  einzeln scharfgeschaltet werden — specs/52 hat gemessen, dass entzerrte Inferenz gegen ein roh
+  trainiertes Modell 003957 von 67 auf 15 Plies fallen lässt. Reihenfolge: erst auf dem geraden
+  Korpus neu trainieren, dann Tracker-seitig begradigen.
 
 ## Hände in „sauberen" Frames — wie viele rutschen durch? (2026-08-18)
 

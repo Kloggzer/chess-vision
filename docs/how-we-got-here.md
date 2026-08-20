@@ -76,8 +76,16 @@ Chronik mit Commits: `docs/class-scheme.md`. Hier nur, was jede Kehre **gemessen
   `MAX_OFFSET_FRAC = 0.04` und alle 18 Linien gelesen, sonst `unread` und durchgefallen.
 - **Markerloser Kaltstart wurde geplant und nie gebaut** (`15`, fünf Phasen `todo`). Es gibt keine
   eigene Messung dafür oder dagegen.
-- **Linsenkorrektur macht das Alignment schlechter** (`30`, `41`): 15,1 px roh gegen 21,7 px
-  korrigiert. Der projektive Grid-Fit absorbiert den Grossteil der Verzeichnung selbst.
+- **Eine GESPEICHERTE Linsenkorrektur macht das Alignment schlechter, eine aus dem Brett gefittete
+  nicht.** Die Zahlen 15,1 gegen 21,7 px standen hier als Tatsache, sind aber am 2026-08-07
+  zurückgezogen worden (`dbbd4582`, durchgestrichen in `BoardLens.kt:90`): gemessen am 2026-07-21
+  auf dem blanken ArUco-Quad, bevor `refinedQuad` im Pfad war. Neu über 60-Frame-Mediane: roh
+  4,7–5,5 px, gespeicherte `calib.json` 4,4–5,3 (Vorzeichen kippt zwischen Sitzungen, Varifokal),
+  aus dem Brett gefittet **3,5–3,9**. Der projektive Grid-Fit absorbiert den Grossteil selbst.
+- **Trotzdem ist die Linse nicht im Pipeline-Pfad** (gemessen 2026-08-21, drei Rig-Aufnahmen,
+  Hold-out): roher Brett-Bogen 15,2–16,6 px, Gitter-Mesh allein 0,9–1,1, gefittete Linse allein
+  3,0–4,4, beides 0,4–0,7. Auf 116 px Zellbreite ist das Mesh-Ergebnis unter einem Prozent einer
+  Zelle. Der Mesh gewinnt, die Linse ist Beiwerk (`scripts/straighten_ab.py`).
 - **Der Restfehler ist systematisch pro Aufbau** — zwei Sessions unterscheiden sich im Vorzeichen.
   Kalibrier-Konstante, kein globaler Wert.
 

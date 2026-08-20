@@ -96,9 +96,9 @@ Two things the row has to carry beside the path, and both cost real time to lear
   stored raster does not. The candidate's geometry says 1008 where the export profile says 928, and
   a reader assuming its own number cut cells up to 59 px off on a 128 px crop. `usable_board`
   refuses a board whose numbers do not match the profile doing the cutting (`--pad-side` overrides).
-- **The board is the RAW warp, not straightened.** Its lens bow is still in it; both consumers pull
-  it straight with the row's `grid_lines` (`cx`/`cy` are that bow's parabola terms). Do not
-  straighten the store as well — that corrects twice.
+- **The board is written STRAIGHT** (2026-08-21). `realgames.straighten_boards` pulls the whole
+  raster through the row's mesh once and sets `board_straightened`; consumers cut plain rectangles
+  and must never straighten again. The matte follows its board — it IS that raster.
 
 `video -> webp -> labeling -> crop -> training`: the export decodes forward and warps in memory
 (`realgames.stream_frames`), so no PNG is written on the way. Frames are still written for an
@@ -146,11 +146,10 @@ A `log.jsonl` row:
 - `corners` is the board quad in **`[a8, h8, h1, a1]`** order, in image pixels. It is stored
   per frame, so slicing needs no camera and no marker re-detection. If it is absent, `slice`
   falls back to detecting ArUco markers in the frame and **skips the frame** if it cannot.
-- `grid_lines` (the shape §2.1 spells out) is the frame's measured 18-line mesh.
-  With it `slice` cuts every cell at the board's OWN boundaries — perspectively per cell once the
-  mesh carries tilts — instead of at the nominal eighth, so the lens' barrel never reaches a
-  training crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh`
-  (~0.05 s per frame); without it the slice is unchanged.
+- `grid_lines` (the shape §2.1 spells out) is the frame's measured 18-line mesh. The EXPORT uses
+  it, not the slice: it straightens the stored board once so the barrel never reaches a training
+  crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh` (~0.05 s per
+  frame); `chesslab session straighten` is the retrofit for a store written before this.
 - `grid_lines_source` says whether that mesh was `measured` on the frame or `carried` from the
   median of the stable frames around it — a hand over the grid hides the lines, not the camera,
   which is not rebuilt mid-session. Carried meshes only claim a stage all their neighbours agree
@@ -203,11 +202,10 @@ result beside the log:
   of the field side. Written only when **every** line was located, offsets strictly monotone,
   every |tilt| < 0.05; the curvature pair is all-or-nothing on top (|curv| < 0.08 — measured
   004251 outer lines reach 0.046, a ~10 px sagitta at 928 — its `d` folded into the offsets)
-  and drops alone when unmeasurable. Consumers cut each square as the
-  PERSPECTIVE quad of its four neighbour-line intersections — corners on the parabolas when
-  `cx`/`cy` ride along, so even a bowed outer line comes out straight; lens-agnostic, no
-  undistortion. With offsets alone (older sidecars) the scalar rectangles; absent or malformed,
-  the quad cut, one stage down per defect and never an error.
+  and drops alone when unmeasurable. `mesh_point` maps the ideal board onto the measured one —
+  offsets, tilts and parabolas together, a missing stage carried as zero — and `straighten_board`
+  remaps the whole raster through it. Lens-agnostic, no undistortion. Parity twins `meshPoint`
+  (CropBox.kt, `lib/warp.ts`), pinned on 100 shared points.
 - The file is **derived**: re-running overwrites it atomically, and deleting it only returns the
   session to the uncorrected marker quad.
 

@@ -9,9 +9,9 @@
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit. The CNN path is asynchronous and sparse. `docs/tracker-flow.md` records a measured break ("no snapshot ever reached the engine"); specs/53 later measured `CnnSnapshot.gridOccluded` reaching the verify ladder in replay, so the break is unconfirmed for live — re-measure before quoting it.
 - **Data Pipeline (`docs/data-pipeline.md`):** Sessions → Slice → Crop Pool → Dataset. *Note:* `unusable` flag is not retroactive; Parking does not prune the pool.
-- **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is the raw warp — the mesh straightens it at cut time, so never straighten the store too.
+- **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is written STRAIGHT (`realgames.straighten_boards`, 2026-08-21) and the row says so with `board_straightened`; every cut afterwards is a plain rectangle. A hand over the grooves makes a frame's own mesh worse than none (15.6 px against 16.1 raw), so a hand frame borrows the five nearest CLEAN frames' meshes — the camera does not move. Never straighten a second time.
 - **Calibration:**
-    - `lens`: Optical correction (Barrel Distortion) → `data/lens/calib.npz`.
+    - `lens`: optical correction, measured but NOT in the pipeline — see Undistortion below.
     - `calibrate`: Board geometry (ArUco + Grid-Fit). ArUco is only "Coarse"; Grid provides accuracy. Markerless Cold Start is **not** supported.
 - **Synth:** `build-synth` packs renderings directly into Memmap (no files). Rotation-Augment is train-time only.
 
@@ -73,7 +73,11 @@
   `data/footage/phone-backups/<serial>-<ts>/`. Measured the same day: `adb install -r` with the
   SAME signing key **kept** all 39 sessions — what wipes `files/` is a signature mismatch (Android
   then uninstalls first) or an instrumented test run. Prefer the emulator anyway.
-- **Undistortion:** Must happen in Kotlin, **entirely** over the recording (lens.json). Do not use `calib.npz`.
+- **Undistortion:** the lens model is NOT in the pipeline. Measured 2026-08-21 over three rig
+  recordings, hold-out: raw 15.2–16.6 px bow, the grid mesh alone 0.9–1.1, the fitted lens alone
+  3.0–4.4, both 0.4–0.7. On a 116 px cell the mesh's 1 px is under a percent, so the lens is not
+  worth its own fit per recording. `:desktop undistort` still exists and still refuses the phone
+  (k1 ≈ 0). If it is ever used, it must be Kotlin over the whole recording — never `calib.npz`.
 
 ## Verification
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
