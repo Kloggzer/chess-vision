@@ -89,23 +89,28 @@ Read them as a record of what the code once did.
   `require(board.doMove(Move(uci, board.sideToMove)))` — those `require`s could not fire on an
   illegal-but-well-formed UCI, and `TrainingVideoPack` generates *labeled training data* from the
   resulting positions. Both now check `generateLegalMoves` membership before the move.
-- **Still not guarded:**
-  - `core-cnn/cnn/Recovery.kt:127` (`verifyMove`) and `:145` (`verifyMoveIdentity`) build a move
-    with a bare `Move(uci, sideToMove)` (`:288-290`) and `doMove` it with no membership check.
-    **Not reachable today** (traced 2026-08-20): the only production caller is
-    `VerifySingle.kt:368`, which passes `uciOf(move)` for a `Move` that `Dispatch.pendingMoves`
-    already filtered through `probe.legalMoves()` — and that loop `break`s on the first
-    non-match. So the string is always a round-trip of an engine-generated legal move. Left
-    unguarded ON PURPOSE: the verify ladder is pinned byte-for-byte by the 18-clip replay, and a
-    guard there buys nothing while the provenance holds. **It stops holding the moment any
-    external UCI is wired into `verifyMove` — add the membership check in the same commit.**
-  - `games/LiveGame.kt:177` (`positionsAfter`) wraps `doMove` in `runCatching` only. `continues()`
-    checks the sequence's **first** ply on the argument that the engine generated the rest — which
-    holds only while the emitter really is the engine.
-  - `core-engine/Game.kt:46-48` (`push`) is unguarded **by design** — the raw primitive; every
-    caller found feeds it from `legalMoves()`.
-- **Severity:** Critical (data integrity, via `TrainingVideoPack`) / High (fabricated positions
-  rendered as fact)
+- **Closed 2026-08-20 — `Game.push` is now the chokepoint.** It asks the generator and throws
+  `IllegalMoveException(uci, fen)`; the public entries catch it and latch the alarm under its own
+  `kind = illegal_move_refused`, with the uci in `guess`, both squares in `conflicts`, the FEN in
+  the note and one `REFUSED` row in the decision log. `Recovery.parseMove` checks membership at the
+  UCI seam and **throws rather than abstaining** — a scored-zero would be indistinguishable from
+  "too few confident squares", which means something else to the verify ladder. The 18-clip replay
+  is byte-identical across the change, independently re-measured.
+- **The position half was the real hole.** `acceptCnnPosition`, `resyncToBoard` and the auto-resync
+  all funnelled through `cnnAdoptedFen` → `reachable`, but **`setFen` screened nothing**: an
+  en-prise-king FEN was adopted silently, which is the road into the `Index 64` crash above. Now
+  guarded by the king-safety half of `reachable` (the "has legal moves" half stays an *adoption*
+  criterion — a mate a user sets up by hand is legitimate).
+- **Still open:** `CnnTick` can auto-clear a latched alarm on a matching observation
+  (`board_restored`), and that now applies to a refusal too. Defensible — `push` throws BEFORE
+  mutating, so nothing was corrupted — but it is a judgement call, not a decision anyone made.
+  `games/LiveGame.kt:177` (`positionsAfter`) still wraps `doMove` in `runCatching` only, and
+  `continues()` checks the sequence's **first** ply on the argument that the engine generated the
+  rest. Its input is a `SequenceCommitted` the engine pushed, so it is now checked upstream at the
+  chokepoint — the argument holds as long as the emitter really is the engine.
+- **Severity:** was Critical (data integrity, via `TrainingVideoPack`) / High (fabricated positions
+  rendered as fact). Both paths are closed; the entry stays because the chesslib behaviour behind
+  it has not changed and any new `doMove` caller inherits it.
 
 ---
 

@@ -34,13 +34,14 @@ private const val CONFLICTS_SHOWN = 8
  *
  * The card used to print the raw latch name — `alarm.kind.replace('_',' ').uppercase()`, i.e.
  * "ILLEGAL MOVE" — which reads as an accusation about the player's move rather than what it means:
- * the app's board and the physical board have drifted apart and the app knows it. `illegal_move` is
- * currently the only kind raised (`engine.Alarm.ALARM_ILLEGAL_MOVE`); the `when` keeps the raw
- * string as a fallback so a new kind degrades to the old behaviour instead of vanishing.
+ * the app's board and the physical board have drifted apart and the app knows it. Both kinds say
+ * the same thing to the user — tracking stopped, the board below is stale — so both open with
+ * "Position lost"; the `when` keeps the raw string as a fallback for a kind nobody phrased yet.
  */
 private fun headlineFor(kind: String): String =
     when (kind) {
         "illegal_move" -> "Position lost — the board and the app disagree"
+        "illegal_move_refused" -> "Position lost — the app was handed a move it cannot play"
         else -> kind.replace('_', ' ').uppercase()
     }
 
