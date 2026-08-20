@@ -98,8 +98,8 @@ over `labeling.slice_session`, each frame decoded, warped once, and split into 6
   stays 128², `config.py:59`).
 - **Crop-PNG copy (proposal #3):** see "Big bets" below. Note the crop PNGs are not purely
   redundant today: `dedup_phash` reads them (disabled for synth anyway — `dataset_build.py:97`
-  docstring says synthetic sets should run `phash_enabled=False`), the per-PNG `SquareDataset`
-  needs them when `bg_p > 0` (`train.py:194-197`), and the web UI browses them. A fused path
+  docstring says synthetic sets should run `phash_enabled=False`) and the web UI browses them.
+  The `bg_p > 0` reason for needing them is gone with the augment itself (2026-08-21). A fused path
   must either keep a small sample of PNGs for inspection or render crops from the memmap.
 
 ---

@@ -410,8 +410,10 @@ Matthias Bethge, Felix A. Wichmann · 2020 · [arXiv:2004.07780](https://arxiv.o
 Shortcuts are decision rules that do well on a benchmark and fail to transfer to harder testing
 conditions. The paper is a framing and a set of recommendations, not a method.
 What this project takes from it: the name and the diagnosis for the measured failure where a
-knight's prediction relied 8 % on the piece and 43 % on the board around it. The defences
-(`bg_p`, background randomization, Grad-CAM reliance measurement) are this project's own.
+knight's prediction relied 8 % on the piece and 43 % on the board around it. The defence built
+for it — border-background randomization — was removed on 2026-08-21 without ever being measured
+(0 of 10 shipped models used it); `chesslab reliance` remains the instrument that detects the
+shortcut, so the diagnosis outlived the cure.
 *Abstract only.*
 
 <a id="beery-2018"></a>
@@ -422,7 +424,8 @@ Sara Beery, Grant van Horn, Pietro Perona · 2018 ·
 Camera-trap images from twenty locations: algorithms do well at locations seen in training and
 generalize poorly to new ones, classification worse than detection.
 Relevance here twice over. First, it is the published form of "the background is the shortcut" —
-the motivation for `randomize_border_bg`. Second, it is the same structure as this project's
+the motivation for the border randomization this project built and then retired unmeasured.
+Second, it is the same structure as this project's
 **per-session split**: a fixed camera is a location, and splitting frames randomly instead of by
 session measures the easy case, not the deployed one.
 *Abstract only.*
@@ -744,7 +747,7 @@ for results. The reasoning behind each, and what it would take to settle it, was
 | `batch_size = 256` | `config.DEFAULT_BATCH_SIZE` | No source. Chosen to fit VRAM. |
 | `max_empty_ratio = 1.5`, `max_class_ratio` | `config.DEFAULT_MAX_EMPTY_RATIO`, `dataset.subsample_classes` | No source. `[buda-2017]` recommends the opposite direction (oversample rather than undersample). |
 | Inverse-frequency class weights | `dataset.compute_class_weights` | `[cui-2019]` argues against exactly this scheme. Never compared here. |
-| Every augmentation magnitude (`brightness` 0.35, `gamma` (0.6, 1.8), `noise_std` 0.03, `erase_p` 0.25, `bg_p` 0.60, `neighbour_p` 0.30, …) | `config.AugmentPolicy` | The *techniques* are cited above; the numbers are hand-set and unswept. |
+| Every augmentation magnitude (`brightness` 0.35, `gamma` (0.6, 1.8), `noise_std` 0.03, `erase_p` 0.25, `neighbour_p` 0.30, …) | `config.AugmentPolicy` | The *techniques* are cited above; the numbers are hand-set and unswept. |
 | `per_cell_cap = 4`, phash hamming threshold | `config.DedupDefaults` | No source. Both are measured here instead (`docs/data-pipeline.md` §5.13) — which is the better kind of justification, but it is not a citation. |
 | `patience`, and `occ_board_acc` as the checkpoint metric | `training/train.py` | This project's own invention. See the `CLAUDE.md` pitfall about the metric being structurally floored. |
 | The occupancy reader `1 − P(empty) − P(occluded)` and its bias toward "occupied" | `move_tracker/cnn_recovery.py` | This project's own arithmetic, measured here. No source and none needed — but it is not a standard technique either. |

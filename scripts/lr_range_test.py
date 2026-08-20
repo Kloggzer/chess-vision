@@ -71,7 +71,6 @@ def main() -> int:
     ap.add_argument("--erase-p", type=float, default=0.25)
     # 0, nicht 0.6: bg-Randomisierung braucht Crop-DATEIEN und umgeht damit den Pack. Der Test lief
     # dadurch auf dem langsamen Loader, ohne es zu sagen — hier zaehlt die Kurve, nicht die Aug.
-    ap.add_argument("--bg-p", type=float, default=0.0)
     ap.add_argument("--csv", default=None, help="write the raw curve here")
     args = ap.parse_args()
 
@@ -88,16 +87,16 @@ def main() -> int:
                                    max_class_ratio=ts.get("max_class_ratio"),
                                    seed=ts.get("seed", args.seed))
     from dataclasses import replace
-    policy = replace(config.AUGMENT, erase_p=args.erase_p, bg_p=args.bg_p)
+    policy = replace(config.AUGMENT, erase_p=args.erase_p)
     tf = build_transform(out_size, train=True, policy=policy, per_crop=False, input_repr="rgb")
     packed = load_packed(args.dataset)
-    if packed is not None and policy.bg_p <= 0:
+    if packed is not None:
         ds = PackedSquareDataset(train_rows, classes, tf, packed)
         print(f"[range] packed memmap loader: {len(train_rows)} crops")
     elif any(str(row["path"]).startswith("mm://") for row in train_rows):
         raise RuntimeError("fused dataset has no valid packed memmap")
     else:
-        ds = SquareDataset(train_rows, classes, tf, bg_randomize=True, policy=policy)
+        ds = SquareDataset(train_rows, classes, tf, augment=True, policy=policy)
     dl = DataLoader(ds, batch_size=args.batch_size, shuffle=True, drop_last=True,
                     num_workers=args.num_workers, persistent_workers=args.num_workers > 0)
 

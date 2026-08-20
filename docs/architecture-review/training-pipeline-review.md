@@ -181,11 +181,12 @@ skip. The synthetic renderer emits corners `[a8,h8,h1,a1]` by construction and i
 covered by `test_synthetic_ingest_orientation`, so synth is safe — but the real
 ingest paths are not.
 
-### F8 — `--bg-p > 0` silently disables the pack
+### F8 — `--bg-p > 0` silently disables the pack — RESOLVED 2026-08-21
 
-`train.py:194-197`: background randomization needs the individual files, so a
-50+ GB `packed_images.u8` is silently ignored for that run. Correct behavior,
-but the performance cliff deserves a log line.
+Background randomization needed the individual crop files, so a 50+ GB
+`packed_images.u8` was silently ignored for such a run. The augment was removed
+(0 of 10 shipped models used it, never measured), and with it the branch — the
+packed loader is now unconditional.
 
 ### F9 — Stale synth documentation
 

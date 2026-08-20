@@ -1194,7 +1194,6 @@ def train_cmd(
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
-    bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
       jitter_translate: float | None = typer.Option(None, "--jitter-translate",
                                                   help="Override the affine translation jitter, as a "
                                                        "fraction of the crop. The default 0.03 is ~3.3 % "
@@ -1240,7 +1239,7 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
-                               erase_p=erase_p, bg_p=bg_p,
+                               erase_p=erase_p,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split))

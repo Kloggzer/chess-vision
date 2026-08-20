@@ -238,8 +238,8 @@ class AugmentPolicy:
     The techniques are published (docs/references.md §5): erasing a random rectangle is
     Cutout/Random Erasing, and replacing the border is a defence against the background shortcut
     this project measured with Grad-CAM. **Every magnitude below is hand-set and unswept** — none
-    of the numbers comes from a source, and none has been ablated except `erase_p`/`bg_p`, which
-    have CLI overrides for that purpose."""
+    of the numbers comes from a source, and none has been ablated except `erase_p`, which has a
+    CLI override for that purpose."""
 
     brightness: float = 0.35      # ± fraction (lighting variance — the biggest real lever)
     contrast: float = 0.35
@@ -255,24 +255,7 @@ class AugmentPolicy:
     # figure, and vice versa. Directly targets the "looks beside the piece" failure (esp. pawns).
     erase_p: float = 0.25             # probability of erasing per sample (0 = off)
     erase_scale: tuple[float, float] = (0.02, 0.15)   # erased area fraction range
-    # Class-conditional background randomization: for OCCUPIED crops only (never `empty`), replace
-    # the border ring (= the board) with a random feathered background, keeping the centered piece.
-    # Fractional (bg_p) so board-vs-random does not correlate with occupancy. Mask-free (works on
-    # real crops too, which have no piece mask). Directly attacks the bN=8%-background shortcut:
-    # among occupied squares the board carries no piece-type info → the type head must read the piece.
-    # OFF since 2026-08-21: every recipe the user runs passes `--bg-p 0`, so 0.60 was a default
-    # nobody trained with. Raise it per run to re-enable the anti-shortcut described above.
-    bg_p: float = 0.0                 # prob per occupied crop (0 = off)
-    bg_keep_w: float = 0.60           # centered box width kept (piece region), * crop
-    bg_keep_h: float = 0.90           # centered box height kept (taller — pieces extend up)
-    # The replacement border is drawn from a MIX of self-generated procedural textures
-    # (checker/noise/gradient/wood — board-like but random) and random crops of OTHER board
-    # images in the dataset (real texture, uncorrelated with THIS crop's piece). A textured,
-    # realistic-but-uninformative border is far harder to shortcut than a flat colour: the model
-    # can't tell augmented from real, so it must read the figure. bg_procedural_frac = share drawn
-    # procedurally (the rest from the other-board pool); bg_pool_size = pool of donor crops.
-    bg_procedural_frac: float = 0.5   # fraction of bg draws that are procedural (rest: other-board)
-    bg_pool_size: int = 512           # donor crops sampled once for the other-board background pool
+    neighbour_pool_size: int = 512     # donor crops sampled once for the neighbour-bleed pool
     # Neighbour-bleed paste: for EMPTY crops only, composite the central band of a random
     # OCCUPIED crop into one crop edge (feathered). Simulates the mined failure mode: a tall
     # neighbour piece (queen crown, rook body) leans into the empty square's crop via

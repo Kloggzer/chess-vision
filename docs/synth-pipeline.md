@@ -233,8 +233,7 @@ uv run chesslab train --dataset pretrain-synth --backbone mobilenet_v3_small \
 uv run chesslab train --dataset <real-sessions> --resume <pretrain-run>
 ```
 
-Training on a fused dataset always reads the packed memmap; `--bg-p` background
-randomization needs crop files and is ignored there (with a notice).
+Training on a fused dataset always reads the packed memmap.
 
 ## Important Notes
 

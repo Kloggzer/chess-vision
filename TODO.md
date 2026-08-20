@@ -368,3 +368,23 @@ sind sauber, der Rest ist `dirty` und damit genau das Material, das SAM3 nachlab
 Zwei harte Voraussetzungen, die es NICHT zum Turntable-Werkzeug machen: ein einziges Quad für die
 ganze Aufnahme (Median der Ecken) und das Pixel-Mittel als Ruhe-Referenz. Beides bricht, sobald
 sich Brett oder Kamera bewegen.
+
+## Hintergrund-Randomisierung entfernt (2026-08-21)
+
+`bg_p` und sein Unterbau (`randomize_border_bg`, `_procedural_bg`, `_pool_bg`, vier Stellschrauben,
+das CLI-Flag) sind raus. Es ersetzte bei BESETZTEN Crops den Rand — also das Brett — durch einen
+zufälligen, weich überblendeten Hintergrund und behielt die Figur in der Mitte; halb prozedurale
+Texturen, halb Ausschnitte anderer Bretter. Wahrscheinlichkeitsbasiert, damit „zufälliger
+Hintergrund" nicht selbst zum Hinweis auf „besetzt" wird.
+
+**Warum es weg ist:** 0 von 10 ausgelieferten Modellen haben es benutzt, jedes Rezept des Nutzers
+übersteuerte es auf 0, und **ob es hilft, wurde nie gemessen** — der Satz im Config klang nach
+Ablation, sagte aber nur, dass die Flags existieren, damit man ablatieren *könnte*.
+
+**Das Problem dahinter ist echt und bleibt:** gemessen relied eine Springer-Vorhersage zu 8 % auf
+die Figur und zu 43 % auf das Brett drumherum. `chesslab reliance` misst genau das weiter. Wenn die
+Abkürzung wiederkommt, ist das hier der Bauplan der Gegenmassnahme — `git log --diff-filter=D --
+src/chesslab/training/torch_data.py` holt sie zurück.
+
+Nebenwirkung, positiv: der Zweig, der bei `bg_p > 0` still den gepackten Memmap-Loader abschaltete
+(F8 in `training-pipeline-review.md`), fällt mit weg. Der Pack-Pfad ist jetzt bedingungslos.

@@ -110,7 +110,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               dataset: str | None = None, resume: str | None = None,
               head: str = "occlusion", scales: list[int] | None = None,
               input_size: str | None = None,
-              erase_p: float | None = None, bg_p: float | None = None,
+              erase_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
               sched: str = "cosine",
@@ -263,17 +263,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
     policy = config.AUGMENT
-    if erase_p is not None or bg_p is not None or jitter_translate is not None:
+    if erase_p is not None or jitter_translate is not None:
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
-                         **({"bg_p": bg_p} if bg_p is not None else {}),
                          **({"jitter_translate": jitter_translate}
                             if jitter_translate is not None else {}))
-        print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p} "
+        print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
-    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck). Not used for
-    # bg-randomization (packed is for the big synth pretrain, bg_p=0); the finetune stays per-PNG.
+    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
     packed = None
     # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
     # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
@@ -285,14 +283,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
                   "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
             return 1
-        if packed is not None and (policy.bg_p or 0) > 0:
-            if fused:
-                print(f"[pack] fused dataset: bg_p={policy.bg_p} ignored — bg-randomization needs "
-                      "crop files, which a fused build does not have. Training from the memmap.")
-            else:
-                print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
-                      "(bg-randomization needs the files); pack is ignored for this run.")
-                packed = None
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
     rot90 = False
@@ -315,7 +305,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                                      with_coverage=occluding)
     else:
         train_ds = SquareDataset(train_rows, classes, train_tf, with_coverage=occluding,
-                                 bg_randomize=True, policy=policy)
+                                 augment=True, policy=policy)
         val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
@@ -474,7 +464,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                       "mode": "per_crop" if per_crop else "fixed"},
         "input_repr": input_repr, "in_chans": in_chans,
         "scales": scales,
-        "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
+        "aug": {"erase_p": policy.erase_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
