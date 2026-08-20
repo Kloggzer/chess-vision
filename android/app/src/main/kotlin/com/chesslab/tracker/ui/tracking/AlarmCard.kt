@@ -72,7 +72,7 @@ fun AlarmCard(
             .padding(Space.md),
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        // The PROSE is bounded and scrolls; the buttons below never move.
+        // The PROSE gives way and scrolls; the buttons below never move.
         //
         // This card is a non-weighted child of a full-height Column, and a Column hands each
         // non-weighted child what is left in order. The conflict list grows with the number of
@@ -84,8 +84,16 @@ fun AlarmCard(
         // is a `LazyColumn`, and nesting one inside a `Modifier.verticalScroll` throws outright
         // (tried on 2026-08-02, crashed on launch). Bounding the growth at its source needs no
         // scrolling container above the list at all.
+        //
+        // `weight` and not just `heightIn`: a Column measures its NON-weighted children first, so
+        // a mere cap let the prose take its 200dp before the buttons were measured and left them
+        // 1-2 mm tall whenever the board above had eaten the card's room (2026-08-21). Weighted,
+        // the prose is measured LAST and gives way — which is what "the buttons never move" means.
         Column(
-            Modifier.heightIn(max = PROSE_MAX.dp).verticalScroll(rememberScrollState()),
+            Modifier
+                .weight(1f, fill = false)
+                .heightIn(max = PROSE_MAX.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             Text(
