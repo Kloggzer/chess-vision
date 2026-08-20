@@ -3,7 +3,7 @@
 Hard-example mining, offline: the published online form selects hard examples per mini-batch
 inside the training loop (docs/references.md#shrivastava-2016), while this writes a keep-list
 once, from a finished model. The difference matters — a list mined from one model is a hidden
-input to the next, which is why `data/manifests/hard_empty.jsonl` is parked between experiments.
+input to the next, which is why `data/reports/hard_empty.jsonl` is parked between experiments.
 
 Motivation (2026-07-21, live incident): the deployed CNN read the empty dark square h6 as
 bB and a black queen on b6 as wQ with high confidence — the known dark-square domain gap.
@@ -28,9 +28,9 @@ not at the 128 px the crops happen to sit on disk at.
 
 Usage:
     python scripts/mine_hard_empty.py --run data/models/p3-finetune [--device cpu]
-        [--source data/manifests/squares.jsonl] [--conf-thr 0.5] [--batch 256]
+        [--source data/crops/default/manifest.jsonl] [--conf-thr 0.5] [--batch 256]
         [--criterion argmax|occupancy] [--infer-size 80] [--exclude-sessions A,B]
-        [--out data/manifests/hard_empty.jsonl] [--montage data/_perf/hard_empty.png]
+        [--out data/reports/hard_empty.jsonl] [--montage data/reports/perf/hard_empty.png]
 
 Output: JSONL of misread empty crops (path, pred, conf, session, square, square_color),
 merged de-duplicated by path into --out, plus a montage of the worst offenders (visual
@@ -71,7 +71,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--run", required=True, help="model run dir (e.g. data/models/p3-finetune)")
     ap.add_argument("--source", default=None,
-                    help="crop manifest (default: data/manifests/squares.jsonl)")
+                    help="crop manifest (default: data/crops/default/manifest.jsonl)")
     ap.add_argument("--device", default="cpu",
                     help="cpu is fine — mining is offline (default: cpu)")
     ap.add_argument("--conf-thr", type=float, default=0.5,
@@ -80,12 +80,12 @@ def main() -> None:
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--limit", type=int, default=0, help="cap crops scanned (0 = all)")
     ap.add_argument("--out", default=None,
-                    help="output JSONL (default: data/manifests/hard_empty.jsonl)")
+                    help="output JSONL (default: data/reports/hard_empty.jsonl)")
     ap.add_argument("--include-synthetic", action="store_true",
                     help="also scan classic-ingested synthetic sessions (PNG pools like "
                          "pretrain-synth__*). Default OFF: they drown the real failures.")
     ap.add_argument("--montage", default=None,
-                    help="montage PNG of the worst offenders (default: data/_perf/hard_empty.png)")
+                    help="montage PNG of the worst offenders (default: data/reports/perf/hard_empty.png)")
     ap.add_argument("--occ-thr", type=float, default=1.01,
                     help="With --criterion occupancy: also keep crops whose P(occupied) reaches "
                          "this, even though `empty` still wins. Default 1.01 = off, i.e. only crops "
@@ -104,9 +104,9 @@ def main() -> None:
 
     from chesslab import serving  # lazy: torch import is slow
 
-    src = Path(args.source) if args.source else config.DATA.manifests / "squares.jsonl"
-    out = Path(args.out) if args.out else config.DATA.manifests / "hard_empty.jsonl"
-    montage = Path(args.montage) if args.montage else config.DATA.root / "_perf" / "hard_empty.png"
+    src = Path(args.source) if args.source else config.DATA.crop_pool / "manifest.jsonl"
+    out = Path(args.out) if args.out else config.DATA.reports / "hard_empty.jsonl"
+    montage = Path(args.montage) if args.montage else config.DATA.reports / "perf" / "hard_empty.png"
     run_dir = Path(args.run)
 
     rows = [r for r in load_manifest(src) if r["label"] == "empty" and r.get("path")]

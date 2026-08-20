@@ -11,6 +11,7 @@ import pytest
 from chesslab import audit_flags as mod
 from chesslab import config
 from chesslab.audit_flags import class_thresholds, confident_class, session_flags
+from chesslab.realgames import game_dir
 
 MODEL = "data/models/real14-ms-s3-hn-bn80"
 
@@ -20,8 +21,8 @@ def _row(frame, square, label, probs, session="rg-g"):
             "proposed": "keep", "score": 0.0, "probs": probs}
 
 
-def _write_proposals(root, name, rows, *, model=MODEL, header_model=True):
-    path = root / "realgames" / name / "model-reads.jsonl"
+def _write_proposals(name, rows, *, model=MODEL, header_model=True):
+    path = game_dir(name) / "model-reads.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     header = {"hi": 0.7, "lo": 0.3}
     if header_model:
@@ -40,7 +41,7 @@ _GOOD = [_row("001", "a1", "wP", {"wP": 0.1, "wB": 0.9}), _row("001", "b1", "wB"
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    (config.DATA.manifests).mkdir(parents=True)
+    config.DATA.reports.mkdir(parents=True)
     return config.DATA.root
 
 
@@ -91,7 +92,7 @@ def test_a_cell_a_human_already_answered_is_never_flagged_but_still_sets_the_thr
 
 def test_flags_are_written_margin_descending(data_root):
     # t_wB = 0.5 from the two wB cells; t_wP = 0.4167 from the three wP ones.
-    _write_proposals(data_root, "g", [
+    _write_proposals("g", [
         _row("001", "a1", "wB", {"wB": 0.4}),
         _row("002", "a1", "wB", {"wB": 0.6}),
         _row("003", "a1", "wP", {"wP": 0.9}),
@@ -105,10 +106,10 @@ def test_flags_are_written_margin_descending(data_root):
 
 
 def test_a_file_without_probs_or_without_a_model_is_skipped_and_named(data_root):
-    _write_proposals(data_root, "no-probs", [])
-    bare = _write_proposals(data_root, "no-model", [_row("001", "a1", "wP", {"wB": 0.9})],
+    _write_proposals("no-probs", [])
+    bare = _write_proposals("no-model", [_row("001", "a1", "wP", {"wB": 0.9})],
                             header_model=False)
-    _write_proposals(data_root, "good", _GOOD)
+    _write_proposals("good", _GOOD)
     assert bare.exists()
 
     r = mod.audit_flags()
@@ -118,20 +119,20 @@ def test_a_file_without_probs_or_without_a_model_is_skipped_and_named(data_root)
     assert "probs" in skipped["no-probs"] and "model" in skipped["no-model"]
     assert r["sessions"] == ["rg-g"] and r["cells_scanned"] == 2 and r["flags"] == 1
     summary = json.loads(
-        (config.DATA.manifests / "audit-flags.summary.json").read_text(encoding="utf-8"))
+        (config.DATA.reports / "audit-flags.summary.json").read_text(encoding="utf-8"))
     assert summary["per_class"] == {"wP": 1}
     assert summary["skipped"] == r["skipped"] and summary["written_at"] == r["written_at"]
 
 
 def test_a_model_trained_on_the_session_is_skipped_with_the_guard_reason(data_root, monkeypatch):
-    _write_proposals(data_root, "g", _GOOD)
+    _write_proposals("g", _GOOD)
     monkeypatch.setattr(mod, "circularity_reason", lambda m, s: "TRAINED on it")
     r = mod.audit_flags()
     assert r["flags"] == 0 and r["skipped"] == [{"session": "g", "reason": "TRAINED on it"}]
 
 
 def test_the_run_is_idempotent_and_replaces_the_whole_file(data_root):
-    _write_proposals(data_root, "g", _GOOD)
+    _write_proposals("g", _GOOD)
     first = mod.audit_flags()
     first["path"].write_text("STALE\n" * 5, encoding="utf-8")
     second = mod.audit_flags()
@@ -157,3 +158,13 @@ def test_a_retracted_verdict_reopens_the_cell(tmp_path):
                       "retract": True}) + "\n",
         encoding="utf-8")
     assert mod.ledger_labels(path) == {}
+
+
+def test_a_later_ledger_retracts_an_earlier_one(tmp_path):
+    reviewed = tmp_path / "reviewed.jsonl"
+    corrections = tmp_path / "corrections.jsonl"
+    row = {"session_id": "rg-g", "frame": "001", "square": "a1", "label": "occluded"}
+    reviewed.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    corrections.write_text(json.dumps({**row, "retract": True}) + "\n", encoding="utf-8")
+    assert mod.ledger_labels(reviewed) == {("rg-g", "001", "a1"): "occluded"}
+    assert mod.ledger_labels(reviewed, corrections) == {}

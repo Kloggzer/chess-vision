@@ -1,9 +1,7 @@
 """The two models the pipeline keeps: RT-DETR finds the hand, SAM 3 cuts it out.
 
-`person_score` is the frame scan's sensor (~24.6 ms), `alpha_sam3` the matte the labels
-come from. Grounding DINO sat between them and did neither job better —
-`docs/session-mattes.md`.
-"""
+`person_score` is the frame scan's sensor (~24.6 ms), `alpha_sam3` the matte the labels come
+from. Grounding DINO sat between them and did neither job better — `docs/session-mattes.md`."""
 
 from __future__ import annotations
 
@@ -16,7 +14,6 @@ from time import perf_counter
 import cv2
 import numpy as np
 
-from . import config
 from .calibration import mesh_from_lines
 from .labeling import (
     all_squares,
@@ -24,7 +21,6 @@ from .labeling import (
     read_log,
     read_session_meta,
 )
-
 
 SAM3_REPO = "facebook/sam3"
 
@@ -139,10 +135,8 @@ def _rtdetr():
 def unload_models() -> None:
     """Release cached Torch models before interpreter shutdown.
 
-    The workers deliberately keep the models alive across frames and sessions.
-    Once the run is complete, explicitly releasing them avoids leaving several
-    GB of CUDA-backed objects for interpreter shutdown to dismantle.
-    """
+    Workers keep them alive across frames and sessions; releasing at the end avoids leaving
+    several GB of CUDA-backed objects for interpreter shutdown to dismantle."""
     global _SAM3, _RTDETR
 
     _SAM3 = ()
@@ -162,10 +156,8 @@ def unload_models() -> None:
 def person_score(board: np.ndarray) -> float:
     """How sure a COCO detector is that a person reaches into this board raster.
 
-    The frame scan's sensor: the groove read is blind to a hand that covers no
-    line, and the 1 s commit window it replaced condemned clean boards wholesale
-    (`docs/frame-scan.md`).
-    """
+    The frame scan's sensor: the groove read is blind to a hand that covers no line, and the
+    1 s commit window it replaced condemned clean boards wholesale (`docs/frame-scan.md`)."""
     import torch
 
     processor, model, device, person_labels = _rtdetr()
@@ -299,10 +291,8 @@ def coverage_of(
 ) -> dict[str, float]:
     """Per square, cut by the SAME `crops_for_frame` call the image goes through.
 
-    That makes the label region the crop region by construction — mesh and pads
-    included — which is the granularity the hand-marked class never had
-    (`docs/occluder-plates.md`).
-    """
+    That makes the label region the crop region by construction — mesh and pads included —
+    which is the granularity the hand-marked class never had (`docs/occluder-plates.md`)."""
     grey = (
         np.clip(alpha, 0.0, 1.0)
         * 255.0
@@ -356,17 +346,13 @@ def recut_fixed(
 ) -> dict:
     """Recompute coverage for every frame whose alpha a human corrected.
 
-    The cut has one implementation — `coverage_of`, the same `crops_for_frame`
-    call the image goes through. The UI paints pixels and hands them over; it
-    never computes a coverage number itself.
-    """
+    The cut has one implementation — `coverage_of`, the same `crops_for_frame` call the image
+    goes through. The UI paints pixels and hands them over, never a coverage number."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
+    from .realgames import game_dir
 
-    session_dir = (
-        config.DATA.sessions
-        / f"rg-{name}"
-    )
+    session_dir = game_dir(name)
 
     path = (
         session_dir
@@ -617,25 +603,16 @@ def alpha_worker(
     reason: str = ALPHA_REASON,
     progress: bool = True,
 ) -> dict:
-    """SAM 3 over a session's dirty pile.
+    """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.
 
-    One alpha per frame, coverage per square. Each row is appended the moment
-    it is complete, so killing the worker loses at most the current frame.
-
-    `limit` means the target number of successfully generated alphas for this
-    session, not the size of the next batch.
-
-    Example:
-        220 existing successful alphas + --limit 300
-        -> at most 80 further successful targets.
-    """
+    Each row is appended the moment it is complete, so a kill loses at most the current frame.
+    `limit` is the target number of SUCCESSFUL alphas for the session, not a batch size — 220
+    existing plus `--limit 300` means at most 80 more."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
+    from .realgames import game_dir
 
-    session_dir = (
-        config.DATA.sessions
-        / f"rg-{name}"
-    )
+    session_dir = game_dir(name)
 
     if not (
         session_dir

@@ -269,20 +269,19 @@ def test_run_spec_legacy_fallback(tmp_path):
         "dataset": None,   # → squares.jsonl (default)
     }), encoding="utf-8")
 
-    # Manifest with tags (as labeling.variant_of_run expects)
-    manifests_dir = tmp_path / "manifests"
-    manifests_dir.mkdir(parents=True)
-    (manifests_dir / "squares.jsonl").write_text(
+    # Tagged manifest in the default pool, where variant_of_run looks for it
+    import chesslab.config
+    from chesslab import config as cfg_mod
+    tmp_paths = cfg_mod.Paths(root=tmp_path)
+    tmp_paths.crop_pool.mkdir(parents=True)
+    (tmp_paths.crop_pool / "manifest.jsonl").write_text(
         json.dumps({"geometry": "warp", "photometry": "gamma", "piece_height_cells": 1.8}) + "\n",
         encoding="utf-8",
     )
 
-    # Monkeypatch: config.DATA.manifests points to our temp dir
-    import chesslab.config
-    from chesslab import config as cfg_mod
     orig = chesslab.config.DATA
     try:
-        chesslab.config.DATA = cfg_mod.Paths(root=tmp_path)
+        chesslab.config.DATA = tmp_paths
         spec = serving.run_spec(run_dir)
         assert spec.geometry == "warp"
         assert spec.photometry == "gamma"

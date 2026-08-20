@@ -98,8 +98,8 @@ point at per-game pages**, where the spine asks for **streams that contain the w
 | `data/realgames/<n>/candidate.json` | `:desktop replay … label` | `realgames.py`, `lib/data.ts`, `lib/session.ts` | `moves[{ply,san,frame,fen_after}]`, `confirmed`, `confirmed_at`, `reviewed_plies`, `geometry`, `clock.fps`, `source.crop` |
 | `data/sessions/rg-<n>/log.jsonl` | `realgames.plan_rows` (`realgames.py:275-329`) | `slice_session`, `lib/session.ts` | `frame, ply, fen, ts, corners, corners_source`; `dirty` **only when true**; `unknown_squares` **only when non-empty**. No `phase`, no `since_s` — `lib/session.ts:109` derives those |
 | `data/realgames/<n>/occluded-proposals.jsonl` | `occluded.propose_occluded` | `lib/proposals.ts` | line 1 `{"_thresholds":{"hi","lo"}}`; rows `session_id, frame, square, fen_label, proposed, score`, optional `pixel_score`+`probs` (**model only**), optional `grid_score` |
-| `data/manifests/corrections.jsonl` | `POST /api/corrections` | `labeling.load_corrections` (`labeling.py:251`) | `{session_id, frame, square, label, ts}`; dedup `(session_id, str(frame), square)`, **last line wins**; `ts` not read |
-| `data/manifests/reviewed.jsonl` | same route, `ledger:"reviewed"` | **nothing in Python** | same shape; UI-only provenance |
+| `data/labels/corrections.jsonl` | `POST /api/corrections` | `labeling.load_corrections` (`labeling.py:251`) | `{session_id, frame, square, label, ts}`; dedup `(session_id, str(frame), square)`, **last line wins**; `ts` not read |
+| `data/labels/reviewed.jsonl` | same route, `ledger:"reviewed"` | **nothing in Python** | same shape; UI-only provenance |
 | `data/realgames/<n>/training-pack/summary.json` | Kotlin `TrainingVideoPack.kt:270` | `lib/jobs.ts:159` | `sampled_frames, accepted_*, quarantine_*, occluded_proposal_*, model`. **Two schemas on disk** — older packs say `clean_*`/`occluded_*` |
 | `data/datasets/<n>/{manifest.jsonl,split.json,dataset.yaml}` | `dataset_build.build_dataset` | training | `split.json`: `classes, class_weights, splits, counts, train_class_counts, train_subsample, warnings` |
 | `data/_perf/*.json` | `scripts/eval_packed_13c.py` | nothing yet | `pack, model, crops, boards, crop_accuracy, occupancy_accuracy, occupied_piece_accuracy, phantoms, misses, top_confusions[]` |
@@ -1082,7 +1082,7 @@ reads this file at all, so the risk is zero:
 board (§4.2), `x` on a card of the Züge stream when the ply is real but the picture is unusable, and
 the **Sichtprüfung** gallery (`app/confirm/[name]/cards.tsx:353`), which tells the human *"Hand im Bild, verrutschter
 Ausschnitt, dunkler Müll? Dann taugt das Intervall nichts"* and then offers no control to say so. One
-new UI-only ledger, `data/manifests/review-notes.jsonl`, carries all three:
+new UI-only ledger, `data/labels/review-notes.jsonl`, carries all three:
 
 ```json
 {"session_id":"rg-…","frame":"001482","verdict":"unusable-board","reason":"…","ts":"…"}
@@ -1135,7 +1135,7 @@ same failure as inventing telemetry.
 |---|---|---|---|
 | `retract: true` on a `corrections.jsonl` row | **new key, existing file** | 3 | no — `load_corrections` takes four keys (`labeling.py:251-262`) and last-wins restores the label the row carries |
 | `retract: true` on a `reviewed.jsonl` row | new key, existing file — the retract goes into the ledger the original row came from, else the key survives the `judgedKeys` merge and the board never reopens (REVIEW S4) | 3 | no — nothing in Python opens that file |
-| `data/manifests/review-notes.jsonl` | new file | 3 | no |
+| `data/labels/review-notes.jsonl` | new file | 3 | no |
 | `$CHESSLAB_DATA_DIR/inbox/heavy.lock` | new file | 1 | no |
 | `$CHESSLAB_DATA_DIR/inbox/autopilot.json` | new file — the strip's pause state, persisted across restarts (§5.5 guard 2) | 1 | no |
 | `notBefore` on a job ledger row | new key, existing file | 3 | no |

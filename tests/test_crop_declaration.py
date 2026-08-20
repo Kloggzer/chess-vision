@@ -45,7 +45,7 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
     from test_labeling import _make_session
 
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     prof = _identity_profile()
     prof.crop.pad_side, prof.crop.pad_up = 0.05, 0.0
     labeling.slice_session(sdir, profile=prof, manifest_path=manifest,

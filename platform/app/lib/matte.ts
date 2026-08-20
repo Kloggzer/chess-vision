@@ -1,5 +1,5 @@
 /**
- * `data/sessions/rg-<name>/matte.jsonl` — SAM 3's alpha, per square, as a fraction. It replaced
+ * `data/recordings/<name>/matte.jsonl` — SAM 3's alpha, per square, as a fraction. It replaced
  * the hand-painted `occluded` class: coverage is measured now (`training/occlusion.py`).
  */
 import { readFile, readdir, stat } from "node:fs/promises";

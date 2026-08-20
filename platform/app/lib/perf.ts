@@ -1,5 +1,5 @@
 /**
- * `/corpus` §7.5: the eval artefacts under `data/_perf/`, rendered from whole files.
+ * `/corpus` §7.5: the eval artefacts under `data/reports/perf/`, rendered from whole files.
  *
  * The hard rule (REVIEW.md S1): a model name and an eval result that were not in the SAME file must
  * never appear on one line. Every run below therefore carries the file it came from, and a file that
@@ -93,7 +93,7 @@ export function agreed(runs: PerfRun[], key: "crops" | "boards"): number | null 
 }
 
 function perfDir(): string {
-  return path.join(dataDir(), "_perf");
+  return path.join(dataDir(), "reports", "perf");
 }
 
 /** `sweep_infer_size.py` writes a TEXT log; the veto figure is linked, never parsed (§7.5). */

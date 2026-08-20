@@ -1,5 +1,5 @@
 /**
- * `data/realgames/<name>/model-reads.jsonl` — every square of a session as ONE model read it
+ * `data/recordings/<name>/model-reads.jsonl` — every square of a session as ONE model read it
  * (`chesslab realgames model-read <name> --model <run dir>`). It carries no verdict of its own:
  * the rows are `probs` beside the FEN's word, and `lib/query.ts` asks the questions.
  */

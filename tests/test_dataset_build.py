@@ -11,7 +11,7 @@ from chesslab import dataset_build as DB
 
 
 def _write_crop(paths, label, sid, frame, square, img):
-    d = paths.squares / label
+    d = paths.crop_pool / label
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{sid}_{frame}_{square}.png"
     cv2.imwrite(str(p), img)
@@ -42,7 +42,7 @@ def _row(paths, label, sid, frame, square, fill, color="light", img=None):
 
 
 def _global_manifest(paths, rows):
-    mp = paths.manifests / "squares.jsonl"
+    mp = paths.crop_pool / "manifest.jsonl"
     mp.parent.mkdir(parents=True, exist_ok=True)
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 

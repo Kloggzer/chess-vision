@@ -179,7 +179,7 @@ def test_synthetic_ingest_orientation(tmp_path):
     res = ig.slice_imported(sids, profile=prof, variant_tag="orientation", paths=paths)
     assert res["crops"] == 64
 
-    manifest_path = paths.manifests / "squares__orientation.jsonl"
+    manifest_path = paths.crops / "orientation" / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
 
@@ -233,7 +233,7 @@ def test_synthetic_ingest_rotated_corners_fails(tmp_path):
     prof = ig.ingestion_profile("rotated", bs, out_size=(bs, bs))
     ig.slice_imported(sids, profile=prof, variant_tag="rotated", paths=paths)
 
-    manifest_path = paths.manifests / "squares__rotated.jsonl"
+    manifest_path = paths.crops / "rotated" / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
 
@@ -292,7 +292,7 @@ def test_occluded_squares_relabeled_through_slice(tmp_path):
     prof = ig.ingestion_profile("occ", bs, out_size=(bs, bs))
     ig.slice_imported(sids, profile=prof, variant_tag="occ", paths=paths)
 
-    manifest_path = paths.manifests / "squares__occ.jsonl"
+    manifest_path = paths.crops / "occ" / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in rows}
     assert by_sq["a1"]["label"] == "occluded"   # was wR, now occluded

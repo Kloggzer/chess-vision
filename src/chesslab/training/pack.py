@@ -231,9 +231,16 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
 
     dd = dataset_dir(name, paths)
     img_path, meta_path = _packed_paths(dd)
-    if not img_path.exists() or not meta_path.exists():
+    if not meta_path.exists():
         return None
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    # A variant that only re-selects ROWS reads the owner's pixels (`link_pack`). Every guard below
+    # then checks the owner's file, which is what it should check — the digest still comes from THIS
+    # dataset's own manifest, so a mismatched selection is caught exactly as before.
+    if meta.get("packed_from"):
+        img_path, _ = _packed_paths(dataset_dir(meta["packed_from"], paths))
+    if not img_path.exists():
+        return None
     n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
 
     # Refuse a pack that does not belong to the CURRENT manifest. Training reads this by index, so
@@ -260,6 +267,45 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
 
     path2idx = {p: i for i, p in enumerate(meta["paths"])}
     return str(img_path), (n, h, w), path2idx
+
+
+def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
+    """Point `name` at `owner`'s memmap instead of copying pixels it already holds.
+
+    A dataset whose manifest is a SUBSET of another's packed the identical bytes a second time:
+    13 xval variants held 8.89 GB each of one raster, 118 GB for 17 differing row selections.
+    Refuses unless every crop this manifest needs is in the owner's pack, so the link can only
+    replace a copy that was valid.
+    """
+    from ..dataset_build import dataset_dir
+
+    own_img, own_meta = _packed_paths(dataset_dir(owner, paths))
+    if not own_meta.exists():
+        raise ValueError(f"owner '{owner}' has no pack to share.")
+    ometa = json.loads(own_meta.read_text(encoding="utf-8"))
+    # Before the file check: a link HAS no memmap, so testing the file first would blame the
+    # absent pixels instead of naming the chain, and the caller would relink to the same gap.
+    if ometa.get("packed_from"):
+        raise ValueError(f"owner '{owner}' is itself a link (-> {ometa['packed_from']}); "
+                         f"link to '{ometa['packed_from']}' instead.")
+    if not own_img.exists():
+        raise ValueError(f"owner '{owner}' has no pack to share.")
+
+    dd = dataset_dir(name, paths)
+    rows = _manifest_rows(dd)
+    missing = {r["path"] for r in rows} - set(ometa["paths"])
+    if missing:
+        raise ValueError(f"'{owner}' does not carry {len(missing)} of {len(rows)} crops "
+                         f"'{name}' needs, e.g. {sorted(missing)[0]}")
+
+    img_path, meta_path = _packed_paths(dd)
+    meta_path.write_text(json.dumps({"n": ometa["n"], "h": ometa["h"], "w": ometa["w"],
+                                     "digest": _manifest_digest(rows), "paths": ometa["paths"],
+                                     "packed_from": owner}), encoding="utf-8")
+    freed = img_path.stat().st_size if img_path.exists() else 0
+    img_path.unlink(missing_ok=True)
+    print(f"[OK] '{name}' now reads '{owner}' ({freed / 1e9:.2f} GB freed)")
+    return {"name": name, "packed_from": owner, "freed_bytes": freed, "rows": len(rows)}
 
 
 def open_packed_memmap(path: str, shape):

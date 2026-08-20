@@ -8,7 +8,7 @@ let dir: string;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "chesslab-matte-"));
   process.env.CHESSLAB_DATA_DIR = dir;
-  await mkdir(path.join(dir, "sessions", "rg-g"), { recursive: true });
+  await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
   (globalThis as { __chesslabMattes?: Map<string, unknown> }).__chesslabMattes?.clear();
 });
 
@@ -17,7 +17,7 @@ const pile = (n: number) =>
   Array.from({ length: n }, (_, i) => JSON.stringify({ frame: `f${i}.png`, dirty: true, dirty_reason: "occluded" })).join("\n") + "\n";
 
 const write = (lines: string[]) =>
-  writeFile(path.join(dir, "sessions", "rg-g", "matte.jsonl"), lines.join("\n") + "\n", "utf8");
+  writeFile(path.join(dir, "recordings", "g", "matte.jsonl"), lines.join("\n") + "\n", "utf8");
 
 test("the threshold is the one the loss uses, and it is exclusive", () => {
   expect(PIECE_VISIBLE_MAX).toBe(0.15);
@@ -73,7 +73,7 @@ test("a session without corrected alphas answers an empty map, not an error", as
 
 test("the census counts DISTINCT frames — a recut leaves the same stem twice", async () => {
   const { matteCensus } = await import("@/lib/matte");
-  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
   // rg-2026-08-14-14-32-33 on disk: 93 lines, 66 stems, 27 of them twice. Counting lines says
   // 93/66 — "done" by accident, and on a half-matted session it hides the frames still missing.
@@ -87,7 +87,7 @@ test("the census counts DISTINCT frames — a recut leaves the same stem twice",
 
 test("a session at the run's target is done, with the untouched pile still on the record", async () => {
   const { matteCensus, matteTarget } = await import("@/lib/matte");
-  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   await writeFile(path.join(dir, "log.jsonl"), pile(394), "utf8");
   await write(Array.from({ length: matteTarget() }, (_, i) => JSON.stringify({ frame: `f${i}` })));
   // rg-2026-08-08-00-39-57: 80 of 394 by intent. The target caps the bar, the pile stays visible.
@@ -96,7 +96,7 @@ test("a session at the run's target is done, with the untouched pile still on th
 
 test("only occluded rows are the pile, and a session nobody exported has none", async () => {
   const { matteCensus } = await import("@/lib/matte");
-  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "sessions", "rg-g");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   expect(await matteCensus("g")).toEqual({ done: 0, total: 0, target: 0 });
   await writeFile(path.join(dir, "log.jsonl"), [
     JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),

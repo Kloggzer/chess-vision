@@ -36,6 +36,9 @@ from .state import GameState
 
 _FILES = "abcdefgh"
 
+#: The label ledger, keyed like `judgedKeys` in `platform/app/lib/corrections.ts`.
+Corrections = dict[tuple[str, str, str], str]
+
 
 
 def _profile_for_session(meta: dict, profile: str | None):
@@ -268,7 +271,7 @@ def variant_of_run(run_dir: Path) -> tuple[str, str, float]:
         from .dataset_build import dataset_dir
         man = dataset_dir(ds) / "manifest.jsonl"
     else:
-        man = config.DATA.manifests / "squares.jsonl"
+        man = config.DATA.crop_pool / "manifest.jsonl"
     if man.exists():
         for line in man.read_text(encoding="utf-8").splitlines():
             if line.strip():
@@ -309,14 +312,20 @@ def effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> Calibrat
     return prof
 
 
-def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str]) -> None:
-    """Remove previous lines of this session, then append new ones (idempotent re-slice)."""
+def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str],
+                                 field: str = "session_id") -> None:
+    """Remove previous lines of this session, then append new ones (idempotent re-slice).
+
+    `field` is what identifies "this session" in the manifest: the composite cuts one clip into
+    several pseudo-sessions that share a `split_group`, and replacing by `session_id` would leave
+    the clip's other blocks behind.
+    """
     kept: list[str] = []
     if manifest_path.exists():
         for line in manifest_path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            if json.loads(line).get("session_id") != session_id:
+            if json.loads(line).get(field) != session_id:
                 kept.append(line)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with manifest_path.open("w", encoding="utf-8") as fh:
@@ -324,38 +333,41 @@ def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines
             fh.write(ln + "\n")
 
 
-def load_corrections(path: Path) -> dict[tuple[str, str, str], str]:
-    """Load human label corrections: {(session_id, frame, square): label}. Last wins."""
-    out: dict[tuple[str, str, str], str] = {}
+def load_corrections(path: Path, into: Corrections | None = None) -> Corrections:
+    """The human verdict per `(session_id, frame, square)`, last line winning. A `retract: true`
+    row (CONCEPT.md 4.2.2) is a tombstone that reopens the cell instead of deciding it.
+
+    `into` folds several ledgers in order, so a later file can retract an earlier file's verdict.
+    """
+    out = {} if into is None else into
     p = Path(path)
     if not p.exists():
         return out
-    for line in p.read_text(encoding="utf-8").splitlines():
+    for line in p.read_text(encoding="utf-8-sig").splitlines():
         if not line.strip():
             continue
-        c = json.loads(line)
-        out[(c["session_id"], str(c["frame"]), c["square"])] = c["label"]
+        row = json.loads(line)
+        key = (row["session_id"], str(row["frame"]), row["square"])
+        if row.get("retract") is True:
+            out.pop(key, None)
+        else:
+            out[key] = row["label"]
     return out
-
-
-def upsert_corrections(items: list[dict], path: Path) -> int:
-    """Merge corrections (session_id, frame, square, label) and rewrite. Returns total count."""
-    merged = load_corrections(path)
-    for it in items:
-        merged[(it["session_id"], str(it["frame"]), it["square"])] = it["label"]
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        for (sid, frame, square), label in merged.items():
-            fh.write(json.dumps({"session_id": sid, "frame": frame, "square": square,
-                                 "label": label, "ts": datetime.now(UTC).isoformat()},
-                                ensure_ascii=False) + "\n")
-    return len(merged)
 
 
 #: A square this covered is no longer a piece example (`training/occlusion.PIECE_VISIBLE_MAX`),
 #: so a frame carrying one is as dirty as one the tracker flagged — whatever the log says.
 MATTE_DIRTY = 0.15
+
+
+def read_corrections(session_dir: Path) -> dict[tuple[str, str, str], str]:
+    """The recording's own hand corrections, empty when it has none.
+
+    Beside `matte.jsonl` and read the same way: a recording carries everything that is only about
+    it. Every row here is an identity — `occluded` stopped being a label when the scheme went to
+    13 + coverage, and the writer refuses it (`platform/app/lib/corrections.ts`).
+    """
+    return load_corrections(Path(session_dir) / "corrections.jsonl")
 
 
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
@@ -381,16 +393,15 @@ def slice_session(
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
-    label_overrides: dict[tuple[str, str, str], str] | None = None,
     geometry_mode: str = "warp",
     photometry: str = "none",
     piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
 ) -> dict:
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
-    `label_overrides` replaces the FEN-derived label per (session, frame, square) with
-    a human correction (web relabel). Returns the number of applied overrides. It is also the
-    only way a cell of a `dirty` frame reaches the pool at all — see the loop below.
+    The recording's own `corrections.jsonl` replaces the FEN-derived label per square. Returns the
+    number applied. A correction is also the only way a cell of a `dirty` frame reaches the pool
+    at all — see the loop below.
 
     `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
     via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
@@ -402,6 +413,7 @@ def slice_session(
     log = read_log(session_dir)
 
     matte = read_matte(session_dir)
+    label_overrides = read_corrections(session_dir)
     prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
     box3d = geometry_mode == "box3d"
@@ -565,19 +577,18 @@ def slice_session(
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
 
 def _session_ids_with_logs() -> list[str]:
-    root = config.DATA.sessions
-    if not root.exists():
-        return []
-    return sorted(p.name for p in root.iterdir() if (p / "log.jsonl").exists())
+    from .sessions import all_sessions
+
+    return [sid for sid, _ in all_sessions()]
 
 
 def variant_paths(variant_tag: str | None) -> tuple[Path, Path]:
-    """(manifest_path, squares_root) for a variant. `None` = current default paths; otherwise
-    `data/manifests/squares__<tag>.jsonl` + `data/squares__<tag>/`, so variants coexist."""
+    """(manifest_path, crop_pool) for a variant. `None` = current default paths; otherwise
+    `data/crops/<tag>/manifest.jsonl` inside the pool it describes, so variants coexist."""
     if not variant_tag:
-        return config.DATA.manifests / "squares.jsonl", config.DATA.squares
-    suffix = f"__{variant_tag}"
-    return config.DATA.manifests / f"squares{suffix}.jsonl", config.DATA.root / f"squares{suffix}"
+        return config.DATA.crop_pool / "manifest.jsonl", config.DATA.crop_pool
+    pool = config.DATA.crops / variant_tag
+    return pool / "manifest.jsonl", pool
 
 
 def run_slice(
@@ -610,16 +621,17 @@ def run_slice(
         return 0
 
     manifest_path, squares_root = variant_paths(variant_tag)
-    corrections = load_corrections(config.DATA.corrections)  # apply human relabels
     rc = 0
+    from .sessions import session_dir as _resolve
+
     for sid in sids:
-        session_dir = config.DATA.sessions / sid
         try:
+            session_dir, _ = _resolve(sid)
             meta = read_session_meta(session_dir)
             prof = _profile_for_session(meta, profile)
             stats = slice_session(
                 session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
-                pad_up=pad_up, pad_side=pad_side, out_size=out_size_t, label_overrides=corrections,
+                pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
                 geometry_mode=geometry_mode, photometry=photometry, piece_height_cells=piece_height_cells,
             )
             extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
@@ -641,7 +653,9 @@ def run_slice(
 
 def _preview_session(session_id: str, profile: str | None) -> int:
     """Debug: slice the first position and show label vs. visible crop side by side."""
-    session_dir = config.DATA.sessions / session_id
+    from .sessions import session_dir as _resolve
+
+    session_dir, _ = _resolve(session_id)
     try:
         meta = read_session_meta(session_dir)
         prof = _profile_for_session(meta, profile)

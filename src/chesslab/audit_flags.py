@@ -1,4 +1,4 @@
-"""Confident-learning label audit into `data/manifests/audit-flags.jsonl` (CONCEPT.md 4.2;
+"""Confident-learning label audit into `data/reports/audit-flags.jsonl` (CONCEPT.md 4.2;
 method and limits in `docs/cross-labeling-literature.md`). DERIVED, never a ledger: every run
 rewrites the file whole. The class space is the proposal file's — 13c rows carry no `occluded`
 and can never flag it, while in 14c rows it is a candidate whose threshold comes from the human
@@ -12,29 +12,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
+from .labeling import load_corrections
 
 INTERIM_FOLD = 0  # No folds in the interim: the proposals rotate models per session instead.
 Cell = tuple[str, str, str]
 
 
 def ledger_labels(*paths: Path) -> dict[Cell, str]:
-    """The human verdict per `(session_id, frame, square)`, later files winning — the label of
-    record where one exists, and the cells no view may ask again. Keyed like `judgedKeys`
-    (`lib/corrections.ts`), and `retract` (CONCEPT.md 4.2.2) reopens a cell here too:
-    `labeling.load_corrections` predates the tombstone and would keep it decided."""
+    """The label of record over several ledgers, later files winning — and the cells no view may
+    ask again. Folded in one dict so a retraction in `corrections.jsonl` reopens what
+    `reviewed.jsonl` decided."""
     out: dict[Cell, str] = {}
     for path in paths:
-        if not Path(path).exists():
-            continue
-        for line in Path(path).read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            key = (row["session_id"], str(row["frame"]), row["square"])
-            if row.get("retract") is True:
-                out.pop(key, None)
-            else:
-                out[key] = row["label"]
+        load_corrections(path, out)
     return out
 
 
@@ -160,13 +150,14 @@ def audit_flags() -> dict:
     A file without that name is skipped and said so: its flags could carry no provenance, and
     non-circularity — the whole basis of the audit — would rest on nothing.
     """
-    judged = ledger_labels(config.DATA.manifests / "reviewed.jsonl", config.DATA.corrections)
+    rec = config.DATA.recordings
+    judged = ledger_labels(*(sorted(rec.glob("*/corrections.jsonl")) if rec.exists() else ()))
     ts = datetime.now(UTC).isoformat()
     flags: list[dict] = []
     sessions: list[str] = []
     skipped: list[dict] = []
     scanned = 0
-    for path in sorted((config.DATA.root / "realgames").glob("*/model-reads.jsonl")):
+    for path in sorted(rec.glob("*/model-reads.jsonl")):
         model, rows = read_proposals(path)
         reason = None
         if not rows:
@@ -193,6 +184,6 @@ def audit_flags() -> dict:
         "per_class": dict(sorted(per_class.items(), key=lambda kv: (-kv[1], kv[0]))),
         "written_at": ts,
     }
-    path = write_flags(config.DATA.manifests / "audit-flags.jsonl", flags)
-    write_summary(config.DATA.manifests / "audit-flags.summary.json", summary)
+    path = write_flags(config.DATA.reports / "audit-flags.jsonl", flags)
+    write_summary(config.DATA.reports / "audit-flags.summary.json", summary)
     return {"path": path, **summary}

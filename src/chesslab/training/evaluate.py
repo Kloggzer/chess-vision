@@ -70,8 +70,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
         manifest_path = dd / "manifest.jsonl"
         split_path = dd / (cfg.get("split_file") or "split.json")
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
     if not manifest_path.exists() or not split_path.exists():
         print(f"[FAIL] Manifest/split missing ({manifest_path}). Build/split dataset first.")
         return 1

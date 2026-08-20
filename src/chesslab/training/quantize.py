@@ -64,8 +64,8 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
         dd = dataset_dir(ds_name)
         manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
     if not manifest_path.exists() or not split_path.exists():
         raise FileNotFoundError(f"manifest/split missing ({manifest_path}) — build/split the dataset first.")
 

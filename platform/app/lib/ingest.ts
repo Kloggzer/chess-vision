@@ -3,13 +3,13 @@
  *
  * The bridge is the LAYOUT, nothing else: what lands here is `filesDir/` off the phone, so a
  * transferred session is byte-for-byte the tree that `adb ... tar cf - files` used to write
- * (`data/realgames/<name>/files/{sessions,games}/...`). Everything downstream — `training-video-pack`,
+ * (`data/recordings/<name>/files/{sessions,games}/...`). Everything downstream — `training-video-pack`,
  * the confirm views, `chesslab slice` — keeps reading what it already read.
  *
  * Transfers are RESUMABLE because the payload is a QHD video: the 2026-08-13 session was 1.0 GB,
  * and a phone that walks out of Wi-Fi mid-upload must not restart it. Every file grows in its own
  * `.partial` inside a staging directory; only a complete, size-checked tree is moved into
- * `realgames/`, so a consumer never sees a half-written session.
+ * `recordings/`, so a consumer never sees a half-written session.
  */
 import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, readFile, readdir, rename, rm, stat, truncate, writeFile } from "node:fs/promises";
@@ -38,7 +38,7 @@ export type TransferRow = {
   device: string;
   files: number;
   bytes: number;
-  /** `landed` = moved into realgames/. `held` = the target already existed, kept in the inbox. */
+  /** `landed` = moved into recordings/. `held` = the target already existed, kept in the inbox. */
   status: "landed" | "held";
   target: string;
 };
@@ -55,7 +55,7 @@ export function ledgerPath(): string {
  * `20260813-193423` -> `2026-08-13-19-34-23`.
  *
  * The recording's own id is the phone's (`collect.py::generate_session_id`), the directory name is
- * what `data/realgames/` has always used. Both survive: the id names the session subtree, the
+ * what `data/recordings/` has always used. Both survive: the id names the session subtree, the
  * dashed form names the game directory, exactly as the USB copies did.
  */
 export function transferName(sessionId: string): string {
@@ -95,7 +95,7 @@ function stagingDir(name: string): string {
 }
 
 export function targetDir(name: string): string {
-  return path.join(dataDir(), "realgames", checkName(name, "transfer name"), "files");
+  return path.join(dataDir(), "recordings", checkName(name, "transfer name"), "files");
 }
 
 async function sizeOf(file: string): Promise<number> {

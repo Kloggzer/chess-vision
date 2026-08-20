@@ -121,7 +121,7 @@ def test_ingest_end_to_end_labels_and_orientation(tmp_path):
     res = ig.slice_imported(sids, profile=prof, variant_tag="t", paths=paths)
     assert res["crops"] == 64
 
-    manifest_path = paths.manifests / "squares__t.jsonl"
+    manifest_path = paths.crops / "t" / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 64
     by_sq = {r["square"]: r for r in rows}
@@ -167,7 +167,7 @@ def test_run_ingest_with_chesscog_fixture(tmp_path):
     assert summary["items"] == 2
     assert summary["sessions"] == 1                 # group = chesscog-train
     assert summary["crops"] == 128                  # 2 Frames * 64
-    manifest_path = paths.manifests / "squares__pretrain-chesscog.jsonl"
+    manifest_path = paths.crops / "pretrain-chesscog" / "manifest.jsonl"
     rows = [json.loads(line) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
     labels = {r["label"] for r in rows}
     assert "wP" in labels and "wK" in labels and "bK" in labels and "empty" in labels

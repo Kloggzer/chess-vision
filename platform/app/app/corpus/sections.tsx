@@ -131,7 +131,7 @@ export function D2Banner({ entries, summary }: { entries: Provenance[]; summary:
           </li>
         ))}
       </ul>
-      {entries.length === 0 ? <p className={MUTED}>Keine Sessions unter <code>data/realgames/</code>.</p> : null}
+      {entries.length === 0 ? <p className={MUTED}>Keine Sessions unter <code>data/recordings/</code>.</p> : null}
     </details>
   );
 }
@@ -396,7 +396,7 @@ export function SharesBlock({ view }: { view: DatasetView }) {
         <pre className="bg-muted mt-1 overflow-x-auto rounded px-2 py-1 select-all">
           {`uv run chesslab dataset build ${nextVersion(name)} \\
   --sessions <aus dataset.yaml session_ids kopieren> \\
-  --source-manifest data/manifests/squares.jsonl,data/manifests/capped-rg-<datum>.jsonl`}
+  --source-manifest data/crops/<tag>/manifest.jsonl,data/crops/capped-rg-<datum>/manifest.jsonl`}
         </pre>
         <p className="mt-1">
           Kein Code-Pfad erzwingt eine Ergänzungs-Obergrenze: <code>--source-manifest</code> (cli.py:725) nimmt einen von
@@ -487,7 +487,7 @@ export function PacksBlock({ bundles, dirty }: { bundles: Bundle[]; dirty: Sessi
           <h3 className="text-sm font-semibold">Dirty-Anteil je exportierter Session</h3>
           <span className={MUTED}>Achse 0–100 % der Frames</span>
           <Why>
-            Nenner ist die Zeilenzahl von data/sessions/rg-&lt;n&gt;/log.jsonl — exportierte Frames, keine gesampelten.
+            Nenner ist die Zeilenzahl von data/recordings/&lt;n&gt;/log.jsonl — exportierte Frames, keine gesampelten.
           </Why>
         </div>
         <BarRows bars={bars} max={1} />

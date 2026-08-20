@@ -191,8 +191,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   "(`chesslab dataset build`), then train.")
             return 1
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
         if not manifest_path.exists():
             print(f"[FAIL] No manifest ({manifest_path}). First collect data and slice "
                   "(`chesslab slice`), then train.")
@@ -427,7 +427,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             print("[FAIL] --hard-negative-multiplier must be at least 1.")
             return 1
         if not priority_paths:
-            print("[FAIL] --hard-negative-multiplier needs data/manifests/hard_empty.jsonl.")
+            print("[FAIL] --hard-negative-multiplier needs data/reports/hard_empty.jsonl.")
             return 1
         sample_weights = torch.tensor(
             [hard_negative_multiplier if row.get("path") in priority_paths else 1.0 for row in train_rows],

@@ -1,6 +1,6 @@
 """Stage 4 — named, curated datasets.
 
-A **dataset** is a view on the global crop pool (`data/manifests/squares.jsonl`):
+A **dataset** is a view on the default crop pool (`data/crops/default/manifest.jsonl`):
 a selection of sessions + dedup and split policy. Building creates under
 `data/datasets/<name>/` a filtered, deduplicated `manifest.jsonl`, a
 session-based `split.json` and `stats.json`. Crops for rot=0 reference the global
@@ -66,7 +66,7 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
     """Narrow every row's `label` to the target class list. `pieces` returns the rows untouched
     (same objects), so the default build stays bit-identical.
 
-    A metadata mapping, nothing else: crop FILES keep their path and their `data/squares/wB/`
+    A metadata mapping, nothing else: crop FILES keep their path and their `data/crops/default/wB/`
     directory — the path is the identity, the label is metadata.
 
     Both narrower modes DROP `occluded` rather than bin it: `pieces13` has no such output at all
@@ -401,9 +401,9 @@ def build_dataset(
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
     `source_manifest`: crop pool(s) to filter — one path, or several when the sessions were
-    ingested under different tags (`ingest --tag X --no-build` writes `squares__X.jsonl`).
-    Default: `data/manifests/squares.jsonl`.
-    For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
+    ingested under different tags (`ingest --tag X --no-build` writes `crops/X/manifest.jsonl`).
+    Default: `data/crops/default/manifest.jsonl`.
+    For the bake-off, each variant points to its own pool manifest; with identical
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
 
     `like`: build the TWIN of an existing dataset — its session split, its dedup policy and its
@@ -443,10 +443,10 @@ def build_dataset(
     rotations = d.rotations if rotations is None else tuple(rotations)
 
     # One or several crop pools. Several matter when sessions were ingested under different tags
-    # (each `ingest --no-build` writes its own squares__<tag>.jsonl) — without this the caller had
+    # (each `ingest --no-build` writes its own crops/<tag>/manifest.jsonl) — without this the caller had
     # to concatenate them into one file by hand first.
     if not source_manifest:
-        srcs = [paths.manifests / "squares.jsonl"]
+        srcs = [paths.crop_pool / "manifest.jsonl"]
     elif isinstance(source_manifest, (str, Path)):
         srcs = [Path(source_manifest)]
     else:
@@ -464,8 +464,8 @@ def build_dataset(
     if not rows:
         raise ValueError(
             f"no crops for the selected sessions in {', '.join(str(p.name) for p in srcs)} "
-            f"(wrong --source-manifest? the default pool is squares.jsonl, but `ingest --tag X "
-            f"--no-build` writes squares__X.jsonl).")
+            f"(wrong --source-manifest? the default pool is crops/default, but `ingest --tag X "
+            f"--no-build` writes crops/X/manifest.jsonl).")
     # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
     # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
     # board_accuracy would compute on incomplete/duplicated boards (bug).
@@ -475,7 +475,8 @@ def build_dataset(
         splits = _split_from(like, set(sizes), paths, add_test, add_train)
     else:
         splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
-                                                       force_train=force_train)
+                                                       force_train=force_train,
+                                                       groups=dataset_mod.groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0

@@ -13,7 +13,7 @@ own fixed-camera sessions).
   GBs). `slice_session` resolves `session_dir / entry["frame"]`; an absolute path wins.
 - One session **per game/group** → the existing session-based split logic applies unchanged
   (clean train/val without leakage).
-- Crops land in a **variant manifest** (`squares__<tag>.jsonl`) → the real `data/squares` pool
+- Crops land in a **variant pool** (`crops/<tag>/manifest.jsonl`) → the real `data/crops/default` pool
   remains untouched.
 """
 
@@ -153,17 +153,17 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
 
 
 def _variant_paths(variant_tag: str | None, paths: config.Paths) -> tuple[Path, Path]:
-    """Like `labeling.variant_paths`, but bound to `paths` (test isolation): `squares__<tag>.jsonl`
-    + `squares__<tag>/` under the given data root."""
+    """Like `labeling.variant_paths`, but bound to `paths` (test isolation): the pool
+    `crops/<tag>/` and its own `manifest.jsonl` under the given data root."""
     if not variant_tag:
-        return paths.manifests / "squares.jsonl", paths.squares
-    return paths.manifests / f"squares__{variant_tag}.jsonl", paths.root / f"squares__{variant_tag}"
+        return paths.crop_pool / "manifest.jsonl", paths.crop_pool
+    return paths.crops / variant_tag / "manifest.jsonl", paths.crops / variant_tag
 
 
 def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
                    photometry: str = "none", out_size: tuple[int, int] | None = None,
                    variant_tag: str, paths: config.Paths = config.DATA) -> dict:
-    """Slice each synthetic session into the variant manifest `squares__<variant_tag>.jsonl`
+    """Slice each synthetic session into the variant pool `crops/<variant_tag>/`
     (via the existing `labeling.slice_session`)."""
     from . import labeling
 

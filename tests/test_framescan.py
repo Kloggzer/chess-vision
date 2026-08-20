@@ -257,7 +257,7 @@ def test_an_archived_game_is_not_exported(tmp_path, monkeypatch):
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g1"
+    g = realgames.game_dir("g1")
     g.mkdir(parents=True)
     (g / "ui-meta.json").write_text(json.dumps({"archived": True}), encoding="utf-8")
 
@@ -276,14 +276,19 @@ def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
     from chesslab import config, sessions
 
     paths = config.Paths(root=tmp_path / "data")
+    monkeypatch.setattr(config, "DATA", paths)
     sdir = paths.sessions / "s1"
     sdir.mkdir(parents=True)
     (sdir / "log.jsonl").write_text("".join(
         json.dumps({"frame": f"frames/00000{i}.png"}) + "\n" for i in (1, 2)), encoding="utf-8")
-    paths.manifests.mkdir(parents=True, exist_ok=True)
-    paths.corrections.write_text(
-        json.dumps({"session_id": "s1", "frame": "000001", "square": "a1", "label": "wP"}) + "\n"
-        + json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
+    paths.crop_pool.mkdir(parents=True, exist_ok=True)
+    (sdir / "corrections.jsonl").write_text(
+        json.dumps({"session_id": "s1", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
+        encoding="utf-8")
+    other = paths.sessions / "other"
+    other.mkdir(parents=True)
+    (other / "corrections.jsonl").write_text(
+        json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
         encoding="utf-8")
 
     cost = sessions.deletion_cost("s1", paths)

@@ -21,6 +21,7 @@ from chesslab.realgames import (
     decode_frames,
     ensure_export_profile,
     export_session,
+    game_dir,
     known_segments,
     lcs_report,
     plan_rows,
@@ -39,7 +40,7 @@ def test_lcs_matches_the_kotlin_semantics():
 def _candidate(tmp_path, monkeypatch, sans):
     """A minimal candidate next to a four-ply reference game (1. e4 e5 2. Nf3 Nc6)."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = tmp_path / "data" / "realgames" / "g"
+    d = game_dir("g")
     d.mkdir(parents=True)
     (d / "reference.pgn").write_text('[Event "t"]\n\n1. e4 e5 2. Nf3 Nc6 *\n', encoding="utf-8")
     payload = {
@@ -93,7 +94,7 @@ AFTER_2 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 def _export_candidate(tmp_path, monkeypatch, *, confirmed=True, frames=(100, 400, 700)):
     """A candidate with three commits 10 s apart, of which the first two are reviewed."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = tmp_path / "data" / "realgames" / "g"
+    d = game_dir("g")
     d.mkdir(parents=True)
     payload = {
         "name": "g",
@@ -320,7 +321,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     # Three quiet rows carry the conformance check; the dirty one pins the gate that holds a
     # hand-frame back until a human names its cells (tests/test_labeling_dirty.py).
     rows = [r for r in planned if not r.get("dirty")][:3] + [r for r in planned if r.get("dirty")][:1]
-    session_dir = config.DATA.sessions / "rg-g"
+    session_dir = game_dir("g")
     (session_dir / "frames").mkdir(parents=True)
     for row in rows:
         img = np.random.default_rng(0).integers(0, 255, (240, 320, 3), dtype=np.uint8)
@@ -331,7 +332,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     stats = slice_session(
         session_dir,
         profile=load_profile("desktop"),
-        manifest_path=tmp_path / "squares.jsonl",
+        manifest_path=tmp_path / "crops.jsonl",
         squares_root=tmp_path / "sq",
     )
 
@@ -353,7 +354,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         "mesh_frames": 0,
         "fallback": 0,
     }
-    manifest = (tmp_path / "squares.jsonl").read_text(encoding="utf-8").splitlines()
+    manifest = (tmp_path / "crops.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(manifest) == 192
     first = json.loads(manifest[0])
     assert first["session_id"] == "rg-g" and first["frame"] == rows[0]["frame"][7:13]
@@ -539,8 +540,8 @@ def test_a_re_export_backs_up_the_log_it_replaces(tmp_path, monkeypatch):
     """A session log can hold hand-set quads and a review's verdicts, and a re-export overwrites
     it whole. Same `log.jsonl.bak.<stamp>` convention as `session scan|autofix|adopt`."""
     cand = _export_candidate(tmp_path, monkeypatch)
-    session_dir = config.DATA.sessions / "rg-g"
-    session_dir.mkdir(parents=True)
+    session_dir = game_dir("g")
+    session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "log.jsonl").write_text('{"frame": "frames/000030.png"}\n', encoding="utf-8")
 
     write_session(session_dir, "g", cand, [{"frame": "frames/000060.png"}])
@@ -653,7 +654,7 @@ def _stored_session(tmp_path, monkeypatch):
     from chesslab.calibration import compute_homography
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    session = tmp_path / "data" / "realgames" / "g" / "files" / "sessions" / "20260812-222357"
+    session = game_dir("g") / "files" / "sessions" / "20260812-222357"
     (session / "frames").mkdir(parents=True)
     h = np.array(compute_homography(FIELD, FIT_BS, 0.0), np.float64)
     shift = np.eye(3)
@@ -786,7 +787,7 @@ def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkey
     from chesslab.realgames import fit_stored
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    (tmp_path / "data" / "realgames" / "g").mkdir(parents=True)
+    game_dir("g").mkdir(parents=True)
 
     with pytest.raises(FileNotFoundError):
         fit_stored("g")
@@ -801,7 +802,7 @@ def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g1"
+    g = realgames.game_dir("g1")
     (g / "files" / "games").mkdir(parents=True)
     pgn = "[Event \"?\"]\n\n1. e4 e5 *\n"
     (g / "reference.pgn").write_text(pgn, encoding="utf-8")
@@ -822,7 +823,7 @@ def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g2"
+    g = realgames.game_dir("g2")
     (g / "files" / "games").mkdir(parents=True)
     (g / "reference.pgn").write_text("[Event \"?\"]\n\n1. e4 e5 *\n", encoding="utf-8")
     (g / "files" / "games" / "live.pgn").write_text("[Event \"?\"]\n\n1. d4 d5 *\n", encoding="utf-8")

@@ -62,3 +62,30 @@ Das sind Hände, und die trifft ein Zeitraster nur zufällig. Solange der Verdec
 
 Mehr Frames pro Sekunde. Der Engpass sind **Stellungen**: eine Turntable-Aufnahme mit vier
 Aufstellungen liefert für den König mehr unabhängige Situationen als der gesamte bisherige Korpus.
+
+## Der p/d/s-Sweep (2026-08-17, nachträglich ausgewertet 2026-08-20)
+
+40 Läufe über `xval-128g-80-v2-{p,d,s}N`, je 4 Seeds, wurden trainiert und nie ausgewertet — kein
+`eval_test.json`, keine Notiz. Aus ihren `metrics.jsonl` nachgezogen, bestes `val_board_acc`:
+
+| Achse | Zeilen | Median | Streuung über 4 Seeds |
+|---|---:|---:|---|
+| Basis | 462 935 | 0,192 | 0,066 – 0,264 |
+| p4 | 28 426 | 0,218 | 0,127 – 0,353 |
+| p8 | 60 407 | 0,220 | 0,106 – 0,291 |
+| p16 | 119 039 | 0,218 | 0,091 – 0,249 |
+| d4 | 24 709 | 0,217 | 0,174 – 0,304 |
+| s8 … s64 | 147 692 – 18 174 | 0,145 – 0,155 | 0,033 – 0,209 |
+
+Zwei Aussagen, mehr geben die Daten nicht her:
+
+- **Keine Achse trennt sich von der Basis.** Die Seed-Streuung innerhalb einer Achse (bis 0,29) ist
+  größer als jeder Abstand zwischen den Medianen (0,07). Das ist dieselbe Falle wie überall hier:
+  ohne Median über mehrere Seeds misst man den Seed.
+- **Der Stride `s` liegt konsistent unten.** Vier Achsen × vier Seeds, alle Mediane 0,145–0,155 und
+  keiner erreicht das Feld von `p`/`d`. Schwaches, aber wiederholtes Signal — anders als bei `p`
+  und `d`, wo sich nichts zeigt.
+
+Und die Beobachtung, für die es den Sweep gab: **p4 mit 28 426 Zeilen liegt auf dem Median über der
+Basis mit 462 935.** Das 16-Fache an Zeilen kauft nichts. Deckt sich mit dem Befund oben, dass die
+Stellungen der Engpass sind und nicht die Crops.

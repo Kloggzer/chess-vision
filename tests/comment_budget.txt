@@ -1,4 +1,4 @@
-﻿src/chesslab/alignment.py 37
+src/chesslab/alignment.py 37
 src/chesslab/calibration.py 23
 src/chesslab/camera.py 83
 src/chesslab/cli.py 11
@@ -42,4 +42,3 @@ src/chesslab/training/pack.py 15
 src/chesslab/training/quantize.py 30
 src/chesslab/training/torch_data.py 33
 src/chesslab/training/train.py 13
-src/chesslab/alignment.py 37

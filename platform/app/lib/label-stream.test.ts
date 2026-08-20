@@ -16,13 +16,13 @@ const key = (c: StreamCell) => `${c.stem}|${c.square}`;
 async function fixture(frames: number): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-stream-"));
   process.env.CHESSLAB_DATA_DIR = root;
-  await mkdir(path.join(root, "realgames", NAME), { recursive: true });
-  await mkdir(path.join(root, "sessions", `rg-${NAME}`), { recursive: true });
-  await writeFile(path.join(root, "realgames", NAME, "candidate.json"), '{"moves":[]}', "utf8");
+  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
+  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
+  await writeFile(path.join(root, "recordings", NAME, "candidate.json"), '{"moves":[]}', "utf8");
   const rows = Array.from({ length: frames }, (_, i) =>
     JSON.stringify({ frame: `${String(i).padStart(6, "0")}.png`, ply: 1, fen: FEN, corners: [] }),
   );
-  await writeFile(path.join(root, "sessions", `rg-${NAME}`, "log.jsonl"), rows.join("\n") + "\n", "utf8");
+  await writeFile(path.join(root, "recordings", NAME, "log.jsonl"), rows.join("\n") + "\n", "utf8");
 }
 
 const control = async () => (await loadLabelStream()).cells;

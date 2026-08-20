@@ -163,7 +163,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     const id = sessionId(name);
     const [{ rows }, judged, unusable, matte] = await Promise.all([
       loadModelReads(name).catch(() => ({ rows: [] as ModelRead[] })),
-      judgedKeys(id),
+      judgedKeys(name),
       unusableBoards(id),
       loadMatte(name),
     ]);

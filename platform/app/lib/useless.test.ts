@@ -11,10 +11,10 @@ const NAME = "2026-08-14-20-35-52";
 beforeEach(async () => {
   data = await mkdtemp(path.join(tmpdir(), "chesslab-useless-"));
   process.env.CHESSLAB_DATA_DIR = data;
-  await mkdir(path.join(data, "realgames", NAME), { recursive: true });
+  await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 
-const file = () => path.join(data, "realgames", NAME, "useless.json");
+const file = () => path.join(data, "recordings", NAME, "useless.json");
 
 describe("the nutzlos flag", () => {
   it("is absent until somebody sets it", async () => {
@@ -65,7 +65,7 @@ describe("the nutzlos flag", () => {
 
 describe("a useless game in the chain", () => {
   it("offers no step at all, and the undo gives the step back", async () => {
-    await mkdir(path.join(data, "realgames", NAME, "files", "sessions", "20260814-203552"), { recursive: true });
+    await mkdir(path.join(data, "recordings", NAME, "files", "sessions", "20260814-203552"), { recursive: true });
     expect((await chainState(NAME)).step).toBe("label");
 
     await setUseless(NAME, true, "Kamera stand schief");

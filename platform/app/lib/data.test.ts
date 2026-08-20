@@ -28,7 +28,7 @@ let file: string;
 
 beforeEach(async () => {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-app-"));
-  const dir = path.join(root, "realgames", "g");
+  const dir = path.join(root, "recordings", "g");
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "reference.pgn"), PGN, "utf8");
   file = path.join(dir, "candidate.json");
@@ -77,7 +77,7 @@ describe("a matched ply the human strikes", () => {
     // The replay's order against the reference's: its `Nf6` matches the reference's own `Nf6`, two
     // plies later, so the LCS calls it reviewed while its commit window still showed `e5` on the
     // board. The position that ply stamps never existed, so a human must be able to strike it.
-    const dir = path.join(process.env.CHESSLAB_DATA_DIR!, "realgames", "t");
+    const dir = path.join(process.env.CHESSLAB_DATA_DIR!, "recordings", "t");
     await mkdir(dir, { recursive: true });
     await writeFile(
       path.join(dir, "candidate.json"),

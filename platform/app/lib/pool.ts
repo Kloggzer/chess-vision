@@ -1,7 +1,7 @@
 /**
  * `/corpus` §7.1, POOL and DIFF: what a slice run RIGHT NOW would yield, against the snapshot.
  *
- * POOL is the ledger over the exported sessions — every log frame's FEN expanded to its 64 cells,
+ * POOL is the ledgers over the exported sessions — every log frame's FEN expanded to its 64 cells,
  * with `corrections.jsonl` winning last per `(session_id, str(frame), square)`, the same tuple
  * `labeling.load_corrections` dedups on. DIFF exists because datasets are snapshots and nothing is
  * incremental (docs/data-pipeline.md §5.9): without it nobody can see which labels made it in.
@@ -11,6 +11,7 @@ import path from "node:path";
 import { correctionsPath } from "@/lib/corrections";
 import { dataDir } from "@/lib/data";
 import { sameSession, type CorpusIndex, type Split } from "@/lib/corpus";
+import { sessionId } from "@/lib/session";
 
 const cellKey = (sessionId: string, frame: string | number, square: string) =>
   `${sessionId}|${String(frame)}|${square}`;
@@ -127,13 +128,14 @@ type Store = { logs?: Cached<SessionLog[]>; pool?: Cached<Pool> };
 /** Pinned like `jobs.ts:56`: a dev reload must not re-expand 12 641 FENs and 18 k ledger rows. */
 const store: Store = ((globalThis as { __chesslabPool?: Store }).__chesslabPool ??= {});
 
-function sessionsDir(): string {
-  return path.join(dataDir(), "sessions");
+function recordingsDir(): string {
+  return path.join(dataDir(), "recordings");
 }
 
-async function logFiles(): Promise<string[]> {
+/** Directory names, not ids: the merge dropped the `rg-` prefix from the folder alone. */
+async function recordingNames(): Promise<string[]> {
   try {
-    const entries = await readdir(sessionsDir(), { withFileTypes: true });
+    const entries = await readdir(recordingsDir(), { withFileTypes: true });
     return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
@@ -151,8 +153,8 @@ export async function sessionLogs(): Promise<SessionLog[]> {
 }
 
 async function keyedLogs(): Promise<Cached<SessionLog[]>> {
-  const names = await logFiles();
-  const files = names.map((name) => path.join(sessionsDir(), name, "log.jsonl"));
+  const names = await recordingNames();
+  const files = names.map((name) => path.join(recordingsDir(), name, "log.jsonl"));
   const stats = await Promise.all(files.map((file) => stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none")));
   const key = names.map((name, i) => `${name}@${stats[i]}`).join(",");
   if (store.logs?.key === key) return store.logs;
@@ -170,7 +172,7 @@ async function keyedLogs(): Promise<Cached<SessionLog[]>> {
         /* a half-written line carries no FEN */
       }
     }
-    value.push({ sessionId: name, frames });
+    value.push({ sessionId: sessionId(name), frames });
   }
   store.logs = { key, value };
   return store.logs;
@@ -178,13 +180,15 @@ async function keyedLogs(): Promise<Cached<SessionLog[]>> {
 
 export async function loadPool(): Promise<Pool> {
   const logs = await keyedLogs();
-  const file = correctionsPath();
-  const ledger = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
-  const key = `${ledger}|${logs.key}`;
+  const names = await recordingNames();
+  const files = names.map((name) => correctionsPath(name));
+  const stats = await Promise.all(files.map((file) => stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none")));
+  const key = `${names.map((name, i) => `${name}@${stats[i]}`).join(",")}|${logs.key}`;
   if (store.pool?.key === key) return store.pool.value;
 
-  const text = await readFile(file, "utf8").catch(() => "");
-  const value = foldPool(logs.value, dedupCorrections(text.split("\n")));
+  const lines: string[] = [];
+  for (const file of files) lines.push(...(await readFile(file, "utf8").catch(() => "")).split("\n"));
+  const value = foldPool(logs.value, dedupCorrections(lines));
   store.pool = { key, value };
   return value;
 }

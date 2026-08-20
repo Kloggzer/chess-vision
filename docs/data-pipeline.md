@@ -13,14 +13,16 @@
 
 ```mermaid
 flowchart TD
-    C["chesslab collect<br/>(camera + FEN)"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
+    C["chesslab collect / chesslab ingest"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
+    IMP["phone transfer / video import"] --> RG["data/recordings/&lt;ts&gt;/<br/>the import AND what was cut from it AND its corrections.jsonl"]
     S --> SL["chesslab slice<br/>(labeling.slice_session)"]
+    RG --> SL
     CAL["data/calibration/&lt;profile&gt;.yaml<br/>+ per-frame ArUco corners in log.jsonl"] --> SL
-    SL --> SQ["data/squares/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.webp<br/>64 crops per usable frame"]
-    SL --> MF["data/manifests/squares.jsonl<br/>THE GLOBAL CROP POOL — one row per crop"]
+    SL --> SQ["data/crops/&lt;tag&gt;/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.webp<br/>64 crops per usable frame"]
+    SL --> MF["data/crops/&lt;tag&gt;/manifest.jsonl<br/>THE CROP POOL — one row per crop, and it is that pool's own file"]
     SYN["chesslab synth render<br/>→ chesslab dataset build-synth"] --> DS
     MF --> DB["chesslab dataset build<br/>(dataset_build.build_dataset)"]
-    HE["data/manifests/hard_empty.jsonl<br/>(scripts/mine_hard_empty.py)"] -.-> DB
+    HE["data/reports/hard_empty.jsonl<br/>(scripts/mine_hard_empty.py)"] -.-> DB
     DB --> DS["data/datasets/&lt;name&gt;/<br/>manifest.jsonl + split.json + stats.json + dataset.yaml"]
     DS --> TR["chesslab train --dataset &lt;name&gt;"]
     TR --> MOD["data/models/&lt;run&gt;/<br/>best.pt + config.json + model.onnx"]
@@ -31,12 +33,46 @@ flowchart TD
 | Stage | Command | Writes | Key module |
 |---|---|---|---|
 | Capture | `chesslab collect` | `data/sessions/<id>/` | `collect.py` |
-| Label | `chesslab slice --all` | `data/squares/`, `data/manifests/squares.jsonl` | `labeling.py` |
+| Import | phone transfer, `realgames export-session` | `data/recordings/<ts>/` | `realgames.py` |
+| Label | `chesslab slice --all` | `data/crops/default/` + its `manifest.jsonl` | `labeling.py` |
 | Curate | `chesslab dataset build <name> …` | `data/datasets/<name>/` | `dataset_build.py` |
 | Train | `chesslab train --dataset <name>` | `data/models/<run>/` | `training/train.py` |
 
 Capture and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
 (board, FEN, mesh), so re-slicing a session reproduces its crops exactly.
+
+### 1.1 The tree — one rule (2026-08-20)
+
+**A recording is one folder, and everything that only says something about it lives inside.**
+Derived things — crops, datasets, reports — live outside and can be rebuilt from it.
+
+| directory | holds |
+|---|---|
+| `data/recordings/<ts>/` | EVERYTHING about one recording: the import (`candidate.json`, `files/`, `video.mp4`, `review/`, `review-extra/`), what was cut from it (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `quad-fit.json`) and its own `corrections.jsonl` |
+| `data/sessions/` | only sessions that are NOT recordings: `collect` captures and `ingest` imports. Empty today |
+| `data/crops/<tag>/` | the crops **and that pool's own `manifest.jsonl`** — a pool describes itself. Default pool is `crops/default` |
+| `data/datasets/<name>/` | packed snapshots |
+| `data/models/<run>/` | training runs |
+| `data/calibration/` | board profiles |
+| `data/footage/` | raw video nothing writes: `turntable/`, `occluders/`, `phone-backups/` |
+| `data/plates/` | RGBA occluder tiles, cut from `footage/occluders` |
+| `data/reports/` | machine output: `audit-flags*`, `correction-violations.jsonl`, `hard_empty*.jsonl`, `split.json`, `augment.yaml`, `perf/` |
+| `data/labels/` | only `review-notes.jsonl`, plus `_history/` |
+| `data/inbox/` | the web app's runtime state |
+
+Two consequences worth carrying:
+
+- **The session id is not the directory name.** A recording's id keeps its `rg-` prefix — it is
+  the join key in every manifest row — while the directory dropped it. `sessions.session_dir()`
+  is the one place that maps one to the other; never join a path by hand.
+- **A human verdict never lives in a derived tree.** `corrections.jsonl` sits next to its
+  recording, `review-notes.jsonl` in `labels/`; a re-slice rebuilds crops, manifests, audit flags
+  and violation reports and must not be able to take a decision with it.
+
+Gone in the same move: `data/realgames/` (it became `recordings/`), `data/manifests/` (crop
+manifests moved into their pool, everything else to `reports/`), `data/_backup/`, `data/_perf/`
+(now `reports/perf/`), and the global `data/labels/corrections.jsonl` + `reviewed.jsonl`. Dated
+sections further down still name the old paths — they describe the state at the time and stay.
 
 ### The board store — what a session actually keeps (2026-08-17)
 
@@ -67,12 +103,32 @@ undistorted set (`frames/lens.json`, which the video cannot reproduce) and for `
 
 ## 2. What a session is
 
+A `collect` capture — the shape the rest of this section describes:
+
 ```
 data/sessions/20260721-205618/
   session.yaml     # session_id, profile, mode, created_at, frame_size, reviewed, notes
   log.jsonl        # one row per captured position
   frames/0000.png  # the raw frame (undistorted if a lens calib was active)
 ```
+
+A **recording** carries the same `session.yaml` + `log.jsonl` under its own folder, keeps
+`boards/` instead of source frames (see the board store below), and adds everything the import
+brought with it:
+
+```
+data/recordings/2026-08-08-00-39-57/          # session id: rg-2026-08-08-00-39-57
+  candidate.json  video.mp4  reference.pgn  files/   # the import
+  session.yaml  log.jsonl  boards/  dirty/           # what was cut from it
+  mattes/  matte.jsonl  scan.jsonl
+  review/  review-extra/                             # the review renders
+  corrections.jsonl                                  # this recording's human verdicts
+```
+
+`review/` and `review-extra/` were called `frames/` and `frames-extra/` until 2026-08-20, and the
+rename was not cosmetic: a merged `log.jsonl` stores `"frame": "frames/000150.png"` relative to
+its own directory, while the recording's `frames/` held a 720x816 review render — so the merge
+would have made the wrong image answer for the row.
 
 A `log.jsonl` row:
 
@@ -112,7 +168,7 @@ profile that is 100, and a 173 px/square session loses 42 % of its linear resolu
 
 ### 2.1 Android "Stored" sessions carry a corrected quad beside their log
 
-An Android Stored recording lands as `data/realgames/<bundle>/files/sessions/<id>/` with the same
+An Android Stored recording lands as `data/recordings/<bundle>/files/sessions/<id>/` with the same
 `log.jsonl` shape plus sparse `frames/NNNN.jpg`. Its `corners` are the raw **MARKER** quad, and
 every consumer turns it into a playing field with one constant outset (`DEFAULT_MARKER_MARGIN`
 0.045). The best outset varies per session and per corner — measured 2026-08-15 across the 28
@@ -151,13 +207,29 @@ result beside the log:
 
 ---
 
-## 3. The global crop pool — `data/manifests/squares.jsonl`
+## 3. The crop pool — `data/crops/<tag>/manifest.jsonl`
+
+> **Umbenannt 2026-08-20:** der Pool hieß `data/squares/` und `squares__<tag>/`, die Manifeste
+> `squares*.jsonl` unter `data/manifests/`. Jetzt liegt jeder Pool als `data/crops/<tag>/`
+> beisammen **und trägt sein Manifest selbst** — `data/crops/<tag>/manifest.jsonl`, Default
+> `crops/default`. `data/manifests/` gibt es nicht mehr: Maschinenausgabe (`split.json`,
+> `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/`)
+> steht in `data/reports/`. Ältere, datierte Abschnitte weiter unten nennen noch die alten Pfade —
+> sie beschreiben den damaligen Stand und bleiben so stehen.
+
+> **Menschenurteile 2026-08-20:** sie sind das Einzige hier, das nichts nachproduziert — ein
+> Neuschnitt baut Crops, Manifeste, Audit-Flags und Violation-Reports neu und darf dabei keine
+> Entscheidung mitnehmen können. Deshalb liegt `corrections.jsonl` **bei seiner Aufnahme**
+> (`data/recordings/<ts>/corrections.jsonl`), nicht mehr global unter `data/labels/`; dort steht
+> nur noch `review-notes.jsonl` plus `_history/`. `reviewed.jsonl` ist ersatzlos weg, und
+> `corrections.jsonl` trägt seit dem 13-Klassen-Schema nur noch Identitäten — `occluded` ist keine
+> Klasse mehr, sondern die gemessene `coverage` (`docs/class-scheme.md`).
 
 One JSON row per crop. This is the **single source of truth** for what real training data
-exists; `data/squares/**.png` is just its pixel backing.
+exists; the pool's `<label>/` directories are just its pixel backing.
 
 ```json
-{"path": "data/squares/wR/20260630-080531_0000_a1.png", "label": "wR",
+{"path": "data/crops/default/wR/20260630-080531_0000_a1.png", "label": "wR",
  "session_id": "20260630-080531", "frame": "0000", "ply": 1, "square": "a1",
  "square_color": "dark", "fen": "…", "out_size": [128,128],
  "geometry": "warp", "photometry": "none", "ts": "…"}
@@ -170,11 +242,11 @@ Facts worth knowing before you touch it:
   of that `session_id` and rewrites the file — that is what makes re-slicing idempotent. The
   old spec text ("one line per crop (append)", `specs/03-capture-labeling.md:87`) is stale.
 - **Variant pools exist.** `chesslab slice --variant-tag X` and `chesslab ingest --tag X` write
-  `data/manifests/squares__X.jsonl` + `data/squares__X/` instead, so experiments do not pollute
-  the real pool. `dataset build --source-manifest` accepts several pools at once.
+  `data/crops/X/` with its own `manifest.jsonl` instead, so experiments do not pollute the real
+  pool. `dataset build --source-manifest` takes those manifest paths and accepts several at once.
 - **Web reads go through `manifest_cache.py`** (mtime-keyed). Never re-read the whole manifest
   per request.
-- It is only consistent with `data/squares/` if every mutation went through the code. As of
+- It is only consistent with `data/crops/` if every mutation went through the code. As of
   2026-07-27 it is: 14,720 rows, 14,720 files, zero missing, zero orphans.
 
 ---
@@ -182,7 +254,7 @@ Facts worth knowing before you touch it:
 ## 4. What a dataset is
 
 A dataset is a **view** on the pool: a session selection plus a dedup and split policy. It
-copies no pixels for `rot=0` — `manifest.jsonl` rows point back at `data/squares/`.
+copies no pixels for `rot=0` — `manifest.jsonl` rows point back at `data/crops/`.
 
 ```
 data/datasets/occ-real/
@@ -202,6 +274,12 @@ The build (`dataset_build.build_dataset`) runs strictly in this order:
    see §5.11.
 4. **Collapse labels** if `class_mode=occupancy` (14 classes → `empty`/`occupied`).
 5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
+
+A variant whose manifest only re-SELECTS rows another dataset already packed does not get a second
+copy: `chesslab dataset pack <name> --from <owner>` writes `packed_from` into `packed_meta.json`
+and reads the owner's raster. Measured 2026-08-20: 17 `xval` variants held 8.89 GB each of two
+distinct rasters — 118 GB for differing row selections. The link is refused when the owner lacks a
+crop the variant needs, and the digest still comes from the variant's own manifest.
 
 Rotation augmentation is a **train-time transform** (`torch_data._RandomRot90`), never
 materialized — `dataset.yaml`'s `rotations` field only switches it on.
@@ -299,15 +377,15 @@ If you park by hand, either re-slice afterwards or state in the README that the 
 
 ### 5.7 Two files named `split.json` mean different things
 
-- `data/manifests/split.json` — the **legacy global** split over the whole pool. Written only by
-  `chesslab split`. Read by legacy (`--dataset`-less) training, `eval`,
-  `quantize`, `gradcam` and `dataset verify`.
+- `data/reports/split.json` — the **legacy global** split over the whole pool. Written only by
+  `chesslab split` (`dataset.run_split`, which drops `augment.yaml` beside it). Read by legacy
+  (`--dataset`-less) training, `eval`, `quantize`, `gradcam` and `dataset verify`.
 - `data/datasets/<name>/split.json` — the **per-dataset** split, written by every dataset build.
   This is what `chesslab train --dataset <name>` uses.
 
 The current pipeline is the per-dataset one. The global file is a leftover (§7).
 
-Note also that `hard_empty.jsonl` protection is wired into **`dataset_build.build_dataset` only**
+Note also that `data/reports/hard_empty.jsonl` protection is wired into **`dataset_build.build_dataset` only**
 — the legacy `dataset.run_split` calls `make_split` without `priority_paths`, so mined hard
 negatives are *not* protected in the global split.
 
@@ -363,7 +441,7 @@ After **any** of these — rebuild:
 | you did | what it changed | what is still stale |
 |---|---|---|
 | recorded a new session | nothing yet — a session is frames + log, not crops | everything |
-| `chesslab slice --session <id>` | added/rewrote that session's rows in `squares.jsonl` | every dataset |
+| `chesslab slice --session <id>` | added/rewrote that session's rows in the pool's `manifest.jsonl` | every dataset |
 | flagged frames `unusable` (§5.3) | nothing until you re-slice | every dataset |
 | `archive_session` | removed the crops **and** the pool rows | every dataset built before it |
 | moved a session to `_parked/` by hand (§5.6) | pixels only — the rows still feed builds | every dataset, permanently |
@@ -393,8 +471,9 @@ Two traps that follow from "the session list is not derived":
   `manifest.jsonl`. Only a rebuild drops them.
 - **`--sessions` is the whole selection, not a delta.** Omitting a session removes it. There is no
   "add to dataset" command, and no CLI that lists sessions — assemble the list from the previous
-  `dataset.yaml`'s `session_ids` plus whatever `data/sessions/` has gained since
-  (`chesslab session list` is the readable view).
+  `dataset.yaml`'s `session_ids` plus whatever `data/recordings/` and `data/sessions/` have gained
+  since (`chesslab session list` is the readable view). Name the **id**, not the directory: a
+  recording's id carries the `rg-` prefix its folder dropped (§1.1).
 
 ### 5.10 `per_cell_cap`, not phash, is what decides how much data you get
 
@@ -492,6 +571,8 @@ See §9 for what the 19 sessions are worth.
 ## 7. Stray artefacts — what they are and whether anything reads them
 
 Traced across `src/`, `scripts/`, `tests/`, `synth/`, the FastAPI backend and the React frontend.
+The paths below are the pre-2026-08-20 tree: `data/manifests/*` now lives in `data/reports/`, and
+`corrections.jsonl` next to its recording (§1.1). The verdicts are what was traced then.
 
 | file | written by | read by | verdict |
 |---|---|---|---|

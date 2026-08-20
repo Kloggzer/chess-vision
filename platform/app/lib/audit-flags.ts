@@ -1,5 +1,5 @@
 /**
- * `data/manifests/audit-flags.jsonl` — the landing surface for the two-halves label audit
+ * `data/reports/audit-flags.jsonl` — the landing surface for the two-halves label audit
  * (CONCEPT.md 4.2, TODO "Datensatz-Qualität per Zwei-Hälften-Kreuztest").
  *
  * READ ONLY. The audit is its own project and writes this file; the stream renders the pair of
@@ -29,7 +29,7 @@ export type AuditFlags = {
 };
 
 export function auditFlagsPath(): string {
-  return path.join(dataDir(), "manifests", "audit-flags.jsonl");
+  return path.join(dataDir(), "reports", "audit-flags.jsonl");
 }
 
 type Cache = Map<string, { key: string; value: AuditFlags }>;

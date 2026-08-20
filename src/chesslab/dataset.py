@@ -114,7 +114,7 @@ def load_priority_paths(paths=None) -> set[str] | None:
     is therefore re-drawn away at train time — the protection would land in `split.json`'s counts
     and never in a single batch. Returns None when no keep-list has been mined.
     """
-    p = (paths or config.DATA).manifests / "hard_empty.jsonl"
+    p = (paths or config.DATA).reports / "hard_empty.jsonl"
     if not p.exists():
         return None
     # utf-8-SIG, not utf-8: PowerShell's `Out-File`/`Set-Content` stamp a BOM by default on this
@@ -212,13 +212,14 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None) -> dic
 # --- Split (session-based) -----------------------------------------------------------
 
 def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
-                              force_train=None) -> dict:
+                              force_train=None, groups: dict | None = None) -> dict:
     """Greedily assign WHOLE sessions to train/val/test to hit the crop ratios.
 
-    Never splits a session — frames within one are near-identical, so splitting one leaks.
-    That constraint is what makes this awkward: with a corpus like (4992, 3520, 1600, 1024,
-    1024, 832, 384) no subset hits 15 % exactly, and the rule for handling the mismatch is
-    what decides whether the split is usable at all.
+    Never splits a session — frames within one are near-identical, so splitting one leaks; the
+    same holds for a clip cut into pseudo-sessions, which is what `groups` keeps together
+    (`_assign_by_group`; None = one group per session). That constraint is what makes this
+    awkward: with a corpus like (4992, 3520, 1600, 1024, 1024, 832, 384) no subset hits 15 %
+    exactly, and the rule for the mismatch decides whether the split is usable at all.
 
     `force_train`: session IDs pinned to train (e.g. an all-empty lighting capture, which in
     val/test would distort board metrics).
@@ -238,14 +239,15 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     session back from train — the one closest to that split's target — rather than emitting
     an empty holdout.
 
-    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even
-    though `dataset_build` dedups train only. Measured on the real corpus, weighting by
-    unique content is *worse*: it gives train 1,434 unique crops instead of 1,719 and doubles
-    holdout to 10,944 raw rows. The reason is that train-only dedup makes a redundancy-heavy
-    session nearly free in train (4,992 raw collapses to 245) but full price in holdout, so
-    "oversized sessions go to train" is already the right policy — which is what rule 2 does.
+    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even though
+    `dataset_build` dedups train only. Weighting by unique content measured *worse*: train gets
+    1,434 unique crops instead of 1,719 and holdout doubles to 10,944 raw rows, because
+    train-only dedup makes a redundancy-heavy session nearly free in train (4,992 collapses to
+    245) but full price in holdout — so "oversized goes to train" is already right (rule 2).
     """
     force_train = set(force_train or ())
+    if groups:
+        return _assign_by_group(sizes, val_frac, test_frac, seed, force_train, groups)
     rng = random.Random(seed)
     items = [(k, v) for k, v in sizes.items() if k not in force_train]
     rng.shuffle(items)                       # deterministic tiebreak
@@ -279,6 +281,28 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     return splits
 
 
+def groups_of(rows: list[dict]) -> dict:
+    """session -> `split_group` the producer declared, falling back to the session itself."""
+    return {r["session_id"]: r.get("split_group", r["session_id"]) for r in rows}
+
+
+def _assign_by_group(sizes: dict, val_frac: float, test_frac: float, seed: int,
+                     force_train: set, groups: dict) -> dict:
+    """Run the session greedy over GROUPS, then expand each group back to its sessions.
+
+    A producer that cuts one recording into pseudo-sessions (`composite.build_from_video`) must
+    declare the group, or adjacent frames of one clip land in different splits and val measures
+    train. A group inherits `force_train` from any member — pinning half a clip would let the
+    other half straddle, which is the leak this closes."""
+    members: dict = {}
+    for sid in sizes:
+        members.setdefault(groups.get(sid, sid), []).append(sid)
+    gsizes = {g: sum(sizes[s] for s in ss) for g, ss in members.items()}
+    gforce = {g for g, ss in members.items() if any(s in force_train for s in ss)}
+    gsplits = assign_sessions_to_splits(gsizes, val_frac, test_frac, seed, force_train=gforce)
+    return {name: [s for g in gs for s in sorted(members[g])] for name, gs in gsplits.items()}
+
+
 def make_split(
     rows: list[dict],
     val_frac: float = config.DEFAULT_VAL_FRAC,
@@ -298,7 +322,8 @@ def make_split(
         splits = {k: list(precomputed_splits.get(k, [])) for k in ("train", "val", "test")}
     else:
         sizes = Counter(r["session_id"] for r in rows)
-        splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed, force_train=force_train)
+        splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
+                                           force_train=force_train, groups=groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
 
     # Subsampling ONLY on train; val/test stay complete (real board accuracy).
@@ -475,7 +500,7 @@ def write_augment_yaml(path: Path) -> Path:
 # --- CLI level ------------------------------------------------------------------------
 
 def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
-    path = Path(manifest) if manifest else config.DATA.manifests / "squares.jsonl"
+    path = Path(manifest) if manifest else config.DATA.crop_pool / "manifest.jsonl"
     try:
         rows = load_manifest(path)
     except FileNotFoundError as e:
@@ -490,7 +515,7 @@ def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
 
 def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: int,
               max_class_ratio: float | None = None, allow_degenerate: bool = False) -> int:
-    manifest_path = config.DATA.manifests / "squares.jsonl"
+    manifest_path = config.DATA.crop_pool / "manifest.jsonl"
     try:
         rows = load_manifest(manifest_path)
     except FileNotFoundError as e:
@@ -508,10 +533,10 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
             for e in errors:
                 print(f"[FAIL] {e}")
             return 1
-    out = config.DATA.manifests / "split.json"
+    out = config.DATA.reports / "split.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_augment_yaml(config.DATA.manifests / "augment.yaml")
+    write_augment_yaml(config.DATA.reports / "augment.yaml")
     print(f"[OK] split.json: train={split['counts']['train']} (balanced) val={split['counts']['val']} test={split['counts']['test']}")
     print(f"     Sessions: train={len(split['splits']['train'])} val={len(split['splits']['val'])} test={len(split['splits']['test'])}")
     print(f"     max_empty_ratio={max_empty_ratio} max_class_ratio={max_class_ratio}")
@@ -526,8 +551,8 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
 
 
 def run_verify() -> int:
-    manifest_path = config.DATA.manifests / "squares.jsonl"
-    split_path = config.DATA.manifests / "split.json"
+    manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+    split_path = config.DATA.reports / "split.json"
     try:
         rows = load_manifest(manifest_path)
     except FileNotFoundError as e:

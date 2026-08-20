@@ -18,7 +18,7 @@ export type ReviewNote =
 export type ReviewNoteRow = ReviewNote & { ts: string };
 
 export function reviewNotesPath(): string {
-  return path.join(dataDir(), "manifests", "review-notes.jsonl");
+  return path.join(dataDir(), "labels", "review-notes.jsonl");
 }
 
 export function validateNote(row: unknown): ReviewNote {

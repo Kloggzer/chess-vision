@@ -2,12 +2,15 @@
 
 Status: 2026-07-02 · ~11,000 lines Python (src + move_tracker + synth + tests) · Review basis: 4 parallel subsystem analyses
 
+**Note:** this review predates the 2026-08-18 move to 13 identity classes plus a regressed
+coverage output. `docs/class-scheme.md` is authoritative for the class scheme.
+
 ## Mission & System Context
 
-`chesslab` is a **data-tool ecosystem** for per-square chess piece recognition (14 classes including
-`occluded`) from a fixed-mounted camera. Labels are generated automatically from the known
-game state (FEN). Around the core, three satellites have formed that were not foreseen in the original
-spec layout (CLAUDE.md):
+`chesslab` is a **data-tool ecosystem** for per-square chess piece recognition (13 identity
+classes plus a measured coverage output) from a fixed-mounted camera. Labels are generated
+automatically from the known game state (FEN). Around the core, three satellites have formed
+that were not foreseen in the original spec layout (CLAUDE.md):
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐

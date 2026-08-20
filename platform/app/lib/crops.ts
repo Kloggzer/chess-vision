@@ -1,16 +1,15 @@
 /**
  * Cell crops and rectified boards, cut out of the session's stored board (`cutSource`).
  *
- * The review PNGs under `data/realgames/<name>/frames/` are rectified but cover only the commit
+ * The review PNGs under `data/recordings/<name>/review/` are rectified but cover only the commit
  * bursts (60 of 1 729 stems on rec-20260808-003957), so they cannot serve the stream's frames.
  * `sharp` only decodes and encodes here; the sampling is `lib/warp.ts`, which has the projective
  * warp sharp lacks.
  */
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
-import { sessionDir } from "@/lib/chain";
 import { alphaPath } from "@/lib/matte";
-import { boardPath, boardToStored, framePath, loadSession, type Session } from "@/lib/session";
+import { boardPath, boardToStored, framePath, loadSession, type Session, sessionDir } from "@/lib/session";
 import path from "node:path";
 import {
   boardToImage,

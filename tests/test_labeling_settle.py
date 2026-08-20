@@ -49,6 +49,16 @@ def session(tmp_path, monkeypatch):
     return sdir, prof, tmp_path
 
 
+def _corrections(sdir, by_square, frame):
+    """A correction is a row in the session's own ledger now, not an argument."""
+    import json as _json
+
+    (sdir / "corrections.jsonl").write_text(
+        "".join(_json.dumps({"session_id": "s1", "frame": frame, "square": sq,
+                             "label": lab}) + "\n"
+                for sq, lab in by_square.items()), encoding="utf-8")
+
+
 def _slice(session, **kw):
     sdir, prof, root = session
     return slice_session(sdir, profile=prof, manifest_path=root / "m.jsonl",
@@ -76,9 +86,11 @@ def test_a_row_without_a_score_is_not_judged(session):
 
 def test_a_human_correction_outranks_the_doubt(session):
     """Same rule as `dirty`: the gate is a doubt, and a person who looked knows more than it."""
-    res = _slice(session, label_overrides={("s1", "000002", "e4"): "occluded"})
+    _corrections(session[0], {"e4": "empty"}, "000002")
+
+    res = _slice(session)
 
     assert res["unsettled_dropped"] == 0
     assert res["crops"] == 3 * 64
-    written = {p.name for p in (session[2] / "squares" / "occluded").glob(f"*{CROP_SUFFIX}")}
+    written = {p.name for p in (session[2] / "squares" / "empty").glob(f"*{CROP_SUFFIX}")}
     assert f"s1_000002_e4{CROP_SUFFIX}" in written

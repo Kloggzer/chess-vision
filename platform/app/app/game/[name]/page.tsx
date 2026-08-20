@@ -4,14 +4,14 @@ import { GameCard, type GameInfo } from "@/app/cards";
 import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { SessionDelete } from "@/components/session-delete";
-import { chainState, sessionDir } from "@/lib/chain";
+import { chainState } from "@/lib/chain";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { jobHistory, jobLogTail, type Job } from "@/lib/jobs";
 import { loadMeta } from "@/lib/meta";
 import { boardProgressOf, loadModelReads, readKey, type ReadCensus } from "@/lib/model-reads";
 import { bareFrames } from "@/lib/queues";
-import { sessionId } from "@/lib/session";
+import { sessionDir, sessionId } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +29,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
     chainState(name),
     truthSans(name).catch(() => null),
   ]);
-  const decided = await judgedKeys(sessionId(name));
+  const decided = await judgedKeys(name);
   const { census, boards, done } = await boardProgressOf(name, decided.keys());
   const { rows } = await loadModelReads(name);
   const info: GameInfo = {

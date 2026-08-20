@@ -266,13 +266,12 @@ def collect_play(
 @app.command("ui")
 def ui_cmd(
     sessions: str = typer.Option(None, "--sessions", help="Sessions directory (default: data/sessions)."),
-    manifest: str = typer.Option(None, "--manifest", help="Optional manifest (informational only)."),
     target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
 ) -> None:
     """Stage 6 — Training data dashboard standalone (without active capture)."""
     from .collect_ui import run_ui
 
-    raise typer.Exit(run_ui(sessions_dir=sessions, manifest=manifest, target_per_class=target))
+    raise typer.Exit(run_ui(sessions_dir=sessions, target_per_class=target))
 
 
 # `session` — everything that edits a recorded session before it is sliced.
@@ -614,7 +613,7 @@ def session_review(
 
 @realgames_app.command("confirm")
 def realgames_confirm(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     yes: bool = typer.Option(False, "--yes",
                              help="Unprompted: keep every matched ply, drop every unmatched one."),
 ) -> None:
@@ -641,7 +640,7 @@ def realgames_confirm(
 
 @realgames_app.command("scan-video")
 def realgames_scan_video(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     stride: int = typer.Option(0, "--stride", help="Scan every Nth frame (0 = the measured 3)."),
     rescan: bool = typer.Option(False, "--rescan", help="Redo a scan that is already on disk."),
 ) -> None:
@@ -666,7 +665,7 @@ def realgames_scan_video(
 
 @realgames_app.command("export-session")
 def realgames_export_session(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     quiet_margin_s: float = typer.Option(1.0, "--quiet-margin-s",
                                          help="Declared hand margin around each commit."),
     dirty: bool = typer.Option(True, "--dirty/--no-dirty",
@@ -683,7 +682,7 @@ def realgames_export_session(
     report_only: bool = typer.Option(False, "--report-only",
                                      help="Compute the yield table, write nothing."),
 ) -> None:
-    """Turn a CONFIRMED real-game candidate into `data/sessions/rg-<name>/` for `chesslab slice`.
+    """Cut a CONFIRMED candidate into its own folder `data/recordings/<name>/` for `chesslab slice`.
 
     The night-light domain and every occlusion window exist only in the recorded videos, and
     nothing extracted them. A reviewed ply's `fen_after` is the known position from its commit
@@ -710,7 +709,7 @@ def realgames_export_session(
 
 @realgames_app.command("fit-stored")
 def realgames_fit_stored(
-    name: str | None = typer.Argument(None, help="Real-game name under data/realgames/."),
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
     all_bundles: bool = typer.Option(False, "--all",
                                      help="Every bundle with a stored session, one after the other."),
 ) -> None:
@@ -739,7 +738,7 @@ def realgames_fit_stored(
 
 @realgames_app.command("model-read")
 def realgames_model_read(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     model: str = typer.Option(..., "--model", help="Run dir of a model that did NOT train on "
                                                    "this session (refused if it did)."),
     device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
@@ -774,7 +773,7 @@ def realgames_audit_corrections() -> None:
     from . import label_audit
 
     r = label_audit.audit_corrections()
-    path = label_audit.write_report(r["rows"], config.DATA.manifests / "correction-violations.jsonl")
+    path = label_audit.write_report(r["rows"], config.DATA.reports / "correction-violations.jsonl")
     print(f"[OK] {r['frames']} frames break a rule after their corrections "
           f"({r['cells']} correction cells of {r['corrections_total']}) -> {path}")
     for rule, n in sorted(r["per_rule"].items(), key=lambda kv: -kv[1]):
@@ -876,7 +875,7 @@ def slice_cmd(
     piece_height: float = typer.Option(config.EXP_PIECE_HEIGHT_CELLS, "--piece-height",
                                        help="box3d: extrusion height in cells."),
     variant_tag: str = typer.Option(None, "--variant-tag",
-                                    help="Store crops/manifest with variant tag (squares__<tag>/)."),
+                                    help="Store crops/manifest with variant tag (crops/<tag>/)."),
 ) -> None:
     """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
@@ -930,7 +929,6 @@ def experiment_table(
 
 @experiment_app.command("list")
 def experiment_list(
-    sessions: str = typer.Option("", "--sessions", help="(optional, irrelevant for table columns)."),
     geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
     photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
     heads: str = typer.Option("combined", "--heads"),
@@ -939,12 +937,12 @@ def experiment_list(
     from . import experiment as experiment_mod
 
     raise typer.Exit(experiment_mod.variant_status(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads)))
+        _csv_list(geometries), _csv_list(photometries), _csv_list(heads)))
 
 
 @app.command("stats")
 def stats_cmd(
-    manifest: str = typer.Option(None, "--manifest", help="Manifest path (default: data/manifests/squares.jsonl)."),
+    manifest: str = typer.Option(None, "--manifest", help="Manifest path (default: data/crops/default/manifest.jsonl)."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Dataset report: 13-class distribution + light/dark coverage + warnings."""
@@ -971,8 +969,8 @@ def split_cmd(
 def occluders_composite(
     video: str = typer.Option(..., "--video", help="Board clip (ArUco per frame)."),
     fen: str = typer.Option(..., "--fen", help="The position the board holds for the whole clip."),
-    plates: str = typer.Option("data/occluders/plates", "--plates", help="RGBA tiles."),
-    tag: str = typer.Option("comp", "--tag", help="Crop pool `data/squares__<tag>/` + manifest."),
+    plates: str = typer.Option(str(config.DATA.plates), "--plates", help="RGBA tiles."),
+    tag: str = typer.Option("comp", "--tag", help="Crop pool `data/crops/<tag>/` + manifest."),
     stride: int = typer.Option(composite_mod.STRIDE, "--stride",
                                help="Frames between two boards. On the turntable that is an "
                                     "ANGLE: 0.43 deg per frame, so 8 is ~3.4 deg."),
@@ -990,8 +988,8 @@ def occluders_composite(
 
     res = comp.build_from_video(
         video=Path(video), plate_dir=Path(plates),
-        out_root=config.DATA.root / f"squares__{tag}",
-        manifest=config.DATA.manifests / f"squares__{tag}.jsonl",
+        out_root=config.DATA.crops / tag,
+        manifest=config.DATA.crops / tag / "manifest.jsonl",
         fen=fen, board_size=board_size, out_size=labeling_mod.parse_out_size(out_size),
         stride=stride, seed=seed)
     if res.get("error"):
@@ -1004,8 +1002,9 @@ def occluders_composite(
 
 @occluders_app.command("extract")
 def occluders_extract(
-    src: str = typer.Option("data/occluders", "--in", help="Folder of clips shot over a backdrop."),
-    out: str = typer.Option("data/occluders/plates", "--out", help="Where the RGBA tiles land."),
+    src: str = typer.Option(str(config.DATA.footage / "occluders"), "--in",
+                            help="Folder of clips shot over a backdrop."),
+    out: str = typer.Option(str(config.DATA.plates), "--out", help="Where the RGBA tiles land."),
     stride: int = typer.Option(2, "--stride", help="Take every Nth frame before novelty filtering."),
     max_iou: float = typer.Option(0.85, "--max-iou",
                                   help="Overlap above which a pose counts as one already kept."),
@@ -1039,7 +1038,7 @@ def occluders_extract(
 
 @occluders_app.command("recut")
 def occluders_recut(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
 ) -> None:
     """Recompute coverage for every frame whose alpha a human corrected in the matte view.
 
@@ -1059,7 +1058,7 @@ def occluders_recut(
 
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
-    name: str | None = typer.Argument(None, help="Real-game name under data/sessions/rg-<name>/."),
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
     all_sessions: bool = typer.Option(False, "--all",
                                       help="Every exported session in ONE process — the weights "
                                            "load once instead of per session (6-10 min each)."),
@@ -1075,14 +1074,15 @@ def occluders_alpha_worker(
     Runs long by design (11.9 s a frame) and appends every row as it lands, so it can be stopped
     and resumed at any point. The pile itself was chosen by the frame scan (`docs/frame-scan.md`).
     """
-    from . import config
     from . import matte as matte_mod
 
     if bool(name) == all_sessions:
         print("[ERR] name or --all, not both")
         raise typer.Exit(1)
     if all_sessions:
-        names = sorted(d.name[3:] for d in config.DATA.sessions.glob("rg-*") if d.is_dir())
+        from .sessions import all_sessions
+
+        names = [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
         res = matte_mod.alpha_worker_all(names, limit=limit or None, reason=reason)
         print(f"[OK] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
               f"({res['already']} lagen schon vor)", flush=True)
@@ -1176,8 +1176,8 @@ def dataset_build_cmd(
         help="Pack at the MODEL's size (e.g. 80x80) instead of the crop file's. Scales once."),
     source_manifest: str | None = typer.Option(None, "--source-manifest",
                                                help="Crop pool(s) to filter, comma-separated. Default: "
-                                                    "manifests/squares.jsonl. Needed after `ingest --tag X "
-                                                    "--no-build`, which writes manifests/squares__X.jsonl."),
+                                                    "crops/default/manifest.jsonl. Needed after `ingest "
+                                                    "--tag X --no-build`, which writes crops/X/manifest.jsonl."),
     classes: str | None = typer.Option(None, "--classes",
                                        help="pieces13 (13, default) | pieces (14, with `occluded`, "
                                             "which has zero rows in the corpus) | occupancy (2: "
@@ -1201,6 +1201,13 @@ def dataset_build_cmd(
                                              "metric, which is a max over empty crops - more crops "
                                              "can only raise it, so numbers from the donor's test "
                                              "set are NOT comparable to numbers from this one."),
+    force_train: str | None = typer.Option(None, "--force-train",
+                                          help="Session IDs (comma-separated) pinned to TRAIN. "
+                                               "Pins the whole split group, so naming one block of "
+                                               "a clip keeps the clip together. Use it for material "
+                                               "that must not sit in a holdout - the only position "
+                                               "a composite corpus has, an all-empty lighting "
+                                               "capture - and say in the dataset why."),
     add_train: str | None = typer.Option(None, "--add-train",
                                          help="With --like: extra session IDs appended to the TRAIN "
                                               "split. Unlike --add-test this CHANGES what the model "
@@ -1221,6 +1228,7 @@ def dataset_build_cmd(
                                allow_degenerate=allow_degenerate, pack=not no_pack,
                                pack_size=labeling_mod.parse_out_size(pack_size) if pack_size else None,
                                class_mode=classes, like=like,
+                               force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
                                add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()])
     except ValueError as e:
@@ -1287,15 +1295,37 @@ def dataset_build_synth_cmd(
 
 
 @dataset_app.command("pack")
-def dataset_pack_cmd(name: str = typer.Argument(..., help="Dataset to pack.")) -> None:
+def dataset_pack_cmd(
+    name: str = typer.Argument(..., help="Dataset to pack."),
+    pack_size: str = typer.Option(None, "--pack-size",
+                                  help="Pack at the MODEL's resolution (e.g. 80x80) instead of the "
+                                       "crop file's. The crop store went to 128 px for the label "
+                                       "view; packing that verbatim costs 22.6 GB where the 80 px "
+                                       "recipe needs 9.5, and every batch then pays a resize."),
+    from_: str = typer.Option(None, "--from",
+                              help="Read another dataset's memmap instead of decoding a second "
+                                   "copy. For a variant whose manifest only re-SELECTS rows the "
+                                   "owner already packed; refused when it needs a crop the owner "
+                                   "does not carry. Deletes this dataset's own memmap if present."),
+) -> None:
     """Pack a dataset's crops into one memmap for fast training (1M+ PNG I/O fix).
 
     Decodes every crop once into ``data/datasets/<name>/packed_images.u8``; `train --dataset <name>`
     then reads from the memmap instead of opening 1M files per epoch. Re-run after rebuilding.
     """
+    if from_:
+        from .training.pack import link_pack
+
+        try:
+            link_pack(name, from_)
+        except ValueError as e:
+            print(f"[FAIL] {e}")
+            raise typer.Exit(1) from None
+        return
+    from . import labeling as labeling_mod
     from .training.pack import pack_dataset
 
-    res = pack_dataset(name)
+    res = pack_dataset(name, out_size=labeling_mod.parse_out_size(pack_size) if pack_size else None)
     print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
 
 
@@ -1376,7 +1406,7 @@ def train_cmd(
       hard_negative_multiplier: float = typer.Option(
           1.0,
           "--hard-negative-multiplier",
-          help="Sampling weight for paths in data/manifests/hard_empty.jsonl (1 = disabled).",
+          help="Sampling weight for paths in data/reports/hard_empty.jsonl (1 = disabled).",
       ),
     split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
                                      "(default: split.json). Lets several folds share ONE packed "

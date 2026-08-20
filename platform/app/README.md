@@ -1,7 +1,15 @@
 # chesslab platform app — relabel MVP
 
-Local Next.js front-end for `data/realgames/` (specs/53 phase 03). Nothing here imports chesslab;
+Local Next.js front-end for `data/recordings/` (specs/53 phase 03). Nothing here imports chesslab;
 the file formats are the only bridge.
+
+**A recording is one folder, and everything that only says something about it lives inside** — the
+import (`candidate.json`, `video.mp4`, `files/`, `review/`, `review-extra/`), what was cut from it
+(`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`) and its own
+`corrections.jsonl` and `useless.json`. `lib/data.ts` `gameDir` is the only place that names the
+path. Everything derived lives outside and is rebuildable: `data/crops/<tag>/` (crops plus that
+pool's `manifest.jsonl`), `data/datasets/`, `data/models/`, `data/reports/`. Outside a recording
+this app touches only `data/labels/review-notes.jsonl` and its own `data/inbox/`.
 
 1. `echo CHESSLAB_DATA_DIR=C:/Users/<you>/project/chess-vision/data > .env.local` (absolute path to `data/`).
 2. `npm install && npm run dev` → http://localhost:3000 lists the candidates.
@@ -12,19 +20,25 @@ the file formats are the only bridge.
 
 ## `/relabel/<name>` — the streams (phase 03b)
 
-Reads `data/realgames/<name>/model-reads.jsonl` (line 1 = `_model`/`_classes`/`_written_at`) and the exported
-session `data/sessions/rg-<name>/`. Streams: **bucket grid** (score > hi, one `Enter` confirms a
+Reads `data/recordings/<name>/model-reads.jsonl` (line 1 = `_model`/`_classes`/`_written_at`) and the
+session the export cut into **the same folder** — `session.yaml` + `log.jsonl` + `boards/` under
+`data/recordings/<name>/`, carrying the id `rg-<name>` (`lib/session.ts` `sessionDir` is `gameDir`).
+Streams: **bucket grid** (score > hi, one `Enter` confirms a
 page of 60 — clicks are for exceptions; the mid-band between `lo` and `hi` is its own grid, and the
-control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on the rectified frame;
-drag paints `occluded` over every cell the pointer enters, eraser/right button clears, a click
-without a drag cycles FEN → occluded → empty; writes on navigate-away). The one-card *tinder* view
+control stream below `lo` writes NOTHING), **board drilldown** (8×8 overlay on the rectified frame).
+Painting `occluded` is gone: it is `lib/classes.ts`'s `LEGACY_LABEL`, still READ so the 31 271 rows
+that carry it stay legible, but nothing writes another one — occlusion is measured as `coverage`
+(`matte.jsonl`), not asked, and only the 13 identities are writable. The one-card *tinder* view
 was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §S7). A queue's **flags arrive selected**
 and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
-says so live, flags taken off go to `reviewed.jsonl`, `⌫` takes all of them off.
+says so live, `⌫` takes all of them off. The `reviewed` ledger was retired on 2026-08-20 — the
+mechanism is still in `lib/corrections.ts`, its file no longer has to exist.
 
-- Corrections go out through `POST /api/corrections` — appended to
-  `$CHESSLAB_DATA_DIR/manifests/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
-  That file is a **global training input**: park it between experiments.
+- Corrections go out through `POST /api/corrections` — appended to that recording's own
+  `data/recordings/<name>/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
+  The rows stay a **global training input** (park them between experiments); only the file moved
+  next to the recording it judges, so a re-slice can never carry a human's ruling away. It holds
+  identity labels only, and the writer validates rather than trusting the client.
 - Pixels: `/api/board/<name>/<stem>` and `/api/cell/<name>/<stem>/<square>` (`?median=1`) cut the
   RAW session frames through the per-frame quad (`lib/warp.ts`, calibrated against
   `data/calibration/desktop.yaml` in `warp.test.ts`). The rectified review PNGs cover only the
@@ -36,7 +50,7 @@ says so live, flags taken off go to `reviewed.jsonl`, `⌫` takes all of them of
 ## `/transfers` — the phone's recordings arrive by themselves
 
 The tracker pushes a finished recording to this server over the LAN; the files land in
-`data/realgames/<name>/files/` (the layout the USB tar produced) and `:desktop training-video-pack`
+`data/recordings/<name>/files/` (the layout the USB tar produced) and `:desktop training-video-pack`
 is queued behind it, one job at a time. Full path, protocol and failure modes:
 [`docs/phone-transfer.md`](../../docs/phone-transfer.md).
 
@@ -59,7 +73,7 @@ Every card on `/` shows the ONE step that can run now, read off the disk rather 
 |---|---|
 | no `candidate.json` | **Label** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
 | candidate, not confirmed | **Confirm →** `/confirm/<name>`, the human step |
-| confirmed, no `data/sessions/rg-<name>/` | **Export session** — `uv run chesslab realgames export-session` |
+| confirmed, no `log.jsonl` in the recording | **Export session** — `uv run chesslab realgames export-session` (it cuts into `data/recordings/<name>/`, writing `log.jsonl` LAST) |
 | session, no `model-reads.jsonl` | **Modell-Lesarten** — `uv run chesslab realgames model-read <name> --model <run dir>` |
 | everything there | **Relabel →** `/relabel/<name>` |
 | `useless.json` set | nothing — the step is `null` until "doch brauchbar" |
@@ -96,7 +110,7 @@ starting the dev server must not touch the corpus.
   Only one drain exists at a time, because the slot is one.
 - **The counts** come from `lib/backlog.ts` (pure and tested): per step, every non-`useless`,
   non-`archived` recording whose `nextStep()` is that step and whose ledger says it is neither busy
-  nor failed. `lib/drain.ts` caches one pass for 10 s, so polling does not re-walk `realgames/`.
+  nor failed. `lib/drain.ts` caches one pass for 10 s, so polling does not re-walk `recordings/`.
 - **Never a retry.** The marker is the job ledger's last row for that recording: `kind` names the
   step, `failed`/`skipped` means a human presses or nothing happens. Those rows are the
   **`/reparatur`** lane, with the tool's own last words and the manual button.
@@ -128,7 +142,7 @@ sorts by its clock and not by its `V`). `/relabel` has a second section, **Noch 
 a recording with no `candidate.json`, i.e. the machine step in front of the queue that nobody
 started — with the button that starts it, because an empty queue with no explanation reads as a bug.
 
-`data/realgames/<name>/useless.json` is the human's verdict that a recording is not worth work:
+`data/recordings/<name>/useless.json` is the human's verdict that a recording is not worth work:
 
 ```json
 { "at": "2026-08-14T21:42:28Z", "reason": "Brett halb aus dem Bild", "undone_at": "..." }

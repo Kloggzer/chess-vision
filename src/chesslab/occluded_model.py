@@ -130,10 +130,9 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
     trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
     """
-    from . import config
     from .realgames import PROGRESS_EVERY, game_dir
 
-    session_dir = config.DATA.sessions / f"rg-{name}"
+    session_dir = game_dir(name)
     if not (session_dir / "log.jsonl").exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     meta = read_session_meta(session_dir)

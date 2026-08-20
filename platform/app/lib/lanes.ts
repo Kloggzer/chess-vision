@@ -89,9 +89,9 @@ export const NO_QUERY =
   "/api/query hat nicht geantwortet — die Klassenwand ist eine serverseitige Abfrage, und ohne " +
   "ihre Antwort ist die Zahl unbekannt, nicht null.";
 export const NO_AUDIT =
-  "data/manifests/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
+  "data/reports/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
 export const NO_RULES =
-  "data/manifests/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
+  "data/reports/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
 
 /** What an empty lane says. Only the Stichprobe can run DRY — it redraws over the unjudged cells,
  *  so nothing left there means the corpus is through, not that no work has arrived yet. */

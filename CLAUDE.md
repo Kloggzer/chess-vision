@@ -26,6 +26,10 @@
   `train` to `--head occlusion`, which reads the manifest's `coverage` and masks every cell over
   `PIECE_VISIBLE_MAX = 0.15` out of the classification loss. Nobody paints occlusion any more —
   the human only checks that the alpha and the shown position are right.
+  **Android has not followed (2026-08-20):** every bundled model is still 14-class softmax with
+  `occluded` at index 13, none declares `coverage_output`, and 10 occlusion runs exist as `.pt`
+  but none as ONNX. So `pOccluded` still comes from a softmax class and `gridOccluded` stays the
+  arm to trust (`docs/class-scheme.md`).
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** Web Read-Paths via `manifest_cache.py` (mtime-keyed).
@@ -48,6 +52,7 @@
 - **Occlusion:** Models without the `occluded` class have `pOccluded = 0.0`. Hand verification must rely on the **MODEL-FREE** arm (`gridOccluded`) because the CNN arm is blind. Measured on 003957's 67-ply reference: 38/67 plies with 4 invented → **67/67 with 0 invented** (raw map), **LCS 65/67** under the adjacency rule. The gate only counts HAND-SHAPED flags (≥ 1 orthogonally adjacent pair): counting any flag blanks a whole replay on one leaning piece (c8), and a count threshold of 3 lets the leaving hand's 2-flag tail commit the fabrication it exists to stop.
 - **Normalization:** BatchNorm works well; the learning rate is the critical factor, not the norm choice. Never rank normalizers at one shared rate — sweep the rate per normalizer or do not compare.
 - **Metrics:** `val_acc` correlates inversely to the Veto Metric. Use `sweep_infer_size.py`.
+- **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 
 ### 2. Data & Splits
 - **Reproducibility:** Splits are not deterministic from Params → **always use `split.json`**.

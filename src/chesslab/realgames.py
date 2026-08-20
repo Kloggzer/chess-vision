@@ -25,7 +25,8 @@ from .state import GameState
 
 
 def game_dir(name: str) -> Path:
-    return config.DATA.root / "realgames" / name
+    """The one folder for a recording. `session_id` keeps the `rg-` prefix, the directory never had it."""
+    return config.DATA.recordings / name
 
 
 def load_candidate(name: str) -> dict:
@@ -351,20 +352,18 @@ def _export_row(seg: dict, idx: int, corners: list, base, fps: float,
     return row
 
 
-def corrected_frames(session_id: str) -> set[int]:
-    """Source indices carrying a hand correction a 13-class model can still use.
+def corrected_frames(name: str) -> set[int]:
+    """Source indices this recording carries a hand correction for — a correction names a picture.
 
-    31 271 of 39 996 corrections say `occluded` — the class this pipeline replaces, so they steer
-    nothing. The 8 725 identity ones name a picture, and a picture is a frame index.
+    Reads the recording's own ledger, so there is nothing to filter by session: every row in it
+    is about this recording, and every label in it is an identity (`occluded` was dropped when the
+    scheme went to 13 + coverage).
     """
-    from .config import DATA, IDENTITY_CLASSES
     from .labeling import load_corrections
 
-    out = set()
-    for (sid, frame, _square), label in load_corrections(DATA.corrections).items():
-        if sid == session_id and label in IDENTITY_CLASSES and str(frame).isdigit():
-            out.add(int(frame))
-    return out
+    return {int(frame)
+            for (_sid, frame, _square) in load_corrections(game_dir(name) / "corrections.jsonl")
+            if str(frame).isdigit()}
 
 
 def reported_dirty(session_id: str) -> set[int]:
@@ -378,7 +377,7 @@ def reported_dirty(session_id: str) -> set[int]:
 
     from .config import DATA
 
-    path = DATA.manifests / "review-notes.jsonl"
+    path = DATA.labels / "review-notes.jsonl"
     out = set()
     if not path.exists():
         return out
@@ -938,12 +937,14 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
     if (session_dir / "log.jsonl").is_file():
         print(f"  previous log backed up as {backup_log(session_dir / 'log.jsonl')}")
     meta = {
-        "session_id": session_dir.name,
+        # The id keeps the `rg-` prefix the DIRECTORY dropped: it is the join key in every
+        # manifest and in `sessions.session_dir`, so it must not follow the folder rename.
+        "session_id": f"rg-{session_dir.name}",
         "profile": EXPORT_PROFILE,
         "mode": "track",
         "created_at": base_time(candidate).isoformat(),
         "frame_size": [int(v) for v in candidate["geometry"]["frame_size"]],
-        "notes": f"exported from data/realgames/{name} (specs/53-01)",
+        "notes": f"exported from data/recordings/{name} (specs/53-01)",
         "reviewed": True,
     }
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -997,7 +998,7 @@ def export_session(
     fit: bool = True,
     report_only: bool = False,
 ) -> dict:
-    """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
+    """A confirmed candidate is cut into its own `data/recordings/<name>/`, and reports its worth."""
     from . import framescan
 
     if is_archived(name):
@@ -1026,7 +1027,7 @@ def export_session(
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     scan = framescan.read_scan(name)
     if scan:
-        prefer = corrected_frames(f"rg-{name}")
+        prefer = corrected_frames(name)
         reported = reported_dirty(f"rg-{name}")
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
                             per_position=per_position or 8, dirty_per_position=dirty_per_position,
@@ -1048,7 +1049,7 @@ def export_session(
                 f"{name}: confirmed, but not one ply is reviewed — re-run the confirmation "
                 f"(its {len(candidate['moves'])} moves have nothing vouching for them)")
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
-    session_dir = config.DATA.sessions / f"rg-{name}"
+    session_dir = game_dir(name)
     if not report_only:
         # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
         # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
@@ -1233,7 +1234,7 @@ def export_static(
     """
     import numpy as np
 
-    session_dir = config.DATA.sessions / f"rg-{name}"
+    session_dir = game_dir(name)
     frames_dir = session_dir / "frames"
     frames = sorted(frames_dir.glob("[0-9]*.png"))
     if not frames:
@@ -1559,7 +1560,7 @@ def fit_stored(name: str) -> list[dict]:
 
 
 def bundles_with_stored() -> list[str]:
-    root = config.DATA.root / "realgames"
+    root = config.DATA.recordings
     return sorted(d.name for d in root.iterdir() if stored_session_dirs(d.name)) if root.is_dir() else []
 
 

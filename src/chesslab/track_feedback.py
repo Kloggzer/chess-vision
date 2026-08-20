@@ -61,9 +61,9 @@ def ingest_feedback(*, assume_ghost: bool = True, visualize: bool = False,
     if not records:
         return {"ok": True, "records": 0, "crops": 0, "note": "no bad feedback to ingest"}
 
-    squares_root = config.DATA.squares
+    squares_root = config.DATA.crop_pool
     review_dir = fb_dir / "review"
-    manifest_path = config.DATA.manifests / "squares.jsonl"
+    manifest_path = config.DATA.crop_pool / "manifest.jsonl"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
 
     prof_cache: dict[str, object] = {}

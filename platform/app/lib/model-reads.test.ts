@@ -14,7 +14,7 @@ const LINES = [
 
 async function withFile(lines: string[], name = "g") {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-model-reads-"));
-  const dir = path.join(root, "realgames", name);
+  const dir = path.join(root, "recordings", name);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
   process.env.CHESSLAB_DATA_DIR = root;
@@ -37,7 +37,7 @@ test("header and rows, in the producer's order", async () => {
 
 test("no file is NOT MEASURED, and every count says so instead of claiming zero", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-model-reads-"));
-  await mkdir(path.join(root, "realgames", "g"), { recursive: true });
+  await mkdir(path.join(root, "recordings", "g"), { recursive: true });
   process.env.CHESSLAB_DATA_DIR = root;
   expect(await loadModelReads("g")).toMatchObject({ rows: [], present: false });
   expect(await readCensus("g")).toMatchObject({ present: false, boards: 0, cells: 0, model: null });

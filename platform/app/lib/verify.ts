@@ -61,7 +61,7 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
     }
     const id = sessionId(name);
     const [judged, unusable, reviews, bad, fixed, recutAt] = await Promise.all([
-      judgedKeys(id),
+      judgedKeys(name),
       unusableBoards(id),
       frameReviews(id),
       badIntervals(id),

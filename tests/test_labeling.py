@@ -81,7 +81,7 @@ def _make_session(tmp_path, session_id="sess1", board_size=800):
 
 def test_slice_start_position(tmp_path):
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
     stats = slice_session(sdir, profile=_identity_profile(), manifest_path=manifest, squares_root=squares_root)
 
@@ -141,7 +141,7 @@ def test_slice_uses_explicit_labels_incl_occluded(tmp_path):
     (sdir / "session.yaml").write_text(yaml.safe_dump({"session_id": "infsess", "profile": "test",
         "mode": "inference", "created_at": "t", "camera_index": 0, "frame_size": [640, 480]}), encoding="utf-8")
 
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     rows = {r["square"]: r["label"] for r in
@@ -168,7 +168,7 @@ def test_slice_uses_stored_corners_without_markers(tmp_path):
                         "created_at": "t", "camera_index": 0, "frame_size": [640, 480]}),
         encoding="utf-8")
 
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     assert stats["crops"] == 64 and stats["skipped"] == 0
@@ -176,7 +176,7 @@ def test_slice_uses_stored_corners_without_markers(tmp_path):
 
 def test_reslice_with_new_params_is_reproducible(tmp_path):
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
     prof = _identity_profile()
     slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares_root)

@@ -199,8 +199,8 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
         dd = dataset_dir(ds_name)
         manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
     manifest = load_manifest(manifest_path)
     split_data = load_split(split_path)
     rows = filter_rows_by_split(manifest, split_data, split)

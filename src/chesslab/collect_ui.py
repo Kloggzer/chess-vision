@@ -438,7 +438,7 @@ class CollectDashboard:
         return img
 
 
-def run_ui(sessions_dir: str | None = None, manifest: str | None = None,
+def run_ui(sessions_dir: str | None = None,
            target_per_class: int = config.UI_TARGET_PER_CLASS) -> int:
     """Standalone dashboard showing current status (without running capture)."""
     sdir = Path(sessions_dir) if sessions_dir else config.DATA.sessions

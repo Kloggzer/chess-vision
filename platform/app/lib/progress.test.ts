@@ -43,7 +43,7 @@ describe("progressOf", () => {
   });
 
   it("reads the recording's own duration as the denominator", async () => {
-    const session = path.join(data, "realgames", "x", "files", "sessions", "20260813-013915");
+    const session = path.join(data, "recordings", "x", "files", "sessions", "20260813-013915");
     await import("node:fs/promises").then((fs) => fs.mkdir(session, { recursive: true }));
     await writeFile(path.join(session, "session.yaml"), "video_duration_ns: 52000000000\n");
     await writeFile(log, REPLAY);

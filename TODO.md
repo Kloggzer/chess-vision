@@ -6,6 +6,25 @@
 
 ## Next up (agreed, not started)
 
+- **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20). Python ist
+  seit 2026-08-18 auf 13 Klassen + Coverage-Regression: `dataset build` defaultet auf `pieces13`,
+  `train` auf `--head occlusion`, das Modell gibt 13 Softmax-Logits plus EIN unabhängiges Sigmoid.
+  Das Handy ist auf dem 14er-Stand stehengeblieben: **kein** Asset unter
+  `android/app/src/main/assets/cnn_model/*/config.json` deklariert `coverage_output`, der Default
+  `real14-80` ist echtes 14-Klassen-Softmax mit `occluded` auf Index 13.
+  **Die Bruchstelle ist der Export, nicht die Leseseite.** `ModelSpec.coverageOutput` und
+  `observationFromProbs` lesen die Extraspalte längst, die Vertragstests dafür stehen
+  (`OnnxSquareClassifierContractTest`) — sie feuern nur nie. 10 Läufe unter `data/models/` tragen
+  `"head": "occlusion"`, aber keiner ist als ONNX exportiert und gebündelt.
+  **Reihenfolge:** (1) einen Occlusion-Lauf mit `chesslab export` ausgeben (schreibt
+  `coverage_output: true` selbst, `evaluate.py:236`), (2) `model.onnx` + `config.json` unter
+  `android/app/src/main/assets/cnn_model/<name>/` einhängen, (3) gegen `real14-80` per Replay
+  A/B fahren — die Veto-Metrik entscheidet, nicht `val_acc`. Erst danach kann `modelHandGate` vom
+  Softmax-Wert auf das kalibrierte Sigmoid umgestellt werden.
+  **Hängt zusammen mit** „Das 14er-Modell ist bei `occluded` zu aggressiv" weiter unten: das ist
+  genau die Klasse, die Python inzwischen abgeschafft hat. Ganze Chronik und Erkennungsregeln:
+  `docs/class-scheme.md`.
+
 - **Stored-Sessions loggen den unkorrigierten Marker-Quad** (gemessen 2026-08-15): `log.jsonl` der
   Android-Stored-Sessions trägt den rohen Marker-Quad, `packLabeledSession` und der Abnick-Viewer
   rechnen beide mit konstantem `DEFAULT_MARKER_MARGIN = 0.045` — real variiert das beste Margin pro
@@ -105,47 +124,6 @@
   Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
   Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
 
-### Erledigt 2026-08-14 (Abend, Agenten-Runde) — was es gemessen hat
-
-- **Session-Dateien verlieren nicht mehr still.** `SessionCapture` zählt überschriebene
-  Pending-Fotos (`supersededFrames`, Nc6/Nf3-Vorfall) und sagt es in `reason`;
-  `RecordingBundleHost` puffert die EINE Decision-Zeile, die die Session erst erzeugt, und
-  reicht sie in die frische Timeline nach (Ply 1 fehlte in beiden Abend-Sessions). Referenzen
-  sind ab jetzt trotzdem als Union aus `log.jsonl` + `timeline.jsonl` zu lesen — die Timeline
-  trägt jeden Commit mit SAN und FEN, Rekonstruieren ist nie nötig.
-
-- **Ein Arm-Owner statt zwei.** Der Doppel-„armed" beim Session-Wechsel kam nicht vom
-  Prefs-Kollektor, sondern von `finalizeVideo`: die Encoder-final-Notification armte sich
-  selbst neu, und ein Partie-Ende feuert sie zweimal (Session-Ende + Kamera-Stop). Re-Arm wohnt
-  jetzt in `finished()`; `VideoRecorderPort`-Naht macht es JVM-testbar, Test beißt (alter Code
-  = 3 Arms).
-
-- **Die Quiet-Kante schreibt jetzt.** Einziger wirklich stummer Exit war der Ambiguity-Trichter;
-  der schreibt eine gefaltete `QUIET ambiguous`-Zeile (eine pro Evidenzlage, nicht pro Frame,
-  `foldOnChanged`). Alle anderen Exits sind über `markStuck` bereits sichtbar oder tragen kein
-  changed-Set. Verhalten unverändert, Parity-Fixtures unberührt.
-
-- **`config=` erreicht jetzt wirklich den Lauf.** Der Defekt war die GEGENRICHTUNG der
-  notierten Messung (die 4-vs-8-Commits hatten Videos gekreuzt; All-Defaults war schon immer
-  No-Op): drei Stellen lasen Restart-Knobs aus dem Settings-Repository, das ein Replay auf
-  Defaults lässt — `alignEvery=2` aus einer Aufnahme kam nie an, `set:cnnVerify=false` wurde
-  still zurückgedreht (882 Observations vorher, 0 nachher). Fix: `withLiveKnobsOf` — die zwölf
-  Live-Knobs kommen aus dem Repo, alles andere aus der Config, mit der der Lauf gebaut wurde.
-
-- **Emulator-Kamera: `videofile:` ist ein Feed-Test, kein Tracking-Test** (gemessen 2026-08-14).
-  Drei Befunde: (1) Die 640x640-Blender-Clips können auf dem 16:9-Sensor NIE alle vier Marker
-  zeigen — der Füll-Crop schneidet zwei ab, "No board yet" ist damit strukturell, nicht zufällig;
-  der Smoke hat Tracking durch den Clip nie verifiziert ("this never worked", User). (2) Echtes
-  QHD-Material wird erkannt und live-aligned (Quad folgt einem schräg hängenden Brett bei 2/4
-  Codes). Die Wiedergabegeschwindigkeit passt bei längerem Zusehen ("die geschwindigkeit passt",
-  User) — der Sensor tickt mit 33 ms (~30 fps) gegen 27,97 fps Clip, also ~7 % schnell, praktisch
-  unauffällig; der erste Eindruck "zu schnell" hielt nicht. Für exakte Timing-/Engine-Fragen bleibt
-  trotzdem der Desktop-Replay das Werkzeug, weil nur er die Uhr des Materials fährt. (3) Ein Loop, der mitten in der
-  Partie startet, matcht nie die Startaufstellung — Commit-Pfade sind so nicht testbar. Will man
-  den Smoke zum Tracking-Test machen: Clips auf 16:9 padden, kurz halten (Loop-Start = Partiestart)
-  und die erwarteten UI-Texte gegen die specs/54-Wortlaute aktualisieren (scheitert heute an
-  "Start tracking").
-
 - **Lens end-to-end für die Rig-Kamera** (2026-08-10: *"ich würde gerne überall die Bilder sehen
   die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
   korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
@@ -190,87 +168,10 @@
   Nicht bewegbar: PyTorch-Training und der Datensatzbau. Ein `throw` in `chesslab slice` schaltet
   den Datensatzbau ab — der Umzug braucht vorher einen Kotlin-Weg, der die Crops liefert.
 
-### Erledigt 2026-08-14 — was es gemessen hat
-
-- **Der Recorder behält nur noch Footage, die ein Spiel trägt.** Der Encoder läuft ab
-  Tracking-Start SCHARF: die Samples liegen in einem Ringpuffer (20 s / 80 MB hart, getrimmt nur
-  an Keyframe-Grenzen — `camera/PreRollRing.kt`), der Muxer öffnet erst beim ersten committeten
-  Zug und schreibt den Vorlauf mit auf 0 rebasten Timestamps als Segment 0 (`CameraVideo.keep`).
-  Der Vorlauf gilt EINMAL, nicht pro Zug: die ruhigen Strecken zwischen den Zügen sind die
-  gelabelten Trainingsdaten. Kill vor dem ersten Zug = Puffer stirbt mit dem Prozess, nichts auf
-  der Platte (gewollt); Kill danach = wie bisher maximal ein Minuten-Segment weg. Auch das
-  SESSION-Verzeichnis entsteht erst beim ersten Commit (`SessionCaptureController.queue`) —
-  Aufbau, Markerkleben und Kalibrierung hinterlassen gar nichts mehr, und ein Janitor beim
-  App-Start räumt Altlasten (`sync/UploadPlan.kt::sweepEmptyRecordings`, nie über `transfer.json`
-  hinweg). Settings-Zeile sagt es ehrlich: "Armed — video starts with the first move".
-  **Am Gerät noch NICHT verifiziert** — bewusst dem Nutzer überlassen (Installs auf dem Handy nur
-  mit Backup, CLAUDE.md); JVM-Tests decken Ring, Commit-Gate und Janitor ab.
-
-- **Jede Aufnahme trägt jetzt ihre Settings.** Das Handy schreibt beim Session-Start
-  `settings.json` neben `session.yaml`: die volle TrackerConfig als ConfigCodec-Envelope
-  (identische Wire-Form wie der DataStore-Slot), Modell/EP/Auflösung/Orientierung aus den
-  AppSettings, Build-Version, plus `history` für jeden Knob, der mitten in der Session bewegt
-  wurde (`tracker-runtime record/SessionSettings.kt`, verdrahtet in `TrackerService`). Der
-  Replay-Dump `effective_config` ist seitdem KNOBS-getrieben statt handgepflegt — die
-  handgepflegte Liste war fünf Keys kurz, darunter `handTolerantCells`, exakt der Knob, den
-  `2026-08-13-19-34-23` gebraucht hätte. Wiederholen unter der echten Config:
-  `:desktop … replay <video> config=<session>/settings.json` (Geometrie gewinnt weiterhin bei
-  `boardSize`/`detSize`). Ein Vollständigkeitstest (`ConfigKnobsCompletenessTest`) hält den
-  Katalog ab jetzt deckungsgleich mit `TrackerConfig`.
-
-- **Eine abgebrochene Aufnahme kostet jetzt eine Minute statt der ganzen Partie.** Vier der elf
-  übertragenen Aufnahmen (1,99 GB) hatten kein `moov`; Androids Exit-Log nannte den Täter:
-  `reason=16 (PACKAGE UPDATED)` — ein `adb install` über die laufende Aufnahme, also SIGKILL ohne
-  Callback. Der Recorder schließt seinen Muxer seither einmal pro Minute an einer Sync-Frame
-  (`CameraVideo.SEGMENT_SECONDS`), Dateien `video.mp4`, `video-001.mp4`, … Am Gerät reproduziert:
-  drei Segmente, Install mitten hinein, **die ersten beiden tragen `moov` und dekodieren
-  (3600 Frames als ein Strom), verloren sind 4 Sekunden**. Die PC-Seite liest sie über
-  `openRecording` als eine Aufnahme und nennt das abgeschnittene letzte Segment, statt daran zu
-  scheitern. Die Segmentliste kommt von der PLATTE, nicht aus `session.yaml` — ein Kill verhindert
-  auch das Schreiben der Metadaten.
-
 ## Open questions the measurements left behind
 
 - **First-frame quad vs scan median** — worth ±6-25 plies and the direction is inconsistent per
   video (specs/52, "geometry A/B"). `alignment_of` over the run is the arbiter, not ply counts.
-  The only one of the four still open.
-
-### Answered on 2026-08-09 — what they measured
-
-- **003957 reads 67/67 with the grid hand veto + the ply price — from 38/67 with 4 invented.**
-  The break at ply 39 was a resting hand: `pOccluded` ≡ 0.0 under `id35-80`, the coverage gate
-  cannot see a corner hand (whole-line, 50 % hit fraction), the census core read `occluded 0` —
-  so the verify confirm rung read the hand on g4 as "arrived" and committed a fabricated `g4`,
-  and the deep search bridged 3 more plies onto the wrong position. Two levers, attributed by
-  A/B: `cnnPlyCostSquares=1` alone kills the bridge (1 invented instead of 4) but not the entry;
-  `gridHandGate` (band-wise groove read of the crop warp, `GridOcclusion.kt`) also kills the
-  entry — 67/67, all `cnn_occupancy`, despite the sensor reading a hand on ~39 % of frames in
-  this blitz-paced video. Every eyeballed "false positive" was a real hand.
-
-- **The static recording's "false positives on rank 8" were my overlay, not the producer.**
-  `all_squares()` counts from rank 1 up while the warp puts rank 8 at the TOP, so the probe drew
-  every score one board-flip away from the cell it belonged to. Redrawn with the square names in
-  it: the cells over 0.7 are exactly a1-e1, a2-e2, a3-e3, a4-e4, b5-d5 and b6-c6 — the hand — and
-  the untouched ranks 7 and 8 read 0.02-0.19. The separation is clean. **A cell overlay without
-  the square name in it is not checkable**, which is why the probe now carries it.
-
-- **The 12 phantoms of the dense arm are ALL `cnn_recovery`**, none from the resync (7 of those
-  ran and invented nothing) and none from the verify ladder. They arrive in bursts at one frame —
-  4767 produced four (`Rc7 Kd1 Rd7 Ke1`, a king round trip as parity filler) — and two bursts sit
-  ON a missed real ply: `Bd7` at 4770 and `Qb4` at 6635. The same board difference, explained by a
-  LONGER sequence. Cause: `deriveMovesDeepFull` ranked by hits with length as a mere tiebreak, so
-  one misread square bought a 4-ply fabrication, and B↔R is the identity head's documented top
-  confusion. Priced by `plyCostSquares` (see specs/53 STATUS for the table).
-- **`P_OCCLUDED_THR = 0.5` is not what is blocking anything.** At four of the five phantom frames
-  the head reads `occl=0` across the eight preceding observations, and at 4767 a hand (20-21 cells)
-  had just cleared. A lower threshold would have prevented no phantom. The distribution is sharply
-  bimodal — 3 638 of 4 410 observations at zero, then a broad hump at 13-20 cells — which is a hand
-  and forearm, not a jittery threshold.
-- **The 26-cell `disagree` board (frame 004266) is neither a shifted grid nor a wrong FEN.** Every
-  one of the 8 neighbour offsets scores WORSE than 0/0, and no position in the whole game matches
-  the reading better than the labeled one (best rival 40/64, labeled 38/64). It is simply a frame
-  the model reads badly. It did surface something else, though: 760 of 760 dirty rows carried no
-  `unknown_squares`, because the exporter fix never reached the exported data — see below.
 
 ## Standing rules that came out of the same conversations
 
@@ -278,6 +179,9 @@
   the train split cost 105 phantoms. Pre-cap with `--source-manifest` (specs/53 STATUS).
 - The model may PROPOSE on a video, never on one it was trained on — `occluded_model.py`
   refuses that outright.
+- **A cell overlay without the square name in it is not checkable.** `all_squares()` counts from
+  rank 1 up while the warp puts rank 8 at the TOP; a probe drawn without the names read every
+  score one board-flip away from its cell and invented a rank-8 false positive that was not there.
 - **A fix in the exporter is not a fix in the data.** Both sessions sat on logs written before
   `unknown_squares` existed, because re-running the export meant decoding the whole video again.
   Re-export is cheap now (frames on disk are kept) and non-destructive (a repaired quad is carried
@@ -322,10 +226,6 @@ komponierten Daten trainiert ist. Über die nicht-`dirty` Frames laufen lassen, 
 schätzen, und die Verteilung ist die Antwort. Das ist derselbe Lauf, der die Labelvorschläge für
 das Tool erzeugt — also kein Extraaufwand, nur Reihenfolge.
 
-**Erledigt (User, 2026-08-19):** ein zweites Turntable-Video braucht es nicht. „I don't care about
-the position on the board for our second stage." Der Crop-Pool aus `VID_20260817_214400.mp4` steht
-(`data/squares__comp/`, siehe `docs/occlusion-handover.md`).
-
 ## Verdeckte Stellungen: Frames zurückgewinnen statt dichter exportieren (2026-08-18)
 
 Gemessen an 003957 (66 Stellungen, Export `--every 3`): je Stellung liegen median 47 Frames vor,
@@ -363,14 +263,8 @@ also vollständig erfasst. Der maximale Einzelframe-Sprung liegt aber bei **17,9
 Also: für Licht/Schatten/Stellung reicht das vorhandene Extrakt, für Hände nicht. Erst angehen,
 wenn der Verdeckungs-Zweig steht.
 
-## Pre-roll-Offset im Label-Export (2026-08-19, behoben)
+## Reste des Pre-roll-Offsets (Ursache behoben 2026-08-19)
 
-`drive` gab dem Label-Hook seinen eigenen Frame-Zähler, der erst nach `skipPreRoll` + Locate-Walk
-bei 0 anfängt; Python löst `moves[].frame` gegen die GANZE Aufnahme auf. Jede Telefon-Session seit
-2026-08-14 trug ihre FEN darum bis zu 29 s vor dem Bild (`hookIndex`, DesktopMain.kt;
-`scripts/repair_candidate_frames.py` für die Kandidaten auf Platte).
-
-Offen:
 - Die alten Einzeldatei-Sessions liegen 1 Frame daneben (Locate-Walk). 33 ms — nicht repariert,
   weil ein Re-Export jeden Stem neu plant und die Labels dort entwertet.
 - `rg-VID_20260802_222203` ist mit vertauschtem b8/c8 aufgebaut worden (Läufer auf b8). Von Hand

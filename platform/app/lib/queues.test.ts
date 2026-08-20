@@ -95,11 +95,11 @@ describe("queueRows", () => {
     process.env.CHESSLAB_DATA_DIR = data;
   });
 
-  const game = (name: string, ...parts: string[]) => path.join(data, "realgames", name, ...parts);
+  const game = (name: string, ...parts: string[]) => path.join(data, "recordings", name, ...parts);
 
-  it("reads the whole realgames dir into rows the pages can split", async () => {
-    await mkdir(game("2026-08-08-11-55-19", "frames"), { recursive: true });
-    await writeFile(game("2026-08-08-11-55-19", "frames", "000133.png"), "x");
+  it("reads the whole recordings dir into rows the pages can split", async () => {
+    await mkdir(game("2026-08-08-11-55-19", "review"), { recursive: true });
+    await writeFile(game("2026-08-08-11-55-19", "review", "000133.png"), "x");
     await writeFile(game("2026-08-08-11-55-19", "reference.pgn"), "1. e4 e5");
 
     await mkdir(game("2026-08-14-09-23-19"), { recursive: true });

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 let dir: string;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), "violations-"));
-  await mkdir(path.join(dir, "manifests"), { recursive: true });
+  await mkdir(path.join(dir, "reports"), { recursive: true });
   vi.doMock("@/lib/data", () => ({ dataDir: () => dir }));
   vi.resetModules();
   (globalThis as { __chesslabViolations?: Map<string, unknown> }).__chesslabViolations?.clear();
@@ -14,7 +14,7 @@ beforeEach(async () => {
 afterEach(() => vi.doUnmock("@/lib/data"));
 
 const load = () => import("@/lib/correction-violations");
-const write = (text: string) => writeFile(path.join(dir, "manifests", "correction-violations.jsonl"), text, "utf8");
+const write = (text: string) => writeFile(path.join(dir, "reports", "correction-violations.jsonl"), text, "utf8");
 
 const ROW =
   '{"session_id": "rg-2026-08-08-11-55-19", "frame": "000822", "ply": 12, ' +
@@ -38,7 +38,7 @@ test("a row carries its rules and the squares its corrections touched", async ()
 
 test("no file is `present: false`, which is what the chip renders as — instead of 0", async () => {
   const { loadCorrectionViolations, correctionViolationsPath } = await load();
-  expect(correctionViolationsPath()).toBe(path.join(dir, "manifests", "correction-violations.jsonl"));
+  expect(correctionViolationsPath()).toBe(path.join(dir, "reports", "correction-violations.jsonl"));
   expect(await loadCorrectionViolations()).toEqual({ rows: [], present: false });
 });
 

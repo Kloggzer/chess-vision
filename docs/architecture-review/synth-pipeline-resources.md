@@ -202,8 +202,8 @@ Prefetch memory is fine: 6 workers × 4 × batch 32 × 128²×3 float32 ≈ 150 
 
 ## Recommended plan for the ~100k-train-slices-per-class re-render
 
-Targets: peak disk < 150 GB, GPU saturated, no RAM thrash. Assumes ~13 piece classes × 100k +
-capped `empty`/`occluded` ≈ **1.4-1.6M unique train crops** ≈ 55-65k frames at 4 views/scene
+Targets: peak disk < 150 GB, GPU saturated, no RAM thrash. Assumes 12 piece classes × 100k +
+capped `empty` ≈ **1.4-1.6M unique train crops** ≈ 55-65k frames at 4 views/scene
 (random FENs average ~2 instances of the rarest piece types per frame).
 
 **Before rendering (code, in order of leverage):**

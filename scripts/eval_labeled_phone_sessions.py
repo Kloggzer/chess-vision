@@ -123,7 +123,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--runs", nargs="+", type=Path, required=True)
     parser.add_argument("--sessions", type=Path, default=Path("data/sessions"))
-    parser.add_argument("--realgames", type=Path, default=Path("data/realgames"))
+    parser.add_argument("--recordings", type=Path, default=Path("data/recordings"))
     parser.add_argument("--per-position", type=int, default=3)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -136,7 +136,7 @@ def main() -> None:
     board_count = 0
     for session_dir in sorted(path for path in args.sessions.iterdir() if path.is_dir() and path.name.startswith("rg-")):
         game_name = session_dir.name.removeprefix("rg-")
-        candidate_path = args.realgames / game_name / "candidate.json"
+        candidate_path = args.recordings / game_name / "candidate.json"
         if not candidate_path.exists():
             continue
         candidate = json.loads(candidate_path.read_text(encoding="utf-8"))

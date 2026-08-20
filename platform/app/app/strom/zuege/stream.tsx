@@ -475,7 +475,7 @@ function Toast({
       <p className="text-muted-foreground text-sm">zurückgenommen — der Export lief nie.</p>
     ) : (
       <p className="text-sm">
-        Export läuft bereits — <code>data/sessions/rg-{name}/</code> muss neu exportiert werden.{" "}
+        Export läuft bereits — <code>data/recordings/{name}/</code> muss neu exportiert werden.{" "}
         <Button className="ml-2 max-sm:h-11" onClick={() => onReexport(note.name)} size="sm" variant="outline">
           neu exportieren
         </Button>

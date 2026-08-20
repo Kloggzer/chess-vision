@@ -54,10 +54,17 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 - **Config over code:** paths, class list, crop params, split ratios live in
   `config.py`/YAML. The canonical class list exists in exactly one place
   (`config.CLASSES`).
-- **Classes (14):** `empty`, `wP wN wB wR wQ wK`, `bP bN bB bR bQ bK`,
-  `occluded` (never from FEN — it comes from the synth occluder footprint,
-  `docs/synth-pipeline.md`, or from manual corrections, whose write path currently has
-  no producer; `empty`/`occluded` are "may be missing" classes).
+- **Data layout:** a recording is one folder (`data/recordings/<ts>/`) and everything that only
+  says something about it lives inside — `log.jsonl`, `boards/`, `mattes/`, `review/`, its own
+  `corrections.jsonl`. Derived trees sit outside and are rebuildable: `crops/<tag>/` (crops **and**
+  that pool's `manifest.jsonl`), `datasets/`, `models/`, `reports/`. A recording's **id** keeps the
+  `rg-` prefix its directory dropped; resolve it with `sessions.session_dir()`, never by joining a
+  path. The full table is `README.md` → "Where it all lands" and `docs/data-pipeline.md` §1.1.
+- **Classes:** `config.CLASSES` (14) stays the single canonical definition, but
+  `config.IDENTITY_CLASSES` (13, derived) is what `dataset build` and `train` use by default.
+  `occluded` never came from a FEN and is no longer painted either — it is measured per square
+  as a `coverage` fraction from an alpha matte and trained as a regression target
+  (`docs/class-scheme.md`).
 - **Squares** are referenced as `a1`..`h8`; corner order is `[a8, h8, h1, a1]`.
 - **Calibration profiles** are geometry config (board size, orientation, crop
   params), not stored positions — corners are detected per frame from ArUco.

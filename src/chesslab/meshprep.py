@@ -35,7 +35,6 @@ def prepare_scan(
     out_dir: Path,
     *,
     make_preview: bool = True,
-    seed: int = 42,
     process: bool = False,
     smooth_iters: int = 0,
 ) -> dict:
@@ -70,10 +69,8 @@ def prepare_scan(
                                     make_preview=make_preview)
         return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
 
-    rng = np.random.default_rng(seed)
-
     # ---- 1. Load mesh
-    mesh, tex_img = _load_and_extract(item, rng)
+    mesh, tex_img = _load_and_extract(item)
     tris_before = len(mesh.faces)
     _log.info("loaded %s: %d verts, %d tris", item.name, len(mesh.vertices), tris_before)
 
@@ -82,7 +79,7 @@ def prepare_scan(
     _log.info("largest component frac: %.3f", center_component_frac)
 
     # ---- 3. Fit plane to bottom for uprighting
-    base_normal, base_d, base_inlier_mask = _fit_plane(mesh.vertices, rng)
+    base_normal, base_d, base_inlier_mask = _fit_plane(mesh.vertices)
     _log.info("base plane fit for upright: %d inliers", int(base_inlier_mask.sum()))
 
     signed = mesh.vertices @ base_normal + base_d
@@ -138,8 +135,7 @@ def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
     """
     import trimesh
 
-    rng = np.random.default_rng(0)                 # only consumed by texture extraction
-    mesh, tex_img = _load_and_extract(item, rng)
+    mesh, tex_img = _load_and_extract(item)
     tris = len(mesh.faces)
     _log.info("smoothing %s/%s: %d tris, taubin x%d", item.name, stem, tris, iters)
     # Smooth on a WELDED copy, then map positions back to the original (UV-split) vertices.
@@ -237,7 +233,7 @@ def _copy_obj_verbatim(src: Path, dst: Path, stem: str) -> None:
 # ==============================================================================
 # Internal helpers
 # ==============================================================================
-def _load_and_extract(item: ScanItem, rng: np.random.Generator):
+def _load_and_extract(item: ScanItem):
     """Load mesh via trimesh; extract texture from .glb if needed."""
     import trimesh
 
@@ -399,7 +395,7 @@ def _extract_glb_texture(mesh) -> Path | None:
     return None
 
 
-def _fit_plane(vertices: np.ndarray, rng: np.random.Generator):
+def _fit_plane(vertices: np.ndarray):
     """Fit a plane to the substrate via Open3D RANSAC segment_plane.
 
     Restricts sampling to the lowest 20 % of the mesh (by Z) so RANSAC
@@ -822,10 +818,10 @@ def _render_previews(mesh, name: str, out_dir: Path, tex_path: Path | None):
     # Verbatim imports pass mesh=None (no in-memory mesh); the Blender path above
     # renders straight from the OBJ file, so only fall back when we have a mesh.
     if mesh is not None:
-        _render_previews_matplotlib(mesh, out_dir, preview_dst, clay_dst)
+        _render_previews_matplotlib(mesh, preview_dst, clay_dst)
 
 
-def _render_previews_matplotlib(mesh, out_dir: Path, preview_dst: Path, clay_dst: Path):
+def _render_previews_matplotlib(mesh, preview_dst: Path, clay_dst: Path):
     """Render a simple clay-style 3D view via matplotlib trisurf (no GPU needed).
 
     Skips any output that already exists (e.g. from a successful Blender run).

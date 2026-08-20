@@ -1,5 +1,5 @@
 /**
- * The exported session (`data/sessions/rg-<name>/`, phase 01) as the label views need it:
+ * The exported session (`data/recordings/<name>/`, phase 01) as the label views need it:
  * one row per FRAME with its ply, its FEN and its own corner quad.
  *
  * Read paths are mtime-keyed (CLAUDE.md: never re-read a whole manifest per request) — the log
@@ -7,7 +7,7 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { checkName, dataDir, loadCandidate } from "@/lib/data";
+import { checkName, gameDir, loadCandidate } from "@/lib/data";
 import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
 
 /**
@@ -65,8 +65,14 @@ export function sessionId(name: string): string {
   return `rg-${checkName(name, "game name")}`;
 }
 
+/** Inverse of `sessionId` — the id stays `rg-`-prefixed, the directory on disk never was. */
+export function recordingName(session_id: string): string {
+  return checkName(session_id.replace(/^rg-/, ""), "session id");
+}
+
+/** The session was merged INTO its recording (2026-08-20); both names now name one directory. */
 export function sessionDir(name: string): string {
-  return path.join(dataDir(), "sessions", sessionId(name));
+  return gameDir(name);
 }
 
 export function framePath(name: string, stem: string): string {

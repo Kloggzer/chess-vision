@@ -91,7 +91,7 @@ def main() -> None:
     ap.add_argument("--apply", action="store_true", help="write (keeps a .bak.preroll beside it)")
     args = ap.parse_args()
     names = args.names or sorted(
-        p.parent.name for p in (config.DATA.root / "realgames").glob("*/candidate.json"))
+        p.parent.name for p in config.DATA.recordings.glob("*/candidate.json"))
     for name in names:
         print(json.dumps(repair(name, args.apply)))
 

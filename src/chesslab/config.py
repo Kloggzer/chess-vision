@@ -493,6 +493,16 @@ class Paths:
         return self.root / "lens"
 
     @property
+    def recordings(self) -> Path:
+        """One folder per recording: the import, what was cut from it, and its corrections.
+
+        Everything that only says something about THIS recording lives here — `log.jsonl`,
+        `matte.jsonl`, `corrections.jsonl`, `boards/`, `mattes/`. The session id keeps its `rg-`
+        prefix (it is the join key in every manifest); only the directory dropped it.
+        """
+        return self.root / "recordings"
+
+    @property
     def sessions(self) -> Path:
         return self.root / "sessions"
 
@@ -516,12 +526,33 @@ class Paths:
         return self.root / "session_rejects"
 
     @property
-    def squares(self) -> Path:
-        return self.root / "squares"
+    def crops(self) -> Path:
+        """Every crop pool lives here: `crops/<tag>/<label>/*.webp`, default tag `default`."""
+        return self.root / "crops"
 
     @property
-    def manifests(self) -> Path:
-        return self.root / "manifests"
+    def crop_pool(self) -> Path:
+        """The default pool. A variant `ingest --tag X` writes `crops/X/` beside it."""
+        return self.crops / "default"
+
+    @property
+    def reports(self) -> Path:
+        """Machine output about the corpus: audit flags, violations, mined hard empties, sweeps.
+
+        Regenerable by the command that wrote it — never a human's word, that lives in `labels/`
+        and next to its recording.
+        """
+        return self.root / "reports"
+
+    @property
+    def footage(self) -> Path:
+        """Raw video nothing in the pipeline writes: turntable clips, occluder clips, phone dumps."""
+        return self.root / "footage"
+
+    @property
+    def plates(self) -> Path:
+        """RGBA occluder tiles, cut from `footage/occluders` by `chesslab occluders extract`."""
+        return self.root / "plates"
 
     @property
     def datasets(self) -> Path:
@@ -538,13 +569,13 @@ class Paths:
         return self.root / "experiments"
 
     @property
-    def squares_aug(self) -> Path:
-        return self.root / "squares_aug"
+    def labels(self) -> Path:
+        """The human verdicts that belong to no single recording — today `review-notes.jsonl`.
 
-    @property
-    def corrections(self) -> Path:
-        """Human label corrections (web relabel UI); applied during re-slice."""
-        return self.manifests / "corrections.jsonl"
+        A recording's own corrections live beside it (`recordings/<ts>/corrections.jsonl`).
+        Machine output goes to `reports/`; a re-slice rebuilds that and must never be able to
+        take a human's ruling with it."""
+        return self.root / "labels"
 
     @property
     def tracker_feedback(self) -> Path:
@@ -553,7 +584,7 @@ class Paths:
         return self.root / "tracker_feedback"
 
     def all(self) -> list[Path]:
-        return [self.calibration, self.sessions, self.squares, self.manifests, self.models]
+        return [self.calibration, self.recordings, self.crops, self.labels, self.models]
 
 
 DATA = Paths()

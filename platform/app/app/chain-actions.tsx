@@ -14,7 +14,7 @@ import type { Progress } from "@/lib/progress";
 const STEP: Record<ChainStep, { label: string; hint: string }> = {
   label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
-  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
+  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/recordings/<name>/" },
   matte: {
     label: "Matten",
     hint: "SAM 3 schneidet die Hand aus verdeckten Frames → mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",

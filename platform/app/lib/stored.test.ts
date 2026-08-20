@@ -36,9 +36,9 @@ let session: string;
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "chesslab-stored-"));
-  session = path.join(root, "realgames", BUNDLE, "files", "sessions", ID);
+  session = path.join(root, "recordings", BUNDLE, "files", "sessions", ID);
   await mkdir(path.join(session, "frames"), { recursive: true });
-  await mkdir(path.join(root, "manifests"), { recursive: true });
+  await mkdir(path.join(root, "reports"), { recursive: true });
   const jpeg = await sharp({
     create: { width: 200, height: 120, channels: 3, background: { r: 30, g: 90, b: 150 } },
   })

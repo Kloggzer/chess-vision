@@ -48,6 +48,16 @@ def session(tmp_path, monkeypatch):
     return sdir, prof, tmp_path
 
 
+def _corrections(session, by_square, frame="000001"):
+    """A correction is a row in the session's own ledger now, not an argument."""
+    import json
+
+    (session[0] / "corrections.jsonl").write_text(
+        "".join(json.dumps({"session_id": "s1", "frame": frame, "square": sq,
+                           "label": lab}) + "\n"
+                for sq, lab in by_square.items()), encoding="utf-8")
+
+
 def _slice(session, **kw):
     sdir, prof, root = session
     return slice_session(sdir, profile=prof, manifest_path=root / "m.jsonl",
@@ -65,14 +75,18 @@ def test_a_dirty_frame_contributes_nothing_on_its_own(session):
 
 def test_labeling_recovers_the_cells_a_human_named(session):
     """The point of the gate: it holds material back for review, it does not burn it."""
-    res = _slice(session, label_overrides={("s1", "000001", "e2"): "occluded",
-                                           ("s1", "000001", "d4"): "wP"})
+    _corrections(session, {"e2": "empty", "d4": "wP"})
+
+    res = _slice(session)
 
     assert res["dirty_dropped"] == 126
     assert res["crops"] == 66
-    assert ({p.name for p in (session[2] / "squares" / "occluded").glob(f"*{CROP_SUFFIX}")}
-            == {f"s1_000001_e2{CROP_SUFFIX}"})
-    assert f"s1_000001_d4{CROP_SUFFIX}" in {p.name for p in (session[2] / "squares" / "wP").glob(f"*{CROP_SUFFIX}")}
+    # From the DIRTY frame 000001, exactly the two named cells came back — nothing else did.
+    recovered = {p.name for p in (session[2] / "squares").rglob(f"*{CROP_SUFFIX}")
+                 if p.name.startswith("s1_000001_")}
+    assert recovered == {f"s1_000001_e2{CROP_SUFFIX}", f"s1_000001_d4{CROP_SUFFIX}"}
+    assert (session[2] / "squares" / "empty" / f"s1_000001_e2{CROP_SUFFIX}").exists()
+    assert (session[2] / "squares" / "wP" / f"s1_000001_d4{CROP_SUFFIX}").exists()
 
 
 def test_a_carried_mesh_is_treated_as_a_hand(session):

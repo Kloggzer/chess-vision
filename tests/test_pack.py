@@ -378,3 +378,69 @@ def test_empty_manifest_raises(tmp_path, paths):
     (dd / "manifest.jsonl").write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="empty manifest"):
         pack_mod.pack_dataset("ds", paths=paths)
+
+
+def _variant_of(tmp_path, owner_rows, name: str, keep: list[int]):
+    """A dataset whose manifest re-SELECTS rows the owner already packed — no crops of its own."""
+    dd = tmp_path / "datasets" / name
+    dd.mkdir(parents=True)
+    (dd / "manifest.jsonl").write_text(
+        "\n".join(json.dumps(owner_rows[i]) for i in keep) + "\n", encoding="utf-8")
+    return dd
+
+
+def test_a_row_selection_reads_the_owners_pixels_instead_of_copying_them(tmp_path, paths):
+    """13 xval variants each held 8.89 GB of ONE raster because their manifests differ."""
+    _, rows = _make_dataset(tmp_path, 12)
+    pack_mod.pack_dataset("ds", paths=paths, workers=2)
+    vd = _variant_of(tmp_path, rows, "ds-sub", [9, 2, 5])
+
+    res = pack_mod.link_pack("ds-sub", "ds", paths=paths)
+
+    assert res["freed_bytes"] == 0 and res["rows"] == 3
+    assert not (vd / "packed_images.u8").exists()
+    got = pack_mod.load_packed("ds-sub", paths=paths)
+    assert got is not None
+    img_path, shape, path2idx = got
+    assert shape == (12, CROP, CROP, 3)[:3]
+    arr = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(12, CROP, CROP, 3))
+    for i in (9, 2, 5):                       # the owner's index still addresses the right pixels
+        assert arr[path2idx[rows[i]["path"]]].min() == i
+
+
+def test_linking_frees_a_duplicate_memmap_it_replaces(tmp_path, paths):
+    _, rows = _make_dataset(tmp_path, 8)
+    pack_mod.pack_dataset("ds", paths=paths, workers=2)
+    vd = _variant_of(tmp_path, rows, "ds-sub", list(range(8)))
+    pack_mod.pack_dataset("ds-sub", paths=paths, workers=2)          # the wasteful second copy
+    assert (vd / "packed_images.u8").exists()
+
+    res = pack_mod.link_pack("ds-sub", "ds", paths=paths)
+
+    assert res["freed_bytes"] == 8 * CROP * CROP * 3
+    assert not (vd / "packed_images.u8").exists()
+    assert pack_mod.load_packed("ds-sub", paths=paths) is not None
+
+
+def test_a_link_is_refused_when_the_owner_lacks_a_crop(tmp_path, paths):
+    """The link may only replace a copy that was valid — never invent coverage."""
+    _, rows = _make_dataset(tmp_path, 4)
+    pack_mod.pack_dataset("ds", paths=paths, workers=2)
+    stranger = dict(rows[0], path="somewhere/else.png")
+    dd = tmp_path / "datasets" / "ds-sub"
+    dd.mkdir(parents=True)
+    (dd / "manifest.jsonl").write_text(json.dumps(stranger) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="does not carry"):
+        pack_mod.link_pack("ds-sub", "ds", paths=paths)
+
+
+def test_a_link_to_a_link_is_refused(tmp_path, paths):
+    _, rows = _make_dataset(tmp_path, 4)
+    pack_mod.pack_dataset("ds", paths=paths, workers=2)
+    _variant_of(tmp_path, rows, "ds-sub", [0, 1])
+    pack_mod.link_pack("ds-sub", "ds", paths=paths)
+    _variant_of(tmp_path, rows, "ds-sub2", [0])
+
+    with pytest.raises(ValueError, match="is itself a link"):
+        pack_mod.link_pack("ds-sub2", "ds-sub", paths=paths)

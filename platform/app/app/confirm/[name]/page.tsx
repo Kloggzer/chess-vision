@@ -83,7 +83,7 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
             <span className="text-foreground">{invented.length}</span> offen · {missed.length} fehlend
           </>
         ) : (
-          <span title={`ohne data/realgames/${name}/reference.pgn gibt es nichts zu vergleichen — jeder Halbzug ist deiner`}>
+          <span title={`ohne data/recordings/${name}/reference.pgn gibt es nichts zu vergleichen — jeder Halbzug ist deiner`}>
             {moves.length} Halbzüge · keine reference.pgn
           </span>
         )}

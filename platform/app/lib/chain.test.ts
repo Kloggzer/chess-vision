@@ -10,10 +10,10 @@ const NAME = "2026-08-13-12-10-55";
 beforeEach(async () => {
   data = await mkdtemp(path.join(tmpdir(), "chesslab-chain-"));
   process.env.CHESSLAB_DATA_DIR = data;
-  await mkdir(path.join(data, "realgames", NAME), { recursive: true });
+  await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 
-const game = (...parts: string[]) => path.join(data, "realgames", NAME, ...parts);
+const game = (...parts: string[]) => path.join(data, "recordings", NAME, ...parts);
 
 async function video(): Promise<void> {
   await mkdir(game("files", "sessions", "20260813-121055"), { recursive: true });
@@ -94,8 +94,8 @@ describe("chainState", () => {
   it("moves to labeln once the session and the model reads exist", async () => {
     await video();
     await candidate(true);
-    await mkdir(path.join(data, "sessions", `rg-${NAME}`), { recursive: true });
-    await writeFile(path.join(data, "sessions", `rg-${NAME}`, "log.jsonl"), "{}\n");
+    await mkdir(path.join(data, "recordings", NAME), { recursive: true });
+    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), "{}\n");
     await writeFile(game("model-reads.jsonl"), "{}\n");
     expect((await chainState(NAME)).step).toBe("labeln");
   });
@@ -103,7 +103,7 @@ describe("chainState", () => {
   it("counts the alphas against the session's own occluded pile", async () => {
     await video();
     await candidate(true);
-    const dir = path.join(data, "sessions", `rg-${NAME}`);
+    const dir = path.join(data, "recordings", NAME);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "log.jsonl"), [
       JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
@@ -120,7 +120,7 @@ describe("chainState", () => {
   it("a session directory without log.jsonl is NOT an export — the killed-export case", async () => {
     await video();
     await candidate(true);
-    await mkdir(path.join(data, "sessions", `rg-${NAME}`, "frames"), { recursive: true });
+    await mkdir(path.join(data, "recordings", NAME, "frames"), { recursive: true });
     expect((await chainState(NAME)).step).toBe("export");
   });
 });

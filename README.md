@@ -145,7 +145,10 @@ in Settings (restart required). A fresh install runs `real14-80`, the 14-class i
 whose explicit `occluded` class lets the tracker veto a hand even when the model-free grid-groove
 detector misses it. Existing installs on older defaults migrate to it once. `id35-80` remains
 available as the hard-negative-finetuned 13-class comparison arm; it is the model for which
-`CLAUDE.md` records **16 ms median for 64 crops** on an SM8650 over 534 live observations.
+`CLAUDE.md` records **16 ms median for 64 crops** on an SM8650 over 534 live observations. No
+bundled model has received the occlusion head yet — none declares `coverage_output`, so the phone
+still runs the 14-class scheme the Python side left behind on 2026-08-18. `docs/class-scheme.md`
+records the divergence.
 
 **Settings offer decisions, not fields.** 45 knobs are persisted, 37 are on the screen, and
 8 are withheld by an explicit table that carries a written reason for each — a knob that is
@@ -182,6 +185,27 @@ can coexist with them. Setup and the agent-friendly ADB controls are documented 
 ## The desktop pipeline
 
 One CLI entry point: `chesslab <command>`. `uv run chesslab --help` lists all of it.
+
+### Where it all lands
+
+**A recording is one folder, and everything that only says something about it lives inside.**
+Derived things live outside and can be rebuilt.
+
+| directory | holds |
+|---|---|
+| `data/recordings/<ts>/` | one recording, whole: the import (`candidate.json`, `files/`, `video.mp4`, `review/`, `review-extra/`), what was cut from it (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `quad-fit.json`) and its own `corrections.jsonl` |
+| `data/sessions/` | sessions that are not recordings: `collect` captures and `ingest` imports |
+| `data/crops/<tag>/` | a crop pool — the crops **and** its own `manifest.jsonl`. Default `crops/default` |
+| `data/datasets/<name>/` · `data/models/<run>/` | packed snapshots · training runs |
+| `data/calibration/` · `data/lens/` | board profiles · optical intrinsics |
+| `data/footage/` · `data/plates/` | raw video nothing writes (`turntable/`, `occluders/`, `phone-backups/`) · RGBA occluder tiles cut from it |
+| `data/reports/` | machine output: `split.json`, `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/` |
+| `data/labels/` | `review-notes.jsonl` and `_history/` — the verdicts that belong to no single recording |
+| `data/inbox/` | the web app's runtime state |
+
+A recording's **id** keeps the `rg-` prefix its directory dropped — the id is the join key in
+every manifest row, and `sessions.session_dir()` is the one place that maps one to the other.
+The details and the traps: [`docs/data-pipeline.md`](docs/data-pipeline.md) §1.1.
 
 ### Geometry: lens, then board
 
@@ -237,8 +261,9 @@ uv run chesslab slice --session <id> --pad-up 1.0 --out-size 128x128   # re-slic
 uv run chesslab slice --preview <id>                                   # label vs visible crop
 ```
 
-Output is `data/squares/<class>/…png` plus one manifest line per crop in
-`data/manifests/squares.jsonl`. `--ui` (and standalone `chesslab ui`) adds a coverage
+Output is `data/crops/default/<class>/…webp` plus one manifest line per crop in that same pool's
+`data/crops/default/manifest.jsonl` — a pool describes itself, and `--variant-tag X` puts both
+under `data/crops/X/`. `--ui` (and standalone `chesslab ui`) adds a coverage
 dashboard driven from the session logs, so it reflects what you just captured, before any
 slicing. `chesslab cameras` probes what your cameras really deliver, which is rarely what
 they advertise.
@@ -254,9 +279,11 @@ uv run chesslab split --max-empty-ratio 1.5 --max-class-ratio 3        # the glo
 ```
 
 Splits are **per session** — frames from one session are near-identical, so a random split
-leaks. `--classes` narrows the canonical 14-class list at build time (`occupancy` = 2,
-`pieces13` = 14 minus `occluded`, which has no rows in the corpus); no crop is ever
-re-labeled. Perceptual-hash dedup and rotation are both **off** by default; the per-cell cap
+leaks. `--classes` picks the class set and **defaults to `pieces13`**: 13 identities, with
+occlusion carried as a measured per-crop `coverage` fraction instead of a class. `occupancy`
+collapses to 2, `pieces` keeps the historical 14 for reading old datasets; both narrower modes
+DROP `occluded` rows rather than re-binning them, and no crop is ever re-labeled
+(`docs/class-scheme.md`). Perceptual-hash dedup and rotation are both **off** by default; the per-cell cap
 (`--cap`, default 4) is what actually bounds "the piece never moved".
 
 `--like <donor>` copies a donor dataset's session split, dedup policy and class balancing
@@ -286,6 +313,13 @@ uv run chesslab reliance --run …                             # does it read th
 uv run chesslab experiment run --heads combined,factored,twostage
 ```
 
+`train` defaults to **`--head occlusion`**: one sigmoid beside the 13 classes, regressing the
+fraction of the crop a hand covers — not a 14th class competing in the same softmax. Crops over
+0.15 coverage are masked out of the classification term; `export` records the extra output as
+`coverage_output: true`, so a consumer cannot softmax the coverage into the class probabilities.
+Why it is an output and not a class: `docs/occluder-plates.md`; the whole history:
+`docs/class-scheme.md`.
+
 The checkpoint metric is **board accuracy** (all 64 squares right), not square accuracy,
 which `empty` inflates. `--head` picks between one flat head, a decoupled type×color head,
 and a hierarchical occupancy→piece head; all three emit the same output shape so eval and
@@ -314,7 +348,7 @@ new one.
 
 `platform/app` takes the phone's recordings by itself: the tracker pushes a finished session to the
 chesslab server on the same network, the files land where the USB tar used to put them
-(`data/realgames/<name>/files/`), and `:desktop training-video-pack` is queued behind it (one worker).
+(`data/recordings/<name>/files/`), and `:desktop training-video-pack` is queued behind it (one worker).
 Pair once with the token on `/transfers`, and see [`docs/phone-transfer.md`](docs/phone-transfer.md)
 for the protocol, the firewall rule and what a skipped pack means.
 
@@ -338,7 +372,7 @@ correction that does not improve its own frame. Repaired rows are marked `auto-c
 measured and computed geometry stay distinguishable afterwards.
 
 `chesslab track-feedback ingest` turns the phone tracker's "undo = that was wrong" feedback into
-hard-negative crops appended to the squares manifest.
+hard-negative crops appended to the default pool's `manifest.jsonl`.
 
 ## Development
 

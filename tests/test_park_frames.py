@@ -7,13 +7,14 @@ import pytest
 from PIL import Image
 
 from chesslab import config
+from chesslab.realgames import game_dir
 from chesslab.sessions import missing_source_frames, park_frames_session
 
 
 @pytest.fixture
 def session(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = config.DATA.sessions / "rg-s1"
+    sdir = game_dir("s1")
     (sdir / "frames").mkdir(parents=True)
     (sdir / "boards").mkdir()
     rows = []

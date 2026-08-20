@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from .calibration import CalibrationProfile, GridMesh, mesh_from_lines
-from .labeling import all_squares, crops_for_frame
+from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
 
 #: The occluder clips were shot on the SAME rig as the board, only with the camera moved closer —
@@ -232,14 +232,16 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
             path.parent.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(path), crop, CROP_ENCODE)
             rows.append({"path": path.as_posix(), "label": label, "coverage": round(cov[sq], 4),
-                         "session_id": sid, "frame": stem, "square": sq,
+                         "session_id": sid, "split_group": stem_sid, "frame": stem, "square": sq,
                          "square_color": square_color(sq), "fen": fen,
                          "out_size": list(out_size), "pad_side": prof.crop.pad_side,
                          "pad_up": prof.crop.pad_up})
             written += 1
     cap.release()
-    manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    # Upsert by clip, not overwrite: a second clip into the same pool used to discard the first
+    # one's rows while its crops stayed on disk — which is why every clip got its own tag.
+    _replace_session_in_manifest(manifest, stem_sid,
+                                 [json.dumps(r) for r in rows], field="split_group")
     covered = sum(r["coverage"] > 0.5 for r in rows)
     return {"session_id": stem_sid, "blocks": blocks, "frames": len(rows) // 64, "crops": written, "skipped": skipped,
             "covered_over_half": covered, "share": round(covered / max(1, written), 4)}

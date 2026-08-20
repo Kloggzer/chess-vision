@@ -23,7 +23,8 @@ from pathlib import Path
 from . import config
 from .calibration import load_profile
 from .dataset_build import build_dataset, dataset_dir
-from .labeling import load_corrections, read_session_meta, slice_session, variant_paths
+from .labeling import read_session_meta, slice_session, variant_paths
+from .sessions import session_dir
 from .training.data import (
     board_acc_spread,
     board_accuracy,
@@ -77,7 +78,7 @@ def session_profile_map(session_ids: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for sid in session_ids:
         try:
-            out[sid] = read_session_meta(config.DATA.sessions / sid).get("profile", "?")
+            out[sid] = read_session_meta(session_dir(sid)[0]).get("profile", "?")
         except Exception:  # noqa: BLE001
             out[sid] = "?"
     return out
@@ -88,7 +89,6 @@ def session_profile_map(session_ids: list[str]) -> dict[str, str]:
 def slice_variant(v: Variant, session_ids: list[str], *, force: bool = False) -> dict:
     """Slice all sessions with variant tagging. Returns crops/fallback statistics."""
     manifest_path, squares_root = variant_paths(v.data_tag)
-    corrections = load_corrections(config.DATA.corrections)
     have = set()
     if manifest_path.exists() and not force:
         for line in manifest_path.read_text(encoding="utf-8").splitlines():
@@ -96,7 +96,7 @@ def slice_variant(v: Variant, session_ids: list[str], *, force: bool = False) ->
                 have.add(json.loads(line)["session_id"])
     fallback = crops = 0
     for sid in session_ids:
-        sdir = config.DATA.sessions / sid
+        sdir = session_dir(sid)[0]
         meta = read_session_meta(sdir)
         prof = load_profile(meta["profile"])
         if sid in have:   # already sliced (idempotent resume) -> count crops, don't re-slice
@@ -105,7 +105,7 @@ def slice_variant(v: Variant, session_ids: list[str], *, force: bool = False) ->
             continue
         stats = slice_session(
             sdir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
-            label_overrides=corrections, geometry_mode=v.geometry, photometry=v.photometry,
+            geometry_mode=v.geometry, photometry=v.photometry,
             piece_height_cells=v.piece_height_cells)
         fallback += stats.get("fallback", 0)
         crops += stats["crops"]
@@ -224,7 +224,7 @@ def collect_metrics(v: Variant, session_profile: dict[str, str], split_name: str
         "head": v.head,
         "split": split_name,
         "board_acc": board,
-        "macro_f1": macro_f1(trues, preds, len(classes)),
+        "macro_f1": macro_f1(trues, preds),
         "occ_acc": bd["occ_acc"],
         "occ_board_acc": occ_bacc,
         "piece_acc": bd["piece_acc"],
@@ -300,7 +300,7 @@ def rebuild_table(session_ids: list[str], geometries, photometries, heads=("comb
     return 0
 
 
-def variant_status(session_ids: list[str], geometries, photometries, heads=("combined",)) -> int:
+def variant_status(geometries, photometries, heads=("combined",)) -> int:
     """Status per variant: sliced / dataset built / trained / evaluated."""
     for v in variant_grid(geometries, photometries, heads):
         manifest_path, _ = variant_paths(v.data_tag)

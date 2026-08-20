@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab import config
+from chesslab import config, dataset
 from chesslab.dataset import (
     assign_sessions_to_splits,
     compute_class_weights,
@@ -91,7 +91,7 @@ def test_subsample_priority_paths_survive_empty_cap():
 
 
 def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
-    """The keep list is read from `<manifests>/hard_empty.jsonl`, or None when nothing is mined.
+    """The keep list is read from `<reports>/hard_empty.jsonl`, or None when nothing is mined.
 
     Both `dataset_build.build_dataset` and `training.train.run_train` go through this one loader.
     They have to: the built dataset's manifest holds the UNCAPPED rows, so `run_train` re-runs
@@ -101,10 +101,10 @@ def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
     from dataclasses import replace
 
     paths = replace(config.DATA, root=tmp_path)
-    paths.manifests.mkdir(parents=True, exist_ok=True)
+    paths.reports.mkdir(parents=True, exist_ok=True)
     assert load_priority_paths(paths) is None      # nothing mined -> no protection, no crash
 
-    (paths.manifests / "hard_empty.jsonl").write_text(
+    (paths.reports / "hard_empty.jsonl").write_text(
         '{"path": "a.png", "pred": "wN"}\n\n{"path": "b.png", "pred": "empty"}\n', encoding="utf-8")
     assert load_priority_paths(paths) == {"a.png", "b.png"}   # blank lines ignored
 
@@ -345,7 +345,7 @@ def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
     from chesslab.dataset import run_split
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.manifests.mkdir(parents=True)
+    config.DATA.crop_pool.mkdir(parents=True)
 
     # wQ only in s0
     rows = []
@@ -355,13 +355,13 @@ def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
     rows.append(_row("empty", "s1", "c4", "light"))
 
     import json
-    (config.DATA.manifests / "squares.jsonl").write_text(
+    (config.DATA.crop_pool / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
     rc = run_split(val_frac=0.3, test_frac=0.3, max_empty_ratio=99.0, seed=42,
                    allow_degenerate=True)
     assert rc == 0
-    split = json.loads((config.DATA.manifests / "split.json").read_text(encoding="utf-8"))
+    split = json.loads((config.DATA.reports / "split.json").read_text(encoding="utf-8"))
     assert "degenerate_errors" in split
     assert any("wQ" in e for e in split["degenerate_errors"])
 
@@ -380,7 +380,7 @@ def _build_pool(tmp_path, monkeypatch, n_sessions=4):
     import json
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.manifests.mkdir(parents=True)
+    config.DATA.crop_pool.mkdir(parents=True)
     rows = []
     for si in range(n_sessions):
         sid = f"s{si}"
@@ -391,7 +391,7 @@ def _build_pool(tmp_path, monkeypatch, n_sessions=4):
                          path=f"data/squares/{lab}/{sid}_{fi}_{sq}.png")
                 r["frame"] = str(fi)
                 rows.append(r)
-    mp = config.DATA.manifests / "squares.jsonl"
+    mp = config.DATA.crop_pool / "manifest.jsonl"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     return [f"s{i}" for i in range(n_sessions)], mp
 
@@ -546,3 +546,27 @@ def test_add_test_extends_the_donor_split_without_touching_train(tmp_path):
     # An extra session NOT named in --add-test is still refused rather than defaulted.
     with pytest.raises(ValueError, match="new"):
         db._split_from("donor", {"s1", "new"}, _P)
+
+
+def test_pseudo_sessions_of_one_clip_never_straddle_the_split():
+    """`composite.build_from_video` cuts a clip into `blocks` pseudo-sessions. Without the group
+    they landed in different splits — comp13-occ-80-v1 had frame 664 in val and 672 in train, so
+    val measured train. Declaring the group is what keeps a clip whole."""
+    sizes = {f"comp-A-{i:02d}": 900 for i in range(6)} | {f"comp-B-{i:02d}": 300 for i in range(6)}
+    groups = {sid: sid.rsplit("-", 1)[0] for sid in sizes}
+
+    sp = assign_sessions_to_splits(sizes, val_frac=0.15, test_frac=0.15, seed=42, groups=groups)
+
+    placed = {sid: name for name, sids in sp.items() for sid in sids}
+    assert set(placed) == set(sizes)
+    for clip in ("comp-A", "comp-B"):
+        landed = {placed[sid] for sid in sizes if sid.startswith(clip)}
+        assert len(landed) == 1, f"{clip} straddles {landed}"
+
+
+def test_groups_default_to_one_per_session():
+    """No `split_group` in the rows -> the old per-session behaviour, bit for bit."""
+    rows = [{"session_id": "s1"}, {"session_id": "s2", "split_group": "g"}]
+    assert dataset.groups_of(rows) == {"s1": "s1", "s2": "g"}
+    assert (assign_sessions_to_splits(_UNEQUAL, 0.15, 0.15, 42)
+            == assign_sessions_to_splits(_UNEQUAL, 0.15, 0.15, 42, groups=None))

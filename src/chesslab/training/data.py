@@ -83,7 +83,7 @@ def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
     return sum(boards) / len(boards)
 
 
-def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
+def macro_f1(trues: list[int], preds: list[int]) -> float:
     """Macro-F1 over classes: unweighted mean of per-class F1. Unlike raw
     accuracy, this prevents the empty dominance from skewing the picture. Averaged over all classes
     with support (true-count>0) or prediction — absent classes don't distort the average."""

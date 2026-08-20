@@ -6,7 +6,7 @@ import { backlog, JOB_STEPS, type Backlog, type JobStep } from "@/lib/backlog";
 import { readHeavyLock, stale } from "@/lib/heavy-lock";
 import { queueRows } from "@/lib/queues";
 
-/** The panel polls; two polls inside this window share one pass over `realgames/`. */
+/** The panel polls; two polls inside this window share one pass over `recordings/`. */
 const SNAPSHOT_MS = 10_000;
 
 /** One press, one step, across the corpus. `started` is the loop guard: a step whose job leaves
