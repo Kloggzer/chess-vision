@@ -83,7 +83,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     candidate = load_candidate(name)
     profile = load_profile(EXPORT_PROFILE)
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
-    video = video_path(name, candidate)
+    video = video_path(name)
     rotate = detect_rotation(video, candidate,
                              {int(m["frame"]) for m in candidate.get("moves") or []})
     pad, size = crop_border_px(profile), profile.board_size

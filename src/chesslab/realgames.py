@@ -218,13 +218,21 @@ def base_time(candidate: dict) -> datetime:
         return datetime.now(UTC)
 
 
-def video_path(name: str, candidate: dict) -> Path:
-    """`candidate.video` as the tracker wrote it, resolved from the places it can be relative to."""
-    rel = str(candidate.get("video") or "")
-    for p in (Path(rel), game_dir(name) / rel, config.DATA.root / rel):
-        if rel and p.exists():
-            return p
-    raise FileNotFoundError(f"{name}: video not found ({rel!r})")
+def video_path(name: str) -> Path:
+    """`<recording>/video.mp4`. One place, no search.
+
+    It used to try three, because the tracker wrote `realgames/<name>/video.mp4` and the phone
+    upload put the file under `files/sessions/<id>/`. All three missed after the 2026-08-20 rename
+    to `data/recordings/`, so every candidate failed at once — a fallback that hides a wrong path
+    until every branch is wrong. The recordings were normalised instead (2026-08-21): a phone
+    upload keeps its raw `files/` tree and gains a HARDLINK at the root, so the bytes exist once.
+    """
+    p = game_dir(name) / "video.mp4"
+    if p.exists():
+        return p
+    raise FileNotFoundError(
+        f"{name}: no video at {p}. A phone upload gets one by hardlinking "
+        f"files/sessions/<id>/video.mp4; a recording without a source video has none.")
 
 
 #: How far past the FINAL commit its interval may run, in seconds — the whole rule for a ply that
@@ -1014,13 +1022,13 @@ def export_session(
         # measurement silently returned nothing. Commit frames are quiet, so they probe cleanly.
         ensure_export_profile(EXPORT_PROFILE, candidate)
         rotation = detect_rotation(
-            video_path(name, candidate), candidate, {int(m["frame"]) for m in candidate["moves"]}
+            video_path(name), candidate, {int(m["frame"]) for m in candidate["moves"]}
         )
         if rotation is not None:
             names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
             print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
     if measure and not report_only:
-        settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
+        settle = measure_settle(video_path(name), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     scan = framescan.read_scan(name)
@@ -1055,7 +1063,7 @@ def export_session(
         on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
         if on_disk:
             arrived = decode_frames(
-                video_path(name, candidate),
+                video_path(name),
                 {int(Path(r["frame"]).stem) for r in rows},
                 session_dir / "frames",
                 rotate=rotation,
@@ -1080,7 +1088,7 @@ def export_session(
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
             stats = fit_rows_to_grid(
                 session_dir, rows, load_profile(EXPORT_PROFILE),
-                frames=None if on_disk else stream_frames(video_path(name, candidate), rows, rotation))
+                frames=None if on_disk else stream_frames(video_path(name), rows, rotation))
             # What the decoder actually handed over — a row past the end of a truncated recording
             # has no picture, and carrying it would name a board that was never written.
             rows = stats["arrived"]
