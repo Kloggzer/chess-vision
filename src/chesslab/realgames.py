@@ -716,6 +716,9 @@ BOARD_SUFFIX = ".webp"
 #: warp is bowed again, and a row that still claimed otherwise would never be straightened.
 BOARD_KEYS = ("board", "board_size", "board_border", "board_straightened")
 BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+#: Lossless (OpenCV switches over at > 100) — a matte carries hand-drawn edges, and `matte-fix.ts`
+#: writes them lossless for that reason. Re-encoding them at 95 would smear what a human drew.
+MATTE_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 101]
 
 
 def board_rel(stem: str, dirty: bool = False) -> str:
@@ -892,10 +895,10 @@ def straighten_boards(session_dir: Path, rows: list[dict]) -> dict:
         # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
         # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
         # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
-        for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}*")):
+        for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")):
             alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
             if alpha is not None:
-                cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border), BOARD_ENCODE)
+                cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border), MATTE_ENCODE)
                 done["mattes"] += 1
         row["board_straightened"] = True
         done["straightened"] += 1

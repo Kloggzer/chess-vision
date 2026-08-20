@@ -19,7 +19,13 @@ import numpy as np
 import pytest
 
 from chesslab.calibration import GridMesh
-from chesslab.realgames import MATTE_DIR, meshes_for_boards, straighten_boards
+from chesslab.realgames import (
+    BOARD_ENCODE,
+    MATTE_DIR,
+    MATTE_ENCODE,
+    meshes_for_boards,
+    straighten_boards,
+)
 
 BS, BORDER, TILT = 400, 20, 0.04
 EIGHTHS = [k / 8.0 for k in range(9)]
@@ -141,3 +147,17 @@ def test_two_curved_frames_are_too_few_to_graft_from():
     meshes = meshes_for_boards([_row(0, TILT, curv=0.03), _row(3, TILT, curv=0.03),
                                 _row(6, TILT), _row(9, TILT)])
     assert meshes[6].cx is None and meshes[9].cx is None
+
+
+def test_a_matte_is_re_encoded_losslessly():
+    """A matte carries hand-drawn edges. `matte-fix.ts` writes them lossless for that reason, and
+    pulling one straight at the board's quality 95 would smear exactly what the human drew."""
+    rng = np.random.default_rng(1)
+    edges = (rng.integers(0, 2, (200, 200), dtype=np.uint8) * 255)
+
+    def roundtrip(enc):
+        back = cv2.imdecode(cv2.imencode(".webp", edges, enc)[1], cv2.IMREAD_UNCHANGED)
+        return back if back.ndim == 2 else back[:, :, 0]
+
+    assert not np.array_equal(roundtrip(BOARD_ENCODE), edges), "q95 must NOT be lossless here"
+    assert np.array_equal(roundtrip(MATTE_ENCODE), edges)
