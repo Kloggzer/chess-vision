@@ -253,7 +253,37 @@ def session_boards(
             failed += 1
             continue
         missing = f", {r['missing']} without a readable frame" if r["missing"] else ""
-        print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing} — backup {r['backup']}", flush=True)
+        print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing}, {r['straightened']} "
+              f"geradegezogen — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
+@session_app.command("straighten")
+def session_straighten(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Pull an existing board store straight — the retrofit for sessions written before it was.
+
+    The store is where the barrel comes out, once, so that every cut afterwards is a plain
+    rectangle. A frame whose own grid a hand covered borrows its clean neighbours' mesh; measured
+    2026-08-21, that is worth 1.2 px against 1.0 for a frame's own and 16 px for none at all.
+    Idempotent: a board that already says `board_straightened` is left alone.
+    """
+    from . import sessions as sessions_mod
+
+    ids = _target_sessions(session, all_sessions)
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.straighten_boards_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        print(f"[OK] {sid}: {r['straightened']}/{r['of']} geradegezogen, {r['already']} schon, "
+              f"{r['no_mesh']} ohne Mesh, {r['no_board']} ohne Brett — backup {r['backup']}",
+              flush=True)
     if failed:
         raise typer.Exit(1)
 

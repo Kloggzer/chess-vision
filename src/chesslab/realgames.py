@@ -708,9 +708,13 @@ BOARD_DIR = "boards"
 #: The dirty pile lives apart so `boards/` is literally the p8 stock — readers follow
 #: `row["board"]`, so a second directory costs them nothing (`docs/frame-scan.md`).
 DIRTY_DIR = "dirty"
+#: SAM 3's alpha per frame, in the BOARD's raster — so it follows the board through everything.
+MATTE_DIR = "mattes"
 BOARD_SUFFIX = ".webp"
-#: What a row says about its board — the file, and the scale its pixels are in (`write_board`).
-BOARD_KEYS = ("board", "board_size", "board_border")
+#: What a row says about its board — the file, the scale its pixels are in (`write_board`), and
+#: whether it has been pulled straight. Popped together whenever a board is rewritten: a fresh
+#: warp is bowed again, and a row that still claimed otherwise would never be straightened.
+BOARD_KEYS = ("board", "board_size", "board_border", "board_straightened")
 BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 
 
@@ -759,7 +763,7 @@ def settle_for_ply(job: tuple[Path, list[dict], object]) -> dict[str, list[float
     """
     import numpy as np
 
-    from .labeling import all_squares, crop_square, mesh_from_lines
+    from .labeling import all_squares, crop_square
 
     session_dir, rows, profile = job
     if len(rows) < SETTLE_MIN_FRAMES:
@@ -771,8 +775,7 @@ def settle_for_ply(job: tuple[Path, list[dict], object]) -> dict[str, list[float
         board = cv2.imread(str(session_dir / row["board"]))
         if board is None:
             return None
-        mesh = mesh_from_lines(row.get("grid_lines"))
-        return np.stack([crop_square(board, s, profile, out, mesh) for s in squares])
+        return np.stack([crop_square(board, s, profile, out) for s in squares])
 
     step = max(1, len(rows) // SETTLE_MEDIAN_MAX)
     reference = [c for c in (cells_of(r) for r in rows[::step]) if c is not None]
@@ -816,6 +819,76 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     out.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners), BOARD_ENCODE)
     return {"board": rel, "board_size": int(profile.board_size), "board_border": crop_border_px(profile)}
+
+
+#: How many CLEAN neighbours a frame borrows a mesh from when its own cannot be trusted. Five is
+#: what was measured; the number matters far less than not using a hand frame's own.
+MESH_NEIGHBOURS = 5
+
+
+def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
+    """{frame index: the mesh its board must be straightened with} for every row that has a board.
+
+    A frame's OWN mesh only when nothing was on the board. A hand over the grooves moves single
+    lines, and the mesh that comes out then leaves the board WORSE than no mesh at all (measured
+    2026-08-21 over three rig recordings: hand frames at 15.6 px against 16.1 raw, while clean
+    frames reached 1.0). The camera does not move inside a recording, so everyone else borrows the
+    nearest clean frames — 1.2 px against 1.0 for a frame's own, and available for all of them.
+    """
+    from .calibration import mesh_from_lines, pooled_mesh
+
+    clean = {int(Path(r["frame"]).stem): mesh_from_lines(r["grid_lines"]) for r in rows
+             if r.get("grid_lines") and not r.get("hand_squares")}
+    clean = {i: m for i, m in clean.items() if m is not None and m.tilted}
+    out: dict[int, Any] = {}
+    for row in rows:
+        idx = int(Path(row["frame"]).stem)
+        own = clean.get(idx)
+        if own is None:
+            near = sorted((j for j in clean if j != idx), key=lambda j: (abs(j - idx), j))
+            own = pooled_mesh([clean[j] for j in near[:MESH_NEIGHBOURS]])
+        out[idx] = own
+    return out
+
+
+def straighten_boards(session_dir: Path, rows: list[dict]) -> dict:
+    """Pull every stored board straight, once, so every cut afterwards is a plain rectangle.
+
+    This is the ONLY straightening in the pipeline: a board carrying `board_straightened` must
+    never be pulled again, and `crop_square` must never be handed a mesh for one. Rows whose board
+    is missing, or for which no mesh could be found at all, are counted and left alone — a raw
+    board is worse than a straight one but honest, a twice-corrected one is neither.
+    """
+    from .calibration import straighten_board
+
+    meshes = meshes_for_boards(rows)
+    done = {"straightened": 0, "already": 0, "no_mesh": 0, "no_board": 0, "mattes": 0}
+    for row in rows:
+        if row.get("board_straightened"):
+            done["already"] += 1
+            continue
+        rel = row.get("board")
+        board = None if not rel else cv2.imread(str(session_dir / rel))
+        if board is None:
+            done["no_board"] += 1
+            continue
+        mesh = meshes.get(int(Path(row["frame"]).stem))
+        if mesh is None:
+            done["no_mesh"] += 1
+            continue
+        bs, border = int(row["board_size"]), int(row["board_border"])
+        cv2.imwrite(str(session_dir / rel), straighten_board(board, mesh, bs, border), BOARD_ENCODE)
+        # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
+        # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
+        # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
+        for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}*")):
+            alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
+            if alpha is not None:
+                cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border), BOARD_ENCODE)
+                done["mattes"] += 1
+        row["board_straightened"] = True
+        done["straightened"] += 1
+    return done
 
 
 def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator[tuple[dict, Any]]:
@@ -1109,6 +1182,11 @@ def export_session(
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "
                   f"mesh on {stats['mesh']}, hands on {stats['hands']}")
+            # After the fit, because a hand frame borrows its neighbours' meshes and none of them
+            # is known until every row has been measured.
+            pulled = straighten_boards(session_dir, rows)
+            print(f"  boards pulled straight: {pulled['straightened']}, "
+                  f"{pulled['no_mesh']} left bowed for want of any mesh")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)

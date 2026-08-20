@@ -394,7 +394,7 @@ def mesh_from_lines(lines) -> GridMesh | None:
     return GridMesh(xs, ys, tx, ty, cx, cy)
 
 
-def median_mesh(meshes) -> GridMesh | None:
+def pooled_mesh(meshes) -> GridMesh | None:
     """One mesh for a whole recording: per coefficient the median over the frames given.
 
     A hand over the grooves moves single lines, and the per-frame mesh it produces can leave the

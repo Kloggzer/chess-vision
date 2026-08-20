@@ -21,6 +21,7 @@ from chesslab.calibration import (
     mesh_from_lines,
     square_to_crop_box,
     square_to_mesh_box,
+    straighten_board,
 )
 from chesslab.labeling import all_squares, crop_square
 
@@ -109,20 +110,21 @@ def test_mesh_from_lines_drops_one_stage_per_defect(fx):
     assert mesh_from_lines(None) is None
 
 
-def test_a_nominal_mesh_crops_what_the_scalar_path_crops(fx):
+def test_a_nominal_mesh_leaves_the_board_where_it_found_it(fx):
+    """The identity case: lines exactly on the eighths must move no pixel worth seeing."""
     prof = _profile(fx)
-    bs = prof.board_size
-    b = crop_border_px(prof)
+    bs, b = prof.board_size, crop_border_px(prof)
     rng = np.random.default_rng(7)
     warped = rng.integers(0, 255, (bs + 2 * b, bs + 2 * b, 3), dtype=np.uint8)
-    nominal = GridMesh([k / 8.0 for k in range(9)], [k / 8.0 for k in range(9)])
-    for square in ("a8", "e4", "h1"):
-        plain = crop_square(warped, square, prof, prof.crop.out_size)
-        assert np.array_equal(crop_square(warped, square, prof, prof.crop.out_size, nominal), plain)
+    eighths = [k / 8.0 for k in range(9)]
+    nominal = GridMesh(eighths, list(eighths), [0.0] * 9, [0.0] * 9)
+    pulled = straighten_board(warped, nominal, bs, b)
+    inner = (slice(b + 2, b + bs - 2), slice(b + 2, b + bs - 2))
+    assert np.abs(pulled[inner].astype(int) - warped[inner].astype(int)).max() <= 1
 
 
-def test_a_tilted_mesh_straightens_what_the_scalar_cut_leaves_slanted(fx):
-    """A board drawn with tilted lines: the mesh cut lands the line where the nominal cut cannot."""
+def test_a_tilted_mesh_straightens_a_line_the_plain_cut_leaves_slanted(fx):
+    """A board drawn with a tilted line: after `straighten_board` the plain cut finds it upright."""
     prof = _profile(fx, out_size=(128, 128))
     bs, b = prof.board_size, crop_border_px(prof)
     tilt = 0.02
@@ -133,9 +135,15 @@ def test_a_tilted_mesh_straightens_what_the_scalar_cut_leaves_slanted(fx):
         canvas[row, max(0, x - 2):x + 3] = 255
     x = [k / 8.0 for k in range(9)]
     mesh = GridMesh(x, list(x), [tilt if k == 4 else 0.0 for k in range(9)], [0.0] * 9)
-    cut = crop_square(canvas, "e4", prof, prof.crop.out_size, mesh)
-    columns = [np.argmax(cut[r, :, 0] > 0) for r in range(cut.shape[0]) if cut[r, :, 0].max() > 0]
-    assert max(columns) - min(columns) <= 2
+
+    def spread(image):
+        rows = range(b, b + bs)
+        cols = [np.argmax(image[r, :, 0] > 0) for r in rows if image[r, :, 0].max() > 0]
+        return max(cols) - min(cols)
+
+    # The mutation check: a straightening that did nothing would pass the second assert alone.
+    assert spread(canvas) > 15, "the raw board must SHOW the slant, or this proves nothing"
+    assert spread(straighten_board(canvas, mesh, bs, b)) <= 2
 
 
 def _session_with_mesh(tmp_path, lines: dict | None, board_size=800):

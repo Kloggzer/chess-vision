@@ -881,7 +881,14 @@ def write_boards_session(session_id: str) -> dict:
     from concurrent.futures import ProcessPoolExecutor
 
     from .labeling import _profile_for_session, read_session_meta
-    from .realgames import BOARD_KEYS, POOL_MIN_ROWS, POOL_WORKERS, PROGRESS_EVERY, board_from_frame
+    from .realgames import (
+        BOARD_KEYS,
+        POOL_MIN_ROWS,
+        POOL_WORKERS,
+        PROGRESS_EVERY,
+        board_from_frame,
+        straighten_boards,
+    )
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -905,10 +912,31 @@ def write_boards_session(session_id: str) -> dict:
         if written % PROGRESS_EVERY == 0:
             print(f"  {written}/{len(jobs)} frames", flush=True)
     missing = len(jobs) - written
+    # A fresh warp is bowed again, so the store's one straightening has to follow the rewrite —
+    # otherwise this repair would quietly hand the cutters a board nobody pulls straight any more.
+    pulled = straighten_boards(sdir, rows)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "written": written, "of": len(rows),
-            "missing": missing, "backup": backup}
+            "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
+
+
+def straighten_boards_session(session_id: str) -> dict:
+    """Pull an EXISTING store straight, from the boards themselves — no frames, no re-decode.
+
+    The retrofit for every session written before the store carried its own straightening. It
+    needs nothing but `boards/` and the rows' `grid_lines`, which is the point: the source frames
+    are deliberately gone. Idempotent through `board_straightened`, so running it twice cannot
+    correct twice.
+    """
+    from .realgames import straighten_boards
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    done = straighten_boards(sdir, rows)
+    backup = backup_log(sdir / "log.jsonl")
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
 
 
 def fit_mesh_session(session_id: str) -> dict:

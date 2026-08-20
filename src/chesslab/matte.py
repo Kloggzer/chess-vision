@@ -14,7 +14,6 @@ from time import perf_counter
 import cv2
 import numpy as np
 
-from .calibration import mesh_from_lines
 from .labeling import (
     all_squares,
     crops_for_frame,
@@ -309,9 +308,6 @@ def coverage_of(
         profile,
         board=board,
         out_size=tuple(profile.crop.out_size),
-        mesh=mesh_from_lines(
-            entry.get("grid_lines"),
-        ),
     )
 
     return {

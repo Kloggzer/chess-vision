@@ -42,7 +42,7 @@ from chesslab.calibration import (  # noqa: E402
     CalibrationProfile,
     CropParams,
     compute_homography,
-    median_mesh,
+    pooled_mesh,
     mesh_from_lines,
     straighten_board,
 )
@@ -121,7 +121,7 @@ def local_mesh(pool: dict[int, object], idx: int, k: int = 5):
     the frame's own mesh). One rule, both cameras.
     """
     near = sorted((i for i in pool if i != idx), key=lambda i: (abs(i - idx), i))[:k]
-    return median_mesh([pool[i] for i in near])
+    return pooled_mesh([pool[i] for i in near])
 
 
 def report(arms: dict[str, dict[str, list[tuple[float, int]]]]) -> None:
@@ -221,7 +221,7 @@ def main() -> int:
         fix = own if own is not None and group == "sauber" else local_mesh(raw_pool, idx)
         todo = {"roh": (frame, quad, None), "mesh (eigener)": (frame, quad, own),
                 "mesh-session": (frame, quad,
-                                 median_mesh([m for i, m in raw_pool.items() if i != idx])),
+                                 pooled_mesh([m for i, m in raw_pool.items() if i != idx])),
                 "mesh-lokal": (frame, quad, local_mesh(raw_pool, idx)),
                 "mesh-REGEL": (frame, quad, fix)}
         if idx in und:

@@ -28,7 +28,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .calibration import load_profile, mesh_from_lines
+from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
 
@@ -114,8 +114,7 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     board = cv2.imread(str(path))
     if board is None:
         raise FileNotFoundError(f"board not readable: {path}")
-    return crops_for_frame(None, row["corners"], profile, board=board,
-                           mesh=mesh_from_lines(row.get("grid_lines")))
+    return crops_for_frame(None, row["corners"], profile, board=board)
 
 
 #: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a

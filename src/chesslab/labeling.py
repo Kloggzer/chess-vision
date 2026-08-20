@@ -25,10 +25,9 @@ from .calibration import (
     crop_border_px,
     load_profile,
     make_tracker,
-    mesh_cell_quad,
     mesh_from_lines,
     square_to_crop_box,
-    square_to_mesh_box,
+    straighten_board,
     warp_board_for_crops,
 )
 from .imgops import resize_keep_aspect
@@ -127,31 +126,6 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-def _crop_square_mesh(board_warped, square: str, profile: CalibrationProfile,
-                      out_size: tuple[int, int], mesh: GridMesh):
-    """The per-cell PERSPECTIVE cut: the padded cell quad warped onto the letterboxed content
-    rectangle, so a line the mesh knows as tilted or bowed comes out straight. Aspect from the
-    scalar box, bars black — the composition `resize_keep_aspect` builds. Twin: `cropSquareTilted`.
-    """
-    import numpy as np
-
-    x0, y0, x1, y1 = square_to_mesh_box(square, profile, mesh)
-    w, h = x1 - x0, y1 - y0
-    if w <= 0 or h <= 0:
-        return None
-    ow, oh = int(out_size[0]), int(out_size[1])
-    s = min(ow / w, oh / h)
-    nw, nh = max(1, round(w * s)), max(1, round(h * s))
-    b = crop_border_px(profile)
-    src = np.array([(x + b, y + b) for x, y in mesh_cell_quad(square, profile, mesh)], np.float32)
-    dst = np.array([(0, 0), (nw, 0), (nw, nh), (0, nh)], np.float32)
-    content = cv2.warpPerspective(board_warped, cv2.getPerspectiveTransform(src, dst), (nw, nh))
-    canvas = np.zeros((oh, ow, 3), dtype=np.uint8)
-    x, y = (ow - nw) // 2, (oh - nh) // 2
-    canvas[y:y + nh, x:x + nw] = content
-    return canvas
-
-
 def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
     """Whether this row's stored board is the raster [profile] would cut from.
 
@@ -166,8 +140,7 @@ def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
             and entry.get("board_border") == crop_border_px(profile))
 
 
-def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int],
-                mesh: GridMesh | None = None):
+def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
     """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
 
     `square_to_crop_box` returns the box in board coordinates [0, board_size]; since the data warp
@@ -175,15 +148,10 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     This ensures edge squares have actual content for their pad_side/pad_up extension. Overhang is
     filled with black (constant geometry across all 64 squares), then scaled losslessly to out_size.
 
-    A `mesh` cuts at the board's OWN measured lines instead of the nominal eighth — perspectively
-    per cell once it carries tilts, so the lens' barrel never reaches the training crop.
+    A plain rectangle, always. The board's own lines are put straight ONCE, on the whole raster
+    (`calibration.straighten_board`), so there is nothing left here for a mesh to correct.
     """
-    if mesh is not None and mesh.tilted:
-        crop = _crop_square_mesh(board_warped, square, profile, out_size, mesh)
-        if crop is not None:
-            return crop
-    x0, y0, x1, y1 = (square_to_crop_box(square, profile, clamp=False) if mesh is None
-                      else tuple(round(v) for v in square_to_mesh_box(square, profile, mesh)))
+    x0, y0, x1, y1 = square_to_crop_box(square, profile, clamp=False)
     b = crop_border_px(profile)
     x0, y0, x1, y1 = x0 + b, y0 + b, x1 + b, y1 + b
     if x1 <= x0:
@@ -208,14 +176,17 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
     Single Source for live inference so the model sees exactly the same crop live as during
     training.
 
-    `mesh`: the frame's measured grid lines, cutting each cell at the board's own boundaries
-    instead of the nominal eighth.
+    `mesh`: the frame's measured grid lines. The warp is pulled straight through them ONCE, as a
+    whole raster — the cut itself stays a plain rectangle. A stored board arrives straight already
+    (`realgames.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
     `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
     then be None.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
-    return [crop_square(warped, square, profile, out, mesh) for square in all_squares()]
+    if mesh is not None and mesh.tilted:
+        warped = straighten_board(warped, mesh, profile.board_size, crop_border_px(profile))
+    return [crop_square(warped, square, profile, out) for square in all_squares()]
 
 
 def read_session_meta(session_dir: Path) -> dict:
@@ -385,9 +356,9 @@ def slice_session(
                 n_skipped += 1   # no markers in frame -> not usable, skip
                 continue
 
-        # The row's own 18 lines, when the fit could read them: without them the crop keeps the
-        # lens' barrel, and a curved training set is exactly what this pipeline must not produce.
-        mesh = mesh_from_lines(entry.get("grid_lines"))
+        # A stored board arrives straight (`realgames.straighten_boards`); only a session that
+        # still has to be warped from its frame carries its own lines here.
+        mesh = None if board is not None else mesh_from_lines(entry.get("grid_lines"))
         n_mesh += mesh is not None
         # crops_for_frame as single source (Rework 01: de-duplication).
         crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
