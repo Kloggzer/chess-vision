@@ -388,3 +388,26 @@ src/chesslab/training/torch_data.py` holt sie zurück.
 
 Nebenwirkung, positiv: der Zweig, der bei `bg_p > 0` still den gepackten Memmap-Loader abschaltete
 (F8 in `training-pipeline-review.md`), fällt mit weg. Der Pack-Pfad ist jetzt bedingungslos.
+
+## Die Quellvideos liegen nur auf dem Handy (2026-08-20, gemessen)
+
+**Nur 9 von 43 Aufnahmen unter `data/recordings/` haben noch ihr `video.mp4`** — und alle neun sind
+von vor dem 2026-08-12 (vier `2026-08-07/08`-Sessions plus fünf `VID_*`-Importe). Für **jede**
+Aufnahme ab dem 12.08. existiert das Quellvideo ausschliesslich auf dem Telefon, in
+`files/sessions/<id>/`, zusammen 8,7 GB.
+
+Es war nicht das Aufräumen: in `data/_delete/` liegt kein einziges `.mp4`. Die Videos wurden vom
+Handy nie geholt — der Ablauf ab dem 12.08. zieht offenbar nur das Abgeleitete (boards, log,
+candidate) herüber.
+
+**Warum das zählt:** das Video ist die letzte Quelle. `realgames export-session` dekodiert daraus,
+und jeder Neu-Export mit anderen Parametern braucht es. Der Brett-Store ist ein Derivat — 928 px
+je Brett, aus 1080p gewonnen. Ist das Handy weg, gewischt oder voll, sind über 30 Partien
+unwiederbringlich auf ihren aktuellen Schnitt festgelegt.
+
+Und `adb install` **wischt `files/`** (CLAUDE.md, Phone Warning). Vor dem 2026-08-20 gab es genau
+ein Backup (`f86dfdca-20260813-021208`), das fünf der heutigen Sessions gar nicht enthielt.
+
+Zu entscheiden: sollen die Videos beim Export automatisch mitgezogen werden, oder bleibt das eine
+Handübung mit Backup davor? Ersteres kostet Plattenplatz (8,7 GB für 39 Sessions), Letzteres
+kostet irgendwann eine Partie.
