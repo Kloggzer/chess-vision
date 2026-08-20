@@ -982,8 +982,8 @@ Session dirty ratio is `count(dirty)/count(rows)` over `data/sessions/rg-<n>/log
   not brightness. Labelling them "Lichtdomäne" in a UI would be a plain lie.
 - `camera.py:54-57` explicitly declares its brightness column *"unsuitable as evidence for anything else"*.
 
-The only frame-level intensity measure in the repo is `realgames.frame_activity` (`realgames.py:719`),
-an activity score used only by `export_static` and never persisted.
+There is no frame-level intensity measure in the repo any more: `realgames.frame_activity` was
+the only one, was never persisted, and went with `export_static` on 2026-08-21.
 
 **Recommendation:** compute mean luma per rectified board at export time and write **one additive
 key** on the log row — `{"frame": "frames/001482.png", …, "luma": 87.4}`. `slice_session` and

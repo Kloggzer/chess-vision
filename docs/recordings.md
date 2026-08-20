@@ -26,8 +26,8 @@ it would break the one thing that survives outside this repo.
 | folder | the position | the geometry | the path through the pipeline |
 |---|---|---|---|
 | `game/` | changes move by move | one quad, camera still | `:desktop replay <v> label` -> `realgames confirm` -> `export-session` |
-| `standing-fixed/` | constant | one quad, camera still | `:desktop undistort` -> `export_static` with the FEN stated below |
-| `standing-turntable/` | constant | **a quad per frame** — the board rotates, a median quad is meaningless | as above, but the per-frame quad is mandatory |
+| `standing-fixed/` | constant | one quad, camera still | **kein Pfad** — `export_static` wurde am 2026-08-21 entfernt, siehe TODO.md |
+| `standing-turntable/` | constant | **a quad per frame** — the board rotates, a median quad is meaningless | **kein Pfad**, aus demselben Grund |
 | `unsorted/` | unknown | unknown | nothing runs on it until a human fills in its row here |
 
 `unsorted/` is not a dumping ground, it is a QUEUE: a recording sits there exactly as long as

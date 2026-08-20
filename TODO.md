@@ -351,3 +351,20 @@ Drei Instrumente, nach Kosten:
 Randbedingung: `:app` steht bei 457 Testfällen und muss grün bleiben; `:app:detekt` hat einen
 vorbestehenden Fund (`ModelSpecTest` LongParameterList), der nicht durch neue Testinfrastruktur
 wachsen darf.
+
+## Verdeckungsdaten aus einer stehenden Stellung (2026-08-21, Code entfernt)
+
+`export_static` und seine vier Helfer (149 Zeilen, null Tests, null Aufnahmen dieser Art auf
+Platte) sind raus: das Feature wurde nie benutzt, und Verdeckungsmaterial fällt aus den echten
+Partien genug ab. Es hatte auch nie ein CLI-Verb, war also seit seinem einzigen Commit
+unerreichbar. `git log --diff-filter=D -- src/chesslab/realgames.py` holt es zurück.
+
+**Die Idee ist trotzdem gut, falls Verdeckungsdaten je knapp werden:** bei einer Partie musst du
+erst wissen, WELCHER Zug wann passierte, bevor du Labels hast. Bei einer stehenden Stellung
+kennst du sie ab Frame 1 — nichts ändert sich —, und die einzige Unbekannte ist die Hand. Die
+verrät sich durch Bewegung: jeden Frame gegen das Pixel-Mittel der Aufnahme, die ruhigsten 65 %
+sind sauber, der Rest ist `dirty` und damit genau das Material, das SAM3 nachlabelt.
+
+Zwei harte Voraussetzungen, die es NICHT zum Turntable-Werkzeug machen: ein einziges Quad für die
+ganze Aufnahme (Median der Ecken) und das Pixel-Mittel als Ruhe-Referenz. Beides bricht, sobald
+sich Brett oder Kamera bewegen.
