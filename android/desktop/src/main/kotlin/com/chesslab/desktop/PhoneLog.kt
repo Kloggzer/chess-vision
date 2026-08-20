@@ -117,8 +117,9 @@ internal fun gameMarks(
         // See TrainingVideoPack: `doMove`'s return value is not a legality check at any
         // validation level, so the generator has to be asked.
         val move = Move(uci, board.sideToMove)
+        val before = board.fen
         require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
-            "game record has an illegal move $uci"
+            "game record has an illegal move $uci at ply ${row.text("ply")} in $before"
         }
         board.doMove(move)
         PlyMark(
@@ -173,7 +174,7 @@ private fun Board.moveTo(placement: String): String {
             undoMove()
             hit
         }
-    requireNotNull(move) { "log.jsonl has no legal move onto $placement" }
+    requireNotNull(move) { "log.jsonl has no legal move onto $placement from $fen" }
     doMove(move)
     return move.toString()
 }
