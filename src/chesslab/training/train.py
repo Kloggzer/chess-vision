@@ -5,7 +5,6 @@ from __future__ import annotations
 import atexit
 import json
 import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -320,7 +319,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
-    norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
+    # batchnorm everywhere, Windows included. The groupnorm-on-Windows default was a workaround
+    # for a MIOpen crash on MobileNet batch-norm; all 10 shipped runs are MobileNet + batchnorm on
+    # this machine, so the workaround outlived the bug it dodged.
+    norm_eff = norm or "batchnorm"
     device = get_device(require_gpu=True)
     model = build_model(backbone, len(classes) + occluding, pretrained=(backbone != "smallcnn"),
                         norm=norm_eff, head="combined", in_chans=in_chans).to(device)

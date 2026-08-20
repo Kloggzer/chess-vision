@@ -1151,7 +1151,8 @@ def train_cmd(
     backbone: str = typer.Option(
         config.DEFAULT_BACKBONE,
         "--backbone",
-        help="smallcnn | mobilenet_v3_small | any timm model",
+        help="Any timm model (default: mobilenetv4_conv_small_035, what every shipped model is) "
+             "| mobilenet_v3_small | smallcnn. WARNING: `smallcnn` hard-crashes ROCm-Windows.",
     ),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
@@ -1182,7 +1183,7 @@ def train_cmd(
                                         "LOST on the 18-clip harness (whole-board occupancy: rgb "
                                         "0.9978, rgb+sobel 0.0308, gray+sobel 0.0307) — keep `rgb` "
                                         "unless you are re-running the experiment."),
-    norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
+    norm: str | None = typer.Option(None, "--norm", help="batchnorm (default) | groupnorm | none."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
     head: str = typer.Option("occlusion", "--head",

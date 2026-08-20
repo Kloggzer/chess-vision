@@ -168,7 +168,11 @@ class DedupDefaults:
     many nearly identical crops due to never-moved pieces (fixed camera) — these defaults
     control how aggressively to deduplicate and whether to rotation-augment."""
 
-    per_cell_cap: int = 4          # max crops per (session, square, piece) — catches "never moved"
+    # OFF since 2026-08-21. It capped per (session, square, piece) ACROSS all positions, so a
+    # piece that never moved yielded 4 crops for a whole game: one 18-move session went 17 114 ->
+    # 388, every one of its 97 groups sitting exactly on the cap. That is not levelling, only
+    # shrinking — `max_class_ratio` is the instrument for level. Set it per build if you need it.
+    per_cell_cap: int = 0          # max crops per (session, square, piece); 0 = off
     # OFF since 2026-07-30, measured. `dhash` reduces a crop to 64 yes/no comparisons between
     # neighbouring pixels of a 9x8 grey thumbnail — absolute brightness, contrast, noise and
     # colour are gone. Two crops collide as soon as that SIGN PATTERN matches, which for a
@@ -256,7 +260,9 @@ class AugmentPolicy:
     # Fractional (bg_p) so board-vs-random does not correlate with occupancy. Mask-free (works on
     # real crops too, which have no piece mask). Directly attacks the bN=8%-background shortcut:
     # among occupied squares the board carries no piece-type info → the type head must read the piece.
-    bg_p: float = 0.60                # prob per occupied crop (0 = off)
+    # OFF since 2026-08-21: every recipe the user runs passes `--bg-p 0`, so 0.60 was a default
+    # nobody trained with. Raise it per run to re-enable the anti-shortcut described above.
+    bg_p: float = 0.0                 # prob per occupied crop (0 = off)
     bg_keep_w: float = 0.60           # centered box width kept (piece region), * crop
     bg_keep_h: float = 0.90           # centered box height kept (taller — pieces extend up)
     # The replacement border is drawn from a MIX of self-generated procedural textures
@@ -292,7 +298,11 @@ AUGMENT = AugmentPolicy()
 NORMALIZE_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 NORMALIZE_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 
-DEFAULT_BACKBONE: str = "smallcnn"
+# What every shipped model is: all 10 runs under `data/models/` are this backbone with
+# batchnorm. `smallcnn` was the default until 2026-08-21 although NOTHING was ever trained with
+# it — and it hard-crashes this ROCm-Windows machine (a 1-epoch smoke test on 5k crops took the
+# whole PC down). The cheapest path must not be the one that reboots the box.
+DEFAULT_BACKBONE: str = "mobilenetv4_conv_small_035"
 DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train.py
 DEFAULT_BATCH_SIZE: int = 256
 DEFAULT_NUM_WORKERS: int = 8  # Verified stable with Windows spawn; keeps the GPU fed from memmaps.
