@@ -67,7 +67,12 @@
 - **UI:** Text-first Controls need `contentDescription`. Spacing strictly on 12dp Tokens (Guard enforced).
 
 ### 4. Installation & Hardware
-- **Phone Warning:** `adb install` or Test Runs on the phone **wipe data** (`files/`). Backup first! Prefer Emulator.
+- **Phone Warning: BACK UP `files/` FIRST.** It holds the only copy of most source videos — on
+  2026-08-20 only 9 of 43 recordings still had their `video.mp4` on the PC, against 8.7 GB on the
+  phone. Back up with `adb exec-out "run-as com.chesslab.tracker tar cf - files" > files.tar` into
+  `data/footage/phone-backups/<serial>-<ts>/`. Measured the same day: `adb install -r` with the
+  SAME signing key **kept** all 39 sessions — what wipes `files/` is a signature mismatch (Android
+  then uninstalls first) or an instrumented test run. Prefer the emulator anyway.
 - **Undistortion:** Must happen in Kotlin, **entirely** over the recording (lens.json). Do not use `calib.npz`.
 
 ## Verification
