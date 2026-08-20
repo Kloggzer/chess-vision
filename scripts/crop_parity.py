@@ -1,8 +1,11 @@
 """Do Kotlin and Python cut the SAME pixels? Same video, same frames, same quad — compare.
 
-`mesh_crop_parity.json` pins the box COORDINATES across Python, Kotlin and TS to 1e-9, but a box is
-not an image. Nothing had ever compared a rendered crop, so a divergence in the warp, the crop
+`mesh_crop_parity.json` pins the mesh MAP across Python, Kotlin and TS to 1e-9, but a map is not an
+image. Nothing had ever compared a rendered crop, so a divergence in the warp, the crop
 construction or the resize would stay invisible until a model trained on one and ran on the other.
+
+Both sides cut a RAW warp here — the production path straightens the board once when it is stored
+and then cuts plain rectangles, so this proves the crop CONSTRUCTION agrees, not the whole path.
 
 Kotlin's `crops` verb exists for exactly this and writes a receipt — quad, board size, pads, output
 size — so both sides can be run with the SAME corners. That isolates the crop construction from the
