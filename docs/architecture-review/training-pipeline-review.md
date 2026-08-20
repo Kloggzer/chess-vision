@@ -2,6 +2,11 @@
 
 Review date: 2026-07-19 · Branch `lens-and-pipeline-hardening` @ `059f391`
 
+**Note (2026-08-20):** the browser UI this review measures against no longer exists — the
+FastAPI/React layer (`src/chesslab/web/`) was deleted on 2026-08-07 and `platform/app` is a
+different tool with a different scope. The **CLI-completeness** half still reads true; every
+`web/*` file reference is history. `chesslab collect` went on 2026-08-20 as well.
+
 Scope: the full path from synthetic asset generation to a trained and exported
 model, assessed for **CLI completeness** and **browser-UI completeness**, since
 the stated goal is to drive the whole pipeline either way.

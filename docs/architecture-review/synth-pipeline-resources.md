@@ -3,6 +3,9 @@
 *Scope: `chesslab synth render` → `ingest synthetic` → `dataset build` + pack → `train`.
 Analysis of the code as of branch `lens-and-pipeline-hardening` (2026-07-20). No code changed.*
 
+*Every `file.py:NNN` below is a line number from that snapshot and most have moved since —
+search for the symbol, not the line. `photometric.py` was deleted on 2026-08-20.*
+
 Machine context: 32 GB RAM, ~260 GB free disk, single GPU. Last full generation:
 66k renders (~60 GB PNG) → 2.9M crop PNGs (~61 GB) → 101 GB memmap (2M crops incl. 4×
 rotation) ≈ **222 GB for one dataset generation** — three on-disk copies of the same pixels.

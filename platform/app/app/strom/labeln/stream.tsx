@@ -697,7 +697,7 @@ function nextOpen(
   return Math.min(from + 1, boards.length - 1);
 }
 
-export function median(values: number[]): number | null {
+function median(values: number[]): number | null {
   if (values.length === 0) return null;
   const sorted = [...values].sort((a, b) => a - b);
   return sorted[Math.floor(sorted.length / 2)];

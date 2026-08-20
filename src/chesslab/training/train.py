@@ -109,7 +109,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               num_workers: int | None = None, norm: str | None = None,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
-              head: str = "combined", scales: list[int] | None = None,
+              head: str = "occlusion", scales: list[int] | None = None,
               input_size: str | None = None,
               erase_p: float | None = None, bg_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
@@ -323,8 +323,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
     device = get_device(require_gpu=True)
     model = build_model(backbone, len(classes) + occluding, pretrained=(backbone != "smallcnn"),
-                        norm=norm_eff, head="combined" if occluding else head,
-                        classes=classes, in_chans=in_chans).to(device)
+                        norm=norm_eff, head="combined", in_chans=in_chans).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
 
@@ -443,16 +442,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # shuffle=False is important because its batches must stay aligned with val_rows.
     val_loader = DataLoader(val_ds, shuffle=False, drop_last=False, **loader_kw)
 
-        # Runs are self-describing: geometry/photometry/extrusion height from the first
-    # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
-    # this field via a manifest scan). This way `serving.run_spec` knows the
-    # preprocessing variant without manifest access.
-    first_row = manifest[0] if manifest else {}
-    variant = {
-        "geometry": first_row.get("geometry", "warp"),
-        "photometry": first_row.get("photometry", "none"),
-        "piece_height_cells": float(first_row.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
-    }
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
     # examples contain, and serving has to reproduce them (specs/45). Absent = this dataset
     # cannot say, which every consumer must then treat as legacy rather than guess at.
@@ -482,7 +471,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD),
                       "mode": "per_crop" if per_crop else "fixed"},
         "input_repr": input_repr, "in_chans": in_chans,
-        "variant": variant, "scales": scales,
+        "scales": scales,
         "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),

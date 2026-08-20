@@ -2,6 +2,10 @@
 
 Inventory of patterns used consciously or implicitly, with evaluation of their application.
 
+**Note (2026-08-20):** written against the 2026-07 tree. `collect.py`, `experiment.py`,
+`geometry3d.py` and `photometric.py` have since been deleted; the examples that name them
+describe how the code was, not where to look now.
+
 ## Correctly Applied
 
 ### Pipeline / Staged Architecture (Core)

@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <!-- Deferred, not accepted: `none { it.enteredBy != null }` reads as `all { it.enteredBy == null }`.
+     Kotlin source is out of scope for the pass that turned `allRules` on; fix and drop this entry. -->
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>DoubleNegativeLambda:OpeningBook.kt$none { it.enteredBy != null }</ID>
+  </CurrentIssues>
+</SmellBaseline>

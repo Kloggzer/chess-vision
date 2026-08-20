@@ -74,8 +74,8 @@ class OnnxModel:
 
     `predict_arrays` builds a normalized NCHW float tensor and calls `model(batch)`; it never
     asks what kind of module it holds. So the whole serving path — the crop geometry, the
-    photometry, the normalisation, the softmax — stays byte-identical between the torch row and
-    the ONNX rows, and the only difference measured is the graph.
+    normalisation, the softmax — stays byte-identical between the torch row and the ONNX rows,
+    and the only difference measured is the graph.
 
     The export bakes a static batch of 64 (`evaluate.ONNX_BATCH`), while a path-A frame carries
     only its LABELLED squares. Short batches are padded by repeating the last crop, and the
@@ -184,7 +184,7 @@ def main() -> None:
     log(f"== {args.split}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
 
     # One pass over the frames scores every variant on the SAME pixels: `sweep_path_a` cuts the
-    # crops once per (geometry, photometry) variant and re-seeds the serving cache per model.
+    # crops once and re-seeds the serving cache per model.
     a_all = sweep_path_a(runs, rows, (size,), args.device, log)
     sids = session_index(frames_for_split(rows))
 

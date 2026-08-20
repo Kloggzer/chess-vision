@@ -30,9 +30,32 @@ class AppSettingsModelDirTest {
         val previousIdentityDefault = """{"modelRelease":3,"modelDir":"id35-80","modelAsset":"model.onnx"}"""
         assertEquals(DEFAULT_MODEL, decodeAppSettings(previousIdentityDefault).modelDir)
 
-        listOf("shipped", "bn100-80", "id35-80").forEach { model ->
-            val explicitCurrentChoice = AppSettings(modelDir = model)
-            assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
+        val explicitCurrentChoice = AppSettings(modelDir = "id35-80")
+        assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
+    }
+
+    /**
+     * The retirement is NOT release-gated and is matched on the RAW stored name: `bundledModelOrDefault`
+     * collapses a dropped directory to the default, so a migration reading its result sees a name that
+     * was never retired and does nothing. Everything but the model must survive the move.
+     */
+    @Test
+    fun everyRetiredModelLandsOnTheDefaultWithoutLosingTheRest() {
+        listOf("shipped", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128").forEach { model ->
+            val stored =
+                encodeAppSettings(
+                    AppSettings(
+                        modelDir = model,
+                        resolutionMode = ResolutionMode.R1080,
+                        orientation = BoardOrientation.BLACK_BOTTOM,
+                        speechEnabled = true,
+                    ),
+                )
+            val decoded = decodeAppSettings(stored)
+            assertEquals(DEFAULT_MODEL, decoded.modelDir, model)
+            assertEquals(ResolutionMode.R1080, decoded.resolutionMode, model)
+            assertEquals(BoardOrientation.BLACK_BOTTOM, decoded.orientation, model)
+            assertTrue(decoded.speechEnabled, model)
         }
     }
 

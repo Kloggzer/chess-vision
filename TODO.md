@@ -6,18 +6,23 @@
 
 ## Next up (agreed, not started)
 
-- **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20). Python ist
-  seit 2026-08-18 auf 13 Klassen + Coverage-Regression: `dataset build` defaultet auf `pieces13`,
-  `train` auf `--head occlusion`, das Modell gibt 13 Softmax-Logits plus EIN unabhängiges Sigmoid.
-  Das Handy ist auf dem 14er-Stand stehengeblieben: **kein** Asset unter
-  `android/app/src/main/assets/cnn_model/*/config.json` deklariert `coverage_output`, der Default
-  `real14-80` ist echtes 14-Klassen-Softmax mit `occluded` auf Index 13.
+- **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
+  nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
+  `to_occupancy_class`, `classesHaveIdentity` und die sechs Belegungsmodelle im APK sind gelöscht.
+  Was bleibt, ist die Coverage-Lücke. Python ist seit 2026-08-18 auf 13 Klassen +
+  Coverage-Regression: `dataset build` defaultet auf `pieces13`, `train` auf `--head occlusion`,
+  das Modell gibt 13 Softmax-Logits plus EIN unabhängiges Sigmoid.
+  Das Handy bündelt nur noch `real14-80` (Default, echtes 14-Klassen-Softmax mit `occluded` auf
+  Index 13) und `id35-80` (13 Klassen, also `pOccluded = 0.0`) — **keines** deklariert
+  `coverage_output`.
   **Die Bruchstelle ist der Export, nicht die Leseseite.** `ModelSpec.coverageOutput` und
   `observationFromProbs` lesen die Extraspalte längst, die Vertragstests dafür stehen
-  (`OnnxSquareClassifierContractTest`) — sie feuern nur nie. 10 Läufe unter `data/models/` tragen
-  `"head": "occlusion"`, aber keiner ist als ONNX exportiert und gebündelt.
+  (`OnnxSquareClassifierContractTest`) — sie feuern nur nie. Von den zehn Occlusion-Läufen ist
+  nur `comp13-occ-bn-lr1e2-bs512` in `data/models/` geblieben (die neun anderen in
+  `data/_delete/models/`, zusammengefasst in `docs/retired-runs.md`), und keiner ist als ONNX
+  exportiert und gebündelt.
   **Reihenfolge:** (1) einen Occlusion-Lauf mit `chesslab export` ausgeben (schreibt
-  `coverage_output: true` selbst, `evaluate.py:236`), (2) `model.onnx` + `config.json` unter
+  `coverage_output: true` selbst, `evaluate.py:238`), (2) `model.onnx` + `config.json` unter
   `android/app/src/main/assets/cnn_model/<name>/` einhängen, (3) gegen `real14-80` per Replay
   A/B fahren — die Veto-Metrik entscheidet, nicht `val_acc`. Erst danach kann `modelHandGate` vom
   Softmax-Wert auf das kalibrierte Sigmoid umgestellt werden.
@@ -130,8 +135,8 @@
   dieser Reihenfolge und nie einzeln: (1) alle Rig-Sessions im Pool undistorten + re-slicen
   (rg-2026-08-08-00-39-57 ist schon durch), (2) Modell auf dem korrigierten Korpus neu trainieren,
   Path-A gegen den Champion, (3) erst dann Label-Replays und Serving auf `lens` default. Bis dahin
-  zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `frames-extra`
-  ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt. Umfang gemessen 2026-08-10: NUR
+  zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `review-extra/`
+  (bis 2026-08-20 `frames-extra/`) ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt. Umfang gemessen 2026-08-10: NUR
   die Rig-Kamera (OBS-Videos: k1 ≈ −0,23, Bow halbiert, Fit akzeptiert); die vier Phone-Videos
   lehnt der Grid-Fit dreimal unabhängig ab (k1 ≈ 0) — die Handykamera entzerrt selbst, dort gibt
   es nichts zu tun.
@@ -143,12 +148,12 @@
   (occluded / empty / FEN is right / wrong → piece palette). Tap or swipe throws the crop in,
   the next appears. Meant for the phone, for volume; the brush stays the desktop tool.
   *"ich will das mal ausprobieren aber später"* (2026-08-09).
-- **Video upload in the web UI** — today a new video is a `copy` into `data/testclip-raw/` plus
-  four CLI steps (label → confirm → export-session → propose-occluded). The platform should
+- **Video upload in the web UI** — today a new video is a `copy` onto disk plus four CLI steps
+  (label → confirm → export-session → model-read). The platform should
   take the file, put it where it belongs and run the chain. Asked 2026-08-09; the CLI path is
   written up in the answer of that day. *Mostly done since 2026-08-13:* a PHONE recording arrives
   by itself over the LAN, queues `training-video-pack`, and the whole
-  label → confirm → export-session → propose-occluded chain is a button per card on `/`
+  label → confirm → export-session → model-read chain is a button per card on `/`
   (`docs/phone-transfer.md`, `platform/app/README.md`). What is left is the RIG videos — a file the
   browser hands over, so the chain has something to start on.
 - **Review provenance** — "keep" in the tinder band writes nothing, by design (a row repeating

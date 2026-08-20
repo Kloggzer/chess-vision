@@ -388,8 +388,8 @@ def calib_dir(monkeypatch, tmp_path):
 
 def test_invalidate_profiles_stamps_k_for_the_profiles_own_resolution(calib_dir, tmp_path):
     """C4: lens calibrated at 1280x960, board profile shot at 640x480. The profile's K must
-    match ITS resolution — its `image_corners` are 640x480 pixels, and geometry3d feeds both
-    to solvePnP, so a 2x-too-large fx offsets every box3d crop."""
+    match ITS resolution — its `image_corners` are 640x480 pixels, so a 2x-too-large fx would
+    describe a different picture than the corners do."""
     _write_calib(tmp_path / "calib.npz", w=1280, h=960)
     calib = lens.load(tmp_path / "calib.npz")
     _profile(profile="rig", camera_index=0, frame_size=(640, 480)).save(calib_dir / "rig.yaml")

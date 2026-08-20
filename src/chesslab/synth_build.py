@@ -72,8 +72,6 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
                 "out_size": [int(crop.out_size[0]), int(crop.out_size[1])],
                 "pad_side": float(crop.pad_side),
                 "pad_up": float(crop.pad_up),
-                "geometry": "warp",
-                "photometry": "none",
                 "ts": entry.get("ts") or datetime.now(UTC).isoformat(),
                 "rot": 0,
             })
@@ -202,8 +200,8 @@ def build_synth_dataset(
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
     n_final = len(rows)
-    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so an
-    # occupancy build keeps exactly the rows a `pieces` build at the same seed would keep.
+    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
+    # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
 
     # Disk preflight without reading any file: the memmap size is exact arithmetic here.

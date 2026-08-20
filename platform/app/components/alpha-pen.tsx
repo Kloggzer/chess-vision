@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
  * and no threshold here — a two-colour stencil the server burns into `mattes/<stem>.fixed.webp`
  * (`lib/matte-fix.ts`). Red raises the alpha, cyan lowers it, both opaque so the file is the eye's.
  */
-export const PEN_CANVAS = 720;
+const PEN_CANVAS = 720;
 const UP_COLOR = "rgb(255,0,0)";
 const DOWN_COLOR = "rgb(0,255,255)";
 const BRUSH_STEPS = [4, 8, 12, 20, 32, 48, 72, 104];

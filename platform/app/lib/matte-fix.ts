@@ -18,8 +18,8 @@ const UP = 0;
 const DOWN = 1;
 const HIT = 128;
 
-export type Grey = { data: Uint8Array; width: number; height: number };
-export type Rgba = Grey;
+type Grey = { data: Uint8Array; width: number; height: number };
+type Rgba = Grey;
 
 export type MaskInput = {
   alpha: Grey;

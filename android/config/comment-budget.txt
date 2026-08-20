@@ -2,7 +2,6 @@
 # Regenerate with: uv run python android/scripts/comment_budget.py
 # This list may only ever shrink. Unlisted files must have none.
 app/src/androidTest/kotlin/com/chesslab/tracker/analysis/ReviewBudgetBenchmark.kt 1
-app/src/androidTest/kotlin/com/chesslab/tracker/cnn/NormLatencyBenchmark.kt 2
 app/src/main/kotlin/com/chesslab/tracker/analysis/Accuracy.kt 4
 app/src/main/kotlin/com/chesslab/tracker/analysis/AnalysisSettingsHost.kt 1
 app/src/main/kotlin/com/chesslab/tracker/analysis/GameReview.kt 8
@@ -121,13 +120,13 @@ app/src/test/kotlin/com/chesslab/tracker/ui/theme/StringLiteralGuardTest.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/AlarmGuess.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/CnnConfig.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/DeepSearch.kt 1
-core-cnn/src/main/kotlin/com/chesslab/cnn/Observations.kt 2
+core-cnn/src/main/kotlin/com/chesslab/cnn/Observations.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/Preprocess.kt 5
 core-cnn/src/main/kotlin/com/chesslab/cnn/Recovery.kt 2
 core-cnn/src/test/kotlin/com/chesslab/cnn/DeepSearchTest.kt 1
 core-cnn/src/test/kotlin/com/chesslab/cnn/EngineSeamIntegrationTest.kt 1
 core-cnn/src/test/kotlin/com/chesslab/cnn/PreprocessTest.kt 5
-core-engine/src/main/kotlin/com/chesslab/engine/Alarm.kt 5
+core-engine/src/main/kotlin/com/chesslab/engine/Alarm.kt 4
 core-engine/src/main/kotlin/com/chesslab/engine/Ambiguity.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/AnomalyPatcher.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CnnObservation.kt 1
@@ -137,7 +136,7 @@ core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerConfig.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerEngine.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/BaselineOcclusion.kt 4
 core-engine/src/main/kotlin/com/chesslab/engine/Census.kt 5
-core-engine/src/main/kotlin/com/chesslab/engine/CnnTick.kt 6
+core-engine/src/main/kotlin/com/chesslab/engine/CnnTick.kt 5
 core-engine/src/main/kotlin/com/chesslab/engine/ColorSpace.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/Commit.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/Confirmer.kt 1
@@ -170,12 +169,11 @@ core-engine/src/main/kotlin/com/chesslab/engine/TakenBack.kt 3
 core-engine/src/main/kotlin/com/chesslab/engine/VerifyPair.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/VerifySingle.kt 8
 core-engine/src/main/kotlin/com/chesslab/engine/Vetoes.kt 4
-core-engine/src/test/kotlin/com/chesslab/engine/AlarmLatchTest.kt 2
+core-engine/src/test/kotlin/com/chesslab/engine/AlarmLatchTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/AnomalyPatcherTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/CensusParityTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/ClipReplayParityTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/ClipReplayTimingTest.kt 1
-core-engine/src/test/kotlin/com/chesslab/engine/CnnTickTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/ColorSpaceParityTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/CommitTest.kt 1
 core-engine/src/test/kotlin/com/chesslab/engine/DecisionLogTest.kt 4

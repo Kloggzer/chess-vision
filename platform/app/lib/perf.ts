@@ -9,7 +9,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
 
-export type Confusion = { true: string; pred: string; count: number };
+type Confusion = { true: string; pred: string; count: number };
 export type PerfRun = {
   /** From the file's own `model` key, or the key a grouped file files its metrics under. */
   model: string;

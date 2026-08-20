@@ -29,7 +29,7 @@ def load_run(run_dir: Path):
     model = build_model(cfg["backbone"], len(cfg["classes"]) + occluding,
                         norm=cfg.get("norm", "batchnorm"),
                         head="combined" if occluding else cfg.get("head", "combined"),
-                        classes=cfg["classes"], in_chans=input_repr_of(cfg)[1])
+                        in_chans=input_repr_of(cfg)[1])
     ckpt = run_dir / "best.pt"
     if not ckpt.exists():
         ckpt = run_dir / "last.pt"

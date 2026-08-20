@@ -17,11 +17,11 @@ echo "v4 chain started $(date)" > "$LOG"
 
 rm -rf data/synth_p1_v4 data/synth_p2_v4
 mkdir -p data/synth_p1_v4 data/synth_p2_v4
-run "$B" --background "synth_assets/Chess Scene.blend" --python synth/render_board_v2.py -- \
+run "$B" --background "synth/assets/Chess Scene.blend" --python synth/render_board_v2.py -- \
     --out data/synth_p1_v4 --n 3000 --seed 101 --res 1300 --max-obliqueness 0.10 \
     --pieces synth_pieces --board-texture synth_pieces/board_texture_v2.png \
     --fens data/fens_p1.txt --isolate-p 1.0 --occlusion-p 0.15
-run "$B" --background "synth_assets/Chess Scene.blend" --python synth/render_board_v2.py -- \
+run "$B" --background "synth/assets/Chess Scene.blend" --python synth/render_board_v2.py -- \
     --out data/synth_p2_v4 --n 6000 --seed 202 --res 1300 --max-obliqueness 0.10 \
     --pieces synth_pieces --board-texture synth_pieces/board_texture_v2.png \
     --fens data/fens_p2.txt --occlusion-p 0.35 --borderless-p 0.12

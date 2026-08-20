@@ -30,11 +30,9 @@ def _dataset():
     # 4 sessions, pieces on both colors, lots of empty
     for si in range(4):
         sid = f"s{si}"
-        for k in range(10):
-            rows.append(_row("wP", sid, "a2", "light" if k % 2 else "dark"))
+        rows.extend(_row("wP", sid, "a2", "light" if k % 2 else "dark") for k in range(10))
         rows.append(_row("wK", sid, "e1", "dark"))
-        for k in range(60):
-            rows.append(_row("empty", sid, "c4", "light" if k % 2 else "dark"))
+        rows.extend(_row("empty", sid, "c4", "light" if k % 2 else "dark") for k in range(60))
     return rows
 
 
@@ -277,8 +275,7 @@ def test_validate_split_class_only_in_one_session():
 
     rows = []
     # s0: 2 sessions, wQ only in s0
-    for _ in range(5):
-        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.extend(_row("wQ", "s0", "d1", "dark") for _ in range(5))
     rows.append(_row("wQ", "s0", "e1", "dark"))
     # wK in both sessions
     for _ in range(5):
@@ -349,8 +346,7 @@ def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
 
     # wQ only in s0
     rows = []
-    for _ in range(5):
-        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.extend(_row("wQ", "s0", "d1", "dark") for _ in range(5))
     rows.append(_row("wK", "s1", "e1", "dark"))
     rows.append(_row("empty", "s1", "c4", "light"))
 
@@ -396,62 +392,34 @@ def _build_pool(tmp_path, monkeypatch, n_sessions=4):
     return [f"s{i}" for i in range(n_sessions)], mp
 
 
-def test_to_occupancy_class_collapses_pieces():
-    for c in config.CLASSES:
-        if c in ("empty", "occluded"):
-            continue
-        assert config.to_occupancy_class(c) == "occupied"
-    assert config.to_occupancy_class("empty") == "empty"
-
-
-def test_to_occupancy_class_rejects_occluded():
-    import pytest
-    with pytest.raises(ValueError):
-        config.to_occupancy_class("occluded")
-    with pytest.raises(ValueError):
-        config.to_occupancy_class("wZ")
-
-
-def test_occupancy_build_writes_two_class_split(tmp_path, monkeypatch):
-    import json
-
-    from chesslab import dataset_build as db
-
-    sids, _ = _build_pool(tmp_path, monkeypatch)
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
-    split = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))
-    assert split["classes"] == ["empty", "occupied"]
-    assert set(split["train_class_counts"]) == {"empty", "occupied"}
-    assert "occluded" not in json.dumps(split)
-
-
-def test_occupancy_build_reuses_all_rows(tmp_path, monkeypatch):
+def test_a_narrower_class_mode_reuses_the_same_rows(tmp_path, monkeypatch):
+    """The narrowing is METADATA: same crops, same order, only the label list shrinks."""
     import json
 
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
     a = db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    b = db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    b = db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     assert a["counts"]["final"] == b["counts"]["final"]
     ra = [json.loads(x) for x in
           (db.dataset_dir("pieces") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     rb = [json.loads(x) for x in
-          (db.dataset_dir("occ") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+          (db.dataset_dir("id13") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["path"] for r in ra] == [r["path"] for r in rb]
-    assert [config.to_occupancy_class(r["label"]) for r in ra] == [r["label"] for r in rb]
+    assert [r["label"] for r in ra] == [r["label"] for r in rb]
 
 
-def test_occupancy_build_preserves_per_session_split(tmp_path, monkeypatch):
+def test_a_narrower_class_mode_preserves_the_per_session_split(tmp_path, monkeypatch):
     import json
 
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
     db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     sa = json.loads((db.dataset_dir("pieces") / "split.json").read_text(encoding="utf-8"))["splits"]
-    sb = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))["splits"]
+    sb = json.loads((db.dataset_dir("id13") / "split.json").read_text(encoding="utf-8"))["splits"]
     assert sa == sb
 
 
@@ -467,13 +435,12 @@ def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
             == (db.dataset_dir("b") / "split.json").read_bytes())
 
 
-def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
-    """`occluded` is neither empty nor occupied, so it is dropped - and the count is printed.
+def test_a_narrower_build_drops_occluded_rows_loudly(tmp_path, monkeypatch, capsys):
+    """`pieces13` has no `occluded` output, so such a row is dropped - and the count is printed.
 
-    This used to raise. That was right while a hand label on a real session was the only way an
-    `occluded` row could appear, but renders with `--occlusion-p` produce them deliberately and in
-    bulk, and refusing the build made occluders unusable for occupancy training. The guard's real
-    purpose was to keep the drop from being silent, and the printed count serves it.
+    This used to raise. That was right while a hand label was the only way an `occluded` row could
+    appear, but renders with `--occlusion-p` produce them in bulk. The guard's real purpose was to
+    keep the drop from being silent, and the printed count serves it.
     """
     import json
 
@@ -483,7 +450,7 @@ def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
     rows = [json.loads(x) for x in mp.read_text(encoding="utf-8").splitlines()]
     rows[0]["label"] = "occluded"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     assert "dropped 1" in capsys.readouterr().out
 
 

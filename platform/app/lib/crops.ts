@@ -9,10 +9,9 @@
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
 import { alphaPath } from "@/lib/matte";
-import { boardPath, boardToStored, framePath, loadSession, type Session, sessionDir } from "@/lib/session";
+import { boardPath, boardToStored, loadSession, type Session, sessionDir } from "@/lib/session";
 import path from "node:path";
 import {
-  boardToImage,
   type Mat3,
   type Raster,
   sampleBox,
@@ -34,19 +33,21 @@ const decoded = new Map<string, Raster>();
 const inFlight = new Map<string, Promise<Raster>>();
 
 /**
- * The raster a cut reads: the session's STORED board when it has one, the raw frame otherwise.
+ * The raster a cut reads: the session's STORED board, and nothing else.
  *
  * The board is the rectified frame under the row's own quad (`realgames.write_board`) — the same
- * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. Reading
- * it here is what makes "the label view shows the crop the model will get" structural instead of
- * two independent cuts that happen to agree.
+ * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. That is
+ * what makes "the label view shows the crop the model will get" structural. A row without one is a
+ * broken export, not a fallback: no recording has held `frames/` since the board store (2026-08-17).
  */
 async function cutSource(session: Session, name: string, stem: string): Promise<{ raster: Raster; h: Mat3 }> {
   const board = session.byStem.get(stem)?.board;
-  if (board && (await stat(boardPath(name, board.rel)).then(() => true, () => false))) {
-    return { raster: await rasterOf(boardPath(name, board.rel)), h: boardToStored(session, board) };
+  if (!board) throw new Error(`${name}/${stem}: row carries no board — re-export the recording`);
+  const file = boardPath(name, board.rel);
+  if (!(await stat(file).then(() => true, () => false))) {
+    throw new Error(`${name}/${stem}: board ${board.rel} is missing — re-export the recording`);
   }
-  return { raster: await rasterOf(framePath(name, stem)), h: homographyFor(session, stem) };
+  return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
 /** The pen overwrites a file this cache keys by PATH alone — a stale raster would outlive it. */
@@ -83,12 +84,6 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
   return sharp(rgb, { raw: { width, height, channels: 3 } }).webp({ quality: 92 }).toBuffer();
 }
 
-function homographyFor(session: Session, stem: string) {
-  const corners = session.byStem.get(stem)?.corners;
-  if (!corners) throw new Error(`frame ${stem} is not in the session log`);
-  return boardToImage(corners, session.boardSize, session.margin);
-}
-
 /**
  * One square out of one frame, at the board's OWN boundaries when the row carries them: the
  * cell's perspective quad with tilts (curved corners with the parabola term), its scalar
@@ -122,12 +117,11 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__
 export async function cellPng(name: string, stem: string, square: string, size: number) {
   const session = await loadSession(name);
   const rel = session.byStem.get(stem)?.board?.rel;
-  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Frame-Datei — ein Schlüssel nur
-  // über das Frame servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15).
-  // Die Quelle selbst muss drinstehen, nicht das Frame: `session boards` schreibt das Brett neu,
-  // ohne das Log anzufassen, und ein geparktes Frame liefert für jeden Stem dieselbe 0.
+  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Brett-Datei — ein Schlüssel nur
+  // über das Brett servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15), und
+  // `session boards` schreibt das Brett neu, ohne das Log anzufassen.
   const [srcM, logM] = await Promise.all([
-    stat(rel ? boardPath(name, rel) : framePath(name, stem)).then((s) => s.mtimeMs, () => 0),
+    rel ? stat(boardPath(name, rel)).then((s) => s.mtimeMs, () => 0) : Promise.resolve(0),
     stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
   ]);
   // CUT_MIME too: this map holds ENCODED bytes and deliberately survives HMR on `globalThis`, so
@@ -148,7 +142,7 @@ export async function cellPng(name: string, stem: string, square: string, size: 
 }
 
 /**
- * The whole playing field, rectified — the drilldown's canvas and the tinder thumbnail. With a
+ * The whole playing field, rectified — the drilldown's canvas. With a
  * mesh the field is pulled straight GLOBALLY (`sampleBoxMesh`): every pixel is looked up where
  * the board's own lines say it sits, so the grooves come out straight instead of 64 cells being
  * straightened one by one. Without one, the plain quad warp, unchanged.

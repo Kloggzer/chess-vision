@@ -5,7 +5,7 @@ Turntable photos → RealityScan → Isolation → Render → Build (fused) → 
 
 ## Asset Expectations
 
-- **Blender Scene:** `synth_assets/Chess Scene.blend` (board, camera, lighting)
+- **Blender Scene:** `synth/assets/Chess Scene.blend` (board, camera, lighting)
 - **Piece Templates:** `synth_pieces/<X>.obj` + `<X>.png` (texture)
   - Naming scheme: `wP.obj`/`wP.png` (white pawn), `bN.obj`/`bN.png` (black knight),
     or `P.obj`/`P.png` (uncolored, then used for both colors).
@@ -86,7 +86,7 @@ frames than PNG) + `<i>.json` (FEN + corners). The board is framed to fill the i
 (`--frame-frac 0.80` → ~134 px/square at `--res 1024`).
 
 Options:
-- `--blend` — Blender scene (default: `synth_assets/Chess Scene.blend`)
+- `--blend` — Blender scene (default: `synth/assets/Chess Scene.blend`)
 - `--pieces-dir` — Piece templates (default: `synth_pieces/`)
 - `--n` — Number of renderings (default: 200)
 - `--seed` — Seed (default: 42)
@@ -99,7 +99,7 @@ Options:
 ### Raw with Blender (Alternative)
 
 ```bash
-blender --background "synth_assets/Chess Scene.blend" \
+blender --background "synth/assets/Chess Scene.blend" \
     --python synth/render_board_v2.py \
     -- --out data/synth_raw --n 200 --seed 42 --res 1024 \
        --fens data/synth_fens.txt --pieces synth_pieces

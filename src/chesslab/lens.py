@@ -226,7 +226,7 @@ class Undistorter:
 
     @property
     def new_camera_matrix(self) -> np.ndarray | None:
-        """K valid for the UNDISTORTED frames — this is what solvePnP/box3d must use.
+        """K valid for the UNDISTORTED frames — this is what a profile must be stamped with.
 
         None until the first frame has been seen (the maps, and with them the optimal K,
         depend on the actual frame size).
@@ -651,8 +651,8 @@ def profile_is_stale(profile, source=None) -> tuple[bool, str]:
     """Does this board profile's lens stamp disagree with the currently active lens state?
 
     A profile carrying raw-lens K/D while frames arrive undistorted would compensate the
-    distortion a SECOND time in solvePnP/box3d — silent, systematic geometry error. This
-    is the check that catches it; the caller regenerates or re-stamps.
+    distortion a SECOND time — silent, systematic geometry error. This is the check that
+    catches it; the caller regenerates or re-stamps.
     """
     want_und, want_id = profile_lens_state(source)
     have_und = bool(getattr(profile, "undistorted", False))
@@ -953,7 +953,7 @@ def _invalidate_profiles(calib: LensCalibration) -> None:
     * The RESOLUTION. K scales with the frame size, so the stamp must be computed for the
       PROFILE's `frame_size`, not for the size the lens happened to be calibrated at —
       otherwise a 1440p profile gets 4K intrinsics while its `image_corners` stay in 1440p
-      pixels and every solvePnP/box3d crop lands systematically offset.
+      pixels, and the two no longer describe the same picture.
     """
     from .calibration import CalibrationProfile
 

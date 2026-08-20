@@ -5,6 +5,11 @@ deduplicated and ordered by severity. Severity levels are calibrated to the real
 (local single-user tool) — "Critical" means: endangers data integrity or the
 project goal (reliable move tracking), not "server is on fire".
 
+**Note (2026-08-20):** every finding against `web/*`, `move_tracker/*`, `collect*`,
+`experiment.py`, `geometry3d.py` or `photometric.py` is closed by deletion, not by a fix —
+C1, H1, H2, H4, H6, M1, M2, M3, M4, the tracker half of C3, and the web halves of M5 and M7.
+Read them as a record of what the code once did.
+
 ---
 
 ## CRITICAL

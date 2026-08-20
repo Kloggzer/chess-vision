@@ -140,15 +140,15 @@ when full phone-equivalent frame coverage is required. On the 196 s QHD recordin
 means all 5,150 frames at the stream's measured 26.25 fps (the encoder advertises 30 fps, but the
 recorded stream contains fewer actual frames).
 
-**Models.** Eight CNNs are bundled under `android/app/src/main/assets/cnn_model/`, switchable
-in Settings (restart required). A fresh install runs `real14-80`, the 14-class identity model
-whose explicit `occluded` class lets the tracker veto a hand even when the model-free grid-groove
-detector misses it. Existing installs on older defaults migrate to it once. `id35-80` remains
-available as the hard-negative-finetuned 13-class comparison arm; it is the model for which
-`CLAUDE.md` records **16 ms median for 64 crops** on an SM8650 over 534 live observations. No
-bundled model has received the occlusion head yet — none declares `coverage_output`, so the phone
-still runs the 14-class scheme the Python side left behind on 2026-08-18. `docs/class-scheme.md`
-records the divergence.
+**Models.** Exactly two CNNs are bundled under `android/app/src/main/assets/cnn_model/`,
+switchable in Settings (restart required). A fresh install runs `real14-80`, the 14-class
+identity model whose explicit `occluded` class lets the tracker veto a hand even when the
+model-free grid-groove detector misses it. `id35-80` is the hard-negative-finetuned 13-class
+comparison arm; it is the model for which `CLAUDE.md` records **16 ms median for 64 crops** on
+an SM8650 over 534 live observations, and being 13-class it reads `pOccluded = 0.0`. The
+2-class occupancy models went with the scheme on 2026-08-20. No bundled model has received the
+occlusion head yet — neither declares `coverage_output`, so the phone still runs the 14-class
+scheme the Python side left behind on 2026-08-18. `docs/class-scheme.md` records the divergence.
 
 **Settings offer decisions, not fields.** 45 knobs are persisted, 37 are on the screen, and
 8 are withheld by an explicit table that carries a written reason for each — a knob that is
@@ -194,7 +194,7 @@ Derived things live outside and can be rebuilt.
 | directory | holds |
 |---|---|
 | `data/recordings/<ts>/` | one recording, whole: the import (`candidate.json`, `files/`, `video.mp4`, `review/`, `review-extra/`), what was cut from it (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `quad-fit.json`) and its own `corrections.jsonl` |
-| `data/sessions/` | sessions that are not recordings: `collect` captures and `ingest` imports |
+| `data/sessions/` | sessions that are not recordings: what `chesslab ingest` imports |
 | `data/crops/<tag>/` | a crop pool — the crops **and** its own `manifest.jsonl`. Default `crops/default` |
 | `data/datasets/<name>/` · `data/models/<run>/` | packed snapshots · training runs |
 | `data/calibration/` · `data/lens/` | board profiles · optical intrinsics |
@@ -202,6 +202,7 @@ Derived things live outside and can be rebuilt.
 | `data/reports/` | machine output: `split.json`, `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/` |
 | `data/labels/` | `review-notes.jsonl` and `_history/` — the verdicts that belong to no single recording |
 | `data/inbox/` | the web app's runtime state |
+| `data/_delete/` | retired material — moved, never deleted; the user deletes it themselves (`data/_delete/README.md`, [`docs/retired-runs.md`](docs/retired-runs.md)) |
 
 A recording's **id** keeps the `rg-` prefix its directory dropped — the id is the join key in
 every manifest row, and `sessions.session_dir()` is the one place that maps one to the other.
@@ -226,9 +227,8 @@ held-out frame's grid lines demonstrably straighten after undistortion. If every
 from the same mount it refuses, rather than producing a confidently wrong model.
 
 ArUco markers are the board-geometry source and must stay on the board for the whole
-capture, because calibration, capture and slicing all self-calibrate **per frame** from
-them. A separate calibration step is optional — `collect` and `track` auto-create a missing
-profile from their own camera source.
+recording, because calibration, import and slicing all self-calibrate **per frame** from
+them. The saved profile is a seed, not the record.
 
 ```bash
 uv run chesslab calibrate markers --out data/calibration/markers.png   # print, cut, tape to the corners
@@ -243,19 +243,14 @@ uv run chesslab calibrate list
 aspect distortion enters the training data. `--pad-up` extends the box upward for a strongly
 oblique camera, where a tall 3D piece clips the top of the cell it stands on.
 
-### Collect, then slice
+### Slice
 
-Capture and labeling are separate steps so that labeling is reproducible: `collect` writes
-raw frames, the FEN, and the board corners that were visibly correct at capture time;
-`slice` warps from exactly those corners and can be re-run with different crop parameters
-without touching the camera again.
+Recording and labeling are separate steps so that labeling is reproducible: a session log
+carries the board, the FEN and the corners that were correct for that frame; `slice` warps
+from exactly those corners and can be re-run with different crop parameters without going
+near a camera again.
 
 ```bash
-uv run chesslab collect play --strategy random --max-plies 60 --ui
-uv run chesslab collect play --strategy coverage --sets 2 --count 30   # dense setups for rare classes
-uv run chesslab collect pgn --pgn games/test.pgn                       # physically replay a game
-uv run chesslab collect live --start-fen "<FEN>"                       # type SAN/UCI, then capture
-
 uv run chesslab slice --all                                            # pure, no hardware needed
 uv run chesslab slice --session <id> --pad-up 1.0 --out-size 128x128   # re-slice with new params
 uv run chesslab slice --preview <id>                                   # label vs visible crop
@@ -263,27 +258,29 @@ uv run chesslab slice --preview <id>                                   # label v
 
 Output is `data/crops/default/<class>/…webp` plus one manifest line per crop in that same pool's
 `data/crops/default/manifest.jsonl` — a pool describes itself, and `--variant-tag X` puts both
-under `data/crops/X/`. `--ui` (and standalone `chesslab ui`) adds a coverage
-dashboard driven from the session logs, so it reflects what you just captured, before any
-slicing. `chesslab cameras` probes what your cameras really deliver, which is rarely what
-they advertise.
+under `data/crops/X/`. `chesslab cameras` probes what your cameras really deliver, which is
+rarely what they advertise.
+
+The capture rig (`chesslab collect` and its OpenCV dashboard) was **deleted on 2026-08-20**:
+every session now arrives from the phone tracker or from `chesslab ingest`. `SessionWriter`,
+the one piece worth keeping, lives on in `src/chesslab/session_writer.py`.
 
 ### Datasets
 
 ```bash
 uv run chesslab stats                                     # class distribution, light/dark coverage
 uv run chesslab dataset build <name> --sessions s1,s2     # filter -> dedup -> split -> pack
-uv run chesslab dataset build <name> --like <donor> --classes occupancy
+uv run chesslab dataset build <name> --sessions s1,s2 --like <donor>   # --sessions is still required
 uv run chesslab dataset list | verify | delete
 uv run chesslab split --max-empty-ratio 1.5 --max-class-ratio 3        # the global, unnamed split
 ```
 
 Splits are **per session** — frames from one session are near-identical, so a random split
 leaks. `--classes` picks the class set and **defaults to `pieces13`**: 13 identities, with
-occlusion carried as a measured per-crop `coverage` fraction instead of a class. `occupancy`
-collapses to 2, `pieces` keeps the historical 14 for reading old datasets; both narrower modes
-DROP `occluded` rows rather than re-binning them, and no crop is ever re-labeled
-(`docs/class-scheme.md`). Perceptual-hash dedup and rotation are both **off** by default; the per-cell cap
+occlusion carried as a measured per-crop `coverage` fraction instead of a class. The only other
+mode is `pieces`, the historical 14, which exists to read old datasets — the 2-class `occupancy`
+mode was deleted on 2026-08-20. `pieces13` DROPS `occluded` rows rather than re-binning them, and
+no crop is ever re-labeled (`docs/class-scheme.md`). Perceptual-hash dedup and rotation are both **off** by default; the per-cell cap
 (`--cap`, default 4) is what actually bounds "the piece never moved".
 
 `--like <donor>` copies a donor dataset's session split, dedup policy and class balancing
@@ -299,8 +296,8 @@ uv run chesslab dataset build-synth <name> --renders <dir> --cap 8
 uv run chesslab ingest synthetic <dir> --tag check --limit 32 --debug-overlay 8 --no-build
 ```
 
-Check the overlay first, always: a wrong a8-corner silently transposes every label. The same
-`ingest` handles the external `chesscog` and `chessred` adapters.
+Check the overlay first, always: a wrong a8-corner silently transposes every label. `synthetic`
+is the only adapter left in the tree (`src/chesslab/ingest_adapters/`).
 
 ### Train, evaluate, export
 
@@ -310,7 +307,6 @@ uv run chesslab eval --run data/models/run-<ts> --split test
 uv run chesslab export --run data/models/run-<ts> --format all --infer-size 96x96
 uv run chesslab quantize --run data/models/run-<ts>          # INT8/QDQ ONNX for the Hexagon NPU
 uv run chesslab reliance --run …                             # does it read the piece or the board?
-uv run chesslab experiment run --heads combined,factored,twostage
 ```
 
 `train` defaults to **`--head occlusion`**: one sigmoid beside the 13 classes, regressing the
@@ -321,10 +317,9 @@ Why it is an output and not a class: `docs/occluder-plates.md`; the whole histor
 `docs/class-scheme.md`.
 
 The checkpoint metric is **board accuracy** (all 64 squares right), not square accuracy,
-which `empty` inflates. `--head` picks between one flat head, a decoupled type×color head,
-and a hierarchical occupancy→piece head; all three emit the same output shape so eval and
-inference do not care which was used. `--scales` trains one size-agnostic model for several
-input resolutions.
+which `empty` inflates. `--head` takes `occlusion` or `combined` — the decoupled and
+hierarchical heads went with the bake-off. `--scales` trains one size-agnostic model for
+several input resolutions.
 
 `export` bakes the input resolution into the graph at the run's `infer_size` — set with
 `--infer-size`, and distinct from `out_size`, which is the size the crops on disk were built
@@ -371,9 +366,6 @@ tolerance — inside the noise band the fit chases its own noise — and `autofi
 correction that does not improve its own frame. Repaired rows are marked `auto-corrected`, so
 measured and computed geometry stay distinguishable afterwards.
 
-`chesslab track-feedback ingest` turns the phone tracker's "undo = that was wrong" feedback into
-hard-negative crops appended to the default pool's `manifest.jsonl`.
-
 ## Development
 
 ```bash
@@ -382,8 +374,16 @@ uv run ruff check src tests synth scripts
 uv run vulture
 ```
 
-All three must be green. Frontend: `npm run lint`, `npm run knip` and `npm run build` in
-`src/chesslab/web/frontend`. Android: see the gate above.
+All three must be green. Frontend: `npm run lint`, `npm run knip`, `npx tsc --noEmit`,
+`npm test` and `npm run build` in `platform/app`. Android: see the gate above.
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs three jobs on every push and PR:
+`python-lint` (ruff over `src tests scripts synth`, format check reporting only), `web`
+(`platform/app`: tsc, vitest, build) and `kotlin` (test + ktlint + detekt on the five JVM
+modules; `:app` needs the NDK and stays a local build). There is deliberately **no Python test
+job** — `pyproject.toml` pins torch to local wheels under a gitignored `wheels/`, so `uv sync`
+cannot run on a Linux runner at all. Run `pytest` locally; the file's header says what would
+have to change.
 
 `CLAUDE.md` carries what these gates do *not* catch, including why `vulture`'s configured
 threshold is silent on unused functions, and why running `pytest` from a git worktree tests
@@ -413,5 +413,5 @@ algorithmic inspiration:
 - **Reinhard et al. (2001)** — color transfer
 - **Taubin (1995)** — volume-preserving mesh smoothing (via pymeshlab)
 
-**ChessReD** (CC-BY-4.0) and **chesscog** datasets are supported via `chesslab ingest` but
-are not distributed here.
+The **ChessReD** (CC-BY-4.0) and **chesscog** ingest adapters were removed on 2026-08-20;
+neither dataset was ever distributed here.

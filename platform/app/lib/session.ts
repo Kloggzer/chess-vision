@@ -75,10 +75,6 @@ export function sessionDir(name: string): string {
   return gameDir(name);
 }
 
-export function framePath(name: string, stem: string): string {
-  return path.join(sessionDir(name), "frames", `${checkName(stem, "frame")}.png`);
-}
-
 /** The row's OWN `board` path: a dirty frame's raster lives under `dirty/`, a clean one under
  *  `boards/`, and assuming either one serves the wrong pixels for half the session. */
 export function boardPath(name: string, rel: string): string {

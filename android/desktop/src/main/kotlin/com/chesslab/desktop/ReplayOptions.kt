@@ -51,7 +51,7 @@ data class ReplayOptions(
      */
     val motionGate: Boolean = true,
     /**
-     * Write `data/realgames/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
+     * Write `data/recordings/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
      * `confirmed: false` always; only a human review may flip that. Measures the footage's
      * geometry first and refuses footage that cannot carry a label (specs/52 phase 02).
      */
@@ -62,12 +62,12 @@ data class ReplayOptions(
      * negotiable (specs/52 phase 04: measurement only, forbidden from fixing).
      */
     val score: Boolean = false,
-    /** The candidate's directory name under `data/realgames/`. Default: the video's stem. */
+    /** The candidate's directory name under `data/recordings/`. Default: the video's stem. */
     val name: String? = null,
     /**
      * Write the DECISIVE frames — every decision row, rejections included, ±2 frames — as the
      * normalised, labeled board (the rectified warp with verdicts and the believed position),
-     * to `data/realgames/<name>/frames-decisive/`. Never the raw camera frames.
+     * to `data/recordings/<name>/frames-decisive/`. Never the raw camera frames.
      */
     val frames: Boolean = false,
     /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */

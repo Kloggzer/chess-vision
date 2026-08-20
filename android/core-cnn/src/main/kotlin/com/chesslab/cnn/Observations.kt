@@ -1,19 +1,9 @@
 package com.chesslab.cnn
 
 /**
- * Port of `cnn_recovery.py:63 classes_have_identity`.
- *
- * A 2-class occupancy run (`config.OCCUPANCY_CLASSES`) answers only empty-vs-occupied, so its
- * argmax label (`"occupied"`) is not an identity. `hasIdentity` (`CnnTick.kt:43`,
- * `Alarm.kt:77`) keys off `obs.label(sq) != null`, so such a run must report NO label — the
- * occupancy-only path is already the tested fallback.
- */
-fun classesHaveIdentity(classes: List<String>): Boolean = classes.any { it !in setOf("empty", "occluded", "occupied") }
-
-/**
  * Port of `cnn_recovery.py:63 observation_from_probs`.
  *
- * Class indices are ALWAYS derived from the run's `classes` list (2-, 13- and 14-class runs);
+ * Class indices are ALWAYS derived from the run's `classes` list (13- and 14-class runs);
  * never assume a position. `pOcc` is the summed mass of the 12 piece classes, clamped at 0
  * against float drift. The argmax keeps the FIRST maximum (Python's `max(range(n), key=…)`),
  * so the comparison below is a strict `>` — and it runs over the CLASSES only, because a row
@@ -54,9 +44,6 @@ fun observationFromProbs(
         label[square] = classes[top]
         conf[square] = probs[top]
         runnerUpConf[square] = classes.indices.filter { it != top }.maxOfOrNull { probs[it] } ?: 0.0
-    }
-    if (!classesHaveIdentity(classes)) {
-        return OccupancyObservation(pOcc = pOcc, pEmpty = pEmpty, pOccluded = pOccluded)
     }
     return OccupancyObservation(
         pOcc = pOcc,

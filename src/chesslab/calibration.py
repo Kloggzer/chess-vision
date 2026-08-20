@@ -86,15 +86,15 @@ class CalibrationProfile:
     # one independently. A single number stays valid input everywhere via `margins4`.
     margin: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     marker_dict: str = "DICT_4X4_50"
-    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics. If missing,
-    # geometry3d uses an approximation from frame_size. This way each camera is a self-contained profile.
+    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics, so each
+    # camera is a self-contained profile.
     source: str | None = None
     camera_matrix: list[list[float]] | None = None
     dist_coeffs: list[float] | None = None
     # Lens state this profile was made under (see chesslab/lens.py). On UNDISTORTED frames
     # the correct intrinsics above are the NEW optimal camera matrix and ZERO distortion —
-    # a profile still carrying the raw-lens K/D would make solvePnP/box3d compensate the
-    # distortion a SECOND time. `lens_calib_id` pins WHICH lens calibration that was.
+    # a profile still carrying the raw-lens K/D would compensate the distortion a SECOND
+    # time. `lens_calib_id` pins WHICH lens calibration that was.
     # Defaults keep old YAML (written before undistortion existed) loadable as raw frames.
     undistorted: bool = False
     lens_calib_id: str | None = None
@@ -224,7 +224,7 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
     )
     # Stamp the lens state AND the intrinsics that match it: on undistorted frames the
     # correct values are the new optimal camera matrix + zero distortion, never the raw
-    # lens K/D (that would compensate the distortion twice in geometry3d/box3d PnP).
+    # lens K/D (which would compensate the distortion a second time).
     # camera_index -1 = "not from a live local camera" (recorded frame / URL) — route it
     # through the non-index branch of the source policy so it is NOT marked undistorted.
     from . import lens

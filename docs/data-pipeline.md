@@ -13,7 +13,7 @@
 
 ```mermaid
 flowchart TD
-    C["chesslab collect / chesslab ingest"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
+    C["chesslab ingest"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
     IMP["phone transfer / video import"] --> RG["data/recordings/&lt;ts&gt;/<br/>the import AND what was cut from it AND its corrections.jsonl"]
     S --> SL["chesslab slice<br/>(labeling.slice_session)"]
     RG --> SL
@@ -32,14 +32,18 @@ flowchart TD
 
 | Stage | Command | Writes | Key module |
 |---|---|---|---|
-| Capture | `chesslab collect` | `data/sessions/<id>/` | `collect.py` |
 | Import | phone transfer, `realgames export-session` | `data/recordings/<ts>/` | `realgames.py` |
+| Import (external) | `chesslab ingest synthetic <dir>` | `data/sessions/<id>/` | `ingest.py` |
 | Label | `chesslab slice --all` | `data/crops/default/` + its `manifest.jsonl` | `labeling.py` |
 | Curate | `chesslab dataset build <name> …` | `data/datasets/<name>/` | `dataset_build.py` |
 | Train | `chesslab train --dataset <name>` | `data/models/<run>/` | `training/train.py` |
 
-Capture and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
+Recording and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
 (board, FEN, mesh), so re-slicing a session reproduces its crops exactly.
+
+The local capture rig — `chesslab collect` and its OpenCV dashboard — was deleted on 2026-08-20.
+Sessions now come from the phone tracker or from `chesslab ingest`; `SessionWriter`
+(`src/chesslab/session_writer.py`) is the piece of the rig that survived.
 
 ### 1.1 The tree — one rule (2026-08-20)
 
@@ -49,7 +53,7 @@ Derived things — crops, datasets, reports — live outside and can be rebuilt 
 | directory | holds |
 |---|---|
 | `data/recordings/<ts>/` | EVERYTHING about one recording: the import (`candidate.json`, `files/`, `video.mp4`, `review/`, `review-extra/`), what was cut from it (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `quad-fit.json`) and its own `corrections.jsonl` |
-| `data/sessions/` | only sessions that are NOT recordings: `collect` captures and `ingest` imports. Empty today |
+| `data/sessions/` | only sessions that are NOT recordings: what `chesslab ingest` imports. Empty today |
 | `data/crops/<tag>/` | the crops **and that pool's own `manifest.jsonl`** — a pool describes itself. Default pool is `crops/default` |
 | `data/datasets/<name>/` | packed snapshots |
 | `data/models/<run>/` | training runs |
@@ -59,6 +63,7 @@ Derived things — crops, datasets, reports — live outside and can be rebuilt 
 | `data/reports/` | machine output: `audit-flags*`, `correction-violations.jsonl`, `hard_empty*.jsonl`, `split.json`, `augment.yaml`, `perf/` |
 | `data/labels/` | only `review-notes.jsonl`, plus `_history/` |
 | `data/inbox/` | the web app's runtime state |
+| `data/_delete/` | retired material — moved, not deleted; the user deletes it themselves. What the 101 retired runs measured is in [`retired-runs.md`](retired-runs.md) before the directory goes |
 
 Two consequences worth carrying:
 
@@ -103,7 +108,8 @@ undistorted set (`frames/lens.json`, which the video cannot reproduce) and for `
 
 ## 2. What a session is
 
-A `collect` capture — the shape the rest of this section describes:
+An ingested session — the shape the rest of this section describes, and the shape every rig
+capture had before `collect` went:
 
 ```
 data/sessions/20260721-205618/
@@ -232,7 +238,7 @@ exists; the pool's `<label>/` directories are just its pixel backing.
 {"path": "data/crops/default/wR/20260630-080531_0000_a1.png", "label": "wR",
  "session_id": "20260630-080531", "frame": "0000", "ply": 1, "square": "a1",
  "square_color": "dark", "fen": "…", "out_size": [128,128],
- "geometry": "warp", "photometry": "none", "ts": "…"}
+ "pad_side": 0.05, "pad_up": 0.0, "ts": "…"}
 ```
 
 Facts worth knowing before you touch it:
@@ -270,9 +276,9 @@ The build (`dataset_build.build_dataset`) runs strictly in this order:
 2. **Assign whole sessions to splits** on the RAW rows (`dataset.assign_sessions_to_splits`).
 3. **Dedup — TRAIN ONLY.** `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`,
    default 4). `dedup_phash` runs first *when enabled*, but it is **OFF by default since
-   2026-07-30** — see §5.12. The order matters and was the other way round until 2026-07-29 —
+   2026-07-30** — see §5.13. The order matters and was the other way round until 2026-07-29 —
    see §5.11.
-4. **Collapse labels** if `class_mode=occupancy` (14 classes → `empty`/`occupied`).
+4. **Collapse labels** to the target class list (`pieces13`, the default, drops `occluded` rows).
 5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
 
 A variant whose manifest only re-SELECTS rows another dataset already packed does not get a second
@@ -453,14 +459,14 @@ The rebuild, end to end:
 uv run chesslab slice --session 20260727-...
 
 # 2. the session list is NOT derived — name every session the dataset should contain
-uv run chesslab dataset build occ-real-<date> --sessions <sid1>,<sid2>,... --classes occupancy
+uv run chesslab dataset build real13-<date> --sessions <sid1>,<sid2>,...   # --classes pieces13 by default
 
 # 3. train against the new name
-uv run chesslab train --dataset occ-real-<date> ...
+uv run chesslab train --dataset real13-<date> ...
 ```
 
-**Build under a new name, never in place.** `occ-real` is the baseline every occupancy number in
-`specs/18-occupancy-model/` was measured against; overwriting it makes those numbers unreproducible
+**Build under a new name, never in place.** Every published number was measured against a named
+dataset; overwriting one makes those numbers unreproducible
 and the comparison meaningless. Date-suffix the new one and record in `STATUS`/commit message which
 dataset a checkpoint was trained on.
 
@@ -533,7 +539,7 @@ Everything below is preserved, nothing here is deleted.
 Consolidating #4 into #3 would cost **nothing but time to write the note**: both trees are on the
 same volume (`C:`, 406 GB free), so the move is a filesystem rename, not a copy — 13.66 GB moved
 instantly, and `data/` is gitignored so nothing enters git. `data/_parked/` is invisible to the
-pipeline (`list_sessions` reads `data/sessions` only). The reason it may have been put outside
+pipeline (`sessions.all_sessions` walks `recordings/` and `sessions/`, nothing else). The reason it may have been put outside
 the repo deliberately is exactly that: distance from anything that walks `data/`. **Ask before
 moving it.**
 
@@ -570,16 +576,18 @@ See §9 for what the 19 sessions are worth.
 
 ## 7. Stray artefacts — what they are and whether anything reads them
 
-Traced across `src/`, `scripts/`, `tests/`, `synth/`, the FastAPI backend and the React frontend.
-The paths below are the pre-2026-08-20 tree: `data/manifests/*` now lives in `data/reports/`, and
-`corrections.jsonl` next to its recording (§1.1). The verdicts are what was traced then.
+Traced across `src/`, `scripts/`, `tests/`, `synth/` and the (since deleted) FastAPI backend and
+React frontend. The paths below are the pre-2026-08-20 tree: `data/manifests/*` now lives in
+`data/reports/`, and `corrections.jsonl` next to its recording (§1.1). The verdicts are what was
+traced then — `corrections.jsonl` in particular has had a writer again since `platform/app`
+(`POST /api/corrections`).
 
 | file | written by | read by | verdict |
 |---|---|---|---|
 | `data/manifests/squares.jsonl.bak` | **no code** — created by hand 26.07 | nothing | orphan. Nothing in the repo creates or cleans `*.jsonl.bak`; the only `.bak` writer is `CalibrationProfile.save`, for YAML profiles. |
 | `data/manifests/split.json` (02.07) | `dataset.run_split` | legacy training / `eval` / `quantize` / `gradcam` / `dataset verify` | **live code path, stale content.** It names sessions that no longer exist (`20260630-083659`, `-010216`, `-014453`) and predates every current dataset. Harmless while everything runs `--dataset`, misleading the moment someone does not. |
 | `data/manifests/augment.yaml` (02.07) | `dataset.write_augment_yaml`, as a side effect of every `run_split` | **nothing** | documentation artifact by design — its own header says "generated from `config.AUGMENT` — edit the dataclass, not this file". The on-disk copy is stale w.r.t. the current dataclass (it lacks `noise_std`, `erase_*`, `bg_*`). |
-| `corrections.jsonl` | **no writer at all** since the relabel tab went in `f31d933`; `upsert_corrections` was deleted with the web tests on 2026-08-07. Pruning in `delete_session` / `trim_session` remains | `run_slice` → `label_overrides`, `experiment.slice_variant` | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
+| `corrections.jsonl` | **no writer at all** since the relabel tab went in `f31d933`; `upsert_corrections` was deleted with the web tests on 2026-08-07. Pruning in `delete_session` / `trim_session` remains | `run_slice` → `label_overrides` (`experiment.slice_variant` was the second reader until `experiment.py` was deleted on 2026-08-20) | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
 | `hard_empty.jsonl` | `scripts/mine_hard_empty.py` | `dataset_build.build_dataset` → `priority_paths` (protects mined hard empties from the `empty` cap) | live and useful. Not honoured by the legacy `run_split` (§5.7). |
 | `hard_empty.synthetic.jsonl` | `scripts/mine_hard_empty.py` (quarantine dump for legacy non-camera rows) | **nothing** | pure quarantine; never consumed. |
 | `hard_empty.jsonl.bak` (parked tree) | by hand | nothing | orphan, same as above. |
@@ -707,13 +715,12 @@ What is left after the filter bounds the gain, and is worth knowing before plann
 a cell holds **2** distinct crops at the median, 7 at p90, 145 at most, and only 363 of 2,339
 cells have more than four. The headroom sits in a few well-populated cells.
 
-### 5.12 An occupancy build DROPS `occluded` rows
+### 5.12 A `pieces13` build DROPS `occluded` rows
 
 `collapse_labels` used to refuse the build outright. That was right while a hand label on a real
 session was the only way such a row could appear — there it means something went wrong upstream.
 Renders with `--occlusion-p` produce them deliberately and in bulk (3,128 rows in one isolate
-stage, 15,239 in a boards stage), so refusing protected nothing and made occluders unusable for
-occupancy training.
+stage, 15,239 in a boards stage), so refusing protected nothing and made occluders unusable.
 
 They are **dropped, not mapped**: a covered square may hold a piece or nothing, so either class
 is a guess. The count and its share of the pool are printed — the guard's real purpose was that
@@ -839,7 +846,8 @@ Not recorded anywhere; compute it from the first logged quad (this is exactly wh
 
 ```bash
 .venv/Scripts/python.exe -c "import json, math, sys; \
-c = json.loads(open(f'data/sessions/{sys.argv[1]}/log.jsonl').readline())['corners']; \
+from chesslab.sessions import session_dir; \
+c = json.loads((session_dir(sys.argv[1])[0] / 'log.jsonl').open().readline())['corners']; \
 print(sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8)" 20260708-021722
 ```
 

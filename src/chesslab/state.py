@@ -10,11 +10,6 @@ it matches the canonical class list exactly.
 
 from __future__ import annotations
 
-import io
-import os
-import random
-from pathlib import Path
-
 import chess
 import chess.pgn
 
@@ -85,48 +80,6 @@ class GameState:
 
 # --- PGN-Helfer (Modus A) -------------------------------------------------------------
 
-def load_pgn_game(source: str | Path) -> chess.pgn.Game:
-    """Load PGN from file path OR PGN text; returns the first game."""
-    if isinstance(source, (str, Path)) and os.path.exists(source):
-        with open(source, encoding="utf-8") as fh:
-            game = chess.pgn.read_game(fh)
-    else:
-        game = chess.pgn.read_game(io.StringIO(str(source)))
-    if game is None:
-        raise ValueError("no valid game found in PGN source.")
-    return game
-
-
-def castling_rook_squares(board: chess.Board, move: chess.Move) -> tuple[int, int] | None:
-    """(rook_from, rook_to) for a castling move on the given board, else None."""
-    if not board.is_castling(move):
-        return None
-    rank = chess.square_rank(move.from_square)
-    if board.is_kingside_castling(move):
-        return chess.square(7, rank), chess.square(5, rank)   # h-rook -> f
-    return chess.square(0, rank), chess.square(3, rank)        #     a-rook -> d
-
-
-def en_passant_captured_square(board: chess.Board, move: chess.Move) -> int | None:
-    """Square of the pawn captured in en passant (NOT the destination square!), else None."""
-    if not board.is_en_passant(move):
-        return None
-    return chess.square(chess.square_file(move.to_square), chess.square_rank(move.from_square))
-
-
-def _steps_from_board_play(play_move, board: chess.Board, max_plies: int) -> list[dict]:
-    """Play a game: `play_move(board) -> chess.Move`. Returns {ply,san,fen} per half-move."""
-    steps: list[dict] = []
-    for _ in range(max_plies):
-        if board.is_game_over():
-            break
-        move = play_move(board)
-        san = board.san(move)
-        board.push(move)
-        steps.append({"ply": board.ply(), "san": san, "fen": board.fen()})
-    return steps
-
-
 def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = None) -> list[str]:
     """Return labels that require more physical pieces than available per color.
 
@@ -149,49 +102,3 @@ def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = N
     return out
 
 
-def random_game_positions(max_plies: int = 40, seed: int = 42, start_fen: str | None = None) -> list[dict]:
-    """Random legal moves — maximum position diversity for data collection."""
-    rng = random.Random(seed)
-    board = chess.Board(start_fen) if start_fen else chess.Board()
-    return _steps_from_board_play(lambda b: rng.choice(list(b.legal_moves)), board, max_plies)
-
-
-def stockfish_game_positions(stockfish_path: str, max_plies: int = 40,
-                             think_time: float = 0.05, start_fen: str | None = None) -> list[dict]:
-    """Engine vs. engine via UCI (Stockfish or similar). Needs an installed engine binary."""
-    import shutil
-
-    import chess.engine
-
-    if os.path.isfile(stockfish_path):
-        resolved = os.path.abspath(stockfish_path)   # resolve relative paths for CreateProcess
-    elif shutil.which(stockfish_path):
-        resolved = shutil.which(stockfish_path)       # found in PATH
-    else:
-        raise FileNotFoundError(f"engine binary not found: {stockfish_path!r}")
-
-    board = chess.Board(start_fen) if start_fen else chess.Board()
-    with chess.engine.SimpleEngine.popen_uci(resolved) as engine:
-        def play(b: chess.Board) -> chess.Move:
-            return engine.play(b, chess.engine.Limit(time=think_time)).move
-
-        return _steps_from_board_play(play, board, max_plies)
-
-
-def pgn_positions(source: str | Path, every: int = 1) -> list[dict]:
-    """Replay steps: per half-move {'ply', 'san', 'fen'}.
-
-    `every`: only return every N-th half-move (skip intermediate positions). The
-    starting position is not emitted — each entry's move has already been played.
-    """
-    game = load_pgn_game(source)
-    board = game.board()  # respects any FEN header
-    steps: list[dict] = []
-    idx = 0
-    for move in game.mainline_moves():
-        san = board.san(move)
-        board.push(move)
-        idx += 1
-        if every <= 1 or idx % every == 0:
-            steps.append({"ply": board.ply(), "san": san, "fen": board.fen()})
-    return steps

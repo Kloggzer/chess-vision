@@ -24,10 +24,10 @@ export type Split = {
   splits: Record<string, string[]>;
 };
 
-export type SessionCounts = { total: number; classes: Record<string, number> };
+type SessionCounts = { total: number; classes: Record<string, number> };
 
 /** Rows that carry a `coverage` float, and how many sit past `PIECE_VISIBLE_MAX`. */
-export type CoverageTally = { rows: number; over: number };
+type CoverageTally = { rows: number; over: number };
 
 /** Bumped when a pass counts something new — an index written before it must be rebuilt, not read. */
 export const INDEX_VERSION = 2;
@@ -97,7 +97,7 @@ export async function listDatasets(): Promise<DatasetEntry[]> {
   return Promise.all(names.map(async (name) => ({ name, split: await loadSplit(name) })));
 }
 
-export async function loadSplit(name: string): Promise<Split | null> {
+async function loadSplit(name: string): Promise<Split | null> {
   try {
     return JSON.parse(await readFile(path.join(datasetDir(name), "split.json"), "utf8")) as Split;
   } catch {
@@ -193,7 +193,7 @@ export function sameSession(datasetSessionId: string, sessionId: string): boolea
   return datasetSessionId === sessionId || datasetSessionId.endsWith(`-${sessionId}`);
 }
 
-export type Share = { sessionId: string; crops: number; share: number; real: boolean };
+type Share = { sessionId: string; crops: number; share: number; real: boolean };
 export type Shares = { rows: Share[]; total: number; real: number; realShare: number };
 
 /** Sessions of the TRAIN split only — the supplement question is about what the model trains on. */

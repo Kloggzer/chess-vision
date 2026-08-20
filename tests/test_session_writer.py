@@ -1,10 +1,10 @@
-"""Stage 3 — SessionWriter tests (headless, synthetic frames)."""
+"""SessionWriter tests (headless, synthetic frames)."""
 
 import json
 
 import numpy as np
 
-from chesslab.collect import SessionWriter
+from chesslab.session_writer import SessionWriter
 
 
 def _frame():
@@ -25,7 +25,7 @@ def _writer(tmp_path):
 def test_redact_source_drops_only_the_credentials():
     """A session's metadata is long-lived and copied around — an IP-cam URL's basic-auth
     credentials must not be in it, while host/port/path (the camera's identity) must."""
-    from chesslab.collect import redact_source
+    from chesslab.session_writer import redact_source
 
     assert redact_source(0) == "0"
     assert redact_source(None) == ""

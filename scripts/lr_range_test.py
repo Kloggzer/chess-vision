@@ -103,7 +103,7 @@ def main() -> int:
 
     device = get_device(require_gpu=True)
     model = build_model(args.backbone, len(classes), pretrained=False, norm=args.norm,
-                        head=args.head, classes=classes, in_chans=3).to(device)
+                        head=args.head, in_chans=3).to(device)
     if args.resume:
         # Dieselbe Uebernahme wie `chesslab train` (`model.adopt_weights`): der Kopf des
         # Basismodells hat 13 Klassen, dieser Korpus 14 — ein striktes load_state_dict stirbt daran.

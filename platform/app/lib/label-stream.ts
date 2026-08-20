@@ -66,7 +66,7 @@ export type StreamCell = {
   fen_label: string;
 };
 
-export type StreamAuditCell = {
+type StreamAuditCell = {
   session: number;
   pos: number;
   stem: string;

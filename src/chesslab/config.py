@@ -26,13 +26,6 @@ CLASSES: list[str] = [
 # from auto-labeling of the FEN): empty square + occluded.
 OPTIONAL_CLASSES: set[str] = {"empty", "occluded"}
 
-# --- Occupancy-only class list (2). The tracker's CNN consumes OCCUPANCY, not identity:
-# the diff + legality path decides which move was played. A 2-class run spends the whole
-# (tiny) model on the one question that is asked. NOT a replacement for CLASSES — the
-# 14-class piece pipeline (collect UI, review, per-class stats) still uses that. Derived
-# by COLLAPSING existing labels at dataset-build time; no crop is ever re-labelled.
-OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
-
 # --- Identity class list (13) = CLASSES minus `occluded`. ------------------------------
 # DERIVED, never a second literal: the canonical list stays the one above.
 #
@@ -43,24 +36,6 @@ OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
 # precisely the case where the tracker relies on the answer.
 IDENTITY_CLASSES: list[str] = [c for c in CLASSES if c != "occluded"]
 
-
-def to_occupancy_class(label: str) -> str:
-    """`empty` -> `empty`; every piece class -> `occupied`.
-
-    `occluded` is REJECTED: it has zero training rows (specs/18-occupancy-model/entry.md)
-    and must not be collapsed into either bucket — a hand over the board is neither empty
-    nor occupied, and an untrained third output on exactly that input is undefined
-    behaviour where the tracker most needs abstention. Raising is deliberate: a stray
-    `occluded` row appearing later must STOP a build, not get quietly binned.
-    """
-    if label == "occluded":
-        raise ValueError(
-            "cannot collapse 'occluded' to an occupancy class: it has zero training rows "
-            "and is neither empty nor occupied. Filter occluded rows out of the source "
-            "manifest, or do not build an occupancy dataset from them.")
-    if label not in CLASSES:
-        raise ValueError(f"unknown label {label!r} (not in config.CLASSES).")
-    return "empty" if label == "empty" else "occupied"
 
 # Global determinism seed for all random steps (split, sampling, training).
 SEED: int = 42
@@ -209,32 +184,6 @@ class LensDefaults:
 
 
 LENS = LensDefaults()
-
-
-# --- Photometry (Stage 7, shared between Slicing and later live inference) -------
-# A deterministic preprocessing that is baked INTO the PNGs during slicing and must be
-# called identically by the live app (parity). Only deterministic methods.
-@dataclass(frozen=True)
-class PhotometryDefaults:
-    clahe_clip: float = 2.0    # CLAHE clipLimit (local contrast; higher = more aggressive)
-    clahe_tile: int = 8        # CLAHE tile size (tileGridSize = tile x tile)
-    gamma: float = 1.3         # > 1 brightens shadows (current pain point: dark corners)
-
-
-PHOTOMETRY = PhotometryDefaults()
-PHOTOMETRY_METHODS: tuple[str, ...] = ("none", "clahe", "grayworld", "gamma")
-
-# --- 3D box geometry & bake-off (Stage 7) ---------------------------------------------
-# `box3d`: camera pose per frame (solvePnP from markers/corners), project an upward-extruded
-# cell per square into the sharp original frame instead of warping top-down.
-EXP_GEOMETRIES: tuple[str, ...] = ("warp", "box3d")
-EXP_PHOTOMETRIES: tuple[str, ...] = PHOTOMETRY_METHODS
-EXP_PIECE_HEIGHT_CELLS: float = 1.6   # Extrude the square base upward in cells (king
-                                      # ~1.5 high); too large catches markers/background, too small clips
-EXP_BOX3D_FOV_DEG: float = 60.0       # Approximate intrinsics if profile has no camera_matrix
-EXP_BOX3D_PAD_SIDE_CELLS: float = 0.15  # lateral clearance of the 3D box per side (in cells)
-EXP_MARKER_LEN_CELLS: float = 0.6     # printed marker edge length in cell units (PnP scale)
-EXP_PREFIX: str = "bakeoff"           # Name prefix for variant-tagged datasets/experiments
 
 
 @dataclass(frozen=True)
@@ -390,78 +339,9 @@ DEFAULT_PATIENCE: int = 7
 DEFAULT_INVENTORY: dict[str, int] = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
 
 # --- Collection-UI thresholds (Stage 6) -----------------------------------------------
-UI_TARGET_PER_CLASS: int = 200          # Target per non-empty class (= stats threshold)
 UI_EMPTY_TARGET_RATIO: float = 1.5      # empty target = ratio * largest piece class
 UI_WARN_FRAC: float = 0.5               # < 50 % -> red, 50–99 % -> yellow, >= 100 % -> green
 UI_TOTAL_TARGET: int = 5000             # Total crop target for the progress bar
-
-
-# --- Engine (Stockfish) discovery -----------------------------------------------------
-# Frontend users should not have to know where the engine binary lives. We look in a few
-# conventional places so picking strategy "stockfish" just works out of the box.
-ENGINE_ENV_VAR: str = "CHESSLAB_STOCKFISH"
-
-
-def _bundled_engine_dirs() -> list[Path]:
-    """Candidate directories that may hold a bundled UCI engine binary."""
-    repo_root = Path(__file__).resolve().parents[2] / "tools" / "stockfish"  # src/chesslab/.. -> repo
-    cwd_local = Path("tools") / "stockfish"
-    return [repo_root, cwd_local]
-
-
-def find_stockfish() -> str | None:
-    """Locate a UCI chess engine binary without the user specifying a path.
-
-    Order of preference:
-      1. Explicit override via the CHESSLAB_STOCKFISH env var (file path or name on PATH).
-      2. A binary bundled under tools/stockfish/ (shipped with the repo).
-      3. `stockfish` found on the system PATH.
-
-    Returns an absolute path string, or None if nothing is found.
-    """
-    override = os.environ.get(ENGINE_ENV_VAR, "").strip()
-    if override:
-        if os.path.isfile(override):
-            return os.path.abspath(override)
-        on_path = shutil.which(override)
-        if on_path:
-            return on_path
-
-    for d in _bundled_engine_dirs():
-        if not d.is_dir():
-            continue
-        for p in sorted(d.glob("stockfish*")):
-            if not p.is_file():
-                continue
-            if os.name == "nt" and p.suffix.lower() != ".exe":
-                continue  # on Windows only an .exe is runnable
-            return str(p.resolve())
-
-    return shutil.which("stockfish")
-
-
-def find_realityscan() -> str | None:
-    """Find RealityScan executable (for launching photogrammetry from the Scan tab).
-
-    Order: Env CHESSLAB_REALITYSCAN → PATH → usual Windows installation locations.
-    """
-    env = os.environ.get("CHESSLAB_REALITYSCAN", "").strip()
-    if env:
-        if os.path.isfile(env):
-            return os.path.abspath(env)
-        on_path = shutil.which(env)
-        if on_path:
-            return on_path
-    on_path = shutil.which("RealityScan")
-    if on_path:
-        return on_path
-    for base in (r"D:\Program Files\Epic Games", r"C:\Program Files\Epic Games"):
-        b = Path(base)
-        if b.is_dir():
-            hits = sorted(b.glob("RealityScan_*/RealityScan.exe"), reverse=True)
-            if hits:
-                return str(hits[0])
-    return None
 
 
 def label_from_piece(symbol: str | None) -> str:
@@ -563,10 +443,6 @@ class Paths:
     def models(self) -> Path:
         return self.root / "models"
 
-    @property
-    def experiments(self) -> Path:
-        """Bake-off outputs (comparison tables per geometry×photometry run)."""
-        return self.root / "experiments"
 
     @property
     def labels(self) -> Path:
@@ -576,12 +452,6 @@ class Paths:
         Machine output goes to `reports/`; a re-slice rebuilds that and must never be able to
         take a human's ruling with it."""
         return self.root / "labels"
-
-    @property
-    def tracker_feedback(self) -> Path:
-        """Move-tracker good/bad feedback: per-decision JSONL + warped board PNGs. A
-        hard-negative dataset for CNN retraining / threshold tuning (created on demand)."""
-        return self.root / "tracker_feedback"
 
     def all(self) -> list[Path]:
         return [self.calibration, self.recordings, self.crops, self.labels, self.models]
@@ -596,7 +466,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 class SynthDefaults:
     """Defaults for the synthetic render pipeline (chesslab synth render)."""
 
-    blend: Path = _REPO_ROOT / "synth_assets/Chess Scene.blend"
+    blend: Path = _REPO_ROOT / "synth/assets/Chess Scene.blend"
     pieces_dir: Path = _REPO_ROOT / "synth_pieces"
     out_dir: Path = DATA.root / "synth_raw"
     res: int = 1024
@@ -699,9 +569,9 @@ def list_model_runs() -> list[dict]:
     runs = []
     root = DATA.models
     if root.exists():
-        for d in sorted(root.iterdir()):
-            if d.is_dir() and (d / "best.pt").exists():
-                runs.append({"run": d.name, "mtime": (d / "best.pt").stat().st_mtime})
+        runs.extend({"run": d.name, "mtime": (d / "best.pt").stat().st_mtime}
+                    for d in sorted(root.iterdir())
+                    if d.is_dir() and (d / "best.pt").exists())
     runs.sort(key=lambda r: -r["mtime"])
     return runs
 

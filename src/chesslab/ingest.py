@@ -1,10 +1,10 @@
-"""Ingestion of external chess datasets (e.g. chesscog, ChessReD2K) into our crop format —
-for transfer learning (pretrain on diverse foreign boards → `train --resume` finetune on
+"""Ingestion of corner-annotated datasets (currently: synthetic renders) into our crop format —
+for transfer learning (pretrain on rendered boards → `train --resume` finetune on
 own fixed-camera sessions).
 
-**Core idea — NO pipeline changes:** external images bring their own 4 board corners
+**Core idea — NO pipeline changes:** imported images bring their own 4 board corners
 (`[a8,h8,h1,a1]` in image pixels) + FEN. We write them as **synthetic sessions** (exactly the
-`session.yaml`+`log.jsonl` schema from `collect.SessionWriter`) and let the existing
+`session.yaml`+`log.jsonl` schema from `session_writer.SessionWriter`) and let the existing
 `labeling.slice_session → dataset_build.build_dataset → training.train` chain run.
 
 - Per frame `corners` are present → **no ArUco markers** needed (slice uses stored corners).
@@ -160,8 +160,7 @@ def _variant_paths(variant_tag: str | None, paths: config.Paths) -> tuple[Path, 
     return paths.crops / variant_tag / "manifest.jsonl", paths.crops / variant_tag
 
 
-def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
-                   photometry: str = "none", out_size: tuple[int, int] | None = None,
+def slice_imported(session_ids: list[str], *, profile, out_size: tuple[int, int] | None = None,
                    variant_tag: str, paths: config.Paths = config.DATA) -> dict:
     """Slice each synthetic session into the variant pool `crops/<variant_tag>/`
     (via the existing `labeling.slice_session`)."""
@@ -174,7 +173,7 @@ def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
     for sid in session_ids:
         res = labeling.slice_session(
             paths.sessions / sid, profile=profile, manifest_path=manifest_path,
-            squares_root=squares_root, out_size=out_size, geometry_mode=geometry, photometry=photometry)
+            squares_root=squares_root, out_size=out_size)
         tot["sessions"] += 1
         tot["frames"] += res["frames"]
         tot["crops"] += res["crops"]
@@ -226,20 +225,13 @@ def debug_overlay(session_id: str, n: int, out_dir: Path, *, profile,
 
 def _load_adapter(name: str) -> Callable[[Path], Iterable[ImportItem]]:
     name = name.lower()
-    if name == "chesscog":
-        from .ingest_adapters.chesscog import iter_items
-        return iter_items
-    if name in ("chessred", "chessred2k"):
-        from .ingest_adapters.chessred import iter_items
-        return iter_items
     if name in ("synthetic", "synth"):
         from .ingest_adapters.synthetic import iter_items
         return iter_items
-    raise ValueError(f"unbekannter Adapter {name!r} (chesscog | chessred | synthetic).")
+    raise ValueError(f"unbekannter Adapter {name!r} (synthetic).")
 
 
-def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "warp",
-               photometry: str = "none", board_size: int = 900,
+def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 900,
                out_size: tuple[int, int] | None = None, limit: int | None = None,
                debug_overlay_n: int = 0, build: bool = True,
                paths: config.Paths = config.DATA) -> dict:
@@ -273,7 +265,7 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
         overlays = debug_overlay(session_ids[0], debug_overlay_n,
                                  paths.root / f"ingest_debug__{tag}", profile=prof, paths=paths)
 
-    sliced = slice_imported(session_ids, profile=prof, geometry=geometry, photometry=photometry,
+    sliced = slice_imported(session_ids, profile=prof,
                             out_size=out_size, variant_tag=tag, paths=paths)
 
     summary = {"adapter": adapter, "tag": tag, "items": len(items), "skipped_items": skipped,

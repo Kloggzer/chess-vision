@@ -28,7 +28,7 @@ export type AuditFlags = {
   present: boolean;
 };
 
-export function auditFlagsPath(): string {
+function auditFlagsPath(): string {
   return path.join(dataDir(), "reports", "audit-flags.jsonl");
 }
 

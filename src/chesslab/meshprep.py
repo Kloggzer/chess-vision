@@ -616,16 +616,13 @@ def _write_trimesh_obj(mesh, name: str, out_dir: Path, tex_img, tex_dst: Path):
     lines.append(f"mtllib {name}.mtl")
     lines.append(f"o {name}")
 
-    for v in verts:
-        lines.append(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}")
-    for nrm in normals:
-        lines.append(f"vn {nrm[0]:.6f} {nrm[1]:.6f} {nrm[2]:.6f}")
+    lines.extend(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}" for v in verts)
+    lines.extend(f"vn {nrm[0]:.6f} {nrm[1]:.6f} {nrm[2]:.6f}" for nrm in normals)
 
     if uv is not None and len(uv) == len(verts):
         uv_raw = np.asarray(uv)[:, :2]
         uv_unique, uv_idx = np.unique(uv_raw, axis=0, return_inverse=True)
-        for vt_val in uv_unique:
-            lines.append(f"vt {vt_val[0]:.6f} {vt_val[1]:.6f}")
+        lines.extend(f"vt {vt_val[0]:.6f} {vt_val[1]:.6f}" for vt_val in uv_unique)
         lines.append("usemtl piece")
         for fi in range(len(faces)):
             f0, f1, f2 = int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2])

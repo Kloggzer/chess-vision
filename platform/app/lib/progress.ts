@@ -33,7 +33,7 @@ const TAIL_LINES = 4;
 const NS_PER_S = 1e9;
 
 /** The duration the phone recorded beside the video — the only honest denominator we have. */
-export async function recordingSeconds(name: string): Promise<number | null> {
+async function recordingSeconds(name: string): Promise<number | null> {
   const sessions = path.join(gameDir(name), "files", "sessions");
   let ids: string[] = [];
   try {

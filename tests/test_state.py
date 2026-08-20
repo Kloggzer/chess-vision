@@ -4,7 +4,7 @@ import chess
 import pytest
 
 from chesslab import config
-from chesslab.state import GameState, load_pgn_game, pgn_positions
+from chesslab.state import GameState
 
 # Scholar's mate; the resulting position is a known, checkable FEN.
 SCHOLARS_MATE_SAN = ["e4", "e5", "Bc4", "Nc6", "Qh5", "Nf6", "Qxf7#"]
@@ -69,75 +69,6 @@ def test_undo_and_set_fen():
     assert gs.label_for("f7") == "wQ"
     with pytest.raises(ValueError):
         gs.set_fen("not a real fen")
-
-
-def test_pgn_positions_from_text_and_every():
-    pgn_text = "1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7# 1-0"
-    steps = pgn_positions(pgn_text)
-    assert len(steps) == 7
-    assert steps[0]["san"] == "e4"
-    assert steps[-1]["fen"] == SCHOLARS_MATE_FEN
-    # every=2 -> only even half-moves
-    sparse = pgn_positions(pgn_text, every=2)
-    assert [s["san"] for s in sparse] == ["e5", "Nc6", "Nf6"]
-
-
-def test_load_pgn_game_invalid_source_raises():
-    with pytest.raises(ValueError):
-        load_pgn_game("   ")  # empty -> no game
-
-
-def test_random_game_positions_deterministic_and_legal():
-    from chesslab.state import random_game_positions
-
-    a = random_game_positions(max_plies=20, seed=7)
-    b = random_game_positions(max_plies=20, seed=7)
-    assert [s["san"] for s in a] == [s["san"] for s in b]   # same seed -> same game
-    assert len(a) <= 20
-    # different seed -> (almost surely) different game
-    c = random_game_positions(max_plies=20, seed=99)
-    assert [s["san"] for s in a] != [s["san"] for s in c]
-    # every step is a legal, replayable position
-    gs = GameState()
-    for step in a:
-        gs.push_san(step["san"])
-        assert gs.fen() == step["fen"]
-
-
-def test_castling_rook_squares():
-    from chesslab.state import castling_rook_squares
-
-    b = chess.Board("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
-    rf, rt = castling_rook_squares(b, b.parse_san("O-O"))
-    assert chess.square_name(rf) == "h1" and chess.square_name(rt) == "f1"
-    rf2, rt2 = castling_rook_squares(b, b.parse_san("O-O-O"))
-    assert chess.square_name(rf2) == "a1" and chess.square_name(rt2) == "d1"
-    # black kingside
-    bb = chess.Board("r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1")
-    rf3, rt3 = castling_rook_squares(bb, bb.parse_san("O-O"))
-    assert chess.square_name(rf3) == "h8" and chess.square_name(rt3) == "f8"
-    # non-castling -> None
-    assert castling_rook_squares(b, b.parse_san("Kf1")) is None
-
-
-def test_en_passant_captured_square():
-    from chesslab.state import en_passant_captured_square
-
-    # After 1.e4 a6 2.e5 f5 — white can play exf6 e.p., removing the pawn on f5.
-    b = chess.Board("rnbqkbnr/1pppp1pp/p7/4Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3")
-    mv = b.parse_san("exf6")
-    sq = en_passant_captured_square(b, mv)
-    assert chess.square_name(sq) == "f5"          # captured pawn is NOT on the destination
-    # a normal capture is not en passant
-    assert en_passant_captured_square(chess.Board(), chess.Board().parse_san("e4")) is None
-
-
-def test_random_game_positions_from_start_fen():
-    from chesslab.state import random_game_positions
-
-    steps = random_game_positions(max_plies=5, seed=1, start_fen=SCHOLARS_MATE_FEN)
-    # SCHOLARS_MATE_FEN is checkmate -> game over immediately, no moves
-    assert steps == []
 
 
 def test_physical_inventory_violations_flags_extra_queen():

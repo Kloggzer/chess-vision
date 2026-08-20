@@ -12,8 +12,6 @@ import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
 
-export { CLASSES, IDENTITY_CLASSES, LEGACY_LABEL } from "@/lib/classes";
-
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
   session_id: string;
@@ -22,16 +20,16 @@ export type Correction = {
   label: string;
   retract?: boolean;
 };
-export type CorrectionRow = Correction & { ts: string };
+type CorrectionRow = Correction & { ts: string };
 
 const SQUARE = /^[a-h][1-8]$/;
 
-/** `corrections` = GLOBAL TRAINING INPUT; `reviewed` = provenance only (Python skips it), retired
- *  2026-08-20 — the mechanism stays, its file no longer has to exist. */
+/** `corrections` = GLOBAL TRAINING INPUT; `reviewed` = provenance only (Python skips it), written
+ *  per recording by three UI paths — the file exists again since 2026-08-20. */
 export type Ledger = "corrections" | "reviewed";
 
 /** Per RECORDING since 2026-08-20 — `name` is the directory, never the `rg-` prefixed id. */
-export function ledgerPath(name: string, ledger: Ledger = "corrections"): string {
+function ledgerPath(name: string, ledger: Ledger = "corrections"): string {
   return path.join(gameDir(name), `${ledger}.jsonl`);
 }
 

@@ -7,9 +7,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir } from "@/lib/data";
 import {
-  type Filter,
   type ModelRead,
-  classesSeen,
   matches,
   acceptLabel,
   readKey,
@@ -17,11 +15,11 @@ import {
   DISAGREE,
 } from "@/lib/query";
 
-export { acceptLabel, classesSeen, DISAGREE, matches, readKey, topRead };
-export type { Filter, ModelRead };
+export { acceptLabel, DISAGREE, matches, readKey, topRead };
+export type { ModelRead };
 
 /** The header line. `model` is `null` only on a file whose first line was never written. */
-export type ReadHeader = { model: string | null; classes: string[]; writtenAt: string | null };
+type ReadHeader = { model: string | null; classes: string[]; writtenAt: string | null };
 
 export type ModelReads = {
   rows: ModelRead[];
@@ -44,7 +42,7 @@ function parseHeader(obj: Record<string, unknown>): ReadHeader {
 type Cache = Map<string, { key: string; value: ModelReads }>;
 const cache: Cache = ((globalThis as { __chesslabModelReads?: Cache }).__chesslabModelReads ??= new Map());
 
-export function readsPath(name: string): string {
+function readsPath(name: string): string {
   return path.join(gameDir(checkName(name, "game name")), "model-reads.jsonl");
 }
 

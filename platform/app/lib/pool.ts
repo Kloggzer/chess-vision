@@ -51,7 +51,7 @@ export function fenLabels(fen: string): Record<string, string> {
   return out;
 }
 
-export type LogFrame = { stem: string; fen: string; dirty: boolean };
+type LogFrame = { stem: string; fen: string; dirty: boolean };
 export type SessionLog = { sessionId: string; frames: LogFrame[] };
 
 export type Pool = {

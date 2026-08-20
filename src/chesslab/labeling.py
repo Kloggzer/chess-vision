@@ -17,7 +17,7 @@ from pathlib import Path
 
 import cv2
 
-from . import config, geometry3d, photometric
+from . import config
 from .calibration import (
     CalibrationProfile,
     GridMesh,
@@ -127,12 +127,6 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-# Transition alias: `resize_keep_aspect` now lives in `imgops` (resolves the
-# import cycle with `geometry3d`). No longer referenced by anyone; can be
-# removed in the next cleanup pass.
-_resize_keep_aspect = resize_keep_aspect
-
-
 def _crop_square_mesh(board_warped, square: str, profile: CalibrationProfile,
                       out_size: tuple[int, int], mesh: GridMesh):
     """The per-cell PERSPECTIVE cut: the padded cell quad warped onto the letterboxed content
@@ -206,79 +200,22 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     return resize_keep_aspect(region, out_size)
 
 
-def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: str = "warp",
-                    photometry: str = "none",
-                    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
+def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
                     out_size: tuple[int, int] | None = None,
                     mesh: GridMesh | None = None,
-                    board=None,
-                    with_meta: bool = False):
-    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice:
-    bordered warp OR box3d, then `preprocess_crop`. Single Source for live inference so
-    the model sees exactly the same crop live as during training.
+                    board=None):
+    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice.
+    Single Source for live inference so the model sees exactly the same crop live as during
+    training.
 
-    `with_meta=True`: also returns {"used_box3d": list[bool]} per square, which `slice_session`
-    writes as the manifest's `pose_ok` (de-duplication, Rework 01).
     `mesh`: the frame's measured grid lines, cutting each cell at the board's own boundaries
-    instead of the nominal eighth — warp path only, box3d has its own geometry.
-    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may then
-    be None — box3d is the exception, it reprojects from the source frame.
+    instead of the nominal eighth.
+    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
+    then be None.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
-    box3d = geometry == "box3d"
-    if box3d and frame is None:
-        raise ValueError("box3d needs the source frame — a stored board is already rectified.")
-    cell = profile.board_size / 8.0
-    pose = None
-    up = 1.0
-    K = dist = None
-    if box3d:
-        fh, fw = frame.shape[:2]
-        K, dist = geometry3d.intrinsics(profile, (fw, fh))
-        pose = geometry3d.estimate_pose(corners, K, dist, profile.board_size, profile.margin)
-        if pose is not None:
-            up = geometry3d.up_sign(pose[0], pose[1])
-    ph_units = float(piece_height_cells) * cell
-    ps_units = config.EXP_BOX3D_PAD_SIDE_CELLS * cell
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
-    crops = []
-    used_box3d = []
-    for square in all_squares():
-        crop = None
-        is_box3d = False
-        if box3d and pose is not None:
-            crop = geometry3d.crop_square_3d(frame, square, K, dist, pose[0], pose[1], profile,
-                                             piece_height_units=ph_units, pad_side_units=ps_units,
-                                             up=up, out_size=out)
-            is_box3d = crop is not None
-        if crop is None:
-            crop = crop_square(warped, square, profile, out, mesh)
-        if photometry != "none":
-            crop = photometric.preprocess_crop(crop, photometry)
-        crops.append(crop)
-        used_box3d.append(is_box3d)
-    return (crops, {"used_box3d": used_box3d}) if with_meta else crops
-
-
-def variant_of_run(run_dir: Path) -> tuple[str, str, float]:
-    """(geometry, photometry, piece_height_cells) of a model run — from its dataset manifest
-    (the crops carry their preprocessing tags). This tells live inference how to crop.
-    Default (warp, none) for untagged legacy manifests."""
-    cfg_p = run_dir / "config.json"
-    cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
-    ds = cfg.get("dataset")
-    if ds:
-        from .dataset_build import dataset_dir
-        man = dataset_dir(ds) / "manifest.jsonl"
-    else:
-        man = config.DATA.crop_pool / "manifest.jsonl"
-    if man.exists():
-        for line in man.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                return (r.get("geometry", "warp"), r.get("photometry", "none"),
-                        float(r.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)))
-    return ("warp", "none", config.EXP_PIECE_HEIGHT_CELLS)
+    return [crop_square(warped, square, profile, out, mesh) for square in all_squares()]
 
 
 def read_session_meta(session_dir: Path) -> dict:
@@ -393,19 +330,12 @@ def slice_session(
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
-    geometry_mode: str = "warp",
-    photometry: str = "none",
-    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
 ) -> dict:
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
     The recording's own `corrections.jsonl` replaces the FEN-derived label per square. Returns the
     number applied. A correction is also the only way a cell of a `dirty` frame reaches the pool
     at all — see the loop below.
-
-    `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
-    via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
-    INTO the crops (train/inference parity). `piece_height_cells`: extrusion height for box3d.
     """
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
@@ -416,7 +346,6 @@ def slice_session(
     label_overrides = read_corrections(session_dir)
     prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
-    box3d = geometry_mode == "box3d"
 
     new_lines: list[str] = []
     n_crops = 0
@@ -429,7 +358,6 @@ def slice_session(
     #: Cells whose pixels left the position they are labelled with (`SETTLE_LIMIT`).
     n_unsettled = 0
     n_unusable = 0
-    n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
     n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     for entry in log:
@@ -438,11 +366,11 @@ def slice_session(
             continue
         # The stored board is the rectified frame under this row's own quad, so cutting from it is
         # the same operation minus the warp — and it is what the label view shows, which is the
-        # point. The source frame is only read when there is no board (or for box3d, which
-        # reprojects from it); it is no longer kept on disk for sessions that carry one.
+        # point. The source frame is only read when there is no board; it is no longer kept on
+        # disk for sessions that carry one.
         board = cv2.imread(str(session_dir / entry["board"])) if usable_board(entry, prof) else None
         frame = None
-        if board is None or box3d:
+        if board is None:
             frame_path = session_dir / entry["frame"]
             frame = cv2.imread(str(frame_path))
             if frame is None:
@@ -462,13 +390,7 @@ def slice_session(
         mesh = mesh_from_lines(entry.get("grid_lines"))
         n_mesh += mesh is not None
         # crops_for_frame as single source (Rework 01: de-duplication).
-        crops, meta = crops_for_frame(
-            frame, corners, prof, geometry=geometry_mode, photometry=photometry,
-            piece_height_cells=piece_height_cells, out_size=out, mesh=mesh, board=board,
-            with_meta=True)
-        used_box3d_list = meta["used_box3d"]
-        if box3d:
-            n_fallback += sum(1 for v in used_box3d_list if not v)
+        crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
         gs = None if explicit else GameState(entry["fen"])
@@ -552,17 +474,12 @@ def slice_session(
                 # was cut with is mutable and is not stamped anywhere else (specs/45).
                 "pad_side": float(prof.crop.pad_side),
                 "pad_up": float(prof.crop.pad_up),
-                "geometry": geometry_mode,
-                "photometry": photometry,
                 "ts": datetime.now(UTC).isoformat(),
             }
             if matte:
                 # The second training target, from a real hand instead of a composited one. Only
                 # written where mattes exist, so no manifest changes shape behind anyone's back.
                 row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
-            if box3d:
-                row["piece_height_cells"] = float(piece_height_cells)
-                row["pose_ok"] = used_box3d_list[i]
             new_lines.append(json.dumps(row, ensure_ascii=False))
             n_crops += 1
 
@@ -570,8 +487,7 @@ def slice_session(
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
             "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
-            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh,
-            "fallback": n_fallback}
+            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh}
 
 
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
@@ -599,9 +515,6 @@ def run_slice(
     pad_side: float | None = None,
     out_size: str | None = None,
     preview: str | None = None,
-    geometry_mode: str = "warp",
-    photometry: str = "none",
-    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
     variant_tag: str | None = None,
 ) -> int:
     out_size_t = parse_out_size(out_size) if out_size else None
@@ -632,13 +545,10 @@ def run_slice(
             stats = slice_session(
                 session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
                 pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
-                geometry_mode=geometry_mode, photometry=photometry, piece_height_cells=piece_height_cells,
             )
             extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
             if stats.get("skipped"):
                 extra += f" [{stats['skipped']} frames without markers skipped]"
-            if stats.get("fallback"):
-                extra += f" [{stats['fallback']} box3d->warp fallbacks]"
             extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
             if stats.get("dirty_dropped"):
                 extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"

@@ -9,11 +9,10 @@ SEG = {"start": 0, "end": 120, "ply": 3}
 
 def _scan(hands=(), skin=(), cells=None, stride=3, end=120):
     """One scan row per stride, clean unless an index falls into `hands` (person) or `skin`."""
-    rows = []
-    for idx in range(0, end, stride):
-        rows.append({"idx": idx, "person": 0.9 if idx in hands else 0.11,
-                     "skin": idx in skin, "grid": [],
-                     "cells": list(cells(idx)) if cells else [10.0] * 64})
+    rows = [{"idx": idx, "person": 0.9 if idx in hands else 0.11,
+             "skin": idx in skin, "grid": [],
+             "cells": list(cells(idx)) if cells else [10.0] * 64}
+            for idx in range(0, end, stride)]
     return rows
 
 
@@ -214,7 +213,7 @@ def test_an_occlusion_run_can_be_loaded_back(tmp_path):
     (run / "config.json").write_text(json.dumps({
         "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
         "out_size": [32, 32]}), encoding="utf-8")
-    trained = build_model("smallcnn", len(classes) + 1, head="combined", classes=classes)
+    trained = build_model("smallcnn", len(classes) + 1, head="combined")
     torch.save(trained.state_dict(), run / "best.pt")
 
     model, cfg = load_run(run)
@@ -240,8 +239,7 @@ def test_the_coverage_unit_never_reaches_the_softmax(tmp_path, monkeypatch):
     (run / "config.json").write_text(json.dumps({
         "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
         "out_size": [32, 32], "infer_size": [32, 32]}), encoding="utf-8")
-    torch.save(build_model("smallcnn", len(classes) + 1, head="combined",
-                           classes=classes).state_dict(), run / "best.pt")
+    torch.save(build_model("smallcnn", len(classes) + 1, head="combined").state_dict(), run / "best.pt")
 
     out = serving.predict_arrays(run, [np.zeros((32, 32, 3), np.uint8)], return_probs=True)
 

@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   // The phone is a SECOND reader of this UI, not just an uploader: relabelling by thumb is the
-  // point of the bucket/tinder screens. `next dev` blocks cross-origin requests to dev-only assets,
+  // point of the bucket screens. `next dev` blocks cross-origin requests to dev-only assets,
   // so a browser that typed the machine's LAN address gets the HTML and none of the JavaScript —
   // the API answers fine, which makes it look like the page is simply broken. The private ranges
   // are listed rather than the current lease, because DHCP moves it.

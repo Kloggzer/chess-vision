@@ -10,7 +10,7 @@ import path from "node:path";
 import { dataDir } from "@/lib/data";
 import { sessionLogs } from "@/lib/pool";
 
-export type Counts = { frames: number | null; crops: number | null };
+type Counts = { frames: number | null; crops: number | null };
 export type PackSummary = {
   /** `accepted` = packs from 2026-08-14 on, `clean` = the older key set, no quarantine column. */
   schema: "accepted" | "clean";

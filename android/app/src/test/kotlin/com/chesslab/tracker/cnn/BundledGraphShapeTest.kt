@@ -53,10 +53,9 @@ class BundledGraphShapeTest {
      * against what the app will really do with it and not against constants that happen to match.
      *
      * NOT [ALL_SQUARES]-plus-literals: `channels` follows the run's `input_repr`, the input size
-     * follows its `infer_size` (specs/22) — 96, 80 and 128 px across the three bundled models — and
-     * the OUTPUT width follows its `coverage_output`. Each graph is compared against the
-     * `config.json` **beside it**, never against another model's. The batch IS a literal, because
-     * that one is the bug being guarded.
+     * follows its `infer_size` (specs/22), and the OUTPUT width follows its `coverage_output`.
+     * Each graph is compared against the `config.json` **beside it**, never against another
+     * model's. The batch IS a literal, because that one is the bug being guarded.
      */
     private fun assertShape(
         file: File,

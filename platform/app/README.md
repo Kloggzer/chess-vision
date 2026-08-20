@@ -1,4 +1,4 @@
-# chesslab platform app — relabel MVP
+# chesslab platform app — labeling front-end
 
 Local Next.js front-end for `data/recordings/` (specs/53 phase 03). Nothing here imports chesslab;
 the file formats are the only bridge.
@@ -18,7 +18,7 @@ this app touches only `data/labels/review-notes.jsonl` and its own `data/inbox/`
 4. Confirm writes `confirmed` / `confirmed_at` / `reviewed_plies` into `candidate.json` — atomically,
    touching nothing else. `npm run lint`, `npx tsc --noEmit`, `npm test` are the gate.
 
-## `/relabel/<name>` — the streams (phase 03b)
+## `/strom/labeln` — the streams (phase 03b)
 
 Reads `data/recordings/<name>/model-reads.jsonl` (line 1 = `_model`/`_classes`/`_written_at`) and the
 session the export cut into **the same folder** — `session.yaml` + `log.jsonl` + `boards/` under
@@ -31,8 +31,8 @@ that carry it stay legible, but nothing writes another one — occlusion is meas
 (`matte.jsonl`), not asked, and only the 13 identities are writable. The one-card *tinder* view
 was **deleted** (*"tinder nervt"*, 2026-08-10 — `docs/labeling-ux/CONCEPT.md` §S7). A queue's **flags arrive selected**
 and a click takes one off (`lib/selection.ts`): confirm commits exactly what is still selected and
-says so live, `⌫` takes all of them off. The `reviewed` ledger was retired on 2026-08-20 — the
-mechanism is still in `lib/corrections.ts`, its file no longer has to exist.
+says so live, `⌫` takes all of them off. The `reviewed` ledger lives per recording next to
+`corrections.jsonl` (`lib/corrections.ts` `ledgerPath`) and is provenance only — Python skips it.
 
 - Corrections go out through `POST /api/corrections` — appended to that recording's own
   `data/recordings/<name>/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
@@ -75,7 +75,7 @@ Every card on `/` shows the ONE step that can run now, read off the disk rather 
 | candidate, not confirmed | **Confirm →** `/confirm/<name>`, the human step |
 | confirmed, no `log.jsonl` in the recording | **Export session** — `uv run chesslab realgames export-session` (it cuts into `data/recordings/<name>/`, writing `log.jsonl` LAST) |
 | session, no `model-reads.jsonl` | **Modell-Lesarten** — `uv run chesslab realgames model-read <name> --model <run dir>` |
-| everything there | **Relabel →** `/relabel/<name>` |
+| everything there | **Labeln →** `/strom/labeln` |
 | `useless.json` set | nothing — the step is `null` until "doch brauchbar" |
 
 `POST /api/chain/<name>` takes `{step}` and REFUSES a step that is not the disk's next one (409 with
@@ -136,11 +136,11 @@ serialized promise chain — the same one worker `lib/jobs.ts` has always had.
 
 ## The queues, and "nutzlos"
 
-`/confirm` and `/relabel` list every game whose next chain step is theirs, newest first
-(`lib/queues.ts`; both naming schemes on disk carry the same 14 digits, so `VID_20260802_222741`
-sorts by its clock and not by its `V`). `/relabel` has a second section, **Noch nicht gelesen** —
-a recording with no `candidate.json`, i.e. the machine step in front of the queue that nobody
-started — with the button that starts it, because an empty queue with no explanation reads as a bug.
+`/confirm` lists every game whose next chain step is its own, newest first (`lib/queues.ts`;
+both naming schemes on disk carry the same 14 digits, so `VID_20260802_222741` sorts by its clock
+and not by its `V`). The same read counts what waits on `labeln`, and that count is the badge the
+nav puts on `/strom/labeln` (`app/shell.tsx`) — the labeling streams themselves are corpus-wide,
+so they have no per-game queue of their own.
 
 `data/recordings/<name>/useless.json` is the human's verdict that a recording is not worth work:
 

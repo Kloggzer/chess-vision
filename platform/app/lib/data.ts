@@ -9,7 +9,7 @@ import { Chess } from "chess.js";
 import sharp from "sharp";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 
-export type Move = {
+type Move = {
   ply: number;
   san: string;
   frame: number;

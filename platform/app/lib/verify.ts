@@ -11,11 +11,11 @@ import { badIntervals, frameReviews, unusableBoards, type FrameReview } from "@/
 import { loadSession, sessionId } from "@/lib/session";
 
 /** One page of work. The alpha is a full board raster per frame, so the list stays bounded. */
-export const VERIFY_PAGE = 200;
+const VERIFY_PAGE = 200;
 
-export type VerifySession = { name: string; sessionId: string };
+type VerifySession = { name: string; sessionId: string };
 
-export type VerifyFrame = {
+type VerifyFrame = {
   session: number;
   stem: string;
   ply: number;

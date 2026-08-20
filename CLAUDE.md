@@ -4,7 +4,7 @@
 
 ## Mission
 - **Goal:** Build an auto-labeled image dataset for recognizing physical chess pieces on a board (fixed camera). Labels derived from FEN (64 examples per photo). Trains a per-square classifier.
-- **Tracker:** The experimental move tracker lives in `android/` (Kotlin). The Python `chesslab track` command and its UI were deleted 2026-08-07; Python keeps only `chesslab track-feedback ingest`.
+- **Tracker:** The experimental move tracker lives in `android/` (Kotlin). The Python `chesslab track` command and its UI were deleted 2026-08-07, `track_feedback.py` with the capture rig on 2026-08-20. Python is dataset building, training and export only.
 
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit. The CNN path is asynchronous and sparse. `docs/tracker-flow.md` records a measured break ("no snapshot ever reached the engine"); specs/53 later measured `CnnSnapshot.gridOccluded` reaching the verify ladder in replay, so the break is unconfirmed for live — re-measure before quoting it.
@@ -26,13 +26,15 @@
   `train` to `--head occlusion`, which reads the manifest's `coverage` and masks every cell over
   `PIECE_VISIBLE_MAX = 0.15` out of the classification loss. Nobody paints occlusion any more —
   the human only checks that the alpha and the shown position are right.
-  **Android has not followed (2026-08-20):** every bundled model is still 14-class softmax with
-  `occluded` at index 13, none declares `coverage_output`, and 10 occlusion runs exist as `.pt`
-  but none as ONNX. So `pOccluded` still comes from a softmax class and `gridOccluded` stays the
-  arm to trust (`docs/class-scheme.md`).
+  The 2-class `occupancy` scheme is **gone** (2026-08-20), Python and Kotlin: `--classes` takes
+  `pieces13` or `pieces` only (`dataset_build.CLASS_MODES`).
+  **Android has not followed on coverage:** the APK bundles exactly `real14-80` (14-class softmax,
+  `occluded` at index 13, the default) and `id35-80` (13-class, so `pOccluded` = 0.0) — neither
+  declares `coverage_output`, and the one occlusion run exists as `.pt` but not as ONNX. So
+  `gridOccluded` stays the arm to trust (`docs/class-scheme.md`).
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
-- **Cache:** Web Read-Paths via `manifest_cache.py` (mtime-keyed).
+- **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed); its web callers went with the FastAPI layer.
 - **Comments:** Target is **3 lines**. Up to **5** when it genuinely does not fit — 5 will be enforced soon. Comments say *why*, never what the code already says. Longer prose belongs in `docs/` with a one-line pointer. **Default is NO comment**: a small function (handler, wrapper, one-purpose helper) whose name plus imports tell the story gets none, and a comment longer than its function is wrong — delete it, don't trim it (User, 2026-08-15: "der kommentar ist länger als die funktion und sagt genau nichts").
 
 ## Known Pitfalls (Critical)

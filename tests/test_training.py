@@ -12,7 +12,6 @@ from chesslab.training.data import (
     build_model_card,
     checkpoint_score,
     filter_rows_by_split,
-    group_frames,
     occupancy_board_acc,
     occupancy_piece_breakdown,
 )
@@ -47,14 +46,6 @@ def test_filter_rows_by_split_respects_sessions():
     assert {r["session_id"] for r in train} == {"s0", "s2"}
     assert {r["session_id"] for r in val} == {"s1"}
     assert filter_rows_by_split(rows, split, "test") == []
-
-
-def test_group_frames_keys_on_session_and_frame():
-    rows = [_crop("s0", "0", "a1", "empty"), _crop("s0", "0", "b1", "wN"),
-            _crop("s0", "1", "a1", "empty")]
-    groups = group_frames(rows)
-    assert set(groups.keys()) == {("s0", "0"), ("s0", "1")}
-    assert len(groups[("s0", "0")]) == 2
 
 
 def test_build_model_card_has_required_fields():
@@ -112,69 +103,9 @@ def test_occupancy_board_acc_is_easier_than_full_board():
     assert full == 0.0
 
 
-# --- Zweistufiger Kopf (braucht torch) ----------------------------------------------------
-
-def test_twostage_head_outputs_valid_logprobs():
-    torch = pytest.importorskip("torch")
-    from chesslab.training.model import build_model
-
-    model = build_model("smallcnn", len(config.CLASSES), head="twostage", classes=config.CLASSES)
-    out = model(torch.randn(4, 3, 128, 128))
-    assert out.shape == (4, len(config.CLASSES))
-    # valid log-probabilities: exp(out) sums to 1 per row
-    assert torch.allclose(out.exp().sum(1), torch.ones(4), atol=1e-4)
-    # softmax(out) == exp(out) and argmax matches (inference parity)
-    assert torch.allclose(torch.softmax(out, dim=1), out.exp(), atol=1e-5)
-    assert bool((out.argmax(1) == torch.softmax(out, dim=1).argmax(1)).all())
-
-
-def test_twostage_timm_backbone_uses_actual_feature_dim():
-    torch = pytest.importorskip("torch")
-    pytest.importorskip("timm")
-    from chesslab.training.model import build_model
-
-    model = build_model(
-        "mobilenetv4_conv_small_03",
-        len(config.CLASSES),
-        pretrained=False,
-        norm="none",
-        head="twostage",
-        classes=config.CLASSES,
-    )
-    out = model(torch.randn(2, 3, 128, 128))
-    assert out.shape == (2, len(config.CLASSES))
-    assert model.head.occ_head.in_features == 1280
-
-
-def test_twostage_piece_head_only_learns_on_occupied():
-    torch = pytest.importorskip("torch")
-    import torch.nn.functional as F
-
-    from chesslab.training.model import build_model
-
-    model = build_model("smallcnn", len(config.CLASSES), head="twostage", classes=config.CLASSES)
-    x = torch.randn(4, 3, 128, 128)
-
-    def piece_grad_for(label: str) -> float:
-        model.zero_grad()
-        F.cross_entropy(model(x), torch.full((4,), _ci(label), dtype=torch.long)).backward()
-        return model.head.piece_head.weight.grad.abs().sum().item()
-
-    g_empty = piece_grad_for("empty")
-    g_piece = piece_grad_for("wP")
-    # On occupied squares the piece head learns strongly; on empty ones practically not
-    # (winziger Rest nur durch die CE-Renormierung der bereits normierten Log-Probs).
-    assert g_piece > 1e-3
-    assert g_empty < g_piece * 1e-3
-
-
-# --- groupnorm conversion (ROCm workaround) must not eat the activations ------------------
-
-# timm's `BatchNormAct2d` IS an nn.BatchNorm2d AND holds the block's ReLU. Replacing the whole
-# module deleted 30 activations from this backbone; the shipped model.onnx had zero `Relu`.
 _TIMM_BACKBONE = "mobilenetv4_conv_small_03"
 
-
+# --- Zweistufiger Kopf (braucht torch) ----------------------------------------------------
 def _relu_count(module) -> int:
     import torch.nn as nn
 
@@ -219,7 +150,7 @@ def test_the_exported_graph_contains_activations(tmp_path):
     from chesslab.training.model import build_model
 
     model = build_model(_TIMM_BACKBONE, len(config.CLASSES), pretrained=False,
-                        norm="groupnorm", head="twostage", classes=config.CLASSES).eval()
+                        norm="groupnorm", head="combined").eval()
     out = tmp_path / "model.onnx"
     # same export call as training.evaluate.run_export
     torch.onnx.export(model, torch.randn(2, 3, 128, 128), str(out),
@@ -433,8 +364,7 @@ def test_a_batchnorm_backbone_keeps_its_activations():
     assert relus > 0, "a batchnorm backbone must keep its nonlinearities"
 
 
-@pytest.mark.parametrize("head", ["combined", "twostage"])
-def test_every_backbone_path_converts_batchnorm_when_the_kernel_is_broken(monkeypatch, head):
+def test_every_backbone_path_converts_batchnorm_when_the_kernel_is_broken(monkeypatch):
     """One construction branch per head — the `combined` one was missed and only the run crashed.
 
     `build_model` reaches the timm backbone through a different branch per head, and each has to
@@ -443,12 +373,11 @@ def test_every_backbone_path_converts_batchnorm_when_the_kernel_is_broken(monkey
     """
     import torch.nn as nn
 
-    from chesslab import config
     from chesslab.training import model as M
 
     monkeypatch.setattr(M, "_BN_KERNEL_OK", False)
     m = M.build_model(backbone="mobilenetv4_conv_small_035", num_classes=2, norm="batchnorm",
-                      head=head, classes=["empty", "occupied"] if head != "combined" else config.CLASSES)
+                      head="combined")
     stock = [mod for mod in m.modules()
              if type(mod) is nn.BatchNorm2d]                      # exact type, not the subclass
     assert not stock, f"{len(stock)} stock BatchNorm2d survived — that branch will crash on ROCm"

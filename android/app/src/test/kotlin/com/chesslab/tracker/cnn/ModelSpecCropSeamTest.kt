@@ -52,12 +52,14 @@ class ModelSpecCropSeamTest {
     }
 
     /**
-     * And the same for the models the user can SWITCH to, which is the point of bundling three.
+     * And the same for the models the user can SWITCH to, which is the point of bundling more than one.
      *
      * The switch is only real if the crop size follows it: the selected model's `config.json` is
-     * what `TrackerService` re-reads into `withCropOf` on every geometry write, so picking the
-     * 80 px model and keeping 96 px crops would kill the first observation after the restart. Three
-     * models at three sizes cannot all pass against a constant anywhere in the chain.
+     * what `TrackerService` re-reads into `withCropOf` on every geometry write, so keeping the old
+     * crops would kill the first observation after the restart. Since the 2026-08-20 retirement both
+     * survivors crop at 80 px, so what rules out a constant here is [ASSUMED_SIZE], the geometry
+     * default `withCropOf` must overwrite — `withoutTheModelsSizeTheShippedAssetRefusesTheCrops`
+     * is the other half of that proof.
      */
     @Test
     @EnabledIf(OPENCV_GATE)
@@ -70,8 +72,8 @@ class ModelSpecCropSeamTest {
             }
         assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
         assertTrue(
-            sizes.map { it.second }.distinct().size > 1,
-            "all bundled models crop at the same size, so this cannot show the size following the model: $sizes",
+            sizes.none { it.second == ASSUMED_SIZE },
+            "a bundled model crops at the geometry default, so this cannot show the size following the model: $sizes",
         )
     }
 

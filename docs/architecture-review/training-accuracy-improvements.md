@@ -6,6 +6,11 @@ the strongest capability of the models (0.78–0.91) — and that's exactly what
 The piece type is the bottleneck (52–59 % type errors), but secondary for move tracking,
 because the tracker knows the piece identity from the game history.**
 
+**Note (2026-08-20):** the `factored` and `twostage` heads this document weighs no longer exist —
+`--head` takes `occlusion` (default) or `combined`. "Occupancy" below means the empty-vs-occupied
+METRIC (`training/data.py:occupancy_board_acc`), which is live; the 2-class `occupancy` dataset
+mode was deleted the same day. `move_tracker` is Kotlin in `android/`.
+
 ## 1. Current State: Run Results
 
 | Run | Dataset | Train/Val | Backbone | Head | val_acc | macro_recall | board_acc |

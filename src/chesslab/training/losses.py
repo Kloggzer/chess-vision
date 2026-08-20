@@ -21,11 +21,7 @@ class FocalLoss(nn.Module):
 
     `gamma = 0` is exactly weighted cross-entropy (asserted in `tests/test_training.py`).
 
-    **Input is LOGITS, not log-probs.** `HierarchicalHead` (`--head twostage`) returns
-    reconstructed log-probabilities; feeding those here would apply `log_softmax` a second
-    time and silently change the loss. A 2-class occupancy run uses `--head combined`,
-    which returns logits, so the standard formulation applies — but the assumption is
-    stated here rather than left implicit.
+    Input is LOGITS. The model builds one flat head, so there is no other case.
     """
 
     def __init__(self, weight: torch.Tensor | None = None, gamma: float = 2.0) -> None:

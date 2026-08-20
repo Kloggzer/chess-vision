@@ -45,20 +45,18 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
     return (paths or config.DATA).datasets / _safe_name(name)
 
 
-# --- Class mode: 14-class pieces (default), 13-class identity, 2-class occupancy -------
+# --- Class mode: 13-class identity (default), or the historical 14 for reading old packs ---
 
-CLASS_MODES = ("pieces", "pieces13", "occupancy")
+CLASS_MODES = ("pieces13", "pieces")
 
 
 def class_list_for(class_mode: str) -> list[str]:
-    """`pieces` -> `config.CLASSES` (14, unchanged default); `pieces13` -> `config.IDENTITY_CLASSES`
-    (the same list minus `occluded`); `occupancy` -> `config.OCCUPANCY_CLASSES`."""
-    if class_mode == "pieces":
-        return config.CLASSES
+    """`pieces13` -> `config.IDENTITY_CLASSES` (the default); `pieces` -> the historical 14, which
+    only reads packs built before `occluded` stopped being a class."""
     if class_mode == "pieces13":
         return config.IDENTITY_CLASSES
-    if class_mode == "occupancy":
-        return config.OCCUPANCY_CLASSES
+    if class_mode == "pieces":
+        return config.CLASSES
     raise ValueError(f"unknown class mode {class_mode!r} ({' | '.join(CLASS_MODES)}).")
 
 
@@ -69,30 +67,22 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
     A metadata mapping, nothing else: crop FILES keep their path and their `data/crops/default/wB/`
     directory — the path is the identity, the label is metadata.
 
-    Both narrower modes DROP `occluded` rather than bin it: `pieces13` has no such output at all
-    and `occupancy` has no bucket it honestly belongs in. It is a real filter now — the hand-painted
-    `occluded` corrections are exactly what the coverage target replaces.
+    `pieces13` DROPS `occluded` rather than binning it — it has no such output, and the
+    hand-painted corrections are exactly what the measured coverage replaces.
     """
-    if class_mode == "pieces":
+    classes = class_list_for(class_mode)        # the one gate: an unknown mode raises here
+    if "occluded" in classes:
         return rows
     kept = [r for r in rows if r["label"] != "occluded"]
     n_occluded = len(rows) - len(kept)
     if n_occluded:
-        # DROPPED, not mapped: `occluded` is neither empty nor occupied — the square may hold a
-        # piece under the hand or nothing at all, so either class would be a guess. Same argument
-        # as the renderer's ambiguous band.
-        #
-        # This used to raise instead. That was right while the only source of `occluded` was a
-        # hand label on a real session, where its appearance means something went wrong. Renders
-        # with `--occlusion-p` produce them deliberately and in bulk, so refusing the build made
-        # occluders unusable for occupancy training. Loud, not silent: the count is printed, which
-        # is what the guard was really protecting.
+        # Loud, not silent: this used to raise, which was right while a hand label was the only
+        # source. Renders with `--occlusion-p` produce them in bulk, so the count is printed
+        # instead — that is what the guard was really protecting.
         print(f"[{class_mode}] dropped {n_occluded} `occluded` rows "
               f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — no class fits.",
               flush=True)
-    if class_mode == "pieces13":
-        return kept                             # labels already are the 13-class list
-    return [{**r, "label": config.to_occupancy_class(r["label"])} for r in kept]
+    return kept                                 # labels already are the 13-class list
 
 
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
@@ -509,7 +499,7 @@ def build_dataset(
     ds.mkdir(parents=True, exist_ok=True)
     rows = train_rows + holdout                 # rotation happens on-the-fly at train time
     # Label collapse is the LAST step before the manifest: filtering, dedup and the
-    # session->split assignment above ran on the original 14-class labels, so an occupancy
+    # session->split assignment above ran on the original 14-class labels, so a narrowed
     # build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
     # AFTER the collapse: it drops `occluded`, so counting before it puts a `counts.final` in

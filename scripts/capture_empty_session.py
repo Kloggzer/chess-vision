@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from chesslab import config  # noqa: E402
 from chesslab.calibration import board_corners_for_frame, load_profile, make_tracker  # noqa: E402
 from chesslab.camera import CameraSpec, open_capture  # noqa: E402
-from chesslab.collect import SessionWriter  # noqa: E402
+from chesslab.session_writer import SessionWriter  # noqa: E402
 
 EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
 

@@ -17,7 +17,7 @@ export const SQUARES = Array.from({ length: 64 }, (_, i) => `${FILES[i % 8]}${8 
  * Brush loads: digits=white FEN order, lowercase=black. `x` is not a piece; stream uses `e` for
  * empty (CONCEPT.md 4.2). Thirteen keys, no `o` — occlusion is measured, not painted.
  */
-export const PALETTE: [string, string][] = [
+const PALETTE: [string, string][] = [
   ["x", "empty"],
   ["1", "wP"], ["2", "wN"], ["3", "wB"], ["4", "wR"], ["5", "wQ"], ["6", "wK"],
   ["p", "bP"], ["n", "bN"], ["b", "bB"], ["r", "bR"], ["q", "bQ"], ["k", "bK"],

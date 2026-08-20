@@ -20,14 +20,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import config  # noqa: E402
+from chesslab import sessions  # noqa: E402
 
 
-def rekey(session_dir: Path, apply: bool) -> dict:
-    matte = session_dir / "matte.jsonl"
-    log = session_dir / "log.jsonl"
+def rekey(sid: str, sdir: Path, apply: bool) -> dict:
+    matte = sdir / "matte.jsonl"
+    log = sdir / "log.jsonl"
     if not matte.exists() or not log.exists():
-        return {"session": session_dir.name, "skipped": "no matte.jsonl or no log.jsonl"}
+        return {"session": sid, "skipped": "no matte.jsonl or no log.jsonl"}
     rows = {}
     for line in log.read_text(encoding="utf-8").splitlines():
         if line.strip():
@@ -50,21 +50,21 @@ def rekey(session_dir: Path, apply: bool) -> dict:
         # A worker appends to this file while it runs, so the write only lands on the bytes it read.
         now = matte.stat()
         if (now.st_mtime_ns, now.st_size) != (before.st_mtime_ns, before.st_size):
-            return {"session": session_dir.name, "skipped": "written while reading — run it again"}
+            return {"session": sid, "skipped": "written while reading — run it again"}
         shutil.copy2(matte, matte.with_suffix(".jsonl.bak.preroll"))
         matte.write_text("\n".join(out) + "\n", encoding="utf-8")
-    return {"session": session_dir.name, "rows": len(out), "rekeyed": fixed, "orphan": orphan}
+    return {"session": sid, "rows": len(out), "rekeyed": fixed, "orphan": orphan}
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("names", nargs="*", help="session dir names; default: every rg-* session")
+    ap.add_argument("names", nargs="*", help="session ids; default: every rg-* recording")
     ap.add_argument("--apply", action="store_true", help="write (keeps a .bak.preroll beside it)")
     args = ap.parse_args()
-    dirs = ([config.DATA.sessions / n for n in args.names]
-            if args.names else sorted(config.DATA.sessions.glob("rg-*")))
-    for d in dirs:
-        result = rekey(d, args.apply)
+    targets = ([(n, sessions.session_dir(n)[0]) for n in args.names] if args.names
+               else [(s, d) for s, d in sessions.all_sessions() if s.startswith("rg-")])
+    for sid, sdir in targets:
+        result = rekey(sid, sdir, args.apply)
         if result.get("rekeyed") or result.get("orphan"):
             print(json.dumps(result))
 

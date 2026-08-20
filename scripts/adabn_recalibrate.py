@@ -103,7 +103,7 @@ import torch.nn as nn
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import calibration, config, labeling  # noqa: E402
+from chesslab import calibration, labeling, sessions  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
@@ -268,7 +268,7 @@ def install(model: nn.Module, stats: dict[str, ChannelStats]) -> list[tuple[str,
 
 # --- the pass ------------------------------------------------------------------------------------
 
-def crop_batches(run_dir: Path, cfg: dict, frames: list[tuple[str, str]], size: int,
+def crop_batches(cfg: dict, frames: list[tuple[str, str]], size: int,
                  warp: int | None, batch_size: int):
     """Yield normalised `[N, C, size, size]` batches, re-sliced from the session frames.
 
@@ -276,27 +276,21 @@ def crop_batches(run_dir: Path, cfg: dict, frames: list[tuple[str, str]], size: 
     through `normalize_batch` — the same arithmetic as `serving.predict_arrays`' fast path and as
     Android's `preprocess`. Labels are never read: AdaBN is unsupervised.
     """
-    from chesslab import serving
-
-    spec = serving.run_spec(run_dir)
-    sessions = sorted({sid for sid, _ in frames})
+    sdirs = {sid: sessions.session_dir(sid)[0] for sid, _ in frames}
     profiles, logs = {}, {}
-    for sid in sessions:
-        meta = labeling.read_session_meta(config.DATA.sessions / sid)
-        prof = labeling._profile_for_session(meta, None)
+    for sid, sdir in sdirs.items():
+        prof = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
         profiles[sid] = profile_at_warp(prof, warp) if warp else prof
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(config.DATA.sessions / sid)}
+        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
 
     pending: list[np.ndarray] = []
     for sid, frame_id in frames:
         entry = logs[sid][frame_id]
-        frame = cv2.imread(str(config.DATA.sessions / sid / entry["frame"]))
+        frame = cv2.imread(str(sdirs[sid] / entry["frame"]))
         if frame is None:
             raise SystemExit(f"frame not readable: {sid}/{entry['frame']}")
         pending.extend(labeling.crops_for_frame(
-            frame, entry["corners"], profiles[sid], geometry=spec.geometry,
-            photometry=spec.photometry, piece_height_cells=spec.piece_height_cells,
-            out_size=(size, size)))
+            frame, entry["corners"], profiles[sid], out_size=(size, size)))
         while len(pending) >= batch_size:
             yield to_batch(cfg, pending[:batch_size])
             del pending[:batch_size]
@@ -377,7 +371,7 @@ def main() -> None:
         + f", device={args.device}")
 
     t0 = time.time()
-    stats = calibrate(model, crop_batches(src, cfg, frames, args.size, args.warp, args.batch_size),
+    stats = calibrate(model, crop_batches(cfg, frames, args.size, args.warp, args.batch_size),
                       args.device)
     report = install(model, stats)
     log(f"   done in {time.time() - t0:.0f}s over {len(report)} batch norms")

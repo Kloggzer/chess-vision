@@ -20,8 +20,8 @@ import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteTarget } from "@/lib/matte";
 
-export type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
-export type JobKind = "pack" | "label" | "export" | "matte" | "model-read";
+type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
+type JobKind = "pack" | "label" | "export" | "matte" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -73,11 +73,11 @@ const queue: Queue = ((globalThis as { __chesslabJobs?: Queue }).__chesslabJobs 
   live: null,
   stopped: new Set(),
 });
-// An object pinned by older code lacks the fields added since (see `autopilot`/`drain`).
+// An object pinned by older code lacks the fields added since (see `drain`).
 queue.live ??= null;
 queue.stopped ??= new Set();
 
-export function jobsDir(): string {
+function jobsDir(): string {
   return path.join(inboxDir(), "jobs");
 }
 

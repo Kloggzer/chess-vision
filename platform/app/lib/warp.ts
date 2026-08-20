@@ -23,7 +23,7 @@ function markerQuad(boardSize: number, margin: number | number[]): number[][] {
 }
 
 /** Four point pairs -> the 3x3 that maps `src` onto `dst` (Gauss with partial pivoting). */
-export function perspectiveTransform(src: number[][], dst: number[][]): Mat3 {
+function perspectiveTransform(src: number[][], dst: number[][]): Mat3 {
   const a: number[][] = [];
   for (let i = 0; i < 4; i++) {
     const [x, y] = src[i];
@@ -102,10 +102,10 @@ export type GridMesh = { x: number[]; y: number[]; tx?: number[]; ty?: number[];
 export type TiltedMesh = GridMesh & { tx: number[]; ty: number[] };
 
 /** A steeper line is a misfit, not a lens — shared with realgames.py and CropBox.kt. */
-export const MESH_TILT_LIMIT = 0.05;
+const MESH_TILT_LIMIT = 0.05;
 
 /** The same for the parabola term — realgames.py `MESH_CURV_LIMIT` explains the number. */
-export const MESH_CURV_LIMIT = 0.08;
+const MESH_CURV_LIMIT = 0.08;
 
 /** 9 finite, strictly increasing numbers — anything else reads as "no mesh", never as an error. */
 const meshAxis = (axis: unknown): axis is number[] =>
@@ -222,7 +222,7 @@ export function squareMeshQuad(
 }
 
 /** Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS` (CropBox.kt). */
-export const MESH_POINT_ITERATIONS = 3;
+const MESH_POINT_ITERATIONS = 3;
 
 /** Where a line of `axis` sits at run `t` along it, in field fractions (`pos(t)` of the mesh). */
 function lineAt(mesh: TiltedMesh, axis: "x" | "y", k: number, t: number): number {

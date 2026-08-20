@@ -76,7 +76,7 @@ fun pendingSessions(
  *
  * Four of the phone's 33 sessions were this on 2026-08-13 — a tracker that ran and committed
  * nothing, leaving a diagnostics timeline and no data. Sending them would cost the network nothing
- * and the user something: a `data/realgames/` entry that looks like a recording and holds no crop.
+ * and the user something: a `data/recordings/` entry that looks like a recording and holds no crop.
  *
  * An EMPTY FILE is a different thing and is still sent — `20260813-122407` carries a 0-byte
  * `log.jsonl` beside a 1.9 GB video whose labels come from the game record.

@@ -38,7 +38,7 @@ from chesslab.calibration import (  # noqa: E402
     make_tracker,
     resolve_board_corners,
 )
-from chesslab.collect import SessionWriter  # noqa: E402
+from chesslab.session_writer import SessionWriter  # noqa: E402
 
 EMPTY_FEN = "8/8/8/8/8/8/8/8 w - - 0 1"
 

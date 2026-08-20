@@ -22,7 +22,7 @@ import { checkName, dataDir } from "@/lib/data";
 /** 8 MiB. Big enough that the per-request overhead disappears, small enough to lose little on a drop. */
 export const CHUNK_BYTES = 8 * 1024 * 1024;
 
-export type IncomingFile = { path: string; bytes: number };
+type IncomingFile = { path: string; bytes: number };
 export type Manifest = {
   sessionId: string;
   device?: string;
@@ -47,7 +47,7 @@ export function inboxDir(): string {
   return path.join(dataDir(), "inbox");
 }
 
-export function ledgerPath(): string {
+function ledgerPath(): string {
   return path.join(inboxDir(), "transfers.jsonl");
 }
 
@@ -156,7 +156,7 @@ function serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export async function loadManifest(name: string): Promise<Manifest> {
+async function loadManifest(name: string): Promise<Manifest> {
   return validateManifest(JSON.parse(await readFile(path.join(stagingDir(name), "manifest.json"), "utf8")));
 }
 

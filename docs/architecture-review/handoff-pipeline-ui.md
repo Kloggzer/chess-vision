@@ -7,6 +7,11 @@ branch that is currently ahead of `main`.
 Read this before starting: several of the files that plan touches were rewritten today,
 and two of the changes alter assumptions the plan makes.
 
+**Note (2026-08-20):** this handoff was never taken up. Its whole subject — `src/chesslab/web/`
+and its `web/static/` bundle — was deleted on 2026-08-07; the labeling front-end that exists now
+is `platform/app` (Next.js), which has its own README. Kept as a record of the plan, not as a
+task list.
+
 ---
 
 ## 1. Branch first — this is the one that will hurt

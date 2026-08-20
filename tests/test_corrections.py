@@ -1,7 +1,7 @@
 """Label corrections and the label-override path `slice` reads.
 
 These lived in `test_web.py` and are not web tests: `load_corrections` is read by
-`labeling.slice_session` and `experiment`, and the override is what lets a human label beat the
+`labeling.slice_session`, and the override is what lets a human label beat the
 FEN for one square. They were rescued when the web UI was deleted.
 
 The WRITE side is gone with it: no Python writes the file any more (`docs/data-pipeline.md`), so
@@ -34,7 +34,7 @@ def test_labels_to_fen_estimation():
 def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     """Manual labeling: freely placed pieces are sliced via explicit per-square labels
     (no FEN needed); unmarked squares become empty."""
-    from chesslab.collect import SessionWriter
+    from chesslab.session_writer import SessionWriter
 
     bs = 800
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]

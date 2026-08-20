@@ -412,11 +412,10 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                 reasons[idx] = "occluded"
         clean, dirty = framescan.select(reasons, per_position=per_position,
                                         dirty_per_position=dirty_per_position, prefer=prefer)
-        for idx in clean:
-            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle))
-        for idx in dirty:
-            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
-                        | {"dirty": True, "dirty_reason": reasons[idx]})
+        rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                    for idx in clean)
+        rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                    | {"dirty": True, "dirty_reason": reasons[idx]} for idx in dirty)
     rows.sort(key=lambda r: r["frame"])
     return rows
 

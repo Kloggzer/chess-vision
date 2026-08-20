@@ -75,7 +75,7 @@ internal class RecoveryEvaluator(
 
     var inconclusive: Boolean = false
 
-    /** What `resync_check` itself names — the occupancy arm must prefer THIS over the deep search. */
+    /** What `resync_check` itself names, for the scenarios that need a named move and its score. */
     var resyncMove: String? = null
     var resyncAgreement: Double = 0.0
 

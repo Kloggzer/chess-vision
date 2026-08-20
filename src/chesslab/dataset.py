@@ -17,18 +17,6 @@ from . import config
 CLASSES = config.CLASSES
 
 
-def optional_classes(classes: list[str]) -> set[str]:
-    """Classes that may legitimately be absent from a dataset.
-
-    For the 14-class piece list that is `config.OPTIONAL_CLASSES` (`empty`/`occluded`
-    never come from a FEN). For the 2-class occupancy list it is **empty**: a set missing
-    either `empty` or `occupied` is degenerate, not merely unbalanced.
-    """
-    if list(classes) == config.OCCUPANCY_CLASSES:
-        return set()
-    return config.OPTIONAL_CLASSES
-
-
 # --- Load manifest -------------------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
@@ -64,7 +52,7 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
         per_session[r["session_id"]] += 1
 
     warnings: list[str] = []
-    optional = optional_classes(CLASSES)
+    optional = config.OPTIONAL_CLASSES
     for c in CLASSES:
         if c in optional:                   # empty/occluded may be missing (not from FEN)
             continue
@@ -93,8 +81,9 @@ def render_stats(stats: dict) -> str:
         f"Crops total: {stats['total']}  |  Sessions: {stats['num_sessions']}",
         f"{'Class':<9}{'count':>8}{'light':>8}{'dark':>8}",
     ]
-    for c in stats["counts"]:               # the stats' own class list, not the module default
-        lines.append(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}")
+    # the stats' own class list, not the module default
+    lines.extend(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}"
+                 for c in stats["counts"])
     if stats["warnings"]:
         lines.append("Warnings:")
         lines.extend(f"  ! {w}" for w in stats["warnings"])
@@ -346,15 +335,14 @@ def make_split(
         labels_in[split_of[r["session_id"]]].add(r["label"])
 
     warnings: list[str] = []
-    optional = optional_classes(CLASSES)
+    optional = config.OPTIONAL_CLASSES
     for c in CLASSES:
         if c in optional or len(class_sessions[c]) == 0:
             continue
         if len(class_sessions[c]) == 1:
             warnings.append(f"Class {c} only in one session -> clean evaluation impossible.")
-        for name in ("val", "test"):
-            if c not in labels_in[name]:
-                warnings.append(f"Class {c} missing in {name} split.")
+        warnings.extend(f"Class {c} missing in {name} split."
+                        for name in ("val", "test") if c not in labels_in[name])
     if counts_split["val"] == 0:
         warnings.append("val split is empty (too few sessions).")
     if counts_split["test"] == 0:
@@ -382,9 +370,8 @@ def validate_split(split: dict, rows: list[dict],
     """(errors, warnings). Errors = degenerate, clean evaluation impossible.
 
     The class list comes from the split itself (`split["classes"]`) when present — the
-    dataset declares its own class list (14-class pieces or 2-class occupancy) and this
-    check obeys it. For the 2-class list an ABSENT class is an error: a set with no
-    `occupied` rows (or no `empty` rows) cannot train an occupancy model at all.
+    dataset declares its own class list (14-class `pieces` or the 13-class default) and this
+    check obeys it.
     """
     CLASSES = classes or split.get("classes") or config.CLASSES
     errors: list[str] = []
@@ -399,11 +386,6 @@ def validate_split(split: dict, rows: list[dict],
     global_present = {c for c in CLASSES if class_sessions[c]}
     # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
-
-    if list(CLASSES) == config.OCCUPANCY_CLASSES:
-        for c in CLASSES:
-            if not class_sessions[c]:
-                errors.append(f"Occupancy class {c} has 0 rows — degenerate 2-class dataset.")
 
     for c in check_classes:
         n_sessions = len(class_sessions[c])
@@ -424,9 +406,7 @@ def validate_split(split: dict, rows: list[dict],
         errors.append("Val split is empty — at least 3 sessions needed (session-based split).")
 
     # Adopt warnings from make_split (class missing in Val/Test)
-    for w in split.get("warnings", []):
-        if w not in errors:                   # no duplicate reporting
-            warnings.append(w)
+    warnings.extend(w for w in split.get("warnings", []) if w not in errors)
 
     return errors, warnings
 

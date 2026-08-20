@@ -23,8 +23,8 @@ export type LaneId =
   | "all";
 
 /** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10). */
-export type LaneRenderer = "board" | "cells";
-export type LaneUnit = "Bretter" | "Zellen";
+type LaneRenderer = "board" | "cells";
+type LaneUnit = "Bretter" | "Zellen";
 
 export type Lane = {
   id: LaneId;

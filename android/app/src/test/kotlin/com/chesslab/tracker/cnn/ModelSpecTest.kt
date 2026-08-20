@@ -2,9 +2,7 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.EXPECTED_CLASSES
 import com.chesslab.cnn.InputRepr
-import com.chesslab.cnn.OCCUPANCY_CLASSES
 import com.chesslab.cnn.PIECES13_CLASSES
-import com.chesslab.cnn.classesHaveIdentity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -48,11 +46,9 @@ class ModelSpecTest {
                 it[3] = "wN"
             }
         val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = swapped)) }
-        // Every accepted order has to appear, not just the word "expected". The message named only
-        // the 14- and 2-class lists until 2026-08-02, so whoever shipped a mis-ordered 13-class
-        // model — the `id35-80` shape the device runs — was handed the two lists their model was
-        // never meant to match and no sight of the one it was.
-        for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES, OCCUPANCY_CLASSES)) {
+        // Every accepted order has to appear, not just the word "expected": the one the message
+        // omits is the one the failing model is closest to.
+        for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES)) {
             assertTrue(error.message!!.contains(accepted.toString()), "$accepted missing from: ${error.message}")
         }
     }
@@ -77,7 +73,7 @@ class ModelSpecTest {
     fun acceptsThePieces13IdentityList() {
         val spec = ModelSpec.parse(config(classes = PIECES13_CLASSES))
         assertEquals(PIECES13_CLASSES, spec.classes)
-        assertTrue(classesHaveIdentity(spec.classes), "13 classes must read as an IDENTITY model")
+        assertEquals(13, spec.classes.size, "pieces13 is the 14-class list minus `occluded`")
     }
 
     /**

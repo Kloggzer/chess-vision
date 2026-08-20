@@ -9,7 +9,7 @@ Gegenüber render_chessboard.py NUR der Brett-Unterbau geändert:
   und alles andere sind IDENTISCH zu render_chessboard.py.
 
 Aufruf:
-    blender --background "synth_assets/Chess Scene.blend" --python synth/render_board_v2.py \
+    blender --background "synth/assets/Chess Scene.blend" --python synth/render_board_v2.py \
             -- --out <pfad> --n 200 --seed 42 --res 1024 \
             [--fens pfad] [--pieces pfad] [--board-texture synth_pieces/board_texture.png]
 """
@@ -1593,7 +1593,7 @@ def make_occluder_material():
     return mat
 
 
-def make_occluder_arm(rng=None):
+def make_occluder_arm():
     """Baut einen Unterarm+Faust-Mesh: Faust im lokalen Ursprung, Schaft entlang -X.
     `place_occluder(arm, x, y, angle)` setzt die Faust auf Brett-Koordinaten (x, y); der
     Arm reicht dann aus Richtung `angle` heran und trägt off-board hinaus. Initial verborgen."""
@@ -1876,7 +1876,7 @@ def main():
     occ_p = ra.occlusion_p
     # Occluder-Arm (Faust+Unterarm) EINMAL bauen, verborgen; pro View mit occ_p eingeblendet.
     # EEVEE-Schatten sind an → der Occluder wirft automatisch einen Schatten (User-Anforderung).
-    occ_arm = make_occluder_arm(rng) if occ_p > 0 else None
+    occ_arm = make_occluder_arm() if occ_p > 0 else None
     print(f"[v2] engine={eng}, samples={ra.samples}, views_per_scene={views}, "
           f"max_obliqueness={max_ob}, cam_distance_jitter={dist_jitter}, occlusion_p={occ_p}, "
           f"fens={len(fens)}")

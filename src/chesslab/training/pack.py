@@ -42,7 +42,7 @@ def _manifest_digest(rows: list[dict]) -> str:
     and is cheap next to decoding a million PNGs.
 
     What it deliberately does NOT cover: a crop file whose PIXELS changed while keeping the same
-    path (re-slicing with different photometry, a synth re-render writing over itself). Catching
+    path (a re-slice at different pads, a synth re-render writing over itself). Catching
     that would need a stat() or hash per row. Callers that rewrite crops in place must re-pack;
     ``build_dataset`` does so implicitly because it rmtree's the dataset dir first.
     """

@@ -352,7 +352,6 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         "unsettled_dropped": 0,
         # No `grid_lines` in these rows, so every crop is cut at the nominal eighth.
         "mesh_frames": 0,
-        "fallback": 0,
     }
     manifest = (tmp_path / "crops.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(manifest) == 192

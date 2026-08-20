@@ -1,8 +1,7 @@
 """Kleine, geteilte Bild-Hilfsfunktionen ohne fachliche Abhängigkeiten.
 
-Eigenes Modul, damit `labeling.py` und `geometry3d.py` beide `resize_keep_aspect`
-importieren können, ohne einen Import-Zyklus zu erzeugen (vorher: `geometry3d` importierte
-lazy aus `labeling`, während `labeling` `geometry3d` top-level importiert). Headless, kein torch.
+Eigenes Modul, damit mehrere Module `resize_keep_aspect` importieren können, ohne über
+`labeling` zu gehen und einen Import-Zyklus zu erzeugen. Headless, kein torch.
 """
 
 from __future__ import annotations

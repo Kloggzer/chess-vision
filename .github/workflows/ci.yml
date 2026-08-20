@@ -1,0 +1,75 @@
+# What the repo already configures, actually run. Before this file, ruff, vulture, pytest,
+# eslint, vitest, detekt and ktlint were all set up and none of them ran unless someone
+# remembered — which is how `sonar-project.properties` came to point at a directory deleted
+# two weeks earlier.
+#
+# There is deliberately NO Python test job: `pyproject.toml` pins torch, torchvision and rocm
+# to Windows-local wheel paths under a gitignored `wheels/`, so `uv sync` cannot run on a
+# Linux runner at all. Only 3 of 58 test files import torch directly — moving it behind an
+# optional extra would unlock the suite here. Until then Python gets lint only.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # `uvx` fetches the tool itself — no project install, so the torch pin never comes up.
+      - run: uvx ruff@0.15.20 check src tests scripts synth
+      - run: uvx ruff@0.15.20 format --check src tests scripts synth
+        continue-on-error: true   # formatting is not enforced yet; this reports, it does not gate
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: platform/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: platform/app/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run test -- --run
+      - run: npm run build
+
+  kotlin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive     # android/third_party/stockfish, built by app/src/main/cpp
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      # Needed even for the pure-JVM modules: settings.gradle.kts includes :app, and Gradle
+      # configures every project unless configure-on-demand is on.
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      # The five java-library/application modules. `:app` needs the NDK for Stockfish and is
+      # left to the local build.
+      - run: >
+          ./gradlew --rerun-tasks
+          :core-cnn:test :core-engine:test :core-geometry:test
+          :tracker-runtime:test :desktop:test
+      - run: >
+          ./gradlew --rerun-tasks
+          :core-cnn:ktlintCheck :core-engine:ktlintCheck :core-geometry:ktlintCheck
+          :tracker-runtime:ktlintCheck :desktop:ktlintCheck
+      - run: >
+          ./gradlew --rerun-tasks
+          :core-cnn:detekt :core-engine:detekt :core-geometry:detekt
+          :tracker-runtime:detekt :desktop:detekt

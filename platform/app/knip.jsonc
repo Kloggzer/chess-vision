@@ -1,0 +1,24 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+
+  // Next's file-system routing is the entry set: nothing imports a `page.tsx`, the framework
+  // finds it. Listed rather than left to the plugin's default so a new convention (a `route.ts`
+  // under a new segment, an `opengraph-image`) is a config line, never a deletion.
+  "next": {
+    "entry": [
+      "next.config.ts",
+      "app/**/{page,layout,template,default,error,global-error,not-found,forbidden,unauthorized,loading,route}.{ts,tsx}",
+      "app/**/{opengraph,twitter}-image.tsx",
+      "app/{icon,apple-icon,sitemap,robots,manifest}.{ts,tsx}",
+      "{instrumentation,middleware}.ts"
+    ]
+  },
+
+  "vitest": {
+    "entry": ["vitest.config.mts", "lib/**/*.test.ts"]
+  },
+
+  // shadcn's vendored primitives: the unused half of each component comes back with the next
+  // `shadcn add`, so trimming them only makes the next upgrade a merge.
+  "ignore": ["components/ui/**"]
+}

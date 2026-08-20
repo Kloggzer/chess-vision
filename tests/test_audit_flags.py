@@ -90,7 +90,8 @@ def test_a_cell_a_human_already_answered_is_never_flagged_but_still_sets_the_thr
     assert [(f["frame"], f["predicted"]) for f in flags] == [("003", "occluded")]
 
 
-def test_flags_are_written_margin_descending(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_flags_are_written_margin_descending():
     # t_wB = 0.5 from the two wB cells; t_wP = 0.4167 from the three wP ones.
     _write_proposals("g", [
         _row("001", "a1", "wB", {"wB": 0.4}),
@@ -105,7 +106,8 @@ def test_flags_are_written_margin_descending(data_root):
     assert [x["margin"] for x in rows] == [0.85, 0.2]
 
 
-def test_a_file_without_probs_or_without_a_model_is_skipped_and_named(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_file_without_probs_or_without_a_model_is_skipped_and_named():
     _write_proposals("no-probs", [])
     bare = _write_proposals("no-model", [_row("001", "a1", "wP", {"wB": 0.9})],
                             header_model=False)
@@ -124,14 +126,16 @@ def test_a_file_without_probs_or_without_a_model_is_skipped_and_named(data_root)
     assert summary["skipped"] == r["skipped"] and summary["written_at"] == r["written_at"]
 
 
-def test_a_model_trained_on_the_session_is_skipped_with_the_guard_reason(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_model_trained_on_the_session_is_skipped_with_the_guard_reason(monkeypatch):
     _write_proposals("g", _GOOD)
     monkeypatch.setattr(mod, "circularity_reason", lambda m, s: "TRAINED on it")
     r = mod.audit_flags()
     assert r["flags"] == 0 and r["skipped"] == [{"session": "g", "reason": "TRAINED on it"}]
 
 
-def test_the_run_is_idempotent_and_replaces_the_whole_file(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_the_run_is_idempotent_and_replaces_the_whole_file():
     _write_proposals("g", _GOOD)
     first = mod.audit_flags()
     first["path"].write_text("STALE\n" * 5, encoding="utf-8")

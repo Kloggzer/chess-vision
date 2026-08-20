@@ -78,7 +78,7 @@ def _open_set_after(index, backend, w, h, convert_rgb=None, set_fps=False):
     return cap
 
 
-def _open_size_first(index, backend, w, h, convert_rgb=None, set_fps=False):
+def _open_size_first(index, backend, w, h, _convert_rgb=None, set_fps=False):
     """Size before FOURCC — the inverse of the documented advice, which is what works."""
     cap = cv2.VideoCapture(index, backend)
     if not cap.isOpened():

@@ -347,7 +347,7 @@ function OccludedPool({ view, pool, fit }: { view: DatasetView; pool: Pool; fit:
 }
 
 /** `real14-all-80-v1` → `real14-all-80-v2`; the command must name a NEW dataset, never rebuild one. */
-export function nextVersion(name: string): string {
+function nextVersion(name: string): string {
   const match = /-v(\d+)$/.exec(name);
   return match ? `${name.slice(0, -match[0].length)}-v${Number(match[1]) + 1}` : `${name}-v2`;
 }

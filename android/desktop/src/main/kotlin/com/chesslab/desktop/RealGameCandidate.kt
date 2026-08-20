@@ -17,7 +17,7 @@ import kotlin.math.roundToInt
 // `candidate.json` plus review JPEGs — the tracker's PROPOSAL, never ground truth.
 //
 // The shape is the Python labeler's (`label_real_game.py`, alive at tag `python-tracker-final`,
-// reference file `data/realgames/game-2026-08-02/candidate.json`): same top-level keys, same
+// reference file `data/recordings/game-2026-08-02/candidate.json`): same top-level keys, same
 // `moves[]` row keys, so everything that read the old candidates reads these. `confirmed` is
 // FALSE by construction — a tracker whose own output could become a fixture would freeze its
 // mistakes and then assert forever that it keeps making them.
@@ -151,7 +151,7 @@ internal data class LabelOutcome(
 
 /**
  * The whole `candidate.json`, key-for-key the shape the Python writer produced (its reference
- * file is `data/realgames/game-2026-08-02/candidate.json`; `reviewed_plies`/`confirmed_at` are
+ * file is `data/recordings/game-2026-08-02/candidate.json`; `reviewed_plies`/`confirmed_at` are
  * review-added keys and correctly absent on a fresh write).
  */
 internal fun candidateJson(

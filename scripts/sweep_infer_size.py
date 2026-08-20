@@ -16,8 +16,8 @@ So the sweep runs twice and reports both:
 If A and B disagree about the optimum, A wins and B's disagreement is the finding: it would mean
 the crop pipeline, not the network, is where the resolution is lost.
 
-Reported per model x split x size x path, on the occupancy question — for a two-class run
-directly, for an identity run through the summed piece mass (`occupancy_reader`):
+Reported per model x split x size x path, on the occupancy question, read from the summed
+piece mass (`occupancy_reader`):
 
 - argmax misses (true occupied read as empty) / phantoms (true empty read as occupied),
 - phantoms at the threshold that holds misses at `--miss-target` (the MATCHED operating point —
@@ -33,6 +33,10 @@ Usage:
 `--pad-side` sweeps what the crop CONTAINS instead of what it is scaled to (specs/45); path A is
 repeated per value and every row is labelled `<run>@pad<value>`. Both rows have to come from one
 invocation — a path-A number is cut through the current profile and an older row is not comparable.
+
+**Path-A numbers printed before 2026-08-20 are not comparable with anything since**: the pad
+(`--pad-side` and the run's own declaration alike) reached the RunSpec but never the crop, so every
+measurement was cut at the profile's pad whatever was asked for.
 
 Evaluation only: no training, no export, no rendering. One process — two concurrent DataLoader
 sweeps have deadlocked this machine before.
@@ -58,9 +62,8 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import config, labeling  # noqa: E402
+from chesslab import config, labeling, sessions  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
-from chesslab.serving import classes_have_identity  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -71,16 +74,10 @@ from chesslab.training.data import (  # noqa: E402
 #: 128-px native size); numbers there measure extrapolation, not deployment.
 SIZES = (48, 64, 80, 96, 112, 128, 160)
 
-#: The two champions `CLAUDE.md` names, and both are bundled: the assets live in per-model
-#: subdirectories (`android/app/src/main/assets/cnn_model/<model>/config.json`) — there has never
-#: been a `config.json` at the root of that directory. `occ-v9bn-wide` is `bn100-80/`, the 2-class
-#: full-width model; `occ-v10bn35-13c-hn` is `id35-80/`, the 13-class one the device runs. Both
-#: asset config.json files are byte-identical to their run's (verified 2026-08-02).
-#:
-#: The previous default (`occ-v4-f3e20`, `occ-r3s-f3`) named a champion two geometry generations
-#: old: both are pre-realignment runs, and `CLAUDE.md` records that every path-A number taken on
-#: the mis-aligned corpus is void.
-RUNS = ("occ-v9bn-wide", "occ-v10bn35-13c-hn")
+#: The composite-pretrain champion, against the 13-class run the APK still bundles as
+#: `assets/cnn_model/id35-80/`. The former default named `occ-v9bn-wide`/`occ-v10bn35-13c-hn`,
+#: the retired 2-class pair — neither exists under `data/models/` any more.
+RUNS = ("comp13-occ-bn-lr1e2-bs512", "id35-80-before-hn-20260812")
 
 SPLITS = ("test", "val")
 
@@ -110,7 +107,7 @@ class Log:
 
 def px_per_square(session_id: str) -> float:
     """Native resolution of a session: mean edge of the logged corner quad / 8."""
-    p = config.DATA.sessions / session_id / "log.jsonl"
+    p = sessions.session_dir(session_id)[0] / "log.jsonl"
     with p.open("r", encoding="utf-8") as fh:
         c = json.loads(fh.readline())["corners"]
     return sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8
@@ -210,11 +207,7 @@ def install_at_size(run_dir: Path, model, cfg: dict, size: int) -> dict:
 def occupancy_reader(cfg: dict) -> Callable[[Sequence[float]], tuple[float, bool]]:
     """`probs -> (P(occupied), read as occupied)` for this run's class list.
 
-    A **two-class** run answers the question directly: the `occupied` column *is* P(occupied) and
-    the argmax between the two columns is the verdict. That is the path every number in
-    `data/_perf/*.log` was measured on, so it is left alone.
-
-    An **identity** run (13 or 14 classes) has no `occupied` column. P(occupied) is then the summed
+    An identity run (13 or 14 classes) has no `occupied` column, so P(occupied) is the summed
     mass of the piece classes — `1 - P(empty) - P(occluded)`, clamped at 0 against float drift —
     and the square reads as occupied when that mass beats P(empty). This is not a new metric: it is
     `cnn_recovery.observation_from_probs` plus `OccupancyObservation.occupied`, i.e. exactly what
@@ -225,11 +218,6 @@ def occupancy_reader(cfg: dict) -> Callable[[Sequence[float]], tuple[float, bool
     if "empty" not in classes:
         raise SystemExit(f"run has no `empty` class — nothing to measure occupancy against: {classes}")
     i_empty = classes.index("empty")
-    if not classes_have_identity(classes):
-        if classes != config.OCCUPANCY_CLASSES:
-            raise SystemExit(f"this sweep measures occupancy; run has classes {classes}")
-        i_occ = classes.index("occupied")
-        return lambda p: (float(p[i_occ]), float(p[i_occ]) > float(p[i_empty]))
     i_occl = classes.index("occluded") if "occluded" in classes else None
 
     def read(p: Sequence[float]) -> tuple[float, bool]:
@@ -272,8 +260,9 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
                  ) -> dict[tuple[str, int], tuple[np.ndarray, np.ndarray, np.ndarray]]:
     """Cut the crops out of the session frames at every size and predict — the serving path.
 
-    Frames are decoded ONCE and re-cropped per size (the warp is size-independent, only
-    `crop_square`'s resize is not), so the sweep costs one PNG decode per frame, not seven.
+    Frames are decoded ONCE and re-cropped per (size, box) — the warp is size-independent, only
+    `crop_square`'s resize is not — so the sweep costs one PNG decode per frame, not seven, and
+    runs that declare the same box share their crops.
 
     `pad_side` overrides what the crops CONTAIN, for the one question `--infer-size` cannot ask:
     a crop is `board_size / 8 * (1 + 2 * pad_side)` px of board scaled to the model's input, so
@@ -285,13 +274,13 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
 
     squares = labeling.all_squares()
     groups = frames_for_split(rows)
-    sessions = sorted({sid for sid, _, _ in groups})
+    sids = sorted({sid for sid, _, _ in groups})
+    sdirs = {sid: sessions.session_dir(sid)[0] for sid in sids}
     profiles = {}
     logs = {}
-    for sid in sessions:
-        meta = labeling.read_session_meta(config.DATA.sessions / sid)
-        profiles[sid] = labeling._profile_for_session(meta, None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(config.DATA.sessions / sid)}
+    for sid, sdir in sdirs.items():
+        profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
 
     specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
     if pad_side is not None:
@@ -299,8 +288,8 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
         for name, spec in specs.items():
             log(f"[pad] {name}: cutting at pad_side={pad_side:g} "
                 f"(the run declares {spec.pad_side}, its profile says "
-                f"{profiles[sessions[0]].crop.pad_side})")
-            specs[name] = dataclasses.replace(spec, pad_side=pad_side, pad_up=spec.pad_up or 0.0)
+                f"{profiles[sids[0]].crop.pad_side})")
+            specs[name] = dataclasses.replace(spec, pad_side=pad_side)
     acc: dict[tuple[str, int], tuple[list[bool], list[bool], list[float]]] = {
         (name, s): ([], [], []) for name in runs for s in sizes
     }
@@ -308,23 +297,23 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
     t0 = time.time()
     for i, (sid, frame_id, labels) in enumerate(groups):
         entry = logs[sid][frame_id]
-        frame = cv2.imread(str(config.DATA.sessions / sid / entry["frame"]))
+        frame = cv2.imread(str(sdirs[sid] / entry["frame"]))
         if frame is None:
             raise SystemExit(f"frame not readable: {sid}/{entry['frame']}")
         corners = entry["corners"]
         keep = [j for j, sq in enumerate(squares) if sq in labels]
         truth = [labels[squares[j]] != "empty" for j in keep]
         for s in sizes:
-            crops_by_variant: dict[tuple, list] = {}
+            by_box: dict[tuple[float | None, float | None], list[np.ndarray]] = {}
             for name, (run_dir, model, cfg) in runs.items():
                 spec = specs[name]
-                vkey = (spec.geometry, spec.photometry, spec.piece_height_cells)
-                if vkey not in crops_by_variant:
-                    crops_by_variant[vkey] = labeling.crops_for_frame(
-                        frame, corners, profiles[sid], geometry=spec.geometry,
-                        photometry=spec.photometry, piece_height_cells=spec.piece_height_cells,
-                        out_size=(s, s))
-                crops = crops_by_variant[vkey]
+                box = (spec.pad_up, spec.pad_side)
+                if box not in by_box:
+                    prof = profiles[sid]
+                    if spec.pad_side is not None or spec.pad_up is not None:
+                        prof = labeling.effective_profile(prof, spec.pad_up, spec.pad_side)
+                    by_box[box] = labeling.crops_for_frame(frame, corners, prof, out_size=(s, s))
+                crops = by_box[box]
                 cfg_at_size = install_at_size(run_dir, model, cfg, s)
                 read_occ = occupancy_reader(cfg_at_size)
                 preds = serving.predict_arrays(run_dir, [crops[j] for j in keep], device=device,
@@ -343,7 +332,7 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
 
 # --- path B: the 128 px crops resized a second time ---------------------------------------
 
-def sweep_path_b(run_dir: Path, model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
+def sweep_path_b(model, cfg: dict, rows: list[dict], sizes: tuple[int, ...],
                  device: str, batch_size: int, num_workers: int,
                  log: Log) -> dict[int, tuple[np.ndarray, np.ndarray, np.ndarray]]:
     import torch
@@ -375,8 +364,7 @@ def sweep_path_b(run_dir: Path, model, cfg: dict, rows: list[dict], sizes: tuple
             for x, y in loader:
                 logits = model(x.to(device))
                 p = torch.softmax(logits.float(), dim=1).cpu()
-                # Truth is "not empty", the same rule path A applies to its labels — for the
-                # 2-class list that is the class index itself, which is what this used to store.
+                # Truth is "not empty", the same rule path A applies to its labels.
                 trues.extend(classes[t] != "empty" for t in y.tolist())
                 seen = [read_occ(row) for row in p.tolist()]
                 preds.extend(o for _, o in seen)
@@ -492,8 +480,7 @@ def main() -> None:
         runs[name] = (run_dir, model, cfg)
         log(f"loaded {name}: backbone={cfg['backbone']} norm={cfg.get('norm')} "
             f"out_size={cfg['out_size']} scales={cfg.get('scales')} dataset={cfg['dataset']} "
-            f"classes={len(cfg['classes'])} "
-            f"identity={classes_have_identity(list(cfg['classes']))}")
+            f"classes={len(cfg['classes'])}")
 
     if args.dataset:
         # A dataset whose TRAIN split differs from the run's would leak; the caller is trusted to
@@ -525,7 +512,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             prof = labeling._profile_for_session(
-                labeling.read_session_meta(config.DATA.sessions / sid), None)
+                labeling.read_session_meta(sessions.session_dir(sid)[0]), None)
             profile_note.add((prof.profile, prof.board_size, warp_px_per_square(prof)))
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square, "
                 f"warped to {warp_px_per_square(prof):.1f} px/square "
@@ -533,9 +520,9 @@ def main() -> None:
 
         # Path B does not see the pad at all (it resizes the crops on disk), so it runs ONCE
         # however many pads path A is asked for.
-        b_all = ({name: sweep_path_b(run_dir, model, cfg, rows, sizes, device, args.batch_size,
+        b_all = ({name: sweep_path_b(model, cfg, rows, sizes, device, args.batch_size,
                                      args.num_workers, log)
-                  for name, (run_dir, model, cfg) in runs.items()}
+                  for name, (_run_dir, model, cfg) in runs.items()}
                  if "b" in args.paths else {})
         for pad in pads:
             a_all = (sweep_path_a(runs, rows, sizes, device, log, pad_side=pad)

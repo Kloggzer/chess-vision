@@ -132,12 +132,11 @@ def test_gate_refuses_near_identical_poses():
 
 def test_gate_refuses_centre_only_coverage():
     centre = _project_view((0.05, 0.02, 0.0), (-4.0, -4.0, 60.0))   # tiny board, mid-frame
-    views = []
-    for i in range(6):                                     # novel quads, same tiny region
-        views.append(lens.BoardGridView(
-            session_id=f"s{i}", frame="f", image_size=(W, H),
-            quad=centre.quad + i * 40.0, img_points=centre.img_points,
-            obj_points=centre.obj_points, grid_idx=centre.grid_idx))
+    # novel quads, same tiny region
+    views = [lens.BoardGridView(
+        session_id=f"s{i}", frame="f", image_size=(W, H),
+        quad=centre.quad + i * 40.0, img_points=centre.img_points,
+        obj_points=centre.obj_points, grid_idx=centre.grid_idx) for i in range(6)]
     accepted, cov, _tilt, refusal = lens.gate_board_views(views, (W, H),
                                                           min_views=3, min_coverage=4)
     assert len(accepted) >= 3

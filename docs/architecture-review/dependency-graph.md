@@ -1,5 +1,13 @@
 # Dependency Graph & Coupling Analysis
 
+**Note (2026-08-20):** the graph below is the 2026-07 tree, and a dozen of its nodes no longer
+exist. `web/app.py`, the React SPA, `web/camera.py`, `web/inference.py`, `web/scan.py` and
+`move_tracker/*` went on 2026-08-07; `collect.py`, `collect_ui.py`, `experiment.py`,
+`geometry3d.py` and `photometric.py` on 2026-08-20. Every edge and finding that touches one of
+them is history: C1 (photometry missing from the inference path — `predict_arrays` now lives in
+`serving.py` and there is no `photometric` module left to skew against) and M1 (the
+`geometry3d ↔ labeling` cycle) were both resolved by deletion, not by a fix.
+
 ## Module Dependencies (Core + Satellites)
 
 ```mermaid

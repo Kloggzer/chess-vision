@@ -32,7 +32,6 @@ def main() -> None:
         pretrained=False,
         norm=cfg["norm"],
         head=cfg["head"],
-        classes=cfg["classes"],
     )
     convs = [module for module in model.modules() if isinstance(module, torch.nn.Conv2d)]
     norms = [module for module in model.modules() if isinstance(module, torch.nn.BatchNorm2d)]
