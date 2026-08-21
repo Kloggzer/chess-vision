@@ -198,7 +198,7 @@ Derived things live outside and can be rebuilt.
 | `data/crops/<tag>/` | a crop pool — the crops **and** its own `manifest.jsonl`. Default `crops/default` |
 | `data/datasets/<name>/` · `data/models/<run>/` | packed snapshots · training runs |
 | `data/calibration/` · `data/lens/` | board profiles · optical intrinsics |
-| `data/footage/` · `data/plates/` | raw video nothing writes (`turntable/`, `occluders/`, `phone-backups/`) · RGBA occluder tiles cut from it |
+| `data/footage/` · `data/occluders/` | raw video nothing writes (`turntable/`, `occluders/`, `phone-backups/`) · RGBA occluder tiles cut from it |
 | `data/reports/` | machine output: `split.json`, `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/` |
 | `data/labels/` | `review-notes.jsonl` and `_history/` — the verdicts that belong to no single recording |
 | `data/inbox/` | the web app's runtime state |

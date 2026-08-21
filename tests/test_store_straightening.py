@@ -174,3 +174,27 @@ def test_the_flags_are_persisted_while_the_boards_are_still_being_written(tmp_pa
     straighten_boards(sdir, rows, checkpoint=lambda: seen.append(
         sum(1 for r in rows if r.get("board_straightened"))))
     assert seen == [STRAIGHTEN_CHECKPOINT], "one checkpoint, and it must see the flags already set"
+
+
+def test_a_lens_receipt_is_read_into_the_model_and_a_missing_one_is_not(tmp_path):
+    """The seam has to be reachable, or it is dead code with a docstring.
+
+    `LensModel.from_receipt` is the only way optics enter the pipeline: `:desktop undistort` writes
+    `lens.json`, `session rewarp` reads it. A receipt that predates the full model (k1/k2 only) is
+    refused rather than filled with guessed intrinsics — the centre moves when the fit has evidence
+    for it, and a guessed one puts the correction somewhere else.
+    """
+    from chesslab.calibration import LensModel, distort_points, undistort_points
+
+    assert LensModel.from_receipt(None) is None
+    assert LensModel.from_receipt({"k1": -0.25, "k2": 0.0}) is None, "no focal, no centre"
+    lens = LensModel.from_receipt({"k1": -0.25, "k2": 0.0, "focal": 1920.0,
+                                   "cx": 960.0, "cy": 540.0})
+    assert (lens.k1, lens.focal) == (-0.25, 1920.0)
+
+    # Round trip: a point pushed out by the model and pulled back lands where it started.
+    x, y = 300.0, 200.0
+    back = undistort_points([[x, y]], lens)[0]
+    again = distort_points(np.array(back[0]), np.array(back[1]), lens)
+    assert (float(again[0]), float(again[1])) == pytest.approx((x, y), abs=0.05)
+    assert abs(back[0] - x) > 5, "a k1 of -0.25 must MOVE the point, or this proves nothing"

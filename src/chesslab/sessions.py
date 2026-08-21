@@ -931,6 +931,7 @@ def rewarp_boards_session(session_id: str) -> dict:
     """
     import json
 
+    from .calibration import LensModel
     from .labeling import _profile_for_session, read_session_meta
     from .realgames import detect_rotation, game_dir, rewarp_boards, stream_frames, video_path
 
@@ -945,10 +946,17 @@ def rewarp_boards_session(session_id: str) -> dict:
     wanted = {int(Path(r["frame"]).stem) for r in todo}
     rotate = detect_rotation(video, json.loads(candidate.read_text(encoding="utf-8")), wanted)
     prof = _profile_for_session(read_session_meta(sdir), None)
+    # `lens.json` beside the recording, if `:desktop undistort` ever wrote one. No recording carries
+    # it today and none needs to — a blind A/B could not tell the corrected boards apart — but the
+    # optics fold into the same map for free, so a receipt that IS there is honoured.
+    receipt = game_dir(name) / "lens.json"
+    lens = LensModel.from_receipt(
+        json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else None)
     backup = backup_log(sdir / "log.jsonl")
-    done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate))
+    done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate), lens=lens)
     _write_log(sdir, rows)
-    return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
+    return {"session_id": session_id, "of": len(rows), "backup": backup,
+            "lens": lens is not None, **done}
 
 
 def straighten_boards_session(session_id: str) -> dict:

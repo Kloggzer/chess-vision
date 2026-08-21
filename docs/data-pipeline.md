@@ -59,7 +59,7 @@ Derived things — crops, datasets, reports — live outside and can be rebuilt 
 | `data/models/<run>/` | training runs |
 | `data/calibration/` | board profiles |
 | `data/footage/` | raw video nothing writes: `turntable/`, `occluders/`, `phone-backups/` |
-| `data/plates/` | RGBA occluder tiles, cut from `footage/occluders` |
+| `data/occluders/` | RGBA occluder tiles (hands), cut from `footage/occluders` |
 | `data/reports/` | machine output: `audit-flags*`, `correction-violations.jsonl`, `hard_empty*.jsonl`, `split.json`, `augment.yaml`, `perf/` |
 | `data/labels/` | only `review-notes.jsonl`, plus `_history/` |
 | `data/inbox/` | the web app's runtime state |

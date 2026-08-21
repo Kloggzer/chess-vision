@@ -356,9 +356,13 @@ class Paths:
         return self.root / "footage"
 
     @property
-    def plates(self) -> Path:
-        """RGBA occluder tiles, cut from `footage/occluders` by `chesslab occluders extract`."""
-        return self.root / "plates"
+    def occluders(self) -> Path:
+        """RGBA occluder tiles, cut from `footage/occluders` by `chesslab occluders extract`.
+
+        Called `plates/` until 2026-08-21 — a compositing word for a cut-out element, which said
+        nothing about what is on them. They are hands.
+        """
+        return self.root / "occluders"
 
     @property
     def datasets(self) -> Path:

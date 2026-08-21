@@ -39,7 +39,7 @@ app.add_typer(realgames_app, name="realgames")
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
-occluders_app = typer.Typer(help="Occluder plates — hands/arms cut free for 2.5D compositing.",
+occluders_app = typer.Typer(help="Occluders — hands and arms cut free for 2.5D compositing.",
                             no_args_is_help=True)
 app.add_typer(occluders_app, name="occluders")
 
@@ -234,8 +234,9 @@ def session_rewarp(
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             failed += 1
             continue
+        optics = ", Optik aus lens.json" if r.get("lens") else ""
         print(f"[OK] {sid}: {r['rewarped']}/{r['of']} neu gewarpt, {r['no_mesh']} ohne Mesh, "
-              f"{r['no_frame']} ohne Bild — backup {r['backup']}", flush=True)
+              f"{r['no_frame']} ohne Bild{optics} — backup {r['backup']}", flush=True)
     if failed:
         raise typer.Exit(1)
 
@@ -781,7 +782,7 @@ def split_cmd(
 def occluders_composite(
     video: str = typer.Option(..., "--video", help="Board clip (ArUco per frame)."),
     fen: str = typer.Option(..., "--fen", help="The position the board holds for the whole clip."),
-    plates: str = typer.Option(str(config.DATA.plates), "--plates", help="RGBA tiles."),
+    occluders: str = typer.Option(str(config.DATA.occluders), "--occluders", help="RGBA tiles."),
     tag: str = typer.Option("comp", "--tag", help="Crop pool `data/crops/<tag>/` + manifest."),
     stride: int = typer.Option(composite_mod.STRIDE, "--stride",
                                help="Frames between two boards. On the turntable that is an "
@@ -790,7 +791,7 @@ def occluders_composite(
     out_size: str = typer.Option("80x80", "--out-size", help="Crop size WxH."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
-    """Lay occluder plates over a board clip and cut crops with an EXACT coverage per cell.
+    """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
 
     The second target replaces the hand-marked `occluded` class: coverage is a fraction the
     composite knows, not a yes/no somebody had to judge (docs/occluder-plates.md)."""
@@ -799,7 +800,7 @@ def occluders_composite(
     from . import composite as comp
 
     res = comp.build_from_video(
-        video=Path(video), plate_dir=Path(plates),
+        video=Path(video), plate_dir=Path(occluders),
         out_root=config.DATA.crops / tag,
         manifest=config.DATA.crops / tag / "manifest.jsonl",
         fen=fen, board_size=board_size, out_size=labeling_mod.parse_out_size(out_size),
@@ -816,7 +817,7 @@ def occluders_composite(
 def occluders_extract(
     src: str = typer.Option(str(config.DATA.footage / "occluders"), "--in",
                             help="Folder of clips shot over a backdrop."),
-    out: str = typer.Option(str(config.DATA.plates), "--out", help="Where the RGBA tiles land."),
+    out: str = typer.Option(str(config.DATA.occluders), "--out", help="Where the RGBA tiles land."),
     stride: int = typer.Option(2, "--stride", help="Take every Nth frame before novelty filtering."),
     max_iou: float = typer.Option(0.85, "--max-iou",
                                   help="Overlap above which a pose counts as one already kept."),
@@ -844,7 +845,7 @@ def occluders_extract(
         total += s.get("written", 0)
         print(f"  {s['video']:<28} {s.get('written', 0):>4} Kacheln  "
               f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
-    (Path(out) / "plates.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+    (Path(out) / "occluders.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"[OK] {total} Kacheln in {out}")
 
 
