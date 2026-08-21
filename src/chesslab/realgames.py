@@ -865,13 +865,22 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
     return out
 
 
-def straighten_boards(session_dir: Path, rows: list[dict]) -> dict:
+#: How often `straighten_boards` asks its caller to persist the rows. The write is the destructive
+#: half and the flag is the only record of it — a run that dies between them leaves boards straight
+#: on disk that a later run would pull a SECOND time.
+STRAIGHTEN_CHECKPOINT = 50
+
+
+def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> dict:
     """Pull every stored board straight, once, so every cut afterwards is a plain rectangle.
 
     This is the ONLY straightening in the pipeline: a board carrying `board_straightened` must
     never be pulled again, and `crop_square` must never be handed a mesh for one. Rows whose board
     is missing, or for which no mesh could be found at all, are counted and left alone — a raw
     board is worse than a straight one but honest, a twice-corrected one is neither.
+
+    `checkpoint()`: persist the rows so far. Called every `STRAIGHTEN_CHECKPOINT` boards, because
+    the flag is the ONLY thing standing between a killed run and a twice-corrected store.
     """
     from .calibration import straighten_board
 
@@ -902,6 +911,8 @@ def straighten_boards(session_dir: Path, rows: list[dict]) -> dict:
                 done["mattes"] += 1
         row["board_straightened"] = True
         done["straightened"] += 1
+        if checkpoint is not None and done["straightened"] % STRAIGHTEN_CHECKPOINT == 0:
+            checkpoint()
     return done
 
 

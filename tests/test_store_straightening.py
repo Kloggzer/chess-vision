@@ -23,6 +23,7 @@ from chesslab.realgames import (
     BOARD_ENCODE,
     MATTE_DIR,
     MATTE_ENCODE,
+    STRAIGHTEN_CHECKPOINT,
     meshes_for_boards,
     straighten_boards,
 )
@@ -161,3 +162,15 @@ def test_a_matte_is_re_encoded_losslessly():
 
     assert not np.array_equal(roundtrip(BOARD_ENCODE), edges), "q95 must NOT be lossless here"
     assert np.array_equal(roundtrip(MATTE_ENCODE), edges)
+
+
+def test_the_flags_are_persisted_while_the_boards_are_still_being_written(tmp_path):
+    """The write is destructive and the flag is its only record. A run killed between them leaves
+    straight boards that a later run would pull a SECOND time — measured the hard way on
+    2026-08-21, when a stopped migration kept writing and one recording came out over-corrected."""
+    rows = [_row(i * 3, TILT) for i in range(STRAIGHTEN_CHECKPOINT + 2)]
+    sdir, _board = _session(tmp_path, rows)
+    seen: list[int] = []
+    straighten_boards(sdir, rows, checkpoint=lambda: seen.append(
+        sum(1 for r in rows if r.get("board_straightened"))))
+    assert seen == [STRAIGHTEN_CHECKPOINT], "one checkpoint, and it must see the flags already set"

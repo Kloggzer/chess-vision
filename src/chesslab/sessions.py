@@ -933,8 +933,10 @@ def straighten_boards_session(session_id: str) -> dict:
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
-    done = straighten_boards(sdir, rows)
     backup = backup_log(sdir / "log.jsonl")
+    # Backed up FIRST and rewritten as it goes: the boards are being overwritten in place, and a
+    # run that dies with the flags unwritten would leave a later run to correct them twice.
+    done = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
     _write_log(sdir, rows)
     return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
 
