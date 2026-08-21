@@ -30,6 +30,8 @@ venv/
 /tests/.tmp-pytest/
 .ruff_cache/
 .mypy_cache/
+/.coverage
+/.cov/
 
 # Agent-Workspaces / Scratch
 .deepseek/

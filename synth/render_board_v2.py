@@ -234,10 +234,6 @@ PIECE_WHITE_VAL = 1.28
 # Helligkeitsverhältnisse der Textur zu verschieben.
 
 
-def argv_after_dashes():
-    return sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-
-
 def square_center(fi, ri):
     """file-index a..h = 0..7 (Y-Achse), rank-index 1..8 = 0..7 (X-Achse) -> Weltkoordinate.
 
@@ -1632,48 +1628,13 @@ def hide_occluder(arm):
     arm.location = (0.0, 0.0, 1000.0)   # zusätzlich weit weg parken (Schatten-Sicherheit)
 
 
-def _point_seg_dist(px, py, ax, ay, bx, by):
-    """Kürzester Abstand Punkt (px,py) zu Segment (ax,ay)-(bx,by) in Brett-Einheiten."""
-    dx, dy = bx - ax, by - ay
-    seg2 = dx * dx + dy * dy
-    if seg2 <= 1e-9:
-        return math.hypot(px - ax, py - ay)
-    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / seg2))
-    cx, cy = ax + t * dx, ay + t * dy
-    return math.hypot(px - cx, py - cy)
-
-
-def occluder_footprint(fist_x, fist_y, angle, reach=ARM_LENGTH):
-    """Brett-Felder (Namen a1..h8), die vom Occluder (Faust + Unterarm-Schaft) verdeckt werden.
-
-    Gibt (heavy, partial) zurück: `heavy` = Feld-Zentrum liegt UNTER dem soliden Mesh → Label
-    `occluded`; `partial` = ein Zell-Ring weiter (Figur teilweise sichtbar) → Figur-Label behalten
-    (Robustheit gegen leichte Verdeckung). Der Schaft läuft von der Faust in Richtung `angle`
-    (lokales -X, um Z gedreht) nach außen — genau wie in place_occluder/make_occluder_arm.
-    """
-    fist_r = ARM_RADIUS * 1.3
-    ex, ey = fist_x - reach * math.cos(angle), fist_y - reach * math.sin(angle)
-    heavy, partial = set(), set()
-    for fi in range(8):
-        for ri in range(8):
-            cx, cy = square_center(fi, ri)
-            d_fist = math.hypot(cx - fist_x, cy - fist_y)
-            d_shaft = _point_seg_dist(cx, cy, fist_x, fist_y, ex, ey)
-            name = f"{chr(ord('a') + fi)}{ri + 1}"
-            if d_fist < fist_r or d_shaft < ARM_RADIUS:
-                heavy.add(name)
-            elif d_fist < fist_r + CELL * 0.9 or d_shaft < ARM_RADIUS + CELL * 0.9:
-                partial.add(name)
-    return heavy, partial
-
-
 def occluder_footprint_image(scene, cam, fist_x, fist_y, angle, reach=ARM_LENGTH,
                              hi=0.70, lo=0.10):
     """Squares the occluder actually hides IN THE RENDERED IMAGE (names a1..h8).
 
     The arm floats ARM_Z above the board, so under an oblique camera it covers squares OFFSET
-    from its board-plane base (parallax) and the fat cylinder hides more than its thin axis. The
-    board-plane `occluder_footprint` therefore mislabels: squares the hand really hides in the
+    from its board-plane base (parallax) and the fat cylinder hides more than its thin axis. A
+    board-plane footprint therefore mislabels: squares the hand really hides in the
     photo keep their piece label, so the crop shows arm/skin pixels tagged as that piece and the
     type head learns garbage. Here we project the arm (at its true height ARM_Z) AND each square's
     cell into image space via the same camera as corners_px, and label a square `occluded` only
