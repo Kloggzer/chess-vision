@@ -33,16 +33,6 @@ CONCEPTS = (
     "wristwatch",
 )
 
-#: What an occluder CLIP is asked for. No `person` — it drags the legs behind the mat in with the
-#: arm; `ring` because it is not skin (`docs/occluder-plates.md`).
-OCCLUDER_CONCEPTS = (
-    "hand",
-    "arm",
-    "sleeve",
-    "wristwatch",
-    "ring",
-)
-
 # Past this share of the board it is not an arm reaching in.
 MAX_ZONE_FRAC = 0.60
 
@@ -204,43 +194,13 @@ def person_score(board: np.ndarray) -> float:
     )
 
 
-#: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
-#: is far wider and has to survive.
-UNION_CLOSE_PX = 9
-#: A hole over this share of the mask is not an artefact. Measured on 222655/988: backdrop showing
-#: through a curled hand is 0.77 % and must stay open (`docs/occluder-plates.md`).
-MAX_HOLE_FRAC = 0.002
-
-
-def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX,
-          max_hole_frac: float = MAX_HOLE_FRAC) -> np.ndarray:
-    """Close the seams the UNION leaves, then fill the SMALL things it encloses — uint8 in and out.
-
-    Topology alone is not enough: a hand curled into a loop encloses backdrop, which is a hole by
-    every test but size. Only holes under `max_hole_frac` are filled (`docs/occluder-plates.md`).
-    """
-    m = (alpha > 127).astype(np.uint8)
-    if close_px > 1:
-        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
-        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
-    n, lab, stats, _c = cv2.connectedComponentsWithStats((1 - m).astype(np.uint8), 4)
-    outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
-    cap = max(1.0, m.sum() * max_hole_frac)
-    small = [i for i in range(1, n) if i not in outside and stats[i, cv2.CC_STAT_AREA] <= cap]
-    if small:
-        m[np.isin(lab, small)] = 1
-    return np.maximum(alpha, m * 255)
-
-
 def alpha_sam3(
     board: np.ndarray,
-    fill: bool = True,
-    concepts: tuple[str, ...] = CONCEPTS,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks, made solid by [solid].
+    """The union of SAM 3's concept masks.
 
-    The five share one preprocessed image and one vision encoding; only their text inputs and
-    prompt-dependent path run separately. `fill=False` returns the bare union, for a review sheet.
+    The five concepts share one preprocessed image and one vision encoding.
+    Only their text inputs and prompt-dependent model path run separately.
     """
     import torch
 
@@ -269,7 +229,7 @@ def alpha_sam3(
             pixel_values=image_inputs["pixel_values"],
         )
 
-        for concept in concepts:
+        for concept in CONCEPTS:
             # Text-only processing: no repeated image resize, normalization or upload.
             text_inputs = processor(
                 text=concept,
@@ -320,14 +280,7 @@ def alpha_sam3(
                 3,
             )
 
-    if not fill:
-        return alpha, hits
-
-    filled = solid(
-        (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8),
-    )
-
-    return filled.astype(np.float32) / 255.0, hits
+    return alpha, hits
 
 
 def coverage_of(

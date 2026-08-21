@@ -67,27 +67,29 @@ ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** und ein **kontinuierliches
   konstanten 360 ms des Schnitts selbst und wächst weiter; über 3 160 echte Kachelpaare verschiebt
   die Verkleinerung die IoU um höchstens 0,006 und kippt am Schnitt 0,85 keine Entscheidung.
 
-## Die Union hat Nähte und Löcher (2026-08-21)
+## SAM 3 statt Chroma — geprüft und verworfen (2026-08-21)
 
-`alpha_sam3` vereinigt fünf Konzeptmasken (`person`, `hand`, `arm`, `sleeve`, `wristwatch`), und
-eine Union hat Fehler, die kein einzelnes Objekt hat:
+Der Chroma-Schnitt lebt davon, dass die Bühne einfarbig ist. SAM 3 braucht das nicht, also lag
+nahe, die Kacheln damit zu schneiden. Gebaut, gemessen, wieder entfernt — hier steht, was dabei
+herauskam, damit es niemand ein zweites Mal baut.
 
-- **Naht.** Uhr und Arm kommen aus zwei Masken und treffen sich auf einer Linie, die keine der
-  beiden abdeckt.
-- **Loch.** Ein Ring ist keins der fünf Konzepte und stanzt ein Loch quer durch den Finger
-  (gefunden vom User an `VID_20260817_222655` Frame 988).
+**Was für SAM 3 sprach.** Auf denselben Frames geschnitten (`occluders.alpha_of` gegen SAM 3, damit
+beide dasselbe Bild bekommen) deckte SAM 3 30–60 % mehr Fläche ab und traf die Ränder an Ärmel und
+Uhr präziser. Es braucht keine einfarbige Bühne, also auch keine Aufnahme-Disziplin.
 
-`matte.solid` schließt beides, in dieser Reihenfolge: erst ein kleines `CLOSE` (9 px) für die Naht,
-dann exakt füllen, was eine Flut vom **Bildrand** nicht erreicht. Das ist Topologie, kein
-Schwellenwert — ein Loch ist per Definition eingeschlossen, eine echte Lücke zwischen zwei Fingern
-ist es nicht. Das `CLOSE` bleibt klein, damit diese Lücke (20–40 px bei WORK_SIZE) stehen bleibt.
+**Was dagegen sprach.** 3–4 s je Bild auf der GPU gegen Millisekunden für Chroma — ein voller Lauf
+über die drei Clips wären bei Schrittweite 4 rund 2,4 Stunden. Ein Blindtest über 13 Zeilen ergab
+kein klares Urteil: manchmal identisch, manchmal SAM 3 leicht besser.
 
-Auf den **Session-Matten** kostet das nichts: über 91 Matten und 5 824 Zellen bewegt sich
-`coverage` um im Median **0,0000** (p90 0,0001, max 0,0699), und **keine** Zelle wechselt die
-Schwelle `PIECE_VISIBLE_MAX = 0,15`. Eine Hand über einem BRETT ist aus der Distanz fotografiert,
-Ring und Uhr sind winzig gegen eine Zelle. Die gespeicherten Zahlen bleiben also gültig.
+**Was dabei über die Daten gelernt wurde, und weiterhin gilt:**
 
-Auf den **Occluder-Clips** füllt die Hand das Bild, und dort ist es der Unterschied.
+- Die Kachel wird auf die BÜHNEN-Box beschnitten, nicht auf die Hand. Die Matte füllt das Bild aber
+  nicht (58 % bei zwei Clips, 73 % beim dritten), also wird jede Hand, die über die Mattenkante
+  hinausragt, dort abgeschnitten. Gemessen: `222655` 37/472, `224656` 0/506, **`230602` 456/456**.
+- `230602` ist in seiner zweiten Hälfte fast durchgehend leer — was die Kacheln von dort erklärt.
+- Die Konzept-Union hat Nähte (Uhr gegen Arm) und der Ring kerbt den Finger ein. Beides ist
+  reparierbar (`ring` als Konzept, kleine Löcher füllen), aber Löcher-Füllen nach Topologie allein
+  ist FALSCH: eine zur Schlaufe gekrümmte Hand schließt Hintergrund ein, und der muss offen bleiben.
 
 ## Aufnahme
 
