@@ -465,15 +465,17 @@ def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
     This REPLACES the per-cell mesh cut, it does not join it: a board straightened here is cut at
     the nominal eighth afterwards, and straightening twice corrects twice. Twin: `sampleBoxMesh`.
 
-    288 ms on a 952 px board (2026-08-21), against 72 ms for the WebP encode beside it — a real
-    cost per exported frame, and far under the decode it follows.
+    CUBIC, not LINEAR: the map is a near-identity, and a bilinear resample at half-pixel offsets is
+    a low-pass the crop then keeps. Measured 2026-08-21 as Laplacian energy of the finished crop
+    against one cut from the raw board — linear -44 %, cubic -22 %, lanczos4 -19 % at the same
+    290 ms per 952 px board (the WebP encode beside it costs 72 ms).
     """
     h, w = board.shape[:2]
     ys, xs = np.mgrid[0:h, 0:w].astype(np.float64)
     mx, my = mesh_point((xs - border) / board_size, (ys - border) / board_size, mesh)
     return cv2.remap(board, (mx * board_size + border).astype(np.float32),
                      (my * board_size + border).astype(np.float32),
-                     cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
+                     cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:

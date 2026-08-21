@@ -94,7 +94,8 @@ fun cropSquare(
 /**
  * A bordered board pulled straight GLOBALLY: every pixel read where the board's OWN lines say it
  * sits. The pipeline's only straightening — cuts after it are plain rectangles, and a second pass
- * corrects twice. Twins: `calibration.straighten_board`, `sampleBoxMesh` (`lib/warp.ts`).
+ * corrects twice. CUBIC because the map is a near-identity and bilinear would low-pass what the
+ * crop keeps (-44 % against -22 %, measured). Twin: `calibration.straighten_board`.
  */
 fun straightenBoard(
     boardWarped: Mat,
@@ -120,7 +121,7 @@ fun straightenBoard(
         mapY.put(y, 0, rowY)
     }
     val out = Mat()
-    Imgproc.remap(boardWarped, out, mapX, mapY, Imgproc.INTER_LINEAR, Core.BORDER_REPLICATE)
+    Imgproc.remap(boardWarped, out, mapX, mapY, Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE)
     mapX.release()
     mapY.release()
     return out

@@ -249,6 +249,23 @@ einzelnen Linien, oder Linien ueber dem Limit). Die Alles-oder-nichts-Regel selb
 "ein Konsument darf nie eine halbe Stufe schneiden" — und sollte nicht aufgeweicht werden, um eine
 Zahl schoener zu machen.
 
+## Der gerade Store kostet eine Interpolation — sie liesse sich einsparen (2026-08-21)
+
+Der Export warpt heute Frame -> Brett und zieht das Brett DANACH gerade. Das sind zwei
+Resamplings, wo der alte Zell-Schnitt eines hatte. Gemessen als Laplace-Energie des fertigen
+Crops gegen einen aus dem rohen Brett geschnittenen: bilinear **-44 %**, kubisch **-22 %**,
+Lanczos4 -19 %, alle bei ~290 ms je 952-px-Brett. Ausgeliefert wird kubisch.
+
+Die -22 % waeren ganz zu vermeiden, indem der Mesh in `warp_board_for_crops` HINEINKOMPONIERT
+wird: eine Abbildung vom Frame direkt auf das gerade Brett, ein Resampling wie frueher. Genau das
+tut `sampleBoxMesh` (`lib/warp.ts`) schon fuer die Ansicht — es geht in einem Zug durch Mesh UND
+Homographie.
+
+Nicht gemacht, weil es die Paritaets-Zwillinge in Kotlin und TS mitzieht und der Nachruest-Weg
+(`session straighten`, der auf FERTIG gewarpten Brettern arbeitet) das zusaetzliche Resampling
+ohnehin nicht vermeiden kann. Ein frisch exportierter und ein nachgeruesteter Store waeren dann
+unterschiedlich scharf — auch eine Entscheidung, die jemand treffen muss.
+
 ## `labeled-session-pack` liest Frames, die es nicht mehr gibt (gefunden 2026-08-21)
 
 `packLabeledSession` (LabeledVideoPack.kt) oeffnet `row["frame"]`, also ein PNG unter `frames/`.
