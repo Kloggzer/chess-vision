@@ -227,7 +227,7 @@ desktop/src/main/kotlin/com/chesslab/desktop/CachingClassifier.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Cost.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Crops.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopCnn.kt 2
-desktop/src/main/kotlin/com/chesslab/desktop/DesktopLens.kt 2
+desktop/src/main/kotlin/com/chesslab/desktop/DesktopLens.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt 5
 desktop/src/main/kotlin/com/chesslab/desktop/FrameSource.kt 3
 desktop/src/main/kotlin/com/chesslab/desktop/LabelVerb.kt 1

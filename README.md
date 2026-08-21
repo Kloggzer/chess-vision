@@ -208,25 +208,21 @@ A recording's **id** keeps the `rg-` prefix its directory dropped — the id is 
 every manifest row, and `sessions.session_dir()` is the one place that maps one to the other.
 The details and the traps: [`docs/data-pipeline.md`](docs/data-pipeline.md) §1.1.
 
-### Geometry: lens, then board
+### Geometry: the board's own grid
 
-Two different calibrations, and the order matters. `chesslab lens` models the camera
-**optics** (barrel distortion → `data/lens/calib.npz`, applied to frames from the local USB
-camera only). `chesslab calibrate` models the **board** — where the 8×8 grid sits. Run
-`lens` first: a new lens calibration re-stamps every board profile.
+`chesslab calibrate` models the **board** — where the 8×8 grid sits. There is no lens step: the
+optics are measured from the footage itself when they are wanted at all, by
+`android :desktop undistort`, which writes the model beside the frames as `lens.json`.
 
-```bash
-uv run chesslab lens calibrate-board         # zero interaction: solves from sessions on disk
-uv run chesslab lens show                    # K, distortion, RMS, the resolution it was shot at
-```
+Python's `chesslab lens` went on 2026-08-21 with the whole `data/lens/calib.npz` path (1 159 lines
+plus 713 of tests). It solved intrinsics from many board POSES, which a camera on a fixed mount
+cannot supply — it refused for that reason and had never once run on this machine. What replaced it
+is `calibration.LensModel.from_receipt`, thirteen lines that read Kotlin's `lens.json`.
 
-The interactive `lens calibrate` went with the live-camera path on 2026-08-20; `calibrate-board`
-was always the better door and is now the only one.
-
-`calibrate-board` needs no pattern and no interaction, because the physical board already is
-one: it reads the 7×7 inner checker corners out of recorded sessions and saves only when a
-held-out frame's grid lines demonstrably straighten after undistortion. If every session came
-from the same mount it refuses, rather than producing a confidently wrong model.
+Whether the optics are worth applying at all was settled by measurement, not by argument: in the
+composed warp they take the residual bow from 1.91 px to 1.64 px on a 116 px cell, and a blind A/B
+over five frames could not be told apart. The seam is there (`warp_padded(..., lens=)`), nothing
+passes it. See `scripts/straighten_ab.py`.
 
 ArUco markers are the board-geometry source and must stay on the board for the whole
 recording, because calibration, import and slicing all self-calibrate **per frame** from

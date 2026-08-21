@@ -65,34 +65,27 @@ fun main(args: Array<String>) {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
             WebcamSource(index).use { calibrate(it) }
         }
-        "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
+        "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage())
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), cameraToken(index))
+            replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), "webcam:$index")
         }
         else -> usage()
     }
 }
 
 /**
- * `align <n> [raw]` — the board against its own grid, with the stored optics or without them.
+ * `align <n>` — the board against its own grid, on the frames as they arrive.
  *
- * `raw` is the comparison that says whether the distortion or the board geometry is the error, and
- * it is the only reason this verb exists.
- *
- * A MEASUREMENT tool may undistort, visibly, at its own call site. The frame source may NOT: it
- * used to, which put a transform in front of every consumer that none of them could see or switch
- * off. Inside the tracker the same job is `Stage.LENS`, which at least reports what it cost.
+ * It used to take a `raw` toggle that compared against a STORED calibration, so a reader could tell
+ * whether the distortion or the board geometry was the error. That file came from `chesslab lens
+ * calibrate`, deleted 2026-08-20, so the toggle had been comparing raw against raw ever since. What
+ * answers the question now is `undistort`, which fits the optics from the recording itself.
  */
-private fun alignCamera(
-    index: Int,
-    raw: Boolean,
-) {
+private fun alignCamera(index: Int) {
     val cost = Cost()
     WebcamSource(index).use { source ->
-        openLens(source, cameraToken(index), wanted = !raw).use { optics ->
-            measureAlignment(timedFrames(source, optics, cost), cost)
-        }
+        measureAlignment(timedFrames(source, null, cost), cost)
     }
     cost.report("what each frame cost:")
 }
@@ -267,7 +260,7 @@ private fun usage(): Nothing {
         "usage: chesslab-desktop <command>",
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
-        "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
+        "  align <camera-index>       measure the board against its own grid",
         "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
         "  rectify <video> <outDir> [frames=<f>|every=N] [size=N] [lens]  the straightened board, per frame",
         "  crops <video> <outDir> [frames=<f>|every=N] [out=WxH]  the 64 square crops, as the device cuts them",
@@ -347,10 +340,7 @@ internal fun replay(
         if (options.lens && video != null && fittedLens == null) {
             error("no accepted lens fit for ${video.name} — refusing to replay raw frames as corrected")
         }
-        val optics =
-            fittedLens
-                ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
-                ?: camera?.let { openLens(source, it, wanted = true) }
+        val optics = fittedLens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
         // The recording starts BEFORE the game. The phone flushes its pre-roll ring at the first
         // commit (`video_pre_roll_ns`), so tracking from frame 0 means tracking board setup and

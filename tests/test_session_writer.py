@@ -50,7 +50,6 @@ def test_session_yaml_records_which_camera_took_it(tmp_path):
     assert meta["camera_capture_source"] == "https://phone:4444/video/snapshot"
     assert "hunter2" not in text
     # A URL is not the calibrated rig lens, whatever the index says.
-    assert meta["undistorted"] is False
 
 
 def test_an_unstated_source_is_omitted_not_invented(tmp_path):

@@ -116,9 +116,9 @@ class CalibrationProfile:
 
     @classmethod
     def from_dict(cls, d: dict) -> CalibrationProfile:
-        # Profiles written before 2026-08-20 carry `undistorted`, `lens_calib_id`,
-        # `camera_matrix` and `dist_coeffs`. They are ignored: the lens state is derived from
-        # `calib.npz` at use time, so a stored copy could only go stale.
+        # Profiles written before 2026-08-21 carry `undistorted`, `lens_calib_id`,
+        # `camera_matrix` and `dist_coeffs` — ignored: the optics live in the recording's own
+        # `lens.json` now, and a stored copy could only go stale.
         return cls(
             profile=d["profile"],
             created_at=d.get("created_at", ""),

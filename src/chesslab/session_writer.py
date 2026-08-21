@@ -91,8 +91,6 @@ class SessionWriter:
 
     def _write_session_yaml(self) -> None:
 
-        from . import lens
-
         # The session can disappear underneath an open writer: deleting or discarding it in the
         # UI removes the directory while `COLLECT["writer"]` still points here, and `close()`
         # then died with FileNotFoundError. Recreating the directory would be worse than
@@ -103,14 +101,6 @@ class SessionWriter:
                   "— not writing session.yaml.")
             return
 
-        # Record the LENS state these frames were captured under, so a dataset that mixes
-        # pre- and post-undistortion sessions stays queryable (absent on old sessions =
-        # raw frames). The frames on disk are never remapped again on replay.
-        # Ask the lens about the REAL source: with a URL override the index is a meaningless
-        # 0, and `should_undistort` answers "yes, local camera" for it — stamping phone
-        # frames as undistorted when nothing corrected them.
-        src = self.camera_source if self.camera_source is not None else self.camera_index
-        undistorted, lens_calib_id = lens.profile_lens_state(src)
         meta = {
             "session_id": self.session_id,
             "profile": self.profile,
@@ -123,8 +113,6 @@ class SessionWriter:
                                       else redact_source(self.camera_capture_source)),
             # `frame_size` is the DELIVERED size (measured on a frame), not a requested mode.
             "frame_size": [self.frame_size[0], self.frame_size[1]],
-            "undistorted": bool(undistorted),
-            "lens_calib_id": lens_calib_id,
             "notes": self.notes,
         }
         for k in ("camera_source", "camera_capture_source"):

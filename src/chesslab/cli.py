@@ -26,11 +26,6 @@ app = typer.Typer(
 calibrate_app = typer.Typer(help="Stage 1 — Calibrate camera/board geometry.", no_args_is_help=True)
 app.add_typer(calibrate_app, name="calibrate")
 
-lens_app = typer.Typer(help="Camera LENS undistortion (optics) — distinct from `calibrate` (board geometry).",
-                       no_args_is_help=True)
-app.add_typer(lens_app, name="lens")
-
-
 session_app = typer.Typer(
     help="Recorded sessions: geometry repair, frame flagging, lifecycle.",
     no_args_is_help=True)
@@ -85,47 +80,6 @@ def calibrate_markers(
     print(f"[OK] Marker sheet: {p} — print out, cut out, glue one marker centered on each "
           "corner a8/h8/h1/a1.")
 
-
-@lens_app.command("calibrate-board")
-def lens_calibrate_board(
-    sessions: str = typer.Option(None, "--sessions", help="Sessions root (default: data/sessions)."),
-    out: str = typer.Option(None, "--out", help="Target .npz (default: data/lens/calib.npz)."),
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing calibration file."),
-    min_views: int = typer.Option(8, "--min-views", help="Distinct camera poses required before solving."),
-    novelty_px: float = typer.Option(30.0, "--novelty-px", help="Minimum board-corner displacement (px) between accepted poses."),
-    min_coverage: int = typer.Option(4, "--min-coverage", help="Image regions (of 3x3) the grid points must cover."),
-    min_points: int = typer.Option(20, "--min-points", help="Minimum validated inner corners per frame (of 49)."),
-    max_frames_per_session: int = typer.Option(6, "--max-frames-per-session", help="Evenly spaced frames tried per session (a fixed camera makes more redundant)."),
-    profile: str = typer.Option(None, "--profile", help="Only harvest sessions of this board profile."),
-    size: str = typer.Option(None, "--size", help="Calibrate for this frame size (WxH; default: the size with the most views)."),
-    max_rms: float = typer.Option(2.0, "--max-rms", help="Refuse to save above this reprojection RMS (px)."),
-) -> None:
-    """Calibrate the lens from RECORDED sessions — zero interaction, no pattern waving.
-
-    The physical board IS the calibration pattern: real sessions in data/sessions/ store
-    per-frame board corners next to the frame image, and different sessions were recorded
-    with the camera mounted differently — that pose variety is exactly what
-    `calibrateCamera` needs. The board's 7x7 inner checker corners are detected around the
-    logged corners (piece-occluded intersections are rejected), poses are gated for
-    diversity, and the solve is VALIDATED on a held-out frame: it is only saved when the
-    board's grid lines actually get straighter. Board profiles are re-stamped on save,
-    same as after `lens calibrate-board`.
-    """
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_calibrate_board(
-        sessions=sessions, out=out, force=force, min_views=min_views, novelty_px=novelty_px,
-        min_coverage=min_coverage, min_points=min_points,
-        max_frames_per_session=max_frames_per_session, profile=profile, size=size,
-        max_rms=max_rms))
-
-
-@lens_app.command("show")
-def lens_show(
-    path: str = typer.Option(None, "--path", help="Calibration .npz (default: data/lens/calib.npz)."),
-) -> None:
-    """Print the stored lens calibration (K, distortion, RMS, resolution it was shot at)."""
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_show(path))
 
 
 # `session` — everything that edits a recorded session before it is sliced.

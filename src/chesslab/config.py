@@ -120,48 +120,6 @@ class CameraDefaults:
 
 CAMERA = CameraDefaults()
 
-# --- Lens undistortion (optics, NOT board geometry) -----------------------------------
-@dataclass(frozen=True)
-class LensDefaults:
-    """Barrel/pincushion removal for the rig camera. Applied at exactly one place —
-    `lens.active()` builds the undistorter a caller applies to raw frames. The
-    intrinsics come from `chesslab lens calibrate-board` (see `chesslab/lens.py`); this is the
-    LENS model and has nothing to do with `calibration.py` (BOARD geometry).
-
-    `path` "" resolves to `DATA.lens / "calib.npz"`. `alpha` trades black borders against
-    field of view (0 = crop-free-looking result with no black corners, 1 = keep every
-    source pixel); the output size always equals the input size, so `frame_size` stays
-    invariant everywhere. The `undistort_urls`/`undistort_files` switches stay off because
-    a URL source is the phone/IP cam (different lens) and a file holds pixels that were
-    already captured — remapping those would distort them a second time."""
-
-    enabled: bool = True
-    path: str = ""               # "" -> DATA.lens / "calib.npz"
-    alpha: float = 0.0           # 0 = no black borders; 1 = keep all pixels
-    interpolation: str = "linear"
-    undistort_urls: bool = False
-    undistort_files: bool = False
-
-    # -- Live drift detection (see `lens.DriftMonitor`) --
-    # Signal 1 (geometry/scale): the live board quad vs. the quad recorded in the
-    # board profile. A bumped zoom ring changes the board's apparent size a lot, so
-    # this is the large, robust signal. Thresholds below are RELATIVE deviations.
-    drift_enabled: bool = True
-    drift_sample_every: int = 30      # measure on every N-th ArUco alignment (not per frame)
-    drift_window: int = 9             # rolling-median window over sampled measurements
-    drift_streak: int = 3             # consecutive medians above threshold before warning
-    drift_geometry_thr: float = 0.06  # 6 % change of mean side length / sqrt(area)
-    # Signal 2 (distortion residual): leave-one-marker-out homography reprojection error
-    # in pixels, normalised by the board's mean side length. SPECULATIVE — the threshold
-    # is a starting guess and has never been tuned on the real rig, and the check costs
-    # one extra ArUco pass on sampled frames, so it is OFF by default.
-    drift_residual_enabled: bool = False
-    drift_residual_thr: float = 0.004  # 0.4 % of the board's mean side length
-
-
-LENS = LensDefaults()
-
-
 @dataclass(frozen=True)
 class DedupDefaults:
     """Curation policy when building a dataset (Stage 4). The capture pipeline delivers

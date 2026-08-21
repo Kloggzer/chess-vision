@@ -1,6 +1,6 @@
 src/chesslab/alignment.py 37
 src/chesslab/calibration.py 18
-src/chesslab/cli.py 11
+src/chesslab/cli.py 10
 src/chesslab/config.py 16
 src/chesslab/dataset.py 32
 src/chesslab/dataset_build.py 21
@@ -11,7 +11,6 @@ src/chesslab/ingest.py 18
 src/chesslab/ingest_adapters/synthetic.py 8
 src/chesslab/ioutil.py 10
 src/chesslab/labeling.py 11
-src/chesslab/lens.py 23
 src/chesslab/manifest_cache.py 10
 src/chesslab/meshprep.py 21
 src/chesslab/occluded_model.py 20
