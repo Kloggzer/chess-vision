@@ -64,15 +64,48 @@ def frame_count(video: Path) -> int:
     return n
 
 
-def stage_of_clip(video: Path):
-    """The blue field, as a mask over the WORK-size frame — where the board would be."""
+def plate_of_clip(video: Path):
+    """The old pipeline's `Plate` for a clip — median, stage and the clip's own Otsu threshold.
+
+    What `occluders.alpha_of` needs to cut ANY frame the way `extract` would have, which is what
+    makes a blind A/B fair: both cuts run on the same picture instead of on whatever each pipeline
+    happened to select.
+    """
+    from chesslab.occluders import Plate, chroma_cut_of, read_plate, stage_of, work_size
+
+    cap = cv2.VideoCapture(str(video))
+    try:
+        size = work_size(cap)
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        med = read_plate(cap, n, size)
+        stage = stage_of(med)
+        return Plate(median=med, stage=stage,
+                     chroma_cut=chroma_cut_of(cap, n, med, stage, size=size)), size
+    finally:
+        cap.release()
+
+
+def stage_of_clip(video: Path, cache: Path):
+    """The blue field, as a mask over the WORK-size frame — where the board would be.
+
+    Cached: the median it rests on is a `nanmedian` over 48 full frames and costs minutes per clip,
+    and it does not change between runs.
+    """
     from chesslab.occluders import read_plate, stage_of, work_size
 
     cap = cv2.VideoCapture(str(video))
     try:
-        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         size = work_size(cap)
-        return stage_of(read_plate(cap, n, size), erode=STAGE_ERODE), size
+        hit = cache / f"stage-{video.stem}.png"
+        if hit.is_file():
+            got = cv2.imread(str(hit), cv2.IMREAD_GRAYSCALE)
+            if got is not None and got.shape[:2] == (size[1], size[0]):
+                return got, size
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        stage = stage_of(read_plate(cap, n, size), erode=STAGE_ERODE)
+        cache.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(hit), stage)
+        return stage, size
     finally:
         cap.release()
 
@@ -83,10 +116,11 @@ def touching(alpha, stage):
     Kept WHOLE where it does touch: an arm that lies across the mat edge is one object, and cutting
     it at the edge is the amputation the old chroma pipeline made (456 of 456 tiles on 230602).
     """
-    n, lab, _stats, _c = cv2.connectedComponentsWithStats((alpha > 127).astype(np.uint8), 8)
-    on = stage > 127
-    keep = {i for i in range(1, n) if (lab == i)[on].any()}
-    return np.where(np.isin(lab, list(keep)), alpha, 0).astype(np.uint8)
+    _n, lab = cv2.connectedComponents((alpha > 127).astype(np.uint8), 8)
+    # One pass, not one per label: a RAW union is speckled with hundreds of components, and
+    # `lab == i` per component is a full-frame compare each time (measured: it never finished).
+    keep = np.unique(lab[stage > 127])
+    return np.where(np.isin(lab, keep[keep > 0]), alpha, 0).astype(np.uint8)
 
 
 def over(bgr, alpha) -> np.ndarray:
@@ -114,6 +148,52 @@ def row_of(video: Path, idx: int, frame, cuts: dict, width: int) -> np.ndarray:
     return np.vstack([bar, strip])
 
 
+def blind(found: list[Path], per_clip: int, out: Path, seed: int) -> int:
+    """SAM 3 against the chroma cut on the SAME frames, unlabelled, sides shuffled per row."""
+    import json
+
+    from chesslab.matte import alpha_sam3, solid
+    from chesslab.occluders import alpha_of
+
+    rng = np.random.default_rng(seed)
+    key, rows = [], []
+    for video in found:
+        plate, size = plate_of_clip(video)
+        n = frame_count(video)
+        picks = [round(n * (i + 0.5) / per_clip) for i in range(per_clip)]
+        print(f"{video.name}: {n} frames, {len(picks)} rows", flush=True)
+        for idx, raw in frames_of(video, picks):
+            frame = cv2.resize(raw, size)
+            old = (np.clip(alpha_of(frame, plate), 0.0, 1.0) * 255.0).astype(np.uint8)
+            new = solid(touching((np.clip(alpha_sam3(frame, fill=False)[0], 0.0, 1.0)
+                                  * 255.0).astype(np.uint8), plate.stage))
+            if (old > 127).mean() < MIN_COVER and (new > 127).mean() < MIN_COVER:
+                continue
+            left_is_new = bool(rng.integers(0, 2))
+            a, b = (new, old) if left_is_new else (old, new)
+            key.append({"Zeile": len(rows) + 1, "A": "SAM3" if left_is_new else "Chroma",
+                        "B": "Chroma" if left_is_new else "SAM3",
+                        "quelle": f"{video.stem}/{idx}"})
+            pair = np.hstack([over(frame, a), np.full((frame.shape[0], 8, 3), 40, np.uint8),
+                              over(frame, b)])
+            scale = 1500 / pair.shape[1]
+            pair = cv2.resize(pair, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            bar = np.zeros((24, pair.shape[1], 3), np.uint8)
+            cv2.putText(bar, f"{len(rows) + 1}          A", (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55, (255, 255, 255), 1)
+            cv2.putText(bar, "B", (pair.shape[1] // 2 + 20, 17), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.55, (255, 255, 255), 1)
+            rows += [bar, pair, np.zeros((8, pair.shape[1], 3), np.uint8)]
+            print(f"  {idx}: chroma {(old > 127).mean():.3f}  sam3 {(new > 127).mean():.3f}",
+                  flush=True)
+    out.mkdir(parents=True, exist_ok=True)
+    sheet = out / "blindtest.png"
+    cv2.imwrite(str(sheet), np.vstack(rows))
+    (out / "blindtest-key.json").write_text(json.dumps(key, indent=2), encoding="utf-8")
+    print(f"sheet -> {sheet}   ({len(key)} rows, key written separately)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -123,6 +203,9 @@ def main() -> int:
     ap.add_argument("--extract", action="store_true", help="the full run (not implemented yet)")
     ap.add_argument("--footage", type=Path, default=None, help="the clip directory")
     ap.add_argument("--out", type=Path, default=Path("data/reports/occluders-sam3"))
+    ap.add_argument("--blind", type=int, default=0,
+                    help="rows per clip for a blind A/B against the chroma cut")
+    ap.add_argument("--seed", type=int, default=20260821)
     args = ap.parse_args()
 
     root = args.footage or config.DATA.footage / "occluders"
@@ -133,13 +216,28 @@ def main() -> int:
     if args.extract:
         print("[FAIL] --extract kommt erst, wenn das Blatt ueberzeugt hat.")
         return 1
+    # `matte` caches the model in a module global — right for a worker that runs many frames,
+    # wrong for a script that exits: several GB of CUDA-backed objects would be left for
+    # interpreter shutdown to dismantle.
+    from chesslab.matte import unload_models
+
+    try:
+        if args.blind:
+            return blind(found, args.blind, args.out, args.seed)
+        return sheet(found, args)
+    finally:
+        unload_models()
+
+
+def sheet(found: list[Path], args) -> int:
+    """The diagnostic sheet: what the union looks like raw, filtered and filled."""
     from chesslab.matte import alpha_sam3, solid
 
     args.out.mkdir(parents=True, exist_ok=True)
     rows, areas = [], []
     for video in found:
         n = frame_count(video)
-        stage, size = stage_of_clip(video)
+        stage, size = stage_of_clip(video, args.out)
         # Spread over the whole clip: the tail of `230602` is where the old cut lost 147 of 152
         # tiles to a lamp, so a sample that stops at the middle would miss the interesting part.
         picks = ([int(x) for x in args.frames.split(",") if int(x) < n] if args.frames
