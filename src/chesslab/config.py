@@ -41,7 +41,6 @@ IDENTITY_CLASSES: list[str] = [c for c in CLASSES if c != "occluded"]
 SEED: int = 42
 
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
-DEFAULT_PROFILE: str = "default"
 # Fraction by which an ArUco marker's CENTRE sits outside the playing field — the markers are
 # printed/glued in the label border, so the quad they span is larger than the board. THE
 # authoritative default; `calibrate`, `profile_from_frame` and the Kotlin store all read it.
@@ -98,27 +97,6 @@ CROP = CropDefaults()
 # Only affects the data/crop pipeline; the web display remains edge-to-edge. Grows automatically with the pads.
 CROP_WARP_BORDER_CELLS: float = 0.1
 
-
-# --- Rig capture reference resolution -------------------------------------------------
-@dataclass(frozen=True)
-class CameraDefaults:
-    """The resolution the rig camera records at. Python no longer opens the camera (Kotlin
-    owns it since 2026-08-20); this is the reference `doctor` checks the lens calibration
-    against.
-
-    Why 1440p is the default: 2560×1440 delivers 30 fps, while true 4K (3840×2160) runs at
-    ~19 fps and only on a direct USB-3 port — overkill for the chessboard's small per-square
-    crops. To force 4K instead, set width=3840, height=2160 here.
-
-    The rates are the datasheet's YUY2 limits — uncompressed 4K is ~380 MB/s, which is why
-    it stalls near 20 fps on USB-3."""
-
-    width: int = 2560          # → 3840 for 4K
-    height: int = 1440         # → 2160 for 4K
-    fps: int = 30
-
-
-CAMERA = CameraDefaults()
 
 @dataclass(frozen=True)
 class DedupDefaults:
@@ -477,126 +455,6 @@ def build_blender_cmd(
     if board_texture is not None:
         cmd.extend(["--board-texture", str(board_texture)])
     return cmd
-
-
-# --- Web-UI defaults (local app) ------------------------------------------------------
-DEFAULT_WEB_HOST: str = "127.0.0.1"
-DEFAULT_WEB_PORT: int = 8000
-
-# --- Move-Tracker defaults -------------------------------------------------------------
-DEFAULT_TRACK_HOST: str = "127.0.0.1"
-DEFAULT_TRACK_PORT: int = 8001
-
-# Default model for the Move-Tracker CNN recovery/verify. run-20260706-045056
-# (mobilenet_v3_small, real-all): ~99.99% on `empty`, ~88% per-square, ~40% piece type — an
-# excellent OCCUPANCY detector, which is exactly what the occupancy-based pre-commit verify
-# needs. None/"missing on disk" ⇒ feature off (default_tracker_run falls back to newest run).
-MOVE_TRACKER_DEFAULT_RUN: str = "run-20260706-045056"
-
-
-def list_model_runs() -> list[dict]:
-    """Model runs under data/models that have weights (best.pt), newest first."""
-    runs = []
-    root = DATA.models
-    if root.exists():
-        runs.extend({"run": d.name, "mtime": (d / "best.pt").stat().st_mtime}
-                    for d in sorted(root.iterdir())
-                    if d.is_dir() and (d / "best.pt").exists())
-    runs.sort(key=lambda r: -r["mtime"])
-    return runs
-
-
-def default_tracker_run() -> str | None:
-    """MOVE_TRACKER_DEFAULT_RUN if it exists on disk, else the newest run, else None."""
-    if (DATA.models / MOVE_TRACKER_DEFAULT_RUN / "best.pt").exists():
-        return MOVE_TRACKER_DEFAULT_RUN
-    runs = list_model_runs()
-    return runs[0]["run"] if runs else None
-
-# Move-Tracker detection defaults (specs/rework/10-move-detection-v2.md) — Single Source
-# for CLI and app; no magic numbers in tracker.py callers.
-TRACK_DEFAULTS: dict = {
-    "motion_thr": 0.25,            # Motion gate: PERCENT of strongly-changed pixels (motion_score).
-                                   # Low on purpose: a slow hand only moves a thin edge band between
-                                   # frames; wobble/jitter stays ~0 thanks to blur + motion_px_thr.
-    "motion_px_thr": 20.0,         # Per-pixel delta above which a pixel counts as changed —
-                                   # desk wobble/jitter shifts everything by ~1 px (tiny deltas,
-                                   # score ~0); a hand produces a compact region of strong deltas.
-    "z_thr": 3.0,                  # z-Score above which a square is considered "changed"
-    "ambiguity_margin_ll": 2.0,    # best − second in log-likelihood units (~e² factor)
-    "reanchor_ll_floor": -4.0,     # Re-anchor only if even the best move LL lies below this
-    "nudge_timeout_s": 5.0,        # Nudge patch (occupied squares) after this many seconds stuck
-    "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
-    "max_changed": 6,              # Occlusion gate
-    "census_thr": 40.0,            # Structural change (census, 0..255); higher ⇒ more squares veto as shadow.
-                                   # 160 (live-tuned pre-fusion) vetoed real dark-on-dark ARRIVALS as shadows
-                                   # (black rook onto dark f8 -> O-O blocked, Rg8 committed). 40 is the
-                                   # clip-validated floor; real cast shadows stay below it (structure unchanged).
-    "census_z_weight": 1.0,        # Structural evidence fusion: z_eff = max(z_gray, w·z_census). Census is
-                                   # illumination-invariant structure — lifts dark-on-dark moves the gray
-                                   # absdiff misses without raising z_thr. 0 = off (legacy single-channel).
-    "occl_census_thr": 24.0,       # Baseline occlusion needs structure above this (census 0..255 ≈ Hamming 0.75):
-                                   # strong absdiff WITHOUT structure/chroma anomaly is a cast shadow, not a hand.
-                                   # 0 = legacy (any strong absdiff counts as occlusion).
-    "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
-    "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
-    "cnn_check_interval_s": 10.0,  # Periodic CNN check
-    "verify_window": 8,            # Max CNN observations per pre-commit verify
-    "verify_timeout_s": 1.5,       # ...and the same deadline in SECONDS, which is the unit the
-                                   # player experiences. `verify_window` counts OBSERVATIONS, and
-                                   # what one costs is set by the CNN: 8 of them is 1.2 s at a
-                                   # 146 ms observation and 2.4 s at the 290 ms measured on an
-                                   # SM8650 — and if the observer stalls, unbounded. A pending
-                                   # candidate blinds BOTH paths (`_detect_guards` refuses
-                                   # detection, and `_cnn_worker` routes every observation to
-                                   # verify so recovery cannot run), so that is dead time.
-                                   # 1.5 s is above every terminal decision ever measured:
-                                   # over 66 candidates on 15 clips + 3 recordings a commit
-                                   # needs 1 observation (pair) or 2 (single, one lost to the
-                                   # seq gate) and the slowest verdict was a 3-observation
-                                   # shadow = 0.9 s at the device rate.
-    "cnn_min_agreement": 0.97,     # Recovery/verify agreement threshold
-    "cnn_margin_squares": 1,
-    "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)
-    "min_confident_board": 32,     # Whole-board match needs plenty of clear view
-    "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
-    "motion_margin": 0.10,         # Motion ROI beyond the board edge (fraction of board edge)
-    "overhang": 0.25,              # Extend diff/occlusion cells toward back rank (fraction of cell)
-    "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
-    "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
-    "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_hold_s": 0.34,         # Seconds the board must be motion-free before detection resumes
-                                   # (wall time). It is HALF the commit latency: measured
-                                   # deterministically at 30 fps, last motion -> commit is
-                                   # `motion_hold_s + 0.05..0.07` (the remainder is the grid-gate
-                                   # re-hold), and the frame rate does not enter — the same clip at
-                                   # 30/15/10 fps commits every move within 0.2 s of the same wall
-                                   # time. 0.34 is the floor the clip suite allows: at 0.32
-                                   # `blender-scholars` loses its mate (Qxf7#) because detection
-                                   # then fires two frames earlier on a frame carrying 7 changed
-                                   # squares against `max_changed` = 6, refuses it as
-                                   # `too_many_changed`, and the eventual single commit swallows
-                                   # the queen. Going lower needs `max_changed` = 7, which widens
-                                   # the occlusion gate — a detection-quality trade the user has
-                                   # ruled out. The six-rung ladder is in `docs/tracker-flow.md`.
-    "occlusion_color_thr": 3.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off).
-                                   # NOTE: the historic 1.5 was "tuned" while the gamut was never built (veto dead);
-                                   # now that it is live, 1.5 over-fires — 3.0 is the validated-conservative start.
-    "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
-    "reconnect_grace_s": 2.0,      # Auto-reattach camera after this many seconds of no frames (0=off)
-    "diff_clahe_clip": 2.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
-    "require_motion_for_move": True,  # Only commit a move if a hand entered since the last reference (drift guard)
-    "motion_recency_s": 20.0,
-    "commit_ll_floor": 2.0,        # Min ABSOLUTE loglik score a voting candidate needs to commit (0=off).
-                                   # A sole-viable candidate has infinite margin, so only an absolute floor
-                                   # stops weak phantoms (live: f6h5 @ 0.44 swallowed a castle; real moves
-                                   # score ~12-24). Endpoint candidates (CNN-verified) are exempt.
-    "detect_scale": 0.5,           # Detection warp scale (0.5 = half-res board; 1.0 = off).
-    "desync_obs_n": 3,             # Consecutive stable-mismatch CNN ticks before illegal-move alarm
-    "verify_obs_votes": 2,         # Consecutive same-outcome CNN observations per verify decision (never act on one glance)
-    "observer_interval_s": 0.0,    # Min seconds between CNN observation starts; 0 = free-running
-                                   # (desktop). Raise on battery/thermal-constrained devices (Android port).
-}
 
 
 def ensure_dirs(paths: Paths = DATA) -> list[Path]:

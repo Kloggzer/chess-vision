@@ -289,7 +289,7 @@ tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/GameSessionWiring.k
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/StatusPublisher.kt 4
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/TrackerCoordinator.kt 8
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/TrackerStack.kt 5
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/settings/AppSettings.kt 4
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/settings/AppSettings.kt 3
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/settings/ConfigCodec.kt 2
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/settings/SettingsRepository.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/sync/HttpIngestClient.kt 1

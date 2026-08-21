@@ -136,8 +136,9 @@ test; the anchors below were re-checked against the tree on 2026-08-20.
 | 14 | **`LatestFrame` semantics:** the frame source must **never** deliver the same frame twice. A repeated frame diffs to zero and reads as "stable" while a hand is waving. | `STRATEGY_KEEP_ONLY_LATEST`, `TrackerCamera.kt` |
 
 Three of these numbers appear nowhere else in `docs/`: `censusThr = 40.0`, `maxChanged = 6` and
-`occlCensusThr = 24.0`. All three live in `api/TrackerConfig.kt` and in `config.py`'s
-`TRACK_DEFAULTS`.
+`occlCensusThr = 24.0`. They live in `api/TrackerConfig.kt`, and there alone since 2026-08-21 —
+`config.py`'s `TRACK_DEFAULTS` was the Python tracker's copy and had no reader left after that
+tracker went.
 
 ## What the engine remembers — the survey (`specs/39`, verified against the tree 2026-08-02)
 

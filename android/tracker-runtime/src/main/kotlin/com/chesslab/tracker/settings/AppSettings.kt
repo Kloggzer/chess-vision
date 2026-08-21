@@ -4,7 +4,6 @@ import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.bundledModelOrDefault
-import com.chesslab.tracker.geometry.LensMode
 import com.chesslab.tracker.speech.SpeechVerbosity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -114,20 +113,6 @@ data class AppSettings(
     val cameraZoomRatio: Float = 1f,
     /** Null is automatic focus; 0..1 is infinity..the lens's nearest. */
     val cameraFocus: Float? = null,
-    /**
-     * Whether the camera's optics are corrected — Python's `CameraSpec.undistort`.
-     *
-     * Here rather than in `TrackerConfig` because Python keeps it on the CAMERA and not in
-     * `TRACK_DEFAULTS`, and that seam must stay exactly what Python's tracker takes.
-     *
-     * Restart-required like the rest of this class: `Undistorter` builds two full-frame maps
-     * (22 MB at 2560x1440) once, and that is not something to do mid-frame on the analyzer thread.
-     *
-     * [LensMode.AUTO] resolves to OFF wherever no calibration matches, which today is everywhere —
-     * the phone has never had one and the three measurements on record all say a stored lens made
-     * alignment WORSE (specs/30, specs/41, and the rig's own 15.1 px raw against 21.7 px corrected).
-     */
-    val lensMode: LensMode = LensMode.AUTO,
 )
 
 /** The saved picture as the camera's own type. */

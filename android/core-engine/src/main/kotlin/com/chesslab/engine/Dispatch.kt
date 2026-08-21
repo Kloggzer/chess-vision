@@ -90,8 +90,6 @@ internal sealed interface VerifyVerdict {
     ) : VerifyVerdict
 
     data object Against : VerifyVerdict
-
-    data object Undecided : VerifyVerdict
 }
 
 /**

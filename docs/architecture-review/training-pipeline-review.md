@@ -215,6 +215,10 @@ tool — worth stating explicitly as a constraint before this is ever bound to
 manifest ever touched, with no eviction (`manifest_cache.py:23-59`). A 300k-crop
 pool plus per-dataset manifests all stay resident.
 
+**Closed 2026-08-21.** Both structures were built for this browser UI and outlived it
+unread; the scan keeps per-session counts only. The missing eviction stands, but an entry
+is now one small dict instead of two dicts per crop row.
+
 ---
 
 ## 4. What I would do, in order

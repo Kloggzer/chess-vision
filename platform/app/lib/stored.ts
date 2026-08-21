@@ -14,7 +14,6 @@ import {
   type Raster,
   sampleBox,
   sampleBoxMesh,
-  sampleQuad,
   squareCropBox,
   type TiltedMesh,
 } from "@/lib/warp";

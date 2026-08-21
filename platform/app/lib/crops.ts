@@ -11,15 +11,7 @@ import sharp from "sharp";
 import { alphaPath } from "@/lib/matte";
 import { boardPath, boardToStored, loadSession, type Session, sessionDir } from "@/lib/session";
 import path from "node:path";
-import {
-  type Mat3,
-  type Raster,
-  sampleBox,
-  sampleBoxMesh,
-  sampleQuad,
-  squareCropBox,
-  type TiltedMesh,
-} from "@/lib/warp";
+import { type Mat3, type Raster, sampleBox, squareCropBox } from "@/lib/warp";
 
 /**
  * A decoded 1080p frame is 6 MB and its PNG costs ~0.25 s to inflate; a page of the bucket grid
@@ -89,12 +81,10 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
 
 /**
  * One square out of one frame, at the board's OWN boundaries when the row carries them: the
- * cell's perspective quad with tilts (curved corners with the parabola term), its scalar
- * rectangle with offsets alone, the nominal box without a mesh. The same ladder `storedCellPng`
- * walks and `crop_square` (labeling.py) cuts the training crop with — the label view has to show
- * the crop the model will get, not a differently framed one.
+ * the nominal box, out of a board that is already straight. Same cut as `crop_square`
+ * (labeling.py) — the label view has to show the crop the model will get.
  */
-function cellRgb(session: Session, stem: string, square: string, raster: Raster, h: Mat3, size: number) {
+function cellRgb(session: Session, square: string, raster: Raster, h: Mat3, size: number) {
   const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
   return sampleBox(raster, h, box, size, size);
 }
@@ -130,7 +120,7 @@ export async function cellPng(name: string, stem: string, square: string, size: 
     return hit;
   }
   const { raster, h } = await cutSource(session, name, stem);
-  const rgb = cellRgb(session, stem, square, raster, h, size);
+  const rgb = cellRgb(session, square, raster, h, size);
   const out = await encode(rgb, size, size);
   cellPngs.set(key, out);
   if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
@@ -176,12 +166,12 @@ export async function medianPng(name: string, stem: string, square: string, size
   const step = Math.max(1, Math.floor(stems.length / SAMPLES));
   const picked = stems.filter((_, i) => i % step === 0).slice(0, SAMPLES);
 
-  // Each sample through ITS OWN mesh: the frames of one interval are cut to the same cell, so the
-  // median stacks the same square and not a slowly sliding one.
+  // Each sample through its own board: the frames of one interval were straightened with their
+  // own mesh, so the median stacks the same square and not a slowly sliding one.
   const stack: Buffer[] = [];
   for (const s of picked) {
     const { raster, h } = await cutSource(session, name, s);
-    stack.push(cellRgb(session, s, square, raster, h, size));
+    stack.push(cellRgb(session, square, raster, h, size));
   }
   const out = Buffer.alloc(size * size * 3);
   const lane: number[] = [];
