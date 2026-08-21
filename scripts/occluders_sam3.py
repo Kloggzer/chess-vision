@@ -152,7 +152,7 @@ def blind(found: list[Path], per_clip: int, out: Path, seed: int) -> int:
     """SAM 3 against the chroma cut on the SAME frames, unlabelled, sides shuffled per row."""
     import json
 
-    from chesslab.matte import alpha_sam3, solid
+    from chesslab.matte import OCCLUDER_CONCEPTS, alpha_sam3, solid
     from chesslab.occluders import alpha_of
 
     rng = np.random.default_rng(seed)
@@ -165,13 +165,13 @@ def blind(found: list[Path], per_clip: int, out: Path, seed: int) -> int:
         for idx, raw in frames_of(video, picks):
             frame = cv2.resize(raw, size)
             old = (np.clip(alpha_of(frame, plate), 0.0, 1.0) * 255.0).astype(np.uint8)
-            new = solid(touching((np.clip(alpha_sam3(frame, fill=False)[0], 0.0, 1.0)
+            new = solid(touching((np.clip(alpha_sam3(frame, fill=False, concepts=OCCLUDER_CONCEPTS)[0], 0.0, 1.0)
                                   * 255.0).astype(np.uint8), plate.stage))
             if (old > 127).mean() < MIN_COVER and (new > 127).mean() < MIN_COVER:
                 continue
             left_is_new = bool(rng.integers(0, 2))
             a, b = (new, old) if left_is_new else (old, new)
-            key.append({"Zeile": len(rows) + 1, "A": "SAM3" if left_is_new else "Chroma",
+            key.append({"Zeile": len(rows) // 3 + 1, "A": "SAM3" if left_is_new else "Chroma",
                         "B": "Chroma" if left_is_new else "SAM3",
                         "quelle": f"{video.stem}/{idx}"})
             pair = np.hstack([over(frame, a), np.full((frame.shape[0], 8, 3), 40, np.uint8),
@@ -179,7 +179,7 @@ def blind(found: list[Path], per_clip: int, out: Path, seed: int) -> int:
             scale = 1500 / pair.shape[1]
             pair = cv2.resize(pair, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
             bar = np.zeros((24, pair.shape[1], 3), np.uint8)
-            cv2.putText(bar, f"{len(rows) + 1}          A", (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
+            cv2.putText(bar, f"{len(rows) // 3 + 1}          A", (6, 17), cv2.FONT_HERSHEY_SIMPLEX,
                         0.55, (255, 255, 255), 1)
             cv2.putText(bar, "B", (pair.shape[1] // 2 + 20, 17), cv2.FONT_HERSHEY_SIMPLEX,
                         0.55, (255, 255, 255), 1)
@@ -231,7 +231,7 @@ def main() -> int:
 
 def sheet(found: list[Path], args) -> int:
     """The diagnostic sheet: what the union looks like raw, filtered and filled."""
-    from chesslab.matte import alpha_sam3, solid
+    from chesslab.matte import OCCLUDER_CONCEPTS, alpha_sam3, solid
 
     args.out.mkdir(parents=True, exist_ok=True)
     rows, areas = [], []
@@ -250,7 +250,7 @@ def sheet(found: list[Path], args) -> int:
             frame = cv2.resize(raw, size)
             # `fill=False`: this sheet exists to show what the filling does, so it needs the union
             # before it. Production never asks for that.
-            alpha = (np.clip(alpha_sam3(frame, fill=False)[0], 0.0, 1.0) * 255.0).astype(np.uint8)
+            alpha = (np.clip(alpha_sam3(frame, fill=False, concepts=OCCLUDER_CONCEPTS)[0], 0.0, 1.0) * 255.0).astype(np.uint8)
             reach = touching(alpha, stage)
             cuts = {"SAM3 roh": alpha,
                     "beruehrt die Matte": reach,
