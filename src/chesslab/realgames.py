@@ -806,7 +806,7 @@ def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
 
 
 def write_board(session_dir: Path, stem: str, frame, corners, profile,
-                dirty: bool = False) -> dict:
+                dirty: bool = False, mesh=None, lens=None) -> dict:
     """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two agree only
     while `pad_up == 0`, and the store has to be the crop's raster under any profile.
 
@@ -820,8 +820,10 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     rel = board_rel(stem, dirty)
     out = session_dir / rel
     out.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners), BOARD_ENCODE)
-    return {"board": rel, "board_size": int(profile.board_size), "board_border": crop_border_px(profile)}
+    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners, mesh, lens), BOARD_ENCODE)
+    keys = {"board": rel, "board_size": int(profile.board_size),
+            "board_border": crop_border_px(profile)}
+    return keys if mesh is None else {**keys, "board_straightened": True}
 
 
 #: How many CLEAN neighbours a frame borrows a mesh from when its own cannot be trusted. Five is
@@ -869,6 +871,30 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
 #: half and the flag is the only record of it — a run that dies between them leaves boards straight
 #: on disk that a later run would pull a SECOND time.
 STRAIGHTEN_CHECKPOINT = 50
+
+
+def rewarp_boards(session_dir: Path, rows: list[dict], profile, *,
+                  frames: Iterator[tuple[dict, Any]], lens=None) -> dict:
+    """Write every board FROM ITS FRAME, straight, in one resample.
+
+    The export's second pass and the retrofit for a store whose video still exists. `straighten_boards`
+    exists for the other case — a store with no frames left — and pays a second resample for it
+    (+57 % Laplacian energy in the finished crop separates the two, measured 2026-08-21).
+    """
+    meshes = meshes_for_boards(rows)
+    done = {"rewarped": 0, "no_mesh": 0, "no_frame": 0}
+    for row, frame in frames:
+        if frame is None:
+            done["no_frame"] += 1
+            continue
+        mesh = meshes.get(int(Path(row["frame"]).stem))
+        done["no_mesh"] += mesh is None
+        for key in BOARD_KEYS:
+            row.pop(key, None)
+        row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
+                               profile, bool(row.get("dirty")), mesh, lens))
+        done["rewarped"] += 1
+    return done
 
 
 def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> dict:
@@ -948,7 +974,7 @@ def disk_frames(session_dir: Path, rows: list[dict]) -> Iterator[tuple[dict, Any
         yield row, cv2.imread(str(session_dir / row["frame"]))
 
 
-def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
+def fit_rows_to_grid(rows: list[dict], profile, *,
                      frames: Iterator[tuple[dict, Any]]) -> dict:
     """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
 
@@ -972,7 +998,7 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
     from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed, hands, boards, late = [], 0, 0, 0, 0
+    worsts, meshed, hands, late = [], 0, 0, 0
     pad = crop_border_px(profile)
     pairs = frames
     seen = []
@@ -1017,13 +1043,10 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
                 # disagrees. Rare, and a hand in the clean pool costs more than a missing slot.
                 row["dirty"], row["dirty_reason"] = True, "grid-late"
                 late += 1
-        # The quad is final HERE, so this is the only place the stored board can be cut from it.
+        # No board here any more: it is warped STRAIGHT in `rewarp_boards`, and the mesh a hand
+        # frame needs comes from its clean neighbours — none of them known until every row is read.
         for key in BOARD_KEYS:
             row.pop(key, None)
-        if frame is not None:
-            row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
-                                   profile, bool(row.get("dirty"))))
-            boards += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
         row["corners_source"] = source
@@ -1031,18 +1054,12 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
         if worst == worst:
             row["align_worst_px"] = round(float(worst), 2)
             worsts.append(row["align_worst_px"])
-    # After the loop, not inside it: a hand frame borrows its clean neighbours' mesh, and none of
-    # them is known until every row has been measured.
-    pulled = straighten_boards(session_dir, seen)
     worsts.sort()
     return {
         **counts,
-        "straight": pulled["straightened"],
-        "bowed": pulled["no_mesh"],
         "mesh": meshed,
         "hands": hands,
         "late": late,
-        "boards": boards,
         "arrived": seen,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
@@ -1202,7 +1219,7 @@ def export_session(
             # Last, so the fit starts from the best quad this export knows — a carried repair or
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
             stats = fit_rows_to_grid(
-                session_dir, rows, load_profile(EXPORT_PROFILE),
+                rows, load_profile(EXPORT_PROFILE),
                 frames=(disk_frames(session_dir, rows) if on_disk
                         else stream_frames(video_path(name), rows, rotation)))
             # What the decoder actually handed over — a row past the end of a truncated recording
@@ -1212,8 +1229,15 @@ def export_session(
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "
                   f"mesh on {stats['mesh']}, hands on {stats['hands']}")
-            print(f"  boards pulled straight: {stats['straight']}, "
-                  f"{stats['bowed']} left bowed for want of any mesh")
+            # A SECOND pass over the video, because a board can only be warped straight once the
+            # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
+            # minute; warping first and correcting after costs 57 % of the crop's detail.
+            made = rewarp_boards(
+                session_dir, rows, load_profile(EXPORT_PROFILE),
+                frames=(disk_frames(session_dir, rows) if on_disk
+                        else stream_frames(video_path(name), rows, rotation)))
+            print(f"  boards warped straight: {made['rewarped']}, "
+                  f"{made['no_mesh']} left bowed for want of any mesh")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
@@ -1428,7 +1452,7 @@ def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
     return {"x": fold[0], "y": fold[1], "cx": curv[0], "cy": curv[1]} if ok else None
 
 
-def grid_line_fracs(image, quad, board_size: int, profile=None) -> dict | None:
+def grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
     """The 18 measured lines as fractions of the field side, or None unless ALL are located.
 
     Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands
@@ -1442,7 +1466,7 @@ def grid_line_fracs(image, quad, board_size: int, profile=None) -> dict | None:
 
     if profile is None:
         profile = _field_profile(quad, (image.shape[1], image.shape[0]), board_size)
-    warped, pad = warp_for_grid(image, profile, quad)
+    warped, pad = warp_for_grid(image, profile, quad, lens=lens)
     lines, curls = grid_lines_with_curvature(warped, board_size, pad=pad)
     if any(line is None for axis in lines for line in axis):
         return None

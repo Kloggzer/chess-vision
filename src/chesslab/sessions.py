@@ -921,6 +921,36 @@ def write_boards_session(session_id: str) -> dict:
             "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
 
 
+def rewarp_boards_session(session_id: str) -> dict:
+    """Rebuild a store FROM ITS VIDEO, straight, in one resample — the good retrofit.
+
+    `straighten_boards_session` is the other one: it works on boards whose frames are gone and pays
+    a second resample for it. Where the video still exists this is strictly better (+57 % Laplacian
+    energy in the finished crop, measured 2026-08-21), because the optics and the mesh fold into
+    the same map the warp already builds.
+    """
+    import json
+
+    from .labeling import _profile_for_session, read_session_meta
+    from .realgames import detect_rotation, game_dir, rewarp_boards, stream_frames, video_path
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    name = session_id[3:] if session_id.startswith("rg-") else session_id
+    candidate = game_dir(name) / "candidate.json"
+    if not candidate.is_file():
+        raise NothingToDo(f"{session_id}: no candidate.json — nothing says how it was warped")
+    video = video_path(name)
+    todo = [r for r in rows if r.get("corners") and r.get("frame")]
+    wanted = {int(Path(r["frame"]).stem) for r in todo}
+    rotate = detect_rotation(video, json.loads(candidate.read_text(encoding="utf-8")), wanted)
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    backup = backup_log(sdir / "log.jsonl")
+    done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate))
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
+
+
 def straighten_boards_session(session_id: str) -> dict:
     """Pull an EXISTING store straight, from the boards themselves — no frames, no re-decode.
 

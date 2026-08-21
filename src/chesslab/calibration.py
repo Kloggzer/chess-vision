@@ -828,18 +828,105 @@ def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: 
     return cv2.warpPerspective(frame, h, (sz, sz))
 
 
-def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
+@dataclass(frozen=True)
+class LensModel:
+    """The board-fitted optics: two radial terms about a centre, at the scale they were fitted at.
+
+    `focal` is the scale the straightness fit held FIXED, not an estimate of the optics — carried
+    through unchanged because the coefficients mean nothing without it. Written by
+    `:desktop undistort` into `lens.json`; the FIT itself stays in Kotlin. Twin: `LensModel`.
+    """
+
+    k1: float
+    k2: float
+    focal: float
+    cx: float
+    cy: float
+
+    @classmethod
+    def from_receipt(cls, receipt: dict | None):
+        """A `lens.json` -> the model, or None when the fit was refused or the receipt is older."""
+        need = ("k1", "k2", "focal", "cx", "cy")
+        if not isinstance(receipt, dict) or any(receipt.get(k) is None for k in need):
+            return None
+        return cls(*(float(receipt[k]) for k in need))
+
+
+def distort_points(x, y, lens: LensModel):
+    """Ideal image points -> where the raw frame actually put them (Brown, radial only).
+
+    The direction a warp needs: it asks per destination pixel WHERE TO READ, and the file on disk
+    still carries the barrel. Arrays welcome.
+    """
+    u, v = (x - lens.cx) / lens.focal, (y - lens.cy) / lens.focal
+    r2 = u * u + v * v
+    scale = 1.0 + lens.k1 * r2 + lens.k2 * r2 * r2
+    return lens.cx + lens.focal * u * scale, lens.cy + lens.focal * v * scale
+
+
+def undistort_points(points, lens: LensModel):
+    """Raw image points -> where an undistorted frame puts them, in the SAME pixel space (P = K).
+
+    The board quad is detected on the raw frame, so it has to come along before a homography built
+    from it can mean anything — without this the corners land right and the content between them
+    stays bowed (`Rectify.kt`, 2026-08-10).
+    """
+    k = np.array([[lens.focal, 0.0, lens.cx], [0.0, lens.focal, lens.cy], [0.0, 0.0, 1.0]])
+    d = np.array([lens.k1, lens.k2, 0.0, 0.0, 0.0])
+    pts = np.asarray(points, np.float64).reshape(-1, 1, 2)
+    return cv2.undistortPoints(pts, k, d, P=k).reshape(-1, 2).tolist()
+
+
+def _board_to_image(u, v, h_inv, board_size: int):
+    """Board fractions -> image pixels, through the inverse of the board homography."""
+    bx, by = u * board_size, v * board_size
+    d = h_inv[2, 0] * bx + h_inv[2, 1] * by + h_inv[2, 2]
+    return ((h_inv[0, 0] * bx + h_inv[0, 1] * by + h_inv[0, 2]) / d,
+            (h_inv[1, 0] * bx + h_inv[1, 1] * by + h_inv[1, 2]) / d)
+
+
+def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
+                         mesh: GridMesh | None = None, lens: LensModel | None = None):
     """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
     `B = crop_border_px(profile)`, homography translated by B. This way EDGE squares have real
     board/edge content for their pad_side/pad_up extension (instead of black border at the
-    playing field edge). Geometry is identical to the borderless warp, only shifted by B; `crop_square`
-    shifts its box accordingly by +B.
+    playing field edge); `crop_square` shifts its box accordingly by +B.
+
+    `mesh` and `lens` are COMPOSED into this one map, so the board is straight after a SINGLE
+    resample. Warping first and correcting afterwards costs a second one, and that second one is a
+    low-pass: the composed path measured +57 % Laplacian energy in the finished crop (2026-08-21).
+    `straighten_board` stays for stores that are already warped and have no frame left.
+
+    Order matters: the quad was detected on the RAW frame, so the optics take it along BEFORE the
+    homography is built from it, and the map then reads through the barrel still in the file.
+    """
+    return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens)
+
+
+def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
+                mesh: GridMesh | None = None, lens: LensModel | None = None):
+    """The board rectified into a `board_size + 2*pad` canvas — the one warp, two borders use it.
+
+    `warp_board_for_crops` asks for the crop border, `alignment.warp_for_grid` for the wider one
+    that makes the outer grid lines measurable. Everything else about the map is identical, and
+    that is why it lives in one place.
     """
     bs = profile.board_size
-    b = crop_border_px(profile)
-    h = np.array(compute_homography(corners, bs, profile.margin), dtype=np.float64)
-    t = np.array([[1.0, 0.0, b], [0.0, 1.0, b], [0.0, 0.0, 1.0]], dtype=np.float64)
-    return cv2.warpPerspective(frame, t @ h, (bs + 2 * b, bs + 2 * b))
+    quad = corners if lens is None else undistort_points(corners, lens)
+    h = np.array(compute_homography(quad, bs, profile.margin), dtype=np.float64)
+    if mesh is None and lens is None:
+        t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]], dtype=np.float64)
+        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
+    side = bs + 2 * pad
+    ys, xs = np.mgrid[0:side, 0:side].astype(np.float64)
+    u, v = (xs - pad) / bs, (ys - pad) / bs
+    if mesh is not None:
+        u, v = mesh_point(u, v, mesh)
+    ix, iy = _board_to_image(u, v, np.linalg.inv(h), bs)
+    if lens is not None:
+        ix, iy = distort_points(ix, iy, lens)
+    return cv2.remap(frame, ix.astype(np.float32), iy.astype(np.float32),
+                     cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
 
 
 def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),

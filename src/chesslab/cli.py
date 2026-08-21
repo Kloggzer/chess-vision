@@ -259,6 +259,33 @@ def session_boards(
         raise typer.Exit(1)
 
 
+@session_app.command("rewarp")
+def session_rewarp(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Rebuild a store from its VIDEO — straight, in one resample. The good retrofit.
+
+    `session straighten` is the other one: it pulls boards whose frames are gone and pays a second
+    resample for it. Where the video exists this is strictly better, because mesh and optics fold
+    into the map the warp already builds (+57 % Laplacian energy in the finished crop, 2026-08-21).
+    """
+    from . import sessions as sessions_mod
+
+    ids = _target_sessions(session, all_sessions)
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.rewarp_boards_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        print(f"[OK] {sid}: {r['rewarped']}/{r['of']} neu gewarpt, {r['no_mesh']} ohne Mesh, "
+              f"{r['no_frame']} ohne Bild — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
 @session_app.command("straighten")
 def session_straighten(
     session: str = typer.Argument(None, help="Session ID."),

@@ -510,19 +510,22 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
         for i in (30, 60, 90)
     ]
 
-    from chesslab.realgames import _field_profile, disk_frames
-    stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8),
-                             frames=disk_frames(tmp_path, rows))
+    from chesslab.realgames import _field_profile, disk_frames, rewarp_boards
+    profile = _field_profile(median, (8, 8), 8)
+    stats = fit_rows_to_grid(rows, profile, frames=disk_frames(tmp_path, rows))
 
     # `hands: 3` is the groove read's documented "full resolution or nothing": at 1 px per cell
     # every edge segment reads missing, so it accuses the whole board. Real exports run at 928+
     # (the 2026-08-16 sweep flagged 25 of 713 frames on 13-12-46-24), and a board this unreadable
     # has nothing labelable on it anyway — the flag only holds its crops back.
-    # `straight: 0, bowed: 3` because 8x8 noise carries no grid lines to straighten by — the point
-    # is that the fit ALSO owns the straightening now, and reports what it could not do.
     assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0, "hands": 3,
-                     "late": 3, "boards": 3, "straight": 0, "bowed": 3, "arrived": rows,
+                     "late": 3, "arrived": rows,
                      "median": 2.7, "max": 2.7}, "8x8 noise carries no grid lines"
+
+    # The board comes from a SECOND pass, once the mesh is final. `no_mesh: 3` because 8x8 noise
+    # carries no grid lines — the point is that it is counted, never silently left bowed.
+    made = rewarp_boards(tmp_path, rows, profile, frames=disk_frames(tmp_path, rows))
+    assert made == {"rewarped": 3, "no_mesh": 3, "no_frame": 0}
     # Every frame the fit SAW got its board, including the one it could not read: the row keeps its
     # inherited quad, and a crop cut with that quad is exactly what the label view has to show.
     # They land in the dirty pile because the grooves flagged them and the plan had not — a frame

@@ -342,22 +342,20 @@ def grid_lines_with_curvature(warped, board_size: int, *, pad: int = 0, **kw):
     return lines, curls
 
 
-def warp_for_grid(frame, profile, quad):
+def warp_for_grid(frame, profile, quad, lens=None):
     """`(warped, pad)` — the rectified board plus `GRID_PAD_CELLS` of what surrounds it.
 
     The pad is what makes the two outer lines per axis measurable instead of assumed, and it is
     NOT `warp_board_for_crops`' border: that one is sized for the crop pads and is NARROWER (12 px
     against this 29 at board_size=928), which is why the board store cannot feed this measurement.
+
+    `lens`: measure THROUGH the optics the store will be warped with, or the mesh describes a board
+    that no longer exists.
     """
-    import cv2
+    from .calibration import warp_padded
 
-    from .calibration import compute_homography
-
-    bs = profile.board_size
     pad = grid_pad_px(profile)
-    h = np.array(compute_homography(quad, bs, profile.margin), np.float64)
-    t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]])
-    return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad)), pad
+    return warp_padded(frame, profile, quad, pad, lens=lens), pad
 
 
 def square_offsets(warped, board_size: int, pad: int = 0,
