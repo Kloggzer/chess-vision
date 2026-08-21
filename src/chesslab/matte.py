@@ -194,13 +194,35 @@ def person_score(board: np.ndarray) -> float:
     )
 
 
+#: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
+#: is far wider and has to survive.
+UNION_CLOSE_PX = 9
+
+
+def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX) -> np.ndarray:
+    """Close the seams the UNION leaves, then fill what it encloses — uint8 in, uint8 out.
+
+    A ring is none of the five concepts and holes a finger; a border flood cannot reach that, so
+    it is filled. The close stays small so a real finger gap survives (`docs/occluder-plates.md`).
+    """
+    m = (alpha > 127).astype(np.uint8)
+    if close_px > 1:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
+    _n, lab = cv2.connectedComponents((1 - m).astype(np.uint8), 4)
+    outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
+    m[~np.isin(lab, list(outside)) & (lab > 0)] = 1
+    return np.maximum(alpha, m * 255)
+
+
 def alpha_sam3(
     board: np.ndarray,
+    fill: bool = True,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks.
+    """The union of SAM 3's concept masks, made solid by [solid].
 
-    The five concepts share one preprocessed image and one vision encoding.
-    Only their text inputs and prompt-dependent model path run separately.
+    The five share one preprocessed image and one vision encoding; only their text inputs and
+    prompt-dependent path run separately. `fill=False` returns the bare union, for a review sheet.
     """
     import torch
 
@@ -280,7 +302,14 @@ def alpha_sam3(
                 3,
             )
 
-    return alpha, hits
+    if not fill:
+        return alpha, hits
+
+    filled = solid(
+        (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8),
+    )
+
+    return filled.astype(np.float32) / 255.0, hits
 
 
 def coverage_of(

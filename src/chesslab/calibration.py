@@ -542,7 +542,11 @@ _ARUCO_LABELS = ("a8", "h8", "h1", "a1")
 
 
 def _aruco_dictionary(dict_name: str):
-    return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dict_name))
+    known = getattr(cv2.aruco, dict_name, None)
+    if not isinstance(known, int):
+        raise ValueError(f"unknown ArUco dictionary '{dict_name}' "
+                         f"(e.g. DICT_4X4_50, DICT_5X5_100)")
+    return cv2.aruco.getPredefinedDictionary(known)
 
 
 def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
@@ -934,6 +938,12 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
     black box → all 4 markers exactly the same size. `gap`: spacing between boxes.
     """
     d = _aruco_dictionary(dict_name)
+    out_path = Path(out_path)
+    if out_path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"):
+        raise ValueError(f"'{out_path}' has no image suffix cv2 can write (.png, .jpg, .webp)")
+    if marker_px < d.markerSize + 2:
+        raise ValueError(f"--marker-px {marker_px} is below the {dict_name} grid "
+                         f"({d.markerSize} modules plus border)")
     if quiet is None:
         quiet = max(marker_px // 6, 20)
     box = marker_px + 2 * quiet                      # cut edge size (same for all)
@@ -948,7 +958,6 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
         cv2.rectangle(sheet, (bx0, by0), (bx0 + box, by0 + box), (0, 0, 0), 1, cv2.LINE_AA)  # cut line
         cv2.putText(sheet, f"{lab} (id {mid})", (bx0, by0 + box + 34),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2, cv2.LINE_AA)
-    out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), sheet)
     return out_path

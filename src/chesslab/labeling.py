@@ -490,10 +490,18 @@ def run_slice(
     preview: str | None = None,
     variant_tag: str | None = None,
 ) -> int:
-    out_size_t = parse_out_size(out_size) if out_size else None
+    try:
+        out_size_t = parse_out_size(out_size) if out_size else None
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        return 1
 
     if preview:
-        return _preview_session(preview, profile)
+        try:
+            return _preview_session(preview, profile)
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] {preview}: {e}")
+            return 1
 
     if slice_all:
         sids = _session_ids_with_logs()

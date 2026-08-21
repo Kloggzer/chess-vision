@@ -76,7 +76,11 @@ def calibrate_markers(
     marker_px: int = typer.Option(300, "--marker-px"),
 ) -> None:
     """Generate printable ArUco marker sheet (glue onto a8/h8/h1/a1)."""
-    p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
+    try:
+        p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] Marker sheet: {p} — print out, cut out, glue one marker centered on each "
           "corner a8/h8/h1/a1.")
 
@@ -700,6 +704,17 @@ def session_trim(
           f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")
 
 
+def _out_size(value: str | None) -> tuple[int, int] | None:
+    """`WxH` from a command line — a bad one is a message, not a stack."""
+    if not value:
+        return None
+    try:
+        return labeling_mod.parse_out_size(value)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+
+
 def _target_sessions(session: str | None, every: bool) -> list[str]:
     """One session, or every ACTIVE one — archived sessions stay out of bulk verbs.
 
@@ -803,7 +818,7 @@ def occluders_composite(
         video=Path(video), plate_dir=Path(occluders),
         out_root=config.DATA.crops / tag,
         manifest=config.DATA.crops / tag / "manifest.jsonl",
-        fen=fen, board_size=board_size, out_size=labeling_mod.parse_out_size(out_size),
+        fen=fen, board_size=board_size, out_size=_out_size(out_size),
         stride=stride, seed=seed)
     if res.get("error"):
         print(f"[FAIL] {res['error']}")
@@ -1037,7 +1052,7 @@ def dataset_build_cmd(
                                phash_hamming=hamming, per_position=per_position,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
-                               pack_size=labeling_mod.parse_out_size(pack_size) if pack_size else None,
+                               pack_size=_out_size(pack_size),
                                class_mode=classes, like=like,
                                force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
@@ -1128,14 +1143,17 @@ def dataset_pack_cmd(
 
         try:
             link_pack(name, from_)
-        except ValueError as e:
+        except (FileNotFoundError, ValueError) as e:
             print(f"[FAIL] {e}")
             raise typer.Exit(1) from None
         return
-    from . import labeling as labeling_mod
     from .training.pack import pack_dataset
 
-    res = pack_dataset(name, out_size=labeling_mod.parse_out_size(pack_size) if pack_size else None)
+    try:
+        res = pack_dataset(name, out_size=_out_size(pack_size))
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
 
 
@@ -1154,7 +1172,11 @@ def dataset_delete_cmd(name: str = typer.Argument(...)) -> None:
     """Delete dataset (raw material/sessions remain)."""
     from . import dataset_build as db
 
-    db.delete_dataset(name)
+    try:
+        db.delete_dataset(name)
+    except FileNotFoundError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] Dataset '{name}' deleted.")
 
 
@@ -1290,6 +1312,9 @@ def reliance_cmd(
     from .training.gradcam import reliance_for_run
 
     run_dir = Path(run)
+    if not (run_dir / "config.json").exists():
+        print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
+        raise typer.Exit(1)
     stats = reliance_for_run(run_dir, split=split, per_class=per_class)
     typer.echo(f"{'class':>8}  {'n':>4}  {'piece%':>7}  {'base':>5}  flag")
     for r in sorted(stats, key=lambda s: s["piece_frac"]):
@@ -1320,7 +1345,7 @@ def export_cmd(
     """Export best.pt to TorchScript/ONNX + model_card.json (handoff to inference app)."""
     from .training.evaluate import run_export
 
-    size = labeling_mod.parse_out_size(infer_size) if infer_size else None
+    size = _out_size(infer_size)
     raise typer.Exit(run_export(run=run, fmt=fmt, infer_size=size))
 
 

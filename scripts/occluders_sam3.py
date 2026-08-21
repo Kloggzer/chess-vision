@@ -1,25 +1,26 @@
-"""Cut the occluder plates' alpha with SAM 3 instead of the chroma/Otsu split.
+"""Cut occluders out of the RAW clips with SAM 3 — no stage, no chroma, no Otsu.
 
 `occluders.extract` separates hand from background by CHROMA distance to the clip's temporal
-median, with Otsu picking the threshold per clip. That works because the stage is one flat colour,
-and it fails exactly where a stage is not: a dark sleeve against a dark fold, a shadow band that
-morphology re-annexes, a lamp sweeping the cloth (`docs/occluder-plates.md`). SAM 3 does not care
-about the background's colour at all — it is asked for `person`/`hand`/`arm`/`sleeve`/`wristwatch`
-and unions what it finds, which is the same call the session mattes already trust.
+median. That is why the clips were shot against a flat, evenly lit cloth in the first place: the
+background had to be made cooperative for the algorithm. Every trap in `docs/occluder-plates.md`
+follows from that — a dark sleeve against a dark fold, a shadow band morphology re-annexes, a lamp
+sweeping the cloth, "shadow is background but a sleeve is not".
 
-Review first, apply second, because 1 435 plates are 1 435 chances to make the synth data worse:
+SAM 3 needs none of it. It is asked for `person`/`hand`/`arm`/`sleeve`/`wristwatch` and unions what
+it finds, so it reads the FRAME, not the frame's distance from a median. This therefore starts at
+the video, not at the plates the chroma pipeline already chose and cropped — running it on those
+would inherit every selection the old cut made.
 
-    uv run python scripts/occluders_sam3.py --sample 24        # a sheet, nothing is written
-    uv run python scripts/occluders_sam3.py --apply            # every plate, parked beforehand
+    uv run python scripts/occluders_sam3.py --sample 12     # a sheet, nothing is written
+    uv run python scripts/occluders_sam3.py --extract       # the full run
 
-`MAX_ZONE_FRAC` is deliberately not applied. It exists to refuse an arm that covers most of a
-BOARD; on a plate the hand is supposed to fill the frame.
+`MAX_ZONE_FRAC` is deliberately not applied: it refuses an arm that covers most of a BOARD, and
+here the hand is supposed to fill the frame.
 """
 
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -30,26 +31,62 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab import config  # noqa: E402
 
-PARK = "occluders-vor-sam3"
 #: Neutral grey behind a cut-out, so a hole in the alpha shows and a soft edge does not read as one.
 BACKDROP = 128
+#: Below this share of the frame there is no pose worth keeping — the hand is leaving or entering.
+MIN_COVER = 0.02
+#: The mat's own edge, not `stage_of`'s default 61 px inset: that inset exists to keep the chroma
+#: read off the border and would take 30 px off an arm lying across it.
+STAGE_ERODE = 1
 
 
-def tiles(root: Path) -> list[Path]:
-    return sorted(root.glob("*.webp"))
+def clips(root: Path) -> list[Path]:
+    return sorted(root.glob("*.mp4"))
 
 
-def spread(items: list[Path], n: int) -> list[Path]:
-    """`n` plates spread over the whole set, so one bad clip cannot fill the sheet."""
-    if n >= len(items):
-        return items
-    return [items[round(i * (len(items) - 1) / (n - 1))] for i in range(n)]
+def frames_of(video: Path, picks: list[int]):
+    """(index, frame) for the asked-for indices. Seeks, because the picks are far apart."""
+    cap = cv2.VideoCapture(str(video))
+    try:
+        for p in picks:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, p)
+            ok, frame = cap.read()
+            if ok:
+                yield p, frame
+    finally:
+        cap.release()
 
 
-def alpha_of(plate_bgr, alpha_sam3):
-    """SAM 3's union for one plate, as uint8. The plate's own RGB still carries the stage."""
-    alpha, hits = alpha_sam3(plate_bgr)
-    return (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8), hits
+def frame_count(video: Path) -> int:
+    cap = cv2.VideoCapture(str(video))
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+    return n
+
+
+def stage_of_clip(video: Path):
+    """The blue field, as a mask over the WORK-size frame — where the board would be."""
+    from chesslab.occluders import read_plate, stage_of, work_size
+
+    cap = cv2.VideoCapture(str(video))
+    try:
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        size = work_size(cap)
+        return stage_of(read_plate(cap, n, size), erode=STAGE_ERODE), size
+    finally:
+        cap.release()
+
+
+def touching(alpha, stage):
+    """SAM 3's mask minus what never touches the mat — the legs and the chair behind it.
+
+    Kept WHOLE where it does touch: an arm that lies across the mat edge is one object, and cutting
+    it at the edge is the amputation the old chroma pipeline made (456 of 456 tiles on 230602).
+    """
+    n, lab, _stats, _c = cv2.connectedComponentsWithStats((alpha > 127).astype(np.uint8), 8)
+    on = stage > 127
+    keep = {i for i in range(1, n) if (lab == i)[on].any()}
+    return np.where(np.isin(lab, list(keep)), alpha, 0).astype(np.uint8)
 
 
 def over(bgr, alpha) -> np.ndarray:
@@ -57,73 +94,81 @@ def over(bgr, alpha) -> np.ndarray:
     return (bgr.astype(np.float32) * a + BACKDROP * (1.0 - a)).astype(np.uint8)
 
 
-def panel(path: Path, bgra, new_alpha, width: int) -> np.ndarray:
-    """RGB | old cut | new cut | new alpha — one row of the review sheet."""
-    bgr, old = bgra[..., :3], bgra[..., 3]
-    tiles = [bgr, over(bgr, old), over(bgr, new_alpha),
-             cv2.cvtColor(new_alpha, cv2.COLOR_GRAY2BGR)]
-    scale = width / (4 * bgr.shape[1])
-    row = np.hstack([cv2.resize(t, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-                     for t in tiles])
-    bar = np.zeros((22, row.shape[1], 3), np.uint8)
-    covered = f"{(old > 127).mean():.2f} -> {(new_alpha > 127).mean():.2f}"
-    cv2.putText(bar, f"{path.name}    Flaeche {covered}", (6, 16),
+def bbox(alpha) -> tuple[int, int, int, int] | None:
+    ys, xs = np.nonzero(alpha > 127)
+    if not len(ys):
+        return None
+    return int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+
+
+def row_of(video: Path, idx: int, frame, cuts: dict, width: int) -> np.ndarray:
+    """RAW | SAM 3 | on the mat | touching the mat — one row of the review sheet."""
+    tiles = [frame] + [over(frame, a) for a in cuts.values()]
+    scale = width / (len(tiles) * frame.shape[1])
+    strip = np.hstack([cv2.resize(t, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+                       for t in tiles])
+    bar = np.zeros((22, strip.shape[1], 3), np.uint8)
+    areas = "  ".join(f"{k} {(a > 127).mean():.3f}" for k, a in cuts.items())
+    cv2.putText(bar, f"{video.stem} {idx}   ROH | {' | '.join(cuts)}      {areas}", (6, 16),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-    return np.vstack([bar, row])
+    return np.vstack([bar, strip])
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sample", type=int, default=24, help="how many plates the sheet shows")
-    ap.add_argument("--apply", action="store_true",
-                    help="rewrite EVERY plate's alpha in place; the old ones are parked first")
-    ap.add_argument("--root", type=Path, default=None, help="the plate directory")
+    ap.add_argument("--sample", type=int, default=12, help="frames per clip on the sheet")
+    ap.add_argument("--frames", type=str, default=None,
+                    help="force these source indices instead of a spread, e.g. 988,593")
+    ap.add_argument("--extract", action="store_true", help="the full run (not implemented yet)")
+    ap.add_argument("--footage", type=Path, default=None, help="the clip directory")
     ap.add_argument("--out", type=Path, default=Path("data/reports/occluders-sam3"))
     args = ap.parse_args()
 
-    root = args.root or config.DATA.occluders
-    found = tiles(root)
+    root = args.footage or config.DATA.footage / "occluders"
+    found = clips(root)
     if not found:
-        print(f"[FAIL] no plates under {root}")
+        print(f"[FAIL] no clips under {root}")
         return 1
-    from chesslab.matte import alpha_sam3
-
-    todo = found if args.apply else spread(found, args.sample)
-    print(f"{len(found)} plates in {root}, {len(todo)} to cut")
-
-    if args.apply:
-        park = config.DATA.root / "_parked" / PARK
-        if park.exists():
-            print(f"[FAIL] {park} already exists — move it away before writing a second time")
-            return 1
-        shutil.copytree(root, park)
-        print(f"  parked the old plates under {park}")
+    if args.extract:
+        print("[FAIL] --extract kommt erst, wenn das Blatt ueberzeugt hat.")
+        return 1
+    from chesslab.matte import alpha_sam3, solid
 
     args.out.mkdir(parents=True, exist_ok=True)
-    rows, changed = [], []
-    for n, path in enumerate(todo, 1):
-        bgra = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-        if bgra is None or bgra.shape[2] != 4:
-            print(f"  [skip] {path.name}: not an RGBA plate")
+    rows, areas = [], []
+    for video in found:
+        n = frame_count(video)
+        stage, size = stage_of_clip(video)
+        # Spread over the whole clip: the tail of `230602` is where the old cut lost 147 of 152
+        # tiles to a lamp, so a sample that stops at the middle would miss the interesting part.
+        picks = ([int(x) for x in args.frames.split(",") if int(x) < n] if args.frames
+                 else [round(n * (i + 0.5) / args.sample) for i in range(args.sample)])
+        if not picks:
             continue
-        new_alpha, _hits = alpha_of(bgra[..., :3], alpha_sam3)
-        changed.append(float((new_alpha > 127).mean() - (bgra[..., 3] > 127).mean()))
-        if args.apply:
-            cv2.imwrite(str(path), np.dstack([bgra[..., :3], new_alpha]),
-                        [cv2.IMWRITE_WEBP_QUALITY, 95])
-        elif len(rows) < args.sample:
-            rows.append(panel(path, bgra, new_alpha, 1400))
-        if n % 25 == 0:
-            print(f"  {n}/{len(todo)}", flush=True)
+        print(f"{video.name}: {n} frames @ {size[0]}x{size[1]}, mat {(stage > 127).mean():.1%} "
+              f"of the frame, sampling {len(picks)}", flush=True)
+        for idx, raw in frames_of(video, picks):
+            frame = cv2.resize(raw, size)
+            # `fill=False`: this sheet exists to show what the filling does, so it needs the union
+            # before it. Production never asks for that.
+            alpha = (np.clip(alpha_sam3(frame, fill=False)[0], 0.0, 1.0) * 255.0).astype(np.uint8)
+            reach = touching(alpha, stage)
+            cuts = {"SAM3 roh": alpha,
+                    "beruehrt die Matte": reach,
+                    "+ gefuellt": solid(reach),
+                    "auf der Matte, gefuellt": np.where(stage > 127, solid(reach), 0).astype(np.uint8)}
+            areas.append(float((cuts["+ gefuellt"] > 127).mean()))
+            rows.append(row_of(video, idx, frame, cuts, 2000))
+            print(f"  {idx}: " + "  ".join(f"{k} {(a > 127).mean():.3f}"
+                                           for k, a in cuts.items()), flush=True)
 
-    if rows:
-        sheet = args.out / "vorher-nachher.png"
-        cv2.imwrite(str(sheet), np.vstack(rows))
-        print(f"  sheet -> {sheet}")
-    d = np.array(changed)
-    print(f"covered area change: median {np.median(d):+.3f}, p10 {np.percentile(d, 10):+.3f}, "
-          f"p90 {np.percentile(d, 90):+.3f}")
+    sheet = args.out / "roh-vs-sam3.png"
+    cv2.imwrite(str(sheet), np.vstack(rows))
+    a = np.array(areas)
+    print(f"sheet -> {sheet}")
+    print(f"covered area: median {np.median(a):.3f}, p10 {np.percentile(a, 10):.3f}, "
+          f"p90 {np.percentile(a, 90):.3f}, empty {(a < MIN_COVER).sum()}/{len(a)}")
     return 0
 
 

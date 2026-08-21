@@ -59,6 +59,8 @@ def _manifest_digest(rows: list[dict]) -> str:
 
 def _manifest_rows(dd: Path) -> list[dict]:
     mp = dd / "manifest.jsonl"
+    if not mp.is_file():
+        raise FileNotFoundError(f"dataset '{dd.name}' not found ({dd})")
     return [json.loads(line) for line in mp.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 

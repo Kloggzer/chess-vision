@@ -32,8 +32,6 @@ from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
 
-OCCLUDED = "occluded"
-
 
 def model_classes(run_dir: Path) -> list[str]:
     cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))

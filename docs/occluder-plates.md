@@ -67,6 +67,28 @@ ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** und ein **kontinuierliches
   konstanten 360 ms des Schnitts selbst und wächst weiter; über 3 160 echte Kachelpaare verschiebt
   die Verkleinerung die IoU um höchstens 0,006 und kippt am Schnitt 0,85 keine Entscheidung.
 
+## Die Union hat Nähte und Löcher (2026-08-21)
+
+`alpha_sam3` vereinigt fünf Konzeptmasken (`person`, `hand`, `arm`, `sleeve`, `wristwatch`), und
+eine Union hat Fehler, die kein einzelnes Objekt hat:
+
+- **Naht.** Uhr und Arm kommen aus zwei Masken und treffen sich auf einer Linie, die keine der
+  beiden abdeckt.
+- **Loch.** Ein Ring ist keins der fünf Konzepte und stanzt ein Loch quer durch den Finger
+  (gefunden vom User an `VID_20260817_222655` Frame 988).
+
+`matte.solid` schließt beides, in dieser Reihenfolge: erst ein kleines `CLOSE` (9 px) für die Naht,
+dann exakt füllen, was eine Flut vom **Bildrand** nicht erreicht. Das ist Topologie, kein
+Schwellenwert — ein Loch ist per Definition eingeschlossen, eine echte Lücke zwischen zwei Fingern
+ist es nicht. Das `CLOSE` bleibt klein, damit diese Lücke (20–40 px bei WORK_SIZE) stehen bleibt.
+
+Auf den **Session-Matten** kostet das nichts: über 91 Matten und 5 824 Zellen bewegt sich
+`coverage` um im Median **0,0000** (p90 0,0001, max 0,0699), und **keine** Zelle wechselt die
+Schwelle `PIECE_VISIBLE_MAX = 0,15`. Eine Hand über einem BRETT ist aus der Distanz fotografiert,
+Ring und Uhr sind winzig gegen eine Zelle. Die gespeicherten Zahlen bleiben also gültig.
+
+Auf den **Occluder-Clips** füllt die Hand das Bild, und dort ist es der Unterschied.
+
 ## Aufnahme
 
 Fest aufgestellte Kamera aus Brettposition, Hintergrund formatfüllend, **gleichmäßig ausgeleuchtet**
