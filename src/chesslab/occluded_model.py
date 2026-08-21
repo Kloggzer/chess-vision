@@ -72,15 +72,6 @@ def check_not_circular(run_dir: Path, session_id: str) -> None:
         )
 
 
-def p_occluded(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[float]:
-    """`P(occluded)` per crop, through the serving path. Zeros when the class list has none."""
-    classes = model_classes(run_dir)
-    if OCCLUDED not in classes:
-        return [0.0] * len(cells)
-    idx = classes.index(OCCLUDED)
-    return [p[idx] for p in all_probs(run_dir, cells, device)]
-
-
 def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
     """The full softmax per crop, in the run's class order."""
     from . import serving

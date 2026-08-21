@@ -40,9 +40,6 @@ class GameState:
         """All 64 squares -> label (occupied + 'empty'). Basis for auto-labeling."""
         return {chess.square_name(sq): self.label_for(chess.square_name(sq)) for sq in chess.SQUARES}
 
-    def legal_moves_san(self) -> list[str]:
-        return [self.board.san(m) for m in self.board.legal_moves]
-
     def is_game_over(self) -> bool:
         return self.board.is_game_over()
 

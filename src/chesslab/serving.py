@@ -440,24 +440,6 @@ class OccupancyObservation:
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
 
-    def confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose OCCUPANCY statement is reliable.
-
-        An occluded-dominant square is never confident and never counts as occupied: a hand over
-        the board must neither trigger recovery nor occupy squares.
-        """
-        return {sq: (max(self.p_occ[sq], self.p_empty[sq]) >= thr
-                     and self.p_occluded[sq] < (1.0 - thr))
-                for sq in self.p_occ}
-
-    def label_confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose IDENTITY statement is reliable. Empty when the run has no identity."""
-        if self.label is None or self.conf is None:
-            return dict.fromkeys(self.p_occ, False)
-        return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
-                for sq in self.label}
-
-
 def observation_from_probs(per_square_probs: dict[str, list[float]],
                            classes: list[str]) -> OccupancyObservation:
     """Full softmax per square to occupancy plus identity.

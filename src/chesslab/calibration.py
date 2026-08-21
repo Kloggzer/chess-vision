@@ -709,9 +709,6 @@ class MarkerTracker:
                 out[i] = "held"
         return out
 
-    def n_live(self) -> int:
-        return sum(1 for i in self.pos if i not in self.seeded and self.age.get(i, 0) == 0)
-
     def n_held(self) -> int:
         return sum(1 for i in self.pos if i not in self.seeded and self.age.get(i, 0) > 0)
 

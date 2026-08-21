@@ -144,16 +144,6 @@ def jet(gray: np.ndarray) -> np.ndarray:
     return (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
 
 
-def overlay(pil_img: Image.Image, cam: np.ndarray, out_size: tuple[int, int]) -> Image.Image:
-    """Blend the (upsampled) CAM heatmap over the crop. out_size = (w, h)."""
-    cam_up = np.array(Image.fromarray((cam * 255).astype(np.uint8)).resize(out_size, Image.BILINEAR)) / 255.0
-    base = np.asarray(pil_img.resize(out_size)).astype(np.float32)
-    heat = jet(cam_up).astype(np.float32)
-    blended = (0.45 * heat + 0.55 * base).clip(0, 255).astype(np.uint8)
-    return Image.fromarray(blended)
-
-
-
 def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
     """Boolean [h,w] mask, True inside the centered box covering `frac` of each dimension."""
     m = torch.zeros(h, w, dtype=torch.bool)
