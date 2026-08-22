@@ -456,6 +456,24 @@ def test_a_row_selection_reads_the_owners_pixels_instead_of_copying_them(tmp_pat
         assert arr[path2idx[rows[i]["path"]]].min() == i
 
 
+def test_an_already_loaded_manifest_uses_compact_direct_indices(tmp_path, paths):
+    """Training must not parse the manifest again or retain a full path dictionary."""
+    dd, _ = _make_dataset(tmp_path, 8)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    rows = pack_mod._manifest_rows(dd)
+
+    packed = pack_mod.load_packed("ds", paths=paths, manifest_rows=rows)
+
+    assert packed is not None and packed[2] is None
+    assert [row["_packed_idx"] for row in rows] == list(range(8))
+
+    from chesslab.training.torch_data import PackedSquareDataset, build_transform
+
+    ds = PackedSquareDataset(rows[2:6], ["empty"], build_transform((CROP, CROP), train=False),
+                             packed)
+    assert ds.idx.tolist() == [2, 3, 4, 5]
+
+
 def test_linking_frees_a_duplicate_memmap_it_replaces(tmp_path, paths):
     _, rows = _make_dataset(tmp_path, 8)
     pack_mod.pack_dataset("ds", paths=paths, workers=2)

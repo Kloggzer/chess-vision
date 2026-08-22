@@ -12,12 +12,11 @@ from pathlib import Path
 from .. import config, doctor, locks
 from ..work_audit import current as current_work_audit
 from .data import (
-    checkpoint_score,
+    checkpoint_metrics,
     crop_of_rows,
     filter_rows_by_split,
     load_manifest,
     load_split,
-    occupancy_piece_breakdown,
 )
 
 
@@ -30,13 +29,13 @@ def _train_lock_path() -> Path:
     return config.DATA.heavy_lock
 
 
-def _load_training_pack(dataset: str | None):
-    """Resolve a dataset's expensive manifest/path index once for the whole training run."""
+def _load_training_pack(dataset: str | None, manifest_rows: list[dict]):
+    """Resolve a dataset's pack once, reusing the manifest already held by training."""
     if dataset is None:
         return None
     from .pack import load_packed
 
-    return load_packed(dataset)
+    return load_packed(dataset, manifest_rows=manifest_rows)
 
 
 def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
@@ -206,7 +205,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
     # to the 128 px the FILES are, which is worse than either.
     src = "--input-size"
-    packed = _load_training_pack(dataset)
+    packed = _load_training_pack(dataset, manifest)
     if out_size is None:
         if packed is not None:
             out_size, src = (packed[1][2], packed[1][1]), "the pack"
@@ -491,8 +490,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if work_audit is not None:
             work_audit.record_work("validation inference passes", validation_key, seconds=t_val)
         t0 = time.perf_counter()
-        score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
-        bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
+        true_labels = val["trues"].tolist()
+        pred_labels = val["preds"].tolist()
+        score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels)
         t_score = time.perf_counter() - t0
         # --- occlusion validation diagnostics ---
         # The regular class metrics intentionally still score every crop for backwards

@@ -87,7 +87,10 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     if input_repr != "rgb":
         ops += [InputRepresentation(input_repr)]
     else:
-        ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std)]
+        # ToTensor created a private tensor immediately above; no caller can observe its
+        # pre-normalized contents. In-place normalization therefore removes one full crop clone
+        # and its memory traffic from every train/validation sample without changing values.
+        ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std, inplace=True)]
     return T.Compose(ops)
 
 
@@ -388,9 +391,13 @@ class PackedSquareDataset(Dataset):
         self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
         self.transform = transform
         # Only small, picklable state survives to spawn workers: a per-row memmap index + label
-        # index (both int arrays), plus the packed file path/shape. The 1M-entry path2idx dict and
-        # the memmap itself are NOT stored (they don't pickle to Windows workers). Built once here.
-        self.idx = np.array([path2idx[r["path"]] for r in rows], dtype=np.int64)
+        # index (both int arrays), plus the packed file path/shape. When training supplied its
+        # already-parsed manifest, load_packed annotated the rows directly and did not build the
+        # large path dictionary. Linked/general packs retain the lookup fallback.
+        self.idx = np.array(
+            [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in rows],
+            dtype=np.int64,
+        )
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
         self._path = path

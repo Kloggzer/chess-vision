@@ -60,10 +60,9 @@ def _manifest_digest(rows: list[dict]) -> str:
 
 
 def _manifest_rows(dd: Path) -> list[dict]:
-    mp = dd / "manifest.jsonl"
-    if not mp.is_file():
-        raise FileNotFoundError(f"dataset '{dd.name}' not found ({dd})")
-    return [json.loads(line) for line in mp.read_text(encoding="utf-8").splitlines() if line.strip()]
+    from .data import load_manifest
+
+    return load_manifest(dd / "manifest.jsonl")
 
 
 # Target bytes per pack chunk. Small on purpose: a worker maps exactly one chunk at a time, so
@@ -265,8 +264,14 @@ def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
     return False
 
 
-def load_packed(name: str, paths: config.Paths = config.DATA):
-    """Audit-aware entry point for loading and validating one packed dataset index."""
+def load_packed(name: str, paths: config.Paths = config.DATA,
+                manifest_rows: list[dict] | None = None):
+    """Audit-aware entry point for loading and validating one packed dataset index.
+
+    ``manifest_rows`` lets callers that already parsed the dataset manifest reuse those rows.
+    Training always has them in memory before it resolves the pack; parsing the same large JSONL
+    a second time used to dominate startup and building a path dictionary duplicated its strings.
+    """
     from ..dataset_build import dataset_dir
 
     dd = dataset_dir(name, paths)
@@ -278,10 +283,11 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
     )
     with measure("packed dataset index loads", (dd.resolve(), fingerprint),
                  processed_bytes=manifest.stat().st_size if manifest.exists() else 0):
-        return _load_packed(name, paths)
+        return _load_packed(name, paths, manifest_rows)
 
 
-def _load_packed(name: str, paths: config.Paths = config.DATA):
+def _load_packed(name: str, paths: config.Paths = config.DATA,
+                 manifest_rows: list[dict] | None = None):
     """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
 
     Deliberately does NOT return an open memmap: an np.memmap doesn't survive pickling to Windows
@@ -308,7 +314,8 @@ def _load_packed(name: str, paths: config.Paths = config.DATA):
     # a mismatch means images silently paired with the wrong labels — the one failure mode that
     # produces a plausible-looking but wrong model. Packs written before digests existed have no
     # entry; treat them as unverifiable and fall back to the (slow but correct) per-PNG loader.
-    expected = _manifest_digest(_manifest_rows(dd))
+    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
+    expected = _manifest_digest(rows)
     if meta.get("digest") != expected:
         log.warning("packed data for '%s' does not match the current manifest (%s vs %s) — "
                     "ignoring the pack. Re-run `chesslab dataset pack %s`.",
@@ -326,7 +333,16 @@ def _load_packed(name: str, paths: config.Paths = config.DATA):
                     "Re-run `chesslab dataset pack %s`.", name, name)
         return None
 
-    path2idx = {p: i for i, p in enumerate(meta["paths"])}
+    # A direct pack has exactly the manifest's row order.  Marking those already-live row dicts
+    # costs one compact integer per row (~6 MiB for the current 241k corpus), while the old
+    # 241k-entry path dictionary retained another copy of every key and cost tens of MiB.  Linked
+    # packs address an owner's superset and therefore still need the general path lookup.
+    path2idx = None
+    if manifest_rows is not None and not meta.get("packed_from") and len(rows) == n:
+        for i, row in enumerate(rows):
+            row["_packed_idx"] = i
+    else:
+        path2idx = {p: i for i, p in enumerate(meta["paths"])}
     return str(img_path), (n, h, w), path2idx
 
 

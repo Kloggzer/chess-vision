@@ -112,3 +112,21 @@ def test_frame_scan_reuses_the_gray_raster():
 
     op = audit.report()["operations"]["BGR to Gray conversions"]
     assert (op["calls"], op["avoidable_calls"]) == (1, 0)
+
+
+def test_repeated_manifest_loads_are_visible_to_the_profiler(tmp_path):
+    from chesslab.training.data import load_manifest
+
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text('{"path":"a.png","label":"empty"}\n', encoding="utf-8")
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        load_manifest(manifest)
+        load_manifest(manifest)
+    finally:
+        deactivate(token)
+
+    op = audit.report()["operations"]["manifest loads"]
+    assert (op["calls"], op["avoidable_calls"], op["avoidable_bytes"]) == (
+        2, 1, manifest.stat().st_size)

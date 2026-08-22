@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config
+from ..work_audit import measure
 
 
 def load_manifest(path: Path) -> list[dict]:
@@ -24,7 +25,10 @@ def load_manifest(path: Path) -> list[dict]:
         # Semantics as before Rework 05: missing manifest is a hard error, not an empty
         # dataset — otherwise one silently "trains" on nothing.
         raise FileNotFoundError(f"Manifest not found: {p}")
-    return read_jsonl(p)
+    st = p.stat()
+    with measure("manifest loads", (p.resolve(), st.st_mtime_ns, st.st_size),
+                 processed_bytes=st.st_size):
+        return read_jsonl(p)
 
 
 def crop_of_rows(rows: list[dict]) -> tuple[float, float] | None:
@@ -137,10 +141,16 @@ def checkpoint_score(rows: list[dict], classes: list[str],
                      trues: list[int], preds: list[int]) -> tuple[float, float, float]:
     """Sortable score for checkpoint/early-stopping:
     (occ_board_acc, occ_acc, macro_recall) — occupancy first, macro_recall as tiebreaker."""
+    return checkpoint_metrics(rows, classes, trues, preds)[0]
+
+
+def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
+                       preds: list[int]) -> tuple[tuple[float, float, float], dict]:
+    """Compute the checkpoint score and its shared occupancy breakdown in one pass."""
     occ_ba = occupancy_board_acc(rows, classes, trues, preds)
     bd = occupancy_piece_breakdown(classes, trues, preds)
     mr = _macro_recall(trues, preds, len(classes))
-    return (occ_ba, bd["occ_acc"], mr)
+    return (occ_ba, bd["occ_acc"], mr), bd
 
 
 def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:

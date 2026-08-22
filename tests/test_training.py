@@ -10,6 +10,7 @@ from chesslab import config
 from chesslab.training.data import (
     board_accuracy,
     build_model_card,
+    checkpoint_metrics,
     checkpoint_score,
     filter_rows_by_split,
     occupancy_board_acc,
@@ -192,6 +193,18 @@ def test_checkpoint_score_one_occ_flip_per_frame():
     occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
     assert occ_ba == 0.0
     assert occ_acc == 0.0  # alle Felder occupancy-falsch
+
+
+def test_checkpoint_metrics_reuses_the_score_breakdown():
+    rows = [_crop_row(frame=0, square="a1"), _crop_row(frame=0, square="a2")]
+    classes = config.CLASSES
+    trues = [_ci("wP"), _ci("empty")]
+    preds = [_ci("wN"), _ci("empty")]
+
+    score, breakdown = checkpoint_metrics(rows, classes, trues, preds)
+
+    assert score == checkpoint_score(rows, classes, trues, preds)
+    assert breakdown == occupancy_piece_breakdown(classes, trues, preds)
 
 
 def test_checkpoint_score_tuple_ordering_sortable():
