@@ -186,6 +186,22 @@ can coexist with them. Setup and the agent-friendly ADB controls are documented 
 
 One CLI entry point: `chesslab <command>`. `uv run chesslab --help` lists all of it.
 
+Semantic work profiling is opt-in and observational: it records repeated domain keys, bytes,
+overlapping frame ranges and their call paths without enabling a cache or changing results.
+
+```powershell
+# Deterministic profiler self-test / budget fixture.
+uv run chesslab perf fuzz --seed 847291 --frames 500 --board-revisions 2 --json data/reports/perf/fuzz.json
+
+# Attach the same audit to a real instrumented command.
+uv run chesslab --work-audit data/reports/perf/slice.json slice --all
+```
+
+The currently instrumented boundaries are FEN and legal-move generation, frame-scan grayscale
+conversion, grid sweeps, settle video ranges, full-manifest rewrites, packed-index loads and the
+two validation inference passes. The JSON report is intended for regression budgets as well as
+human inspection; the audit never hashes full image arrays merely to recognize their revision.
+
 ### Where it all lands
 
 **A recording is one folder, and everything that only says something about it lives inside.**

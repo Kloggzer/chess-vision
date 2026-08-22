@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import config, doctor, locks
+from ..work_audit import current as current_work_audit
 from .data import (
     checkpoint_score,
     crop_of_rows,
@@ -447,6 +448,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         t0 = time.perf_counter()
         val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=batch_size, num_workers=nw)
         t_val = time.perf_counter() - t0
+        work_audit = current_work_audit()
+        validation_key = (id(model), id(val_ds), epoch)
+        if work_audit is not None:
+            work_audit.record_work("validation inference passes", validation_key, seconds=t_val)
         t0 = time.perf_counter()
         score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
         bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
@@ -462,6 +467,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         occ_diag = {}
         if occluding:
             from .occlusion import PIECE_VISIBLE_MAX
+
+            t_occ0 = time.perf_counter()
 
             cov_abs_sum = 0.0
             cov_n = 0
@@ -566,6 +573,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                 ),
                 "val_visible_n": vis_n,
             }
+            if work_audit is not None:
+                work_audit.record_work(
+                    "validation inference passes",
+                    validation_key,
+                    seconds=time.perf_counter() - t_occ0,
+                )
 
         rec = {
             "epoch": epoch,

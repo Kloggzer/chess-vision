@@ -14,6 +14,7 @@ import chess
 import chess.pgn
 
 from . import config
+from .work_audit import measure
 
 
 class GameState:
@@ -21,10 +22,14 @@ class GameState:
 
     def __init__(self, fen: str | None = None) -> None:
         self.board = chess.Board(fen) if fen else chess.Board()
+        # Cheap semantic identity for the work auditor. Hashing/serializing the board merely to
+        # decide whether serialization is redundant would perform the work being measured.
+        self._revision = 0
 
     # -- Queries --
     def fen(self) -> str:
-        return self.board.fen()
+        with measure("FEN serializations", (id(self), self._revision)):
+            return self.board.fen()
 
     def piece_map(self) -> dict[str, str]:
         """{'e1': 'K', 'e8': 'k', ...} — only occupied squares, FEN letters."""
@@ -51,20 +56,26 @@ class GameState:
     def push_san(self, san: str) -> None:
         """Raises on illegal/ambiguous/malformed move (chess.*Error <: ValueError)."""
         self.board.push_san(san)
+        self._revision += 1
 
     def push_uci(self, uci: str) -> None:
         move = chess.Move.from_uci(uci)  # InvalidMoveError on syntax error
-        if move not in self.board.legal_moves:
-            raise chess.IllegalMoveError(f"illegal move: {uci}")
+        with measure("Legal move generations", (id(self), self._revision)):
+            if move not in self.board.legal_moves:
+                raise chess.IllegalMoveError(f"illegal move: {uci}")
         self.board.push(move)
+        self._revision += 1
 
     def undo(self) -> chess.Move:
         """Take back the last half-move (live `undo`). Raises IndexError if empty."""
-        return self.board.pop()
+        move = self.board.pop()
+        self._revision += 1
+        return move
 
     def set_fen(self, fen: str) -> None:
         """Set position (live `fen <FEN>`). Raises ValueError on syntax error."""
         self.board.set_fen(fen)
+        self._revision += 1
 
     # -- intern --
     @staticmethod

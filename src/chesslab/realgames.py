@@ -22,6 +22,7 @@ from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
 from .state import GameState
+from .work_audit import measure, object_revision, record_interval
 
 
 def game_dir(name: str) -> Path:
@@ -1442,6 +1443,7 @@ def measure_settle(video: Path, candidate: dict, profile,
         if not touched or commit < SETTLE_BACK:
             continue
         lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
+        record_interval("video frames", video.resolve(), lo, hi)
         cells = {}
         with closing(recording.frames(lo)) as stream:
             for idx, frame in stream:
@@ -1579,6 +1581,15 @@ def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
 
 
 def grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
+    """Audit-aware entry point for the board's 18 measured grid lines."""
+    quad_key = tuple(round(float(v), 4) for point in quad for v in point)
+    key = (object_revision(image), tuple(image.shape), quad_key, int(board_size),
+           getattr(profile, "profile", None), id(lens) if lens is not None else None)
+    with measure("grid sweeps", key, processed_bytes=getattr(image, "nbytes", 0)):
+        return _grid_line_fracs(image, quad, board_size, profile=profile, lens=lens)
+
+
+def _grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
     """The 18 measured lines as fractions of the field side, or None unless ALL are located.
 
     Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands

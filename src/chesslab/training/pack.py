@@ -27,6 +27,7 @@ import numpy as np
 from PIL import Image
 
 from .. import config
+from ..work_audit import measure
 
 log = logging.getLogger("chesslab.pack")
 
@@ -265,6 +266,22 @@ def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
 
 
 def load_packed(name: str, paths: config.Paths = config.DATA):
+    """Audit-aware entry point for loading and validating one packed dataset index."""
+    from ..dataset_build import dataset_dir
+
+    dd = dataset_dir(name, paths)
+    manifest = dd / "manifest.jsonl"
+    meta = dd / "packed_meta.json"
+    fingerprint = tuple(
+        (p.stat().st_mtime_ns, p.stat().st_size) if p.exists() else None
+        for p in (manifest, meta)
+    )
+    with measure("packed dataset index loads", (dd.resolve(), fingerprint),
+                 processed_bytes=manifest.stat().st_size if manifest.exists() else 0):
+        return _load_packed(name, paths)
+
+
+def _load_packed(name: str, paths: config.Paths = config.DATA):
     """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
 
     Deliberately does NOT return an open memmap: an np.memmap doesn't survive pickling to Windows

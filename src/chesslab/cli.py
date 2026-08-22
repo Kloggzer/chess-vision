@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -48,10 +49,58 @@ app.add_typer(occluders_app, name="occluders")
 synth_app = typer.Typer(help="Synthetic data pipeline (Blender renderer).", no_args_is_help=True)
 app.add_typer(synth_app, name="synth")
 
+perf_app = typer.Typer(
+    help="Semantic performance audits: repeated work, bytes, ranges and call paths.",
+    no_args_is_help=True,
+)
+app.add_typer(perf_app, name="perf")
+
 
 @app.callback()
-def _root() -> None:
+def _root(
+    ctx: typer.Context,
+    work_audit: Annotated[
+        Path | None,
+        typer.Option("--work-audit", help="Write a semantic avoidable-work JSON report."),
+    ] = None,
+) -> None:
     """chesslab — staged tool; each stage adds subcommands. See `chesslab --help`."""
+    if work_audit is None:
+        return
+    from .work_audit import WorkAudit, activate, deactivate
+
+    audit = WorkAudit(command=" ".join(sys.argv[1:]))
+    token = activate(audit)
+
+    def finish() -> None:
+        deactivate(token)
+        path = audit.write_json(work_audit)
+        print(audit.format_text())
+        print(f"[OK] Work audit: {path}")
+
+    ctx.call_on_close(finish)
+
+
+@perf_app.command("fuzz")
+def perf_fuzz(
+    seed: int = typer.Option(847291, "--seed", help="Deterministic workload seed."),
+    frames: int = typer.Option(500, "--frames", min=1),
+    board_revisions: int = typer.Option(2, "--board-revisions", min=1),
+    json_out: Annotated[
+        Path | None, typer.Option("--json", help="Optional JSON report path.")
+    ] = None,
+) -> None:
+    """Run the deterministic profiler self-test with changing frame/board revisions."""
+    from .work_audit import run_fuzzy
+
+    try:
+        audit = run_fuzzy(seed=seed, frames=frames, board_revisions=board_revisions)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+    print(audit.format_text())
+    if json_out is not None:
+        print(f"[OK] Work audit: {audit.write_json(json_out)}")
 
 
 @app.command()

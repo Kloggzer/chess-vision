@@ -11,6 +11,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .work_audit import measure, span
+
 #: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
 #: the picks come out of the scanned indices, so a finer stride only buys candidates nobody needs.
 SCAN_STRIDE = 3
@@ -40,9 +42,12 @@ def read_scan(name: str) -> list[dict]:
     return sorted(read_jsonl(path), key=lambda r: r["idx"]) if path.exists() else []
 
 
-def cell_means(padded, size: int, pad: int) -> list[float]:
+def cell_means(padded, size: int, pad: int, *, work_key=None) -> list[float]:
     """The board as 64 grey means, one per square — enough to see a piece lying where it stood."""
-    board = cv2.cvtColor(padded[pad:pad + size, pad:pad + size], cv2.COLOR_BGR2GRAY)
+    source = padded[pad:pad + size, pad:pad + size]
+    key = work_key if work_key is not None else ("array", id(padded), "gray")
+    with measure("BGR to Gray conversions", key, processed_bytes=source.nbytes):
+        board = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
     return [round(float(v), 2) for v in cv2.resize(board, (8, 8), interpolation=cv2.INTER_AREA).flatten()]
 
 
@@ -95,17 +100,21 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                 continue
             if rotate is not None:
                 frame = cv2.rotate(frame, rotate)
-            padded = warp_padded(frame, corners, profile, pad)
-            board = padded[pad:pad + size, pad:pad + size]
-            rows.append({
-                "idx": idx,
-                "person": round(matte.person_score(padded), 3),
-                "skin": bool(skin_patch(board, size / 8.0, profile.crop.pad_side)),
-                "grid": sorted(hand_squares(missing_edges(
-                    cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY), size, pad,
-                    white_pov=profile.white_pov))),
-                "cells": cell_means(padded, size, pad),
-            })
+            with span("FramePipeline.onFrame"):
+                padded = warp_padded(frame, corners, profile, pad)
+                board = padded[pad:pad + size, pad:pad + size]
+                gray_key = (str(video.resolve()), idx, rotate, "padded-gray")
+                with measure("BGR to Gray conversions", gray_key,
+                             processed_bytes=padded.nbytes):
+                    padded_gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+                rows.append({
+                    "idx": idx,
+                    "person": round(matte.person_score(padded), 3),
+                    "skin": bool(skin_patch(board, size / 8.0, profile.crop.pad_side)),
+                    "grid": sorted(hand_squares(missing_edges(
+                        padded_gray, size, pad, white_pov=profile.white_pov))),
+                    "cells": cell_means(padded, size, pad, work_key=gray_key),
+                })
             if progress and len(rows) % PROGRESS_EVERY == 0:
                 print(f"  scan {idx}/{total} frames, {sum(occupied(r) for r in rows)} with a hand",
                       flush=True)

@@ -33,6 +33,7 @@ from .calibration import (
 )
 from .imgops import resize_keep_aspect
 from .state import GameState
+from .work_audit import measure
 
 _FILES = "abcdefgh"
 
@@ -234,19 +235,24 @@ def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines
     several pseudo-sessions that share a `split_group`, and replacing by `session_id` would leave
     the clip's other blocks behind.
     """
-    kept: list[str] = []
-    if manifest_path.exists():
-        for line in manifest_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            if json.loads(line).get(field) != session_id:
-                kept.append(line)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    # tmp + os.replace, like the proposals: this is a read-modify-write over the whole pool, and
-    # an interrupt inside `open("w")` used to leave a truncated manifest behind.
-    tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-    tmp.write_text("".join(ln + "\n" for ln in kept + new_lines), encoding="utf-8")
-    os.replace(tmp, manifest_path)
+    before_bytes = manifest_path.stat().st_size if manifest_path.exists() else 0
+    # The semantic unit is one transaction over this manifest, not one session. Repeated keys in
+    # a single `slice --all` expose the write amplification without changing its safe atomics.
+    with measure("full manifest rewrites", (manifest_path.resolve(), field),
+                 processed_bytes=before_bytes):
+        kept: list[str] = []
+        if manifest_path.exists():
+            for line in manifest_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                if json.loads(line).get(field) != session_id:
+                    kept.append(line)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        # tmp + os.replace, like the proposals: this is a read-modify-write over the whole pool,
+        # and an interrupt inside `open("w")` used to leave a truncated manifest behind.
+        tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+        tmp.write_text("".join(ln + "\n" for ln in kept + new_lines), encoding="utf-8")
+        os.replace(tmp, manifest_path)
 
 
 def load_corrections(path: Path, into: Corrections | None = None) -> Corrections:
