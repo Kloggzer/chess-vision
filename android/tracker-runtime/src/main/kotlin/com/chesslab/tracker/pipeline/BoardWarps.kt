@@ -8,6 +8,7 @@ import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.GridCoverage
+import com.chesslab.geometry.HomographyCache
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toBgrImage
@@ -149,6 +150,7 @@ class OpenCvStages<T>(
     private val gray = GrayPipeline(config.diffClaheClip)
     private val grid = GridCoverage()
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
+    private val homographies = HomographyCache()
     private var frame: Mat? = null
     private var warped: Mat? = null
 
@@ -189,7 +191,7 @@ class OpenCvStages<T>(
         var ok = false
         if (src != null && !src.empty() && detSize > 0) {
             val dst = warped ?: Mat().also { warped = it }
-            warpFromCorners(src, geometry, cornersFromFlat(corners), detSize, dst)
+            warpFromCorners(src, geometry, cornersFromFlat(corners), detSize, dst, homographies)
             ok = true
         }
         return ok
@@ -246,7 +248,12 @@ class OpenCvStages<T>(
         gray: GrayImage,
     ) {
         val cached = cropStore.cached(seq)
-        val warp = if (cached == null) frame?.let { warpBoardForCrops(it, geometry, cornersFromFlat(corners)) } else null
+        val warp =
+            if (cached == null) {
+                frame?.let { warpBoardForCrops(it, geometry, cornersFromFlat(corners), homographyCache = homographies) }
+            } else {
+                null
+            }
         if (cached == null && warp == null) return
         // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
         // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can

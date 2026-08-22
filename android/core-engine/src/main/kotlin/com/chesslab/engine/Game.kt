@@ -11,6 +11,7 @@ import com.github.bhlangonijr.chesslib.Square
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import com.github.bhlangonijr.chesslib.move.MoveList
+import java.util.ArrayDeque
 
 /** Standard chess start position (python-chess `chess.STARTING_FEN`). */
 internal const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -26,6 +27,9 @@ internal class Game(
     fen: String = STARTPOS,
 ) {
     private val board = Board()
+    private var cachedFen: String? = null
+    private var cachedLegalMoves: List<Move>? = null
+    private val cacheHistory = ArrayDeque<CachedPosition>()
 
     init {
         board.loadFromFen(fen)
@@ -42,14 +46,24 @@ internal class Game(
      */
     fun fen(): String =
         WorkProfiler.span(WorkOperation.FEN_SERIALIZE, input = board::getIncrementalHashKey) {
-            board.getFen(true, true)
+            cachedFen?.let {
+                WorkProfiler.cache(WorkOperation.FEN_SERIALIZE, hit = true)
+                return@span it
+            }
+            WorkProfiler.cache(WorkOperation.FEN_SERIALIZE, hit = false)
+            board.getFen(true, true).also { cachedFen = it }
         }
 
     val whiteToMove: Boolean get() = board.sideToMove == Side.WHITE
 
     fun legalMoves(): List<Move> =
         WorkProfiler.span(WorkOperation.LEGAL_MOVES, input = board::getIncrementalHashKey) {
-            MoveGenerator.generateLegalMoves(board)
+            cachedLegalMoves?.let {
+                WorkProfiler.cache(WorkOperation.LEGAL_MOVES, hit = true)
+                return@span it
+            }
+            WorkProfiler.cache(WorkOperation.LEGAL_MOVES, hit = false)
+            MoveGenerator.generateLegalMoves(board).toList().also { cachedLegalMoves = it }
         }
 
     /**
@@ -61,7 +75,11 @@ internal class Game(
      */
     fun push(move: Move) {
         if (legalMoves().none { it == move }) throw IllegalMoveException(uciOf(move), fen())
+        val previous = CachedPosition(cachedFen, cachedLegalMoves)
         board.doMove(move)
+        cacheHistory.addLast(previous)
+        cachedFen = null
+        cachedLegalMoves = null
     }
 
     /**
@@ -72,7 +90,13 @@ internal class Game(
      * therefore useless as a key. chesslib already carries the move on its own backup stack, so
      * reading it here costs nothing and adds no state that could drift out of step with the board.
      */
-    fun pop(): Move? = board.undoMove()
+    fun pop(): Move? {
+        val move = board.undoMove() ?: return null
+        val previous = cacheHistory.pollLast()
+        cachedFen = previous?.fen
+        cachedLegalMoves = previous?.legalMoves
+        return move
+    }
 
     /** Piece FEN char at the [Squares.ALL] index (`'P'..'k'`), or `null` when the square is empty. */
     fun pieceCharAt(index: Int): Char? {
@@ -101,6 +125,12 @@ internal class Game(
             checkmate = board.isMated,
             over = board.isMated || board.isDraw,
         )
+
+    /** Cached values belonging to one exact position; kept in lockstep with chesslib's move stack. */
+    private data class CachedPosition(
+        val fen: String?,
+        val legalMoves: List<Move>?,
+    )
 }
 
 /** Terminal-state flags of a position. */

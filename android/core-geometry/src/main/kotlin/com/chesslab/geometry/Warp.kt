@@ -50,9 +50,10 @@ fun warpFromCorners(
     corners: List<DoubleArray>,
     targetSize: Int? = null,
     dst: Mat? = null,
+    homographyCache: HomographyCache? = null,
 ): Mat {
     val sz = targetSize ?: geom.boardSize
-    val h = computeHomography(corners, geom.boardSize, geom.margin)
+    val h = computeHomography(corners, geom.boardSize, geom.margin, homographyCache)
     if (sz != geom.boardSize) {
         val s = sz.toDouble() / geom.boardSize
         // One read and one write of all nine elements. Element-wise `get`/`put` is 24 JNI
@@ -85,10 +86,11 @@ fun warpBoardForCrops(
     geom: BoardGeometry,
     corners: List<DoubleArray>,
     dst: Mat? = null,
+    homographyCache: HomographyCache? = null,
 ): Mat {
     val bs = geom.boardSize
     val b = cropBorderPx(geom).toDouble()
-    val h = computeHomography(corners, bs, geom.margin)
+    val h = computeHomography(corners, bs, geom.margin, homographyCache)
     // T(b, b) @ H: row0 += b * row2, row1 += b * row2, row2 unchanged. Bulk, for the reason in
     // `warpFromCorners`.
     val m = DoubleArray(H_DIM * H_DIM)

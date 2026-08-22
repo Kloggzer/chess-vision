@@ -144,9 +144,14 @@ class CameraFrameBus<B>(
         }
 
     /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
-    override fun latestCalibrationSample(): CalibrationFrame? =
+    override fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationSample(afterVersion = null)
+
+    /** Refuses an already consumed version before cloning its 10.5 MiB QHD plane. */
+    override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? =
         synchronized(lock) {
-            latest?.let { CalibrationFrame(latestVersion, it.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY)) }
+            val frame = latest ?: return@synchronized null
+            if (afterVersion == latestVersion) return@synchronized null
+            CalibrationFrame(latestVersion, frame.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY))
         }
 
     override fun close() {
@@ -186,6 +191,12 @@ interface CalibrationFrames<B> {
      * Implementations without a version remain unversioned and are never de-duplicated.
      */
     fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationFrame()?.let { CalibrationFrame(null, it) }
+
+    /**
+     * Like [latestCalibrationSample], but lets a versioned source reject stale data before it pays
+     * for the clone. Unversioned implementations keep the old behaviour.
+     */
+    fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? = latestCalibrationSample()
 
     val rawPreview: StateFlow<B?>
 

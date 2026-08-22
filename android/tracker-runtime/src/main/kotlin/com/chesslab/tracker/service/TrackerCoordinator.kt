@@ -221,7 +221,7 @@ class LiveAlign(
             log.info("frame size is now ${delivered.width}x${delivered.height} — re-seeding the corner smoother")
         }
         if (frames % cfg.alignEvery != 0L) return
-        val sample = source.latestCalibrationSample() ?: return
+        val sample = source.latestCalibrationSample(lastFrameVersion) ?: return
         if (sample.version != null && sample.version == lastFrameVersion) {
             sample.frame.release()
             return
