@@ -98,6 +98,38 @@ def test_run_ingest_unknown_adapter_raises(tmp_path):
     with pytest.raises(ValueError, match="synthetic"):
         ig.run_ingest("nope", tmp_path, tag="x", paths=config.Paths(root=tmp_path))
 
+
+def test_run_ingest_profiles_every_major_stage(tmp_path, monkeypatch):
+    import cv2
+
+    from chesslab.work_audit import WorkAudit, activate, deactivate
+
+    source = tmp_path / "source"
+    source.mkdir()
+    bs = 128
+    cv2.imwrite(str(source / "000000.png"), _synthetic_board(bs))
+    (source / "000000.json").write_text(json.dumps({
+        "fen": "8/8/8/8/8/8/8/8",
+        "corners": [[0, 0], [bs, 0], [bs, bs], [0, bs]],
+    }), encoding="utf-8")
+    paths = config.Paths(root=tmp_path / "data")
+    monkeypatch.setattr(config, "DATA", paths)
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        result = ig.run_ingest("synthetic", source, tag="profiled", board_size=bs,
+                               build=False, paths=paths)
+    finally:
+        deactivate(token)
+
+    assert result["crops"] == 64
+    operations = audit.report()["operations"]
+    assert {
+        "adapter scans", "ingest session synthesis", "ingest slicing", "slice image decodes",
+        "slice board crop batches", "FEN label expansions", "WebP crop batches",
+        "WebP encoding CPU", "full manifest rewrites",
+    } <= operations.keys()
+
 def test_profile_for_session_reconstructs_legacy_ingest(tmp_path, monkeypatch):
     """Legacy ingested sessions (profile never saved) must still be sliceable."""
     import pytest

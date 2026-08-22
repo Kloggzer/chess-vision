@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -33,6 +35,7 @@ from .calibration import (
 )
 from .imgops import resize_keep_aspect
 from .state import GameState
+from .work_audit import current as current_work_audit
 from .work_audit import measure
 
 _FILES = "abcdefgh"
@@ -96,6 +99,13 @@ def labels_to_fen(labels: dict) -> str:
 #: is H.264, so this is not the first lossy stage — it is the first cheap one.
 CROP_SUFFIX = ".webp"
 CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+
+# OpenCV's WebP encoder releases the GIL. Measured on 768 real 128 px crops: 1 worker 1.07 s,
+# 4 workers 0.36 s, 8 workers 0.23 s; 12/16 no longer improved. Keep the bound explicit so a
+# high-core machine does not turn one slice into an unbounded small-file write storm.
+SLICE_WRITE_WORKERS = 8
+_SLICE_WRITERS = ThreadPoolExecutor(max_workers=SLICE_WRITE_WORKERS,
+                                    thread_name_prefix="slice-webp")
 
 #: How far a cell may sit from its ply interval's settled board and still be trusted
 #: (`realgames.settle_for_ply`). At 15 the montage above it holds fingers on squares labelled
@@ -227,32 +237,65 @@ def effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> Calibrat
     return prof
 
 
-def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str],
-                                 field: str = "session_id") -> None:
-    """Remove previous lines of this session, then append new ones (idempotent re-slice).
+def _replace_sessions_in_manifest(manifest_path: Path, replacements: dict[str, list[str]],
+                                  field: str = "session_id") -> None:
+    """Atomically replace several sessions with one streaming manifest transaction.
 
     `field` is what identifies "this session" in the manifest: the composite cuts one clip into
     several pseudo-sessions that share a `split_group`, and replacing by `session_id` would leave
     the clip's other blocks behind.
     """
+    if not replacements:
+        return
     before_bytes = manifest_path.stat().st_size if manifest_path.exists() else 0
-    # The semantic unit is one transaction over this manifest, not one session. Repeated keys in
-    # a single `slice --all` expose the write amplification without changing its safe atomics.
     with measure("full manifest rewrites", (manifest_path.resolve(), field),
                  processed_bytes=before_bytes):
-        kept: list[str] = []
-        if manifest_path.exists():
-            for line in manifest_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                if json.loads(line).get(field) != session_id:
-                    kept.append(line)
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        # tmp + os.replace, like the proposals: this is a read-modify-write over the whole pool,
-        # and an interrupt inside `open("w")` used to leave a truncated manifest behind.
         tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-        tmp.write_text("".join(ln + "\n" for ln in kept + new_lines), encoding="utf-8")
+        with tmp.open("w", encoding="utf-8", newline="\n") as dst:
+            if manifest_path.exists():
+                with manifest_path.open(encoding="utf-8") as src:
+                    for line in src:
+                        if line.strip() and json.loads(line).get(field) not in replacements:
+                            dst.write(line if line.endswith("\n") else line + "\n")
+            for lines in replacements.values():
+                for line in lines:
+                    dst.write(line + "\n")
         os.replace(tmp, manifest_path)
+
+
+def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str],
+                                 field: str = "session_id") -> None:
+    """Single-session compatibility wrapper around the batched transaction."""
+    _replace_sessions_in_manifest(manifest_path, {session_id: new_lines}, field)
+
+
+def _fen_labels(fen: str, squares: tuple[str, ...], cache: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    labels = cache.get(fen)
+    if labels is not None:
+        return labels
+    with measure("FEN label expansions", fen):
+        game = GameState(fen)
+        labels = tuple(game.label_for(square) for square in squares)
+    cache[fen] = labels
+    return labels
+
+
+def _read_slice_image(path: Path):
+    try:
+        st = path.stat()
+        key = (path.resolve(), st.st_mtime_ns, st.st_size)
+        size = st.st_size
+    except OSError:
+        key, size = path.resolve(), 0
+    with measure("slice image decodes", key, processed_bytes=size):
+        return cv2.imread(str(path))
+
+
+def _write_crop(path: Path, crop) -> tuple[bool, float]:
+    started = time.perf_counter()
+    ok = bool(cv2.imwrite(str(path), crop, CROP_ENCODE))
+    return ok, time.perf_counter() - started
 
 
 def load_corrections(path: Path, into: Corrections | None = None) -> Corrections:
@@ -315,6 +358,7 @@ def slice_session(
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
+    manifest_batch: dict[str, list[str]] | None = None,
 ) -> dict:
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
@@ -346,6 +390,9 @@ def slice_session(
     n_mesh = 0       # frames straightened HERE, i.e. warped from a frame rather than a store
     n_bowed = 0      # stored boards nobody pulled straight — the barrel goes into these crops
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
+    squares = tuple(all_squares())
+    fen_cache: dict[str, tuple[str, ...]] = {}
+    out_dirs: dict[str, Path] = {}
     for entry in log:
         if entry.get("unusable"):
             n_unusable += 1
@@ -354,11 +401,12 @@ def slice_session(
         # the same operation minus the warp — and it is what the label view shows, which is the
         # point. The source frame is only read when there is no board; it is no longer kept on
         # disk for sessions that carry one.
-        board = cv2.imread(str(session_dir / entry["board"])) if usable_board(entry, prof) else None
+        board_path = session_dir / entry["board"] if usable_board(entry, prof) else None
+        board = _read_slice_image(board_path) if board_path is not None else None
         frame = None
         if board is None:
             frame_path = session_dir / entry["frame"]
-            frame = cv2.imread(str(frame_path))
+            frame = _read_slice_image(frame_path)
             if frame is None:
                 raise FileNotFoundError(
                     f"Neither board nor frame readable: {frame_path}"
@@ -377,10 +425,12 @@ def slice_session(
         n_mesh += mesh is not None
         n_bowed += board is not None and not entry.get("board_straightened")
         # crops_for_frame as single source (Rework 01: de-duplication).
-        crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
+        with measure("slice board crop batches", (session_id, Path(entry["frame"]).stem),
+                     processed_bytes=(board.nbytes if board is not None else frame.nbytes)):
+            crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
-        gs = None if explicit else GameState(entry["fen"])
+        labels = None if explicit else _fen_labels(entry["fen"], squares, fen_cache)
         # Vom Renderer/Ingest verdeckte Felder → `occluded` (überschreibt das FEN-Figur-Label).
         occluded_set = set(entry.get("occluded_squares") or ())
         # Neither label is true for these, so no crop is written at all.
@@ -422,7 +472,9 @@ def slice_session(
             dirty = False
         elif any(v > MATTE_DIRTY for v in cover.values()):
             dirty = True
-        squares = all_squares()
+        write_started = time.perf_counter()
+        write_jobs = []
+        write_bytes = 0
         for i, square in enumerate(squares):
             if square in ambiguous_set:
                 continue
@@ -438,19 +490,24 @@ def slice_session(
             if square in left and corrected is None:
                 n_unsettled += 1
                 continue
-            label = explicit.get(square, "empty") if explicit else gs.label_for(square)
+            label = explicit.get(square, "empty") if explicit else labels[i]
             if square in occluded_set:
                 label = "occluded"
             if corrected is not None and corrected != label:
                 label = corrected
                 n_overrides += 1
             crop = crops[i]
-            out_dir = squares_root / label
-            out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = out_dirs.get(label)
+            if out_dir is None:
+                out_dir = out_dirs[label] = squares_root / label
+                out_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{session_id}_{frame_stem}_{square}{CROP_SUFFIX}"
-            cv2.imwrite(str(out_dir / fname), crop, CROP_ENCODE)
+            crop_path = out_dir / fname
+            future = _SLICE_WRITERS.submit(_write_crop, crop_path, crop)
+            write_jobs.append((future, crop_path, crop.nbytes))
+            write_bytes += crop.nbytes
             row = {
-                "path": str((out_dir / fname).as_posix()),
+                "path": str(crop_path.as_posix()),
                 "label": label,
                 "session_id": session_id,
                 "frame": frame_stem,
@@ -474,8 +531,23 @@ def slice_session(
                 row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
             new_lines.append(json.dumps(row, ensure_ascii=False))
             n_crops += 1
+        results = [(future.result(), path, size) for future, path, size in write_jobs]
+        if not all(result[0] for result, _path, _size in results):
+            raise OSError(f"OpenCV failed to write one or more crops for {session_id}/{frame_stem}")
+        audit = current_work_audit()
+        if audit is not None:
+            key = (session_id, frame_stem)
+            audit.record_work("WebP crop batches", key,
+                              seconds=time.perf_counter() - write_started,
+                              processed_bytes=write_bytes)
+            audit.record_work("WebP encoding CPU", key,
+                              seconds=sum(result[1] for result, _path, _size in results),
+                              processed_bytes=write_bytes)
 
-    _replace_session_in_manifest(manifest_path, session_id, new_lines)
+    if manifest_batch is None:
+        _replace_session_in_manifest(manifest_path, session_id, new_lines)
+    else:
+        manifest_batch[session_id] = new_lines
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
             "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
@@ -539,6 +611,7 @@ def run_slice(
 
     try:
         with locks.pool_lock(squares_root, f"slice {len(sids)} session(s)"):
+            manifest_batch: dict[str, list[str]] = {}
             for sid in sids:
                 try:
                     session_dir, _ = _resolve(sid)
@@ -547,6 +620,7 @@ def run_slice(
                     stats = slice_session(
                         session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
                         pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
+                        manifest_batch=manifest_batch,
                     )
                     extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
                     if stats.get("skipped"):
@@ -565,6 +639,7 @@ def run_slice(
                 except Exception as e:  # noqa: BLE001
                     print(f"[FAIL] {sid}: {e}")
                     rc = 1
+            _replace_sessions_in_manifest(manifest_path, manifest_batch)
     except RuntimeError as e:
         print(f"[FAIL] {e}")
         return 1

@@ -10,11 +10,14 @@ import pytest
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 from chesslab.labeling import (
     CROP_SUFFIX,
+    _fen_labels,
+    _replace_sessions_in_manifest,
     all_squares,
     parse_out_size,
     slice_session,
     square_color,
 )
+from chesslab.work_audit import WorkAudit, activate, deactivate
 
 START_FEN = chess.Board().fen()
 
@@ -33,6 +36,48 @@ def test_parse_out_size():
     assert parse_out_size("96x128") == (96, 128)
     with pytest.raises(ValueError):
         parse_out_size("bad")
+
+
+def test_fen_labels_are_expanded_once_per_position():
+    squares = tuple(all_squares())
+    cache = {}
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        first = _fen_labels(START_FEN, squares, cache)
+        second = _fen_labels(START_FEN, squares, cache)
+    finally:
+        deactivate(token)
+
+    assert first is second and len(first) == 64
+    op = audit.report()["operations"]["FEN label expansions"]
+    assert (op["calls"], op["unique_keys"], op["avoidable_calls"]) == (1, 1, 0)
+
+
+def test_manifest_batch_replaces_multiple_sessions_with_one_rewrite(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '\n'.join(json.dumps({"session_id": sid, "value": "old"})
+                  for sid in ("s1", "s2", "keep")) + '\n', encoding="utf-8")
+    replacements = {
+        "s1": [json.dumps({"session_id": "s1", "value": "new1"})],
+        "s2": [json.dumps({"session_id": "s2", "value": "new2"})],
+    }
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        _replace_sessions_in_manifest(manifest, replacements)
+    finally:
+        deactivate(token)
+
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()]
+    assert rows == [
+        {"session_id": "keep", "value": "old"},
+        {"session_id": "s1", "value": "new1"},
+        {"session_id": "s2", "value": "new2"},
+    ]
+    op = audit.report()["operations"]["full manifest rewrites"]
+    assert (op["calls"], op["avoidable_calls"]) == (1, 0)
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:

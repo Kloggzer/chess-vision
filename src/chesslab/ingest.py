@@ -26,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config, locks
+from .work_audit import measure, span
 
 _FILES = "abcdefgh"
 
@@ -171,16 +172,25 @@ def slice_imported(session_ids: list[str], *, profile, out_size: tuple[int, int]
     tot = {"sessions": 0, "frames": 0, "crops": 0, "skipped": 0}
     n = len(session_ids)
     with locks.pool_lock(squares_root, f"ingest {n} session(s)"):
-        for sid in session_ids:
-            res = labeling.slice_session(
-                paths.sessions / sid, profile=profile, manifest_path=manifest_path,
-                squares_root=squares_root, out_size=out_size)
-            tot["sessions"] += 1
-            tot["frames"] += res["frames"]
-            tot["crops"] += res["crops"]
-            tot["skipped"] += res.get("skipped", 0)
-            print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
-                  f"(last {sid}: {res['frames']} frames)", flush=True)
+        manifest_batch: dict[str, list[str]] = {}
+        try:
+            for sid in session_ids:
+                with span("Ingest.slice"):
+                    res = labeling.slice_session(
+                        paths.sessions / sid, profile=profile, manifest_path=manifest_path,
+                        squares_root=squares_root, out_size=out_size,
+                        manifest_batch=manifest_batch)
+                tot["sessions"] += 1
+                tot["frames"] += res["frames"]
+                tot["crops"] += res["crops"]
+                tot["skipped"] += res.get("skipped", 0)
+                print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
+                      f"(last {sid}: {res['frames']} frames)", flush=True)
+        finally:
+            # Preserve the old partial-progress contract: sessions completed before a later
+            # adapter/session failure remain published, but still with one rewrite in the normal
+            # successful case.
+            labeling._replace_sessions_in_manifest(manifest_path, manifest_batch)
     tot["manifest"] = str(manifest_path)
     tot["squares_root"] = str(squares_root)
     return tot
@@ -241,13 +251,15 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 90
     iter_items = _load_adapter(adapter)
     items: list[ImportItem] = []
     skipped = 0
-    for it in iter_items(Path(root)):
-        if it is None:
-            skipped += 1
-            continue
-        items.append(it)
-        if limit and len(items) >= limit:
-            break
+    with span("Ingest.adapter"):
+        with measure("adapter scans", (adapter, Path(root).resolve(), limit)):
+            for it in iter_items(Path(root)):
+                if it is None:
+                    skipped += 1
+                    continue
+                items.append(it)
+                if limit and len(items) >= limit:
+                    break
     if not items:
         raise ValueError(f"Adapter {adapter!r} found no usable images under {root} "
                          f"(skipped: {skipped}). Check path/annotation file.")
@@ -259,15 +271,19 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 90
     out_prof = profile_path(tag)
     out_prof.parent.mkdir(parents=True, exist_ok=True)
     prof.save(out_prof)
-    session_ids = synthesize_sessions(items, tag=tag, profile_name=tag, paths=paths)
+    with span("Ingest.sessions"):
+        with measure("ingest session synthesis", (tag, len(items))):
+            session_ids = synthesize_sessions(items, tag=tag, profile_name=tag, paths=paths)
 
     overlays: list[Path] = []
     if debug_overlay_n and session_ids:
-        overlays = debug_overlay(session_ids[0], debug_overlay_n,
-                                 paths.root / f"ingest_debug__{tag}", profile=prof, paths=paths)
+        with measure("ingest debug overlays", (tag, session_ids[0], debug_overlay_n)):
+            overlays = debug_overlay(session_ids[0], debug_overlay_n,
+                                     paths.root / f"ingest_debug__{tag}", profile=prof, paths=paths)
 
-    sliced = slice_imported(session_ids, profile=prof,
-                            out_size=out_size, variant_tag=tag, paths=paths)
+    with measure("ingest slicing", (tag, tuple(session_ids))):
+        sliced = slice_imported(session_ids, profile=prof,
+                                out_size=out_size, variant_tag=tag, paths=paths)
 
     summary = {"adapter": adapter, "tag": tag, "items": len(items), "skipped_items": skipped,
                "sessions": len(session_ids), "session_ids": session_ids,
@@ -278,9 +294,11 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 90
         manifest_path, _ = _variant_paths(tag, paths)
         # Pretrain: NO rotation (fixed-camera rule) and NO aggressive dedup (external frames are
         # diverse anyway — we want maximum variety for pretraining).
-        res = dataset_build.build_dataset(
-            tag, session_ids, source_manifest=manifest_path, paths=paths,
-            rotations=(0,), per_cell_cap=10**9, phash_enabled=False)
+        with span("Ingest.dataset_build"):
+            with measure("ingest dataset builds", (tag, tuple(session_ids))):
+                res = dataset_build.build_dataset(
+                    tag, session_ids, source_manifest=manifest_path, paths=paths,
+                    rotations=(0,), per_cell_cap=10**9, phash_enabled=False)
         summary["dataset"] = tag
         summary["dataset_counts"] = res.get("counts")
     return summary
