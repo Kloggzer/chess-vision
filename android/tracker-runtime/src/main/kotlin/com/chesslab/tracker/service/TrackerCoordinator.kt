@@ -1,6 +1,8 @@
 package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.BoardMarkerDetector
 import com.chesslab.geometry.MarkerTracker
@@ -64,6 +66,8 @@ class TrackerCoordinator<T>(
      */
     private val nowMs: () -> Long = System::currentTimeMillis,
 ) {
+    private var sourceSeq = 0L
+
     /**
      * The frame clock spans this WHOLE method.
      *
@@ -75,7 +79,7 @@ class TrackerCoordinator<T>(
     fun onFrame(
         image: T,
         delivered: DeliveredSize,
-    ) {
+    ) = WorkProfiler.span(WorkOperation.COORDINATOR_FRAME, ++sourceSeq) {
         timings.begin()
         drainCalibration()
         // Display-only, and it has to come from the delivered frame — see `previewRotation`.

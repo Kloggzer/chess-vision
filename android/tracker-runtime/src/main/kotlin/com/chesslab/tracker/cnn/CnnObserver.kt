@@ -6,6 +6,8 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.tracker.log.NoopTrackerLog
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -239,22 +241,24 @@ class CnnObserver(
                 noCrops += 1
                 return
             }
-        val started = nowMs()
-        val obs = frame.cachedObservation ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes)
-        val inferMs = (nowMs() - started).toDouble()
-        logObservation(cnn, inferMs, frame.crops.size)
-        emitted += 1
-        onSnapshot(
-            CnnSnapshot(
-                obs = obs,
-                seq = frame.seq,
-                tsMs = frame.tsMs,
-                inferMs = inferMs,
-                warped = frame.warped,
-                gray = frame.gray,
-                fen = startFen,
-                gridOccluded = frame.gridOccluded,
-            ),
-        )
+        WorkProfiler.span(WorkOperation.CNN_OBSERVATION, frame.seq) {
+            val started = nowMs()
+            val obs = frame.cachedObservation ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes)
+            val inferMs = (nowMs() - started).toDouble()
+            logObservation(cnn, inferMs, frame.crops.size)
+            emitted += 1
+            onSnapshot(
+                CnnSnapshot(
+                    obs = obs,
+                    seq = frame.seq,
+                    tsMs = frame.tsMs,
+                    inferMs = inferMs,
+                    warped = frame.warped,
+                    gray = frame.gray,
+                    fen = startFen,
+                    gridOccluded = frame.gridOccluded,
+                ),
+            )
+        }
     }
 }

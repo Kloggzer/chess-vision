@@ -18,7 +18,12 @@ const val UNKNOWN_INPUT: Long = Long.MIN_VALUE + 1
 enum class WorkOperation(
     val id: String,
 ) {
+    COORDINATOR_FRAME("coordinator.frame"),
     FRAME("frame"),
+    ENGINE_TICK("engine.tick"),
+    ENGINE_FRAME("engine.frame"),
+    ENGINE_CNN_SNAPSHOT("engine.cnn_snapshot"),
+    ENGINE_ACTION("engine.action"),
     FEN_SERIALIZE("engine.fen"),
     LEGAL_MOVES("engine.legal_moves"),
     LUMA_GRAY("geometry.gray.luma"),
@@ -26,6 +31,10 @@ enum class WorkOperation(
     GRID_COVERAGE("geometry.grid_coverage"),
     GRID_OCCLUSION("geometry.grid_occlusion"),
     HOMOGRAPHY_BUILD("geometry.homography"),
+    DETECTION_WARP("geometry.warp.detection"),
+    CROP_WARP("geometry.warp.crop"),
+    GRID_WARP("geometry.warp.grid"),
+    ROI_MOTION("geometry.roi_motion"),
     RAW_FRAME_COPY("copy.raw_frame"),
     RAW_PREVIEW_COPY("copy.raw_preview"),
     CALIBRATION_FRAME_COPY("copy.calibration_frame"),
@@ -33,6 +42,8 @@ enum class WorkOperation(
     CROP_FRAME_COPY("copy.crop_frame"),
     CNN_CROP("cnn.crop"),
     CNN_PREPROCESS("cnn.preprocess"),
+    CNN_INFERENCE("cnn.inference"),
+    CNN_OBSERVATION("cnn.observation"),
     TIMELINE_WRITE("record.timeline_write"),
     VIDEO_PROGRESS("record.video_progress"),
 }

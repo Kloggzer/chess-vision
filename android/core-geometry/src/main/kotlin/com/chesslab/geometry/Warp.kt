@@ -2,6 +2,8 @@ package com.chesslab.geometry
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
@@ -67,7 +69,9 @@ fun warpFromCorners(
         h.writeH(m)
     }
     val out = dst ?: Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
+    WorkProfiler.span(WorkOperation.DETECTION_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
+    }
     h.release()
     return out
 }
@@ -103,7 +107,9 @@ fun warpBoardForCrops(
     h.writeH(m)
     val side = (bs + 2 * cropBorderPx(geom)).toDouble()
     val out = dst ?: Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    WorkProfiler.span(WorkOperation.CROP_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    }
     h.release()
     return out
 }
@@ -137,7 +143,9 @@ internal fun warpFromCornersPadded(
     h.writeH(m)
     val side = (bs + 2 * pad).toDouble()
     val out = Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    WorkProfiler.span(WorkOperation.GRID_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    }
     h.release()
     return out
 }

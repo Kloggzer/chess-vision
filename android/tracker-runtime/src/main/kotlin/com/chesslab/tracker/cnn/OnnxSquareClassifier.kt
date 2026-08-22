@@ -212,7 +212,7 @@ class OnnxSquareClassifier internal constructor(
             WorkProfiler.bytes(WorkOperation.CNN_PREPROCESS, staging.size.toLong() * FLOAT_BYTES)
         }
         val started = System.nanoTime()
-        val logits = runner.run(input, shape)
+        val logits = WorkProfiler.span(WorkOperation.CNN_INFERENCE) { runner.run(input, shape) }
         lastRunMs = (System.nanoTime() - started) / NANOS_PER_MS
         val classCount = spec.classes.size
         val width = spec.outputWidth

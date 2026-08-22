@@ -2,6 +2,8 @@ package com.chesslab.tracker.pipeline
 
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.motionPercent
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
@@ -86,26 +88,27 @@ class RoiMotion(
     fun score(
         frameBgr: Mat,
         corners: FloatArray,
-    ): Double {
-        val r = roi ?: Mat().also { roi = it }
-        val transform = perspective(corners, ROI_SIDE)
-        Imgproc.warpPerspective(
-            frameBgr,
-            r,
-            transform,
-            Size(ROI_SIDE, ROI_SIDE),
-            Imgproc.INTER_LINEAR,
-            Core.BORDER_REPLICATE,
-        )
-        transform.release()
-        val s = small ?: Mat().also { small = it }
-        Imgproc.cvtColor(r, s, Imgproc.COLOR_BGR2GRAY)
-        Imgproc.GaussianBlur(s, s, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
-        val n = (s.total() * s.channels()).toInt()
-        if (scratch.size != n) scratch = ByteArray(n)
-        s.get(0, 0, scratch)
-        return scoreRoi(scratch)
-    }
+    ): Double =
+        WorkProfiler.span(WorkOperation.ROI_MOTION) {
+            val r = roi ?: Mat().also { roi = it }
+            val transform = perspective(corners, ROI_SIDE)
+            Imgproc.warpPerspective(
+                frameBgr,
+                r,
+                transform,
+                Size(ROI_SIDE, ROI_SIDE),
+                Imgproc.INTER_LINEAR,
+                Core.BORDER_REPLICATE,
+            )
+            transform.release()
+            val s = small ?: Mat().also { small = it }
+            Imgproc.cvtColor(r, s, Imgproc.COLOR_BGR2GRAY)
+            Imgproc.GaussianBlur(s, s, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
+            val n = (s.total() * s.channels()).toInt()
+            if (scratch.size != n) scratch = ByteArray(n)
+            s.get(0, 0, scratch)
+            scoreRoi(scratch)
+        }
 
     /** A changed margin invalidates the stored ROI: the two would not be the same region. */
     fun onConfigChanged(config: TrackerConfig) {

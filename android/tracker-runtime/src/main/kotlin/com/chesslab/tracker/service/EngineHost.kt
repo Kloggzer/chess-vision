@@ -8,6 +8,9 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.perf.UNKNOWN_INPUT
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.engine.toLogLine
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -121,14 +124,23 @@ class EngineHost(
      * the detection section, so a user correction and a CNN verdict are visible to the very frame
      * that follows them, never landing in the middle of a detection.
      */
-    fun tick(input: FrameInput?): List<TrackerEvent> {
-        claim()
-        val events = mutableListOf<TrackerEvent>()
-        while (true) events += ops.apply(actions.poll() ?: break)
-        while (true) events += ops.onCnnSnapshot(snapshots.poll() ?: break)
-        if (input != null) events += ops.onFrame(input)
-        return events
-    }
+    fun tick(input: FrameInput?): List<TrackerEvent> =
+        WorkProfiler.span(WorkOperation.ENGINE_TICK, input?.seq ?: UNKNOWN_INPUT) {
+            claim()
+            val events = mutableListOf<TrackerEvent>()
+            while (true) {
+                val action = actions.poll() ?: break
+                events += WorkProfiler.span(WorkOperation.ENGINE_ACTION) { ops.apply(action) }
+            }
+            while (true) {
+                val snapshot = snapshots.poll() ?: break
+                events += WorkProfiler.span(WorkOperation.ENGINE_CNN_SNAPSHOT, snapshot.seq) { ops.onCnnSnapshot(snapshot) }
+            }
+            if (input != null) {
+                events += WorkProfiler.span(WorkOperation.ENGINE_FRAME, input.seq) { ops.onFrame(input) }
+            }
+            events
+        }
 
     fun status(): TrackerStatus {
         claim()

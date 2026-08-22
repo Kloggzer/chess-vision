@@ -24,9 +24,11 @@ The report printed after replay contains:
 - inclusive time, exclusive/self time and the slowest single call per operation;
 - caller-to-callee counts for an instrumented call graph (not a sampled JVM stack trace).
 
-The current boundaries cover the frame root, FEN and legal moves, grayscale conversions, grid
-coverage/occlusion, homography construction, camera/preview/crop copies, CNN crop and preprocessing,
-timeline writes and video progress. Add a stable `WorkOperation` and a `WorkProfiler.span` around a
+The current boundaries cover the coordinator and pipeline frame roots, engine tick/frame/actions/CNN
+snapshots, FEN and legal moves, grayscale conversions, detection/crop/grid perspective warps, ROI
+motion, grid coverage/occlusion, homography construction, camera/preview/crop copies, CNN crop,
+preprocessing, inference and observation, timeline writes and video progress. Add a stable
+`WorkOperation` and a `WorkProfiler.span` around a
 new expensive source boundary rather than naming reports after an implementation method. Pass the
 frame sequence or a stable content/state fingerprint as its input; inherited input automatically
 follows nested work on the same thread.
