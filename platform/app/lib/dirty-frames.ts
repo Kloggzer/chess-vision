@@ -1,7 +1,7 @@
 /**
- * Der Zettel „Hand drauf" gilt dem FRAME, nie der einen Zelle: `realgames.reported_dirty` legt
- * beim nächsten Export ALLE 64 Felder dieses Frames auf den dirty-Stapel. Rein, damit Strom und
- * Zell-Lane denselben Schlüssel benutzen.
+ * Der Zettel „Hand drauf" gilt dem FRAME: `realgames.reported_dirty` legt beim nächsten Export
+ * ALLE 64 Felder auf den dirty-Stapel, SAM 3 mattet sie, ein Mensch sieht sie danach an. Der
+ * Dirty-Pinsel malt zellweise und schreibt denselben Zettel — eine Flagge, ein Weg.
  */
 import type { ReviewNote } from "@/lib/review-notes";
 
@@ -9,6 +9,10 @@ import type { ReviewNote } from "@/lib/review-notes";
 export type FrameRef = { session: number; stem: string };
 
 export const frameKey = (c: FrameRef): string => `${c.session}|${c.stem}`;
+
+/** Der Dirty-Pinsel als Palettenwert, mit seiner Taste — beide Seiten laden ihn von hier. */
+export const DIRTY_BRUSH = "dirty";
+export const DIRTY_KEY = "d";
 
 /** Welche Karten der Seite zum gemeldeten Frame gehören: die Geschwister leuchten mit. */
 export function dirtyOnPage(cells: readonly FrameRef[], reported: ReadonlySet<string>): Set<number> {

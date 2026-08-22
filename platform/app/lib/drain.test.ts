@@ -33,7 +33,7 @@ const CHAIN: ChainState = {
   hasCandidate: true,
   confirmed: true,
   hasSession: true,
-  mattes: { done: 0, total: 394, target: 80 },
+  mattes: { done: 0, total: 394, target: 80 , reported: 0},
   hasModelReads: false,
   useless: null,
 };

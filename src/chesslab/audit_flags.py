@@ -144,19 +144,42 @@ def write_summary(path: Path, summary: dict) -> Path:
     return path
 
 
-def audit_flags() -> dict:
+def is_occupancy(flag: dict) -> bool:
+    """Does this flag dispute whether the square is OCCUPIED, rather than by what?"""
+    return (flag["fen_label"] == "empty") != (flag["predicted"] == "empty")
+
+
+def visible_cells(session_dir: Path) -> set[tuple[str, str]]:
+    """(frame, square) of every cell this recording's matte measured as COVERED, over the cut.
+
+    The matte is the only place coverage lives — `model-reads.jsonl` never carried it.
+    """
+    from .labeling import MATTE_DIRTY, read_matte
+
+    return {(frame, square)
+            for frame, cells in read_matte(session_dir).items()
+            for square, value in cells.items() if value > MATTE_DIRTY}
+
+
+def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dict:
     """Rewrite both audit files from every proposal file that names the model it was scored with.
 
-    A file without that name is skipped and said so: its flags could carry no provenance, and
-    non-circularity — the whole basis of the audit — would rest on nothing.
+    A file without one is skipped and said so — non-circularity would rest on nothing. What the
+    two narrowings cost: `docs/cross-labeling-literature.md`, "Narrowing a foreign proposer".
     """
     rec = config.DATA.recordings
-    judged = ledger_labels(*(sorted(rec.glob("*/corrections.jsonl")) if rec.exists() else ()))
+    # BOTH ledgers: `reviewed.jsonl` is where the lane's "FEN stimmt" lands, and without it every
+    # confirmation comes back as a flag on the next run — the lane could never be worked empty.
+    # Corrections last, so a retraction there reopens what a confirmation closed.
+    ledgers = (sorted(rec.glob("*/reviewed.jsonl")) + sorted(rec.glob("*/corrections.jsonl"))
+               if rec.exists() else [])
+    judged = ledger_labels(*ledgers)
     ts = datetime.now(UTC).isoformat()
     flags: list[dict] = []
     sessions: list[str] = []
     skipped: list[dict] = []
     scanned = 0
+    dropped_covered = 0
     for path in sorted(rec.glob("*/model-reads.jsonl")):
         model, rows = read_proposals(path)
         reason = None
@@ -171,7 +194,18 @@ def audit_flags() -> dict:
             continue
         scanned += len(rows)
         sessions.append(rows[0]["session_id"])
-        flags += session_flags(rows, judged, model=model, ts=ts)
+        found = session_flags(rows, judged, model=model, ts=ts)
+        if visible_only:
+            covered = visible_cells(path.parent)
+            kept = [f for f in found if (f["frame"], f["square"]) not in covered]
+            dropped_covered += len(found) - len(kept)
+            found = kept
+        flags += found
+    dropped_type = 0
+    if occupancy_only:
+        kept = [f for f in flags if is_occupancy(f)]
+        dropped_type = len(flags) - len(kept)
+        flags = kept
     flags.sort(key=lambda f: (-f["margin"], f["session_id"], f["frame"], f["square"]))
     per_class: dict[str, int] = {}
     for flag in flags:
@@ -179,6 +213,10 @@ def audit_flags() -> dict:
     summary = {
         "flags": len(flags),
         "cells_scanned": scanned,
+        "scope": "occupancy" if occupancy_only else "all",
+        "coverage_scope": "visible" if visible_only else "any",
+        "dropped_by_scope": dropped_type,
+        "dropped_as_covered": dropped_covered,
         "sessions": sessions,
         "skipped": skipped,
         "per_class": dict(sorted(per_class.items(), key=lambda kv: (-kv[1], kv[0]))),

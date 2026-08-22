@@ -1,5 +1,6 @@
 package com.chesslab.geometry
 
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
@@ -103,6 +104,39 @@ class GridMesh(
             "$what are 9 + 9 values, got ${a?.size} + ${b?.size}"
         }
     }
+}
+
+/** A curvature this far off the cross-line trend was measured on pieces, not optics — twin of
+ *  `calibration.CURV_TREND_LIMIT`, where the number is explained. */
+const val CURV_TREND_LIMIT: Double = 0.02
+
+private fun median(values: DoubleArray): Double {
+    val s = values.sorted()
+    return if (s.size % 2 == 1) s[s.size / 2] else 0.5 * (s[s.size / 2 - 1] + s[s.size / 2])
+}
+
+private fun trendReplaced(values: DoubleArray): DoubleArray {
+    val slopes = ArrayList<Double>()
+    for (i in 0 until GRID_LINES_PER_AXIS) {
+        for (j in i + 1 until GRID_LINES_PER_AXIS) slopes.add((values[j] - values[i]) / (j - i))
+    }
+    val m = median(slopes.toDoubleArray())
+    val b = median(DoubleArray(GRID_LINES_PER_AXIS) { values[it] - m * it })
+    return DoubleArray(GRID_LINES_PER_AXIS) { k ->
+        val trend = m * k + b
+        if (abs(values[k] - trend) > CURV_TREND_LIMIT) trend else values[k]
+    }
+}
+
+/**
+ * Curvature is optics and optics are smooth across parallel lines — a line breaking out of the
+ * others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value.
+ * Twin: `calibration.smooth_mesh_curvature`, pinned by `curvature_trend_parity.json`.
+ */
+fun smoothMeshCurvature(mesh: GridMesh): GridMesh {
+    val cx = mesh.cx ?: return mesh
+    val cy = mesh.cy ?: return mesh
+    return GridMesh(mesh.xs, mesh.ys, mesh.tx, mesh.ty, trendReplaced(cx), trendReplaced(cy))
 }
 
 /** Where line [k] of one axis sits at run [t] along it, in field fractions (`pos(t)`). */

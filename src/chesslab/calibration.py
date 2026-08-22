@@ -16,7 +16,7 @@ import logging
 import math
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -422,6 +422,33 @@ def pooled_mesh(meshes) -> GridMesh | None:
         return GridMesh(xs, ys)
     cx, cy = med("cx", MESH_POOL_MIN), med("cy", MESH_POOL_MIN)
     return GridMesh(xs, ys, tx, ty, cx, cy) if cx is not None and cy is not None         else GridMesh(xs, ys, tx, ty)
+
+
+#: A curvature this far off the cross-line trend was measured on pieces, not optics:
+#: rg-2026-08-15-22-57-06 carries cy = -0.070 on the pawn-occupied 7/6 line against ±0.011 on its
+#: free neighbours — a +11.6 px arch baked into the straightened board (2026-08-21).
+CURV_TREND_LIMIT = 0.02
+
+
+def _trend_replaced(values: list[float]) -> list[float]:
+    k = np.arange(GRID_LINES_PER_AXIS, dtype=np.float64)
+    v = np.asarray(values, dtype=np.float64)
+    slopes = [(v[j] - v[i]) / (j - i) for i in range(GRID_LINES_PER_AXIS)
+              for j in range(i + 1, GRID_LINES_PER_AXIS)]
+    m = float(np.median(slopes))
+    trend = m * k + float(np.median(v - m * k))
+    return [float(e) for e in np.where(np.abs(v - trend) > CURV_TREND_LIMIT, trend, v)]
+
+
+def smooth_mesh_curvature(mesh: GridMesh | None) -> GridMesh | None:
+    """Curvature is optics and optics are smooth across parallel lines — a line that breaks out of
+    the others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value
+    instead. Board-writing only, on purpose: the cut consumers (`meshOrNull`, warp.ts) stay pinned
+    to the parity fixture, and a straightened store never hands them a mesh again.
+    """
+    if mesh is None or mesh.cx is None or mesh.cy is None:
+        return mesh
+    return replace(mesh, cx=_trend_replaced(mesh.cx), cy=_trend_replaced(mesh.cy))
 
 
 #: Simultaneous evaluations per point. Three was measured to leave the residual far inside a pixel

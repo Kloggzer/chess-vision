@@ -152,6 +152,30 @@ def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], 
     return board_accuracy(items)
 
 
+def per_session_metrics(rows: list[dict], classes: list[str],
+                        trues: list[int], preds: list[int]) -> dict[str, dict]:
+    """The same three numbers as the corpus line, but one row per session.
+
+    `evaluate_dataset` runs with `shuffle=False`, so `trues[i]`/`preds[i]` line up with `rows[i]`.
+    A corpus mean hides the one session that carries the whole error — which is exactly the
+    question when a model is pointed at a dataset it was not trained on.
+    """
+    by_sid: dict[str, list[tuple[dict, int, int]]] = defaultdict(list)
+    for r, t, p in zip(rows, trues, preds, strict=False):
+        by_sid[r["session_id"]].append((r, t, p))
+    out: dict[str, dict] = {}
+    for sid, items in by_sid.items():
+        rs = [r for r, _, _ in items]
+        ts = [t for _, t, _ in items]
+        ps = [p for _, _, p in items]
+        ok = [t == p for t, p in zip(ts, ps, strict=True)]
+        boards = [((r["session_id"], str(r["frame"])), c) for r, c in zip(rs, ok, strict=True)]
+        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok),
+                    "board_acc": board_accuracy(boards),
+                    "occ_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
+    return out
+
+
 def build_model_card(
     *,
     classes: list[str],

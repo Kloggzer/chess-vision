@@ -194,14 +194,42 @@ def person_score(board: np.ndarray) -> float:
     )
 
 
+#: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
+#: is far wider and has to survive.
+UNION_CLOSE_PX = 9
+#: A hole over this share of the mask is not an artefact. Measured on 222655/988: backdrop showing
+#: through a curled hand is 0.77 % and must stay open (`docs/occluder-plates.md`).
+MAX_HOLE_FRAC = 0.002
+
+
+def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX,
+          max_hole_frac: float = MAX_HOLE_FRAC) -> np.ndarray:
+    """Close the seams the UNION leaves, then fill the SMALL things it encloses — uint8 in and out.
+
+    Watch and arm come from two concepts and meet on a line neither covers. Topology alone is too
+    greedy: a curled hand encloses backdrop, a hole by every test but size (`MAX_HOLE_FRAC`)."""
+    m = (alpha > 127).astype(np.uint8)
+    if close_px > 1:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
+    n, lab, stats, _c = cv2.connectedComponentsWithStats((1 - m).astype(np.uint8), 4)
+    outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
+    cap = max(1.0, m.sum() * max_hole_frac)
+    small = [i for i in range(1, n) if i not in outside and stats[i, cv2.CC_STAT_AREA] <= cap]
+    if small:
+        m[np.isin(lab, small)] = 1
+    return np.maximum(alpha, m * 255)
+
+
 def alpha_sam3(
     board: np.ndarray,
+    *,
+    fill: bool = True,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks.
+    """The union of SAM 3's concept masks, made solid by `solid`.
 
-    The five concepts share one preprocessed image and one vision encoding.
-    Only their text inputs and prompt-dependent model path run separately.
-    """
+    The five share one preprocessed image and one vision encoding; only their text inputs and
+    prompt-dependent path run separately. `fill=False` returns the bare union, for a review."""
     import torch
 
     processor, model, device = _sam3()
@@ -280,7 +308,14 @@ def alpha_sam3(
                 3,
             )
 
-    return alpha, hits
+    if not fill:
+        return alpha, hits
+
+    filled = solid(
+        (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8),
+    )
+
+    return filled.astype(np.float32) / 255.0, hits
 
 
 def coverage_of(
@@ -483,6 +518,70 @@ def recut_fixed(
     }
 
 
+def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
+    """Run `solid` over the alphas already on disk, and recut the coverage it moves.
+
+    The seam is a fault of the UNION, so the stored pixels carry it exactly as the worker wrote
+    them and re-running SAM would cost hours to change the same pixels. `.fixed.webp` stays put:
+    those are a person's."""
+    from .calibration import load_profile
+    from .ioutil import read_jsonl
+    from .realgames import game_dir
+    from .training.occlusion import PIECE_VISIBLE_MAX  # local: the module pulls torch in
+
+    session_dir = game_dir(name)
+    path = session_dir / "matte.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+
+    rows: list[dict] = []
+    closed = crossed = added = 0
+    for row in read_jsonl(path):
+        alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+        entry = entries.get(row["frame"])
+        image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
+        if image is None or entry is None:
+            rows.append(row)
+            continue
+        filled = solid(image)
+        gained = int((filled > 127).sum() - (image > 127).sum())
+        if gained == 0:
+            rows.append(row)
+            continue
+        coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
+        was = row.get("coverage") or {}
+        # The only change that can move a LABEL: a cell stepping over the threshold the piece loss
+        # masks on. Counted and reported, because `coverage` is training input, not a picture.
+        crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
+                       for sq, v in coverage.items())
+        closed += 1
+        added += gained
+        if not dry_run:
+            if not cv2.imwrite(str(alpha_path), filled):
+                raise OSError(f"{name}: could not write {alpha_path}")
+            row = row | {"coverage": coverage,
+                         "cells_over_half": sum(v > 0.5 for v in coverage.values())}
+        rows.append(row)
+        if progress and closed % 25 == 0:
+            print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
+
+    if not dry_run and closed:
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                             "is writing it. Let it finish and run this again.")
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            temp_path.unlink(missing_ok=True)
+            raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
+        temp_path.replace(path)
+    return {"name": name, "frames": len(rows), "closed": closed, "px": added,
+            "crossed": crossed, "dry_run": dry_run}
+
+
 def alpha_worker_all(
     names: list[str],
     *,
@@ -597,13 +696,13 @@ def alpha_worker(
     *,
     limit: int | None = None,
     reason: str = ALPHA_REASON,
+    frames: set[str] | None = None,
     progress: bool = True,
 ) -> dict:
     """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.
 
-    Each row is appended the moment it is complete, so a kill loses at most the current frame.
-    `limit` is the target number of SUCCESSFUL alphas for the session, not a batch size — 220
-    existing plus `--limit 300` means at most 80 more."""
+    A kill loses at most the current frame. `limit` targets SUCCESSFUL alphas, not a batch size;
+    `frames` re-measures exactly those stems and ignores the pile and `limit` alike."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
     from .realgames import game_dir
@@ -664,7 +763,15 @@ def alpha_worker(
         and row.get("coverage") is not None
     }
 
+    # A named frame overrides BOTH filters. A hand the scan missed sits on a `clean` row, which
+    # never reaches the pile, and "the matte missed something here" is by definition a verdict on a
+    # frame that already has a row. `read_matte` lets the later row win, so appending is enough.
     todo = [
+        entry
+        for entry in rows
+        if entry.get("board")
+        and Path(entry["board"]).stem in frames
+    ] if frames else [
         entry
         for entry in rows
         if entry.get("dirty")
@@ -675,7 +782,7 @@ def alpha_worker(
         and Path(entry["board"]).stem not in done
     ]
 
-    if limit is not None:
+    if limit is not None and not frames:
         target_remaining = max(
             0,
             limit - len(successful),

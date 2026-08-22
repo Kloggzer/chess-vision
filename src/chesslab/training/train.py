@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import config, doctor
+from .. import config, doctor, locks
 from .data import (
     checkpoint_score,
     crop_of_rows,
@@ -29,78 +29,18 @@ def _train_lock_path() -> Path:
     return config.DATA.heavy_lock
 
 
-def _pid_alive(pid: int) -> bool:
-    """True if a process with `pid` currently exists (cross-platform, no psutil)."""
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
-
-        # OpenProcess alone answers the WRONG question. Windows keeps a process OBJECT alive as
-        # long as anyone holds a handle to it, so a terminated process whose parent shell has not
-        # let go still opens fine — and the training lock then reports a run that has been dead for
-        # minutes as live, refusing every new run until someone deletes the file by hand. Ask for
-        # the exit code instead: STILL_ACTIVE means running, anything else means it has exited.
-        #
-        # `restype` is not optional here either: a HANDLE is 64-bit on x64 and ctypes defaults to
-        # c_int, which truncates it.
-        k = ctypes.windll.kernel32
-        k.OpenProcess.restype = ctypes.c_void_p
-        k.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
-        k.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
-        k.CloseHandle.argtypes = (ctypes.c_void_p,)
-        h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        code = ctypes.c_uint32()
-        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
-        k.CloseHandle(h)
-        # 259 = STILL_ACTIVE. A process that deliberately exits WITH 259 reads as alive; that is
-        # the documented ambiguity of this API and it is the safe direction for a lock.
-        return bool(ok) and code.value == 259
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
 def _acquire_train_lock(desc: str) -> bool:
-    """Only ONE training may use the (single) GPU at a time. Returns True if the lock was
-    acquired, False if another LIVE training already holds it. Survives web restarts and covers
-    both CLI and web launches (the root cause of the earlier concurrent-run OOM). A stale lock
-    from a dead PID is reclaimed automatically."""
-    lock = _train_lock_path()
-    if lock.exists():
-        try:
-            info = json.loads(lock.read_text(encoding="utf-8"))
-            # `childPid` is the JOB, `pid` the process that claimed the slot — the web app claims
-            # with the SERVER's pid and stamps the child once it exists.
-            pid = int(info.get("childPid") or info.get("pid") or -1)
-        except Exception:  # noqa: BLE001 — corrupt lock: treat as stale
-            pid, info = -1, {}
-        if pid > 0 and pid != os.getpid() and _pid_alive(pid):
-            print(f"[FAIL] {info.get('job', 'a job')} {info.get('name', '')} is already running "
-                  f"(PID {pid}, started {info.get('startedAt', '?')}). The GPU takes one at a time "
-                  "- stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
-            return False
-        # else: dead/stale PID → reclaim below
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    lock.write_text(json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": "train",
-                                "name": desc, "startedAt": datetime.now().isoformat()},
-                               indent=2), encoding="utf-8")
-    return True
+    """False if another LIVE training holds the GPU. A stale lock is reclaimed automatically."""
+    holder = locks.acquire(_train_lock_path(), "train", desc)
+    if holder is None:
+        return True
+    print(f"[FAIL] {locks.describe(holder)} is already running. The GPU takes one at a time - "
+          "stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
+    return False
 
 
 def _release_train_lock() -> None:
-    lock = _train_lock_path()
-    try:
-        if lock.exists():
-            info = json.loads(lock.read_text(encoding="utf-8"))
-            if int(info.get("pid", -1)) == os.getpid():
-                lock.unlink()
-    except Exception:  # noqa: BLE001 — best-effort cleanup
-        pass
+    locks.release(_train_lock_path())
 
 
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,

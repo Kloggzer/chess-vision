@@ -14,6 +14,7 @@ import {
   type Raster,
   sampleBox,
   sampleBoxMesh,
+  smoothMeshCurvature,
   squareCropBox,
   type TiltedMesh,
 } from "@/lib/warp";
@@ -117,7 +118,8 @@ export async function storedFit(dir: string): Promise<QuadFit | null> {
 export function storedQuad(fit: QuadFit | null, row: StoredRow): StoredQuad {
   const frame = fit?.frames?.[row.stem];
   if (!fit || !frame) return { corners: row.corners, margin: MARKER_MARGIN, fitted: false };
-  const mesh = meshFromLines(frame.grid_lines);
+  const raw = meshFromLines(frame.grid_lines);
+  const mesh = raw && smoothMeshCurvature(raw);
   return { corners: frame.corners, margin: fit.margin, fitted: true,
            worstPx: frame.align_worst_px, ...(mesh ? { mesh } : {}) };
 }

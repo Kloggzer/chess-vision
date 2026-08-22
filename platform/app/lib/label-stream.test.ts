@@ -84,3 +84,16 @@ test("every settled cell judged: the lane is empty and says the sample is exhaus
   expect(laneEmpty("control")).toContain("erschöpft");
   expect(laneEmpty("all")).toContain("nichts wartet");
 });
+
+test("a reported dirty frame survives the reload — the note is on disk, so the mark must be", async () => {
+  await fixture(20);
+  const { appendReviewNotes } = await import("@/lib/review-notes");
+  await appendReviewNotes([
+    { session_id: `rg-${NAME}`, frame: "000003", verdict: "dirty-frame" },
+    { session_id: `rg-${NAME}`, frame: "000007", verdict: "dirty-frame" },
+    { session_id: `rg-${NAME}`, frame: "000009", verdict: "matte-ok" },
+  ]);
+  const { sessions } = await loadLabelStream();
+  // `matte-ok` is not a hand: it answers the alpha, and the frame keeps no mark from it.
+  expect(sessions[0].reportedDirty.sort()).toEqual(["000003", "000007"]);
+});

@@ -5,7 +5,8 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName } from "@/lib/data";
-import { sessionDir } from "@/lib/session";
+import { frameReviews } from "@/lib/review-notes";
+import { sessionDir, sessionId } from "@/lib/session";
 
 export type MatteFrame = {
   stem: string;
@@ -109,6 +110,9 @@ export type MatteCensus = {
   total: number;
   /** What ONE run aims for, capped by the pile — the bar the chain reads. */
   target: number;
+  /** Gemeldete Frames OHNE Matte. Nicht in `total`: die meisten sind `stale`, und der Stapel, den
+   *  `--reason occluded` abarbeitet, kennt sie nicht — sichtbar wurden sie deshalb nie. */
+  reported: number;
 };
 
 /** Frames per session one run brings the file to (`--limit`), as the overnight `--all` is driven. */
@@ -146,9 +150,18 @@ async function counted(file: string, tag: string, count: (text: string) => numbe
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [done, total] = await Promise.all([
+  const [done, total, matted, reviews] = await Promise.all([
     counted(path.join(dir, "matte.jsonl"), "frames", frames),
     counted(path.join(dir, "log.jsonl"), "occluded", occluded),
+    matteStems(path.join(dir, "matte.jsonl")),
+    frameReviews(sessionId(name)),
   ]);
-  return { done, total, target: Math.min(matteTarget(), total) };
+  const reported = [...reviews].filter(([stem, r]) => r.dirty && !matted.has(stem)).length;
+  return { done, total, target: Math.min(matteTarget(), total), reported };
+}
+
+/** Die Stems, die eine Matte-Zeile haben — `done` zählt sie nur, hier braucht es die Namen. */
+async function matteStems(file: string): Promise<Set<string>> {
+  const text = await readFile(file, "utf8").catch(() => "");
+  return new Set([...text.matchAll(FRAME)].map((m) => m[1]));
 }

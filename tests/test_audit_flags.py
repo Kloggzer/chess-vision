@@ -107,6 +107,36 @@ def test_flags_are_written_margin_descending():
 
 
 @pytest.mark.usefixtures("data_root")
+def test_a_cell_confirmed_in_reviewed_is_not_asked_again():
+    # "FEN stimmt" lands in reviewed.jsonl, not corrections.jsonl — reading only the latter would
+    # hand every confirmation back on the next run.
+    _write_proposals("g", _GOOD)
+    assert mod.audit_flags()["flags"] == 1
+
+    reviewed = game_dir("g") / "reviewed.jsonl"
+    reviewed.write_text(json.dumps({"session_id": "rg-g", "frame": "001", "square": "a1",
+                                    "label": "wP"}) + "\n", encoding="utf-8")
+    assert mod.audit_flags()["flags"] == 0
+
+
+@pytest.mark.usefixtures("data_root")
+def test_occupancy_scope_keeps_the_empty_dispute_and_drops_the_type_one():
+    # t_wP = 0.1 over the two wP cells, t_wB = t_empty = 0.3 from their own support cell.
+    _write_proposals("g", [
+        _row("001", "a1", "wP", {"wP": 0.1, "wB": 0.9}),
+        _row("002", "a1", "wP", {"wP": 0.1, "empty": 0.9}),
+        _row("003", "b1", "wB", {"wB": 0.3}),
+        _row("004", "c1", "empty", {"empty": 0.3}),
+    ])
+    assert mod.audit_flags()["flags"] == 2
+
+    r = mod.audit_flags(occupancy_only=True)
+    rows = [json.loads(x) for x in r["path"].read_text(encoding="utf-8").splitlines()]
+    assert [(x["frame"], x["predicted"]) for x in rows] == [("002", "empty")]
+    assert (r["scope"], r["dropped_by_scope"]) == ("occupancy", 1)
+
+
+@pytest.mark.usefixtures("data_root")
 def test_a_file_without_probs_or_without_a_model_is_skipped_and_named():
     _write_proposals("no-probs", [])
     bare = _write_proposals("no-model", [_row("001", "a1", "wP", {"wB": 0.9})],

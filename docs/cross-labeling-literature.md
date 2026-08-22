@@ -439,3 +439,57 @@ Stated plainly, so it is not lost in the recommendations:
   learning assumes; quad misalignment, hands, and transposed bridges are instance-dependent. The
   audit remains useful — it will find real errors — but it cannot bound what it missed, and its
   clean bill of health is not evidence.
+
+---
+
+## 7. Narrowing a foreign proposer (measured 2026-08-21)
+
+The first corpus-wide audit did not use folds. It used the composite pretrain
+`comp13-occ-bn-lr1e2-bs512` — the only model on disk that trained on **none** of the 20
+recordings, so `check_not_circular` passes for every one of them. It read all 470 016 cells
+(`realgames model-read`, ~35 min on the GPU).
+
+Unnarrowed it produced **84 800 flags, 18.0 % of the corpus**. That number is not a measure of
+label quality; it is a measure of what the proposer cannot do. Two cuts, both now options on
+`realgames audit-flags`:
+
+| | flags | share |
+|---|---:|---:|
+| everything (`--all --any-coverage`) | 84 800 | 18.0 % |
+| `--occupancy` | 18 260 | 3.9 % |
+| `--occupancy --visible` | **4 359** | **0.9 %** |
+
+**`--occupancy` — 72 % of the flags disputed the piece TYPE at the right colour** (`wP→wB`,
+`bN→bP`, `bB→bP`), concentrated on the bishop and knight home squares. A model trained on
+rendered pieces has never seen this physical set's shapes. Occupancy is a question the picture
+answers; type, from this proposer, is the proposer's own gap. This is the concrete form of §6's
+"one detector run twice": a foreign proposer trades circularity for a domain gap, and the gap has
+to be cut out by hand because Eqn. 2 will not do it. It does the opposite — `t_j` is the mean
+self-confidence of the cells labelled `j`, so a class the model reads *badly* gets a *low*
+threshold and therefore attracts more flags. `empty → piece` rose from 2.3 % of the raw argmax
+disagreements to 14.7 % of the confident-learning flags for exactly this reason.
+
+**`--visible` — 78 % of what remained sat on cells the matte had measured as covered.** Those are
+not label questions at all: `OcclusionLoss` masks every cell over `PIECE_VISIBLE_MAX` out of the
+class loss, so the label never reaches a model and a human ruling on it changes nothing. The audit
+could not see this because coverage lives in `matte.jsonl` and `model-reads.jsonl` never carried
+it; `audit_flags.visible_cells` reads the matte directly.
+
+What survives is worth a human: 4 359 cells on **685 `(session, square)` pairs** — a lifted piece
+stays lifted, so one verdict clears 6 cells on average and up to 244 in the largest nest. Split
+1 613 `piece → empty` (high precision: of 286 sampled at p ≥ 0.99, 281 were genuine and only 5
+showed the piece on a neighbouring square, which rules out a systematic geometry offset) and
+2 746 `empty → piece` (mixed: real pieces, hands the matte missed entirely at `coverage 0.0`, and
+the model hallucinating on dark squares in shadow).
+
+The three defects behind the `piece → empty` half, from the frame each cell sits on:
+
+| frame says | crop shows | n | what it is |
+|---|---|---:|---|
+| `occluded` | empty square | 115 | the FEN lags — the piece is already lifted, the matte correctly reports the origin square as barely covered |
+| `occluded` | skin | 65 | the matte missed the hand on a frame known to carry one |
+| `clean` | empty square | 65 | the FEN is simply wrong |
+| `clean` | skin | 41 | `framescan` missed the hand entirely — `coverage 0.0`, the trap CLAUDE.md §1 names |
+
+**282 of those 286 are not named by the row's `unknown_squares`**, which is the gate that exists to
+catch a lagging FEN. That gate, not the labels, is the thing to fix.

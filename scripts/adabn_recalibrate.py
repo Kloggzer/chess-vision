@@ -160,7 +160,11 @@ def split_rows(cfg: dict, split_name: str, override: str | None = None) -> list[
     if not ds_name:
         raise SystemExit("run has no `dataset` in config.json — cannot locate its split.")
     dd = dataset_dir(ds_name)
-    manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
+    # `split_file` only applies to the run's OWN dataset: an override points at a foreign corpus
+    # whose fold files, if any, have nothing to do with this run.
+    own = not override or override == cfg.get("dataset")
+    manifest_path = dd / "manifest.jsonl"
+    split_path = dd / ((cfg.get("split_file") or "split.json") if own else "split.json")
     if not manifest_path.exists() or not split_path.exists():
         raise SystemExit(f"manifest/split missing under {dd}.")
     rows = filter_rows_by_split(load_manifest(manifest_path), load_split(split_path), split_name)

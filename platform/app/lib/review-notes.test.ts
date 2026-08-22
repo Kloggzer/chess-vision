@@ -90,6 +90,9 @@ test("nothing may write an unreadable-square verdict — coverage answers that",
   expect(() => validateNote({ session_id: "rg-a", frame: "000144", verdict: "occluded" })).toThrow(/verdict/);
 });
 
+
+
+
 test("a half-written trailing line is skipped, not fatal", async () => {
   const { appendReviewNotes, unusableBoards, reviewNotesPath } = await load();
   await appendReviewNotes([{ session_id: "rg-a", frame: "000001", verdict: "unusable-board" }]);

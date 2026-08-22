@@ -10,6 +10,7 @@ import {
   meshFromLines,
   meshPoint,
   meshPointInverse,
+  smoothMeshCurvature,
   squareColRow,
   squareCropBox,
   type TiltedMesh,
@@ -93,6 +94,36 @@ const MESH_FIXTURE = JSON.parse(
   meshPoints: number[][];
   curvedMeshPoints: number[][];
 };
+
+/** The REAL poisoned mesh of rg-2026-08-15-22-57-06 — pawn feet fake cy[2], a +11.6 px arch in the
+ *  finished board. `CurvatureTrendParityTest.kt` and `tests/test_mesh_crop.py` read this same file. */
+const TREND_FIXTURE = JSON.parse(
+  readFileSync(
+    path.join(
+      __dirname,
+      "../../../android/core-engine/src/test/resources/parity/_geometry/curvature_trend_parity.json",
+    ),
+    "utf8",
+  ),
+) as { mesh: Required<GridMesh>; healedCx: number[]; healedCy: number[]; linearCurv: number[] };
+
+test("the trend heal matches the shared fixture", () => {
+  const healed = smoothMeshCurvature(meshFromLines(TREND_FIXTURE.mesh) as Required<GridMesh>);
+  for (const [got, want] of [
+    [healed.cx, TREND_FIXTURE.healedCx],
+    [healed.cy, TREND_FIXTURE.healedCy],
+  ] as const) {
+    got.forEach((v, i) => expect(v).toBeCloseTo(want[i], 9));
+  }
+});
+
+test("a genuinely linear curvature profile survives the heal", () => {
+  const lin = TREND_FIXTURE.linearCurv;
+  const mesh = { ...TREND_FIXTURE.mesh, cx: [...lin], cy: [...lin] };
+  smoothMeshCurvature(mesh).cx.forEach((v, i) => expect(v).toBeCloseTo(lin[i], 9));
+  const scalar: GridMesh = { x: TREND_FIXTURE.mesh.x, y: TREND_FIXTURE.mesh.y };
+  expect(smoothMeshCurvature(scalar).cx).toBeUndefined();
+});
 
 const LINEAR_MESH: TiltedMesh = {
   x: MESH_FIXTURE.mesh.x,

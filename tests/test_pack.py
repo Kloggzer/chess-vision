@@ -317,17 +317,65 @@ def test_load_packed_rejects_crops_rewritten_after_the_pack(tmp_path, paths):
         "load_packed served a pack whose crops were rewritten under it")
 
 
-def test_load_packed_accepts_a_pack_newer_than_its_crops(tmp_path, paths):
+def test_load_packed_accepts_an_untouched_pool(tmp_path, paths):
     """The other side: an untouched pool must not be pushed onto the per-PNG loader."""
+    _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    assert pack_mod.load_packed("ds", paths=paths) is not None
+
+
+def test_load_packed_rejects_crops_restored_with_an_older_mtime(tmp_path, paths):
+    """A `_parked/` restore or a timestamp-preserving copy moves mtime BACKWARDS.
+
+    The pixels are as wrong as after a re-slice, but "newer than the pack" never fires — which is
+    why the reference is a fingerprint compared on inequality rather than a timestamp.
+    """
     dd, _ = _make_dataset(tmp_path, 6)
     pack_mod.pack_dataset("ds", paths=paths, workers=1)
 
-    img, _meta = pack_mod._packed_paths(dd)
-    packed_at = img.stat().st_mtime
     for i in range(6):
-        os.utime(dd / "squares" / f"{i:04d}.png", (packed_at - 60, packed_at - 60))
+        p = dd / "squares" / f"{i:04d}.png"
+        old = p.stat().st_mtime
+        Image.fromarray(np.full((CROP, CROP, 3), 200 + i, dtype=np.uint8)).save(p)
+        os.utime(p, (old - 3600, old - 3600))
+
+    assert pack_mod.load_packed("ds", paths=paths) is None
+
+
+def test_load_packed_rejects_crops_rewritten_while_a_pack_with_a_late_mtime_ran(tmp_path, paths):
+    """The 2026-08-21 incident: the memmap's mtime is not the moment its pixels were written.
+
+    A slice rewrote `data/crops/default` 09:59-10:16 while a build packed 10:03-10:22, and the u8
+    ended up stamped 10:22 — so every crop touched mid-pack read as OLDER than the pack and the
+    already-written chunks were served with the previous geometry's pixels, silently.
+    """
+    dd, _ = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    img, _meta = pack_mod._packed_paths(dd)
+    started = img.stat().st_mtime
+
+    for i in range(6):
+        p = dd / "squares" / f"{i:04d}.png"
+        Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(p)
+        os.utime(p, (started + 60, started + 60))
+    os.utime(img, (started + 300, started + 300))      # mtime = end of pack, not its start
+
+    assert pack_mod.load_packed("ds", paths=paths) is None
+
+
+def test_a_legacy_pack_without_a_fingerprint_still_uses_the_file_mtime(tmp_path, paths):
+    dd, _ = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    _img, meta_path = pack_mod._packed_paths(dd)
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    del meta["crop_fingerprint"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
     assert pack_mod.load_packed("ds", paths=paths) is not None
+    packed_at = _img.stat().st_mtime
+    os.utime(dd / "squares" / "0000.png", (packed_at + 60, packed_at + 60))
+    assert pack_mod.load_packed("ds", paths=paths) is None
 
 
 @pytest.mark.usefixtures("serial_pool")
@@ -444,3 +492,73 @@ def test_a_link_to_a_link_is_refused(tmp_path, paths):
 
     with pytest.raises(ValueError, match="is itself a link"):
         pack_mod.link_pack("ds-sub2", "ds-sub", paths=paths)
+
+
+def test_a_link_inherits_the_owners_staleness_reference(tmp_path, paths):
+    """The link has no memmap, so without the owner's fingerprint nothing could check it."""
+    dd, rows = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    _variant_of(tmp_path, rows, "ds-sub", [0, 1, 2, 3, 4, 5])
+    pack_mod.link_pack("ds-sub", "ds", paths=paths)
+    assert pack_mod.load_packed("ds-sub", paths=paths) is not None
+
+    for i in range(6):
+        p = dd / "squares" / f"{i:04d}.png"
+        Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(p)
+
+    assert pack_mod.load_packed("ds-sub", paths=paths) is None
+
+
+@pytest.mark.usefixtures("serial_pool")
+def test_a_resume_across_a_re_slice_does_not_certify_the_old_pixels(tmp_path, paths, monkeypatch):
+    """The case the docstring claimed and nothing tested: same paths, so the digest never moves.
+
+    The chunks written before the re-slice hold the previous geometry. A resume that re-stamps the
+    reference would publish exactly that with a clean bill of health.
+    """
+    dd, _ = _make_dataset(tmp_path, 8)
+    crop_bytes = CROP * CROP * 3
+    monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
+    real = pack_mod._pack_chunk
+
+    def die_on_second(task):
+        if task[2][0][0] != 0:
+            raise RuntimeError("simulated interrupt")
+        return real(task)
+
+    monkeypatch.setattr(pack_mod, "_pack_chunk", die_on_second)
+    with pytest.raises(RuntimeError, match="simulated interrupt"):
+        pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    monkeypatch.setattr(pack_mod, "_pack_chunk", real)
+    first = json.loads((dd / "packed_progress.json").read_text(encoding="utf-8"))
+
+    for i in range(8):                                   # a re-slice: same paths, new pixels
+        Image.fromarray(np.full((CROP, CROP, 3), 100 + i, dtype=np.uint8)).save(
+            dd / "squares" / f"{i:04d}.png")
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    _img, meta_path = pack_mod._packed_paths(dd)
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["crop_fingerprint"] == first["crop_fingerprint"], "resume re-stamped the reference"
+    assert pack_mod.load_packed("ds", paths=paths) is None
+
+
+@pytest.mark.usefixtures("serial_pool")
+def test_a_resume_from_a_sidecar_without_a_fingerprint_falls_back(tmp_path, paths, monkeypatch):
+    """Sidecars predating the fingerprint must resume, not re-stamp — the fallback is conservative."""
+    dd, _ = _make_dataset(tmp_path, 8)
+    crop_bytes = CROP * CROP * 3
+    monkeypatch.setattr(pack_mod, "_PACK_CHUNK_BYTES", 4 * crop_bytes)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    digest = pack_mod._manifest_digest(pack_mod._manifest_rows(dd))
+    (dd / "packed_progress.json").write_text(json.dumps({
+        "signature": {"n": 8, "h": CROP, "w": CROP, "csize": 4, "digest": digest},
+        "done": [0],
+    }), encoding="utf-8")
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+    _img, meta_path = pack_mod._packed_paths(dd)
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert "crop_fingerprint" not in meta
+    assert pack_mod.load_packed("ds", paths=paths) is not None

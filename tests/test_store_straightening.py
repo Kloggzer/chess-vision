@@ -87,17 +87,19 @@ def _read(sdir, row):
 
 
 def test_a_stored_board_is_pulled_straight_exactly_once(tmp_path):
-    rows = [_row(0, TILT)]
+    """`MESH_POOL_MIN` frames at least: the recording has ONE mesh, and a term nobody measured
+    three times is not trusted — a single-row session is straightened by nothing at all."""
+    rows = [_row(i, TILT) for i in (0, 3, 6)]
     sdir, board = _session(tmp_path, rows)
     assert line_spread(board) > 15, "the drawn board must SHOW the tilt, or this proves nothing"
 
-    assert straighten_boards(sdir, rows)["straightened"] == 1
+    assert straighten_boards(sdir, rows)["straightened"] == len(rows)
     assert rows[0]["board_straightened"] is True
     once = _read(sdir, rows[0])
     assert line_spread(once) <= 2
 
     # The trap this guards: a second pass would correct an already-corrected board.
-    assert straighten_boards(sdir, rows) == {"straightened": 0, "already": 1, "no_mesh": 0,
+    assert straighten_boards(sdir, rows) == {"straightened": 0, "already": len(rows), "no_mesh": 0,
                                              "no_board": 0, "mattes": 0}
     assert np.array_equal(_read(sdir, rows[0]), once)
 
@@ -122,7 +124,7 @@ def test_a_frame_with_no_mesh_anywhere_is_left_alone_and_counted(tmp_path):
 
 def test_the_matte_follows_its_board(tmp_path):
     """`coverage_of` cuts the alpha with the crop's geometry, so a bowed matte would mismeasure."""
-    rows = [_row(0, TILT)]
+    rows = [_row(i, TILT) for i in (0, 3, 6)]
     sdir, _board = _session(tmp_path, rows, mattes=("000000", "000000.fixed"))
     assert straighten_boards(sdir, rows)["mattes"] == 2
     for stem in ("000000", "000000.fixed"):

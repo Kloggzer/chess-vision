@@ -207,16 +207,17 @@ class TestTrainLock:
     def test_acquire_and_reclaim(self, monkeypatch, tmp_path):
         import json as _json
 
+        from chesslab import locks
         from chesslab.training import train as tr
         monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
         assert tr._acquire_train_lock("smallcnn bs=512") is True
         assert tr._train_lock_path().exists()
         # A foreign LIVE lock blocks a second training.
         tr._train_lock_path().write_text(_json.dumps({"pid": 999999, "ts": "now", "desc": "other"}))
-        monkeypatch.setattr(tr, "_pid_alive", lambda pid: pid == 999999)
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid == 999999)
         assert tr._acquire_train_lock("x") is False
         # A stale lock (dead PID) is reclaimed.
-        monkeypatch.setattr(tr, "_pid_alive", lambda pid: False)
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: False)
         assert tr._acquire_train_lock("y") is True
         tr._release_train_lock()
         assert not tr._train_lock_path().exists()

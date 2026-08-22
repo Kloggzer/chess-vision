@@ -270,6 +270,28 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     return splits
 
 
+def fold_groups(gsizes: dict, k: int, seed: int, force_train=None) -> list[list[str]]:
+    """Partition GROUPS into k folds of roughly equal crop count (largest-processing-time first).
+
+    `assign_sessions_to_splits` cannot do this: it is a 3-way assignment with target ratios, and
+    k calls produce overlapping test sets — which destroys the one property out-of-fold
+    prediction rests on. `force_train` groups are left out entirely; they get no fold, and the
+    caller has to say so out loud rather than pretend they were audited.
+    """
+    force_train = set(force_train or ())
+    rng = random.Random(seed)
+    items = [(g, sz) for g, sz in gsizes.items() if g not in force_train]
+    rng.shuffle(items)                       # deterministic tiebreak
+    items.sort(key=lambda kv: kv[1], reverse=True)
+    folds: list[list[str]] = [[] for _ in range(k)]
+    load = [0] * k
+    for g, sz in items:
+        i = min(range(k), key=lambda j: (load[j], j))
+        folds[i].append(g)
+        load[i] += sz
+    return [sorted(f) for f in folds]
+
+
 def groups_of(rows: list[dict]) -> dict:
     """session -> `split_group` the producer declared, falling back to the session itself."""
     return {r["session_id"]: r.get("split_group", r["session_id"]) for r in rows}

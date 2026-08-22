@@ -278,8 +278,10 @@ def build_synth_dataset(
                            f"(unreadable renders?) — dataset left WITHOUT packed_meta.json.")
 
     digest = _manifest_digest(rows)
+    # Empty fingerprint, not absent: `mm://` rows have no files to compare, and the absent case
+    # means "legacy pack" and would send `_rewritten_since_pack` down the file-mtime path.
     (ds / "packed_meta.json").write_text(
-        json.dumps({"n": n_final, "h": h, "w": w, "digest": digest,
+        json.dumps({"n": n_final, "h": h, "w": w, "digest": digest, "crop_fingerprint": {},
                     "paths": [r["path"] for r in rows]}), encoding="utf-8")
     gb = need / 1e9
     print(f"[OK] fused build '{name}': {n_final} crops -> {img_path} ({gb:.1f} GB, "

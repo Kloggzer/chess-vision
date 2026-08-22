@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, locks
 
 _FILES = "abcdefgh"
 
@@ -170,16 +170,17 @@ def slice_imported(session_ids: list[str], *, profile, out_size: tuple[int, int]
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     tot = {"sessions": 0, "frames": 0, "crops": 0, "skipped": 0}
     n = len(session_ids)
-    for sid in session_ids:
-        res = labeling.slice_session(
-            paths.sessions / sid, profile=profile, manifest_path=manifest_path,
-            squares_root=squares_root, out_size=out_size)
-        tot["sessions"] += 1
-        tot["frames"] += res["frames"]
-        tot["crops"] += res["crops"]
-        tot["skipped"] += res.get("skipped", 0)
-        print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
-              f"(last {sid}: {res['frames']} frames)", flush=True)
+    with locks.pool_lock(squares_root, f"ingest {n} session(s)"):
+        for sid in session_ids:
+            res = labeling.slice_session(
+                paths.sessions / sid, profile=profile, manifest_path=manifest_path,
+                squares_root=squares_root, out_size=out_size)
+            tot["sessions"] += 1
+            tot["frames"] += res["frames"]
+            tot["crops"] += res["crops"]
+            tot["skipped"] += res.get("skipped", 0)
+            print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
+                  f"(last {sid}: {res['frames']} frames)", flush=True)
     tot["manifest"] = str(manifest_path)
     tot["squares_root"] = str(squares_root)
     return tot

@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import numpy as np
@@ -156,15 +157,25 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     digest = _manifest_digest(rows)
     signature = {"n": n, "h": h, "w": w, "csize": csize, "digest": digest}
     done_starts: set[int] = set()
+    prev: dict = {}
     if progress_path.exists():
         try:
             prev = json.loads(progress_path.read_text(encoding="utf-8"))
             if prev.get("signature") == signature:
                 done_starts = set(prev.get("done", []))
         except (OSError, ValueError):
-            done_starts = set()                        # unreadable sidecar -> just redo the work
+            prev, done_starts = {}, set()              # unreadable sidecar -> just redo the work
     if done_starts:
         print(f"[pack] resuming: {len(done_starts)}/{len(starts)} chunks already packed", flush=True)
+
+    # Stamped BEFORE the first chunk, and a resume inherits the ORIGINAL stamp: chunks written
+    # before a re-slice hold the old pixels, so re-stamping now would certify exactly what
+    # `_rewritten_since_pack` exists to catch. A sidecar without one falls back to the file mtime.
+    started_at = time.time()
+    fingerprint = prev.get("crop_fingerprint") if done_starts else _crop_fingerprint(
+        [r["path"] for r in rows])
+    if done_starts:
+        started_at = prev.get("started_at", started_at)
 
     items = [(i, r["path"]) for i, r in enumerate(rows)]
     workers = workers or max(2, min(8, (os.cpu_count() or 4)))
@@ -175,8 +186,9 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         for start, c in pool.imap_unordered(_pack_chunk, tasks):
             done += c
             done_starts.add(start)
-            progress_path.write_text(json.dumps({"signature": signature, "done": sorted(done_starts)}),
-                                     encoding="utf-8")
+            progress_path.write_text(json.dumps({"signature": signature, "started_at": started_at,
+                                                 "crop_fingerprint": fingerprint,
+                                                 "done": sorted(done_starts)}), encoding="utf-8")
             print(f"[pack] {done}/{n} crops ({100.0 * done / n:.1f}%)", flush=True)
 
     # Never publish meta for a partially written file: load_packed would happily serve it and the
@@ -184,8 +196,11 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     if done != n:
         raise RuntimeError(f"pack incomplete: {done}/{n} crops written — refusing to write "
                            f"{meta_path.name}. Re-run to resume from {progress_path.name}.")
-    meta_path.write_text(json.dumps({"n": n, "h": h, "w": w, "digest": digest,
-                                     "paths": [r["path"] for r in rows]}), encoding="utf-8")
+    meta = {"n": n, "h": h, "w": w, "digest": digest, "started_at": started_at,
+            "paths": [r["path"] for r in rows]}
+    if fingerprint is not None:
+        meta["crop_fingerprint"] = fingerprint
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
     progress_path.unlink(missing_ok=True)              # complete -> sidecar no longer needed
     gb = n * h * w * 3 / 1e9
     print(f"[OK] packed {n} crops -> {img_path} ({gb:.1f} GB, {workers} workers)")
@@ -200,20 +215,47 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
 _STALE_SAMPLE = 256
 
 
-def _rewritten_since_pack(crop_paths: list[str], img_path: Path) -> bool:
-    """True if any sampled crop is NEWER than the packed pixels — i.e. the pack is stale.
+def _sampled_paths(crop_paths: list[str]) -> list[str]:
+    step = max(1, len(crop_paths) // _STALE_SAMPLE)
+    return crop_paths[::step]
 
-    Reference is the memmap's own mtime, not the sidecar's: the sidecar is written after the last
-    chunk, so it would grant a pack that resumed across a re-slice a few extra minutes of credit.
-    A false positive costs only the (correct, slower) per-PNG loader; a false negative trains a
-    model on the pixels of a previous geometry with no warning at all.
+
+def _crop_fingerprint(crop_paths: list[str]) -> dict[str, list]:
+    """(mtime, size) of the sampled crops, read BEFORE the first chunk is written."""
+    out: dict[str, list] = {}
+    for p in _sampled_paths(crop_paths):
+        try:
+            st = Path(p).stat()
+        except OSError:
+            continue                       # `mm://` rows and absent files simply carry no entry
+        out[p] = [st.st_mtime, st.st_size]
+    return out
+
+
+def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
+                          fingerprint: dict[str, list] | None) -> bool:
+    """True if a sampled crop differs from what it was when the pack STARTED — i.e. it is stale.
+
+    Comparing on inequality needs no clock, so exFAT's 2 s and SMB's server time stop mattering,
+    and a crop restored with an OLDER mtime (a `_parked/` restore, a copy preserving timestamps)
+    is caught too. Packs from before the fingerprint fall back to the memmap's own mtime — the
+    reference they were written under, which Windows leaves anywhere between prealloc and last
+    flush: on `comp13-occ-80-v2` it stood on the prealloc 2.5 h before the pack finished.
     """
+    if fingerprint is not None:
+        for p, (mtime, size) in fingerprint.items():
+            try:
+                st = Path(p).stat()
+            except OSError:
+                continue                   # a crop that vanished does not unmake the packed pixels
+            if st.st_mtime != mtime or st.st_size != size:
+                return True
+        return False
     try:
         packed_at = img_path.stat().st_mtime
     except OSError:
         return False
-    step = max(1, len(crop_paths) // _STALE_SAMPLE)
-    for p in crop_paths[::step]:
+    for p in _sampled_paths(crop_paths):
         try:
             if Path(p).stat().st_mtime > packed_at:
                 return True
@@ -262,7 +304,7 @@ def load_packed(name: str, paths: config.Paths = config.DATA):
                     name, img_path.stat().st_size, expected_bytes)
         return None
 
-    if _rewritten_since_pack(meta["paths"], img_path):
+    if _rewritten_since_pack(meta["paths"], img_path, meta.get("crop_fingerprint")):
         log.warning("crops of '%s' were rewritten after it was packed — ignoring the pack. "
                     "Re-run `chesslab dataset pack %s`.", name, name)
         return None
@@ -301,9 +343,12 @@ def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
                          f"'{name}' needs, e.g. {sorted(missing)[0]}")
 
     img_path, meta_path = _packed_paths(dd)
-    meta_path.write_text(json.dumps({"n": ometa["n"], "h": ometa["h"], "w": ometa["w"],
-                                     "digest": _manifest_digest(rows), "paths": ometa["paths"],
-                                     "packed_from": owner}), encoding="utf-8")
+    link = {"n": ometa["n"], "h": ometa["h"], "w": ometa["w"], "digest": _manifest_digest(rows),
+            "paths": ometa["paths"], "packed_from": owner}
+    # A link has no memmap of its own, so without the owner's reference every staleness check
+    # would fall back to the owner FILE's mtime — the unreliable one.
+    link.update({k: ometa[k] for k in ("started_at", "crop_fingerprint") if k in ometa})
+    meta_path.write_text(json.dumps(link), encoding="utf-8")
     freed = img_path.stat().st_size if img_path.exists() else 0
     img_path.unlink(missing_ok=True)
     print(f"[OK] '{name}' now reads '{owner}' ({freed / 1e9:.2f} GB freed)")

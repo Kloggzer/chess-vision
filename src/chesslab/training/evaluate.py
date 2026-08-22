@@ -41,7 +41,13 @@ def load_run(run_dir: Path):
 _load_run = load_run
 
 
-def run_eval(run: str, split_name: str = "test", input_size: int | None = None) -> int:
+def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
+             dataset: str | None = None, split_file: str | None = None,
+             sessions: list[str] | None = None) -> int:
+    """`dataset` points the run at a corpus it was not trained on — the "validate with the
+    pretrain" step, which used to need a throwaway script. `split_name="all"` skips the split
+    filter, `sessions` narrows it further, and both guards below only fire on that path.
+    """
 
     from .engine import (
         confusion_matrix,
@@ -60,15 +66,21 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     model, cfg = _load_run(run_dir)
     classes = cfg["classes"]
 
-    ds_name = cfg.get("dataset")          # selber Datensatz wie beim Training (im run-config)
+    foreign = bool(dataset) and dataset != cfg.get("dataset")
+    # Naming the split file is an override too: pointing a fold model at a SIBLING fold reads
+    # sessions it trained on just as surely as pointing it at another corpus does.
+    overridden = foreign or (bool(split_file) and split_file != cfg.get("split_file"))
+    ds_name = dataset or cfg.get("dataset")   # ohne --dataset: der Datensatz aus dem run-config
     if ds_name:
         from ..dataset_build import dataset_dir
         dd = dataset_dir(ds_name)
         # The run's OWN split, not the corpus-wide one: a cross-validation fold shares the packed
         # dataset with three others, and `split.json` there names every session — evaluating a
-        # fold against it would measure the sessions it trained on.
+        # fold against it would measure the sessions it trained on. A foreign dataset has no such
+        # claim on the run, so there the default is that dataset's own split.
         manifest_path = dd / "manifest.jsonl"
-        split_path = dd / (cfg.get("split_file") or "split.json")
+        default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
+        split_path = dd / (split_file or default_split)
     else:
         manifest_path = config.DATA.crop_pool / "manifest.jsonl"
         split_path = config.DATA.reports / "split.json"
@@ -77,10 +89,31 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
         return 1
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
-    rows = filter_rows_by_split(manifest, split, split_name)
+    # A run's class list is baked into its head; measuring it against a corpus that numbers its
+    # classes differently produces a full, plausible, meaningless table.
+    ds_classes = split.get("classes")
+    if ds_classes and list(ds_classes) != list(classes):
+        print(f"[FAIL] '{ds_name}' carries {len(ds_classes)} classes ({', '.join(ds_classes)}), "
+              f"the run has {len(classes)} ({', '.join(classes)}).")
+        return 1
+    rows = manifest if split_name == "all" else filter_rows_by_split(manifest, split, split_name)
+    if sessions:
+        wanted = set(sessions)
+        unknown = wanted - {r["session_id"] for r in rows}
+        if unknown:
+            print(f"[FAIL] --sessions: not in {split_name} of '{ds_name}': {', '.join(sorted(unknown))}")
+            return 1
+        rows = [r for r in rows if r["session_id"] in wanted]
     if not rows:
         print(f"[FAIL] {split_name} split is empty.")
         return 1
+    if overridden:
+        from ..occluded_model import trained_on
+        seen = {s for s in trained_on(run_dir)
+                for r in rows if s == r["session_id"] or s.endswith("-" + r["session_id"])}
+        if seen:
+            print(f"[WARN] {len(seen)} of these sessions are in the run's TRAIN split: "
+                  f"{', '.join(sorted(seen))} — these numbers are not held out.")
 
     device = get_device(require_gpu=False)
     model.to(device)
@@ -91,15 +124,19 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
         from .pack import load_packed
         packed = load_packed(ds_name)
     tf = eval_transform_for(cfg)
+    # An occlusion run's last logit is the coverage sigmoid, not a class. `evaluate_dataset` only
+    # strips it when the batch carries a 2-wide target, so without this every such run argmaxed
+    # over one unit too many: IndexError in the breakdown, board accuracy 0.
+    with_coverage = cfg.get("head") == "occlusion"
     if packed is not None:
         from .torch_data import PackedSquareDataset
-        ds = PackedSquareDataset(rows, classes, tf, packed)
+        ds = PackedSquareDataset(rows, classes, tf, packed, with_coverage=with_coverage)
     elif rows and str(rows[0].get("path", "")).startswith("mm://"):
         print(f"[FAIL] dataset '{ds_name}' is a fused synth build but its packed memmap is "
               "missing/stale — re-run `chesslab dataset build-synth`.")
         return 1
     else:
-        ds = SquareDataset(rows, classes, tf)
+        ds = SquareDataset(rows, classes, tf, with_coverage=with_coverage)
     res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size)
 
     # 1. Board-Accuracy (Hauptmetrik)
@@ -114,6 +151,15 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     print(f"Occupancy: square {bd['occ_acc']:.4f} | board {occ_bacc:.4f}   "
           f"Figur (auf besetzt): {bd['piece_acc']:.4f}   "
           f"Fehler: Typ {bd['type_err']:.3f} / Farbe {bd['color_err']:.3f}")
+    # 1c. Per session: a corpus mean hides the one recording that carries the whole error.
+    from .data import per_session_metrics
+
+    per_session = per_session_metrics(rows, classes, list(res["trues"]), list(res["preds"]))
+    if len(per_session) > 1:
+        print("Per session (worst board accuracy first):")
+        for sid, m in sorted(per_session.items(), key=lambda kv: kv[1]["board_acc"]):
+            print(f"  {sid:<34} board {m['board_acc']:.4f}  occ {m['occ_board_acc']:.4f}  "
+                  f"square {m['square_acc']:.4f}  ({m['crops']} crops)")
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
     recall = per_class_recall(cm)
@@ -121,18 +167,23 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None) 
     for c, r in zip(classes, recall, strict=False):
         print(f"  {c:<6} {r:.3f}")
     # 3. Confusion (Text + PNG), Blick auf König<->Dame und Figur<->empty
+    # A foreign eval writes under its own stem: `eval_test.json` and its confusion are what
+    # `run_export` merges into model_card.json, and must keep describing the run's own test split.
+    stem = f"{split_name}__{ds_name}" if foreign else split_name
     txt = render_confusion_text(cm, classes)
-    (run_dir / f"confusion_{split_name}.txt").write_text(txt, encoding="utf-8")
-    save_confusion_png(cm, classes, run_dir / f"confusion_{split_name}.png")
+    (run_dir / f"confusion_{stem}.txt").write_text(txt, encoding="utf-8")
+    save_confusion_png(cm, classes, run_dir / f"confusion_{stem}.png")
     # 4. Square-Accuracy (nur Kontext)
     print(f"Square-Accuracy ({split_name}): {res['square_acc']:.4f}  (nur Kontext)")
-    print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + split_name + '.txt')} (+ .png)")
+    print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + stem + '.txt')} (+ .png)")
 
-    summary = {"split": split_name, "board_acc": res["board_acc"], "square_acc": res["square_acc"],
-               "occ_acc": bd["occ_acc"], "occ_board_acc": occ_bacc, "piece_acc": bd["piece_acc"],
-               "type_err": bd["type_err"], "color_err": bd["color_err"],
-               "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)}}
-    (run_dir / f"eval_{split_name}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    summary = {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
+               "square_acc": res["square_acc"], "occ_acc": bd["occ_acc"], "occ_board_acc": occ_bacc,
+               "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
+               "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
+               "per_session": per_session}
+    (run_dir / f"eval_{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    print(f"[OK] {run_dir / f'eval_{stem}.json'}")
     return 0
 
 

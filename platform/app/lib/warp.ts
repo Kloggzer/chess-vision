@@ -134,6 +134,37 @@ export function meshFromLines(lines: unknown): GridMesh | undefined {
   return { ...mesh, cx: l.cx, cy: l.cy };
 }
 
+/** A curvature this far off the cross-line trend was measured on pieces, not optics — twin of
+ *  `calibration.CURV_TREND_LIMIT`, where the number is explained. */
+const CURV_TREND_LIMIT = 0.02;
+
+const median = (values: number[]): number => {
+  const s = [...values].sort((a, b) => a - b);
+  const h = s.length >> 1;
+  return s.length % 2 === 1 ? s[h] : 0.5 * (s[h - 1] + s[h]);
+};
+
+function trendReplaced(values: number[]): number[] {
+  const slopes: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    for (let j = i + 1; j < values.length; j++) slopes.push((values[j] - values[i]) / (j - i));
+  }
+  const m = median(slopes);
+  const b = median(values.map((v, k) => v - m * k));
+  return values.map((v, k) => (Math.abs(v - (m * k + b)) > CURV_TREND_LIMIT ? m * k + b : v));
+}
+
+/**
+ * Curvature is optics and optics are smooth across parallel lines — a line breaking out of the
+ * others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value.
+ * Twins: `calibration.smooth_mesh_curvature`, `smoothMeshCurvature` (CropBox.kt), all three pinned
+ * by `curvature_trend_parity.json`.
+ */
+export function smoothMeshCurvature<T extends GridMesh>(mesh: T): T {
+  if (!mesh.cx || !mesh.cy) return mesh;
+  return { ...mesh, cx: trendReplaced(mesh.cx), cy: trendReplaced(mesh.cy) };
+}
+
 /** Simultaneous evaluations per point — the same argument as `CORNER_ITERATIONS` (CropBox.kt). */
 const MESH_POINT_ITERATIONS = 3;
 

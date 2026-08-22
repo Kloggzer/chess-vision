@@ -19,6 +19,7 @@ from chesslab.calibration import (
     crop_border_px,
     mesh_from_lines,
     mesh_point,
+    smooth_mesh_curvature,
     straighten_board,
 )
 
@@ -83,6 +84,42 @@ def test_mesh_from_lines_drops_one_stage_per_defect(fx):
     assert mesh_from_lines({**m, "x": list(reversed(m["x"]))}) is None
     assert mesh_from_lines({**m, "y": [str(v) for v in m["y"]]}) is None
     assert mesh_from_lines(None) is None
+
+
+def test_the_trend_heal_matches_the_shared_fixture():
+    """The REAL poisoned mesh (rg-2026-08-15-22-57-06) healed identically on every side —
+    `CurvatureTrendParityTest.kt` reads the same file."""
+    fx = json.loads((FIXTURE.parent / "curvature_trend_parity.json").read_text(encoding="utf-8"))
+    healed = smooth_mesh_curvature(mesh_from_lines(fx["mesh"]))
+    assert healed.cx == pytest.approx(fx["healedCx"], abs=1e-9)
+    assert healed.cy == pytest.approx(fx["healedCy"], abs=1e-9)
+    lin = fx["linearCurv"]
+    m = fx["mesh"]
+    untouched = smooth_mesh_curvature(GridMesh(m["x"], m["y"], m["tx"], m["ty"], list(lin), list(lin)))
+    assert untouched.cx == pytest.approx(lin, abs=1e-9)
+
+
+def test_a_poisoned_curvature_line_takes_the_cross_line_trend(fx):
+    """The 7/6 defect: pawn feet fake -0.07 curvature on ONE line; the trend replaces exactly it."""
+    mesh = mesh_from_lines(fx["mesh"])
+    poisoned = smooth_mesh_curvature(GridMesh(
+        mesh.x, mesh.y, mesh.tx, mesh.ty,
+        cx=[0.001 * k for k in range(9)],
+        cy=[0.001 * k if k != 2 else -0.07 for k in range(9)]))
+    assert poisoned.cx == pytest.approx([0.001 * k for k in range(9)], abs=1e-9)
+    assert poisoned.cy[2] == pytest.approx(0.002, abs=1e-3)
+    assert poisoned.cy[3:] == pytest.approx([0.001 * k for k in range(3, 9)], abs=1e-9)
+
+
+def test_a_genuinely_linear_curvature_profile_is_left_alone():
+    """A rig's real bow runs linearly across the lines (±0.046 at the edges) and must survive."""
+    lin = [round(-0.046 + k * 0.0115, 5) for k in range(9)]
+    xs = [k / 8.0 for k in range(9)]
+    mesh = GridMesh(xs, list(xs), [0.0] * 9, [0.0] * 9, list(lin), list(lin))
+    healed = smooth_mesh_curvature(mesh)
+    assert healed.cx == pytest.approx(lin, abs=1e-9)
+    assert smooth_mesh_curvature(None) is None
+    assert smooth_mesh_curvature(GridMesh(xs, list(xs))).cx is None
 
 
 def test_a_nominal_mesh_leaves_the_board_where_it_found_it(fx):

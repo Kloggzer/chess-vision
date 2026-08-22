@@ -187,7 +187,10 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     if ds_name:
         from ..dataset_build import dataset_dir
         dd = dataset_dir(ds_name)
-        manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
+        # A fold run trains against `split-f<i>.json`; reading `split.json` here would
+        # hand back the very sessions the fold was built to hold out.
+        manifest_path = dd / "manifest.jsonl"
+        split_path = dd / (cfg.get("split_file") or "split.json")
     else:
         manifest_path = config.DATA.crop_pool / "manifest.jsonl"
         split_path = config.DATA.reports / "split.json"

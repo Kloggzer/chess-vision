@@ -8,7 +8,7 @@ import { STREAM_PALETTE } from "@/components/board-paint";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/corrections";
 import { coveragePct, coveredSquares } from "@/lib/classes";
-import { dirtyRows, frameKey } from "@/lib/dirty-frames";
+import { DIRTY_BRUSH, DIRTY_KEY, dirtyRows, frameKey } from "@/lib/dirty-frames";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import {
   DEFAULT_LANE,
@@ -30,6 +30,7 @@ import {
   openBoards,
   openCells,
   wallCells,
+  type LaneCell,
 } from "@/lib/lanes";
 import { queryText, type Filter, type QueryAnswer } from "@/lib/query";
 import { addRows, emptyTally } from "@/lib/session-tally";
@@ -137,8 +138,16 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const [written, setWritten] = useState<Written>({});
   const [thrown, setThrown] = useState<ReadonlySet<string>>(new Set<string>());
   const [dropped, setDropped] = useState<ReadonlySet<number>>(new Set<number>());
-  /** Reported dirty this session — the frame STAYS labelable, so it only wears a mark. */
-  const [reported, setReported] = useState<ReadonlySet<string>>(new Set<string>());
+  /**
+   * Gemeldete Frames. Der Zettel liegt in `review-notes.jsonl`, also muss die Marke einen Reload
+   * überleben — sonst meldet man dasselbe Frame in der nächsten Sitzung ein zweites Mal.
+   */
+  const [reported, setReported] = useState<ReadonlySet<string>>(
+    () =>
+      new Set(
+        stream.sessions.flatMap((s, index) => s.reportedDirty.map((stem) => `${index}|${stem}`)),
+      ),
+  );
   const [tally, setTally] = useState(emptyTally);
   /** Was `z` zurücknehmen kann, mit dem Zeitpunkt — die jüngste Tat gewinnt gegen den Flush. */
   const [dirtyTrail, setDirtyTrail] = useState<{ session: number; stem: string; at: number }[]>([]);
@@ -378,6 +387,18 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     [stream.sessions],
   );
 
+  /** Der Dirty-Pinsel: gemalte Zellen melden ihr FRAME — derselbe Weg wie die Crop-Ecke. */
+  const markPaintedDirty = useCallback(
+    (cells: LaneCell[]) => {
+      const frames = new Map<string, LaneCell>();
+      for (const c of cells) frames.set(`${c.session}|${c.stem}`, c);
+      for (const c of frames.values()) {
+        void markDirty(c.session, c.stem, true, "Labeln-Strom: Dirty-Pinsel");
+      }
+    },
+    [markDirty],
+  );
+
   /** `z` nimmt die JÜNGSTE Tat zurück — ein Zettel zählt nur, solange nach ihm nichts geschrieben wurde. */
   function undoDirty(): boolean {
     const last = dirtyTrail[dirtyTrail.length - 1];
@@ -456,6 +477,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         return;
       }
       default: {
+        if (event.key === DIRTY_KEY) {
+          event.preventDefault();
+          now.brush?.(DIRTY_BRUSH);
+          return;
+        }
         const hit = STREAM_PALETTE.find(([k]) => k === event.key);
         if (!hit) return;
         event.preventDefault();
@@ -651,6 +677,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               onAt={setAt}
               onDirty={(cell, on) => void markDirty(cell.session, cell.stem, on, "Labeln-Strom: Crop-Ecke")}
               onFlush={flush}
+              onDirtyCells={markPaintedDirty}
               reported={reported}
               sessions={stream.sessions}
             />

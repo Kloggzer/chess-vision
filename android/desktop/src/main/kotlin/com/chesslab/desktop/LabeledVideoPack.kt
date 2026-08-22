@@ -14,6 +14,7 @@ import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
 import com.chesslab.geometry.gridOccludedSquares
 import com.chesslab.geometry.margins4
+import com.chesslab.geometry.smoothMeshCurvature
 import com.chesslab.geometry.straightenBoard
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
@@ -58,7 +59,9 @@ internal fun storedQuadFit(sessionDir: File): Map<String, FittedQuad> {
     val root = Json.parseToJsonElement(file.readText()) as JsonObject
     val margin = root.getValue("margin").jsonPrimitive.double
     val frames = root["frames"] as? JsonObject ?: return emptyMap()
-    return frames.mapValues { (_, entry) -> FittedQuad((entry as JsonObject).corners(), margin, entry.meshOrNull()) }
+    return frames.mapValues { (_, entry) ->
+        FittedQuad((entry as JsonObject).corners(), margin, entry.meshOrNull()?.let(::smoothMeshCurvature))
+    }
 }
 
 /** `grid_lines` is additive: absent, short, non-numeric, non-finite or non-monotone reads as

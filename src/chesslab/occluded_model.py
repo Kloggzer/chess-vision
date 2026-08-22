@@ -70,12 +70,16 @@ def check_not_circular(run_dir: Path, session_id: str) -> None:
         )
 
 
-def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
-    """The full softmax per crop, in the run's class order."""
+def all_reads(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[dict]:
+    """Per crop the full softmax AND the occlusion head's coverage, where the run carries one."""
     from . import serving
 
-    out = serving.predict_arrays(run_dir, cells, device=device, return_probs=True)
-    return [[float(x) for x in r["probs"]] for r in out]
+    return serving.predict_arrays(run_dir, cells, device=device, return_probs=True)
+
+
+def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
+    """The full softmax per crop, in the run's class order."""
+    return [[float(x) for x in r["probs"]] for r in all_reads(run_dir, cells, device)]
 
 
 #: Below this a probability is noise no filter would ever be pointed at.
@@ -135,14 +139,18 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
         fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
                              "_written_at": datetime.now(UTC).isoformat()}) + "\n")
         for n, row in enumerate(rows, 1):
-            probs = all_probs(model_dir, frame_cells(session_dir, row, profile), device)
+            reads = all_reads(model_dir, frame_cells(session_dir, row, profile), device)
             stem = Path(row["frame"]).stem
             labels = GameState(row["fen"]).labels()
-            for sq, p in zip(squares, probs, strict=True):
+            for sq, read in zip(squares, reads, strict=True):
+                # `cov` rides along only where the run carries an occlusion head: `hand_flags`
+                # needs the model's claim beside the matte's measurement, and a re-read is an hour.
+                cov = read.get("coverage")
                 fh.write(json.dumps({
                     "session_id": meta["session_id"], "frame": stem, "square": sq,
                     "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
-                    "probs": sparse(p, classes)}) + "\n")
+                    **({"cov": cov} if cov is not None else {}),
+                    "probs": sparse(read["probs"], classes)}) + "\n")
                 written += 1
             if progress and n % PROGRESS_EVERY == 0:
                 print(f"  {n}/{len(rows)} boards, {written} cells", flush=True)

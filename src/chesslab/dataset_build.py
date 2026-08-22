@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, locks
 from . import dataset as dataset_mod
 
 log = logging.getLogger("chesslab.dataset_build")
@@ -444,6 +444,14 @@ def build_dataset(
     missing = [str(p) for p in srcs if not p.exists()]
     if missing:
         raise ValueError(f"source manifest(s) not found: {', '.join(missing)}")
+    # Reading a pool that a slice is still filling is how 2026-08-21 went: the build took a
+    # half-written manifest, packed for 19 minutes against crops that kept changing, and the pack
+    # was correctly thrown away afterwards. The writer already announces itself — ask it.
+    for src in srcs:
+        busy = locks.held_by(locks.pool_lock_path(src.parent))
+        if busy:
+            raise ValueError(f"crop pool {src.parent} is being written by {locks.describe(busy)} "
+                             f"— wait for it to finish, then build.")
 
     wanted = set(session_ids)
     rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
@@ -614,3 +622,109 @@ def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
         raise FileNotFoundError(f"dataset '{name}' not found.")
     shutil.rmtree(d)
     return {"name": _safe_name(name), "deleted": True}
+
+
+def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: float | None = None,
+               prefix: str = "split-f", dry_run: bool = False, force: bool = False,
+               allow_asymmetric: bool = False, paths: config.Paths = config.DATA) -> dict:
+    """Write k session-grouped `<prefix><i>.json` beside the dataset's own split.
+
+    Out-of-fold prediction is what `docs/cross-labeling-literature.md` settles on for finding
+    mislabeled cells (k = 4, Northcutt et al.), and `train --split` plus `check_not_circular`
+    were already built for it — nothing wrote the files. All folds read the SAME pack.
+
+    Fold models train on sessions the main split holds out, so their metrics are not comparable
+    with the main model's. They are audit instruments, not release candidates.
+    """
+    dd = dataset_dir(name, paths)
+    cfg = _read_yaml(dd / "dataset.yaml")
+    if not cfg:
+        raise ValueError(f"dataset '{name}' has no dataset.yaml at {dd / 'dataset.yaml'}")
+    rows = dataset_mod.load_manifest(dd / "manifest.jsonl")
+    if k < 2:
+        raise ValueError(f"-k must be at least 2, got {k}")
+
+    # `build_dataset` dedups TRAIN only, so a session the main split held out carries every crop
+    # and one it trained on carries a thinned selection. A fold that moves such a session into
+    # test measures board accuracy on boards that are missing squares.
+    d = cfg.get("dedup") or {}
+    if (d.get("per_cell_cap") or 0) > 0 or d.get("phash_enabled"):
+        if not allow_asymmetric:
+            raise ValueError(
+                f"'{name}' was deduped train-only (per_cell_cap={d.get('per_cell_cap')}, "
+                f"phash={d.get('phash_enabled')}), so its rows are asymmetric across the split "
+                f"and folds would measure thinned boards. Rebuild with --cap 0 --no-phash, or "
+                f"pass --allow-asymmetric.")
+        print(f"[WARN] '{name}' is deduped train-only — fold test sets are thinned boards.")
+
+    sp = cfg.get("split") or {}
+    seed = sp.get("seed", config.SEED) if seed is None else seed
+    val_frac = sp.get("val_frac", config.DEFAULT_VAL_FRAC) if val_frac is None else val_frac
+    classes = class_list_for(cfg.get("class_mode") or "pieces13")
+    force_train = set(cfg.get("force_train") or [])
+
+    groups = dataset_mod.groups_of(rows)
+    force_groups = {groups[s] for s in force_train if s in groups}
+    members: dict[str, list[str]] = {}
+    for sid, g in groups.items():
+        members.setdefault(g, []).append(sid)
+    sizes = Counter(r["session_id"] for r in rows)
+    gsizes = {g: sum(sizes[s] for s in ss) for g, ss in members.items()}
+    folds = dataset_mod.fold_groups(gsizes, k, seed, force_train=force_groups)
+
+    if force_groups:
+        pinned = sum(gsizes[g] for g in force_groups)
+        print(f"[i] {len(force_groups)} group(s) / {pinned} crops are pinned to train — they get "
+              f"no fold, so nothing ever predicts them out of sample.")
+    loads = [sum(gsizes[g] for g in f) for f in folds]
+    if min(loads) == 0:
+        raise ValueError(f"k={k} is larger than this corpus can fill: {len(gsizes)} groups, "
+                         f"fold sizes {loads}. Use a smaller k.")
+    print(f"[i] fold crop counts {loads} (largest/smallest {max(loads) / max(1, min(loads)):.2f}x)")
+
+    priority_paths = dataset_mod.load_priority_paths(paths)
+    written, errors = [], []
+    for i, fold in enumerate(folds):
+        # val comes from the NEXT fold, filled to val_frac: one group misses the quota badly
+        # (4.6 % where 15 % was asked), and taking it from this fold would leak into its own test.
+        test = sorted(s for g in fold for s in members[g])
+        pool = [g for g in folds[(i + 1) % k] if g not in fold]
+        val_target, val_groups, got = val_frac * len(rows), [], 0
+        for g in sorted(pool, key=lambda g: (-gsizes[g], g)):
+            # Only while it moves CLOSER, like `assign_sessions_to_splits` rule 2: filling until
+            # the target is reached overshot 15 % to 19 % here, and every crop over the mark comes
+            # straight out of train, which is the whole point of k folds instead of two halves.
+            if val_groups and abs(val_target - got - gsizes[g]) >= abs(val_target - got):
+                continue
+            val_groups.append(g)
+            got += gsizes[g]
+        val = sorted(s for g in val_groups for s in members[g])
+        train = sorted(set(sizes) - set(test) - set(val))
+        split = dataset_mod.make_split(
+            rows, val_frac, 1 / k, sp.get("max_empty_ratio"), seed, sp.get("max_class_ratio"),
+            force_train=force_train, precomputed_splits={"train": train, "val": val, "test": test},
+            priority_paths=priority_paths, classes=classes)
+        split.update({"fold": i, "k": k, "of_dataset": name})
+        errs, _w = dataset_mod.validate_split(split, rows, classes=classes)
+        errors += [f"{prefix}{i}: {e}" for e in errs]
+        out = dd / f"{prefix}{i}.json"
+        if out.exists() and not (force or dry_run):
+            raise ValueError(f"{out} exists — pass --force to overwrite.")
+        if not dry_run:
+            out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+        written.append(out.name)
+        c = split["counts"]
+        print(f"[fold {i}] train {c['train']} / val {c['val']} / test {c['test']} crops · "
+              f"test sessions: {', '.join(test)}")
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    seen = [s for f in folds for g in f for s in members[g]]
+    assert len(seen) == len(set(seen)), "folds overlap — out-of-fold would be a lie"
+    if not dry_run:
+        print("[OK] " + " ".join(written))
+        for i in range(k):
+            print(f"  chesslab train --dataset {name} --split {prefix}{i}.json")
+        print("  (all folds read the same pack — no re-packing)")
+    return {"dataset": name, "k": k, "folds": written, "crops_per_fold": loads,
+            "pinned_groups": sorted(force_groups)}
