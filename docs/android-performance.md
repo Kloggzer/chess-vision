@@ -1,5 +1,41 @@
 # Android tracker performance
 
+## Exact source-work profile
+
+The desktop replay can record the instrumented Kotlin work graph without sampling and without
+wall-clock noise:
+
+```powershell
+cd android
+.\gradlew.bat :desktop:run --args="replay <video.mp4> quiet workprofile"
+```
+
+`workprofile` is intentionally opt-in. Without it, every instrumentation site takes the inline
+no-op path: no stack collection, clock read, lock or report allocation is performed. Install the
+collector before starting pipeline worker threads; the replay command already guarantees this.
+
+The report printed after replay contains:
+
+- exact call counts for the instrumented source operations;
+- distinct semantic inputs and repeated-input calls, so repeated FEN serialization, legal-move
+  generation or work on the same frame can be identified;
+- copied/materialised bytes for frame, preview, crop and CNN staging buffers;
+- cache hits and misses;
+- caller-to-callee counts for an instrumented call graph (not a sampled JVM stack trace).
+
+The current boundaries cover the frame root, FEN and legal moves, grayscale conversions, grid
+coverage/occlusion, homography construction, camera/preview/crop copies, CNN crop and preprocessing,
+timeline writes and video progress. Add a stable `WorkOperation` and a `WorkProfiler.span` around a
+new expensive source boundary rather than naming reports after an implementation method. Pass the
+frame sequence or a stable content/state fingerprint as its input; inherited input automatically
+follows nested work on the same thread.
+
+`RecordingWorkProbe.snapshot().check(...)` turns counts, repeats and copied bytes into deterministic
+budgets for seeded or property-style tests. This is the fuzzy-execution oracle: vary valid event
+sequences, then fail on redundant source work instead of unreliable elapsed-time thresholds. Native
+library internals and scheduler time still belong in Android Studio/JFR/perfetto profiling; this
+report deliberately describes only source boundaries that the application can optimize.
+
 This page separates three claims that are easy to blur together:
 
 1. code shared by the phone and desktop;

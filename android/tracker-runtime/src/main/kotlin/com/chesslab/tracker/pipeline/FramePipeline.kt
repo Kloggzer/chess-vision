@@ -4,6 +4,8 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 
 // One camera frame -> one `FrameInput`. Port of the per-frame order in `tracker.py::_loop`,
@@ -129,6 +131,7 @@ class FramePipeline<T>(
     var corners: FloatArray? = null
 
     private var seq = 0L
+    private var sourceSeq = 0L
     private var luma = 0.0
 
     /** The dark gate's own input, for the perf line — the one number that decides a skip. */
@@ -160,20 +163,21 @@ class FramePipeline<T>(
         width: Int,
         height: Int,
         timestampMs: Long,
-    ): FrameResult {
-        // The delivered size is the only trustworthy one; a change invalidates the profile. Read it
-        // off the frame that ARRIVED, never off what was requested (commit a7dab73): a camera that
-        // hands back something other than what was asked for poisons every warp until the next
-        // calibration, and it does so silently.
-        sizeGuard.note(width, height)
-        val note = readFrame(image)
-        if (note != null) {
-            if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
+    ): FrameResult =
+        WorkProfiler.span(WorkOperation.FRAME, ++sourceSeq) {
+            // The delivered size is the only trustworthy one; a change invalidates the profile. Read it
+            // off the frame that ARRIVED, never off what was requested (commit a7dab73): a camera that
+            // hands back something other than what was asked for poisons every warp until the next
+            // calibration, and it does so silently.
+            sizeGuard.note(width, height)
+            val note = readFrame(image)
+            if (note != null) {
+                if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
+            }
+            val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
+            timings.mark(Stage.TOTAL)
+            result
         }
-        val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
-        timings.mark(Stage.TOTAL)
-        return result
-    }
 
     /** Frames that never reached the engine, by reason — until now only a note string per frame. */
     var skippedWaitingMarkers = 0L

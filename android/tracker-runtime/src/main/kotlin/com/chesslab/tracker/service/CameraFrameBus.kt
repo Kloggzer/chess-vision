@@ -1,5 +1,7 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -104,7 +106,7 @@ class CameraFrameBus<B>(
         val now = nowMs()
         if (now - lastMs < PUBLISH_INTERVAL_MS) return
         lastMs = now
-        val frame = bgr.clone()
+        val frame = bgr.profiledClone(WorkOperation.RAW_FRAME_COPY)
         synchronized(lock) {
             latest?.release()
             latest = frame
@@ -126,7 +128,7 @@ class CameraFrameBus<B>(
         if (now - lastBoardMs < PUBLISH_INTERVAL_MS) return
         lastBoardMs = now
         if (!boardGate.tryEnter()) return
-        val frame = warp.clone()
+        val frame = warp.profiledClone(WorkOperation.BOARD_PREVIEW_COPY)
         scope.launch {
             runCatching { board.value = toPreview(frame) }
                 .onFailure { log.warn("board preview conversion failed", it) }
@@ -136,12 +138,15 @@ class CameraFrameBus<B>(
     }
 
     /** A CLONE — the caller releases it. Null until the first frame arrives. */
-    override fun latestCalibrationFrame(): Mat? = synchronized(lock) { latest?.clone() }
+    override fun latestCalibrationFrame(): Mat? =
+        synchronized(lock) {
+            latest?.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY)
+        }
 
     /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
     override fun latestCalibrationSample(): CalibrationFrame? =
         synchronized(lock) {
-            latest?.let { CalibrationFrame(latestVersion, it.clone()) }
+            latest?.let { CalibrationFrame(latestVersion, it.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY)) }
         }
 
     override fun close() {
@@ -154,7 +159,7 @@ class CameraFrameBus<B>(
     private fun publishPreview() {
         if (!gate.tryEnter()) return
         val frame =
-            latestCalibrationFrame() ?: run {
+            synchronized(lock) { latest?.profiledClone(WorkOperation.RAW_PREVIEW_COPY) } ?: run {
                 gate.leave()
                 return
             }
@@ -166,6 +171,11 @@ class CameraFrameBus<B>(
         }
     }
 }
+
+private fun Mat.profiledClone(operation: WorkOperation): Mat =
+    WorkProfiler.span(operation) {
+        clone().also { copy -> WorkProfiler.bytes(operation, copy.total() * copy.elemSize().toLong()) }
+    }
 
 /** The seam 06a consumes. Pinned across both phases; 06a may not widen it. */
 interface CalibrationFrames<B> {

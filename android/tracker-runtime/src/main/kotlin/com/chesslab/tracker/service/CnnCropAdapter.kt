@@ -1,5 +1,7 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.cropBorderPx
@@ -32,44 +34,49 @@ fun cropFrameSource(
             store.request()
             null
         } else {
-            pending.cached?.let { cached ->
-                return@CnnFrameSource CnnFrame(
-                    emptyList(),
-                    pending.seq,
-                    pending.tsMs,
-                    pending.bgrDet,
-                    pending.grayDet,
-                    cached.gridOccluded,
-                    cached.observation,
-                )
-            }
-            val geom = geometry()
-            val cropWarp = requireNotNull(pending.cropWarp)
-            val squares = allSquares()
-            val cropOne = { square: String ->
-                val crop = cropSquare(cropWarp, square, geom)
-                try {
-                    toBgrImage(crop)
-                } finally {
-                    crop.release()
+            WorkProfiler.span(WorkOperation.CNN_CROP, pending.seq) {
+                pending.cached?.let { cached ->
+                    WorkProfiler.cache(WorkOperation.CNN_CROP, hit = true, input = pending.seq)
+                    return@span CnnFrame(
+                        emptyList(),
+                        pending.seq,
+                        pending.tsMs,
+                        pending.bgrDet,
+                        pending.grayDet,
+                        cached.gridOccluded,
+                        cached.observation,
+                    )
                 }
-            }
-            val visual =
-                if (parallel) {
-                    val grid =
-                        CompletableFuture.supplyAsync {
-                            gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
-                        }
-                    // Each task reads the immutable board warp and owns its output Mat. The
-                    // ordered stream collector keeps a1..h8 byte-for-byte aligned with the
-                    // phone even though independent squares are resized on separate PC cores.
-                    squares.parallelStream().map(cropOne).toList() to grid.join()
-                } else {
-                    squares.map(cropOne) to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
+                WorkProfiler.cache(WorkOperation.CNN_CROP, hit = false, input = pending.seq)
+                val geom = geometry()
+                val cropWarp = requireNotNull(pending.cropWarp)
+                val squares = allSquares()
+                val cropOne = { square: String ->
+                    val crop = cropSquare(cropWarp, square, geom)
+                    try {
+                        toBgrImage(crop)
+                    } finally {
+                        crop.release()
+                    }
                 }
-            // The model-free hand read, on the SAME full-resolution warp the crops came from —
-            // at detSize the grooves are 1-2 px and the read drowns in noise (GridOcclusion.kt).
-            cropWarp.release()
-            CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
+                val visual =
+                    if (parallel) {
+                        val grid =
+                            CompletableFuture.supplyAsync {
+                                gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
+                            }
+                        // Each task reads the immutable board warp and owns its output Mat. The
+                        // ordered stream collector keeps a1..h8 byte-for-byte aligned with the
+                        // phone even though independent squares are resized on separate PC cores.
+                        squares.parallelStream().map(cropOne).toList() to grid.join()
+                    } else {
+                        squares.map(cropOne) to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
+                    }
+                WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
+                // The model-free hand read, on the SAME full-resolution warp the crops came from —
+                // at detSize the grooves are 1-2 px and the read drowns in noise (GridOcclusion.kt).
+                cropWarp.release()
+                CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
+            }
         }
     }

@@ -1,6 +1,8 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.IllegalMoveException
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.CastleRight
 import com.github.bhlangonijr.chesslib.Piece
@@ -38,11 +40,17 @@ internal class Game(
      * `getFen()` always prints it, which would make every double-pawn-push FEN differ from
      * Python's (see `STATUS.md` D02a-1).
      */
-    fun fen(): String = board.getFen(true, true)
+    fun fen(): String =
+        WorkProfiler.span(WorkOperation.FEN_SERIALIZE, input = board::getIncrementalHashKey) {
+            board.getFen(true, true)
+        }
 
     val whiteToMove: Boolean get() = board.sideToMove == Side.WHITE
 
-    fun legalMoves(): List<Move> = MoveGenerator.generateLegalMoves(board)
+    fun legalMoves(): List<Move> =
+        WorkProfiler.span(WorkOperation.LEGAL_MOVES, input = board::getIncrementalHashKey) {
+            MoveGenerator.generateLegalMoves(board)
+        }
 
     /**
      * The chokepoint: a move that is not legal HERE never reaches the board.

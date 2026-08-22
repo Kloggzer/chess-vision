@@ -4,6 +4,8 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.GridCoverage
 import com.chesslab.geometry.Undistorter
@@ -210,7 +212,9 @@ class OpenCvStages<T>(
     override fun lumaPreClahe(): Double {
         val warp = detectionWarp()
         val dst = lumaScratch ?: Mat().also { lumaScratch = it }
-        Imgproc.cvtColor(warp, dst, Imgproc.COLOR_BGR2GRAY)
+        WorkProfiler.span(WorkOperation.LUMA_GRAY) {
+            Imgproc.cvtColor(warp, dst, Imgproc.COLOR_BGR2GRAY)
+        }
         return Core.mean(dst).`val`[0]
     }
 
@@ -250,7 +254,14 @@ class OpenCvStages<T>(
         // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
         // It costs one 2.5 MB copy on the frames the observer asked for, next to the full-resolution
         // bordered warp on the line above; on every other frame nothing is copied at all.
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, bgr.copyPlane(), gray.copyPlane(), cached))
+        val copies =
+            WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, seq) {
+                val bgrCopy = bgr.copyPlane()
+                val grayCopy = gray.copyPlane()
+                WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
+                bgrCopy to grayCopy
+            }
+        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cached))
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {

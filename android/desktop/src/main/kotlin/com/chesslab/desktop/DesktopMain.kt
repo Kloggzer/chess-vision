@@ -296,6 +296,8 @@ private fun usage(): Nothing {
         "                               visual observations while still processing every frame",
         "                        visualworkers=<n>  EXPERIMENT: regenerate cached visual rows",
         "                               through a bounded cross-frame worker pipeline",
+        "                        workprofile  report exact source calls, semantic repeats,",
+        "                               copied bytes, cache hits and the instrumented call graph",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
         "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
@@ -305,7 +307,7 @@ private fun usage(): Nothing {
 }
 
 @Suppress("LongMethod", "CyclomaticComplexMethod")
-internal fun replay(
+internal fun replayRun(
     source: FrameSource,
     name: String,
     options: ReplayOptions,

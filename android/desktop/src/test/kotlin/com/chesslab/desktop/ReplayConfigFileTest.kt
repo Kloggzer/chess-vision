@@ -164,5 +164,6 @@ class ReplayConfigFileTest {
     @Test
     fun `the word is parsed like its siblings`() {
         assertEquals("x/settings.json", ReplayOptions.parse(listOf("config=x/settings.json")).configFile)
+        assertTrue(ReplayOptions.parse(listOf("workprofile")).workProfile)
     }
 }

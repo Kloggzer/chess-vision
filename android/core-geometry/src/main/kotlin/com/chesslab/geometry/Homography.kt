@@ -1,5 +1,7 @@
 package com.chesslab.geometry
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
@@ -31,28 +33,48 @@ fun computeHomography(
     corners: List<DoubleArray>,
     boardSize: Int,
     margin: List<Double> = margins4(0.0),
-): Mat {
-    require(corners.size >= CORNER_COUNT) { "need 4 corners, got ${corners.size}" }
-    require(margin.size == CORNER_COUNT) { "need 4 margins (a8,h8,h1,a1), got ${margin.size}" }
-    val bs = boardSize.toDouble()
-    val m = margin.map { it * bs }
-    val src = pointsMat(corners.take(CORNER_COUNT))
-    val dst =
-        pointsMat(
-            listOf(
-                doubleArrayOf(-m[0], -m[0]),
-                doubleArrayOf(bs + m[1], -m[1]),
-                doubleArrayOf(bs + m[2], bs + m[2]),
-                doubleArrayOf(-m[3], bs + m[3]),
-            ),
-        )
-    val h = Imgproc.getPerspectiveTransform(src, dst)
-    // Both operands are native allocations; the caller only ever wanted the result. Leaving them
-    // to a finalizer leaked two `Mat`s per frame on the live path.
-    src.release()
-    dst.release()
-    return h
+): Mat =
+    WorkProfiler.span(
+        WorkOperation.HOMOGRAPHY_BUILD,
+        input = { homographyFingerprint(corners, boardSize, margin) },
+    ) {
+        require(corners.size >= CORNER_COUNT) { "need 4 corners, got ${corners.size}" }
+        require(margin.size == CORNER_COUNT) { "need 4 margins (a8,h8,h1,a1), got ${margin.size}" }
+        val bs = boardSize.toDouble()
+        val m = margin.map { it * bs }
+        val src = pointsMat(corners.take(CORNER_COUNT))
+        val dst =
+            pointsMat(
+                listOf(
+                    doubleArrayOf(-m[0], -m[0]),
+                    doubleArrayOf(bs + m[1], -m[1]),
+                    doubleArrayOf(bs + m[2], bs + m[2]),
+                    doubleArrayOf(-m[3], bs + m[3]),
+                ),
+            )
+        val h = Imgproc.getPerspectiveTransform(src, dst)
+        // Both operands are native allocations; the caller only ever wanted the result. Leaving them
+        // to a finalizer leaked two `Mat`s per frame on the live path.
+        src.release()
+        dst.release()
+        h
+    }
+
+/** Stable within and across runs, unlike collection identity hashes. Only evaluated while profiling. */
+private fun homographyFingerprint(
+    corners: List<DoubleArray>,
+    boardSize: Int,
+    margin: List<Double>,
+): Long {
+    var out = boardSize.toLong()
+    corners.take(CORNER_COUNT).forEach { point ->
+        point.forEach { value -> out = FINGERPRINT_MULTIPLIER * out + value.toBits() }
+    }
+    margin.forEach { value -> out = FINGERPRINT_MULTIPLIER * out + value.toBits() }
+    return out
 }
+
+private const val FINGERPRINT_MULTIPLIER = 31L
 
 /**
  * Reconstruct the 4 corner points `[a8, h8, h1, a1]` from 2/3/4 marker points.

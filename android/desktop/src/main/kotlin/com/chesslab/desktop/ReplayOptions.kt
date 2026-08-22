@@ -112,6 +112,8 @@ data class ReplayOptions(
     val observationCache: Boolean = true,
     /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
     val visualWorkers: Int = 0,
+    /** Exact source-work call graph, semantic repeats, copied bytes and cache hits. */
+    val workProfile: Boolean = false,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -127,6 +129,7 @@ data class ReplayOptions(
                 "frames" to { it.copy(frames = true) },
                 "cleanonly" to { it.copy(cleanOnly = true) },
                 "noobscache" to { it.copy(observationCache = false) },
+                "workprofile" to { it.copy(workProfile = true) },
             )
 
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
@@ -213,6 +216,7 @@ data class ReplayOptions(
             (visualCache?.let { " visualcache=$it" } ?: "") +
             (if (observationCache) "" else " noobscache") +
             (if (visualWorkers > 0) " visualworkers=$visualWorkers" else "") +
+            (if (workProfile) " workprofile" else "") +
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
 

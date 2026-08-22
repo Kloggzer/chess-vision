@@ -1,5 +1,7 @@
 package com.chesslab.geometry
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.CLAHE
@@ -44,18 +46,19 @@ class GrayPipeline(
     fun toGray(
         warpedBgr: Mat,
         dst: Mat? = null,
-    ): Mat {
-        val out = dst ?: Mat()
-        if (claheClip > 0) {
-            Imgproc.cvtColor(warpedBgr, scratch, Imgproc.COLOR_BGR2GRAY)
-            val handle = clahe ?: Imgproc.createCLAHE(claheClip, Size(CLAHE_TILE, CLAHE_TILE)).also { clahe = it }
-            handle.apply(scratch, out)
-        } else {
-            Imgproc.cvtColor(warpedBgr, out, Imgproc.COLOR_BGR2GRAY)
+    ): Mat =
+        WorkProfiler.span(WorkOperation.DETECTION_GRAY) {
+            val out = dst ?: Mat()
+            if (claheClip > 0) {
+                Imgproc.cvtColor(warpedBgr, scratch, Imgproc.COLOR_BGR2GRAY)
+                val handle = clahe ?: Imgproc.createCLAHE(claheClip, Size(CLAHE_TILE, CLAHE_TILE)).also { clahe = it }
+                handle.apply(scratch, out)
+            } else {
+                Imgproc.cvtColor(warpedBgr, out, Imgproc.COLOR_BGR2GRAY)
+            }
+            Imgproc.GaussianBlur(out, out, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
+            out
         }
-        Imgproc.GaussianBlur(out, out, Size(BLUR_KSIZE, BLUR_KSIZE), 0.0)
-        return out
-    }
 
     override fun close() {
         scratch.release()
