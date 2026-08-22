@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.STARTPOS
@@ -55,6 +57,7 @@ import com.chesslab.tracker.ui.debug.debugSession
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.RecordingSettingsHost
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -67,6 +70,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 private const val PREVIEW_MAX_SIDE = 640
+private const val SOURCE_PROFILE_TAG = "chesslabSourceProfile"
+private const val SOURCE_PROFILE_DRAIN_MS = 250L
 
 /**
  * How long the run header waits for the CNN attach to resolve.
@@ -102,6 +107,7 @@ class TrackerService :
     private lateinit var diagnostics: DiagnosticsLog
     private lateinit var recordingSettings: RecordingSettings
     private lateinit var recording: RecordingBundleHost
+    private lateinit var sourceWorkProfile: SourceWorkProfileController
 
     /** Read once: `PackageManager` is a binder call and the answer cannot change under us. */
     private val host by lazy { androidHostIdentity(this) }
@@ -290,6 +296,7 @@ class TrackerService :
         // place is a leak of everything the service owns.
         settings.submit = {}
         DebugSessionHost.publish(null)
+        sourceWorkProfile.close()
         TrackerRestartHost.publish(null)
         GameSessionHost.publish(null)
         // The service IS the session: stopping it ends the game rather than losing it. A game with
@@ -316,6 +323,11 @@ class TrackerService :
         // The process's repository, not one of ours: it is read and written by the settings screen
         // with no tracker running, and two over the same DataStore would be two truths.
         settings = SettingsHost.get(this)
+        sourceWorkProfile =
+            SourceWorkProfileController(
+                available = BuildConfig.DEBUG,
+                header = ::sourceWorkProfileHeader,
+            )
         settings.submit = {
             // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
             stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
@@ -364,6 +376,10 @@ class TrackerService :
                 cnnState = cnn,
                 settings = settings,
                 onDebugEnabled = ::setDebugEnabled,
+                workProfilingAvailable = sourceWorkProfile.available,
+                workProfilingEnabled = sourceWorkProfile.enabled,
+                onWorkProfilingEnabled = ::setSourceWorkProfilingEnabled,
+                workProfileReport = sourceWorkProfile::report,
                 crops = { stacks.current?.cropTap?.latest },
                 runtime = cnnProbe::info,
                 retry = { stacks.current?.let { it.observer.retryAttach(attachCnn) } },
@@ -530,6 +546,28 @@ class TrackerService :
         stacks.current?.let {
             it.cropTap.enabled = on
             it.host.submit(EngineAction.SetDebugEnabled(on))
+        }
+    }
+
+    private fun sourceWorkProfileHeader(): String =
+        buildString {
+            appendLine("chesslab Android source-work profile")
+            appendLine("app: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE}) debug=${BuildConfig.DEBUG}")
+            appendLine("device: ${Build.MANUFACTURER} ${Build.MODEL} (${Build.DEVICE})")
+            appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            append("ABIs: ${Build.SUPPORTED_ABIS.joinToString()}")
+        }
+
+    /** Stop is also an adb-friendly export path; each row remains below logcat's line limit. */
+    private fun setSourceWorkProfilingEnabled(on: Boolean) {
+        sourceWorkProfile.setEnabled(on)
+        if (!on) {
+            lifecycleScope.launch {
+                // Let analyzer/observer spans that entered before the tap close into the retained
+                // probe before emitting the adb export.
+                delay(SOURCE_PROFILE_DRAIN_MS)
+                sourceWorkProfile.report()?.lineSequence()?.forEach { Log.i(SOURCE_PROFILE_TAG, it) }
+            }
         }
     }
 

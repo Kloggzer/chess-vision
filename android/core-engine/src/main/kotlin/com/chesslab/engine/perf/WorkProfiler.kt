@@ -20,6 +20,7 @@ enum class WorkOperation(
 ) {
     COORDINATOR_FRAME("coordinator.frame"),
     FRAME("frame"),
+    FRAME_CONVERT("frame.convert"),
     ENGINE_TICK("engine.tick"),
     ENGINE_FRAME("engine.frame"),
     ENGINE_CNN_SNAPSHOT("engine.cnn_snapshot"),

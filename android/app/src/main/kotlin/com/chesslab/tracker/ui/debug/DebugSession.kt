@@ -28,8 +28,17 @@ interface DebugSession {
      */
     val debugPinned: StateFlow<Boolean>
 
+    /** Exact cross-thread source-work profiling is offered only by a debuggable Android build. */
+    val workProfilingAvailable: Boolean
+    val workProfilingEnabled: StateFlow<Boolean>
+
     /** Arms the extra `TrackerStatus.debug` payload AND the crop tap. Off is the default. */
     fun setDebugEnabled(on: Boolean)
+
+    /** Starting after a stop creates a fresh profile; stopping keeps the last report exportable. */
+    fun setWorkProfilingEnabled(on: Boolean)
+
+    fun workProfileReport(): String?
 
     /** The crops of the last glance, or null. Called at most at 2 Hz, off the analyzer thread. */
     fun latestCrops(): DebugCrops?
@@ -61,8 +70,14 @@ object NoDebugSession : DebugSession {
     override val cnnState: StateFlow<CnnState> = MutableStateFlow(CnnState.Off)
     override val config: StateFlow<TrackerConfig> = MutableStateFlow(TrackerConfig())
     override val debugPinned: StateFlow<Boolean> = MutableStateFlow(false)
+    override val workProfilingAvailable = false
+    override val workProfilingEnabled: StateFlow<Boolean> = MutableStateFlow(false)
 
     override fun setDebugEnabled(on: Boolean) = Unit
+
+    override fun setWorkProfilingEnabled(on: Boolean) = Unit
+
+    override fun workProfileReport(): String? = null
 
     override fun latestCrops(): DebugCrops? = null
 

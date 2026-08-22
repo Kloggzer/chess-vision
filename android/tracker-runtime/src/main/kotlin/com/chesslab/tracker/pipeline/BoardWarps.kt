@@ -169,7 +169,9 @@ class OpenCvStages<T>(
         get() = if (config.detectScale < 1.0) (geometry.boardSize * config.detectScale).toInt() else geometry.boardSize
 
     override fun convert(image: T) {
-        frame = toBgr(image)
+        WorkProfiler.span(WorkOperation.FRAME_CONVERT) {
+            frame = toBgr(image)
+        }
     }
 
     override fun undistort(): Boolean {
