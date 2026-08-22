@@ -1433,9 +1433,11 @@ def measure_settle(video: Path, candidate: dict, profile,
 
     quad = candidate["geometry"]["corners"]
     squares = all_squares()
+    square_index = {square: i for i, square in enumerate(squares)}
     moves = candidate["moves"]
     recording = Recording(video)
     out: dict[int, dict[str, int]] = {}
+    jobs = []
     for i, move in enumerate(moves):
         before = moves[i - 1].get("fen_after") if i else candidate.get("start_fen")
         touched = changed_squares(before, move.get("fen_after"))
@@ -1443,29 +1445,52 @@ def measure_settle(video: Path, candidate: dict, profile,
         if not touched or commit < SETTLE_BACK:
             continue
         lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
-        record_interval("video frames", video.resolve(), lo, hi)
-        cells = {}
-        with closing(recording.frames(lo)) as stream:
+        record_interval("settle windows", video.resolve(), lo, hi)
+        jobs.append({"move": move, "touched": touched, "commit": commit, "lo": lo, "hi": hi})
+
+    clusters: list[list[dict]] = []
+    for job in sorted(jobs, key=lambda item: item["lo"]):
+        if not clusters or job["lo"] > max(item["hi"] for item in clusters[-1]) + 1:
+            clusters.append([job])
+        else:
+            clusters[-1].append(job)
+
+    for cluster in clusters:
+        cluster_lo = min(job["lo"] for job in cluster)
+        cluster_hi = max(job["hi"] for job in cluster)
+        record_interval("video frames", video.resolve(), cluster_lo, cluster_hi)
+        cells: dict[int, dict[str, Any]] = {}
+        with closing(recording.frames(cluster_lo)) as stream:
             for idx, frame in stream:
                 if rotate is not None:
                     frame = cv2.rotate(frame, rotate)
-                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
-                cells[idx] = {sq: crops[squares.index(sq)].astype(np.int16) for sq in touched}
-                if idx >= hi:
-                    break
-        if lo not in cells or hi not in cells:
-            continue
-        for sq in touched:
-            pre, post = cells[lo][sq], cells[hi][sq]
-            if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
-                continue
-            for f in range(hi, lo - 1, -1):
-                cell = cells.get(f)
-                if cell is None:
+                active = set().union(*(job["touched"] for job in cluster
+                                       if job["lo"] <= idx <= job["hi"]))
+                if not active:
+                    if idx >= cluster_hi:
+                        break
                     continue
-                if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
-                    out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
+                cells[idx] = {sq: crops[square_index[sq]].astype(np.int16) for sq in active}
+                if idx >= cluster_hi:
                     break
+
+        for job in cluster:
+            move, touched = job["move"], job["touched"]
+            commit, lo, hi = job["commit"], job["lo"], job["hi"]
+            if lo not in cells or hi not in cells:
+                continue
+            for sq in touched:
+                pre, post = cells[lo][sq], cells[hi][sq]
+                if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+                    continue
+                for f in range(hi, lo - 1, -1):
+                    cell = cells.get(f)
+                    if cell is None:
+                        continue
+                    if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
+                        out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                        break
     return out
 
 

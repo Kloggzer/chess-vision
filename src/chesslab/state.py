@@ -25,11 +25,16 @@ class GameState:
         # Cheap semantic identity for the work auditor. Hashing/serializing the board merely to
         # decide whether serialization is redundant would perform the work being measured.
         self._revision = 0
+        self._fen_cache: tuple[int, str] | None = None
 
     # -- Queries --
     def fen(self) -> str:
+        if self._fen_cache is not None and self._fen_cache[0] == self._revision:
+            return self._fen_cache[1]
         with measure("FEN serializations", (id(self), self._revision)):
-            return self.board.fen()
+            value = self.board.fen()
+        self._fen_cache = (self._revision, value)
+        return value
 
     def piece_map(self) -> dict[str, str]:
         """{'e1': 'K', 'e8': 'k', ...} — only occupied squares, FEN letters."""

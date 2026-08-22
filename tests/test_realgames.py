@@ -613,6 +613,52 @@ def test_a_segment_with_no_next_move_vouches_for_everything():
     assert unknown_for(_seg(touches=()), 399, margin_frames=30, settle={2: {"e5": 1}}) == []
 
 
+def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
+    from chesslab import realgames as rg
+    from chesslab.work_audit import WorkAudit, activate, deactivate
+
+    starts, decoded = [], []
+
+    class Recording:
+        def __init__(self, _video):
+            pass
+
+        def frames(self, start):
+            starts.append(start)
+            for index in range(start, 400):
+                decoded.append(index)
+                yield index, index
+
+    def crops(frame, *_args, **_kwargs):
+        value = min(255, int(frame))
+        return [np.full((2, 2, 3), value, np.uint8) for _ in range(64)]
+
+    monkeypatch.setattr(rg, "Recording", Recording)
+    monkeypatch.setattr(rg, "crops_for_frame", crops)
+    monkeypatch.setattr(rg, "changed_squares", lambda _before, _after: {"e2"})
+    candidate = {
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "start_fen": "before",
+        "moves": [
+            {"frame": 200, "ply": 1, "fen_after": "one"},
+            {"frame": 260, "ply": 2, "fen_after": "two"},
+        ],
+    }
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        result = rg.measure_settle(tmp_path / "video.mp4", candidate, profile=None)
+    finally:
+        deactivate(token)
+
+    assert starts == [20], "the overlapping 20..240 and 80..300 windows share one decoder"
+    assert decoded == list(range(20, 301))
+    assert set(result) == {1, 2}
+    intervals = audit.report()["intervals"]
+    assert intervals["settle windows"]["avoidable_units"] == 161
+    assert intervals["video frames"]["avoidable_units"] == 0
+
+
 # --- fit-stored -----------------------------------------------------------------------------
 
 #: The synthetic session's true playing field (a8, h8, h1, a1) and the board rendered into it.

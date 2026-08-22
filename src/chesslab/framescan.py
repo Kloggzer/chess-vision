@@ -42,12 +42,15 @@ def read_scan(name: str) -> list[dict]:
     return sorted(read_jsonl(path), key=lambda r: r["idx"]) if path.exists() else []
 
 
-def cell_means(padded, size: int, pad: int, *, work_key=None) -> list[float]:
+def cell_means(padded, size: int, pad: int, *, gray=None, work_key=None) -> list[float]:
     """The board as 64 grey means, one per square — enough to see a piece lying where it stood."""
-    source = padded[pad:pad + size, pad:pad + size]
-    key = work_key if work_key is not None else ("array", id(padded), "gray")
-    with measure("BGR to Gray conversions", key, processed_bytes=source.nbytes):
-        board = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+    if gray is None:
+        source = padded[pad:pad + size, pad:pad + size]
+        key = work_key if work_key is not None else ("array", id(padded), "gray")
+        with measure("BGR to Gray conversions", key, processed_bytes=source.nbytes):
+            board = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+    else:
+        board = gray[pad:pad + size, pad:pad + size]
     return [round(float(v), 2) for v in cv2.resize(board, (8, 8), interpolation=cv2.INTER_AREA).flatten()]
 
 
@@ -113,7 +116,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                     "skin": bool(skin_patch(board, size / 8.0, profile.crop.pad_side)),
                     "grid": sorted(hand_squares(missing_edges(
                         padded_gray, size, pad, white_pov=profile.white_pov))),
-                    "cells": cell_means(padded, size, pad, work_key=gray_key),
+                    "cells": cell_means(padded, size, pad, gray=padded_gray),
                 })
             if progress and len(rows) % PROGRESS_EVERY == 0:
                 print(f"  scan {idx}/{total} frames, {sum(occupied(r) for r in rows)} with a hand",

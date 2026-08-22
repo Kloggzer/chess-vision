@@ -74,3 +74,41 @@ def test_fuzzy_run_is_reproducible_and_serializable(tmp_path):
     path = first.write_json(tmp_path / "work.json")
     assert json.loads(path.read_text(encoding="utf-8"))["metadata"]["seed"] == 847291
     assert "Dominant avoidable call path:" in first.format_text()
+
+
+def test_game_state_memoizes_fen_per_revision():
+    from chesslab.state import GameState
+
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        game = GameState()
+        assert game.fen() == game.fen()
+        game.push_uci("e2e4")
+        assert game.fen() == game.fen()
+    finally:
+        deactivate(token)
+
+    op = audit.report()["operations"]["FEN serializations"]
+    assert (op["calls"], op["unique_keys"], op["avoidable_calls"]) == (2, 2, 0)
+
+
+def test_frame_scan_reuses_the_gray_raster():
+    import cv2
+    import numpy as np
+
+    from chesslab.framescan import cell_means
+    from chesslab.work_audit import measure
+
+    padded = np.zeros((160, 160, 3), np.uint8)
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        with measure("BGR to Gray conversions", ("frame", 1), processed_bytes=padded.nbytes):
+            gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+        assert len(cell_means(padded, 128, 16, gray=gray)) == 64
+    finally:
+        deactivate(token)
+
+    op = audit.report()["operations"]["BGR to Gray conversions"]
+    assert (op["calls"], op["avoidable_calls"]) == (1, 0)

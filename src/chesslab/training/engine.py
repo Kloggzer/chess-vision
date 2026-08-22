@@ -113,7 +113,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "trues": trues_a,
         "preds": preds_a,
         **({"occ_mae": float(np.abs(np.array(probs) - np.array(cover)).mean()),
-            "occ_recall": _hit_rate(probs, cover)} if cover else {}),
+            "occ_recall": _hit_rate(probs, cover),
+            "coverage_trues": np.asarray(cover, dtype=np.float32),
+            "coverage_probs": np.asarray(probs, dtype=np.float32)} if cover else {}),
     }
 
 

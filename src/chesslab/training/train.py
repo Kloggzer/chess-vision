@@ -30,6 +30,53 @@ def _train_lock_path() -> Path:
     return config.DATA.heavy_lock
 
 
+def _load_training_pack(dataset: str | None):
+    """Resolve a dataset's expensive manifest/path index once for the whole training run."""
+    if dataset is None:
+        return None
+    from .pack import load_packed
+
+    return load_packed(dataset)
+
+
+def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
+                           visible_max: float) -> dict[str, float | int]:
+    """Derive every coverage/visibility metric from the regular validation's predictions."""
+    import numpy as np
+
+    cov_true = val["coverage_trues"]
+    cov_pred = val["coverage_probs"]
+    true_cls = val["trues"]
+    pred_cls = val["preds"]
+    want, hit = cov_true > 0.5, cov_pred > 0.5
+    visible = cov_true <= visible_max
+    true_occ = true_cls != classes.index("empty")
+    pred_occ = pred_cls != classes.index("empty")
+    visible_boards: dict[tuple[str, str], bool] = {}
+    for row, is_visible, square_ok in zip(
+            val_rows, visible.tolist(), (true_occ == pred_occ).tolist(), strict=True):
+        if is_visible:
+            key = (row["session_id"], str(row["frame"]))
+            visible_boards[key] = visible_boards.get(key, True) and square_ok
+
+    occ_tp = int((want & hit).sum())
+    occ_want, occ_hit = int(want.sum()), int(hit.sum())
+    vis_n = int(visible.sum())
+    return {
+        "val_occ_mae": float(np.abs(cov_pred - cov_true).mean()),
+        "val_occ_recall": occ_tp / occ_want if occ_want else 0.0,
+        "val_occ_precision": occ_tp / occ_hit if occ_hit else 0.0,
+        "val_visible_acc": float((pred_cls[visible] == true_cls[visible]).mean())
+        if vis_n else float("nan"),
+        "val_visible_occ_acc": float((pred_occ[visible] == true_occ[visible]).mean())
+        if vis_n else float("nan"),
+        "val_visible_occ_board_acc": (
+            sum(visible_boards.values()) / len(visible_boards)
+            if visible_boards else float("nan")),
+        "val_visible_n": vis_n,
+    }
+
+
 def _acquire_train_lock(desc: str) -> bool:
     """False if another LIVE training holds the GPU. A stale lock is reclaimed automatically."""
     holder = locks.acquire(_train_lock_path(), "train", desc)
@@ -159,11 +206,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
     # to the 128 px the FILES are, which is worse than either.
     src = "--input-size"
-    if out_size is None and dataset:
-        from .pack import load_packed
-
-        if (info := load_packed(dataset)) is not None:
-            out_size, src = (info[1][2], info[1][1]), "the pack"
+    packed = _load_training_pack(dataset)
+    if out_size is None:
+        if packed is not None:
+            out_size, src = (packed[1][2], packed[1][1]), "the pack"
     for r in manifest:
         out_size, src = (out_size, src) if out_size else (tuple(r["out_size"]), "the manifest")
         print(f"[size] training at {out_size[0]}x{out_size[1]} from {r['out_size'][0]}x"
@@ -213,17 +259,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
     # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
-    packed = None
     # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
     # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
     fused = bool(train_rows) and str(train_rows[0].get("path", "")).startswith("mm://")
-    if dataset:
-        from .pack import load_packed
-        packed = load_packed(dataset)
-        if fused and packed is None:
-            print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
-                  "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
-            return 1
+    if fused and packed is None:
+        print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
+              "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+        return 1
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
     rot90 = False
@@ -371,10 +413,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
-    # Deterministic validation loader for the extra occlusion diagnostics below.
-    # shuffle=False is important because its batches must stay aligned with val_rows.
-    val_loader = DataLoader(val_ds, shuffle=False, drop_last=False, **loader_kw)
-
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
     # examples contain, and serving has to reproduce them (specs/45). Absent = this dataset
     # cannot say, which every consumer must then treat as legacy rather than guess at.
@@ -462,123 +500,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         #   * continuous coverage quality
         #   * class/occupancy quality only where the piece is actually visible
         #
-        # This is a second validation pass only; it does NOT change gradients, loss,
-        # BatchNorm statistics, checkpoint selection or training samples.
         occ_diag = {}
         if occluding:
             from .occlusion import PIECE_VISIBLE_MAX
 
-            t_occ0 = time.perf_counter()
-
-            cov_abs_sum = 0.0
-            cov_n = 0
-
-            occ_tp = 0
-            occ_want = 0
-            occ_hit = 0
-
-            vis_correct = 0
-            vis_occ_correct = 0
-            vis_n = 0
-
-            # (session_id, frame) -> whether every VISIBLE square has correct occupancy.
-            visible_boards: dict[tuple[str, str], bool] = {}
-
-            row_offset = 0
-            model.eval()
-
-            with torch.no_grad():
-                for vx, vy in val_loader:
-                    vx = vx.to(device, non_blocking=True)
-                    vy = vy.to(device, non_blocking=True)
-
-                    vlogits = model(vx)
-
-                    true_cls = vy[:, 0].long()
-                    cov_true = vy[:, 1]
-                    cov_pred = torch.sigmoid(vlogits[:, -1])
-                    pred_cls = vlogits[:, :-1].argmax(1)
-
-                    # Continuous coverage quality.
-                    cov_abs_sum += float((cov_pred - cov_true).abs().sum())
-                    cov_n += int(cov_true.numel())
-
-                    # Binary diagnostics at the tracker's adjustable 0.5 cut.
-                    want = cov_true > 0.5
-                    hit = cov_pred > 0.5
-                    occ_tp += int((want & hit).sum())
-                    occ_want += int(want.sum())
-                    occ_hit += int(hit.sum())
-
-                    # Piece identity is only a meaningful target while the crop is visible.
-                    visible = cov_true <= PIECE_VISIBLE_MAX
-
-                    if bool(visible.any()):
-                        vis_correct += int(
-                            (pred_cls[visible] == true_cls[visible]).sum()
-                        )
-
-                        true_occ = true_cls != classes.index("empty")
-                        pred_occ = pred_cls != classes.index("empty")
-                        vis_occ_correct += int(
-                            (true_occ[visible] == pred_occ[visible]).sum()
-                        )
-                        vis_n += int(visible.sum())
-
-                    # Validation DataLoader is ordered, so rows line up with predictions.
-                    vis_cpu = visible.cpu().tolist()
-                    true_cpu = true_cls.cpu().tolist()
-                    pred_cpu = pred_cls.cpu().tolist()
-
-                    for j, is_visible in enumerate(vis_cpu):
-                        if not is_visible:
-                            continue
-
-                        idx = row_offset + j
-                        if idx >= len(val_rows):
-                            continue
-
-                        row = val_rows[idx]
-                        key = (row["session_id"], str(row["frame"]))
-
-                        t_occ = classes[int(true_cpu[j])] != "empty"
-                        p_occ = classes[int(pred_cpu[j])] != "empty"
-                        square_ok = t_occ == p_occ
-
-                        visible_boards[key] = (
-                            visible_boards.get(key, True) and square_ok
-                        )
-
-                    row_offset += int(vx.size(0))
-
-            occ_diag = {
-                "val_occ_mae": (
-                    cov_abs_sum / cov_n if cov_n else float("nan")
-                ),
-                "val_occ_recall": (
-                    occ_tp / occ_want if occ_want else 0.0
-                ),
-                "val_occ_precision": (
-                    occ_tp / occ_hit if occ_hit else 0.0
-                ),
-                "val_visible_acc": (
-                    vis_correct / vis_n if vis_n else float("nan")
-                ),
-                "val_visible_occ_acc": (
-                    vis_occ_correct / vis_n if vis_n else float("nan")
-                ),
-                "val_visible_occ_board_acc": (
-                    sum(visible_boards.values()) / len(visible_boards)
-                    if visible_boards else float("nan")
-                ),
-                "val_visible_n": vis_n,
-            }
-            if work_audit is not None:
-                work_audit.record_work(
-                    "validation inference passes",
-                    validation_key,
-                    seconds=time.perf_counter() - t_occ0,
-                )
+            occ_diag = _occlusion_diagnostics(val, val_rows, classes, PIECE_VISIBLE_MAX)
 
         rec = {
             "epoch": epoch,
