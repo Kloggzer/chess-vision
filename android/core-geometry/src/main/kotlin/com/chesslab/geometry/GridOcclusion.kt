@@ -42,7 +42,8 @@ fun gridOccludedSquares(
         WorkProfiler.bytes(WorkOperation.GRID_OCCLUSION, 2L * warped.rows() * warped.cols())
         val p = ProfileParams(geom.boardSize, SEARCH_FRAC, outer = true)
         val readOuter = pad >= p.outerSpan
-        val found = gridSegments(BoardGray(warped), geom.boardSize, pad, p, readOuter, parallel)
+        val gray = WorkProfiler.span(WorkOperation.GRID_OCCLUSION_PREP) { BoardGray(warped) }
+        val found = gridSegments(gray, geom.boardSize, pad, p, readOuter, parallel)
         var out = 0L
         for (col in 0 until BOARD_SIDE) {
             for (row in 0 until BOARD_SIDE) {
@@ -86,8 +87,14 @@ private fun gridSegments(
         val s0 = pyRound(pad + b * bh)
         val s1 = pyRound(pad + (b + 1) * bh)
         if (s1 <= s0) return@forEach
-        val prof = if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
-        val pos = profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
+        val prof =
+            WorkProfiler.span(WorkOperation.GRID_OCCLUSION_PROFILE) {
+                if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
+            }
+        val pos =
+            WorkProfiler.span(WorkOperation.GRID_OCCLUSION_LINES) {
+                profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
+            }
         for (k in 0 until LINES_PER_AXIS) {
             if (!pos[k].isNaN()) found[axis][k][b] = true
         }

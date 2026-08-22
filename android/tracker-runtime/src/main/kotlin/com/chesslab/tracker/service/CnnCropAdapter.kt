@@ -75,7 +75,13 @@ fun cropFrameSource(
                             SquareCropper().use { cropper ->
                                 squares.map { square -> toBgrImage(cropper.crop(cropWarp, square, geom)) }
                             }
-                        crops to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
+                        crops to
+                            gridOccludedSquares(
+                                cropWarp,
+                                geom,
+                                cropBorderPx(geom),
+                                parallel = true,
+                            )
                     }
                 WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
                 // The model-free hand read, on the SAME full-resolution warp the crops came from —

@@ -169,12 +169,22 @@ private class AndroidOptimizationBenchmark(
         val pad = cropBorderPx(geometry)
         val side = geometry.boardSize + 2 * pad
         val frame = Mat(side, side, CvType.CV_8UC3)
+        val probe = RecordingWorkProbe()
         Core.randu(frame, 0.0, 255.0)
         try {
-            report(
-                "full grid occlusion sequential",
-                samples(warmup = 3, rounds = 20) { gridOccludedSquares(frame, geometry, pad) },
-            )
+            WorkProfiler.install(probe).use {
+                report(
+                    "full grid occlusion sequential",
+                    samples(warmup = 3, rounds = 20) { gridOccludedSquares(frame, geometry, pad) },
+                )
+                report(
+                    "full grid occlusion parallel",
+                    samples(warmup = 3, rounds = 20) {
+                        gridOccludedSquares(frame, geometry, pad, parallel = true)
+                    },
+                )
+            }
+            logSourceReport("GRID", probe)
         } finally {
             frame.release()
         }
@@ -184,11 +194,18 @@ private class AndroidOptimizationBenchmark(
     private fun trackerHotPaths() {
         val probe = RecordingWorkProbe()
         WorkProfiler.install(probe).use { measuredTrackerHotPaths() }
+        logSourceReport("TRACKER", probe)
+    }
+
+    private fun logSourceReport(
+        prefix: String,
+        probe: RecordingWorkProbe,
+    ) {
         probe
             .snapshot()
             .report()
             .lineSequence()
-            .forEach { Log.i(TAG, "SOURCE $it") }
+            .forEach { Log.i(TAG, "$prefix SOURCE $it") }
     }
 
     private fun measuredTrackerHotPaths() {
