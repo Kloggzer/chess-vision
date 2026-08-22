@@ -108,8 +108,9 @@ class ModelSpecCropSeamTest {
             val probs = cnn.classify(crops)
             assertEquals(ALL_SQUARES.size, probs.size)
             probs.forEach { row ->
-                assertEquals(spec.classes.size, row.size, "one probability per class of ${spec.classes}")
-                assertTrue(abs(row.sum() - 1.0f) < TOLERANCE, "${dir.name}: row sums to ${row.sum()}")
+                assertEquals(spec.outputWidth, row.size, "classes plus optional coverage output")
+                val classSum = row.take(spec.classes.size).sum()
+                assertTrue(abs(classSum - 1.0f) < TOLERANCE, "${dir.name}: class probabilities sum to $classSum")
             }
         }
         return spec.outWidth

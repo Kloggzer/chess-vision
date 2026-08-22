@@ -191,13 +191,16 @@ class ModelSpecTest {
         assertEquals(EXPECTED_CLASSES.size, legacy.outputWidth)
     }
 
-    /** Every model in the APK is the old 14-class kind — none of them may start reading as one. */
+    /** Every bundled config must describe exactly the columns its graph returns. */
     @Test
-    fun noBundledModelDeclaresACoverageOutput() {
+    fun bundledModelsDeclareTheirOutputWidth() {
         for (dir in bundledAssetDirs()) {
             val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
-            assertFalse(spec.coverageOutput, "${dir.name} declares a coverage output")
-            assertEquals(spec.classes.size, spec.outputWidth, "${dir.name} must stay classes-wide")
+            assertEquals(
+                spec.classes.size + if (spec.coverageOutput) 1 else 0,
+                spec.outputWidth,
+                "${dir.name} output width",
+            )
         }
     }
 

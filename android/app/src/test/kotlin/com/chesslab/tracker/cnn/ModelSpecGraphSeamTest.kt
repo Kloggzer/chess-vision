@@ -100,7 +100,11 @@ class ModelSpecGraphSeamTest {
                 }
             val probs = cnn.classify(crops)
             assertEquals(ALL_SQUARES.size, probs.size)
-            probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
+            probs.forEach { row ->
+                assertEquals(spec.outputWidth, row.size, "classes plus optional coverage output")
+                val classSum = row.take(spec.classes.size).sum()
+                assertTrue(abs(classSum - 1.0f) < 1e-4f, "class probabilities sum to $classSum")
+            }
         }
         assertEquals(spec.outWidth, spec.outHeight, "${dir.name}: this test only covers square inputs")
         return spec.outWidth
