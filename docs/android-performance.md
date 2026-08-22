@@ -3,7 +3,7 @@
 ## Exact source-work profile
 
 The desktop replay can record the instrumented Kotlin work graph without sampling and without
-wall-clock noise:
+sampling gaps:
 
 ```powershell
 cd android
@@ -21,6 +21,7 @@ The report printed after replay contains:
   generation or work on the same frame can be identified;
 - copied/materialised bytes for frame, preview, crop and CNN staging buffers;
 - cache hits and misses;
+- inclusive time, exclusive/self time and the slowest single call per operation;
 - caller-to-callee counts for an instrumented call graph (not a sampled JVM stack trace).
 
 The current boundaries cover the frame root, FEN and legal moves, grayscale conversions, grid
@@ -29,6 +30,10 @@ timeline writes and video progress. Add a stable `WorkOperation` and a `WorkProf
 new expensive source boundary rather than naming reports after an implementation method. Pass the
 frame sequence or a stable content/state fingerprint as its input; inherited input automatically
 follows nested work on the same thread.
+
+Timing is measured only by the opt-in host collector; the deterministic engine still owns no clock.
+It is diagnostic rather than a regression oracle because scheduler, CPU and native-library load vary.
+`self ms` subtracts nested instrumented spans, while `incl ms` retains them.
 
 `RecordingWorkProbe.snapshot().check(...)` turns counts, repeats and copied bytes into deterministic
 budgets for seeded or property-style tests. This is the fuzzy-execution oracle: vary valid event

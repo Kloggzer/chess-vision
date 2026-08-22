@@ -9,7 +9,9 @@ import com.chesslab.engine.perf.WorkProbe
 import com.chesslab.engine.perf.WorkSnapshot
 
 /** Thread-safe exact collector for deterministic replays and fuzz scenarios. */
-class RecordingWorkProbe : WorkProbe {
+class RecordingWorkProbe(
+    private val nanoTime: () -> Long = System::nanoTime,
+) : WorkProbe {
     private class MutableWork {
         var calls = 0L
         var knownInputCalls = 0L
@@ -17,12 +19,17 @@ class RecordingWorkProbe : WorkProbe {
         var copiedBytes = 0L
         var cacheHits = 0L
         var cacheMisses = 0L
+        var inclusiveNanos = 0L
+        var selfNanos = 0L
+        var maxNanos = 0L
     }
 
     private data class ActiveCall(
         val token: Long,
         val operation: WorkOperation,
         val input: Long,
+        val startedNanos: Long,
+        var childNanos: Long = 0L,
     )
 
     private val lock = Any()
@@ -53,14 +60,25 @@ class RecordingWorkProbe : WorkProbe {
                 openSpans += 1
                 nextToken++
             }
-        calls.addLast(ActiveCall(token, operation, resolved))
+        calls.addLast(ActiveCall(token, operation, resolved, nanoTime()))
         return token
     }
 
     override fun exit(token: Long) {
-        val call = stack.get().removeLastOrNull()
+        val endedNanos = nanoTime()
+        val calls = stack.get()
+        val call = calls.removeLastOrNull()
         check(call?.token == token) { "profiling spans closed out of order: expected ${call?.token}, got $token" }
-        synchronized(lock) { openSpans -= 1 }
+        val elapsed = (endedNanos - call.startedNanos).coerceAtLeast(0L)
+        val self = (elapsed - call.childNanos).coerceAtLeast(0L)
+        calls.lastOrNull()?.let { it.childNanos += elapsed }
+        synchronized(lock) {
+            val stats = work.getValue(call.operation)
+            stats.inclusiveNanos += elapsed
+            stats.selfNanos += self
+            stats.maxNanos = maxOf(stats.maxNanos, elapsed)
+            openSpans -= 1
+        }
     }
 
     override fun bytes(
@@ -103,6 +121,9 @@ class RecordingWorkProbe : WorkProbe {
                             stats.copiedBytes,
                             stats.cacheHits,
                             stats.cacheMisses,
+                            stats.inclusiveNanos,
+                            stats.selfNanos,
+                            stats.maxNanos,
                         )
                     },
                 edges = edgeCalls.map { (edge, calls) -> CallEdge(edge.first, edge.second, calls) },

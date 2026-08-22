@@ -163,6 +163,9 @@ data class OperationWork(
     val copiedBytes: Long,
     val cacheHits: Long,
     val cacheMisses: Long,
+    val inclusiveNanos: Long = 0L,
+    val selfNanos: Long = 0L,
+    val maxNanos: Long = 0L,
 ) {
     val repeatedInputCalls: Long get() = (knownInputCalls - distinctInputs).coerceAtLeast(0)
 }
@@ -180,21 +183,22 @@ data class WorkSnapshot(
 ) {
     fun operation(operation: WorkOperation): OperationWork? = operations.firstOrNull { it.operation == operation }
 
-    /** Deterministic text: useful as console output, a CI artifact and a saved fuzz regression. */
+    /** Stable rows and counts; elapsed-time columns naturally vary with the machine and load. */
     fun report(): String {
         val rows =
             operations.sortedWith(
-                compareByDescending<OperationWork> { it.repeatedInputCalls }
+                compareByDescending<OperationWork> { it.selfNanos }
+                    .thenByDescending { it.repeatedInputCalls }
                     .thenByDescending { it.calls }
                     .thenBy { it.operation.id },
             )
-        val header = "operation                         calls   inputs  repeats   copied MiB   hit/miss"
+        val header = "operation                         calls   inputs  repeats   copied MiB   hit/miss   incl ms   self ms    max ms"
         val body =
             rows.joinToString("\n") { row ->
                 val mib = row.copiedBytes / BYTES_PER_MIB
                 String.format(
                     Locale.ROOT,
-                    "%-32s %7d %8d %8d %12.2f   %d/%d",
+                    "%-32s %7d %8d %8d %12.2f   %d/%d %9.1f %9.1f %9.3f",
                     row.operation.id,
                     row.calls,
                     row.distinctInputs,
@@ -202,6 +206,9 @@ data class WorkSnapshot(
                     mib,
                     row.cacheHits,
                     row.cacheMisses,
+                    row.inclusiveNanos / NANOS_PER_MILLISECOND,
+                    row.selfNanos / NANOS_PER_MILLISECOND,
+                    row.maxNanos / NANOS_PER_MILLISECOND,
                 )
             }
         val graph =
@@ -214,6 +221,7 @@ data class WorkSnapshot(
 
     private companion object {
         const val BYTES_PER_MIB = 1024.0 * 1024.0
+        const val NANOS_PER_MILLISECOND = 1_000_000.0
     }
 }
 

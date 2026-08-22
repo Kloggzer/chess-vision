@@ -57,6 +57,26 @@ class WorkProfilerTest {
     }
 
     @Test
+    fun `records inclusive self and maximum time for nested calls`() {
+        val ticks = ArrayDeque(listOf(0L, 10L, 40L, 100L))
+        val probe = RecordingWorkProbe { ticks.removeFirst() }
+        WorkProfiler.install(probe).use {
+            WorkProfiler.span(WorkOperation.FRAME, 1L) {
+                WorkProfiler.span(WorkOperation.LEGAL_MOVES, 1L) {}
+            }
+        }
+
+        val frame = requireNotNull(probe.snapshot().operation(WorkOperation.FRAME))
+        val legal = requireNotNull(probe.snapshot().operation(WorkOperation.LEGAL_MOVES))
+        assertEquals(100L, frame.inclusiveNanos)
+        assertEquals(70L, frame.selfNanos)
+        assertEquals(100L, frame.maxNanos)
+        assertEquals(30L, legal.inclusiveNanos)
+        assertEquals(30L, legal.selfNanos)
+        assertEquals(30L, legal.maxNanos)
+    }
+
+    @Test
     fun `seeded execution produces a stable performance oracle`() {
         val random = Random(FUZZ_SEED)
         val inputs = LongArray(FUZZ_CALLS) { random.nextInt(FUZZ_INPUTS).toLong() }
