@@ -27,6 +27,7 @@ import java.util.concurrent.CompletableFuture
 fun cropFrameSource(
     store: CropFrameStore,
     parallel: Boolean = false,
+    runGridOcclusion: Boolean = true,
     geometry: () -> BoardGeometry,
 ): CnnFrameSource =
     CnnFrameSource {
@@ -44,7 +45,7 @@ fun cropFrameSource(
                         pending.tsMs,
                         pending.bgrDet,
                         pending.grayDet,
-                        cached.gridOccluded,
+                        if (runGridOcclusion) cached.gridOccluded else 0L,
                         cached.observation,
                     )
                 }
@@ -63,29 +64,38 @@ fun cropFrameSource(
                 val visual =
                     if (parallel) {
                         val grid =
-                            CompletableFuture.supplyAsync {
-                                gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
+                            if (runGridOcclusion) {
+                                CompletableFuture.supplyAsync {
+                                    gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
+                                }
+                            } else {
+                                null
                             }
                         // Each task reads the immutable board warp and owns its output Mat. The
                         // ordered stream collector keeps a1..h8 byte-for-byte aligned with the
                         // phone even though independent squares are resized on separate PC cores.
-                        squares.parallelStream().map(cropOne).toList() to grid.join()
+                        squares.parallelStream().map(cropOne).toList() to (grid?.join() ?: 0L)
                     } else {
                         val crops =
                             SquareCropper().use { cropper ->
                                 squares.map { square -> toBgrImage(cropper.crop(cropWarp, square, geom)) }
                             }
-                        crops to
-                            gridOccludedSquares(
-                                cropWarp,
-                                geom,
-                                cropBorderPx(geom),
-                                parallel = true,
-                            )
+                        val grid =
+                            if (runGridOcclusion) {
+                                gridOccludedSquares(
+                                    cropWarp,
+                                    geom,
+                                    cropBorderPx(geom),
+                                    parallel = true,
+                                )
+                            } else {
+                                0L
+                            }
+                        crops to grid
                     }
                 WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
-                // The model-free hand read, on the SAME full-resolution warp the crops came from —
-                // at detSize the grooves are 1-2 px and the read drowns in noise (GridOcclusion.kt).
+                // Models without a coverage output still receive the model-free hand read from
+                // this full-resolution warp. Coverage models skip that complete second analysis.
                 cropWarp.release()
                 CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
             }

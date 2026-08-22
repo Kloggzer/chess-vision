@@ -3,12 +3,15 @@ package com.chesslab.tracker.cnn
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.log.RecordingLog
 import com.chesslab.tracker.pipeline.CropFrameStore
+import com.chesslab.tracker.perf.RecordingWorkProbe
 import com.chesslab.tracker.service.cropFrameSource
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
@@ -138,6 +141,37 @@ class ModelSpecCropSeamTest {
                 "the refusal must name the size the model wants, got: ${error.message}",
             )
         }
+    }
+
+    @Test
+    @EnabledIf(OPENCV_GATE)
+    fun coverageModelsDoNotRunTheGridOcclusionFallback() {
+        val store = CropFrameStore()
+        val geom = liveGeometry()
+        val frame = syntheticFrame()
+        val warp = warpBoardForCrops(frame, geom, CORNERS)
+        frame.release()
+        store.update(
+            CropFrameStore.Pending(
+                warp,
+                7L,
+                11L,
+                BgrImage(2, 2, ByteArray(12)),
+                GrayImage(2, 2, ByteArray(4)),
+            ),
+        )
+        val probe = RecordingWorkProbe()
+        val profiling = WorkProfiler.install(probe)
+        val result =
+            try {
+                requireNotNull(cropFrameSource(store, runGridOcclusion = false) { geom }.take())
+            } finally {
+                profiling.close()
+            }
+
+        assertEquals(0L, result.gridOccluded)
+        assertEquals(null, probe.snapshot().operation(WorkOperation.GRID_OCCLUSION))
+        assertEquals(64, result.crops.size)
     }
 
     companion object {

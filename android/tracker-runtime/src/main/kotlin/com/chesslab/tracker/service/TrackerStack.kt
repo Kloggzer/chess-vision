@@ -78,6 +78,8 @@ class TrackerSeed<T>(
     val logs: TrackerLogs = NoTrackerLogs,
     /** See [StagesFactory]: the one thing about a frame this stack cannot know by itself. */
     val stages: StagesFactory<T>,
+    /** False only when the successfully parsed model spec supplies its own coverage output. */
+    val runGridOcclusion: Boolean = true,
     /**
      * What the engine calls now. The wall clock for a camera; the VIDEO's clock for a replay,
      * where wall time has nothing to do with when a frame was taken — see `TrackerCoordinator`.
@@ -164,7 +166,10 @@ class TrackerStack<T>(
     }
 
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
-    val cropTap = DebugCropTap(cropFrameSource(cropStore, seed.parallelCrops, seed.geometry))
+    val cropTap =
+        DebugCropTap(
+            cropFrameSource(cropStore, seed.parallelCrops, seed.runGridOcclusion, seed.geometry),
+        )
 
     private val observed = AtomicLong()
     private val observationSink = seed.observationSink
@@ -197,11 +202,8 @@ class TrackerStack<T>(
         observationSink?.invoke(snap)
         observed.incrementAndGet()
         val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
-        // `grid` beside `occl`, because `occl` is the MODEL's occluded head and that head is
-        // identically 0.0 under every 13-class model the device serves (CLAUDE.md's standing
-        // pitfall) — a ledger of zeroes that reads like a clean board. The grid map is the
-        // model-free arm of the same question and it is where the hand actually is, as a bitboard
-        // in `Squares.ALL` order, so a reader can ask WHERE and not only WHETHER.
+        // `grid` remains the model-free fallback for models without a coverage output. Coverage
+        // models deliberately report zero here because running both arms wastes a full-board pass.
         val grid = "0x%016x".format(snap.gridOccluded)
         obsLog.info(
             "obs frame=${snap.seq} t=${"%.2f".format(Locale.US, snap.tsMs / MS_PER_S_D)} occl=$occluded grid=$grid",

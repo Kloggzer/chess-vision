@@ -147,6 +147,7 @@ class TrackerService :
                     },
                     androidTrackerLogs,
                     ::cameraStages,
+                    runGridOcclusion = modelSpec?.coverageOutput != true,
                 ),
                 settings,
                 publisher,
