@@ -6,10 +6,13 @@ import {
   GROUP_SPAN,
   LANES,
   NO_AUDIT,
+  NO_HAND,
+  NO_POSITION,
   NO_READS,
   NO_QUERY,
   NO_RULES,
   boardCells,
+  reachesPool,
   collapseEvents,
   groupBySquare,
   keepPosition,
@@ -30,7 +33,7 @@ import {
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
   expect(LANES.map((l) => l.id)).toEqual([
-    "disagree", "classwall", "unknown", "control", "audit", "rules", "all",
+    "disagree", "classwall", "unknown", "control", "audit", "hand", "position", "rules", "all",
   ]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
@@ -104,8 +107,8 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 });
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
-  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false }],
-  boards: [], cells: [], audit: null, rules: true, decided: [{}],
+  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [] }],
+  boards: [], cells: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
   reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], ...over,
 });
 
@@ -128,7 +131,7 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
   expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
   // Der Rest des Korpus ist NICHT GEMESSEN, nicht etwa einig — der Tooltip muss das sagen.
   const read = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [] }],
     boards: [board({ disagree: { e5: "bP" } })],
     reads: { boards: 1, without: 0 },
   });
@@ -139,7 +142,8 @@ test("a lane counts what is OPEN against what it holds, and null when nobody was
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
   expect(LANES.map((l) => l.slug)).toEqual([
-    "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit", "regelbruch", "alle",
+    "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit", "hand", "stellung",
+    "regelbruch", "alle",
   ]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
   // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen (User, 2026-08-18).
@@ -238,7 +242,7 @@ test("the Klassenwand joins the server's answer to the stream, and never invents
 
 test("the Klassenwand counts its own query, and says — while the answer is missing", () => {
   const stream = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [] }],
     boards: [board()],
   });
   const wall = { cells: wallCells([hit({ squares: ["a1", "h1"], accept: { a1: "bB", h1: "bN" } })], stream), text: "bB ≥ 0.5" };
@@ -264,4 +268,68 @@ test("a crop card prints SAM's number, and stays silent where nothing was measur
   expect(at("000447", "e4")).toBeNull();
   expect(at("000999", "h1")).toBeNull();
   expect(cellCoverage([], { session: 3, stem: "000447", square: "h1" })).toBeNull();
+});
+
+test("a board that can never yield a crop is not asked about", () => {
+  const cover = [{ "000002": { h6: 0.9 } }];
+  const board = (stem: string, phase: "settled" | "after", dirtyReason?: string) =>
+    ({ session: 0, pos: 0, stem, ply: 1, fen: "x", phase, unknown: [], violations: [],
+       disagree: {}, ...(dirtyReason ? { dirtyReason } : {}) }) as never;
+  // Settled: always. Occluded WITH a matte: rescued by `slice_session`, so still worth asking.
+  expect(reachesPool(board("000001", "settled"), cover)).toBe(true);
+  expect(reachesPool(board("000002", "after", "occluded"), cover)).toBe(true);
+  // Occluded without a matte, and every other dirty reason: the crop never reaches the pool.
+  expect(reachesPool(board("000003", "after", "occluded"), cover)).toBe(false);
+  expect(reachesPool(board("000002", "after", "stale"), cover)).toBe(false);
+});
+
+test("mit Settle-Messung rettet die Matte auch ein `stale` Brett — zellweise", () => {
+  const cover = [{ "000002": { h6: 0.9 } }];
+  const board = (measured: boolean) =>
+    ({ session: 0, pos: 0, stem: "000002", ply: 1, fen: "x", phase: "after", unknown: [],
+       violations: [], disagree: {}, dirtyReason: "stale", measured }) as never;
+  // Der sichtbar ziehende Bauer: das Frame ist `stale`, aber 62 seiner Felder sind es nicht.
+  expect(reachesPool(board(true), cover)).toBe(true);
+  expect(reachesPool(board(false), cover)).toBe(false);
+});
+
+test("die Stellungs-Lane fragt nach der Figur, die wirklich dasteht", () => {
+  const positions = [
+    { session: 0, pos: 0, stem: "000100", square: "a3", fen_label: "empty", dev: 41.2, reason: "changed" },
+  ];
+  // Kein Producer: `—`, nie 0 — ungemessen ist nicht unstrittig.
+  expect(laneCount(streamOf(), "position")).toEqual({ n: null, why: NO_POSITION });
+  const cells = laneCells(streamOf({ positions }), "position");
+  expect(cells).toHaveLength(1);
+  // ⏎ bestaetigt den FEN (Schatten-Fehlalarm), die Palette schreibt die Figur — in `corrections`,
+  // denn hier ist der FEN der Verdaechtige und nicht ein Modell.
+  expect(cells[0].label).toBe("empty");
+  expect(cells[0].ledger).toBe("corrections");
+  expect(cells[0].exception).toBeNull();
+  expect(cells[0].note).toBe("Δ 41");
+});
+
+test("eine kaum sichtbare Zelle sagt das, statt eine Abweichung zu behaupten", () => {
+  const positions = [
+    { session: 0, pos: 0, stem: "000100", square: "a3", fen_label: "wP", dev: 0, reason: "unreadable" },
+  ];
+  expect(laneCells(streamOf({ positions }), "position")[0].note).toBe("kaum Feld zu sehen");
+});
+
+test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
+  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", cov: 0.82, measured: 0 }];
+  // Kein Producer: `—`, nie 0 — sonst liest sich "nichts zu tun" wie "nichts gemessen".
+  expect(laneCount(streamOf(), "hand")).toEqual({ n: null, why: NO_HAND });
+  const cells = laneCells(streamOf({ hands }), "hand");
+  expect(cells).toHaveLength(1);
+  // ⏎ bestaetigt das FEN-Wort ("keine Hand"); ein Klassenwort darf die Lane nie anbieten.
+  expect(cells[0].label).toBe("bP");
+  expect(cells[0].exception).toBeNull();
+  expect(cells[0].caption).toContain("82 %");
+  expect(cells[0].note).toContain("Matte");
+});
+
+test("eine Zelle ohne Matte-Eintrag sagt das, statt 0 % zu behaupten", () => {
+  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty", cov: 0.5, measured: null }];
+  expect(laneCells(streamOf({ hands }), "hand")[0].note).toBe("Matte kennt dieses Frame nicht");
 });

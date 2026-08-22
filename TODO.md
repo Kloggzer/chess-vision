@@ -514,3 +514,9 @@ aussehen als die, die der Tracker auf dem Gerät sieht.
 
 Verwandt: der Sampler-Unterschied zwischen Python (`cv2.resize`, `INTER_AREA` beim Verkleinern) und
 der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser Datei.
+
+- **`SETTLE_CELL_PX` sweepen (2026-08-22).** Steht auf 32 px und ist nie gemessen worden — der
+  Kommentar begruendet nur, warum es KLEIN ist. Weniger kann reichen: die Frage ist, ob sich der
+  Inhalt geaendert hat, nicht wie scharf er ist. Achtung, `SETTLE_LIMIT = 15.0` ist an dieser
+  Geometrie kalibriert und muss mitgemessen werden. Gegenprobe: 16 / 32 / 48 / 80 px auf einer
+  Session, verglichen gegen die Felder, die `departures` meldet.

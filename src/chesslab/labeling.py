@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
 
-from . import config
+from . import config, locks
 from .calibration import (
     CalibrationProfile,
     GridMesh,
@@ -103,6 +104,11 @@ CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 #: costs 1.0 % and catches only 79 %. A human correction outranks it, exactly as with `dirty` — the
 #: gate is a doubt, not a verdict.
 SETTLE_LIMIT = 15.0
+
+#: How much of a cell the alpha must call BOARD before its deviation means anything. Under it the
+#: cell is not "unchanged", it is unseen — and an unseen cell that the coverage does not take out
+#: of the loss either is exactly the one a human has to look at.
+SETTLE_SEEN_MIN = 0.5
 
 
 def parse_out_size(s: str) -> tuple[int, int]:
@@ -236,9 +242,11 @@ def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines
             if json.loads(line).get(field) != session_id:
                 kept.append(line)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w", encoding="utf-8") as fh:
-        for ln in kept + new_lines:
-            fh.write(ln + "\n")
+    # tmp + os.replace, like the proposals: this is a read-modify-write over the whole pool, and
+    # an interrupt inside `open("w")` used to leave a truncated manifest behind.
+    tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    tmp.write_text("".join(ln + "\n" for ln in kept + new_lines), encoding="utf-8")
+    os.replace(tmp, manifest_path)
 
 
 def load_corrections(path: Path, into: Corrections | None = None) -> Corrections:
@@ -326,7 +334,7 @@ def slice_session(
     n_unknown = 0
     #: Cells dropped because a hand was in the frame and no human ruled on them (`dirty`).
     n_dirty = 0
-    #: Cells whose pixels left the position they are labelled with (`SETTLE_LIMIT`).
+    #: Cells whose pixels left the position they are labelled with (`realgames.departures`).
     n_unsettled = 0
     n_unusable = 0
     n_mesh = 0       # frames straightened HERE, i.e. warped from a frame rather than a store
@@ -389,17 +397,22 @@ def slice_session(
         # `carried` counts as dirty: the mesh is a neighbour's because THIS frame's grooves were
         # unreadable, and measured over 2 228 frames that is a hand 94.5 % of the time.
         dirty = bool(entry.get("dirty")) or entry.get("grid_lines_source") == "carried"
-        # How far each cell sits from its own ply interval's settled board (`session settle-scan`).
-        # A row from too short an interval has none, and then this gate does not fire — see
-        # `SETTLE_LIMIT`. Absent on every session that predates the scan, which is the same thing.
+        # `session settle-scan` measured this row against its own ply interval's settled board.
+        # A row from too short an interval carries neither, and then no gate below fires — which
+        # is the same state as a session that predates the scan.
         settle = entry.get("settle_dev") or ()
+        #: The squares whose pixels LEFT that position and stayed away. The INTERVAL decided this,
+        #: with the time axis one frame does not have — a shadow passes, a move stays.
+        left = set(entry.get("settle_left") or ())
         frame_stem = Path(entry["frame"]).stem  # '0007'
         cover = matte.get(frame_stem, {})
-        # An `occluded` frame is a hand over a position the commit still vouches for, and its
-        # matte says how much of each square is hidden. That makes its cells labelable: the FEN
-        # gives the class, the coverage takes the hidden ones out of the loss. Only WITH the
-        # measurement — coverage 0.0 under a hand would be a lie (`docs/frame-scan.md`).
-        if entry.get("dirty_reason") == "occluded" and cover:
+        # With a settle measurement the frame's CLASS stops deciding and the cell does: a covered
+        # cell is the occlusion target, every other one is read against the interval's settled
+        # board. Without one, an `occluded` frame is still rescued whole — its matte says how much
+        # of each square is hidden, and coverage 0.0 under a hand would be a lie.
+        if settle and cover:
+            dirty = False
+        elif entry.get("dirty_reason") == "occluded" and cover:
             dirty = False
         elif any(v > MATTE_DIRTY for v in cover.values()):
             dirty = True
@@ -416,7 +429,7 @@ def slice_session(
             if dirty and corrected is None:
                 n_dirty += 1
                 continue
-            if i < len(settle) and settle[i] >= SETTLE_LIMIT and corrected is None:
+            if square in left and corrected is None:
                 n_unsettled += 1
                 continue
             label = explicit.get(square, "empty") if explicit else gs.label_for(square)
@@ -518,32 +531,37 @@ def run_slice(
     rc = 0
     from .sessions import session_dir as _resolve
 
-    for sid in sids:
-        try:
-            session_dir, _ = _resolve(sid)
-            meta = read_session_meta(session_dir)
-            prof = _profile_for_session(meta, profile)
-            stats = slice_session(
-                session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
-                pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
-            )
-            extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
-            if stats.get("skipped"):
-                extra += f" [{stats['skipped']} frames without markers skipped]"
-            if stats.get("mesh_frames"):
-                extra += f" [{stats['mesh_frames']} frames straightened here, no stored board]"
-            # Loud, because nothing in a crop says whether its board was pulled straight.
-            if stats.get("bowed_boards"):
-                extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT geradegezogen — "
-                          f"`chesslab session straighten {sid}`]")
-            if stats.get("dirty_dropped"):
-                extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
-            if stats.get("unsettled_dropped"):
-                extra += f" [{stats['unsettled_dropped']} cells held back as unsettled]"
-            print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
-        except Exception as e:  # noqa: BLE001
-            print(f"[FAIL] {sid}: {e}")
-            rc = 1
+    try:
+        with locks.pool_lock(squares_root, f"slice {len(sids)} session(s)"):
+            for sid in sids:
+                try:
+                    session_dir, _ = _resolve(sid)
+                    meta = read_session_meta(session_dir)
+                    prof = _profile_for_session(meta, profile)
+                    stats = slice_session(
+                        session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
+                        pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
+                    )
+                    extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
+                    if stats.get("skipped"):
+                        extra += f" [{stats['skipped']} frames without markers skipped]"
+                    if stats.get("mesh_frames"):
+                        extra += f" [{stats['mesh_frames']} frames straightened here, no stored board]"
+                    # Loud, because nothing in a crop says whether its board was pulled straight.
+                    if stats.get("bowed_boards"):
+                        extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT geradegezogen — "
+                                  f"`chesslab session straighten {sid}`]")
+                    if stats.get("dirty_dropped"):
+                        extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
+                    if stats.get("unsettled_dropped"):
+                        extra += f" [{stats['unsettled_dropped']} cells held back as unsettled]"
+                    print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
+                except Exception as e:  # noqa: BLE001
+                    print(f"[FAIL] {sid}: {e}")
+                    rc = 1
+    except RuntimeError as e:
+        print(f"[FAIL] {e}")
+        return 1
     return rc
 
 

@@ -838,20 +838,33 @@ def settle_scan_session(session_id: str) -> dict:
     from collections import defaultdict
     from concurrent.futures import ProcessPoolExecutor
 
-    from .labeling import _profile_for_session, read_session_meta
-    from .realgames import POOL_WORKERS, SETTLE_MIN_FRAMES, settle_for_ply
+    from .labeling import _profile_for_session, read_matte, read_session_meta
+    from .realgames import (
+        INTERVAL_FILE,
+        POOL_WORKERS,
+        SETTLE_MIN_FRAMES,
+        interval_moves,
+        settle_for_ply,
+    )
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     prof = _profile_for_session(read_session_meta(sdir), None)
     for r in rows:
-        r.pop("settle_dev", None)
+        for key in ("settle_dev", "settle_seen", "settle_left"):
+            r.pop(key, None)
 
     by_ply: dict[object, list[dict]] = defaultdict(list)
     for r in rows:
         if r.get("board") and (sdir / r["board"]).is_file():
             by_ply[r.get("ply")].append(r)
-    jobs = [(sdir, rs, prof) for rs in by_ply.values() if len(rs) >= SETTLE_MIN_FRAMES]
+    # Eine leere Matte heisst NICHT "keine Hand", sondern "nie angesehen" — dann traegt jedes Brett
+    # die Referenz, so wie die Messung es tat, bevor es Alphas gab.
+    matte = read_matte(sdir)
+    plies = [ply for ply, rs in by_ply.items() if len(rs) >= SETTLE_MIN_FRAMES]
+    jobs = [(sdir, by_ply[ply], prof,
+             {Path(r["frame"]).stem: matte.get(Path(r["frame"]).stem, {}) for r in by_ply[ply]})
+            for ply in plies]
     short = sum(len(rs) for rs in by_ply.values() if len(rs) < SETTLE_MIN_FRAMES)
 
     if len(jobs) > 1:
@@ -859,16 +872,25 @@ def settle_scan_session(session_id: str) -> dict:
             parts = list(pool.map(settle_for_ply, jobs))
     else:
         parts = [settle_for_ply(j) for j in jobs]
-    scored = {stem: dev for part in parts for stem, dev in part.items()}
+    scored = {stem: got for part in parts for stem, got in (part.get("scores") or {}).items()}
+    refs = {int(ply): part["ref"] for ply, part in zip(plies, parts, strict=True)
+            if part.get("ref") is not None and ply is not None}
 
     for r in rows:
-        dev = scored.get(Path(r["frame"]).stem)
-        if dev is not None:
-            r["settle_dev"] = dev
+        got = scored.get(Path(r["frame"]).stem)
+        if got is not None:
+            r["settle_dev"], r["settle_seen"] = got["dev"], got["seen"]
+            if got["left"]:
+                r["settle_left"] = got["left"]
+    fens = {int(ply): by_ply[ply][0]["fen"] for ply in plies if ply is not None}
+    checks = interval_moves(refs, fens)
+    (sdir / INTERVAL_FILE).write_text("".join(json.dumps(c) + "\n" for c in checks), encoding="utf-8")
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "scored": len(scored), "of": len(rows),
-            "plies": len(jobs), "too_short": short, "backup": backup}
+            "plies": len(jobs), "too_short": short, "backup": backup,
+            "left": sum(len(g["left"]) for g in scored.values()),
+            "intervals": len(checks), "unseen": sum(1 for c in checks if not c["seen"])}
 
 
 def write_boards_session(session_id: str) -> dict:

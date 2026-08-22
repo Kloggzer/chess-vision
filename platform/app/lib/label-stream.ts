@@ -12,10 +12,12 @@ import { judgedKeys } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
+import { type PositionFlag, loadPositionFlags } from "@/lib/position-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
+import { type HandFlag, loadHandFlags } from "@/lib/hand-flags";
 import { loadMeta } from "@/lib/meta";
 import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
-import { unusableBoards } from "@/lib/review-notes";
+import { frameReviews, unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
 import { loadMatte } from "@/lib/matte";
@@ -28,6 +30,8 @@ export type StreamSession = {
   reads: boolean;
   /** Rows carrying `probs` — what the two identity lanes need, and what only one session has. */
   probs: boolean;
+  /** Stems already reported dirty. The note is on disk, so the mark must survive a reload. */
+  reportedDirty: string[];
 };
 
 export type StreamBoard = {
@@ -38,6 +42,10 @@ export type StreamBoard = {
   ply: number;
   fen: string;
   phase?: FramePhase;
+  /** Why the exporter called it dirty. Only `occluded` can be rescued by a matte alone. */
+  dirtyReason?: string;
+  /** `settle_dev` liegt an: dann entscheidet die Zelle über ihr Label, nicht die Frame-Klasse. */
+  measured?: boolean;
   sinceS?: number;
   toS?: number;
   /** Squares the exporter refuses to vouch for — the `FEN unklar` lane's whole predicate. */
@@ -66,6 +74,27 @@ export type StreamCell = {
   fen_label: string;
 };
 
+/** Eine Zelle der `Hand?`-Lane: was das Modell fuer verdeckt haelt, was die Matte dazu misst. */
+export type StreamHandCell = {
+  session: number;
+  pos: number;
+  stem: string;
+  square: string;
+  fen_label: string;
+  cov: number;
+  measured: number | null;
+};
+
+export type StreamPositionCell = {
+  session: number;
+  pos: number;
+  stem: string;
+  square: string;
+  fen_label: string;
+  dev: number;
+  reason: string;
+};
+
 type StreamAuditCell = {
   session: number;
   pos: number;
@@ -85,6 +114,10 @@ export type LabelStream = {
   audit: StreamAuditCell[] | null;
   /** `false` = `correction-violations.jsonl` does not exist; same `—`, for the same reason. */
   rules: boolean;
+  /** `null` = `hand-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
+  hands: StreamHandCell[] | null;
+  /** `null` = `position-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
+  positions: StreamPositionCell[] | null;
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
   /**
@@ -140,6 +173,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const decided: Record<string, string>[] = [];
   const coverage: Record<string, Record<string, number>>[] = [];
   const auditRows = await loadAuditFlags();
+  const handRows = await loadHandFlags();
+  const positionRows = await loadPositionFlags();
   const ruleRows = await loadCorrectionViolations();
   const violated = new Map<string, Map<string, CorrectionViolation>>();
   for (const row of ruleRows.rows) {
@@ -195,6 +230,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
       sessionId: id,
       reads: rows.length > 0,
       probs: rows.some((r) => r.probs !== undefined),
+      reportedDirty: [...(await frameReviews(id))].flatMap(([stem, r]) => (r.dirty ? [stem] : [])),
     });
 
     const byStem = new Map<string, StreamBoard>();
@@ -208,6 +244,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
         ply: row.ply,
         fen: row.fen,
         phase: row.phase,
+        ...(row.dirtyReason ? { dirtyReason: row.dirtyReason } : {}),
+        measured: row.measured,
         sinceS: row.sinceS,
         toS: Number.isFinite(row.toS) ? row.toS : undefined,
         unknown: row.unknown,
@@ -246,6 +284,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
     cells,
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
     rules: ruleRows.present,
+    hands: handRows.present ? handCells(handRows.rows, bySession) : null,
+    positions: positionRows.present ? positionCells(positionRows.rows, bySession) : null,
     decided,
     reads: { boards: readBoards, without },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
@@ -327,6 +367,50 @@ function controlCells(
 }
 
 /** Audit flags positioned in the stream; a flag on a board no lane shows cannot be rendered. */
+function handCells(
+  rows: HandFlag[],
+  bySession: Map<string, { index: number; byStem: Map<string, StreamBoard> }>,
+): StreamHandCell[] {
+  const out: StreamHandCell[] = [];
+  for (const row of rows) {
+    const session = bySession.get(row.session_id);
+    const board = session?.byStem.get(row.frame);
+    if (!session || !board) continue;
+    out.push({
+      session: session.index,
+      pos: board.pos,
+      stem: row.frame,
+      square: row.square,
+      fen_label: row.fen_label,
+      cov: row.cov,
+      measured: row.measured,
+    });
+  }
+  return out;
+}
+
+function positionCells(
+  rows: PositionFlag[],
+  bySession: Map<string, { index: number; byStem: Map<string, StreamBoard> }>,
+): StreamPositionCell[] {
+  const out: StreamPositionCell[] = [];
+  for (const row of rows) {
+    const session = bySession.get(row.session_id);
+    const board = session?.byStem.get(row.frame);
+    if (!session || !board) continue;
+    out.push({
+      session: session.index,
+      pos: board.pos,
+      stem: row.frame,
+      square: row.square,
+      fen_label: row.fen_label,
+      dev: row.dev,
+      reason: row.reason,
+    });
+  }
+  return out;
+}
+
 function auditCells(
   rows: AuditFlag[],
   bySession: Map<string, { index: number; byStem: Map<string, StreamBoard> }>,

@@ -3,6 +3,7 @@
 Warum `chesslab occluders alpha-worker` ein Modell benutzt, wo `occluded.py` bewusst keines
 benutzt, und welche Verfahren dafür gegeneinander angetreten sind. Code: `chesslab/matte.py`.
 Welche Frames der Worker überhaupt bekommt, entscheidet der Scan: `docs/frame-scan.md`.
+Wozu die Alpha ausserdem dient, seit jedes Frame eine hat: `docs/position-check.md`.
 
 > Alle Zahlen unten stammen von `rg-2026-08-08-00-39-57`, gemessen am 2026-08-18. Zeuge ist
 > `grid_occlusion.hand_squares` — der einzige Sensor, der mit keinem Kandidaten Arithmetik teilt.

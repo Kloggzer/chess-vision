@@ -401,6 +401,38 @@ def reported_dirty(session_id: str) -> set[int]:
     return out
 
 
+def adopt_reported_dirty(name: str) -> dict:
+    """Put the hands a human reported into the log NOW, instead of at the next export.
+
+    `plan_scanned` reads the same set, but only a re-export runs it — hours, and it re-plans every
+    frame. The rows here are already stored; marking them `occluded` is what lets the matte RESCUE
+    them (`slice_session`), where a measured coverage on a `clean` row would condemn them instead.
+    """
+    from .labeling import read_session_meta
+    from .sessions import _write_log, backup_log, read_log
+
+    session_dir = game_dir(name)
+    meta = read_session_meta(session_dir)
+    wanted = reported_dirty(meta["session_id"])
+    rows = read_log(session_dir)
+    stamp = datetime.now(UTC).isoformat()
+    changed = []
+    for row in rows:
+        stem = Path(row.get("board") or row["frame"]).stem
+        if not stem.isdigit() or int(stem) not in wanted or row.get("dirty"):
+            continue
+        row["dirty"] = True
+        row["dirty_reason"] = "occluded"
+        row["dirty_source"] = "reported"
+        row["dirty_set_at"] = stamp
+        changed.append(stem)
+    if not changed:
+        return {"reported": len(wanted), "changed": 0, "stems": [], "backup": None}
+    backup = backup_log(session_dir / "log.jsonl")
+    _write_log(session_dir, rows)
+    return {"reported": len(wanted), "changed": len(changed), "stems": changed, "backup": backup}
+
+
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                  settle: dict | None = None, per_position: int = 8,
                  dirty_per_position: int = 8, prefer=(), reported=()) -> list[dict]:
@@ -417,8 +449,12 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
     rows = []
     for seg in known_segments(candidate):
         reasons = framescan.classify(seg, scan)
+        # Only over a CLEAN verdict. `occluded` claims the FEN still holds, which contradicts a
+        # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
+        # carries the lagging FEN into training. The report answers "the scan missed a hand", the
+        # one thing it cannot see; it does not answer "the position is unchanged".
         for idx in reported:
-            if idx in reasons:
+            if reasons.get(idx) == "clean":
                 reasons[idx] = "occluded"
         clean, dirty = framescan.select(reasons, per_position=per_position,
                                         dirty_per_position=dirty_per_position, prefer=prefer)
@@ -744,56 +780,165 @@ POOL_MIN_ROWS = 32
 SETTLE_CELL_PX = 32
 SETTLE_MIN_FRAMES = 5
 SETTLE_MEDIAN_MAX = 60
+#: Alpha from which a pixel is the hand and not the board — the middle of the range.
+ALPHA_SOLID = 128
+#: What a frame may claim anywhere and still describe the SETTLED position. The reference must be
+#: the board alone; a hand in it would put the hand into the median.
+SETTLE_CLEAR_MAX = 0.02
 
 
-def cell_deviations(cells, median) -> Any:
-    """Mean absolute distance per (frame, cell) from [median] — the settle score, unrounded.
+def alpha_cells(session_dir: Path, stem: str, profile, out) -> Any:
+    """The frame's alpha as 64 cells, the hand-corrected cut first — `None` when none was ever made.
 
-    Split out from the reading so it can be tested on arrays alone: a cell covered in two of seven
-    frames must score high in exactly those two, and its neighbours must not move.
+    Cut with the same `crop_square` the board goes through, so a pixel means the same square in
+    both and `coverage_of`'s number and this mask describe one region.
     """
     import numpy as np
 
-    return np.abs(cells.astype(np.int16) - median).mean(axis=(2, 3, 4))
+    from .labeling import crop_square
+    from .matte import FIXED_SUFFIX
+
+    for name in (f"{stem}{FIXED_SUFFIX}", f"{stem}{BOARD_SUFFIX}"):
+        path = session_dir / MATTE_DIR / name
+        grey = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) if path.is_file() else None
+        if grey is None:
+            continue
+        board = cv2.cvtColor(grey, cv2.COLOR_GRAY2BGR)
+        return np.stack([crop_square(board, s, profile, out) for s in all_squares()])[..., 0]
+    return None
 
 
-def settle_for_ply(job: tuple[Path, list[dict], object]) -> dict[str, list[float]]:
-    """One ply interval -> `{frame stem: 64 deviations}`, in `all_squares()` order.
+def cell_deviations(cells, ref, visible) -> Any:
+    """Per cell: how far its VISIBLE pixels sit from [ref], and what fraction of them there were.
 
-    Within one interval the position stands still, so the pixel-wise MEDIAN over its boards is the
-    settled position, applied per cell. A cell that departs from it is occluded, mid-move, or already holds what the next move
-    puts there while the FEN still says otherwise. Only paths cross the process boundary.
+    Both sides are levelled before the difference, because a shadow shifts a cell's brightness
+    while a piece shifts its structure. Raw, the shadow of a player leaning in flagged a2, b3 and
+    b5 on a board nobody had touched (2026-08-22).
     """
     import numpy as np
 
-    from .labeling import all_squares, crop_square
+    weight = visible[..., None].astype(np.float32)
+    px = np.maximum(weight.sum(axis=(1, 2, 3)), 1.0)[:, None, None, None]
 
-    session_dir, rows, profile = job
-    if len(rows) < SETTLE_MIN_FRAMES:
-        return {}
+    def level(x):
+        return x - (x * weight).sum(axis=(1, 2), keepdims=True) / px
+
+    dev = (np.abs(level(cells) - level(ref)) * weight).sum(axis=(1, 2, 3))
+    return dev / (px[:, 0, 0, 0] * cells.shape[-1]), weight.mean(axis=(1, 2, 3))
+
+
+def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: float) -> Any:
+    """`(frames, 64) -> (frames, 64) bool`: hat dieses Feld die gesetzte Stellung VERLASSEN?
+
+    Drei Zustände je Zelle, denn eine verdeckte Zelle passt nicht zur Referenz — sie ist ungesehen,
+    und als Treffer gezählt würde sie eine Serie beenden, die die Hand nur verdeckt. Verlassen heißt
+    deshalb: ab hier stimmt das Feld nie wieder, und mindestens einmal weicht es messbar ab.
+    """
+    import numpy as np
+
+    covered = np.asarray(cover) >= covered_max
+    blind = ~covered & (np.asarray(seen) < seen_min)
+    known = ~covered & ~blind
+    gone = known & (np.asarray(dev) >= limit)
+    home = known & ~gone
+
+    left = blind.copy()
+    for c in range(left.shape[1]):
+        at = np.flatnonzero(home[:, c])
+        start = int(at[-1]) + 1 if len(at) else 0
+        if start < left.shape[0] and gone[start:, c].any():
+            left[start:, c] = True
+    # Nie eine verdeckte Zelle: die ist das Occlusion-Ziel, und ihre Coverage nimmt sie schon aus
+    # dem Klassifikations-Loss. Als "verlassen" gemeldet wuerde sie stattdessen weggeworfen.
+    return left & ~covered
+
+
+def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
+    """One ply interval -> its settled board, the per-cell measurement, and the VERDICT per frame.
+
+    Within one interval the position stands still, so the pixel-wise median over the boards whose
+    ALPHA is empty is the settled position. Every frame is read against it on the pixels its own
+    alpha calls board, and `departures` then adds the time axis: a shadow passes, a move stays.
+    Only paths cross the process boundary.
+    """
+    import numpy as np
+
+    from .labeling import MATTE_DIRTY, SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares, crop_square
+
+    session_dir, rows, profile, mattes = job
+    rows = sorted(rows, key=lambda r: r["frame"])
     squares = all_squares()
     out = (SETTLE_CELL_PX, SETTLE_CELL_PX)
+    stems = [Path(r["frame"]).stem for r in rows]
 
-    def cells_of(row):
+    # Ein Frame wird EINMAL gelesen: die Referenz-Frames sind Teil der Reihe und wurden vorher
+    # zweimal dekodiert und 64-fach geschnitten.
+    cells = {}
+    for row, stem in zip(rows, stems, strict=True):
         board = cv2.imread(str(session_dir / row["board"]))
-        if board is None:
-            return None
-        return np.stack([crop_square(board, s, profile, out) for s in squares])
+        if board is not None:
+            cells[stem] = np.stack([crop_square(board, s, profile, out) for s in squares]).astype(np.float32)
 
-    step = max(1, len(rows) // SETTLE_MEDIAN_MAX)
-    reference = [c for c in (cells_of(r) for r in rows[::step]) if c is not None]
+    clear = [s for s in stems if s in cells
+             and max((mattes.get(s) or {}).values(), default=0.0) <= SETTLE_CLEAR_MAX]
+    step = max(1, len(clear) // SETTLE_MEDIAN_MAX)
+    reference = [cells[s] for s in clear[::step]]
     if len(reference) < SETTLE_MIN_FRAMES:
         return {}
-    median = np.median(np.stack(reference).astype(np.int16), axis=0)
+    ref = np.median(np.stack(reference), axis=0)
 
-    scores = {}
-    for row in rows:
-        cells = cells_of(row)
-        if cells is None:
+    seen_stems, devs, seens, covers = [], [], [], []
+    for stem in stems:
+        if stem not in cells:
             continue
-        dev = cell_deviations(cells[None, ...], median)[0]
-        scores[Path(row["frame"]).stem] = [round(float(v), 2) for v in dev]
-    return scores
+        alpha = alpha_cells(session_dir, stem, profile, out)
+        visible = np.ones(cells[stem].shape[:3], bool) if alpha is None else alpha < ALPHA_SOLID
+        dev, seen = cell_deviations(cells[stem], ref, visible)
+        cover = mattes.get(stem) or {}
+        seen_stems.append(stem)
+        devs.append(dev)
+        seens.append(seen)
+        covers.append([cover.get(sq, 0.0) for sq in squares])
+
+    left = departures(np.array(devs), np.array(seens), np.array(covers),
+                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=MATTE_DIRTY)
+    scores = {stem: {"dev": [round(float(v), 2) for v in devs[i]],
+                     "seen": [round(float(v), 3) for v in seens[i]],
+                     "left": [squares[c] for c in np.flatnonzero(left[i])]}
+              for i, stem in enumerate(seen_stems)}
+    return {"ref": ref.astype(np.uint8), "scores": scores}
+
+
+#: Per session, one row per ply: did the move that opened this interval show up on the board?
+INTERVAL_FILE = "interval-check.jsonl"
+#: How far two neighbouring settled boards must differ on the squares the move between them
+#: touched. Measured over 177 neighbour pairs: the committed move shows at a median of 33 to 49,
+#: and 16 pairs stayed under 15 — those are the intervals whose commit nobody can vouch for.
+INTERVAL_MOVE_MIN = 15.0
+
+
+def interval_moves(refs: dict[int, Any], fens: dict[int, str]) -> list[dict]:
+    """Per ply: is the move that OPENED this interval visible between its settled board and the
+    one before it, on exactly the squares the move touched?
+
+    A commit in the wrong place hangs a FEN on pixels that never showed it, and nothing downstream
+    notices: every frame of the interval then agrees with a reference that is already wrong. This
+    is the only test that looks across an interval boundary.
+    """
+    import numpy as np
+
+    squares = all_squares()
+    out = []
+    for ply in sorted(refs):
+        moved = changed_squares(fens.get(ply - 1), fens.get(ply)) if ply - 1 in refs else []
+        if not moved:
+            continue
+        now = refs[ply].astype(np.float32)
+        dev, _ = cell_deviations(now, refs[ply - 1].astype(np.float32), np.ones(now.shape[:3], bool))
+        worst = max(float(dev[squares.index(sq)]) for sq in moved)
+        out.append({"ply": ply, "moved": moved, "dev": round(worst, 2),
+                    "seen": worst >= INTERVAL_MOVE_MIN})
+    return out
 
 
 def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
@@ -826,45 +971,26 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     return keys if mesh is None else {**keys, "board_straightened": True}
 
 
-#: How many CLEAN neighbours a frame borrows a mesh from when its own cannot be trusted. Five is
-#: what was measured; the number matters far less than not using a hand frame's own.
-MESH_NEIGHBOURS = 5
-
-
 def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
-    """{frame index: the mesh its board must be straightened with} for every row that has a board.
+    """{frame index: the mesh its board must be straightened with} — ONE mesh for the recording.
 
-    A frame's OWN mesh only when nothing was on the board. A hand over the grooves moves single
-    lines, and the mesh that comes out then leaves the board WORSE than no mesh at all (measured
-    2026-08-21 over three rig recordings: hand frames at 15.6 px against 16.1 raw, while clean
-    frames reached 1.0). The camera does not move inside a recording, so everyone else borrows the
-    nearest clean frames — 1.2 px against 1.0 for a frame's own, and available for all of them.
+    The camera does not move inside a recording, so every line sits where it sits and a per-frame
+    mesh can only add noise. It adds a lot: the middle lines hold still to +-0.4 px over a session
+    while the back-rank ones scatter by 3.8-4.6 px (2026-08-22, over 833 and 363 frames), because
+    pieces stand ON those grooves in every frame and move the line the fit finds. The per-line
+    MEDIAN over the clean frames is the same measurement without that jitter — and it keeps a real
+    lens bow, which is constant across frames (turntable `2026-08-09 20-48-50`: a smooth +-0.03
+    ramp, 8.5 px, survives the median unchanged).
+
+    A frame whose grid a HAND covers never contributes: its mesh leaves the board worse than no
+    mesh at all (measured 2026-08-21: 15.6 px against 16.1 raw).
     """
-    from dataclasses import replace
+    from .calibration import mesh_from_lines, pooled_mesh, smooth_mesh_curvature
 
-    from .calibration import mesh_from_lines, pooled_mesh
-
-    clean = {int(Path(r["frame"]).stem): mesh_from_lines(r["grid_lines"]) for r in rows
-             if r.get("grid_lines") and not r.get("hand_squares")}
-    clean = {i: m for i, m in clean.items() if m is not None}
-    out: dict[int, Any] = {}
-    for row in rows:
-        idx = int(Path(row["frame"]).stem)
-        own = clean.get(idx)
-        if own is None:
-            near = sorted((j for j in clean if j != idx), key=lambda j: (abs(j - idx), j))
-            own = pooled_mesh([clean[j] for j in near[:MESH_NEIGHBOURS]])
-        out[idx] = own
-    # The bow is optical and the camera is fixed, so a curvature measured on ANY clean frame of the
-    # recording describes all of them — and a mesh without it cannot take a bow out at all. Three
-    # recordings carry curvature on under 5 % of their frames and stayed at 5.3-6.4 px without this,
-    # against 0.97 where it was present (2026-08-21).
-    session = pooled_mesh(list(clean.values()))
-    if session is not None and session.cx is not None:
-        out = {i: (replace(m, cx=session.cx, cy=session.cy)
-                   if m is not None and m.tilted and m.cx is None else m)
-               for i, m in out.items()}
-    return out
+    clean = [smooth_mesh_curvature(mesh_from_lines(r["grid_lines"]))
+             for r in rows if r.get("grid_lines") and not r.get("hand_squares")]
+    session = pooled_mesh([m for m in clean if m is not None])
+    return {int(Path(row["frame"]).stem): session for row in rows}
 
 
 #: How often `straighten_boards` asks its caller to persist the rows. The write is the destructive

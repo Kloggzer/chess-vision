@@ -49,11 +49,20 @@
   the occlusion labels are made of. Only `next_touches` decides `stale`; all 64 cells flagged the
   player's shadow on rank 1 (median 7 cells).
 - **`boards/` is the clean p8 stock, `dirty/` the pile**, each row carrying `dirty_reason`.
+- **The CELL decides now, not the frame (2026-08-22).** With `settle_dev` on the row and a matte
+  beside it, `dirty_reason` only steers what SAM mattes first: a cell over `PIECE_VISIBLE_MAX` keeps
+  its FEN label (coverage takes it out of the loss), a visible one is checked against the interval's
+  settled board, and one that departs becomes a card on the `Stellung?` lane. That is what rescues
+  `stale`/`changed` frames cell by cell (`docs/position-check.md`).
 
 ### 1. Model & Normalization
 - **Occlusion:** Models without the `occluded` class have `pOccluded = 0.0`. Hand verification must rely on the **MODEL-FREE** arm (`gridOccluded`) because the CNN arm is blind. Measured on 003957's 67-ply reference: 38/67 plies with 4 invented → **67/67 with 0 invented** (raw map), **LCS 65/67** under the adjacency rule. The gate only counts HAND-SHAPED flags (≥ 1 orthogonally adjacent pair): counting any flag blanks a whole replay on one leaning piece (c8), and a count threshold of 3 lets the leaving hand's 2-flag tail commit the fabrication it exists to stop.
 - **Normalization:** BatchNorm works well; the learning rate is the critical factor, not the norm choice. Never rank normalizers at one shared rate — sweep the rate per normalizer or do not compare.
 - **Metrics:** `val_acc` correlates inversely to the Veto Metric. Use `sweep_infer_size.py`.
+- **The settle gate is blind in the dark corner.** The board carries a light gradient (h3 at 156,
+  a7 at 20 on 20-41-33), so a black piece on a near-black square moves the score by ~1.5 against a
+  threshold of 15. `interval-check.jsonl` measures this per ply instead of hiding it; closing it
+  means normalising by the cell's own contrast, not lowering the threshold.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 
 ### 2. Data & Splits
@@ -84,6 +93,9 @@
 
 ## Verification
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
+- **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
+  `realgames position-flags` have anything to lay out. Without a measurement a cell is not
+  undisputed, it is unmeasured, and the lane says `—` rather than `0`.
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 

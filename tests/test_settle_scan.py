@@ -1,60 +1,162 @@
-"""The settle score: a cell that stops matching its own interval's settled board."""
+"""The settle score: a cell that stops matching its own interval's settled board.
 
+The alpha is the second half of it — it says WHERE the board was visible, and only there does a
+deviation mean the position changed rather than that a hand is in the way.
+"""
+
+from dataclasses import replace
+
+import cv2
 import numpy as np
 
-from chesslab.realgames import SETTLE_CELL_PX, cell_deviations
+from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
+from chesslab.labeling import SETTLE_LIMIT, all_squares
+from chesslab.realgames import (
+    SETTLE_CELL_PX,
+    cell_deviations,
+    departures,
+    settle_for_ply,
+)
+
+SIDE = 320
+CELL = SIDE // 8
+PX = SETTLE_CELL_PX
 
 
-def _interval(frames: int = 7, cells: int = 64, shade: int = 90) -> np.ndarray:
-    """A board that never changes — every cell the same flat shade in every frame."""
-    px = SETTLE_CELL_PX
-    return np.full((frames, cells, px, px, 3), shade, np.uint8)
+def _profile() -> CalibrationProfile:
+    corners = [[0, 0], [SIDE, 0], [SIDE, SIDE], [0, SIDE]]
+    return CalibrationProfile(
+        profile="t", camera_index=0, frame_size=(SIDE, SIDE), board_size=SIDE,
+        image_corners=corners, homography=compute_homography(corners, SIDE),
+        white_pov=True, crop=replace(CropParams.default(SIDE), out_size=(PX, PX)),
+    )
 
 
-def test_a_still_interval_scores_zero():
-    """The median IS the interval when nothing moves, so nothing may look suspicious."""
-    stack = _interval()
+def _board(shade: int = 90) -> np.ndarray:
+    """64 cells of one flat shade — the settled board nobody has touched."""
+    return np.full((64, PX, PX, 3), shade, np.float32)
 
-    dev = cell_deviations(stack, np.median(stack.astype(np.int16), axis=0))
 
-    assert dev.shape == (7, 64)
+def _all_visible() -> np.ndarray:
+    return np.ones((64, PX, PX), bool)
+
+
+def test_a_still_board_scores_zero():
+    """The reference IS the board when nothing moved, so nothing may look suspicious."""
+    dev, seen = cell_deviations(_board(), _board(), _all_visible())
+
     assert dev.max() == 0.0
+    assert seen.min() == 1.0
 
 
-def test_only_the_covered_cell_and_only_while_it_is_covered():
-    """A hand over one square in two of seven frames: those two entries move, nothing else does.
+def test_a_shadow_moves_nothing_and_a_piece_moves_everything():
+    """The one property the raw difference did not have: a player leaning in shifts a cell's
+    BRIGHTNESS, and that flagged a2, b3 and b5 on a board nobody had touched (2026-08-22)."""
+    cells = _board()
+    cells[3] += 30                            # the whole cell darkens: a shadow
+    cells[27, :PX // 4] = 200                 # a quarter of it turns: a piece arriving
 
-    This is the whole point of the median — the covered frames are the MINORITY, so they cannot
-    drag the reference towards themselves and hide.
+    dev, _ = cell_deviations(cells, _board(), _all_visible())
+
+    assert dev[3] == 0.0
+    assert dev[27] > SETTLE_CELL_PX, dev[27]
+    assert dev[np.arange(64) != 27].max() == 0.0
+
+
+def test_a_cell_under_the_hand_is_not_measured_at_all():
+    """A covered cell is not "unchanged", it is unseen — `settle_seen` is what says which."""
+    cells = _board()
+    cells[27] = 200                           # the hand lies over e4, whatever is under it
+    visible = _all_visible()
+    visible[27] = False
+    visible[9, :, PX // 2:] = False           # and half of another cell
+
+    dev, seen = cell_deviations(cells, _board(), visible)
+
+    assert dev[27] == 0.0 and seen[27] == 0.0
+    assert dev[9] == 0.0 and seen[9] == 0.5
+
+
+def _write(path, image, params=None):
+    assert cv2.imwrite(str(path), image, params or [])
+
+
+def test_the_reference_is_built_from_the_clear_frames_only(tmp_path):
+    """A hand lying over the same square in the MINORITY of frames used to be caught by the median;
+    with an alpha per frame it is not even offered to it, so the reference stays the board."""
+    prof = _profile()
+    pad = crop_border_px(prof)
+    side = SIDE + 2 * pad
+    (tmp_path / "boards").mkdir()
+    (tmp_path / "mattes").mkdir()
+    rows = []
+    for i in range(7):
+        board = np.full((side, side, 3), 90, np.uint8)
+        if i >= 5:                            # the last two carry a hand over a8
+            board[pad:pad + CELL, pad:pad + CELL] = 200
+            alpha = np.zeros((side, side), np.uint8)
+            alpha[pad:pad + CELL, pad:pad + CELL] = 255
+            _write(tmp_path / "mattes" / f"{i:06d}.webp", alpha, [cv2.IMWRITE_WEBP_QUALITY, 101])
+        _write(tmp_path / "boards" / f"{i:06d}.png", board)
+        rows.append({"frame": f"frames/{i:06d}.png", "board": f"boards/{i:06d}.png"})
+
+    mattes = {f"{i:06d}": ({"a8": 1.0} if i >= 5 else {}) for i in range(7)}
+    got = settle_for_ply((tmp_path, rows, prof, mattes))
+
+    a8, h1 = all_squares().index("a8"), all_squares().index("h1")
+    assert got["scores"]["000000"]["dev"][a8] == 0.0
+    # Not 0.0: the crop reaches past its own square by `pad_side`, and that rim is still board.
+    assert got["scores"]["000005"]["seen"][a8] < 0.2, "almost nothing of the hand's cell was seen"
+    assert got["scores"]["000005"]["dev"][a8] < SETTLE_LIMIT, "and the rim still matches the board"
+    assert got["scores"]["000005"]["seen"][h1] == 1.0
+
+
+def _states(frames: int, cell: int = 0):
+    """Drei Reihen fuer `departures`: Abweichung, Sichtbarkeit, Coverage — je (Frames, 64)."""
+    dev = np.zeros((frames, 64), np.float32)
+    seen = np.ones((frames, 64), np.float32)
+    cover = np.zeros((frames, 64), np.float32)
+    return dev, seen, cover, cell
+
+
+def _left(dev, seen, cover):
+    return departures(dev, seen, cover, limit=SETTLE_LIMIT, seen_min=0.5, covered_max=0.15)
+
+
+def test_a_shadow_passes_and_a_move_stays():
+    """Die ganze Regel in einem Test: dieselbe Abweichung, einmal voruebergehend, einmal bleibend.
+
+    Ohne die Zeitachse sind beide identisch — und 63 % der Treffer korpusweit waren die erste Art.
     """
-    stack = _interval()
-    stack[2:4, 27] = 200                      # e4 covered in frames 2 and 3
+    dev, seen, cover, c = _states(8)
+    dev[2:4, c] = SETTLE_LIMIT + 10          # Schatten: ab f4 stimmt das Feld wieder
+    dev[2:, c + 1] = SETTLE_LIMIT + 10       # Zug: ab f2 nie wieder
 
-    dev = cell_deviations(stack, np.median(stack.astype(np.int16), axis=0))
+    left = _left(dev, seen, cover)
 
-    assert dev[2, 27] == 110.0 and dev[3, 27] == 110.0
-    assert dev[np.arange(7) != 2, 27][np.arange(6) != 2].max() == 0.0, "the other frames of that cell"
-    assert dev[:, np.arange(64) != 27].max() == 0.0, "every other cell"
-
-
-def test_the_majority_becomes_the_reference():
-    """The documented limit: a hand lying over the WHOLE interval is the settled board, and the
-    clean frames are the deviation. `dirty`'s commit window is what covers that case."""
-    stack = _interval()
-    stack[:5, 27] = 200                       # covered in 5 of 7 — now the majority
-
-    dev = cell_deviations(stack, np.median(stack.astype(np.int16), axis=0))
-
-    assert dev[0, 27] == 0.0, "the covered frames now look normal"
-    assert dev[5, 27] == 110.0, "and the clean ones look wrong"
+    assert not left[:, c].any(), "was zurueckkommt, ist ein Aermel"
+    assert not left[:2, c + 1].any()
+    assert left[2:, c + 1].all(), "und was bleibt, ist der Zug"
 
 
-def test_a_gradual_change_is_caught_at_its_own_size():
-    """Not every departure is a hand: a piece half-placed shifts fewer pixels, and the score has
-    to report THAT rather than a verdict — the threshold is set from the distribution, not here."""
-    stack = _interval()
-    stack[3, 27, :8] = 200                    # a quarter of the cell, one frame
+def test_a_hand_at_the_end_does_not_break_the_run():
+    """Die Falle: verdeckt heisst nicht "stimmt wieder". Sonst rutscht genau der Fall durch, bei
+    dem die Hand nach dem Zug liegen bleibt."""
+    dev, seen, cover, c = _states(6)
+    dev[2:, c] = SETTLE_LIMIT + 10
+    cover[4:, c] = 0.9                        # ab f4 liegt die Hand drauf
 
-    dev = cell_deviations(stack, np.median(stack.astype(np.int16), axis=0))
+    left = _left(dev, seen, cover)
 
-    assert 25.0 < dev[3, 27] < 30.0, dev[3, 27]
+    assert left[2:4, c].all(), "solange man es sieht, ist es verlassen"
+    assert not left[4:, c].any(), "verdeckt gehoert der Coverage, nicht dieser Liste"
+
+
+def test_a_cell_the_alpha_barely_saw_is_flagged_on_its_own():
+    """Zu wenig Brett gesehen ist weder "unveraendert" noch vom Loss ausgenommen."""
+    dev, seen, cover, c = _states(4)
+    seen[1, c] = 0.2
+
+    left = _left(dev, seen, cover)
+
+    assert left[1, c] and not left[0, c] and not left[2, c]

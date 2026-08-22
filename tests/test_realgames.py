@@ -874,3 +874,88 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
         if int(Path(row["frame"]).stem) in reported:
             assert row["dirty_reason"] == "occluded"
             assert row["fen"] == candidate["moves"][0]["fen_after"], "an occluded board keeps its FEN"
+
+
+def test_reported_dirty_reads_only_its_own_session_and_only_the_hand_verdict(tmp_path, monkeypatch):
+    """One flag, one pool: the export, the alpha worker and the lane all read this set."""
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    from chesslab.realgames import reported_dirty
+
+    assert reported_dirty("rg-a") == set()
+
+    notes = config.DATA.labels / "review-notes.jsonl"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text("\n".join(json.dumps(row) for row in [
+        {"session_id": "rg-a", "frame": "000144", "verdict": "dirty-frame"},
+        {"session_id": "rg-a", "frame": "000900", "verdict": "dirty-frame"},
+        {"session_id": "rg-b", "frame": "000001", "verdict": "dirty-frame"},
+        {"session_id": "rg-a", "frame": "000333", "verdict": "matte-ok"},
+    ]) + "\n", encoding="utf-8")
+
+    assert reported_dirty("rg-a") == {144, 900}
+    assert reported_dirty("rg-b") == {1}
+
+
+def test_adopt_dirty_marks_the_reported_rows_occluded_and_leaves_the_rest(tmp_path, monkeypatch):
+    """`occluded` is what makes the coming matte RESCUE the row instead of condemning it."""
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    from chesslab.realgames import adopt_reported_dirty
+
+    sdir = config.DATA.recordings / "g"
+    sdir.mkdir(parents=True)
+    (sdir / "session.yaml").write_text("session_id: rg-g\nprofile: desktop\n", encoding="utf-8")
+    (sdir / "log.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"frame": "frames/000144.png", "board": "boards/000144.webp", "ply": 1, "fen": "x"},
+        {"frame": "frames/000900.png", "board": "boards/000900.webp", "ply": 2, "fen": "x"},
+        {"frame": "frames/001000.png", "board": "boards/001000.webp", "ply": 3, "fen": "x"},
+    ]) + "\n", encoding="utf-8")
+    notes = config.DATA.labels / "review-notes.jsonl"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text(json.dumps(
+        {"session_id": "rg-g", "frame": "000144", "verdict": "dirty-frame"}) + "\n", encoding="utf-8")
+
+    res = adopt_reported_dirty("g")
+    assert (res["changed"], res["stems"]) == (1, ["000144"])
+    assert res["backup"] is not None
+
+    rows = [json.loads(x) for x in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert (rows[0]["dirty"], rows[0]["dirty_reason"], rows[0]["dirty_source"]) == (
+        True, "occluded", "reported")
+    assert "dirty" not in rows[1] and "dirty" not in rows[2]
+
+    # Idempotent: a second run must not stack another backup on an unchanged log.
+    assert adopt_reported_dirty("g")["changed"] == 0
+
+
+def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
+    """`occluded` claims the FEN still holds — a `stale` frame has measured the opposite.
+
+    Promoting it anyway lets its matte rescue it at slice time, and the lagging FEN then reaches
+    training as a label. The report answers "the scan missed a hand", nothing more.
+    """
+    from chesslab import framescan, realgames
+
+    candidate = {
+        "geometry": {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]},
+        "created_at": "2026-08-21T00:00:00Z",
+        "clock": {"fps": 30.0},
+        "frames": 400,
+        "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "reviewed_plies": [1],
+        "moves": [{"ply": 1, "san": "e4", "frame": 100, "t": 3.33,
+                   "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"}],
+    }
+    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [0.0] * 64}
+            for i in range(100, 200, 3)]
+    verdicts = {}
+
+    def classify(seg, rows, **kw):
+        out = {r["idx"]: ("stale" if r["idx"] == 103 else "clean") for r in rows}
+        verdicts.update(out)
+        return out
+
+    monkeypatch.setattr(framescan, "classify", classify)
+    rows = realgames.plan_scanned(candidate, scan, margin_frames=30, reported={103, 106})
+    by_stem = {int(Path(r["frame"]).stem): r for r in rows}
+    assert by_stem[103]["dirty_reason"] == "stale", "a measured stale survives the report"
+    assert by_stem[106]["dirty_reason"] == "occluded", "a clean frame is still promoted"

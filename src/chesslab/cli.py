@@ -11,9 +11,10 @@ import typer
 
 from . import calibration as calibration_mod
 from . import composite as composite_mod
-from . import config
+from . import config, locks
 from . import dataset as dataset_mod
 from . import doctor as doctor_mod
+from . import hand_flags as hand_flags_mod
 from . import labeling as labeling_mod
 
 app = typer.Typer(
@@ -182,8 +183,9 @@ def session_settle_scan(
             failed += 1
             continue
         short = f", {r['too_short']} in zu kurzen Intervallen" if r["too_short"] else ""
+        blind = f", {r['unseen']} ohne sichtbaren Zug" if r.get("unseen") else ""
         print(f"[OK] {sid}: {r['scored']}/{r['of']} Frames bewertet über {r['plies']} Intervalle"
-              f"{short} — backup {r['backup']}", flush=True)
+              f"{short} — {r['intervals']} Plies geprüft{blind}, backup {r['backup']}", flush=True)
     if failed:
         raise typer.Exit(1)
 
@@ -623,6 +625,37 @@ def realgames_model_read(
           f"({_Path(res['model']).name}) -> {res['path']}")
 
 
+@realgames_app.command("adopt-dirty")
+def realgames_adopt_dirty(
+    name: str = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_recordings: bool = typer.Option(False, "--all", help="Every recording with a log."),
+) -> None:
+    """Take the hands a human reported into `log.jsonl` — the matte can start without a re-export.
+
+    A reported frame only reaches the pile through `export-session` otherwise, which re-plans the
+    whole recording. This marks the stored rows `occluded`, which is also what makes the coming
+    matte RESCUE them: measured coverage on a row still classed `clean` condemns it instead.
+    """
+    from . import realgames as rg_mod
+
+    names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if (p / "log.jsonl").exists()]
+    if not (bool(name) ^ all_recordings):
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    total = 0
+    for target in (names if all_recordings else [name]):
+        try:
+            res = rg_mod.adopt_reported_dirty(target)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            print(f"[ERR] {target}: {e}")
+            continue
+        total += res["changed"]
+        if res["changed"]:
+            print(f"[OK] {target}: {res['changed']} von {res['reported']} gemeldeten Frames "
+                  f"auf `occluded` gesetzt (Backup {res['backup']})")
+    print(f"[OK] {total} Frames warten jetzt auf die Matte — `chesslab occluders alpha-worker`")
+
+
 @realgames_app.command("audit-corrections")
 def realgames_audit_corrections() -> None:
     """Check the correction ledger against the rules of chess — the audit that PROVES.
@@ -643,8 +676,57 @@ def realgames_audit_corrections() -> None:
         print(f"  {sid:34} {n} frames")
 
 
+@realgames_app.command("hand-flags")
+def realgames_hand_flags(
+    cut: float = typer.Option(hand_flags_mod.DEFAULT_CUT, "--cut",
+                              help="Ab dieser Coverage-Vorhersage legt der Occlusion-Kopf eine "
+                                   "Verdeckung vor. Tief, weil ein verpasster Handframe 64 Labels "
+                                   "verdirbt und ein Fehlalarm einen Blick kostet."),
+) -> None:
+    """Wo das Modell eine Hand sieht und die Matte keine — die Vorlage der `Hand?`-Lane.
+
+    Braucht `model-reads.jsonl` aus einem Lauf MIT Occlusion-Kopf (`realgames model-read`);
+    ein Lauf ohne den Kopf schreibt kein `cov` und wird uebersprungen statt geraten.
+    """
+    r = hand_flags_mod.hand_flags(cut=cut)
+    print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n}")
+    if r["without_coverage"]:
+        print(f"  ! ohne `cov` uebersprungen ({len(r['without_coverage'])}): "
+              f"{', '.join(r['without_coverage'][:6])} — `model-read` dort neu laufen lassen, "
+              f"mit einem Lauf MIT Occlusion-Kopf")
+
+
+@realgames_app.command("position-flags")
+def realgames_position_flags() -> None:
+    """Zellen, deren Bild von der Stellung ihres Intervalls abweicht — die Vorlage der Lane.
+
+    Braucht `settle_dev` aus `chesslab session settle-scan`; ohne Messung ist eine Zelle nicht
+    unstrittig, sondern ungemessen, und sie wird uebersprungen statt geraten.
+    """
+    from . import position_flags as position_flags_mod
+
+    r = position_flags_mod.position_flags()
+    print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n}")
+    i = position_flags_mod.interval_flags()
+    print(f"[OK] {i['plies']} Plies geprueft, {i['unseen']} ohne sichtbaren Zug -> {i['path']}")
+
+
 @realgames_app.command("audit-flags")
-def realgames_audit_flags() -> None:
+def realgames_audit_flags(
+    occupancy: bool = typer.Option(False, "--occupancy/--all",
+                                   help="Only flags disputing whether the square is OCCUPIED. Use "
+                                        "it whenever the proposer comes from another domain: a "
+                                        "model that never saw this piece set reads shapes badly, "
+                                        "and its type flags are its own gap, not your labels."),
+    visible: bool = typer.Option(False, "--visible/--any-coverage",
+                                 help="Drop the cells the matte measured as covered. `OcclusionLoss` "
+                                      "masks those out of the class loss anyway, so a verdict on "
+                                      "them reaches no model."),
+) -> None:
     """Question every FEN label with the models the proposals already ran — confident learning.
 
     Per session and class, `t_j` is the mean self-confidence over the cells labelled `j`
@@ -654,10 +736,14 @@ def realgames_audit_flags() -> None:
     """
     from . import audit_flags as audit_mod
 
-    r = audit_mod.audit_flags()
+    r = audit_mod.audit_flags(occupancy_only=occupancy, visible_only=visible)
     rate = r["flags"] / r["cells_scanned"] if r["cells_scanned"] else 0.0
     for s in r["skipped"]:
         print(f"[SKIP] {s['session']}: {s['reason']}")
+    if r["dropped_by_scope"]:
+        print(f"[i] scope={r['scope']}: {r['dropped_by_scope']} type/colour flags left out")
+    if r["dropped_as_covered"]:
+        print(f"[i] coverage={r['coverage_scope']}: {r['dropped_as_covered']} covered cells left out")
     print(f"[OK] {r['flags']} flags over {r['cells_scanned']} cells ({rate:.1%}) "
           f"in {len(r['sessions'])} sessions -> {r['path']}")
 
@@ -814,12 +900,17 @@ def occluders_composite(
 
     from . import composite as comp
 
-    res = comp.build_from_video(
-        video=Path(video), plate_dir=Path(occluders),
-        out_root=config.DATA.crops / tag,
-        manifest=config.DATA.crops / tag / "manifest.jsonl",
-        fen=fen, board_size=board_size, out_size=_out_size(out_size),
-        stride=stride, seed=seed)
+    try:
+        with locks.pool_lock(config.DATA.crops / tag, f"composite {Path(video).name}"):
+            res = comp.build_from_video(
+                video=Path(video), plate_dir=Path(occluders),
+                out_root=config.DATA.crops / tag,
+                manifest=config.DATA.crops / tag / "manifest.jsonl",
+                fen=fen, board_size=board_size, out_size=_out_size(out_size),
+                stride=stride, seed=seed)
+    except RuntimeError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     if res.get("error"):
         print(f"[FAIL] {res['error']}")
         raise typer.Exit(1)
@@ -884,6 +975,103 @@ def occluders_recut(
           f"({res['frames']} Zeilen) -> {res['path']}")
 
 
+@occluders_app.command("close-seams")
+def occluders_close_seams(
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session that has a matte.jsonl."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only, touch nothing."),
+) -> None:
+    """Close the hairline the concept UNION leaves in alphas already on disk, and recut coverage.
+
+    Watch and arm come from two SAM concepts and meet on a line neither covers. `alpha_sam3` does
+    this for every new matte; this is the one-off for the ones cut before it did.
+    """
+    from . import matte as matte_mod
+
+    if bool(name) == all_sessions:
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    if all_sessions:
+        from .sessions import all_sessions as _all
+
+        names = [sid[3:] for sid, _ in _all() if sid.startswith("rg-")]
+    else:
+        names = [name]
+    total = {"closed": 0, "frames": 0, "crossed": 0}
+    for one in names:
+        try:
+            res = matte_mod.close_seams(one, dry_run=dry_run, progress=not all_sessions)
+        except (FileNotFoundError, ValueError, KeyError, OSError) as e:
+            print(f"[ERR] {one}: {e}")
+            continue
+        for k in total:
+            total[k] += res[k]
+        if res["closed"]:
+            print(f"[OK] {one}: {res['closed']}/{res['frames']} Alphas geschlossen, "
+                  f"+{res['px']} px, {res['crossed']} Zellen wechseln die Schwelle"
+                  f"{' (dry-run)' if dry_run else ''}")
+    if len(names) > 1:
+        print(f"[OK] gesamt {total['closed']}/{total['frames']} Alphas, "
+              f"{total['crossed']} Zellen wechseln PIECE_VISIBLE_MAX")
+
+
+@occluders_app.command("gate-train")
+def occluders_gate_train(
+    backbone: str = typer.Option("mobilenet_v3_small", "--backbone"),
+    size: int = typer.Option(320, "--size", help="Kantenlaenge, in der der Kopf das Brett sieht."),
+    epochs: int = typer.Option(8, "--epochs"),
+    holdout: int = typer.Option(4, "--holdout", help="GANZE Sessions, die nur geprueft werden."),
+    batch: int = typer.Option(32, "--batch"),
+    workers: int = typer.Option(4, "--workers", help="Loader-Prozesse; 8 ist die Obergrenze."),
+    lr: float = typer.Option(3e-4, "--lr"),
+    tag: str = typer.Option("", "--tag", help="Eigener Ordner unter data/models/, fuer Vergleiche."),
+) -> None:
+    """Den Hand-Gate auf SAM 3s Urteil trainieren — das Ja/Nein, das kein Alpha braucht.
+
+    SAM ist der Lehrer UND der Pruefer: die zurueckgehaltenen Sessions werden gegen sein Urteil
+    gemessen, nicht gegen ein Frame-Sample derselben Beleuchtung.
+    """
+    import os
+
+    # ROCm-Windows sucht sonst fuer JEDE neue Conv-Form erschoepfend nach Kerneln: der 640er Lauf
+    # brachte damit in 20 Minuten keine einzige Epoche zustande, mit FAST sind es 45 Sekunden.
+    os.environ.setdefault("MIOPEN_FIND_MODE", "FAST")
+    from . import hand_gate
+
+    r = hand_gate.train_gate(backbone=backbone, size=size, epochs=epochs, holdout=holdout,
+                             batch=batch, workers=workers, lr=lr, tag=tag)
+    c = r["chosen"]
+    print(f"[OK] {r['train_boards']} Bretter trainiert, {r['val_boards']} geprueft "
+          f"({r['val_hands']} mit Hand) -> {r['path']}")
+    cov = r["coverage"]
+    print(f"     Veto {c['thr']}: recall {c['recall']}, {c['false_pos']} saubere Bretter verworfen "
+          f"({100 * c['clean_lost']:.1f} %)")
+    print(f"     Felder > 0.15: recall {cov['recall']} praezision {cov['precision']}, "
+          f"MAE {cov['mae']} | {r['ms_per_board']} ms je Brett")
+
+
+@occluders_app.command("gate-scan")
+def occluders_gate_scan(
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_sessions: bool = typer.Option(False, "--all", help="Jede Session mit gespeicherten Brettern."),
+    tag: str = typer.Option("", "--tag", help="Welcher Lauf unter data/models/ gelesen wird."),
+) -> None:
+    """Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.
+
+    Getrennte Datei mit Absicht: SAMs Messung und die des Schuelers duerfen nie in derselben Zeile
+    stehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.
+    """
+    from . import hand_gate
+    from .realgames import bundles_with_stored
+
+    names = bundles_with_stored() if all_sessions else [name]
+    if not names or names == [None]:
+        raise typer.BadParameter("Name oder --all angeben.")
+    for one in names:
+        r = hand_gate.gate_scan(one, tag=tag)
+        print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto -> {r['path']}", flush=True)
+
+
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
     name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
@@ -896,6 +1084,10 @@ def occluders_alpha_worker(
     reason: str = typer.Option("occluded", "--reason",
                                help="Which dirty rows to matte: `occluded` (FEN still valid, the "
                                     "labelable ones) or `all`."),
+    reported: bool = typer.Option(False, "--reported",
+                                  help="Re-measure exactly the frames a human reported dirty in "
+                                       "the labeling stream. Overrides --limit and any matte "
+                                       "already there — the report is a verdict on that matte."),
 ) -> None:
     """Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.
 
@@ -916,8 +1108,17 @@ def occluders_alpha_worker(
               f"({res['already']} lagen schon vor)", flush=True)
         sys.stdout.flush()
         os._exit(0)
+    frames = None
+    if reported:
+        from .realgames import reported_dirty
+
+        frames = {f"{index:06d}" for index in reported_dirty(f"rg-{name}")}
+        if not frames:
+            print(f"[OK] {name}: nothing reported dirty by hand")
+            raise typer.Exit(0)
+        print(f"[i] {len(frames)} frames reported, re-measuring those")
     try:
-        res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason)
+        res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason, frames=frames)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -926,8 +1127,10 @@ def occluders_alpha_worker(
           f"({res['already']} lagen schon vor) -> {res['path']}", flush=True)
     print(f"     uebersprungen — {skipped}", flush=True)
     # Measured twice on 2026-08-19: the run finishes its frames, writes them, and then never
-    # exits — the ROCm teardown wedges and the loop above it waits out its timeout. Everything is
-    # already on disk here (each row is appended and flushed), so leave without unwinding.
+    # exits — the ROCm teardown wedges. Everything is on disk (each row is appended and flushed),
+    # so leave without unwinding — but drop the weights first, like the `--all` path: a wedge
+    # BEFORE `os._exit` left the worker alive holding its VRAM (measured 2026-08-21).
+    matte_mod.unload_models()
     sys.stdout.flush()
     os._exit(0)
 
@@ -1157,6 +1360,32 @@ def dataset_pack_cmd(
     print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
 
 
+@dataset_app.command("folds")
+def dataset_folds_cmd(
+    name: str = typer.Argument(..., help="Built dataset to cut into folds."),
+    k: int = typer.Option(4, "-k", "--folds", help="Number of folds (docs/cross-labeling-literature.md: 4)."),
+    seed: int | None = typer.Option(None, "--seed", help="Default: the dataset's own split seed."),
+    val_frac: float | None = typer.Option(None, "--val-frac", help="Default: the dataset's own."),
+    prefix: str = typer.Option("split-f", "--prefix", help="File name prefix, e.g. split-f0.json."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only, write nothing."),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing fold files."),
+    allow_asymmetric: bool = typer.Option(False, "--allow-asymmetric",
+                                          help="Proceed although the dataset was deduped train-only."),
+) -> None:
+    """Session-grouped cross-validation folds: k `split-f<i>.json` beside the dataset's split.
+
+    For out-of-fold label auditing — every session is predicted by a model that never trained
+    on it. All folds share the one pack, so nothing is re-packed."""
+    from . import dataset_build as db
+
+    try:
+        db.make_folds(name, k, seed=seed, val_frac=val_frac, prefix=prefix,
+                     dry_run=dry_run, force=force, allow_asymmetric=allow_asymmetric)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+
+
 @dataset_app.command("list")
 def dataset_list_cmd() -> None:
     """List existing datasets."""
@@ -1282,15 +1511,28 @@ def train_cmd(
 @app.command("eval")
 def eval_cmd(
     run: str = typer.Option(..., "--run", help="Run directory from `train`."),
-    split: str = typer.Option("test", "--split", help="train | val | test"),
+    split: str = typer.Option("test", "--split", help="train | val | test | all (no split filter)"),
     input_size: int | None = typer.Option(None, "--input-size", help="Eingabegröße für die Auswertung "
                                            "(z.B. 64/96/128). Misst die Genauigkeit bei einer Deployment-Auflösung "
                                            "(für die Auflösungs-Kurve eines Multi-Scale-Modells)."),
+    dataset: str | None = typer.Option(None, "--dataset",
+                                       help="Measure against THIS dataset instead of the one the "
+                                            "run was trained on. Writes eval_<split>__<dataset>.json "
+                                            "so the run's own numbers stay put, and warns about "
+                                            "sessions the run trained on."),
+    split_file: str | None = typer.Option(None, "--split-file",
+                                          help="Split file inside the dataset (default: split.json, "
+                                               "or the run's own). Names a fold, e.g. split-f0.json."),
+    sessions: str | None = typer.Option(None, "--sessions",
+                                        help="Comma-separated session IDs to narrow the split to."),
 ) -> None:
-    """Board accuracy, per-class recall and confusion matrix (text + PNG)."""
+    """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
-    raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size))
+    raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
+                              split_file=split_file,
+                              sessions=[s.strip() for s in sessions.split(",") if s.strip()]
+                              if sessions else None))
 
 
 @app.command("reliance")

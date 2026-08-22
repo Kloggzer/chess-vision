@@ -1,7 +1,9 @@
 # Frame-Scan — erst messen, dann auswählen
 
 Warum der Export nicht mehr plant und danach flaggt, sondern jeden Frame misst und danach wählt.
-Code: `chesslab/framescan.py`. Der Occluder-Alpha darauf: `docs/session-mattes.md`.
+Code: `chesslab/framescan.py`. Der Occluder-Alpha darauf: `docs/session-mattes.md`. Seit
+2026-08-22 entscheidet die Klasse hier nicht mehr über ein Label, sondern nur noch darüber, was
+SAM zuerst mattet — das Urteil fällt pro Zelle (`docs/position-check.md`).
 
 ## Der Bruch
 

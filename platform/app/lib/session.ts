@@ -48,6 +48,8 @@ export type SessionRow = {
   board?: { rel: string; size: number; border: number; straightened: boolean };
   /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
   dirtyReason?: string;
+  /** `settle_dev` liegt an: dann entscheidet die ZELLE, ob ein Label gilt, nicht die Frame-Klasse. */
+  measured: boolean;
 };
 export type Session = {
   name: string;
@@ -55,6 +57,10 @@ export type Session = {
   rows: SessionRow[];
   byStem: Map<string, SessionRow>;
   plies: Map<number, string[]>;
+  /** ply -> the halfmove and the position it leaves behind. A log row's `ply` is the position
+   *  AFTER that halfmove, so `moves.get(row.ply)` produced what the frame shows and `ply + 1`
+   *  is the one being played into it. */
+  moves: Map<number, { san: string; fen: string }>;
   boardSize: number;
   margin: number | number[];
   crop: CropParams;
@@ -128,6 +134,7 @@ export async function loadSession(name: string): Promise<Session> {
       board_border?: number;
       board_straightened?: boolean;
       dirty_reason?: string;
+      settle_dev?: number[];
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -151,6 +158,7 @@ export async function loadSession(name: string): Promise<Session> {
             straightened: row.board_straightened === true }
         : undefined,
       dirtyReason: row.dirty_reason,
+      measured: (row.settle_dev ?? []).length > 0,
     });
   }
   const geometry = candidate.geometry ?? {};
@@ -161,6 +169,7 @@ export async function loadSession(name: string): Promise<Session> {
     rows,
     byStem: new Map(rows.map((r) => [r.stem, r])),
     plies: rows.reduce((m, r) => m.set(r.ply, [...(m.get(r.ply) ?? []), r.stem]), new Map()),
+    moves: new Map(candidate.moves.flatMap((m) => (m.fen_after ? [[m.ply, { san: m.san, fen: m.fen_after }] as const] : []))),
     boardSize: geometry.board_size ?? 928,
     margin: geometry.margin ?? 0,
     crop: { pad_up: source.crop?.pad_up ?? 0, pad_side: source.crop?.pad_side ?? 0.05 },

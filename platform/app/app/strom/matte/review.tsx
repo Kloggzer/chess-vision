@@ -9,6 +9,7 @@ import { PaletteRow } from "@/components/palette-row";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PIECE_VISIBLE_MAX } from "@/lib/classes";
+import { fenLabels, moveLabel } from "@/lib/fen";
 import type { Correction } from "@/lib/corrections";
 import {
   carryPositionCorrections,
@@ -20,10 +21,23 @@ import type { VerifyStream } from "@/lib/verify";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
+/**
+ * „Das Brett zeigt schon den neuen Zug": die Felder, in denen die Stellung NACH `next` von der
+ * des Intervalls abweicht. Als Korrekturen, nicht als neuer FEN — `slice_session` liest genau
+ * die, sie schlagen das Intervall-Label und heben den Frame ueber das dirty-Gate.
+ */
+function aheadCorrections(frame: { fen: string; next?: { fen: string } }): { square: string; label: string }[] {
+  if (!frame.next) return [];
+  const now = fenLabels(frame.fen);
+  const then = fenLabels(frame.next.fen);
+  return Object.entries(then)
+    .filter(([square, label]) => now[square] !== label)
+    .map(([square, label]) => ({ square, label }));
+}
+
 const KEYS: [string, string][] = [
-  ["⏎", "Alpha UND Stellung stimmen → nächster"],
-  ["n", "Alpha falsch"],
-  ["j", "nur Alpha bestätigen"],
+  ["⏎", "Brett zeigt den ALTEN Zug → nächster"],
+  ["⇧⏎", "Brett zeigt schon den NEUEN Zug → nächster"],
   ["u", "FEN unsicher (ganzes Intervall)"],
   ["m", "Alpha ein/aus"],
   ["p", "Pinsel · e malen/radieren · [ ] Größe · z zurück · s speichern"],
@@ -42,9 +56,9 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 }
 
 /**
- * Ein Frame, zwei Fragen (CONCEPT.md 4.2): stimmt SAM 3s Alpha, stimmt die Stellung. ⏎ beantwortet
- * beide („nervig matte 2 mal zu bestätigen", 2026-08-19) und schreibt sie trotzdem als die zwei
- * Zeilen, die sie sind. Verdeckte Felder bleiben ungelabelt — ihre `coverage` nimmt sie aus dem Loss.
+ * Eine Frage pro Frame: stimmt die Stellung. Das Alpha wird seit 2026-08-22 nicht mehr abgefragt —
+ * SAM 3s Schnitt ist in der Review bestätigt worden, und was er trotzdem verfehlt, korrigiert der
+ * Pinsel hier. Verdeckte Felder bleiben ungelabelt: ihre `coverage` nimmt sie aus dem Loss.
  */
 export function MatteReview({ stream }: { stream: VerifyStream }) {
   const router = useRouter();
@@ -84,8 +98,8 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
   });
   const pen = useAlphaPen(key);
 
+  const ahead = frame ? aheadCorrections(frame) : [];
   const said = (verdict: string) => answered[`${key}|${verdict}`] !== undefined;
-  const matte = said("matte-ok") ? "ok" : said("matte-bad") ? "bad" : frame?.review.matte;
   const position = said("position-ok") || frame?.review.position === "ok";
   const flagged = said("interval") || frame?.intervalFlagged;
   /** Gemalte Pixel schlagen den Serverstand: die Zahlen sind ab dem Speichern wieder SAM's. */
@@ -108,23 +122,16 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     [key],
   );
 
-  const note = useCallback(
-    (verdict: "matte-ok" | "matte-bad") => {
-      if (!frame || !session) return;
-      void write([{ session_id: session.sessionId, frame: frame.stem, verdict }], [verdict]);
-    },
-    [frame, session, write],
-  );
-
-  /**
-   * ⏎ ist der ganze übliche Frame: erst was der Pinsel korrigiert hat, dann beide Urteile in
-   * einem Schreibvorgang — aber als die zwei Zeilen, die sie sind. Ein schon gefälltes Alpha-Urteil
-   * bleibt stehen: sonst nähme ⏎ dem Menschen sein `n` weg und doppelte jedes `j`.
-   */
-  const confirmFrame = useCallback(async () => {
+  /** ⏎ ist der ganze übliche Frame: erst was der Pinsel korrigiert hat, dann das Urteil. */
+  const confirmFrame = useCallback(async (ahead = false) => {
     if (!frame || !session) return;
+    if (ahead && !frame.next) {
+      setError("Kein nächster Zug — das ist die letzte Stellung der Partie.");
+      return;
+    }
     try {
-      const rows: Correction[] = paint.plan.corrections.map((r) => ({
+      const corrections = ahead ? [...aheadCorrections(frame), ...paint.plan.corrections] : paint.plan.corrections;
+      const rows: Correction[] = corrections.map((r) => ({
         session_id: session.sessionId,
         frame: frame.stem,
         square: r.square,
@@ -132,16 +139,13 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       }));
       if (rows.length > 0) await post("/api/corrections", { rows, ledger: "corrections" });
       paint.markCommitted(paint.plan.committed);
-      const verdicts: ReviewNote[] = [{ session_id: session.sessionId, frame: frame.stem, verdict: "position-ok" }];
-      if (matte === undefined) {
-        verdicts.unshift({ session_id: session.sessionId, frame: frame.stem, verdict: "matte-ok" });
-      }
-      await write(verdicts, verdicts.map((v) => v.verdict));
+      await write([{ session_id: session.sessionId, frame: frame.stem, verdict: "position-ok" }],
+                  ["position-ok"]);
 
       const carried = carryPositionCorrections({
         frames,
         from: index,
-        corrections: paint.plan.corrections,
+        corrections,
         decided: stream.decided,
         current: prefilled,
       });
@@ -160,7 +164,6 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     frame,
     frames,
     index,
-    matte,
     paint,
     prefilled,
     session,
@@ -207,12 +210,10 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       const target = event.target as HTMLElement | null;
       if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) return;
       const hit: Record<string, () => void> = {
-        j: () => note("matte-ok"),
-        n: () => note("matte-bad"),
         u: () => flagInterval(),
         m: () => setAlpha((v) => !v),
         p: () => pen.setArmed(!pen.armed),
-        Enter: () => void confirmFrame(),
+        Enter: () => void confirmFrame(event.shiftKey),
         ArrowLeft: () => step(-1),
         ArrowRight: () => step(1),
       };
@@ -230,7 +231,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [confirmFrame, flagInterval, note, pen, saveAlpha, step]);
+  }, [confirmFrame, flagInterval, pen, saveAlpha, step]);
 
   if (!frame || !session) {
     return (
@@ -257,6 +258,17 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
           {session.sessionId} · {frame.stem} · ply {frame.ply}
           {frame.reason ? ` · ${frame.reason}` : ""}
         </span>
+        {/* Der Hand im Alpha gehoert ein Zug: `last` hat das Brett gemacht, `next` wird gerade
+            hineingespielt — genau die Entscheidung, die die beiden ⏎-Knoepfe abfragen. */}
+        <span className="font-mono">
+          <span className="text-foreground">
+            {frame.last ? moveLabel(frame.last.ply, frame.last.san) : "Startstellung"}
+          </span>
+          <span className="text-muted-foreground">
+            {" → "}
+            {frame.next ? moveLabel(frame.next.ply, frame.next.san) : "Partieende"}
+          </span>
+        </span>
         {carryNotice &&
 carryNotice.session === frame.session &&
 carryNotice.ply === frame.ply ? (
@@ -276,11 +288,6 @@ carryNotice.ply === frame.ply ? (
         <span className="text-muted-foreground font-mono">
           {Object.entries(frame.concepts).map(([c, p]) => `${c} ${p}`).join(" · ") || "keine Konzepte"}
         </span>
-        {matte ? (
-          <span className={matte === "ok" ? "text-green-400" : "text-destructive"}>
-            Alpha {matte === "ok" ? "bestätigt" : "verworfen"}
-          </span>
-        ) : null}
         {position ? <span className="text-green-400">Stellung bestätigt</span> : null}
         {flagged ? <span className="text-amber-400">FEN unsicher</span> : null}
       </div>
@@ -308,22 +315,27 @@ carryNotice.ply === frame.ply ? (
       )}
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <Button className={TOUCH} onClick={() => void confirmFrame()} size="sm">
-          ⏎ Alpha + Stellung stimmen
+        <Button className={TOUCH} onClick={() => void confirmFrame(false)} size="sm">
+          ⏎ {frame.last ? moveLabel(frame.last.ply, frame.last.san) : "Startstellung"}
           {paint.plan.corrections.length > 0 ? ` · ${paint.plan.corrections.length} korrigiert` : ""}
-        </Button>
-        <Button className={TOUCH} onClick={() => note("matte-bad")} size="sm" variant="destructive">
-          <span className="mr-1 font-mono">n</span> Alpha falsch
         </Button>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button className={TOUCH} onClick={() => note("matte-ok")} size="sm" variant="secondary">
-              <span className="text-muted-foreground mr-1 font-mono">j</span> nur Alpha
+            <Button
+              className={TOUCH}
+              disabled={!frame.next}
+              onClick={() => void confirmFrame(true)}
+              size="sm"
+              variant="secondary"
+            >
+              ⇧⏎ {frame.next ? moveLabel(frame.next.ply, frame.next.san) : "Partieende"}
+              {ahead.length > 0 ? ` · ${ahead.length} Felder` : ""}
             </Button>
           </TooltipTrigger>
           <TooltipContent>
-            Alpha bestätigen, Stellung offen lassen — für Frames, deren Intervall du gerade mit `u`
-            als unsicher markiert hast.
+            Das Brett steht schon NACH dem Zug, das Intervall hängt noch davor. Schreibt{" "}
+            {ahead.map((c) => `${c.square} ${c.label}`).join(", ") || "nichts"} als Korrektur — die
+            schlägt das Intervall-Label und rettet den Frame, statt ihn zu verwerfen.
           </TooltipContent>
         </Tooltip>
         <Button className={TOUCH} onClick={() => flagInterval()} size="sm" variant="outline">

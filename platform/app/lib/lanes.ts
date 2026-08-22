@@ -19,6 +19,8 @@ export type LaneId =
   | "unknown"
   | "control"
   | "audit"
+  | "hand"
+  | "position"
   | "rules"
   | "all";
 
@@ -63,6 +65,12 @@ export const LANES: readonly Lane[] = [
     denominator: "Kontroll-Stichprobe über die noch unbeurteilten ruhigen Zellen der exportierten Sessions",
   },
   { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
+  // Eigene Lane, weil die Frage eine andere ist: nicht WELCHE Figur, sondern ob eine Hand drauf
+  // liegt. Der Dirty-Pinsel (`d`) beantwortet sie, kein Klassenwort.
+  { id: "hand", slug: "hand", label: "Hand?", renderer: "cells", unit: "Zellen", denominator: "Zellen, die das Modell für verdeckt hält und die Matte für frei" },
+  // Wieder eine eigene Frage: nicht ob etwas draufliegt, sondern ob das Feld noch die Stellung
+  // zeigt, für die sein Intervall bürgt. Ein sichtbar ziehender Bauer ist hier zwei Karten.
+  { id: "position", slug: "stellung", label: "Stellung?", renderer: "cells", unit: "Zellen", denominator: "Zellen, deren Bild von der Stellung ihres Intervalls abweicht" },
   {
     id: "rules",
     slug: "regelbruch",
@@ -90,6 +98,12 @@ export const NO_QUERY =
   "ihre Antwort ist die Zahl unbekannt, nicht null.";
 export const NO_AUDIT =
   "data/reports/audit-flags.jsonl fehlt — der Zwei-Hälften-Kreuztest lief noch nicht.";
+export const NO_HAND =
+  "data/reports/hand-flags.jsonl fehlt — `chesslab realgames hand-flags` lief noch nicht.";
+export const NO_POSITION =
+  "data/reports/position-flags.jsonl fehlt — `chesslab session settle-scan` und danach " +
+  "`chesslab realgames position-flags` liefen noch nicht. Ohne Messung ist eine Zelle nicht " +
+  "unstrittig, sondern ungemessen.";
 export const NO_RULES =
   "data/reports/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
 
@@ -270,6 +284,40 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   if (id === "audit") {
     return (stream.audit ?? []).map(judgedCell);
   }
+  // Kein Klassenwort und kein `exception`: die einzige Antwort ist der Dirty-Pinsel, und ⏎ sagt
+  // "keine Hand" — es bestätigt das FEN-Wort, das ohnehin auf der Platte steht.
+  if (id === "hand") {
+    return (stream.hands ?? []).map((c) => ({
+      session: c.session,
+      pos: c.pos,
+      stem: c.stem,
+      square: c.square,
+      fen_label: c.fen_label,
+      label: c.fen_label,
+      ledger: "reviewed" as const,
+      exception: null,
+      caption: `${c.square} · Modell ${(c.cov * 100).toFixed(0)} % verdeckt`,
+      note: c.measured === null ? "Matte kennt dieses Frame nicht" : `Matte ${(c.measured * 100).toFixed(0)} %`,
+    }));
+  }
+  // Die Antwort ist ein Klassenwort: ⏎ bestätigt den FEN (Schatten-Fehlalarm), die Palette schreibt
+  // die Figur, die wirklich dasteht. Deshalb `corrections` — der FEN ist hier der Verdächtige.
+  if (id === "position") {
+    return groupBySquare(
+      (stream.positions ?? []).map((c) => ({
+        session: c.session,
+        pos: c.pos,
+        stem: c.stem,
+        square: c.square,
+        fen_label: c.fen_label,
+        label: c.fen_label,
+        ledger: "corrections" as const,
+        exception: null,
+        caption: `${c.square} · FEN ${c.fen_label}`,
+        note: c.reason === "unreadable" ? "kaum Feld zu sehen" : `Δ ${c.dev.toFixed(0)}`,
+      })),
+    );
+  }
   if (id === "classwall") {
     return byClaim(groupBySquare(wall?.cells ?? []));
   }
@@ -362,25 +410,48 @@ export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string,
 }
 
 /**
+ * Liefert dieses Brett noch einen Crop? `slice_session`: mit Settle-Messung UND Matte entscheidet
+ * die Zelle, sonst wird nur ein `occluded` Frame mit Matte gerettet und jedes andere dirty Frame
+ * nur noch da, wo ein Mensch etwas benannt hat. Fehlende `phase` heißt NICHT dirty — sonst
+ * blendet ein ungemessenes Brett sich selbst aus.
+ */
+export function reachesPool(board: StreamBoard, coverage: Record<string, Record<string, number>>[]): boolean {
+  if (board.phase !== "after" && board.phase !== "before") return true;
+  const cover = coverage[board.session]?.[board.stem];
+  if (cover === undefined || Object.keys(cover).length === 0) return false;
+  return board.measured === true || board.dirtyReason === "occluded";
+}
+
+/**
  * What the lane still asks for, against the ledger AS LOADED.
  *
  * The server's snapshot and not the live overlay: an item answered in this sitting must keep its
  * place until the next load, or the list would resize under the cursor on every commit and `z`
  * would land somewhere else than it took the row from.
  */
+
 export function openBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
-  return laneBoards(stream, id).filter((b) => laneOpen(b, id, stream.decided[b.session] ?? {}));
+  return laneBoards(stream, id).filter(
+    (b) => reachesPool(b, stream.coverage) && laneOpen(b, id, stream.decided[b.session] ?? {}),
+  );
 }
 
 export function openCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
+  const alive = new Set(
+    stream.boards.filter((b) => reachesPool(b, stream.coverage)).map((b) => `${b.session}|${b.stem}`),
+  );
   return laneCells(stream, id, wall).filter(
-    (c) => (stream.decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined,
+    (c) =>
+      alive.has(`${c.session}|${c.stem}`) &&
+      (stream.decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined,
   );
 }
 
 /** Open and total, or `null` with the reason the producer still owes this lane its input. */
 export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCount {
   if (id === "audit" && stream.audit === null) return { n: null, why: NO_AUDIT };
+  if (id === "hand" && stream.hands === null) return { n: null, why: NO_HAND };
+  if (id === "position" && stream.positions === null) return { n: null, why: NO_POSITION };
   if (id === "rules" && !stream.rules) return { n: null, why: NO_RULES };
   if ((id === "disagree" || id === "classwall") && !stream.sessions.some((s) => s.probs))
     return { n: null, why: NO_READS };
