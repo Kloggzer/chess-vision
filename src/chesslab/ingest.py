@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -174,18 +175,21 @@ def slice_imported(session_ids: list[str], *, profile, out_size: tuple[int, int]
     with locks.pool_lock(squares_root, f"ingest {n} session(s)"):
         manifest_batch: dict[str, list[str]] = {}
         try:
-            for sid in session_ids:
-                with span("Ingest.slice"):
-                    res = labeling.slice_session(
-                        paths.sessions / sid, profile=profile, manifest_path=manifest_path,
-                        squares_root=squares_root, out_size=out_size,
-                        manifest_batch=manifest_batch)
-                tot["sessions"] += 1
-                tot["frames"] += res["frames"]
-                tot["crops"] += res["crops"]
-                tot["skipped"] += res.get("skipped", 0)
-                print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
-                      f"(last {sid}: {res['frames']} frames)", flush=True)
+            with ThreadPoolExecutor(
+                max_workers=labeling.SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+            ) as write_pool:
+                for sid in session_ids:
+                    with span("Ingest.slice"):
+                        res = labeling.slice_session(
+                            paths.sessions / sid, profile=profile, manifest_path=manifest_path,
+                            squares_root=squares_root, out_size=out_size,
+                            manifest_batch=manifest_batch, write_pool=write_pool)
+                    tot["sessions"] += 1
+                    tot["frames"] += res["frames"]
+                    tot["crops"] += res["crops"]
+                    tot["skipped"] += res.get("skipped", 0)
+                    print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
+                          f"(last {sid}: {res['frames']} frames)", flush=True)
         finally:
             # Preserve the old partial-progress contract: sessions completed before a later
             # adapter/session failure remain published, but still with one rewrite in the normal

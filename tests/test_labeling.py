@@ -1,6 +1,8 @@
 """Stage 3 — slicing & labeling integration (headless, synthetic session)."""
 
 import json
+from contextlib import nullcontext
+from pathlib import Path
 
 import chess
 import cv2
@@ -78,6 +80,66 @@ def test_manifest_batch_replaces_multiple_sessions_with_one_rewrite(tmp_path):
     ]
     op = audit.report()["operations"]["full manifest rewrites"]
     assert (op["calls"], op["avoidable_calls"]) == (1, 0)
+
+
+def test_slice_session_closes_its_owned_writer_pool(monkeypatch):
+    from chesslab import labeling
+
+    events = []
+
+    class FakePool:
+        def __init__(self, **kwargs):
+            events.append(("created", kwargs))
+
+        def __enter__(self):
+            events.append(("entered", self))
+            return self
+
+        def __exit__(self, *args):
+            events.append(("exited", self))
+
+    monkeypatch.setattr(labeling, "ThreadPoolExecutor", FakePool)
+    monkeypatch.setattr(labeling, "_slice_session", lambda *args, **kwargs: kwargs["write_pool"])
+
+    pool = labeling.slice_session(
+        Path("session"), profile=object(), manifest_path=Path("manifest"),
+        squares_root=Path("squares"),
+    )
+
+    assert pool is events[1][1]
+    assert [event[0] for event in events] == ["created", "entered", "exited"]
+
+
+def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, monkeypatch):
+    from chesslab import labeling, locks, sessions
+
+    published = []
+    calls = 0
+
+    def fake_slice_session(*args, manifest_batch, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        manifest_batch["first"] = ['{"session_id": "first"}']
+        return {"frames": 1, "crops": 64}
+
+    monkeypatch.setattr(labeling, "_session_ids_with_logs", lambda: ["first", "second"])
+    monkeypatch.setattr(labeling, "variant_paths", lambda tag: (tmp_path / "manifest", tmp_path))
+    monkeypatch.setattr(locks, "pool_lock", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(sessions, "session_dir", lambda sid: (tmp_path / sid, sid))
+    monkeypatch.setattr(labeling, "read_session_meta", lambda path: {"profile": "test"})
+    monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, profile: object())
+    monkeypatch.setattr(labeling, "slice_session", fake_slice_session)
+    monkeypatch.setattr(
+        labeling, "_replace_sessions_in_manifest",
+        lambda path, replacements: published.append(dict(replacements)),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        labeling.run_slice(slice_all=True)
+
+    assert published == [{"first": ['{"session_id": "first"}']}]
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:

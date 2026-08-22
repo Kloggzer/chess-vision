@@ -104,8 +104,6 @@ CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 # 4 workers 0.36 s, 8 workers 0.23 s; 12/16 no longer improved. Keep the bound explicit so a
 # high-core machine does not turn one slice into an unbounded small-file write storm.
 SLICE_WRITE_WORKERS = 8
-_SLICE_WRITERS = ThreadPoolExecutor(max_workers=SLICE_WRITE_WORKERS,
-                                    thread_name_prefix="slice-webp")
 
 #: How far a cell may sit from its ply interval's settled board and still be trusted
 #: (`realgames.settle_for_ply`). At 15 the montage above it holds fingers on squares labelled
@@ -349,12 +347,13 @@ def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     return {r["frame"]: r["coverage"] for r in read_jsonl(path) if r.get("coverage")}
 
 
-def slice_session(
+def _slice_session(
     session_dir: Path,
     *,
     profile: CalibrationProfile,
     manifest_path: Path,
     squares_root: Path,
+    write_pool: ThreadPoolExecutor,
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
@@ -503,7 +502,7 @@ def slice_session(
                 out_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{session_id}_{frame_stem}_{square}{CROP_SUFFIX}"
             crop_path = out_dir / fname
-            future = _SLICE_WRITERS.submit(_write_crop, crop_path, crop)
+            future = write_pool.submit(_write_crop, crop_path, crop)
             write_jobs.append((future, crop_path, crop.nbytes))
             write_bytes += crop.nbytes
             row = {
@@ -552,6 +551,35 @@ def slice_session(
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
             "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
             "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh, "bowed_boards": n_bowed}
+
+
+def slice_session(
+    session_dir: Path,
+    *,
+    profile: CalibrationProfile,
+    manifest_path: Path,
+    squares_root: Path,
+    pad_up: float | None = None,
+    pad_side: float | None = None,
+    out_size: tuple[int, int] | None = None,
+    manifest_batch: dict[str, list[str]] | None = None,
+    write_pool: ThreadPoolExecutor | None = None,
+) -> dict:
+    """Slice one session, owning the WebP worker pool unless a run-scoped pool is supplied."""
+    if write_pool is not None:
+        return _slice_session(
+            session_dir, profile=profile, manifest_path=manifest_path,
+            squares_root=squares_root, write_pool=write_pool, pad_up=pad_up,
+            pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+        )
+    with ThreadPoolExecutor(
+        max_workers=SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+    ) as owned_pool:
+        return _slice_session(
+            session_dir, profile=profile, manifest_path=manifest_path,
+            squares_root=squares_root, write_pool=owned_pool, pad_up=pad_up,
+            pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+        )
 
 
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
@@ -612,34 +640,47 @@ def run_slice(
     try:
         with locks.pool_lock(squares_root, f"slice {len(sids)} session(s)"):
             manifest_batch: dict[str, list[str]] = {}
-            for sid in sids:
-                try:
-                    session_dir, _ = _resolve(sid)
-                    meta = read_session_meta(session_dir)
-                    prof = _profile_for_session(meta, profile)
-                    stats = slice_session(
-                        session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
-                        pad_up=pad_up, pad_side=pad_side, out_size=out_size_t,
-                        manifest_batch=manifest_batch,
-                    )
-                    extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
-                    if stats.get("skipped"):
-                        extra += f" [{stats['skipped']} frames without markers skipped]"
-                    if stats.get("mesh_frames"):
-                        extra += f" [{stats['mesh_frames']} frames straightened here, no stored board]"
-                    # Loud, because nothing in a crop says whether its board was pulled straight.
-                    if stats.get("bowed_boards"):
-                        extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT geradegezogen — "
-                                  f"`chesslab session straighten {sid}`]")
-                    if stats.get("dirty_dropped"):
-                        extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
-                    if stats.get("unsettled_dropped"):
-                        extra += f" [{stats['unsettled_dropped']} cells held back as unsettled]"
-                    print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
-                except Exception as e:  # noqa: BLE001
-                    print(f"[FAIL] {sid}: {e}")
-                    rc = 1
-            _replace_sessions_in_manifest(manifest_path, manifest_batch)
+            try:
+                with ThreadPoolExecutor(
+                    max_workers=SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+                ) as write_pool:
+                    for sid in sids:
+                        try:
+                            session_dir, _ = _resolve(sid)
+                            meta = read_session_meta(session_dir)
+                            prof = _profile_for_session(meta, profile)
+                            stats = slice_session(
+                                session_dir, profile=prof, manifest_path=manifest_path,
+                                squares_root=squares_root, pad_up=pad_up, pad_side=pad_side,
+                                out_size=out_size_t, manifest_batch=manifest_batch,
+                                write_pool=write_pool,
+                            )
+                            extra = (f" ({stats['overrides']} corrections)"
+                                     if stats.get("overrides") else "")
+                            if stats.get("skipped"):
+                                extra += f" [{stats['skipped']} frames without markers skipped]"
+                            if stats.get("mesh_frames"):
+                                extra += (f" [{stats['mesh_frames']} frames straightened here, "
+                                          "no stored board]")
+                            # Loud, because nothing in a crop says whether its board was pulled straight.
+                            if stats.get("bowed_boards"):
+                                extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT "
+                                          f"geradegezogen — `chesslab session straighten {sid}`]")
+                            if stats.get("dirty_dropped"):
+                                extra += (f" [{stats['dirty_dropped']} cells held back on dirty "
+                                          "frames]")
+                            if stats.get("unsettled_dropped"):
+                                extra += (f" [{stats['unsettled_dropped']} cells held back as "
+                                          "unsettled]")
+                            print(f"[OK] {sid}: {stats['frames']} Frames -> "
+                                  f"{stats['crops']} Crops{extra}.")
+                        except Exception as e:  # noqa: BLE001
+                            print(f"[FAIL] {sid}: {e}")
+                            rc = 1
+            finally:
+                # KeyboardInterrupt is a BaseException and bypasses the per-session handler.
+                # Publish every fully completed session before propagating it to the CLI.
+                _replace_sessions_in_manifest(manifest_path, manifest_batch)
     except RuntimeError as e:
         print(f"[FAIL] {e}")
         return 1
