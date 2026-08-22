@@ -474,6 +474,15 @@ def test_an_already_loaded_manifest_uses_compact_direct_indices(tmp_path, paths)
     assert ds.idx.tolist() == [2, 3, 4, 5]
 
 
+def test_manifest_digest_keeps_the_existing_byte_contract():
+    rows = [{"path": "x/a.png", "label": "wP", "out_size": [80, 80]},
+            {"path": "x/b.png", "label": "empty"}]
+    import hashlib
+
+    raw = b"x/a.png\0wP\0[80, 80]\nx/b.png\0empty\0\n"
+    assert pack_mod._manifest_digest(rows) == hashlib.sha256(raw).hexdigest()[:32]
+
+
 def test_linking_frees_a_duplicate_memmap_it_replaces(tmp_path, paths):
     _, rows = _make_dataset(tmp_path, 8)
     pack_mod.pack_dataset("ds", paths=paths, workers=2)

@@ -50,12 +50,10 @@ def _manifest_digest(rows: list[dict]) -> str:
     """
     h = hashlib.sha256()
     for r in rows:
-        h.update(str(r["path"]).encode("utf-8"))
-        h.update(b"\x00")
-        h.update(str(r.get("label", "")).encode("utf-8"))
-        h.update(b"\x00")
-        h.update(str(r.get("out_size", "")).encode("utf-8"))
-        h.update(b"\n")
+        # One encode/update instead of six. The byte stream stays identical, so all existing
+        # packed_meta digests remain valid.
+        h.update((f'{r["path"]}\0{r.get("label", "")}\0{r.get("out_size", "")}\n')
+                 .encode())
     return h.hexdigest()[:32]
 
 

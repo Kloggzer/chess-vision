@@ -37,6 +37,29 @@ class _GaussianNoise:
         return (t + torch.randn_like(t) * self.std).clamp_(0.0, 1.0)
 
 
+class _EvalRgbTransform:
+    """Regular PIL eval transform plus a zero-PIL path for exact-size packed uint8 crops."""
+
+    def __init__(self, transform, out_size, mean, std) -> None:
+        self.transform = transform
+        self.out_size = tuple(out_size)
+        self.mean = torch.tensor(mean, dtype=torch.float32).view(3, 1, 1)
+        self.std = torch.tensor(std, dtype=torch.float32).view(3, 1, 1)
+
+    def __call__(self, img):
+        return self.transform(img)
+
+    def from_uint8_hwc(self, arr: np.ndarray) -> torch.Tensor:
+        h, w = arr.shape[:2]
+        if (w, h) != self.out_size:
+            return self.transform(Image.fromarray(arr))
+        # `to(float32)` owns the storage, so the following arithmetic is safely in-place. This is
+        # the same sequence as ToTensor + Normalize without the PIL bytes round-trip and second
+        # NumPy materialization.
+        x = torch.from_numpy(arr).permute(2, 0, 1).to(dtype=torch.float32).div_(255)
+        return x.sub_(self.mean).div_(self.std)
+
+
 class _RandomRot90:
     """Random k*90° rotation (k in 0..3). Square-color/geometry stay valid for 90°-multiples —
     this replaces the former build-time materialization of rotated crop copies (4x disk/memmap):
@@ -91,7 +114,10 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         # pre-normalized contents. In-place normalization therefore removes one full crop clone
         # and its memory traffic from every train/validation sample without changing values.
         ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std, inplace=True)]
-    return T.Compose(ops)
+    transform = T.Compose(ops)
+    if not train and not per_crop and input_repr == "rgb":
+        return _EvalRgbTransform(transform, (out_w, out_h), mean, std)
+    return transform
 
 
 # --- input representation ----------------------------------------------------------------------
@@ -424,7 +450,10 @@ class PackedSquareDataset(Dataset):
 
     def __getitem__(self, i):
         arr = np.array(self._memmap()[self.idx[i]])            # copy out of the read-only memmap
-        x = self.transform(Image.fromarray(arr))
+        if isinstance(self.transform, _EvalRgbTransform):
+            x = self.transform.from_uint8_hwc(arr)
+        else:
+            x = self.transform(Image.fromarray(arr))
         if not self.with_coverage:
             return x, int(self.labels[i])
         return x, torch.tensor([float(self.labels[i]), float(self.cover[i])])
