@@ -3,6 +3,7 @@ package com.chesslab.tracker.service
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.SquareCropper
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
@@ -70,7 +71,11 @@ fun cropFrameSource(
                         // phone even though independent squares are resized on separate PC cores.
                         squares.parallelStream().map(cropOne).toList() to grid.join()
                     } else {
-                        squares.map(cropOne) to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
+                        val crops =
+                            SquareCropper().use { cropper ->
+                                squares.map { square -> toBgrImage(cropper.crop(cropWarp, square, geom)) }
+                            }
+                        crops to gridOccludedSquares(cropWarp, geom, cropBorderPx(geom))
                     }
                 WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
                 // The model-free hand read, on the SAME full-resolution warp the crops came from —
