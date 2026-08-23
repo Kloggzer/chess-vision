@@ -336,6 +336,69 @@ consecutive reads. There is no hypothesis to commit provisionally, so a transact
 nothing to carry either. The bottleneck there is that the board outran `recoveryMaxPlies = 4`, and
 raising it to 6 changes nothing while 8 does not finish.
 
+### Why recovery cannot bridge a capture (2026-08-23)
+
+`recoveryMaxPlies` was the wrong suspect. Counting the OCCUPANCY conflicts per read after
+11-59-12's alarm — one ply changes at most two squares, so the conflict count is a hard lower bound
+on bridge length — the gap at the latching read is **two squares, not twenty**:
+
+| seq | 5262 | 5368 | 5458 | 5528 | 5616 | 5748 | 5880 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| occupancy conflicts | 2 | 3 | 5 | 7 | 9 | 10 | 11 |
+
+Two conflicts is a one- or two-ply bridge, far inside a depth of 4, and the signature names it: `d7`
+emptied, `f8` emptied, `b8` unchanged — `Nxb8` followed by `Rxb8`. The search returns nothing anyway,
+and the acceptance rule says why. With the empty sequence competing as a candidate that pays no
+price, a bridge of length L resolving C conflicts is accepted only when
+
+    C − L ≥ marginSquares
+
+A capture leaves its destination occupied before and after, so on the occupancy channel it explains
+exactly ONE square — its origin — where a quiet move explains two. A capture sequence therefore has
+C = L and can never clear the bar, at any depth. Both plies of `Nxb8`+`Rxb8` are captures.
+
+Three re-formulations were built and measured against the two fully reviewed references
+(00-39-57's 67 plies, 13-52-38's 25):
+
+| variant | 00-39-57 | 13-52-38 |
+| --- | --- | --- |
+| price 1.00 per ply (default) | 65 / 2 / 2 | 25 / 0 / 0 |
+| price 0.75 | 65 / 2 / 2 | 23 / 2 / 0 |
+| price 0.50 | 65 / 2 / 2 | 24 / 1 / 3 |
+| price 0.25 | 58 / 9 / 2 | 24 / 1 / 3 |
+| price 0.00 | **67 / 0 / 0** | 24 / 1 / **3** |
+| charge only plies that resolve nothing | 67 / 0 / 0 | 24 / 1 / 3 |
+| credit each capture with one square | 14 / 53 / 0 | 21 / 4 / 0 |
+
+Nothing beats the default. Price 0 finds every one of 00-39-57's 67 plies with no phantom at all —
+the transposition disappears too — but on 13-52-38 it fabricates a three-ply bridge in one commit
+(`d5`, `O-O-O`, `dxc4` at frame 8478) while missing one real move, which is the exact failure the
+price was introduced against on that exact recording. The sweep is also not a trade-off curve but a
+jagged one: 0.25 collapses 00-39-57 to 58 while 0.5 and 0.75 sit back at 65, so fitting a constant
+on 92 plies would be curve-fitting, not tuning.
+
+The reason no constant works is that the score cannot tell the two cases apart. A capture bridge and
+a fabrication look identical to it — both explain few squares per ply — because `hits` is a BINARY
+count of squares whose argmax matches. A square read at 0.51 counts exactly as much as one read at
+1.00, and the label change a capture DOES produce on its destination (`bR` becomes `wN`) is
+information the counter cannot express.
+
+That is a known shape. The task is a hidden Markov model — hidden state the position, transitions the
+legal moves (the legal prior λ already is one), emissions the per-square probabilities — and the
+textbook instance is HMM map matching (Newson & Krumm, ACM SIGSPATIAL 2009: noisy points onto a
+constrained graph, Viterbi, emission from measurement noise, transition from route plausibility).
+`− plyCost × length` is the ad-hoc length penalty whose pathology neural decoding documents (Wu et
+al. 2016; "Breaking the Beam Search Curse", 2018): with a beam and a zero-length candidate always in
+the field, shorter always wins. And the deferred-commit idea is Multiple Hypothesis Tracking (Reid
+1979), where a Wald SPRT confirms a track from an accumulated log-likelihood with thresholds derived
+from a CHOSEN false-confirmation rate — which would turn the phantom count from something measured
+per video into something set.
+
+The smallest step with real payoff is therefore not another constant but replacing the binary `hits`
+with a likelihood over the confident squares. `OccupancyObservation` already carries `pOcc`,
+`pEmpty`, `conf` and `runnerUpConf`; the search throws all four away at the `label`/`confident`
+boundary. Nobody has built it.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
