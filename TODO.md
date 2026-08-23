@@ -550,16 +550,11 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   Ausserdem aus dem Papier: Realismus auf PATCH-Ebene genuegt, global unrealistische Kompositionen
   schaden nicht — das ist die Rechtfertigung dafuer, dass wir Haende ueberhaupt aufkleben duerfen.
 
-- **SAM 3 unter autocast: 6,6x (2026-08-23, gemessen, noch nicht belegt).** Profil auf 9 Frames
-  (Warmup verworfen, GPU-synced, RX 7900 XT/ROCm): 3,11 s/Frame gesamt, davon **2,39 s im
-  Vision-Encoder (77 %)** und 0,72 s in den 5 Konzept-Decodes (0,14 s je Stueck — das Teilen der
-  Vision-Embeds in `alpha_sam3` arbeitet also schon optimal, da ist nichts zu holen).
-  `torch.autocast("cuda", float16)` drueckt den Encoder auf 0,19 s und den Frame auf 0,49 s,
-  bf16 gleichauf. Maskentreue gegen fp32: mean IoU 0,99948 (fp16) / 0,99828 (bf16), max 230 px
-  Abweichung auf einem Frame.
-  **Vor dem Uebernehmen:** 10 Frames sind kein Beweis (eigene Regel) — laengerer Lauf noetig, und
-  fp16 verschiebt die Maske, also aendert es JEDES kuenftige Alpha. Eigener Validierungslauf mit
-  Coverage-Vergleich gegen `PIECE_VISIBLE_MAX`, nicht nebenbei.
+- **SAM 3 unter autocast: ERLEDIGT (2026-08-23).** fp16 steht in `alpha_sam3`, gemessen
+  **5,72x** auf dem Produktionspfad (2,866 -> 0,501 s/Frame), abgesichert ueber 150 Frames:
+  0 von 9 600 Coverage-Zellen kippen. Zahlen in `docs/session-mattes.md`.
+  **Offen:** RT-DETR (`person_score`, ~25 ms im Frame-Scan) laeuft weiter fp32 — nie
+  gemessen, ob autocast dort etwas bringt und ob es die Flag-Entscheidung verschiebt.
 
 - **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
   RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die

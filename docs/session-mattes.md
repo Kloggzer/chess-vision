@@ -164,3 +164,27 @@ Messung, kein Produktionsfall**: die geparkten Alphas sind schon einmal gefüllt
 
 **Kein Alpha auf der Platte muss neu geschnitten werden**, und das destillierte Hand-Gate hat aus
 nichts gelernt, was sich hier ändert. Die Änderung ist eine Korrektheits-, keine Verhaltensänderung.
+
+## fp16 fuer den Encoder (2026-08-23)
+
+`alpha_sam3` rechnet unter `torch.autocast(float16)`. Der Vision-Encoder ist 77 % des Frames
+(profiliert: 2,39 s von 3,11 s; die 5 Konzept-Decodes teilen sich das Embedding und kosten
+zusammen 0,72 s — dort ist nichts zu holen).
+
+**Produktionspfad gemessen, inkl. `solid()` und `coverage_of`, Warmup verworfen, n=20:**
+
+| | s/Frame |
+|---|---|
+| fp32 | 2,866 (sd 0,034) |
+| fp16 | **0,501** (sd 0,009) |
+
+**5,72x.** Die nackte Sonde ohne Nachbearbeitung sagte 6,6x — `solid()` und `coverage_of` sind
+CPU und skalieren nicht mit. Eine Session von 1 373 Frames faellt damit von ~1,1 h auf ~0,2 h.
+
+**Abgesichert ueber 150 Frames gegen fp32:** 0 von 9 600 Coverage-Zellen kippen ueber
+`PIECE_VISIBLE_MAX`, groesste Verschiebung 0,0079 gegen die Schwelle 0,15, IoU mean 0,99973
+(min 0,99624). bf16 war gleich schnell, aber ungenauer (IoU 0,99828).
+
+Nicht gemessen: ob die Abweichung im Rauschen der Maske selbst liegt. SAM 3 gibt bereits
+binaere Masken zurueck (`mask_threshold=0.5`), es gibt also kein weiches Band zum Vergleichen —
+der ehrliche Proxy waere die Randbewegung zwischen benachbarten Frames.
