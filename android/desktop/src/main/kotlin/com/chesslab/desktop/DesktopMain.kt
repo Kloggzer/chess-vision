@@ -191,7 +191,7 @@ private fun measureAlignment(
  */
 private fun calibrate(source: FrameSource) {
     // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite.
-    // The phone's `latestCalibrationFrame()` hands back a clone the caller must release, so the
+    // `latestCalibrationFrame()` hands back an immutable view the caller must release, so the
     // seam is shaped to let each host keep its own rule instead of one of them being quietly wrong.
     val fit =
         calibrateFromBoard(

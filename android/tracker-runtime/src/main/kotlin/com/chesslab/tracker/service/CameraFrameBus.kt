@@ -99,8 +99,9 @@ class CameraFrameBus<B>(
      *
      * It used to take the raw `ImageProxy` and run its own full-frame YUV->BGR — a second
      * conversion of the same pixels `CameraStages.convert` had already produced, and one that
-     * ran before `timings.begin()` so nothing measured it. The clone stays: `CameraStages` reuses
-     * its destination `Mat`, so anything kept past this call has to be a copy.
+     * ran before `timings.begin()` so nothing measured it. One clone stays: `CameraStages` reuses
+     * its destination `Mat`, so the bus needs a stable backing buffer. Consumers receive
+     * reference-counted immutable views of it instead of copying the same QHD pixels again.
      */
     fun offer(bgr: Mat) {
         val now = nowMs()
@@ -137,21 +138,21 @@ class CameraFrameBus<B>(
         }
     }
 
-    /** A CLONE — the caller releases it. Null until the first frame arrives. */
+    /** An immutable shared view — the caller releases it. Null until the first frame arrives. */
     override fun latestCalibrationFrame(): Mat? =
         synchronized(lock) {
-            latest?.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY)
+            latest?.profiledView(WorkOperation.CALIBRATION_FRAME_COPY)
         }
 
     /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
     override fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationSample(afterVersion = null)
 
-    /** Refuses an already consumed version before cloning its 10.5 MiB QHD plane. */
+    /** Refuses an already consumed version before sharing its immutable QHD backing buffer. */
     override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? =
         synchronized(lock) {
             val frame = latest ?: return@synchronized null
             if (afterVersion == latestVersion) return@synchronized null
-            CalibrationFrame(latestVersion, frame.profiledClone(WorkOperation.CALIBRATION_FRAME_COPY))
+            CalibrationFrame(latestVersion, frame.profiledView(WorkOperation.CALIBRATION_FRAME_COPY))
         }
 
     override fun close() {
@@ -164,7 +165,7 @@ class CameraFrameBus<B>(
     private fun publishPreview() {
         if (!gate.tryEnter()) return
         val frame =
-            synchronized(lock) { latest?.profiledClone(WorkOperation.RAW_PREVIEW_COPY) } ?: run {
+            synchronized(lock) { latest?.profiledView(WorkOperation.RAW_PREVIEW_COPY) } ?: run {
                 gate.leave()
                 return
             }
@@ -182,12 +183,19 @@ private fun Mat.profiledClone(operation: WorkOperation): Mat =
         clone().also { copy -> WorkProfiler.bytes(operation, copy.total() * copy.elemSize().toLong()) }
     }
 
+/** A new native header retaining the same immutable pixels; releasing either header is safe. */
+private fun Mat.profiledView(operation: WorkOperation): Mat =
+    WorkProfiler.span(operation) {
+        submat(0, rows(), 0, cols())
+    }
+
 /** The seam 06a consumes. Pinned across both phases; 06a may not widen it. */
 interface CalibrationFrames<B> {
+    /** The returned immutable frame remains valid until the caller releases its own header. */
     fun latestCalibrationFrame(): Mat?
 
     /**
-     * A versioned clone for consumers that must not process the retained latest image twice.
+     * A versioned view for consumers that must not process the retained latest image twice.
      * Implementations without a version remain unversioned and are never de-duplicated.
      */
     fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationFrame()?.let { CalibrationFrame(null, it) }

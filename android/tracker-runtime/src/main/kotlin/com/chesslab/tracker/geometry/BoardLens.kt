@@ -126,7 +126,7 @@ fun squareOffsetOf(
  *
  * [borrowFrame] is a LOAN and not a getter, because the two hosts disagree about who owns the
  * pixels: a desktop `FrameSource.next()` hands back a Mat the source still owns and will overwrite,
- * while `CameraFrameBus.latestCalibrationFrame()` hands back a clone the caller must release.
+ * while `CameraFrameBus.latestCalibrationFrame()` hands back a shared view the caller must release.
  * Wrapping it as "call me with a frame, I will not keep it" lets each host keep its own rule
  * instead of one of them being quietly wrong. It returns false when the stream is over.
  */
