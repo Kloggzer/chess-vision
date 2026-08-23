@@ -14,6 +14,7 @@ import numpy as np
 from .calibration import CalibrationProfile, GridMesh, mesh_from_lines
 from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
+from .realgames import measured_board_size
 
 #: The occluder clips were shot on the SAME rig as the board, only with the camera moved closer —
 #: so the plate already carries the right size and only needs that one distance correction, not a
@@ -34,6 +35,25 @@ class Placement:
     scale: float
     angle: float
     flipped: bool
+
+
+def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
+    """Die längste Kante der Aufnahme, aus der die Kacheln geschnitten wurden — aus dem Index.
+
+    Deklariert, nicht geraten: bis 2026-08-23 lagen Kacheln auf `WORK_SIZE`, danach in
+    Quellauflösung. Wer das verwechselt, setzt jede Hand um den Faktor zwei falsch ins Bild.
+    """
+    import json
+
+    for name in ("occluders.json", "plates.json"):
+        path = plate_dir / name
+        if not path.is_file():
+            continue
+        sizes = [max(e["source"]) for e in json.loads(path.read_text(encoding="utf-8"))
+                 if isinstance(e, dict) and e.get("source")]
+        if sizes:
+            return max(sizes)
+    return fallback
 
 
 def load_tiles(plate_dir: Path) -> list[Path]:
@@ -98,7 +118,7 @@ def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMes
 
 def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile, tiles: list[Path],
                     rng: np.random.Generator, n_tiles: int = 1, rig: float = RIG_SCALE,
-                    mesh: GridMesh | None = None
+                    mesh: GridMesh | None = None, plate_long: int = max(WORK_SIZE)
                     ) -> tuple[list[np.ndarray], dict[str, float], list[Placement]]:
     """One board frame with occluders on it: (64 crops, coverage per square, what was placed).
 
@@ -106,9 +126,10 @@ def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile, til
     crop region — mesh and pads included.
     """
     h, w = frame.shape[:2]
-    # Plates are cut at `occluders.WORK_SIZE`; putting one back into a 4K frame means undoing that
-    # downscale first, and only then applying the rig's distance correction.
-    native = (max(h, w) / max(WORK_SIZE)) * rig
+    # Wie groß die Kachel in DIESEM Frame sein muss: das Verhältnis der beiden Aufnahmen, dann die
+    # Abstandskorrektur des Aufbaus. `plate_long` sagt, worin die Kachel geschnitten wurde — bis
+    # 2026-08-23 war das immer `WORK_SIZE`, weil sie mit der Maske heruntergerechnet wurde.
+    native = (max(h, w) / plate_long) * rig
     pts = np.array(corners, np.float32)
     target = (int(pts[:, 0].min()), int(pts[:, 1].min()),
               int(pts[:, 0].max()), int(pts[:, 1].max()))
@@ -170,7 +191,7 @@ def labels_of(fen: str) -> dict[str, str]:
 
 
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
-                     board_size: int = 1280, out_size: tuple[int, int] = (80, 80),
+                     board_size: int = 0, out_size: tuple[int, int] = (128, 128),
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
                      blocks: int = 6) -> dict:
@@ -191,6 +212,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     from .labeling import CROP_ENCODE, CROP_SUFFIX, square_color
 
     tiles = load_tiles(plate_dir)
+    plate_long = plate_long_side(plate_dir)
     if not tiles:
         return {"error": f"no plates in {plate_dir}"}
     base = load_profile(profile_name)
@@ -210,6 +232,11 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
             skipped += 1
             continue
         if prof is None:
+            # Die QUELLE setzt die Brettgröße, nicht eine Konstante: 1280 fest bedeutete auf den
+            # 1080p-Clips einen Warp um 1,93x hoch, dessen erfundene Pixel der 80er Schnitt sofort
+            # wieder wegwarf (62 % des Pretrains, gemessen 2026-08-23). Auf `out_size` koppeln wäre
+            # derselbe Fehler von der anderen Seite — dann skaliert man zweimal statt einmal.
+            board_size = board_size or measured_board_size(corners)
             prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]),
                            board_size=board_size, image_corners=corners,
                            homography=compute_homography(corners, board_size, base.margin),
@@ -220,7 +247,8 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
             ok, frame = cap.read()
         k = int(rng.integers(tiles_per_frame[0], tiles_per_frame[1] + 1))
         if k:
-            crops, cov, _ = composite_frame(frame, corners, prof, tiles, rng, n_tiles=k, mesh=mesh)
+            crops, cov, _ = composite_frame(frame, corners, prof, tiles, rng, n_tiles=k, mesh=mesh,
+                                            plate_long=plate_long)
         else:
             crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
             cov = dict.fromkeys(all_squares(), 0.0)

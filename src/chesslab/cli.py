@@ -939,8 +939,14 @@ def occluders_composite(
     stride: int = typer.Option(composite_mod.STRIDE, "--stride",
                                help="Frames between two boards. On the turntable that is an "
                                     "ANGLE: 0.43 deg per frame, so 8 is ~3.4 deg."),
-    board_size: int = typer.Option(1280, "--board-size", help="Warp resolution (px)."),
-    out_size: str = typer.Option("80x80", "--out-size", help="Crop size WxH."),
+    board_size: int = typer.Option(0, "--board-size",
+                                   help="Warp-Aufloesung in px. 0 = aus dem Quad der Quelle "
+                                        "gemessen, was der Clip wirklich hergibt (`measured_board_"
+                                        "size`). Fest 1280 rechnete 1080p-Clips um 1,93x hoch."),
+    out_size: str = typer.Option("128x128", "--out-size",
+                                 help="Crop size WxH. 128 wie der echte Export: bei 80 liegt der "
+                                      "Crop schon auf der Modellgroesse und hat keine Reserve, "
+                                      "waehrend echte Crops noch Detail uebrig haben."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
     """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
