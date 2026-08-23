@@ -206,14 +206,21 @@ Nachweis. Gebaut mit `chesslab occluders composite --tag comp13-v3` je Clip, Cod
 | `VID_20260823_120426` | eine Reihe zur Mitte (4K) | 519 | 33.216 | 11,6 % |
 | `VID_20260823_120721` | zwei Reihen zur Mitte (4K) | 347 | 22.208 | 12,0 % |
 | `VID_20260824_005850` | zwei Reihen zur Mitte, dunkelorangem Licht (4K) | 337 | 21.568 | 10,9 % |
-| **gesamt** | | **4.277** | **273.728** | |
+| `VID_20260824_013627` | Figuren und Bauern getauscht (4K) | 246 | 15.744 | 10,9 % |
+| **gesamt** | | **4.523** | **289.472** | |
 
 Die drei 4K-Aufnahmen vom 2026-08-23 tragen dieselbe Armee auf ANDEREN Feldern: verschiebt man die
 Aufstellung zur Mitte, steht jede Figur auf der anderen Feldfarbe. Ihre FEN stehen in
 `data/footage/turntable/README.md`.
 
-Klassen: `empty` 136.864, Bauern je 34.216, Laeufer/Springer/Tuerme je 8.554, K/D je 4.277 —
+Klassen: `empty` 144.736, Bauern je 36.184, Laeufer/Springer/Tuerme je 9.046, K/D je 4.523 —
 64 Crops je Brett, also genau die Stellungen mal ihre Bretter.
+
+`013627` schliesst die Luecke, die die verschobenen Aufstellungen offen liessen. Sie setzen die
+Armee nach INNEN, wodurch Reihe 2 und 7 leer werden — und genau dort las das Modell eine echte
+Figur weiterhin zu 80 % als Bauer (`docs/tracker-flow.md`). Diese Aufnahme stellt die Figuren
+auf 2 und 7 und die Bauern auf 1 und 8, ist also der direkte Gegenbeweis. Kein Frame ging ohne
+Marker verloren.
 
 Die Aufnahme vom 2026-08-24 ist die erste unter einer anderen LICHTFARBE, und sie kostet die
 Marker-Erkennung etwas: 38 Frames wurden ohne Marker uebersprungen, wo die anderen Clips fast
