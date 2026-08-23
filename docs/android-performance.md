@@ -431,3 +431,39 @@ So 0.882 is plausibly the right number carried over from `occ-v10bn35-13c-hn` / 
 onto the `id35-80` asset. But **as written, the figure and the "0 phantoms / 3 misses" beside it are
 unsourced, and the source they name does not contain them.** Recorded, not fixed — no `.kt` file was
 edited. Re-measure or re-cite before quoting `id35-80`'s identity accuracy anywhere.
+
+## What 128 px costs against 80 px (2026-08-23, on the phone)
+
+Compute only, quality deliberately not the question. `AndroidOptimizationBenchmarkActivity` gained a
+`cnnInputSize` arm that times one batch of 64 crops through two graphs of the SAME multi-scale run
+(`id35-80-before-hn-20260812`, `mobilenetv4_conv_small_035`, `scales=[48,64,80,96]`, `out_size=128`)
+exported at both sizes — identical weights, identical parameter count, only the input resolution
+differs. XNNPACK, 4 intra-op threads, 5 warmup rounds and 40 timed ones with the order alternating
+so thermal drift lands on both.
+
+On a 24117RK2CG at 44 % battery, 26–27 °C, two independent installs:
+
+| input | median | p10 | p90 | min | max |
+| --- | --- | --- | --- | --- | --- |
+| 80 px | **6.91 / 6.99 ms** | 6.57 / 6.56 | 7.19 / 7.37 | 6.43 / 6.39 | 7.57 / 9.66 |
+| 128 px | **15.07 / 15.43 ms** | 14.55 / 14.62 | 17.59 / 17.95 | 14.47 / 14.31 | 20.63 / 20.81 |
+
+**2.18× and 2.21×** — call it 2.2× for a whole board, +8.2 ms per 64-crop batch. Pixels go up 2.56×
+(`128²/80²`), so the cost is slightly sub-linear in area, which is what fixed per-node overhead and
+the memory-bound layers buy back. The spread widens too: 128 px carries a p90-to-median gap of about
+2.5 ms against 0.3 ms at 80 px.
+
+Reproducing it: export the run at both sizes with `chesslab export --run <run> --format onnx
+--infer-size 80x80` (and `128x128`), push them to
+`/sdcard/Android/data/com.chesslab.tracker/files/cnn_bench/model{80,128}.onnx`, then
+
+    adb shell am start -n com.chesslab.tracker/com.chesslab.tracker.benchmark.AndroidOptimizationBenchmarkActivity --es only cnnsize
+
+The graphs are pushed rather than bundled — 5 MB of measurement artefact does not belong in the APK,
+and the arm logs what to push and skips when they are absent.
+
+Two notes for whoever reads this next. Install with `adb install -r` and never `gradlew
+installDebug`: on a signature mismatch the former fails while the latter uninstalls first, and
+`files/` was 8.7 GB on this device (unchanged across both installs here, verified). And a graph
+exported straight from `torch.onnx.export` at opset 18 **SIGSEGV'd** the on-device runtime 41 ms in;
+the project's own `chesslab export` emits opset 17 and runs. Use the project's exporter.

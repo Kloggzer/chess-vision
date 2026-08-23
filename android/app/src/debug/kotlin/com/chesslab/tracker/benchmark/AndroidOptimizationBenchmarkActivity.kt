@@ -55,13 +55,14 @@ import kotlin.random.Random
 class AndroidOptimizationBenchmarkActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Thread({ runBenchmark() }, "chesslab-android-benchmark").start()
+        val only = intent?.getStringExtra("only")
+        Thread({ runBenchmark(only) }, "chesslab-android-benchmark").start()
     }
 
-    private fun runBenchmark() {
+    private fun runBenchmark(only: String?) {
         val runner = AndroidOptimizationBenchmark(this)
         Log.i(TAG, "START device=${android.os.Build.MODEL} battery=${runner.batteryLine()}")
-        runCatching { runner.run() }
+        runCatching { if (only == "cnnsize") runner.cnnInputSize() else runner.run() }
             .onFailure { Log.e(TAG, "FAILED", it) }
             .onSuccess { Log.i(TAG, "DONE battery=${runner.batteryLine()}") }
         runOnUiThread(::finish)
@@ -78,6 +79,63 @@ private class AndroidOptimizationBenchmark(
         gridOcclusion()
         trackerHotPaths()
         cnnThreads()
+    }
+
+    /**
+     * What an input size costs, weights held constant: the SAME untrained
+     * `mobilenetv4_conv_small_035` exported at 80 and at 128, one batch of 64 crops each. Compute
+     * only — the graphs carry no training, so accuracy is not the question here.
+     */
+    fun cnnInputSize() {
+        // Pushed, not bundled: two graphs of the same run exported at both sizes are 5 MB of
+        // artefact that belongs to the measurement, not to the APK.
+        //   chesslab export --run <run> --format onnx --infer-size 80x80   (and 128x128)
+        //   adb push model.onnx /sdcard/Android/data/com.chesslab.tracker/files/cnn_bench/model80.onnx
+        val directory = File(context.getExternalFilesDir(null), BENCH_MODELS)
+        val sizes = listOf(CNN_SIZE, CNN_SIZE_LARGE)
+        val missing = sizes.map { File(directory, "model$it.onnx") }.filterNot(File::isFile)
+        if (missing.isNotEmpty()) {
+            Log.i(TAG, "cnnInputSize skipped — push ${missing.joinToString { it.name }} to $directory")
+            return
+        }
+        run {
+            val environment = OrtEnvironment.getEnvironment()
+            val sessions = sizes.associateWith { sessionAt(environment, File(directory, "model$it.onnx"), CNN_BENCH_THREADS) }
+            val inputs = sizes.associateWith { cnnInput(environment, it) }
+            try {
+                repeat(CNN_WARMUP) {
+                    for (size in sizes) {
+                        sessions.getValue(size).run(mapOf("input" to inputs.getValue(size))).close()
+                    }
+                }
+                val samples = sizes.associateWith { ArrayList<Double>(CNN_ROUNDS) }
+                repeat(CNN_ROUNDS) { round ->
+                    // Alternate the order so thermal drift lands on both, not on the second one.
+                    for (size in if (round % 2 == 0) sizes else sizes.reversed()) {
+                        samples.getValue(size) +=
+                            elapsedMs { sessions.getValue(size).run(mapOf("input" to inputs.getValue(size))).close() }
+                    }
+                }
+                for (size in sizes) report("mnv4-small-035 ${size}px batch=$CNN_BATCH threads=$CNN_BENCH_THREADS", samples.getValue(size))
+                comparison("128px against 80px", samples.getValue(CNN_SIZE), samples.getValue(CNN_SIZE_LARGE))
+            } finally {
+                inputs.values.forEach(OnnxTensor::close)
+                sessions.values.forEach(OrtSession::close)
+            }
+        }
+    }
+
+    private fun sessionAt(
+        environment: OrtEnvironment,
+        model: File,
+        threads: Int,
+    ): OrtSession {
+        val options = OrtSession.SessionOptions()
+        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+        options.setIntraOpNumThreads(threads)
+        options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+        return environment.createSession(model.absolutePath, options)
     }
 
     fun batteryLine(): String {
@@ -326,15 +384,18 @@ private class AndroidOptimizationBenchmark(
         return environment.createSession(File(directory, "model.onnx").absolutePath, options)
     }
 
-    private fun cnnInput(environment: OrtEnvironment): OnnxTensor {
-        val buffer = FloatBuffer.allocate(CNN_BATCH * CNN_CHANNELS * CNN_SIZE * CNN_SIZE)
+    private fun cnnInput(
+        environment: OrtEnvironment,
+        size: Int = CNN_SIZE,
+    ): OnnxTensor {
+        val buffer = FloatBuffer.allocate(CNN_BATCH * CNN_CHANNELS * size * size)
         val random = Random(42)
         repeat(buffer.capacity()) { buffer.put(random.nextFloat()) }
         buffer.rewind()
         return OnnxTensor.createTensor(
             environment,
             buffer,
-            longArrayOf(CNN_BATCH.toLong(), CNN_CHANNELS.toLong(), CNN_SIZE.toLong(), CNN_SIZE.toLong()),
+            longArrayOf(CNN_BATCH.toLong(), CNN_CHANNELS.toLong(), size.toLong(), size.toLong()),
         )
     }
 
@@ -605,10 +666,13 @@ private const val MEDIAN_ROUNDS = 20
 private const val NANOS_PER_MS = 1_000_000.0
 private const val BYTE_MASK = 0xFF
 private const val BENCH_DIR = "android-perf-bench"
+private const val BENCH_MODELS = "cnn_bench"
 private const val MODEL = "comp13-occ-bn-lr1e2-bs512"
 private const val CNN_BATCH = 64
 private const val CNN_CHANNELS = 3
 private const val CNN_SIZE = 80
+private const val CNN_SIZE_LARGE = 128
+private const val CNN_BENCH_THREADS = 4
 private const val CNN_WARMUP = 5
 private const val CNN_ROUNDS = 40
 private val MARKER_IDS = setOf(0, 1, 2, 3)
