@@ -943,10 +943,10 @@ def occluders_composite(
                                    help="Warp-Aufloesung in px. 0 = aus dem Quad der Quelle "
                                         "gemessen, was der Clip wirklich hergibt (`measured_board_"
                                         "size`). Fest 1280 rechnete 1080p-Clips um 1,93x hoch."),
-    out_size: str = typer.Option("", "--out-size",
-                                 help="Crop size WxH. Leer = die Box schreibt ihre EIGENE "
-                                      "Groesse (128 beim echten Export, 176 bei 4K, 92 bei "
-                                      "1080p). Fest 128 skalierte 4K herunter und 1080p hoch."),
+    out_size: str = typer.Option("128x128", "--out-size",
+                                 help="Crop size WxH. 128 wie der echte Export: bei 80 liegt der "
+                                      "Crop schon auf der Modellgroesse und hat keine Reserve, "
+                                      "waehrend echte Crops noch Detail uebrig haben."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
     """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
