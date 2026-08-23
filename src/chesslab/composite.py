@@ -307,6 +307,82 @@ def labels_of(fen: str) -> dict[str, str]:
     return out
 
 
+PROVENANCE_FILE = "composite.json"
+
+
+def _write_provenance(out_root: Path, clip: str, entry: dict) -> None:
+    """Eine Zeile je Clip im Pool — mehrere Clips teilen sich einen Pool."""
+    import json
+
+    path = out_root / PROVENANCE_FILE
+    all_of = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    all_of[clip] = entry
+    path.write_text(json.dumps(all_of, indent=1), encoding="utf-8")
+
+
+def read_provenance(pool: Path) -> dict:
+    """Was der Pixel-Pass braucht, je `split_group`."""
+    import json
+
+    path = Path(pool) / PROVENANCE_FILE
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, int]
+                 ) -> Iterator[tuple[int, str, np.ndarray]]:
+    """Die gewuenschten Felder der gewuenschten Frames NEU schneiden — (frame_id, square, crop).
+
+    Schneidet aus der Quelle, nicht aus dem Pool: der Pool traegt 128 px fuer den Menschen, das
+    Modell bekommt seine Zielgroesse mit genau einem Resample.
+    """
+    from dataclasses import replace
+
+    from .calibration import (
+        CropParams,
+        compute_homography,
+        detect_board_corners_aruco,
+        load_profile,
+    )
+
+    video = Path(prov["video"])
+    base = load_profile(prov["profile"])
+    plate_long, seed, stride = prov["plate_long"], prov["seed"], prov["stride"]
+    tiles = sorted(Path(prov["plate_dir"]).glob("*.webp"))
+    prof = mesh = None
+    plates = tile_stream(tiles, tuple(prov["tiles_per_frame"]), seed + 1, stride)
+    cap_for_mesh = cv2.VideoCapture(str(video))
+    try:
+        for idx, frame in read_forward(video, stride):
+            if idx not in wanted:
+                continue
+            corners = detect_board_corners_aruco(frame)
+            if corners is None:
+                continue
+            if prof is None:
+                bs = prov["board_size"] or measured_board_size(corners)
+                prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]), board_size=bs,
+                               image_corners=corners,
+                               homography=compute_homography(corners, bs, base.margin),
+                               crop=CropParams(cell=bs / 8, pad_up=base.crop.pad_up,
+                                               pad_side=base.crop.pad_side, out_size=out_size))
+                mesh = median_mesh(cap_for_mesh, prof)
+            batch_idx, batch = next(plates)
+            while batch_idx < idx:
+                batch_idx, batch = next(plates)
+            if batch:
+                crops, _cov, _ = composite_frame(frame, corners, prof, batch,
+                                                 np.random.default_rng([seed, idx]), mesh=mesh,
+                                                 plate_long=plate_long)
+            else:
+                crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
+            by_square = dict(zip(all_squares(), crops, strict=True))
+            for sq in wanted[idx]:
+                yield idx, sq, by_square[sq]
+    finally:
+        cap_for_mesh.release()
+        plates.close()
+
+
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
                      board_size: int = 0, out_size: tuple[int, int] = (128, 128),
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
@@ -399,6 +475,15 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     # one's rows while its crops stayed on disk — which is why every clip got its own tag.
     _replace_session_in_manifest(manifest, stem_sid,
                                  [json.dumps(r) for r in rows], field="split_group")
+    # Die Herkunft je Clip, damit ein Pixel-Pass die Komposition NEU schneiden kann statt
+    # sie aus dem 128er Pool zu skalieren. Reproduzierbar, weil Kachel und Pose an der
+    # Frame-ID haengen (`docs/data-pipeline.md` 3.1).
+    _write_provenance(out_root, stem_sid, {
+        "video": Path(video).resolve().as_posix(), "fen": fen, "seed": int(seed),
+        "board_size": int(board_size), "stride": int(stride), "blocks": int(blocks),
+        "tiles_per_frame": list(tiles_per_frame), "profile": profile_name,
+        "plate_dir": Path(plate_dir).resolve().as_posix(), "plate_long": int(plate_long),
+    })
     covered = sum(r["coverage"] > 0.5 for r in rows)
     return {"session_id": stem_sid, "blocks": blocks, "frames": len(rows) // 64, "crops": written, "skipped": skipped,
             "covered_over_half": covered, "share": round(covered / max(1, written), 4)}
