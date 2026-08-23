@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +70,24 @@ def _manifest_rows(dd: Path) -> list[dict]:
 _PACK_CHUNK_BYTES = 256 * 1024 ** 2
 
 
+@contextmanager
+def row_window(mm_path, hw: tuple[int, int], indices):
+    """Ein Schreibfenster ueber NUR die eigenen Zeilen — `put(row_index, rgb)`.
+
+    Die ganze Datei je Worker zu mappen liess jeden die volle Groesse reservieren und sprengte
+    jenseits ~100 GB das Commit-Limit (WinError 1455), egal wie frei die Platte war. Worker
+    schreiben disjunkte Bereiche, darum ist gleichzeitiges `r+` sicher.
+    """
+    h, w = hw
+    lo, hi = min(indices), max(indices)
+    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(hi - lo + 1, h, w, 3),
+                   offset=lo * h * w * 3)
+    try:
+        yield lambda row, rgb: mm.__setitem__(row - lo, rgb)
+    finally:
+        mm.flush()          # die Abbildung faellt mit dem Rahmen
+
+
 def _pack_chunk(task) -> tuple[int, int]:
     """Worker: decode a contiguous run of crops and write them into the shared memmap.
 
@@ -78,23 +97,14 @@ def _pack_chunk(task) -> tuple[int, int]:
     """
     mm_path, shape, items = task
     _n, h, w = shape
-    crop_bytes = h * w * 3
     start = items[0][0]                    # `items` is a contiguous index run (see pack_dataset)
-    count = items[-1][0] - start + 1
-    # Map ONLY this worker's slice, not the whole file. Mapping the full array per worker made
-    # every worker reserve the entire size, which blew the Windows commit limit once the pack
-    # grew past ~100 GB (WinError 1455 "paging file too small") no matter how much disk was free.
-    # numpy handles the page-alignment of `offset` internally.
-    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(count, h, w, 3),
-                   offset=start * crop_bytes)
-    for idx, p in items:
-        im = Image.open(p).convert("RGB")
-        a = np.asarray(im, dtype=np.uint8)
-        if a.shape != (h, w, 3):                       # guard against odd edge crops
-            a = np.asarray(im.resize((w, h)), dtype=np.uint8)
-        mm[idx - start] = a
-    mm.flush()
-    del mm
+    with row_window(mm_path, (h, w), [i for i, _ in items]) as put:
+        for idx, p in items:
+            im = Image.open(p).convert("RGB")
+            a = np.asarray(im, dtype=np.uint8)
+            if a.shape != (h, w, 3):                   # guard against odd edge crops
+                a = np.asarray(im.resize((w, h)), dtype=np.uint8)
+            put(idx, a)
     return start, len(items)
 
 

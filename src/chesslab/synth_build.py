@@ -89,40 +89,34 @@ def _crop_frames_into_memmap(task) -> int:
     ``training.pack._pack_chunk``). Returns the number of crops written.
     """
     import cv2
-    import numpy as np
 
     from .calibration import warp_board_for_crops
     from .ingest import ingestion_profile
     from .labeling import crop_square
+    from .training.pack import row_window
 
     mm_path, shape, name, board_size, frames = task
-    n, h, w = shape
-    crop_bytes = h * w * 3
+    _n, h, w = shape
     profile = ingestion_profile(name, board_size, (w, h))
 
     written = 0
-    # One small memmap window per frame-run keeps commit charge flat (cf. pack._pack_chunk).
     all_idx = [i for _fp, _c, sqs in frames for i, _sq in sqs]
-    lo, hi = min(all_idx), max(all_idx)
-    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(hi - lo + 1, h, w, 3),
-                   offset=lo * crop_bytes)
-    for frame_path, corners, sqs in frames:
-        img = cv2.imread(str(frame_path))
-        if img is None:
-            # Name the culprit NOW — the caller only sees written != expected at the very end
-            # of a ~30-min pass, and you want to delete one bad pair, not bisect 64k frames.
-            print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
-            continue
-        # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are built for —
-        # the borderless warp_from_corners shifts every crop by +border (14 px at bs=1100) and
-        # diverges from the classic slice AND live-inference geometry (train/serve mismatch).
-        warped = warp_board_for_crops(img, profile, corners)
-        for row_idx, sq in sqs:
-            crop = crop_square(warped, sq, profile, (w, h))
-            mm[row_idx - lo] = crop[:, :, ::-1]                # BGR -> RGB (pack stores RGB)
-            written += 1
-    mm.flush()
-    del mm
+    with row_window(mm_path, (h, w), all_idx) as put:
+        for frame_path, corners, sqs in frames:
+            img = cv2.imread(str(frame_path))
+            if img is None:
+                # Name the culprit NOW — the caller only sees written != expected at the
+                # very end of a ~30-min pass, and you want to delete one bad pair.
+                print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
+                continue
+            # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are
+            # built for — the borderless warp shifts every crop by +border and diverges
+            # from the classic slice AND live-inference geometry (train/serve mismatch).
+            warped = warp_board_for_crops(img, profile, corners)
+            for row_idx, sq in sqs:
+                crop = crop_square(warped, sq, profile, (w, h))
+                put(row_idx, crop[:, :, ::-1])      # BGR -> RGB (pack stores RGB)
+                written += 1
     return written
 
 
