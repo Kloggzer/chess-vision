@@ -399,6 +399,46 @@ with a likelihood over the confident squares. `OccupancyObservation` already car
 `pEmpty`, `conf` and `runnerUpConf`; the search throws all four away at the `label`/`confident`
 boundary. Nobody has built it.
 
+### The chain, completed and decoded (2026-08-23)
+
+`scripts/chain_decode.py` builds it offline over `model-reads.jsonl`, which records the full
+per-square distribution and coverage for every sampled frame. Hidden state the position, transition
+one legal ply or nothing, emission the recorded distribution weighted by `1 − coverage`, decoding a
+beam-pruned Viterbi over the frames in order. It is a SMOOTHER — it sees the whole recording — so it
+measures what the emissions support, not what a live tracker can reach.
+
+The first run over-generated badly: 127 plies against a 67-ply reference. In these units the reason
+is arithmetic rather than opinion. A move costs `log(p_move / legalMoves) − log(1 − p_move)` ≈ 6.2
+nats; a square granted a floor of 1e-4 is worth up to 9.2 nats. Fixing one misread square by
+inventing a move therefore PAYS, and with 37 % of piece types misread there is always a square to
+fix. The floor is not a numerical guard, it is the model's calibration: the most a single square may
+testify. Raising it to 0.08 caps that at 2.5 nats, well under a move, and 0.03 through 0.12 all give
+the same answer on the gold reference — a plateau, not the knife-edge the constant sweeps produced.
+
+At floor 0.08, one setting for every recording:
+
+| recording | reference | chain | tracker today |
+| --- | --- | --- | --- |
+| 2026-08-08-00-39-57 | 67, fully reviewed | **67 / 0 / 0** | 65 / 2 / 2 |
+| 2026-08-07-13-52-38 | 25, fully reviewed | **25 / 0 / 0** | 25 / 0 / 0 |
+| 2026-08-08-11-55-19 | 15, fully reviewed | **15 / 0 / 0** | 15 / 0 / 0 |
+| 2026-08-13-12-46-24 | 4, fully reviewed | **4 / 0 / 0** | 4 / 0 / 0 |
+| 2026-08-14-20-35-52 | 4, one of them fictitious | **3 / 1 / 0** | 3 / 1 / 0 |
+| 2026-08-08-11-59-12 | 73, tail unverifiable | 43 / 30 / 11 | 52 / 21 / 0 |
+
+Over every recording whose reference can be checked, the chain reconstructs **114 of 114 real plies
+with no phantom at all** — the single miss is 2026-08-14-20-35-52's `h5`, which never happened on the
+board. The same emissions the live tracker sees, from the same model that gets 37 % of piece types
+wrong, carry the whole game. What separates 114 from the tracker's 112 is not the classifier.
+
+Three caveats before this becomes a plan. It is a smoother, so it is an upper bound and not a
+promise. The floor was chosen after seeing 11-55-19's phantoms, though the plateau argues it is not
+overfitted. And 114 plies of trustworthy reference is a thin corpus for a decision this size.
+
+11-59-12 is the exception and stays uninterpretable: the chain returns 63 plies against a 73-ply
+reference whose tail the board rasters already contradicted. It cannot confirm the chain and it
+cannot refute it.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
