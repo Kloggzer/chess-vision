@@ -274,6 +274,37 @@ Corpus after the three changes of 2026-08-23, comp13 at lambda 4 with the safe p
 
 21 of the 24 remaining misses are 11-59-12's unreviewed tail.
 
+### Seven plies the labels had lost (2026-08-23)
+
+Checking every `candidate.json` against python-chess found three whose SAN list cannot be played
+from `start_fen`, and each broke on a `cnn_pair` commit — the signature of the bug `9f08b117` fixed
+on 2026-08-09, where a pair commit wrote one row for two moves. The label therefore carried the ply
+in its `fen_after` chain and nowhere in its SAN list. All three were `confirmed: true`; the human
+had been checking positions, not SAN bookkeeping.
+
+Reconstruction had no freedom in it: for each break exactly ONE legal move pair leads from the
+previous position to the stored `fen_after`. On 11-59-12 it is also visible in the board rasters —
+`001365.webp` has a white pawn on d4 and a black one on c5, `001539.webp` has d4 empty, a white pawn
+on c5 and the queen on a5. That is `dxc5`, and the scorer was charging it to the tracker as its only
+phantom on that recording.
+
+| recording | plies | inserted |
+| --- | --- | --- |
+| 2026-08-08-11-59-12 | 72 → 73 | `dxc5` at ply 15 |
+| VID_20260726_233432 | 18 → 21 | `Nf3` ply 1, `Ng5` ply 8, `Qxg4` ply 20 |
+| VID_20260802_222741 | 25 → 28 | `e4` ply 1, `Bh4` ply 17, `Bf2` ply 27 |
+
+No existing SAN changed — the repair only inserts. Ply numbers were renumbered 1..n, `reviewed_plies`
+shifted with them, and the inserted plies were deliberately NOT marked reviewed: nobody checked them
+individually. `log.jsonl`, `matte.jsonl` and `interval-check.jsonl` carry a ply per row and were
+shifted the same way; the invariant that a log row's `fen` equals its ply's `fen_after` held before
+the repair (1 344 rows) and holds after it. Originals sit beside each file as `.bak.dropped-ply`.
+`tests/test_candidate_move_chains.py` now guards both invariants over every recording.
+
+11-59-12 rescored **51 / 21 / 1 → 52 / 21 / 0**, so the corpus stands at **164 / 24 / 2** — and the
+two remaining phantoms are 00-39-57's `Nbc3`/`Bf3`, committed transposed but reconverging three
+plies later. By the phantom veto the corpus now carries no fabrication at all.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
