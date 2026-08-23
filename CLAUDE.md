@@ -60,6 +60,15 @@
   settled board, and one that departs becomes a card on the `Stellung?` lane. That is what rescues
   `stale`/`changed` frames cell by cell (`docs/position-check.md`).
 
+### 0.1 Crop sizes: 128 belongs to `board_size` 928, not to the pool (2026-08-23)
+- **Two consumers, two sizes.** `data/crops/<tag>/` at 128 px is the artefact for the
+  HUMAN (labeling lane); `packed_images.u8` at the target size is what the MODEL sees.
+  Both should be cut FROM THE SOURCE, never one from the other.
+- **Why 128:** it is the native crop box of the real export — `board_size` 928, cell 116,
+  `pad_side` 0.05 gives 127.6 px, factor 1.000. For a 4K composite the box is 176, for
+  1080p it is 90, so forcing 128 there resamples once too often (`docs/data-pipeline.md`
+  3.1). Do NOT fix that by changing the pool size — that changes what the labeler sees.
+
 ### 1. Model & Normalization
 - **Occlusion:** Models without the `occluded` class have `pOccluded = 0.0`. Hand verification must rely on the **MODEL-FREE** arm (`gridOccluded`) because the CNN arm is blind. Measured on 003957's 67-ply reference: 38/67 plies with 4 invented → **67/67 with 0 invented** (raw map), **LCS 65/67** under the adjacency rule. The gate only counts HAND-SHAPED flags (≥ 1 orthogonally adjacent pair): counting any flag blanks a whole replay on one leaning piece (c8), and a count threshold of 3 lets the leaving hand's 2-flag tail commit the fabrication it exists to stop.
 - **Normalization:** BatchNorm works well; the learning rate is the critical factor, not the norm choice. Never rank normalizers at one shared rate — sweep the rate per normalizer or do not compare.

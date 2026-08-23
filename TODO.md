@@ -586,6 +586,51 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
   **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
 
+- **Memmap direkt aus der Quelle schneiden (2026-08-23).** Der Pool bleibt bei 128 px — das ist
+  das Artefakt fuer den MENSCHEN und zugleich die native Box des echten Exports (`board_size`
+  928 -> Zelle 116 -> Box 127,6, Faktor 1,000). Fuer das MODELL soll die Memmap auf Zielgroesse
+  direkt aus der Quelle kommen, nicht ueber den Pool: heute ist der Composite-Pfad
+  Box -> 128 -> 80, also zweimal skaliert, beim 1080p-Clip mit einem Hochskalieren dazwischen.
+  Gemessen durch den echten Pfad, Laplace auf 80 px: 4K 980 -> 1219 (1,24x), 1080p 652 -> 865
+  (1,33x). Geometrie und Zahlen in `docs/data-pipeline.md` 3.1.
+  **Vorlage:** `synth_build` macht es schon so (ein Warp, direkt in die Memmap, `mm://`-Zeilen
+  statt Dateien). Der Irrweg, stattdessen die Pool-Groesse zu aendern, ist mit `9d1bda44`
+  zurueckgenommen — er haette die Lane fuer den Menschen quellabhaengig gemacht.
+  **Offen:** ob 1,24-1,33x am Val-Wert etwas bewegen. Gegentest gegen
+  `comp13-occ-bn-lr1e2-bs512`.
+
+- **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
+  RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
+  Reservierung sind OpenBLAS-Thread-Arenen (14 Threads = 14 Kerne), nicht Torch selbst:
+  `OPENBLAS_NUM_THREADS=1` druckt den Commit auf **0,28 GB (12x)** und laesst
+  `torch.get_num_threads()` trotzdem auf 14. `OMP_NUM_THREADS=1` spart genauso viel, setzt aber
+  auch Torch auf 1 Thread; `MKL_NUM_THREADS` tut im ROCm-Build gar nichts. Skaliert linear:
+  2 Threads 0,45 GB, 4 Threads 0,79 GB.
+  **Warum das zaehlt:** 16 Dataloader-Worker = 56 GB Commit allein fuers Importieren. Am
+  2026-08-23 hielten 44 verwaiste python.exe **115 GB Commit** von 160 GB Limit, und Tests fielen
+  mit `WinError 1455 Auslagerungsdatei zu klein` + `OpenBLAS error: Memory allocation still failed`.
+  Das ist der Mechanismus hinter „max 8 Worker".
+  **Naechster Schritt:** `OPENBLAS_NUM_THREADS=1` fuer Worker-Prozesse setzen (GPU-Pfade wie SAM 3
+  nutzen OpenBLAS ohnehin nicht) — vorher auf den CPU-lastigen Pfaden (`dataset build`) die
+  Laufzeit gegenmessen, nicht blind setzen.
+
+- **`OPENBLAS_NUM_THREADS=1` fuer die uebrigen Torch-Prozesse pruefen (2026-08-23).** Gesetzt ist
+  der Cap jetzt in `config.loader_kwargs` (alle Loader-Worker) und im SAM-3-Alpha-Worker — beides
+  GPU-Pfade, die OpenBLAS nicht anfassen. **Offen:** `serving.py` haelt einen langlebigen
+  Torch-Prozess und wuerde 3,2 GB Commit sparen, macht aber ggf. CPU-Inferenz — vorher die
+  Latenz messen, nicht blind setzen. `training/evaluate.py` und `gradcam.py` laufen kurz, lohnen
+  kaum. Der Blender-Sharder in `cli.py` spawnt keine Torch-Prozesse und ist nicht betroffen.
+
+- **SAM 3.1 ist fuer uns kein Upgrade (geprueft 2026-08-23).** `facebook/sam3.1` enthaelt KEIN
+  `model.safetensors`, nur `sam3.1_multiplex.pt` (3,50 GB); die config sagt
+  `architectures: ['Sam3VideoModel']`, `model_type: sam3_video`. `Sam3Model.from_pretrained`
+  laedt das nicht — ein Drop-in-Test existiert in unserem Pfad nicht.
+  Inhaltlich passt es auch nicht: der Gewinn ist Object Multiplexing (bis 16 Objekte in einem
+  Forward-Pass, ~7x schnelleres Tracking, bessere VOS-Zahlen). Wir schneiden EIN Standbild ohne
+  Tracking, und gemessen kommt genau EINE Instanz zurueck (`person`/`hand` treffen,
+  `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
+  **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
+
 - **Vorschlag: den Composite-Pool nicht ueber 128 packen (gemessen 2026-08-23).** `pack_dataset`
   schneidet heute aus `data/crops/comp13-v3` (128 px) auf 80. Das ist ein Resampling zu viel: der
   Pfad ist Zelle -> `board_size` -> 128 -> 80, waehrend Kotlin auf `board_size` warpt und in EINEM

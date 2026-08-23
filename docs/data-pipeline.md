@@ -253,6 +253,43 @@ Facts worth knowing before you touch it:
 - It is only consistent with `data/crops/` if every mutation went through the code. As of
   2026-07-27 it is: 14,720 rows, 14,720 files, zero missing, zero orphans.
 
+### 3.1 Zwei Verbraucher, zwei Groessen — und warum 128 (2026-08-23)
+
+Der Pool und die Memmap sind **nicht** dieselbe Sache in zwei Aufloesungen. Sie haben
+verschiedene Leser, und beide sollen **aus der Quelle** kommen, nicht auseinander:
+
+| | Groesse | Leser |
+|---|---|---|
+| `data/crops/<tag>/` | **128 px** | der MENSCH, in der Labeling-Lane |
+| `packed_images.u8` | **Zielgroesse** (z. B. 80) | das MODELL |
+
+**Die 128 sind keine willkuerliche Reserve.** Sie sind die native Crop-Box des echten Exports:
+`board_size` 928 ergibt Zelle 116, `pad_side` 0,05 macht daraus 116 x 1,1 = **127,6 px**. Der
+Schnitt auf 128 ist dort also Faktor **1,000** — er skaliert nicht. Genau deshalb steht die Zahl da.
+
+**Fuer andere `board_size` gilt das nicht.** Gemessen ueber `square_to_crop_box`:
+
+| Pfad | `board_size` | Zelle | Box | Faktor auf 128 |
+|---|---|---|---|---|
+| echter Export | 928 | 116 | **128** | 1,000 |
+| Composite 4K | 1280 | 160 | 176 | 0,727 herunter |
+| Composite 1080p | 656 | 82 | 90 | **1,391 HOCH** |
+
+Wer den Composite-Pool auf 128 zwingt, skaliert also einmal zu viel — beim 1080p-Clip werden
+dabei Pixel erfunden, die `pack_dataset` sofort wieder wegwirft. Gemessen durch den echten Pfad
+(ArUco-Ecken, echte Homographie, `crops_for_frame`), Laplace-Varianz auf 80 px: 4K 980 gegen
+1219, 1080p 652 gegen 865 — also **1,24x** bzw. **1,33x** zu holen.
+
+**Der Fix ist aber NICHT, die Pool-Groesse zu aendern.** Das war ein Irrweg am 2026-08-23 (Commit
+`9a4b1d43`, zurueckgenommen mit `9d1bda44`): der Pool ist das Artefakt fuer den Menschen, und
+quellabhaengige Groessen machen die Lane inkonsistent. Richtig ist, die **Memmap direkt aus der
+Quelle** auf Zielgroesse zu schneiden — genau das macht `synth_build` bereits: „each selected
+frame is loaded ONCE, warped ONCE, and its selected squares are cropped straight into the final
+`packed_images.u8` memmap", mit virtuellen `mm://`-Zeilen statt Crop-Dateien.
+
+Merksatz: **die Zahl 128 gehoert zu `board_size` 928, nicht zum Pool.** Wer eine andere Quelle
+anfaehrt, rechnet die Box neu — oder schneidet fuer das Modell gleich aus der Quelle.
+
 ---
 
 ## 4. What a dataset is
