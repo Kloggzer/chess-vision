@@ -185,3 +185,35 @@ Daraus die Gate-Regel, gemessen gegen beide Versagensarten (`specs/53`, 2026-08-
 Die abziehende Hand läuft über 2-Flag-Frames aus (h3+h2 — immer Nachbarn), deshalb committet eine
 Zählschwelle von 3 genau die Fabrikation, die das Gate verhindern soll. Die Regel ist **räumlich, pro
 Observation, ohne Zeitzustand** (`gridHandSquares`, `SQ_NEIGHBOURS`).
+
+
+## Der Pool `comp13-v3` (Stand 2026-08-23)
+
+`data/` ist gitignored, der Pool selbst liegt also nirgends im Repo — diese Tabelle IST sein
+Nachweis. Gebaut mit `chesslab occluders composite --tag comp13-v3` je Clip, Code-Stand
+`perf(composite): Lesen, Kacheln und Schreiben laufen jetzt neben der Rechnung`, Standardwerte
+(Stride 8, `out_size` 128x128, 0-2 Kacheln je Brett, `--seed 42`). Ganzer Bau: 7 min 24 s.
+
+| Quelle | Stellung | Bretter | Crops | > 50 % verdeckt |
+|---|---|---|---|---|
+| `2026-08-09 20-48-50` | Grundstellung | 965 | 61.760 | 11,2 % |
+| `VID_20260731_092133` | Grundstellung | 389 | 24.896 | 12,6 % |
+| `VID_20260731_222043` | K/D vertauscht | 84 | 5.376 | 10,6 % |
+| `VID_20260731_222320` | K/D vertauscht | 108 | 6.912 | 12,7 % |
+| `VID_20260812_112853` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | 678 | 43.392 | 11,8 % |
+| `VID_20260817_214400` | Grundstellung | 499 | 31.936 | 12,1 % |
+| `VID_20260823_120131` | Grundstellung (4K) | 351 | 22.464 | 11,9 % |
+| `VID_20260823_120426` | eine Reihe zur Mitte (4K) | 519 | 33.216 | 11,6 % |
+| `VID_20260823_120721` | zwei Reihen zur Mitte (4K) | 347 | 22.208 | 12,0 % |
+| **gesamt** | | **3.940** | **252.160** | |
+
+Die drei 4K-Aufnahmen vom 2026-08-23 tragen dieselbe Armee auf ANDEREN Feldern: verschiebt man die
+Aufstellung zur Mitte, steht jede Figur auf der anderen Feldfarbe. Ihre FEN stehen in
+`data/footage/turntable/README.md`.
+
+Klassen: `empty` 126.080, Bauern je 31.520, Laeufer/Springer/Tuerme je 7.880, K/D je 3.940 —
+64 Crops je Brett, also genau die Stellungen mal ihre Bretter.
+
+Der Verdeckungsanteil haengt am Kachel-Zufall, nicht an der Quelle: derselbe Pool eine Stunde
+vorher, vor `tile_stream`, lag bei 10-12 % statt 11-13 %. Wer zwei Pools vergleicht, vergleicht
+also nicht die Clips.
