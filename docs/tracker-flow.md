@@ -479,6 +479,41 @@ measured on a compositional pretrain, not a finished model; the point is the met
 on this checkpoint. Both read sets are kept beside each recording as `model-reads.jsonl.packsource`
 and `.bak.comp13`; the primary file is comp13's, so the table above this section still reproduces.
 
+**Retracted the same day: that was the decoder, not the model.** `chain_decode.py` gained `--temp`,
+which rebuilds the full 13-way distribution (`model-reads.jsonl` stores only the significant
+entries, so the missing mass is spread over the labels it omitted) and applies `p ** (1/T)` before
+renormalising. T = 1 is the stored distribution exactly and the argmax never moves, so per-square
+accuracy is untouched by construction. At **T = 5, floor 0.08**, one setting for every recording:
+
+| recording | comp13 T=1 | comp13 T=5 | packsource T=1 | packsource T=5 |
+| --- | --- | --- | --- | --- |
+| 2026-08-08-00-39-57 | 67 / 0 / 0 | 67 / 0 / 0 | 48 / 19 / 16 | **67 / 0 / 0** |
+| 2026-08-07-13-52-38 | 25 / 0 / 0 | 25 / 0 / 0 | 23 / 2 / 4 | **25 / 0 / 0** |
+| 2026-08-08-11-55-19 | 15 / 0 / 0 | 15 / 0 / 0 | 14 / 1 / 1 | 14 / 1 / 1 |
+| 2026-08-08-11-59-12 | 43 / 30 / 11 | **54 / 19 / 0** | 35 / 38 / 27 | **54 / 19 / 0** |
+| 2026-08-13-12-46-24 | 4 / 0 / 0 | 4 / 0 / 0 | 4 / 0 / 0 | 4 / 0 / 0 |
+| 2026-08-14-20-35-52 | 3 / 1 / 0 | 3 / 1 / 0 | 3 / 1 / 0 | 3 / 1 / 0 |
+| **total** | 157 / 31 / 11 | **168 / 20 / 0** | 127 / 61 / 48 | 167 / 21 / 1 |
+
+The two models land within one ply of each other, and the corpus loses every phantom — including on
+11-59-12, whose remaining 19 misses are the tail the board rasters already contradicted. The verdict
+"a better classifier that decodes worse" was an artefact of a decoder tuned to one model's
+overconfidence.
+
+It is not a fitted calibration temperature either. T from 5 to 100 gives the identical answer, so
+the regime is saturated: what the knob really does is shrink the LEVERAGE of a single square. At
+T = 1 a square read `wP` at 1.00 where a knight stands is worth up to 2.5 nats against the truth, and
+a handful of them outvote any move prior — raising the move price from `pmove` 0.06 to 0.0001 moves
+the score from 48 to 44, i.e. not at all, because the damage is per SQUARE while the price is per
+MOVE. At T = 5 that leverage collapses and the prior can win.
+
+So the finding survives with its shape changed. Per-square accuracy still does not predict decode
+quality, and the errors of the newer model are still fewer but more persistent and far more
+confident (`wP(1.00)` every frame on `e2` where the old model wobbled between 0.74 and 0.94). But
+the fix is available on BOTH sides: post-hoc on the decoder, where it costs one scalar and cannot
+change accuracy, and at training time through calibration, which would let the decoder run at a sane
+temperature instead of a saturated one. Nothing here argues against `packsource`.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded

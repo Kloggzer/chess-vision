@@ -22,15 +22,32 @@ import chess
 ROOT = Path("data/recordings")
 
 
-def load_reads(session, floor, use_coverage):
+def tempered(dist, temp):
+    """The full 13-way distribution at temperature [temp] — the post-hoc calibration knob.
+
+    `model-reads.jsonl` stores only the significant entries, so the missing mass is spread over the
+    labels it left out before `p ** (1 / temp)` is applied and everything renormalised. T = 1 is the
+    stored distribution exactly; T > 1 softens a confident read without moving its argmax.
+    """
+    missing = [lab for lab in LABELS if lab not in dist]
+    rest = max(0.0, 1.0 - sum(dist.values())) / len(missing) if missing else 0.0
+    full = {lab: dist.get(lab, rest) for lab in LABELS}
+    if temp == 1.0:
+        return full
+    powered = {lab: p ** (1.0 / temp) for lab, p in full.items()}
+    total = sum(powered.values()) or 1.0
+    return {lab: p / total for lab, p in powered.items()}
+
+
+def load_reads(session, floor, use_coverage, temp, reads):
     """frame -> {square: {label: weighted log prob}} — the emission table, precomputed once."""
     table = defaultdict(dict)
-    for line in (ROOT / session / "model-reads.jsonl").read_text(encoding="utf-8").splitlines():
+    for line in (ROOT / session / reads).read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         if "square" not in row:
             continue
         weight = (1.0 - (row.get("cov") or 0.0)) if use_coverage else 1.0
-        dist = row["probs"]
+        dist = tempered(row["probs"], temp)
         cell = {lab: weight * math.log(max(dist.get(lab, floor), floor)) for lab in LABELS}
         table[row["frame"]][row["square"]] = cell
     return table
@@ -67,9 +84,9 @@ def touched(board, move):
     return out
 
 
-def decode(session, beam, p_move, floor, use_coverage):
+def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-reads.jsonl"):
     candidate = json.loads((ROOT / session / "candidate.json").read_text(encoding="utf-8"))
-    table = load_reads(session, floor, use_coverage)
+    table = load_reads(session, floor, use_coverage, temp, reads)
     frames = sorted(table)
     stay_cost = math.log(1.0 - p_move)
 
@@ -117,10 +134,12 @@ if __name__ == "__main__":
     ap.add_argument("--pmove", type=float, default=0.06)
     ap.add_argument("--floor", type=float, default=1e-4)
     ap.add_argument("--no-coverage", action="store_true")
+    ap.add_argument("--temp", type=float, default=1.0)
+    ap.add_argument("--reads", default="model-reads.jsonl")
     args = ap.parse_args()
 
     (logp, board, path), candidate = decode(
-        args.session, args.beam, args.pmove, args.floor, not args.no_coverage
+        args.session, args.beam, args.pmove, args.floor, not args.no_coverage, args.temp, args.reads
     )
     reference = [m["san"] for m in candidate["moves"]]
     replay = chess.Board(candidate.get("start_fen") or chess.STARTING_FEN)
@@ -130,7 +149,7 @@ if __name__ == "__main__":
         sans.append(replay.san(mv))
         replay.push(mv)
     found, missed, invented = lcs_score(reference, sans)
-    print(f"{args.session}  beam={args.beam} pmove={args.pmove} coverage={not args.no_coverage}")
+    print(f"{args.session}  beam={args.beam} pmove={args.pmove} floor={args.floor} temp={args.temp} reads={args.reads}")
     print(f"  Referenz {len(reference)} Plies, Kette {len(sans)} Plies, logP {logp:.0f}")
     print(f"  gefunden {found} / verpasst {missed} / erfunden {invented}")
     if missed or invented:
