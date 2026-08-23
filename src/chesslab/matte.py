@@ -1,7 +1,4 @@
-"""The two models the pipeline keeps: RT-DETR finds the hand, SAM 3 cuts it out.
-
-`person_score` is the frame scan's sensor (~24.6 ms), `alpha_sam3` the matte the labels come
-from. Grounding DINO sat between them and did neither job better — `docs/session-mattes.md`."""
+"""SAM 3 cuts the hand out — `alpha_sam3` is the matte the labels come from."""
 
 from __future__ import annotations
 
@@ -40,14 +37,8 @@ CONCEPTS = (
 MAX_ZONE_FRAC = 0.60
 
 
-RTDETR_REPO = "PekingU/rtdetr_r18vd_coco_o365"
-
-# A plain COCO detector, ~25 ms against Grounding DINO's ~405 ms — and `person`
-# is all it is asked for. Clean boards sit around 0.14, a hand at 0.5+.
-PERSON_THR = 0.20
 
 
-_RTDETR: tuple = ()
 _SAM3: tuple = ()
 
 
@@ -91,47 +82,6 @@ def _sam3():
     return _SAM3
 
 
-def _rtdetr():
-    """The fast sensor's weights, loaded lazily."""
-    global _RTDETR
-
-    if not _RTDETR:
-        import torch
-        from transformers import (
-            AutoImageProcessor,
-            AutoModelForObjectDetection,
-        )
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        model = (
-            AutoModelForObjectDetection
-            .from_pretrained(RTDETR_REPO)
-            .to(device)
-            .eval()
-        )
-
-        processor = AutoImageProcessor.from_pretrained(RTDETR_REPO)
-
-        person_labels = [
-            int(i)
-            for i, name in model.config.id2label.items()
-            if name == "person"
-        ]
-
-        if not person_labels:
-            raise ValueError(
-                f"{RTDETR_REPO}: model config contains no 'person' label"
-            )
-
-        _RTDETR = (
-            processor,
-            model,
-            device,
-            person_labels,
-        )
-
-    return _RTDETR
 
 
 def unload_models() -> None:
@@ -139,10 +89,9 @@ def unload_models() -> None:
 
     Workers keep them alive across frames and sessions; releasing at the end avoids leaving
     several GB of CUDA-backed objects for interpreter shutdown to dismantle."""
-    global _SAM3, _RTDETR
+    global _SAM3
 
     _SAM3 = ()
-    _RTDETR = ()
 
     gc.collect()
 
@@ -224,8 +173,8 @@ def _wait_for_exit(pid: int) -> None:
 def exit_with_parent() -> None:
     """Drop the weights and go when the launching shell dies.
 
-    A stopped task kills the shell, not the worker: it kept running and held its VRAM, three
-    times on 2026-08-23. Set CHESSLAB_NO_PARENT_WATCH=1 for a deliberately detached run.
+    Killing the shell does not kill the worker: it keeps running and holds its VRAM.
+    Set CHESSLAB_NO_PARENT_WATCH=1 for a deliberately detached run.
     """
     if os.environ.get("CHESSLAB_NO_PARENT_WATCH"):
         return
@@ -240,46 +189,6 @@ def exit_with_parent() -> None:
     Thread(target=watch, daemon=True).start()
 
 
-def person_score(board: np.ndarray) -> float:
-    """How sure a COCO detector is that a person reaches into this board raster.
-
-    The frame scan's sensor: the groove read is blind to a hand that covers no line, and the
-    1 s commit window it replaced condemned clean boards wholesale (`docs/frame-scan.md`)."""
-    import torch
-
-    processor, model, device, person_labels = _rtdetr()
-
-    rgb = cv2.cvtColor(
-        board,
-        cv2.COLOR_BGR2RGB,
-    )
-
-    inputs = processor(
-        images=rgb,
-        return_tensors="pt",
-    ).to(device)
-
-    with torch.inference_mode():
-        outputs = model(**inputs)
-
-    found = processor.post_process_object_detection(
-        outputs,
-        threshold=0.05,
-        target_sizes=[board.shape[:2]],
-    )[0]
-
-    return max(
-        (
-            float(score)
-            for label, score in zip(
-                found["labels"].tolist(),
-                found["scores"].tolist(),
-                strict=True,
-            )
-            if int(label) in person_labels
-        ),
-        default=0.0,
-    )
 
 
 #: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
@@ -343,8 +252,8 @@ def alpha_sam3(
         return_tensors="pt",
     ).to(device)
 
-    # fp16 for the encoder, which is 77 % of the frame. Validated over 150 frames: 0 of 9600
-    # coverage cells cross PIECE_VISIBLE_MAX, largest shift 0.0079 against a 0.15 threshold.
+    # The encoder is 77 % of the frame and no coverage cell crosses PIECE_VISIBLE_MAX under
+    # fp16 — numbers in `docs/session-mattes.md`.
     autocast = torch.autocast("cuda", dtype=torch.float16, enabled=device != "cpu")
 
     with torch.inference_mode(), autocast:

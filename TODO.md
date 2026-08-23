@@ -553,8 +553,6 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
 - **SAM 3 unter autocast: ERLEDIGT (2026-08-23).** fp16 steht in `alpha_sam3`, gemessen
   **5,72x** auf dem Produktionspfad (2,866 -> 0,501 s/Frame), abgesichert ueber 150 Frames:
   0 von 9 600 Coverage-Zellen kippen. Zahlen in `docs/session-mattes.md`.
-  **Offen:** RT-DETR (`person_score`, ~25 ms im Frame-Scan) laeuft weiter fp32 — nie
-  gemessen, ob autocast dort etwas bringt und ob es die Flag-Entscheidung verschiebt.
 
 - **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
   RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
