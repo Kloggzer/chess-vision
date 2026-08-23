@@ -36,8 +36,8 @@ dependencies = [
     "onnxruntime>=1.27.0",
     "onnxscript>=0.7.1",
     "simplejpeg>=1.9.0",
-    # The frame scan's person sensor (RT-DETR) and the occluder mattes (SAM 3) both load through
-    # it; before 2026-08-18 it was an undeclared `uv run --with` that the export now cannot skip.
+    # SAM 3 loads through it; before 2026-08-18 it was an undeclared `uv run --with` that the
+    # export now cannot skip.
     "transformers>=4.57.0",
 ]
 # Optional (lazy, with fallback): matplotlib (meshprep preview), pyperclip (UI clipboard)
