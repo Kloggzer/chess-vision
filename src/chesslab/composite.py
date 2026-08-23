@@ -5,8 +5,13 @@ by `crops_for_frame`: `docs/occluder-plates.md`.
 """
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from queue import Queue
+from threading import Event, Thread
 
 import cv2
 import numpy as np
@@ -37,6 +42,12 @@ class Placement:
     flipped: bool
 
 
+#: Threads fuer Encode und Platte. Acht ist gemessen: 4 -> 52 ms, 8 -> 33, 16 -> 36 je 64 Crops.
+WRITE_THREADS = 8
+#: Vorlauf und Lader fuer die Kacheln. Gemessen auf 4K: 1 Lader 130 ms je Brett, 4 -> 120, 8 -> 117;
+#: 12 Bretter Vorlauf brachten nichts mehr und kosteten auf 1080p 20 % (`docs/ingest-speed.md`).
+TILE_LOOKAHEAD = 6
+TILE_WORKERS = 8
 #: Dateinamen, die den Clip NICHT benennen — dann steht die Kennung im Ordner darueber.
 GENERIC_STEMS = frozenset({"video", "clip", "input", "out"})
 
@@ -74,7 +85,7 @@ def load_tiles(plate_dir: Path) -> list[Path]:
 
 
 def read_tile(path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """(bgr, alpha 0..1) of one RGBA plate, cropped to what the alpha actually covers.
+    """(bgr, alpha 0..255) of one RGBA plate, cropped to what the alpha actually covers.
 
     A plate is the whole stage, and the hand may sit in a corner of it — scaling the TILE then
     makes the occluder itself far too small, which is what the first composites showed.
@@ -82,10 +93,10 @@ def read_tile(path: Path) -> tuple[np.ndarray, np.ndarray]:
     t = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
     if t is None or t.shape[2] != 4:
         raise ValueError(f"{path} is not an RGBA plate")
-    ys, xs = np.nonzero(t[:, :, 3] > 8)
-    if ys.size:
-        t = t[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
-    return t[:, :, :3], t[:, :, 3].astype(np.float32) / 255.0
+    x0, y0, w, h = cv2.boundingRect((t[:, :, 3] > 8).view(np.uint8))
+    if w and h:
+        t = t[y0:y0 + h, x0:x0 + w]
+    return np.ascontiguousarray(t[:, :, :3]), np.ascontiguousarray(t[:, :, 3])
 
 
 def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: float,
@@ -117,7 +128,7 @@ def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: f
     bx0, by0 = int(max(0, np.floor(dst[:, 0].min()))), int(max(0, np.floor(dst[:, 1].min())))
     bx1, by1 = int(min(w, np.ceil(dst[:, 0].max()))), int(min(h, np.ceil(dst[:, 1].max())))
     if bx1 <= bx0 or by1 <= by0:
-        return (np.zeros((0, 0, 3), np.uint8), np.zeros((0, 0), np.float32), (0, 0),
+        return (np.zeros((0, 0, 3), np.uint8), np.zeros((0, 0), np.uint8), (0, 0),
                 Placement(tile="", centre=(cx, cy), scale=scale, angle=angle, flipped=flip))
 
     m[0, 2] -= bx0
@@ -130,14 +141,19 @@ def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: f
 
 
 def over(base: np.ndarray, rgb: np.ndarray, alpha: np.ndarray, at: tuple[int, int]) -> None:
-    """Blendet die Kachel AN ORT UND STELLE in `base` — nur ueber ihren eigenen Kasten."""
+    """Blendet die Kachel AN ORT UND STELLE in `base` — nur ueber ihren eigenen Kasten.
+
+    In uint8 durch OpenCV statt in float32 durch numpy: 16,6 ms je Kachel gegen 4,6 (gemessen
+    2026-08-23). Es rundet dabei anders, verschiebt den Pixel also um bis zu einen Grauwert.
+    """
     if alpha.size == 0:
         return
     x0, y0 = at
     h, w = alpha.shape
     box = base[y0:y0 + h, x0:x0 + w]
-    a = alpha[..., None]
-    box[:] = (box.astype(np.float32) * (1 - a) + rgb.astype(np.float32) * a).astype(np.uint8)
+    a = cv2.cvtColor(alpha, cv2.COLOR_GRAY2BGR)
+    cv2.add(cv2.multiply(box, cv2.bitwise_not(a), scale=1 / 255),
+            cv2.multiply(rgb, a, scale=1 / 255), dst=box)
 
 
 def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMesh | None:
@@ -151,8 +167,9 @@ def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMes
     return mesh_from_lines(grid_line_fracs(frame, corners, profile.board_size, profile))
 
 
-def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile, tiles: list[Path],
-                    rng: np.random.Generator, n_tiles: int = 1, rig: float = RIG_SCALE,
+def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile,
+                    plates: list[tuple[str, np.ndarray, np.ndarray]],
+                    rng: np.random.Generator, rig: float = RIG_SCALE,
                     mesh: GridMesh | None = None, plate_long: int = max(WORK_SIZE)
                     ) -> tuple[list[np.ndarray], dict[str, float], list[Placement]]:
     """One board frame with occluders on it: (64 crops, coverage per square, what was placed).
@@ -169,26 +186,82 @@ def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile, til
     target = (int(pts[:, 0].min()), int(pts[:, 1].min()),
               int(pts[:, 0].max()), int(pts[:, 1].max()))
     out = frame.copy()
-    acc = np.zeros((h, w), np.float32)
+    acc = np.zeros((h, w), np.uint8)
     used: list[Placement] = []
-    for path in rng.choice(np.array(tiles, dtype=object), size=n_tiles, replace=False):
-        rgb, a, at, p = place((h, w), *read_tile(Path(path)), native=native, rng=rng,
-                              target=target)
+    for name, tile, alpha in plates:
+        rgb, a, at, p = place((h, w), tile, alpha, native=native, rng=rng, target=target)
         over(out, rgb, a, at)
         if a.size:
             x0, y0 = at
             box = acc[y0:y0 + a.shape[0], x0:x0 + a.shape[1]]
             np.maximum(box, a, out=box)
-        used.append(Placement(tile=Path(path).name, centre=p.centre, scale=p.scale,
+        used.append(Placement(tile=name, centre=p.centre, scale=p.scale,
                               angle=p.angle, flipped=p.flipped))
 
     if mesh is None:
         mesh = mesh_for(frame, corners, profile)
     crops = crops_for_frame(out, corners, profile, out_size=tuple(profile.crop.out_size), mesh=mesh)
-    grey = cv2.cvtColor((acc * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    grey = cv2.cvtColor(acc, cv2.COLOR_GRAY2BGR)
     masks = crops_for_frame(grey, corners, profile, out_size=tuple(profile.crop.out_size), mesh=mesh)
     cov = {sq: float(m.mean()) / 255.0 for sq, m in zip(all_squares(), masks, strict=True)}
     return crops, cov, used
+
+
+def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int, np.ndarray]]:
+    """Jeden `stride`-ten Frame liefern — vorwaerts gelesen, in einem eigenen Thread.
+
+    `grab` spart den uebersprungenen Frames die BGR-Umrechnung: 235 ms je genutztem Frame mit
+    `cap.set`, 39 so. Auch warum die Hardware verliert, misst `docs/ingest-speed.md`.
+    """
+    q: Queue = Queue(maxsize=depth)
+
+    def pump() -> None:
+        cap = cv2.VideoCapture(str(video))
+        idx = 0
+        try:
+            while cap.grab():
+                if idx % stride == 0:
+                    ok, frame = cap.retrieve()
+                    if ok:
+                        q.put((idx, frame))
+                idx += 1
+        finally:
+            cap.release()
+            q.put(None)
+
+    Thread(target=pump, daemon=True).start()
+    while (item := q.get()) is not None:
+        yield item
+
+
+def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int,
+                depth: int = TILE_LOOKAHEAD, workers: int = TILE_WORKERS
+                ) -> Iterator[list[tuple[str, np.ndarray, np.ndarray]]]:
+    """Die Kacheln der naechsten Bretter schon dekodiert bereithalten — endlos, eine Liste je Brett.
+
+    Von der Platte kostet eine Kachel 89 ms, mehr als das Brett selbst; alle 1440 im Speicher
+    waeren 18,7 GB. Zieht aus einem EIGENEN Strang, damit das Vorauslaufen die Posen nicht dreht.
+    """
+    q: Queue = Queue(maxsize=depth)
+    stop = Event()
+
+    def pump() -> None:
+        rng = np.random.default_rng(seed)
+        names = np.array(tiles, dtype=object)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            while not stop.is_set():
+                k = int(rng.integers(per_frame[0], per_frame[1] + 1))
+                picks = rng.choice(names, size=k, replace=False) if k else []
+                q.put([(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks])
+
+    Thread(target=pump, daemon=True).start()
+    try:
+        while True:
+            yield [(name, *job.result()) for name, job in q.get()]
+    finally:
+        stop.set()
+        while not q.empty():
+            q.get_nowait()
 
 
 def median_mesh(cap, profile: CalibrationProfile, samples: int = 40) -> GridMesh | None:
@@ -261,11 +334,14 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     stem_sid = f"comp-{clip_id(video)}"
     prof = mesh = None
     rows, written, skipped = [], 0, 0
+    for label in set(labels.values()):
+        (out_root / label).mkdir(parents=True, exist_ok=True)
 
-    for idx in range(0, n, stride):
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, frame = cap.read()
-        corners = detect_board_corners_aruco(frame) if ok else None
+    pending: deque = deque()
+    pool = ThreadPoolExecutor(max_workers=WRITE_THREADS)
+    plates = tile_stream(tiles, tiles_per_frame, seed + 1)
+    for idx, frame in read_forward(video, stride):
+        corners = detect_board_corners_aruco(frame)
         if corners is None:
             skipped += 1
             continue
@@ -281,11 +357,9 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                            crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
                                            pad_side=base.crop.pad_side, out_size=out_size))
             mesh = median_mesh(cap, prof)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ok, frame = cap.read()
-        k = int(rng.integers(tiles_per_frame[0], tiles_per_frame[1] + 1))
-        if k:
-            crops, cov, _ = composite_frame(frame, corners, prof, tiles, rng, n_tiles=k, mesh=mesh,
+        batch = next(plates)
+        if batch:
+            crops, cov, _ = composite_frame(frame, corners, prof, batch, rng, mesh=mesh,
                                             plate_long=plate_long)
         else:
             crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
@@ -295,15 +369,21 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         for sq, crop in zip(all_squares(), crops, strict=True):
             label = labels[sq]
             path = out_root / label / f"{sid}_{stem}_{sq}{CROP_SUFFIX}"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(str(path), crop, CROP_ENCODE)
+            pending.append(pool.submit(cv2.imwrite, str(path), crop, CROP_ENCODE))
             rows.append({"path": path.as_posix(), "label": label, "coverage": round(cov[sq], 4),
                          "session_id": sid, "split_group": stem_sid, "frame": stem, "square": sq,
                          "square_color": square_color(sq), "fen": fen,
                          "out_size": list(out_size), "pad_side": prof.crop.pad_side,
                          "pad_up": prof.crop.pad_up})
             written += 1
+        # Der Rueckstau ist die Bremse, nicht der Puffer: haelt man alle Crops eines Clips fuer
+        # einen Lauf am Ende, liegen 60k davon im Speicher (~3 GB). Vier Bretter reichen, weil
+        # Encode (33 ms je Brett auf acht Threads) unter der Rechnung (250 ms) bleibt.
+        while len(pending) > 4 * 64:
+            pending.popleft().result()
     cap.release()
+    plates.close()
+    pool.shutdown(wait=True)
     # Upsert by clip, not overwrite: a second clip into the same pool used to discard the first
     # one's rows while its crops stayed on disk — which is why every clip got its own tag.
     _replace_session_in_manifest(manifest, stem_sid,
