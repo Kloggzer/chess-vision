@@ -18,6 +18,7 @@ import os
 import shutil
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -497,12 +498,34 @@ def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
     against one cut from the raw board — linear -44 %, cubic -22 %, lanczos4 -19 % at the same
     290 ms per 952 px board (the WebP encode beside it costs 72 ms).
     """
-    h, w = board.shape[:2]
+    mx, my = _straighten_maps(board.shape[:2], mesh, board_size, border)
+    return cv2.remap(board, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+def _mesh_key(mesh: GridMesh) -> tuple:
+    """Hashable Fassung eines Mesh — die Listen sind es nicht."""
+    return tuple(tuple(v) if v is not None else None
+                 for v in (mesh.x, mesh.y, mesh.tx, mesh.ty, mesh.cx, mesh.cy))
+
+
+def _straighten_maps(shape: tuple[int, int], mesh: GridMesh, board_size: int, border: int):
+    """Die Remap-Tabellen, gemerkt: sie haengen NUR an Groesse, Mesh, board_size und Rand.
+
+    Gemessen 2026-08-23 auf einem 1312er Brett: der Aufbau kostet 623 ms, der `remap` daneben 14.
+    Eine Aufnahme hat EIN Mesh (`composite.median_mesh`, `realgames.meshes_for_boards`), also
+    zahlt der Aufbau einmal je Clip statt zweimal je Frame.
+    """
+    return _straighten_maps_cached(shape, _mesh_key(mesh), board_size, border)
+
+
+@lru_cache(maxsize=8)
+def _straighten_maps_cached(shape: tuple[int, int], key: tuple, board_size: int, border: int):
+    h, w = shape
+    mesh = GridMesh(*(list(v) if v is not None else None for v in key))
     ys, xs = np.mgrid[0:h, 0:w].astype(np.float64)
     mx, my = mesh_point((xs - border) / board_size, (ys - border) / board_size, mesh)
-    return cv2.remap(board, (mx * board_size + border).astype(np.float32),
-                     (my * board_size + border).astype(np.float32),
-                     cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    return ((mx * board_size + border).astype(np.float32),
+            (my * board_size + border).astype(np.float32))
 
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
@@ -579,11 +602,19 @@ def _aruco_dictionary(dict_name: str):
 #: Fenstergrößen (min, max, step), die die Binarisierung des Markers durchprobiert. 13 statt 3 —
 #: der Preis ist Rechenzeit je Frame, der Gewinn die Randmarker.
 ADAPTIVE_THRESH_WIN = (3, 53, 4)
+#: Längste Kante, auf die zum SUCHEN verkleinert wird. Auf 4K gemessen (2026-08-23): voll 135 ms
+#: und 10/12 Frames mit allen vier Markern, hier 27 ms und 12/12 — das Verkleinern mittelt die
+#: Maserung weg, die dem Dekoder das Bit kippt. Der Eckfehler steigt auf 1,34 px, was der Grid-Fit
+#: danach ohnehin korrigiert: ArUco ist die grobe Lage, nicht die Feldecke.
+DETECT_LONG_SIDE = 1344
 
 
 def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
     """Raw detection: {id: (4,2) corner array} per found marker (order as from ArUco)."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    scale = min(1.0, DETECT_LONG_SIDE / max(gray.shape[:2]))
+    if scale < 1.0:
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     params = cv2.aruco.DetectorParameters()
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # more precise corners
     # Ein Randmarker steht auf dünnem Weiß vor dunklem Holz; bei OpenCVs drei Fenstergrößen kippt
@@ -595,7 +626,8 @@ def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[in
     found_corners, found_ids, _ = detector.detectMarkers(gray)
     if found_ids is None:
         return {}
-    return {int(i): c.reshape(4, 2) for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
+    return {int(i): c.reshape(4, 2) / scale
+            for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
 
 
 def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),

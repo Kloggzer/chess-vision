@@ -520,3 +520,24 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   Inhalt geaendert hat, nicht wie scharf er ist. Achtung, `SETTLE_LIMIT = 15.0` ist an dieser
   Geometrie kalibriert und muss mitgemessen werden. Gegenprobe: 16 / 32 / 48 / 80 px auf einer
   Session, verglichen gegen die Felder, die `departures` meldet.
+
+- **`occluders.py`: dieselbe Konnektivitaets-Falle notieren (2026-08-23).** `drop_specks` (Z. 57)
+  und `stage_of` (Z. 121) rufen `connectedComponentsWithStats(m, 8)` — die 8 landet auf `labels`,
+  nicht auf `connectivity`. Verhalten ist zufaellig korrekt, weil die Vorgabe ohnehin 8 ist, die
+  Schreibweise luegt aber. Beim naechsten Anfassen auf `connectivity=8` heben; fuer `drop_specks`
+  gilt dabei zu pruefen, ob die invertierte Runde (Pinholes) nicht 4 braucht.
+
+- **Composite-Mesh dreht sich mit dem Brett (2026-08-23).** `composite.median_mesh` nimmt EINEN
+  Median ueber den ganzen Clip. Gemessen auf `VID_20260817_214400` ueber 30 Frames und den vollen
+  Winkelbereich: die Linienlage `x` korreliert mit **0,87** zum Drehwinkel, `y` mit 0,68 — also ein
+  systematischer Anteil, der zu keinem Einzelframe passt. In Pixeln auf board_size 1280: 1,6 px
+  (`x`) und 3,3 px (`y`), auf einer 160-px-Zelle also 1-2 %. Der Median heilt dafuer den Einzelfit,
+  den Figuren auf der Grundreihe verziehen. Richtig waere der dritte Weg: pro Frame fitten und die
+  verzogenen Linien reparieren (`sessions._repair_mesh_outliers`, `smooth_mesh_curvature`).
+
+- **Composite: die Ueberblendung variieren (2026-08-23).** `composite.over` blendet immer hart
+  ueber das Alpha. `Cut, Paste and Learn` (ICCV 2017, arxiv 1708.01642) misst **8 AP** Unterschied
+  allein dadurch, dass ueber den Datensatz hinweg VERSCHIEDENE Verfahren gemischt werden (hart,
+  Gauss-weich, Poisson) — bei immer derselben Kante lernt das Netz die Kante statt das Objekt.
+  Passt zur eigenen Messung: Crops MIT Occluder haben Laplacian 1023, ohne 3453. Als eigener Lauf
+  gegen comp13-v3 halten, nicht mit hineinmischen.

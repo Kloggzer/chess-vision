@@ -90,11 +90,11 @@ def read_tile(path: Path) -> tuple[np.ndarray, np.ndarray]:
 
 def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: float,
           rng: np.random.Generator, target: tuple[int, int, int, int]
-          ) -> tuple[np.ndarray, np.ndarray, Placement]:
-    """Drop one tile onto an empty full-frame layer at a random pose over `target` (x0,y0,x1,y1).
+          ) -> tuple[np.ndarray, np.ndarray, tuple[int, int], Placement]:
+    """Drop one tile at a random pose over `target` (x0,y0,x1,y1) -> `(rgb, alpha, (x0,y0), pose)`.
 
-    Position and angle are free — only the occlusion has to be plausible, not the reach. Size is
-    not, and the centre is aimed at the board: on 4K it covers a third of the width.
+    Zurueck kommt NUR der Kasten der Kachel plus sein Versatz: ins Vollformat gewarpt kostete sie
+    32 ms Warp und 308 ms Ueberblendung fuer Pixel, von denen 99 % unberuehrt bleiben (4K, 2026-08-23).
     """
     h, w = shape
     scale = native * float(rng.uniform(*SCALE_JITTER))
@@ -103,19 +103,41 @@ def place(shape: tuple[int, int], tile: np.ndarray, alpha: np.ndarray, native: f
     if flip:
         tile, alpha = tile[:, ::-1], alpha[:, ::-1]
 
-    m = cv2.getRotationMatrix2D((tile.shape[1] / 2, tile.shape[0] / 2), angle, scale)
+    th, tw = tile.shape[:2]
+    m = cv2.getRotationMatrix2D((tw / 2, th / 2), angle, scale)
     x0, y0, x1, y1 = target
     cx, cy = int(rng.integers(x0, max(x0 + 1, x1))), int(rng.integers(y0, max(y0 + 1, y1)))
-    m[0, 2] += cx - tile.shape[1] / 2
-    m[1, 2] += cy - tile.shape[0] / 2
-    rgb = cv2.warpAffine(tile, m, (w, h), flags=cv2.INTER_LINEAR)
-    a = cv2.warpAffine(alpha, m, (w, h), flags=cv2.INTER_LINEAR)
-    return rgb, a, Placement(tile="", centre=(cx, cy), scale=scale, angle=angle, flipped=flip)
+    m[0, 2] += cx - tw / 2
+    m[1, 2] += cy - th / 2
+
+    # Die vier gedrehten Ecken sagen den Kasten exakt — ihn hinterher im Alpha zu suchen waere
+    # teurer als das, was er spart.
+    pts = np.array([[0, 0], [tw, 0], [tw, th], [0, th]], np.float64)
+    dst = pts @ m[:, :2].T + m[:, 2]
+    bx0, by0 = int(max(0, np.floor(dst[:, 0].min()))), int(max(0, np.floor(dst[:, 1].min())))
+    bx1, by1 = int(min(w, np.ceil(dst[:, 0].max()))), int(min(h, np.ceil(dst[:, 1].max())))
+    if bx1 <= bx0 or by1 <= by0:
+        return (np.zeros((0, 0, 3), np.uint8), np.zeros((0, 0), np.float32), (0, 0),
+                Placement(tile="", centre=(cx, cy), scale=scale, angle=angle, flipped=flip))
+
+    m[0, 2] -= bx0
+    m[1, 2] -= by0
+    size = (bx1 - bx0, by1 - by0)
+    rgb = cv2.warpAffine(tile, m, size, flags=cv2.INTER_LINEAR)
+    a = cv2.warpAffine(alpha, m, size, flags=cv2.INTER_LINEAR)
+    return rgb, a, (bx0, by0), Placement(tile="", centre=(cx, cy), scale=scale, angle=angle,
+                                         flipped=flip)
 
 
-def over(base: np.ndarray, rgb: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+def over(base: np.ndarray, rgb: np.ndarray, alpha: np.ndarray, at: tuple[int, int]) -> None:
+    """Blendet die Kachel AN ORT UND STELLE in `base` — nur ueber ihren eigenen Kasten."""
+    if alpha.size == 0:
+        return
+    x0, y0 = at
+    h, w = alpha.shape
+    box = base[y0:y0 + h, x0:x0 + w]
     a = alpha[..., None]
-    return (base.astype(np.float32) * (1 - a) + rgb.astype(np.float32) * a).astype(np.uint8)
+    box[:] = (box.astype(np.float32) * (1 - a) + rgb.astype(np.float32) * a).astype(np.uint8)
 
 
 def mesh_for(frame: np.ndarray, corners, profile: CalibrationProfile) -> GridMesh | None:
@@ -150,10 +172,13 @@ def composite_frame(frame: np.ndarray, corners, profile: CalibrationProfile, til
     acc = np.zeros((h, w), np.float32)
     used: list[Placement] = []
     for path in rng.choice(np.array(tiles, dtype=object), size=n_tiles, replace=False):
-        rgb, a, p = place((h, w), *read_tile(Path(path)), native=native, rng=rng,
-                          target=target)
-        out = over(out, rgb, a)
-        acc = np.maximum(acc, a)
+        rgb, a, at, p = place((h, w), *read_tile(Path(path)), native=native, rng=rng,
+                              target=target)
+        over(out, rgb, a, at)
+        if a.size:
+            x0, y0 = at
+            box = acc[y0:y0 + a.shape[0], x0:x0 + a.shape[1]]
+            np.maximum(box, a, out=box)
         used.append(Placement(tile=Path(path).name, centre=p.centre, scale=p.scale,
                               angle=p.angle, flipped=p.flipped))
 
