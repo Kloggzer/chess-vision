@@ -391,9 +391,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # 8 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
     nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
-    loader_kw = {"batch_size": batch_size, "pin_memory": True, "num_workers": nw}
-    if nw > 0:
-        loader_kw.update(persistent_workers=True, prefetch_factor=4)
+    loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
     sampler = None
     if hard_negative_multiplier != 1.0:
         if hard_negative_multiplier < 1.0:

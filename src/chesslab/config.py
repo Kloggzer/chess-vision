@@ -236,6 +236,31 @@ DEFAULT_NUM_WORKERS: int = 8
 # so this constant is a confound in the normalization result as well as an unknown of its own.
 # Listed in docs/references.md §11 with the other decisions that rest on nothing published.
 DEFAULT_LR: float = 3e-4
+
+def cap_blas_threads() -> None:
+    """One BLAS thread per process — the arenas, not torch, are what reserves the commit.
+
+    Measured 2026-08-23: `import torch` reserves 3.48 GB of commit at 14 threads against 0.28 GB
+    at one, while the working set stays 0.38 GB either way. Spawned loader workers inherit this
+    env, which is the only place it multiplies (16 workers = 56 GB before the first batch).
+    """
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+
+def loader_kwargs(num_workers: int | None = None, *, pin_memory: bool = True,
+                  prefetch_factor: int = 4) -> dict:
+    """The DataLoader policy every training path shares; `batch_size` and `shuffle` stay local.
+
+    `pin_memory=False` is the gate trainer's: two pinned loaders together blew the HIP host heap.
+    """
+    workers = DEFAULT_NUM_WORKERS if num_workers is None else num_workers
+    kw: dict = {"num_workers": workers, "pin_memory": pin_memory}
+    if workers > 0:
+        cap_blas_threads()
+        kw.update(persistent_workers=True, prefetch_factor=prefetch_factor)
+    return kw
+
+
 DEFAULT_PATIENCE: int = 7
 
 # --- Physical piece inventory (coverage strategy) -------------------------------------

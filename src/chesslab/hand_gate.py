@@ -352,8 +352,7 @@ def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs:
     # `persistent_workers`, weil Windows die Prozesse sonst je Epoche neu startet und jeder torch
     # neu importiert. KEIN `pin_memory`: die angepinnten Puffer beider Loader zusammen sprengten
     # den HIP-Host-Speicher, und der GPU-Schritt ist ohnehin zwanzigmal teurer als die Kopie.
-    keep = {"num_workers": workers, "persistent_workers": workers > 0,
-            **({"prefetch_factor": 2} if workers else {})}
+    keep = config.loader_kwargs(workers, pin_memory=False, prefetch_factor=2)
     loader = DataLoader(BoardSet(train_rows, size, True, seed), batch_size=batch, shuffle=True,
                         drop_last=True, **keep)
     val_loader = DataLoader(BoardSet(val_rows, size, False), batch_size=batch * 2, **keep)

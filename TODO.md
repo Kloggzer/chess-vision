@@ -541,3 +541,44 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   Gauss-weich, Poisson) — bei immer derselben Kante lernt das Netz die Kante statt das Objekt.
   Passt zur eigenen Messung: Crops MIT Occluder haben Laplacian 1023, ohne 3453. Als eigener Lauf
   gegen comp13-v3 halten, nicht mit hineinmischen.
+
+  Quellen:
+  - Cut, Paste and Learn, ICCV 2017 — https://openaccess.thecvf.com/content_ICCV_2017/papers/Dwibedi_Cut_Paste_and_ICCV_2017_paper.pdf
+  - Code zum Papier — https://github.com/debidatta/syndata-generation
+  - Poisson-Blending in der Praxis — http://alondaks.com/2017/12/01/object-detection-data-augmentation-via-poisson-blending/
+
+  Ausserdem aus dem Papier: Realismus auf PATCH-Ebene genuegt, global unrealistische Kompositionen
+  schaden nicht — das ist die Rechtfertigung dafuer, dass wir Haende ueberhaupt aufkleben duerfen.
+
+- **SAM 3 unter autocast: 6,6x (2026-08-23, gemessen, noch nicht belegt).** Profil auf 9 Frames
+  (Warmup verworfen, GPU-synced, RX 7900 XT/ROCm): 3,11 s/Frame gesamt, davon **2,39 s im
+  Vision-Encoder (77 %)** und 0,72 s in den 5 Konzept-Decodes (0,14 s je Stueck — das Teilen der
+  Vision-Embeds in `alpha_sam3` arbeitet also schon optimal, da ist nichts zu holen).
+  `torch.autocast("cuda", float16)` drueckt den Encoder auf 0,19 s und den Frame auf 0,49 s,
+  bf16 gleichauf. Maskentreue gegen fp32: mean IoU 0,99948 (fp16) / 0,99828 (bf16), max 230 px
+  Abweichung auf einem Frame.
+  **Vor dem Uebernehmen:** 10 Frames sind kein Beweis (eigene Regel) — laengerer Lauf noetig, und
+  fp16 verschiebt die Maske, also aendert es JEDES kuenftige Alpha. Eigener Validierungslauf mit
+  Coverage-Vergleich gegen `PIECE_VISIBLE_MAX`, nicht nebenbei.
+
+- **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
+  RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
+  Reservierung sind OpenBLAS-Thread-Arenen (14 Threads = 14 Kerne), nicht Torch selbst:
+  `OPENBLAS_NUM_THREADS=1` druckt den Commit auf **0,28 GB (12x)** und laesst
+  `torch.get_num_threads()` trotzdem auf 14. `OMP_NUM_THREADS=1` spart genauso viel, setzt aber
+  auch Torch auf 1 Thread; `MKL_NUM_THREADS` tut im ROCm-Build gar nichts. Skaliert linear:
+  2 Threads 0,45 GB, 4 Threads 0,79 GB.
+  **Warum das zaehlt:** 16 Dataloader-Worker = 56 GB Commit allein fuers Importieren. Am
+  2026-08-23 hielten 44 verwaiste python.exe **115 GB Commit** von 160 GB Limit, und Tests fielen
+  mit `WinError 1455 Auslagerungsdatei zu klein` + `OpenBLAS error: Memory allocation still failed`.
+  Das ist der Mechanismus hinter „max 8 Worker".
+  **Naechster Schritt:** `OPENBLAS_NUM_THREADS=1` fuer Worker-Prozesse setzen (GPU-Pfade wie SAM 3
+  nutzen OpenBLAS ohnehin nicht) — vorher auf den CPU-lastigen Pfaden (`dataset build`) die
+  Laufzeit gegenmessen, nicht blind setzen.
+
+- **`OPENBLAS_NUM_THREADS=1` fuer die uebrigen Torch-Prozesse pruefen (2026-08-23).** Gesetzt ist
+  der Cap jetzt in `config.loader_kwargs` (alle Loader-Worker) und im SAM-3-Alpha-Worker — beides
+  GPU-Pfade, die OpenBLAS nicht anfassen. **Offen:** `serving.py` haelt einen langlebigen
+  Torch-Prozess und wuerde 3,2 GB Commit sparen, macht aber ggf. CPU-Inferenz — vorher die
+  Latenz messen, nicht blind setzen. `training/evaluate.py` und `gradcam.py` laufen kurz, lohnen
+  kaum. Der Blender-Sharder in `cli.py` spawnt keine Torch-Prozesse und ist nicht betroffen.

@@ -1148,6 +1148,9 @@ def occluders_alpha_worker(
     """
     from . import matte as matte_mod
 
+    config.cap_blas_threads()          # GPU path: the BLAS arenas are 3.2 GB of dead reservation
+    matte_mod.exit_with_parent()
+
     if bool(name) == all_sessions:
         print("[ERR] name or --all, not both")
         raise typer.Exit(1)
