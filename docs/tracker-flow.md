@@ -226,6 +226,27 @@ sessions are unchanged. Over the six confirmed recordings: 153 found / 34 missed
 What remains on 11-59-12 is upstream of the engine: a coverage head that paints a hand-sized band
 across a quiet board is what starts the whole chain, and no gate downstream can un-see it.
 
+The 21 that still go missing there are **not a gate to open**, and the number should not be spent
+chasing one. Two independent reasons, both measured on 2026-08-23:
+
+*The reference tail is unverified.* `candidate.json` carries `reviewed_plies` 1..51 and 72 plies in
+total. The 21 missed plies are exactly plies 52..72 — the ones no human ever checked. The recording
+labelled itself `"Position lost — tracking paused. Open the app to fix it."`, so that tail is the
+2026-08 tracker's own unconfirmed output being used to grade the 2026-08-23 tracker. Of the six
+confirmed recordings only this one has a tail worth the caveat (13-52-38 has a single unreviewed
+ply and finds it anyway); the other four are fully reviewed.
+
+*The break is occupancy, at full confidence, and terminal.* At the latching read (seq 5262, after
+the reviewed `Bxe4`) the model disagrees on seven squares: five are identity at 0.90–1.00 —
+`e3 wB->wN`, `h3 wP->wB`, `e4 bB->bP`, `g7 bB->bP`, `b8 bR->bP`, the model reading bishops and rooks
+as pawns — and two are occupancy at conf 1.00: `d7 wN->empty` and `f8 bR->empty`. One occupancy
+error is all the alarm needs, and it then latches on all seven. The board raster `boards/005241.webp`
+sides with the MODEL on those two squares: seven of the eight ranks match the believed position
+exactly, and `d7` and `f8` are visibly empty. Afterwards `deriveMovesDeep` returns `[]` on **725
+consecutive reads** — the gap has outgrown `recoveryMaxPlies = 4` and nothing can bridge it. The auto
+arm does not help either: `set:autoResyncObsN=3` scores 51/21/1, identical, which is what the kings
+guard already predicted for this recording in `resyncVoteFen`'s own comment.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
