@@ -328,12 +328,15 @@ def read_provenance(pool: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
-def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, int]
-                 ) -> Iterator[tuple[int, str, np.ndarray]]:
-    """Die gewuenschten Felder der gewuenschten Frames NEU schneiden — (frame_id, square, crop).
+def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: int = 0,
+                    out_size: tuple[int, int] = (128, 128), stride: int = STRIDE,
+                    tiles_per_frame: tuple[int, int] = (0, 2), seed: int = 42,
+                    profile_name: str = "desktop", stats: dict | None = None
+                    ) -> Iterator[tuple[int, list, dict[str, float], CalibrationProfile]]:
+    """Jedes Brett des Clips, fertig komponiert: (frame_id, 64 Crops, coverage, Profil).
 
-    Schneidet aus der Quelle, nicht aus dem Pool: der Pool traegt 128 px fuer den Menschen, das
-    Modell bekommt seine Zielgroesse mit genau einem Resample.
+    DIE Schleife — wer Crops braucht, nimmt sie hier und schreibt selbst. Ohne `plate_dir`
+    liegt nichts auf dem Brett: dann ist es schlicht Video -> 64 Crops.
     """
     from dataclasses import replace
 
@@ -344,43 +347,72 @@ def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, 
         load_profile,
     )
 
-    video = Path(prov["video"])
-    base = load_profile(prov["profile"])
-    plate_long, seed, stride = prov["plate_long"], prov["seed"], prov["stride"]
-    tiles = sorted(Path(prov["plate_dir"]).glob("*.webp"))
+    tiles = load_tiles(plate_dir) if plate_dir else []
+    if plate_dir and not tiles:
+        raise ValueError(f"no plates in {plate_dir}")
+    plate_long = plate_long_side(plate_dir) if plate_dir else max(WORK_SIZE)
+    base = load_profile(profile_name)
+    cap = cv2.VideoCapture(str(video))
     prof = mesh = None
-    plates = tile_stream(tiles, tuple(prov["tiles_per_frame"]), seed + 1, stride)
-    cap_for_mesh = cv2.VideoCapture(str(video))
+    skipped = 0
+    plates = tile_stream(tiles, tiles_per_frame, seed + 1, stride) if tiles else None
     try:
         for idx, frame in read_forward(video, stride):
-            if idx not in wanted:
-                continue
             corners = detect_board_corners_aruco(frame)
             if corners is None:
+                skipped += 1
                 continue
             if prof is None:
-                bs = prov["board_size"] or measured_board_size(corners)
-                prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]), board_size=bs,
-                               image_corners=corners,
-                               homography=compute_homography(corners, bs, base.margin),
-                               crop=CropParams(cell=bs / 8, pad_up=base.crop.pad_up,
+                # Die QUELLE setzt die Brettgroesse, nicht eine Konstante: 1280 fest bedeutete auf
+                # den 1080p-Clips einen Warp um 1,93x hoch, dessen erfundene Pixel der 80er Schnitt
+                # sofort wieder wegwarf (62 % des Pretrains, gemessen 2026-08-23).
+                board_size = board_size or measured_board_size(corners)
+                prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]),
+                               board_size=board_size, image_corners=corners,
+                               homography=compute_homography(corners, board_size, base.margin),
+                               crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
                                                pad_side=base.crop.pad_side, out_size=out_size))
-                mesh = median_mesh(cap_for_mesh, prof)
-            batch_idx, batch = next(plates)
-            while batch_idx < idx:
+                mesh = median_mesh(cap, prof)
+            # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
+            batch = []
+            if plates is not None:
                 batch_idx, batch = next(plates)
+                while batch_idx < idx:
+                    batch_idx, batch = next(plates)
             if batch:
-                crops, _cov, _ = composite_frame(frame, corners, prof, batch,
-                                                 np.random.default_rng([seed, idx]), mesh=mesh,
-                                                 plate_long=plate_long)
+                # Die Pose haengt an der FRAME-ID, nicht an der Aufrufreihenfolge.
+                crops, cov, _ = composite_frame(frame, corners, prof, batch,
+                                                np.random.default_rng([seed, idx]), mesh=mesh,
+                                                plate_long=plate_long)
             else:
                 crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
-            by_square = dict(zip(all_squares(), crops, strict=True))
-            for sq in wanted[idx]:
-                yield idx, sq, by_square[sq]
+                cov = dict.fromkeys(all_squares(), 0.0)
+            yield idx, crops, cov, prof
     finally:
-        cap_for_mesh.release()
-        plates.close()
+        cap.release()
+        if plates is not None:
+            plates.close()
+        if stats is not None:
+            stats["skipped"] = skipped
+
+
+def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, int]
+                 ) -> Iterator[tuple[int, str, np.ndarray]]:
+    """Die gewuenschten Felder der gewuenschten Frames neu schneiden — aus der QUELLE.
+
+    Der Pool traegt 128 px fuer den Menschen; das Modell bekommt seine Zielgroesse mit genau
+    einem Resample statt ueber den Pool skaliert.
+    """
+    for idx, crops, _cov, _prof in composed_boards(
+            Path(prov["video"]), Path(prov["plate_dir"]), board_size=prov["board_size"],
+            out_size=out_size, stride=prov["stride"],
+            tiles_per_frame=tuple(prov["tiles_per_frame"]), seed=prov["seed"],
+            profile_name=prov["profile"]):
+        if idx not in wanted:
+            continue
+        by_square = dict(zip(all_squares(), crops, strict=True))
+        for sq in wanted[idx]:
+            yield idx, sq, by_square[sq]
 
 
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
@@ -394,63 +426,27 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     something to group BY — and neighbouring rotation angles cannot straddle train and test.
     """
     import json
-    from dataclasses import replace
 
-    from .calibration import (
-        CropParams,
-        compute_homography,
-        detect_board_corners_aruco,
-        load_profile,
-    )
     from .labeling import CROP_ENCODE, CROP_SUFFIX, square_color
 
-    tiles = load_tiles(plate_dir)
-    plate_long = plate_long_side(plate_dir)
-    if not tiles:
+    if not load_tiles(plate_dir):
         return {"error": f"no plates in {plate_dir}"}
-    base = load_profile(profile_name)
-    cap = cv2.VideoCapture(str(video))
-    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    probe = cv2.VideoCapture(str(video))
+    n = int(probe.get(cv2.CAP_PROP_FRAME_COUNT))
+    probe.release()
     labels = labels_of(fen)
     stem_sid = f"comp-{clip_id(video)}"
-    prof = mesh = None
-    rows, written, skipped = [], 0, 0
+    rows, written = [], 0
     for label in set(labels.values()):
         (out_root / label).mkdir(parents=True, exist_ok=True)
 
     pending: deque = deque()
     pool = ThreadPoolExecutor(max_workers=WRITE_THREADS)
-    plates = tile_stream(tiles, tiles_per_frame, seed + 1, stride)
-    for idx, frame in read_forward(video, stride):
-        corners = detect_board_corners_aruco(frame)
-        if corners is None:
-            skipped += 1
-            continue
-        if prof is None:
-            # Die QUELLE setzt die Brettgröße, nicht eine Konstante: 1280 fest bedeutete auf den
-            # 1080p-Clips einen Warp um 1,93x hoch, dessen erfundene Pixel der 80er Schnitt sofort
-            # wieder wegwarf (62 % des Pretrains, gemessen 2026-08-23). Auf `out_size` koppeln wäre
-            # derselbe Fehler von der anderen Seite — dann skaliert man zweimal statt einmal.
-            board_size = board_size or measured_board_size(corners)
-            prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]),
-                           board_size=board_size, image_corners=corners,
-                           homography=compute_homography(corners, board_size, base.margin),
-                           crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
-                                           pad_side=base.crop.pad_side, out_size=out_size))
-            mesh = median_mesh(cap, prof)
-        # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
-        batch_idx, batch = next(plates)
-        while batch_idx < idx:
-            batch_idx, batch = next(plates)
-        if batch:
-            # Die Pose haengt am FRAME-Index, nicht an der Aufrufreihenfolge — sonst
-            # verschiebt ein uebersprungenes Brett alle folgenden.
-            crops, cov, _ = composite_frame(frame, corners, prof, batch,
-                                            np.random.default_rng([seed, idx]), mesh=mesh,
-                                            plate_long=plate_long)
-        else:
-            crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
-            cov = dict.fromkeys(all_squares(), 0.0)
+    stats: dict = {}
+    prof = None
+    for idx, crops, cov, prof in composed_boards(
+            video, plate_dir, board_size=board_size, out_size=out_size, stride=stride,
+            tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
         stem = f"{idx:06d}"
         sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
         for sq, crop in zip(all_squares(), crops, strict=True):
@@ -468,8 +464,8 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         # Encode (33 ms je Brett auf acht Threads) unter der Rechnung (250 ms) bleibt.
         while len(pending) > 4 * 64:
             pending.popleft().result()
-    cap.release()
-    plates.close()
+    skipped = stats.get("skipped", 0)
+    board_size = prof.board_size if prof is not None else board_size
     pool.shutdown(wait=True)
     # Upsert by clip, not overwrite: a second clip into the same pool used to discard the first
     # one's rows while its crops stayed on disk — which is why every clip got its own tag.
@@ -482,7 +478,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         "video": Path(video).resolve().as_posix(), "fen": fen, "seed": int(seed),
         "board_size": int(board_size), "stride": int(stride), "blocks": int(blocks),
         "tiles_per_frame": list(tiles_per_frame), "profile": profile_name,
-        "plate_dir": Path(plate_dir).resolve().as_posix(), "plate_long": int(plate_long),
+        "plate_dir": Path(plate_dir).resolve().as_posix(),
     })
     covered = sum(r["coverage"] > 0.5 for r in rows)
     return {"session_id": stem_sid, "blocks": blocks, "frames": len(rows) // 64, "crops": written, "skipped": skipped,
