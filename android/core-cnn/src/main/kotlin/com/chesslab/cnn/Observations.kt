@@ -20,44 +20,58 @@ fun observationFromProbs(
     val iEmpty = classes.indexOf("empty")
     require(iEmpty >= 0) { "class list has no \"empty\" entry: $classes" }
     val iOccluded = classes.indexOf("occluded")
-    val pOcc = LinkedHashMap<String, Double>(perSquareProbs.size)
-    val pEmpty = LinkedHashMap<String, Double>(perSquareProbs.size)
-    val pOccluded = LinkedHashMap<String, Double>(perSquareProbs.size)
-    val label = LinkedHashMap<String, String>(perSquareProbs.size)
-    val conf = LinkedHashMap<String, Double>(perSquareProbs.size)
-    val runnerUpConf = LinkedHashMap<String, Double>(perSquareProbs.size)
-    for ((square, raw) in perSquareProbs) {
-        require(raw.size == classes.size || raw.size == classes.size + 1) {
-            "square $square carries ${raw.size} values for ${classes.size} classes"
-        }
-        val probs = applyPrior(raw, classes, possible?.get(square), priorLambda)
-        val pe = probs[iEmpty]
-        // The `occluded` class where the run has one; otherwise the occlusion head's coverage
-        // value, which sits one past the classes (`ModelSpec.coverageOutput`). Until that column
-        // existed this was identically 0.0 on every 13-class run and the CNN arm of the hand veto
-        // was blind (CLAUDE.md pitfall) — a 13-class run WITHOUT coverage still reads 0.0.
-        val po =
-            when {
-                iOccluded >= 0 -> probs[iOccluded]
-                probs.size > classes.size -> probs[classes.size]
-                else -> 0.0
+
+    fun read(rows: Map<String, DoubleArray>): OccupancyObservation {
+        val pOcc = LinkedHashMap<String, Double>(rows.size)
+        val pEmpty = LinkedHashMap<String, Double>(rows.size)
+        val pOccluded = LinkedHashMap<String, Double>(rows.size)
+        val label = LinkedHashMap<String, String>(rows.size)
+        val conf = LinkedHashMap<String, Double>(rows.size)
+        val runnerUpConf = LinkedHashMap<String, Double>(rows.size)
+        for ((square, probs) in rows) {
+            require(probs.size == classes.size || probs.size == classes.size + 1) {
+                "square $square carries ${probs.size} values for ${classes.size} classes"
             }
-        pEmpty[square] = pe
-        pOccluded[square] = po
-        pOcc[square] = maxOf(0.0, 1.0 - pe - po)
-        val top = argmaxFirst(probs, classes.size)
-        label[square] = classes[top]
-        conf[square] = probs[top]
-        runnerUpConf[square] = classes.indices.filter { it != top }.maxOfOrNull { probs[it] } ?: 0.0
+            val pe = probs[iEmpty]
+            // The `occluded` class where the run has one; otherwise the occlusion head's coverage
+            // value, which sits one past the classes (`ModelSpec.coverageOutput`). Until that
+            // column existed this was identically 0.0 on every 13-class run and the CNN arm of the
+            // hand veto was blind — a 13-class run WITHOUT coverage still reads 0.0.
+            val po =
+                when {
+                    iOccluded >= 0 -> probs[iOccluded]
+                    probs.size > classes.size -> probs[classes.size]
+                    else -> 0.0
+                }
+            pEmpty[square] = pe
+            pOccluded[square] = po
+            pOcc[square] = maxOf(0.0, 1.0 - pe - po)
+            val top = argmaxFirst(probs, classes.size)
+            label[square] = classes[top]
+            conf[square] = probs[top]
+            runnerUpConf[square] = classes.indices.filter { it != top }.maxOfOrNull { probs[it] } ?: 0.0
+        }
+        return OccupancyObservation(
+            pOcc = pOcc,
+            pEmpty = pEmpty,
+            pOccluded = pOccluded,
+            label = label,
+            conf = conf,
+            runnerUpConf = runnerUpConf,
+        )
     }
-    return OccupancyObservation(
-        pOcc = pOcc,
-        pEmpty = pEmpty,
-        pOccluded = pOccluded,
-        label = label,
-        conf = conf,
-        runnerUpConf = runnerUpConf,
-    )
+
+    val invalid =
+        perSquareProbs.mapValues { (square, probs) ->
+            invalidMass(probs, classes, possible?.get(square))
+        }
+    val raw = read(perSquareProbs).copy(invalidMassBySquare = invalid)
+    if (priorLambda <= 0.0 || possible == null) return raw
+    val conditioned =
+        perSquareProbs.mapValues { (square, probs) ->
+            applyPrior(probs, classes, possible[square], priorLambda)
+        }
+    return read(conditioned).copy(invalidMassBySquare = invalid, raw = raw)
 }
 
 /**
@@ -118,4 +132,16 @@ internal fun applyPrior(
     if (sum <= 0.0) return probs
     for (i in classes.indices) out[i] /= sum
     return out
+}
+
+/** Raw probability mass assigned to context-forbidden identity labels. */
+internal fun invalidMass(
+    probs: DoubleArray,
+    classes: List<String>,
+    allowed: Set<String>?,
+): Double {
+    if (allowed == null) return 0.0
+    return classes.indices.sumOf { i ->
+        if (classes[i] !in allowed && classes[i] != "occluded") probs[i] else 0.0
+    }
 }

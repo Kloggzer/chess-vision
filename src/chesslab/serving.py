@@ -17,7 +17,7 @@ import json
 import logging
 import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -437,9 +437,39 @@ class OccupancyObservation:
     p_occluded: dict[str, float]
     label: dict[str, str] | None = None
     conf: dict[str, float] | None = None
+    # Raw probability mass assigned to labels which the position prior says cannot occur on the
+    # square. This is the explicit "none of the allowed labels fits" escape hatch; it is derived
+    # from the unmodified softmax, never from the already-conditioned distribution.
+    invalid_mass: dict[str, float] = field(default_factory=dict)
+    # Present only on a conditioned observation. Recovery/resync must read this view so a wrong
+    # committed FEN cannot suppress the very visual contradiction needed to repair it.
+    raw: OccupancyObservation | None = None
 
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
+
+    def raw_observation(self) -> OccupancyObservation:
+        return self.raw if self.raw is not None else self
+
+    def invalid(self, sq: str) -> float:
+        return self.invalid_mass.get(sq, 0.0)
+
+    def invalid_confident(self, sq: str, threshold: float) -> bool:
+        """Whether "none of the context-allowed labels fits" wins confidently."""
+        return self.raw is not None and self.invalid(sq) >= threshold
+
+def invalid_mass(probs: list[float], classes: list[str],
+                 allowed: set[str] | None) -> float:
+    """Raw mass on context-forbidden identity labels.
+
+    ``occluded`` is sight state rather than a chess identity and the optional coverage value sits
+    past ``classes``; neither is an invalid chess placement.
+    """
+    if allowed is None:
+        return 0.0
+    return float(sum(probs[i] for i, cls in enumerate(classes)
+                     if cls not in allowed and cls != "occluded"))
+
 
 def apply_prior(probs: list[float], classes: list[str], allowed: set[str] | None,
                 lam: float) -> list[float]:
@@ -477,20 +507,37 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
     """
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
-    p_occ: dict[str, float] = {}
-    p_empty: dict[str, float] = {}
-    p_occluded: dict[str, float] = {}
-    label: dict[str, str] = {}
-    conf: dict[str, float] = {}
-    for sq, raw in per_square_probs.items():
-        probs = apply_prior(raw, classes, possible.get(sq) if possible else None, prior_lambda)
-        pe = float(probs[i_empty])
-        po = float(probs[i_occl]) if i_occl is not None else 0.0
-        p_empty[sq] = pe
-        p_occluded[sq] = po
-        p_occ[sq] = max(0.0, 1.0 - pe - po)                     # sum of the 12 piece classes
-        top = max(range(len(probs)), key=lambda i: probs[i])    # identity = argmax class
-        label[sq] = classes[top]
-        conf[sq] = float(probs[top])
-    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
-                                label=label, conf=conf)
+
+    def read(rows: dict[str, list[float]]) -> OccupancyObservation:
+        p_occ: dict[str, float] = {}
+        p_empty: dict[str, float] = {}
+        p_occluded: dict[str, float] = {}
+        label: dict[str, str] = {}
+        conf: dict[str, float] = {}
+        for sq, probs in rows.items():
+            pe = float(probs[i_empty])
+            po = float(probs[i_occl]) if i_occl is not None else 0.0
+            p_empty[sq] = pe
+            p_occluded[sq] = po
+            p_occ[sq] = max(0.0, 1.0 - pe - po)                 # sum of piece classes
+            top = max(range(len(classes)), key=lambda i: probs[i])
+            label[sq] = classes[top]
+            conf[sq] = float(probs[top])
+        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
+                                    label=label, conf=conf)
+
+    raw_obs = read(per_square_probs)
+    masses = {
+        sq: invalid_mass(raw, classes, possible.get(sq) if possible else None)
+        for sq, raw in per_square_probs.items()
+    }
+    raw_obs = replace(raw_obs, invalid_mass=masses)
+    if prior_lambda <= 0.0 or possible is None:
+        return raw_obs
+
+    conditioned = {
+        sq: apply_prior(raw, classes, possible.get(sq), prior_lambda)
+        for sq, raw in per_square_probs.items()
+    }
+    obs = read(conditioned)
+    return replace(obs, invalid_mass=masses, raw=raw_obs)

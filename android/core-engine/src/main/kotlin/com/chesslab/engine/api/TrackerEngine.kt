@@ -214,7 +214,11 @@ class TrackerEngine(
         // See [onFrame]: the verify ladder reaches `:core-cnn` across a seam that takes the move as
         // a STRING, so this is the other entry a refusal can come back out of.
         try {
-            state.cnnSnap = snap
+            // Background gates and recovery must see pixels alone: their job is precisely to
+            // repair a stale/wrong FEN. A pending diff candidate and promotion prompt may use the
+            // position-conditioned view, while every later reader of cnnSnap gets the raw one.
+            val rawSnap = snap.copy(obs = snap.obs.rawObservation())
+            state.cnnSnap = rawSnap
             state.cnnSnapsSeen += 1
             when {
                 state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
@@ -222,7 +226,7 @@ class TrackerEngine(
                     state.cnnSnapsToVerify += 1
                     VerifySingle.tick(state, cnn, snap)
                 }
-                else -> state.cnnTick(cnn, snap)
+                else -> state.cnnTick(cnn, rawSnap)
             }
         } catch (refused: IllegalMoveException) {
             state.refuseIllegalMove(refused)

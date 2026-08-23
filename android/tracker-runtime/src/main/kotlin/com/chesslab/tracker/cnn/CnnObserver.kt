@@ -68,6 +68,8 @@ class CnnObserver(
     private val onSnapshot: (CnnSnapshot) -> Unit,
     /** Weight of the legal-placement prior on the identity softmax; 0.0 keeps the pixels alone. */
     private val priorLambda: Double = 0.0,
+    /** False reproduces the historical conditioned-everywhere implementation for replay A/Bs. */
+    private val priorSafety: Boolean = true,
     private val log: CnnLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dispatcher: CoroutineDispatcher =
@@ -252,9 +254,10 @@ class CnnObserver(
             }
         WorkProfiler.span(WorkOperation.CNN_OBSERVATION, frame.seq) {
             val started = nowMs()
-            val obs =
+            val observed =
                 frame.cachedObservation
                     ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes, possibleFor(startFen), priorLambda)
+            val obs = if (priorSafety) observed else observed.withoutPriorSafety()
             val inferMs = (nowMs() - started).toDouble()
             logObservation(cnn, inferMs, frame.crops.size)
             emitted += 1

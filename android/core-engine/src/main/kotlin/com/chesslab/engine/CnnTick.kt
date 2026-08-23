@@ -235,8 +235,10 @@ private fun EngineState.resolvesAlarmConflicts(
     val latched = alarm ?: return true
     val after = board.copy()
     for (move in moves) after.push(move)
+    val occupancy = obs.occupancyOnly()
     return latched.conflicts.none {
-        obs.labelConfident(it, config.cnnConfThr) && obs.label(it) != after.labelAt(it)
+        occupancy.confident(it, config.cnnConfThr) &&
+            occupancy.occupied(it) != (after.labelAt(it) != "empty")
     }
 }
 

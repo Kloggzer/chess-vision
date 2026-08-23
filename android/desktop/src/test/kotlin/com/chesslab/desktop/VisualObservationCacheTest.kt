@@ -52,7 +52,9 @@ class VisualObservationCacheTest {
         val labels = ALL_SQUARES.associateWith { "wP" }
         val conf = ALL_SQUARES.associateWith { 0.75 }
         val runner = ALL_SQUARES.associateWith { 0.20 }
-        return OccupancyObservation(pOcc, pEmpty, pOccluded, labels, conf, runner)
+        val invalid = ALL_SQUARES.associateWith { 0.73 }
+        val raw = OccupancyObservation(pOcc, pEmpty, pOccluded, labels, conf, runner, invalid)
+        return OccupancyObservation(pOcc, pEmpty, pOccluded, labels, conf, runner, invalid, raw)
     }
 
     private companion object {

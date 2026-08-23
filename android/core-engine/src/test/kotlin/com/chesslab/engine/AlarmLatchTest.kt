@@ -240,6 +240,25 @@ class AlarmLatchTest {
     }
 
     @Test
+    fun alarmRecoveryIgnoresUnrelatedIdentityMistakes() {
+        // The observation sees the legal ...Nf6 occupancy change correctly, but calls the rook on
+        // a1 a knight. Identity errors are allowed to travel in the alarm's diagnostic conflict
+        // list; they must not make an occupancy-resolving bridge impossible forever.
+        val state = recoveryState(NF3_NO_CASTLING).underWay()
+        val cnn = RecoveryEvaluator(conflicts = listOf("g8", "f6", "a1"), guess = "g8f6")
+        val obs = obsForBoard(state.board, mapOf("g8" to LABEL_EMPTY, "f6" to "bN", "a1" to "wN"))
+        for (seq in 1L..3L) state.cnnTick(cnn, recoverySnap(state, obs, seq))
+        assertNotNull(state.alarm)
+
+        cnn.moves = listOf("g8f6")
+        val events = state.recoveryGlances(cnn, obs)
+
+        assertTrue(events.any { it is TrackerEvent.MoveCommitted })
+        assertNull(state.alarm)
+        assertEquals("Nf6", state.history.last())
+    }
+
+    @Test
     fun verifiedRestoreClearsAlarm() {
         // `test_alarm_blocks_fabricated_recovery`'s tail: match_ok is the take-back the latch waits
         // for — the only release that is not a user correction.

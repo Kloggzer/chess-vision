@@ -290,6 +290,8 @@ private fun usage(): Nothing {
         "                        name=<x>  the candidate's directory name (default: video stem)",
         "                        cleanonly  EXPERIMENT: commit and vote only on a hand-free board",
         "                        model=<name>  one of the bundled graphs",
+        "                        prior=<lambda>  legal-placement prior weight; 0 is off",
+        "                        prior-mode=old|new  conditioned-everywhere vs raw/invalid safety",
         "                        fps=<n>  process every k-th frame (realtime emulation, counted",
         "                               as dropped(stride); the clock still ticks every frame)",
         "                        visualcache=<file>  build once when absent, then replay cached",
@@ -501,6 +503,8 @@ internal fun replayRun(
                 visualCache = visualCache,
                 markerPrepass = markerPrepass,
                 parallelVisual = parallelVisual,
+                priorLambda = options.priorLambda,
+                priorSafety = options.priorSafety,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -583,6 +587,8 @@ private fun buildStack(
     visualCache: VisualObservationCache? = null,
     markerPrepass: AlignmentMarkerPrepass? = null,
     parallelVisual: ParallelVisualPrepass? = null,
+    priorLambda: Double = 0.0,
+    priorSafety: Boolean = true,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -614,6 +620,8 @@ private fun buildStack(
             parallelCrops = !live,
             cachedVisual = parallelVisual?.lookup ?: visualCache?.lookup,
             observationSink = visualCache?.sink,
+            priorLambda = priorLambda,
+            priorSafety = priorSafety,
             cachedAlignment = visualCache?.alignmentLookup,
             alignmentSink = visualCache?.alignmentSink,
             cachedMarkerDetections = markerPrepass?.lookup,

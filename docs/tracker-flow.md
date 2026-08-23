@@ -174,6 +174,27 @@ dead ends that died on a *measurement*; these were refused on **structure**.
 | Suppress a chronically-conflicting square in the recovery channel | Plausible — it is the exact fabrication driver (`cnnMarginSquares = 1`). But the same square is also the only evidence that a real desync happened, so suppressing it cuts both ways. **Undecidable** without the diagnostics query "which squares are chronically wrong". |
 | Condition the CNN on the believed position (logit prior · prior-as-input-channel · two-crop change detection) | All three improve the *verify* path and none helps *recovery*, which is where 13 of 21 commits and every failure were. The first two actively **hurt** recovery: the prior is by construction wrong exactly when recovery runs. Refused on direction, not on cost — the corpus can supply before/after pairs for the third. |
 
+The logit-prior part of that last refusal was superseded on 2026-08-23: the snapshot now carries
+both the conditioned view and the pixels-only view, plus raw probability mass on labels forbidden
+by the context as an explicit `invalid` outcome. Verify alone sees the conditioned view; recovery,
+resync, hand gates and the illegal-move alarm receive raw. A confident invalid outcome withholds the
+forced allowed label. A crop sweep alone could not establish a default because the conditioned
+argmax was identical while `invalid` deliberately withheld more observations. The subsequent
+end-to-end replay A/B therefore scored confirmed SAN sequences rather than frames: across four
+fully swept videos (111 reference plies), lambda 4 with raw/invalid safety found 73, missed 38 and
+invented 4, versus 71/40/6 at lambda 0. Lambda 1 and 2 each regressed to 68/43/5. Lambda 4 was equal
+on three sessions and better on one, never worse, and is consequently the runtime default. The
+reproducible runner is `scripts/replay-prior-ab.ps1`; the partial-corpus report is
+`data/reports/prior-video-sequence-partial.json`.
+
+The first frame-level audit of the weak 67-ply session then exposed an integration bug rather than
+a coverage failure: on its clean `Kxf3` frame the new model had 0 occupancy errors and 9 identity
+errors. The alarm was occupancy-triggered but required exact identity on every diagnostic conflict
+square before accepting recovery, so unrelated N/B/R mistakes made the alarm permanent. Recovery
+now resolves alarm conflicts on occupancy only. A focused repeat of that session under the selected
+safe lambda-4 arm improved **36 found / 31 missed / 2 invented** to **48 / 19 / 2**: +12 found,
+-12 missed, with the phantom count unchanged.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded

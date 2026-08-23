@@ -100,6 +100,10 @@ class TrackerSeed<T>(
     val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
     /** Records emitted observations during the visual-cache build pass. */
     val observationSink: ((CnnSnapshot) -> Unit)? = null,
+    /** Legal-placement prior selected by the confirmed-move video replay A/B. */
+    val priorLambda: Double = 4.0,
+    /** New raw/invalid safety; false exists only to reproduce the historical prior in replays. */
+    val priorSafety: Boolean = true,
     /** Offline replay of the corners LiveAlign applied after a particular processed frame. */
     val cachedAlignment: ((Long) -> FloatArray?)? = null,
     /** Records successful LiveAlign corner updates during the visual-cache build pass. */
@@ -217,6 +221,8 @@ class TrackerStack<T>(
                 source = cropTap,
                 fen = { publisher.lastFen },
                 onSnapshot = ::submitObserved,
+                priorLambda = seed.priorLambda,
+                priorSafety = seed.priorSafety,
                 log = seed.logs("chesslabCnn"),
                 // The ENGINE's clock, not the wall clock. On the phone the two are the same thing;
                 // in a replay the engine runs on the video's virtual clock, and an observer pacing
@@ -230,6 +236,8 @@ class TrackerStack<T>(
                 source = cropTap,
                 fen = { publisher.lastFen },
                 onSnapshot = ::submitObserved,
+                priorLambda = seed.priorLambda,
+                priorSafety = seed.priorSafety,
                 log = seed.logs("chesslabCnn"),
                 nowMs = seed.nowMs,
                 dispatcher = seed.observerDispatcher,

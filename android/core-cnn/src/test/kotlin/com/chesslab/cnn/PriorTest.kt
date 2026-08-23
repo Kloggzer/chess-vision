@@ -1,6 +1,7 @@
 package com.chesslab.cnn
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -105,6 +106,55 @@ class PriorTest {
         // a5 can only be empty after one white half-move, so the 5 % class wins there.
         assertEquals("empty", obs.label("a5"))
         assertEquals("bR", obs.label("a8"))
+    }
+
+    @Test
+    fun `before after prior keeps an invalid pawn for recovery`() {
+        val classes = listOf("empty", "wP", "wN")
+        val rows = mapOf("e5" to doubleArrayOf(0.05, 0.90, 0.05))
+        val possible = mapOf("e5" to setOf("empty", "wN"))
+
+        val after = observationFromProbs(rows, classes, possible, priorLambda = 4.0)
+
+        assertEquals("empty", after.label("e5"), "AFTER: verify sees an allowed label")
+        assertEquals("wP", after.rawObservation().label("e5"), "BEFORE: recovery still sees the pawn")
+        assertEquals(0.90, after.invalidMass("e5"), 1e-12, "explicit none-of-allowed evidence")
+        assertTrue(after.invalidConfident("e5", 0.85))
+        assertFalse(after.labelConfident("e5", 0.85), "invalid must not force the allowed label")
+        assertTrue(after.rawObservation().labelConfident("e5", 0.85), "recovery keeps the confident pawn")
+    }
+
+    @Test
+    fun `invalid mass exists when conditioning is disabled`() {
+        val obs =
+            observationFromProbs(
+                mapOf("e5" to doubleArrayOf(0.05, 0.90, 0.05)),
+                listOf("empty", "wP", "wN"),
+                mapOf("e5" to setOf("empty", "wN")),
+                priorLambda = 0.0,
+            )
+
+        assertEquals("wP", obs.label("e5"))
+        assertTrue(obs.rawObservation() === obs)
+        assertEquals(0.90, obs.invalidMass("e5"), 1e-12)
+    }
+
+    @Test
+    fun `historical replay mode trusts the forced conditioned label`() {
+        val safe =
+            observationFromProbs(
+                mapOf("e5" to doubleArrayOf(0.10, 0.90, 0.0)),
+                listOf("empty", "wP", "wN"),
+                mapOf("e5" to setOf("empty", "wN")),
+                priorLambda = 4.0,
+            )
+
+        val old = safe.withoutPriorSafety()
+
+        assertEquals("empty", old.label("e5"))
+        assertTrue(old.labelConfident("e5", 0.85), "old mode accepts the prior-forced label")
+        assertTrue(old.rawObservation() === old, "old recovery also receives the conditioned view")
+        assertEquals(0.0, old.invalidMass("e5"), 1e-12)
     }
 
     private companion object {

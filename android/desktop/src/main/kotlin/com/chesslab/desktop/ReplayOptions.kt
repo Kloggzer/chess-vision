@@ -40,6 +40,10 @@ data class ReplayOptions(
     val cnn: Boolean = true,
     /** Which bundled graph, when [cnn] is on. */
     val model: String = DEFAULT_MODEL,
+    /** Experimental legal-placement prior weight; zero is off. */
+    val priorLambda: Double = 0.0,
+    /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
+    val priorSafety: Boolean = true,
     /**
      * Drop `requireMotionForMove`.
      *
@@ -172,6 +176,18 @@ data class ReplayOptions(
                                 ?: error("start= wants seconds, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                word.startsWith("prior=") ->
+                    options.copy(
+                        priorLambda =
+                            word.removePrefix("prior=").toDoubleOrNull()?.takeIf { it >= 0.0 }
+                                ?: error("prior= wants a non-negative lambda, got '$word'"),
+                    )
+                word.startsWith("prior-mode=") ->
+                    when (word.removePrefix("prior-mode=")) {
+                        "new" -> options.copy(priorSafety = true)
+                        "old" -> options.copy(priorSafety = false)
+                        else -> error("prior-mode= wants old or new, got '$word'")
+                    }
                 word.startsWith("config=") ->
                     options.copy(
                         configFile =
@@ -207,6 +223,7 @@ data class ReplayOptions(
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
             "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
+            " prior=$priorLambda prior-mode=${if (priorSafety) "new" else "old"}" +
             (if (label) " label" else "") + (if (score) " score" else "") +
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +

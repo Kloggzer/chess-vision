@@ -1,5 +1,7 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.CnnObservation
+import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -15,6 +17,25 @@ import org.junit.jupiter.api.Test
  * the recovery confirmer, and the anchoring rule that made this phase necessary.
  */
 class CnnTickTest {
+    @Test
+    fun recoveryReceivesTheRawViewOfAConditionedSnapshot() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val raw = obsForBoard(engine.state.board, mapOf("e5" to "wP"))
+        val conditioned =
+            object : CnnObservation by obsForBoard(engine.state.board) {
+                override fun rawObservation(): CnnObservation = raw
+            }
+        val cnn = RecoveryEvaluator(match = true)
+        engine.attachCnn(cnn)
+        engine.state.armed()
+
+        engine.onCnnSnapshot(recoverySnap(engine.state, conditioned, seq = 1))
+
+        assertTrue(cnn.observations.isNotEmpty())
+        assertSame(raw, cnn.observations.first(), "recovery must not receive the prior-conditioned view")
+        assertSame(raw, engine.state.cnnSnap?.obs, "background desync gates must also retain pixels alone")
+    }
+
     @Test
     fun observerIntervalThrottles() {
         // `test_observer_interval_throttles`: the interval throttles observation STARTS.

@@ -58,7 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
-from chesslab.serving import apply_prior  # noqa: E402
+from chesslab.serving import apply_prior, invalid_mass  # noqa: E402
 from chesslab.state import possible_labels  # noqa: E402
 from chesslab.training.data import filter_rows_by_split, load_manifest, load_split  # noqa: E402
 
@@ -135,8 +135,16 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
 
     out: list[list[float]] = []
     for start in range(0, len(order), batch_size):
-        crops = [np.asarray(images[i]) for i in order[start:start + batch_size]]
-        out.extend(p["probs"] for p in predict_arrays(run_dir, crops, device, return_probs=True))
+        batch_order = order[start:start + batch_size]
+        crops = [np.asarray(images[i]) for i in batch_order]
+        # Older ONNX exports have a static 64-row input. Padding the final partial batch is
+        # numerically inert and lets the same sweep cover every manifest row instead of dying on
+        # the last 1..63 crops after doing all expensive inference work.
+        actual = len(crops)
+        if crops and actual < batch_size:
+            crops.extend([crops[-1]] * (batch_size - actual))
+        predicted = predict_arrays(run_dir, crops, device, return_probs=True)
+        out.extend(p["probs"] for p in predicted[:actual])
         print(f"  {min(start + batch_size, len(order))}/{len(order)}", end="\r", flush=True)
     print()
     probs = np.asarray(out, dtype=np.float64)
@@ -153,7 +161,7 @@ def score(rows: list[dict], probs: np.ndarray, classes: list[str],
           ) -> tuple[dict, list[tuple[bool, bool]]]:
     """Metrics at one lambda, plus per-row (confident, correct) for the rescue comparison."""
     i_empty = classes.index("empty")
-    cells = phantom = miss = illegal = dropped = correct = 0
+    cells = phantom = miss = illegal = invalid = dropped = correct = 0
     boards: dict[tuple[str, str], bool] = {}
     state: list[tuple[bool, bool]] = []
     for i, r in enumerate(rows):
@@ -162,13 +170,18 @@ def score(rows: list[dict], probs: np.ndarray, classes: list[str],
         top = max(range(len(classes)), key=lambda j: p[j])
         read, true = classes[top], r["label"]
         is_correct = read == true
-        is_confident = p[top] >= conf_thr
+        # Mirrors OccupancyObservation.labelConfident: a confident explicit invalid outcome
+        # withholds the context-forced label. Lambda zero is the unconditioned before case.
+        is_invalid = lam > 0.0 and invalid_mass(list(probs[i]), classes, allowed) >= conf_thr
+        is_confident = p[top] >= conf_thr and not is_invalid
         state.append((is_confident, is_correct))
 
         cells += 1
         correct += is_correct
         if read not in allowed:
             illegal += 1
+        if is_invalid:
+            invalid += 1
         if true == "empty" and top != i_empty:
             phantom += 1
         if true != "empty" and top == i_empty:
@@ -195,6 +208,7 @@ def score(rows: list[dict], probs: np.ndarray, classes: list[str],
         "phantom": phantom,
         "miss": miss,
         "illegal": illegal,
+        "invalid": invalid,
         "dropped": dropped,
         "rescued": rescued,
         "broken": broken,
@@ -265,7 +279,8 @@ def main() -> None:
         results.append(row)
         print(f"lambda {lam:>5}  cell {row['cell_acc']:.4f}  board {row['board_acc']:.4f}  "
               f"phantom {row['phantom']:>5}  miss {row['miss']:>5}  illegal {row['illegal']:>5}  "
-              f"dropped {row['dropped']:>6}  rescued {row['rescued']:>5}  broken {row['broken']:>4}")
+              f"invalid {row['invalid']:>4}  dropped {row['dropped']:>6}  "
+              f"rescued {row['rescued']:>5}  broken {row['broken']:>4}")
 
     payload = {"run": args.run, "dataset": args.dataset, "split": args.split,
                "device": device, "conf_thr": args.conf_thr, "max_coverage": args.max_coverage,

@@ -96,3 +96,30 @@ def test_prior_reaches_the_label():
     # a5 can only be empty after one white half-move, so the 5 % class wins there.
     assert obs.label["a5"] == "empty"
     assert obs.label["a8"] == "bR"
+
+
+def test_before_after_prior_keeps_an_invalid_pawn_for_recovery():
+    """Regression: conditioning may guide verify, but must not erase contrary pixels."""
+    classes = ["empty", "wP", "wN"]
+    rows = {"e5": [0.05, 0.90, 0.05]}
+    possible = {"e5": {"empty", "wN"}}
+
+    after = observation_from_probs(rows, classes, possible, 4.0)
+
+    assert after.label["e5"] == "empty"                 # AFTER: verify sees an allowed label
+    assert after.raw_observation().label["e5"] == "wP"  # BEFORE: recovery still sees the pawn
+    assert after.invalid("e5") == 0.90                   # explicit none-of-allowed evidence
+    assert after.invalid_confident("e5", 0.85)
+    assert not after.raw_observation().invalid_confident("e5", 0.85)
+
+
+def test_invalid_mass_exists_even_when_conditioning_is_disabled():
+    obs = observation_from_probs(
+        {"e5": [0.05, 0.90, 0.05]},
+        ["empty", "wP", "wN"],
+        {"e5": {"empty", "wN"}},
+        0.0,
+    )
+    assert obs.label["e5"] == "wP"
+    assert obs.raw_observation() is obs
+    assert obs.invalid("e5") == 0.90
