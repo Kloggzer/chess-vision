@@ -2,6 +2,11 @@
 
 Review date: 2026-07-19 · Branch `lens-and-pipeline-hardening` @ `059f391`
 
+**Note (2026-08-20):** the browser UI this review measures against no longer exists — the
+FastAPI/React layer (`src/chesslab/web/`) was deleted on 2026-08-07 and `platform/app` is a
+different tool with a different scope. The **CLI-completeness** half still reads true; every
+`web/*` file reference is history. `chesslab collect` went on 2026-08-20 as well.
+
 Scope: the full path from synthetic asset generation to a trained and exported
 model, assessed for **CLI completeness** and **browser-UI completeness**, since
 the stated goal is to drive the whole pipeline either way.
@@ -176,11 +181,12 @@ skip. The synthetic renderer emits corners `[a8,h8,h1,a1]` by construction and i
 covered by `test_synthetic_ingest_orientation`, so synth is safe — but the real
 ingest paths are not.
 
-### F8 — `--bg-p > 0` silently disables the pack
+### F8 — `--bg-p > 0` silently disables the pack — RESOLVED 2026-08-21
 
-`train.py:194-197`: background randomization needs the individual files, so a
-50+ GB `packed_images.u8` is silently ignored for that run. Correct behavior,
-but the performance cliff deserves a log line.
+Background randomization needed the individual crop files, so a 50+ GB
+`packed_images.u8` was silently ignored for such a run. The augment was removed
+(0 of 10 shipped models used it, never measured), and with it the branch — the
+packed loader is now unconditional.
 
 ### F9 — Stale synth documentation
 
@@ -208,6 +214,10 @@ tool — worth stating explicitly as a constraint before this is ever bound to
 `manifest_cache` retains fully materialized `by_label` and `stats_rows` for every
 manifest ever touched, with no eviction (`manifest_cache.py:23-59`). A 300k-crop
 pool plus per-dataset manifests all stay resident.
+
+**Closed 2026-08-21.** Both structures were built for this browser UI and outlived it
+unread; the scan keeps per-session counts only. The missing eviction stands, but an entry
+is now one small dict instead of two dicts per crop row.
 
 ---
 

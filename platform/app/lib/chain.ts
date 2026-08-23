@@ -10,9 +10,10 @@
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { checkName, dataDir, gameDir } from "@/lib/data";
+import { gameDir } from "@/lib/data";
 import { type MatteCensus, matteCensus } from "@/lib/matte";
 import { checkMp4 } from "@/lib/mp4";
+import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
 /** `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
@@ -45,11 +46,6 @@ async function exists(file: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-/** `data/sessions/rg-<name>/` — what `export-session` writes and the label streams read. */
-export function sessionDir(name: string): string {
-  return path.join(dataDir(), "sessions", `rg-${checkName(name, "game name")}`);
 }
 
 /** The transferred bundle's own recording: the newest session directory that has a video. */

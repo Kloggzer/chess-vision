@@ -54,6 +54,12 @@ class DebugViewModel : ViewModel() {
     private val ascendingFlow = MutableStateFlow(false)
     val readsAscending: StateFlow<Boolean> = ascendingFlow.asStateFlow()
 
+    private val workProfilingFlow = MutableStateFlow(false)
+    val workProfiling: StateFlow<Boolean> = workProfilingFlow.asStateFlow()
+
+    private val workProfilingAvailableFlow = MutableStateFlow(false)
+    val workProfilingAvailable: StateFlow<Boolean> = workProfilingAvailableFlow.asStateFlow()
+
     /** 07a's persisted switch: keeps the payload armed after the screen closes. */
     private val pinned: Boolean get() = session.debugPinned.value
 
@@ -63,9 +69,11 @@ class DebugViewModel : ViewModel() {
         if (this.session === session) return
         detach()
         this.session = session
+        workProfilingAvailableFlow.value = session.workProfilingAvailable
         session.setDebugEnabled(true)
         jobs += session.status.onEach { stateFlow.value = assembler.assemble(it) }.launchIn(viewModelScope)
         jobs += session.cnnState.onEach { cnnFlow.value = it }.launchIn(viewModelScope)
+        jobs += session.workProfilingEnabled.onEach { workProfilingFlow.value = it }.launchIn(viewModelScope)
         jobs += viewModelScope.launch { pollCrops() }
     }
 
@@ -79,6 +87,10 @@ class DebugViewModel : ViewModel() {
     }
 
     fun onRetryCnnAttach() = session.retryCnnAttach()
+
+    fun onWorkProfilingEnabled(on: Boolean) = session.setWorkProfilingEnabled(on)
+
+    fun workProfileReport(): String? = session.workProfileReport()
 
     override fun onCleared() = detach()
 

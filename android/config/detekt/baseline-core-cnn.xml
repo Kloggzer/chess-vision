@@ -1,0 +1,9 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <!-- Deferred, not accepted: `as String?` should be the safe cast `as? String`.
+     Kotlin source is out of scope for the pass that turned `allRules` on; fix and drop this entry. -->
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CastToNullableType:FixtureAccess.kt$as</ID>
+  </CurrentIssues>
+</SmellBaseline>

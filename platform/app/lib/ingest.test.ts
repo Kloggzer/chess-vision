@@ -61,7 +61,7 @@ describe("validateManifest", () => {
 
 describe("pending", () => {
   it("counts only trees that still hold a partial — a parked duplicate is not in flight", async () => {
-    const landed = path.join(data, "realgames", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
+    const landed = path.join(data, "recordings", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
     await mkdir(landed, { recursive: true });
     await writeFile(path.join(landed, "log.jsonl"), "abcdef");
     const { name } = await declare(manifest(6));
@@ -129,13 +129,13 @@ describe("a transfer", () => {
     const row = await complete(name);
 
     expect(row.status).toBe("landed");
-    const landed = path.join(data, "realgames", name, "files", "sessions", "20260813-193423", "log.jsonl");
+    const landed = path.join(data, "recordings", name, "files", "sessions", "20260813-193423", "log.jsonl");
     expect(await readFile(landed, "utf8")).toBe("abcdef");
     expect(await readFile(path.join(data, "inbox", "transfers.jsonl"), "utf8")).toContain('"status":"landed"');
   });
 
   it("counts a file that is already in realgames as transferred", async () => {
-    const landed = path.join(data, "realgames", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
+    const landed = path.join(data, "recordings", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
     await mkdir(landed, { recursive: true });
     await writeFile(path.join(landed, "log.jsonl"), "abcdef");
 
@@ -144,7 +144,7 @@ describe("a transfer", () => {
   });
 
   it("holds a duplicate in the inbox rather than writing over the session on disk", async () => {
-    const landed = path.join(data, "realgames", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
+    const landed = path.join(data, "recordings", "2026-08-13-19-34-23", "files", "sessions", "20260813-193423");
     await mkdir(landed, { recursive: true });
     await writeFile(path.join(landed, "log.jsonl"), "ORIGINAL");
 

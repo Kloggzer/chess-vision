@@ -144,16 +144,6 @@ def jet(gray: np.ndarray) -> np.ndarray:
     return (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
 
 
-def overlay(pil_img: Image.Image, cam: np.ndarray, out_size: tuple[int, int]) -> Image.Image:
-    """Blend the (upsampled) CAM heatmap over the crop. out_size = (w, h)."""
-    cam_up = np.array(Image.fromarray((cam * 255).astype(np.uint8)).resize(out_size, Image.BILINEAR)) / 255.0
-    base = np.asarray(pil_img.resize(out_size)).astype(np.float32)
-    heat = jet(cam_up).astype(np.float32)
-    blended = (0.45 * heat + 0.55 * base).clip(0, 255).astype(np.uint8)
-    return Image.fromarray(blended)
-
-
-
 def _center_mask(h: int, w: int, frac: float) -> torch.Tensor:
     """Boolean [h,w] mask, True inside the centered box covering `frac` of each dimension."""
     m = torch.zeros(h, w, dtype=torch.bool)
@@ -197,10 +187,13 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     if ds_name:
         from ..dataset_build import dataset_dir
         dd = dataset_dir(ds_name)
-        manifest_path, split_path = dd / "manifest.jsonl", dd / "split.json"
+        # A fold run trains against `split-f<i>.json`; reading `split.json` here would
+        # hand back the very sessions the fold was built to hold out.
+        manifest_path = dd / "manifest.jsonl"
+        split_path = dd / (cfg.get("split_file") or "split.json")
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
     manifest = load_manifest(manifest_path)
     split_data = load_split(split_path)
     rows = filter_rows_by_split(manifest, split_data, split)

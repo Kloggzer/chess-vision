@@ -1,6 +1,8 @@
 """Stage 3 — slicing & labeling integration (headless, synthetic session)."""
 
 import json
+from contextlib import nullcontext
+from pathlib import Path
 
 import chess
 import cv2
@@ -10,11 +12,14 @@ import pytest
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 from chesslab.labeling import (
     CROP_SUFFIX,
+    _fen_labels,
+    _replace_sessions_in_manifest,
     all_squares,
     parse_out_size,
     slice_session,
     square_color,
 )
+from chesslab.work_audit import WorkAudit, activate, deactivate
 
 START_FEN = chess.Board().fen()
 
@@ -33,6 +38,108 @@ def test_parse_out_size():
     assert parse_out_size("96x128") == (96, 128)
     with pytest.raises(ValueError):
         parse_out_size("bad")
+
+
+def test_fen_labels_are_expanded_once_per_position():
+    squares = tuple(all_squares())
+    cache = {}
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        first = _fen_labels(START_FEN, squares, cache)
+        second = _fen_labels(START_FEN, squares, cache)
+    finally:
+        deactivate(token)
+
+    assert first is second and len(first) == 64
+    op = audit.report()["operations"]["FEN label expansions"]
+    assert (op["calls"], op["unique_keys"], op["avoidable_calls"]) == (1, 1, 0)
+
+
+def test_manifest_batch_replaces_multiple_sessions_with_one_rewrite(tmp_path):
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        '\n'.join(json.dumps({"session_id": sid, "value": "old"})
+                  for sid in ("s1", "s2", "keep")) + '\n', encoding="utf-8")
+    replacements = {
+        "s1": [json.dumps({"session_id": "s1", "value": "new1"})],
+        "s2": [json.dumps({"session_id": "s2", "value": "new2"})],
+    }
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        _replace_sessions_in_manifest(manifest, replacements)
+    finally:
+        deactivate(token)
+
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()]
+    assert rows == [
+        {"session_id": "keep", "value": "old"},
+        {"session_id": "s1", "value": "new1"},
+        {"session_id": "s2", "value": "new2"},
+    ]
+    op = audit.report()["operations"]["full manifest rewrites"]
+    assert (op["calls"], op["avoidable_calls"]) == (1, 0)
+
+
+def test_slice_session_closes_its_owned_writer_pool(monkeypatch):
+    from chesslab import labeling
+
+    events = []
+
+    class FakePool:
+        def __init__(self, **kwargs):
+            events.append(("created", kwargs))
+
+        def __enter__(self):
+            events.append(("entered", self))
+            return self
+
+        def __exit__(self, *args):
+            events.append(("exited", self))
+
+    monkeypatch.setattr(labeling, "ThreadPoolExecutor", FakePool)
+    monkeypatch.setattr(labeling, "_slice_session", lambda *args, **kwargs: kwargs["write_pool"])
+
+    pool = labeling.slice_session(
+        Path("session"), profile=object(), manifest_path=Path("manifest"),
+        squares_root=Path("squares"),
+    )
+
+    assert pool is events[1][1]
+    assert [event[0] for event in events] == ["created", "entered", "exited"]
+
+
+def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, monkeypatch):
+    from chesslab import labeling, locks, sessions
+
+    published = []
+    calls = 0
+
+    def fake_slice_session(*args, manifest_batch, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt
+        manifest_batch["first"] = ['{"session_id": "first"}']
+        return {"frames": 1, "crops": 64}
+
+    monkeypatch.setattr(labeling, "_session_ids_with_logs", lambda: ["first", "second"])
+    monkeypatch.setattr(labeling, "variant_paths", lambda tag: (tmp_path / "manifest", tmp_path))
+    monkeypatch.setattr(locks, "pool_lock", lambda *args, **kwargs: nullcontext())
+    monkeypatch.setattr(sessions, "session_dir", lambda sid: (tmp_path / sid, sid))
+    monkeypatch.setattr(labeling, "read_session_meta", lambda path: {"profile": "test"})
+    monkeypatch.setattr(labeling, "_profile_for_session", lambda meta, profile: object())
+    monkeypatch.setattr(labeling, "slice_session", fake_slice_session)
+    monkeypatch.setattr(
+        labeling, "_replace_sessions_in_manifest",
+        lambda path, replacements: published.append(dict(replacements)),
+    )
+
+    with pytest.raises(KeyboardInterrupt):
+        labeling.run_slice(slice_all=True)
+
+    assert published == [{"first": ['{"session_id": "first"}']}]
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
@@ -81,7 +188,7 @@ def _make_session(tmp_path, session_id="sess1", board_size=800):
 
 def test_slice_start_position(tmp_path):
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
     stats = slice_session(sdir, profile=_identity_profile(), manifest_path=manifest, squares_root=squares_root)
 
@@ -141,7 +248,7 @@ def test_slice_uses_explicit_labels_incl_occluded(tmp_path):
     (sdir / "session.yaml").write_text(yaml.safe_dump({"session_id": "infsess", "profile": "test",
         "mode": "inference", "created_at": "t", "camera_index": 0, "frame_size": [640, 480]}), encoding="utf-8")
 
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     rows = {r["square"]: r["label"] for r in
@@ -168,7 +275,7 @@ def test_slice_uses_stored_corners_without_markers(tmp_path):
                         "created_at": "t", "camera_index": 0, "frame_size": [640, 480]}),
         encoding="utf-8")
 
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     stats = slice_session(sdir, profile=_identity_profile(board_size), manifest_path=manifest,
                           squares_root=tmp_path / "squares")
     assert stats["crops"] == 64 and stats["skipped"] == 0
@@ -176,7 +283,7 @@ def test_slice_uses_stored_corners_without_markers(tmp_path):
 
 def test_reslice_with_new_params_is_reproducible(tmp_path):
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     squares_root = tmp_path / "squares"
     prof = _identity_profile()
     slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares_root)

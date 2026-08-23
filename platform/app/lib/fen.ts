@@ -20,3 +20,8 @@ export function fenLabels(fen: string): Record<string, string> {
   for (let r = 1; r <= 8; r++) for (const f of FILES) out[`${f}${r}`] ??= "empty";
   return out;
 }
+
+/** `1. e4`, `1… e5`, `2. Nf3` — a halfmove index numbered the way a scoresheet reads. */
+export function moveLabel(ply: number, san: string): string {
+  return `${Math.ceil(ply / 2)}${ply % 2 === 1 ? "." : "…"} ${san}`;
+}

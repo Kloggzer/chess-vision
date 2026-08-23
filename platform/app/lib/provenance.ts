@@ -85,7 +85,7 @@ async function parseFile(name: string, file: string): Promise<Provenance> {
 
 /** One entry per session directory, read or not, mtime-keyed on the file it describes. */
 export async function modelReadProvenance(): Promise<Provenance[]> {
-  const root = path.join(dataDir(), "realgames");
+  const root = path.join(dataDir(), "recordings");
   let games;
   try {
     games = await readdir(root, { withFileTypes: true });

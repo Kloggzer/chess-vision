@@ -10,10 +10,10 @@ const NAME = "2026-08-13-12-10-55";
 beforeEach(async () => {
   data = await mkdtemp(path.join(tmpdir(), "chesslab-chain-"));
   process.env.CHESSLAB_DATA_DIR = data;
-  await mkdir(path.join(data, "realgames", NAME), { recursive: true });
+  await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 
-const game = (...parts: string[]) => path.join(data, "realgames", NAME, ...parts);
+const game = (...parts: string[]) => path.join(data, "recordings", NAME, ...parts);
 
 async function video(): Promise<void> {
   await mkdir(game("files", "sessions", "20260813-121055"), { recursive: true });
@@ -33,7 +33,7 @@ describe("nextStep", () => {
     hasCandidate: false,
     confirmed: false,
     hasSession: false,
-    mattes: { done: 0, total: 0, target: 0 },
+    mattes: { done: 0, total: 0, target: 0 , reported: 0},
     hasModelReads: false,
     useless: null,
   };
@@ -48,21 +48,21 @@ describe("nextStep", () => {
     expect(nextStep(base)).toBe("label");
     expect(nextStep({ ...base, hasCandidate: true })).toBe("confirm");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true })).toBe("export");
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 } })).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0} })).toBe("matte");
     expect(nextStep(exported)).toBe("model-read");
     expect(nextStep({ ...exported, hasModelReads: true })).toBe("labeln");
   });
 
   it("mattes until the RUN'S TARGET is reached, not until the pile is empty", () => {
     const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true };
-    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 } })).toBe("matte");
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 } })).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0} })).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0} })).toBe("model-read");
     // 80 of 394 is the instruction carried out (`--all --limit 80`): the biggest sessions must
     // leave this rung, or the chain strands exactly the material it is here for.
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 } })).toBe("model-read");
-    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 } })).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 , reported: 0} })).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 , reported: 0} })).toBe("matte");
     // A session whose frames are all clean has no pile at all; it must not stall on an empty one.
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 } })).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 , reported: 0} })).toBe("model-read");
   });
 
   it("never offers export before a human confirmed — an unconfirmed candidate exports nothing", () => {
@@ -94,8 +94,8 @@ describe("chainState", () => {
   it("moves to labeln once the session and the model reads exist", async () => {
     await video();
     await candidate(true);
-    await mkdir(path.join(data, "sessions", `rg-${NAME}`), { recursive: true });
-    await writeFile(path.join(data, "sessions", `rg-${NAME}`, "log.jsonl"), "{}\n");
+    await mkdir(path.join(data, "recordings", NAME), { recursive: true });
+    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), "{}\n");
     await writeFile(game("model-reads.jsonl"), "{}\n");
     expect((await chainState(NAME)).step).toBe("labeln");
   });
@@ -103,7 +103,7 @@ describe("chainState", () => {
   it("counts the alphas against the session's own occluded pile", async () => {
     await video();
     await candidate(true);
-    const dir = path.join(data, "sessions", `rg-${NAME}`);
+    const dir = path.join(data, "recordings", NAME);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "log.jsonl"), [
       JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
@@ -113,14 +113,14 @@ describe("chainState", () => {
     ].join("\n") + "\n");
     await writeFile(path.join(dir, "matte.jsonl"), JSON.stringify({ frame: "1", coverage: {} }) + "\n");
     const state = await chainState(NAME);
-    expect(state.mattes).toEqual({ done: 1, total: 2, target: 2 });
+    expect(state.mattes).toEqual({ done: 1, total: 2, target: 2 , reported: 0});
     expect(state.step).toBe("matte");
   });
 
   it("a session directory without log.jsonl is NOT an export — the killed-export case", async () => {
     await video();
     await candidate(true);
-    await mkdir(path.join(data, "sessions", `rg-${NAME}`, "frames"), { recursive: true });
+    await mkdir(path.join(data, "recordings", NAME, "frames"), { recursive: true });
     expect((await chainState(NAME)).step).toBe("export");
   });
 });
@@ -207,3 +207,4 @@ describe("an interrupted recording", () => {
     expect((await chainState(NAME)).videoBroken).toBeNull();
   });
 });
+

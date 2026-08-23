@@ -1,5 +1,6 @@
 package com.chesslab.tracker.geometry
 
+import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.cnn.preprocessInto
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
@@ -87,7 +88,7 @@ class ModelCropTest {
     fun `half a crop declaration is refused`() {
         // Filling the missing half from the profile would compose a box nobody chose.
         assertThrows<IllegalArgumentException> {
-            ModelSpec.parse("""{"classes":["empty","occupied"],"out_size":[128,128],"pad_side":0.05}""")
+            ModelSpec.parse("""{"classes":$CLASSES_JSON,"out_size":[128,128],"pad_side":0.05}""")
         }
     }
 
@@ -188,6 +189,9 @@ private val CORNERS: List<DoubleArray> =
         doubleArrayOf(BOARD_INSET, FRAME_SIDE - BOARD_INSET),
     )
 
+/** The shipped 13-class identity order — `ModelSpec.parse` refuses any other list. */
+private val CLASSES_JSON = PIECES13_CLASSES.joinToString(",", "[", "]") { "\"$it\"" }
+
 /** A run's `config.json`, reduced to what `ModelSpec.parse` reads — the one Kotlin reader. */
 private fun spec(
     inferSize: Int,
@@ -196,7 +200,7 @@ private fun spec(
 ): ModelSpec {
     val crop = if (padSide == null || padUp == null) "" else ""","pad_side":$padSide,"pad_up":$padUp"""
     return ModelSpec.parse(
-        """{"classes":["empty","occupied"],"out_size":[128,128],"infer_size":[$inferSize,$inferSize]$crop}""",
+        """{"classes":$CLASSES_JSON,"out_size":[128,128],"infer_size":[$inferSize,$inferSize]$crop}""",
     )
 }
 

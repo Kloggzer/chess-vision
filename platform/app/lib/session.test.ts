@@ -24,14 +24,14 @@ let root: string;
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "chesslab-session-"));
-  await mkdir(path.join(root, "realgames", "g"), { recursive: true });
-  await mkdir(path.join(root, "sessions", "rg-g"), { recursive: true });
-  await writeFile(path.join(root, "realgames", "g", "candidate.json"), CANDIDATE, "utf8");
+  await mkdir(path.join(root, "recordings", "g"), { recursive: true });
+  await mkdir(path.join(root, "recordings", "g"), { recursive: true });
+  await writeFile(path.join(root, "recordings", "g", "candidate.json"), CANDIDATE, "utf8");
   process.env.CHESSLAB_DATA_DIR = root;
 });
 
 async function write(text: string) {
-  await writeFile(path.join(root, "sessions", "rg-g", "log.jsonl"), text, "utf8");
+  await writeFile(path.join(root, "recordings", "g", "log.jsonl"), text, "utf8");
 }
 
 /** Dirty by default — a frame with no hand in it is the `settled` case, tested on its own. */

@@ -54,9 +54,7 @@ internal fun EngineState.cnnTick(
             }
             else -> cnn
         } ?: return emptyList()
-    val obs = snap.obs
-    val hasIdentity = Squares.ALL.any { obs.label(it) != null }
-    val read = if (hasIdentity) identityRead(model, obs) else occupancyRead(model, obs)
+    val read = identityRead(model, snap.obs)
     lastCnnTs = nowS
     cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
@@ -67,14 +65,17 @@ internal fun EngineState.cnnTick(
     }
     cnnAgreement = read.agreement
     cnnBestMove = read.moves.takeIf { it.isNotEmpty() }?.joinToString(" ")
-    return applyRead(model, snap, read, hasIdentity)
+    return applyRead(model, snap, read)
 }
 
 /**
  * `stuck` deliberately does NOT require a stable board — a stuck tracker is exactly the case where
- * the board never looks quiet enough — while the periodic check does.
+ * the board never looks quiet enough — while the periodic check does. An OPEN recovery vote needs
+ * no gate at all: it wants two looks at the SAME board, and a cooldown between them delivers two
+ * looks at a board that had seconds to change (`docs/tracker-flow.md`, 2026-08-08-11-59-12).
  */
 private fun EngineState.evaluationDue(): Boolean {
+    if (recoveryConfirmer.count > 0) return true
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck =
         stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS
@@ -85,7 +86,6 @@ private fun EngineState.applyRead(
     cnn: CnnEvaluator,
     snap: CnnSnapshot,
     read: CnnRead,
-    hasIdentity: Boolean,
 ): List<TrackerEvent> =
     when {
         read.matchOk -> onMatchOk(cnn, snap)
@@ -95,7 +95,7 @@ private fun EngineState.applyRead(
             clearDesyncStreak()
             emptyList()
         }
-        else -> onMismatch(cnn, snap, read, hasIdentity)
+        else -> onMismatch(cnn, snap, read)
     }
 
 /**
@@ -131,38 +131,6 @@ private fun EngineState.identityRead(
         if (deep.moves.isNotEmpty()) derived = deep
     }
     return CnnRead(derived.moves, derived.agreement, matches.conflicts, matchOk = false, inconclusive = false)
-}
-
-/**
- * The occupancy-only arm — `tracker.py:2020-2028`, the `else` of `_cnn_tick`'s identity branch.
- *
- * `resync_check` names the ONE legal move whose occupancy explains the observation, and how well.
- * Python takes THAT move and THAT agreement, and reaches for the deep beam search only as a
- * fallback: when resync named no move and the board does not match.
- *
- * This used to run `deriveMovesDeep` unconditionally on every non-match (D04c-2). The divergence
- * was accepted as "the agreement number, not the decision", on the reasoning that the path was
- * unreachable with the bundled 14-class model. That reasoning expired the moment a 2-class model
- * shipped: `observationFromProbs` returns no identity for it, so this arm became the ONLY reachable
- * one — and the deep search returns up to `recoveryMaxPlies` moves where resync names one. On the
- * device that is visible as multi-ply commits: 69 recorded plies contained two bursts of 3 and 4.
- */
-private fun EngineState.occupancyRead(
-    cnn: CnnEvaluator,
-    obs: CnnObservation,
-): CnnRead {
-    val fen = board.fen()
-    val res = cnn.resyncCheck(fen, obs)
-    var moves = res.move?.let { listOf(it) } ?: emptyList()
-    var agreement = res.agreement
-    if (moves.isEmpty() && !res.match) {
-        val deep = cnn.deriveMovesDeep(fen, obs, config.recoveryMaxPlies)
-        if (deep.moves.isNotEmpty()) {
-            moves = deep.moves
-            agreement = deep.agreement
-        }
-    }
-    return CnnRead(moves, agreement, res.conflicts, matchOk = res.match, inconclusive = false)
 }
 
 /**
@@ -219,12 +187,11 @@ private fun EngineState.onMismatch(
     cnn: CnnEvaluator,
     snap: CnnSnapshot,
     read: CnnRead,
-    hasIdentity: Boolean,
 ): List<TrackerEvent> {
     cnnStatus = CNN_STATUS_MISMATCH
     cnnConflicts = read.conflicts
     if (read.moves.isNotEmpty()) {
-        val events = onRecovery(snap, read, hasIdentity)
+        val events = onRecovery(snap, read)
         // A legal bridge that explains the conflicts is HISTORY and always preferred; the resync
         // vote counts only while recovery keeps producing nothing (specs/37-02's auto arm).
         if (events.any { it is TrackerEvent.MoveCommitted || it is TrackerEvent.SequenceCommitted }) return events
@@ -238,7 +205,6 @@ private fun EngineState.onMismatch(
 private fun EngineState.onRecovery(
     snap: CnnSnapshot,
     read: CnnRead,
-    hasIdentity: Boolean,
 ): List<TrackerEvent> {
     val key = read.moves.joinToString(" ")
     // The runaway of 2026-08-02. An undo moves the APP's position; the CNN reads the BOARD; the
@@ -254,7 +220,7 @@ private fun EngineState.onRecovery(
     val moves = board.resolveSequence(read.moves)
     return when {
         moves == null -> emptyList()
-        alarm != null && !resolvesAlarmConflicts(snap.obs, moves, hasIdentity) -> {
+        alarm != null && !resolvesAlarmConflicts(snap.obs, moves) -> {
             // A legal-looking sequence that leaves a conflict square unexplained is a fabrication.
             note = "ILLEGAL MOVE? CNN recovery would not resolve conflicts — withholding"
             recoveryConfirmer.reset()
@@ -264,21 +230,18 @@ private fun EngineState.onRecovery(
     }
 }
 
-/**
- * Every latched conflict square must read as the sequence PREDICTS it. Without an identity axis
- * nothing is verifiable, so the sequence is withheld rather than trusted.
- */
+/** Every latched conflict square must read as the sequence PREDICTS it. */
 private fun EngineState.resolvesAlarmConflicts(
     obs: CnnObservation,
     moves: List<Move>,
-    hasIdentity: Boolean,
 ): Boolean {
     val latched = alarm ?: return true
-    if (!hasIdentity) return false
     val after = board.copy()
     for (move in moves) after.push(move)
+    val occupancy = obs.occupancyOnly()
     return latched.conflicts.none {
-        obs.labelConfident(it, config.cnnConfThr) && obs.label(it) != after.labelAt(it)
+        occupancy.confident(it, config.cnnConfThr) &&
+            occupancy.occupied(it) != (after.labelAt(it) != "empty")
     }
 }
 

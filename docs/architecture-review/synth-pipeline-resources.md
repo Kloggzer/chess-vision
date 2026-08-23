@@ -3,6 +3,9 @@
 *Scope: `chesslab synth render` → `ingest synthetic` → `dataset build` + pack → `train`.
 Analysis of the code as of branch `lens-and-pipeline-hardening` (2026-07-20). No code changed.*
 
+*Every `file.py:NNN` below is a line number from that snapshot and most have moved since —
+search for the symbol, not the line. `photometric.py` was deleted on 2026-08-20.*
+
 Machine context: 32 GB RAM, ~260 GB free disk, single GPU. Last full generation:
 66k renders (~60 GB PNG) → 2.9M crop PNGs (~61 GB) → 101 GB memmap (2M crops incl. 4×
 rotation) ≈ **222 GB for one dataset generation** — three on-disk copies of the same pixels.
@@ -95,8 +98,8 @@ over `labeling.slice_session`, each frame decoded, warped once, and split into 6
   stays 128², `config.py:59`).
 - **Crop-PNG copy (proposal #3):** see "Big bets" below. Note the crop PNGs are not purely
   redundant today: `dedup_phash` reads them (disabled for synth anyway — `dataset_build.py:97`
-  docstring says synthetic sets should run `phash_enabled=False`), the per-PNG `SquareDataset`
-  needs them when `bg_p > 0` (`train.py:194-197`), and the web UI browses them. A fused path
+  docstring says synthetic sets should run `phash_enabled=False`) and the web UI browses them.
+  The `bg_p > 0` reason for needing them is gone with the augment itself (2026-08-21). A fused path
   must either keep a small sample of PNGs for inspection or render crops from the memmap.
 
 ---
@@ -202,8 +205,8 @@ Prefetch memory is fine: 6 workers × 4 × batch 32 × 128²×3 float32 ≈ 150 
 
 ## Recommended plan for the ~100k-train-slices-per-class re-render
 
-Targets: peak disk < 150 GB, GPU saturated, no RAM thrash. Assumes ~13 piece classes × 100k +
-capped `empty`/`occluded` ≈ **1.4-1.6M unique train crops** ≈ 55-65k frames at 4 views/scene
+Targets: peak disk < 150 GB, GPU saturated, no RAM thrash. Assumes 12 piece classes × 100k +
+capped `empty` ≈ **1.4-1.6M unique train crops** ≈ 55-65k frames at 4 views/scene
 (random FENs average ~2 instances of the rarest piece types per frame).
 
 **Before rendering (code, in order of leverage):**

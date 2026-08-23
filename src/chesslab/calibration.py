@@ -6,8 +6,8 @@ profile provides the 64 square crops deterministically for each frame.
 
 The core mapping function `square_to_crop_box` lives here centrally (profile-bound) and
 is imported by Stage 3 (`labeling.py`). Profile loading/saving and the geometry
-are usable and tested headless (without camera/GUI); only `calibrate auto`/`check` need
-camera + display.
+are usable and tested headless — the live-camera verbs (`calibrate auto`/`check`) were
+removed with `chesslab.camera` (2026-08-20); Kotlin owns the live camera.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ import logging
 import math
 import os
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 
 import cv2
@@ -25,7 +26,6 @@ import numpy as np
 import yaml
 
 from . import config
-from .camera import open_camera
 
 log = logging.getLogger("chesslab.calibration")
 
@@ -86,18 +86,9 @@ class CalibrationProfile:
     # one independently. A single number stays valid input everywhere via `margins4`.
     margin: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     marker_dict: str = "DICT_4X4_50"
-    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics. If missing,
-    # geometry3d uses an approximation from frame_size. This way each camera is a self-contained profile.
+    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics, so each
+    # camera is a self-contained profile.
     source: str | None = None
-    camera_matrix: list[list[float]] | None = None
-    dist_coeffs: list[float] | None = None
-    # Lens state this profile was made under (see chesslab/lens.py). On UNDISTORTED frames
-    # the correct intrinsics above are the NEW optimal camera matrix and ZERO distortion —
-    # a profile still carrying the raw-lens K/D would make solvePnP/box3d compensate the
-    # distortion a SECOND time. `lens_calib_id` pins WHICH lens calibration that was.
-    # Defaults keep old YAML (written before undistortion existed) loadable as raw frames.
-    undistorted: bool = False
-    lens_calib_id: str | None = None
 
     def __post_init__(self) -> None:
         # A scalar is still the natural thing to write at a call site ("all four the same"),
@@ -122,17 +113,13 @@ class CalibrationProfile:
             "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
             "source": self.source,
-            "camera_matrix": (None if self.camera_matrix is None
-                              else [[float(v) for v in row] for row in self.camera_matrix]),
-            "dist_coeffs": (None if self.dist_coeffs is None else [float(v) for v in self.dist_coeffs]),
-            "undistorted": bool(self.undistorted),
-            "lens_calib_id": self.lens_calib_id,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> CalibrationProfile:
-        cm = d.get("camera_matrix")
-        dc = d.get("dist_coeffs")
+        # Profiles written before 2026-08-21 carry `undistorted`, `lens_calib_id`,
+        # `camera_matrix` and `dist_coeffs` — ignored: the optics live in the recording's own
+        # `lens.json` now, and a stored copy could only go stale.
         return cls(
             profile=d["profile"],
             created_at=d.get("created_at", ""),
@@ -147,10 +134,6 @@ class CalibrationProfile:
             margin=margins4(d.get("margin", 0.0)),
             marker_dict=d.get("marker_dict", "DICT_4X4_50"),
             source=d.get("source"),
-            camera_matrix=(None if cm is None else [[float(v) for v in row] for row in cm]),
-            dist_coeffs=(None if dc is None else [float(v) for v in dc]),
-            undistorted=bool(d.get("undistorted", False)),
-            lens_calib_id=d.get("lens_calib_id"),
         )
 
     def save(self, path: Path, *, backup: bool = False) -> Path:
@@ -222,86 +205,43 @@ def profile_from_frame(frame, profile: str, *, board_size: int = 1000,
         margin=margins4(margin),
         marker_dict=dict_name,
     )
-    # Stamp the lens state AND the intrinsics that match it: on undistorted frames the
-    # correct values are the new optimal camera matrix + zero distortion, never the raw
-    # lens K/D (that would compensate the distortion twice in geometry3d/box3d PnP).
-    # camera_index -1 = "not from a live local camera" (recorded frame / URL) — route it
-    # through the non-index branch of the source policy so it is NOT marked undistorted.
-    from . import lens
-    lens.stamp_profile(prof, frame_size=(w, h),
-                       source=camera_index if camera_index >= 0 else "offline")
     return prof
 
 
 def ensure_profile(profile: str, source: int | str | None = None, *,
-                   save: bool = True, attempts: int = 30, camera_mode: str | None = None,
+                   save: bool = True, attempts: int = 30,
                    **kwargs) -> CalibrationProfile:
     """Load `profile`; if it does not exist, auto-calibrate it from `source` via ArUco.
 
     This removes the mandatory separate calibration step: `track`/`collect` can create a
-    missing profile from the first frames of their own camera source, as long as the
-    markers are on the board. `calibrate auto` stays available for interactive margin
-    tuning. Raises FileNotFoundError if the profile is missing and no usable source or
-    no markers are found.
+    missing profile from the first frames of their own source, as long as the markers are
+    on the board. Raises FileNotFoundError if the profile is missing and no usable source
+    or no markers are found.
 
     A profile whose LENS stamp no longer matches the active lens state (e.g. the user just
-    ran `chesslab lens calibrate`) is treated like a missing one and regenerated from the
-    source — nobody has to re-run `calibrate auto` by hand. If it cannot be regenerated,
+    ran `chesslab lens calibrate-board`) is treated like a missing one and regenerated from the
+    source — nobody has to re-stamp by hand. If it cannot be regenerated,
     the stale profile is re-stamped in place and used, never crashed on.
 
-    Regenerating a STALE profile only replaces what is actually measured — the pixel
-    corners, the homography and the lens stamp. Everything the user configured
-    (`board_size`, `margin`, `marker_dict`, `white_pov`, `crop`) is CARRIED OVER, because
-    only the lens changed, not the board. Silently falling back to the defaults here would
-    reset a hand-set `white_pov: false` and transpose every label of the next session.
-    Explicit caller kwargs still win over the carried-over values.
+    An existing profile is returned as it lies. Until 2026-08-20 it was first tested against
+    the active lens and regenerated when the stamp disagreed; profiles carry no lens stamp any
+    more, so there is nothing left to disagree.
 
-    `camera_mode` is a named capture mode (`config.CAMERA_MODES`): auto-calibration then
-    opens the source at THAT resolution, so the recorded pixel corners + `frame_size` match
-    the mode the caller is about to run at."""
-    from . import lens
-
-    stale_prof: CalibrationProfile | None = None
+    `source` is a video file or a frame image — the live-camera path was removed with
+    `chesslab.camera` (2026-08-20)."""
     try:
-        prof0 = load_profile(profile)
-        is_stale, why = lens.profile_is_stale(prof0, source)
-        if not is_stale:
-            return prof0
-        print(f"[WARN] calibration profile '{profile}' is stale: {why} — regenerating from "
-              f"{source!r}.")
-        stale_prof = prof0
-        if source is None:
-            lens.stamp_profile(stale_prof, source=source)
-            if save:                # persist — otherwise every process re-warns + re-stamps
-                stale_prof.save(profile_path(profile), backup=True)
-            return stale_prof
+        return load_profile(profile)
     except FileNotFoundError:
         if source is None:
             raise
 
-    # Carry the stale profile's own geometry settings into the regeneration (see docstring);
-    # `setdefault` keeps an explicit caller kwarg authoritative.
     gen_kwargs = dict(kwargs)
-    if stale_prof is not None:
-        gen_kwargs.setdefault("board_size", stale_prof.board_size)
-        gen_kwargs.setdefault("margin", stale_prof.margin)
-        gen_kwargs.setdefault("dict_name", stale_prof.marker_dict)
-        gen_kwargs.setdefault("white_pov", stale_prof.white_pov)
 
     src = int(source) if isinstance(source, str) and source.isdigit() else source
-    if camera_mode:
-        from .camera import spec_for_mode
-        cap = open_camera(src, spec=spec_for_mode(camera_mode, source=src))
-    else:
-        cap = open_camera(src)
+    cap = cv2.VideoCapture(src)
     prof: CalibrationProfile | None = None
     try:
         if not cap.isOpened():
-            if stale_prof is not None:      # keep working: re-stamp instead of crashing
-                lens.stamp_profile(stale_prof, source=source)
-                if save:
-                    stale_prof.save(profile_path(profile), backup=True)
-                return stale_prof
             raise FileNotFoundError(
                 f"profile '{profile}' missing and source {source!r} could not be opened "
                 "for auto-calibration.")
@@ -316,20 +256,9 @@ def ensure_profile(profile: str, source: int | str | None = None, *,
     finally:
         cap.release()
     if prof is None:
-        if stale_prof is not None:          # no markers right now — re-stamp and carry on
-            print(f"[WARN] could not regenerate '{profile}' (no ArUco markers visible) — "
-                  "re-stamping the existing profile for the current lens instead.")
-            lens.stamp_profile(stale_prof, source=source)
-            if save:
-                stale_prof.save(profile_path(profile), backup=True)
-            return stale_prof
         raise FileNotFoundError(
             f"profile '{profile}' missing and auto-calibration from {source!r} found no "
-            "ArUco markers — tape the markers to the board (calibrate markers) or run "
-            "'chesslab calibrate auto'.")
-    if stale_prof is not None:
-        # `crop` is a user setting (pad_up/pad_side/out_size), never measured from a frame.
-        prof.crop = stale_prof.crop
+            "ArUco markers — tape the markers to the board (calibrate markers).")
     if save:
         out = profile_path(profile)
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -395,9 +324,6 @@ MESH_CURV_LIMIT = 0.08
 
 #: 8 cells share 9 boundaries.
 GRID_LINES_PER_AXIS = 9
-
-#: Simultaneous corner evaluations — `meshCellQuadExact` (CropBox.kt) argues the residual.
-CORNER_ITERATIONS = 3
 
 
 @dataclass(frozen=True)
@@ -466,68 +392,141 @@ def mesh_from_lines(lines) -> GridMesh | None:
     return GridMesh(xs, ys, tx, ty, cx, cy)
 
 
-def square_to_mesh_box(square: str, profile: CalibrationProfile,
-                       mesh: GridMesh) -> tuple[float, float, float, float]:
-    """'e4' -> the crop box cut at the square's four NEIGHBOUR-LINE intersections, unrounded.
+#: How many meshes must carry a term before its median is trusted. Same number, same argument as
+#: `sessions._repair_mesh_outliers`.
+MESH_POOL_MIN = 3
 
-    Pads scale with the square's own measured cell, so the composition stays the one
-    `square_to_crop_box` builds. Parity twin: `meshCropBoxExact` (CropBox.kt).
+
+def pooled_mesh(meshes) -> GridMesh | None:
+    """One mesh out of many: per TERM the median over the meshes that carry that term.
+
+    A hand over the grooves moves single lines, and the per-frame mesh it produces can leave the
+    board WORSE than no mesh at all (measured 2026-08-21 on 13-52-38: 15.21 px raw against 12.36
+    with its own mesh). The camera does not move, so feed this the CLEAN frames and every frame of
+    the recording can be straightened by a mesh no hand ever touched.
+
+    Per TERM, not per mesh: a recording mixes curved frames with merely tilted ones, and demanding
+    that every mesh carry `cx` drops the one term that takes the bow out.
     """
-    col, row = _square_to_col_row(square, profile.white_pov)
-    bs = profile.board_size
-    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
-    cw = mesh.x[col + 1] - mesh.x[col]
-    ch = mesh.y[row + 1] - mesh.y[row]
-    return ((mesh.x[col] - pad_side * cw) * bs,
-            (mesh.y[row] - (pad_side + pad_up) * ch) * bs,
-            (mesh.x[col + 1] + pad_side * cw) * bs,
-            (mesh.y[row + 1] + pad_side * ch) * bs)
+    have = [m for m in meshes if m is not None]
+    if not have:
+        return None
+
+    def med(name: str, need: int):
+        vals = [getattr(m, name) for m in have if getattr(m, name) is not None]
+        return None if len(vals) < need else np.median(np.array(vals), axis=0).tolist()
+
+    tx, ty = med("tx", MESH_POOL_MIN), med("ty", MESH_POOL_MIN)
+    xs = np.median(np.array([m.x for m in have]), axis=0).tolist()
+    ys = np.median(np.array([m.y for m in have]), axis=0).tolist()
+    if tx is None or ty is None:
+        return GridMesh(xs, ys)
+    cx, cy = med("cx", MESH_POOL_MIN), med("cy", MESH_POOL_MIN)
+    return GridMesh(xs, ys, tx, ty, cx, cy) if cx is not None and cy is not None         else GridMesh(xs, ys, tx, ty)
 
 
-def _mesh_intersect(xi: float, ti: float, yj: float, tj: float) -> tuple[float, float]:
-    x = (xi + ti * (yj - 0.5 * (1.0 + tj))) / (1.0 - ti * tj)
-    return x, yj + tj * (x - 0.5)
+#: A curvature this far off the cross-line trend was measured on pieces, not optics:
+#: rg-2026-08-15-22-57-06 carries cy = -0.070 on the pawn-occupied 7/6 line against ±0.011 on its
+#: free neighbours — a +11.6 px arch baked into the straightened board (2026-08-21).
+CURV_TREND_LIMIT = 0.02
 
 
-def _mesh_curved_corner(lx: float, tx: float, cx: float,
-                        ly: float, ty: float, cy: float) -> tuple[float, float]:
-    x, y = lx, ly
-    for _ in range(CORNER_ITERATIONS):
-        u, v = x - 0.5, y - 0.5
-        x, y = lx + tx * v + cx * v * v, ly + ty * u + cy * u * u
+def _trend_replaced(values: list[float]) -> list[float]:
+    k = np.arange(GRID_LINES_PER_AXIS, dtype=np.float64)
+    v = np.asarray(values, dtype=np.float64)
+    slopes = [(v[j] - v[i]) / (j - i) for i in range(GRID_LINES_PER_AXIS)
+              for j in range(i + 1, GRID_LINES_PER_AXIS)]
+    m = float(np.median(slopes))
+    trend = m * k + float(np.median(v - m * k))
+    return [float(e) for e in np.where(np.abs(v - trend) > CURV_TREND_LIMIT, trend, v)]
+
+
+def smooth_mesh_curvature(mesh: GridMesh | None) -> GridMesh | None:
+    """Curvature is optics and optics are smooth across parallel lines — a line that breaks out of
+    the others' Theil-Sen trend was measured on whatever stood ON it and takes the trend's value
+    instead. Board-writing only, on purpose: the cut consumers (`meshOrNull`, warp.ts) stay pinned
+    to the parity fixture, and a straightened store never hands them a mesh again.
+    """
+    if mesh is None or mesh.cx is None or mesh.cy is None:
+        return mesh
+    return replace(mesh, cx=_trend_replaced(mesh.cx), cy=_trend_replaced(mesh.cy))
+
+
+#: Simultaneous evaluations per point. Three was measured to leave the residual far inside a pixel
+#: at the mesh limits. Parity twin: `CORNER_ITERATIONS` (CropBox.kt).
+MESH_POINT_ITERATIONS = 3
+
+
+def _mesh_line_at(offs, tilts, curvs, k, t):
+    """Where line `k` of one axis sits at run `t` along it, in field fractions. Arrays welcome."""
+    d = t - 0.5
+    curved = 0.0 if curvs is None else np.asarray(curvs)[k] * d * d
+    return np.asarray(offs)[k] + np.asarray(tilts)[k] * d + curved
+
+
+def mesh_point(u, v, mesh: GridMesh):
+    """The MEASURED board point belonging to the ideal one at `(u, v)` — field fractions both ways.
+
+    Inside a cell the two bounding lines blend linearly, and the axes are coupled (each line's
+    position depends on the run along it), so the pair is solved by simultaneous evaluations
+    exactly as a cell corner is. A mesh without tilts is carried as tilt 0 — its measured OFFSETS
+    are still a correction, and refusing it would silently drop the scalar stage. Twin: `meshPoint`.
+    """
+    zero = [0.0] * GRID_LINES_PER_AXIS
+    tx, ty = mesh.tx or zero, mesh.ty or zero
+    u, v = np.asarray(u, np.float64), np.asarray(v, np.float64)
+    cu = np.clip(np.floor(u * 8.0), 0, 7).astype(np.int32)
+    cv_ = np.clip(np.floor(v * 8.0), 0, 7).astype(np.int32)
+    fu, fv = u * 8.0 - cu, v * 8.0 - cv_
+    x, y = u, v
+    for _ in range(MESH_POINT_ITERATIONS):
+        x = (_mesh_line_at(mesh.x, tx, mesh.cx, cu, y) * (1.0 - fu)
+             + _mesh_line_at(mesh.x, tx, mesh.cx, cu + 1, y) * fu)
+        y = (_mesh_line_at(mesh.y, ty, mesh.cy, cv_, x) * (1.0 - fv)
+             + _mesh_line_at(mesh.y, ty, mesh.cy, cv_ + 1, x) * fv)
     return x, y
 
 
-def mesh_cell_quad(square: str, profile: CalibrationProfile,
-                   mesh: GridMesh) -> list[tuple[float, float]]:
-    """'e4' -> the padded cell as a QUADRILATERAL `[tl, tr, br, bl]` in board pixels.
+def straighten_board(board, mesh: GridMesh, board_size: int, border: int = 0):
+    """A bordered board pulled straight GLOBALLY — every pixel read where its own lines say it is.
 
-    The square's four neighbour lines — offset, tilt and, when the mesh carries them, parabola
-    term — pad-shifted and intersected, so even a bowed outer line comes out straight. Parity
-    twin: `meshCellQuadExact` (CropBox.kt).
+    This REPLACES the per-cell mesh cut, it does not join it: a board straightened here is cut at
+    the nominal eighth afterwards, and straightening twice corrects twice. Twin: `sampleBoxMesh`.
+
+    CUBIC, not LINEAR: the map is a near-identity, and a bilinear resample at half-pixel offsets is
+    a low-pass the crop then keeps. Measured 2026-08-21 as Laplacian energy of the finished crop
+    against one cut from the raw board — linear -44 %, cubic -22 %, lanczos4 -19 % at the same
+    290 ms per 952 px board (the WebP encode beside it costs 72 ms).
     """
-    if not mesh.tilted:
-        raise ValueError("mesh_cell_quad needs tilts")
-    col, row = _square_to_col_row(square, profile.white_pov)
-    bs = profile.board_size
-    pad_side, pad_up = profile.crop.pad_side, profile.crop.pad_up
-    cw = mesh.x[col + 1] - mesh.x[col]
-    ch = mesh.y[row + 1] - mesh.y[row]
-    lx0, lx1 = mesh.x[col] - pad_side * cw, mesh.x[col + 1] + pad_side * cw
-    ly0 = mesh.y[row] - (pad_side + pad_up) * ch
-    ly1 = mesh.y[row + 1] + pad_side * ch
-    tx, ty, cx, cy = mesh.tx, mesh.ty, mesh.cx, mesh.cy
-    if cx is not None and cy is not None:
-        corners = [_mesh_curved_corner(lx0, tx[col], cx[col], ly0, ty[row], cy[row]),
-                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly0, ty[row], cy[row]),
-                   _mesh_curved_corner(lx1, tx[col + 1], cx[col + 1], ly1, ty[row + 1], cy[row + 1]),
-                   _mesh_curved_corner(lx0, tx[col], cx[col], ly1, ty[row + 1], cy[row + 1])]
-    else:
-        corners = [_mesh_intersect(lx0, tx[col], ly0, ty[row]),
-                   _mesh_intersect(lx1, tx[col + 1], ly0, ty[row]),
-                   _mesh_intersect(lx1, tx[col + 1], ly1, ty[row + 1]),
-                   _mesh_intersect(lx0, tx[col], ly1, ty[row + 1])]
-    return [(x * bs, y * bs) for x, y in corners]
+    mx, my = _straighten_maps(board.shape[:2], mesh, board_size, border)
+    return cv2.remap(board, mx, my, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+
+def _mesh_key(mesh: GridMesh) -> tuple:
+    """Hashable Fassung eines Mesh — die Listen sind es nicht."""
+    return tuple(tuple(v) if v is not None else None
+                 for v in (mesh.x, mesh.y, mesh.tx, mesh.ty, mesh.cx, mesh.cy))
+
+
+def _straighten_maps(shape: tuple[int, int], mesh: GridMesh, board_size: int, border: int):
+    """Die Remap-Tabellen, gemerkt: sie haengen NUR an Groesse, Mesh, board_size und Rand.
+
+    Gemessen 2026-08-23 auf einem 1312er Brett: der Aufbau kostet 623 ms, der `remap` daneben 14.
+    Eine Aufnahme hat EIN Mesh (`composite.median_mesh`, `realgames.meshes_for_boards`), also
+    zahlt der Aufbau einmal je Clip statt zweimal je Frame.
+    """
+    return _straighten_maps_cached(shape, _mesh_key(mesh), board_size, border)
+
+
+@lru_cache(maxsize=8)
+def _straighten_maps_cached(shape: tuple[int, int], key: tuple, board_size: int, border: int):
+    h, w = shape
+    mesh = GridMesh(*(list(v) if v is not None else None for v in key))
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float64)
+    mx, my = mesh_point((xs - border) / board_size, (ys - border) / board_size, mesh)
+    return ((mx * board_size + border).astype(np.float32),
+            (my * board_size + border).astype(np.float32))
+
 
 def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
     """Pixel center of the base cell of a square in the rectified board_size image."""
@@ -582,76 +581,9 @@ def compute_homography(image_corners, board_size: int, margin=0.0) -> list[list[
     return H.tolist()
 
 
-def draw_calibration_overlay(frame, marker_pts, profile: CalibrationProfile, labels: bool = False):
-    """On the camera image: marker box (outer, orange) + actual playing field + grid (inner, green).
-
-    `labels=True` additionally labels each of the 64 squares (a1..h8) at its cell center —
-    resolution-adaptive, so it remains readable in the web UI at any stream/snapshot size.
-    """
-    img = frame.copy()
-    bs = profile.board_size
-    h_inv = np.linalg.inv(np.array(profile.homography, dtype=np.float64))
-
-    def to_img(board_pts):
-        a = np.array(board_pts, dtype=np.float32).reshape(-1, 1, 2)
-        return cv2.perspectiveTransform(a, h_inv).reshape(-1, 2)
-
-    cell = bs / 8.0
-    # Estimate cell size in image pixels -> scale line thickness/font (stream vs snapshot).
-    o, ex = to_img([[0.0, 0.0]])[0], to_img([[cell, 0.0]])[0]
-    cell_px = float(np.hypot(*(ex - o))) or 40.0
-    grid_th = max(1, int(round(cell_px / 60)))
-    for i in range(9):  # back-project 8x8 grid
-        p = i * cell
-        v = to_img([[p, 0], [p, bs]]).astype(int)
-        hh = to_img([[0, p], [bs, p]]).astype(int)
-        cv2.line(img, tuple(v[0]), tuple(v[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
-        cv2.line(img, tuple(hh[0]), tuple(hh[1]), (0, 200, 0), grid_th, cv2.LINE_AA)
-    field = to_img([[0, 0], [bs, 0], [bs, bs], [0, bs]]).astype(np.int32)
-    cv2.polylines(img, [field], True, (0, 255, 0), grid_th + 1, cv2.LINE_AA)  # playing field (green)
-
-    if labels:
-        fs = max(0.3, cell_px / 150.0)            # font size ~ cell size
-        th = max(1, int(round(cell_px / 90)))
-        off = int(cell_px * 0.18)
-        for rank in range(1, 9):
-            for fl in _FILES:
-                col, row = _square_to_col_row(f"{fl}{rank}", profile.white_pov)
-                c = to_img([[(col + 0.5) * cell, (row + 0.5) * cell]])[0].astype(int)
-                cv2.putText(img, f"{fl}{rank}", (c[0] - off, c[1] + off // 2),
-                            cv2.FONT_HERSHEY_SIMPLEX, fs, (0, 0, 255), th, cv2.LINE_AA)
-
-    mb = np.array(marker_pts, dtype=np.int32)
-    cv2.polylines(img, [mb], True, (0, 180, 255), grid_th + 1, cv2.LINE_AA)   # marker box (orange)
-    for p in marker_pts:
-        cv2.circle(img, (int(p[0]), int(p[1])), max(4, int(cell_px / 18)), (0, 180, 255), -1, cv2.LINE_AA)
-    return img
-
-
 def warp_board(frame, profile: CalibrationProfile):
     H = np.array(profile.homography, dtype=np.float64)
     return cv2.warpPerspective(frame, H, (profile.board_size, profile.board_size))
-
-
-def draw_board_grid(board_img, profile: CalibrationProfile, labels: bool = True):
-    """Draw 8x8 grid (+ corner/center labels) on the rectified board."""
-    img = board_img.copy()
-    bs = profile.board_size
-    for i in range(9):
-        p = int(round(i * bs / 8.0))
-        cv2.line(img, (p, 0), (p, bs), (0, 255, 0), 1)
-        cv2.line(img, (0, p), (bs, p), (0, 255, 0), 1)
-    if labels:
-        for sq in ("a8", "h8", "a1", "h1", "e4"):
-            col, row = _square_to_col_row(sq, profile.white_pov)
-            cx = int((col + 0.5) * bs / 8.0)
-            cy = int((row + 0.5) * bs / 8.0)
-            cv2.putText(img, sq, (cx - 12, cy + 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-    return img
-
-
-# Camera opening moved to `chesslab.camera` (open_camera is imported at the top of this
-# module for the calibration helpers below).
 
 
 # --- ArUco auto-corners (markers at a8/h8/h1/a1) -----------------------------------------
@@ -660,19 +592,42 @@ _ARUCO_LABELS = ("a8", "h8", "h1", "a1")
 
 
 def _aruco_dictionary(dict_name: str):
-    return cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dict_name))
+    known = getattr(cv2.aruco, dict_name, None)
+    if not isinstance(known, int):
+        raise ValueError(f"unknown ArUco dictionary '{dict_name}' "
+                         f"(e.g. DICT_4X4_50, DICT_5X5_100)")
+    return cv2.aruco.getPredefinedDictionary(known)
+
+
+#: Fenstergrößen (min, max, step), die die Binarisierung des Markers durchprobiert. 13 statt 3 —
+#: der Preis ist Rechenzeit je Frame, der Gewinn die Randmarker.
+ADAPTIVE_THRESH_WIN = (3, 53, 4)
+#: Längste Kante, auf die zum SUCHEN verkleinert wird. Auf 4K gemessen (2026-08-23): voll 135 ms
+#: und 10/12 Frames mit allen vier Markern, hier 27 ms und 12/12 — das Verkleinern mittelt die
+#: Maserung weg, die dem Dekoder das Bit kippt. Der Eckfehler steigt auf 1,34 px, was der Grid-Fit
+#: danach ohnehin korrigiert: ArUco ist die grobe Lage, nicht die Feldecke.
+DETECT_LONG_SIDE = 1344
 
 
 def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
     """Raw detection: {id: (4,2) corner array} per found marker (order as from ArUco)."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
+    scale = min(1.0, DETECT_LONG_SIDE / max(gray.shape[:2]))
+    if scale < 1.0:
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
     params = cv2.aruco.DetectorParameters()
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # more precise corners
+    # Ein Randmarker steht auf dünnem Weiß vor dunklem Holz; bei OpenCVs drei Fenstergrößen kippt
+    # dort ein Bit und er wird als 17 oder 37 gelesen (2026-08-23: 2/30 Frames gegen 21-25/30).
+    params.adaptiveThreshWinSizeMin = ADAPTIVE_THRESH_WIN[0]
+    params.adaptiveThreshWinSizeMax = ADAPTIVE_THRESH_WIN[1]
+    params.adaptiveThreshWinSizeStep = ADAPTIVE_THRESH_WIN[2]
     detector = cv2.aruco.ArucoDetector(_aruco_dictionary(dict_name), params)
     found_corners, found_ids, _ = detector.detectMarkers(gray)
     if found_ids is None:
         return {}
-    return {int(i): c.reshape(4, 2) for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
+    return {int(i): c.reshape(4, 2) / scale
+            for c, i in zip(found_corners, found_ids.flatten(), strict=False) if int(i) in ids}
 
 
 def detect_board_markers(frame, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
@@ -827,9 +782,6 @@ class MarkerTracker:
                 out[i] = "held"
         return out
 
-    def n_live(self) -> int:
-        return sum(1 for i in self.pos if i not in self.seeded and self.age.get(i, 0) == 0)
-
     def n_held(self) -> int:
         return sum(1 for i in self.pos if i not in self.seeded and self.age.get(i, 0) > 0)
 
@@ -946,18 +898,105 @@ def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: 
     return cv2.warpPerspective(frame, h, (sz, sz))
 
 
-def warp_board_for_crops(frame, profile: CalibrationProfile, corners):
+@dataclass(frozen=True)
+class LensModel:
+    """The board-fitted optics: two radial terms about a centre, at the scale they were fitted at.
+
+    `focal` is the scale the straightness fit held FIXED, not an estimate of the optics — carried
+    through unchanged because the coefficients mean nothing without it. Written by
+    `:desktop undistort` into `lens.json`; the FIT itself stays in Kotlin. Twin: `LensModel`.
+    """
+
+    k1: float
+    k2: float
+    focal: float
+    cx: float
+    cy: float
+
+    @classmethod
+    def from_receipt(cls, receipt: dict | None):
+        """A `lens.json` -> the model, or None when the fit was refused or the receipt is older."""
+        need = ("k1", "k2", "focal", "cx", "cy")
+        if not isinstance(receipt, dict) or any(receipt.get(k) is None for k in need):
+            return None
+        return cls(*(float(receipt[k]) for k in need))
+
+
+def distort_points(x, y, lens: LensModel):
+    """Ideal image points -> where the raw frame actually put them (Brown, radial only).
+
+    The direction a warp needs: it asks per destination pixel WHERE TO READ, and the file on disk
+    still carries the barrel. Arrays welcome.
+    """
+    u, v = (x - lens.cx) / lens.focal, (y - lens.cy) / lens.focal
+    r2 = u * u + v * v
+    scale = 1.0 + lens.k1 * r2 + lens.k2 * r2 * r2
+    return lens.cx + lens.focal * u * scale, lens.cy + lens.focal * v * scale
+
+
+def undistort_points(points, lens: LensModel):
+    """Raw image points -> where an undistorted frame puts them, in the SAME pixel space (P = K).
+
+    The board quad is detected on the raw frame, so it has to come along before a homography built
+    from it can mean anything — without this the corners land right and the content between them
+    stays bowed (`Rectify.kt`, 2026-08-10).
+    """
+    k = np.array([[lens.focal, 0.0, lens.cx], [0.0, lens.focal, lens.cy], [0.0, 0.0, 1.0]])
+    d = np.array([lens.k1, lens.k2, 0.0, 0.0, 0.0])
+    pts = np.asarray(points, np.float64).reshape(-1, 1, 2)
+    return cv2.undistortPoints(pts, k, d, P=k).reshape(-1, 2).tolist()
+
+
+def _board_to_image(u, v, h_inv, board_size: int):
+    """Board fractions -> image pixels, through the inverse of the board homography."""
+    bx, by = u * board_size, v * board_size
+    d = h_inv[2, 0] * bx + h_inv[2, 1] * by + h_inv[2, 2]
+    return ((h_inv[0, 0] * bx + h_inv[0, 1] * by + h_inv[0, 2]) / d,
+            (h_inv[1, 0] * bx + h_inv[1, 1] * by + h_inv[1, 2]) / d)
+
+
+def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
+                         mesh: GridMesh | None = None, lens: LensModel | None = None):
     """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
     `B = crop_border_px(profile)`, homography translated by B. This way EDGE squares have real
     board/edge content for their pad_side/pad_up extension (instead of black border at the
-    playing field edge). Geometry is identical to the borderless warp, only shifted by B; `crop_square`
-    shifts its box accordingly by +B.
+    playing field edge); `crop_square` shifts its box accordingly by +B.
+
+    `mesh` and `lens` are COMPOSED into this one map, so the board is straight after a SINGLE
+    resample. Warping first and correcting afterwards costs a second one, and that second one is a
+    low-pass: the composed path measured +57 % Laplacian energy in the finished crop (2026-08-21).
+    `straighten_board` stays for stores that are already warped and have no frame left.
+
+    Order matters: the quad was detected on the RAW frame, so the optics take it along BEFORE the
+    homography is built from it, and the map then reads through the barrel still in the file.
+    """
+    return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens)
+
+
+def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
+                mesh: GridMesh | None = None, lens: LensModel | None = None):
+    """The board rectified into a `board_size + 2*pad` canvas — the one warp, two borders use it.
+
+    `warp_board_for_crops` asks for the crop border, `alignment.warp_for_grid` for the wider one
+    that makes the outer grid lines measurable. Everything else about the map is identical, and
+    that is why it lives in one place.
     """
     bs = profile.board_size
-    b = crop_border_px(profile)
-    h = np.array(compute_homography(corners, bs, profile.margin), dtype=np.float64)
-    t = np.array([[1.0, 0.0, b], [0.0, 1.0, b], [0.0, 0.0, 1.0]], dtype=np.float64)
-    return cv2.warpPerspective(frame, t @ h, (bs + 2 * b, bs + 2 * b))
+    quad = corners if lens is None else undistort_points(corners, lens)
+    h = np.array(compute_homography(quad, bs, profile.margin), dtype=np.float64)
+    if mesh is None and lens is None:
+        t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]], dtype=np.float64)
+        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
+    side = bs + 2 * pad
+    ys, xs = np.mgrid[0:side, 0:side].astype(np.float64)
+    u, v = (xs - pad) / bs, (ys - pad) / bs
+    if mesh is not None:
+        u, v = mesh_point(u, v, mesh)
+    ix, iy = _board_to_image(u, v, np.linalg.inv(h), bs)
+    if lens is not None:
+        ix, iy = distort_points(ix, iy, lens)
+    return cv2.remap(frame, ix.astype(np.float32), iy.astype(np.float32),
+                     cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT)
 
 
 def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, ...] = (0, 1, 2, 3),
@@ -968,6 +1007,12 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
     black box → all 4 markers exactly the same size. `gap`: spacing between boxes.
     """
     d = _aruco_dictionary(dict_name)
+    out_path = Path(out_path)
+    if out_path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".tif", ".tiff"):
+        raise ValueError(f"'{out_path}' has no image suffix cv2 can write (.png, .jpg, .webp)")
+    if marker_px < d.markerSize + 2:
+        raise ValueError(f"--marker-px {marker_px} is below the {dict_name} grid "
+                         f"({d.markerSize} modules plus border)")
     if quiet is None:
         quiet = max(marker_px // 6, 20)
     box = marker_px + 2 * quiet                      # cut edge size (same for all)
@@ -982,144 +1027,9 @@ def generate_markers(out_path, dict_name: str = "DICT_4X4_50", ids: tuple[int, .
         cv2.rectangle(sheet, (bx0, by0), (bx0 + box, by0 + box), (0, 0, 0), 1, cv2.LINE_AA)  # cut line
         cv2.putText(sheet, f"{lab} (id {mid})", (bx0, by0 + box + 34),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2, cv2.LINE_AA)
-    out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(out_path), sheet)
     return out_path
-
-
-def calibrate_auto(camera: int, profile: str, board_size: int, dict_name: str = "DICT_4X4_50",
-                   white_pov: bool = True, preview: bool = False,
-                   margin=config.DEFAULT_MARKER_MARGIN,
-                   min_markers: int = 4) -> int:
-    """Detect markers → marker box + inset playing field → save profile (no clicking).
-
-    `margin`: fraction by which the markers lie OUTSIDE the playing field. With `--preview` live
-    adjust via +/- until the green playing field box aligns with the real board.
-    """
-    out_path = profile_path(profile)
-    if out_path.exists():
-        import typer
-
-        if not typer.confirm(f"Profile '{profile}' already exists ({out_path}). Overwrite?"):
-            print("Aborted.")
-            return 1
-
-    cap = open_camera(camera)
-    if not cap.isOpened():
-        print(f"[FAIL] Camera {camera} could not be opened.")
-        return 1
-    try:
-        def build_from(f, p, m: float) -> CalibrationProfile:
-            hh, ww = f.shape[:2]
-            return CalibrationProfile(
-                profile=profile, camera_index=camera, frame_size=(ww, hh), board_size=board_size,
-                image_corners=p, homography=compute_homography(p, board_size, m),
-                white_pov=white_pov, crop=CropParams.default(board_size),
-                margin=margins4(m), marker_dict=dict_name,
-            )
-
-        if preview:
-            # LIVE video: each frame is read anew + markers re-detected, boxes track along.
-            win = "chesslab auto-calibrate"
-            cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-            print("Live video: w = box LARGER, e or - = SMALLER, r = reset, s = save, q = quit")
-            tracker = MarkerTracker()
-            last_pts, frame, m = None, None, margin
-            while True:
-                ok, f = cap.read()
-                if ok and f is not None:
-                    frame = f
-                    tracker.update(detect_board_markers(frame, dict_name, corner="center"))
-                seen = len(tracker.last)
-                if seen >= min_markers:
-                    res = resolve_board_corners(tracker.last, board_size=board_size)
-                    if res is not None:
-                        last_pts = res[0]
-                if frame is None:
-                    if (cv2.waitKey(30) & 0xFF) in (ord("q"), 27):
-                        cv2.destroyAllWindows()
-                        print("[FAIL] no frame from camera.")
-                        return 1
-                    continue
-                if last_pts and seen >= min_markers:
-                    overlay = draw_calibration_overlay(frame, last_pts, build_from(frame, last_pts, m))
-                    cv2.putText(overlay, f"margin={m:.3f}  {seen}/4 markers  w/e=adjust  s=save  q=quit",
-                                (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
-                else:
-                    overlay = frame.copy()
-                    cv2.putText(overlay, f"Waiting for all {min_markers} markers ({seen}/4 known)...",
-                                (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-                cv2.imshow(win, overlay)
-                k = cv2.waitKey(30) & 0xFF
-                if k in (ord("w"), ord("+"), ord("=")):       # larger
-                    m += 0.005
-                elif k in (ord("e"), ord("-"), ord("_")):     # smaller
-                    m = max(0.0, m - 0.005)
-                elif k == ord("r"):
-                    m = margin
-                elif k == ord("s") and last_pts:
-                    cv2.destroyAllWindows()
-                    build_from(frame, last_pts, m).save(out_path)
-                    print(f"[OK] Auto-calibration saved: {out_path} (margin={m:.3f})")
-                    return 0
-                elif k in (ord("q"), 27):
-                    cv2.destroyAllWindows()
-                    print("Discarded.")
-                    return 1
-
-        # Non-interactive: collect over multiple frames until all min_markers are known.
-        tracker = MarkerTracker()
-        frame = None
-        for _ in range(120):
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                continue
-            tracker.update(detect_board_markers(frame, dict_name, corner="center"))
-            if len(tracker.last) >= min_markers:
-                break
-        if frame is None or len(tracker.last) < min_markers:
-            print(f"[FAIL] not all {min_markers} markers (id 0-3) detected — check lighting/visibility, "
-                  "markers must be fully & flatly visible.")
-            return 1
-        pts = resolve_board_corners(tracker.last, board_size=board_size)[0]
-        build_from(frame, pts, margin).save(out_path)
-        print(f"[OK] Auto-calibration saved: {out_path} (margin={margin:.3f})")
-        return 0
-    finally:
-        cap.release()
-
-
-# --- Interactive commands (need camera + display) ----------------------------------
-
-_WIN = "chesslab calibrate"
-def calibrate_check(camera: int, profile: str) -> int:
-    """Live overlay of the grid on the rectified camera image."""
-    try:
-        prof = load_profile(profile)
-    except FileNotFoundError as e:
-        print(f"[FAIL] {e}")
-        return 1
-
-    cap = open_camera(camera)
-    if not cap.isOpened():
-        print(f"[FAIL] Camera {camera} could not be opened.")
-        return 1
-    print("q = quit")
-    cv2.namedWindow(_WIN, cv2.WINDOW_NORMAL)
-    try:
-        while True:
-            ok, frame = cap.read()
-            if not ok or frame is None:
-                print("[FAIL] no frame read.")
-                return 1
-            board = draw_board_grid(warp_board(frame, prof), prof)
-            cv2.imshow(_WIN, board)
-            if (cv2.waitKey(20) & 0xFF) == ord("q"):
-                return 0
-    finally:
-        cap.release()
-        cv2.destroyAllWindows()
 
 
 def calibrate_list() -> int:

@@ -233,8 +233,7 @@ uv run chesslab train --dataset pretrain-synth --backbone mobilenet_v3_small \
 uv run chesslab train --dataset <real-sessions> --resume <pretrain-run>
 ```
 
-Training on a fused dataset always reads the packed memmap; `--bg-p` background
-randomization needs crop files and is ignored there (with a notice).
+Training on a fused dataset always reads the packed memmap.
 
 ## Important Notes
 
@@ -248,8 +247,6 @@ randomization needs crop files and is ignored there (with a notice).
   `dataset build-synth`, applied by `_RandomRot90` in `training/torch_data.py`) — off by
   default because it contradicts the fixed-camera assumption and diverse renders already
   carry the variance. Builds never materialize rotated files.
-- **Photometry parity.** The `--photometry` flag during ingest (default: `none`) must match
-  the fine-tune dataset's photometry setting.
 - **Batch size.** Each render takes ~seconds; batch size is limited by Blender memory and
   GPU VRAM.
 

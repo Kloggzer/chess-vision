@@ -12,8 +12,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-#: The clip is sampled down to this before anything else — the plate is a background estimate, and
-#: 4K costs 4x the memory for a median that lands on the same colour.
+#: Wo die MASKE gemessen wird — der Plate ist eine Hintergrundschätzung, und 4K kostet dafür das
+#: Vierfache an Speicher für dieselbe Farbe. Die PIXEL werden seit 2026-08-23 in Quellauflösung
+#: geschnitten: vorher erbten sie diese Sparmaßnahme und wurden beim Compositing wieder 2x
+#: hochgezogen — gemessen 13 % weniger Hochfrequenz im Pretrain als im echten Datensatz.
 WORK_SIZE = (1920, 1080)
 #: Frames the temporal median runs over. The arm has to be off any given pixel in most of them.
 PLATE_FRAMES = 48
@@ -197,21 +199,20 @@ def alpha_of(frame: np.ndarray, plate: Plate) -> np.ndarray:
 
 
 def blurred_pairs(cap: cv2.VideoCapture, n_frames: int, stride: int,
-                  size: tuple[int, int]) -> Iterator[np.ndarray]:
-    """Consecutive frames averaged in pairs — a 60 fps clip carries half the motion blur of the
-    30 fps rig it will be composited into, and averaging buys that exposure back."""
+                  size: tuple[int, int]) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+    """`(klein, Quellauflösung)` je Pose: die Maske wird klein gemessen, die Pixel groß geschnitten.
+
+    Aufeinanderfolgende Frames paarweise gemittelt — ein 60-fps-Clip trägt die halbe
+    Bewegungsunschärfe des 30-fps-Aufbaus, in den er kommt, und das Mitteln kauft sie zurück.
+    """
     for i in range(0, n_frames - 1, stride):
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ok_a, a = cap.read()
         ok_b, b = cap.read()
         if not ok_a:
             continue
-        a = cv2.resize(a, size, interpolation=cv2.INTER_AREA)
-        if not ok_b:
-            yield a
-            continue
-        b = cv2.resize(b, size, interpolation=cv2.INTER_AREA)
-        yield cv2.addWeighted(a, 0.5, b, 0.5, 0.0)
+        full = a if not ok_b else cv2.addWeighted(a, 0.5, b, 0.5, 0.0)
+        yield cv2.resize(full, size, interpolation=cv2.INTER_AREA), full
 
 
 def silhouette(alpha: np.ndarray) -> np.ndarray:
@@ -244,6 +245,8 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     if n <= 0:
         return {"video": video.name, "error": "unreadable"}
     size = work_size(cap)
+    cap_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    cap_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     median = read_plate(cap, n, size)
     stage = stage_of(median)
     plate = Plate(median=median, stage=stage,
@@ -255,9 +258,10 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     out_dir.mkdir(parents=True, exist_ok=True)
     kept: list[np.ndarray] = []
     written = skipped_thin = skipped_dup = 0
+    scale = 1.0
     src = (blurred_pairs(cap, n, stride, size) if pair_blur and fps > 45
            else _plain(cap, n, stride, size))
-    for i, frame in enumerate(src):
+    for i, (frame, full) in enumerate(src):
         a = alpha_of(frame, plate)
         if (a > 0.5).sum() < min_cover * on.sum():
             skipped_thin += 1
@@ -267,21 +271,29 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
             skipped_dup += 1
             continue
         kept.append(sil)
-        rgba = np.dstack([frame[y0:y1, x0:x1],
-                          (a[y0:y1, x0:x1] * 255).astype(np.uint8)])
+        # Maske klein, Pixel groß: der Kasten kommt aus der Maskenauflösung, geschnitten wird aus
+        # dem Quellframe, und nur das Alpha wird hochgezogen — eine weiche Rampe verträgt das.
+        scale = full.shape[1] / frame.shape[1]
+        by0, by1 = int(round(y0 * scale)), int(round(y1 * scale))
+        bx0, bx1 = int(round(x0 * scale)), int(round(x1 * scale))
+        alpha = cv2.resize(a[y0:y1, x0:x1], (bx1 - bx0, by1 - by0), interpolation=cv2.INTER_LINEAR)
+        rgba = np.dstack([full[by0:by1, bx0:bx1], (alpha * 255).astype(np.uint8)])
         cv2.imwrite(str(out_dir / f"{video.stem}_{i:05d}.webp"), rgba,
                     [cv2.IMWRITE_WEBP_QUALITY, 95])
         written += 1
     cap.release()
     return {"video": video.name, "frames": n, "fps": round(fps, 2), "written": written,
             "skipped_thin": skipped_thin, "skipped_duplicate": skipped_dup,
-            "stage_px": int(on.sum()), "tile": [int(x1 - x0), int(y1 - y0)]}
+            "stage_px": int(on.sum()), "tile": [int(x1 - x0), int(y1 - y0)],
+            # In WELCHER Auflösung die Kachel geschnitten wurde. Deklariert, nicht geraten: der
+            # Composite skalierte sie bisher blind um `WORK_SIZE` zurück.
+            "source": [int(cap_w), int(cap_h)]}
 
 
 def _plain(cap: cv2.VideoCapture, n_frames: int, stride: int,
-           size: tuple[int, int]) -> Iterator[np.ndarray]:
+           size: tuple[int, int]) -> Iterator[tuple[np.ndarray, np.ndarray]]:
     for i in range(0, n_frames, stride):
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ok, f = cap.read()
         if ok:
-            yield cv2.resize(f, size, interpolation=cv2.INTER_AREA)
+            yield cv2.resize(f, size, interpolation=cv2.INTER_AREA), f

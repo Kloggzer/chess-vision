@@ -1,5 +1,5 @@
 /**
- * `data/manifests/correction-violations.jsonl` (READ ONLY), from `realgames audit-corrections`:
+ * `data/reports/correction-violations.jsonl` (READ ONLY), from `realgames audit-corrections`:
  * frames whose CORRECTED board breaks a rule occlusion cannot cause. It proves the PAIR is wrong,
  * never which half — a stale FEN with a right correction trips the same wire as the reverse.
  */
@@ -24,7 +24,7 @@ export type CorrectionViolations = {
 };
 
 export function correctionViolationsPath(): string {
-  return path.join(dataDir(), "manifests", "correction-violations.jsonl");
+  return path.join(dataDir(), "reports", "correction-violations.jsonl");
 }
 
 type Cache = Map<string, { key: string; value: CorrectionViolations }>;

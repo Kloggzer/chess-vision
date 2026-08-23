@@ -70,12 +70,14 @@ internal class RecoveryEvaluator(
     var occupancyConflict: Boolean = true,
     var guess: String? = null,
 ) : CnnEvaluator {
+    val observations = mutableListOf<CnnObservation>()
+
     /** 0 keeps every existing test permissive; the blind-glance guard needs a real bar. */
     override var minConfidentBoard: Int = 0
 
     var inconclusive: Boolean = false
 
-    /** What `resync_check` itself names — the occupancy arm must prefer THIS over the deep search. */
+    /** What `resync_check` itself names, for the scenarios that need a named move and its score. */
     var resyncMove: String? = null
     var resyncAgreement: Double = 0.0
 
@@ -97,7 +99,10 @@ internal class RecoveryEvaluator(
     override fun boardMatchesIdentity(
         boardFen: String,
         obs: CnnObservation,
-    ): IdentityResult = IdentityResult(match, inconclusive, conflicts)
+    ): IdentityResult {
+        observations += obs
+        return IdentityResult(match, inconclusive, conflicts)
+    }
 
     override fun deriveMovesDeep(
         boardFen: String,

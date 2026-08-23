@@ -8,6 +8,7 @@ import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.cropSquare
 import com.chesslab.geometry.gridOccludedSquares
+import com.chesslab.geometry.straightenBoard
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.quadOf
@@ -140,7 +141,9 @@ fun probeCrop(args: List<String>) {
     Imgcodecs.imwrite(File(outDir, "warped.png").path, warped)
     Imgcodecs.imwrite(File(outDir, "cell.png").path, cropSquare(warped, square, geometry))
     mesh?.let {
-        Imgcodecs.imwrite(File(outDir, "cell-mesh.png").path, cropSquare(warped, square, geometry, it))
+        val pulled = straightenBoard(warped, it, geometry.boardSize, cropBorderPx(geometry))
+        Imgcodecs.imwrite(File(outDir, "cell-mesh.png").path, cropSquare(pulled, square, geometry))
+        pulled.release()
     }
     File(outDir, "probe.json").writeText(
         "{\"boardSize\":${geometry.boardSize},\"outW\":${geometry.outW},\"outH\":${geometry.outH}," +

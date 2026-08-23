@@ -2,6 +2,8 @@ package com.chesslab.geometry
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
@@ -50,9 +52,10 @@ fun warpFromCorners(
     corners: List<DoubleArray>,
     targetSize: Int? = null,
     dst: Mat? = null,
+    homographyCache: HomographyCache? = null,
 ): Mat {
     val sz = targetSize ?: geom.boardSize
-    val h = computeHomography(corners, geom.boardSize, geom.margin)
+    val h = computeHomography(corners, geom.boardSize, geom.margin, homographyCache)
     if (sz != geom.boardSize) {
         val s = sz.toDouble() / geom.boardSize
         // One read and one write of all nine elements. Element-wise `get`/`put` is 24 JNI
@@ -66,7 +69,9 @@ fun warpFromCorners(
         h.writeH(m)
     }
     val out = dst ?: Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
+    WorkProfiler.span(WorkOperation.DETECTION_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
+    }
     h.release()
     return out
 }
@@ -85,10 +90,11 @@ fun warpBoardForCrops(
     geom: BoardGeometry,
     corners: List<DoubleArray>,
     dst: Mat? = null,
+    homographyCache: HomographyCache? = null,
 ): Mat {
     val bs = geom.boardSize
     val b = cropBorderPx(geom).toDouble()
-    val h = computeHomography(corners, bs, geom.margin)
+    val h = computeHomography(corners, bs, geom.margin, homographyCache)
     // T(b, b) @ H: row0 += b * row2, row1 += b * row2, row2 unchanged. Bulk, for the reason in
     // `warpFromCorners`.
     val m = DoubleArray(H_DIM * H_DIM)
@@ -101,7 +107,9 @@ fun warpBoardForCrops(
     h.writeH(m)
     val side = (bs + 2 * cropBorderPx(geom)).toDouble()
     val out = dst ?: Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    WorkProfiler.span(WorkOperation.CROP_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    }
     h.release()
     return out
 }
@@ -135,7 +143,9 @@ internal fun warpFromCornersPadded(
     h.writeH(m)
     val side = (bs + 2 * pad).toDouble()
     val out = Mat()
-    Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    WorkProfiler.span(WorkOperation.GRID_WARP) {
+        Imgproc.warpPerspective(frame, out, h, Size(side, side))
+    }
     h.release()
     return out
 }

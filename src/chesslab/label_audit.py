@@ -13,7 +13,7 @@ from pathlib import Path
 import chess
 
 from . import config
-from .labeling import all_squares
+from .labeling import all_squares, load_corrections
 
 #: Only the violations OCCLUSION CANNOT CAUSE. A hidden square lowers a count, never raises one, so
 #: "too many" and "pawn on the back rank" stay sound while "no white king" would accuse the hand.
@@ -27,16 +27,6 @@ SOUND = (
 )
 SYMBOL = {"wP": "P", "wN": "N", "wB": "B", "wR": "R", "wQ": "Q", "wK": "K",
           "bP": "p", "bN": "n", "bB": "b", "bR": "r", "bQ": "q", "bK": "k"}
-
-
-def load_corrections(path: Path) -> dict[tuple[str, str, str], str]:
-    """{(session, frame, square): label}, last wins — the same rule `slice` applies."""
-    out: dict[tuple[str, str, str], str] = {}
-    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
-        if line.strip():
-            c = json.loads(line)
-            out[(c["session_id"], str(c["frame"]), c["square"])] = c["label"]
-    return out
 
 
 def board_of(labels: dict[str, str]) -> chess.Board:
@@ -68,7 +58,9 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
     right `fen` and a wrong correction. Which side fell is a look at the crop, not a rule.
     """
     paths = paths or config.DATA
-    corrections = load_corrections(paths.corrections)
+    corrections = {}
+    for d in sorted(paths.recordings.glob("*")) if paths.recordings.exists() else ():
+        load_corrections(d / "corrections.jsonl", corrections)
     squares = all_squares()
     rows: list[dict] = []
     for session_dir in sorted(paths.sessions.glob("*")):

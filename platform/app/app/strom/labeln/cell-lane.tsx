@@ -7,7 +7,7 @@ import { BoardPeek } from "@/components/board-peek";
 import { PaletteRow } from "@/components/palette-row";
 import type { Correction } from "@/lib/corrections";
 import type { StreamSession } from "@/lib/label-stream";
-import { dirtyOnPage } from "@/lib/dirty-frames";
+import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { cellCoverage, type LaneCell } from "@/lib/lanes";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
@@ -22,6 +22,8 @@ export type CellLaneProps = {
   /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
   reported: ReadonlySet<string>;
   onDirty: (cell: LaneCell, on: boolean) => void;
+  /** Der Dirty-Pinsel: die Zellen, deren FRAME als dirty gemeldet werden soll. */
+  onDirtyCells: (cells: LaneCell[]) => void;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
 };
@@ -30,12 +32,16 @@ const TOUCH = "max-sm:h-11 max-sm:px-3";
 const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
 
 /**
- * Die zwei Marken, die keine Klasse sind. OHNE Pinsel heißt der Klick weiter „unsicher" — er
- * schreibt nichts, und die Zelle kommt wieder; `MODEL` schreibt das Wort des Modells.
+ * OHNE Pinsel heißt der Klick weiter „unsicher" — er schreibt nichts, die Zelle kommt wieder;
+ * `MODEL` schreibt das Wort des Modells. `MATTE` ist keine dritte Farbe, sondern eine ZWEITE
+ * ACHSE: Label und Coverage sind unabhängig, also darf eine Zelle korrigiert UND zur Neumessung
+ * gemeldet sein — genau das Paar, das `slice_session` erwartet (dirty + benannte Zelle).
  */
 const UNSURE = "";
 const MODEL = "modell";
-const isClass = (v: string | undefined): v is string => v !== undefined && v !== UNSURE && v !== MODEL;
+const MATTE = DIRTY_BRUSH;
+const isClass = (v: string | undefined): v is string =>
+  v !== undefined && v !== UNSURE && v !== MODEL && v !== MATTE;
 
 /** What one cell of the page carries before it is written: a class, or one of the two non-classes. */
 type Picks = Record<number, string>;
@@ -47,7 +53,8 @@ type Picks = Record<number, string>;
  * class, and one Enter writes the page.
  */
 export function CellLane(props: CellLaneProps) {
-  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, actionsRef, onFlush } = props;
+  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, onDirtyCells, actionsRef, onFlush } =
+    props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
   // sobald der Zeiger nur vorbeizieht. Ohne sie kostet der Hover nichts.
@@ -58,6 +65,8 @@ export function CellLane(props: CellLaneProps) {
   const [trail, setTrail] = useState<string[][]>([]);
   const [cursor, setCursor] = useState(0);
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set<string>());
+  /** Die ZWEITE Achse: das Label gilt der Zelle, die Hand dem Frame — beides zugleich ist erlaubt. */
+  const [remeasure, setRemeasure] = useState<ReadonlySet<string>>(new Set<string>());
   /** Von „zurück" wieder hergeholt: die Zelle steht im Ledger und wird trotzdem noch mal gezeigt. */
   const [revived, setRevived] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
@@ -74,6 +83,13 @@ export function CellLane(props: CellLaneProps) {
   const pages = Math.max(1, Math.ceil(open.length / PAGE));
   const safePage = Math.min(page, pages - 1);
   const slice = useMemo(() => open.slice(safePage * PAGE, safePage * PAGE + PAGE), [open, safePage]);
+  /**
+   * Die Behauptung dieser Seite. Wechselt sie, hält eine Sperre den Strom an: im Rhythmus klickt
+   * man sonst die alte Antwort auf die neue Frage, und das schreibt Labels, die niemand meinte.
+   */
+  const claim = [...new Set(slice.map((c) => c.fen_label))].join(" · ") || "—";
+  const [seen, setSeen] = useState(claim);
+  const shifted = claim !== seen;
 
   // Die nächste Seite wird vorgewärmt, während geurteilt wird: die Crops entstehen serverseitig,
   // und der Umblätter-Moment war die spürbare Wartezeit (User, 2026-08-15). 1-h-Cache trägt sie.
@@ -127,7 +143,7 @@ export function CellLane(props: CellLaneProps) {
    * Zelle bei der nächsten Sitzung wieder, genau die versprochene spätere Aufbereitung.
    */
   const accept = useCallback(async () => {
-    if (slice.length === 0) return;
+    if (slice.length === 0 || shifted) return;
     const taken = slice.filter((_, i) => pick[i] === undefined);
     const writes: Verdict[] = [
       {
@@ -145,11 +161,14 @@ export function CellLane(props: CellLaneProps) {
         ledger: "reviewed",
       },
     ];
+    const wanted = slice.filter((c) => remeasure.has(keyOf(c)));
+    if (wanted.length > 0) onDirtyCells(wanted);
     await onFlush(slice[0].pos, writes, priorOf(slice));
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
+    setRemeasure((r) => new Set([...r].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setTrail((t) => [...t, slice.map(keyOf)]);
     clear();
-  }, [onFlush, pick, priorOf, rows, slice]);
+  }, [onDirtyCells, onFlush, pick, priorOf, remeasure, rows, shifted, slice]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
@@ -176,13 +195,23 @@ export function CellLane(props: CellLaneProps) {
   }, [safePage, trail]);
 
   /** Zweimal dieselbe Farbe nimmt sie wieder ab — der Radierer des Bretts, ohne eigene Taste. */
-  const put = (i: number, label: string) =>
+  const put = (i: number, label: string) => {
+    if (label === MATTE) {
+      const key = keyOf(slice[i]);
+      setRemeasure((r) => {
+        const next = new Set(r);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+      return;
+    }
     setPick((p) => {
       const next = { ...p };
       if (next[i] === label) delete next[i];
       else next[i] = label;
       return next;
     });
+  };
 
   /** Die ganze Seite auf das Wort des Modells; ein zweiter Druck räumt sie wieder ab. Nur Zellen,
    *  die eines HABEN — ohne `exception` schriebe die Marke beim Bestätigen nichts (`accept`). */
@@ -228,6 +257,26 @@ export function CellLane(props: CellLaneProps) {
 
   if (!head) return <p className="text-muted-foreground text-sm">Diese Lane ist abgearbeitet.</p>;
 
+  if (shifted) {
+    return (
+      <div className="border-border bg-muted/30 space-y-3 rounded-lg border p-6 text-sm">
+        <p className="text-muted-foreground">Die Behauptung wechselt.</p>
+        <p className="font-mono text-lg">
+          <span className="text-muted-foreground line-through">FEN {seen}</span>
+          <span className="mx-3">→</span>
+          <span className="bg-background rounded border px-2 py-0.5 font-bold">FEN {claim}</span>
+        </p>
+        <p className="text-muted-foreground">
+          Die nächsten {slice.length} Zellen behaupten etwas anderes als die vorigen. Erst
+          weiterklicken, dann urteilen.
+        </p>
+        <Button autoFocus className={TOUCH} onClick={() => setSeen(claim)} size="sm">
+          verstanden — weiter
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
@@ -243,7 +292,8 @@ export function CellLane(props: CellLaneProps) {
         <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
         <span className="text-muted-foreground">
           {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
-          Rechtsklick = Modell hat recht · 🖐 in der Crop-Ecke meldet das GANZE Frame als dirty
+          Rechtsklick = Modell hat recht · Pinsel 🖐 setzt die Hand auf die ZELLE ·
+          🖐 in der Crop-Ecke meldet das GANZE Frame
         </span>
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void accept()} size="sm">
           ⏎ {counts.taken} bestätigen
@@ -267,6 +317,21 @@ export function CellLane(props: CellLaneProps) {
 
       <div className="flex flex-wrap items-center gap-1">
         <PaletteRow active={brush} onPick={(label) => setBrush((b) => (b === label ? UNSURE : label))} />
+        <button
+          className={`w-11 cursor-pointer rounded border py-0.5 text-center font-mono text-xs max-sm:h-11 ${
+            brush === MATTE
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            setBrush((b) => (b === MATTE ? UNSURE : MATTE));
+          }}
+          title="dirty — Hand drauf. Meldet das Frame, zusätzlich zum Label, kein Ersatz."
+          type="button"
+        >
+          {DIRTY_KEY} <span className="text-sm">🖐</span>
+        </button>
         <Button
           className={TOUCH}
           onClick={(event) => {
@@ -292,7 +357,13 @@ export function CellLane(props: CellLaneProps) {
         </Button>
         <span className="text-muted-foreground ml-auto text-xs">
           Pinsel{" "}
-          <span className="text-foreground font-mono">{brush === UNSURE ? "keiner — Klick = unsicher" : brush}</span>
+          <span className="text-foreground font-mono">
+            {brush === UNSURE
+              ? "keiner — Klick = unsicher"
+              : brush === MATTE
+                ? `dirty — Hand drauf (${remeasure.size} Zellen markiert)`
+                : brush}
+          </span>
         </span>
       </div>
 
@@ -312,11 +383,15 @@ export function CellLane(props: CellLaneProps) {
           caption: cell.caption,
           note: cell.note,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
-          ...(dirty.has(i) ? { dirty: true } : {}),
+          ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),
         }))}
         cursor={cursor}
-        erasing={(i, mode) => pick[i] === (mode === "right" ? MODEL : brush)}
+        erasing={(i, mode) =>
+          brush === MATTE && mode !== "right"
+            ? remeasure.has(keyOf(slice[i]))
+            : pick[i] === (mode === "right" ? MODEL : brush)
+        }
         marked={new Set(slice.flatMap((_, i) => (pick[i] === MODEL ? [i] : [])))}
         onDirty={(i) => onDirty(slice[i], !dirty.has(i))}
         onContextPick={(i) => {

@@ -3,6 +3,8 @@ package com.chesslab.tracker.record
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
@@ -17,7 +19,9 @@ import kotlin.coroutines.CoroutineContext
 private const val TIMELINE_QUEUE = 512
 private val TIMELINE_JSON = Json { encodeDefaults = true }
 
-private sealed interface TimelineEntry
+private sealed interface TimelineEntry {
+    val seq: Long
+}
 
 data class TimelineFrame(
     val sensorTsNs: Long,
@@ -33,7 +37,7 @@ data class TimelineFrame(
 
 @Serializable
 private data class FrameRow(
-    val seq: Long,
+    override val seq: Long,
     val sensorTsNs: Long,
     val elapsedNs: Long,
     val wallTsMs: Long,
@@ -48,7 +52,7 @@ private data class FrameRow(
 
 @Serializable
 private data class EventRow(
-    val seq: Long,
+    override val seq: Long,
     val elapsedNs: Long,
     val wallTsMs: Long,
     val event: String,
@@ -61,7 +65,7 @@ private data class EventRow(
 
 @Serializable
 private data class VideoRow(
-    val seq: Long,
+    override val seq: Long,
     val elapsedNs: Long,
     val durationNs: Long,
     val bytes: Long,
@@ -72,7 +76,7 @@ private data class VideoRow(
 
 @Serializable
 private data class DecisionRow(
-    val seq: Long,
+    override val seq: Long,
     val elapsedNs: Long,
     val engineTsS: Double,
     val ply: Int,
@@ -93,7 +97,7 @@ private data class DecisionRow(
 
 @Serializable
 private data class StateRow(
-    val seq: Long,
+    override val seq: Long,
     val elapsedNs: Long,
     val engineTsS: Double,
     val from: String,
@@ -125,7 +129,9 @@ class SessionTimeline(
                         is DecisionRow -> TIMELINE_JSON.encodeToString(DecisionRow.serializer(), entry)
                         is StateRow -> TIMELINE_JSON.encodeToString(StateRow.serializer(), entry)
                     }
-                file.appendText(text + "\n")
+                WorkProfiler.span(WorkOperation.TIMELINE_WRITE, entry.seq) {
+                    file.appendText(text + "\n")
+                }
             }
         }
     }
@@ -163,7 +169,9 @@ class SessionTimeline(
         final: Boolean,
         error: String?,
     ) {
-        queue.trySend(VideoRow(seq.getAndIncrement(), elapsedNs, durationNs, bytes, final, error))
+        WorkProfiler.span(WorkOperation.VIDEO_PROGRESS, durationNs) {
+            queue.trySend(VideoRow(seq.getAndIncrement(), elapsedNs, durationNs, bytes, final, error))
+        }
     }
 
     fun decision(

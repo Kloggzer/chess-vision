@@ -22,10 +22,12 @@ from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
 from .state import GameState
+from .work_audit import measure, object_revision, record_interval
 
 
 def game_dir(name: str) -> Path:
-    return config.DATA.root / "realgames" / name
+    """The one folder for a recording. `session_id` keeps the `rg-` prefix, the directory never had it."""
+    return config.DATA.recordings / name
 
 
 def load_candidate(name: str) -> dict:
@@ -217,13 +219,23 @@ def base_time(candidate: dict) -> datetime:
         return datetime.now(UTC)
 
 
-def video_path(name: str, candidate: dict) -> Path:
-    """`candidate.video` as the tracker wrote it, resolved from the places it can be relative to."""
-    rel = str(candidate.get("video") or "")
-    for p in (Path(rel), game_dir(name) / rel, config.DATA.root / rel):
-        if rel and p.exists():
+def video_path(name: str) -> Path:
+    """The recording's video HEAD — the file `Recording` expands into its segments.
+
+    Two real shapes, not a fallback: an early recording keeps `video.mp4` at its root, a phone
+    upload keeps the whole raw tree and its video sits in `files/sessions/<id>/`. It must be the
+    file where it really lies — `recording_segments` finds `video-001.mp4` BESIDE the head, so a
+    copy at the root would hide the other 8 parts of a 9-part game and truncate it silently.
+
+    It used to try three paths, all of which missed after the 2026-08-20 rename to
+    `data/recordings/`: 24 of 24 candidates failed at once, because a fallback hides a wrong path
+    until every branch is wrong.
+    """
+    root = game_dir(name)
+    for p in (root / "video.mp4", *sorted(root.glob("files/sessions/*/video.mp4"))):
+        if p.is_file():
             return p
-    raise FileNotFoundError(f"{name}: video not found ({rel!r})")
+    raise FileNotFoundError(f"{name}: no video.mp4 under {root}")
 
 
 #: How far past the FINAL commit its interval may run, in seconds — the whole rule for a ply that
@@ -351,20 +363,18 @@ def _export_row(seg: dict, idx: int, corners: list, base, fps: float,
     return row
 
 
-def corrected_frames(session_id: str) -> set[int]:
-    """Source indices carrying a hand correction a 13-class model can still use.
+def corrected_frames(name: str) -> set[int]:
+    """Source indices this recording carries a hand correction for — a correction names a picture.
 
-    31 271 of 39 996 corrections say `occluded` — the class this pipeline replaces, so they steer
-    nothing. The 8 725 identity ones name a picture, and a picture is a frame index.
+    Reads the recording's own ledger, so there is nothing to filter by session: every row in it
+    is about this recording, and every label in it is an identity (`occluded` was dropped when the
+    scheme went to 13 + coverage).
     """
-    from .config import DATA, IDENTITY_CLASSES
     from .labeling import load_corrections
 
-    out = set()
-    for (sid, frame, _square), label in load_corrections(DATA.corrections).items():
-        if sid == session_id and label in IDENTITY_CLASSES and str(frame).isdigit():
-            out.add(int(frame))
-    return out
+    return {int(frame)
+            for (_sid, frame, _square) in load_corrections(game_dir(name) / "corrections.jsonl")
+            if str(frame).isdigit()}
 
 
 def reported_dirty(session_id: str) -> set[int]:
@@ -378,7 +388,7 @@ def reported_dirty(session_id: str) -> set[int]:
 
     from .config import DATA
 
-    path = DATA.manifests / "review-notes.jsonl"
+    path = DATA.labels / "review-notes.jsonl"
     out = set()
     if not path.exists():
         return out
@@ -390,6 +400,38 @@ def reported_dirty(session_id: str) -> set[int]:
                 and str(row.get("frame", "")).isdigit()):
             out.add(int(row["frame"]))
     return out
+
+
+def adopt_reported_dirty(name: str) -> dict:
+    """Put the hands a human reported into the log NOW, instead of at the next export.
+
+    `plan_scanned` reads the same set, but only a re-export runs it — hours, and it re-plans every
+    frame. The rows here are already stored; marking them `occluded` is what lets the matte RESCUE
+    them (`slice_session`), where a measured coverage on a `clean` row would condemn them instead.
+    """
+    from .labeling import read_session_meta
+    from .sessions import _write_log, backup_log, read_log
+
+    session_dir = game_dir(name)
+    meta = read_session_meta(session_dir)
+    wanted = reported_dirty(meta["session_id"])
+    rows = read_log(session_dir)
+    stamp = datetime.now(UTC).isoformat()
+    changed = []
+    for row in rows:
+        stem = Path(row.get("board") or row["frame"]).stem
+        if not stem.isdigit() or int(stem) not in wanted or row.get("dirty"):
+            continue
+        row["dirty"] = True
+        row["dirty_reason"] = "occluded"
+        row["dirty_source"] = "reported"
+        row["dirty_set_at"] = stamp
+        changed.append(stem)
+    if not changed:
+        return {"reported": len(wanted), "changed": 0, "stems": [], "backup": None}
+    backup = backup_log(session_dir / "log.jsonl")
+    _write_log(session_dir, rows)
+    return {"reported": len(wanted), "changed": len(changed), "stems": changed, "backup": backup}
 
 
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
@@ -408,16 +450,19 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
     rows = []
     for seg in known_segments(candidate):
         reasons = framescan.classify(seg, scan)
+        # Only over a CLEAN verdict. `occluded` claims the FEN still holds, which contradicts a
+        # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
+        # carries the lagging FEN into training. The report answers "the scan missed a hand", the
+        # one thing it cannot see; it does not answer "the position is unchanged".
         for idx in reported:
-            if idx in reasons:
+            if reasons.get(idx) == "clean":
                 reasons[idx] = "occluded"
         clean, dirty = framescan.select(reasons, per_position=per_position,
                                         dirty_per_position=dirty_per_position, prefer=prefer)
-        for idx in clean:
-            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle))
-        for idx in dirty:
-            rows.append(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
-                        | {"dirty": True, "dirty_reason": reasons[idx]})
+        rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                    for idx in clean)
+        rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
+                    | {"dirty": True, "dirty_reason": reasons[idx]} for idx in dirty)
     rows.sort(key=lambda r: r["frame"])
     return rows
 
@@ -700,10 +745,17 @@ BOARD_DIR = "boards"
 #: The dirty pile lives apart so `boards/` is literally the p8 stock — readers follow
 #: `row["board"]`, so a second directory costs them nothing (`docs/frame-scan.md`).
 DIRTY_DIR = "dirty"
+#: SAM 3's alpha per frame, in the BOARD's raster — so it follows the board through everything.
+MATTE_DIR = "mattes"
 BOARD_SUFFIX = ".webp"
-#: What a row says about its board — the file, and the scale its pixels are in (`write_board`).
-BOARD_KEYS = ("board", "board_size", "board_border")
+#: What a row says about its board — the file, the scale its pixels are in (`write_board`), and
+#: whether it has been pulled straight. Popped together whenever a board is rewritten: a fresh
+#: warp is bowed again, and a row that still claimed otherwise would never be straightened.
+BOARD_KEYS = ("board", "board_size", "board_border", "board_straightened")
 BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+#: Lossless (OpenCV switches over at > 100) — a matte carries hand-drawn edges, and `matte-fix.ts`
+#: writes them lossless for that reason. Re-encoding them at 95 would smear what a human drew.
+MATTE_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 101]
 
 
 def board_rel(stem: str, dirty: bool = False) -> str:
@@ -729,58 +781,183 @@ POOL_MIN_ROWS = 32
 SETTLE_CELL_PX = 32
 SETTLE_MIN_FRAMES = 5
 SETTLE_MEDIAN_MAX = 60
+#: Alpha from which a pixel is the hand and not the board — the middle of the range.
+ALPHA_SOLID = 128
+#: What a frame may claim anywhere and still describe the SETTLED position. The reference must be
+#: the board alone; a hand in it would put the hand into the median.
+SETTLE_CLEAR_MAX = 0.02
 
 
-def cell_deviations(cells, median) -> Any:
-    """Mean absolute distance per (frame, cell) from [median] — the settle score, unrounded.
+def alpha_cells(session_dir: Path, stem: str, profile, out) -> Any:
+    """The frame's alpha as 64 cells, the hand-corrected cut first — `None` when none was ever made.
 
-    Split out from the reading so it can be tested on arrays alone: a cell covered in two of seven
-    frames must score high in exactly those two, and its neighbours must not move.
+    Cut with the same `crop_square` the board goes through, so a pixel means the same square in
+    both and `coverage_of`'s number and this mask describe one region.
     """
     import numpy as np
 
-    return np.abs(cells.astype(np.int16) - median).mean(axis=(2, 3, 4))
+    from .labeling import crop_square
+    from .matte import FIXED_SUFFIX
+
+    for name in (f"{stem}{FIXED_SUFFIX}", f"{stem}{BOARD_SUFFIX}"):
+        path = session_dir / MATTE_DIR / name
+        grey = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE) if path.is_file() else None
+        if grey is None:
+            continue
+        board = cv2.cvtColor(grey, cv2.COLOR_GRAY2BGR)
+        return np.stack([crop_square(board, s, profile, out) for s in all_squares()])[..., 0]
+    return None
 
 
-def settle_for_ply(job: tuple[Path, list[dict], object]) -> dict[str, list[float]]:
-    """One ply interval -> `{frame stem: 64 deviations}`, in `all_squares()` order.
+def cell_deviations(cells, ref, visible) -> Any:
+    """Per cell: how far its VISIBLE pixels sit from [ref], and what fraction of them there were.
 
-    Within one interval the position stands still, so the pixel-wise MEDIAN over its boards is the
-    settled position — the same argument `frame_activity` makes for a static recording, applied per
-    cell. A cell that departs from it is occluded, mid-move, or already holds what the next move
-    puts there while the FEN still says otherwise. Only paths cross the process boundary.
+    Both sides are levelled before the difference, because a shadow shifts a cell's brightness
+    while a piece shifts its structure. Raw, the shadow of a player leaning in flagged a2, b3 and
+    b5 on a board nobody had touched (2026-08-22).
     """
     import numpy as np
 
-    from .labeling import all_squares, crop_square, mesh_from_lines
+    weight = visible[..., None].astype(np.float32)
+    px = np.maximum(weight.sum(axis=(1, 2, 3)), 1.0)[:, None, None, None]
 
-    session_dir, rows, profile = job
-    if len(rows) < SETTLE_MIN_FRAMES:
-        return {}
+    def level(x):
+        return x - (x * weight).sum(axis=(1, 2), keepdims=True) / px
+
+    dev = (np.abs(level(cells) - level(ref)) * weight).sum(axis=(1, 2, 3))
+    return dev / (px[:, 0, 0, 0] * cells.shape[-1]), weight.mean(axis=(1, 2, 3))
+
+
+#: Wie viele zusammenhängende Felder eine Änderung höchstens umfasst. Ein Zug berührt ZWEI —
+#: benachbart beim Bauernschritt, sonst zwei Blöcke zu eins; drei am Stück kann kein Zug. Gemessen
+#: 2026-08-22: 89 % der Karten auf Zugfeldern liegen in Blöcken von 1 oder 2, ab 3 fällt die
+#: Trefferquote von 19 % auf 2–4 % und damit auf den Hintergrund.
+MAX_DEPART_BLOCK = 2
+
+
+def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: float,
+               max_block: int = MAX_DEPART_BLOCK) -> Any:
+    """`(frames, 64) -> (frames, 64) bool`: hat dieses Feld die gesetzte Stellung VERLASSEN?
+
+    Drei Zustände je Zelle, denn eine verdeckte Zelle passt nicht zur Referenz — sie ist ungesehen,
+    und als Treffer gezählt würde sie eine Serie beenden, die die Hand nur verdeckt. Verlassen heißt
+    deshalb: ab hier stimmt das Feld nie wieder, und mindestens einmal weicht es messbar ab.
+    """
+    import numpy as np
+
+    covered = np.asarray(cover) >= covered_max
+    blind = ~covered & (np.asarray(seen) < seen_min)
+    known = ~covered & ~blind
+    gone = known & (np.asarray(dev) >= limit)
+    home = known & ~gone
+
+    left = blind.copy()
+    for c in range(left.shape[1]):
+        at = np.flatnonzero(home[:, c])
+        start = int(at[-1]) + 1 if len(at) else 0
+        if start < left.shape[0] and gone[start:, c].any():
+            left[start:, c] = True
+    left &= ~covered
+    # Form statt Menge: ein Schatten deckt einen zusammenhängenden Block, ein Zug zwei Felder.
+    # `all_squares()` läuft reihenweise ab a1, also ist die 8x8-Sicht das Brett selbst.
+    for f in range(left.shape[0]):
+        block = left[f].reshape(8, 8)
+        n, lab, stats, _c = cv2.connectedComponentsWithStats(block.astype(np.uint8),
+                                                             connectivity=4)
+        big = [c for c in range(1, n) if stats[c, cv2.CC_STAT_AREA] > max_block]
+        if big:
+            block[np.isin(lab, big)] = False
+    # Verdeckte Zellen sind das Occlusion-Ziel: ihre Coverage nimmt sie schon aus dem
+    # Klassifikations-Loss, als "verlassen" gemeldet würden sie stattdessen weggeworfen.
+    return left
+
+
+def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
+    """One ply interval -> its settled board, the per-cell measurement, and the VERDICT per frame.
+
+    Within one interval the position stands still, so the pixel-wise median over the boards whose
+    ALPHA is empty is the settled position. Every frame is read against it on the pixels its own
+    alpha calls board, and `departures` then adds the time axis: a shadow passes, a move stays.
+    Only paths cross the process boundary.
+    """
+    import numpy as np
+
+    from .labeling import MATTE_DIRTY, SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares, crop_square
+
+    session_dir, rows, profile, mattes = job
+    rows = sorted(rows, key=lambda r: r["frame"])
     squares = all_squares()
     out = (SETTLE_CELL_PX, SETTLE_CELL_PX)
+    stems = [Path(r["frame"]).stem for r in rows]
 
-    def cells_of(row):
+    # Ein Frame wird EINMAL gelesen: die Referenz-Frames sind Teil der Reihe und wurden vorher
+    # zweimal dekodiert und 64-fach geschnitten.
+    cells = {}
+    for row, stem in zip(rows, stems, strict=True):
         board = cv2.imread(str(session_dir / row["board"]))
-        if board is None:
-            return None
-        mesh = mesh_from_lines(row.get("grid_lines"))
-        return np.stack([crop_square(board, s, profile, out, mesh) for s in squares])
+        if board is not None:
+            cells[stem] = np.stack([crop_square(board, s, profile, out) for s in squares]).astype(np.float32)
 
-    step = max(1, len(rows) // SETTLE_MEDIAN_MAX)
-    reference = [c for c in (cells_of(r) for r in rows[::step]) if c is not None]
+    clear = [s for s in stems if s in cells
+             and max((mattes.get(s) or {}).values(), default=0.0) <= SETTLE_CLEAR_MAX]
+    step = max(1, len(clear) // SETTLE_MEDIAN_MAX)
+    reference = [cells[s] for s in clear[::step]]
     if len(reference) < SETTLE_MIN_FRAMES:
         return {}
-    median = np.median(np.stack(reference).astype(np.int16), axis=0)
+    ref = np.median(np.stack(reference), axis=0)
 
-    scores = {}
-    for row in rows:
-        cells = cells_of(row)
-        if cells is None:
+    seen_stems, devs, seens, covers = [], [], [], []
+    for stem in stems:
+        if stem not in cells:
             continue
-        dev = cell_deviations(cells[None, ...], median)[0]
-        scores[Path(row["frame"]).stem] = [round(float(v), 2) for v in dev]
-    return scores
+        alpha = alpha_cells(session_dir, stem, profile, out)
+        visible = np.ones(cells[stem].shape[:3], bool) if alpha is None else alpha < ALPHA_SOLID
+        dev, seen = cell_deviations(cells[stem], ref, visible)
+        cover = mattes.get(stem) or {}
+        seen_stems.append(stem)
+        devs.append(dev)
+        seens.append(seen)
+        covers.append([cover.get(sq, 0.0) for sq in squares])
+
+    left = departures(np.array(devs), np.array(seens), np.array(covers),
+                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=MATTE_DIRTY)
+    scores = {stem: {"dev": [round(float(v), 2) for v in devs[i]],
+                     "seen": [round(float(v), 3) for v in seens[i]],
+                     "left": [squares[c] for c in np.flatnonzero(left[i])]}
+              for i, stem in enumerate(seen_stems)}
+    return {"ref": ref.astype(np.uint8), "scores": scores}
+
+
+#: Per session, one row per ply: did the move that opened this interval show up on the board?
+INTERVAL_FILE = "interval-check.jsonl"
+#: How far two neighbouring settled boards must differ on the squares the move between them
+#: touched. Measured over 177 neighbour pairs: the committed move shows at a median of 33 to 49,
+#: and 16 pairs stayed under 15 — those are the intervals whose commit nobody can vouch for.
+INTERVAL_MOVE_MIN = 15.0
+
+
+def interval_moves(refs: dict[int, Any], fens: dict[int, str]) -> list[dict]:
+    """Per ply: is the move that OPENED this interval visible between its settled board and the
+    one before it, on exactly the squares the move touched?
+
+    A commit in the wrong place hangs a FEN on pixels that never showed it, and nothing downstream
+    notices: every frame of the interval then agrees with a reference that is already wrong. This
+    is the only test that looks across an interval boundary.
+    """
+    import numpy as np
+
+    squares = all_squares()
+    out = []
+    for ply in sorted(refs):
+        moved = changed_squares(fens.get(ply - 1), fens.get(ply)) if ply - 1 in refs else []
+        if not moved:
+            continue
+        now = refs[ply].astype(np.float32)
+        dev, _ = cell_deviations(now, refs[ply - 1].astype(np.float32), np.ones(now.shape[:3], bool))
+        worst = max(float(dev[squares.index(sq)]) for sq in moved)
+        out.append({"ply": ply, "moved": moved, "dev": round(worst, 2),
+                    "seen": worst >= INTERVAL_MOVE_MIN})
+    return out
 
 
 def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
@@ -793,7 +970,7 @@ def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
 
 
 def write_board(session_dir: Path, stem: str, frame, corners, profile,
-                dirty: bool = False) -> dict:
+                dirty: bool = False, mesh=None, lens=None) -> dict:
     """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two agree only
     while `pad_up == 0`, and the store has to be the crop's raster under any profile.
 
@@ -807,8 +984,107 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     rel = board_rel(stem, dirty)
     out = session_dir / rel
     out.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners), BOARD_ENCODE)
-    return {"board": rel, "board_size": int(profile.board_size), "board_border": crop_border_px(profile)}
+    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners, mesh, lens), BOARD_ENCODE)
+    keys = {"board": rel, "board_size": int(profile.board_size),
+            "board_border": crop_border_px(profile)}
+    return keys if mesh is None else {**keys, "board_straightened": True}
+
+
+def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
+    """{frame index: the mesh its board must be straightened with} — ONE mesh for the recording.
+
+    The camera does not move inside a recording, so every line sits where it sits and a per-frame
+    mesh can only add noise. It adds a lot: the middle lines hold still to +-0.4 px over a session
+    while the back-rank ones scatter by 3.8-4.6 px (2026-08-22, over 833 and 363 frames), because
+    pieces stand ON those grooves in every frame and move the line the fit finds. The per-line
+    MEDIAN over the clean frames is the same measurement without that jitter — and it keeps a real
+    lens bow, which is constant across frames (turntable `2026-08-09 20-48-50`: a smooth +-0.03
+    ramp, 8.5 px, survives the median unchanged).
+
+    A frame whose grid a HAND covers never contributes: its mesh leaves the board worse than no
+    mesh at all (measured 2026-08-21: 15.6 px against 16.1 raw).
+    """
+    from .calibration import mesh_from_lines, pooled_mesh, smooth_mesh_curvature
+
+    clean = [smooth_mesh_curvature(mesh_from_lines(r["grid_lines"]))
+             for r in rows if r.get("grid_lines") and not r.get("hand_squares")]
+    session = pooled_mesh([m for m in clean if m is not None])
+    return {int(Path(row["frame"]).stem): session for row in rows}
+
+
+#: How often `straighten_boards` asks its caller to persist the rows. The write is the destructive
+#: half and the flag is the only record of it — a run that dies between them leaves boards straight
+#: on disk that a later run would pull a SECOND time.
+STRAIGHTEN_CHECKPOINT = 50
+
+
+def rewarp_boards(session_dir: Path, rows: list[dict], profile, *,
+                  frames: Iterator[tuple[dict, Any]], lens=None) -> dict:
+    """Write every board FROM ITS FRAME, straight, in one resample.
+
+    The export's second pass and the retrofit for a store whose video still exists. `straighten_boards`
+    exists for the other case — a store with no frames left — and pays a second resample for it
+    (+57 % Laplacian energy in the finished crop separates the two, measured 2026-08-21).
+    """
+    meshes = meshes_for_boards(rows)
+    done = {"rewarped": 0, "no_mesh": 0, "no_frame": 0}
+    for row, frame in frames:
+        if frame is None:
+            done["no_frame"] += 1
+            continue
+        mesh = meshes.get(int(Path(row["frame"]).stem))
+        done["no_mesh"] += mesh is None
+        for key in BOARD_KEYS:
+            row.pop(key, None)
+        row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
+                               profile, bool(row.get("dirty")), mesh, lens))
+        done["rewarped"] += 1
+    return done
+
+
+def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> dict:
+    """Pull every stored board straight, once, so every cut afterwards is a plain rectangle.
+
+    This is the ONLY straightening in the pipeline: a board carrying `board_straightened` must
+    never be pulled again, and `crop_square` must never be handed a mesh for one. Rows whose board
+    is missing, or for which no mesh could be found at all, are counted and left alone — a raw
+    board is worse than a straight one but honest, a twice-corrected one is neither.
+
+    `checkpoint()`: persist the rows so far. Called every `STRAIGHTEN_CHECKPOINT` boards, because
+    the flag is the ONLY thing standing between a killed run and a twice-corrected store.
+    """
+    from .calibration import straighten_board
+
+    meshes = meshes_for_boards(rows)
+    done = {"straightened": 0, "already": 0, "no_mesh": 0, "no_board": 0, "mattes": 0}
+    for row in rows:
+        if row.get("board_straightened"):
+            done["already"] += 1
+            continue
+        rel = row.get("board")
+        board = None if not rel else cv2.imread(str(session_dir / rel))
+        if board is None:
+            done["no_board"] += 1
+            continue
+        mesh = meshes.get(int(Path(row["frame"]).stem))
+        if mesh is None:
+            done["no_mesh"] += 1
+            continue
+        bs, border = int(row["board_size"]), int(row["board_border"])
+        cv2.imwrite(str(session_dir / rel), straighten_board(board, mesh, bs, border), BOARD_ENCODE)
+        # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
+        # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
+        # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
+        for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")):
+            alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
+            if alpha is not None:
+                cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border), MATTE_ENCODE)
+                done["mattes"] += 1
+        row["board_straightened"] = True
+        done["straightened"] += 1
+        if checkpoint is not None and done["straightened"] % STRAIGHTEN_CHECKPOINT == 0:
+            checkpoint()
+    return done
 
 
 def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator[tuple[dict, Any]]:
@@ -832,12 +1108,23 @@ def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator
                 break
 
 
-def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
-                     frames: Iterator[tuple[dict, Any]] | None = None) -> dict:
+def disk_frames(session_dir: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
+    """(row, frame) read from `frames/NNNNNN.png` — the source for a set the video cannot make.
+
+    The sibling of `stream_frames`. Undistorted frames are Kotlin's output and a re-decode of the
+    raw video would produce a different picture, so those rows come off the disk; everything else
+    streams. One exporter, two sources, chosen by the caller.
+    """
+    for row in rows:
+        yield row, cv2.imread(str(session_dir / row["frame"]))
+
+
+def fit_rows_to_grid(rows: list[dict], profile, *,
+                     frames: Iterator[tuple[dict, Any]]) -> dict:
     """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
 
-    `frames`: (row, picture) pairs from `stream_frames`; without it every row is read from
-    `frames/`, the path a session predating the board store takes.
+    `frames`: (row, picture) pairs — `stream_frames` or `disk_frames`. Required: which pictures
+    to fit is the caller's decision, not a fallback guessed at here.
 
     The candidate carries one median quad for the whole video, and a median is not a measurement
     of any single frame: rg-2026-08-13-19-34-23 went out with all 137 frames uniformly ~17 px off
@@ -856,10 +1143,9 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
     from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
-    worsts, meshed, hands, boards, late = [], 0, 0, 0, 0
+    worsts, meshed, hands, late = [], 0, 0, 0
     pad = crop_border_px(profile)
-    pairs = frames if frames is not None else (
-        (row, cv2.imread(str(session_dir / row["frame"]))) for row in rows)
+    pairs = frames
     seen = []
     for done, (row, frame) in enumerate(pairs, 1):
         seen.append(row)
@@ -902,13 +1188,10 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
                 # disagrees. Rare, and a hand in the clean pool costs more than a missing slot.
                 row["dirty"], row["dirty_reason"] = True, "grid-late"
                 late += 1
-        # The quad is final HERE, so this is the only place the stored board can be cut from it.
+        # No board here any more: it is warped STRAIGHT in `rewarp_boards`, and the mesh a hand
+        # frame needs comes from its clean neighbours — none of them known until every row is read.
         for key in BOARD_KEYS:
             row.pop(key, None)
-        if frame is not None:
-            row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
-                                   profile, bool(row.get("dirty"))))
-            boards += 1
         worst = after if quad is not None else before
         source = FIT_SOURCE if quad is not None else (FIT_KEPT if worst == worst else FIT_FAILED)
         row["corners_source"] = source
@@ -922,7 +1205,6 @@ def fit_rows_to_grid(session_dir: Path, rows: list[dict], profile, *,
         "mesh": meshed,
         "hands": hands,
         "late": late,
-        "boards": boards,
         "arrived": seen,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
@@ -938,12 +1220,14 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
     if (session_dir / "log.jsonl").is_file():
         print(f"  previous log backed up as {backup_log(session_dir / 'log.jsonl')}")
     meta = {
-        "session_id": session_dir.name,
+        # The id keeps the `rg-` prefix the DIRECTORY dropped: it is the join key in every
+        # manifest and in `sessions.session_dir`, so it must not follow the folder rename.
+        "session_id": f"rg-{session_dir.name}",
         "profile": EXPORT_PROFILE,
         "mode": "track",
         "created_at": base_time(candidate).isoformat(),
         "frame_size": [int(v) for v in candidate["geometry"]["frame_size"]],
-        "notes": f"exported from data/realgames/{name} (specs/53-01)",
+        "notes": f"exported from data/recordings/{name} (specs/53-01)",
         "reviewed": True,
     }
     session_dir.mkdir(parents=True, exist_ok=True)
@@ -997,7 +1281,7 @@ def export_session(
     fit: bool = True,
     report_only: bool = False,
 ) -> dict:
-    """A confirmed candidate becomes `data/sessions/rg-<name>/`, and reports what it is worth."""
+    """A confirmed candidate is cut into its own `data/recordings/<name>/`, and reports its worth."""
     from . import framescan
 
     if is_archived(name):
@@ -1015,18 +1299,18 @@ def export_session(
         # measurement silently returned nothing. Commit frames are quiet, so they probe cleanly.
         ensure_export_profile(EXPORT_PROFILE, candidate)
         rotation = detect_rotation(
-            video_path(name, candidate), candidate, {int(m["frame"]) for m in candidate["moves"]}
+            video_path(name), candidate, {int(m["frame"]) for m in candidate["moves"]}
         )
         if rotation is not None:
             names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
             print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
     if measure and not report_only:
-        settle = measure_settle(video_path(name, candidate), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
+        settle = measure_settle(video_path(name), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     scan = framescan.read_scan(name)
     if scan:
-        prefer = corrected_frames(f"rg-{name}")
+        prefer = corrected_frames(name)
         reported = reported_dirty(f"rg-{name}")
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
                             per_position=per_position or 8, dirty_per_position=dirty_per_position,
@@ -1048,7 +1332,7 @@ def export_session(
                 f"{name}: confirmed, but not one ply is reviewed — re-run the confirmation "
                 f"(its {len(candidate['moves'])} moves have nothing vouching for them)")
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
-    session_dir = config.DATA.sessions / f"rg-{name}"
+    session_dir = game_dir(name)
     if not report_only:
         # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
         # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
@@ -1056,7 +1340,7 @@ def export_session(
         on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
         if on_disk:
             arrived = decode_frames(
-                video_path(name, candidate),
+                video_path(name),
                 {int(Path(r["frame"]).stem) for r in rows},
                 session_dir / "frames",
                 rotate=rotation,
@@ -1080,8 +1364,9 @@ def export_session(
             # Last, so the fit starts from the best quad this export knows — a carried repair or
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
             stats = fit_rows_to_grid(
-                session_dir, rows, load_profile(EXPORT_PROFILE),
-                frames=None if on_disk else stream_frames(video_path(name, candidate), rows, rotation))
+                rows, load_profile(EXPORT_PROFILE),
+                frames=(disk_frames(session_dir, rows) if on_disk
+                        else stream_frames(video_path(name), rows, rotation)))
             # What the decoder actually handed over — a row past the end of a truncated recording
             # has no picture, and carrying it would name a board that was never written.
             rows = stats["arrived"]
@@ -1089,6 +1374,15 @@ def export_session(
                   f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
                   f"align_worst_px median {stats['median']}, max {stats['max']}, "
                   f"mesh on {stats['mesh']}, hands on {stats['hands']}")
+            # A SECOND pass over the video, because a board can only be warped straight once the
+            # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
+            # minute; warping first and correcting after costs 57 % of the crop's detail.
+            made = rewarp_boards(
+                session_dir, rows, load_profile(EXPORT_PROFILE),
+                frames=(disk_frames(session_dir, rows) if on_disk
+                        else stream_frames(video_path(name), rows, rotation)))
+            print(f"  boards warped straight: {made['rewarped']}, "
+                  f"{made['no_mesh']} left bowed for want of any mesh")
         write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
@@ -1101,44 +1395,8 @@ def export_session(
     }
 
 
-#: The position a hand-only recording is filmed in unless another one is given.
-START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-#: Pseudo-interval length for a static recording, in seconds. The producer's `quiet_pool` reaches
-#: SPAN intervals either way, so this only has to be short enough that a hand does not fill one.
-STATIC_INTERVAL_S = 2.0
-#: Static recordings get their own profile — their quad is measured, not taken from a candidate.
-STATIC_PROFILE = "static"
-#: Marker centres are NOT the playing field's corners — the printed border with the rank and file
-#: labels sits between them. Every real-game candidate from this rig records 0.045, and 0.0 puts
-#: that border inside the 64 cells: the crops then straddle the edge and the outer rank reads the
-#: letters. Found by the user on the first static probe (2026-08-09).
-STATIC_MARGIN = 0.045
-
-
-def frame_activity(frames: list[Path], *, width: int = 240) -> dict[int, float]:
-    """Per frame: how far it sits from the recording's own pixel-wise median, mean absolute.
-
-    On a board that never changes, the median IS the clean board — a hand covers a minority of the
-    pixels in a minority of the frames, and the median ignores both. That makes "is a hand in this
-    frame" a MEASUREMENT rather than a declaration, which is the whole advantage of a static
-    recording over a game: no margin around a commit has to stand in for it.
-    """
-    import numpy as np
-
-    small = []
-    for path in frames:
-        img = cv2.imread(str(path))
-        if img is None:
-            raise FileNotFoundError(f"frame not readable: {path}")
-        height = max(1, round(width * img.shape[0] / img.shape[1]))
-        small.append(cv2.resize(img, (width, height)).astype(np.int16))
-    stack = np.stack(small)
-    deviation = np.abs(stack - np.median(stack, axis=0)).mean(axis=(1, 2, 3))
-    return {int(p.stem): float(d) for p, d in zip(frames, deviation, strict=True)}
-
-
 def static_quad(frames: list[Path], profile) -> list[list[float]]:
-    """The board quad of a static recording: the per-corner MEDIAN over the frames.
+    """The board quad of an UNDISTORTED frame set: the per-corner MEDIAN over the frames.
 
     A single frame's quad is hostage to whichever marker the hand happens to cover; the median over
     the whole recording is not. Measured on the FRAMES, never on the source video — they are
@@ -1162,116 +1420,6 @@ def static_quad(frames: list[Path], profile) -> list[list[float]]:
     median = np.median(np.array(seen, dtype=float), axis=0)
     print(f"  quad from {len(seen)}/{len(frames)} frames (per-corner median)")
     return [[float(x), float(y)] for x, y in median]
-
-
-def ensure_static_profile(profile: str, quad: list[list[float]], frame_size, board_size: int,
-                          margin: float) -> Path:
-    """The profile a static recording's crops are cut through — same shape as the game exporter's.
-
-    `pad_side` and `out_size` are the crop pool's, not `CropParams.default`'s: these crops JOIN the
-    pool, and a harness that invents profile fields is a silent domain shift (CLAUDE.md, the
-    `ClipDriver` incident).
-    """
-    from .calibration import CalibrationProfile, CropParams, compute_homography, profile_path
-
-    path = profile_path(profile)
-    if path.exists():
-        return path
-    prof = CalibrationProfile(
-        profile=profile,
-        camera_index=-1,
-        frame_size=(int(frame_size[0]), int(frame_size[1])),
-        board_size=board_size,
-        image_corners=[[float(x), float(y)] for x, y in quad],
-        homography=compute_homography(quad, board_size, margin),
-        white_pov=True,
-        crop=CropParams(
-            cell=board_size / 8.0,
-            pad_up=0.0,
-            pad_side=config.CROP.pad_side,
-            out_size=(config.CROP.out_w, config.CROP.out_h),
-        ),
-        margin=margin,
-        source=f"static:{profile}",
-    )
-    print(f"[OK] calibration profile '{profile}' created from the measured quad ({path})")
-    return prof.save(path)
-
-
-def _detect_profile(frame_size, board_size: int):
-    """An in-memory profile for MARKER DETECTION only — never saved, never used for a warp."""
-    from .calibration import CalibrationProfile, CropParams, compute_homography
-
-    unit = [[0.0, 0.0], [float(frame_size[0]), 0.0],
-            [float(frame_size[0]), float(frame_size[1])], [0.0, float(frame_size[1])]]
-    return CalibrationProfile(
-        profile="__detect__", camera_index=-1,
-        frame_size=(int(frame_size[0]), int(frame_size[1])), board_size=board_size,
-        image_corners=unit, homography=compute_homography(unit, board_size, 0.0),
-        white_pov=True, crop=CropParams(cell=board_size / 8.0, pad_up=0.0,
-                                        pad_side=config.CROP.pad_side,
-                                        out_size=(config.CROP.out_w, config.CROP.out_h)),
-        margin=0.0, source="detect-only",
-    )
-
-
-def export_static(
-    name: str, *, fen: str = START_FEN, fps: float = 30.0, quiet_frac: float = 0.35,
-    board_size: int = 928, margin: float = STATIC_MARGIN, report_only: bool = False,
-) -> dict:
-    """A hand-over-a-standing-position recording becomes a session, with no game to confirm.
-
-    The position never changes, so every square's label is known for every frame — no PGN, no
-    commit timeline, and none of the pre-commit doubt `unknown_squares` exists for. What DOES have
-    to be found is where the hand is, and on a static board that is measurable: `frame_activity`
-    against the recording's own pixel median. The calm frames become the producer's quiet pool, the
-    rest its dirty rows, and pseudo-intervals of [STATIC_INTERVAL_S] give `quiet_pool` the
-    neighbours it reaches for.
-
-    Frames must already be on disk and UNDISTORTED (`:desktop undistort`), which is why nothing
-    here opens the video.
-    """
-    import numpy as np
-
-    session_dir = config.DATA.sessions / f"rg-{name}"
-    frames_dir = session_dir / "frames"
-    frames = sorted(frames_dir.glob("[0-9]*.png"))
-    if not frames:
-        raise FileNotFoundError(f"no frames in {frames_dir} — run `:desktop undistort` first")
-    if not (frames_dir / "lens.json").is_file():
-        raise ValueError(f"{frames_dir} carries no lens.json — these frames were not undistorted")
-    first = cv2.imread(str(frames[0]))
-    frame_size = (first.shape[1], first.shape[0])
-
-    # Measure FIRST, save SECOND. The detector needs a profile for the marker dictionary and the
-    # board size only, so it gets a throwaway one; saving a profile before the quad is known would
-    # persist a placeholder homography that every later `load_profile` would believe.
-    quad = static_quad(frames, _detect_profile(frame_size, board_size))
-    prof_path = ensure_static_profile(STATIC_PROFILE, quad, frame_size, board_size, margin)
-    activity = frame_activity(frames)
-    cut = float(np.quantile(list(activity.values()), quiet_frac))
-    span = max(1, int(round(STATIC_INTERVAL_S * fps)))
-    base = datetime.now(UTC)
-    rows = [
-        {
-            "frame": f"frames/{p.name}",
-            "ply": int(p.stem) // span,
-            "fen": fen,
-            "ts": (base + timedelta(seconds=int(p.stem) / fps)).isoformat(),
-            "corners": quad,
-            "corners_source": "static-export",
-            **({} if activity[int(p.stem)] <= cut else {"dirty": True}),
-        }
-        for p in frames
-    ]
-    quiet = sum(1 for r in rows if not r.get("dirty"))
-    print(f"  {len(rows)} rows over {1 + max(r['ply'] for r in rows)} pseudo-intervals: "
-          f"{quiet} quiet (activity <= {cut:.1f}), {len(rows) - quiet} dirty")
-    if not report_only:
-        candidate = {"geometry": {"frame_size": list(frame_size)}, "video": f"static/{name}",
-                     "created_at": base.isoformat()}
-        write_session(session_dir, name, candidate, rows)
-    return {"session_dir": session_dir, "rows": rows, "profile": prof_path, "quiet": quiet}
 
 
 #: How far back a commit's settle point is looked for, and how far ahead the "after" anchor sits.
@@ -1303,9 +1451,11 @@ def measure_settle(video: Path, candidate: dict, profile,
 
     quad = candidate["geometry"]["corners"]
     squares = all_squares()
+    square_index = {square: i for i, square in enumerate(squares)}
     moves = candidate["moves"]
     recording = Recording(video)
     out: dict[int, dict[str, int]] = {}
+    jobs = []
     for i, move in enumerate(moves):
         before = moves[i - 1].get("fen_after") if i else candidate.get("start_fen")
         touched = changed_squares(before, move.get("fen_after"))
@@ -1313,28 +1463,52 @@ def measure_settle(video: Path, candidate: dict, profile,
         if not touched or commit < SETTLE_BACK:
             continue
         lo, hi = commit - SETTLE_BACK, commit + SETTLE_AHEAD
-        cells = {}
-        with closing(recording.frames(lo)) as stream:
+        record_interval("settle windows", video.resolve(), lo, hi)
+        jobs.append({"move": move, "touched": touched, "commit": commit, "lo": lo, "hi": hi})
+
+    clusters: list[list[dict]] = []
+    for job in sorted(jobs, key=lambda item: item["lo"]):
+        if not clusters or job["lo"] > max(item["hi"] for item in clusters[-1]) + 1:
+            clusters.append([job])
+        else:
+            clusters[-1].append(job)
+
+    for cluster in clusters:
+        cluster_lo = min(job["lo"] for job in cluster)
+        cluster_hi = max(job["hi"] for job in cluster)
+        record_interval("video frames", video.resolve(), cluster_lo, cluster_hi)
+        cells: dict[int, dict[str, Any]] = {}
+        with closing(recording.frames(cluster_lo)) as stream:
             for idx, frame in stream:
                 if rotate is not None:
                     frame = cv2.rotate(frame, rotate)
-                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
-                cells[idx] = {sq: crops[squares.index(sq)].astype(np.int16) for sq in touched}
-                if idx >= hi:
-                    break
-        if lo not in cells or hi not in cells:
-            continue
-        for sq in touched:
-            pre, post = cells[lo][sq], cells[hi][sq]
-            if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
-                continue
-            for f in range(hi, lo - 1, -1):
-                cell = cells.get(f)
-                if cell is None:
+                active = set().union(*(job["touched"] for job in cluster
+                                       if job["lo"] <= idx <= job["hi"]))
+                if not active:
+                    if idx >= cluster_hi:
+                        break
                     continue
-                if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
-                    out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
+                cells[idx] = {sq: crops[square_index[sq]].astype(np.int16) for sq in active}
+                if idx >= cluster_hi:
                     break
+
+        for job in cluster:
+            move, touched = job["move"], job["touched"]
+            commit, lo, hi = job["commit"], job["lo"], job["hi"]
+            if lo not in cells or hi not in cells:
+                continue
+            for sq in touched:
+                pre, post = cells[lo][sq], cells[hi][sq]
+                if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+                    continue
+                for f in range(hi, lo - 1, -1):
+                    cell = cells.get(f)
+                    if cell is None:
+                        continue
+                    if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
+                        out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                        break
     return out
 
 
@@ -1449,7 +1623,16 @@ def _curved_axes(lines, curls, pad: int, board_size: int) -> dict | None:
     return {"x": fold[0], "y": fold[1], "cx": curv[0], "cy": curv[1]} if ok else None
 
 
-def grid_line_fracs(image, quad, board_size: int, profile=None) -> dict | None:
+def grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
+    """Audit-aware entry point for the board's 18 measured grid lines."""
+    quad_key = tuple(round(float(v), 4) for point in quad for v in point)
+    key = (object_revision(image), tuple(image.shape), quad_key, int(board_size),
+           getattr(profile, "profile", None), id(lens) if lens is not None else None)
+    with measure("grid sweeps", key, processed_bytes=getattr(image, "nbytes", 0)):
+        return _grid_line_fracs(image, quad, board_size, profile=profile, lens=lens)
+
+
+def _grid_line_fracs(image, quad, board_size: int, profile=None, lens=None) -> dict | None:
     """The 18 measured lines as fractions of the field side, or None unless ALL are located.
 
     Per line: offset at the board's centre, dimensionless tilt, and — when every line's bands
@@ -1463,7 +1646,7 @@ def grid_line_fracs(image, quad, board_size: int, profile=None) -> dict | None:
 
     if profile is None:
         profile = _field_profile(quad, (image.shape[1], image.shape[0]), board_size)
-    warped, pad = warp_for_grid(image, profile, quad)
+    warped, pad = warp_for_grid(image, profile, quad, lens=lens)
     lines, curls = grid_lines_with_curvature(warped, board_size, pad=pad)
     if any(line is None for axis in lines for line in axis):
         return None
@@ -1559,7 +1742,7 @@ def fit_stored(name: str) -> list[dict]:
 
 
 def bundles_with_stored() -> list[str]:
-    root = config.DATA.root / "realgames"
+    root = config.DATA.recordings
     return sorted(d.name for d in root.iterdir() if stored_session_dirs(d.name)) if root.is_dir() else []
 
 

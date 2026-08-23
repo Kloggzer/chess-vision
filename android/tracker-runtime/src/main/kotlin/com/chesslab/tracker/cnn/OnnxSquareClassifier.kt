@@ -7,6 +7,8 @@ import com.chesslab.cnn.preprocessInto
 import com.chesslab.cnn.sigmoid
 import com.chesslab.cnn.softmax
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.tracker.settings.EpRequest
 import java.io.File
 import java.nio.ByteBuffer
@@ -202,12 +204,15 @@ class OnnxSquareClassifier internal constructor(
 
     override fun classify(crops: List<BgrImage>): Array<FloatArray> {
         require(crops.size == batch) { "expected $batch crops, got ${crops.size}" }
-        preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std, spec.perCrop, spec.repr)
-        input.clear()
-        input.put(staging)
-        input.flip()
+        WorkProfiler.span(WorkOperation.CNN_PREPROCESS) {
+            preprocessInto(crops, spec.outWidth, spec.outHeight, staging, spec.mean, spec.std, spec.perCrop, spec.repr)
+            input.clear()
+            input.put(staging)
+            input.flip()
+            WorkProfiler.bytes(WorkOperation.CNN_PREPROCESS, staging.size.toLong() * FLOAT_BYTES)
+        }
         val started = System.nanoTime()
-        val logits = runner.run(input, shape)
+        val logits = WorkProfiler.span(WorkOperation.CNN_INFERENCE) { runner.run(input, shape) }
         lastRunMs = (System.nanoTime() - started) / NANOS_PER_MS
         val classCount = spec.classes.size
         val width = spec.outputWidth

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
+import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
@@ -51,5 +52,25 @@ class CropsTest {
         val crop = cropSquare(bordered, "d4", degenerate)
         assertEquals(128, crop.width())
         assertEquals(128, crop.height())
+    }
+
+    @Test
+    fun `sequential scratch cropper is pixel-identical for every square`() {
+        val geometry = BoardGeometry(boardSize = 640, padSide = 0.05, padUp = 0.25, outW = 80, outH = 80)
+        val bordered = warpBoardForCrops(SyntheticBoard.frame(), geometry, SyntheticBoard.CORNERS)
+        try {
+            SquareCropper().use { cropper ->
+                allSquares().forEach { square ->
+                    val expected = cropSquare(bordered, square, geometry)
+                    try {
+                        assertEquals(0.0, Core.norm(expected, cropper.crop(bordered, square, geometry), Core.NORM_INF), square)
+                    } finally {
+                        expected.release()
+                    }
+                }
+            }
+        } finally {
+            bordered.release()
+        }
     }
 }

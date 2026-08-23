@@ -3,12 +3,15 @@ package com.chesslab.tracker.cnn
 import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.withCropOf
 import com.chesslab.tracker.log.RecordingLog
 import com.chesslab.tracker.pipeline.CropFrameStore
+import com.chesslab.tracker.perf.RecordingWorkProbe
 import com.chesslab.tracker.service.cropFrameSource
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
@@ -52,12 +55,14 @@ class ModelSpecCropSeamTest {
     }
 
     /**
-     * And the same for the models the user can SWITCH to, which is the point of bundling three.
+     * And the same for the models the user can SWITCH to, which is the point of bundling more than one.
      *
      * The switch is only real if the crop size follows it: the selected model's `config.json` is
-     * what `TrackerService` re-reads into `withCropOf` on every geometry write, so picking the
-     * 80 px model and keeping 96 px crops would kill the first observation after the restart. Three
-     * models at three sizes cannot all pass against a constant anywhere in the chain.
+     * what `TrackerService` re-reads into `withCropOf` on every geometry write, so keeping the old
+     * crops would kill the first observation after the restart. Since the 2026-08-20 retirement both
+     * survivors crop at 80 px, so what rules out a constant here is [ASSUMED_SIZE], the geometry
+     * default `withCropOf` must overwrite — `withoutTheModelsSizeTheShippedAssetRefusesTheCrops`
+     * is the other half of that proof.
      */
     @Test
     @EnabledIf(OPENCV_GATE)
@@ -70,8 +75,8 @@ class ModelSpecCropSeamTest {
             }
         assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
         assertTrue(
-            sizes.map { it.second }.distinct().size > 1,
-            "all bundled models crop at the same size, so this cannot show the size following the model: $sizes",
+            sizes.none { it.second == ASSUMED_SIZE },
+            "a bundled model crops at the geometry default, so this cannot show the size following the model: $sizes",
         )
     }
 
@@ -106,8 +111,9 @@ class ModelSpecCropSeamTest {
             val probs = cnn.classify(crops)
             assertEquals(ALL_SQUARES.size, probs.size)
             probs.forEach { row ->
-                assertEquals(spec.classes.size, row.size, "one probability per class of ${spec.classes}")
-                assertTrue(abs(row.sum() - 1.0f) < TOLERANCE, "${dir.name}: row sums to ${row.sum()}")
+                assertEquals(spec.outputWidth, row.size, "classes plus optional coverage output")
+                val classSum = row.take(spec.classes.size).sum()
+                assertTrue(abs(classSum - 1.0f) < TOLERANCE, "${dir.name}: class probabilities sum to $classSum")
             }
         }
         return spec.outWidth
@@ -135,6 +141,37 @@ class ModelSpecCropSeamTest {
                 "the refusal must name the size the model wants, got: ${error.message}",
             )
         }
+    }
+
+    @Test
+    @EnabledIf(OPENCV_GATE)
+    fun coverageModelsDoNotRunTheGridOcclusionFallback() {
+        val store = CropFrameStore()
+        val geom = liveGeometry()
+        val frame = syntheticFrame()
+        val warp = warpBoardForCrops(frame, geom, CORNERS)
+        frame.release()
+        store.update(
+            CropFrameStore.Pending(
+                warp,
+                7L,
+                11L,
+                BgrImage(2, 2, ByteArray(12)),
+                GrayImage(2, 2, ByteArray(4)),
+            ),
+        )
+        val probe = RecordingWorkProbe()
+        val profiling = WorkProfiler.install(probe)
+        val result =
+            try {
+                requireNotNull(cropFrameSource(store, runGridOcclusion = false) { geom }.take())
+            } finally {
+                profiling.close()
+            }
+
+        assertEquals(0L, result.gridOccluded)
+        assertEquals(null, probe.snapshot().operation(WorkOperation.GRID_OCCLUSION))
+        assertEquals(64, result.crops.size)
     }
 
     companion object {

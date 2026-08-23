@@ -65,13 +65,12 @@ internal class VisualObservationCache private constructor(
         out.writeLong(snap.seq)
         out.writeLong(snap.tsMs)
         out.writeLong(snap.gridOccluded)
+        out.writeBoolean(obs.raw != null)
+        val raw = obs.rawObservation()
         for (square in ALL_SQUARES) {
-            out.writeDouble(obs.pOcc.getValue(square))
-            out.writeDouble(obs.pEmpty.getValue(square))
-            out.writeDouble(obs.pOccluded.getValue(square))
-            out.writeUTF(obs.label?.get(square).orEmpty())
-            out.writeDouble(obs.conf?.get(square) ?: 0.0)
-            out.writeDouble(obs.runnerUpConf?.get(square) ?: 1.0)
+            writeSquare(out, obs, square)
+            out.writeDouble(obs.invalidMass(square))
+            if (obs.raw != null) writeSquare(out, raw, square)
         }
         lastSeq = snap.seq
         observations += 1
@@ -118,7 +117,9 @@ internal class VisualObservationCache private constructor(
             DataInputStream(BufferedInputStream(file.inputStream())).use { input ->
                 check(input.readInt() == MAGIC) { "unsupported visual cache ${file.absolutePath}" }
                 val version = input.readInt()
-                check(version == LEGACY_VERSION || version == VERSION) { "unsupported visual cache ${file.absolutePath}" }
+                check(version == LEGACY_VERSION || version == PRIORLESS_VERSION || version == VERSION) {
+                    "unsupported visual cache ${file.absolutePath}"
+                }
                 check(input.readUTF() == video.canonicalPath) { "visual cache belongs to another video" }
                 check(input.readLong() == video.length() && input.readLong() == video.lastModified()) {
                     "video changed since ${file.absolutePath} was built"
@@ -128,7 +129,7 @@ internal class VisualObservationCache private constructor(
                     CachedRows(readLegacy(input), emptyMap(), hasAlignmentStream = false)
                 } else {
                     check(input.readUTF() == signature) { "visual cache was built for another replay configuration" }
-                    readRecords(input)
+                    readRecords(input, hasPriorViews = version == VERSION)
                 }
             }
 
@@ -136,18 +137,23 @@ internal class VisualObservationCache private constructor(
             buildMap {
                 while (true) {
                     val seq = tryReadLong(input) ?: break
-                    check(put(seq, readObservation(input)) == null) { "duplicate visual seq $seq" }
+                    check(put(seq, readObservation(input, hasPriorViews = false)) == null) { "duplicate visual seq $seq" }
                 }
             }
 
-        private fun readRecords(input: DataInputStream): CachedRows {
+        private fun readRecords(
+            input: DataInputStream,
+            hasPriorViews: Boolean,
+        ): CachedRows {
             val observations = LinkedHashMap<Long, CropFrameStore.CachedVisual>()
             val alignments = LinkedHashMap<Long, FloatArray>()
             while (true) {
                 when (tryReadByte(input) ?: break) {
                     RECORD_OBSERVATION -> {
                         val seq = input.readLong()
-                        check(observations.put(seq, readObservation(input)) == null) { "duplicate visual seq $seq" }
+                        check(observations.put(seq, readObservation(input, hasPriorViews)) == null) {
+                            "duplicate visual seq $seq"
+                        }
                     }
                     RECORD_ALIGNMENT -> {
                         val frame = input.readLong()
@@ -160,24 +166,47 @@ internal class VisualObservationCache private constructor(
             return CachedRows(observations, alignments, hasAlignmentStream = true)
         }
 
-        private fun readObservation(input: DataInputStream): CropFrameStore.CachedVisual {
+        private fun readObservation(
+            input: DataInputStream,
+            hasPriorViews: Boolean,
+        ): CropFrameStore.CachedVisual {
             input.readLong()
             val grid = input.readLong()
+            val hasRaw = hasPriorViews && input.readBoolean()
             val pOcc = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             val pEmpty = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             val pOccluded = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             val labels = LinkedHashMap<String, String>(ALL_SQUARES.size)
             val conf = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             val runner = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val invalid = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val rawOcc = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val rawEmpty = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val rawOccluded = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val rawLabels = LinkedHashMap<String, String>(ALL_SQUARES.size)
+            val rawConf = LinkedHashMap<String, Double>(ALL_SQUARES.size)
+            val rawRunner = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             for (square in ALL_SQUARES) {
-                pOcc[square] = input.readDouble()
-                pEmpty[square] = input.readDouble()
-                pOccluded[square] = input.readDouble()
-                input.readUTF().takeIf(String::isNotEmpty)?.let { labels[square] = it }
-                conf[square] = input.readDouble()
-                runner[square] = input.readDouble()
+                readSquare(input, square, pOcc, pEmpty, pOccluded, labels, conf, runner)
+                if (hasPriorViews) invalid[square] = input.readDouble()
+                if (hasRaw) readSquare(input, square, rawOcc, rawEmpty, rawOccluded, rawLabels, rawConf, rawRunner)
             }
             val identity = labels.size == ALL_SQUARES.size
+            val rawIdentity = rawLabels.size == ALL_SQUARES.size
+            val raw =
+                if (hasRaw) {
+                    OccupancyObservation(
+                        rawOcc,
+                        rawEmpty,
+                        rawOccluded,
+                        rawLabels.takeIf { rawIdentity },
+                        rawConf.takeIf { rawIdentity },
+                        rawRunner.takeIf { rawIdentity },
+                        invalid,
+                    )
+                } else {
+                    null
+                }
             val obs =
                 OccupancyObservation(
                     pOcc,
@@ -186,8 +215,42 @@ internal class VisualObservationCache private constructor(
                     labels.takeIf { identity },
                     conf.takeIf { identity },
                     runner.takeIf { identity },
+                    invalid,
+                    raw,
                 )
             return CropFrameStore.CachedVisual(obs, grid)
+        }
+
+        private fun writeSquare(
+            out: DataOutputStream,
+            obs: OccupancyObservation,
+            square: String,
+        ) {
+            out.writeDouble(obs.pOcc.getValue(square))
+            out.writeDouble(obs.pEmpty.getValue(square))
+            out.writeDouble(obs.pOccluded.getValue(square))
+            out.writeUTF(obs.label?.get(square).orEmpty())
+            out.writeDouble(obs.conf?.get(square) ?: 0.0)
+            out.writeDouble(obs.runnerUpConf?.get(square) ?: 1.0)
+        }
+
+        @Suppress("LongParameterList")
+        private fun readSquare(
+            input: DataInputStream,
+            square: String,
+            pOcc: MutableMap<String, Double>,
+            pEmpty: MutableMap<String, Double>,
+            pOccluded: MutableMap<String, Double>,
+            labels: MutableMap<String, String>,
+            conf: MutableMap<String, Double>,
+            runner: MutableMap<String, Double>,
+        ) {
+            pOcc[square] = input.readDouble()
+            pEmpty[square] = input.readDouble()
+            pOccluded[square] = input.readDouble()
+            input.readUTF().takeIf(String::isNotEmpty)?.let { labels[square] = it }
+            conf[square] = input.readDouble()
+            runner[square] = input.readDouble()
         }
 
         private fun writeHeader(
@@ -223,7 +286,8 @@ internal class VisualObservationCache private constructor(
 
         private const val MAGIC = 0x43564F31
         private const val LEGACY_VERSION = 2
-        private const val VERSION = 3
+        private const val PRIORLESS_VERSION = 3
+        private const val VERSION = 4
         private const val RECORD_OBSERVATION = 1
         private const val RECORD_ALIGNMENT = 2
         private const val CORNER_VALUES = 8

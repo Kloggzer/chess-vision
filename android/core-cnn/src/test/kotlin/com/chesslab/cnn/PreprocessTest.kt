@@ -141,10 +141,8 @@ class PreprocessTest {
     }
 
     @Test
-    fun `the 2-class occupancy list is accepted, anything else is not`() {
-        assertEquals(listOf("empty", "occupied"), OCCUPANCY_CLASSES)
-        assertEquals(OCCUPANCY_CLASSES, requireExpectedClasses(OCCUPANCY_CLASSES))
-        assertThrows<IllegalArgumentException> { requireExpectedClasses(OCCUPANCY_CLASSES.reversed()) }
+    fun `a class list that is neither accepted order is refused`() {
+        assertThrows<IllegalArgumentException> { requireExpectedClasses(listOf("empty", "occupied")) }
         assertThrows<IllegalArgumentException> { requireExpectedClasses(listOf("empty", "occupied", "occluded")) }
     }
 

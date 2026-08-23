@@ -43,10 +43,10 @@ def _session(tmp_path, monkeypatch, rows):
 
     import yaml
 
-    from chesslab import config
+    from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "rg-s1"
+    sdir = realgames.game_dir("s1")
     (sdir / "dirty").mkdir(parents=True)
     for r in rows:
         cv2.imwrite(str(sdir / r["board"]), np.full((SIDE, SIDE, 3), 128, np.uint8))

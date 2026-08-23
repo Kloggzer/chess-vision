@@ -1,5 +1,7 @@
 package com.chesslab.geometry
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Mat
 import org.opencv.imgproc.Imgproc
 import kotlin.math.max
@@ -39,20 +41,21 @@ class GridCoverage : AutoCloseable {
     private var buf = ByteArray(0)
     private var lit = BooleanArray(0)
 
-    fun of(gray: Mat): Double {
-        val h = gray.rows()
-        val w = gray.cols()
-        if (h < MIN_SIDE || w < MIN_SIDE) return 1.0
-        Imgproc.Canny(gray, edges, CANNY_LO, CANNY_HI)
-        if (buf.size != w * h) buf = ByteArray(w * h)
-        if (lit.size != w) lit = BooleanArray(w)
-        edges.get(0, 0, buf)
-        val cellX = w / BOARD_SIDE_D
-        val cellY = h / BOARD_SIDE_D
-        val band = max(1, (min(cellX, cellY) * BAND_FRACTION).toInt())
-        val hits = verticalHits(buf, w, h, cellX, band) + horizontalHits(buf, lit, w, h, cellY, band)
-        return hits / INTERIOR_LINES
-    }
+    fun of(gray: Mat): Double =
+        WorkProfiler.span(WorkOperation.GRID_COVERAGE) {
+            val h = gray.rows()
+            val w = gray.cols()
+            if (h < MIN_SIDE || w < MIN_SIDE) return@span 1.0
+            Imgproc.Canny(gray, edges, CANNY_LO, CANNY_HI)
+            if (buf.size != w * h) buf = ByteArray(w * h)
+            if (lit.size != w) lit = BooleanArray(w)
+            edges.get(0, 0, buf)
+            val cellX = w / BOARD_SIDE_D
+            val cellY = h / BOARD_SIDE_D
+            val band = max(1, (min(cellX, cellY) * BAND_FRACTION).toInt())
+            val hits = verticalHits(buf, w, h, cellX, band) + horizontalHits(buf, lit, w, h, cellY, band)
+            hits / INTERIOR_LINES
+        }
 
     override fun close() {
         edges.release()

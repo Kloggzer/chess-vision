@@ -1,7 +1,7 @@
 """Tests für die Serving-Facade (specs/rework/01-serving-facade.md).
 
-Headless, kein echtes Modell nötig — bestimmt nur, dass die Crop-/Photometrie-Pipeline
-mit dem RunSpec-Vertrag übereinstimmt und der slice_session-Umbau byte-identisch bleibt.
+Headless, kein echtes Modell nötig — prüft nur, dass die Crop-Pipeline mit dem
+RunSpec-Vertrag übereinstimmt und der slice_session-Umbau byte-identisch bleibt.
 """
 
 from __future__ import annotations
@@ -75,7 +75,6 @@ def test_crops_for_model_count_and_order(tmp_path):
 
     spec = serving.RunSpec(
         run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
-        geometry="warp", photometry="none", piece_height_cells=1.6,
     )
     crops = serving.crops_for_model(frame, corners, prof, spec)
     assert len(crops) == 64
@@ -93,58 +92,7 @@ def test_crops_for_model_count_and_order(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 2: Identity guard
-# ---------------------------------------------------------------------------
-
-def test_photometry_none_is_identical(tmp_path):
-    """photometry='none' → Crops bit-identisch zum direkten crops_for_frame(photometry='none')."""
-    bs = 640
-    prof = _identity_profile(bs)
-    frame = _synthetic_frame(bs)
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-
-    spec = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
-        geometry="warp", photometry="none", piece_height_cells=1.6,
-    )
-    via_model = serving.crops_for_model(frame, corners, prof, spec)
-    direct = labeling.crops_for_frame(
-        frame, corners, prof, geometry="warp", photometry="none",
-        piece_height_cells=1.6, out_size=(96, 128),
-    )
-    assert len(via_model) == len(direct)
-    for i, (a, b) in enumerate(zip(via_model, direct, strict=False)):
-        assert np.array_equal(a, b), f"Crop {i} ({labeling.all_squares()[i]}) nicht identisch"
-
-
-# ---------------------------------------------------------------------------
-# Test 3: Skew fix effective
-# ---------------------------------------------------------------------------
-
-def test_photometry_clahe_differs_from_raw(tmp_path):
-    """photometry='clahe' → Crops unterscheiden sich vom Roh-Pfad (none)."""
-    bs = 640
-    prof = _identity_profile(bs)
-    frame = _synthetic_frame(bs)
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-
-    spec_none = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
-        geometry="warp", photometry="none", piece_height_cells=1.6,
-    )
-    spec_clahe = serving.RunSpec(
-        run_dir=tmp_path, classes=config.CLASSES, out_size=(96, 128), infer_size=(96, 128),
-        geometry="warp", photometry="clahe", piece_height_cells=1.6,
-    )
-    raw_crops = serving.crops_for_model(frame, corners, prof, spec_none)
-    clahe_crops = serving.crops_for_model(frame, corners, prof, spec_clahe)
-    # Mindestens ein Crop muss sich unterscheiden (nicht alle Felder sind gleich einfarbig)
-    diffs = sum(1 for a, b in zip(raw_crops, clahe_crops, strict=False) if not np.array_equal(a, b))
-    assert diffs > 0, "CLAHE sollte sich von none unterscheiden"
-
-
-# ---------------------------------------------------------------------------
-# Test 4: Slice parity (BEFORE the slice_session refactoring)
+# Test 2: Slice parity
 # ---------------------------------------------------------------------------
 
 def assert_same_crop(stored, live, what: str) -> None:
@@ -159,158 +107,87 @@ def assert_same_crop(stored, live, what: str) -> None:
 
 
 def test_slice_parity_crops_vs_slice_session(tmp_path):
-    """crops_for_frame(with_meta=True) cuts what slice_session stores, und die used_box3d-Zählung
-    ist konsistent mit n_fallback."""
+    """crops_for_frame cuts exactly what slice_session stores — the one property that keeps
+    training crops and live crops the same picture."""
     sdir = _synthetic_session(tmp_path, bs=640)
     prof = _identity_profile(640)
     out_size = (96, 128)
 
-    # 1. Slice session with OLD logic (warp, none — the default)
     manifest = tmp_path / "m.jsonl"
     squares_root = tmp_path / "sq"
     stats = labeling.slice_session(
-        sdir, profile=prof, manifest_path=manifest, squares_root=squares_root,
-        geometry_mode="warp", photometry="none", out_size=out_size,
+        sdir, profile=prof, manifest_path=manifest, squares_root=squares_root, out_size=out_size,
     )
+    assert stats["crops"] == 64
 
-    # 2. crops_for_frame mit with_meta=True aufrufen (das existiert NOCH nicht —
-    #    this test is the sentinel: it will FAIL until crops_for_frame gets the
-    #    with_meta parameter. After the refactoring it must be GREEN.)
     frame = cv2.imread(str(sdir / "frames" / "0000.png"))
     corners = [[0, 0], [640, 0], [640, 640], [0, 640]]
-    try:
-        crops, meta = labeling.crops_for_frame(
-            frame, corners, prof, geometry="warp", photometry="none",
-            out_size=out_size, with_meta=True,
-        )
-    except TypeError:
-        pytest.fail(
-            "crops_for_frame hat noch keinen with_meta-Parameter. "
-            "Erst labeling.py refactoren (Schritt 5), dann diesen Test wiederholen."
-        )
-
+    crops = labeling.crops_for_frame(frame, corners, prof, out_size=out_size)
     assert len(crops) == 64
-    assert len(meta["used_box3d"]) == 64
-    # warp mode → all used_box3d are False, n_fallback counts 0
-    assert all(not v for v in meta["used_box3d"])
 
-    # 3. Each crop must be pixel-identical to the PNG written by slice_session
     squares = labeling.all_squares()
     manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     by_sq = {r["square"]: r for r in manifest_rows}
     for i, sq in enumerate(squares):
         assert_same_crop(cv2.imread(by_sq[sq]["path"]), crops[i], f"Feld {sq}")
 
-    # 4. used_box3d Konsistenz: bei warp sind alle False → n_fallback muss 0 sein
-    assert stats["fallback"] == 0
-    assert stats["crops"] == 64
-
-
-def test_slice_parity_with_clahe(tmp_path):
-    """Slice parity also with photometry='clahe' — it is applied IN crops_for_frame, so it has to
-    show up in the store and in the live crop alike."""
-    sdir = _synthetic_session(tmp_path, bs=640)
-    prof = _identity_profile(640)
-    out_size = (96, 128)
-
-    manifest = tmp_path / "m.jsonl"
-    squares_root = tmp_path / "sq"
-    labeling.slice_session(
-        sdir, profile=prof, manifest_path=manifest, squares_root=squares_root,
-        geometry_mode="warp", photometry="clahe", out_size=out_size,
-    )
-
-    frame = cv2.imread(str(sdir / "frames" / "0000.png"))
-    corners = [[0, 0], [640, 0], [640, 640], [0, 640]]
-    try:
-        crops, meta = labeling.crops_for_frame(
-            frame, corners, prof, geometry="warp", photometry="clahe",
-            out_size=out_size, with_meta=True,
-        )
-    except TypeError:
-        pytest.fail("crops_for_frame with_meta fehlt noch — labeling.py refactoren (Schritt 5).")
-
-    squares = labeling.all_squares()
-    manifest_rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
-    by_sq = {r["square"]: r for r in manifest_rows}
-    for i, sq in enumerate(squares):
-        assert_same_crop(cv2.imread(by_sq[sq]["path"]), crops[i], f"Feld {sq} (clahe)")
-
 
 # ---------------------------------------------------------------------------
-# Test 5: run_spec
+# Test 3: run_spec
 # ---------------------------------------------------------------------------
 
-def test_run_spec_with_variant_field(tmp_path):
-    """config.json with 'variant' → read directly (no fallback)."""
+def test_run_spec_reads_the_config(tmp_path):
+    """config.json is the whole specification — classes and out_size come straight off it."""
     run_dir = tmp_path / "run1"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
         "classes": config.CLASSES,
         "out_size": [96, 128],
-        "variant": {"geometry": "box3d", "photometry": "clahe", "piece_height_cells": 2.0},
     }), encoding="utf-8")
 
     spec = serving.run_spec(run_dir)
-    assert spec.geometry == "box3d"
-    assert spec.photometry == "clahe"
-    assert spec.piece_height_cells == 2.0
     assert spec.out_size == (96, 128)
+    assert spec.infer_size == (96, 128)
     assert spec.classes == config.CLASSES
 
 
-def test_run_spec_legacy_fallback(tmp_path):
-    """config.json without 'variant' + manifest with tags → fallback via variant_of_run kicks in."""
+def test_run_spec_ignores_a_legacy_variant_block(tmp_path):
+    """Every run on disk was written with a `variant` block. It no longer describes anything
+    the crop path reads, so it must be ignored — not rejected, not acted on."""
     run_dir = tmp_path / "run2"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
         "classes": config.CLASSES,
         "out_size": [96, 128],
-        "dataset": None,   # → squares.jsonl (default)
+        "dataset": "gone",
+        "variant": {"geometry": "box3d", "photometry": "clahe", "piece_height_cells": 2.0},
     }), encoding="utf-8")
 
-    # Manifest with tags (as labeling.variant_of_run expects)
-    manifests_dir = tmp_path / "manifests"
-    manifests_dir.mkdir(parents=True)
-    (manifests_dir / "squares.jsonl").write_text(
-        json.dumps({"geometry": "warp", "photometry": "gamma", "piece_height_cells": 1.8}) + "\n",
-        encoding="utf-8",
-    )
-
-    # Monkeypatch: config.DATA.manifests points to our temp dir
-    import chesslab.config
-    from chesslab import config as cfg_mod
-    orig = chesslab.config.DATA
-    try:
-        chesslab.config.DATA = cfg_mod.Paths(root=tmp_path)
-        spec = serving.run_spec(run_dir)
-        assert spec.geometry == "warp"
-        assert spec.photometry == "gamma"
-        assert spec.piece_height_cells == 1.8
-    finally:
-        chesslab.config.DATA = orig
+    spec = serving.run_spec(run_dir)
+    assert spec.out_size == (96, 128)
+    assert not hasattr(spec, "geometry")
+    assert not hasattr(spec, "photometry")
 
 
-def test_run_spec_no_variant_no_manifest(tmp_path):
-    """Neither variant nor manifest → default (warp, none, EXP_PIECE_HEIGHT_CELLS) without exception."""
+def test_run_spec_needs_no_manifest(tmp_path):
+    """Resolving a run must not reach into the crop pool: a model has to stay loadable on a
+    machine that does not carry the corpus it was trained on."""
     run_dir = tmp_path / "run3"
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
         "classes": config.CLASSES,
         "out_size": [96, 128],
-        "dataset": None,
+        "dataset": "not-here",
     }), encoding="utf-8")
 
     import chesslab.config
     from chesslab import config as cfg_mod
     orig = chesslab.config.DATA
     try:
-        chesslab.config.DATA = cfg_mod.Paths(root=tmp_path)
-        # no manifest → fallback-fallback
+        chesslab.config.DATA = cfg_mod.Paths(root=tmp_path / "empty")
         spec = serving.run_spec(run_dir)
-        assert spec.geometry == "warp"
-        assert spec.photometry == "none"
-        assert spec.piece_height_cells == config.EXP_PIECE_HEIGHT_CELLS
+        assert spec.classes == config.CLASSES
+        assert spec.pad_side is None and spec.pad_up is None
     finally:
         chesslab.config.DATA = orig
 
@@ -322,7 +199,7 @@ def test_run_spec_missing_config(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 6: torch-abhängig (load_run, predict_arrays)
+# Test 4: torch-abhängig (load_run, predict_arrays)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(pytest.importorskip("torch", reason="torch nicht installiert") is None,
@@ -339,7 +216,7 @@ def test_load_run_and_predict_arrays(tmp_path):
     classes = config.CLASSES
     out_size = (96, 128)
 
-    model = build_model(backbone, len(classes), norm="batchnorm", head="combined", classes=classes)
+    model = build_model(backbone, len(classes), norm="batchnorm", head="combined")
     torch.save(model.state_dict(), str(run_dir / "best.pt"))
     (run_dir / "config.json").write_text(json.dumps({
         "backbone": backbone,
@@ -347,7 +224,6 @@ def test_load_run_and_predict_arrays(tmp_path):
         "out_size": [96, 128],
         "norm": "batchnorm",
         "head": "combined",
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
 
     # load_run Roundtrip
@@ -377,7 +253,7 @@ def test_load_run_and_predict_arrays(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Test 6b: CUDA-graph fast path (GPU only)
+# Test 4b: CUDA-graph fast path (GPU only)
 # ---------------------------------------------------------------------------
 
 
@@ -389,13 +265,11 @@ def _mini_run(tmp_path, out_size=(96, 128)):
     run_dir = tmp_path / "run_g"
     run_dir.mkdir()
     classes = config.CLASSES
-    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined",
-                        classes=classes)
+    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined")
     torch.save(model.state_dict(), str(run_dir / "best.pt"))
     (run_dir / "config.json").write_text(json.dumps({
         "backbone": "smallcnn", "classes": classes, "out_size": list(out_size),
         "norm": "batchnorm", "head": "combined",
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
     return run_dir
 
@@ -448,7 +322,6 @@ def test_model_classes(tmp_path):
     (run_dir / "config.json").write_text(json.dumps({
         "classes": ["empty", "wK", "bK"],
         "out_size": [96, 128],
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
 
     cls = serving.model_classes(run_dir)
@@ -505,7 +378,7 @@ def test_mixed_size_falls_back_to_pil(tmp_path):
     out_size = (96, 128)  # (W, H)
     out_h, out_w = out_size[1], out_size[0]
 
-    model = build_model(backbone, len(classes), norm="batchnorm", head="combined", classes=classes)
+    model = build_model(backbone, len(classes), norm="batchnorm", head="combined")
     torch.save(model.state_dict(), str(run_dir / "best.pt"))
     (run_dir / "config.json").write_text(json.dumps({
         "backbone": backbone,
@@ -513,7 +386,6 @@ def test_mixed_size_falls_back_to_pil(tmp_path):
         "out_size": [96, 128],
         "norm": "batchnorm",
         "head": "combined",
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
 
     serving.clear_cache()
@@ -555,12 +427,10 @@ def _export_run(tmp_path, *, out_size=(128, 128), scales=None, name="run_x"):
     run_dir = tmp_path / name
     run_dir.mkdir()
     classes = config.CLASSES
-    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined",
-                        classes=classes)
+    model = build_model("smallcnn", len(classes), norm="batchnorm", head="combined")
     torch.save(model.state_dict(), str(run_dir / "best.pt"))
     cfg = {"backbone": "smallcnn", "classes": classes, "out_size": list(out_size),
-           "norm": "batchnorm", "head": "combined",
-           "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6}}
+           "norm": "batchnorm", "head": "combined"}
     if scales is not None:
         cfg["scales"] = list(scales)
     (run_dir / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
@@ -577,7 +447,6 @@ def test_infer_size_falls_back_to_out_size(tmp_path):
     run_dir.mkdir()
     (run_dir / "config.json").write_text(json.dumps({
         "classes": config.CLASSES, "out_size": [96, 128],
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
     spec = serving.run_spec(run_dir)
     assert spec.infer_size == spec.out_size == (96, 128)
@@ -590,7 +459,6 @@ def test_run_spec_reads_infer_size(tmp_path):
     (run_dir / "config.json").write_text(json.dumps({
         "classes": config.CLASSES, "out_size": [128, 128], "infer_size": [96, 96],
         "scales": [32, 64, 96, 128],
-        "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6},
     }), encoding="utf-8")
 
     spec = serving.run_spec(run_dir)
@@ -607,7 +475,6 @@ def test_crops_for_model_uses_infer_size(tmp_path):
 
     spec = serving.RunSpec(
         run_dir=tmp_path, classes=config.CLASSES, out_size=(128, 128), infer_size=(96, 96),
-        geometry="warp", photometry="none", piece_height_cells=1.6,
     )
     crops = serving.crops_for_model(frame, corners, prof, spec)
     assert len(crops) == 64

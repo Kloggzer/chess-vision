@@ -1,7 +1,7 @@
 """Stage 0 — Pre-flight environment validation.
 
 Validates (does NOT install) Python, app dependencies, the ROCm/PyTorch GPU stack
-(AMD Radeon RX 7900 XTX) and the camera. Reports PASS/WARN/FAIL per check with
+(AMD Radeon RX 7900 XTX) and the lens state. Reports PASS/WARN/FAIL per check with
 remediation hints. `validate_gpu()` is the reusable path Stage 5 (`train`) calls before
 training so it aborts loudly instead of silently falling back to CPU.
 
@@ -12,7 +12,6 @@ importable — and unit-testable — even when those packages are absent.
 from __future__ import annotations
 
 import importlib
-import os
 import sys
 from dataclasses import asdict, dataclass
 
@@ -218,131 +217,6 @@ def validate_gpu() -> tuple[bool, list[Check]]:
     return ok, checks
 
 
-# --- C) Camera check (--camera N) -----------------------------------------------------
-
-def camera_checks(index: int) -> list[Check]:
-    out: list[Check] = []
-    try:
-        from .camera import CameraSpec, list_devices, open_capture
-    except Exception as e:  # noqa: BLE001 — cv2 missing / import error
-        return [Check("camera.cv2", FAIL, f"camera lib / cv2 not importable: {e!r}")]
-
-    cap = open_capture(CameraSpec(source=index))
-
-    try:
-        if not cap.isOpened():
-            found = ", ".join(f"[{d.index}] {d.name}" for d in list_devices()) or "none detected"
-            out.append(
-                Check(f"camera.open[{index}]", FAIL, f"could not be opened. Detected cameras: {found}")
-            )
-            return out
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            out.append(Check(f"camera.read[{index}]", FAIL, "opened, but no frame read."))
-        else:
-            h, w = frame.shape[:2]
-            out.append(Check(f"camera.read[{index}]", PASS, f"{w}x{h}"))
-    finally:
-        cap.release()
-
-    # DISPLAY is only relevant on Linux (cv2.imshow in Stage 1/3 needs GUI session).
-    if sys.platform.startswith("linux"):
-        disp = os.environ.get("DISPLAY")
-        if disp:
-            out.append(Check("camera.display", PASS, disp))
-        else:
-            out.append(
-                Check("camera.display", WARN, "DISPLAY not set — calibration/recording needs a GUI session.")
-            )
-    else:
-        out.append(Check("camera.display", PASS, f"GUI available ({sys.platform})"))
-    return out
-
-
-# --- D) Lens undistortion checks ------------------------------------------------------
-
-def lens_checks(frame_size: tuple[int, int] | None = None) -> list[Check]:
-    """Report the LENS state: calibration present? plausible RMS? resolution match? and do
-    the BOARD profiles agree with it? One command surfaces the whole chain."""
-    out: list[Check] = []
-    try:
-        from . import config, lens
-        from .calibration import CalibrationProfile
-    except Exception as e:  # noqa: BLE001 — cv2/numpy missing
-        return [Check("lens.import", FAIL, f"lens module not importable: {e!r}")]
-
-    path = lens.default_path()
-    calib = lens.load(path)
-    if calib is None:
-        out.append(Check("lens.calibration", WARN,
-                         f"none at {path} — frames stay raw (barrel distortion NOT removed). "
-                         "Run `chesslab lens calibrate`."))
-        return out
-
-    out.append(Check("lens.calibration", PASS,
-                     f"{path} id={calib.id} shot at {calib.image_size[0]}x{calib.image_size[1]}"))
-    out.append(Check("lens.rms", PASS if calib.rms <= 1.0 else WARN,
-                     f"{calib.rms:.4f} px" + ("" if calib.rms <= 1.0 else " — > 1.0, re-shoot the calibration.")))
-
-    want = tuple(frame_size) if frame_size else (config.CAMERA.width, config.CAMERA.height)
-    if tuple(calib.image_size) == want:
-        out.append(Check("lens.resolution", PASS, f"capture {want[0]}x{want[1]} matches the calibration."))
-    else:
-        cw, ch = calib.image_size
-        same_aspect = ch and abs(want[0] / want[1] - cw / ch) <= 0.01
-        out.append(Check(
-            "lens.resolution", WARN,
-            f"capture {want[0]}x{want[1]} != calibration {cw}x{ch} — "
-            + ("same aspect, K is scaled (approximate)." if same_aspect
-               else "DIFFERENT aspect: undistortion is skipped entirely.")))
-
-    d = config.DATA.calibration
-    profiles = sorted(d.glob("*.yaml")) if d.is_dir() else []
-    if not profiles:
-        out.append(Check("lens.profiles", WARN, f"no board profiles in {d} yet."))
-        return out
-    stale: list[str] = []
-    for p in profiles:
-        try:
-            prof = CalibrationProfile.load(p)
-        except Exception as e:  # noqa: BLE001
-            stale.append(f"{p.name} (unreadable: {e!r})")
-            continue
-        # Check against the profile's ACTUAL source (URL profiles carry camera_index=-1,
-        # which would validate against the wrong lens state).
-        is_stale, why = lens.profile_is_stale(prof, lens.profile_source(prof))
-        if is_stale:
-            stale.append(f"{prof.profile} ({why})")
-    if stale:
-        out.append(Check("lens.profiles", WARN,
-                         f"{len(stale)}/{len(profiles)} board profile(s) disagree with the active "
-                         f"lens: {'; '.join(stale)} — they are regenerated on next use."))
-    else:
-        out.append(Check("lens.profiles", PASS,
-                         f"all {len(profiles)} board profile(s) stamped for lens {calib.id}."))
-    out += _drift_check(lens)
-    return out
-
-
-def _drift_check(lens) -> list[Check]:
-    """Report what a live `lens.DriftMonitor` last measured (in-process only).
-
-    A fresh `chesslab doctor` invocation never has a running tracker, so this stays silent
-    unless doctor is called from inside a process that also tracks.
-    """
-    st = lens.last_drift_status()
-    if not st or not st.get("samples"):
-        return []
-    geo, res = st.get("geometry"), st.get("residual")
-    parts = [f"board geometry {geo:.1%} off the profile" if geo is not None else "board geometry n/a"]
-    if res is not None:
-        parts.append(f"marker residual {res:.3%} of the board width")
-    alarm = bool(st.get("geometry_alarm") or st.get("residual_alarm"))
-    return [Check("lens.drift", WARN if alarm else PASS,
-                  "; ".join(parts) + (" — the lens appears to have been moved/zoomed; re-run "
-                                      "`chesslab lens calibrate`." if alarm else "."))]
-
-
 # --- Reporting ------------------------------------------------------------------------
 
 _GLYPH = {PASS: "[PASS]", WARN: "[WARN]", FAIL: "[FAIL]"}
@@ -358,14 +232,11 @@ def render(checks: list[Check]) -> str:
     return "\n".join(lines)
 
 
-def run(gpu: bool = False, camera: int | None = None, json_out: bool = False) -> int:
+def run(gpu: bool = False, json_out: bool = False) -> int:
     """Execute the requested checks, print the report, return an exit code (0 = all pass)."""
     checks: list[Check] = list(base_checks())
-    checks += lens_checks()
     if gpu:
         checks += gpu_checks()
-    if camera is not None:
-        checks += camera_checks(camera)
 
     ok = not any(c.status == FAIL for c in checks)
     print(render(checks))

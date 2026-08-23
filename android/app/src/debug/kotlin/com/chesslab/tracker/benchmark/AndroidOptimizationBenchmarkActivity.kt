@@ -15,10 +15,21 @@ import androidx.camera.core.ImageInfo
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.impl.TagBundle
 import androidx.camera.core.impl.utils.ExifData
+import com.chesslab.cnn.preprocessInto
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.BoardMarkerDetector
+import com.chesslab.geometry.GridCoverage
+import com.chesslab.geometry.HomographyCache
+import com.chesslab.geometry.SquareCropper
+import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.cropBorderPx
 import com.chesslab.geometry.gridOccludedSquares
+import com.chesslab.geometry.toBgrImage
+import com.chesslab.geometry.warpBoardForCrops
+import com.chesslab.geometry.warpFromCorners
+import com.chesslab.tracker.perf.RecordingWorkProbe
 import com.chesslab.tracker.pipeline.YuvToBgr
 import org.opencv.core.Core
 import org.opencv.core.CvType
@@ -65,6 +76,7 @@ private class AndroidOptimizationBenchmark(
         markerDetectorReuse()
         medianKernel()
         gridOcclusion()
+        trackerHotPaths()
         cnnThreads()
     }
 
@@ -157,13 +169,109 @@ private class AndroidOptimizationBenchmark(
         val pad = cropBorderPx(geometry)
         val side = geometry.boardSize + 2 * pad
         val frame = Mat(side, side, CvType.CV_8UC3)
+        val probe = RecordingWorkProbe()
+        Core.randu(frame, 0.0, 255.0)
+        try {
+            WorkProfiler.install(probe).use {
+                report(
+                    "full grid occlusion sequential",
+                    samples(warmup = 3, rounds = 20) { gridOccludedSquares(frame, geometry, pad) },
+                )
+                report(
+                    "full grid occlusion parallel",
+                    samples(warmup = 3, rounds = 20) {
+                        gridOccludedSquares(frame, geometry, pad, parallel = true)
+                    },
+                )
+            }
+            logSourceReport("GRID", probe)
+        } finally {
+            frame.release()
+        }
+    }
+
+    /** The expensive shared tracker path, driven without CameraX or a physical board. */
+    private fun trackerHotPaths() {
+        val probe = RecordingWorkProbe()
+        WorkProfiler.install(probe).use { measuredTrackerHotPaths() }
+        logSourceReport("TRACKER", probe)
+    }
+
+    private fun logSourceReport(
+        prefix: String,
+        probe: RecordingWorkProbe,
+    ) {
+        probe
+            .snapshot()
+            .report()
+            .lineSequence()
+            .forEach { Log.i(TAG, "$prefix SOURCE $it") }
+    }
+
+    private fun measuredTrackerHotPaths() {
+        val geometry = BoardGeometry(boardSize = BOARD_SIZE, outW = CNN_SIZE, outH = CNN_SIZE)
+        val corners =
+            listOf(
+                doubleArrayOf(640.0, 180.0),
+                doubleArrayOf(1_760.0, 150.0),
+                doubleArrayOf(1_820.0, 1_270.0),
+                doubleArrayOf(600.0, 1_300.0),
+            )
+        val frame = Mat(FRAME_HEIGHT, FRAME_WIDTH, CvType.CV_8UC3)
+        val detection = Mat()
+        val detectionGray = Mat()
+        val cropWarp = Mat()
+        val gridCoverage = GridCoverage()
+        val homographies = HomographyCache()
         Core.randu(frame, 0.0, 255.0)
         try {
             report(
-                "full grid occlusion sequential",
-                samples(warmup = 3, rounds = 20) { gridOccludedSquares(frame, geometry, pad) },
+                "tracker detection warp ${DETECTION_SIZE}x$DETECTION_SIZE",
+                samples(warmup = 5, rounds = 40) {
+                    warpFromCorners(frame, geometry, corners, DETECTION_SIZE, detection, homographies)
+                },
+            )
+            Imgproc.cvtColor(detection, detectionGray, Imgproc.COLOR_BGR2GRAY)
+            report(
+                "tracker grid-line coverage ${DETECTION_SIZE}x$DETECTION_SIZE",
+                samples(warmup = 5, rounds = 40) { gridCoverage.of(detectionGray) },
+            )
+            report(
+                "tracker full crop warp",
+                samples(warmup = 4, rounds = 30) {
+                    warpBoardForCrops(frame, geometry, corners, cropWarp, homographies)
+                },
+            )
+            // Leave one valid warp for crop and preprocess measurements after the timed warp loop.
+            warpBoardForCrops(frame, geometry, corners, cropWarp, homographies)
+            report(
+                "tracker 64 crop extraction",
+                samples(warmup = 3, rounds = 20) {
+                    WorkProfiler.span(WorkOperation.CNN_CROP) {
+                        SquareCropper().use { cropper ->
+                            allSquares().forEach { square -> cropper.crop(cropWarp, square, geometry) }
+                        }
+                    }
+                },
+            )
+            val crops =
+                SquareCropper().use { cropper ->
+                    allSquares().map { square -> toBgrImage(cropper.crop(cropWarp, square, geometry)) }
+                }
+            val staging = FloatArray(crops.size * CNN_CHANNELS * CNN_SIZE * CNN_SIZE)
+            report(
+                "tracker CNN preprocess 64x${CNN_SIZE}",
+                samples(warmup = 5, rounds = 40) {
+                    WorkProfiler.span(WorkOperation.CNN_PREPROCESS) {
+                        preprocessInto(crops, CNN_SIZE, CNN_SIZE, staging)
+                    }
+                },
             )
         } finally {
+            gridCoverage.close()
+            cropWarp.release()
+            detectionGray.release()
+            detection.release()
             frame.release()
         }
     }
@@ -486,6 +594,7 @@ private const val TAG = "AndroidOptimizationBench"
 private const val FRAME_WIDTH = 2560
 private const val FRAME_HEIGHT = 1440
 private const val BOARD_SIZE = 1008
+private const val DETECTION_SIZE = 504
 private const val GRID_SIDE = 1072
 private const val BOARD_CELLS = 8
 private const val MARKER_SIZE = 220
@@ -496,7 +605,7 @@ private const val MEDIAN_ROUNDS = 20
 private const val NANOS_PER_MS = 1_000_000.0
 private const val BYTE_MASK = 0xFF
 private const val BENCH_DIR = "android-perf-bench"
-private const val MODEL = "real14-80"
+private const val MODEL = "comp13-occ-bn-lr1e2-bs512"
 private const val CNN_BATCH = 64
 private const val CNN_CHANNELS = 3
 private const val CNN_SIZE = 80

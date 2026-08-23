@@ -5,19 +5,18 @@ from __future__ import annotations
 import atexit
 import json
 import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import config, doctor
+from .. import config, doctor, locks
+from ..work_audit import current as current_work_audit
 from .data import (
-    checkpoint_score,
+    checkpoint_metrics,
     crop_of_rows,
     filter_rows_by_split,
     load_manifest,
     load_split,
-    occupancy_piece_breakdown,
 )
 
 
@@ -30,78 +29,65 @@ def _train_lock_path() -> Path:
     return config.DATA.heavy_lock
 
 
-def _pid_alive(pid: int) -> bool:
-    """True if a process with `pid` currently exists (cross-platform, no psutil)."""
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        import ctypes
+def _load_training_pack(dataset: str | None, manifest_rows: list[dict]):
+    """Resolve a dataset's pack once, reusing the manifest already held by training."""
+    if dataset is None:
+        return None
+    from .pack import load_packed
 
-        # OpenProcess alone answers the WRONG question. Windows keeps a process OBJECT alive as
-        # long as anyone holds a handle to it, so a terminated process whose parent shell has not
-        # let go still opens fine — and the training lock then reports a run that has been dead for
-        # minutes as live, refusing every new run until someone deletes the file by hand. Ask for
-        # the exit code instead: STILL_ACTIVE means running, anything else means it has exited.
-        #
-        # `restype` is not optional here either: a HANDLE is 64-bit on x64 and ctypes defaults to
-        # c_int, which truncates it.
-        k = ctypes.windll.kernel32
-        k.OpenProcess.restype = ctypes.c_void_p
-        k.OpenProcess.argtypes = (ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32)
-        k.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
-        k.CloseHandle.argtypes = (ctypes.c_void_p,)
-        h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
-        if not h:
-            return False
-        code = ctypes.c_uint32()
-        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
-        k.CloseHandle(h)
-        # 259 = STILL_ACTIVE. A process that deliberately exits WITH 259 reads as alive; that is
-        # the documented ambiguity of this API and it is the safe direction for a lock.
-        return bool(ok) and code.value == 259
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
+    return load_packed(dataset, manifest_rows=manifest_rows)
+
+
+def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
+                           visible_max: float) -> dict[str, float | int]:
+    """Derive every coverage/visibility metric from the regular validation's predictions."""
+    import numpy as np
+
+    cov_true = val["coverage_trues"]
+    cov_pred = val["coverage_probs"]
+    true_cls = val["trues"]
+    pred_cls = val["preds"]
+    want, hit = cov_true > 0.5, cov_pred > 0.5
+    visible = cov_true <= visible_max
+    true_occ = true_cls != classes.index("empty")
+    pred_occ = pred_cls != classes.index("empty")
+    visible_boards: dict[tuple[str, str], bool] = {}
+    for row, is_visible, square_ok in zip(
+            val_rows, visible.tolist(), (true_occ == pred_occ).tolist(), strict=True):
+        if is_visible:
+            key = (row["session_id"], str(row["frame"]))
+            visible_boards[key] = visible_boards.get(key, True) and square_ok
+
+    occ_tp = int((want & hit).sum())
+    occ_want, occ_hit = int(want.sum()), int(hit.sum())
+    vis_n = int(visible.sum())
+    return {
+        "val_occ_mae": float(np.abs(cov_pred - cov_true).mean()),
+        "val_occ_recall": occ_tp / occ_want if occ_want else 0.0,
+        "val_occ_precision": occ_tp / occ_hit if occ_hit else 0.0,
+        "val_visible_acc": float((pred_cls[visible] == true_cls[visible]).mean())
+        if vis_n else float("nan"),
+        "val_visible_occ_acc": float((pred_occ[visible] == true_occ[visible]).mean())
+        if vis_n else float("nan"),
+        "val_visible_occ_board_acc": (
+            sum(visible_boards.values()) / len(visible_boards)
+            if visible_boards else float("nan")),
+        "val_visible_n": vis_n,
+    }
 
 
 def _acquire_train_lock(desc: str) -> bool:
-    """Only ONE training may use the (single) GPU at a time. Returns True if the lock was
-    acquired, False if another LIVE training already holds it. Survives web restarts and covers
-    both CLI and web launches (the root cause of the earlier concurrent-run OOM). A stale lock
-    from a dead PID is reclaimed automatically."""
-    lock = _train_lock_path()
-    if lock.exists():
-        try:
-            info = json.loads(lock.read_text(encoding="utf-8"))
-            # `childPid` is the JOB, `pid` the process that claimed the slot — the web app claims
-            # with the SERVER's pid and stamps the child once it exists.
-            pid = int(info.get("childPid") or info.get("pid") or -1)
-        except Exception:  # noqa: BLE001 — corrupt lock: treat as stale
-            pid, info = -1, {}
-        if pid > 0 and pid != os.getpid() and _pid_alive(pid):
-            print(f"[FAIL] {info.get('job', 'a job')} {info.get('name', '')} is already running "
-                  f"(PID {pid}, started {info.get('startedAt', '?')}). The GPU takes one at a time "
-                  "- stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
-            return False
-        # else: dead/stale PID → reclaim below
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    lock.write_text(json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": "train",
-                                "name": desc, "startedAt": datetime.now().isoformat()},
-                               indent=2), encoding="utf-8")
-    return True
+    """False if another LIVE training holds the GPU. A stale lock is reclaimed automatically."""
+    holder = locks.acquire(_train_lock_path(), "train", desc)
+    if holder is None:
+        return True
+    print(f"[FAIL] {locks.describe(holder)} is already running. The GPU takes one at a time - "
+          "stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
+    return False
 
 
 def _release_train_lock() -> None:
-    lock = _train_lock_path()
-    try:
-        if lock.exists():
-            info = json.loads(lock.read_text(encoding="utf-8"))
-            if int(info.get("pid", -1)) == os.getpid():
-                lock.unlink()
-    except Exception:  # noqa: BLE001 — best-effort cleanup
-        pass
+    locks.release(_train_lock_path())
 
 
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
@@ -109,9 +95,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               num_workers: int | None = None, norm: str | None = None,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
-              head: str = "combined", scales: list[int] | None = None,
+              head: str = "occlusion", scales: list[int] | None = None,
               input_size: str | None = None,
-              erase_p: float | None = None, bg_p: float | None = None,
+              erase_p: float | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
               sched: str = "cosine",
@@ -191,8 +177,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   "(`chesslab dataset build`), then train.")
             return 1
     else:
-        manifest_path = config.DATA.manifests / "squares.jsonl"
-        split_path = config.DATA.manifests / "split.json"
+        manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+        split_path = config.DATA.reports / "split.json"
         if not manifest_path.exists():
             print(f"[FAIL] No manifest ({manifest_path}). First collect data and slice "
                   "(`chesslab slice`), then train.")
@@ -219,11 +205,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
     # to the 128 px the FILES are, which is worse than either.
     src = "--input-size"
-    if out_size is None and dataset:
-        from .pack import load_packed
-
-        if (info := load_packed(dataset)) is not None:
-            out_size, src = (info[1][2], info[1][1]), "the pack"
+    packed = _load_training_pack(dataset, manifest)
+    if out_size is None:
+        if packed is not None:
+            out_size, src = (packed[1][2], packed[1][1]), "the pack"
     for r in manifest:
         out_size, src = (out_size, src) if out_size else (tuple(r["out_size"]), "the manifest")
         print(f"[size] training at {out_size[0]}x{out_size[1]} from {r['out_size'][0]}x"
@@ -264,36 +249,22 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
     policy = config.AUGMENT
-    if erase_p is not None or bg_p is not None or jitter_translate is not None:
+    if erase_p is not None or jitter_translate is not None:
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
-                         **({"bg_p": bg_p} if bg_p is not None else {}),
                          **({"jitter_translate": jitter_translate}
                             if jitter_translate is not None else {}))
-        print(f"[aug] override erase_p={policy.erase_p} bg_p={policy.bg_p} "
+        print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
-    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck). Not used for
-    # bg-randomization (packed is for the big synth pretrain, bg_p=0); the finetune stays per-PNG.
-    packed = None
+    # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
     # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
     # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
     fused = bool(train_rows) and str(train_rows[0].get("path", "")).startswith("mm://")
-    if dataset:
-        from .pack import load_packed
-        packed = load_packed(dataset)
-        if fused and packed is None:
-            print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
-                  "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
-            return 1
-        if packed is not None and (policy.bg_p or 0) > 0:
-            if fused:
-                print(f"[pack] fused dataset: bg_p={policy.bg_p} ignored — bg-randomization needs "
-                      "crop files, which a fused build does not have. Training from the memmap.")
-            else:
-                print(f"[pack] packed memmap present but bg_p={policy.bg_p}>0 — using per-PNG loader "
-                      "(bg-randomization needs the files); pack is ignored for this run.")
-                packed = None
+    if fused and packed is None:
+        print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
+              "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+        return 1
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
     rot90 = False
@@ -316,15 +287,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                                      with_coverage=occluding)
     else:
         train_ds = SquareDataset(train_rows, classes, train_tf, with_coverage=occluding,
-                                 bg_randomize=True, policy=policy)
+                                 augment=True, policy=policy)
         val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
 
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
-    norm_eff = norm or ("groupnorm" if sys.platform.startswith("win") else "batchnorm")
+    # batchnorm everywhere, Windows included. The groupnorm-on-Windows default was a workaround
+    # for a MIOpen crash on MobileNet batch-norm; all 10 shipped runs are MobileNet + batchnorm on
+    # this machine, so the workaround outlived the bug it dodged.
+    norm_eff = norm or "batchnorm"
     device = get_device(require_gpu=True)
     model = build_model(backbone, len(classes) + occluding, pretrained=(backbone != "smallcnn"),
-                        norm=norm_eff, head="combined" if occluding else head,
-                        classes=classes, in_chans=in_chans).to(device)
+                        norm=norm_eff, head="combined", in_chans=in_chans).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
 
@@ -418,16 +391,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # 8 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
     nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
-    loader_kw = {"batch_size": batch_size, "pin_memory": True, "num_workers": nw}
-    if nw > 0:
-        loader_kw.update(persistent_workers=True, prefetch_factor=4)
+    loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
     sampler = None
     if hard_negative_multiplier != 1.0:
         if hard_negative_multiplier < 1.0:
             print("[FAIL] --hard-negative-multiplier must be at least 1.")
             return 1
         if not priority_paths:
-            print("[FAIL] --hard-negative-multiplier needs data/manifests/hard_empty.jsonl.")
+            print("[FAIL] --hard-negative-multiplier needs data/reports/hard_empty.jsonl.")
             return 1
         sample_weights = torch.tensor(
             [hard_negative_multiplier if row.get("path") in priority_paths else 1.0 for row in train_rows],
@@ -439,20 +410,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
-    # Deterministic validation loader for the extra occlusion diagnostics below.
-    # shuffle=False is important because its batches must stay aligned with val_rows.
-    val_loader = DataLoader(val_ds, shuffle=False, drop_last=False, **loader_kw)
-
-        # Runs are self-describing: geometry/photometry/extrusion height from the first
-    # manifest line (same derivation as `labeling.variant_of_run`, which supplies old runs without
-    # this field via a manifest scan). This way `serving.run_spec` knows the
-    # preprocessing variant without manifest access.
-    first_row = manifest[0] if manifest else {}
-    variant = {
-        "geometry": first_row.get("geometry", "warp"),
-        "photometry": first_row.get("photometry", "none"),
-        "piece_height_cells": float(first_row.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
-    }
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
     # examples contain, and serving has to reproduce them (specs/45). Absent = this dataset
     # cannot say, which every consumer must then treat as legacy rather than guess at.
@@ -482,8 +439,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD),
                       "mode": "per_crop" if per_crop else "fixed"},
         "input_repr": input_repr, "in_chans": in_chans,
-        "variant": variant, "scales": scales,
-        "aug": {"erase_p": policy.erase_p, "bg_p": policy.bg_p},
+        "scales": scales,
+        "aug": {"erase_p": policy.erase_p},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
@@ -526,9 +483,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         t0 = time.perf_counter()
         val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=batch_size, num_workers=nw)
         t_val = time.perf_counter() - t0
+        work_audit = current_work_audit()
+        validation_key = (id(model), id(val_ds), epoch)
+        if work_audit is not None:
+            work_audit.record_work("validation inference passes", validation_key, seconds=t_val)
         t0 = time.perf_counter()
-        score = checkpoint_score(val_rows, classes, val["trues"].tolist(), val["preds"].tolist())
-        bd = occupancy_piece_breakdown(classes, val["trues"].tolist(), val["preds"].tolist())
+        true_labels = val["trues"].tolist()
+        pred_labels = val["preds"].tolist()
+        score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels)
         t_score = time.perf_counter() - t0
         # --- occlusion validation diagnostics ---
         # The regular class metrics intentionally still score every crop for backwards
@@ -536,115 +498,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         #   * continuous coverage quality
         #   * class/occupancy quality only where the piece is actually visible
         #
-        # This is a second validation pass only; it does NOT change gradients, loss,
-        # BatchNorm statistics, checkpoint selection or training samples.
         occ_diag = {}
         if occluding:
             from .occlusion import PIECE_VISIBLE_MAX
 
-            cov_abs_sum = 0.0
-            cov_n = 0
-
-            occ_tp = 0
-            occ_want = 0
-            occ_hit = 0
-
-            vis_correct = 0
-            vis_occ_correct = 0
-            vis_n = 0
-
-            # (session_id, frame) -> whether every VISIBLE square has correct occupancy.
-            visible_boards: dict[tuple[str, str], bool] = {}
-
-            row_offset = 0
-            model.eval()
-
-            with torch.no_grad():
-                for vx, vy in val_loader:
-                    vx = vx.to(device, non_blocking=True)
-                    vy = vy.to(device, non_blocking=True)
-
-                    vlogits = model(vx)
-
-                    true_cls = vy[:, 0].long()
-                    cov_true = vy[:, 1]
-                    cov_pred = torch.sigmoid(vlogits[:, -1])
-                    pred_cls = vlogits[:, :-1].argmax(1)
-
-                    # Continuous coverage quality.
-                    cov_abs_sum += float((cov_pred - cov_true).abs().sum())
-                    cov_n += int(cov_true.numel())
-
-                    # Binary diagnostics at the tracker's adjustable 0.5 cut.
-                    want = cov_true > 0.5
-                    hit = cov_pred > 0.5
-                    occ_tp += int((want & hit).sum())
-                    occ_want += int(want.sum())
-                    occ_hit += int(hit.sum())
-
-                    # Piece identity is only a meaningful target while the crop is visible.
-                    visible = cov_true <= PIECE_VISIBLE_MAX
-
-                    if bool(visible.any()):
-                        vis_correct += int(
-                            (pred_cls[visible] == true_cls[visible]).sum()
-                        )
-
-                        true_occ = true_cls != classes.index("empty")
-                        pred_occ = pred_cls != classes.index("empty")
-                        vis_occ_correct += int(
-                            (true_occ[visible] == pred_occ[visible]).sum()
-                        )
-                        vis_n += int(visible.sum())
-
-                    # Validation DataLoader is ordered, so rows line up with predictions.
-                    vis_cpu = visible.cpu().tolist()
-                    true_cpu = true_cls.cpu().tolist()
-                    pred_cpu = pred_cls.cpu().tolist()
-
-                    for j, is_visible in enumerate(vis_cpu):
-                        if not is_visible:
-                            continue
-
-                        idx = row_offset + j
-                        if idx >= len(val_rows):
-                            continue
-
-                        row = val_rows[idx]
-                        key = (row["session_id"], str(row["frame"]))
-
-                        t_occ = classes[int(true_cpu[j])] != "empty"
-                        p_occ = classes[int(pred_cpu[j])] != "empty"
-                        square_ok = t_occ == p_occ
-
-                        visible_boards[key] = (
-                            visible_boards.get(key, True) and square_ok
-                        )
-
-                    row_offset += int(vx.size(0))
-
-            occ_diag = {
-                "val_occ_mae": (
-                    cov_abs_sum / cov_n if cov_n else float("nan")
-                ),
-                "val_occ_recall": (
-                    occ_tp / occ_want if occ_want else 0.0
-                ),
-                "val_occ_precision": (
-                    occ_tp / occ_hit if occ_hit else 0.0
-                ),
-                "val_visible_acc": (
-                    vis_correct / vis_n if vis_n else float("nan")
-                ),
-                "val_visible_occ_acc": (
-                    vis_occ_correct / vis_n if vis_n else float("nan")
-                ),
-                "val_visible_occ_board_acc": (
-                    sum(visible_boards.values()) / len(visible_boards)
-                    if visible_boards else float("nan")
-                ),
-                "val_visible_n": vis_n,
-            }
+            occ_diag = _occlusion_diagnostics(val, val_rows, classes, PIECE_VISIBLE_MAX)
 
         rec = {
             "epoch": epoch,

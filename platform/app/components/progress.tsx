@@ -2,7 +2,7 @@
 
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 
-export function Bar({ done, total, className = "w-24" }: { done: number; total: number; className?: string }) {
+function Bar({ done, total, className = "w-24" }: { done: number; total: number; className?: string }) {
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
   return (
     <span className={`bg-muted inline-block h-1 shrink-0 overflow-hidden rounded ${className}`}>

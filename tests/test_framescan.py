@@ -9,11 +9,10 @@ SEG = {"start": 0, "end": 120, "ply": 3}
 
 def _scan(hands=(), skin=(), cells=None, stride=3, end=120):
     """One scan row per stride, clean unless an index falls into `hands` (person) or `skin`."""
-    rows = []
-    for idx in range(0, end, stride):
-        rows.append({"idx": idx, "person": 0.9 if idx in hands else 0.11,
-                     "skin": idx in skin, "grid": [],
-                     "cells": list(cells(idx)) if cells else [10.0] * 64})
+    rows = [{"idx": idx, "person": 0.9 if idx in hands else 0.11,
+             "skin": idx in skin, "grid": [],
+             "cells": list(cells(idx)) if cells else [10.0] * 64}
+            for idx in range(0, end, stride)]
     return rows
 
 
@@ -214,7 +213,7 @@ def test_an_occlusion_run_can_be_loaded_back(tmp_path):
     (run / "config.json").write_text(json.dumps({
         "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
         "out_size": [32, 32]}), encoding="utf-8")
-    trained = build_model("smallcnn", len(classes) + 1, head="combined", classes=classes)
+    trained = build_model("smallcnn", len(classes) + 1, head="combined")
     torch.save(trained.state_dict(), run / "best.pt")
 
     model, cfg = load_run(run)
@@ -240,8 +239,7 @@ def test_the_coverage_unit_never_reaches_the_softmax(tmp_path, monkeypatch):
     (run / "config.json").write_text(json.dumps({
         "backbone": "smallcnn", "classes": classes, "head": "occlusion", "norm": "batchnorm",
         "out_size": [32, 32], "infer_size": [32, 32]}), encoding="utf-8")
-    torch.save(build_model("smallcnn", len(classes) + 1, head="combined",
-                           classes=classes).state_dict(), run / "best.pt")
+    torch.save(build_model("smallcnn", len(classes) + 1, head="combined").state_dict(), run / "best.pt")
 
     out = serving.predict_arrays(run, [np.zeros((32, 32, 3), np.uint8)], return_probs=True)
 
@@ -257,7 +255,7 @@ def test_an_archived_game_is_not_exported(tmp_path, monkeypatch):
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g1"
+    g = realgames.game_dir("g1")
     g.mkdir(parents=True)
     (g / "ui-meta.json").write_text(json.dumps({"archived": True}), encoding="utf-8")
 
@@ -276,16 +274,40 @@ def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
     from chesslab import config, sessions
 
     paths = config.Paths(root=tmp_path / "data")
+    monkeypatch.setattr(config, "DATA", paths)
     sdir = paths.sessions / "s1"
     sdir.mkdir(parents=True)
     (sdir / "log.jsonl").write_text("".join(
         json.dumps({"frame": f"frames/00000{i}.png"}) + "\n" for i in (1, 2)), encoding="utf-8")
-    paths.manifests.mkdir(parents=True, exist_ok=True)
-    paths.corrections.write_text(
-        json.dumps({"session_id": "s1", "frame": "000001", "square": "a1", "label": "wP"}) + "\n"
-        + json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
+    paths.crop_pool.mkdir(parents=True, exist_ok=True)
+    (sdir / "corrections.jsonl").write_text(
+        json.dumps({"session_id": "s1", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
+        encoding="utf-8")
+    other = paths.sessions / "other"
+    other.mkdir(parents=True)
+    (other / "corrections.jsonl").write_text(
+        json.dumps({"session_id": "other", "frame": "000001", "square": "a1", "label": "wP"}) + "\n",
         encoding="utf-8")
 
     cost = sessions.deletion_cost("s1", paths)
 
     assert cost == {"session_id": "s1", "frames": 2, "crops": 0, "corrections": 1}
+
+
+def test_the_gate_is_the_witness_and_the_old_sensors_only_answer_for_old_scans():
+    """Seit 2026-08-22 entscheidet der destillierte Kopf, ob eine Hand auf dem Brett liegt.
+
+    Gemessen gegen SAM auf vier zurueckgehaltenen Sessions: Gate 0,9988/0,9920 gegen 0,9618/0,9509
+    der drei alten Sensoren zusammen. Alte Scans tragen kein `gate` und werden weiter so gelesen,
+    wie sie geschrieben wurden — sonst gaelte ein ganzer Korpus ueber Nacht als handfrei.
+    """
+    assert fs.occupied({"gate": fs.GATE_THR + 0.1}) is True
+    assert fs.occupied({"gate": fs.GATE_THR - 0.1}) is False
+
+    # Die Rillen stimmen NICHT mehr mit: null gerettete Frames, 36 Fehlalarme.
+    assert fs.occupied({"gate": 0.0, "grid": ["e4", "e5"]}) is False
+
+    # Ohne `gate` bleibt die alte Regel stehen.
+    assert fs.occupied({"grid": ["e4"]}) is True
+    assert fs.occupied({"person": 0.9}) is True
+    assert fs.occupied({"person": 0.11, "skin": False, "grid": []}) is False

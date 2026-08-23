@@ -17,12 +17,11 @@ from chesslab.calibration import (
     GridMesh,
     compute_homography,
     crop_border_px,
-    mesh_cell_quad,
     mesh_from_lines,
-    square_to_crop_box,
-    square_to_mesh_box,
+    mesh_point,
+    smooth_mesh_curvature,
+    straighten_board,
 )
-from chesslab.labeling import all_squares, crop_square
 
 FIXTURE = (Path(__file__).resolve().parents[1]
            / "android/core-engine/src/test/resources/parity/_geometry/mesh_crop_parity.json")
@@ -53,48 +52,26 @@ def _mesh(fx: dict, *, curved: bool) -> GridMesh:
                     m["cx"] if curved else None, m["cy"] if curved else None)
 
 
-def test_all_64_mesh_boxes_match_the_shared_fixture(fx):
-    prof, mesh = _profile(fx), _mesh(fx, curved=False)
-    assert len(fx["boxes"]) == 64
-    for square, want in fx["boxes"].items():
-        assert square_to_mesh_box(square, prof, mesh) == pytest.approx(want, abs=TOL)
+@pytest.mark.parametrize("key,curved", [("meshPoints", False), ("curvedMeshPoints", True)])
+def test_the_mesh_map_matches_the_shared_fixture(fx, key, curved):
+    """The one map all three straighteners run — the per-cell boxes it replaced are gone."""
+    mesh = _mesh(fx, curved=curved)
+    assert len(fx[key]) == 100
+    for u, v, wx, wy in fx[key]:
+        assert mesh_point(u, v, mesh) == pytest.approx((wx, wy), abs=TOL)
 
 
-@pytest.mark.parametrize("key,curved", [("quads", False), ("curvedQuads", True)])
-def test_all_64_cell_quads_match_the_shared_fixture(fx, key, curved):
-    prof, mesh = _profile(fx), _mesh(fx, curved=curved)
-    assert len(fx[key]) == 64
-    for square, want in fx[key].items():
-        got = [c for corner in mesh_cell_quad(square, prof, mesh) for c in corner]
-        assert got == pytest.approx([c for corner in want for c in corner], abs=TOL)
-
-
-def test_zero_tilts_put_the_quads_corners_on_the_scalar_box(fx):
-    prof = _profile(fx)
-    flat = GridMesh(fx["mesh"]["x"], fx["mesh"]["y"], [0.0] * 9, [0.0] * 9)
-    for square in all_squares():
-        x0, y0, x1, y1 = square_to_mesh_box(square, prof, flat)
-        got = [c for corner in mesh_cell_quad(square, prof, flat) for c in corner]
-        assert got == pytest.approx([x0, y0, x1, y0, x1, y1, x0, y1], abs=TOL)
-
-
-def test_zero_curvature_lands_on_the_closed_form_intersection(fx):
-    """The iterated corner and the exact intersection agree far inside a pixel — CORNER_ITERATIONS."""
-    prof = _profile(fx)
-    m = fx["mesh"]
-    tilted = GridMesh(m["x"], m["y"], m["tx"], m["ty"])
-    zero = GridMesh(m["x"], m["y"], m["tx"], m["ty"], [0.0] * 9, [0.0] * 9)
-    got = [c for corner in mesh_cell_quad("e4", prof, zero) for c in corner]
-    want = [c for corner in mesh_cell_quad("e4", prof, tilted) for c in corner]
-    assert got == pytest.approx(want, abs=1e-3)
-
-
-def test_the_nominal_mesh_reproduces_square_to_crop_box(fx):
-    prof = _profile(fx)
+def test_the_nominal_mesh_moves_no_point(fx):
     nominal = GridMesh([k / 8.0 for k in range(9)], [k / 8.0 for k in range(9)])
-    for square in all_squares():
-        box = tuple(round(v) for v in square_to_mesh_box(square, prof, nominal))
-        assert box == square_to_crop_box(square, prof, clamp=False)
+    for u in (0.0, 0.0625, 0.5, 0.9375, 1.0):
+        assert mesh_point(u, 1.0 - u, nominal) == pytest.approx((u, 1.0 - u), abs=TOL)
+
+
+def test_a_mesh_without_tilts_still_moves_by_its_offsets(fx):
+    """The scalar stage: offsets alone ARE a correction, and dropping them would be a silent loss."""
+    shifted = [k / 8.0 + 0.01 for k in range(9)]
+    scalar = GridMesh(shifted, list(shifted))
+    assert mesh_point(0.5, 0.5, scalar) == pytest.approx((0.51, 0.51), abs=TOL)
 
 
 def test_mesh_from_lines_drops_one_stage_per_defect(fx):
@@ -109,20 +86,57 @@ def test_mesh_from_lines_drops_one_stage_per_defect(fx):
     assert mesh_from_lines(None) is None
 
 
-def test_a_nominal_mesh_crops_what_the_scalar_path_crops(fx):
+def test_the_trend_heal_matches_the_shared_fixture():
+    """The REAL poisoned mesh (rg-2026-08-15-22-57-06) healed identically on every side —
+    `CurvatureTrendParityTest.kt` reads the same file."""
+    fx = json.loads((FIXTURE.parent / "curvature_trend_parity.json").read_text(encoding="utf-8"))
+    healed = smooth_mesh_curvature(mesh_from_lines(fx["mesh"]))
+    assert healed.cx == pytest.approx(fx["healedCx"], abs=1e-9)
+    assert healed.cy == pytest.approx(fx["healedCy"], abs=1e-9)
+    lin = fx["linearCurv"]
+    m = fx["mesh"]
+    untouched = smooth_mesh_curvature(GridMesh(m["x"], m["y"], m["tx"], m["ty"], list(lin), list(lin)))
+    assert untouched.cx == pytest.approx(lin, abs=1e-9)
+
+
+def test_a_poisoned_curvature_line_takes_the_cross_line_trend(fx):
+    """The 7/6 defect: pawn feet fake -0.07 curvature on ONE line; the trend replaces exactly it."""
+    mesh = mesh_from_lines(fx["mesh"])
+    poisoned = smooth_mesh_curvature(GridMesh(
+        mesh.x, mesh.y, mesh.tx, mesh.ty,
+        cx=[0.001 * k for k in range(9)],
+        cy=[0.001 * k if k != 2 else -0.07 for k in range(9)]))
+    assert poisoned.cx == pytest.approx([0.001 * k for k in range(9)], abs=1e-9)
+    assert poisoned.cy[2] == pytest.approx(0.002, abs=1e-3)
+    assert poisoned.cy[3:] == pytest.approx([0.001 * k for k in range(3, 9)], abs=1e-9)
+
+
+def test_a_genuinely_linear_curvature_profile_is_left_alone():
+    """A rig's real bow runs linearly across the lines (±0.046 at the edges) and must survive."""
+    lin = [round(-0.046 + k * 0.0115, 5) for k in range(9)]
+    xs = [k / 8.0 for k in range(9)]
+    mesh = GridMesh(xs, list(xs), [0.0] * 9, [0.0] * 9, list(lin), list(lin))
+    healed = smooth_mesh_curvature(mesh)
+    assert healed.cx == pytest.approx(lin, abs=1e-9)
+    assert smooth_mesh_curvature(None) is None
+    assert smooth_mesh_curvature(GridMesh(xs, list(xs))).cx is None
+
+
+def test_a_nominal_mesh_leaves_the_board_where_it_found_it(fx):
+    """The identity case: lines exactly on the eighths must move no pixel worth seeing."""
     prof = _profile(fx)
-    bs = prof.board_size
-    b = crop_border_px(prof)
+    bs, b = prof.board_size, crop_border_px(prof)
     rng = np.random.default_rng(7)
     warped = rng.integers(0, 255, (bs + 2 * b, bs + 2 * b, 3), dtype=np.uint8)
-    nominal = GridMesh([k / 8.0 for k in range(9)], [k / 8.0 for k in range(9)])
-    for square in ("a8", "e4", "h1"):
-        plain = crop_square(warped, square, prof, prof.crop.out_size)
-        assert np.array_equal(crop_square(warped, square, prof, prof.crop.out_size, nominal), plain)
+    eighths = [k / 8.0 for k in range(9)]
+    nominal = GridMesh(eighths, list(eighths), [0.0] * 9, [0.0] * 9)
+    pulled = straighten_board(warped, nominal, bs, b)
+    inner = (slice(b + 2, b + bs - 2), slice(b + 2, b + bs - 2))
+    assert np.abs(pulled[inner].astype(int) - warped[inner].astype(int)).max() <= 1
 
 
-def test_a_tilted_mesh_straightens_what_the_scalar_cut_leaves_slanted(fx):
-    """A board drawn with tilted lines: the mesh cut lands the line where the nominal cut cannot."""
+def test_a_tilted_mesh_straightens_a_line_the_plain_cut_leaves_slanted(fx):
+    """A board drawn with a tilted line: after `straighten_board` the plain cut finds it upright."""
     prof = _profile(fx, out_size=(128, 128))
     bs, b = prof.board_size, crop_border_px(prof)
     tilt = 0.02
@@ -133,9 +147,15 @@ def test_a_tilted_mesh_straightens_what_the_scalar_cut_leaves_slanted(fx):
         canvas[row, max(0, x - 2):x + 3] = 255
     x = [k / 8.0 for k in range(9)]
     mesh = GridMesh(x, list(x), [tilt if k == 4 else 0.0 for k in range(9)], [0.0] * 9)
-    cut = crop_square(canvas, "e4", prof, prof.crop.out_size, mesh)
-    columns = [np.argmax(cut[r, :, 0] > 0) for r in range(cut.shape[0]) if cut[r, :, 0].max() > 0]
-    assert max(columns) - min(columns) <= 2
+
+    def spread(image):
+        rows = range(b, b + bs)
+        cols = [np.argmax(image[r, :, 0] > 0) for r in rows if image[r, :, 0].max() > 0]
+        return max(cols) - min(cols)
+
+    # The mutation check: a straightening that did nothing would pass the second assert alone.
+    assert spread(canvas) > 15, "the raw board must SHOW the slant, or this proves nothing"
+    assert spread(straighten_board(canvas, mesh, bs, b)) <= 2
 
 
 def _session_with_mesh(tmp_path, lines: dict | None, board_size=800):
@@ -180,6 +200,36 @@ def test_slice_cuts_at_the_rows_own_grid_lines(tmp_path):
                                    squares_root=tmp_path / "sqb")
     assert (meshed["mesh_frames"], plain["mesh_frames"]) == (1, 0)
     assert meshed["crops"] == plain["crops"] == 64
+
+
+def test_slice_counts_a_stored_board_nobody_pulled_straight(tmp_path):
+    """Nothing in a crop says whether its board still carries the barrel — so the slice must."""
+    import cv2
+
+    from chesslab import labeling
+
+    bs = 800
+    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
+    prof = CalibrationProfile(
+        profile="test", camera_index=0, frame_size=(bs, bs), board_size=bs,
+        image_corners=corners, homography=compute_homography(corners, bs), white_pov=True,
+        crop=CropParams.default(bs))
+    border = crop_border_px(prof)
+    for flag, want in ((False, 1), (True, 0)):
+        sdir = _session_with_mesh(tmp_path / f"b{flag}", None)
+        (sdir / "boards").mkdir()
+        rng = np.random.default_rng(5)
+        cv2.imwrite(str(sdir / "boards" / "0000.webp"),
+                    rng.integers(0, 255, (bs + 2 * border, bs + 2 * border, 3), dtype=np.uint8))
+        row = json.loads((sdir / "log.jsonl").read_text(encoding="utf-8").strip())
+        row.update(board="boards/0000.webp", board_size=bs, board_border=border)
+        if flag:
+            row["board_straightened"] = True
+        (sdir / "log.jsonl").write_text(json.dumps(row) + chr(10), encoding="utf-8")
+        stats = labeling.slice_session(sdir, profile=prof,
+                                       manifest_path=tmp_path / f"m{flag}.jsonl",
+                                       squares_root=tmp_path / f"sq{flag}")
+        assert stats["bowed_boards"] == want, f"board_straightened={flag}"
 
 
 def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypatch):

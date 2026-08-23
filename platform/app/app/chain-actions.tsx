@@ -14,7 +14,7 @@ import type { Progress } from "@/lib/progress";
 const STEP: Record<ChainStep, { label: string; hint: string }> = {
   label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
   confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
-  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/sessions/rg-<name>/" },
+  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/recordings/<name>/" },
   matte: {
     label: "Matten",
     hint: "SAM 3 schneidet die Hand aus verdeckten Frames → mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
@@ -30,14 +30,21 @@ const BUSY = new Set(["queued", "running"]);
 
 /** Half-matted is the ordinary state, so the button carries the count instead of claiming a start. */
 function stepLabel(step: ChainStep, state: ChainState): string {
-  const { done, total } = state.mattes;
-  return step === "matte" && done > 0 ? `${STEP.matte.label} ${done}/${total}` : STEP[step].label;
+  const { done, total, reported } = state.mattes;
+  if (step !== "matte") return STEP[step].label;
+  const pile = done > 0 ? ` ${done}/${total}` : "";
+  return `${STEP.matte.label}${pile}${reported > 0 ? ` +${reported} gemeldet` : ""}`;
 }
 
 /** The press is a `--limit` run, so it says what it will compute — an unannounced GPU hour is not on. */
 function stepHint(step: ChainStep, state: ChainState): string {
-  const { done, target, total } = state.mattes;
+  const { done, target, total, reported } = state.mattes;
   if (step !== "matte") return STEP[step].hint;
+  // Gemeldete zuerst: sie liegen NICHT im `occluded`-Stapel (meist `stale`), also holt sie kein
+  // gewöhnlicher Lauf — genau der Grund, warum markierte Finger ungemattet blieben.
+  if (reported > 0) {
+    return `${STEP.matte.hint}. Ein Druck rechnet die ${reported} von Hand gemeldeten Frames — die stehen nicht im Stapel und kämen sonst nie dran. Danach die ${Math.max(0, target - done)} des Stapels.`;
+  }
   const rest = total > target ? ` — die restlichen ${total - target} holt "occluders alpha-worker" im Terminal` : "";
   return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.`;
 }

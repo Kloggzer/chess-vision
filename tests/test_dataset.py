@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab import config
+from chesslab import config, dataset
 from chesslab.dataset import (
     assign_sessions_to_splits,
     compute_class_weights,
@@ -30,11 +30,9 @@ def _dataset():
     # 4 sessions, pieces on both colors, lots of empty
     for si in range(4):
         sid = f"s{si}"
-        for k in range(10):
-            rows.append(_row("wP", sid, "a2", "light" if k % 2 else "dark"))
+        rows.extend(_row("wP", sid, "a2", "light" if k % 2 else "dark") for k in range(10))
         rows.append(_row("wK", sid, "e1", "dark"))
-        for k in range(60):
-            rows.append(_row("empty", sid, "c4", "light" if k % 2 else "dark"))
+        rows.extend(_row("empty", sid, "c4", "light" if k % 2 else "dark") for k in range(60))
     return rows
 
 
@@ -91,7 +89,7 @@ def test_subsample_priority_paths_survive_empty_cap():
 
 
 def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
-    """The keep list is read from `<manifests>/hard_empty.jsonl`, or None when nothing is mined.
+    """The keep list is read from `<reports>/hard_empty.jsonl`, or None when nothing is mined.
 
     Both `dataset_build.build_dataset` and `training.train.run_train` go through this one loader.
     They have to: the built dataset's manifest holds the UNCAPPED rows, so `run_train` re-runs
@@ -101,10 +99,10 @@ def test_load_priority_paths_reads_the_mined_keep_list(tmp_path):
     from dataclasses import replace
 
     paths = replace(config.DATA, root=tmp_path)
-    paths.manifests.mkdir(parents=True, exist_ok=True)
+    paths.reports.mkdir(parents=True, exist_ok=True)
     assert load_priority_paths(paths) is None      # nothing mined -> no protection, no crash
 
-    (paths.manifests / "hard_empty.jsonl").write_text(
+    (paths.reports / "hard_empty.jsonl").write_text(
         '{"path": "a.png", "pred": "wN"}\n\n{"path": "b.png", "pred": "empty"}\n', encoding="utf-8")
     assert load_priority_paths(paths) == {"a.png", "b.png"}   # blank lines ignored
 
@@ -277,8 +275,7 @@ def test_validate_split_class_only_in_one_session():
 
     rows = []
     # s0: 2 sessions, wQ only in s0
-    for _ in range(5):
-        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.extend(_row("wQ", "s0", "d1", "dark") for _ in range(5))
     rows.append(_row("wQ", "s0", "e1", "dark"))
     # wK in both sessions
     for _ in range(5):
@@ -345,23 +342,22 @@ def test_run_split_allow_degenerate_stores_errors(tmp_path, monkeypatch):
     from chesslab.dataset import run_split
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.manifests.mkdir(parents=True)
+    config.DATA.crop_pool.mkdir(parents=True)
 
     # wQ only in s0
     rows = []
-    for _ in range(5):
-        rows.append(_row("wQ", "s0", "d1", "dark"))
+    rows.extend(_row("wQ", "s0", "d1", "dark") for _ in range(5))
     rows.append(_row("wK", "s1", "e1", "dark"))
     rows.append(_row("empty", "s1", "c4", "light"))
 
     import json
-    (config.DATA.manifests / "squares.jsonl").write_text(
+    (config.DATA.crop_pool / "manifest.jsonl").write_text(
         "\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
     rc = run_split(val_frac=0.3, test_frac=0.3, max_empty_ratio=99.0, seed=42,
                    allow_degenerate=True)
     assert rc == 0
-    split = json.loads((config.DATA.manifests / "split.json").read_text(encoding="utf-8"))
+    split = json.loads((config.DATA.reports / "split.json").read_text(encoding="utf-8"))
     assert "degenerate_errors" in split
     assert any("wQ" in e for e in split["degenerate_errors"])
 
@@ -380,7 +376,7 @@ def _build_pool(tmp_path, monkeypatch, n_sessions=4):
     import json
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    config.DATA.manifests.mkdir(parents=True)
+    config.DATA.crop_pool.mkdir(parents=True)
     rows = []
     for si in range(n_sessions):
         sid = f"s{si}"
@@ -391,67 +387,39 @@ def _build_pool(tmp_path, monkeypatch, n_sessions=4):
                          path=f"data/squares/{lab}/{sid}_{fi}_{sq}.png")
                 r["frame"] = str(fi)
                 rows.append(r)
-    mp = config.DATA.manifests / "squares.jsonl"
+    mp = config.DATA.crop_pool / "manifest.jsonl"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     return [f"s{i}" for i in range(n_sessions)], mp
 
 
-def test_to_occupancy_class_collapses_pieces():
-    for c in config.CLASSES:
-        if c in ("empty", "occluded"):
-            continue
-        assert config.to_occupancy_class(c) == "occupied"
-    assert config.to_occupancy_class("empty") == "empty"
-
-
-def test_to_occupancy_class_rejects_occluded():
-    import pytest
-    with pytest.raises(ValueError):
-        config.to_occupancy_class("occluded")
-    with pytest.raises(ValueError):
-        config.to_occupancy_class("wZ")
-
-
-def test_occupancy_build_writes_two_class_split(tmp_path, monkeypatch):
-    import json
-
-    from chesslab import dataset_build as db
-
-    sids, _ = _build_pool(tmp_path, monkeypatch)
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
-    split = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))
-    assert split["classes"] == ["empty", "occupied"]
-    assert set(split["train_class_counts"]) == {"empty", "occupied"}
-    assert "occluded" not in json.dumps(split)
-
-
-def test_occupancy_build_reuses_all_rows(tmp_path, monkeypatch):
+def test_a_narrower_class_mode_reuses_the_same_rows(tmp_path, monkeypatch):
+    """The narrowing is METADATA: same crops, same order, only the label list shrinks."""
     import json
 
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
     a = db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    b = db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    b = db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     assert a["counts"]["final"] == b["counts"]["final"]
     ra = [json.loads(x) for x in
           (db.dataset_dir("pieces") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     rb = [json.loads(x) for x in
-          (db.dataset_dir("occ") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+          (db.dataset_dir("id13") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [r["path"] for r in ra] == [r["path"] for r in rb]
-    assert [config.to_occupancy_class(r["label"]) for r in ra] == [r["label"] for r in rb]
+    assert [r["label"] for r in ra] == [r["label"] for r in rb]
 
 
-def test_occupancy_build_preserves_per_session_split(tmp_path, monkeypatch):
+def test_a_narrower_class_mode_preserves_the_per_session_split(tmp_path, monkeypatch):
     import json
 
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
     db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     sa = json.loads((db.dataset_dir("pieces") / "split.json").read_text(encoding="utf-8"))["splits"]
-    sb = json.loads((db.dataset_dir("occ") / "split.json").read_text(encoding="utf-8"))["splits"]
+    sb = json.loads((db.dataset_dir("id13") / "split.json").read_text(encoding="utf-8"))["splits"]
     assert sa == sb
 
 
@@ -467,13 +435,12 @@ def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
             == (db.dataset_dir("b") / "split.json").read_bytes())
 
 
-def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
-    """`occluded` is neither empty nor occupied, so it is dropped - and the count is printed.
+def test_a_narrower_build_drops_occluded_rows_loudly(tmp_path, monkeypatch, capsys):
+    """`pieces13` has no `occluded` output, so such a row is dropped - and the count is printed.
 
-    This used to raise. That was right while a hand label on a real session was the only way an
-    `occluded` row could appear, but renders with `--occlusion-p` produce them deliberately and in
-    bulk, and refusing the build made occluders unusable for occupancy training. The guard's real
-    purpose was to keep the drop from being silent, and the printed count serves it.
+    This used to raise. That was right while a hand label was the only way an `occluded` row could
+    appear, but renders with `--occlusion-p` produce them in bulk. The guard's real purpose was to
+    keep the drop from being silent, and the printed count serves it.
     """
     import json
 
@@ -483,7 +450,7 @@ def test_occupancy_build_drops_occluded_rows(tmp_path, monkeypatch, capsys):
     rows = [json.loads(x) for x in mp.read_text(encoding="utf-8").splitlines()]
     rows[0]["label"] = "occluded"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
-    db.build_dataset("occ", sids, phash_enabled=False, pack=False, class_mode="occupancy")
+    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
     assert "dropped 1" in capsys.readouterr().out
 
 
@@ -546,3 +513,27 @@ def test_add_test_extends_the_donor_split_without_touching_train(tmp_path):
     # An extra session NOT named in --add-test is still refused rather than defaulted.
     with pytest.raises(ValueError, match="new"):
         db._split_from("donor", {"s1", "new"}, _P)
+
+
+def test_pseudo_sessions_of_one_clip_never_straddle_the_split():
+    """`composite.build_from_video` cuts a clip into `blocks` pseudo-sessions. Without the group
+    they landed in different splits — comp13-occ-80-v1 had frame 664 in val and 672 in train, so
+    val measured train. Declaring the group is what keeps a clip whole."""
+    sizes = {f"comp-A-{i:02d}": 900 for i in range(6)} | {f"comp-B-{i:02d}": 300 for i in range(6)}
+    groups = {sid: sid.rsplit("-", 1)[0] for sid in sizes}
+
+    sp = assign_sessions_to_splits(sizes, val_frac=0.15, test_frac=0.15, seed=42, groups=groups)
+
+    placed = {sid: name for name, sids in sp.items() for sid in sids}
+    assert set(placed) == set(sizes)
+    for clip in ("comp-A", "comp-B"):
+        landed = {placed[sid] for sid in sizes if sid.startswith(clip)}
+        assert len(landed) == 1, f"{clip} straddles {landed}"
+
+
+def test_groups_default_to_one_per_session():
+    """No `split_group` in the rows -> the old per-session behaviour, bit for bit."""
+    rows = [{"session_id": "s1"}, {"session_id": "s2", "split_group": "g"}]
+    assert dataset.groups_of(rows) == {"s1": "s1", "s2": "g"}
+    assert (assign_sessions_to_splits(_UNEQUAL, 0.15, 0.15, 42)
+            == assign_sessions_to_splits(_UNEQUAL, 0.15, 0.15, 42, groups=None))

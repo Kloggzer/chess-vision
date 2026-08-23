@@ -11,7 +11,7 @@ test("the job runner's shape splits at — see", () => {
 
 test("the tool's shape splits at (exit n, log) and keeps the code", () => {
   const { text, log, code } = failureParts(
-    'recording ends at video-002.mp4: could not open "C:\\chess\\data\\realgames\\x\\video.mp4" (exit 1, C:\\chess\\jobs\\b.label.log)',
+    'recording ends at video-002.mp4: could not open "C:\\chess\\data\\recordings\\x\\video.mp4" (exit 1, C:\\chess\\jobs\\b.label.log)',
   );
   expect(text).toBe('recording ends at video-002.mp4: could not open video.mp4');
   expect(logName(log ?? "")).toBe("b.label.log");
@@ -32,5 +32,5 @@ test("trimPaths leaves file names, not directories", () => {
 
 /** The job ledger truncates its own reason, so the last path can end mid-word and unclosed. */
 test("trimPaths survives a path the ledger cut in half", () => {
-  expect(trimPaths('Could not open input "C:\\chess\\data\\realgames\\2026-0')).toBe("Could not open input 2026-0");
+  expect(trimPaths('Could not open input "C:\\chess\\data\\recordings\\2026-0')).toBe("Could not open input 2026-0");
 });

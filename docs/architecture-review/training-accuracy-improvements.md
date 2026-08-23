@@ -6,6 +6,11 @@ the strongest capability of the models (0.78–0.91) — and that's exactly what
 The piece type is the bottleneck (52–59 % type errors), but secondary for move tracking,
 because the tracker knows the piece identity from the game history.**
 
+**Note (2026-08-20):** the `factored` and `twostage` heads this document weighs no longer exist —
+`--head` takes `occlusion` (default) or `combined`. "Occupancy" below means the empty-vs-occupied
+METRIC (`training/data.py:occupancy_board_acc`), which is live; the 2-class `occupancy` dataset
+mode was deleted the same day. `move_tracker` is Kotlin in `android/`.
+
 ## 1. Current State: Run Results
 
 | Run | Dataset | Train/Val | Backbone | Head | val_acc | macro_recall | board_acc |
@@ -33,8 +38,8 @@ a clahe/gamma model sees different images during inference than during training.
    val_acc overestimates true generalization, and the type collapses on new positions.
 2. **Type confusion as the dominant failure mode.** Rare pieces (Q, K: 1–2 exemplars per
    board) have too few examples; N↔B, R↔Q are similar from the top-down view.
-3. **Datasets too small.** Bake-off: 1536 crops = 24 frames. Simply too little for 14 classes with
-   class imbalance; s5 (8684) already shows the jump to 0.83.
+3. **Datasets too small.** Bake-off: 1536 crops = 24 frames. Simply too little for the 14-class scheme then in use
+   with class imbalance; s5 (8684) already shows the jump to 0.83.
 4. **board_acc as a metric is too harsh and too high-variance.** 0.84 square_acc ⇒ as expected
    board_acc ≈ 0 with independent errors; the measured 0.13–0.19 come from correlated
    errors (empty ≈ perfect). With 8–70 val frames the metric is nearly noise — unsuitable as
@@ -60,7 +65,7 @@ After that, make split validation strict (R5) so this does not happen again.
 The tracker primarily needs from the CNN "which square became empty / is no longer empty" — the
 piece type it knows from the move history. Consequences:
 - **twostage head as default** (best occ_acc 0.914 already on mini-data) or, when consuming
-  a combined model, collapse the 14 classes to binary (empty/occluded vs. rest) — that is
+  a combined model, collapse the 13 identity classes to binary (empty vs. occupied) — that is
   significantly more robust than the argmax class.
 - **Switch checkpoint selection to occupancy:** change the early stopping score from `(macro_recall, board_acc)`
   to `(occ_board_acc, occ_acc)` or a mixture `0.7·occ_board_acc + 0.3·piece_acc`

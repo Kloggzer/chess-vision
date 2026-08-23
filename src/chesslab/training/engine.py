@@ -34,10 +34,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     import torch
     from torch.utils.data import DataLoader
 
-    kw = {"batch_size": batch_size, "shuffle": False, "num_workers": num_workers, "pin_memory": True}
-    if num_workers > 0:
-        kw["prefetch_factor"] = 4
-        kw["persistent_workers"] = True
+    from .. import config
+
+    kw = {"batch_size": batch_size, "shuffle": False, **config.loader_kwargs(num_workers)}
     # Kept across calls: the training loop evaluates once per EPOCH, and a fresh loader spawns
     # `num_workers` processes that each re-import torch — on Windows spawn that is the idle gap
     # between epochs, and it grows with the worker count instead of shrinking.
@@ -113,7 +112,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "trues": trues_a,
         "preds": preds_a,
         **({"occ_mae": float(np.abs(np.array(probs) - np.array(cover)).mean()),
-            "occ_recall": _hit_rate(probs, cover)} if cover else {}),
+            "occ_recall": _hit_rate(probs, cover),
+            "coverage_trues": np.asarray(cover, dtype=np.float32),
+            "coverage_probs": np.asarray(probs, dtype=np.float32)} if cover else {}),
     }
 
 

@@ -341,3 +341,93 @@ Two of `38`'s own details need correcting when it is next touched: it is **no lo
   now grows *speculatively* — `PositionLibraryWarmer` creates up to 8 entries per finished review — and
   the session recorder's 1 GB cap halts rather than rotates. The ack loop in §5 is what makes retention
   answerable at all; a phase that ships uploads without acks has not solved it.
+
+---
+
+## 10. The other device platform: execution providers on the phone
+
+> Recovered from the retired spec tree (`specs/17`, `specs/19`, `specs/26`) so the finding outlives
+> it. Unrelated to the server platform above; it is here because this is the device-level analysis
+> document. Latency and graph-shape numbers: `docs/android-performance.md`.
+
+### QNN / the Hexagon NPU is unreachable on this ROM
+
+Device: Xiaomi `24117RK2CG` (SM8650). The failure is a **ROM policy**, not a configuration mistake,
+and nothing app-side can lift it.
+
+The chain of evidence, in the order it was peeled back:
+
+1. Verbose ORT logging surfaced QNN's own log:
+   `Failed in loading stub: dlopen failed: library "libcdsprpc.so" not found: needed by
+   .../lib/arm64/libQnnHtpV75Stub.so`. `libcdsprpc.so` is the fastRPC client, a **vendor** public
+   library (`/vendor/etc/public.libraries.txt`), and since Android 12 those are absent from an app's
+   linker namespace unless the manifest names them. Fixed with
+   `<uses-native-library android:name="libcdsprpc.so" android:required="false" />`. **This fix is
+   real and is kept** — on any device where the DSP is reachable it is the difference between an NPU
+   and no NPU. It moved QNN from "cannot load the stub" to reaching the DSP transport layer, SoC
+   detection and `QnnDevice_create`.
+2. With the stub loading, the wall appears one layer deeper:
+   `fastrpc_apps_user.c:3752: Error 0xd: open_shell failed for domain 3` (search paths `/dsp/`,
+   `/vendor/dsp/`, `/vendor/dsp/xdsp/`, errno Permission denied) → `Failed to load skel, error: 4000`
+   → `Transport layer setup failed: 14001` → `QnnDevice_create done. status 0x36b1`
+   (`QNN_DEVICE_ERROR_INVALID_CONFIG`).
+3. QNN uses an **unsigned PD** (the only option without Qualcomm signing) and must open the fastRPC
+   shell for the cDSP out of `/vendor/dsp/`. On this device that path is SELinux-labelled
+   `adsprpcd_file` and unreadable — even the `shell` domain is denied:
+   `avc: denied { search } ... scontext=u:r:shell:s0 tcontext=u:object_r:adsprpcd_file:s0`.
+   The vendor camera HAL uses the same HTP happily in the same logcat, because it is a vendor
+   process.
+
+`QNN_DEVICE_ERROR_INVALID_CONFIG` **describes the symptom, not the cause** — which is why the ORT
+option map was such a red herring.
+
+**Five fixes ruled out, so nobody repeats them:**
+
+| Ruled out | Result |
+|---|---|
+| `htp_performance_mode` | Removed — identical failure |
+| The `jniLibs` prune | Every excluded QNN lib restored — identical failure |
+| A missing v75 Skel/Stub | Both verified present in the installed `lib/arm64` |
+| An absolute `backend_path` | Moot: `libQnnHtp.so` loads fine (interface 2.24.0 / build v2.31.0); the failure is well past backend creation |
+| A malformed `model.qnn.onnx` | The failure precedes graph handling entirely, and the same file runs fine on the CPU EP |
+
+ORT 1.21.1's option contract was checked against its source: unknown keys are silently ignored, and
+with `soc_model`/`htp_arch` unset `CreateDevice` passes an **empty** config list — QNN's own log
+confirms it (`Config not passed. Loading default config`). **No option key was ever implicated.**
+
+Getting the NPU needs a different device or ROM. That is now a one-install experiment, because the
+manifest line is already in place and the attach reports honestly either way. A pre-compiled
+EPContext binary would **not** help — the graph would still need a device on the DSP.
+
+Related but separate: even when the NPU was made to work (`ADSP_LIBRARY_PATH` + a fixed batch dim,
+`4df4ade`), QNN measured **227 ms against the CPU's 97 ms**, because the HTP cannot execute the 46
+`InstanceNormalization` blocks and partitions around them.
+
+### `onnxruntime-android-qnn` ships no NNAPI at all — verified at ELF level
+
+`specs/19`, measured on `jni/arm64-v8a/libonnxruntime.so` of each AAR:
+
+| AAR (1.21.1) | `xnn_` symbols | `ANeuralNetworks` symbols | shipped |
+|---|---:|---:|---|
+| `onnxruntime-android` | 25 | 90 | **yes** |
+| `onnxruntime-android-qnn` | **0** | **0** | no |
+
+The QNN build trades **both** XNNPACK and NNAPI for QNN. Runtime confirms it —
+`CNN EP NNAPI unavailable, falling back: ... not compiled with NNAPI support` — so with that AAR the
+`Ep.NNAPI` rung could never have built either, which nothing had noticed for weeks.
+
+**The QNN AAR was therefore dropped entirely** (`928a55c`), which also removed
+`com.qualcomm.qti:qnn-runtime` — 84.7 MB of arm64 payload *after* the excludes the app used to
+carry (`libQnnHtpPrepare.so` 55.1 MB, `libQnnHtpV75Skel.so` 13.3 MB, `libQnnHtpV79Skel.so` 13.2 MB,
+`libQnnHtp.so` 2.1 MB, `libQnnSystem.so` 0.3 MB). With `useLegacyPackaging = true` those are
+extracted on install, so it was real device storage, not just download size.
+
+Still current in the tree: both ELF counts are recorded at
+`android/gradle/libs.versions.toml:72-83`, and the QNN alias is declared but **wired into no module**
+— *"declare it again together with a graph the HTP can actually run, not before."*
+
+One consequence to keep in mind when reading an EP label: XNNPACK implements none of the
+`InstanceNormalization` blocks and hands them back to the CPU EP, so the honest verdict for a
+perfectly good XNNPACK session can read `CPU`. `EpProfile` excludes exactly that pair
+(`requested == XNNPACK && ran == CPU`) from its contradiction rule and nothing else — an NPU that
+never ran is still a contradiction.

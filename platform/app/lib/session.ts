@@ -1,5 +1,5 @@
 /**
- * The exported session (`data/sessions/rg-<name>/`, phase 01) as the label views need it:
+ * The exported session (`data/recordings/<name>/`, phase 01) as the label views need it:
  * one row per FRAME with its ply, its FEN and its own corner quad.
  *
  * Read paths are mtime-keyed (CLAUDE.md: never re-read a whole manifest per request) — the log
@@ -7,7 +7,7 @@
  */
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { checkName, dataDir, loadCandidate } from "@/lib/data";
+import { checkName, gameDir, loadCandidate } from "@/lib/data";
 import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
 
 /**
@@ -45,9 +45,11 @@ export type SessionRow = {
   mesh?: GridMesh;
   /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
    *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
-  board?: { rel: string; size: number; border: number };
+  board?: { rel: string; size: number; border: number; straightened: boolean };
   /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
   dirtyReason?: string;
+  /** `settle_dev` liegt an: dann entscheidet die ZELLE, ob ein Label gilt, nicht die Frame-Klasse. */
+  measured: boolean;
 };
 export type Session = {
   name: string;
@@ -55,6 +57,10 @@ export type Session = {
   rows: SessionRow[];
   byStem: Map<string, SessionRow>;
   plies: Map<number, string[]>;
+  /** ply -> the halfmove and the position it leaves behind. A log row's `ply` is the position
+   *  AFTER that halfmove, so `moves.get(row.ply)` produced what the frame shows and `ply + 1`
+   *  is the one being played into it. */
+  moves: Map<number, { san: string; fen: string }>;
   boardSize: number;
   margin: number | number[];
   crop: CropParams;
@@ -65,12 +71,14 @@ export function sessionId(name: string): string {
   return `rg-${checkName(name, "game name")}`;
 }
 
-export function sessionDir(name: string): string {
-  return path.join(dataDir(), "sessions", sessionId(name));
+/** Inverse of `sessionId` — the id stays `rg-`-prefixed, the directory on disk never was. */
+export function recordingName(session_id: string): string {
+  return checkName(session_id.replace(/^rg-/, ""), "session id");
 }
 
-export function framePath(name: string, stem: string): string {
-  return path.join(sessionDir(name), "frames", `${checkName(stem, "frame")}.png`);
+/** The session was merged INTO its recording (2026-08-20); both names now name one directory. */
+export function sessionDir(name: string): string {
+  return gameDir(name);
 }
 
 /** The row's OWN `board` path: a dirty frame's raster lives under `dirty/`, a clean one under
@@ -124,7 +132,9 @@ export async function loadSession(name: string): Promise<Session> {
       board?: string;
       board_size?: number;
       board_border?: number;
+      board_straightened?: boolean;
       dirty_reason?: string;
+      settle_dev?: number[];
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -144,9 +154,11 @@ export async function loadSession(name: string): Promise<Session> {
       unknown: row.unknown_squares ?? [],
       mesh: meshFromLines(row.grid_lines),
       board: row.board && row.board_size
-        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0 }
+        ? { rel: row.board, size: row.board_size, border: row.board_border ?? 0,
+            straightened: row.board_straightened === true }
         : undefined,
       dirtyReason: row.dirty_reason,
+      measured: (row.settle_dev ?? []).length > 0,
     });
   }
   const geometry = candidate.geometry ?? {};
@@ -157,6 +169,7 @@ export async function loadSession(name: string): Promise<Session> {
     rows,
     byStem: new Map(rows.map((r) => [r.stem, r])),
     plies: rows.reduce((m, r) => m.set(r.ply, [...(m.get(r.ply) ?? []), r.stem]), new Map()),
+    moves: new Map(candidate.moves.flatMap((m) => (m.fen_after ? [[m.ply, { san: m.san, fen: m.fen_after }] as const] : []))),
     boardSize: geometry.board_size ?? 928,
     margin: geometry.margin ?? 0,
     crop: { pad_up: source.crop?.pad_up ?? 0, pad_side: source.crop?.pad_side ?? 0.05 },

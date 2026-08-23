@@ -190,7 +190,7 @@ class DebugStateTest {
 
     @Test
     fun cnnStateShowsActualEpNotRequested() {
-        val fellBack = CnnRuntimeInfo("QNN-HTP(NPU)", "NNAPI", "shipped", "model.onnx", "64x3x128x128", CROP, 9.0, 3)
+        val fellBack = CnnRuntimeInfo("QNN-HTP(NPU)", "NNAPI", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
         assertEquals("QNN-HTP(NPU) (requested) → NNAPI (actual)", epLine(fellBack))
         // The tone itself is now a palette lookup (light/dark), so the testable part is the
         // decision behind it: a fall-back must be flagged, a granted request must not.
@@ -201,16 +201,16 @@ class DebugStateTest {
     }
 
     /**
-     * Three models ship side by side and the user switches between them mid-comparison, so the
-     * panel has to say which one produced what is on screen — and at which input size, since that
-     * is the difference the three are there to test. Both halves are MEASURED: the staged directory
-     * and the tensor built from that model's own config.
+     * Two models ship side by side and the user switches between them mid-comparison, so the panel
+     * has to say which one produced what is on screen — and at which input size, since a model may
+     * change it. Both halves are MEASURED: the staged directory and the tensor built from that
+     * model's own config.
      */
     @Test
     fun cnnStateNamesTheAttachedModelAndItsInputSize() {
-        val live = CnnRuntimeInfo("CPU", "CPU", "v6-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
-        assertEquals("v6-80 @ 80x80 · crop $CROP", modelLine(live))
-        assertEquals("shipped @ 96x96 · crop $CROP", modelLine(live.copy(modelDir = "shipped", inputShape = "64x3x96x96")))
+        val live = CnnRuntimeInfo("CPU", "CPU", "real14-80", "model.onnx", "64x3x80x80", CROP, 9.0, 3)
+        assertEquals("real14-80 @ 80x80 · crop $CROP", modelLine(live))
+        assertEquals("id35-80 @ 96x96 · crop $CROP", modelLine(live.copy(modelDir = "id35-80", inputShape = "64x3x96x96")))
         // Nothing attached yet: a dash, never a guess at what the settings asked for.
         assertEquals("-", modelLine(live.copy(modelDir = null, inputShape = null, crop = null)))
         // A model that declared no crop is served the profile's pads, and the panel says so — the
@@ -233,15 +233,15 @@ class DebugStateTest {
             exportDecisionLog(
                 listOf(decision("e2e4", accepted = true), decision("d2d4", accepted = false)),
                 TrackerConfig(),
-                CnnRuntimeInfo("QNN-HTP(NPU)", "CPU", "v6-80", "model.onnx", "64x3x80x80", CROP, 8.0, 2),
+                CnnRuntimeInfo("QNN-HTP(NPU)", "CPU", "real14-80", "model.onnx", "64x3x80x80", CROP, 8.0, 2),
                 "1.0-test",
             )
         assertTrue(text.contains("# app: 1.0-test"))
         assertTrue(text.contains("#   zThr = 3.0"), "the full config block is part of the header")
         assertTrue(text.contains("ep: CPU (requested QNN-HTP(NPU))"))
-        // Which of the three bundled models produced these decisions, and at what size — a log that
-        // says only "model.onnx" names all three of them.
-        assertTrue(text.contains("# model: v6-80/model.onnx @ 64x3x80x80"), text.lines()[2])
+        // Which bundled model produced these decisions, and at what size — a log that says only
+        // "model.onnx" names every one of them.
+        assertTrue(text.contains("# model: real14-80/model.onnx @ 64x3x80x80"), text.lines()[2])
         val rows = text.lines().filterNot { it.startsWith("#") }.filter { it.isNotBlank() }
         assertEquals(3, rows.size, "one column header plus one line per record")
         assertTrue(rows[1].startsWith("1.0\t2\te2e4"))

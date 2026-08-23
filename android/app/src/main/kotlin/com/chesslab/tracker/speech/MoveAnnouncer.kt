@@ -73,7 +73,15 @@ class MoveAnnouncer(
         }
         latched = alarm.kind
         val guess = alarm.guessSan?.let { ", possible move ${phrase(it, 1, app)}" } ?: ""
-        speaker.say("Position mismatch: ${alarm.conflicts.size} squares disagree$guess", flush = true)
+        // A refusal's conflicts are the two squares of the move that was thrown out, not squares
+        // that disagree — saying "2 squares disagree" would name the wrong thing.
+        val what =
+            if (alarm.kind == "illegal_move_refused") {
+                "Position lost, a move could not be played"
+            } else {
+                "Position mismatch: ${alarm.conflicts.size} squares disagree"
+            }
+        speaker.say("$what$guess", flush = true)
     }
 
     private fun onCleared(app: AppSettings) {

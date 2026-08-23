@@ -5,9 +5,7 @@ import { MatteReview } from "./review";
 
 export const dynamic = "force-dynamic";
 
-/**
- * Zwei Fragen pro Frame: stimmt das Alpha, stimmt die Stellung. Occlusion wird nicht mehr gemalt.
- */
+/** Eine Frage pro Frame: stimmt die Stellung. Das Alpha ist bestätigt und wird nur noch gemalt. */
 export default async function MattePage() {
   const stream = await loadVerifyStream();
   return (

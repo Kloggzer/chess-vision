@@ -101,6 +101,16 @@ def test_normalize_batch_reproduces_the_pil_transform():
     assert torch.allclose(normalize_batch(cfg, batch), via_pil, atol=1e-5)
 
 
+def test_packed_eval_fast_path_is_bit_exact_to_the_pil_transform():
+    """Skipping PIL for an exact-size memmap crop must not change a single float."""
+    from PIL import Image
+
+    arr = np.random.default_rng(847291).integers(0, 256, (32, 32, 3), dtype=np.uint8)
+    tf = build_transform((32, 32), train=False)
+
+    assert torch.equal(tf.from_uint8_hwc(arr), tf(Image.fromarray(arr)))
+
+
 def test_build_model_stem_follows_the_channel_count():
     from chesslab.training.model import build_model
 

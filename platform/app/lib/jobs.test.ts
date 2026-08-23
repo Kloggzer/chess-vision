@@ -22,7 +22,7 @@ let files: string;
 beforeEach(async () => {
   data = await mkdtemp(path.join(tmpdir(), "chesslab-jobs-"));
   process.env.CHESSLAB_DATA_DIR = data;
-  files = path.join(data, "realgames", "2026-08-13-19-34-23", "files");
+  files = path.join(data, "recordings", "2026-08-13-19-34-23", "files");
   await mkdir(path.join(files, "sessions", "20260813-193423"), { recursive: true });
   await mkdir(path.join(files, "games"), { recursive: true });
 });
@@ -157,8 +157,8 @@ describe("verifyPack", () => {
 
 describe("lensFor", () => {
   it("skips the lens gate for a recording that came off the phone", () => {
-    expect(lensFor(String.raw`C:\data\realgames\2026-08-13-19-34-23\files\sessions\20260813-193423\video.mp4`)).toBe(false);
-    expect(lensFor("/data/realgames/x/files/sessions/20260813-193423/video.mp4")).toBe(false);
+    expect(lensFor(String.raw`C:\data\recordings\2026-08-13-19-34-23\files\sessions\20260813-193423\video.mp4`)).toBe(false);
+    expect(lensFor("/data/recordings/x/files/sessions/20260813-193423/video.mp4")).toBe(false);
   });
 
   it("keeps it for anything else — the rig camera really does have a barrel to remove", () => {

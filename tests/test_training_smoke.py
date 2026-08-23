@@ -12,7 +12,7 @@ def test_a_terminated_process_does_not_hold_the_training_lock():
     import subprocess
     import sys
 
-    from chesslab.training.train import _pid_alive
+    from chesslab.locks import pid_alive as _pid_alive
 
     assert _pid_alive(os.getpid())
     assert not _pid_alive(999_999)

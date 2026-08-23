@@ -19,6 +19,10 @@ import java.io.File
  *
  * The frames land as `NNNNNN.png` under [outDir], numbered by SOURCE index, so a consumer that
  * planned a frame set against the video can find exactly the frames it planned.
+ *
+ * `lens.json` carries the WHOLE model — k1, k2, focal and centre. A consumer that folds the optics
+ * into its own map (Python's board warp) cannot reconstruct the last three: the centre moves when
+ * the fit has evidence for it, and then a guessed one puts the correction somewhere else.
  */
 fun undistortVideo(args: List<String>) {
     val video = File(args.getOrNull(0) ?: error("usage: undistort <video> <outDir> [every=N]"))
@@ -60,6 +64,9 @@ fun undistortVideo(args: List<String>) {
           "frames": $written,
           "k1": ${model.distCoeffs[0]},
           "k2": ${model.distCoeffs[1]},
+          "focal": ${model.cameraMatrix[0]},
+          "cx": ${model.cameraMatrix[2]},
+          "cy": ${model.cameraMatrix[5]},
           "fittedBy": "desktop undistort (board-grid bow, per recording)"
         }
         """.trimIndent() + System.lineSeparator(),

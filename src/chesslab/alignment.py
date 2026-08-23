@@ -20,14 +20,14 @@ the grid inside the warp used to be invisible — and uncorrectable. Collapsing 
 gives several samples per line instead of one, at sqrt(bands) worse noise each, which the fit
 averages straight back out. The tilt survives. Measured on session 20260731-102458 against the 14
 frames a human corrected by hand, that plus a Huber-robust iterated fit takes the distance to the
-human's quad from 8.7 px to 5.1 px. See `specs/30-sharper-alignment/STATUS.md` for what lost.
+human's quad from 8.7 px to 5.1 px. `docs/data-pipeline.md` §13 lists every approach that lost, with its number.
 
 **The lines are measured OUT TO THE EDGE, in a padded warp.** Until 2026-08-03 index 0 and 8 were
 pinned at 0 and `board_size` — the values the warp puts there by construction — which made a
 uniform SCALE error read 25 % short and, worse, made the metric partly a statement about its own
 assumption. `warp_for_grid` keeps `GRID_PAD_CELLS` of surrounding board, so the playing-field
 boundary is measured like every other line, and a line that cannot be found is reported as unread
-rather than assumed. See `specs/41-the-board-is-its-own-ruler/`.
+rather than assumed. The pinned ruler's numbers are not comparable — `docs/data-pipeline.md` §12.
 
 **The fit is PROJECTIVE.** That is the single change that made a three-marker quad usable: such a
 quad is `cv2.getAffineTransform`'s parallelogram standing in for a perspective view of a plane, so
@@ -86,6 +86,11 @@ ITERS = 4
 #: window must fit) and stay under the ~0.33 cell at which the reference board's label border
 #: begins.
 GRID_PAD_CELLS = 0.25
+
+
+def grid_pad_px(profile) -> int:
+    """The surround `warp_for_grid` needs, in rectified pixels — compare against `board_border`."""
+    return int(round(GRID_PAD_CELLS * profile.board_size / 8.0))
 
 #: Search half-width per refit iteration, as a fraction of a cell. A three-marker quad starts a
 #: third of a cell out, which is outside `SEARCH_FRAC` at the worst squares — the first pass has
@@ -337,22 +342,20 @@ def grid_lines_with_curvature(warped, board_size: int, *, pad: int = 0, **kw):
     return lines, curls
 
 
-def warp_for_grid(frame, profile, quad):
+def warp_for_grid(frame, profile, quad, lens=None):
     """`(warped, pad)` — the rectified board plus `GRID_PAD_CELLS` of what surrounds it.
 
-    The pad is what makes the two outer lines per axis measurable instead of assumed. It is not
-    `warp_board_for_crops`' border, which is sized for the crop pads and is much wider — a wide pad
-    would let the outer search reach the board's printed label border.
+    The pad is what makes the two outer lines per axis measurable instead of assumed, and it is
+    NOT `warp_board_for_crops`' border: that one is sized for the crop pads and is NARROWER (12 px
+    against this 29 at board_size=928), which is why the board store cannot feed this measurement.
+
+    `lens`: measure THROUGH the optics the store will be warped with, or the mesh describes a board
+    that no longer exists.
     """
-    import cv2
+    from .calibration import warp_padded
 
-    from .calibration import compute_homography
-
-    bs = profile.board_size
-    pad = int(round(GRID_PAD_CELLS * bs / 8.0))
-    h = np.array(compute_homography(quad, bs, profile.margin), np.float64)
-    t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]])
-    return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad)), pad
+    pad = grid_pad_px(profile)
+    return warp_padded(frame, profile, quad, pad, lens=lens), pad
 
 
 def square_offsets(warped, board_size: int, pad: int = 0,
@@ -429,9 +432,10 @@ class Alignment:
 def alignment_of(frame, quad, profile, *, max_frac: float = MAX_OFFSET_FRAC) -> Alignment:
     """Measure `quad` against the board's own grid and say pass or fail.
 
-    Absolute, never self-referential. `label_real_game.quad_spread` compares each frame's quad
-    against the MEDIAN OF THE SAME QUADS, so a consistently wrong quad scores p90 0.93 rectified px
-    and 99.9 % "detected" — precision reported as accuracy, and it hid a 27-33 px error for a day.
+    Absolute, never self-referential. Quad SPREAD (`quadSpreadPx` in `GeometryScan.kt`, and the
+    deleted `label_real_game.quad_spread` before it) compares each frame's quad against the MEDIAN
+    OF THE SAME QUADS, so a consistently wrong quad scores p90 0.93 rectified px and 99.9 %
+    "detected" — precision reported as accuracy, and it hid a 27-33 px error for a day.
     Nothing here looks at any other frame.
     """
     limit = max_frac * profile.board_size / 8.0
@@ -521,7 +525,7 @@ def _lattice(lines, board_size: int, pad: int):
     Two dimensions, not two collapsed profiles. The previous version fitted over samples that each
     pinned ONE coordinate and carried the band's centre in the other, which is enough to constrain
     an affine map and not enough to constrain a homography — a fit over those came out WORSE than
-    its own input on one frame (31.7 px, `specs/41` STATUS). Intersecting the fitted lines gives
+    its own input on one frame (31.7 px; `docs/data-pipeline.md` §13). Intersecting the fitted lines gives
     real 2D correspondences, up to 81 of them, and the perspective parameters then have something
     to be estimated from.
     """
@@ -641,7 +645,8 @@ def grid_correction(raw, refined, profile):
 
     Rectified space, not frame space, is what makes it reusable: the correction says "the grid sits
     this far off inside the warp", which is a property of the board and the lens rather than of
-    where the quad currently is. `specs/30` measured that residual as systematic per setup — two
+    where the quad currently is. The residual is systematic per setup (`docs/data-pipeline.md`
+    §13.3) — two
     sessions of the same rig agree to 0.1 px — while differing in SIGN between setups.
 
     Port parity: `android/core-geometry/.../GridCorrection.kt::gridCorrection`.

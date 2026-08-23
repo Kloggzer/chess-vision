@@ -16,13 +16,13 @@ const key = (c: StreamCell) => `${c.stem}|${c.square}`;
 async function fixture(frames: number): Promise<void> {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-stream-"));
   process.env.CHESSLAB_DATA_DIR = root;
-  await mkdir(path.join(root, "realgames", NAME), { recursive: true });
-  await mkdir(path.join(root, "sessions", `rg-${NAME}`), { recursive: true });
-  await writeFile(path.join(root, "realgames", NAME, "candidate.json"), '{"moves":[]}', "utf8");
+  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
+  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
+  await writeFile(path.join(root, "recordings", NAME, "candidate.json"), '{"moves":[]}', "utf8");
   const rows = Array.from({ length: frames }, (_, i) =>
     JSON.stringify({ frame: `${String(i).padStart(6, "0")}.png`, ply: 1, fen: FEN, corners: [] }),
   );
-  await writeFile(path.join(root, "sessions", `rg-${NAME}`, "log.jsonl"), rows.join("\n") + "\n", "utf8");
+  await writeFile(path.join(root, "recordings", NAME, "log.jsonl"), rows.join("\n") + "\n", "utf8");
 }
 
 const control = async () => (await loadLabelStream()).cells;
@@ -83,4 +83,17 @@ test("every settled cell judged: the lane is empty and says the sample is exhaus
   // „leer" ist hier wahr, aber die falsche Auskunft: nichts wartet, WEIL nichts mehr übrig ist.
   expect(laneEmpty("control")).toContain("erschöpft");
   expect(laneEmpty("all")).toContain("nichts wartet");
+});
+
+test("a reported dirty frame survives the reload — the note is on disk, so the mark must be", async () => {
+  await fixture(20);
+  const { appendReviewNotes } = await import("@/lib/review-notes");
+  await appendReviewNotes([
+    { session_id: `rg-${NAME}`, frame: "000003", verdict: "dirty-frame" },
+    { session_id: `rg-${NAME}`, frame: "000007", verdict: "dirty-frame" },
+    { session_id: `rg-${NAME}`, frame: "000009", verdict: "matte-ok" },
+  ]);
+  const { sessions } = await loadLabelStream();
+  // `matte-ok` is not a hand: it answers the alpha, and the frame keeps no mark from it.
+  expect(sessions[0].reportedDirty.sort()).toEqual(["000003", "000007"]);
 });

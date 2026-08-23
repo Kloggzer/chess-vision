@@ -1,6 +1,9 @@
 package com.chesslab.geometry
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Core
+import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -31,28 +34,115 @@ fun computeHomography(
     corners: List<DoubleArray>,
     boardSize: Int,
     margin: List<Double> = margins4(0.0),
-): Mat {
-    require(corners.size >= CORNER_COUNT) { "need 4 corners, got ${corners.size}" }
-    require(margin.size == CORNER_COUNT) { "need 4 margins (a8,h8,h1,a1), got ${margin.size}" }
-    val bs = boardSize.toDouble()
-    val m = margin.map { it * bs }
-    val src = pointsMat(corners.take(CORNER_COUNT))
-    val dst =
-        pointsMat(
-            listOf(
-                doubleArrayOf(-m[0], -m[0]),
-                doubleArrayOf(bs + m[1], -m[1]),
-                doubleArrayOf(bs + m[2], bs + m[2]),
-                doubleArrayOf(-m[3], bs + m[3]),
-            ),
-        )
-    val h = Imgproc.getPerspectiveTransform(src, dst)
-    // Both operands are native allocations; the caller only ever wanted the result. Leaving them
-    // to a finalizer leaked two `Mat`s per frame on the live path.
-    src.release()
-    dst.release()
-    return h
+    cache: HomographyCache? = null,
+): Mat =
+    WorkProfiler.span(
+        WorkOperation.HOMOGRAPHY_BUILD,
+        input = { homographyFingerprint(corners, boardSize, margin) },
+    ) {
+        require(corners.size >= CORNER_COUNT) { "need 4 corners, got ${corners.size}" }
+        require(margin.size == CORNER_COUNT) { "need 4 margins (a8,h8,h1,a1), got ${margin.size}" }
+        cache?.get(corners, boardSize, margin)?.let {
+            WorkProfiler.cache(WorkOperation.HOMOGRAPHY_BUILD, hit = true)
+            return@span it
+        }
+        WorkProfiler.cache(WorkOperation.HOMOGRAPHY_BUILD, hit = false)
+        val bs = boardSize.toDouble()
+        val m = margin.map { it * bs }
+        val src = pointsMat(corners.take(CORNER_COUNT))
+        val dst =
+            pointsMat(
+                listOf(
+                    doubleArrayOf(-m[0], -m[0]),
+                    doubleArrayOf(bs + m[1], -m[1]),
+                    doubleArrayOf(bs + m[2], bs + m[2]),
+                    doubleArrayOf(-m[3], bs + m[3]),
+                ),
+            )
+        val h = Imgproc.getPerspectiveTransform(src, dst)
+        // Both operands are native allocations; the caller only ever wanted the result. Leaving them
+        // to a finalizer leaked two `Mat`s per frame on the live path.
+        src.release()
+        dst.release()
+        cache?.put(corners, boardSize, margin, h)
+        h
+    }
+
+/**
+ * Single-entry exact cache for a warp owner's current geometry.
+ *
+ * Only the nine matrix values live here, not a native [Mat]: every caller receives an independent
+ * matrix that it may scale, translate and release. The cache is intentionally owner-confined and
+ * unsynchronised; the live pipeline calls it from one analyzer thread.
+ */
+class HomographyCache {
+    private var boardSize = 0
+    private var cornerBits = LongArray(0)
+    private var marginBits = LongArray(0)
+    private var matrix = DoubleArray(0)
+
+    internal fun get(
+        corners: List<DoubleArray>,
+        boardSize: Int,
+        margin: List<Double>,
+    ): Mat? {
+        if (this.boardSize != boardSize || matrix.size != HOMOGRAPHY_ELEMENTS) return null
+        if (!sameCorners(corners) || !sameMargins(margin)) return null
+        return matrixMat(matrix)
+    }
+
+    internal fun put(
+        corners: List<DoubleArray>,
+        boardSize: Int,
+        margin: List<Double>,
+        homography: Mat,
+    ) {
+        this.boardSize = boardSize
+        cornerBits =
+            LongArray(CORNER_COUNT * POINT_DIMENSIONS) { index ->
+                corners[index / POINT_DIMENSIONS][index % POINT_DIMENSIONS].toBits()
+            }
+        marginBits = LongArray(CORNER_COUNT) { margin[it].toBits() }
+        matrix = DoubleArray(HOMOGRAPHY_ELEMENTS)
+        homography.get(0, 0, matrix)
+    }
+
+    private fun sameCorners(corners: List<DoubleArray>): Boolean {
+        if (corners.size < CORNER_COUNT || cornerBits.size != CORNER_COUNT * POINT_DIMENSIONS) return false
+        return cornerBits.indices.all { index ->
+            cornerBits[index] == corners[index / POINT_DIMENSIONS][index % POINT_DIMENSIONS].toBits()
+        }
+    }
+
+    private fun sameMargins(margin: List<Double>): Boolean =
+        margin.size == CORNER_COUNT && marginBits.indices.all { marginBits[it] == margin[it].toBits() }
+
+    private companion object {
+        const val POINT_DIMENSIONS = 2
+        const val HOMOGRAPHY_ELEMENTS = 9
+
+        @Suppress("SpreadOperator")
+        fun matrixMat(values: DoubleArray): Mat = Mat(H_DIMENSIONS, H_DIMENSIONS, CvType.CV_64F).also { it.put(0, 0, *values) }
+
+        const val H_DIMENSIONS = 3
+    }
 }
+
+/** Stable within and across runs, unlike collection identity hashes. Only evaluated while profiling. */
+private fun homographyFingerprint(
+    corners: List<DoubleArray>,
+    boardSize: Int,
+    margin: List<Double>,
+): Long {
+    var out = boardSize.toLong()
+    corners.take(CORNER_COUNT).forEach { point ->
+        point.forEach { value -> out = FINGERPRINT_MULTIPLIER * out + value.toBits() }
+    }
+    margin.forEach { value -> out = FINGERPRINT_MULTIPLIER * out + value.toBits() }
+    return out
+}
+
+private const val FINGERPRINT_MULTIPLIER = 31L
 
 /**
  * Reconstruct the 4 corner points `[a8, h8, h1, a1]` from 2/3/4 marker points.

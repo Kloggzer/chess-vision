@@ -108,13 +108,13 @@ def test_square_dataset_neighbour_paste_smoke(tmp_path):
     Image.new("RGB", (128, 128), (10, 10, 10)).save(p_piece)
     rows = [{"path": str(p_empty), "label": "empty"},
             {"path": str(p_piece), "label": "bQ"}]
-    policy = config.AugmentPolicy(bg_p=0.0, neighbour_p=1.0)
+    policy = config.AugmentPolicy(neighbour_p=1.0)
     ds = SquareDataset(rows, config.CLASSES, build_transform((128, 128), train=False),
-                       bg_randomize=True, policy=policy)
+                       augment=True, policy=policy)
     assert ds.neighbour_paste and ds.piece_pool == [str(p_piece)]
     x, y = ds[0]                      # empty crop passes through the paste path
     assert x.shape[-2:] == (128, 128) and y == config.CLASSES.index("empty")
-    # eval dataset (bg_randomize=False) must never paste
+    # eval dataset (augment=False) must never paste
     ds_eval = SquareDataset(rows, config.CLASSES, build_transform((128, 128), train=False),
-                            bg_randomize=False, policy=policy)
+                            augment=False, policy=policy)
     assert not ds_eval.neighbour_paste

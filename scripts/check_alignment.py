@@ -37,7 +37,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import config, labeling  # noqa: E402
+from chesslab import labeling, sessions  # noqa: E402
 from chesslab.alignment import (  # noqa: E402
     correct_quad,
     frame_offsets,
@@ -253,9 +253,13 @@ def main() -> None:
                          "picture that answers what a given number actually looks like")
     args = ap.parse_args()
 
-    d = config.DATA.sessions / args.session
+    d, _ = sessions.session_dir(args.session)
     prof = labeling._profile_for_session(labeling.read_session_meta(d), None)
     log = labeling.read_log(d)
+    gone = sessions.missing_source_frames(d, log)
+    if gone:
+        print(f"[FAIL] {args.session}: {gone}")
+        return 1
     rows = list(enumerate(log))[::max(1, args.sample)]
     cell = prof.board_size / 8
     print(f"session {args.session}: {len(log)} frames, checking {len(rows)}, "

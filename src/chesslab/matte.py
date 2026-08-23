@@ -1,30 +1,25 @@
-"""The two models the pipeline keeps: RT-DETR finds the hand, SAM 3 cuts it out.
-
-`person_score` is the frame scan's sensor (~24.6 ms), `alpha_sam3` the matte the labels
-come from. Grounding DINO sat between them and did neither job better —
-`docs/session-mattes.md`.
-"""
+"""SAM 3 cuts the hand out — `alpha_sam3` is the matte the labels come from."""
 
 from __future__ import annotations
 
 import gc
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
-from time import perf_counter
+from threading import Thread
+from time import perf_counter, sleep
 
 import cv2
 import numpy as np
 
-from . import config
-from .calibration import mesh_from_lines
 from .labeling import (
     all_squares,
     crops_for_frame,
     read_log,
     read_session_meta,
 )
-
 
 SAM3_REPO = "facebook/sam3"
 
@@ -42,14 +37,8 @@ CONCEPTS = (
 MAX_ZONE_FRAC = 0.60
 
 
-RTDETR_REPO = "PekingU/rtdetr_r18vd_coco_o365"
-
-# A plain COCO detector, ~25 ms against Grounding DINO's ~405 ms — and `person`
-# is all it is asked for. Clean boards sit around 0.14, a hand at 0.5+.
-PERSON_THR = 0.20
 
 
-_RTDETR: tuple = ()
 _SAM3: tuple = ()
 
 
@@ -93,60 +82,16 @@ def _sam3():
     return _SAM3
 
 
-def _rtdetr():
-    """The fast sensor's weights, loaded lazily."""
-    global _RTDETR
-
-    if not _RTDETR:
-        import torch
-        from transformers import (
-            AutoImageProcessor,
-            AutoModelForObjectDetection,
-        )
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-
-        model = (
-            AutoModelForObjectDetection
-            .from_pretrained(RTDETR_REPO)
-            .to(device)
-            .eval()
-        )
-
-        processor = AutoImageProcessor.from_pretrained(RTDETR_REPO)
-
-        person_labels = [
-            int(i)
-            for i, name in model.config.id2label.items()
-            if name == "person"
-        ]
-
-        if not person_labels:
-            raise ValueError(
-                f"{RTDETR_REPO}: model config contains no 'person' label"
-            )
-
-        _RTDETR = (
-            processor,
-            model,
-            device,
-            person_labels,
-        )
-
-    return _RTDETR
 
 
 def unload_models() -> None:
     """Release cached Torch models before interpreter shutdown.
 
-    The workers deliberately keep the models alive across frames and sessions.
-    Once the run is complete, explicitly releasing them avoids leaving several
-    GB of CUDA-backed objects for interpreter shutdown to dismantle.
-    """
-    global _SAM3, _RTDETR
+    Workers keep them alive across frames and sessions; releasing at the end avoids leaving
+    several GB of CUDA-backed objects for interpreter shutdown to dismantle."""
+    global _SAM3
 
     _SAM3 = ()
-    _RTDETR = ()
 
     gc.collect()
 
@@ -159,58 +104,132 @@ def unload_models() -> None:
         torch.cuda.empty_cache()
 
 
-def person_score(board: np.ndarray) -> float:
-    """How sure a COCO detector is that a person reaches into this board raster.
+def _win_ancestors(pid: int) -> list[tuple[int, str]]:
+    """(pid, image) up the tree, via Toolhelp — no third-party dependency for one lookup."""
+    import ctypes
+    from ctypes import wintypes
 
-    The frame scan's sensor: the groove read is blind to a hand that covers no
-    line, and the 1 s commit window it replaced condemned clean boards wholesale
-    (`docs/frame-scan.md`).
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_void_p),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_char * 260)]
+
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k.CreateToolhelp32Snapshot(0x00000002, 0)
+    tree: dict[int, tuple[int, str]] = {}
+    entry = Entry()
+    entry.dwSize = ctypes.sizeof(Entry)
+    ok = k.Process32First(snap, ctypes.byref(entry))
+    while ok:
+        tree[entry.th32ProcessID] = (entry.th32ParentProcessID,
+                                     entry.szExeFile.decode("latin-1"))
+        ok = k.Process32Next(snap, ctypes.byref(entry))
+    k.CloseHandle(snap)
+
+    chain, seen = [], set()
+    while pid in tree and pid not in seen:
+        seen.add(pid)
+        pid, image = tree[pid]
+        chain.append((pid, image))
+    return chain
+
+
+def _owner_pid() -> int:
+    """The shell that launched us, not the venv shim.
+
+    `.venv/Scripts/python.exe` re-executes the real interpreter and then WAITS on it, so the
+    two keep each other alive and watching `getppid()` never fires (measured 2026-08-23).
     """
-    import torch
+    if sys.platform != "win32":
+        return os.getppid()
 
-    processor, model, device, person_labels = _rtdetr()
+    for pid, image in _win_ancestors(os.getpid()):
+        if image.lower() != "python.exe":
+            return pid
+    return os.getppid()
 
-    rgb = cv2.cvtColor(
-        board,
-        cv2.COLOR_BGR2RGB,
-    )
 
-    inputs = processor(
-        images=rgb,
-        return_tensors="pt",
-    ).to(device)
+def _wait_for_exit(pid: int) -> None:
+    """Block until `pid` is gone — Windows waits on a handle, POSIX watches for reparenting."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
 
-    with torch.inference_mode():
-        outputs = model(**inputs)
+        k = ctypes.windll.kernel32
+        k.OpenProcess.restype = wintypes.HANDLE
+        handle = k.OpenProcess(0x00100000, False, pid)          # SYNCHRONIZE
+        if handle:
+            k.WaitForSingleObject(handle, 0xFFFFFFFF)
+            k.CloseHandle(handle)
+            return
 
-    found = processor.post_process_object_detection(
-        outputs,
-        threshold=0.05,
-        target_sizes=[board.shape[:2]],
-    )[0]
+    while os.getppid() == pid:
+        sleep(5.0)
 
-    return max(
-        (
-            float(score)
-            for label, score in zip(
-                found["labels"].tolist(),
-                found["scores"].tolist(),
-                strict=True,
-            )
-            if int(label) in person_labels
-        ),
-        default=0.0,
-    )
+
+def exit_with_parent() -> None:
+    """Drop the weights and go when the launching shell dies.
+
+    Killing the shell does not kill the worker: it keeps running and holds its VRAM.
+    Set CHESSLAB_NO_PARENT_WATCH=1 for a deliberately detached run.
+    """
+    if os.environ.get("CHESSLAB_NO_PARENT_WATCH"):
+        return
+
+    owner = _owner_pid()
+
+    def watch() -> None:
+        _wait_for_exit(owner)
+        unload_models()
+        os._exit(1)
+
+    Thread(target=watch, daemon=True).start()
+
+
+
+
+#: Bridges the seam between two concept masks. Small on purpose — a real gap between two fingers
+#: is far wider and has to survive.
+UNION_CLOSE_PX = 9
+#: A hole over this share of the mask is not an artefact. Measured on 222655/988: backdrop showing
+#: through a curled hand is 0.77 % and must stay open (`docs/occluder-plates.md`).
+MAX_HOLE_FRAC = 0.002
+
+
+def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX,
+          max_hole_frac: float = MAX_HOLE_FRAC) -> np.ndarray:
+    """Close the seams the UNION leaves, then fill the SMALL things it encloses — uint8 in and out.
+
+    Watch and arm come from two concepts and meet on a line neither covers. Topology alone is too
+    greedy: a curled hand encloses backdrop, a hole by every test but size (`MAX_HOLE_FRAC`)."""
+    m = (alpha > 127).astype(np.uint8)
+    if close_px > 1:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
+    # 4 on the BACKGROUND against the 8-connected foreground the close leaves: same-connectivity
+    # on both sides lets a pocket leak out along a diagonal the mask counts as sealed.
+    n, lab, stats, _c = cv2.connectedComponentsWithStats(
+        (1 - m).astype(np.uint8), connectivity=4)
+    outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
+    cap = max(1.0, m.sum() * max_hole_frac)
+    small = [i for i in range(1, n) if i not in outside and stats[i, cv2.CC_STAT_AREA] <= cap]
+    if small:
+        m[np.isin(lab, small)] = 1
+    return np.maximum(alpha, m * 255)
 
 
 def alpha_sam3(
     board: np.ndarray,
+    *,
+    fill: bool = True,
 ) -> tuple[np.ndarray, dict[str, float]]:
-    """The union of SAM 3's concept masks.
+    """The union of SAM 3's concept masks, made solid by `solid`.
 
-    The five concepts share one preprocessed image and one vision encoding.
-    Only their text inputs and prompt-dependent model path run separately.
-    """
+    The five share one preprocessed image and one vision encoding; only their text inputs and
+    prompt-dependent path run separately. `fill=False` returns the bare union, for a review."""
     import torch
 
     processor, model, device = _sam3()
@@ -233,7 +252,11 @@ def alpha_sam3(
         return_tensors="pt",
     ).to(device)
 
-    with torch.inference_mode():
+    # The encoder is 77 % of the frame and no coverage cell crosses PIECE_VISIBLE_MAX under
+    # fp16 — numbers in `docs/session-mattes.md`.
+    autocast = torch.autocast("cuda", dtype=torch.float16, enabled=device != "cpu")
+
+    with torch.inference_mode(), autocast:
         vision_embeds = model.get_vision_features(
             pixel_values=image_inputs["pixel_values"],
         )
@@ -289,7 +312,14 @@ def alpha_sam3(
                 3,
             )
 
-    return alpha, hits
+    if not fill:
+        return alpha, hits
+
+    filled = solid(
+        (np.clip(alpha, 0.0, 1.0) * 255.0).astype(np.uint8),
+    )
+
+    return filled.astype(np.float32) / 255.0, hits
 
 
 def coverage_of(
@@ -299,10 +329,8 @@ def coverage_of(
 ) -> dict[str, float]:
     """Per square, cut by the SAME `crops_for_frame` call the image goes through.
 
-    That makes the label region the crop region by construction — mesh and pads
-    included — which is the granularity the hand-marked class never had
-    (`docs/occluder-plates.md`).
-    """
+    That makes the label region the crop region by construction — mesh and pads included —
+    which is the granularity the hand-marked class never had (`docs/occluder-plates.md`)."""
     grey = (
         np.clip(alpha, 0.0, 1.0)
         * 255.0
@@ -319,9 +347,6 @@ def coverage_of(
         profile,
         board=board,
         out_size=tuple(profile.crop.out_size),
-        mesh=mesh_from_lines(
-            entry.get("grid_lines"),
-        ),
     )
 
     return {
@@ -356,17 +381,13 @@ def recut_fixed(
 ) -> dict:
     """Recompute coverage for every frame whose alpha a human corrected.
 
-    The cut has one implementation — `coverage_of`, the same `crops_for_frame`
-    call the image goes through. The UI paints pixels and hands them over; it
-    never computes a coverage number itself.
-    """
+    The cut has one implementation — `coverage_of`, the same `crops_for_frame` call the image
+    goes through. The UI paints pixels and hands them over, never a coverage number."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
+    from .realgames import game_dir
 
-    session_dir = (
-        config.DATA.sessions
-        / f"rg-{name}"
-    )
+    session_dir = game_dir(name)
 
     path = (
         session_dir
@@ -501,6 +522,70 @@ def recut_fixed(
     }
 
 
+def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
+    """Run `solid` over the alphas already on disk, and recut the coverage it moves.
+
+    The seam is a fault of the UNION, so the stored pixels carry it exactly as the worker wrote
+    them and re-running SAM would cost hours to change the same pixels. `.fixed.webp` stays put:
+    those are a person's."""
+    from .calibration import load_profile
+    from .ioutil import read_jsonl
+    from .realgames import game_dir
+    from .training.occlusion import PIECE_VISIBLE_MAX  # local: the module pulls torch in
+
+    session_dir = game_dir(name)
+    path = session_dir / "matte.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+
+    rows: list[dict] = []
+    closed = crossed = added = 0
+    for row in read_jsonl(path):
+        alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+        entry = entries.get(row["frame"])
+        image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
+        if image is None or entry is None:
+            rows.append(row)
+            continue
+        filled = solid(image)
+        gained = int((filled > 127).sum() - (image > 127).sum())
+        if gained == 0:
+            rows.append(row)
+            continue
+        coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
+        was = row.get("coverage") or {}
+        # The only change that can move a LABEL: a cell stepping over the threshold the piece loss
+        # masks on. Counted and reported, because `coverage` is training input, not a picture.
+        crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
+                       for sq, v in coverage.items())
+        closed += 1
+        added += gained
+        if not dry_run:
+            if not cv2.imwrite(str(alpha_path), filled):
+                raise OSError(f"{name}: could not write {alpha_path}")
+            row = row | {"coverage": coverage,
+                         "cells_over_half": sum(v > 0.5 for v in coverage.values())}
+        rows.append(row)
+        if progress and closed % 25 == 0:
+            print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
+
+    if not dry_run and closed:
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                             "is writing it. Let it finish and run this again.")
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            temp_path.unlink(missing_ok=True)
+            raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
+        temp_path.replace(path)
+    return {"name": name, "frames": len(rows), "closed": closed, "px": added,
+            "crossed": crossed, "dry_run": dry_run}
+
+
 def alpha_worker_all(
     names: list[str],
     *,
@@ -615,27 +700,18 @@ def alpha_worker(
     *,
     limit: int | None = None,
     reason: str = ALPHA_REASON,
+    frames: set[str] | None = None,
     progress: bool = True,
 ) -> dict:
-    """SAM 3 over a session's dirty pile.
+    """SAM 3 over a session's dirty pile: one alpha per frame, coverage per square.
 
-    One alpha per frame, coverage per square. Each row is appended the moment
-    it is complete, so killing the worker loses at most the current frame.
-
-    `limit` means the target number of successfully generated alphas for this
-    session, not the size of the next batch.
-
-    Example:
-        220 existing successful alphas + --limit 300
-        -> at most 80 further successful targets.
-    """
+    A kill loses at most the current frame. `limit` targets SUCCESSFUL alphas, not a batch size;
+    `frames` re-measures exactly those stems and ignores the pile and `limit` alike."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
+    from .realgames import game_dir
 
-    session_dir = (
-        config.DATA.sessions
-        / f"rg-{name}"
-    )
+    session_dir = game_dir(name)
 
     if not (
         session_dir
@@ -691,7 +767,15 @@ def alpha_worker(
         and row.get("coverage") is not None
     }
 
+    # A named frame overrides BOTH filters. A hand the scan missed sits on a `clean` row, which
+    # never reaches the pile, and "the matte missed something here" is by definition a verdict on a
+    # frame that already has a row. `read_matte` lets the later row win, so appending is enough.
     todo = [
+        entry
+        for entry in rows
+        if entry.get("board")
+        and Path(entry["board"]).stem in frames
+    ] if frames else [
         entry
         for entry in rows
         if entry.get("dirty")
@@ -702,7 +786,7 @@ def alpha_worker(
         and Path(entry["board"]).stem not in done
     ]
 
-    if limit is not None:
+    if limit is not None and not frames:
         target_remaining = max(
             0,
             limit - len(successful),

@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
 import cv2
 
-from . import config, geometry3d, photometric
+from . import config, locks
 from .calibration import (
     CalibrationProfile,
     GridMesh,
@@ -25,16 +28,20 @@ from .calibration import (
     crop_border_px,
     load_profile,
     make_tracker,
-    mesh_cell_quad,
     mesh_from_lines,
     square_to_crop_box,
-    square_to_mesh_box,
+    straighten_board,
     warp_board_for_crops,
 )
 from .imgops import resize_keep_aspect
 from .state import GameState
+from .work_audit import current as current_work_audit
+from .work_audit import measure
 
 _FILES = "abcdefgh"
+
+#: The label ledger, keyed like `judgedKeys` in `platform/app/lib/corrections.ts`.
+Corrections = dict[tuple[str, str, str], str]
 
 
 
@@ -93,6 +100,11 @@ def labels_to_fen(labels: dict) -> str:
 CROP_SUFFIX = ".webp"
 CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 
+# OpenCV's WebP encoder releases the GIL. Measured on 768 real 128 px crops: 1 worker 1.07 s,
+# 4 workers 0.36 s, 8 workers 0.23 s; 12/16 no longer improved. Keep the bound explicit so a
+# high-core machine does not turn one slice into an unbounded small-file write storm.
+SLICE_WRITE_WORKERS = 8
+
 #: How far a cell may sit from its ply interval's settled board and still be trusted
 #: (`realgames.settle_for_ply`). At 15 the montage above it holds fingers on squares labelled
 #: `empty`, PIECES on squares labelled `empty`, and hands closed around the piece they name; the
@@ -101,6 +113,11 @@ CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 #: costs 1.0 % and catches only 79 %. A human correction outranks it, exactly as with `dirty` — the
 #: gate is a doubt, not a verdict.
 SETTLE_LIMIT = 15.0
+
+#: How much of a cell the alpha must call BOARD before its deviation means anything. Under it the
+#: cell is not "unchanged", it is unseen — and an unseen cell that the coverage does not take out
+#: of the loss either is exactly the one a human has to look at.
+SETTLE_SEEN_MIN = 0.5
 
 
 def parse_out_size(s: str) -> tuple[int, int]:
@@ -124,37 +141,6 @@ def all_squares() -> list[str]:
     return [f"{f}{r}" for r in range(1, 9) for f in _FILES]
 
 
-# Transition alias: `resize_keep_aspect` now lives in `imgops` (resolves the
-# import cycle with `geometry3d`). No longer referenced by anyone; can be
-# removed in the next cleanup pass.
-_resize_keep_aspect = resize_keep_aspect
-
-
-def _crop_square_mesh(board_warped, square: str, profile: CalibrationProfile,
-                      out_size: tuple[int, int], mesh: GridMesh):
-    """The per-cell PERSPECTIVE cut: the padded cell quad warped onto the letterboxed content
-    rectangle, so a line the mesh knows as tilted or bowed comes out straight. Aspect from the
-    scalar box, bars black — the composition `resize_keep_aspect` builds. Twin: `cropSquareTilted`.
-    """
-    import numpy as np
-
-    x0, y0, x1, y1 = square_to_mesh_box(square, profile, mesh)
-    w, h = x1 - x0, y1 - y0
-    if w <= 0 or h <= 0:
-        return None
-    ow, oh = int(out_size[0]), int(out_size[1])
-    s = min(ow / w, oh / h)
-    nw, nh = max(1, round(w * s)), max(1, round(h * s))
-    b = crop_border_px(profile)
-    src = np.array([(x + b, y + b) for x, y in mesh_cell_quad(square, profile, mesh)], np.float32)
-    dst = np.array([(0, 0), (nw, 0), (nw, nh), (0, nh)], np.float32)
-    content = cv2.warpPerspective(board_warped, cv2.getPerspectiveTransform(src, dst), (nw, nh))
-    canvas = np.zeros((oh, ow, 3), dtype=np.uint8)
-    x, y = (ow - nw) // 2, (oh - nh) // 2
-    canvas[y:y + nh, x:x + nw] = content
-    return canvas
-
-
 def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
     """Whether this row's stored board is the raster [profile] would cut from.
 
@@ -169,8 +155,7 @@ def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
             and entry.get("board_border") == crop_border_px(profile))
 
 
-def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int],
-                mesh: GridMesh | None = None):
+def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
     """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
 
     `square_to_crop_box` returns the box in board coordinates [0, board_size]; since the data warp
@@ -178,15 +163,10 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     This ensures edge squares have actual content for their pad_side/pad_up extension. Overhang is
     filled with black (constant geometry across all 64 squares), then scaled losslessly to out_size.
 
-    A `mesh` cuts at the board's OWN measured lines instead of the nominal eighth — perspectively
-    per cell once it carries tilts, so the lens' barrel never reaches the training crop.
+    A plain rectangle, always. The board's own lines are put straight ONCE, on the whole raster
+    (`calibration.straighten_board`), so there is nothing left here for a mesh to correct.
     """
-    if mesh is not None and mesh.tilted:
-        crop = _crop_square_mesh(board_warped, square, profile, out_size, mesh)
-        if crop is not None:
-            return crop
-    x0, y0, x1, y1 = (square_to_crop_box(square, profile, clamp=False) if mesh is None
-                      else tuple(round(v) for v in square_to_mesh_box(square, profile, mesh)))
+    x0, y0, x1, y1 = square_to_crop_box(square, profile, clamp=False)
     b = crop_border_px(profile)
     x0, y0, x1, y1 = x0 + b, y0 + b, x1 + b, y1 + b
     if x1 <= x0:
@@ -203,79 +183,25 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
     return resize_keep_aspect(region, out_size)
 
 
-def crops_for_frame(frame, corners, profile: CalibrationProfile, *, geometry: str = "warp",
-                    photometry: str = "none",
-                    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
+def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
                     out_size: tuple[int, int] | None = None,
                     mesh: GridMesh | None = None,
-                    board=None,
-                    with_meta: bool = False):
-    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice:
-    bordered warp OR box3d, then `preprocess_crop`. Single Source for live inference so
-    the model sees exactly the same crop live as during training.
+                    board=None):
+    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice.
+    Single Source for live inference so the model sees exactly the same crop live as during
+    training.
 
-    `with_meta=True`: also returns {"used_box3d": list[bool]} per square, which `slice_session`
-    writes as the manifest's `pose_ok` (de-duplication, Rework 01).
-    `mesh`: the frame's measured grid lines, cutting each cell at the board's own boundaries
-    instead of the nominal eighth — warp path only, box3d has its own geometry.
-    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may then
-    be None — box3d is the exception, it reprojects from the source frame.
+    `mesh`: the frame's measured grid lines. The warp is pulled straight through them ONCE, as a
+    whole raster — the cut itself stays a plain rectangle. A stored board arrives straight already
+    (`realgames.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
+    `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
+    then be None.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
-    box3d = geometry == "box3d"
-    if box3d and frame is None:
-        raise ValueError("box3d needs the source frame — a stored board is already rectified.")
-    cell = profile.board_size / 8.0
-    pose = None
-    up = 1.0
-    K = dist = None
-    if box3d:
-        fh, fw = frame.shape[:2]
-        K, dist = geometry3d.intrinsics(profile, (fw, fh))
-        pose = geometry3d.estimate_pose(corners, K, dist, profile.board_size, profile.margin)
-        if pose is not None:
-            up = geometry3d.up_sign(pose[0], pose[1])
-    ph_units = float(piece_height_cells) * cell
-    ps_units = config.EXP_BOX3D_PAD_SIDE_CELLS * cell
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
-    crops = []
-    used_box3d = []
-    for square in all_squares():
-        crop = None
-        is_box3d = False
-        if box3d and pose is not None:
-            crop = geometry3d.crop_square_3d(frame, square, K, dist, pose[0], pose[1], profile,
-                                             piece_height_units=ph_units, pad_side_units=ps_units,
-                                             up=up, out_size=out)
-            is_box3d = crop is not None
-        if crop is None:
-            crop = crop_square(warped, square, profile, out, mesh)
-        if photometry != "none":
-            crop = photometric.preprocess_crop(crop, photometry)
-        crops.append(crop)
-        used_box3d.append(is_box3d)
-    return (crops, {"used_box3d": used_box3d}) if with_meta else crops
-
-
-def variant_of_run(run_dir: Path) -> tuple[str, str, float]:
-    """(geometry, photometry, piece_height_cells) of a model run — from its dataset manifest
-    (the crops carry their preprocessing tags). This tells live inference how to crop.
-    Default (warp, none) for untagged legacy manifests."""
-    cfg_p = run_dir / "config.json"
-    cfg = json.loads(cfg_p.read_text(encoding="utf-8")) if cfg_p.exists() else {}
-    ds = cfg.get("dataset")
-    if ds:
-        from .dataset_build import dataset_dir
-        man = dataset_dir(ds) / "manifest.jsonl"
-    else:
-        man = config.DATA.manifests / "squares.jsonl"
-    if man.exists():
-        for line in man.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                return (r.get("geometry", "warp"), r.get("photometry", "none"),
-                        float(r.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)))
-    return ("warp", "none", config.EXP_PIECE_HEIGHT_CELLS)
+    if mesh is not None:
+        warped = straighten_board(warped, mesh, profile.board_size, crop_border_px(profile))
+    return [crop_square(warped, square, profile, out) for square in all_squares()]
 
 
 def read_session_meta(session_dir: Path) -> dict:
@@ -309,53 +235,102 @@ def effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> Calibrat
     return prof
 
 
-def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str]) -> None:
-    """Remove previous lines of this session, then append new ones (idempotent re-slice)."""
-    kept: list[str] = []
-    if manifest_path.exists():
-        for line in manifest_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            if json.loads(line).get("session_id") != session_id:
-                kept.append(line)
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w", encoding="utf-8") as fh:
-        for ln in kept + new_lines:
-            fh.write(ln + "\n")
+def _replace_sessions_in_manifest(manifest_path: Path, replacements: dict[str, list[str]],
+                                  field: str = "session_id") -> None:
+    """Atomically replace several sessions with one streaming manifest transaction.
+
+    `field` is what identifies "this session" in the manifest: the composite cuts one clip into
+    several pseudo-sessions that share a `split_group`, and replacing by `session_id` would leave
+    the clip's other blocks behind.
+    """
+    if not replacements:
+        return
+    before_bytes = manifest_path.stat().st_size if manifest_path.exists() else 0
+    with measure("full manifest rewrites", (manifest_path.resolve(), field),
+                 processed_bytes=before_bytes):
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8", newline="\n") as dst:
+            if manifest_path.exists():
+                with manifest_path.open(encoding="utf-8") as src:
+                    for line in src:
+                        if line.strip() and json.loads(line).get(field) not in replacements:
+                            dst.write(line if line.endswith("\n") else line + "\n")
+            for lines in replacements.values():
+                for line in lines:
+                    dst.write(line + "\n")
+        os.replace(tmp, manifest_path)
 
 
-def load_corrections(path: Path) -> dict[tuple[str, str, str], str]:
-    """Load human label corrections: {(session_id, frame, square): label}. Last wins."""
-    out: dict[tuple[str, str, str], str] = {}
+def _replace_session_in_manifest(manifest_path: Path, session_id: str, new_lines: list[str],
+                                 field: str = "session_id") -> None:
+    """Single-session compatibility wrapper around the batched transaction."""
+    _replace_sessions_in_manifest(manifest_path, {session_id: new_lines}, field)
+
+
+def _fen_labels(fen: str, squares: tuple[str, ...], cache: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
+    labels = cache.get(fen)
+    if labels is not None:
+        return labels
+    with measure("FEN label expansions", fen):
+        game = GameState(fen)
+        labels = tuple(game.label_for(square) for square in squares)
+    cache[fen] = labels
+    return labels
+
+
+def _read_slice_image(path: Path):
+    try:
+        st = path.stat()
+        key = (path.resolve(), st.st_mtime_ns, st.st_size)
+        size = st.st_size
+    except OSError:
+        key, size = path.resolve(), 0
+    with measure("slice image decodes", key, processed_bytes=size):
+        return cv2.imread(str(path))
+
+
+def _write_crop(path: Path, crop) -> tuple[bool, float]:
+    started = time.perf_counter()
+    ok = bool(cv2.imwrite(str(path), crop, CROP_ENCODE))
+    return ok, time.perf_counter() - started
+
+
+def load_corrections(path: Path, into: Corrections | None = None) -> Corrections:
+    """The human verdict per `(session_id, frame, square)`, last line winning. A `retract: true`
+    row (CONCEPT.md 4.2.2) is a tombstone that reopens the cell instead of deciding it.
+
+    `into` folds several ledgers in order, so a later file can retract an earlier file's verdict.
+    """
+    out = {} if into is None else into
     p = Path(path)
     if not p.exists():
         return out
-    for line in p.read_text(encoding="utf-8").splitlines():
+    for line in p.read_text(encoding="utf-8-sig").splitlines():
         if not line.strip():
             continue
-        c = json.loads(line)
-        out[(c["session_id"], str(c["frame"]), c["square"])] = c["label"]
+        row = json.loads(line)
+        key = (row["session_id"], str(row["frame"]), row["square"])
+        if row.get("retract") is True:
+            out.pop(key, None)
+        else:
+            out[key] = row["label"]
     return out
-
-
-def upsert_corrections(items: list[dict], path: Path) -> int:
-    """Merge corrections (session_id, frame, square, label) and rewrite. Returns total count."""
-    merged = load_corrections(path)
-    for it in items:
-        merged[(it["session_id"], str(it["frame"]), it["square"])] = it["label"]
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        for (sid, frame, square), label in merged.items():
-            fh.write(json.dumps({"session_id": sid, "frame": frame, "square": square,
-                                 "label": label, "ts": datetime.now(UTC).isoformat()},
-                                ensure_ascii=False) + "\n")
-    return len(merged)
 
 
 #: A square this covered is no longer a piece example (`training/occlusion.PIECE_VISIBLE_MAX`),
 #: so a frame carrying one is as dirty as one the tracker flagged — whatever the log says.
 MATTE_DIRTY = 0.15
+
+
+def read_corrections(session_dir: Path) -> dict[tuple[str, str, str], str]:
+    """The recording's own hand corrections, empty when it has none.
+
+    Beside `matte.jsonl` and read the same way: a recording carries everything that is only about
+    it. Every row here is an identity — `occluded` stopped being a label when the scheme went to
+    13 + coverage, and the writer refuses it (`platform/app/lib/corrections.ts`).
+    """
+    return load_corrections(Path(session_dir) / "corrections.jsonl")
 
 
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
@@ -372,29 +347,23 @@ def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     return {r["frame"]: r["coverage"] for r in read_jsonl(path) if r.get("coverage")}
 
 
-def slice_session(
+def _slice_session(
     session_dir: Path,
     *,
     profile: CalibrationProfile,
     manifest_path: Path,
     squares_root: Path,
+    write_pool: ThreadPoolExecutor,
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
-    label_overrides: dict[tuple[str, str, str], str] | None = None,
-    geometry_mode: str = "warp",
-    photometry: str = "none",
-    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
+    manifest_batch: dict[str, list[str]] | None = None,
 ) -> dict:
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
 
-    `label_overrides` replaces the FEN-derived label per (session, frame, square) with
-    a human correction (web relabel). Returns the number of applied overrides. It is also the
-    only way a cell of a `dirty` frame reaches the pool at all — see the loop below.
-
-    `geometry_mode`: "warp" (top-down crop, baseline) or "box3d" (3D box from the original frame
-    via per-frame pose). `photometry`: deterministic filter (none/clahe/grayworld/gamma), baked
-    INTO the crops (train/inference parity). `piece_height_cells`: extrusion height for box3d.
+    The recording's own `corrections.jsonl` replaces the FEN-derived label per square. Returns the
+    number applied. A correction is also the only way a cell of a `dirty` frame reaches the pool
+    at all — see the loop below.
     """
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
@@ -402,9 +371,9 @@ def slice_session(
     log = read_log(session_dir)
 
     matte = read_matte(session_dir)
+    label_overrides = read_corrections(session_dir)
     prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
-    box3d = geometry_mode == "box3d"
 
     new_lines: list[str] = []
     n_crops = 0
@@ -414,25 +383,29 @@ def slice_session(
     n_unknown = 0
     #: Cells dropped because a hand was in the frame and no human ruled on them (`dirty`).
     n_dirty = 0
-    #: Cells whose pixels left the position they are labelled with (`SETTLE_LIMIT`).
+    #: Cells whose pixels left the position they are labelled with (`realgames.departures`).
     n_unsettled = 0
     n_unusable = 0
-    n_fallback = 0   # box3d: squares that fell back to warp (pose/projection failed)
-    n_mesh = 0       # frames cut at their own measured grid lines instead of the nominal eighth
+    n_mesh = 0       # frames straightened HERE, i.e. warped from a frame rather than a store
+    n_bowed = 0      # stored boards nobody pulled straight — the barrel goes into these crops
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
+    squares = tuple(all_squares())
+    fen_cache: dict[str, tuple[str, ...]] = {}
+    out_dirs: dict[str, Path] = {}
     for entry in log:
         if entry.get("unusable"):
             n_unusable += 1
             continue
         # The stored board is the rectified frame under this row's own quad, so cutting from it is
         # the same operation minus the warp — and it is what the label view shows, which is the
-        # point. The source frame is only read when there is no board (or for box3d, which
-        # reprojects from it); it is no longer kept on disk for sessions that carry one.
-        board = cv2.imread(str(session_dir / entry["board"])) if usable_board(entry, prof) else None
+        # point. The source frame is only read when there is no board; it is no longer kept on
+        # disk for sessions that carry one.
+        board_path = session_dir / entry["board"] if usable_board(entry, prof) else None
+        board = _read_slice_image(board_path) if board_path is not None else None
         frame = None
-        if board is None or box3d:
+        if board is None:
             frame_path = session_dir / entry["frame"]
-            frame = cv2.imread(str(frame_path))
+            frame = _read_slice_image(frame_path)
             if frame is None:
                 raise FileNotFoundError(
                     f"Neither board nor frame readable: {frame_path}"
@@ -445,21 +418,18 @@ def slice_session(
                 n_skipped += 1   # no markers in frame -> not usable, skip
                 continue
 
-        # The row's own 18 lines, when the fit could read them: without them the crop keeps the
-        # lens' barrel, and a curved training set is exactly what this pipeline must not produce.
-        mesh = mesh_from_lines(entry.get("grid_lines"))
+        # A stored board arrives straight (`realgames.straighten_boards`); only a session that
+        # still has to be warped from its frame carries its own lines here.
+        mesh = None if board is not None else mesh_from_lines(entry.get("grid_lines"))
         n_mesh += mesh is not None
+        n_bowed += board is not None and not entry.get("board_straightened")
         # crops_for_frame as single source (Rework 01: de-duplication).
-        crops, meta = crops_for_frame(
-            frame, corners, prof, geometry=geometry_mode, photometry=photometry,
-            piece_height_cells=piece_height_cells, out_size=out, mesh=mesh, board=board,
-            with_meta=True)
-        used_box3d_list = meta["used_box3d"]
-        if box3d:
-            n_fallback += sum(1 for v in used_box3d_list if not v)
+        with measure("slice board crop batches", (session_id, Path(entry["frame"]).stem),
+                     processed_bytes=(board.nbytes if board is not None else frame.nbytes)):
+            crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
-        gs = None if explicit else GameState(entry["fen"])
+        labels = None if explicit else _fen_labels(entry["fen"], squares, fen_cache)
         # Vom Renderer/Ingest verdeckte Felder → `occluded` (überschreibt das FEN-Figur-Label).
         occluded_set = set(entry.get("occluded_squares") or ())
         # Neither label is true for these, so no crop is written at all.
@@ -482,21 +452,28 @@ def slice_session(
         # `carried` counts as dirty: the mesh is a neighbour's because THIS frame's grooves were
         # unreadable, and measured over 2 228 frames that is a hand 94.5 % of the time.
         dirty = bool(entry.get("dirty")) or entry.get("grid_lines_source") == "carried"
-        # How far each cell sits from its own ply interval's settled board (`session settle-scan`).
-        # A row from too short an interval has none, and then this gate does not fire — see
-        # `SETTLE_LIMIT`. Absent on every session that predates the scan, which is the same thing.
+        # `session settle-scan` measured this row against its own ply interval's settled board.
+        # A row from too short an interval carries neither, and then no gate below fires — which
+        # is the same state as a session that predates the scan.
         settle = entry.get("settle_dev") or ()
+        #: The squares whose pixels LEFT that position and stayed away. The INTERVAL decided this,
+        #: with the time axis one frame does not have — a shadow passes, a move stays.
+        left = set(entry.get("settle_left") or ())
         frame_stem = Path(entry["frame"]).stem  # '0007'
         cover = matte.get(frame_stem, {})
-        # An `occluded` frame is a hand over a position the commit still vouches for, and its
-        # matte says how much of each square is hidden. That makes its cells labelable: the FEN
-        # gives the class, the coverage takes the hidden ones out of the loss. Only WITH the
-        # measurement — coverage 0.0 under a hand would be a lie (`docs/frame-scan.md`).
-        if entry.get("dirty_reason") == "occluded" and cover:
+        # With a settle measurement the frame's CLASS stops deciding and the cell does: a covered
+        # cell is the occlusion target, every other one is read against the interval's settled
+        # board. Without one, an `occluded` frame is still rescued whole — its matte says how much
+        # of each square is hidden, and coverage 0.0 under a hand would be a lie.
+        if settle and cover:
+            dirty = False
+        elif entry.get("dirty_reason") == "occluded" and cover:
             dirty = False
         elif any(v > MATTE_DIRTY for v in cover.values()):
             dirty = True
-        squares = all_squares()
+        write_started = time.perf_counter()
+        write_jobs = []
+        write_bytes = 0
         for i, square in enumerate(squares):
             if square in ambiguous_set:
                 continue
@@ -509,22 +486,27 @@ def slice_session(
             if dirty and corrected is None:
                 n_dirty += 1
                 continue
-            if i < len(settle) and settle[i] >= SETTLE_LIMIT and corrected is None:
+            if square in left and corrected is None:
                 n_unsettled += 1
                 continue
-            label = explicit.get(square, "empty") if explicit else gs.label_for(square)
+            label = explicit.get(square, "empty") if explicit else labels[i]
             if square in occluded_set:
                 label = "occluded"
             if corrected is not None and corrected != label:
                 label = corrected
                 n_overrides += 1
             crop = crops[i]
-            out_dir = squares_root / label
-            out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = out_dirs.get(label)
+            if out_dir is None:
+                out_dir = out_dirs[label] = squares_root / label
+                out_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{session_id}_{frame_stem}_{square}{CROP_SUFFIX}"
-            cv2.imwrite(str(out_dir / fname), crop, CROP_ENCODE)
+            crop_path = out_dir / fname
+            future = write_pool.submit(_write_crop, crop_path, crop)
+            write_jobs.append((future, crop_path, crop.nbytes))
+            write_bytes += crop.nbytes
             row = {
-                "path": str((out_dir / fname).as_posix()),
+                "path": str(crop_path.as_posix()),
                 "label": label,
                 "session_id": session_id,
                 "frame": frame_stem,
@@ -540,44 +522,81 @@ def slice_session(
                 # was cut with is mutable and is not stamped anywhere else (specs/45).
                 "pad_side": float(prof.crop.pad_side),
                 "pad_up": float(prof.crop.pad_up),
-                "geometry": geometry_mode,
-                "photometry": photometry,
                 "ts": datetime.now(UTC).isoformat(),
             }
             if matte:
                 # The second training target, from a real hand instead of a composited one. Only
                 # written where mattes exist, so no manifest changes shape behind anyone's back.
                 row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
-            if box3d:
-                row["piece_height_cells"] = float(piece_height_cells)
-                row["pose_ok"] = used_box3d_list[i]
             new_lines.append(json.dumps(row, ensure_ascii=False))
             n_crops += 1
+        results = [(future.result(), path, size) for future, path, size in write_jobs]
+        if not all(result[0] for result, _path, _size in results):
+            raise OSError(f"OpenCV failed to write one or more crops for {session_id}/{frame_stem}")
+        audit = current_work_audit()
+        if audit is not None:
+            key = (session_id, frame_stem)
+            audit.record_work("WebP crop batches", key,
+                              seconds=time.perf_counter() - write_started,
+                              processed_bytes=write_bytes)
+            audit.record_work("WebP encoding CPU", key,
+                              seconds=sum(result[1] for result, _path, _size in results),
+                              processed_bytes=write_bytes)
 
-    _replace_session_in_manifest(manifest_path, session_id, new_lines)
+    if manifest_batch is None:
+        _replace_session_in_manifest(manifest_path, session_id, new_lines)
+    else:
+        manifest_batch[session_id] = new_lines
     return {"session_id": session_id, "frames": len(log), "crops": n_crops,
             "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
             "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
-            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh,
-            "fallback": n_fallback}
+            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh, "bowed_boards": n_bowed}
+
+
+def slice_session(
+    session_dir: Path,
+    *,
+    profile: CalibrationProfile,
+    manifest_path: Path,
+    squares_root: Path,
+    pad_up: float | None = None,
+    pad_side: float | None = None,
+    out_size: tuple[int, int] | None = None,
+    manifest_batch: dict[str, list[str]] | None = None,
+    write_pool: ThreadPoolExecutor | None = None,
+) -> dict:
+    """Slice one session, owning the WebP worker pool unless a run-scoped pool is supplied."""
+    if write_pool is not None:
+        return _slice_session(
+            session_dir, profile=profile, manifest_path=manifest_path,
+            squares_root=squares_root, write_pool=write_pool, pad_up=pad_up,
+            pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+        )
+    with ThreadPoolExecutor(
+        max_workers=SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+    ) as owned_pool:
+        return _slice_session(
+            session_dir, profile=profile, manifest_path=manifest_path,
+            squares_root=squares_root, write_pool=owned_pool, pad_up=pad_up,
+            pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+        )
 
 
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
 
 def _session_ids_with_logs() -> list[str]:
-    root = config.DATA.sessions
-    if not root.exists():
-        return []
-    return sorted(p.name for p in root.iterdir() if (p / "log.jsonl").exists())
+    from .sessions import all_sessions
+
+    return [sid for sid, _ in all_sessions()]
 
 
 def variant_paths(variant_tag: str | None) -> tuple[Path, Path]:
-    """(manifest_path, squares_root) for a variant. `None` = current default paths; otherwise
-    `data/manifests/squares__<tag>.jsonl` + `data/squares__<tag>/`, so variants coexist."""
+    """(manifest_path, crop_pool) for a variant. `None` = current default paths; otherwise
+    `data/crops/<tag>/manifest.jsonl` inside the pool it describes, so variants coexist."""
     if not variant_tag:
-        return config.DATA.manifests / "squares.jsonl", config.DATA.squares
-    suffix = f"__{variant_tag}"
-    return config.DATA.manifests / f"squares{suffix}.jsonl", config.DATA.root / f"squares{suffix}"
+        return config.DATA.crop_pool / "manifest.jsonl", config.DATA.crop_pool
+    pool = config.DATA.crops / variant_tag
+    return pool / "manifest.jsonl", pool
 
 
 def run_slice(
@@ -588,15 +607,20 @@ def run_slice(
     pad_side: float | None = None,
     out_size: str | None = None,
     preview: str | None = None,
-    geometry_mode: str = "warp",
-    photometry: str = "none",
-    piece_height_cells: float = config.EXP_PIECE_HEIGHT_CELLS,
     variant_tag: str | None = None,
 ) -> int:
-    out_size_t = parse_out_size(out_size) if out_size else None
+    try:
+        out_size_t = parse_out_size(out_size) if out_size else None
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        return 1
 
     if preview:
-        return _preview_session(preview, profile)
+        try:
+            return _preview_session(preview, profile)
+        except Exception as e:  # noqa: BLE001
+            print(f"[FAIL] {preview}: {e}")
+            return 1
 
     if slice_all:
         sids = _session_ids_with_logs()
@@ -610,38 +634,64 @@ def run_slice(
         return 0
 
     manifest_path, squares_root = variant_paths(variant_tag)
-    corrections = load_corrections(config.DATA.corrections)  # apply human relabels
     rc = 0
-    for sid in sids:
-        session_dir = config.DATA.sessions / sid
-        try:
-            meta = read_session_meta(session_dir)
-            prof = _profile_for_session(meta, profile)
-            stats = slice_session(
-                session_dir, profile=prof, manifest_path=manifest_path, squares_root=squares_root,
-                pad_up=pad_up, pad_side=pad_side, out_size=out_size_t, label_overrides=corrections,
-                geometry_mode=geometry_mode, photometry=photometry, piece_height_cells=piece_height_cells,
-            )
-            extra = f" ({stats['overrides']} corrections)" if stats.get("overrides") else ""
-            if stats.get("skipped"):
-                extra += f" [{stats['skipped']} frames without markers skipped]"
-            if stats.get("fallback"):
-                extra += f" [{stats['fallback']} box3d->warp fallbacks]"
-            extra += f" [mesh cut on {stats.get('mesh_frames', 0)}/{stats['frames']} frames]"
-            if stats.get("dirty_dropped"):
-                extra += f" [{stats['dirty_dropped']} cells held back on dirty frames]"
-            if stats.get("unsettled_dropped"):
-                extra += f" [{stats['unsettled_dropped']} cells held back as unsettled]"
-            print(f"[OK] {sid}: {stats['frames']} Frames -> {stats['crops']} Crops{extra}.")
-        except Exception as e:  # noqa: BLE001
-            print(f"[FAIL] {sid}: {e}")
-            rc = 1
+    from .sessions import session_dir as _resolve
+
+    try:
+        with locks.pool_lock(squares_root, f"slice {len(sids)} session(s)"):
+            manifest_batch: dict[str, list[str]] = {}
+            try:
+                with ThreadPoolExecutor(
+                    max_workers=SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+                ) as write_pool:
+                    for sid in sids:
+                        try:
+                            session_dir, _ = _resolve(sid)
+                            meta = read_session_meta(session_dir)
+                            prof = _profile_for_session(meta, profile)
+                            stats = slice_session(
+                                session_dir, profile=prof, manifest_path=manifest_path,
+                                squares_root=squares_root, pad_up=pad_up, pad_side=pad_side,
+                                out_size=out_size_t, manifest_batch=manifest_batch,
+                                write_pool=write_pool,
+                            )
+                            extra = (f" ({stats['overrides']} corrections)"
+                                     if stats.get("overrides") else "")
+                            if stats.get("skipped"):
+                                extra += f" [{stats['skipped']} frames without markers skipped]"
+                            if stats.get("mesh_frames"):
+                                extra += (f" [{stats['mesh_frames']} frames straightened here, "
+                                          "no stored board]")
+                            # Loud, because nothing in a crop says whether its board was pulled straight.
+                            if stats.get("bowed_boards"):
+                                extra += (f" [WARNUNG: {stats['bowed_boards']} Bretter NICHT "
+                                          f"geradegezogen — `chesslab session straighten {sid}`]")
+                            if stats.get("dirty_dropped"):
+                                extra += (f" [{stats['dirty_dropped']} cells held back on dirty "
+                                          "frames]")
+                            if stats.get("unsettled_dropped"):
+                                extra += (f" [{stats['unsettled_dropped']} cells held back as "
+                                          "unsettled]")
+                            print(f"[OK] {sid}: {stats['frames']} Frames -> "
+                                  f"{stats['crops']} Crops{extra}.")
+                        except Exception as e:  # noqa: BLE001
+                            print(f"[FAIL] {sid}: {e}")
+                            rc = 1
+            finally:
+                # KeyboardInterrupt is a BaseException and bypasses the per-session handler.
+                # Publish every fully completed session before propagating it to the CLI.
+                _replace_sessions_in_manifest(manifest_path, manifest_batch)
+    except RuntimeError as e:
+        print(f"[FAIL] {e}")
+        return 1
     return rc
 
 
 def _preview_session(session_id: str, profile: str | None) -> int:
     """Debug: slice the first position and show label vs. visible crop side by side."""
-    session_dir = config.DATA.sessions / session_id
+    from .sessions import session_dir as _resolve
+
+    session_dir, _ = _resolve(session_id)
     try:
         meta = read_session_meta(session_dir)
         prof = _profile_for_session(meta, profile)

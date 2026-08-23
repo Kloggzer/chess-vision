@@ -39,7 +39,7 @@ def test_fused_build_packs_without_crop_pngs(tmp_path):
     ds = paths.datasets / "fused-t"
     # KEINE Crop-PNGs irgendwo — nur Manifest + Memmap + Metadaten.
     assert not list(ds.rglob("*.png"))
-    assert not (tmp_path / "data" / "squares__fused-t").exists()
+    assert not (tmp_path / "data" / "crops" / "fused-t").exists()
     rows = [json.loads(line) for line in (ds / "manifest.jsonl").read_text().splitlines() if line.strip()]
     assert all(r["path"].startswith("mm://") for r in rows)
 

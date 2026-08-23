@@ -11,7 +11,7 @@ from chesslab import dataset_build as DB
 
 
 def _write_crop(paths, label, sid, frame, square, img):
-    d = paths.squares / label
+    d = paths.crop_pool / label
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{sid}_{frame}_{square}.png"
     cv2.imwrite(str(p), img)
@@ -42,7 +42,7 @@ def _row(paths, label, sid, frame, square, fill, color="light", img=None):
 
 
 def _global_manifest(paths, rows):
-    mp = paths.manifests / "squares.jsonl"
+    mp = paths.crop_pool / "manifest.jsonl"
     mp.parent.mkdir(parents=True, exist_ok=True)
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
 
@@ -78,8 +78,7 @@ def test_build_dataset_filters_dedups_records_rotations(tmp_path):
     paths = config.Paths(root=tmp_path)
     rows = []
     # s1: 6x identisches wP auf e2 (Dedup-Kandidat) + ein wK
-    for i in range(6):
-        rows.append(_row(paths, "wP", "s1", f"{i:04d}", "e2", (180, 180, 180)))
+    rows.extend(_row(paths, "wP", "s1", f"{i:04d}", "e2", (180, 180, 180)) for i in range(6))
     rows.append(_row(paths, "wK", "s1", "0006", "e1", (90, 90, 90), color="dark"))
     # s2: andere Session (soll bei Datensatz nur-s1 NICHT auftauchen)
     rows.append(_row(paths, "wP", "s2", "0000", "e2", (180, 180, 180)))
@@ -129,9 +128,8 @@ def test_like_supplies_the_class_list_but_an_explicit_one_wins(tmp_path):
     """`--like` overrides every policy EXCEPT the class list — that one is the reason to build a twin.
 
     `class_mode = pol["class_mode"] or class_mode` made the donor win unconditionally, so
-    `--like occ-warm --classes pieces13` produced a second 2-class copy under a name that said
-    otherwise, printed `[like] adopting occ-warm: classes=occupancy`, and would have been trained
-    and compared as if it were the identity model.
+    `--like <14-class donor> --classes pieces13` produced a second 14-class copy under a name that
+    said otherwise, and would have been trained and compared as if it were the 13-class model.
     """
     import yaml
 
@@ -141,16 +139,16 @@ def test_like_supplies_the_class_list_but_an_explicit_one_wins(tmp_path):
             _row(paths, "empty", "s1", "0002", "c4", (70, 70, 70))]
     _global_manifest(paths, rows)
     DB.build_dataset("donor", ["s1"], rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
-                     allow_degenerate=True, class_mode="occupancy")
+                     allow_degenerate=True, class_mode="pieces")
 
     def mode_of(name: str) -> str:
         return yaml.safe_load((paths.datasets / name / "dataset.yaml").read_text(encoding="utf-8"))["class_mode"]
 
-    assert mode_of("donor") == "occupancy"
+    assert mode_of("donor") == "pieces"
 
     # No --classes: the donor supplies it, which is what makes a plain twin a twin.
     DB.build_dataset("twin", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True, like="donor")
-    assert mode_of("twin") == "occupancy"
+    assert mode_of("twin") == "pieces"
 
     # --classes given: it wins, and the rest of the donor's policy still comes along.
     DB.build_dataset("twin-13c", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True,

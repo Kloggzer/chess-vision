@@ -510,9 +510,6 @@ internal data class PendingVerify(
     var lastTickS: Double = 0.0,
 )
 
-/** Alias for the name phases 04a/04b use for the same object. */
-internal typealias PendingCandidate = PendingVerify
-
 /** `_promo_pending` — waits for `choose_promotion()`. */
 internal data class PromoPending(
     val from: String,

@@ -11,8 +11,8 @@
 chess pieces on a physical board filmed by a fixed camera, and trains a
 per-square classifier on it. Labels are derived from the known game state (FEN,
 via `python-chess`) — one photo of a position yields 64 labeled examples.
-On top of that, an experimental **move tracker** (`chesslab track`) digitizes
-live games without a CNN (frame diff + legality, optional CNN safeguard).
+The **move tracker** that digitizes live games (frame diff + legality, CNN as a
+safeguard) is Kotlin and lives in `android/`; nothing of it is left in Python.
 
 ## Current architecture (pointers, not prose)
 
@@ -22,10 +22,13 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 - `docs/android-emulator.md` — canonical headful x86_64 AVD workflow, recorded-video
   camera input and ADB controls for coding agents.
 - `docs/setup/` — PyTorch backends (ROCm / CUDA / CPU).
+- `platform/app/README.md` — the Next.js labeling front-end (`data/recordings/` is its whole world).
 - One CLI entry point: `chesslab <command>` (`src/chesslab/cli.py`, Typer). **Python is dataset
   building and training only since 2026-08-07** — the move tracker and the FastAPI/React web UI
-  were deleted (35,694 lines; the tracker is reachable at the `python-tracker-final` tag). The
-  tracker lives in `android/` and runs on the phone and, through `:desktop`, on the PC.
+  were deleted (35,694 lines; the tracker is reachable at the `python-tracker-final` tag), the
+  capture rig (`collect`, `collect_ui`) and `track_feedback` followed on 2026-08-20. `SessionWriter`
+  is what survived the rig, in `src/chesslab/session_writer.py`. The tracker lives in `android/`
+  and runs on the phone and, through `:desktop`, on the PC.
 - `chesslab session scan|autofix|adopt|flag` repairs a session's geometry before slicing — it
   was web-UI-only until the deletion, which is why `docs/data-pipeline.md` §12 reads as a
   browser session.
@@ -33,8 +36,8 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 ## Non-goals
 
 - No deep-learning board/corner detection as a hard dependency — ArUco markers
-  (per-frame self-calibration) are the primary geometry source; a line-based
-  markerless detector exists experimentally (`board_corners_from_lines`).
+  (per-frame self-calibration) are the primary geometry source, refined by the
+  grid fit. Markerless cold start is not supported.
 - No reinforcement learning; piece recognition is supervised classification.
 
 ## Tech stack (binding)
@@ -42,28 +45,37 @@ live games without a CNN (frame diff + legality, optional CNN safeguard).
 Python 3.11+ (dev machine: 3.12), **uv** (`pyproject.toml` is the single
 source), Typer CLI, OpenCV/NumPy/Pillow, python-chess, PyTorch + torchvision
 (backend per `docs/setup/` — on the dev machine a Windows ROCm stack pinned to
-local wheels in `wheels/`), FastAPI/uvicorn + React (Vite) web UI, YAML config,
-JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
+local wheels in `wheels/`), Next.js labeling front-end in `platform/app/`, YAML
+config, JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 
 ## Conventions (project-wide)
 
 - **Language:** code, comments and docs are English.
-- **Reproducibility:** capture (`collect`) and labeling (`slice`) are separate;
-  slicing is a pure, repeatable step over session logs (frame + FEN + corners).
+- **Reproducibility:** recording and labeling (`slice`) are separate; slicing is a
+  pure, repeatable step over session logs (board + FEN + corners).
 - **Determinism:** global `--seed` (default 42) for split/sampling/training.
 - **Config over code:** paths, class list, crop params, split ratios live in
   `config.py`/YAML. The canonical class list exists in exactly one place
   (`config.CLASSES`).
-- **Classes (14):** `empty`, `wP wN wB wR wQ wK`, `bP bN bB bR bQ bK`,
-  `occluded` (never from FEN — it comes from the synth occluder footprint,
-  `docs/synth-pipeline.md`, or from manual corrections, whose write path currently has
-  no producer; `empty`/`occluded` are "may be missing" classes).
+- **Data layout:** a recording is one folder (`data/recordings/<ts>/`) and everything that only
+  says something about it lives inside — `log.jsonl`, `boards/`, `mattes/`, `review/`, its own
+  `corrections.jsonl`. Derived trees sit outside and are rebuildable: `crops/<tag>/` (crops **and**
+  that pool's `manifest.jsonl`), `datasets/`, `models/`, `reports/`, plus `footage/` and `plates/`.
+  `data/_delete/` holds retired material the user deletes themselves. A recording's **id** keeps the
+  `rg-` prefix its directory dropped; resolve it with `sessions.session_dir()`, never by joining a
+  path. The full table is `README.md` → "Where it all lands" and `docs/data-pipeline.md` §1.1.
+- **Classes:** `config.CLASSES` (14) stays the single canonical definition, but
+  `config.IDENTITY_CLASSES` (13, derived) is what `dataset build` and `train` use by default.
+  `occluded` never came from a FEN and is no longer painted either — it is measured per square
+  as a `coverage` fraction from an alpha matte and trained as a regression target
+  (`docs/class-scheme.md`).
 - **Squares** are referenced as `a1`..`h8`; corner order is `[a8, h8, h1, a1]`.
 - **Calibration profiles** are geometry config (board size, orientation, crop
   params), not stored positions — corners are detected per frame from ArUco.
-  Missing profiles are auto-created from the camera source
-  (`calibration.ensure_profile`); `calibrate auto` is for interactive tuning.
-- **Web read paths** go through `chesslab/manifest_cache.py` (mtime-keyed
+  `calibration.ensure_profile` still holds the carry-over rule Kotlin mirrors, but
+  no command calls it since the capture rig went; `scripts/ingest_video_session.py` is the
+  remaining door into profile creation.
+- **Crop counts per session** go through `chesslab/manifest_cache.py` (mtime-keyed
   aggregates) — never re-read whole manifests per request.
 
 ## Known pitfalls (still true)
@@ -80,9 +92,13 @@ JSONL manifests. License: **GPL-3.0-or-later** (python-chess is GPL).
 ## Verification
 
 - `uv run pytest -q` (or `.venv/Scripts/python.exe -m pytest -q`) must be green.
-- `uv run ruff check src tests synth` — lint gate.
-- Frontend changes: `cd src/chesslab/web/frontend && npm run build` (output is
-  committed under `web/static/`); `npm run lint` must not add new errors.
+- `uv run ruff check src tests synth scripts` — lint gate.
+- `.github/workflows/ci.yml` runs ruff, the `platform/app` web gate and the Kotlin
+  gate on every push and PR. It carries **no Python test job** — the torch pin
+  points at local `wheels/`, so `uv sync` cannot run on a Linux runner; run
+  `pytest` locally.
+- Frontend changes: `cd platform/app && npx tsc --noEmit && npm test && npm run build`;
+  `npm run lint` and `npm run knip` must not add new errors.
 - Android UI/camera changes: run
   `.\scripts\android-emulator.ps1 -Avd Chesslab_Agent1 -Port 5554 -Clip blender-opening -RestartExisting`.
   The `emulator` APK is x86_64-only and separate from the arm64 phone builds; the smoke test

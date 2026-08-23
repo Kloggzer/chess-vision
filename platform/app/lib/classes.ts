@@ -17,9 +17,6 @@ export const IDENTITY_CLASSES = [
  */
 export const LEGACY_LABEL = "occluded";
 
-/** Everything a stored row may say — identities plus the legacy label. Readers, not writers. */
-export const CLASSES: readonly string[] = [...IDENTITY_CLASSES, LEGACY_LABEL];
-
 export const isIdentity = (label: string): boolean =>
   (IDENTITY_CLASSES as readonly string[]).includes(label);
 

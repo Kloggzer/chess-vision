@@ -28,11 +28,9 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .calibration import load_profile, mesh_from_lines
+from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
-
-OCCLUDED = "occluded"
 
 
 def model_classes(run_dir: Path) -> list[str]:
@@ -72,21 +70,16 @@ def check_not_circular(run_dir: Path, session_id: str) -> None:
         )
 
 
-def p_occluded(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[float]:
-    """`P(occluded)` per crop, through the serving path. Zeros when the class list has none."""
-    classes = model_classes(run_dir)
-    if OCCLUDED not in classes:
-        return [0.0] * len(cells)
-    idx = classes.index(OCCLUDED)
-    return [p[idx] for p in all_probs(run_dir, cells, device)]
+def all_reads(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[dict]:
+    """Per crop the full softmax AND the occlusion head's coverage, where the run carries one."""
+    from . import serving
+
+    return serving.predict_arrays(run_dir, cells, device=device, return_probs=True)
 
 
 def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
     """The full softmax per crop, in the run's class order."""
-    from . import serving
-
-    out = serving.predict_arrays(run_dir, cells, device=device, return_probs=True)
-    return [[float(x) for x in r["probs"]] for r in out]
+    return [[float(x) for x in r["probs"]] for r in all_reads(run_dir, cells, device)]
 
 
 #: Below this a probability is noise no filter would ever be pointed at.
@@ -114,8 +107,7 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     board = cv2.imread(str(path))
     if board is None:
         raise FileNotFoundError(f"board not readable: {path}")
-    return crops_for_frame(None, row["corners"], profile, board=board,
-                           mesh=mesh_from_lines(row.get("grid_lines")))
+    return crops_for_frame(None, row["corners"], profile, board=board)
 
 
 #: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a
@@ -130,10 +122,9 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
     trains on, and the proposer only ever looked at the pile (`docs/frame-scan.md`).
     """
-    from . import config
     from .realgames import PROGRESS_EVERY, game_dir
 
-    session_dir = config.DATA.sessions / f"rg-{name}"
+    session_dir = game_dir(name)
     if not (session_dir / "log.jsonl").exists():
         raise FileNotFoundError(f"{name}: no exported session at {session_dir}")
     meta = read_session_meta(session_dir)
@@ -148,14 +139,18 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
         fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
                              "_written_at": datetime.now(UTC).isoformat()}) + "\n")
         for n, row in enumerate(rows, 1):
-            probs = all_probs(model_dir, frame_cells(session_dir, row, profile), device)
+            reads = all_reads(model_dir, frame_cells(session_dir, row, profile), device)
             stem = Path(row["frame"]).stem
             labels = GameState(row["fen"]).labels()
-            for sq, p in zip(squares, probs, strict=True):
+            for sq, read in zip(squares, reads, strict=True):
+                # `cov` rides along only where the run carries an occlusion head: `hand_flags`
+                # needs the model's claim beside the matte's measurement, and a re-read is an hour.
+                cov = read.get("coverage")
                 fh.write(json.dumps({
                     "session_id": meta["session_id"], "frame": stem, "square": sq,
                     "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
-                    "probs": sparse(p, classes)}) + "\n")
+                    **({"cov": cov} if cov is not None else {}),
+                    "probs": sparse(read["probs"], classes)}) + "\n")
                 written += 1
             if progress and n % PROGRESS_EVERY == 0:
                 print(f"  {n}/{len(rows)} boards, {written} cells", flush=True)

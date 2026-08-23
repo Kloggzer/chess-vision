@@ -65,7 +65,7 @@ os.environ.setdefault("CHESSLAB_DISABLE_CUDA_GRAPH", "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import calibration, config, labeling  # noqa: E402
+from chesslab import calibration, config, labeling, sessions  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
@@ -111,7 +111,7 @@ class Log:
 
 def px_per_square(session_id: str) -> float:
     """Native resolution of a session: mean edge of the logged corner quad / 8."""
-    p = config.DATA.sessions / session_id / "log.jsonl"
+    p = sessions.session_dir(session_id)[0] / "log.jsonl"
     with p.open("r", encoding="utf-8") as fh:
         c = json.loads(fh.readline())["corners"]
     return sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8
@@ -238,16 +238,15 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     groups = frames_for_split(rows)
     if max_frames:
         groups = groups[:max_frames]
-    sessions = sorted({sid for sid, _, _ in groups})
+    sids = sorted({sid for sid, _, _ in groups})
+    sdirs = {sid: sessions.session_dir(sid)[0] for sid in sids}
     base_profiles = {}
     logs = {}
-    for sid in sessions:
-        meta = labeling.read_session_meta(config.DATA.sessions / sid)
-        base_profiles[sid] = labeling._profile_for_session(meta, None)
-        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(config.DATA.sessions / sid)}
-    profiles = {(sid, w): profile_at_warp(base_profiles[sid], w) for sid in sessions for w in warps}
+    for sid, sdir in sdirs.items():
+        base_profiles[sid] = labeling._profile_for_session(labeling.read_session_meta(sdir), None)
+        logs[sid] = {Path(e["frame"]).stem: e for e in labeling.read_log(sdir)}
+    profiles = {(sid, w): profile_at_warp(base_profiles[sid], w) for sid in sids for w in warps}
 
-    specs = {name: serving.run_spec(run_dir) for name, (run_dir, _, _) in runs.items()}
     acc: dict[tuple[str, int, int], tuple[list[bool], list[bool], list[float]]] = {
         (name, w, s): ([], [], []) for name in runs for w in warps for s in sizes
     }
@@ -255,7 +254,7 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
     t0 = time.time()
     for i, (sid, frame_id, labels) in enumerate(groups):
         entry = logs[sid][frame_id]
-        frame = cv2.imread(str(config.DATA.sessions / sid / entry["frame"]))
+        frame = cv2.imread(str(sdirs[sid] / entry["frame"]))
         if frame is None:
             raise SystemExit(f"frame not readable: {sid}/{entry['frame']}")
         corners = entry["corners"]
@@ -264,16 +263,8 @@ def sweep(runs: dict[str, tuple], rows: list[dict], warps: tuple[int, ...], size
         for w in warps:
             prof = profiles[(sid, w)]
             for s in sizes:
-                crops_by_variant: dict[tuple, list] = {}
+                crops = labeling.crops_for_frame(frame, corners, prof, out_size=(s, s))
                 for name, (run_dir, model, cfg) in runs.items():
-                    spec = specs[name]
-                    vkey = (spec.geometry, spec.photometry, spec.piece_height_cells)
-                    if vkey not in crops_by_variant:
-                        crops_by_variant[vkey] = labeling.crops_for_frame(
-                            frame, corners, prof, geometry=spec.geometry,
-                            photometry=spec.photometry, piece_height_cells=spec.piece_height_cells,
-                            out_size=(s, s))
-                    crops = crops_by_variant[vkey]
                     cfg_at_size = install_at_size(run_dir, model, cfg, s)
                     occ = occupied_index(cfg_at_size)
                     preds = serving.predict_arrays(run_dir, [crops[j] for j in keep], device=device,
@@ -389,7 +380,7 @@ def main() -> None:
         log(f"== {split_name}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
         for sid in sids:
             base = labeling._profile_for_session(
-                labeling.read_session_meta(config.DATA.sessions / sid), None)
+                labeling.read_session_meta(sessions.session_dir(sid)[0]), None)
             boxes = ", ".join(f"{w}->{crop_box_px(profile_at_warp(base, w)):.0f}px" for w in warps)
             log(f"   session {sid}: camera {px_per_square(sid):.1f} px/square; profile "
                 f"'{base.profile}' board_size={base.board_size} pad_side={base.crop.pad_side} "

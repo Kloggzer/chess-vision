@@ -1,5 +1,7 @@
 package com.chesslab.geometry
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import org.opencv.core.Mat
 import java.util.stream.IntStream
 
@@ -34,23 +36,27 @@ fun gridOccludedSquares(
     geom: BoardGeometry,
     pad: Int,
     parallel: Boolean = false,
-): Long {
-    val p = ProfileParams(geom.boardSize, SEARCH_FRAC, outer = true)
-    val readOuter = pad >= p.outerSpan
-    val found = gridSegments(BoardGray(warped), geom.boardSize, pad, p, readOuter, parallel)
-    var out = 0L
-    for (col in 0 until BOARD_SIDE) {
-        for (row in 0 until BOARD_SIDE) {
-            var missing = 0
-            if (!found[0][col][row]) missing++
-            if (!found[0][col + 1][row]) missing++
-            if (!found[1][row][col]) missing++
-            if (!found[1][row + 1][col]) missing++
-            if (missing >= MIN_MISSING_EDGES) out = out or squareBit(col, row, geom.whitePov)
+): Long =
+    WorkProfiler.span(WorkOperation.GRID_OCCLUSION) {
+        // BoardGray owns one row-major and one transposed byte plane for this call.
+        WorkProfiler.bytes(WorkOperation.GRID_OCCLUSION, 2L * warped.rows() * warped.cols())
+        val p = ProfileParams(geom.boardSize, SEARCH_FRAC, outer = true)
+        val readOuter = pad >= p.outerSpan
+        val gray = WorkProfiler.span(WorkOperation.GRID_OCCLUSION_PREP) { BoardGray(warped) }
+        val found = gridSegments(gray, geom.boardSize, pad, p, readOuter, parallel)
+        var out = 0L
+        for (col in 0 until BOARD_SIDE) {
+            for (row in 0 until BOARD_SIDE) {
+                var missing = 0
+                if (!found[0][col][row]) missing++
+                if (!found[0][col + 1][row]) missing++
+                if (!found[1][row][col]) missing++
+                if (!found[1][row + 1][col]) missing++
+                if (missing >= MIN_MISSING_EDGES) out = out or squareBit(col, row, geom.whitePov)
+            }
         }
+        out
     }
-    return out
-}
 
 /**
  * `found[axis][k][band]` — the uncollapsed groove read [gridLines] fits its lines from. Bands are
@@ -81,8 +87,14 @@ private fun gridSegments(
         val s0 = pyRound(pad + b * bh)
         val s1 = pyRound(pad + (b + 1) * bh)
         if (s1 <= s0) return@forEach
-        val prof = if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
-        val pos = profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
+        val prof =
+            WorkProfiler.span(WorkOperation.GRID_OCCLUSION_PROFILE) {
+                if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
+            }
+        val pos =
+            WorkProfiler.span(WorkOperation.GRID_OCCLUSION_LINES) {
+                profileLines(prof, p.cell, p.span, p.csp, pad.toDouble(), if (readOuter) p.outerSpan else 0)
+            }
         for (k in 0 until LINES_PER_AXIS) {
             if (!pos[k].isNaN()) found[axis][k][b] = true
         }

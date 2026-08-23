@@ -62,7 +62,7 @@ interface BoardDetector {
 }
 
 /**
- * @param frames the service's `latestCalibrationFrame()` — a CLONE, released here.
+ * @param frames the service's immutable `latestCalibrationFrame()` view, released here.
  * @param geometry the geometry to detect against (board size, margin, dictionary).
  */
 class ArucoCalibrator(

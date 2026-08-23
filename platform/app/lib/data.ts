@@ -9,7 +9,7 @@ import { Chess } from "chess.js";
 import sharp from "sharp";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 
-export type Move = {
+type Move = {
   ply: number;
   san: string;
   frame: number;
@@ -48,12 +48,12 @@ export function dataDir(): string {
 }
 
 export function gameDir(name: string): string {
-  return path.join(dataDir(), "realgames", checkName(name, "game name"));
+  return path.join(dataDir(), "recordings", checkName(name, "game name"));
 }
 
 export async function listGames(): Promise<string[]> {
   try {
-    const entries = await readdir(path.join(dataDir(), "realgames"), { withFileTypes: true });
+    const entries = await readdir(path.join(dataDir(), "recordings"), { withFileTypes: true });
     return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     return [];
@@ -85,8 +85,8 @@ export async function truthSans(name: string): Promise<string[] | null> {
 }
 
 /**
- * `labeled` = the burst the label verb writes under `frames/`, `plain` = a `:desktop rectify`
- * board under `frames-extra/`. The SIZE is read off the file rather than assumed: review frames
+ * `labeled` = the burst the label verb writes under `review/`, `plain` = a `:desktop rectify`
+ * board under `review-extra/`. The SIZE is read off the file rather than assumed: review frames
  * were 720x816 with the tracker's belief drawn under the board until 2026-08-16 and are the bare
  * square board since, and the move overlay has to land on the squares of both.
  */
@@ -108,7 +108,7 @@ async function frameSize(file: string): Promise<{ width: number; height: number 
 /** Where a review frame actually is — a run writes WebP, everything older left PNG behind. */
 export async function reviewFramePath(name: string, stem: string): Promise<string | null> {
   const safe = checkName(stem, "frame");
-  for (const dir of ["frames", "frames-extra"]) {
+  for (const dir of ["review", "review-extra"]) {
     for (const ext of REVIEW_EXTS) {
       const file = path.join(gameDir(name), dir, `${safe}${ext}`);
       if (await stat(file).then(() => true, () => false)) return file;
@@ -127,15 +127,15 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
       return [];
     }
   };
-  const labeled = await stemsOf("frames");
+  const labeled = await stemsOf("review");
   const seen = new Set(labeled);
   const found: { stem: string; kind: FrameStem["kind"]; dir: string }[] = labeled.map((stem) => ({
     stem,
     kind: "labeled",
-    dir: "frames",
+    dir: "review",
   }));
-  for (const stem of await stemsOf("frames-extra")) {
-    if (!seen.has(stem)) found.push({ stem, kind: "plain", dir: "frames-extra" });
+  for (const stem of await stemsOf("review-extra")) {
+    if (!seen.has(stem)) found.push({ stem, kind: "plain", dir: "review-extra" });
   }
   const out: FrameStem[] = await Promise.all(
     found.map(async ({ stem, kind }) => ({

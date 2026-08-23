@@ -18,7 +18,7 @@ import kotlin.math.max
 // wrong. `AlignmentTruthTest` is calibrated against analytic truth for exactly that reason — this
 // file's whole history is a plausible-looking measurement being silently wrong for months.
 //
-// **The lines are measured OUT TO THE EDGE, in a padded warp** (2026-08-03, `specs/41`). Index 0
+// **The lines are measured OUT TO THE EDGE, in a padded warp** (2026-08-03). Index 0
 // and 8 used to be pinned at 0 and `boardSize` — the values the warp puts there by construction —
 // which made a uniform SCALE error read 25 % short and made the metric partly a statement about its
 // own assumption. [warpForGrid] keeps [GRID_PAD_CELLS] of surrounding board so the playing-field

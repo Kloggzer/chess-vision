@@ -3,9 +3,23 @@
 Warum `chesslab occluders alpha-worker` ein Modell benutzt, wo `occluded.py` bewusst keines
 benutzt, und welche Verfahren dafür gegeneinander angetreten sind. Code: `chesslab/matte.py`.
 Welche Frames der Worker überhaupt bekommt, entscheidet der Scan: `docs/frame-scan.md`.
+Wozu die Alpha ausserdem dient, seit jedes Frame eine hat: `docs/position-check.md`.
 
 > Alle Zahlen unten stammen von `rg-2026-08-08-00-39-57`, gemessen am 2026-08-18. Zeuge ist
 > `grid_occlusion.hand_squares` — der einzige Sensor, der mit keinem Kandidaten Arithmetik teilt.
+
+## Die Matte IST das Brett-Raster (2026-08-21)
+
+Eine Alpha wird über das gespeicherte Brett gerechnet und hat dessen Maße (952 × 952 bei
+`board_size` 928). Daraus folgt zweierlei, und beides ist gebaut:
+
+- **Sie folgt dem Brett durch die Begradigung.** `realgames.straighten_boards` zieht Brett und
+  Matte durch denselben Mesh, handkorrigierte Alphas eingeschlossen — sie werden mitgezogen, nie
+  neu gerechnet. Eine gebogene Alpha gegen eine gerade Zelle wäre eine falsche Verdeckungszahl.
+- **Die alten Zahlen bleiben gültig.** `matte.jsonl` wurde auf dem gebogenen Alpha mit dem
+  Zell-Mesh gerechnet, heute liegt eine gerade Alpha unter einem geraden Schnitt. Nachgerechnet
+  über 10 Frames von `rg-2026-08-08-11-55-19`: Median-Abweichung **0,0000**, p90 0,0098, max
+  0,047 — gegen `PIECE_VISIBLE_MAX = 0,15`. Kein Neurechnen nötig.
 
 ## Der Ausgangspunkt
 
@@ -94,18 +108,18 @@ Substantivphrasen, einzeln geprompted, Masken vereinigt. Gemessen wurde neben de
 Grounding DINO und SAM 2.1 sind **entfernt**. Sie saßen zwischen den beiden Aufgaben und machten
 keine davon besser:
 
-- **Finden** macht jetzt RT-DETR im Frame-Scan: 24,6 ms gegen DINOs 405 ms, bei gleichem Urteil
-  (`docs/frame-scan.md`). Verkleinern ließ DINO sich nicht — bei 512 px flaggte es 23 von 24
-  sauberen Brettern.
+- **Finden** macht der destillierte Hand-Gate im Frame-Scan (2,1 ms, `docs/hand-gate.md`). Erst
+  löste RT-DETR das DINO ab (24,6 ms gegen 405 ms bei gleichem Urteil), dann der Gate das
+  RT-DETR. Verkleinern ließ DINO sich nicht — bei 512 px flaggte es 23 von 24 sauberen Brettern.
 - **Matten** macht SAM 3, weil nur dessen Kante ein Label trägt (Ring 4 px statt 96 px).
 - Die Maske von SAM 2.1 war im Messlauf sogar gratis (482 ms gegen 511 ms für DINO allein) — sie
   hing nur an einem Detektor, den wir nicht mehr brauchen.
 
 ## Die Sperren
 
-1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Drei Zeugen entscheiden, OB
-   eine Hand da ist (Rillen, RT-DETR, `skin_patch`), das Modell nur WO. Damit hängt kein Frame
-   allein an einem Foundation-Modell.
+1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Der destillierte Gate
+   entscheidet, OB eine Hand da ist, SAM 3 nur WO. Der Gate ist auf SAM destilliert, hängt
+   im Betrieb aber an keinem Foundation-Modell (`docs/hand-gate.md`).
 2. **Nur `occluded`, nicht `stale`.** Ein Alpha über einer Stellung, die niemand kennt, ist 11,9 s
    für nichts — die FEN muss unter der Hand noch gelten.
 3. **Zone über 60 % des Bretts → Frame verwerfen.** Das ist Licht, kein Arm.
@@ -115,3 +129,62 @@ keine davon besser:
 Verpasste Hände kosten nichts, erfundene Flächen kosten das Training (User, 2026-08-18). Deshalb
 Konsens statt Union: die Union aus Score und SAM 2 hatte die beste Trefferzahl (186) und war
 trotzdem die schlechteste Wahl — sie erbt jede Falschflagge beider Seiten.
+
+## Die Konnektivität im Loch-Test (2026-08-23)
+
+`solid()` schrieb `connectedComponentsWithStats((1 - m), 4)`. Die 4 landete auf dem
+`labels`-Ausgabeparameter, nicht auf `connectivity` — gemessen: positional 4 und positional 8
+liefern dieselbe Komponentenzahl, erst `connectivity=4` trennt Diagonalnachbarn. Der Test lief
+also mit der Vorgabe 8. Jetzt steht `connectivity=4` da.
+
+**4 ist richtig**, weil der Hintergrund komplementär zum Vordergrund zählen muss: nach dem CLOSE
+mit Ellipsen-Kernel ist die Maske 8-verbunden, und 8 auf beiden Seiten lässt eine Tasche über eine
+Diagonale entweichen, die der Vordergrund als geschlossen führt.
+
+**Richtung, gegen die Intuition:** 4 füllt *mehr*, nicht weniger — unter 8 fließt eine Tasche
+diagonal zum Rand ab und gilt gar nicht erst als Loch. Der Schutz für den Hintergrund in der
+hohlen Hand ist der **Größendeckel** (`MAX_HOLE_FRAC`), nicht die Konnektivität.
+
+Gemessen, zwei Läufe. **Bestätigungslauf auf der ROHEN Union** (`alpha_sam3(fill=False)`,
+fp32/Produktionseinstellung, 394 Frames aus `2026-08-08-00-39-57`, 2,90 s/Frame) — das ist genau
+der Input, den `solid()` in Produktion sieht:
+
+| | Pixel gesamt | gefüllt | große Löcher offen | Frames mit Unterschied | Label-Zellen gekippt |
+|---|---|---|---|---|---|
+| `connectivity=8` | 61 611 296 | 32 | 38 | — | — |
+| `connectivity=4` | 61 611 296 | 32 | 38 | **0 / 394** | **0** |
+
+Auf der rohen Union sind die beiden **bitgleich**, größte Coverage-Verschiebung 0,0.
+
+Der Vorlauf auf 712 geparkten Alphas (`data/_parked/matte-seams-2026-08-22/`, Zustand vor
+`close-seams`) fand einen einzigen abweichenden Frame — 006831, +218 px. Der ist ein **Artefakt der
+Messung, kein Produktionsfall**: die geparkten Alphas sind schon einmal gefüllt (231 975 px gegen
+231 378 px roh), und erst diese erste Füllung formt den Knöchel-Schlitz so um, dass die Tasche unter
+8 diagonal abfließt. Auf der rohen Union finden beide Konnektivitäten dasselbe Loch (`small=1`).
+
+**Kein Alpha auf der Platte muss neu geschnitten werden**, und das destillierte Hand-Gate hat aus
+nichts gelernt, was sich hier ändert. Die Änderung ist eine Korrektheits-, keine Verhaltensänderung.
+
+## fp16 fuer den Encoder (2026-08-23)
+
+`alpha_sam3` rechnet unter `torch.autocast(float16)`. Der Vision-Encoder ist 77 % des Frames
+(profiliert: 2,39 s von 3,11 s; die 5 Konzept-Decodes teilen sich das Embedding und kosten
+zusammen 0,72 s — dort ist nichts zu holen).
+
+**Produktionspfad gemessen, inkl. `solid()` und `coverage_of`, Warmup verworfen, n=20:**
+
+| | s/Frame |
+|---|---|
+| fp32 | 2,866 (sd 0,034) |
+| fp16 | **0,501** (sd 0,009) |
+
+**5,72x.** Die nackte Sonde ohne Nachbearbeitung sagte 6,6x — `solid()` und `coverage_of` sind
+CPU und skalieren nicht mit. Eine Session von 1 373 Frames faellt damit von ~1,1 h auf ~0,2 h.
+
+**Abgesichert ueber 150 Frames gegen fp32:** 0 von 9 600 Coverage-Zellen kippen ueber
+`PIECE_VISIBLE_MAX`, groesste Verschiebung 0,0079 gegen die Schwelle 0,15, IoU mean 0,99973
+(min 0,99624). bf16 war gleich schnell, aber ungenauer (IoU 0,99828).
+
+Nicht gemessen: ob die Abweichung im Rauschen der Maske selbst liegt. SAM 3 gibt bereits
+binaere Masken zurueck (`mask_threshold=0.5`), es gibt also kein weiches Band zum Vergleichen —
+der ehrliche Proxy waere die Randbewegung zwischen benachbarten Frames.

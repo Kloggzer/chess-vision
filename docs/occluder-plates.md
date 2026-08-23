@@ -67,6 +67,30 @@ ohnehin unsicher ist. Deshalb ein **zweiter Ausgang** und ein **kontinuierliches
   konstanten 360 ms des Schnitts selbst und wächst weiter; über 3 160 echte Kachelpaare verschiebt
   die Verkleinerung die IoU um höchstens 0,006 und kippt am Schnitt 0,85 keine Entscheidung.
 
+## SAM 3 statt Chroma — geprüft und verworfen (2026-08-21)
+
+Der Chroma-Schnitt lebt davon, dass die Bühne einfarbig ist. SAM 3 braucht das nicht, also lag
+nahe, die Kacheln damit zu schneiden. Gebaut, gemessen, wieder entfernt — hier steht, was dabei
+herauskam, damit es niemand ein zweites Mal baut.
+
+**Was für SAM 3 sprach.** Auf denselben Frames geschnitten (`occluders.alpha_of` gegen SAM 3, damit
+beide dasselbe Bild bekommen) deckte SAM 3 30–60 % mehr Fläche ab und traf die Ränder an Ärmel und
+Uhr präziser. Es braucht keine einfarbige Bühne, also auch keine Aufnahme-Disziplin.
+
+**Was dagegen sprach.** 3–4 s je Bild auf der GPU gegen Millisekunden für Chroma — ein voller Lauf
+über die drei Clips wären bei Schrittweite 4 rund 2,4 Stunden. Ein Blindtest über 13 Zeilen ergab
+kein klares Urteil: manchmal identisch, manchmal SAM 3 leicht besser.
+
+**Was dabei über die Daten gelernt wurde, und weiterhin gilt:**
+
+- Die Kachel wird auf die BÜHNEN-Box beschnitten, nicht auf die Hand. Die Matte füllt das Bild aber
+  nicht (58 % bei zwei Clips, 73 % beim dritten), also wird jede Hand, die über die Mattenkante
+  hinausragt, dort abgeschnitten. Gemessen: `222655` 37/472, `224656` 0/506, **`230602` 456/456**.
+- `230602` ist in seiner zweiten Hälfte fast durchgehend leer — was die Kacheln von dort erklärt.
+- Die Konzept-Union hat Nähte (Uhr gegen Arm) und der Ring kerbt den Finger ein. Beides ist
+  reparierbar (`ring` als Konzept, kleine Löcher füllen), aber Löcher-Füllen nach Topologie allein
+  ist FALSCH: eine zur Schlaufe gekrümmte Hand schließt Hintergrund ein, und der muss offen bleiben.
+
 ## Aufnahme
 
 Fest aufgestellte Kamera aus Brettposition, Hintergrund formatfüllend, **gleichmäßig ausgeleuchtet**
@@ -89,3 +113,107 @@ bezieht und nicht auf die leere Bühne.
 Gemessen wird über den **Crop**-Ausschnitt, geschnitten mit `crops_for_frame` — demselben Aufruf,
 der auch das Bild schneidet. Damit ist die Label-Region per Konstruktion die Crop-Region, Mesh und
 Pads eingeschlossen, und genau die Körnungslücke von oben kann nicht zurückkommen.
+
+---
+
+## Was der gelöschte Vorschlags-Produzent gemessen hat (`specs/53`, 2026-08-09)
+
+> ⚠ **Das Werkzeug existiert nicht mehr.** `src/chesslab/occluded.py` (512 Zeilen) und
+> `realgames propose-occluded` sind am 2026-08-19 mit `fbbe5a34` gelöscht worden — der Pixel-Score
+> gegen den Intervall-Median ist durch die SAM-3-Alpha ersetzt, der Modell-Kanal heißt jetzt
+> `realgames model-read`, und der Rillen-Kanal lebt als `src/chesslab/grid_occlusion.py` im
+> Frame-Scan weiter. `fbbe5a34` parkte die 42 alten Vorschlagsdateien (131 MB) nach
+> `data/_parked/occluded-proposals-2026-08-19/` — dieses Verzeichnis ist im aktuellen
+> Arbeitsverzeichnis **nicht mehr da**. Die Zahlen unten sind **historisch** und stehen
+> hier, weil sie die einzige Präzisionsmessung sind, die es zu diesem Übergang gibt.
+
+Erzeugt wurden 126 720 Vorschläge über beide Sessions, 1 410 bei `hi 0.7`:
+
+| Session | Zeilen | `occluded` @0,7 | p50 | p90 | p99 | >0,5 | =1,0 | ungültig |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| rg-rec-20260808-003957 | 48 640 | 495 (1,02 %) | 0,015 | 0,230 | 0,701 | 1 748 | 41 | 0 |
+| rg-rec-20260808-115912 | 78 080 | 915 (1,17 %) | 0,011 | 0,242 | 0,719 | 2 872 | 148 | 0 |
+
+### Die 30-Zellen-Konfusionstabelle (`hi = 0.7`, `lo = 0.3`)
+
+30 Zellen, `numpy`-Seed 42, geschichtet über die drei Score-Bänder (12/9/9) über **beide** Sessions,
+jede aus dem Session-Frame durch denselben Warp gerendert, den der Scorer benutzt (Zelle plus
+1,5 Zellen Halo, Zelle umrandet), und per Augenschein klassifiziert. Die Review-PNGs unter
+`data/realgames/*/frames/` wurden **nicht** benutzt: deren Farbverdikt-Overlay verdeckt genau die
+Pixel, auf denen die Entscheidung ruht. Das Schichten nach Band ist es, was Präzision bei `hi`
+direkt schätzbar macht — Band A ist eine gleichverteilte Ziehung aus `score > hi`.
+
+| Band | n | occluder | shadow | clean |
+|---|---:|---:|---:|---:|
+| A: score > 0,7 (Vorschlag `occluded`) | 12 | **12** | 0 | 0 |
+| B: 0,3 < score ≤ 0,7 (Tinder-Band der UI) | 9 | 8 | 0 | 1 |
+| C: score ≤ 0,3 | 9 | 0 | 0 | 9 |
+
+**precision(occluder | score > 0,7) = 12/12 = 1,00**, über der 0,9-Latte. `lo = 0.3` bestätigt sich
+von der anderen Seite: Band C ist 9/9 clean.
+
+Zwei ehrliche Einschränkungen, und beide gelten weiter:
+
+- **Recall bei `hi` ist niedrig.** Band B ist 8/9 occluder — die meisten verdeckten Zellen sitzen im
+  Review-Band, nicht im Vorschlag. Der Trade ist hier richtig (ein falsches `occluded` vergiftet das
+  Training, ein Miss lässt nur das FEN-Label stehen), aber die `hi`-Menge allein ist nicht die Klasse.
+- **In 30 Ziehungen kam kein einziges `shadow` vor.** Die benannte Falsch-Positiv-Klasse ist nicht
+  aufgetreten, also ist die Schatten-Invarianz des Census-Kanals **durch diese Tabelle ungetestet** —
+  belegt nur durch den synthetischen Vertrag in `tests/test_realgames.py`.
+
+## Der Rillen-Sensor: Auflösung ist tragend, und c8 ist der stehende Falsch-Positive
+
+Der modellfreie Hand-Sensor (`core-geometry/GridOcclusion.kt`, Python-Spiegel
+`src/chesslab/grid_occlusion.py`) hält den bandweisen Rillen-Read des Alignment-Fits **pro Segment**
+statt ihn zu Linien einzusammeln: 2 Achsen × 9 Linien × 8 Bänder = ein Segment je Feldkante, ein Feld
+liest `occluded` ab **2 fehlenden Kanten**.
+
+- **Auflösung entscheidet:** im vollen Crop-Warp **2 / 11 / 2** fehlende Segmente auf
+  sauber / Hand / sauber (die 11 exakt unter der Hand geclustert); bei **detSize 30–40 von 144**
+  ersäuft das Signal. Der Sensor wird deshalb dort gestempelt, wo die Crops geschnitten werden.
+- **Der stehende Falsch-Positive:** auf `VID_20260802_222741` liest **ein** Feld — c8, eine Figur,
+  die über ihre eigenen Rillen lehnt — auf **73 % aller Frames** geflaggt, minutenlang am Stück.
+
+Daraus die Gate-Regel, gemessen gegen beide Versagensarten (`specs/53`, 2026-08-10):
+
+| Gate-Regel | 003957 (67-Ply-Referenz) | 222741 (keine Referenz; ohne Gate 28) |
+|---|---|---|
+| jedes Flag (Rohkarte) | **67/67, 0 erfunden** | **0 Plies** — c8 blankt das Replay |
+| Zählschwelle ≥ 3 | 39 Plies (`g4` durch den 2-Flag-Schwanz) | 28 |
+| **orthogonal benachbartes Paar** | **67 Plies, LCS 65/67** | **28** |
+
+Die abziehende Hand läuft über 2-Flag-Frames aus (h3+h2 — immer Nachbarn), deshalb committet eine
+Zählschwelle von 3 genau die Fabrikation, die das Gate verhindern soll. Die Regel ist **räumlich, pro
+Observation, ohne Zeitzustand** (`gridHandSquares`, `SQ_NEIGHBOURS`).
+
+
+## Der Pool `comp13-v3` (Stand 2026-08-23)
+
+`data/` ist gitignored, der Pool selbst liegt also nirgends im Repo — diese Tabelle IST sein
+Nachweis. Gebaut mit `chesslab occluders composite --tag comp13-v3` je Clip, Code-Stand
+`perf(composite): Lesen, Kacheln und Schreiben laufen jetzt neben der Rechnung`, Standardwerte
+(Stride 8, `out_size` 128x128, 0-2 Kacheln je Brett, `--seed 42`). Ganzer Bau: 7 min 24 s.
+
+| Quelle | Stellung | Bretter | Crops | > 50 % verdeckt |
+|---|---|---|---|---|
+| `2026-08-09 20-48-50` | Grundstellung | 965 | 61.760 | 11,2 % |
+| `VID_20260731_092133` | Grundstellung | 389 | 24.896 | 12,6 % |
+| `VID_20260731_222043` | K/D vertauscht | 84 | 5.376 | 10,6 % |
+| `VID_20260731_222320` | K/D vertauscht | 108 | 6.912 | 12,7 % |
+| `VID_20260812_112853` | `rnbqkb1r/ppp1pppp/5n2/3p4/3PP3/2N5/PPP2PPP/R1BQKBNR` | 678 | 43.392 | 11,8 % |
+| `VID_20260817_214400` | Grundstellung | 499 | 31.936 | 12,1 % |
+| `VID_20260823_120131` | Grundstellung (4K) | 351 | 22.464 | 11,9 % |
+| `VID_20260823_120426` | eine Reihe zur Mitte (4K) | 519 | 33.216 | 11,6 % |
+| `VID_20260823_120721` | zwei Reihen zur Mitte (4K) | 347 | 22.208 | 12,0 % |
+| **gesamt** | | **3.940** | **252.160** | |
+
+Die drei 4K-Aufnahmen vom 2026-08-23 tragen dieselbe Armee auf ANDEREN Feldern: verschiebt man die
+Aufstellung zur Mitte, steht jede Figur auf der anderen Feldfarbe. Ihre FEN stehen in
+`data/footage/turntable/README.md`.
+
+Klassen: `empty` 126.080, Bauern je 31.520, Laeufer/Springer/Tuerme je 7.880, K/D je 3.940 —
+64 Crops je Brett, also genau die Stellungen mal ihre Bretter.
+
+Der Verdeckungsanteil haengt am Kachel-Zufall, nicht an der Quelle: derselbe Pool eine Stunde
+vorher, vor `tile_stream`, lag bei 10-12 % statt 11-13 %. Wer zwei Pools vergleicht, vergleicht
+also nicht die Clips.

@@ -4,6 +4,10 @@ Ordered by benefit-per-effort for the project goal "reliable move tracking".
 References (C/H/M/L) → [issues-and-concerns.md](issues-and-concerns.md).
 Training/data quality has its own roadmap: [training-accuracy-improvements.md](training-accuracy-improvements.md).
 
+**Note (2026-08-20):** R4 and the web/`move_tracker` items in R7 are moot — the Python tracker and
+the FastAPI/React layer went on 2026-08-07, `collect*`, `experiment.py`, `geometry3d.py` and
+`photometric.py` on 2026-08-20. The training and dataset recommendations still stand.
+
 ---
 
 ## R1 — A canonical "frame → model-ready crops" facade (resolves C1, H4, parts of M5)

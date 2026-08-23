@@ -18,8 +18,8 @@ const UP = 0;
 const DOWN = 1;
 const HIT = 128;
 
-export type Grey = { data: Uint8Array; width: number; height: number };
-export type Rgba = Grey;
+type Grey = { data: Uint8Array; width: number; height: number };
+type Rgba = Grey;
 
 export type MaskInput = {
   alpha: Grey;
@@ -79,14 +79,14 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
-  const mesh = session.byStem.get(stem)?.mesh;
+  // No mesh: the stroke is drawn on the straightened board, and the alpha is that same straight
+  // raster (`realgames.straighten_boards` pulls both). Mapping back would undo the straightening.
   const alpha = await grey(mattePath(name, stem));
   const fixed = applyAlphaMask({
     alpha,
     mask: await rgba(maskPng),
     h: boardToStored(session, board),
     boardSize: session.boardSize,
-    mesh: mesh?.tx && mesh.ty ? (mesh as TiltedMesh) : undefined,
   });
 
   const file = fixedMattePath(name, stem);

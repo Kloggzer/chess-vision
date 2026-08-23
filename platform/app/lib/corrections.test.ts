@@ -6,16 +6,21 @@ import { appendCorrections, correctionsPath, decidedKeys, judgedKeys } from "@/l
 
 /** A row a previous session wrote — the writer must never touch it. */
 const EXISTING =
-  '{"session_id": "rg-old", "frame": "000001", "square": "a1", "label": "occluded", ' +
+  '{"session_id": "rg-rec-1", "frame": "000001", "square": "a1", "label": "occluded", ' +
   '"ts": "2026-08-01T00:00:00+00:00"}\n';
+const LEGACY = EXISTING.replace("rg-rec-1", "rg-old");
 
 let file: string;
+let legacyFile: string;
 
 beforeEach(async () => {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-corrections-"));
-  await mkdir(path.join(root, "manifests"), { recursive: true });
-  file = path.join(root, "manifests", "corrections.jsonl");
+  // One ledger per recording since 2026-08-20: the id keeps `rg-`, the directory never had it.
+  for (const name of ["rec-1", "old"]) await mkdir(path.join(root, "recordings", name), { recursive: true });
+  file = path.join(root, "recordings", "rec-1", "corrections.jsonl");
+  legacyFile = path.join(root, "recordings", "old", "corrections.jsonl");
   await writeFile(file, EXISTING, "utf8");
+  await writeFile(legacyFile, LEGACY, "utf8");
   process.env.CHESSLAB_DATA_DIR = root;
 });
 
@@ -72,12 +77,12 @@ test("an undo is a superseding row, because load_corrections is last-line-wins",
   await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wP" }]);
   await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wQ" }]);
   const { decidedKeys } = await import("@/lib/corrections");
-  expect((await decidedKeys("rg-rec-1")).get("004211|e2")).toBe("wQ");
+  expect((await decidedKeys("rec-1")).get("004211|e2")).toBe("wQ");
 });
 
 test("a retract row takes the cell out of the judged map and leaves Python a normal label", async () => {
   await post([{ session_id: "rg-rec-1", frame: "004211", square: "e2", label: "wP" }]);
-  expect((await judgedKeys("rg-rec-1")).has("004211|e2")).toBe(true);
+  expect((await judgedKeys("rec-1")).has("004211|e2")).toBe(true);
 
   // `z` after the flush: the label the cell falls back to, plus the tombstone.
   const response = await post([
@@ -86,8 +91,8 @@ test("a retract row takes the cell out of the judged map and leaves Python a nor
   expect(response.status).toBe(200);
 
   // The board reopens — this is the half a plain superseding row cannot do.
-  expect((await decidedKeys("rg-rec-1")).has("004211|e2")).toBe(false);
-  expect((await judgedKeys("rg-rec-1")).has("004211|e2")).toBe(false);
+  expect((await decidedKeys("rec-1")).has("004211|e2")).toBe(false);
+  expect((await judgedKeys("rec-1")).has("004211|e2")).toBe(false);
 
   // And `load_corrections` reads four keys with last line winning: `wR` is the training label.
   const last = JSON.parse((await readFile(file, "utf8")).trimEnd().split("\n").pop()!);
@@ -100,49 +105,50 @@ test("the reviewed ledger is untouched by a retract — only corrections carry t
     { session_id: "rg-g", frame: "000030", square: "e4", label: "wP", retract: true },
   ]);
   // The review row still says a human looked; the corrections ledger holds no verdict.
-  expect((await decidedKeys("rg-g", "reviewed")).has("000030|e4")).toBe(true);
-  expect((await decidedKeys("rg-g")).has("000030|e4")).toBe(false);
+  expect((await decidedKeys("g", "reviewed")).has("000030|e4")).toBe(true);
+  expect((await decidedKeys("g")).has("000030|e4")).toBe(false);
 });
 
 test("a review row is recorded, but never in the training input", async () => {
   await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
 
   // The file that feeds `chesslab slice` must be byte-for-byte what it was.
-  expect(await readFile(correctionsPath(), "utf8")).toBe(EXISTING);
-  expect(await decidedKeys("rg-g")).toEqual(new Map());
+  expect(await readFile(file, "utf8")).toBe(EXISTING);
+  expect(await readFile(correctionsPath("g"), "utf8").catch(() => null)).toBe(null);
+  expect(await decidedKeys("g")).toEqual(new Map());
   // But the work is on the record, and the views read both.
-  expect(await decidedKeys("rg-g", "reviewed")).toEqual(new Map([["000030|e4", "wP"]]));
-  expect(await judgedKeys("rg-g")).toEqual(new Map([["000030|e4", "wP"]]));
+  expect(await decidedKeys("g", "reviewed")).toEqual(new Map([["000030|e4", "wP"]]));
+  expect(await judgedKeys("g")).toEqual(new Map([["000030|e4", "wP"]]));
 });
 
 test("a legacy occluded row stays readable, it just cannot be written again", async () => {
-  expect((await decidedKeys("rg-old")).get("000001|a1")).toBe("occluded");
+  expect((await decidedKeys("old")).get("000001|a1")).toBe("occluded");
   expect((await post([{ session_id: "rg-old", frame: "000001", square: "a1", label: "occluded" }])).status).toBe(400);
-  expect(await readFile(file, "utf8")).toBe(EXISTING);
+  expect(await readFile(legacyFile, "utf8")).toBe(LEGACY);
 });
 
 test("the ledger cache follows the file: a foreign append is seen, an unchanged file is not re-split", async () => {
   // Python and a second tab write this file too, so the cache may only be keyed on the file's own
   // mtime and size — never on "we last wrote it".
   await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }]);
-  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("wP");
+  expect((await decidedKeys("g")).get("000030|e4")).toBe("wP");
 
   await appendFile(
-    correctionsPath(),
+    correctionsPath("g"),
     '{"session_id": "rg-g", "frame": "000030", "square": "e4", "label": "occluded", "ts": "2026-08-15T00:00:00+00:00"}\n',
     "utf8",
   );
-  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("occluded");
+  expect((await decidedKeys("g")).get("000030|e4")).toBe("occluded");
 
   // A cached map that leaks would be edited by the merge in `judgedKeys` and stay edited.
-  const before = await decidedKeys("rg-g");
+  const before = await decidedKeys("g");
   before.set("000030|e4", "bK");
-  expect((await decidedKeys("rg-g")).get("000030|e4")).toBe("occluded");
+  expect((await decidedKeys("g")).get("000030|e4")).toBe("occluded");
 });
 
 test("a correction outranks an older review of the same cell", async () => {
   await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "wP" }], "reviewed");
   await appendCorrections([{ session_id: "rg-g", frame: "000030", square: "e4", label: "occluded" }]);
 
-  expect((await judgedKeys("rg-g")).get("000030|e4")).toBe("occluded");
+  expect((await judgedKeys("g")).get("000030|e4")).toBe("occluded");
 });

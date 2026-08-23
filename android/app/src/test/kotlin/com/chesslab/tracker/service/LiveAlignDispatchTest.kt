@@ -83,6 +83,7 @@ class LiveAlignDispatchTest {
         align.maybeAlign(source, DeliveredSize(FRAME_SIDE, FRAME_SIDE, 0))
 
         assertEquals(1, calls.get(), "the retained bus frame must not update the marker smoother twice")
+        assertEquals(1, source.clones, "a known frame version must be rejected before its full-plane clone")
     }
 
     @Test
@@ -151,11 +152,18 @@ class LiveAlignDispatchTest {
     private class VersionedBlankFrame(
         private val version: Long,
     ) : CalibrationFrames<Unit> by OneBlankFrame {
-        override fun latestCalibrationSample(): CalibrationFrame =
-            CalibrationFrame(
-                version,
-                Mat(FRAME_SIDE, FRAME_SIDE, CvType.CV_8UC3),
-            )
+        var clones = 0
+            private set
+
+        override fun latestCalibrationSample(): CalibrationFrame = sample()
+
+        override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? =
+            if (afterVersion == version) null else sample()
+
+        private fun sample(): CalibrationFrame {
+            clones += 1
+            return CalibrationFrame(version, Mat(FRAME_SIDE, FRAME_SIDE, CvType.CV_8UC3))
+        }
     }
 
     private companion object {

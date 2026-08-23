@@ -12,19 +12,10 @@ import { useEffect, useRef, useState } from "react";
  *  Blick ist der Punkt der Eine-Behauptung-pro-Seite-Audits (User, 2026-08-15). */
 export const PAGE = 50;
 
-/**
- * The smallest a crop may be drawn, in CSS pixels — the grid fits as many columns as that allows.
- *
- * A fixed ten columns is ten crops of ~34 px on a 390 px phone, which is what "die Bilder sind viel
- * zu klein, nahezu unmöglich zu bedienen" (2026-08-13) describes. Three big ones beat ten
- * unreadable ones; the desktop still gets its ten because the same rule fills a wide screen.
- */
-export const MIN_CELL = 104;
-
 /** Fetched at 2x so the crop stays sharp on a phone's 3x display — detail IS the decision here. */
 export const CROP = 192;
 
-export type GridCell = {
+type GridCell = {
   key: string;
   src: string;
   alt: string;
@@ -103,6 +94,8 @@ export function CropGrid(props: CropGridProps) {
   useEffect(() => onColumns?.(cols), [cols, onColumns]);
   return (
     <div
+      // 104 px is the smallest crop a thumb can hit: ten fixed columns are ~34 px on a 390 px
+      // phone ("nahezu unmöglich zu bedienen", 2026-08-13). Tailwind cannot read a constant here.
       className="grid select-none grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-1.5 2xl:grid-cols-10"
       // Auch auf der FLÄCHE, nicht nur auf den Zellen: ein Rechts-Wisch, der in einer Lücke oder
       // neben dem Raster endet, liess sonst das Browser-Menü aufspringen — mitten im Pinseln.

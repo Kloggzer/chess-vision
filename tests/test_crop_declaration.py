@@ -45,7 +45,7 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
     from test_labeling import _make_session
 
     sdir = _make_session(tmp_path)
-    manifest = tmp_path / "manifests" / "squares.jsonl"
+    manifest = tmp_path / "manifests" / "crops.jsonl"
     prof = _identity_profile()
     prof.crop.pad_side, prof.crop.pad_up = 0.05, 0.0
     labeling.slice_session(sdir, profile=prof, manifest_path=manifest,
@@ -92,15 +92,13 @@ def test_crop_of_dataset_reads_the_built_manifest(tmp_path):
 
 def _spec(run_dir, **kw) -> serving.RunSpec:
     return serving.RunSpec(run_dir=run_dir, classes=["empty", "occupied"], out_size=(128, 128),
-                           infer_size=(128, 128), geometry="warp", photometry="none",
-                           piece_height_cells=1.6, **kw)
+                           infer_size=(128, 128), **kw)
 
 
 def test_run_spec_reads_the_declared_crop(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
-    cfg = {"classes": ["empty", "occupied"], "out_size": [128, 128],
-           "variant": {"geometry": "warp", "photometry": "none", "piece_height_cells": 1.6}}
+    cfg = {"classes": ["empty", "occupied"], "out_size": [128, 128]}
     (run / "config.json").write_text(json.dumps({**cfg, "pad_side": 0.05, "pad_up": 0.25}),
                                      encoding="utf-8")
     spec = serving.run_spec(run)

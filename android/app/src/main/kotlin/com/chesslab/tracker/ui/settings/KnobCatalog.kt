@@ -57,8 +57,8 @@ val NOT_A_SETTING: Map<String, String> =
             "As settleFramesOverride — and this one also sets the plane ring's depth, so a hand-picked value " +
             "changes how many frames the engine may hold at once.",
         "confirmFramesOverride" to
-            "As settleFramesOverride. Its shipped value is also an open judgement call recorded in " +
-            "specs/39-what-the-tracker-remembers, which is a human's to make and not a slider's.",
+            "As settleFramesOverride. Its shipped value is also an open judgement call, and that call " +
+            "is a human's to make and not a slider's.",
         "cnnPlyCostSquares" to
             "What one extra half-move costs the deep recovery search, in explained squares. At 1 the dense " +
             "arm of rec-20260807 goes from 12 phantoms to 1, and at 2 recovery stops committing at all " +
@@ -66,8 +66,8 @@ val NOT_A_SETTING: Map<String, String> =
             "has no phantoms' case for 0 died when 003957's reference confirm caught a fabricated 3-ply " +
             "bridge that cost the rest of the game.",
         "autoResyncObsN" to
-            "A replay-harness instrument (specs/37-02). On the phone the resync is a DOOR the user presses " +
-            "after seeing the position — automating it on device is exactly what that spec forbids.",
+            "A replay-harness instrument. On the phone the resync is a DOOR the user presses after " +
+            "seeing the position — automating it on the device is exactly what that rule forbids.",
     )
 
 private fun row(
@@ -402,7 +402,7 @@ val KNOB_CATALOG: List<KnobUi> =
             CNN,
             "EXPERIMENT: commit and vote only while nothing reads as a hand — no occlusion latch, no" +
                 "occluded-reading square. Stricter and slower than the shipped behaviour; exists to be measured," +
-                "not believed (specs/52 findings, 2026-08-08).",
+                "not believed (measured 2026-08-08).",
         ),
         count(
             "desyncStandoffObsN",
@@ -411,7 +411,7 @@ val KNOB_CATALOG: List<KnobUi> =
             50.0,
             "How many disagreeing observations a standoff may hold before the alarm is raised even when the" +
                 "contradiction is not shaped like one move — a castling, for example. 0 switches the bound off." +
-                "The default is an unmeasured order-of-magnitude guess (specs/39).",
+                "The default is an unmeasured order-of-magnitude guess.",
         ),
         count("verifyObsVotes", CNN, 1.0, 5.0, "Consecutive same-outcome CNN observations per verify decision (never act on one glance)."),
         row(

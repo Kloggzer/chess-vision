@@ -191,7 +191,11 @@ class LabeledSessionPackTest {
 
         writeFit(session, """{"x":$NOMINAL,"y":$NOMINAL,$tilted,"cx":$REAL_CURV,"cy":$ZEROS}""")
         val mesh = storedQuadFit(session).getValue("0000").mesh
-        assertArrayEquals(doubleArrayOf(0.046, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.046), mesh?.cx)
+        assertArrayEquals(
+            doubleArrayOf(0.046, 0.0345, 0.023, 0.0115, 0.0, -0.0115, -0.023, -0.0345, -0.046),
+            mesh?.cx,
+            1e-9,
+        )
         val curved = File(dir, "curv-curved")
 
         packLabeledSession(listOf(session.absolutePath, curved.absolutePath, "id=phone-fixture"))
@@ -295,7 +299,8 @@ class LabeledSessionPackTest {
 
         const val ZEROS = """[0,0,0,0,0,0,0,0,0]"""
 
-        /** The measured 004251 magnitude: outer lines bowed, |c| = 0.046 — inside 0.08, over 0.02. */
-        const val REAL_CURV = """[0.046,0,0,0,0,0,0,0,-0.046]"""
+        /** The measured 004251 magnitude, |c| = 0.046 on the outer lines, as the SMOOTH ramp a real
+         *  lens produces — a lone 0.046 next to zeros is what [smoothMeshCurvature] rightly flattens. */
+        const val REAL_CURV = """[0.046,0.0345,0.023,0.0115,0,-0.0115,-0.023,-0.0345,-0.046]"""
     }
 }

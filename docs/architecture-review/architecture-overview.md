@@ -2,30 +2,37 @@
 
 Status: 2026-07-02 · ~11,000 lines Python (src + move_tracker + synth + tests) · Review basis: 4 parallel subsystem analyses
 
+**Note:** this is a 2026-07-02 snapshot and several of its subjects no longer exist. Gone since:
+the FastAPI/React web layer and `move_tracker/` (2026-08-07, the tracker is Kotlin in `android/`),
+and `collect.py`, `collect_ui.py`, `experiment.py`, `geometry3d.py`, `photometric.py` and the
+`chesscog`/`chessred` ingest adapters (2026-08-20). It also predates the 2026-08-18 move to 13
+identity classes plus a regressed coverage output — `docs/class-scheme.md` is authoritative for
+the class scheme, `README.md` and `docs/data-pipeline.md` for the current shape.
+
 ## Mission & System Context
 
-`chesslab` is a **data-tool ecosystem** for per-square chess piece recognition (14 classes including
-`occluded`) from a fixed-mounted camera. Labels are generated automatically from the known
-game state (FEN). Around the core, three satellites have formed that were not foreseen in the original
-spec layout (CLAUDE.md):
+`chesslab` is a **data-tool ecosystem** for per-square chess piece recognition (13 identity
+classes plus a measured coverage output) from a fixed-mounted camera. Labels are generated
+automatically from the known game state (FEN). Around the core, three satellites have formed
+that were not foreseen in the original spec layout (CLAUDE.md):
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
 │  Presentation                                                      │
 │  ├── CLI (typer, cli.py — a single entrypoint `chesslab`)          │
-│  ├── Web-UI (FastAPI + React/Vite SPA, src/chesslab/web/)          │
-│  ├── OpenCV Dashboard (collect_ui.py)                              │
-│  └── move_tracker/ (own FastAPI + HTML, PROTOTYPE, outside src)    │
+│  ├── Web-UI (FastAPI + React/Vite SPA, src/chesslab/web/)   GONE   │
+│  ├── OpenCV Dashboard (collect_ui.py)                       GONE   │
+│  └── move_tracker/ (own FastAPI + HTML, PROTOTYPE, outside src)GONE│
 ├────────────────────────────────────────────────────────────────────┤
 │  Domain Logic (Core Pipeline, src/chesslab/)                       │
 │  Level 0  doctor.py          Env-/ROCm-/Camera Validation          │
 │  Level 1  calibration.py     Homography, ArUco, MarkerTracker      │
 │  Level 2  state.py           Game State (python-chess)             │
-│  Level 3  collect.py, labeling.py, geometry3d.py, photometric.py   │
+│  Level 3  labeling.py        (collect/geometry3d/photometric GONE) │
 │  Level 4  dataset.py, dataset_build.py, synth_build.py, sessions.py│
 │  Level 5  training/ (model, train, engine, evaluate, torch_data)   │
-│  Level 7  experiment.py      Bake-off Grids (Geometry×Photometry)  │
-│  NEW      ingest.py + ingest_adapters/ (chesscog, chessred, synth) │
+│  Level 7  experiment.py      Bake-off Grids                 GONE   │
+│  NEW      ingest.py + ingest_adapters/ (synthetic only)            │
 ├────────────────────────────────────────────────────────────────────┤
 │  Data / Infrastructure                                             │
 │  config.py (class list, crop/augment policy, paths)                │
@@ -39,15 +46,14 @@ spec layout (CLAUDE.md):
 
 ```
 Camera ──► calibration (profile YAML: homography, corners, crop params)
-       ──► collect (session: log.jsonl {frame, ply, fen, corners?, labels?} + session.yaml)
+       ──► session (log.jsonl {frame, ply, fen, corners?, labels?} + session.yaml)
        ──► labeling.slice (Warp → 64 Crops → Label from FEN) ──► manifest.jsonl
        ──► dataset (Stats, Balance, session-based split → split.json)
        ──► training (SquareDataset → SmallCNN/MobileNetV3 → best.pt + config.json)
        ──► Consumers: web/inference.predict_arrays · move_tracker (planned: CNN resync)
 
-Parallel:  synth/ (RealityScan→Blender→JPEG+JSON) ─┐
-           chesscog / ChessReD (external)         ─┼─► ingest_adapters → ingest.synthesize_sessions
-                                                   ┘   → Pseudo-Sessions → same slice path
+Parallel:  synth/ (RealityScan→Blender→JPEG+JSON) ──► ingest_adapters/synthetic.py
+           → ingest.run_ingest → Pseudo-Sessions → same slice path
 
 Fused:     synth renders ──► synth_build.py (`dataset build-synth`): metadata pass (labels
            from FEN, curation/split) + ONE pixel pass straight into packed_images.u8 —
@@ -91,7 +97,7 @@ through `synth_build.py` (`dataset build-synth`, the fused big-run path) or thro
 ## Test Landscape
 
 13 test files, ~89 tests. Well covered: core pipeline (calibration geometry, state, collect,
-labeling, dataset, dataset_build, doctor, ingest chesscog/chessred), web routes partially
+labeling, dataset, dataset_build, doctor, the ingest adapters), web routes partially
 (TestClient). **Dark:** move_tracker (0 tests), synth/synthetic adapter (0 tests,
 data integrity risk due to corner ordering), web.camera/streaming, CLI dispatch, GPU training loop
 (deliberately torch-gated).
@@ -109,10 +115,10 @@ training/accuracy in [training-accuracy-improvements.md](training-accuracy-impro
 ## Recent additions (2026-07-05)
 
 - `calibration.ensure_profile()` / `profile_from_frame()`: missing calibration
-  profiles are auto-created from the first frames of the camera source (ArUco) —
-  the separate calibration step is optional; `track`, `collect` and the web
-  collect start use it.
+  profiles are auto-created from the first frames of the camera source (ArUco).
+  *Its callers (`track`, `collect`, the web collect start) are all gone — the
+  function and its carry-over rule survive, unwired.*
 - `chesslab/manifest_cache.py`: mtime-keyed in-memory aggregates over the crop
   manifests (crops/frames per session, lightweight stats rows, per-label index).
-  All web read paths (sessions panel, stats, class browser) are served from it —
-  one scan per manifest version instead of per-request full reads.
+  *Only `sessions.list_sessions` still reads it — the web panels it was built for
+  went with the FastAPI layer.*

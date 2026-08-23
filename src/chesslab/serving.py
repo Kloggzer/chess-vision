@@ -2,8 +2,8 @@
 
 This is the **only** supported public facade for model inference.
 Consumers (CLI evaluation, the training sweeps, anything that reads a model)
-use exclusively this module. It ensures that the **same** crop/photometry
-pipeline is used as during training — thus train/serve parity is guaranteed.
+use exclusively this module. It ensures that the **same** crop pipeline is
+used as during training — thus train/serve parity is guaranteed.
 
 Rules:
 - torch/PIL only lazy-imported in function bodies (ROCm-Windows: CLI/web must start
@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import numpy as np
@@ -53,9 +54,6 @@ class RunSpec:
     classes: list[str]
     out_size: tuple[int, int]   # (W, H) the crops on disk were built at — a DATASET property
     infer_size: tuple[int, int]  # (W, H) the exported graph takes — a MODEL property (specs/22)
-    geometry: str               # "warp" | "box3d"
-    photometry: str             # "none" | "clahe" | "grayworld" | "gamma"
-    piece_height_cells: float
     #: What the crop CONTAINS, in cells around the square — a MODEL property (specs/45), and the
     #: reason `infer_size` alone is not enough: 128 px of a 1.10-cell box and 128 px of a 1.20-cell
     #: box are different photographs of the same square. None = the run predates the key and the
@@ -65,13 +63,7 @@ class RunSpec:
 
 
 def run_spec(run_dir: Path) -> RunSpec:
-    """Resolve run specification for a model directory.
-
-    Resolution:
-    1. config.json["variant"] (new, written by `training.train` since Rework 01).
-    2. Fallback: labeling.variant_of_run(run_dir) scans the associated manifest.
-    3. Fallback-fallback: ("warp", "none", EXP_PIECE_HEIGHT_CELLS) with warning.
-    """
+    """Resolve run specification for a model directory — from its config.json alone."""
     run_dir = Path(run_dir)
     cfg_path = run_dir / "config.json"
     if not cfg_path.exists():
@@ -90,39 +82,11 @@ def run_spec(run_dir: Path) -> RunSpec:
     pad_side = None if cfg.get("pad_side") is None else float(cfg["pad_side"])
     pad_up = None if cfg.get("pad_up") is None else float(cfg["pad_up"])
 
-    variant = cfg.get("variant")
-    if variant and isinstance(variant, dict):
-        return RunSpec(
-            run_dir=run_dir,
-            classes=classes,
-            out_size=out_size,
-            infer_size=infer_size,
-            geometry=variant.get("geometry", "warp"),
-            photometry=variant.get("photometry", "none"),
-            piece_height_cells=float(variant.get("piece_height_cells", config.EXP_PIECE_HEIGHT_CELLS)),
-            pad_side=pad_side,
-            pad_up=pad_up,
-        )
-
-    # Fallback 1: Manifest scan
-    try:
-        geometry, photometry, piece_height_cells = labeling.variant_of_run(run_dir)
-    except Exception:
-        geometry, photometry, piece_height_cells = "warp", "none", config.EXP_PIECE_HEIGHT_CELLS
-
-    if variant is None:
-        log.warning("Run %s has no 'variant' field in config.json — falling back to manifest scan: "
-                    "geometry=%s photometry=%s piece_height_cells=%.2f",
-                    run_dir.name, geometry, photometry, piece_height_cells)
-
     return RunSpec(
         run_dir=run_dir,
         classes=classes,
         out_size=out_size,
         infer_size=infer_size,
-        geometry=geometry,
-        photometry=photometry,
-        piece_height_cells=float(piece_height_cells),
         pad_side=pad_side,
         pad_up=pad_up,
     )
@@ -226,8 +190,8 @@ def load_run(run_dir: Path, device: str = "cpu"):
 
 
 def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[np.ndarray]:
-    """64 BGR crops (order `labeling.all_squares()`) for one frame,
-    exactly with the geometry/photometry of the given `RunSpec`.
+    """64 BGR crops (order `labeling.all_squares()`) for one frame, cut as the given `RunSpec`
+    declares.
 
     Crops come out at `spec.infer_size` — the size the network takes, NOT the size the training
     crops on disk were built at. The square is cut out of the warped board straight at that size,
@@ -243,13 +207,7 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
     """
     if spec.pad_side is not None or spec.pad_up is not None:
         profile = labeling.effective_profile(profile, spec.pad_up, spec.pad_side)
-    return labeling.crops_for_frame(
-        frame, corners, profile,
-        geometry=spec.geometry,
-        photometry=spec.photometry,
-        piece_height_cells=spec.piece_height_cells,
-        out_size=spec.infer_size,
-    )
+    return labeling.crops_for_frame(frame, corners, profile, out_size=spec.infer_size)
 
 
 # ---------------------------------------------------------------------------
@@ -479,64 +437,107 @@ class OccupancyObservation:
     p_occluded: dict[str, float]
     label: dict[str, str] | None = None
     conf: dict[str, float] | None = None
+    # Raw probability mass assigned to labels which the position prior says cannot occur on the
+    # square. This is the explicit "none of the allowed labels fits" escape hatch; it is derived
+    # from the unmodified softmax, never from the already-conditioned distribution.
+    invalid_mass: dict[str, float] = field(default_factory=dict)
+    # Present only on a conditioned observation. Recovery/resync must read this view so a wrong
+    # committed FEN cannot suppress the very visual contradiction needed to repair it.
+    raw: OccupancyObservation | None = None
 
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
 
-    def confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose OCCUPANCY statement is reliable.
+    def raw_observation(self) -> OccupancyObservation:
+        return self.raw if self.raw is not None else self
 
-        An occluded-dominant square is never confident and never counts as occupied: a hand over
-        the board must neither trigger recovery nor occupy squares.
-        """
-        return {sq: (max(self.p_occ[sq], self.p_empty[sq]) >= thr
-                     and self.p_occluded[sq] < (1.0 - thr))
-                for sq in self.p_occ}
+    def invalid(self, sq: str) -> float:
+        return self.invalid_mass.get(sq, 0.0)
 
-    def label_confident(self, thr: float) -> dict[str, bool]:
-        """Squares whose IDENTITY statement is reliable. Empty when the run has no identity."""
-        if self.label is None or self.conf is None:
-            return dict.fromkeys(self.p_occ, False)
-        return {sq: (self.conf[sq] >= thr and self.label[sq] != "occluded")
-                for sq in self.label}
+    def invalid_confident(self, sq: str, threshold: float) -> bool:
+        """Whether "none of the context-allowed labels fits" wins confidently."""
+        return self.raw is not None and self.invalid(sq) >= threshold
 
+def invalid_mass(probs: list[float], classes: list[str],
+                 allowed: set[str] | None) -> float:
+    """Raw mass on context-forbidden identity labels.
 
-def classes_have_identity(classes: list[str]) -> bool:
-    """True when the run's class list can name a PIECE.
-
-    A 2-class occupancy run (`config.OCCUPANCY_CLASSES`) answers only empty-vs-occupied, so its
-    argmax label (`"occupied"`) is not an identity — treating it as one would compare
-    `"occupied"` against `"wP"` and disagree on every occupied square. Such a run must therefore
-    produce `label=None`, and the occupancy-only path is the tested fallback.
+    ``occluded`` is sight state rather than a chess identity and the optional coverage value sits
+    past ``classes``; neither is an invalid chess placement.
     """
-    return any(c not in ("empty", "occluded", "occupied") for c in classes)
+    if allowed is None:
+        return 0.0
+    return float(sum(probs[i] for i, cls in enumerate(classes)
+                     if cls not in allowed and cls != "occluded"))
+
+
+def apply_prior(probs: list[float], classes: list[str], allowed: set[str] | None,
+                lam: float) -> list[float]:
+    """Reweight a square's classes by what chess allows there, then renormalise.
+
+    The head emits log-probabilities, so this IS `logit + lam * log_prior` under the original
+    softmax. `lam` stays FINITE: a wrongly committed move must stay arguable by the pixels.
+    `occluded` is never penalised — a hand is a statement about SIGHT, not about chess.
+    """
+    if lam <= 0.0 or allowed is None:
+        return probs
+    penalty = math.exp(-lam)
+    out = list(probs)
+    for i, cls in enumerate(classes):
+        if cls not in allowed and cls != "occluded":
+            out[i] = probs[i] * penalty
+    total = sum(out[:len(classes)])
+    if total <= 0.0:
+        return probs
+    for i in range(len(classes)):
+        out[i] /= total
+    return out
 
 
 def observation_from_probs(per_square_probs: dict[str, list[float]],
-                           classes: list[str]) -> OccupancyObservation:
+                           classes: list[str],
+                           possible: dict[str, set[str]] | None = None,
+                           prior_lambda: float = 0.0) -> OccupancyObservation:
     """Full softmax per square to occupancy plus identity.
 
-    Class indices are ALWAYS derived from the run's own `classes` list — 2-, 13- and 14-class
-    runs all exist and their positions differ, so a guessed index is a silently transposed
-    reading. A 2-class run yields `label=None`/`conf=None`: it has occupancy, not identity.
+    Class indices are ALWAYS derived from the run's own `classes` list — 13- and 14-class runs
+    both exist and their positions differ, so a guessed index is a silently transposed reading.
+    `possible` (from `state.possible_labels`) plus a positive `prior_lambda` folds in what chess
+    allows per square; at the default 0.0 the pixels decide alone. Kotlin twin: `Observations.kt`.
     """
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
-    p_occ: dict[str, float] = {}
-    p_empty: dict[str, float] = {}
-    p_occluded: dict[str, float] = {}
-    label: dict[str, str] = {}
-    conf: dict[str, float] = {}
-    for sq, probs in per_square_probs.items():
-        pe = float(probs[i_empty])
-        po = float(probs[i_occl]) if i_occl is not None else 0.0
-        p_empty[sq] = pe
-        p_occluded[sq] = po
-        p_occ[sq] = max(0.0, 1.0 - pe - po)                     # sum of the 12 piece classes
-        top = max(range(len(probs)), key=lambda i: probs[i])    # identity = argmax class
-        label[sq] = classes[top]
-        conf[sq] = float(probs[top])
-    if not classes_have_identity(classes):
-        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded)
-    return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
-                                label=label, conf=conf)
+
+    def read(rows: dict[str, list[float]]) -> OccupancyObservation:
+        p_occ: dict[str, float] = {}
+        p_empty: dict[str, float] = {}
+        p_occluded: dict[str, float] = {}
+        label: dict[str, str] = {}
+        conf: dict[str, float] = {}
+        for sq, probs in rows.items():
+            pe = float(probs[i_empty])
+            po = float(probs[i_occl]) if i_occl is not None else 0.0
+            p_empty[sq] = pe
+            p_occluded[sq] = po
+            p_occ[sq] = max(0.0, 1.0 - pe - po)                 # sum of piece classes
+            top = max(range(len(classes)), key=lambda i: probs[i])
+            label[sq] = classes[top]
+            conf[sq] = float(probs[top])
+        return OccupancyObservation(p_occ=p_occ, p_empty=p_empty, p_occluded=p_occluded,
+                                    label=label, conf=conf)
+
+    raw_obs = read(per_square_probs)
+    masses = {
+        sq: invalid_mass(raw, classes, possible.get(sq) if possible else None)
+        for sq, raw in per_square_probs.items()
+    }
+    raw_obs = replace(raw_obs, invalid_mass=masses)
+    if prior_lambda <= 0.0 or possible is None:
+        return raw_obs
+
+    conditioned = {
+        sq: apply_prior(raw, classes, possible.get(sq), prior_lambda)
+        for sq, raw in per_square_probs.items()
+    }
+    obs = read(conditioned)
+    return replace(obs, invalid_mass=masses, raw=raw_obs)

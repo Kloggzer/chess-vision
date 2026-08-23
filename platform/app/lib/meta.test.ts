@@ -6,7 +6,7 @@ import { loadMeta, saveMeta } from "@/lib/meta";
 
 async function withGame(name = "g") {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-meta-"));
-  await mkdir(path.join(root, "realgames", name), { recursive: true });
+  await mkdir(path.join(root, "recordings", name), { recursive: true });
   process.env.CHESSLAB_DATA_DIR = root;
 }
 

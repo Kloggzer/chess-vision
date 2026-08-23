@@ -26,6 +26,21 @@ interface CnnObservation {
 
     fun pOccluded(square: String): Double
 
+    /** Raw mass on identity labels forbidden by the position context. */
+    fun invalidMass(square: String): Double = 0.0
+
+    /** Explicit "none of the context-allowed labels fits" outcome. */
+    fun invalidConfident(
+        square: String,
+        thr: Double,
+    ): Boolean = invalidMass(square) >= thr
+
+    /** Pixels-only view. Conditioned observations override this for recovery/resync. */
+    fun rawObservation(): CnnObservation = this
+
+    /** Historical prior behaviour: trust the conditioned view everywhere, without invalid. */
+    fun withoutPriorSafety(): CnnObservation = this
+
     // identity stripped (the _cnn_tick fallback)
     fun occupancyOnly(): CnnObservation
 }

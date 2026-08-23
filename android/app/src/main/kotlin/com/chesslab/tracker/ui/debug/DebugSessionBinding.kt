@@ -19,6 +19,10 @@ fun debugSession(
     cnnState: StateFlow<CnnState>,
     settings: SettingsRepository,
     onDebugEnabled: (Boolean) -> Unit,
+    workProfilingAvailable: Boolean,
+    workProfilingEnabled: StateFlow<Boolean>,
+    onWorkProfilingEnabled: (Boolean) -> Unit,
+    workProfileReport: () -> String?,
     crops: () -> DebugCrops?,
     runtime: () -> CnnRuntimeInfo,
     retry: () -> Unit,
@@ -28,8 +32,14 @@ fun debugSession(
         override val cnnState = cnnState
         override val config = settings.config
         override val debugPinned = settings.debugEnabled
+        override val workProfilingAvailable = workProfilingAvailable
+        override val workProfilingEnabled = workProfilingEnabled
 
         override fun setDebugEnabled(on: Boolean) = onDebugEnabled(on)
+
+        override fun setWorkProfilingEnabled(on: Boolean) = onWorkProfilingEnabled(on)
+
+        override fun workProfileReport(): String? = workProfileReport()
 
         override fun latestCrops(): DebugCrops? = crops()
 

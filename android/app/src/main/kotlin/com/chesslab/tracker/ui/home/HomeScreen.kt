@@ -49,7 +49,6 @@ import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.Rule
 import com.chesslab.tracker.ui.games.GameSessionHost
 import com.chesslab.tracker.ui.games.gamesDir
-import com.chesslab.tracker.ui.percent
 import com.chesslab.tracker.ui.theme.Background
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -325,10 +324,3 @@ private fun resultMark(result: GameResult): String =
         GameResult.DRAW -> "½–½"
         GameResult.UNFINISHED -> "—"
     }
-
-/** Named by whoever was captured for the game, never by "you" — the app does not know which side. */
-internal fun accuracyLine(row: HomeGame): String {
-    val white = row.whiteAccuracy ?: return "not reviewed yet"
-    val black = row.blackAccuracy ?: return "not reviewed yet"
-    return "${sideLabel(row.white, "White")} ${percent(white)} · ${sideLabel(row.black, "Black")} ${percent(black)}"
-}

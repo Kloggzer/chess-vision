@@ -1,13 +1,11 @@
 """Label corrections and the label-override path `slice` reads.
 
 These lived in `test_web.py` and are not web tests: `load_corrections` is read by
-`labeling.slice_session` and `experiment`, and the override is what lets a human label beat the
+`labeling.slice_session`, and the override is what lets a human label beat the
 FEN for one square. They were rescued when the web UI was deleted.
 
-The WRITE side is gone with it. `upsert_corrections` had no production caller — the relabel tab
-was removed in `f31d933` and `data/manifests/corrections.jsonl` has never existed — so the file
-format is readable and currently unwritable. `docs/data-pipeline.md` records that; it is a gap
-for the new UI to close, not a behaviour to keep testing.
+The WRITE side is gone with it: no Python writes the file any more (`docs/data-pipeline.md`), so
+the format is readable and currently unwritable. That is a gap for the new UI to close.
 """
 
 import json
@@ -36,7 +34,7 @@ def test_labels_to_fen_estimation():
 def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     """Manual labeling: freely placed pieces are sliced via explicit per-square labels
     (no FEN needed); unmarked squares become empty."""
-    from chesslab.collect import SessionWriter
+    from chesslab.session_writer import SessionWriter
 
     bs = 800
     corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
@@ -88,9 +86,11 @@ def test_slice_applies_label_override(tmp_path):
     sdir, prof = _identity_session(tmp_path)
     manifest = tmp_path / "m.jsonl"
     squares = tmp_path / "sq"
-    overrides = {("s1", "0000", "e2"): "empty"}   # e2 is wP at start; correct it to empty
-    stats = slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares,
-                          label_overrides=overrides)
+    # e2 is wP at start; the session's own ledger corrects it to empty
+    (sdir / "corrections.jsonl").write_text(
+        json.dumps({"session_id": "s1", "frame": "0000", "square": "e2", "label": "empty"}) + "\n",
+        encoding="utf-8")
+    stats = slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares)
     assert stats["overrides"] == 1
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     e2 = next(r for r in rows if r["square"] == "e2")

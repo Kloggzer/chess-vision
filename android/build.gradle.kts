@@ -18,8 +18,14 @@ subprojects {
     plugins.withId("io.gitlab.arturbosch.detekt") {
         configure<io.gitlab.arturbosch.detekt.extensions.DetektExtension> {
             config.setFrom(files("${rootDir}/config/detekt/detekt.yml"))
-            buildUponDefaultConfig = true
-            allRules = false
+            // `allRules` is a no-op while `buildUponDefaultConfig` is on: detekt's AllRulesConfig
+            // asks the ORIGINAL config for `active`, and that config is already merged with the
+            // defaults, so every `active: false` in default-detekt-config.yml still wins. Off, the
+            // rules all switch on and thresholds still fall back to the defaults. The pair moves
+            // together - re-enabling one without the other silently unenforces the whole extra set.
+            buildUponDefaultConfig = false
+            allRules = true
+            baseline = file("${rootDir}/config/detekt/baseline-${project.name}.xml")
         }
     }
 }

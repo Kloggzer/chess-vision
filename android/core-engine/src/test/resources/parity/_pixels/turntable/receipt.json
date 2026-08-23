@@ -1,0 +1,31 @@
+{
+  "frame": 8000,
+  "quad": [
+    685.84644,
+    135.47366,
+    1261.082,
+    480.98093,
+    906.3763,
+    1045.3542,
+    365.0221,
+    694.7567
+  ],
+  "boardSize": 672,
+  "padSide": 0.05,
+  "padUp": 0.0,
+  "outW": 128,
+  "outH": 128,
+  "source": "data/footage/turntable/2026-08-09 20-48-50/video.mp4",
+  "squares": [
+    "a1",
+    "a8",
+    "h1",
+    "h8",
+    "d4",
+    "e7",
+    "b7",
+    "f2"
+  ],
+  "why": "Drehscheibe: Quad um +31 Grad gekippt, 860 px vom Median der Aufnahme",
+  "cut_by": "android :desktop crops (2026-08-21)"
+}

@@ -83,7 +83,7 @@ def main() -> None:
     # that robustness is a live-tuning concern, not what these regression clips assert.
     board_render.place_camera(cam, rng, max_obliqueness=0.0)
     board_render.randomize_lights(rng)
-    arm = board_render.make_occluder_arm(rng)
+    arm = board_render.make_occluder_arm()
 
     positions = spec["positions"]
     frames = spec["frames"]

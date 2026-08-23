@@ -26,13 +26,6 @@ CLASSES: list[str] = [
 # from auto-labeling of the FEN): empty square + occluded.
 OPTIONAL_CLASSES: set[str] = {"empty", "occluded"}
 
-# --- Occupancy-only class list (2). The tracker's CNN consumes OCCUPANCY, not identity:
-# the diff + legality path decides which move was played. A 2-class run spends the whole
-# (tiny) model on the one question that is asked. NOT a replacement for CLASSES — the
-# 14-class piece pipeline (collect UI, review, per-class stats) still uses that. Derived
-# by COLLAPSING existing labels at dataset-build time; no crop is ever re-labelled.
-OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
-
 # --- Identity class list (13) = CLASSES minus `occluded`. ------------------------------
 # DERIVED, never a second literal: the canonical list stays the one above.
 #
@@ -44,29 +37,10 @@ OCCUPANCY_CLASSES: list[str] = ["empty", "occupied"]
 IDENTITY_CLASSES: list[str] = [c for c in CLASSES if c != "occluded"]
 
 
-def to_occupancy_class(label: str) -> str:
-    """`empty` -> `empty`; every piece class -> `occupied`.
-
-    `occluded` is REJECTED: it has zero training rows (specs/18-occupancy-model/entry.md)
-    and must not be collapsed into either bucket — a hand over the board is neither empty
-    nor occupied, and an untrained third output on exactly that input is undefined
-    behaviour where the tracker most needs abstention. Raising is deliberate: a stray
-    `occluded` row appearing later must STOP a build, not get quietly binned.
-    """
-    if label == "occluded":
-        raise ValueError(
-            "cannot collapse 'occluded' to an occupancy class: it has zero training rows "
-            "and is neither empty nor occupied. Filter occluded rows out of the source "
-            "manifest, or do not build an occupancy dataset from them.")
-    if label not in CLASSES:
-        raise ValueError(f"unknown label {label!r} (not in config.CLASSES).")
-    return "empty" if label == "empty" else "occupied"
-
 # Global determinism seed for all random steps (split, sampling, training).
 SEED: int = 42
 
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
-DEFAULT_PROFILE: str = "default"
 # Fraction by which an ArUco marker's CENTRE sits outside the playing field — the markers are
 # printed/glued in the label border, so the quad they span is larger than the board. THE
 # authoritative default; `calibrate`, `profile_from_frame` and the Kotlin store all read it.
@@ -124,126 +98,17 @@ CROP = CropDefaults()
 CROP_WARP_BORDER_CELLS: float = 0.1
 
 
-# --- Camera capture defaults (used by chesslab.camera when a caller sets nothing) -----
-@dataclass(frozen=True)
-class CameraDefaults:
-    """Default capture mode for local USB cameras. Applied by `chesslab.camera.open_capture`
-    whenever a `CameraSpec` leaves a field as `None`. This is the ONE place to switch the
-    house default between 1440p and 4K.
-
-    Why 1440p is the default: 2560×1440 delivers 30 fps, while true 4K (3840×2160) runs at
-    ~19 fps and only on a direct USB-3 port — overkill for the chessboard's small per-square
-    crops. To force 4K instead, set width=3840, height=2160 here.
-
-    On `fourcc`: "MJPG" is requested but does NOT take effect, and that is a deliberate
-    trade-off rather than an accident — setting FOURCC before the resolution is what makes
-    OpenCV's DSHOW backend fall back to YUY2 (opencv#7013; full explanation in `camera.py`).
-    Engaging MJPG was measured and is not worth it: +5% fps at 1440p, ~5% SLOWER at 4K, and
-    an extra ~0.7 CPU cores burned on JPEG decode. The rates above are therefore the
-    datasheet's YUY2 limits. Uncompressed 4K is ~380 MB/s, which is why it stalls near
-    20 fps on USB-3."""
-
-    width: int = 2560          # → 3840 for 4K
-    height: int = 1440         # → 2160 for 4K
-    fps: int = 30
-    fourcc: str = "MJPG"
-    backend: str = "auto"      # auto = DSHOW on Windows (MSMF caps 4K on this cam), else default
-
-
-CAMERA = CameraDefaults()
-
-# Named capture modes offered by the UI/CLI (`chesslab track --res`, the track web UI's
-# resolution selector) and mapped to a `CameraSpec` by `camera.spec_for_mode`. The ONE
-# place this list is defined — the UI derives its dropdown from `GET /api/camera/modes`,
-# it never hardcodes resolutions. `None` = leave the resolution unset, i.e. fall back to
-# `CAMERA` above. A camera is free to IGNORE a requested mode (UVC drivers silently pick
-# the nearest supported one), so callers must always read the delivered size back from an
-# actually grabbed frame instead of trusting the request.
-DEFAULT_CAMERA_MODE: str = "default"
-CAMERA_MODES: dict[str, tuple[int, int] | None] = {
-    DEFAULT_CAMERA_MODE: None,     # whatever config.CAMERA says (currently 1440p)
-    "720p": (1280, 720),
-    "1080p": (1920, 1080),
-    "1440p": (2560, 1440),
-    "4k": (3840, 2160),
-}
-
-
-# --- Lens undistortion (optics, NOT board geometry) -----------------------------------
-@dataclass(frozen=True)
-class LensDefaults:
-    """Barrel/pincushion removal for the rig camera. Applied at exactly one place —
-    `chesslab.camera.open_capture` wraps the capture in an undistort decorator. The
-    intrinsics come from `chesslab lens calibrate` (see `chesslab/lens.py`); this is the
-    LENS model and has nothing to do with `calibration.py` (BOARD geometry).
-
-    `path` "" resolves to `DATA.lens / "calib.npz"`. `alpha` trades black borders against
-    field of view (0 = crop-free-looking result with no black corners, 1 = keep every
-    source pixel); the output size always equals the input size, so `frame_size` stays
-    invariant everywhere. The `undistort_urls`/`undistort_files` switches stay off because
-    a URL source is the phone/IP cam (different lens) and a file holds pixels that were
-    already captured — remapping those would distort them a second time."""
-
-    enabled: bool = True
-    path: str = ""               # "" -> DATA.lens / "calib.npz"
-    alpha: float = 0.0           # 0 = no black borders; 1 = keep all pixels
-    interpolation: str = "linear"
-    undistort_urls: bool = False
-    undistort_files: bool = False
-
-    # -- Live drift detection (see `lens.DriftMonitor`) --
-    # Signal 1 (geometry/scale): the live board quad vs. the quad recorded in the
-    # board profile. A bumped zoom ring changes the board's apparent size a lot, so
-    # this is the large, robust signal. Thresholds below are RELATIVE deviations.
-    drift_enabled: bool = True
-    drift_sample_every: int = 30      # measure on every N-th ArUco alignment (not per frame)
-    drift_window: int = 9             # rolling-median window over sampled measurements
-    drift_streak: int = 3             # consecutive medians above threshold before warning
-    drift_geometry_thr: float = 0.06  # 6 % change of mean side length / sqrt(area)
-    # Signal 2 (distortion residual): leave-one-marker-out homography reprojection error
-    # in pixels, normalised by the board's mean side length. SPECULATIVE — the threshold
-    # is a starting guess and has never been tuned on the real rig, and the check costs
-    # one extra ArUco pass on sampled frames, so it is OFF by default.
-    drift_residual_enabled: bool = False
-    drift_residual_thr: float = 0.004  # 0.4 % of the board's mean side length
-
-
-LENS = LensDefaults()
-
-
-# --- Photometry (Stage 7, shared between Slicing and later live inference) -------
-# A deterministic preprocessing that is baked INTO the PNGs during slicing and must be
-# called identically by the live app (parity). Only deterministic methods.
-@dataclass(frozen=True)
-class PhotometryDefaults:
-    clahe_clip: float = 2.0    # CLAHE clipLimit (local contrast; higher = more aggressive)
-    clahe_tile: int = 8        # CLAHE tile size (tileGridSize = tile x tile)
-    gamma: float = 1.3         # > 1 brightens shadows (current pain point: dark corners)
-
-
-PHOTOMETRY = PhotometryDefaults()
-PHOTOMETRY_METHODS: tuple[str, ...] = ("none", "clahe", "grayworld", "gamma")
-
-# --- 3D box geometry & bake-off (Stage 7) ---------------------------------------------
-# `box3d`: camera pose per frame (solvePnP from markers/corners), project an upward-extruded
-# cell per square into the sharp original frame instead of warping top-down.
-EXP_GEOMETRIES: tuple[str, ...] = ("warp", "box3d")
-EXP_PHOTOMETRIES: tuple[str, ...] = PHOTOMETRY_METHODS
-EXP_PIECE_HEIGHT_CELLS: float = 1.6   # Extrude the square base upward in cells (king
-                                      # ~1.5 high); too large catches markers/background, too small clips
-EXP_BOX3D_FOV_DEG: float = 60.0       # Approximate intrinsics if profile has no camera_matrix
-EXP_BOX3D_PAD_SIDE_CELLS: float = 0.15  # lateral clearance of the 3D box per side (in cells)
-EXP_MARKER_LEN_CELLS: float = 0.6     # printed marker edge length in cell units (PnP scale)
-EXP_PREFIX: str = "bakeoff"           # Name prefix for variant-tagged datasets/experiments
-
-
 @dataclass(frozen=True)
 class DedupDefaults:
     """Curation policy when building a dataset (Stage 4). The capture pipeline delivers
     many nearly identical crops due to never-moved pieces (fixed camera) — these defaults
     control how aggressively to deduplicate and whether to rotation-augment."""
 
-    per_cell_cap: int = 4          # max crops per (session, square, piece) — catches "never moved"
+    # OFF since 2026-08-21. It capped per (session, square, piece) ACROSS all positions, so a
+    # piece that never moved yielded 4 crops for a whole game: one 18-move session went 17 114 ->
+    # 388, every one of its 97 groups sitting exactly on the cap. That is not levelling, only
+    # shrinking — `max_class_ratio` is the instrument for level. Set it per build if you need it.
+    per_cell_cap: int = 0          # max crops per (session, square, piece); 0 = off
     # OFF since 2026-07-30, measured. `dhash` reduces a crop to 64 yes/no comparisons between
     # neighbouring pixels of a 9x8 grey thumbnail — absolute brightness, contrast, noise and
     # colour are gone. Two crops collide as soon as that SIGN PATTERN matches, which for a
@@ -309,8 +174,8 @@ class AugmentPolicy:
     The techniques are published (docs/references.md §5): erasing a random rectangle is
     Cutout/Random Erasing, and replacing the border is a defence against the background shortcut
     this project measured with Grad-CAM. **Every magnitude below is hand-set and unswept** — none
-    of the numbers comes from a source, and none has been ablated except `erase_p`/`bg_p`, which
-    have CLI overrides for that purpose."""
+    of the numbers comes from a source, and none has been ablated except `erase_p`, which has a
+    CLI override for that purpose."""
 
     brightness: float = 0.35      # ± fraction (lighting variance — the biggest real lever)
     contrast: float = 0.35
@@ -326,22 +191,7 @@ class AugmentPolicy:
     # figure, and vice versa. Directly targets the "looks beside the piece" failure (esp. pawns).
     erase_p: float = 0.25             # probability of erasing per sample (0 = off)
     erase_scale: tuple[float, float] = (0.02, 0.15)   # erased area fraction range
-    # Class-conditional background randomization: for OCCUPIED crops only (never `empty`), replace
-    # the border ring (= the board) with a random feathered background, keeping the centered piece.
-    # Fractional (bg_p) so board-vs-random does not correlate with occupancy. Mask-free (works on
-    # real crops too, which have no piece mask). Directly attacks the bN=8%-background shortcut:
-    # among occupied squares the board carries no piece-type info → the type head must read the piece.
-    bg_p: float = 0.60                # prob per occupied crop (0 = off)
-    bg_keep_w: float = 0.60           # centered box width kept (piece region), * crop
-    bg_keep_h: float = 0.90           # centered box height kept (taller — pieces extend up)
-    # The replacement border is drawn from a MIX of self-generated procedural textures
-    # (checker/noise/gradient/wood — board-like but random) and random crops of OTHER board
-    # images in the dataset (real texture, uncorrelated with THIS crop's piece). A textured,
-    # realistic-but-uninformative border is far harder to shortcut than a flat colour: the model
-    # can't tell augmented from real, so it must read the figure. bg_procedural_frac = share drawn
-    # procedurally (the rest from the other-board pool); bg_pool_size = pool of donor crops.
-    bg_procedural_frac: float = 0.5   # fraction of bg draws that are procedural (rest: other-board)
-    bg_pool_size: int = 512           # donor crops sampled once for the other-board background pool
+    neighbour_pool_size: int = 512     # donor crops sampled once for the neighbour-bleed pool
     # Neighbour-bleed paste: for EMPTY crops only, composite the central band of a random
     # OCCUPIED crop into one crop edge (feathered). Simulates the mined failure mode: a tall
     # neighbour piece (queen crown, rook body) leans into the empty square's crop via
@@ -367,10 +217,18 @@ AUGMENT = AugmentPolicy()
 NORMALIZE_MEAN: tuple[float, float, float] = (0.485, 0.456, 0.406)
 NORMALIZE_STD: tuple[float, float, float] = (0.229, 0.224, 0.225)
 
-DEFAULT_BACKBONE: str = "smallcnn"
+# What every shipped model is: all 10 runs under `data/models/` are this backbone with
+# batchnorm. `smallcnn` was the default until 2026-08-21 although NOTHING was ever trained with
+# it — and it hard-crashes this ROCm-Windows machine (a 1-epoch smoke test on 5k crops took the
+# whole PC down). The cheapest path must not be the one that reboots the box.
+DEFAULT_BACKBONE: str = "mobilenetv4_conv_small_035"
 DEFAULT_EPOCHS: int = 30      # also the cosine schedule's T_max — see training/train.py
 DEFAULT_BATCH_SIZE: int = 256
-DEFAULT_NUM_WORKERS: int = 8  # Verified stable with Windows spawn; keeps the GPU fed from memmaps.
+# 8 keeps the GPU fed from memmaps and the user's sweep runs through on it. But six
+# `Resource-Exhaustion` events in August name three or more `python.exe` at 4-7 GB each on a
+# 31.8 GB box, and the 2026-08-18 crash followed one by two minutes — so this is the FIRST knob
+# to lower if the machine goes down during a run, not the backbone and not the GPU.
+DEFAULT_NUM_WORKERS: int = 8
 # INHERITED, NOT MEASURED. No sweep and no learning-rate range test has ever been run on this
 # project (the range test is docs/references.md#smith-2015, and costs a few epochs). It is also
 # the rate at which every BatchNorm-vs-GroupNorm comparison on record ran, while the claim about
@@ -378,6 +236,31 @@ DEFAULT_NUM_WORKERS: int = 8  # Verified stable with Windows spawn; keeps the GP
 # so this constant is a confound in the normalization result as well as an unknown of its own.
 # Listed in docs/references.md §11 with the other decisions that rest on nothing published.
 DEFAULT_LR: float = 3e-4
+
+def cap_blas_threads() -> None:
+    """One BLAS thread per process — the arenas, not torch, are what reserves the commit.
+
+    Measured 2026-08-23: `import torch` reserves 3.48 GB of commit at 14 threads against 0.28 GB
+    at one, while the working set stays 0.38 GB either way. Spawned loader workers inherit this
+    env, which is the only place it multiplies (16 workers = 56 GB before the first batch).
+    """
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+
+
+def loader_kwargs(num_workers: int | None = None, *, pin_memory: bool = True,
+                  prefetch_factor: int = 4) -> dict:
+    """The DataLoader policy every training path shares; `batch_size` and `shuffle` stay local.
+
+    `pin_memory=False` is the gate trainer's: two pinned loaders together blew the HIP host heap.
+    """
+    workers = DEFAULT_NUM_WORKERS if num_workers is None else num_workers
+    kw: dict = {"num_workers": workers, "pin_memory": pin_memory}
+    if workers > 0:
+        cap_blas_threads()
+        kw.update(persistent_workers=True, prefetch_factor=prefetch_factor)
+    return kw
+
+
 DEFAULT_PATIENCE: int = 7
 
 # --- Physical piece inventory (coverage strategy) -------------------------------------
@@ -388,80 +271,6 @@ DEFAULT_PATIENCE: int = 7
 # kings (the biggest bottlenecks) fill up twice as fast. Legality does not matter: the FEN
 # serves only as a label source (per-square classifier), not as a playable position.
 DEFAULT_INVENTORY: dict[str, int] = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
-
-# --- Collection-UI thresholds (Stage 6) -----------------------------------------------
-UI_TARGET_PER_CLASS: int = 200          # Target per non-empty class (= stats threshold)
-UI_EMPTY_TARGET_RATIO: float = 1.5      # empty target = ratio * largest piece class
-UI_WARN_FRAC: float = 0.5               # < 50 % -> red, 50–99 % -> yellow, >= 100 % -> green
-UI_TOTAL_TARGET: int = 5000             # Total crop target for the progress bar
-
-
-# --- Engine (Stockfish) discovery -----------------------------------------------------
-# Frontend users should not have to know where the engine binary lives. We look in a few
-# conventional places so picking strategy "stockfish" just works out of the box.
-ENGINE_ENV_VAR: str = "CHESSLAB_STOCKFISH"
-
-
-def _bundled_engine_dirs() -> list[Path]:
-    """Candidate directories that may hold a bundled UCI engine binary."""
-    repo_root = Path(__file__).resolve().parents[2] / "tools" / "stockfish"  # src/chesslab/.. -> repo
-    cwd_local = Path("tools") / "stockfish"
-    return [repo_root, cwd_local]
-
-
-def find_stockfish() -> str | None:
-    """Locate a UCI chess engine binary without the user specifying a path.
-
-    Order of preference:
-      1. Explicit override via the CHESSLAB_STOCKFISH env var (file path or name on PATH).
-      2. A binary bundled under tools/stockfish/ (shipped with the repo).
-      3. `stockfish` found on the system PATH.
-
-    Returns an absolute path string, or None if nothing is found.
-    """
-    override = os.environ.get(ENGINE_ENV_VAR, "").strip()
-    if override:
-        if os.path.isfile(override):
-            return os.path.abspath(override)
-        on_path = shutil.which(override)
-        if on_path:
-            return on_path
-
-    for d in _bundled_engine_dirs():
-        if not d.is_dir():
-            continue
-        for p in sorted(d.glob("stockfish*")):
-            if not p.is_file():
-                continue
-            if os.name == "nt" and p.suffix.lower() != ".exe":
-                continue  # on Windows only an .exe is runnable
-            return str(p.resolve())
-
-    return shutil.which("stockfish")
-
-
-def find_realityscan() -> str | None:
-    """Find RealityScan executable (for launching photogrammetry from the Scan tab).
-
-    Order: Env CHESSLAB_REALITYSCAN → PATH → usual Windows installation locations.
-    """
-    env = os.environ.get("CHESSLAB_REALITYSCAN", "").strip()
-    if env:
-        if os.path.isfile(env):
-            return os.path.abspath(env)
-        on_path = shutil.which(env)
-        if on_path:
-            return on_path
-    on_path = shutil.which("RealityScan")
-    if on_path:
-        return on_path
-    for base in (r"D:\Program Files\Epic Games", r"C:\Program Files\Epic Games"):
-        b = Path(base)
-        if b.is_dir():
-            hits = sorted(b.glob("RealityScan_*/RealityScan.exe"), reverse=True)
-            if hits:
-                return str(hits[0])
-    return None
 
 
 def label_from_piece(symbol: str | None) -> str:
@@ -493,6 +302,16 @@ class Paths:
         return self.root / "lens"
 
     @property
+    def recordings(self) -> Path:
+        """One folder per recording: the import, what was cut from it, and its corrections.
+
+        Everything that only says something about THIS recording lives here — `log.jsonl`,
+        `matte.jsonl`, `corrections.jsonl`, `boards/`, `mattes/`. The session id keeps its `rg-`
+        prefix (it is the join key in every manifest); only the directory dropped it.
+        """
+        return self.root / "recordings"
+
+    @property
     def sessions(self) -> Path:
         return self.root / "sessions"
 
@@ -516,12 +335,37 @@ class Paths:
         return self.root / "session_rejects"
 
     @property
-    def squares(self) -> Path:
-        return self.root / "squares"
+    def crops(self) -> Path:
+        """Every crop pool lives here: `crops/<tag>/<label>/*.webp`, default tag `default`."""
+        return self.root / "crops"
 
     @property
-    def manifests(self) -> Path:
-        return self.root / "manifests"
+    def crop_pool(self) -> Path:
+        """The default pool. A variant `ingest --tag X` writes `crops/X/` beside it."""
+        return self.crops / "default"
+
+    @property
+    def reports(self) -> Path:
+        """Machine output about the corpus: audit flags, violations, mined hard empties, sweeps.
+
+        Regenerable by the command that wrote it — never a human's word, that lives in `labels/`
+        and next to its recording.
+        """
+        return self.root / "reports"
+
+    @property
+    def footage(self) -> Path:
+        """Raw video nothing in the pipeline writes: turntable clips, occluder clips, phone dumps."""
+        return self.root / "footage"
+
+    @property
+    def occluders(self) -> Path:
+        """RGBA occluder tiles, cut from `footage/occluders` by `chesslab occluders extract`.
+
+        Called `plates/` until 2026-08-21 — a compositing word for a cut-out element, which said
+        nothing about what is on them. They are hands.
+        """
+        return self.root / "occluders"
 
     @property
     def datasets(self) -> Path:
@@ -532,28 +376,18 @@ class Paths:
     def models(self) -> Path:
         return self.root / "models"
 
-    @property
-    def experiments(self) -> Path:
-        """Bake-off outputs (comparison tables per geometry×photometry run)."""
-        return self.root / "experiments"
 
     @property
-    def squares_aug(self) -> Path:
-        return self.root / "squares_aug"
+    def labels(self) -> Path:
+        """The human verdicts that belong to no single recording — today `review-notes.jsonl`.
 
-    @property
-    def corrections(self) -> Path:
-        """Human label corrections (web relabel UI); applied during re-slice."""
-        return self.manifests / "corrections.jsonl"
-
-    @property
-    def tracker_feedback(self) -> Path:
-        """Move-tracker good/bad feedback: per-decision JSONL + warped board PNGs. A
-        hard-negative dataset for CNN retraining / threshold tuning (created on demand)."""
-        return self.root / "tracker_feedback"
+        A recording's own corrections live beside it (`recordings/<ts>/corrections.jsonl`).
+        Machine output goes to `reports/`; a re-slice rebuilds that and must never be able to
+        take a human's ruling with it."""
+        return self.root / "labels"
 
     def all(self) -> list[Path]:
-        return [self.calibration, self.sessions, self.squares, self.manifests, self.models]
+        return [self.calibration, self.recordings, self.crops, self.labels, self.models]
 
 
 DATA = Paths()
@@ -565,7 +399,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 class SynthDefaults:
     """Defaults for the synthetic render pipeline (chesslab synth render)."""
 
-    blend: Path = _REPO_ROOT / "synth_assets/Chess Scene.blend"
+    blend: Path = _REPO_ROOT / "synth/assets/Chess Scene.blend"
     pieces_dir: Path = _REPO_ROOT / "synth_pieces"
     out_dir: Path = DATA.root / "synth_raw"
     res: int = 1024
@@ -646,127 +480,6 @@ def build_blender_cmd(
     if board_texture is not None:
         cmd.extend(["--board-texture", str(board_texture)])
     return cmd
-
-
-# --- Web-UI defaults (local app) ------------------------------------------------------
-DEFAULT_WEB_HOST: str = "127.0.0.1"
-DEFAULT_WEB_PORT: int = 8000
-
-# --- Move-Tracker defaults -------------------------------------------------------------
-DEFAULT_TRACK_HOST: str = "127.0.0.1"
-DEFAULT_TRACK_PORT: int = 8001
-
-# Default model for the Move-Tracker CNN recovery/verify. run-20260706-045056
-# (mobilenet_v3_small, real-all): ~99.99% on `empty`, ~88% per-square, ~40% piece type — an
-# excellent OCCUPANCY detector, which is exactly what the occupancy-based pre-commit verify
-# needs. None/"missing on disk" ⇒ feature off (default_tracker_run falls back to newest run).
-MOVE_TRACKER_DEFAULT_RUN: str = "run-20260706-045056"
-
-
-def list_model_runs() -> list[dict]:
-    """Model runs under data/models that have weights (best.pt), newest first."""
-    runs = []
-    root = DATA.models
-    if root.exists():
-        for d in sorted(root.iterdir()):
-            if d.is_dir() and (d / "best.pt").exists():
-                runs.append({"run": d.name, "mtime": (d / "best.pt").stat().st_mtime})
-    runs.sort(key=lambda r: -r["mtime"])
-    return runs
-
-
-def default_tracker_run() -> str | None:
-    """MOVE_TRACKER_DEFAULT_RUN if it exists on disk, else the newest run, else None."""
-    if (DATA.models / MOVE_TRACKER_DEFAULT_RUN / "best.pt").exists():
-        return MOVE_TRACKER_DEFAULT_RUN
-    runs = list_model_runs()
-    return runs[0]["run"] if runs else None
-
-# Move-Tracker detection defaults (specs/rework/10-move-detection-v2.md) — Single Source
-# for CLI and app; no magic numbers in tracker.py callers.
-TRACK_DEFAULTS: dict = {
-    "motion_thr": 0.25,            # Motion gate: PERCENT of strongly-changed pixels (motion_score).
-                                   # Low on purpose: a slow hand only moves a thin edge band between
-                                   # frames; wobble/jitter stays ~0 thanks to blur + motion_px_thr.
-    "motion_px_thr": 20.0,         # Per-pixel delta above which a pixel counts as changed —
-                                   # desk wobble/jitter shifts everything by ~1 px (tiny deltas,
-                                   # score ~0); a hand produces a compact region of strong deltas.
-    "z_thr": 3.0,                  # z-Score above which a square is considered "changed"
-    "ambiguity_margin_ll": 2.0,    # best − second in log-likelihood units (~e² factor)
-    "reanchor_ll_floor": -4.0,     # Re-anchor only if even the best move LL lies below this
-    "nudge_timeout_s": 5.0,        # Nudge patch (occupied squares) after this many seconds stuck
-    "drift_window_s": 30.0,        # Drift patch (empty squares) — more conservative
-    "max_changed": 6,              # Occlusion gate
-    "census_thr": 40.0,            # Structural change (census, 0..255); higher ⇒ more squares veto as shadow.
-                                   # 160 (live-tuned pre-fusion) vetoed real dark-on-dark ARRIVALS as shadows
-                                   # (black rook onto dark f8 -> O-O blocked, Rg8 committed). 40 is the
-                                   # clip-validated floor; real cast shadows stay below it (structure unchanged).
-    "census_z_weight": 1.0,        # Structural evidence fusion: z_eff = max(z_gray, w·z_census). Census is
-                                   # illumination-invariant structure — lifts dark-on-dark moves the gray
-                                   # absdiff misses without raising z_thr. 0 = off (legacy single-channel).
-    "occl_census_thr": 24.0,       # Baseline occlusion needs structure above this (census 0..255 ≈ Hamming 0.75):
-                                   # strong absdiff WITHOUT structure/chroma anomaly is a cast shadow, not a hand.
-                                   # 0 = legacy (any strong absdiff counts as occlusion).
-    "cnn_conf_thr": 0.85,          # CNN square confidence "reliable"
-    "cnn_cooldown_s": 2.0,         # Minimum interval between recovery observations
-    "cnn_check_interval_s": 10.0,  # Periodic CNN check
-    "verify_window": 8,            # Max CNN observations per pre-commit verify
-    "verify_timeout_s": 1.5,       # ...and the same deadline in SECONDS, which is the unit the
-                                   # player experiences. `verify_window` counts OBSERVATIONS, and
-                                   # what one costs is set by the CNN: 8 of them is 1.2 s at a
-                                   # 146 ms observation and 2.4 s at the 290 ms measured on an
-                                   # SM8650 — and if the observer stalls, unbounded. A pending
-                                   # candidate blinds BOTH paths (`_detect_guards` refuses
-                                   # detection, and `_cnn_worker` routes every observation to
-                                   # verify so recovery cannot run), so that is dead time.
-                                   # 1.5 s is above every terminal decision ever measured:
-                                   # over 66 candidates on 15 clips + 3 recordings a commit
-                                   # needs 1 observation (pair) or 2 (single, one lost to the
-                                   # seq gate) and the slowest verdict was a 3-observation
-                                   # shadow = 0.9 s at the device rate.
-    "cnn_min_agreement": 0.97,     # Recovery/verify agreement threshold
-    "cnn_margin_squares": 1,
-    "recovery_max_plies": 4,       # CNN deep recovery: max half-moves the conflict-guided search may bridge       # Recovery margin in SQUARES (capture = 1 square difference)
-    "min_confident_board": 32,     # Whole-board match needs plenty of clear view
-    "min_confident_recovery": 8,   # Recovery remains operational with partial occlusion
-    "motion_margin": 0.10,         # Motion ROI beyond the board edge (fraction of board edge)
-    "overhang": 0.25,              # Extend diff/occlusion cells toward back rank (fraction of cell)
-    "align_every": 3,              # ArUco marker detection every N-th frame (most expensive per-frame op; camera fixed)
-    "align_scale": 0.5,            # ArUco on downscaled frame (0.5 = half-res, ~3x faster; ±1 px inside tracker dead-zone)
-    "corner_jump_px": 6.0,         # Warp corner jump ⇒ base truth geometrically invalid → reacquire
-    "motion_hold_s": 0.34,         # Seconds the board must be motion-free before detection resumes
-                                   # (wall time). It is HALF the commit latency: measured
-                                   # deterministically at 30 fps, last motion -> commit is
-                                   # `motion_hold_s + 0.05..0.07` (the remainder is the grid-gate
-                                   # re-hold), and the frame rate does not enter — the same clip at
-                                   # 30/15/10 fps commits every move within 0.2 s of the same wall
-                                   # time. 0.34 is the floor the clip suite allows: at 0.32
-                                   # `blender-scholars` loses its mate (Qxf7#) because detection
-                                   # then fires two frames earlier on a frame carrying 7 changed
-                                   # squares against `max_changed` = 6, refuses it as
-                                   # `too_many_changed`, and the eventual single commit swallows
-                                   # the queen. Going lower needs `max_changed` = 7, which widens
-                                   # the occlusion gate — a detection-quality trade the user has
-                                   # ruled out (specs/19-live-hardening/STATUS.md, section 7).
-                                   # Do not lower it without re-running `pytest -m clips`.
-    "occlusion_color_thr": 3.0,    # Color-outlier veto: Mahalanobis sigma vs board gamut (lower=more sensitive, 0=off).
-                                   # NOTE: the historic 1.5 was "tuned" while the gamut was never built (veto dead);
-                                   # now that it is live, 1.5 over-fires — 3.0 is the validated-conservative start.
-    "min_grid_line_coverage": 0.5, # Grid-line occlusion gate: min visible-line fraction (0=off)
-    "reconnect_grace_s": 2.0,      # Auto-reattach camera after this many seconds of no frames (0=off)
-    "diff_clahe_clip": 2.0,        # CLAHE contrast boost on the diff image (0=off; ~2-3 lifts dark moves)
-    "require_motion_for_move": True,  # Only commit a move if a hand entered since the last reference (drift guard)
-    "motion_recency_s": 20.0,
-    "commit_ll_floor": 2.0,        # Min ABSOLUTE loglik score a voting candidate needs to commit (0=off).
-                                   # A sole-viable candidate has infinite margin, so only an absolute floor
-                                   # stops weak phantoms (live: f6h5 @ 0.44 swallowed a castle; real moves
-                                   # score ~12-24). Endpoint candidates (CNN-verified) are exempt.
-    "detect_scale": 0.5,           # Detection warp scale (0.5 = half-res board; 1.0 = off).
-    "desync_obs_n": 3,             # Consecutive stable-mismatch CNN ticks before illegal-move alarm
-    "verify_obs_votes": 2,         # Consecutive same-outcome CNN observations per verify decision (never act on one glance)
-    "observer_interval_s": 0.0,    # Min seconds between CNN observation starts; 0 = free-running
-                                   # (desktop). Raise on battery/thermal-constrained devices (Android port).
-}
 
 
 def ensure_dirs(paths: Paths = DATA) -> list[Path]:

@@ -147,3 +147,39 @@ Zwei Regeln folgen daraus:
   je Fold** lesen, nicht über Mediane: die Fold-zu-Fold-Streuung ist größer als jeder Effekt.
 - **Geometrie- und Initialisierungsfixe stabilisieren, heben aber nicht.** Mesh-Reparatur und
   14-Klassen-Warmstart halbieren die Streuung; das Niveau hob bisher nur bessere Labels.
+
+## Zwei Messfallen aus dem Pixel-Produzenten (`specs/53`, 2026-08-09)
+
+Aus dem zurückgezogenen Spec-Baum (`docs/specs-index.md`). Der Produzent selbst ist weg —
+`src/chesslab/occluded.py` und `realgames propose-occluded` sind am 2026-08-19 mit `fbbe5a34`
+gelöscht worden, SAM 3 misst die Verdeckung heute als Alpha. Die beiden Befunde gelten trotzdem
+weiter, weil sie über die Messmethode reden, nicht über den Code: **jeder künftige Pixel-Referenz-
+kanal läuft in dieselben zwei Fallen.**
+
+### 1. Census gegen einen Median-Patch funktioniert nicht
+
+Der Median ist entrauscht, ein Einzelframe nicht. Allein das Sensorrauschen legte **ruhige Zellen
+14–61 rohe Census-Einheiten von ihrem eigenen Median** entfernt — ein Vielfaches von
+`occlCensusThr` (**24**, `config.py` `occl_census_thr` / `api/TrackerConfig.occlCensusThr`).
+**Jede Zelle sättigte bei 1,00**, der Score war damit wertlos.
+
+Die Korrektur: die Referenz sind **K ruhige SAMPLES**, frame-zu-frame verglichen (symmetrisch im
+Rauschen), bewertet über den **zweitkleinsten** Mismatch (ViBes „≥ 2 nahe Samples", damit ein
+einzelnes Glückssample eine Zelle nicht freispricht), mit Nullpunkt und Skala je Zelle aus den
+Leave-one-out-Vergleichen derselben Samples. Die **Farb**referenz bleibt ein Median je Zelle — ein
+Mittel über ~16k Pixel hat diese Asymmetrie nicht.
+
+Endstand desselben Fehlerbilds im gelöschten Produzenten: Beleuchtungsdrift flaggte 877 k von
+906 k Pixeln und 60 von 64 Feldern, wo der Rillen-Zeuge 20 sah (`fbbe5a34`).
+
+### 2. Ein ruhiges Fenster ist kein sauberes Fenster — und die Inversion war messbar
+
+Die 1-s-Marge erklärte die Mitte eines Intervalls für handfrei. Auf `115912` sind ganze ruhige
+Fenster von einer aufliegenden Hand oder einem Unterarm bedeckt: die Referenz wurde **aus dem
+Occluder** gebaut, und danach bewerteten die **SAUBEREN** Frames am höchsten — vier handgeprüfte
+Zellen bei 0,70–0,95 mit nichts darin.
+
+Fix: der Ruhepool zieht aus einem ±3-Intervall-Fenster, und eine Nachbarzeile wird nur für die
+Zellen zugelassen, deren **Label** sie teilt (die bestätigte FEN-Timeline weiß das; kein Pixel
+weiß es). Die zwei schlimmsten Zellen gingen **0,95 → 0,00**, die Präzision in Band A **8/12 →
+12/12**.

@@ -1,10 +1,10 @@
 """The sweep must score an identity model the way the TRACKER reads one (specs/29, phase 00).
 
-`scripts/sweep_infer_size.py` is the measurement of record. It used to refuse any run whose
-classes were not exactly `["empty", "occupied"]`, which made a 13-class candidate unmeasurable.
-The extension is only allowed to be the definition that already exists twice — `cnn_recovery`
-and its Kotlin port — because a metric that disagrees with the tracker measures a model nobody
-runs. These tests pin that, and pin that the 2-class path did not move.
+`scripts/sweep_infer_size.py` is the measurement of record. It once refused any run whose classes
+were not exactly `["empty", "occupied"]`, which made a 13-class candidate unmeasurable; that
+2-class family is gone (2026-08-20). P(occupied) may only be the definition that already exists
+twice — `serving.observation_from_probs` and its Kotlin port — because a metric that disagrees
+with the tracker measures a model nobody runs. These tests pin that.
 """
 
 from __future__ import annotations
@@ -52,19 +52,6 @@ def test_pocc_matches_the_python_original(sweep):
             assert occupied is obs.occupied("a1")
 
 
-def test_two_class_path_unchanged(sweep):
-    """The occupancy branch reads the `occupied` column verbatim and its verdict is the argmax.
-
-    This is what produced every row in `data/_perf/*.log`; the extension must not perturb it,
-    not even by the 1e-6 of rounding that `1 - P(empty)` would introduce.
-    """
-    read = sweep.occupancy_reader({"classes": config.OCCUPANCY_CLASSES})
-    for p_empty, p_occupied in ((0.9, 0.1), (0.316, 0.684), (0.5, 0.5), (1e-7, 1 - 1e-7)):
-        p_occ, occupied = read([p_empty, p_occupied])
-        assert p_occ == p_occupied              # exact, not approx: the column itself
-        assert occupied is (p_occupied > p_empty)
-
-
 def test_unscoreable_run_is_refused(sweep):
     with pytest.raises(SystemExit):
         sweep.occupancy_reader({"classes": ["dark", "light"]})
@@ -93,6 +80,12 @@ def test_pieces13_keeps_identity_and_drops_occluded():
     rows = [{"label": "wP"}, {"label": "empty"}, {"label": "occluded"}, {"label": "bK"}]
     out = collapse_labels(rows, "pieces13")
     assert [r["label"] for r in out] == ["wP", "empty", "bK"]
-    assert [r["label"] for r in collapse_labels(rows, "occupancy")] == ["occupied", "empty",
-                                                                       "occupied"]
-    assert collapse_labels(rows, "pieces") is rows
+    assert collapse_labels(rows, "pieces") is rows      # the wide mode is a no-op, same objects
+    with pytest.raises(ValueError, match="unknown class mode"):
+        collapse_labels(rows, "occupancy")
+
+
+def test_a_pool_without_occluded_says_nothing(capsys):
+    """The drop is printed; NOT dropping must stay silent, or the line means nothing."""
+    collapse_labels([{"label": "empty"}], "pieces13")
+    assert capsys.readouterr().out == ""

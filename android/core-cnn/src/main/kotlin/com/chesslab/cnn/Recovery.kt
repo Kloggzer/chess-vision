@@ -4,6 +4,7 @@ import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.DeriveResult
 import com.chesslab.engine.api.IdentityResult
+import com.chesslab.engine.api.IllegalMoveException
 import com.chesslab.engine.api.ResyncResult
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
@@ -285,10 +286,21 @@ internal fun asObservation(obs: CnnObservation): OccupancyObservation {
     return obs
 }
 
+/**
+ * The seam's chokepoint: [CnnEvaluator] takes the move as a STRING, so this is where a fabrication
+ * would enter `:core-cnn`.
+ *
+ * It throws rather than abstaining, and that is the point — an abstention is indistinguishable
+ * from "too few confident squares", which means something else entirely to the verify ladder.
+ */
 internal fun parseMove(
     board: Board,
     moveUci: String,
-): Move = Move(moveUci.lowercase(), board.sideToMove)
+): Move {
+    val move = Move(moveUci.lowercase(), board.sideToMove)
+    if (board.legalMoves().none { it == move }) throw IllegalMoveException(moveUci, board.getFen(true, true))
+    return move
+}
 
 internal fun uciOf(move: Move): String {
     val promotion = move.promotion

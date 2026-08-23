@@ -18,10 +18,10 @@ import path from "node:path";
 import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
-import { matteTarget } from "@/lib/matte";
+import { matteCensus, matteTarget } from "@/lib/matte";
 
-export type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
-export type JobKind = "pack" | "label" | "export" | "matte" | "model-read";
+type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
+type JobKind = "pack" | "label" | "export" | "adopt-dirty" | "matte" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -73,7 +73,7 @@ const queue: Queue = ((globalThis as { __chesslabJobs?: Queue }).__chesslabJobs 
   live: null,
   stopped: new Set(),
 });
-// An object pinned by older code lacks the fields added since (see `autopilot`/`drain`).
+// An object pinned by older code lacks the fields added since (see `drain`).
 queue.live ??= null;
 queue.stopped ??= new Set();
 
@@ -104,7 +104,7 @@ export function whenIdle(): Promise<void> {
   return queue.running.then(() => undefined);
 }
 
-function repoDir(): string {
+export function repoDir(): string {
   return process.env.CHESSLAB_REPO_DIR ?? path.dirname(dataDir());
 }
 
@@ -388,7 +388,7 @@ const quoteArg = (value: string): string => (/[\s"^&|<>]/.test(value) ? `"${valu
  * "running", with no exit line and no reason. Measured 2026-08-13 on Node 26: not one pack or label
  * job had ever started, while every one of them looked like it was working.
  */
-function spawnTool(binary: string, args: string[], cwd: string) {
+export function spawnTool(binary: string, args: string[], cwd: string) {
   if (process.platform !== "win32" || !/\.(bat|cmd)$/i.test(binary)) {
     return spawn(binary, args, { cwd, windowsHide: true });
   }
@@ -631,7 +631,7 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
  */
 export async function enqueueChain(
   name: string,
-  step: "export" | "matte" | "model-read",
+  step: "export" | "adopt-dirty" | "matte" | "model-read",
 ): Promise<Job> {
   checkName(name, "game name");
   const known = queue.jobs.get(name);
@@ -734,7 +734,7 @@ export function modelReadRun(): string | null {
 }
 
 /** `uv` by default, because that is what `README.md` tells a human to type. */
-function uvBinary(): string {
+export function uvBinary(): string {
   return process.env.CHESSLAB_UV ?? "uv";
 }
 
@@ -765,9 +765,10 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
 
 async function runChesslab(
   job: Job,
-  step: "export" | "matte" | "model-read",
+  step: "export" | "adopt-dirty" | "matte" | "model-read",
 ): Promise<void> {
   const verb = step === "export" ? "realgames export-session"
+    : step === "adopt-dirty" ? "realgames adopt-dirty"
     : step === "matte" ? "occluders alpha-worker" : "realgames model-read";
   const binary = uvBinary();
   const args = ["run", "chesslab", ...verb.split(" "), job.name];
@@ -775,7 +776,13 @@ async function runChesslab(
   if (step === "model-read" && run) args.push("--model", run);
   // The same target the overnight `--all` is given, counted against the rows already there: one
   // press costs at most those frames, not the hour a 394-frame pile would be.
-  if (step === "matte") args.push("--limit", String(matteTarget()));
+  // `--reported` nimmt genau die gemeldeten Frames und ignoriert Stapel wie `--limit`: ein
+  // `stale`-Frame, auf dem ein Mensch Finger gesehen hat, ist sonst unerreichbar.
+  if (step === "matte") {
+    const census = await matteCensus(job.name);
+    if (census.reported > 0) args.push("--reported");
+    else args.push("--limit", String(matteTarget()));
+  }
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {

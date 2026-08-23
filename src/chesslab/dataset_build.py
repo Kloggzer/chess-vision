@@ -1,6 +1,6 @@
 """Stage 4 — named, curated datasets.
 
-A **dataset** is a view on the global crop pool (`data/manifests/squares.jsonl`):
+A **dataset** is a view on the default crop pool (`data/crops/default/manifest.jsonl`):
 a selection of sessions + dedup and split policy. Building creates under
 `data/datasets/<name>/` a filtered, deduplicated `manifest.jsonl`, a
 session-based `split.json` and `stats.json`. Crops for rot=0 reference the global
@@ -27,7 +27,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, locks
 from . import dataset as dataset_mod
 
 log = logging.getLogger("chesslab.dataset_build")
@@ -45,20 +45,18 @@ def dataset_dir(name: str, paths: config.Paths | None = None) -> Path:
     return (paths or config.DATA).datasets / _safe_name(name)
 
 
-# --- Class mode: 14-class pieces (default), 13-class identity, 2-class occupancy -------
+# --- Class mode: 13-class identity (default), or the historical 14 for reading old packs ---
 
-CLASS_MODES = ("pieces", "pieces13", "occupancy")
+CLASS_MODES = ("pieces13", "pieces")
 
 
 def class_list_for(class_mode: str) -> list[str]:
-    """`pieces` -> `config.CLASSES` (14, unchanged default); `pieces13` -> `config.IDENTITY_CLASSES`
-    (the same list minus `occluded`); `occupancy` -> `config.OCCUPANCY_CLASSES`."""
-    if class_mode == "pieces":
-        return config.CLASSES
+    """`pieces13` -> `config.IDENTITY_CLASSES` (the default); `pieces` -> the historical 14, which
+    only reads packs built before `occluded` stopped being a class."""
     if class_mode == "pieces13":
         return config.IDENTITY_CLASSES
-    if class_mode == "occupancy":
-        return config.OCCUPANCY_CLASSES
+    if class_mode == "pieces":
+        return config.CLASSES
     raise ValueError(f"unknown class mode {class_mode!r} ({' | '.join(CLASS_MODES)}).")
 
 
@@ -66,33 +64,25 @@ def collapse_labels(rows: list[dict], class_mode: str) -> list[dict]:
     """Narrow every row's `label` to the target class list. `pieces` returns the rows untouched
     (same objects), so the default build stays bit-identical.
 
-    A metadata mapping, nothing else: crop FILES keep their path and their `data/squares/wB/`
+    A metadata mapping, nothing else: crop FILES keep their path and their `data/crops/default/wB/`
     directory — the path is the identity, the label is metadata.
 
-    Both narrower modes DROP `occluded` rather than bin it: `pieces13` has no such output at all
-    and `occupancy` has no bucket it honestly belongs in. It is a real filter now — the hand-painted
-    `occluded` corrections are exactly what the coverage target replaces.
+    `pieces13` DROPS `occluded` rather than binning it — it has no such output, and the
+    hand-painted corrections are exactly what the measured coverage replaces.
     """
-    if class_mode == "pieces":
+    classes = class_list_for(class_mode)        # the one gate: an unknown mode raises here
+    if "occluded" in classes:
         return rows
     kept = [r for r in rows if r["label"] != "occluded"]
     n_occluded = len(rows) - len(kept)
     if n_occluded:
-        # DROPPED, not mapped: `occluded` is neither empty nor occupied — the square may hold a
-        # piece under the hand or nothing at all, so either class would be a guess. Same argument
-        # as the renderer's ambiguous band.
-        #
-        # This used to raise instead. That was right while the only source of `occluded` was a
-        # hand label on a real session, where its appearance means something went wrong. Renders
-        # with `--occlusion-p` produce them deliberately and in bulk, so refusing the build made
-        # occluders unusable for occupancy training. Loud, not silent: the count is printed, which
-        # is what the guard was really protecting.
+        # Loud, not silent: this used to raise, which was right while a hand label was the only
+        # source. Renders with `--occlusion-p` produce them in bulk, so the count is printed
+        # instead — that is what the guard was really protecting.
         print(f"[{class_mode}] dropped {n_occluded} `occluded` rows "
               f"({n_occluded / max(len(rows), 1) * 100:.1f}% of the pool) — no class fits.",
               flush=True)
-    if class_mode == "pieces13":
-        return kept                             # labels already are the 13-class list
-    return [{**r, "label": config.to_occupancy_class(r["label"])} for r in kept]
+    return kept                                 # labels already are the 13-class list
 
 
 # --- Perceptual hash (dhash, 64-bit) --------------------------------------------------
@@ -401,9 +391,9 @@ def build_dataset(
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
 
     `source_manifest`: crop pool(s) to filter — one path, or several when the sessions were
-    ingested under different tags (`ingest --tag X --no-build` writes `squares__X.jsonl`).
-    Default: `data/manifests/squares.jsonl`.
-    For the bake-off, each variant points to its own `squares__<tag>.jsonl`; with identical
+    ingested under different tags (`ingest --tag X --no-build` writes `crops/X/manifest.jsonl`).
+    Default: `data/crops/default/manifest.jsonl`.
+    For the bake-off, each variant points to its own pool manifest; with identical
     `session_ids`+`seed`, the session-based split is byte-identical across all variants.
 
     `like`: build the TWIN of an existing dataset — its session split, its dedup policy and its
@@ -443,10 +433,10 @@ def build_dataset(
     rotations = d.rotations if rotations is None else tuple(rotations)
 
     # One or several crop pools. Several matter when sessions were ingested under different tags
-    # (each `ingest --no-build` writes its own squares__<tag>.jsonl) — without this the caller had
+    # (each `ingest --no-build` writes its own crops/<tag>/manifest.jsonl) — without this the caller had
     # to concatenate them into one file by hand first.
     if not source_manifest:
-        srcs = [paths.manifests / "squares.jsonl"]
+        srcs = [paths.crop_pool / "manifest.jsonl"]
     elif isinstance(source_manifest, (str, Path)):
         srcs = [Path(source_manifest)]
     else:
@@ -454,6 +444,14 @@ def build_dataset(
     missing = [str(p) for p in srcs if not p.exists()]
     if missing:
         raise ValueError(f"source manifest(s) not found: {', '.join(missing)}")
+    # Reading a pool that a slice is still filling is how 2026-08-21 went: the build took a
+    # half-written manifest, packed for 19 minutes against crops that kept changing, and the pack
+    # was correctly thrown away afterwards. The writer already announces itself — ask it.
+    for src in srcs:
+        busy = locks.held_by(locks.pool_lock_path(src.parent))
+        if busy:
+            raise ValueError(f"crop pool {src.parent} is being written by {locks.describe(busy)} "
+                             f"— wait for it to finish, then build.")
 
     wanted = set(session_ids)
     rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
@@ -464,8 +462,8 @@ def build_dataset(
     if not rows:
         raise ValueError(
             f"no crops for the selected sessions in {', '.join(str(p.name) for p in srcs)} "
-            f"(wrong --source-manifest? the default pool is squares.jsonl, but `ingest --tag X "
-            f"--no-build` writes squares__X.jsonl).")
+            f"(wrong --source-manifest? the default pool is crops/default, but `ingest --tag X "
+            f"--no-build` writes crops/X/manifest.jsonl).")
     # Determine split assignment on the RAW, COMPLETE data (full 64-square boards). Dedup +
     # rotation afterwards ONLY on train — val/test remain complete (exactly 64 crops/frame, rot 0), otherwise
     # board_accuracy would compute on incomplete/duplicated boards (bug).
@@ -475,7 +473,8 @@ def build_dataset(
         splits = _split_from(like, set(sizes), paths, add_test, add_train)
     else:
         splits = dataset_mod.assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
-                                                       force_train=force_train)
+                                                       force_train=force_train,
+                                                       groups=dataset_mod.groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
     train_raw = [r for r in rows if split_of.get(r["session_id"]) == "train"]
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]  # complete, rot 0
@@ -508,7 +507,7 @@ def build_dataset(
     ds.mkdir(parents=True, exist_ok=True)
     rows = train_rows + holdout                 # rotation happens on-the-fly at train time
     # Label collapse is the LAST step before the manifest: filtering, dedup and the
-    # session->split assignment above ran on the original 14-class labels, so an occupancy
+    # session->split assignment above ran on the original 14-class labels, so a narrowed
     # build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
     # AFTER the collapse: it drops `occluded`, so counting before it puts a `counts.final` in
@@ -623,3 +622,109 @@ def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
         raise FileNotFoundError(f"dataset '{name}' not found.")
     shutil.rmtree(d)
     return {"name": _safe_name(name), "deleted": True}
+
+
+def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: float | None = None,
+               prefix: str = "split-f", dry_run: bool = False, force: bool = False,
+               allow_asymmetric: bool = False, paths: config.Paths = config.DATA) -> dict:
+    """Write k session-grouped `<prefix><i>.json` beside the dataset's own split.
+
+    Out-of-fold prediction is what `docs/cross-labeling-literature.md` settles on for finding
+    mislabeled cells (k = 4, Northcutt et al.), and `train --split` plus `check_not_circular`
+    were already built for it — nothing wrote the files. All folds read the SAME pack.
+
+    Fold models train on sessions the main split holds out, so their metrics are not comparable
+    with the main model's. They are audit instruments, not release candidates.
+    """
+    dd = dataset_dir(name, paths)
+    cfg = _read_yaml(dd / "dataset.yaml")
+    if not cfg:
+        raise ValueError(f"dataset '{name}' has no dataset.yaml at {dd / 'dataset.yaml'}")
+    rows = dataset_mod.load_manifest(dd / "manifest.jsonl")
+    if k < 2:
+        raise ValueError(f"-k must be at least 2, got {k}")
+
+    # `build_dataset` dedups TRAIN only, so a session the main split held out carries every crop
+    # and one it trained on carries a thinned selection. A fold that moves such a session into
+    # test measures board accuracy on boards that are missing squares.
+    d = cfg.get("dedup") or {}
+    if (d.get("per_cell_cap") or 0) > 0 or d.get("phash_enabled"):
+        if not allow_asymmetric:
+            raise ValueError(
+                f"'{name}' was deduped train-only (per_cell_cap={d.get('per_cell_cap')}, "
+                f"phash={d.get('phash_enabled')}), so its rows are asymmetric across the split "
+                f"and folds would measure thinned boards. Rebuild with --cap 0 --no-phash, or "
+                f"pass --allow-asymmetric.")
+        print(f"[WARN] '{name}' is deduped train-only — fold test sets are thinned boards.")
+
+    sp = cfg.get("split") or {}
+    seed = sp.get("seed", config.SEED) if seed is None else seed
+    val_frac = sp.get("val_frac", config.DEFAULT_VAL_FRAC) if val_frac is None else val_frac
+    classes = class_list_for(cfg.get("class_mode") or "pieces13")
+    force_train = set(cfg.get("force_train") or [])
+
+    groups = dataset_mod.groups_of(rows)
+    force_groups = {groups[s] for s in force_train if s in groups}
+    members: dict[str, list[str]] = {}
+    for sid, g in groups.items():
+        members.setdefault(g, []).append(sid)
+    sizes = Counter(r["session_id"] for r in rows)
+    gsizes = {g: sum(sizes[s] for s in ss) for g, ss in members.items()}
+    folds = dataset_mod.fold_groups(gsizes, k, seed, force_train=force_groups)
+
+    if force_groups:
+        pinned = sum(gsizes[g] for g in force_groups)
+        print(f"[i] {len(force_groups)} group(s) / {pinned} crops are pinned to train — they get "
+              f"no fold, so nothing ever predicts them out of sample.")
+    loads = [sum(gsizes[g] for g in f) for f in folds]
+    if min(loads) == 0:
+        raise ValueError(f"k={k} is larger than this corpus can fill: {len(gsizes)} groups, "
+                         f"fold sizes {loads}. Use a smaller k.")
+    print(f"[i] fold crop counts {loads} (largest/smallest {max(loads) / max(1, min(loads)):.2f}x)")
+
+    priority_paths = dataset_mod.load_priority_paths(paths)
+    written, errors = [], []
+    for i, fold in enumerate(folds):
+        # val comes from the NEXT fold, filled to val_frac: one group misses the quota badly
+        # (4.6 % where 15 % was asked), and taking it from this fold would leak into its own test.
+        test = sorted(s for g in fold for s in members[g])
+        pool = [g for g in folds[(i + 1) % k] if g not in fold]
+        val_target, val_groups, got = val_frac * len(rows), [], 0
+        for g in sorted(pool, key=lambda g: (-gsizes[g], g)):
+            # Only while it moves CLOSER, like `assign_sessions_to_splits` rule 2: filling until
+            # the target is reached overshot 15 % to 19 % here, and every crop over the mark comes
+            # straight out of train, which is the whole point of k folds instead of two halves.
+            if val_groups and abs(val_target - got - gsizes[g]) >= abs(val_target - got):
+                continue
+            val_groups.append(g)
+            got += gsizes[g]
+        val = sorted(s for g in val_groups for s in members[g])
+        train = sorted(set(sizes) - set(test) - set(val))
+        split = dataset_mod.make_split(
+            rows, val_frac, 1 / k, sp.get("max_empty_ratio"), seed, sp.get("max_class_ratio"),
+            force_train=force_train, precomputed_splits={"train": train, "val": val, "test": test},
+            priority_paths=priority_paths, classes=classes)
+        split.update({"fold": i, "k": k, "of_dataset": name})
+        errs, _w = dataset_mod.validate_split(split, rows, classes=classes)
+        errors += [f"{prefix}{i}: {e}" for e in errs]
+        out = dd / f"{prefix}{i}.json"
+        if out.exists() and not (force or dry_run):
+            raise ValueError(f"{out} exists — pass --force to overwrite.")
+        if not dry_run:
+            out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+        written.append(out.name)
+        c = split["counts"]
+        print(f"[fold {i}] train {c['train']} / val {c['val']} / test {c['test']} crops · "
+              f"test sessions: {', '.join(test)}")
+    if errors:
+        raise ValueError("\n".join(errors))
+
+    seen = [s for f in folds for g in f for s in members[g]]
+    assert len(seen) == len(set(seen)), "folds overlap — out-of-fold would be a lie"
+    if not dry_run:
+        print("[OK] " + " ".join(written))
+        for i in range(k):
+            print(f"  chesslab train --dataset {name} --split {prefix}{i}.json")
+        print("  (all folds read the same pack — no re-packing)")
+    return {"dataset": name, "k": k, "folds": written, "crops_per_fold": loads,
+            "pinned_groups": sorted(force_groups)}

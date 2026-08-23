@@ -40,6 +40,10 @@ data class ReplayOptions(
     val cnn: Boolean = true,
     /** Which bundled graph, when [cnn] is on. */
     val model: String = DEFAULT_MODEL,
+    /** Experimental legal-placement prior weight; zero is off. */
+    val priorLambda: Double = 0.0,
+    /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
+    val priorSafety: Boolean = true,
     /**
      * Drop `requireMotionForMove`.
      *
@@ -51,7 +55,7 @@ data class ReplayOptions(
      */
     val motionGate: Boolean = true,
     /**
-     * Write `data/realgames/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
+     * Write `data/recordings/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
      * `confirmed: false` always; only a human review may flip that. Measures the footage's
      * geometry first and refuses footage that cannot carry a label (specs/52 phase 02).
      */
@@ -62,12 +66,12 @@ data class ReplayOptions(
      * negotiable (specs/52 phase 04: measurement only, forbidden from fixing).
      */
     val score: Boolean = false,
-    /** The candidate's directory name under `data/realgames/`. Default: the video's stem. */
+    /** The candidate's directory name under `data/recordings/`. Default: the video's stem. */
     val name: String? = null,
     /**
      * Write the DECISIVE frames — every decision row, rejections included, ±2 frames — as the
      * normalised, labeled board (the rectified warp with verdicts and the believed position),
-     * to `data/realgames/<name>/frames-decisive/`. Never the raw camera frames.
+     * to `data/recordings/<name>/frames-decisive/`. Never the raw camera frames.
      */
     val frames: Boolean = false,
     /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */
@@ -112,6 +116,8 @@ data class ReplayOptions(
     val observationCache: Boolean = true,
     /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
     val visualWorkers: Int = 0,
+    /** Exact source-work call graph, semantic repeats, copied bytes and cache hits. */
+    val workProfile: Boolean = false,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -127,6 +133,7 @@ data class ReplayOptions(
                 "frames" to { it.copy(frames = true) },
                 "cleanonly" to { it.copy(cleanOnly = true) },
                 "noobscache" to { it.copy(observationCache = false) },
+                "workprofile" to { it.copy(workProfile = true) },
             )
 
         /** Every word after the verb and its subject. Unknown words are an error, not a shrug. */
@@ -169,6 +176,18 @@ data class ReplayOptions(
                                 ?: error("start= wants seconds, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
+                word.startsWith("prior=") ->
+                    options.copy(
+                        priorLambda =
+                            word.removePrefix("prior=").toDoubleOrNull()?.takeIf { it >= 0.0 }
+                                ?: error("prior= wants a non-negative lambda, got '$word'"),
+                    )
+                word.startsWith("prior-mode=") ->
+                    when (word.removePrefix("prior-mode=")) {
+                        "new" -> options.copy(priorSafety = true)
+                        "old" -> options.copy(priorSafety = false)
+                        else -> error("prior-mode= wants old or new, got '$word'")
+                    }
                 word.startsWith("config=") ->
                     options.copy(
                         configFile =
@@ -204,6 +223,7 @@ data class ReplayOptions(
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
             "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
+            " prior=$priorLambda prior-mode=${if (priorSafety) "new" else "old"}" +
             (if (label) " label" else "") + (if (score) " score" else "") +
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +
@@ -213,6 +233,7 @@ data class ReplayOptions(
             (visualCache?.let { " visualcache=$it" } ?: "") +
             (if (observationCache) "" else " noobscache") +
             (if (visualWorkers > 0) " visualworkers=$visualWorkers" else "") +
+            (if (workProfile) " workprofile" else "") +
             overrides.entries.joinToString("") { " set:${it.key}=${it.value}" }
 }
 

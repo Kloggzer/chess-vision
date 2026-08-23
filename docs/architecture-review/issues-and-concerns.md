@@ -5,6 +5,11 @@ deduplicated and ordered by severity. Severity levels are calibrated to the real
 (local single-user tool) — "Critical" means: endangers data integrity or the
 project goal (reliable move tracking), not "server is on fire".
 
+**Note (2026-08-20):** every finding against `web/*`, `move_tracker/*`, `collect*`,
+`experiment.py`, `geometry3d.py` or `photometric.py` is closed by deletion, not by a fix —
+C1, H1, H2, H4, H6, M1, M2, M3, M4, the tracker half of C3, and the web halves of M5 and M7.
+Read them as a record of what the code once did.
+
 ---
 
 ## CRITICAL
@@ -58,6 +63,54 @@ project goal (reliable move tracking), not "server is on fire".
   `best_legal_move` with synthetic diffs, voting) and a schema/corner-order test for
   the synthetic adapter (without Blender, against example JSON).
 - **Severity:** Critical (synthetic) / High (move_tracker)
+
+### C4 — chesslib Applies Illegal Moves, Even With `fullValidation = true` (Android/Kotlin)
+
+- **Issue:** `Board.doMove(move)` does **not** check legality — and neither does
+  `doMove(move, fullValidation = true)`. Measured 2026-08-03 (`specs/42`): handed `e2e5` from the
+  start position it moves the pawn to e5 and **returns**. The boolean return value is therefore not
+  an illegality signal either.
+- **Mechanism** (read out of `chesslib-1.3.4-sources.jar`, 2026-08-20, so the rule is not folklore):
+  `doMove(Move)` is literally `doMove(move, false)`. `isMoveLegal` checks **king safety and castling
+  rights only**; `fullValidation` adds owner, side-to-move and promotion shape — **no level checks
+  move geometry at all**. Only `MoveGenerator` knows what a piece can do.
+- **Impact:** Every position after such a ply is a fabrication that the screen renders as fact, or
+  that a labeler writes out as training data. This is a **live footgun for any new replay, review or
+  export code** — the API reads as if it validated.
+- **The rule:** call `MoveGenerator.generateLegalMoves(board)` and check membership **first**; an
+  unplayable ply is a no-op. Never rely on `fullValidation` and never on `doMove`'s return.
+- **Already guarded:** `games/GameView.kt:92-93` (pinned by
+  `GameViewTest.anIllegalStoredPlyIsANoOpAndNeverMovesAPiece`), `games/LiveGame.kt:113`
+  (`continues()`), `games/SeamClosing.kt:82-105,221-248`, `analysis/GameReview.kt:482-509`
+  (`lineFrames`), `analysis/MateLineResolver.kt:79-81`, `analysis/OpeningBook.kt:81-152`,
+  `core-cnn/cnn/Recovery.kt:100,181,194`, `core-cnn/cnn/DeepSearch.kt:110`,
+  `desktop/PhoneLog.kt:164-170` (`Board.moveTo`).
+- **Fixed 2026-08-20:** `desktop/PhoneLog.kt` and `desktop/TrainingVideoPack.kt` did
+  `require(board.doMove(Move(uci, board.sideToMove)))` — those `require`s could not fire on an
+  illegal-but-well-formed UCI, and `TrainingVideoPack` generates *labeled training data* from the
+  resulting positions. Both now check `generateLegalMoves` membership before the move.
+- **Closed 2026-08-20 — `Game.push` is now the chokepoint.** It asks the generator and throws
+  `IllegalMoveException(uci, fen)`; the public entries catch it and latch the alarm under its own
+  `kind = illegal_move_refused`, with the uci in `guess`, both squares in `conflicts`, the FEN in
+  the note and one `REFUSED` row in the decision log. `Recovery.parseMove` checks membership at the
+  UCI seam and **throws rather than abstaining** — a scored-zero would be indistinguishable from
+  "too few confident squares", which means something else to the verify ladder. The 18-clip replay
+  is byte-identical across the change, independently re-measured.
+- **The position half was the real hole.** `acceptCnnPosition`, `resyncToBoard` and the auto-resync
+  all funnelled through `cnnAdoptedFen` → `reachable`, but **`setFen` screened nothing**: an
+  en-prise-king FEN was adopted silently, which is the road into the `Index 64` crash above. Now
+  guarded by the king-safety half of `reachable` (the "has legal moves" half stays an *adoption*
+  criterion — a mate a user sets up by hand is legitimate).
+- **Still open:** `CnnTick` can auto-clear a latched alarm on a matching observation
+  (`board_restored`), and that now applies to a refusal too. Defensible — `push` throws BEFORE
+  mutating, so nothing was corrupted — but it is a judgement call, not a decision anyone made.
+  `games/LiveGame.kt:177` (`positionsAfter`) still wraps `doMove` in `runCatching` only, and
+  `continues()` checks the sequence's **first** ply on the argument that the engine generated the
+  rest. Its input is a `SequenceCommitted` the engine pushed, so it is now checked upstream at the
+  chokepoint — the argument holds as long as the emitter really is the engine.
+- **Severity:** was Critical (data integrity, via `TrainingVideoPack`) / High (fabricated positions
+  rendered as fact). Both paths are closed; the entry stays because the chesslib behaviour behind
+  it has not changed and any new `doMove` caller inherits it.
 
 ---
 

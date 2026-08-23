@@ -4,12 +4,15 @@
 > anchor in this file; the entry here carries the exact title, the authors, the year and the
 > identifier. A reference lives in exactly one place, and this is it.
 >
+> `specs/` is retired: full text is in git at `fd9c1908`, the arc is in
+> `docs/how-we-got-here.md`, and the number -> title map is in `docs/specs-index.md`.
+>
 > **Every entry below was retrieved and confirmed on 2026-07-31.** Where only the abstract was
 > readable, the entry says so. Where a paper's body was read, the entry says which section.
 > Nothing is cited from memory. If you add an entry, fetch the source first — a wrong reference
 > outlives the person who wrote it, and this repo would carry it forever.
 >
-> §11 lists the decisions that turned out to have **no** published basis. That list is a
+> §13 lists the decisions that turned out to have **no** published basis. That list is a
 > finding, not a gap to be filled with the nearest plausible paper.
 
 ---
@@ -407,8 +410,10 @@ Matthias Bethge, Felix A. Wichmann · 2020 · [arXiv:2004.07780](https://arxiv.o
 Shortcuts are decision rules that do well on a benchmark and fail to transfer to harder testing
 conditions. The paper is a framing and a set of recommendations, not a method.
 What this project takes from it: the name and the diagnosis for the measured failure where a
-knight's prediction relied 8 % on the piece and 43 % on the board around it. The defences
-(`bg_p`, background randomization, Grad-CAM reliance measurement) are this project's own.
+knight's prediction relied 8 % on the piece and 43 % on the board around it. The defence built
+for it — border-background randomization — was removed on 2026-08-21 without ever being measured
+(0 of 10 shipped models used it); `chesslab reliance` remains the instrument that detects the
+shortcut, so the diagnosis outlived the cure.
 *Abstract only.*
 
 <a id="beery-2018"></a>
@@ -419,7 +424,8 @@ Sara Beery, Grant van Horn, Pietro Perona · 2018 ·
 Camera-trap images from twenty locations: algorithms do well at locations seen in training and
 generalize poorly to new ones, classification worse than detection.
 Relevance here twice over. First, it is the published form of "the background is the shortcut" —
-the motivation for `randomize_border_bg`. Second, it is the same structure as this project's
+the motivation for the border randomization this project built and then retired unmeasured.
+Second, it is the same structure as this project's
 **per-session split**: a fixed camera is a location, and splitting frames randomly instead of by
 session measures the easy case, not the deployed one.
 *Abstract only.*
@@ -595,23 +601,143 @@ at all. Worth re-reading before anyone proposes a whole-board model.
 
 ---
 
-## 10. How to add an entry
+## 10. Move classification — what was read at the source, taken, and refused
+
+`specs/44` research pass, 2026-08-03. Primary sources were read **from source, not from
+documentation — the two disagree, and the documentation is the one that is wrong.** This section
+holds the numbers because the pack that held them is retired.
+
+<a id="lila-advice"></a>
+**lila — `modules/tree/src/main/Advice.scala`** · AGPL-3.0 · lichess-org/lila
+
+```scala
+private val winningChanceJudgements = List(
+  .3 -> Advice.Judgement.Blunder,
+  .2 -> Advice.Judgement.Mistake,
+  .1 -> Advice.Judgement.Inaccuracy
+)
+```
+
+The delta is on `winningChances`, which runs **-1..+1** — not on `WinPercent`, which runs 0..100.
+Since `winPercent = 50 + 50 * winningChances`, `.3` is **15 percentage points, not 30**.
+
+**Taken: 15 / 10 / 5. NOT 30 / 20 / 10.** The pack's own premise, and the answer everyone quotes off
+the lichess forum, was wrong by a factor of two; had it not been checked against the source, every
+band on the screen would have been twice as forgiving as the product it names. Cross-check:
+chess.com publishes Expected-Points cutoffs of 0.05–0.10 (inaccuracy) and 0.10–0.20 (mistake) on a
+0..1 win probability, i.e. 5 and 10 points — on the 30/20/10 reading lichess would be exactly double
+chess.com at every rung, which is not a coincidence anyone should believe.
+
+Live in code: `android/app/.../analysis/Accuracy.kt:9-11` and `AccuracyTest.kt:13-14` carry this
+correction verbatim.
+
+<a id="lila-eval"></a>
+**scalachess — `core/src/main/scala/eval.scala`**, constant fitted in lila PR #11148
+
+`k = 0.00368208`, the win-expectancy logistic. **Fitted for 2300+ rated players.** The PR author
+states it trends towards **-0.002** as rating decreases; this project's users are not 2300, so this
+is a known, unfixed approximation and the one place where the borrowed maths is least appropriate to
+its audience. Fixing it means fitting our own curve, which is a different project.
+
+Live in code: `android/app/.../analysis/WinChance.kt:9` (`WIN_CHANCE_K = 0.00368208`), used by
+`winChanceWhite`. Also `Cp.CEILING = ±1000` and the `fromMate` mapping of any mate onto it, from the
+same file, in `WinChance.winChanceCeiled`.
+
+**Trap:** the blog post "Learn from your mistakes" prints the *superseded* `-0.004` multiplier — it
+predates PR #11148. `WinPercent.scala` no longer exists in lila; the code moved to scalachess.
+`ui/chart/src/acpl.ts` does not draw ACPL, it draws the advantage graph.
+
+<a id="lila-accuracy"></a>
+**lila — `modules/analyse/src/main/AccuracyPercent.scala`** · AGPL-3.0
+
+Per-move accuracy curve
+`103.1668100711649 * exp(-0.04354415386753951 * delta) - 3.166924740191411`, plus lichess' own
+`+ 1` uncertainty bonus, clamped 0..100 → `Accuracy.accuracyPercent`. The harmonic mean's
+`max(1, v)` guard comes from `scalalib/lila/src/main/scala/Maths.scala` → `Accuracy.gameAccuracy`.
+Accuracy colour bands >=85 / >=70 / >=55 from `lila/ui/analyse/src/view/roundTraining.ts`.
+
+**Three details are absent from lichess' public accuracy page** — the `+ 1` bonus, the early return
+of exactly `100d`, and the ±1000 ceiling. A port written from the public page would be wrong in
+three places. This is the concrete case for the rule at the top of this file.
+
+### The licence position — settled, do not re-open
+
+- A mathematical **formula** is not copyrightable; a verbatim **code port** would be. Formula plus
+  attribution is the normal and clean route, and it is what this project already does.
+- Even a genuine code port would be combinable: lila is **AGPL-3.0**, chesslab is
+  **GPL-3.0-or-later** (python-chess is GPL), and **GPLv3 §13 permits the combination** — the AGPL
+  portion simply keeps its own obligation.
+- **chess.com is the one real limit.** Their accuracy formula (CAPS2) is proprietary and
+  unpublished: it can be approximated from what they have published, never copied. Their
+  *presentation* — the move taxonomy, the shape of the review flow — is functionality and is free to
+  learn from. Only the shape and the published Expected-Points table (Best 0.00, Excellent <=0.02,
+  Good <=0.05, Inaccuracy <=0.10, Mistake <=0.20, Blunder >0.20) were taken, as a cross-check; none
+  of it is implemented.
+- `lichess-org/chess-openings` is **CC0** — public-domain data that may simply be shipped
+  (`specs/47`), attribution as courtesy rather than obligation.
+- `specs/42` refused the accuracy percentage **for scope, not for licensing**; the user asked
+  directly on 2026-08-03 whether licences were the obstacle. They are not.
+
+### Refused, with the reason
+
+| Refused | Why |
+|---|---|
+| **Brilliant / Great / Miss** | chess.com's definition is prose and the rule is unpublished and rating-dependent; every open reimplementation guesses differently. Shipping a guess under chess.com's word is invented authority — and a beginner cannot act on "Brilliant" anyway. |
+| **Book** | `MoveQuality.BOOK` existed and was **deleted**: no opening book ships, so nothing could ever set it; only its own unit test produced one. |
+| **A "Best vs Good" threshold** | BEST is the *fact* that the player matched the engine's first choice. Over 83 plies the 29 engine-matching moves lost at most **1.56** points of win expectancy — a cutoff would only restate it. |
+| **Lichess' full accuracy aggregation** | `(volatility-weighted mean + harmonic mean) / 2`, `windowSize = clamp(plies / 10, 2, 8)`, population sigma squeezed to 0.5..12. Reproducible — but the weighted half is precisely the half that leaks a decided finish. We ship the harmonic mean alone. |
+| **ACPL anywhere on the screen** | Regan & Haworth: a marginal centipawn has roughly **5x the impact at +20 that it has at +100**. And the lichess community study: an ACPL of 50 can mean inaccuracies on almost every move or one big blunder with good play elsewhere. |
+| **A rating-dependent classifier** | chess.com's expected-points function takes the player's rating as an input, so the same swing classifies differently for an 800 and a 2200. We have no rating for anybody, and inventing one is invented authority. |
+| **WintrChess / freechess reimplementations** | Both are third-party curve-fits to observed chess.com output; one is abandoned. |
+| **chess.com's motif naming** ("Show Fork", "Show Lost Piece") | Naming a motif needs tactical classification we do not have and would have to invent. |
+| **Skeleton screens** | The cited study found skeletons perceived as shorter than a spinner "but not by much"; an ECCE 2018 replication found **no significant difference**. |
+| **A percent-done bar as the only feedback** | NN/g's >=10 s rule; lichess' actual pattern is that the filling advantage chart *is* the progress indicator. |
+
+The measured effect of the mate-tail question, which is why the aggregation half was refused:
+adding 15 mate-tail plies per side moves the losing side's accuracy **69.1 -> 80.9** and cuts their
+ACPL by 60 %; counting them reads White 76.5 / Black 75.6, dropping them reads **71.4 / 66.5**.
+Nine points of Black's score was the length of their own defeat.
+
+The engine budget these bands are read at is in `docs/android-performance.md`.
+
+---
+
+## 11. State estimation and temporal filtering — located, never cited
+
+**This project has no section on state estimation or temporal filtering, and the tracker's whole
+temporal design is therefore uncited.** Two sources were located and confirmed on 2026-08-02
+(`specs/39`) and **neither was read beyond its abstract**, so under §12's rule neither was ever
+added as an entry — and neither has been since. Stating that plainly is the point of this section.
+
+| Located | Would cover | Status |
+|---|---|---|
+| **An Algorithm for Tracking Multiple Targets** — Donald B. Reid, 1979, *IEEE Trans. Automatic Control* 24(6) 843–854, doi `10.1109/TAC.1979.1102177` | The origin of multiple-hypothesis tracking; the direct ancestor of the parked beam-search/multi-hypothesis idea (`specs/10`) | **Abstract only. Never cited. Do not cite from this line — fetch it first.** |
+| **Continuous Inspection Schemes** — E. S. Page, 1954, *Biometrika* 41(1–2) 100–115, doi `10.1093/biomet/41.1-2.100` | CUSUM: the textbook form of "this has disagreed longer than noise explains" — which the tracker does by hand in observation counts (`desyncObs`/`desyncSince` in `Alarm.kt`, `anomalySince`/`anomalyStart[64]` in `EngineState.kt`/`AnomalyPatcher.kt`) | **Abstract only. Never cited. Do not cite from this line — fetch it first.** |
+
+`specs/31` shipped the 42-entry bibliography on 2026-07-31; both sources were located two days
+later and were deliberately parked behind its rule: *every citation must be fetched and verified in
+the session that writes it down; if a paper cannot be retrieved and confirmed, write "no source
+verified" instead.*
+
+---
+
+## 12. How to add an entry
 
 1. Fetch the source. The arXiv `abs` page is enough for title, authors, year and identifier; use
    `ar5iv.labs.arxiv.org/html/<id>` when the claim is in the body.
 2. Record what the source *actually* says. "Is associated with" is not "causes"; an abstract's
    claim is not the body's evidence.
 3. If only the abstract was readable, write *Abstract only.* If nothing was readable, do not add
-   the entry — add a line to §11 instead.
+   the entry — add a line to §13 instead.
 4. At the code site, one sentence and an anchor. The reference itself lives only here.
 
 ---
 
-## 11. Decisions with no published basis
+## 13. Decisions with no published basis
 
 These are load-bearing settings that no source justifies. They are listed so nobody mistakes them
-for results. The reasoning behind each, and what it would take to settle it, is in
-`specs/31-cite-what-we-rely-on/STATUS.md`.
+for results. The reasoning behind each, and what it would take to settle it, was in
+`specs/31-cite-what-we-rely-on/STATUS.md` (`git show fd9c1908:specs/31-cite-what-we-rely-on/STATUS.md`).
 
 | Decision | Where | Status |
 |---|---|---|
@@ -621,7 +747,7 @@ for results. The reasoning behind each, and what it would take to settle it, is 
 | `batch_size = 256` | `config.DEFAULT_BATCH_SIZE` | No source. Chosen to fit VRAM. |
 | `max_empty_ratio = 1.5`, `max_class_ratio` | `config.DEFAULT_MAX_EMPTY_RATIO`, `dataset.subsample_classes` | No source. `[buda-2017]` recommends the opposite direction (oversample rather than undersample). |
 | Inverse-frequency class weights | `dataset.compute_class_weights` | `[cui-2019]` argues against exactly this scheme. Never compared here. |
-| Every augmentation magnitude (`brightness` 0.35, `gamma` (0.6, 1.8), `noise_std` 0.03, `erase_p` 0.25, `bg_p` 0.60, `neighbour_p` 0.30, …) | `config.AugmentPolicy` | The *techniques* are cited above; the numbers are hand-set and unswept. |
+| Every augmentation magnitude (`brightness` 0.35, `gamma` (0.6, 1.8), `noise_std` 0.03, `erase_p` 0.25, `neighbour_p` 0.30, …) | `config.AugmentPolicy` | The *techniques* are cited above; the numbers are hand-set and unswept. |
 | `per_cell_cap = 4`, phash hamming threshold | `config.DedupDefaults` | No source. Both are measured here instead (`docs/data-pipeline.md` §5.13) — which is the better kind of justification, but it is not a citation. |
 | `patience`, and `occ_board_acc` as the checkpoint metric | `training/train.py` | This project's own invention. See the `CLAUDE.md` pitfall about the metric being structurally floored. |
 | The occupancy reader `1 − P(empty) − P(occluded)` and its bias toward "occupied" | `move_tracker/cnn_recovery.py` | This project's own arithmetic, measured here. No source and none needed — but it is not a standard technique either. |

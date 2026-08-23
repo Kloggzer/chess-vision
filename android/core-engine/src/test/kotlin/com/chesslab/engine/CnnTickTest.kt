@@ -1,5 +1,7 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.CnnObservation
+import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -15,6 +17,25 @@ import org.junit.jupiter.api.Test
  * the recovery confirmer, and the anchoring rule that made this phase necessary.
  */
 class CnnTickTest {
+    @Test
+    fun recoveryReceivesTheRawViewOfAConditionedSnapshot() {
+        val engine = TrackerEngine(recoveryConfig(), STARTPOS)
+        val raw = obsForBoard(engine.state.board, mapOf("e5" to "wP"))
+        val conditioned =
+            object : CnnObservation by obsForBoard(engine.state.board) {
+                override fun rawObservation(): CnnObservation = raw
+            }
+        val cnn = RecoveryEvaluator(match = true)
+        engine.attachCnn(cnn)
+        engine.state.armed()
+
+        engine.onCnnSnapshot(recoverySnap(engine.state, conditioned, seq = 1))
+
+        assertTrue(cnn.observations.isNotEmpty())
+        assertSame(raw, cnn.observations.first(), "recovery must not receive the prior-conditioned view")
+        assertSame(raw, engine.state.cnnSnap?.obs, "background desync gates must also retain pixels alone")
+    }
+
     @Test
     fun observerIntervalThrottles() {
         // `test_observer_interval_throttles`: the interval throttles observation STARTS.
@@ -191,6 +212,47 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history)
     }
 
+    /**
+     * The phantom starvation of 2026-08-08-00-39-57. The diff channel re-proposed `a2a4` on every
+     * cycle — a shadow on the a-file — and each dispatch cleared the streak, so the CNN's correct
+     * `c3e4` never got past 1/2 and 17 plies were lost while the read was right the whole time.
+     * A candidate merely ENTERING verification is not evidence against what the CNN sees.
+     */
+    @Test
+    fun aCandidateEnteringVerifyDoesNotResetTheRecoveryVote() {
+        val state = recoveryState(confirmFrames = 2)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.dispatch(listOf(moveOf(state, "g1f3")), grayFrame(), null, priorUsed = false, candidateNote = null, seq = 2)
+        assertNotNull(state.pending, "the candidate must be pending, not committed")
+        state.pending = null
+
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 3, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "a rejected candidate may not cost the vote")
+    }
+
+    /**
+     * The vote asks for two looks at the SAME board; a cooldown between them asks for two looks at
+     * a board that had seconds to change. On 2026-08-08-11-59-12 the bridge `f2f4 e5c4` stood at
+     * agreement 1.000 and vote 1/2, the next glance came 98 frames later, and by then two more
+     * plies had been played — the key never repeated and the session never recovered.
+     */
+    @Test
+    fun anOpenRecoveryVoteIsDueDespiteTheCooldown() {
+        val state = recoveryState(confirmFrames = 2)
+        state.config = state.config.copy(cnnCooldownS = 60.0)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "the second look may not wait out the cooldown")
+    }
+
     @Test
     fun recoveryCommitAnchorsOnObservedFrame() {
         val state = recoveryState()
@@ -337,42 +399,6 @@ class CnnTickTest {
         assertNull(state.refGray)
         assertNull(state.refFen)
         assertEquals(0, state.grayBuf.size)
-    }
-
-    /**
-     * D04c-2. In occupancy-only mode Python takes the move `resync_check` NAMES
-     * (`tracker.py:2021-2023`) and reaches for the deep beam search only when resync named none.
-     * The port ran the deep search on every non-match, so where Python commits one ply the phone
-     * committed up to `recoveryMaxPlies`.
-     *
-     * The divergence was accepted as "unreachable with the bundled 14-class model". Shipping a
-     * 2-class model made this the ONLY reachable arm, and 69 recorded plies on the device then
-     * contained two bursts of 3 and 4.
-     */
-    @Test
-    fun theOccupancyArmPrefersTheMoveResyncNamesOverTheDeepSearch() {
-        val state = recoveryState(confirmFrames = 1)
-        val cnn =
-            // `moves` is what the deep search WOULD return if it were consulted — three plies.
-            RecoveryEvaluator(moves = listOf("g1f3", "b8c6", "e2e4"), agreement = 0.98).apply {
-                resyncMove = "e2e4"
-                resyncAgreement = 0.99
-            }
-        val obs = obsForBoard(state.board, emptyMap(), identity = false)
-        state.recoveryGlances(cnn, obs, gray = grayFrame())
-        assertEquals(listOf("e4"), state.history, "resync named one move; the deep search must not run")
-        assertEquals(0.99, state.cnnAgreement, 1e-9, "and its agreement is the one reported")
-    }
-
-    /** With no move from resync and no match, the deep search is still the fallback Python uses. */
-    @Test
-    fun theOccupancyArmStillFallsBackToTheDeepSearch() {
-        val state = recoveryState(confirmFrames = 1)
-        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.98)
-        val obs = obsForBoard(state.board, emptyMap(), identity = false)
-        state.recoveryGlances(cnn, obs, gray = grayFrame())
-        assertEquals(listOf("e4"), state.history)
-        assertEquals(0.98, state.cnnAgreement, 1e-9)
     }
 
     /**

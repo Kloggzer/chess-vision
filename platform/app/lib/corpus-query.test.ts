@@ -22,8 +22,8 @@ async function corpus() {
       cell("b", "000300", "e1", "wR", { wR: 0.5, wQ: 0.3, wK: 0.2 }),
     ]],
   ] as [string, string[]][]) {
-    await mkdir(path.join(root, "realgames", game), { recursive: true });
-    await writeFile(path.join(root, "realgames", game, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
+    await mkdir(path.join(root, "recordings", game), { recursive: true });
+    await writeFile(path.join(root, "recordings", game, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
   }
   process.env.CHESSLAB_DATA_DIR = root;
 }

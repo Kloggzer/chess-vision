@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <!-- FALSE POSITIVE, verified 2026-08-20: the two operands differ by the space after the colon
+     (`"sessionId":"x"` vs `"sessionId": "x"`), so the `||` covers both JSON spellings on purpose.
+     detekt reads them as the same operand. Kept baselined rather than suppressing the rule. -->
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>UnnecessaryPartOfBinaryExpression:UploadPlan.kt$it.contains("\"sessionId\":\"$sessionId\"") || it.contains("\"sessionId\": \"$sessionId\"")</ID>
+  </CurrentIssues>
+</SmellBaseline>

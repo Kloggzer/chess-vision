@@ -164,5 +164,9 @@ class ReplayConfigFileTest {
     @Test
     fun `the word is parsed like its siblings`() {
         assertEquals("x/settings.json", ReplayOptions.parse(listOf("config=x/settings.json")).configFile)
+        assertTrue(ReplayOptions.parse(listOf("workprofile")).workProfile)
+        val prior = ReplayOptions.parse(listOf("prior=4", "prior-mode=old"))
+        assertEquals(4.0, prior.priorLambda)
+        assertFalse(prior.priorSafety)
     }
 }

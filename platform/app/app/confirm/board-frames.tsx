@@ -23,7 +23,7 @@ export type Zoom = { stem: string; width: number; height: number; squares: MoveS
  * board, and the same 8x8 grid above the strip on an older 720x816 burst PNG.
  * A multi-commit draws every half of the sequence — the picture shows the end of all of them.
  */
-export function MoveOverlay({
+function MoveOverlay({
   squares,
   width = 720,
   height = 816,

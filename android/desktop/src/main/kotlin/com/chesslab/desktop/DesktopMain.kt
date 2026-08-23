@@ -65,34 +65,27 @@ fun main(args: Array<String>) {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
             WebcamSource(index).use { calibrate(it) }
         }
-        "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage(), raw = args.getOrNull(2) == "raw")
+        "align" -> alignCamera(args.getOrNull(1)?.toIntOrNull() ?: usage())
         "track" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
-            replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), cameraToken(index))
+            replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), "webcam:$index")
         }
         else -> usage()
     }
 }
 
 /**
- * `align <n> [raw]` — the board against its own grid, with the stored optics or without them.
+ * `align <n>` — the board against its own grid, on the frames as they arrive.
  *
- * `raw` is the comparison that says whether the distortion or the board geometry is the error, and
- * it is the only reason this verb exists.
- *
- * A MEASUREMENT tool may undistort, visibly, at its own call site. The frame source may NOT: it
- * used to, which put a transform in front of every consumer that none of them could see or switch
- * off. Inside the tracker the same job is `Stage.LENS`, which at least reports what it cost.
+ * It used to take a `raw` toggle that compared against a STORED calibration, so a reader could tell
+ * whether the distortion or the board geometry was the error. That file came from `chesslab lens
+ * calibrate`, deleted 2026-08-20, so the toggle had been comparing raw against raw ever since. What
+ * answers the question now is `undistort`, which fits the optics from the recording itself.
  */
-private fun alignCamera(
-    index: Int,
-    raw: Boolean,
-) {
+private fun alignCamera(index: Int) {
     val cost = Cost()
     WebcamSource(index).use { source ->
-        openLens(source, cameraToken(index), wanted = !raw).use { optics ->
-            measureAlignment(timedFrames(source, optics, cost), cost)
-        }
+        measureAlignment(timedFrames(source, null, cost), cost)
     }
     cost.report("what each frame cost:")
 }
@@ -198,7 +191,7 @@ private fun measureAlignment(
  */
 private fun calibrate(source: FrameSource) {
     // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite.
-    // The phone's `latestCalibrationFrame()` hands back a clone the caller must release, so the
+    // `latestCalibrationFrame()` hands back an immutable view the caller must release, so the
     // seam is shaped to let each host keep its own rule instead of one of them being quietly wrong.
     val fit =
         calibrateFromBoard(
@@ -267,7 +260,7 @@ private fun usage(): Nothing {
         "usage: chesslab-desktop <command>",
         "  cameras                    what is attached, as the driver reports it",
         "  calibrate <camera-index>   fit the lens from the board's own grid lines",
-        "  align <camera-index> [raw] measure the board against its grid; 'raw' skips the lens",
+        "  align <camera-index>       measure the board against its own grid",
         "  undistort <video> <outDir> [every=N]  write the frames with the barrel taken out",
         "  rectify <video> <outDir> [frames=<f>|every=N] [size=N] [lens]  the straightened board, per frame",
         "  crops <video> <outDir> [frames=<f>|every=N] [out=WxH]  the 64 square crops, as the device cuts them",
@@ -289,20 +282,24 @@ private fun usage(): Nothing {
         "                        lens   fit the optics from the board in the footage first",
         "                        nocnn  run the engine's no-observation occlusion fallback",
         "                        label  measure the geometry, replay, and write the tracker's",
-        "                               PROPOSAL to data/realgames/<name>/candidate.json",
+        "                               PROPOSAL to data/recordings/<name>/candidate.json",
         "                        score  compare a run against an existing candidate.json:",
         "                               found / missed / invented, never one merged accuracy",
         "                        frames write the DECISIVE frames (every decision row, ±2) as the",
-        "                               normalised labeled board to data/realgames/<name>/frames-decisive/",
+        "                               normalised labeled board to data/recordings/<name>/frames-decisive/",
         "                        name=<x>  the candidate's directory name (default: video stem)",
         "                        cleanonly  EXPERIMENT: commit and vote only on a hand-free board",
         "                        model=<name>  one of the bundled graphs",
+        "                        prior=<lambda>  legal-placement prior weight; 0 is off",
+        "                        prior-mode=old|new  conditioned-everywhere vs raw/invalid safety",
         "                        fps=<n>  process every k-th frame (realtime emulation, counted",
         "                               as dropped(stride); the clock still ticks every frame)",
         "                        visualcache=<file>  build once when absent, then replay cached",
         "                               visual observations while still processing every frame",
         "                        visualworkers=<n>  EXPERIMENT: regenerate cached visual rows",
         "                               through a bounded cross-frame worker pipeline",
+        "                        workprofile  report exact source calls, semantic repeats,",
+        "                               copied bytes, cache hits and the instrumented call graph",
         "",
         "  The board view opens unless 'quiet' or 'dump': it shows the rectified warp the engine",
         "  reasons about with its per-square verdicts, and STOPS when the engine gets stuck",
@@ -312,7 +309,7 @@ private fun usage(): Nothing {
 }
 
 @Suppress("LongMethod", "CyclomaticComplexMethod")
-internal fun replay(
+internal fun replayRun(
     source: FrameSource,
     name: String,
     options: ReplayOptions,
@@ -347,10 +344,7 @@ internal fun replay(
         if (options.lens && video != null && fittedLens == null) {
             error("no accepted lens fit for ${video.name} — refusing to replay raw frames as corrected")
         }
-        val optics =
-            fittedLens
-                ?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
-                ?: camera?.let { openLens(source, it, wanted = true) }
+        val optics = fittedLens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
         // The recording starts BEFORE the game. The phone flushes its pre-roll ring at the first
         // commit (`video_pre_roll_ns`), so tracking from frame 0 means tracking board setup and
@@ -509,6 +503,8 @@ internal fun replay(
                 visualCache = visualCache,
                 markerPrepass = markerPrepass,
                 parallelVisual = parallelVisual,
+                priorLambda = options.priorLambda,
+                priorSafety = options.priorSafety,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -536,21 +532,19 @@ internal fun replay(
     scope.cancel()
 }
 
-/** Seconds of lead kept before the first commit: the move's own motion has to stay on the video. */
-private const val PRE_ROLL_LEAD_MS = 2_000.0
-
 /**
- * Wind the decoder to where the game starts, and say so. Null when there is nothing to skip —
- * a camera-roll video, or a run that asked for `start=0` to look at the pre-roll itself.
+ * Wind the decoder to where `start=` says, and say so. Null when nothing is skipped, which is the
+ * DEFAULT: the phone tracks from its first frame, so a replay that skips measures a tracker the
+ * device never runs. It used to wind to `session.yaml`'s `video_pre_roll_ns` less a two-second
+ * lead. On 2026-08-14-20-35-52 that landed 0.7 s before the first move — too little runway to take
+ * a clean reference, so `e4` never registered as a change and the run scored 1/4 instead of 3/4.
  */
 private fun skipPreRoll(
     source: FrameSource,
     video: File?,
     options: ReplayOptions,
 ): String? {
-    val target =
-        options.startSeconds?.times(1000.0)
-            ?: video?.parentFile?.let { preRollMs(File(it, "session.yaml")) }?.minus(PRE_ROLL_LEAD_MS)
+    val target = options.startSeconds?.times(1000.0)
     if (target == null || target <= 0.0) return null
     var skipped = 0
     while (source.timestampMs < target && source.next() != null) skipped++
@@ -591,6 +585,8 @@ private fun buildStack(
     visualCache: VisualObservationCache? = null,
     markerPrepass: AlignmentMarkerPrepass? = null,
     parallelVisual: ParallelVisualPrepass? = null,
+    priorLambda: Double = 0.0,
+    priorSafety: Boolean = true,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -622,6 +618,8 @@ private fun buildStack(
             parallelCrops = !live,
             cachedVisual = parallelVisual?.lookup ?: visualCache?.lookup,
             observationSink = visualCache?.sink,
+            priorLambda = priorLambda,
+            priorSafety = priorSafety,
             cachedAlignment = visualCache?.alignmentLookup,
             alignmentSink = visualCache?.alignmentSink,
             cachedMarkerDetections = markerPrepass?.lookup,

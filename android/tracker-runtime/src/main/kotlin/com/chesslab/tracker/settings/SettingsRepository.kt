@@ -101,9 +101,6 @@ class SettingsRepository(
         )
     }
 
-    /** "Back to the Python defaults" — same live/restart rules as any other edit. */
-    fun resetToDefaults(): UpdateResult = update(ConfigCodec.defaults)
-
     /** App-level settings. None of them is live: every one is read at construction (D07a-3). */
     fun updateApp(new: AppSettings) {
         publishApp(new)

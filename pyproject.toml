@@ -36,8 +36,8 @@ dependencies = [
     "onnxruntime>=1.27.0",
     "onnxscript>=0.7.1",
     "simplejpeg>=1.9.0",
-    # The frame scan's person sensor (RT-DETR) and the occluder mattes (SAM 3) both load through
-    # it; before 2026-08-18 it was an undeclared `uv run --with` that the export now cannot skip.
+    # SAM 3 loads through it; before 2026-08-18 it was an undeclared `uv run --with` that the
+    # export now cannot skip.
     "transformers>=4.57.0",
 ]
 # Optional (lazy, with fallback): matplotlib (meshprep preview), pyperclip (UI clipboard)
@@ -87,11 +87,7 @@ packages = ["src/chesslab"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]   # import helpers from scripts/ (e.g. generate_blender_testclips) in tests
-markers = [
-    "clips: Replay-Tests gegen lokale Videoclips in data/testclips (skip wenn nicht vorhanden)",
-]
-addopts = "-m 'not clips'"
+pythonpath = ["."]   # tests/test_synth_degrade.py imports the Blender-side modules from synth/
 
 [tool.ruff]
 line-length = 100
@@ -99,18 +95,24 @@ target-version = "py311"
 src = ["src", "tests", "synth"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4"]
+select = ["E", "F", "I", "UP", "B", "C4", "ARG", "PERF"]
 ignore = [
     "B904",   # raise-without-from-inside-except — noisy in existing code
     "E501",   # line-too-long — Formatter/Stil-Sache, kein Bug (405 Treffer)
     "E702",   # multiple-statements-semicolon — bewusster Kompakt-Stil im Repo
+    # Beide 2026-08-20 probeweise scharfgeschaltet und wieder entfernt: ERA001 fand 6 Treffer,
+    # alle Fehlalarme (Spaltenlegenden, Mathe-Notizen). ARG005 traf nur `lambda i: True`, wo der
+    # AUFRUFER die Stelligkeit vorschreibt — dieselbe Begruendung wie fuer tests/ unten.
+    "ERA001",
+    "ARG005",
 ]
 
 [tool.ruff.lint.per-file-ignores]
 # Synth files import bpy (unresolved external) + Blender-Globals
 "synth/**" = ["F403", "F405", "F821"]
-# FastAPI: Body(...)/File(...)/Depends(...) in Default-Argumenten ist gewollt
-"src/chesslab/web/**" = ["B008"]
+# A fixture requested for its side effect (monkeypatch, a patched VideoCapture) has nothing to
+# bind, and that is the point rather than an oversight.
+"tests/**" = ["ARG001"]
 
 [tool.ruff.format]
 # Black-compatible line-ending style

@@ -13,14 +13,16 @@
 
 ```mermaid
 flowchart TD
-    C["chesslab collect<br/>(camera + FEN)"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
+    C["chesslab ingest"] --> S["data/sessions/&lt;id&gt;/<br/>boards/*.webp + log.jsonl + session.yaml"]
+    IMP["phone transfer / video import"] --> RG["data/recordings/&lt;ts&gt;/<br/>the import AND what was cut from it AND its corrections.jsonl"]
     S --> SL["chesslab slice<br/>(labeling.slice_session)"]
+    RG --> SL
     CAL["data/calibration/&lt;profile&gt;.yaml<br/>+ per-frame ArUco corners in log.jsonl"] --> SL
-    SL --> SQ["data/squares/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.webp<br/>64 crops per usable frame"]
-    SL --> MF["data/manifests/squares.jsonl<br/>THE GLOBAL CROP POOL — one row per crop"]
+    SL --> SQ["data/crops/&lt;tag&gt;/&lt;label&gt;/&lt;sid&gt;_&lt;frame&gt;_&lt;sq&gt;.webp<br/>64 crops per usable frame"]
+    SL --> MF["data/crops/&lt;tag&gt;/manifest.jsonl<br/>THE CROP POOL — one row per crop, and it is that pool's own file"]
     SYN["chesslab synth render<br/>→ chesslab dataset build-synth"] --> DS
     MF --> DB["chesslab dataset build<br/>(dataset_build.build_dataset)"]
-    HE["data/manifests/hard_empty.jsonl<br/>(scripts/mine_hard_empty.py)"] -.-> DB
+    HE["data/reports/hard_empty.jsonl<br/>(scripts/mine_hard_empty.py)"] -.-> DB
     DB --> DS["data/datasets/&lt;name&gt;/<br/>manifest.jsonl + split.json + stats.json + dataset.yaml"]
     DS --> TR["chesslab train --dataset &lt;name&gt;"]
     TR --> MOD["data/models/&lt;run&gt;/<br/>best.pt + config.json + model.onnx"]
@@ -30,13 +32,52 @@ flowchart TD
 
 | Stage | Command | Writes | Key module |
 |---|---|---|---|
-| Capture | `chesslab collect` | `data/sessions/<id>/` | `collect.py` |
-| Label | `chesslab slice --all` | `data/squares/`, `data/manifests/squares.jsonl` | `labeling.py` |
+| Import | phone transfer, `realgames export-session` | `data/recordings/<ts>/` | `realgames.py` |
+| Import (external) | `chesslab ingest synthetic <dir>` | `data/sessions/<id>/` | `ingest.py` |
+| Label | `chesslab slice --all` | `data/crops/default/` + its `manifest.jsonl` | `labeling.py` |
 | Curate | `chesslab dataset build <name> …` | `data/datasets/<name>/` | `dataset_build.py` |
 | Train | `chesslab train --dataset <name>` | `data/models/<run>/` | `training/train.py` |
 
-Capture and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
+Recording and labeling are deliberately separate: `slice` is a **pure, repeatable function** of
 (board, FEN, mesh), so re-slicing a session reproduces its crops exactly.
+
+The local capture rig — `chesslab collect` and its OpenCV dashboard — was deleted on 2026-08-20.
+Sessions now come from the phone tracker or from `chesslab ingest`; `SessionWriter`
+(`src/chesslab/session_writer.py`) is the piece of the rig that survived.
+
+### 1.1 The tree — one rule (2026-08-20)
+
+**A recording is one folder, and everything that only says something about it lives inside.**
+Derived things — crops, datasets, reports — live outside and can be rebuilt from it.
+
+| directory | holds |
+|---|---|
+| `data/recordings/<ts>/` | EVERYTHING about one recording: the import (`candidate.json`, `files/`, `video.mp4`, `review/`, `review-extra/`), what was cut from it (`session.yaml`, `log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `quad-fit.json`) and its own `corrections.jsonl` |
+| `data/sessions/` | only sessions that are NOT recordings: what `chesslab ingest` imports. Empty today |
+| `data/crops/<tag>/` | the crops **and that pool's own `manifest.jsonl`** — a pool describes itself. Default pool is `crops/default` |
+| `data/datasets/<name>/` | packed snapshots |
+| `data/models/<run>/` | training runs |
+| `data/calibration/` | board profiles |
+| `data/footage/` | raw video nothing writes: `turntable/`, `occluders/`, `phone-backups/` |
+| `data/occluders/` | RGBA occluder tiles (hands), cut from `footage/occluders` |
+| `data/reports/` | machine output: `audit-flags*`, `correction-violations.jsonl`, `hard_empty*.jsonl`, `split.json`, `augment.yaml`, `perf/` |
+| `data/labels/` | only `review-notes.jsonl`, plus `_history/` |
+| `data/inbox/` | the web app's runtime state |
+| `data/_delete/` | retired material — moved, not deleted; the user deletes it themselves. What the 101 retired runs measured is in [`retired-runs.md`](retired-runs.md) before the directory goes |
+
+Two consequences worth carrying:
+
+- **The session id is not the directory name.** A recording's id keeps its `rg-` prefix — it is
+  the join key in every manifest row — while the directory dropped it. `sessions.session_dir()`
+  is the one place that maps one to the other; never join a path by hand.
+- **A human verdict never lives in a derived tree.** `corrections.jsonl` sits next to its
+  recording, `review-notes.jsonl` in `labels/`; a re-slice rebuilds crops, manifests, audit flags
+  and violation reports and must not be able to take a decision with it.
+
+Gone in the same move: `data/realgames/` (it became `recordings/`), `data/manifests/` (crop
+manifests moved into their pool, everything else to `reports/`), `data/_backup/`, `data/_perf/`
+(now `reports/perf/`), and the global `data/labels/corrections.jsonl` + `reviewed.jsonl`. Dated
+sections further down still name the old paths — they describe the state at the time and stay.
 
 ### The board store — what a session actually keeps (2026-08-17)
 
@@ -55,9 +96,9 @@ Two things the row has to carry beside the path, and both cost real time to lear
   stored raster does not. The candidate's geometry says 1008 where the export profile says 928, and
   a reader assuming its own number cut cells up to 59 px off on a 128 px crop. `usable_board`
   refuses a board whose numbers do not match the profile doing the cutting (`--pad-side` overrides).
-- **The board is the RAW warp, not straightened.** Its lens bow is still in it; both consumers pull
-  it straight with the row's `grid_lines` (`cx`/`cy` are that bow's parabola terms). Do not
-  straighten the store as well — that corrects twice.
+- **The board is written STRAIGHT** (2026-08-21). `realgames.straighten_boards` pulls the whole
+  raster through the row's mesh once and sets `board_straightened`; consumers cut plain rectangles
+  and must never straighten again. The matte follows its board — it IS that raster.
 
 `video -> webp -> labeling -> crop -> training`: the export decodes forward and warps in memory
 (`realgames.stream_frames`), so no PNG is written on the way. Frames are still written for an
@@ -67,12 +108,33 @@ undistorted set (`frames/lens.json`, which the video cannot reproduce) and for `
 
 ## 2. What a session is
 
+An ingested session — the shape the rest of this section describes, and the shape every rig
+capture had before `collect` went:
+
 ```
 data/sessions/20260721-205618/
   session.yaml     # session_id, profile, mode, created_at, frame_size, reviewed, notes
   log.jsonl        # one row per captured position
   frames/0000.png  # the raw frame (undistorted if a lens calib was active)
 ```
+
+A **recording** carries the same `session.yaml` + `log.jsonl` under its own folder, keeps
+`boards/` instead of source frames (see the board store below), and adds everything the import
+brought with it:
+
+```
+data/recordings/2026-08-08-00-39-57/          # session id: rg-2026-08-08-00-39-57
+  candidate.json  video.mp4  reference.pgn  files/   # the import
+  session.yaml  log.jsonl  boards/  dirty/           # what was cut from it
+  mattes/  matte.jsonl  scan.jsonl
+  review/  review-extra/                             # the review renders
+  corrections.jsonl                                  # this recording's human verdicts
+```
+
+`review/` and `review-extra/` were called `frames/` and `frames-extra/` until 2026-08-20, and the
+rename was not cosmetic: a merged `log.jsonl` stores `"frame": "frames/000150.png"` relative to
+its own directory, while the recording's `frames/` held a 720x816 review render — so the merge
+would have made the wrong image answer for the row.
 
 A `log.jsonl` row:
 
@@ -84,11 +146,10 @@ A `log.jsonl` row:
 - `corners` is the board quad in **`[a8, h8, h1, a1]`** order, in image pixels. It is stored
   per frame, so slicing needs no camera and no marker re-detection. If it is absent, `slice`
   falls back to detecting ArUco markers in the frame and **skips the frame** if it cannot.
-- `grid_lines` (the shape §2.1 spells out) is the frame's measured 18-line mesh.
-  With it `slice` cuts every cell at the board's OWN boundaries — perspectively per cell once the
-  mesh carries tilts — instead of at the nominal eighth, so the lens' barrel never reaches a
-  training crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh`
-  (~0.05 s per frame); without it the slice is unchanged.
+- `grid_lines` (the shape §2.1 spells out) is the frame's measured 18-line mesh. The EXPORT uses
+  it, not the slice: it straightens the stored board once so the barrel never reaches a training
+  crop. Written by `realgames export-session --fit` and by `chesslab session fit-mesh` (~0.05 s per
+  frame); `chesslab session straighten` is the retrofit for a store written before this.
 - `grid_lines_source` says whether that mesh was `measured` on the frame or `carried` from the
   median of the stable frames around it — a hand over the grid hides the lines, not the camera,
   which is not rebuilt mid-session. Carried meshes only claim a stage all their neighbours agree
@@ -112,7 +173,7 @@ profile that is 100, and a 173 px/square session loses 42 % of its linear resolu
 
 ### 2.1 Android "Stored" sessions carry a corrected quad beside their log
 
-An Android Stored recording lands as `data/realgames/<bundle>/files/sessions/<id>/` with the same
+An Android Stored recording lands as `data/recordings/<bundle>/files/sessions/<id>/` with the same
 `log.jsonl` shape plus sparse `frames/NNNN.jpg`. Its `corners` are the raw **MARKER** quad, and
 every consumer turns it into a playing field with one constant outset (`DEFAULT_MARKER_MARGIN`
 0.045). The best outset varies per session and per corner — measured 2026-08-15 across the 28
@@ -141,26 +202,41 @@ result beside the log:
   of the field side. Written only when **every** line was located, offsets strictly monotone,
   every |tilt| < 0.05; the curvature pair is all-or-nothing on top (|curv| < 0.08 — measured
   004251 outer lines reach 0.046, a ~10 px sagitta at 928 — its `d` folded into the offsets)
-  and drops alone when unmeasurable. Consumers cut each square as the
-  PERSPECTIVE quad of its four neighbour-line intersections — corners on the parabolas when
-  `cx`/`cy` ride along, so even a bowed outer line comes out straight; lens-agnostic, no
-  undistortion. With offsets alone (older sidecars) the scalar rectangles; absent or malformed,
-  the quad cut, one stage down per defect and never an error.
+  and drops alone when unmeasurable. `mesh_point` maps the ideal board onto the measured one —
+  offsets, tilts and parabolas together, a missing stage carried as zero — and `straighten_board`
+  remaps the whole raster through it. Lens-agnostic, no undistortion. Parity twins `meshPoint`
+  (CropBox.kt, `lib/warp.ts`), pinned on 100 shared points.
 - The file is **derived**: re-running overwrites it atomically, and deleting it only returns the
   session to the uncorrected marker quad.
 
 ---
 
-## 3. The global crop pool — `data/manifests/squares.jsonl`
+## 3. The crop pool — `data/crops/<tag>/manifest.jsonl`
+
+> **Umbenannt 2026-08-20:** der Pool hieß `data/squares/` und `squares__<tag>/`, die Manifeste
+> `squares*.jsonl` unter `data/manifests/`. Jetzt liegt jeder Pool als `data/crops/<tag>/`
+> beisammen **und trägt sein Manifest selbst** — `data/crops/<tag>/manifest.jsonl`, Default
+> `crops/default`. `data/manifests/` gibt es nicht mehr: Maschinenausgabe (`split.json`,
+> `augment.yaml`, `hard_empty*.jsonl`, `audit-flags*`, `correction-violations.jsonl`, `perf/`)
+> steht in `data/reports/`. Ältere, datierte Abschnitte weiter unten nennen noch die alten Pfade —
+> sie beschreiben den damaligen Stand und bleiben so stehen.
+
+> **Menschenurteile 2026-08-20:** sie sind das Einzige hier, das nichts nachproduziert — ein
+> Neuschnitt baut Crops, Manifeste, Audit-Flags und Violation-Reports neu und darf dabei keine
+> Entscheidung mitnehmen können. Deshalb liegt `corrections.jsonl` **bei seiner Aufnahme**
+> (`data/recordings/<ts>/corrections.jsonl`), nicht mehr global unter `data/labels/`; dort steht
+> nur noch `review-notes.jsonl` plus `_history/`. `reviewed.jsonl` ist ersatzlos weg, und
+> `corrections.jsonl` trägt seit dem 13-Klassen-Schema nur noch Identitäten — `occluded` ist keine
+> Klasse mehr, sondern die gemessene `coverage` (`docs/class-scheme.md`).
 
 One JSON row per crop. This is the **single source of truth** for what real training data
-exists; `data/squares/**.png` is just its pixel backing.
+exists; the pool's `<label>/` directories are just its pixel backing.
 
 ```json
-{"path": "data/squares/wR/20260630-080531_0000_a1.png", "label": "wR",
+{"path": "data/crops/default/wR/20260630-080531_0000_a1.png", "label": "wR",
  "session_id": "20260630-080531", "frame": "0000", "ply": 1, "square": "a1",
  "square_color": "dark", "fen": "…", "out_size": [128,128],
- "geometry": "warp", "photometry": "none", "ts": "…"}
+ "pad_side": 0.05, "pad_up": 0.0, "ts": "…"}
 ```
 
 Facts worth knowing before you touch it:
@@ -170,19 +246,74 @@ Facts worth knowing before you touch it:
   of that `session_id` and rewrites the file — that is what makes re-slicing idempotent. The
   old spec text ("one line per crop (append)", `specs/03-capture-labeling.md:87`) is stale.
 - **Variant pools exist.** `chesslab slice --variant-tag X` and `chesslab ingest --tag X` write
-  `data/manifests/squares__X.jsonl` + `data/squares__X/` instead, so experiments do not pollute
-  the real pool. `dataset build --source-manifest` accepts several pools at once.
+  `data/crops/X/` with its own `manifest.jsonl` instead, so experiments do not pollute the real
+  pool. `dataset build --source-manifest` takes those manifest paths and accepts several at once.
 - **Web reads go through `manifest_cache.py`** (mtime-keyed). Never re-read the whole manifest
   per request.
-- It is only consistent with `data/squares/` if every mutation went through the code. As of
+- It is only consistent with `data/crops/` if every mutation went through the code. As of
   2026-07-27 it is: 14,720 rows, 14,720 files, zero missing, zero orphans.
+
+### 3.1 Zwei Verbraucher, zwei Groessen — und warum 128 (2026-08-23)
+
+Der Pool und die Memmap sind **nicht** dieselbe Sache in zwei Aufloesungen. Sie haben
+verschiedene Leser, und beide sollen **aus der Quelle** kommen, nicht auseinander:
+
+| | Groesse | Leser |
+|---|---|---|
+| `data/crops/<tag>/` | **128 px** | der MENSCH, in der Labeling-Lane |
+| `packed_images.u8` | **Zielgroesse** (z. B. 80) | das MODELL |
+
+**Die 128 sind keine willkuerliche Reserve.** Sie sind die native Crop-Box des echten Exports:
+`board_size` 928 ergibt Zelle 116, `pad_side` 0,05 macht daraus 116 x 1,1 = **127,6 px**. Der
+Schnitt auf 128 ist dort also Faktor **1,000** — er skaliert nicht. Genau deshalb steht die Zahl da.
+
+**Fuer andere `board_size` gilt das nicht.** Gemessen ueber `square_to_crop_box`:
+
+| Pfad | `board_size` | Zelle | Box | Faktor auf 128 |
+|---|---|---|---|---|
+| echter Export | 928 | 116 | **128** | 1,000 |
+| Composite 4K | 1280 | 160 | 176 | 0,727 herunter |
+| Composite 1080p | 656 | 82 | 90 | **1,391 HOCH** |
+
+Wer den Composite-Pool auf 128 zwingt, skaliert also einmal zu viel — beim 1080p-Clip werden
+dabei Pixel erfunden, die `pack_dataset` sofort wieder wegwirft. Gemessen durch den echten Pfad
+(ArUco-Ecken, echte Homographie, `crops_for_frame`), Laplace-Varianz auf 80 px: 4K 980 gegen
+1219, 1080p 652 gegen 865 — also **1,24x** bzw. **1,33x** zu holen.
+
+**Der Fix ist aber NICHT, die Pool-Groesse zu aendern.** Das war ein Irrweg am 2026-08-23 (Commit
+`9a4b1d43`, zurueckgenommen mit `9d1bda44`): der Pool ist das Artefakt fuer den Menschen, und
+quellabhaengige Groessen machen die Lane inkonsistent. Richtig ist, die **Memmap direkt aus der
+Quelle** auf Zielgroesse zu schneiden — genau das macht `synth_build` bereits: „each selected
+frame is loaded ONCE, warped ONCE, and its selected squares are cropped straight into the final
+`packed_images.u8` memmap", mit virtuellen `mm://`-Zeilen statt Crop-Dateien.
+
+**Umgesetzt 2026-08-23:** `pack_dataset` schneidet Composite-Zeilen aus der QUELLE, sobald die
+Zielgroesse von der Dateigroesse abweicht. Moeglich, weil Kachel und Pose an der Frame-ID
+haengen und `composite.json` die Herkunft je Clip traegt.
+
+| Quelle | Dateien | Pixel-Pass | Schaerfe | Zeit |
+|---|---|---|---|---|
+| 1080p, 4 224 Crops | 609 | 819 | **1,34x** | 0,51x |
+| 4K, 640 Crops | 968 | 1 228 | **1,27x** | 2,80x |
+
+**Der Schaerfegewinn haelt, das Tempo NICHT.** Es haengt am Verhaeltnis von Datei-Oeffnen zu
+Video-Dekodieren: viele Crops aus einem kleinen Video -> die vielen kleinen WebP dominieren
+und der Quellweg gewinnt; wenige Crops aus 4K -> der Dekoder dominiert und die Dateien
+gewinnen. Wer den Weg waehlt, waehlt ihn fuer die Schaerfe, nicht fuer die Zeit.
+
+Reale Datensaetze haben keine `composite.json` und nehmen weiter den Dateiweg. Geschrieben
+wird mit `seek`, NICHT ueber `pack.row_window`: nach dem Split liegen die Zeilen eines Clips
+verstreut, ein Fenster ueber min..max waere fast die ganze Datei.
+
+Merksatz: **die Zahl 128 gehoert zu `board_size` 928, nicht zum Pool.** Wer eine andere Quelle
+anfaehrt, rechnet die Box neu — oder schneidet fuer das Modell gleich aus der Quelle.
 
 ---
 
 ## 4. What a dataset is
 
 A dataset is a **view** on the pool: a session selection plus a dedup and split policy. It
-copies no pixels for `rot=0` — `manifest.jsonl` rows point back at `data/squares/`.
+copies no pixels for `rot=0` — `manifest.jsonl` rows point back at `data/crops/`.
 
 ```
 data/datasets/occ-real/
@@ -198,10 +329,16 @@ The build (`dataset_build.build_dataset`) runs strictly in this order:
 2. **Assign whole sessions to splits** on the RAW rows (`dataset.assign_sessions_to_splits`).
 3. **Dedup — TRAIN ONLY.** `dedup_metadata` (≤ `per_cell_cap` per `(session, square, label)`,
    default 4). `dedup_phash` runs first *when enabled*, but it is **OFF by default since
-   2026-07-30** — see §5.12. The order matters and was the other way round until 2026-07-29 —
+   2026-07-30** — see §5.13. The order matters and was the other way round until 2026-07-29 —
    see §5.11.
-4. **Collapse labels** if `class_mode=occupancy` (14 classes → `empty`/`occupied`).
+4. **Collapse labels** to the target class list (`pieces13`, the default, drops `occluded` rows).
 5. Write manifest + split + stats, then **pack** into a memmap if ≥ 100,000 crops.
+
+A variant whose manifest only re-SELECTS rows another dataset already packed does not get a second
+copy: `chesslab dataset pack <name> --from <owner>` writes `packed_from` into `packed_meta.json`
+and reads the owner's raster. Measured 2026-08-20: 17 `xval` variants held 8.89 GB each of two
+distinct rasters — 118 GB for differing row selections. The link is refused when the owner lacks a
+crop the variant needs, and the digest still comes from the variant's own manifest.
 
 Rotation augmentation is a **train-time transform** (`torch_data._RandomRot90`), never
 materialized — `dataset.yaml`'s `rotations` field only switches it on.
@@ -299,15 +436,15 @@ If you park by hand, either re-slice afterwards or state in the README that the 
 
 ### 5.7 Two files named `split.json` mean different things
 
-- `data/manifests/split.json` — the **legacy global** split over the whole pool. Written only by
-  `chesslab split`. Read by legacy (`--dataset`-less) training, `eval`,
-  `quantize`, `gradcam` and `dataset verify`.
+- `data/reports/split.json` — the **legacy global** split over the whole pool. Written only by
+  `chesslab split` (`dataset.run_split`, which drops `augment.yaml` beside it). Read by legacy
+  (`--dataset`-less) training, `eval`, `quantize`, `gradcam` and `dataset verify`.
 - `data/datasets/<name>/split.json` — the **per-dataset** split, written by every dataset build.
   This is what `chesslab train --dataset <name>` uses.
 
 The current pipeline is the per-dataset one. The global file is a leftover (§7).
 
-Note also that `hard_empty.jsonl` protection is wired into **`dataset_build.build_dataset` only**
+Note also that `data/reports/hard_empty.jsonl` protection is wired into **`dataset_build.build_dataset` only**
 — the legacy `dataset.run_split` calls `make_split` without `priority_paths`, so mined hard
 negatives are *not* protected in the global split.
 
@@ -363,7 +500,7 @@ After **any** of these — rebuild:
 | you did | what it changed | what is still stale |
 |---|---|---|
 | recorded a new session | nothing yet — a session is frames + log, not crops | everything |
-| `chesslab slice --session <id>` | added/rewrote that session's rows in `squares.jsonl` | every dataset |
+| `chesslab slice --session <id>` | added/rewrote that session's rows in the pool's `manifest.jsonl` | every dataset |
 | flagged frames `unusable` (§5.3) | nothing until you re-slice | every dataset |
 | `archive_session` | removed the crops **and** the pool rows | every dataset built before it |
 | moved a session to `_parked/` by hand (§5.6) | pixels only — the rows still feed builds | every dataset, permanently |
@@ -375,14 +512,14 @@ The rebuild, end to end:
 uv run chesslab slice --session 20260727-...
 
 # 2. the session list is NOT derived — name every session the dataset should contain
-uv run chesslab dataset build occ-real-<date> --sessions <sid1>,<sid2>,... --classes occupancy
+uv run chesslab dataset build real13-<date> --sessions <sid1>,<sid2>,...   # --classes pieces13 by default
 
 # 3. train against the new name
-uv run chesslab train --dataset occ-real-<date> ...
+uv run chesslab train --dataset real13-<date> ...
 ```
 
-**Build under a new name, never in place.** `occ-real` is the baseline every occupancy number in
-`specs/18-occupancy-model/` was measured against; overwriting it makes those numbers unreproducible
+**Build under a new name, never in place.** Every published number was measured against a named
+dataset; overwriting one makes those numbers unreproducible
 and the comparison meaningless. Date-suffix the new one and record in `STATUS`/commit message which
 dataset a checkpoint was trained on.
 
@@ -393,8 +530,9 @@ Two traps that follow from "the session list is not derived":
   `manifest.jsonl`. Only a rebuild drops them.
 - **`--sessions` is the whole selection, not a delta.** Omitting a session removes it. There is no
   "add to dataset" command, and no CLI that lists sessions — assemble the list from the previous
-  `dataset.yaml`'s `session_ids` plus whatever `data/sessions/` has gained since
-  (`chesslab session list` is the readable view).
+  `dataset.yaml`'s `session_ids` plus whatever `data/recordings/` and `data/sessions/` have gained
+  since (`chesslab session list` is the readable view). Name the **id**, not the directory: a
+  recording's id carries the `rg-` prefix its folder dropped (§1.1).
 
 ### 5.10 `per_cell_cap`, not phash, is what decides how much data you get
 
@@ -454,7 +592,7 @@ Everything below is preserved, nothing here is deleted.
 Consolidating #4 into #3 would cost **nothing but time to write the note**: both trees are on the
 same volume (`C:`, 406 GB free), so the move is a filesystem rename, not a copy — 13.66 GB moved
 instantly, and `data/` is gitignored so nothing enters git. `data/_parked/` is invisible to the
-pipeline (`list_sessions` reads `data/sessions` only). The reason it may have been put outside
+pipeline (`sessions.all_sessions` walks `recordings/` and `sessions/`, nothing else). The reason it may have been put outside
 the repo deliberately is exactly that: distance from anything that walks `data/`. **Ask before
 moving it.**
 
@@ -491,14 +629,18 @@ See §9 for what the 19 sessions are worth.
 
 ## 7. Stray artefacts — what they are and whether anything reads them
 
-Traced across `src/`, `scripts/`, `tests/`, `synth/`, the FastAPI backend and the React frontend.
+Traced across `src/`, `scripts/`, `tests/`, `synth/` and the (since deleted) FastAPI backend and
+React frontend. The paths below are the pre-2026-08-20 tree: `data/manifests/*` now lives in
+`data/reports/`, and `corrections.jsonl` next to its recording (§1.1). The verdicts are what was
+traced then — `corrections.jsonl` in particular has had a writer again since `platform/app`
+(`POST /api/corrections`).
 
 | file | written by | read by | verdict |
 |---|---|---|---|
 | `data/manifests/squares.jsonl.bak` | **no code** — created by hand 26.07 | nothing | orphan. Nothing in the repo creates or cleans `*.jsonl.bak`; the only `.bak` writer is `CalibrationProfile.save`, for YAML profiles. |
 | `data/manifests/split.json` (02.07) | `dataset.run_split` | legacy training / `eval` / `quantize` / `gradcam` / `dataset verify` | **live code path, stale content.** It names sessions that no longer exist (`20260630-083659`, `-010216`, `-014453`) and predates every current dataset. Harmless while everything runs `--dataset`, misleading the moment someone does not. |
 | `data/manifests/augment.yaml` (02.07) | `dataset.write_augment_yaml`, as a side effect of every `run_split` | **nothing** | documentation artifact by design — its own header says "generated from `config.AUGMENT` — edit the dataclass, not this file". The on-disk copy is stale w.r.t. the current dataclass (it lacks `noise_std`, `erase_*`, `bg_*`). |
-| `corrections.jsonl` | **no writer at all** since the relabel tab went in `f31d933`; `upsert_corrections` was deleted with the web tests on 2026-08-07. Pruning in `delete_session` / `trim_session` remains | `run_slice` → `label_overrides`, `experiment.slice_variant` | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
+| `corrections.jsonl` | **no writer at all** since the relabel tab went in `f31d933`; `upsert_corrections` was deleted with the web tests on 2026-08-07. Pruning in `delete_session` / `trim_session` remains | `run_slice` → `label_overrides` (`experiment.slice_variant` was the second reader until `experiment.py` was deleted on 2026-08-20) | read path is live, write path is not wired to any UI or CLI. Human relabels currently cannot be recorded. Note `archive_session` prunes the manifest but *not* corrections — an asymmetry vs `delete_session`. |
 | `hard_empty.jsonl` | `scripts/mine_hard_empty.py` | `dataset_build.build_dataset` → `priority_paths` (protects mined hard empties from the `empty` cap) | live and useful. Not honoured by the legacy `run_split` (§5.7). |
 | `hard_empty.synthetic.jsonl` | `scripts/mine_hard_empty.py` (quarantine dump for legacy non-camera rows) | **nothing** | pure quarantine; never consumed. |
 | `hard_empty.jsonl.bak` (parked tree) | by hand | nothing | orphan, same as above. |
@@ -596,6 +738,8 @@ they are reproducible outputs, not inputs.
 - `docs/architecture-review/architecture-overview.md` — component map.
 - `README.md` — every CLI command, per stage.
 - `src/chesslab/dataset.py:177` — the split assigner's docstring, which is its specification.
+- **§13** — the alignment graveyard: every approach measured and rejected, so nobody re-tries the
+  saddle-point detector. This is what `src/chesslab/alignment.py`'s "see what lost" pointers mean.
 - **§11** — what the camera delivers vs. what the network is fed (`board_size`, `out_size`,
   `infer_size`), and what the splits actually are. `specs/22-inference-resolution/STATUS.md` holds
   the raw measurement.
@@ -626,13 +770,12 @@ What is left after the filter bounds the gain, and is worth knowing before plann
 a cell holds **2** distinct crops at the median, 7 at p90, 145 at most, and only 363 of 2,339
 cells have more than four. The headroom sits in a few well-populated cells.
 
-### 5.12 An occupancy build DROPS `occluded` rows
+### 5.12 A `pieces13` build DROPS `occluded` rows
 
 `collapse_labels` used to refuse the build outright. That was right while a hand label on a real
 session was the only way such a row could appear — there it means something went wrong upstream.
 Renders with `--occlusion-p` produce them deliberately and in bulk (3,128 rows in one isolate
-stage, 15,239 in a boards stage), so refusing protected nothing and made occluders unusable for
-occupancy training.
+stage, 15,239 in a boards stage), so refusing protected nothing and made occluders unusable.
 
 They are **dropped, not mapped**: a covered square may hold a piece or nothing, so either class
 is a guess. The count and its share of the pool are printed — the guard's real purpose was that
@@ -675,6 +818,30 @@ middle ground and nobody has measured them. Note that even at 0 the discarded cr
 
 `per_cell_cap` (default 4) still bounds the case this policy exists for — a piece that never
 moved across a long session. That cap is metadata-based and exact; it needs no visual guess.
+
+### 5.14 The recorded splits do not reproduce, and the cause is still unknown
+
+`specs/33` tested the standing explanation ("dict ordering") and **refuted** it: the mechanism is
+real but needs equally-sized sessions, and over **400 random manifest orders this corpus yields
+exactly one split**. The recorded splits of `occ-real5nd` / `occ-real6` still do not reproduce
+from their own parameters (verified against the raw pre-dedup pool, not the stored manifest), and
+the last change to `assign_sessions_to_splits` predates both builds. No candidate cause is on
+record. The rule stands and is the only defence: reuse `split.json`, build twins with `--like`.
+
+### 5.15 A packed memmap can serve the pixels of a previous geometry — `occ-real5nd-13c` did
+
+`_manifest_digest` covers path + label + `out_size`, so it cannot see a crop whose **pixels**
+changed under an unchanged path — which is exactly what a corpus re-slice does to every row at
+once. Audited by mtime over all 12 packed datasets (`specs/33`): `occ-real6a`, `occ-real7a`,
+`occ-warm`, `occ-orange` clean; **`occ-real5nd-13c` poisoned** — packed 2026-07-31 00:45, all 400
+sampled crops rewritten after, digest still matching, and `load_packed` was still serving it.
+No conclusion of record rests on it (its `specs/29` numbers are void under §12 anyway), but it was
+live.
+
+Closed since: `load_packed` stats `_STALE_SAMPLE = 256` evenly spread rows against the **memmap's
+own** mtime, not the sidecar's (`src/chesslab/training/pack.py:195`, `_rewritten_since_pack`).
+Miss probability for a re-slice touching 5 % of rows is 0.95^256 ~ 2e-6. A false positive costs the
+slower per-PNG loader; a false negative trains a model on the previous geometry with no warning.
 
 ---
 
@@ -758,7 +925,8 @@ Not recorded anywhere; compute it from the first logged quad (this is exactly wh
 
 ```bash
 .venv/Scripts/python.exe -c "import json, math, sys; \
-c = json.loads(open(f'data/sessions/{sys.argv[1]}/log.jsonl').readline())['corners']; \
+from chesslab.sessions import session_dir; \
+c = json.loads((session_dir(sys.argv[1])[0] / 'log.jsonl').open().readline())['corners']; \
 print(sum(math.dist(c[i], c[(i + 1) % 4]) for i in range(4)) / 4 / 8)" 20260708-021722
 ```
 
@@ -891,9 +1059,38 @@ rectified pixels (one cell = 100 px):
 | before | 3.2 – 6.5 per session | up to 8.9 | **14.8** | 14 of 447 sampled |
 | after | 2.0 – 3.3 | up to 3.3 | **4.3** | 0 of 447 |
 
+> ⚠ **Those numbers are on the PINNED ruler and are misleading today.** `line_positions` pinned
+> line index 0 and 8 at 0 and `board_size` — the values the warp puts there by construction — so a
+> uniform SCALE error read 25 % short and the metric was partly a statement about its own
+> assumption. `specs/41` (2026-08-03) unpinned it — `grid_lines` reads all 9 lines per axis in a
+> padded warp, and `line_positions` / `board_lattice` / `line_geometry` are gone from both
+> languages — and re-read the **same eight already-realigned sessions**, worst square offset per
+> frame, median (max):
+>
+> | ruler | as recorded | after `correct_quad` |
+> |---|---|---|
+> | pinned (the table above) | 2.0 – 3.3 | — |
+> | **unpinned (today's)** | **3.0 (3.2) – 5.8 (9.3)** | **2.0 (2.2) – 3.3 (4.9)** |
+>
+> The corpus did not get worse; the ruler got longer. Every session still improves under the fit,
+> none regresses. **Any offset recorded before 2026-08-03 is not comparable to one recorded
+> after**, and the flag counts in the tables of this section moved on that account alone (39 → 42
+> on the same 267 frames, `specs/30`).
+
 Note what the "before" column is not: it is not a few broken frames. **No session sat near zero.**
 The two largest sessions of 2026-07-21, which dominate the training corpus, were the worst
 (median 5.4 and 6.5, max 12.2 and 14.8).
+
+**Where 7.7 px comes from** (`specs/30` entry, derived once, do not re-derive): the reference board
+has 2 mm grooves and a 29.3 cm playing field including the outer grooves; warped to `board_size`
+800 that is 1 px = 0.364 mm, a groove is 5.5 px, and a crop tolerates
+`pad_side (5 px) + half a groove (2.7 px)` = **7.7 px**. The user independently eyeballed 9 px.
+The code has since moved off the absolute number: `alignment.MAX_OFFSET_FRAC = 0.04`
+(`src/chesslab/alignment.py:115`, `Alignment.kt:66`) — a **fraction of a cell**, so it means the
+same at cell 100 and cell 200, and the verdict additionally requires all 18 grid lines read.
+7.7 px on an 800 board is 7.7 %; the 4 % gate is argued from the repaired band of this section
+(damage starts at 3.2 %, repaired sessions reach 3.3 % median / 4.3 max) and has **never been
+swept against phantom count** — `specs/41` flags that as owed.
 
 ### 12.2 Why it went unnoticed for so long
 
@@ -935,6 +1132,13 @@ The argmax miss count rises 12 → 19, which is not a regression: at the operati
 - **Every path-A number on record.** Path A re-cuts from the session frames through the current
   profile *and the logged corners*, so all of them shifted the moment the corners did. Re-measure
   the reference in the same run as any candidate; never carry a row over.
+  `specs/26` hit this from the other side and it is the cleanest proof on file: its reference row
+  (0 phantoms / 11 misses / margin 0.238 / 0.343) failed to reproduce — same frozen command, same
+  checkpoint, **empty `git diff` over `src/` and `scripts/`** — returning 1 / 12 / 0.316 / 0.512.
+  Cause: `data/calibration/phone.yaml` was recalibrated at 15:17 while `occ-real6` was built at
+  15:11. A recalibration silently invalidates every earlier path-A number. Hence the rule
+  **every phase measures its own baseline in the same run as its candidate**, same command, same
+  day, both rows reported side by side.
 - **The hard-negative mining of 2026-07-21 and 2026-07-31.** 9 260 of 9 290 mined errors sat on
   **dark** squares, diagnosed since July as "neighbour-crown bleed" — which is what a crop box
   displaced across a groove produces. Those keep-lists mine a geometry artefact and should be
@@ -954,3 +1158,71 @@ uv run python scripts/check_alignment.py --session <sid> --sample 0 --max-off 0.
 `log.jsonl` is backed up as `log.jsonl.bak-<stamp>` before anything is written and the corrected
 rows are marked `corners_source: "auto-corrected"`, so the review UI keeps showing what was measured
 and what was computed. Re-slice afterwards — the crops do not follow the log on their own.
+
+---
+
+## 13. The alignment graveyard — what was measured and LOST
+
+> Source: `specs/30-sharper-alignment/STATUS.md` (session `20260731-102458`, `board_size` 800,
+> 1 cell = 100 px, pinned ruler) and `specs/41-the-board-is-its-own-ruler/STATUS.md`
+> (`VID_20260802_222741.mp4`, unpinned ruler). **This is the section `src/chesslab/alignment.py`'s
+> "see what lost" pointers mean.** What SHIPPED is in that module's own docstring; what is here is
+> the list of things already tried, so nobody re-tries them.
+>
+> ⚠ The two packs use different rulers (§12). Within one row the instrument is the same on both
+> sides, so the ranking holds; absolute values across packs do not compare.
+
+### 13.1 The losers
+
+| approach | measured | why it lost | spec |
+|---|---|---|---|
+| **`cv2.findChessboardCornersSB`** for the 81 intersections (Duda & Frese, BMVC 2018) | **0 of 30 configurations** found the 7×7 interior lattice: {raw frame, rectified warp} × {blur σ 0, 0.8, 1.5, 3.0, 5.0} × {NORMALIZE+EXHAUSTIVE+ACCURACY, NORMALIZE, no flags}. `CALIB_CB_LARGER` reaches a 3×3/4×4 sub-grid on the raw frame at 1.2–1.6 s/frame, 7×3 on the piece-free middle strip | The groove is a hard valley wider than SB's ±4 px box kernel, and its occlusion cliff sits at blob ≈ 0.8 × cell — exactly where real pieces sit | `41` |
+| **2-D saddle-point detector** as an addition to the band fit | 27–38 of 49 interior crossings found; lattice residual rms **2.32 px vs the collapsed profile's 1.10**; against the human 7.89 px vs the band lattice's 5.14; *adding* it makes things **worse** (5.73 vs 5.14). `cv2.cornerSubPix` seeded at nominal lands between (1.80 px at a 15 px window, 2.38 at 11) | A whole-board collapse averages 800 rows; a corner window averages 45×45 px. Narrow, low-contrast grooves, often under a piece | `30` |
+| **RANSAC instead of Huber** | **7.28 px vs 5.35** on perturb-and-recover | The bad samples are not sparse outliers but a systematic minority (grooves under pieces); a hard inlier/outlier cut throws away good data with them | `30` |
+| **Weighting by notch depth** | **5.37 vs 5.35** — nothing | `_groove_centre` (today `_notch_centre`) was discarding a confidence signal that carries no information | `30` |
+| **Number of bands** 2 / 4 / 8 | **5.26 / 5.13 / 5.23** — flat | As the noise algebra predicts: B bands cost sqrt(B) per sample and buy B samples | `30` |
+| **Similarity fit instead of affine** | best in the small-error regime (**2.66**) and worst from the real recorded quads (**7.37**) | The error it refuses to model is really there | `30` |
+| **Removing the leftover bias as a constant** | residual after correction is 97 % systematic per frame (4.07 px systematic vs 0.28 px random over 5 draws) — but subtracting the leave-one-out mean over the 14 hand frames made it **worse, 5.47 vs 5.13** | Systematic per frame, not constant across frames | `30` |
+| **Undistorting first** | lattice residual **1.48 → 4.24 px** | These frames are already corrected. `session.yaml` says `undistorted: true` while `scripts/ingest_video_session.py` says it stores frames raw — the flag is right, the ingest comment is not | `30` |
+| **Blur before measuring** | 5.25 vs 5.13 | The notch is 3–5 px wide; blurring it discards the signal | `30` |
+| **Symmetrising the notch estimator** | bit-identical | The shipped half-depth segment centroid is already symmetric | `30` |
+| **Every other notch estimator** (old p90-baseline centroid, plain linear-baseline centroid, 3-point parabola, half-depth parabola) | 5.13 / 5.28 / 5.28 / 5.13 / 5.23 against the human; 4.49 vs 4.45 on the noise floor | All inside the noise. **The estimator was never the problem** | `30` |
+| **Modelling the board's own line irregularity** | real and stable (per-line offsets from two disjoint session halves agree to 0.17 px) but only ±0.75 px peak-to-peak after what a homography absorbs; changed nothing | The grooves genuinely are not at exact eighths, and it is far too small to matter | `30` |
+| **CLAHE before the line search** | 3.04 / 2.22 / 1.93 / 2.37 / 2.67 / 2.32 px **against** 3.12 / 2.21 / 1.80 / 2.24 / 2.46 / 2.25 without | `_notch_centre` already removes a *local* baseline over a third of a cell, so the 6× illumination gradient (per-square mean luma 25 → 168 in one frame) never reaches it | `41` |
+| **Affine fit over 2-D lattice intersections** (fix the lattice, keep the fit) | 22.60 / 21.19 / 8.31 / 19.75 / 13.11 / 21.14 px — worse than the affine fit over 1-D samples | The DOF, not the correspondences, was the limit | `41` |
+| **Per-line slope regression** (9 independent 8-sample fits) | frame 900: **36 mrad of invented tilt** on the rank-7/8 line, 16.3 px at the board edge, on a quad that was correct | Pooled `a + b·k` per axis instead: nine 8-sample regressions invent tilt, two parameters over ~70 samples do not | `41` |
+| **Direct 7×7 lattice refit over `line_positions`** (the since-deleted pinned reader; 2026-08-03, pre-pack) | 11.1–18.0 px, and 14.1–31.7 px including the pinned outer lines | The fix was 2-D correspondences + a projective fit, not a better 1-D fit | `41` |
+| **Mean band collapse instead of median** | within 0.1 px on clean frames | Median kept, but the win is small — the bands and the notch-width test do the work | `41` |
+
+Literature already consulted, so it does not have to be again (`specs/41`): Duda & Frese BMVC 2018;
+chesscog (Wölflein & Arandjelović, *J. Imaging* 2021 — its "rectify first, then recover the lines in
+the rectified frame" IS the architecture in use); ChESS (Bennett & Lasenby 2014); ROCHADE; OCPAD
+(no public implementation); libcbdetect / PyCBD; LSD; ELSED; Steger; Frangi/Sato/Meijering valley
+filters (**scikit-image not installed**); phase congruency (`phasepack`, not installed); ChessReD2K
+(2 078 real smartphone images with hand-annotated corners — the obvious external benchmark, unused).
+The environment has `opencv-python`, **not** contrib: no `ximgproc`, no `createFastLineDetector`,
+no `createStructuredEdgeDetection`.
+
+### 13.2 `quad_spread` is PRECISION, not accuracy — never read it as a correctness gate
+
+It compares each frame's quad against the **median of the same quads**. On
+`VID_20260802_222741.mp4` it scored **p90 0.93 rectified px with 99.9 % "detected" while every quad
+in the video was 27–33 px out**, and it hid that for a day (`specs/41`). It is kept only as a
+board-**movement** check and is labelled as such in the report and in `candidate.json`
+(`GeometryScan.kt:270`). The absolute per-frame verdict is `alignment_of` / `alignmentOf`
+(`src/chesslab/alignment.py:434`, pinned by
+`tests/test_alignment.py:348`): worst offset ≤ `MAX_OFFSET_FRAC` **and** all 18 lines read.
+
+### 13.3 The one corpus-wide component the per-frame fit does NOT remove
+
+The signed per-line residuals say the error is systematic per setup, not noise: two sessions of the
+same setup agree to 0.1 px, different setups disagree in **sign**, and the between-session spread
+(1.1–2.5 % of a cell) is as large as the corpus mean. A single global constant would therefore have
+been wrong — but one component is shared. The **y residual runs `+1.2 +3.1 +1.8 −1.6 −0.7 −1.1 0.0`
+% of a cell on every rig, the phone included** (`specs/30`, after the 19-session re-fit).
+
+That is a candidate for a **profile-level** fix, it is not what the per-frame fit removes, and
+**nobody has taken it**. Also untried, and named in `specs/30` as the most promising remaining lead:
+giving `improve_quad` the FEN, so grooves under a piece can be **excluded** instead of down-weighted
+— the residual 5.1 px to the human is bias, not noise (the fit converges to within 0.28 px), so a
+better estimator is proven not to close it.

@@ -19,9 +19,9 @@ export function isJobStep(step: string | null): step is JobStep {
 }
 
 /** A step that will not run again by itself: the human presses, or nothing happens (§5.4). */
-export type Repair = { name: string; step: JobStep; reason: string };
+type Repair = { name: string; step: JobStep; reason: string };
 /** Per job step, the recordings sitting on it, oldest first — the backlog one press drains. */
-export type Waiting = Record<JobStep, string[]>;
+type Waiting = Record<JobStep, string[]>;
 export type Backlog = {
   waiting: Waiting;
   repair: Repair[];

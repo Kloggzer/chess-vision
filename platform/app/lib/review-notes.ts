@@ -15,10 +15,11 @@ export type ReviewNote =
   | { session_id: string; frame: string; verdict: FrameVerdict; reason?: string }
   | { session_id: string; ply: number; verdict: "bad-interval"; reason?: string };
 
+
 export type ReviewNoteRow = ReviewNote & { ts: string };
 
 export function reviewNotesPath(): string {
-  return path.join(dataDir(), "manifests", "review-notes.jsonl");
+  return path.join(dataDir(), "labels", "review-notes.jsonl");
 }
 
 export function validateNote(row: unknown): ReviewNote {

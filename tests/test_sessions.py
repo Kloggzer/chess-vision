@@ -22,14 +22,19 @@ def _mk_session(paths, sid, frames=2, archived=False):
     return d
 
 
+def _manifest(paths, tag="default"):
+    """A pool carries its own manifest now: `crops/<tag>/manifest.jsonl`."""
+    return paths.crops / tag / "manifest.jsonl"
+
+
 def _mk_manifest(paths, session_ids):
-    mp = paths.manifests / "squares.jsonl"
+    mp = _manifest(paths)
     mp.parent.mkdir(parents=True, exist_ok=True)
     mp.write_text("\n".join(json.dumps({"session_id": s}) for s in session_ids) + "\n", encoding="utf-8")
 
 
 def _mk_crop(paths, sid, frame="0000", square="e1", label="wK"):
-    d = paths.squares / label
+    d = paths.crop_pool / label
     d.mkdir(parents=True, exist_ok=True)
     p = d / f"{sid}_{frame}_{square}.png"
     p.write_bytes(b"x")
@@ -47,10 +52,10 @@ def test_list_sessions_reports_frames_and_crops(tmp_path):
 
 
 def test_archive_prunes_an_ingested_session_from_its_variant_pool(tmp_path):
-    """An ingested session is sliced into `squares__<tag>` — archiving must reach that too.
+    """An ingested session is sliced into `crops/<tag>` — archiving must reach that too.
 
-    `list_sessions` reads its crop count from `manifests/squares__<tag>.jsonl`, but archiving
-    purged only `data/squares` and filtered only `squares.jsonl`. The directory moved, the crops
+    `list_sessions` reads its crop count from that pool's own manifest, but archiving purged
+    only the default pool and filtered only its manifest. The directory moved, the crops
     and the rows stayed, and the session kept contributing to every dataset built afterwards —
     while the archive index recorded `removed_crops: 0` as if there had been nothing to remove.
     """
@@ -60,10 +65,10 @@ def test_archive_prunes_an_ingested_session_from_its_variant_pool(tmp_path):
         yaml.safe_dump({"session_id": "chesscog__s1", "mode": "ingested", "profile": "chesscog"}),
         encoding="utf-8")
 
-    pool = paths.root / "squares__chesscog" / "wK"
+    pool = paths.crops / "chesscog" / "wK"
     pool.mkdir(parents=True)
     (pool / "chesscog__s1_0000_e1.png").write_bytes(b"x")
-    variant = paths.manifests / "squares__chesscog.jsonl"
+    variant = _manifest(paths, "chesscog")
     variant.parent.mkdir(parents=True, exist_ok=True)
     variant.write_text(json.dumps({"session_id": "chesscog__s1"}) + "\n"
                        + json.dumps({"session_id": "chesscog__s2"}) + "\n", encoding="utf-8")
@@ -87,47 +92,51 @@ def test_archive_removes_crops_and_manifest_then_restore(tmp_path):
     r = S.archive_session("s1", "test", paths)
     assert r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists() and (paths.sessions_archive / "s1").exists()
-    kept = [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
+    kept = [json.loads(line)["session_id"] for line in _manifest(paths)
             .read_text(encoding="utf-8").splitlines() if line.strip()]
     assert kept == ["s2"]                                  # only s2 stays in the manifest
-    assert not (paths.squares / "wK" / "s1_0000_e1.png").exists()
-    assert (paths.squares / "wK" / "s2_0000_e1.png").exists()  # other session untouched
+    assert not (paths.crop_pool / "wK" / "s1_0000_e1.png").exists()
+    assert (paths.crop_pool / "wK" / "s2_0000_e1.png").exists()  # other session untouched
 
     S.restore_session("s1", paths)
     assert (paths.sessions / "s1").exists() and not (paths.sessions_archive / "s1").exists()
 
 
-def test_delete_removes_dir_crops_manifest_and_corrections(tmp_path):
+def test_delete_removes_dir_crops_manifest_and_corrections(tmp_path, monkeypatch):
     paths = config.Paths(root=tmp_path)
-    _mk_session(paths, "s1")
+    monkeypatch.setattr(config, "DATA", paths)
+    sdir = _mk_session(paths, "s1")
+    other = _mk_session(paths, "s2")
     _mk_manifest(paths, ["s1", "s2"])
     _mk_crop(paths, "s1")
-    cp = paths.corrections
-    cp.parent.mkdir(parents=True, exist_ok=True)
-    cp.write_text("\n".join(json.dumps({"session_id": s, "frame": "0000", "square": "e1", "label": "wK"})
-                            for s in ("s1", "s2")) + "\n", encoding="utf-8")
+    for sid, d in (("s1", sdir), ("s2", other)):
+        (d / "corrections.jsonl").write_text(json.dumps(
+            {"session_id": sid, "frame": "0000", "square": "e1", "label": "wK"}) + "\n", encoding="utf-8")
 
     r = S.delete_session("s1", paths)
     assert r["deleted"] and r["removed_crops"] == 1
     assert not (paths.sessions / "s1").exists()
-    assert [json.loads(line)["session_id"] for line in (paths.manifests / "squares.jsonl")
+    assert not (sdir / "corrections.jsonl").exists()
+    assert [json.loads(line)["session_id"] for line in _manifest(paths)
             .read_text(encoding="utf-8").splitlines() if line.strip()] == ["s2"]
-    assert [json.loads(line)["session_id"] for line in cp.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["session_id"] for line
+            in (other / "corrections.jsonl").read_text(encoding="utf-8").splitlines()
             if line.strip()] == ["s2"]
 
 
-def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_path):
+def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_path, monkeypatch):
     paths = config.Paths(root=tmp_path)
+    monkeypatch.setattr(config, "DATA", paths)
     sdir = _mk_session(paths, "s1", frames=4)
     for i in range(4):
         (sdir / "frames" / f"{i:04d}.png").write_bytes(b"x")
         _mk_crop(paths, "s1", frame=f"{i:04d}", square="e1")
-    paths.manifests.mkdir(parents=True, exist_ok=True)
-    (paths.manifests / "squares.jsonl").write_text(
+    _manifest(paths).parent.mkdir(parents=True, exist_ok=True)
+    _manifest(paths).write_text(
         "\n".join(json.dumps({"session_id": "s1", "frame": f"{i:04d}"}) for i in range(4)) + "\n",
         encoding="utf-8",
     )
-    paths.corrections.write_text(
+    (sdir / "corrections.jsonl").write_text(
         "\n".join(json.dumps({"session_id": "s1", "frame": f"{i:04d}", "square": "e1", "label": "wK"})
                   for i in range(4)) + "\n",
         encoding="utf-8",
@@ -149,11 +158,12 @@ def test_trim_session_removes_tail_frames_crops_manifest_and_corrections(tmp_pat
     reject_meta = yaml.safe_load((reject_dir / "session.yaml").read_text(encoding="utf-8"))
     assert reject_meta["source_session_id"] == "s1"
     assert reject_meta["mode"] == "rejected-tail"
-    assert not (paths.squares / "wK" / "s1_0002_e1.png").exists()
-    rows = [json.loads(line) for line in (paths.manifests / "squares.jsonl").read_text(encoding="utf-8").splitlines()
+    assert not (paths.crop_pool / "wK" / "s1_0002_e1.png").exists()
+    rows = [json.loads(line) for line in _manifest(paths).read_text(encoding="utf-8").splitlines()
             if line.strip()]
     assert [row["frame"] for row in rows] == ["0000", "0001"]
-    corr = [json.loads(line) for line in paths.corrections.read_text(encoding="utf-8").splitlines() if line.strip()]
+    corr = [json.loads(line) for line in (sdir / "corrections.jsonl").read_text(encoding="utf-8").splitlines()
+            if line.strip()]
     assert [row["frame"] for row in corr] == ["0000", "0001"]
     log = [json.loads(line) for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     assert [Path(row["frame"]).stem for row in log] == ["0000", "0001"]

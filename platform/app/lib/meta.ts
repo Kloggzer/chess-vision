@@ -1,5 +1,5 @@
 /**
- * `data/realgames/<name>/ui-meta.json` — what the UI knows about a game that the pipeline does
+ * `data/recordings/<name>/ui-meta.json` — what the UI knows about a game that the pipeline does
  * not: a human-readable title and the archived flag.
  *
  * A separate file ON PURPOSE: `candidate.json` is rewritten wholesale by the desktop `label`

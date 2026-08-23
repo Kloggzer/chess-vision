@@ -97,7 +97,7 @@ export function Tiles({ pool, view, provenance }: { pool: Pool; view: DatasetVie
         label="Realpartien im train-Split"
         sub={view ? `${num(view.shares.real)} von ${num(view.shares.total)} Crops` : "kein Datensatz gewählt"}
         value={view ? pct(view.shares.realShare) : "—"}
-        why="gemessen: 5,3 % → 2 Phantome (specs/53 STATUS:85); 50 % → 105 Phantome (TODO.md:203). Dazwischen ist nichts gemessen."
+        why="gemessen 2026-08-10: 5,3 % → 2 Phantome, 50 % → 105. Dazwischen ist nichts gemessen."
       />
       <Tile
         label="Modell-Lesarten (D2)"
@@ -131,7 +131,7 @@ export function D2Banner({ entries, summary }: { entries: Provenance[]; summary:
           </li>
         ))}
       </ul>
-      {entries.length === 0 ? <p className={MUTED}>Keine Sessions unter <code>data/realgames/</code>.</p> : null}
+      {entries.length === 0 ? <p className={MUTED}>Keine Sessions unter <code>data/recordings/</code>.</p> : null}
     </details>
   );
 }
@@ -347,13 +347,13 @@ function OccludedPool({ view, pool, fit }: { view: DatasetView; pool: Pool; fit:
 }
 
 /** `real14-all-80-v1` → `real14-all-80-v2`; the command must name a NEW dataset, never rebuild one. */
-export function nextVersion(name: string): string {
+function nextVersion(name: string): string {
   const match = /-v(\d+)$/.exec(name);
   return match ? `${name.slice(0, -match[0].length)}-v${Number(match[1]) + 1}` : `${name}-v2`;
 }
 
 const MARKS = [
-  { at: 0.053, label: "5,3 %", why: "gemessen: 5,3 % Realpartien-Anteil → 2 Phantome (specs/53 STATUS:85)" },
+  { at: 0.053, label: "5,3 %", why: "gemessen 2026-08-10: 5,3 % Realpartien-Anteil → 2 Phantome" },
   { at: 0.5, label: "50 %", why: "gemessen: 50 % → 105 Phantome (TODO.md:203). Dazwischen ist nichts gemessen." },
 ];
 
@@ -396,7 +396,7 @@ export function SharesBlock({ view }: { view: DatasetView }) {
         <pre className="bg-muted mt-1 overflow-x-auto rounded px-2 py-1 select-all">
           {`uv run chesslab dataset build ${nextVersion(name)} \\
   --sessions <aus dataset.yaml session_ids kopieren> \\
-  --source-manifest data/manifests/squares.jsonl,data/manifests/capped-rg-<datum>.jsonl`}
+  --source-manifest data/crops/<tag>/manifest.jsonl,data/crops/capped-rg-<datum>/manifest.jsonl`}
         </pre>
         <p className="mt-1">
           Kein Code-Pfad erzwingt eine Ergänzungs-Obergrenze: <code>--source-manifest</code> (cli.py:725) nimmt einen von
@@ -487,7 +487,7 @@ export function PacksBlock({ bundles, dirty }: { bundles: Bundle[]; dirty: Sessi
           <h3 className="text-sm font-semibold">Dirty-Anteil je exportierter Session</h3>
           <span className={MUTED}>Achse 0–100 % der Frames</span>
           <Why>
-            Nenner ist die Zeilenzahl von data/sessions/rg-&lt;n&gt;/log.jsonl — exportierte Frames, keine gesampelten.
+            Nenner ist die Zeilenzahl von data/recordings/&lt;n&gt;/log.jsonl — exportierte Frames, keine gesampelten.
           </Why>
         </div>
         <BarRows bars={bars} max={1} />

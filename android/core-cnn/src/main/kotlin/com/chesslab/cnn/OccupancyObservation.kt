@@ -17,6 +17,9 @@ data class OccupancyObservation(
     val conf: Map<String, Double>? = null,
     // second-best class probability; used to reject uncertain automatic promotion choices
     val runnerUpConf: Map<String, Double>? = null,
+    val invalidMassBySquare: Map<String, Double> = emptyMap(),
+    /** Non-null only when this observation has been conditioned on a position prior. */
+    val raw: OccupancyObservation? = null,
 ) : CnnObservation {
     /** `cnn_recovery.py:43` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
@@ -32,7 +35,8 @@ data class OccupancyObservation(
         thr: Double,
     ): Boolean =
         maxOf(pOcc.getValue(square), pEmpty.getValue(square)) >= thr &&
-            pOccluded.getValue(square) < (1.0 - thr)
+            pOccluded.getValue(square) < (1.0 - thr) &&
+            !invalidConfident(square, thr)
 
     /**
      * `cnn_recovery.py:54` — top confidence >= thr and not `occluded`. Without identity every
@@ -49,7 +53,8 @@ data class OccupancyObservation(
         return labels != null &&
             confs != null &&
             confs.getValue(square) >= thr &&
-            labels.getValue(square) != "occluded"
+            labels.getValue(square) != "occluded" &&
+            !invalidConfident(square, thr)
     }
 
     override fun label(square: String): String? = label?.get(square)
@@ -60,6 +65,27 @@ data class OccupancyObservation(
 
     override fun pOccluded(square: String): Double = pOccluded.getValue(square)
 
+    override fun invalidMass(square: String): Double = invalidMassBySquare[square] ?: 0.0
+
+    override fun invalidConfident(
+        square: String,
+        thr: Double,
+    ): Boolean = raw != null && invalidMass(square) >= thr
+
+    override fun rawObservation(): OccupancyObservation = raw ?: this
+
+    override fun withoutPriorSafety(): OccupancyObservation =
+        copy(
+            invalidMassBySquare = emptyMap(),
+            raw = null,
+        )
+
     /** The `_cnn_tick` fallback: identity stripped, occupancy preserved. */
-    override fun occupancyOnly(): OccupancyObservation = copy(label = null, conf = null, runnerUpConf = null)
+    override fun occupancyOnly(): OccupancyObservation =
+        copy(
+            label = null,
+            conf = null,
+            runnerUpConf = null,
+            raw = raw?.occupancyOnly(),
+        )
 }

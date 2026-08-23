@@ -11,12 +11,21 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .work_audit import measure, span
+
 #: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
 #: the picks come out of the scanned indices, so a finer stride only buys candidates nobody needs.
 SCAN_STRIDE = 3
 #: A hand on the board. Clean boards sit flat at 0.11–0.13, hands at 0.30–0.95; measured over 800
-#: boards from 20 sessions. At 0.10 every clean board flags (`docs/frame-scan.md`).
+#: boards from 20 sessions. At 0.10 every clean board flags (`docs/frame-scan.md`). Only read on
+#: scans that predate the gate — nothing writes it any more.
 PERSON_THR = 0.20
+#: Ab hier nennt der destillierte Kopf ein Brett besetzt. Gemessen 2026-08-22 auf vier
+#: zurückgehaltenen Sessions (1 783 Bretter): bei 0,50 fängt er ALLE 865 Hände und verwirft 10 von
+#: 918 sauberen. RT-DETR daneben rettet keinen Frame mehr, den nicht schon diese Schwelle mitnimmt.
+GATE_THR = 0.5
+#: Bretter je Vorwärtslauf. Der Scan dekodiert seriell, also puffert er, statt einzeln zu fragen.
+GATE_BATCH = 16
 #: Grey levels a square mean may drift from the commit's reference before it counts as moved.
 #: `labeling.SETTLE_LIMIT` is the same quantity over crop pixels.
 CHANGE_THR = 12.0
@@ -40,34 +49,41 @@ def read_scan(name: str) -> list[dict]:
     return sorted(read_jsonl(path), key=lambda r: r["idx"]) if path.exists() else []
 
 
-def cell_means(padded, size: int, pad: int) -> list[float]:
+def cell_means(padded, size: int, pad: int, *, gray=None, work_key=None) -> list[float]:
     """The board as 64 grey means, one per square — enough to see a piece lying where it stood."""
-    board = cv2.cvtColor(padded[pad:pad + size, pad:pad + size], cv2.COLOR_BGR2GRAY)
+    if gray is None:
+        source = padded[pad:pad + size, pad:pad + size]
+        key = work_key if work_key is not None else ("array", id(padded), "gray")
+        with measure("BGR to Gray conversions", key, processed_bytes=source.nbytes):
+            board = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+    else:
+        board = gray[pad:pad + size, pad:pad + size]
     return [round(float(v), 2) for v in cv2.resize(board, (8, 8), interpolation=cv2.INTER_AREA).flatten()]
 
 
-def occupied(row: dict, person_thr: float = PERSON_THR) -> bool:
-    """Any of the three witnesses seeing a hand. They fail differently, which is the point.
+def occupied(row: dict, person_thr: float = PERSON_THR, gate_thr: float = GATE_THR) -> bool:
+    """Sieht der Hand-Gate eine Hand? Die drei alten Sensoren nur noch auf alten Scans.
 
-    The grooves are model-free, RT-DETR sees an arm that covers no line, and `skin_patch` catches
-    the fingertips at the border that stay under the model's threshold (58 in this corpus).
+    Gegen SAM auf vier zurückgehaltenen Sessions: Gate 0,9988/0,9920, die drei zusammen
+    0,9618/0,9509. Die Rillen bleiben im Scan, weil sie FELDER benennen, nicht als Stimme.
     """
+    if "gate" in row:
+        return row["gate"] >= gate_thr
     return bool(row.get("grid")) or bool(row.get("skin")) or row.get("person", 0.0) >= person_thr
 
 
 def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
-               progress: bool = True) -> dict:
-    """One forward decode of the recording, every `stride`-th frame through the cheap sensors.
+               progress: bool = True, tag: str = "") -> dict:
+    """One forward decode of the recording, every `stride`-th frame past the hand gate.
 
-    No quad fit and no board written — 45 ms a frame against the 218 ms those two cost. What the
-    frames are worth is `classify`'s job, and it needs no pixels.
+    Kein Quad-Fit und kein Brett geschrieben — die kosten 218 ms. Seit 2026-08-22 kommt die Hand
+    vom destillierten Gate (2,1 ms) statt von RT-DETR (24,6 ms); die Rillen benennen nur Felder.
     """
     import json
 
-    from . import matte
     from .calibration import load_profile
     from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
-    from .imgops import skin_patch
+    from .hand_gate import load_gate, read_boards
     from .realgames import (
         EXPORT_PROFILE,
         PROGRESS_EVERY,
@@ -83,34 +99,52 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     candidate = load_candidate(name)
     profile = load_profile(EXPORT_PROFILE)
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
-    video = video_path(name, candidate)
+    video = video_path(name)
     rotate = detect_rotation(video, candidate,
                              {int(m["frame"]) for m in candidate.get("moves") or []})
     pad, size = crop_border_px(profile), profile.board_size
     total = int(candidate.get("frames") or 0)
-    rows = []
+    model, card, device = load_gate(tag)
+    rows, pending = [], []
+
+    def score():
+        """Den Puffer durch den Kopf, das Veto an seine Zeilen — nichts sonst wandert in den Scan."""
+        if not pending:
+            return
+        said = read_boards(model, device, [board for _, board in pending], card["size"])
+        for (row, _board), got in zip(pending, said, strict=True):
+            row["gate"] = round(float(got[0]), 4)
+        pending.clear()
+
     with closing(Recording(video).frames()) as stream:
         for idx, frame in stream:
             if idx % stride:
                 continue
             if rotate is not None:
                 frame = cv2.rotate(frame, rotate)
-            padded = warp_padded(frame, corners, profile, pad)
-            board = padded[pad:pad + size, pad:pad + size]
-            rows.append({
-                "idx": idx,
-                "person": round(matte.person_score(padded), 3),
-                "skin": bool(skin_patch(board, size / 8.0, profile.crop.pad_side)),
-                "grid": sorted(hand_squares(missing_edges(
-                    cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY), size, pad,
-                    white_pov=profile.white_pov))),
-                "cells": cell_means(padded, size, pad),
-            })
+            with span("FramePipeline.onFrame"):
+                padded = warp_padded(frame, corners, profile, pad)
+                board = padded[pad:pad + size, pad:pad + size]
+                gray_key = (str(video.resolve()), idx, rotate, "padded-gray")
+                with measure("BGR to Gray conversions", gray_key,
+                             processed_bytes=padded.nbytes):
+                    padded_gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+                row = {
+                    "idx": idx,
+                    "grid": sorted(hand_squares(missing_edges(
+                        padded_gray, size, pad, white_pov=profile.white_pov))),
+                    "cells": cell_means(padded, size, pad, gray=padded_gray),
+                }
+                rows.append(row)
+                pending.append((row, board))
+                if len(pending) >= GATE_BATCH:
+                    score()
             if progress and len(rows) % PROGRESS_EVERY == 0:
                 print(f"  scan {idx}/{total} frames, {sum(occupied(r) for r in rows)} with a hand",
                       flush=True)
+    score()
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    return {"path": path, "frames": len(rows), "stride": stride,
+    return {"path": path, "frames": len(rows), "stride": stride, "gate": card["backbone"],
             "hands": sum(occupied(r) for r in rows), "resumed": False}
 
 

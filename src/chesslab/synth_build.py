@@ -72,8 +72,6 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
                 "out_size": [int(crop.out_size[0]), int(crop.out_size[1])],
                 "pad_side": float(crop.pad_side),
                 "pad_up": float(crop.pad_up),
-                "geometry": "warp",
-                "photometry": "none",
                 "ts": entry.get("ts") or datetime.now(UTC).isoformat(),
                 "rot": 0,
             })
@@ -91,40 +89,34 @@ def _crop_frames_into_memmap(task) -> int:
     ``training.pack._pack_chunk``). Returns the number of crops written.
     """
     import cv2
-    import numpy as np
 
     from .calibration import warp_board_for_crops
     from .ingest import ingestion_profile
     from .labeling import crop_square
+    from .training.pack import row_window
 
     mm_path, shape, name, board_size, frames = task
-    n, h, w = shape
-    crop_bytes = h * w * 3
+    _n, h, w = shape
     profile = ingestion_profile(name, board_size, (w, h))
 
     written = 0
-    # One small memmap window per frame-run keeps commit charge flat (cf. pack._pack_chunk).
     all_idx = [i for _fp, _c, sqs in frames for i, _sq in sqs]
-    lo, hi = min(all_idx), max(all_idx)
-    mm = np.memmap(mm_path, dtype=np.uint8, mode="r+", shape=(hi - lo + 1, h, w, 3),
-                   offset=lo * crop_bytes)
-    for frame_path, corners, sqs in frames:
-        img = cv2.imread(str(frame_path))
-        if img is None:
-            # Name the culprit NOW — the caller only sees written != expected at the very end
-            # of a ~30-min pass, and you want to delete one bad pair, not bisect 64k frames.
-            print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
-            continue
-        # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are built for —
-        # the borderless warp_from_corners shifts every crop by +border (14 px at bs=1100) and
-        # diverges from the classic slice AND live-inference geometry (train/serve mismatch).
-        warped = warp_board_for_crops(img, profile, corners)
-        for row_idx, sq in sqs:
-            crop = crop_square(warped, sq, profile, (w, h))
-            mm[row_idx - lo] = crop[:, :, ::-1]                # BGR -> RGB (pack stores RGB)
-            written += 1
-    mm.flush()
-    del mm
+    with row_window(mm_path, (h, w), all_idx) as put:
+        for frame_path, corners, sqs in frames:
+            img = cv2.imread(str(frame_path))
+            if img is None:
+                # Name the culprit NOW — the caller only sees written != expected at the
+                # very end of a ~30-min pass, and you want to delete one bad pair.
+                print(f"[fuse] WARN unreadable render: {frame_path}", flush=True)
+                continue
+            # BORDERED warp (bs + 2*crop_border_px), the canvas crop_square's boxes are
+            # built for — the borderless warp shifts every crop by +border and diverges
+            # from the classic slice AND live-inference geometry (train/serve mismatch).
+            warped = warp_board_for_crops(img, profile, corners)
+            for row_idx, sq in sqs:
+                crop = crop_square(warped, sq, profile, (w, h))
+                put(row_idx, crop[:, :, ::-1])      # BGR -> RGB (pack stores RGB)
+                written += 1
     return written
 
 
@@ -202,8 +194,8 @@ def build_synth_dataset(
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
     n_final = len(rows)
-    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so an
-    # occupancy build keeps exactly the rows a `pieces` build at the same seed would keep.
+    # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
+    # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
 
     # Disk preflight without reading any file: the memmap size is exact arithmetic here.
@@ -280,8 +272,10 @@ def build_synth_dataset(
                            f"(unreadable renders?) — dataset left WITHOUT packed_meta.json.")
 
     digest = _manifest_digest(rows)
+    # Empty fingerprint, not absent: `mm://` rows have no files to compare, and the absent case
+    # means "legacy pack" and would send `_rewritten_since_pack` down the file-mtime path.
     (ds / "packed_meta.json").write_text(
-        json.dumps({"n": n_final, "h": h, "w": w, "digest": digest,
+        json.dumps({"n": n_final, "h": h, "w": w, "digest": digest, "crop_fingerprint": {},
                     "paths": [r["path"] for r in rows]}), encoding="utf-8")
     gb = need / 1e9
     print(f"[OK] fused build '{name}': {n_final} crops -> {img_path} ({gb:.1f} GB, "

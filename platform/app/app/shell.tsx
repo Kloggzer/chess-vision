@@ -61,7 +61,7 @@ const ORDER = "älteste Aufnahme zuerst, eine nach der anderen; Stopp beendet na
 /** The four steps of the Kette that are jobs — `chain-actions.tsx` names them the same way. */
 const STEPS: readonly { step: JobStep; label: string; hint: string }[] = [
   { step: "label", label: "Label", hint: `Aufnahme durch den Tracker abspielen → candidate.json (Minuten je Aufnahme); ${ORDER}` },
-  { step: "export", label: "Export", hint: `bestätigte Intervalle → data/sessions/rg-<name>/; ${ORDER}` },
+  { step: "export", label: "Export", hint: `bestätigte Intervalle → data/recordings/<name>/; ${ORDER}` },
   { step: "matte", label: "Matten", hint: `SAM 3 schneidet die Hand aus verdeckten Frames (GPU, ~12 s pro Frame); ${ORDER}` },
   {
     step: "model-read",

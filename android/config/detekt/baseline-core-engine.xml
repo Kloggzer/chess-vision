@@ -1,0 +1,10 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <!-- Deferred, not accepted: both `none { ... != ... }` read as `all { ... == ... }`.
+     Kotlin source is out of scope for the pass that turned `allRules` on; fix and drop these entries. -->
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>DoubleNegativeLambda:CnnTick.kt$none { obs.labelConfident(it, config.cnnConfThr) &amp;&amp; obs.label(it) != after.labelAt(it) }</ID>
+    <ID>DoubleNegativeLambda:Resync.kt$none { snap.obs.label(it) != null }</ID>
+  </CurrentIssues>
+</SmellBaseline>

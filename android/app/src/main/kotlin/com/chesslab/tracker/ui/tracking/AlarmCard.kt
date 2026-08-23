@@ -34,13 +34,14 @@ private const val CONFLICTS_SHOWN = 8
  *
  * The card used to print the raw latch name — `alarm.kind.replace('_',' ').uppercase()`, i.e.
  * "ILLEGAL MOVE" — which reads as an accusation about the player's move rather than what it means:
- * the app's board and the physical board have drifted apart and the app knows it. `illegal_move` is
- * currently the only kind raised (`engine.Alarm.ALARM_ILLEGAL_MOVE`); the `when` keeps the raw
- * string as a fallback so a new kind degrades to the old behaviour instead of vanishing.
+ * the app's board and the physical board have drifted apart and the app knows it. Both kinds say
+ * the same thing to the user — tracking stopped, the board below is stale — so both open with
+ * "Position lost"; the `when` keeps the raw string as a fallback for a kind nobody phrased yet.
  */
 private fun headlineFor(kind: String): String =
     when (kind) {
         "illegal_move" -> "Position lost — the board and the app disagree"
+        "illegal_move_refused" -> "Position lost — the app was handed a move it cannot play"
         else -> kind.replace('_', ' ').uppercase()
     }
 
@@ -71,7 +72,7 @@ fun AlarmCard(
             .padding(Space.md),
         verticalArrangement = Arrangement.spacedBy(Space.sm),
     ) {
-        // The PROSE is bounded and scrolls; the buttons below never move.
+        // The PROSE gives way and scrolls; the buttons below never move.
         //
         // This card is a non-weighted child of a full-height Column, and a Column hands each
         // non-weighted child what is left in order. The conflict list grows with the number of
@@ -83,8 +84,16 @@ fun AlarmCard(
         // is a `LazyColumn`, and nesting one inside a `Modifier.verticalScroll` throws outright
         // (tried on 2026-08-02, crashed on launch). Bounding the growth at its source needs no
         // scrolling container above the list at all.
+        //
+        // `weight` and not just `heightIn`: a Column measures its NON-weighted children first, so
+        // a mere cap let the prose take its 200dp before the buttons were measured and left them
+        // 1-2 mm tall whenever the board above had eaten the card's room (2026-08-21). Weighted,
+        // the prose is measured LAST and gives way — which is what "the buttons never move" means.
         Column(
-            Modifier.heightIn(max = PROSE_MAX.dp).verticalScroll(rememberScrollState()),
+            Modifier
+                .weight(1f, fill = false)
+                .heightIn(max = PROSE_MAX.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             Text(

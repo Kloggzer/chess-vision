@@ -36,9 +36,9 @@ let session: string;
 
 beforeEach(async () => {
   root = await mkdtemp(path.join(tmpdir(), "chesslab-stored-"));
-  session = path.join(root, "realgames", BUNDLE, "files", "sessions", ID);
+  session = path.join(root, "recordings", BUNDLE, "files", "sessions", ID);
   await mkdir(path.join(session, "frames"), { recursive: true });
-  await mkdir(path.join(root, "manifests"), { recursive: true });
+  await mkdir(path.join(root, "reports"), { recursive: true });
   const jpeg = await sharp({
     create: { width: 200, height: 120, channels: 3, background: { r: 30, g: 90, b: 150 } },
   })
@@ -164,8 +164,10 @@ test("curvature rides on tilts when valid, and a malformed pair only costs its o
   const [stored] = await storedSessions(BUNDLE);
   expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(CURVED);
 
-  // A silent revert of the limit to 0.02 must fail here: 004251's outer lines carry 0.046.
-  const real = { ...CURVED, cx: [0.046, ...CURVED.cx.slice(1, 8), -0.046] };
+  // A silent revert of the limit to 0.02 must fail here: 004251's outer lines carry 0.046. As the
+  // SMOOTH ramp a lens makes — a lone 0.046 beside the old values is what `smoothMeshCurvature`
+  // rightly flattens, and pinning that shape would pin a defect.
+  const real = { ...CURVED, cx: [0.046, 0.0345, 0.023, 0.0115, 0, -0.0115, -0.023, -0.0345, -0.046] };
   await writeFit({ grid_lines: real });
   expect(storedQuad(await storedFit(stored.dir), stored.rows[0]).mesh).toEqual(real);
 

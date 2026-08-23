@@ -13,7 +13,7 @@ export type ReviewMove = {
   fen_after?: string;
 };
 
-export type ReviewPly = {
+type ReviewPly = {
   /** Index into the candidate's move list — the identity `kept` names on the wire. */
   index: number;
   ply: number;
@@ -51,7 +51,7 @@ export type ReviewCard = {
   duplicate: boolean;
 };
 
-export function moveSquares(fenBefore: string | undefined, san: string): MoveSquares | null {
+function moveSquares(fenBefore: string | undefined, san: string): MoveSquares | null {
   if (!fenBefore) return null;
   try {
     const chess = new Chess(fenBefore);

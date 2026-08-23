@@ -52,6 +52,7 @@ private fun DebugScreen(
             // The attach banner rides above the tabs on every tab, not only on the CNN one: a
             // silent attach failure once survived a whole session (MEMORY android-live-bringup-2607).
             CnnAttachBanner(cnn)
+            SourceWorkProfileControls(viewModel)
             ScrollableTabRow(selectedTabIndex = tab.ordinal, edgePadding = 0.dp) {
                 DebugTab.entries.forEach { entry ->
                     Tab(

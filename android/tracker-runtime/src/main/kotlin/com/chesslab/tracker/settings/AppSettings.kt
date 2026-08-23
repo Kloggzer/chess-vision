@@ -4,7 +4,6 @@ import com.chesslab.tracker.camera.CameraLook
 import com.chesslab.tracker.camera.WhiteBalance
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.bundledModelOrDefault
-import com.chesslab.tracker.geometry.LensMode
 import com.chesslab.tracker.speech.SpeechVerbosity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -52,7 +51,20 @@ enum class BoardOrientation(
     BLACK_BOTTOM("Black plays from the bottom", false),
 }
 
-private const val CURRENT_MODEL_RELEASE = 4
+private const val CURRENT_MODEL_RELEASE = 5
+
+/**
+ * Model directories the APK has stopped carrying (2026-08-20). Unlike [LEGACY_DEFAULT_MODELS] this
+ * is not release-gated: there is no choice left to respect, only a directory that would fail its
+ * attach forever. It is matched against the RAW stored name — see [decodeAppSettings].
+ */
+private val RETIRED_MODELS = setOf("shipped", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128")
+
+/**
+ * Models that were once the default. They move forward ONCE, at release 4 — pinned to that release
+ * rather than to [CURRENT_MODEL_RELEASE] so a later bump cannot overrule the choice a second time.
+ */
+private const val LEGACY_DEFAULT_RELEASE = 4
 private val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80", "id35-80")
 
 @Serializable
@@ -101,20 +113,6 @@ data class AppSettings(
     val cameraZoomRatio: Float = 1f,
     /** Null is automatic focus; 0..1 is infinity..the lens's nearest. */
     val cameraFocus: Float? = null,
-    /**
-     * Whether the camera's optics are corrected — Python's `CameraSpec.undistort`.
-     *
-     * Here rather than in `TrackerConfig` because Python keeps it on the CAMERA and not in
-     * `TRACK_DEFAULTS`, and that seam must stay exactly what Python's tracker takes.
-     *
-     * Restart-required like the rest of this class: `Undistorter` builds two full-frame maps
-     * (22 MB at 2560x1440) once, and that is not something to do mid-frame on the analyzer thread.
-     *
-     * [LensMode.AUTO] resolves to OFF wherever no calibration matches, which today is everywhere —
-     * the phone has never had one and the three measurements on record all say a stored lens made
-     * alignment WORSE (specs/30, specs/41, and the rig's own 15.1 px raw against 21.7 px corrected).
-     */
-    val lensMode: LensMode = LensMode.AUTO,
 )
 
 /** The saved picture as the camera's own type. */
@@ -177,12 +175,14 @@ fun decodeAppSettings(text: String?): AppSettings {
                 ?.jsonPrimitive
                 ?.intOrNull ?: 0
         }.getOrDefault(0)
-    val selected = bundledModelOrDefault(decoded.modelDir)
+    val stored = decoded.modelDir
     val modelDir =
-        if (storedModelRelease < CURRENT_MODEL_RELEASE && selected in LEGACY_DEFAULT_MODELS) {
-            DEFAULT_MODEL
-        } else {
-            selected
+        when {
+            // RAW first: `bundledModelOrDefault` collapses a name this APK dropped to the default,
+            // so a membership test on its result can never see a retired one (fixed 2026-08-20).
+            stored in RETIRED_MODELS -> DEFAULT_MODEL
+            storedModelRelease < LEGACY_DEFAULT_RELEASE && stored in LEGACY_DEFAULT_MODELS -> DEFAULT_MODEL
+            else -> bundledModelOrDefault(stored)
         }
     return decoded.copy(
         modelRelease = CURRENT_MODEL_RELEASE,

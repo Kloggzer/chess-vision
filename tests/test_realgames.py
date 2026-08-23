@@ -21,6 +21,7 @@ from chesslab.realgames import (
     decode_frames,
     ensure_export_profile,
     export_session,
+    game_dir,
     known_segments,
     lcs_report,
     plan_rows,
@@ -39,7 +40,7 @@ def test_lcs_matches_the_kotlin_semantics():
 def _candidate(tmp_path, monkeypatch, sans):
     """A minimal candidate next to a four-ply reference game (1. e4 e5 2. Nf3 Nc6)."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = tmp_path / "data" / "realgames" / "g"
+    d = game_dir("g")
     d.mkdir(parents=True)
     (d / "reference.pgn").write_text('[Event "t"]\n\n1. e4 e5 2. Nf3 Nc6 *\n', encoding="utf-8")
     payload = {
@@ -93,7 +94,7 @@ AFTER_2 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
 def _export_candidate(tmp_path, monkeypatch, *, confirmed=True, frames=(100, 400, 700)):
     """A candidate with three commits 10 s apart, of which the first two are reviewed."""
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    d = tmp_path / "data" / "realgames" / "g"
+    d = game_dir("g")
     d.mkdir(parents=True)
     payload = {
         "name": "g",
@@ -320,7 +321,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     # Three quiet rows carry the conformance check; the dirty one pins the gate that holds a
     # hand-frame back until a human names its cells (tests/test_labeling_dirty.py).
     rows = [r for r in planned if not r.get("dirty")][:3] + [r for r in planned if r.get("dirty")][:1]
-    session_dir = config.DATA.sessions / "rg-g"
+    session_dir = game_dir("g")
     (session_dir / "frames").mkdir(parents=True)
     for row in rows:
         img = np.random.default_rng(0).integers(0, 255, (240, 320, 3), dtype=np.uint8)
@@ -331,7 +332,7 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
     stats = slice_session(
         session_dir,
         profile=load_profile("desktop"),
-        manifest_path=tmp_path / "squares.jsonl",
+        manifest_path=tmp_path / "crops.jsonl",
         squares_root=tmp_path / "sq",
     )
 
@@ -351,9 +352,9 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         "unsettled_dropped": 0,
         # No `grid_lines` in these rows, so every crop is cut at the nominal eighth.
         "mesh_frames": 0,
-        "fallback": 0,
+        "bowed_boards": 0,
     }
-    manifest = (tmp_path / "squares.jsonl").read_text(encoding="utf-8").splitlines()
+    manifest = (tmp_path / "crops.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(manifest) == 192
     first = json.loads(manifest[0])
     assert first["session_id"] == "rg-g" and first["frame"] == rows[0]["frame"][7:13]
@@ -509,16 +510,22 @@ def test_the_export_fits_every_frame_and_marks_the_ones_it_cannot(tmp_path, monk
         for i in (30, 60, 90)
     ]
 
-    from chesslab.realgames import _field_profile
-
-    stats = fit_rows_to_grid(tmp_path, rows, _field_profile(median, (8, 8), 8))
+    from chesslab.realgames import _field_profile, disk_frames, rewarp_boards
+    profile = _field_profile(median, (8, 8), 8)
+    stats = fit_rows_to_grid(rows, profile, frames=disk_frames(tmp_path, rows))
 
     # `hands: 3` is the groove read's documented "full resolution or nothing": at 1 px per cell
     # every edge segment reads missing, so it accuses the whole board. Real exports run at 928+
     # (the 2026-08-16 sweep flagged 25 of 713 frames on 13-12-46-24), and a board this unreadable
     # has nothing labelable on it anyway — the flag only holds its crops back.
     assert stats == {FIT_SOURCE: 1, FIT_KEPT: 1, FIT_FAILED: 1, "mesh": 0, "hands": 3,
-                     "late": 3, "boards": 3, "arrived": rows, "median": 2.7, "max": 2.7},         "8x8 noise carries no grid lines"
+                     "late": 3, "arrived": rows,
+                     "median": 2.7, "max": 2.7}, "8x8 noise carries no grid lines"
+
+    # The board comes from a SECOND pass, once the mesh is final. `no_mesh: 3` because 8x8 noise
+    # carries no grid lines — the point is that it is counted, never silently left bowed.
+    made = rewarp_boards(tmp_path, rows, profile, frames=disk_frames(tmp_path, rows))
+    assert made == {"rewarped": 3, "no_mesh": 3, "no_frame": 0}
     # Every frame the fit SAW got its board, including the one it could not read: the row keeps its
     # inherited quad, and a crop cut with that quad is exactly what the label view has to show.
     # They land in the dirty pile because the grooves flagged them and the plan had not — a frame
@@ -539,8 +546,8 @@ def test_a_re_export_backs_up_the_log_it_replaces(tmp_path, monkeypatch):
     """A session log can hold hand-set quads and a review's verdicts, and a re-export overwrites
     it whole. Same `log.jsonl.bak.<stamp>` convention as `session scan|autofix|adopt`."""
     cand = _export_candidate(tmp_path, monkeypatch)
-    session_dir = config.DATA.sessions / "rg-g"
-    session_dir.mkdir(parents=True)
+    session_dir = game_dir("g")
+    session_dir.mkdir(parents=True, exist_ok=True)
     (session_dir / "log.jsonl").write_text('{"frame": "frames/000030.png"}\n', encoding="utf-8")
 
     write_session(session_dir, "g", cand, [{"frame": "frames/000060.png"}])
@@ -606,6 +613,52 @@ def test_a_segment_with_no_next_move_vouches_for_everything():
     assert unknown_for(_seg(touches=()), 399, margin_frames=30, settle={2: {"e5": 1}}) == []
 
 
+def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
+    from chesslab import realgames as rg
+    from chesslab.work_audit import WorkAudit, activate, deactivate
+
+    starts, decoded = [], []
+
+    class Recording:
+        def __init__(self, _video):
+            pass
+
+        def frames(self, start):
+            starts.append(start)
+            for index in range(start, 400):
+                decoded.append(index)
+                yield index, index
+
+    def crops(frame, *_args, **_kwargs):
+        value = min(255, int(frame))
+        return [np.full((2, 2, 3), value, np.uint8) for _ in range(64)]
+
+    monkeypatch.setattr(rg, "Recording", Recording)
+    monkeypatch.setattr(rg, "crops_for_frame", crops)
+    monkeypatch.setattr(rg, "changed_squares", lambda _before, _after: {"e2"})
+    candidate = {
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "start_fen": "before",
+        "moves": [
+            {"frame": 200, "ply": 1, "fen_after": "one"},
+            {"frame": 260, "ply": 2, "fen_after": "two"},
+        ],
+    }
+    audit = WorkAudit()
+    token = activate(audit)
+    try:
+        result = rg.measure_settle(tmp_path / "video.mp4", candidate, profile=None)
+    finally:
+        deactivate(token)
+
+    assert starts == [20], "the overlapping 20..240 and 80..300 windows share one decoder"
+    assert decoded == list(range(20, 301))
+    assert set(result) == {1, 2}
+    intervals = audit.report()["intervals"]
+    assert intervals["settle windows"]["avoidable_units"] == 161
+    assert intervals["video frames"]["avoidable_units"] == 0
+
+
 # --- fit-stored -----------------------------------------------------------------------------
 
 #: The synthetic session's true playing field (a8, h8, h1, a1) and the board rendered into it.
@@ -653,7 +706,7 @@ def _stored_session(tmp_path, monkeypatch):
     from chesslab.calibration import compute_homography
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    session = tmp_path / "data" / "realgames" / "g" / "files" / "sessions" / "20260812-222357"
+    session = game_dir("g") / "files" / "sessions" / "20260812-222357"
     (session / "frames").mkdir(parents=True)
     h = np.array(compute_homography(FIELD, FIT_BS, 0.0), np.float64)
     shift = np.eye(3)
@@ -786,7 +839,7 @@ def test_fit_stored_says_so_when_a_bundle_has_no_stored_session(tmp_path, monkey
     from chesslab.realgames import fit_stored
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    (tmp_path / "data" / "realgames" / "g").mkdir(parents=True)
+    game_dir("g").mkdir(parents=True)
 
     with pytest.raises(FileNotFoundError):
         fit_stored("g")
@@ -801,7 +854,7 @@ def test_yes_refuses_to_confirm_the_tracker_against_itself(tmp_path, monkeypatch
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g1"
+    g = realgames.game_dir("g1")
     (g / "files" / "games").mkdir(parents=True)
     pgn = "[Event \"?\"]\n\n1. e4 e5 *\n"
     (g / "reference.pgn").write_text(pgn, encoding="utf-8")
@@ -822,7 +875,7 @@ def test_an_outside_notation_still_confirms_unprompted(tmp_path, monkeypatch):
     from chesslab import config, realgames
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    g = tmp_path / "data" / "realgames" / "g2"
+    g = realgames.game_dir("g2")
     (g / "files" / "games").mkdir(parents=True)
     (g / "reference.pgn").write_text("[Event \"?\"]\n\n1. e4 e5 *\n", encoding="utf-8")
     (g / "files" / "games" / "live.pgn").write_text("[Event \"?\"]\n\n1. d4 d5 *\n", encoding="utf-8")
@@ -867,3 +920,88 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
         if int(Path(row["frame"]).stem) in reported:
             assert row["dirty_reason"] == "occluded"
             assert row["fen"] == candidate["moves"][0]["fen_after"], "an occluded board keeps its FEN"
+
+
+def test_reported_dirty_reads_only_its_own_session_and_only_the_hand_verdict(tmp_path, monkeypatch):
+    """One flag, one pool: the export, the alpha worker and the lane all read this set."""
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    from chesslab.realgames import reported_dirty
+
+    assert reported_dirty("rg-a") == set()
+
+    notes = config.DATA.labels / "review-notes.jsonl"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text("\n".join(json.dumps(row) for row in [
+        {"session_id": "rg-a", "frame": "000144", "verdict": "dirty-frame"},
+        {"session_id": "rg-a", "frame": "000900", "verdict": "dirty-frame"},
+        {"session_id": "rg-b", "frame": "000001", "verdict": "dirty-frame"},
+        {"session_id": "rg-a", "frame": "000333", "verdict": "matte-ok"},
+    ]) + "\n", encoding="utf-8")
+
+    assert reported_dirty("rg-a") == {144, 900}
+    assert reported_dirty("rg-b") == {1}
+
+
+def test_adopt_dirty_marks_the_reported_rows_occluded_and_leaves_the_rest(tmp_path, monkeypatch):
+    """`occluded` is what makes the coming matte RESCUE the row instead of condemning it."""
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    from chesslab.realgames import adopt_reported_dirty
+
+    sdir = config.DATA.recordings / "g"
+    sdir.mkdir(parents=True)
+    (sdir / "session.yaml").write_text("session_id: rg-g\nprofile: desktop\n", encoding="utf-8")
+    (sdir / "log.jsonl").write_text("\n".join(json.dumps(r) for r in [
+        {"frame": "frames/000144.png", "board": "boards/000144.webp", "ply": 1, "fen": "x"},
+        {"frame": "frames/000900.png", "board": "boards/000900.webp", "ply": 2, "fen": "x"},
+        {"frame": "frames/001000.png", "board": "boards/001000.webp", "ply": 3, "fen": "x"},
+    ]) + "\n", encoding="utf-8")
+    notes = config.DATA.labels / "review-notes.jsonl"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text(json.dumps(
+        {"session_id": "rg-g", "frame": "000144", "verdict": "dirty-frame"}) + "\n", encoding="utf-8")
+
+    res = adopt_reported_dirty("g")
+    assert (res["changed"], res["stems"]) == (1, ["000144"])
+    assert res["backup"] is not None
+
+    rows = [json.loads(x) for x in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert (rows[0]["dirty"], rows[0]["dirty_reason"], rows[0]["dirty_source"]) == (
+        True, "occluded", "reported")
+    assert "dirty" not in rows[1] and "dirty" not in rows[2]
+
+    # Idempotent: a second run must not stack another backup on an unchanged log.
+    assert adopt_reported_dirty("g")["changed"] == 0
+
+
+def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
+    """`occluded` claims the FEN still holds — a `stale` frame has measured the opposite.
+
+    Promoting it anyway lets its matte rescue it at slice time, and the lagging FEN then reaches
+    training as a label. The report answers "the scan missed a hand", nothing more.
+    """
+    from chesslab import framescan, realgames
+
+    candidate = {
+        "geometry": {"corners": [[0, 0], [8, 0], [8, 8], [0, 8]]},
+        "created_at": "2026-08-21T00:00:00Z",
+        "clock": {"fps": 30.0},
+        "frames": 400,
+        "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "reviewed_plies": [1],
+        "moves": [{"ply": 1, "san": "e4", "frame": 100, "t": 3.33,
+                   "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"}],
+    }
+    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [0.0] * 64}
+            for i in range(100, 200, 3)]
+    verdicts = {}
+
+    def classify(seg, rows, **kw):
+        out = {r["idx"]: ("stale" if r["idx"] == 103 else "clean") for r in rows}
+        verdicts.update(out)
+        return out
+
+    monkeypatch.setattr(framescan, "classify", classify)
+    rows = realgames.plan_scanned(candidate, scan, margin_frames=30, reported={103, 106})
+    by_stem = {int(Path(r["frame"]).stem): r for r in rows}
+    assert by_stem[103]["dirty_reason"] == "stale", "a measured stale survives the report"
+    assert by_stem[106]["dirty_reason"] == "occluded", "a clean frame is still promoted"

@@ -1,16 +1,17 @@
 """Session management: list, archive, restore, delete recorded training sessions.
 
-`collect` creates a directory per session under `data/sessions/<id>` (frames + log.jsonl +
-session.yaml); `slice` produces crops (`data/squares/<label>/<id>_*.webp`) and manifest
-lines from them. These functions keep these three locations consistent:
+A session lives in ONE directory and carries everything that is only about it: `session.yaml`,
+`log.jsonl`, `boards/`, `dirty/`, `mattes/`, `matte.jsonl`, `corrections.jsonl`. An `rg-` id is a
+recording (`data/recordings/<id without the prefix>`), anything else a `collect`/`ingest` session
+under `data/sessions/`; `session_dir` is the one place that knows. `slice` derives the crops
+(`data/crops/<tag>/<label>/<id>_*.webp`) and that pool's own `manifest.jsonl` from it.
 
-- **archive** removes the crops + manifest lines (session no longer counts toward the dataset)
-  and moves the session directory to `data/sessions_archive/<id>`. Reversible:
-  `restore` + re-slice. Corrections are preserved.
-- **delete** permanently removes directory, crops, manifest and correction lines.
+- **archive** removes the crops + manifest lines and moves the directory to
+  `data/sessions_archive/<id>`. Reversible: `restore` + re-slice.
+- **delete** removes the directory and the manifest lines. The corrections go with the directory —
+  there is no second place to forget them.
 - **geometry repair** (`scan_alignment`, `autofix_corners`, `adopt_corners`, `flag_frame`)
-  rewrites the `corners` and `unusable` fields in `log.jsonl`, which `labeling.slice_session`
-  reads to warp every crop.
+  rewrites `corners` and `unusable` in `log.jsonl`, which `labeling.slice_session` reads.
 
 Headless and testable: all functions accept a `paths` object (default `config.DATA`).
 """
@@ -56,29 +57,31 @@ def _log_count(session_dir: Path) -> int:
 
 
 def _manifest_path(paths: config.Paths) -> Path:
-    return paths.manifests / "squares.jsonl"
+    return paths.crop_pool / "manifest.jsonl"
 
 
 def _manifest_files(paths: config.Paths) -> list[Path]:
-    """The default crop manifest plus every ingest-variant one (`squares__<tag>.jsonl`).
+    """Every pool's own `crops/<tag>/manifest.jsonl`, the default pool first.
 
     `list_sessions` reads an ingested session's crop count from its variant manifest, so archiving
     it while filtering only the default manifest left the rows behind and the count unchanged.
     """
-    out = [_manifest_path(paths)]
-    if paths.manifests.exists():
-        out += sorted(p for p in paths.manifests.glob("squares__*.jsonl") if p.is_file())
+    default = _manifest_path(paths)
+    out = [default]
+    if paths.crops.exists():
+        out += sorted(p for p in paths.crops.glob("*/manifest.jsonl")
+                      if p.is_file() and p != default)
     return out
 
 
 def _crop_pools(paths: config.Paths) -> list[Path]:
-    """Every crop pool: the default one plus the ingest variants (`squares__<tag>`, `squares_aug`).
+    """Every crop pool: `crops/<tag>/`, the default one included.
 
-    `_purge_crops_for_frames` has always swept all of them; `_crop_files` looked only at
-    `paths.squares`, so archiving an INGESTED session moved its directory and left every one of its
+    `_purge_crops_for_frames` has always swept all of them; `_crop_files` looked only at the
+    default pool, so archiving an INGESTED session moved its directory and left every one of its
     crops in the pool — the opposite of what `archive_session` documents itself as doing.
     """
-    return [p for p in sorted(paths.root.glob("squares*")) if p.is_dir()]
+    return [p for p in sorted(paths.crops.glob("*")) if p.is_dir()]
 
 
 def _crop_files(session_id: str, paths: config.Paths) -> list[Path]:
@@ -154,6 +157,18 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
     return removed
 
 
+def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
+    """Drop a trimmed frame's matte row. Keyed by frame alone — the file belongs to one session."""
+    path = sdir / "matte.jsonl"
+    if not path.exists() or not frame_stems:
+        return 0
+    kept = [line for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and str(json.loads(line).get("frame")) not in frame_stems]
+    removed = len([x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]) - len(kept)
+    path.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+    return removed
+
+
 def _filter_jsonl_frames(path: Path, session_id: str, frame_stems: set[str]) -> int:
     if not path.exists() or not frame_stems:
         return 0
@@ -174,24 +189,22 @@ def _filter_jsonl_frames(path: Path, session_id: str, frame_stems: set[str]) -> 
 def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
     """Active + archived sessions with key data (frames, crops, mode, status)."""
     out: list[dict] = []
-    for root, archived in ((paths.sessions, False), (paths.sessions_archive, True)):
-        if not root.exists():
-            continue
-        for d in sorted(root.iterdir()):
-            if not d.is_dir():
-                continue
+    archived_dirs = ([(d.name, d) for d in sorted(paths.sessions_archive.iterdir()) if d.is_dir()]
+                     if paths.sessions_archive.exists() else [])
+    for (sid, d), archived in ([(x, False) for x in all_sessions(paths)]
+                               + [(x, True) for x in archived_dirs]):
             meta = _read_meta(d)
-            tag = _variant_tag(meta, d.name)
+            tag = _variant_tag(meta, sid)
             if archived:
                 n_crops = 0
             elif tag:
                 # Ingested sessions are sliced into their variant manifest, not the default one.
                 n_crops = _crop_count_from_manifest(
-                    d.name, paths, manifest=paths.manifests / f"squares__{tag}.jsonl")
+                    sid, paths, manifest=paths.crops / tag / "manifest.jsonl")
             else:
-                n_crops = _crop_count_from_manifest(d.name, paths)
+                n_crops = _crop_count_from_manifest(sid, paths)
             out.append({
-                "session_id": d.name,
+                "session_id": sid,
                 "archived": archived,
                 "mode": meta.get("mode"),
                 "profile": meta.get("profile"),
@@ -227,7 +240,7 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
         # destroying an existing archive of the same id is the one thing it must never do.
         raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
     n_crops = _purge_crops(sid, paths)
-    for manifest in _manifest_files(paths):     # default + `squares__<tag>.jsonl` (ingested)
+    for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
         _filter_jsonl(manifest, sid)
     shutil.move(str(src), str(dst))
     _record_archive_reason(dst, sid, reason, n_crops, paths)
@@ -294,29 +307,26 @@ def deletion_cost(session_id: str, paths: config.Paths = config.DATA) -> dict:
     re-slice, a human's verdict does not.
     """
     sid = _safe_id(session_id)
-    target = next((d for d in (paths.sessions / sid, paths.sessions_archive / sid) if d.exists()), None)
-    if target is None:
-        raise FileNotFoundError(f"Session '{sid}' not found.")
+    target, _ = session_dir(sid, paths)
     log = target / "log.jsonl"
     frames = len([x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]) if log.exists() else 0
     crops = sum(1 for m in _manifest_files(paths) if m.exists() for line in
                 m.read_text(encoding="utf-8").splitlines() if f'"session_id": "{sid}"' in line)
-    corrections = (sum(1 for line in paths.corrections.read_text(encoding="utf-8").splitlines()
-                       if f'"session_id": "{sid}"' in line) if paths.corrections.exists() else 0)
+    own = target / "corrections.jsonl"
+    rows = own.read_text(encoding="utf-8").splitlines() if own.exists() else []
+    corrections = len([x for x in rows if x.strip()])
     return {"session_id": sid, "frames": frames, "crops": crops, "corrections": corrections}
 
 
 def delete_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     """Permanently remove session: directory + crops + manifest + correction lines."""
     sid = _safe_id(session_id)
-    active, archived = paths.sessions / sid, paths.sessions_archive / sid
-    target = active if active.exists() else archived
-    if not target.exists():
-        raise FileNotFoundError(f"Session '{sid}' not found.")
+    target, _ = session_dir(sid, paths)
     n_crops = _purge_crops(sid, paths)
-    for manifest in _manifest_files(paths):     # default + `squares__<tag>.jsonl` (ingested)
+    for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
         _filter_jsonl(manifest, sid)
-    _filter_jsonl(paths.corrections, sid)
+    # The corrections live in the directory now, so rmtree takes them —
+    # no second place to forget.
     shutil.rmtree(target)
     return {"session_id": sid, "deleted": True, "removed_crops": n_crops}
 
@@ -328,10 +338,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     previously sliced bad tail cannot leak into training.
     """
     sid = _safe_id(session_id)
-    active, archived = paths.sessions / sid, paths.sessions_archive / sid
-    target = active if active.exists() else archived
-    if not target.exists():
-        raise FileNotFoundError(f"Session '{sid}' not found.")
+    target, _ = session_dir(sid, paths)
     log_path = target / "log.jsonl"
     if not log_path.exists():
         raise FileNotFoundError(f"Session '{sid}' has no log.jsonl.")
@@ -376,10 +383,13 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     )
     removed_crops = _purge_crops_for_frames(sid, removed_stems, paths)
     removed_manifest_rows = 0
-    if paths.manifests.exists():
-        for manifest in paths.manifests.glob("squares*.jsonl"):
+    for manifest in _manifest_files(paths):      # default + every `crops__<tag>.jsonl`
+        if manifest.exists():
             removed_manifest_rows += _filter_jsonl_frames(manifest, sid, removed_stems)
-    removed_corrections = _filter_jsonl_frames(paths.corrections, sid, removed_stems)
+    # Also the session's OWN sidecars: a trimmed frame used to keep its matte row
+    # forever, because nothing here knew the file existed.
+    removed_corrections = _filter_jsonl_frames(target / "corrections.jsonl", sid, removed_stems)
+    _filter_matte_frames(target, removed_stems)
     return {
         "session_id": sid,
         "kept_frames": keep,
@@ -423,13 +433,38 @@ class NothingToDo(ValueError):
     """
 
 
-def session_dir(session_id: str) -> tuple[Path, bool]:
-    """`(directory, archived)` for an active or archived session."""
+def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:
+    """`(session_id, directory)` for everything that has a `log.jsonl`, recordings first.
+
+    The inverse of `session_dir`: a recording lives in `recordings/<ts>` and answers to `rg-<ts>`,
+    a `collect`/`ingest` session is its own name under `sessions/`. Enumerating only one root is
+    how `slice --all` came to see none of the 43 recordings.
+    """
+    paths = paths or config.DATA
+    out = [(f"rg-{d.name}", d) for d in sorted(paths.recordings.iterdir())
+           if d.is_dir() and (d / "log.jsonl").exists()] if paths.recordings.exists() else []
+    if paths.sessions.exists():
+        out += [(d.name, d) for d in sorted(paths.sessions.iterdir())
+                if d.is_dir() and (d / "log.jsonl").exists()]
+    return out
+
+
+def session_dir(session_id: str, paths: config.Paths | None = None) -> tuple[Path, bool]:
+    """`(directory, archived)` for an active or archived session.
+
+    An `rg-` id is a recording and lives in `recordings/<id without the prefix>`; everything else
+    is a `collect`/`ingest` session under `sessions/`. The id is the join key in every manifest,
+    so it keeps the prefix the directory dropped.
+    """
+    # Resolved at CALL time, not bound as a default: the module-level `config.DATA` is what the
+    # tests monkeypatch, and a default argument would freeze the pre-patch object at import.
+    paths = paths or config.DATA
     safe_sid = _safe_id(session_id)
-    active = config.DATA.sessions / safe_sid
+    active = (paths.recordings / safe_sid[3:] if safe_sid.startswith("rg-")
+              else paths.sessions / safe_sid)
     if active.exists():
         return active, False
-    archived = config.DATA.sessions_archive / safe_sid
+    archived = paths.sessions_archive / safe_sid
     if archived.exists():
         return archived, True
     raise FileNotFoundError(f"Session '{safe_sid}' not found.")
@@ -752,6 +787,7 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
         carried += 1
     return carried
 
+
 def missing_source_frames(sdir: Path, rows: list[dict]) -> str | None:
     """Why a step that measures the SOURCE picture cannot run here, or None.
 
@@ -802,20 +838,33 @@ def settle_scan_session(session_id: str) -> dict:
     from collections import defaultdict
     from concurrent.futures import ProcessPoolExecutor
 
-    from .labeling import _profile_for_session, read_session_meta
-    from .realgames import POOL_WORKERS, SETTLE_MIN_FRAMES, settle_for_ply
+    from .labeling import _profile_for_session, read_matte, read_session_meta
+    from .realgames import (
+        INTERVAL_FILE,
+        POOL_WORKERS,
+        SETTLE_MIN_FRAMES,
+        interval_moves,
+        settle_for_ply,
+    )
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     prof = _profile_for_session(read_session_meta(sdir), None)
     for r in rows:
-        r.pop("settle_dev", None)
+        for key in ("settle_dev", "settle_seen", "settle_left"):
+            r.pop(key, None)
 
     by_ply: dict[object, list[dict]] = defaultdict(list)
     for r in rows:
         if r.get("board") and (sdir / r["board"]).is_file():
             by_ply[r.get("ply")].append(r)
-    jobs = [(sdir, rs, prof) for rs in by_ply.values() if len(rs) >= SETTLE_MIN_FRAMES]
+    # Eine leere Matte heisst NICHT "keine Hand", sondern "nie angesehen" — dann traegt jedes Brett
+    # die Referenz, so wie die Messung es tat, bevor es Alphas gab.
+    matte = read_matte(sdir)
+    plies = [ply for ply, rs in by_ply.items() if len(rs) >= SETTLE_MIN_FRAMES]
+    jobs = [(sdir, by_ply[ply], prof,
+             {Path(r["frame"]).stem: matte.get(Path(r["frame"]).stem, {}) for r in by_ply[ply]})
+            for ply in plies]
     short = sum(len(rs) for rs in by_ply.values() if len(rs) < SETTLE_MIN_FRAMES)
 
     if len(jobs) > 1:
@@ -823,16 +872,25 @@ def settle_scan_session(session_id: str) -> dict:
             parts = list(pool.map(settle_for_ply, jobs))
     else:
         parts = [settle_for_ply(j) for j in jobs]
-    scored = {stem: dev for part in parts for stem, dev in part.items()}
+    scored = {stem: got for part in parts for stem, got in (part.get("scores") or {}).items()}
+    refs = {int(ply): part["ref"] for ply, part in zip(plies, parts, strict=True)
+            if part.get("ref") is not None and ply is not None}
 
     for r in rows:
-        dev = scored.get(Path(r["frame"]).stem)
-        if dev is not None:
-            r["settle_dev"] = dev
+        got = scored.get(Path(r["frame"]).stem)
+        if got is not None:
+            r["settle_dev"], r["settle_seen"] = got["dev"], got["seen"]
+            if got["left"]:
+                r["settle_left"] = got["left"]
+    fens = {int(ply): by_ply[ply][0]["fen"] for ply in plies if ply is not None}
+    checks = interval_moves(refs, fens)
+    (sdir / INTERVAL_FILE).write_text("".join(json.dumps(c) + "\n" for c in checks), encoding="utf-8")
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "scored": len(scored), "of": len(rows),
-            "plies": len(jobs), "too_short": short, "backup": backup}
+            "plies": len(jobs), "too_short": short, "backup": backup,
+            "left": sum(len(g["left"]) for g in scored.values()),
+            "intervals": len(checks), "unseen": sum(1 for c in checks if not c["seen"])}
 
 
 def write_boards_session(session_id: str) -> dict:
@@ -845,7 +903,14 @@ def write_boards_session(session_id: str) -> dict:
     from concurrent.futures import ProcessPoolExecutor
 
     from .labeling import _profile_for_session, read_session_meta
-    from .realgames import BOARD_KEYS, POOL_MIN_ROWS, POOL_WORKERS, PROGRESS_EVERY, board_from_frame
+    from .realgames import (
+        BOARD_KEYS,
+        POOL_MIN_ROWS,
+        POOL_WORKERS,
+        PROGRESS_EVERY,
+        board_from_frame,
+        straighten_boards,
+    )
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -869,10 +934,71 @@ def write_boards_session(session_id: str) -> dict:
         if written % PROGRESS_EVERY == 0:
             print(f"  {written}/{len(jobs)} frames", flush=True)
     missing = len(jobs) - written
+    # A fresh warp is bowed again, so the store's one straightening has to follow the rewrite —
+    # otherwise this repair would quietly hand the cutters a board nobody pulls straight any more.
+    pulled = straighten_boards(sdir, rows)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "written": written, "of": len(rows),
-            "missing": missing, "backup": backup}
+            "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
+
+
+def rewarp_boards_session(session_id: str) -> dict:
+    """Rebuild a store FROM ITS VIDEO, straight, in one resample — the good retrofit.
+
+    `straighten_boards_session` is the other one: it works on boards whose frames are gone and pays
+    a second resample for it. Where the video still exists this is strictly better (+57 % Laplacian
+    energy in the finished crop, measured 2026-08-21), because the optics and the mesh fold into
+    the same map the warp already builds.
+    """
+    import json
+
+    from .calibration import LensModel
+    from .labeling import _profile_for_session, read_session_meta
+    from .realgames import detect_rotation, game_dir, rewarp_boards, stream_frames, video_path
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    name = session_id[3:] if session_id.startswith("rg-") else session_id
+    candidate = game_dir(name) / "candidate.json"
+    if not candidate.is_file():
+        raise NothingToDo(f"{session_id}: no candidate.json — nothing says how it was warped")
+    video = video_path(name)
+    todo = [r for r in rows if r.get("corners") and r.get("frame")]
+    wanted = {int(Path(r["frame"]).stem) for r in todo}
+    rotate = detect_rotation(video, json.loads(candidate.read_text(encoding="utf-8")), wanted)
+    prof = _profile_for_session(read_session_meta(sdir), None)
+    # `lens.json` beside the recording, if `:desktop undistort` ever wrote one. No recording carries
+    # it today and none needs to — a blind A/B could not tell the corrected boards apart — but the
+    # optics fold into the same map for free, so a receipt that IS there is honoured.
+    receipt = game_dir(name) / "lens.json"
+    lens = LensModel.from_receipt(
+        json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else None)
+    backup = backup_log(sdir / "log.jsonl")
+    done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate), lens=lens)
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "of": len(rows), "backup": backup,
+            "lens": lens is not None, **done}
+
+
+def straighten_boards_session(session_id: str) -> dict:
+    """Pull an EXISTING store straight, from the boards themselves — no frames, no re-decode.
+
+    The retrofit for every session written before the store carried its own straightening. It
+    needs nothing but `boards/` and the rows' `grid_lines`, which is the point: the source frames
+    are deliberately gone. Idempotent through `board_straightened`, so running it twice cannot
+    correct twice.
+    """
+    from .realgames import straighten_boards
+
+    sdir, _archived = session_dir(session_id)
+    rows = read_log(sdir)
+    backup = backup_log(sdir / "log.jsonl")
+    # Backed up FIRST and rewritten as it goes: the boards are being overwritten in place, and a
+    # run that dies with the flags unwritten would leave a later run to correct them twice.
+    done = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
+    _write_log(sdir, rows)
+    return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
 
 
 def fit_mesh_session(session_id: str) -> dict:

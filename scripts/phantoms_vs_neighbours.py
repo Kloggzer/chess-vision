@@ -55,13 +55,16 @@ def main() -> int:
     ap.add_argument("--run", required=True)
     ap.add_argument("--dataset", required=True)
     ap.add_argument("--split", default="test")
+    ap.add_argument("--split-file", default="split.json",
+                    help="Split file inside the dataset, e.g. a fold's split-f0.json. "
+                         "A fold model scored against split.json measures its own train sessions.")
     ap.add_argument("--size", type=int, default=80)
     ap.add_argument("--device", default=None)
     args = ap.parse_args()
 
     dd = dataset_dir(args.dataset)
     rows = filter_rows_by_split(load_manifest(dd / "manifest.jsonl"),
-                                load_split(dd / "split.json"), args.split)
+                                load_split(dd / args.split_file), args.split)
     device = args.device or str(get_device(require_gpu=False))
     run_dir = config.DATA.models / args.run
     model, cfg = load_torch_run(run_dir)

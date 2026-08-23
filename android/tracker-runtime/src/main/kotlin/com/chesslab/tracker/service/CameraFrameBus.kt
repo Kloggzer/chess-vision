@@ -1,5 +1,7 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.perf.WorkOperation
+import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -97,14 +99,15 @@ class CameraFrameBus<B>(
      *
      * It used to take the raw `ImageProxy` and run its own full-frame YUV->BGR — a second
      * conversion of the same pixels `CameraStages.convert` had already produced, and one that
-     * ran before `timings.begin()` so nothing measured it. The clone stays: `CameraStages` reuses
-     * its destination `Mat`, so anything kept past this call has to be a copy.
+     * ran before `timings.begin()` so nothing measured it. One clone stays: `CameraStages` reuses
+     * its destination `Mat`, so the bus needs a stable backing buffer. Consumers receive
+     * reference-counted immutable views of it instead of copying the same QHD pixels again.
      */
     fun offer(bgr: Mat) {
         val now = nowMs()
         if (now - lastMs < PUBLISH_INTERVAL_MS) return
         lastMs = now
-        val frame = bgr.clone()
+        val frame = bgr.profiledClone(WorkOperation.RAW_FRAME_COPY)
         synchronized(lock) {
             latest?.release()
             latest = frame
@@ -126,7 +129,7 @@ class CameraFrameBus<B>(
         if (now - lastBoardMs < PUBLISH_INTERVAL_MS) return
         lastBoardMs = now
         if (!boardGate.tryEnter()) return
-        val frame = warp.clone()
+        val frame = warp.profiledClone(WorkOperation.BOARD_PREVIEW_COPY)
         scope.launch {
             runCatching { board.value = toPreview(frame) }
                 .onFailure { log.warn("board preview conversion failed", it) }
@@ -135,13 +138,21 @@ class CameraFrameBus<B>(
         }
     }
 
-    /** A CLONE — the caller releases it. Null until the first frame arrives. */
-    override fun latestCalibrationFrame(): Mat? = synchronized(lock) { latest?.clone() }
+    /** An immutable shared view — the caller releases it. Null until the first frame arrives. */
+    override fun latestCalibrationFrame(): Mat? =
+        synchronized(lock) {
+            latest?.profiledView(WorkOperation.CALIBRATION_FRAME_COPY)
+        }
 
     /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
-    override fun latestCalibrationSample(): CalibrationFrame? =
+    override fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationSample(afterVersion = null)
+
+    /** Refuses an already consumed version before sharing its immutable QHD backing buffer. */
+    override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? =
         synchronized(lock) {
-            latest?.let { CalibrationFrame(latestVersion, it.clone()) }
+            val frame = latest ?: return@synchronized null
+            if (afterVersion == latestVersion) return@synchronized null
+            CalibrationFrame(latestVersion, frame.profiledView(WorkOperation.CALIBRATION_FRAME_COPY))
         }
 
     override fun close() {
@@ -154,7 +165,7 @@ class CameraFrameBus<B>(
     private fun publishPreview() {
         if (!gate.tryEnter()) return
         val frame =
-            latestCalibrationFrame() ?: run {
+            synchronized(lock) { latest?.profiledView(WorkOperation.RAW_PREVIEW_COPY) } ?: run {
                 gate.leave()
                 return
             }
@@ -167,15 +178,33 @@ class CameraFrameBus<B>(
     }
 }
 
+private fun Mat.profiledClone(operation: WorkOperation): Mat =
+    WorkProfiler.span(operation) {
+        clone().also { copy -> WorkProfiler.bytes(operation, copy.total() * copy.elemSize().toLong()) }
+    }
+
+/** A new native header retaining the same immutable pixels; releasing either header is safe. */
+private fun Mat.profiledView(operation: WorkOperation): Mat =
+    WorkProfiler.span(operation) {
+        submat(0, rows(), 0, cols())
+    }
+
 /** The seam 06a consumes. Pinned across both phases; 06a may not widen it. */
 interface CalibrationFrames<B> {
+    /** The returned immutable frame remains valid until the caller releases its own header. */
     fun latestCalibrationFrame(): Mat?
 
     /**
-     * A versioned clone for consumers that must not process the retained latest image twice.
+     * A versioned view for consumers that must not process the retained latest image twice.
      * Implementations without a version remain unversioned and are never de-duplicated.
      */
     fun latestCalibrationSample(): CalibrationFrame? = latestCalibrationFrame()?.let { CalibrationFrame(null, it) }
+
+    /**
+     * Like [latestCalibrationSample], but lets a versioned source reject stale data before it pays
+     * for the clone. Unversioned implementations keep the old behaviour.
+     */
+    fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? = latestCalibrationSample()
 
     val rawPreview: StateFlow<B?>
 

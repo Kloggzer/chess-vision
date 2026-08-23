@@ -46,3 +46,4 @@ def test_validate_gpu_returns_tuple():
     ok, checks = doctor.validate_gpu()
     assert isinstance(ok, bool)
     assert isinstance(checks, list)
+

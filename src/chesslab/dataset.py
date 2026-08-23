@@ -17,18 +17,6 @@ from . import config
 CLASSES = config.CLASSES
 
 
-def optional_classes(classes: list[str]) -> set[str]:
-    """Classes that may legitimately be absent from a dataset.
-
-    For the 14-class piece list that is `config.OPTIONAL_CLASSES` (`empty`/`occluded`
-    never come from a FEN). For the 2-class occupancy list it is **empty**: a set missing
-    either `empty` or `occupied` is degenerate, not merely unbalanced.
-    """
-    if list(classes) == config.OCCUPANCY_CLASSES:
-        return set()
-    return config.OPTIONAL_CLASSES
-
-
 # --- Load manifest -------------------------------------------------------------------
 
 def load_manifest(path: Path) -> list[dict]:
@@ -64,7 +52,7 @@ def compute_stats(rows: list[dict], min_samples: int = config.MIN_CLASS_SAMPLES,
         per_session[r["session_id"]] += 1
 
     warnings: list[str] = []
-    optional = optional_classes(CLASSES)
+    optional = config.OPTIONAL_CLASSES
     for c in CLASSES:
         if c in optional:                   # empty/occluded may be missing (not from FEN)
             continue
@@ -93,8 +81,9 @@ def render_stats(stats: dict) -> str:
         f"Crops total: {stats['total']}  |  Sessions: {stats['num_sessions']}",
         f"{'Class':<9}{'count':>8}{'light':>8}{'dark':>8}",
     ]
-    for c in stats["counts"]:               # the stats' own class list, not the module default
-        lines.append(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}")
+    # the stats' own class list, not the module default
+    lines.extend(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}"
+                 for c in stats["counts"])
     if stats["warnings"]:
         lines.append("Warnings:")
         lines.extend(f"  ! {w}" for w in stats["warnings"])
@@ -114,7 +103,7 @@ def load_priority_paths(paths=None) -> set[str] | None:
     is therefore re-drawn away at train time — the protection would land in `split.json`'s counts
     and never in a single batch. Returns None when no keep-list has been mined.
     """
-    p = (paths or config.DATA).manifests / "hard_empty.jsonl"
+    p = (paths or config.DATA).reports / "hard_empty.jsonl"
     if not p.exists():
         return None
     # utf-8-SIG, not utf-8: PowerShell's `Out-File`/`Set-Content` stamp a BOM by default on this
@@ -212,13 +201,14 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None) -> dic
 # --- Split (session-based) -----------------------------------------------------------
 
 def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, seed: int,
-                              force_train=None) -> dict:
+                              force_train=None, groups: dict | None = None) -> dict:
     """Greedily assign WHOLE sessions to train/val/test to hit the crop ratios.
 
-    Never splits a session — frames within one are near-identical, so splitting one leaks.
-    That constraint is what makes this awkward: with a corpus like (4992, 3520, 1600, 1024,
-    1024, 832, 384) no subset hits 15 % exactly, and the rule for handling the mismatch is
-    what decides whether the split is usable at all.
+    Never splits a session — frames within one are near-identical, so splitting one leaks; the
+    same holds for a clip cut into pseudo-sessions, which is what `groups` keeps together
+    (`_assign_by_group`; None = one group per session). That constraint is what makes this
+    awkward: with a corpus like (4992, 3520, 1600, 1024, 1024, 832, 384) no subset hits 15 %
+    exactly, and the rule for the mismatch decides whether the split is usable at all.
 
     `force_train`: session IDs pinned to train (e.g. an all-empty lighting capture, which in
     val/test would distort board metrics).
@@ -238,14 +228,15 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     session back from train — the one closest to that split's target — rather than emitting
     an empty holdout.
 
-    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even
-    though `dataset_build` dedups train only. Measured on the real corpus, weighting by
-    unique content is *worse*: it gives train 1,434 unique crops instead of 1,719 and doubles
-    holdout to 10,944 raw rows. The reason is that train-only dedup makes a redundancy-heavy
-    session nearly free in train (4,992 raw collapses to 245) but full price in holdout, so
-    "oversized sessions go to train" is already the right policy — which is what rule 2 does.
+    Targeting deliberately uses RAW crop counts, not post-dedup "effective" sizes, even though
+    `dataset_build` dedups train only. Weighting by unique content measured *worse*: train gets
+    1,434 unique crops instead of 1,719 and holdout doubles to 10,944 raw rows, because
+    train-only dedup makes a redundancy-heavy session nearly free in train (4,992 collapses to
+    245) but full price in holdout — so "oversized goes to train" is already right (rule 2).
     """
     force_train = set(force_train or ())
+    if groups:
+        return _assign_by_group(sizes, val_frac, test_frac, seed, force_train, groups)
     rng = random.Random(seed)
     items = [(k, v) for k, v in sizes.items() if k not in force_train]
     rng.shuffle(items)                       # deterministic tiebreak
@@ -279,6 +270,50 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
     return splits
 
 
+def fold_groups(gsizes: dict, k: int, seed: int, force_train=None) -> list[list[str]]:
+    """Partition GROUPS into k folds of roughly equal crop count (largest-processing-time first).
+
+    `assign_sessions_to_splits` cannot do this: it is a 3-way assignment with target ratios, and
+    k calls produce overlapping test sets — which destroys the one property out-of-fold
+    prediction rests on. `force_train` groups are left out entirely; they get no fold, and the
+    caller has to say so out loud rather than pretend they were audited.
+    """
+    force_train = set(force_train or ())
+    rng = random.Random(seed)
+    items = [(g, sz) for g, sz in gsizes.items() if g not in force_train]
+    rng.shuffle(items)                       # deterministic tiebreak
+    items.sort(key=lambda kv: kv[1], reverse=True)
+    folds: list[list[str]] = [[] for _ in range(k)]
+    load = [0] * k
+    for g, sz in items:
+        i = min(range(k), key=lambda j: (load[j], j))
+        folds[i].append(g)
+        load[i] += sz
+    return [sorted(f) for f in folds]
+
+
+def groups_of(rows: list[dict]) -> dict:
+    """session -> `split_group` the producer declared, falling back to the session itself."""
+    return {r["session_id"]: r.get("split_group", r["session_id"]) for r in rows}
+
+
+def _assign_by_group(sizes: dict, val_frac: float, test_frac: float, seed: int,
+                     force_train: set, groups: dict) -> dict:
+    """Run the session greedy over GROUPS, then expand each group back to its sessions.
+
+    A producer that cuts one recording into pseudo-sessions (`composite.build_from_video`) must
+    declare the group, or adjacent frames of one clip land in different splits and val measures
+    train. A group inherits `force_train` from any member — pinning half a clip would let the
+    other half straddle, which is the leak this closes."""
+    members: dict = {}
+    for sid in sizes:
+        members.setdefault(groups.get(sid, sid), []).append(sid)
+    gsizes = {g: sum(sizes[s] for s in ss) for g, ss in members.items()}
+    gforce = {g for g, ss in members.items() if any(s in force_train for s in ss)}
+    gsplits = assign_sessions_to_splits(gsizes, val_frac, test_frac, seed, force_train=gforce)
+    return {name: [s for g in gs for s in sorted(members[g])] for name, gs in gsplits.items()}
+
+
 def make_split(
     rows: list[dict],
     val_frac: float = config.DEFAULT_VAL_FRAC,
@@ -298,7 +333,8 @@ def make_split(
         splits = {k: list(precomputed_splits.get(k, [])) for k in ("train", "val", "test")}
     else:
         sizes = Counter(r["session_id"] for r in rows)
-        splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed, force_train=force_train)
+        splits = assign_sessions_to_splits(dict(sizes), val_frac, test_frac, seed,
+                                           force_train=force_train, groups=groups_of(rows))
     split_of = {s: name for name, sids in splits.items() for s in sids}
 
     # Subsampling ONLY on train; val/test stay complete (real board accuracy).
@@ -321,15 +357,14 @@ def make_split(
         labels_in[split_of[r["session_id"]]].add(r["label"])
 
     warnings: list[str] = []
-    optional = optional_classes(CLASSES)
+    optional = config.OPTIONAL_CLASSES
     for c in CLASSES:
         if c in optional or len(class_sessions[c]) == 0:
             continue
         if len(class_sessions[c]) == 1:
             warnings.append(f"Class {c} only in one session -> clean evaluation impossible.")
-        for name in ("val", "test"):
-            if c not in labels_in[name]:
-                warnings.append(f"Class {c} missing in {name} split.")
+        warnings.extend(f"Class {c} missing in {name} split."
+                        for name in ("val", "test") if c not in labels_in[name])
     if counts_split["val"] == 0:
         warnings.append("val split is empty (too few sessions).")
     if counts_split["test"] == 0:
@@ -357,9 +392,8 @@ def validate_split(split: dict, rows: list[dict],
     """(errors, warnings). Errors = degenerate, clean evaluation impossible.
 
     The class list comes from the split itself (`split["classes"]`) when present — the
-    dataset declares its own class list (14-class pieces or 2-class occupancy) and this
-    check obeys it. For the 2-class list an ABSENT class is an error: a set with no
-    `occupied` rows (or no `empty` rows) cannot train an occupancy model at all.
+    dataset declares its own class list (14-class `pieces` or the 13-class default) and this
+    check obeys it.
     """
     CLASSES = classes or split.get("classes") or config.CLASSES
     errors: list[str] = []
@@ -374,11 +408,6 @@ def validate_split(split: dict, rows: list[dict],
     global_present = {c for c in CLASSES if class_sessions[c]}
     # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
-
-    if list(CLASSES) == config.OCCUPANCY_CLASSES:
-        for c in CLASSES:
-            if not class_sessions[c]:
-                errors.append(f"Occupancy class {c} has 0 rows — degenerate 2-class dataset.")
 
     for c in check_classes:
         n_sessions = len(class_sessions[c])
@@ -399,9 +428,7 @@ def validate_split(split: dict, rows: list[dict],
         errors.append("Val split is empty — at least 3 sessions needed (session-based split).")
 
     # Adopt warnings from make_split (class missing in Val/Test)
-    for w in split.get("warnings", []):
-        if w not in errors:                   # no duplicate reporting
-            warnings.append(w)
+    warnings.extend(w for w in split.get("warnings", []) if w not in errors)
 
     return errors, warnings
 
@@ -459,8 +486,7 @@ def write_augment_yaml(path: Path) -> Path:
             "jitter_scale": a.jitter_scale, "color_jitter": a.color_jitter,
             "noise_std": a.noise_std,
             "erase_p": a.erase_p, "erase_scale": list(a.erase_scale),
-            "bg_p": a.bg_p, "bg_keep_w": a.bg_keep_w, "bg_keep_h": a.bg_keep_h,
-            "bg_procedural_frac": a.bg_procedural_frac, "bg_pool_size": a.bg_pool_size,
+            "neighbour_pool_size": a.neighbour_pool_size,
         },
         "forbidden": {"flip": not a.allow_flip, "rotate90_180": not a.allow_rotate90},
         "val_test": "only deterministic resize + normalize",
@@ -475,7 +501,7 @@ def write_augment_yaml(path: Path) -> Path:
 # --- CLI level ------------------------------------------------------------------------
 
 def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
-    path = Path(manifest) if manifest else config.DATA.manifests / "squares.jsonl"
+    path = Path(manifest) if manifest else config.DATA.crop_pool / "manifest.jsonl"
     try:
         rows = load_manifest(path)
     except FileNotFoundError as e:
@@ -490,7 +516,7 @@ def run_stats(manifest: str | None = None, json_out: bool = False) -> int:
 
 def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: int,
               max_class_ratio: float | None = None, allow_degenerate: bool = False) -> int:
-    manifest_path = config.DATA.manifests / "squares.jsonl"
+    manifest_path = config.DATA.crop_pool / "manifest.jsonl"
     try:
         rows = load_manifest(manifest_path)
     except FileNotFoundError as e:
@@ -508,10 +534,10 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
             for e in errors:
                 print(f"[FAIL] {e}")
             return 1
-    out = config.DATA.manifests / "split.json"
+    out = config.DATA.reports / "split.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
-    write_augment_yaml(config.DATA.manifests / "augment.yaml")
+    write_augment_yaml(config.DATA.reports / "augment.yaml")
     print(f"[OK] split.json: train={split['counts']['train']} (balanced) val={split['counts']['val']} test={split['counts']['test']}")
     print(f"     Sessions: train={len(split['splits']['train'])} val={len(split['splits']['val'])} test={len(split['splits']['test'])}")
     print(f"     max_empty_ratio={max_empty_ratio} max_class_ratio={max_class_ratio}")
@@ -526,8 +552,8 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
 
 
 def run_verify() -> int:
-    manifest_path = config.DATA.manifests / "squares.jsonl"
-    split_path = config.DATA.manifests / "split.json"
+    manifest_path = config.DATA.crop_pool / "manifest.jsonl"
+    split_path = config.DATA.reports / "split.json"
     try:
         rows = load_manifest(manifest_path)
     except FileNotFoundError as e:

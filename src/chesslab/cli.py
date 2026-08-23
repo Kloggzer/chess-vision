@@ -6,15 +6,16 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
 from . import calibration as calibration_mod
-from . import collect as collect_mod
 from . import composite as composite_mod
-from . import config
+from . import config, locks
 from . import dataset as dataset_mod
 from . import doctor as doctor_mod
+from . import hand_flags as hand_flags_mod
 from . import labeling as labeling_mod
 
 app = typer.Typer(
@@ -26,13 +27,6 @@ app = typer.Typer(
 
 calibrate_app = typer.Typer(help="Stage 1 — Calibrate camera/board geometry.", no_args_is_help=True)
 app.add_typer(calibrate_app, name="calibrate")
-
-lens_app = typer.Typer(help="Camera LENS undistortion (optics) — distinct from `calibrate` (board geometry).",
-                       no_args_is_help=True)
-app.add_typer(lens_app, name="lens")
-
-collect_app = typer.Typer(help="Stage 3 — Capture positions (raw frame + FEN into session log).", no_args_is_help=True)
-app.add_typer(collect_app, name="collect")
 
 session_app = typer.Typer(
     help="Recorded sessions: geometry repair, frame flagging, lifecycle.",
@@ -47,58 +41,76 @@ app.add_typer(realgames_app, name="realgames")
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
-occluders_app = typer.Typer(help="Occluder plates — hands/arms cut free for 2.5D compositing.",
+occluders_app = typer.Typer(help="Occluders — hands and arms cut free for 2.5D compositing.",
                             no_args_is_help=True)
 app.add_typer(occluders_app, name="occluders")
 
-experiment_app = typer.Typer(help="Stage 7 — Geometry×Photometry bake-off.", no_args_is_help=True)
-app.add_typer(experiment_app, name="experiment")
 
 synth_app = typer.Typer(help="Synthetic data pipeline (Blender renderer).", no_args_is_help=True)
 app.add_typer(synth_app, name="synth")
 
-feedback_app = typer.Typer(help="Move-tracker undo=bad feedback → hard-negative training crops.",
-                           no_args_is_help=True)
-app.add_typer(feedback_app, name="track-feedback")
+perf_app = typer.Typer(
+    help="Semantic performance audits: repeated work, bytes, ranges and call paths.",
+    no_args_is_help=True,
+)
+app.add_typer(perf_app, name="perf")
 
 
 @app.callback()
-def _root() -> None:
+def _root(
+    ctx: typer.Context,
+    work_audit: Annotated[
+        Path | None,
+        typer.Option("--work-audit", help="Write a semantic avoidable-work JSON report."),
+    ] = None,
+) -> None:
     """chesslab — staged tool; each stage adds subcommands. See `chesslab --help`."""
+    if work_audit is None:
+        return
+    from .work_audit import WorkAudit, activate, deactivate
+
+    audit = WorkAudit(command=" ".join(sys.argv[1:]))
+    token = activate(audit)
+
+    def finish() -> None:
+        deactivate(token)
+        path = audit.write_json(work_audit)
+        print(audit.format_text())
+        print(f"[OK] Work audit: {path}")
+
+    ctx.call_on_close(finish)
+
+
+@perf_app.command("fuzz")
+def perf_fuzz(
+    seed: int = typer.Option(847291, "--seed", help="Deterministic workload seed."),
+    frames: int = typer.Option(500, "--frames", min=1),
+    board_revisions: int = typer.Option(2, "--board-revisions", min=1),
+    json_out: Annotated[
+        Path | None, typer.Option("--json", help="Optional JSON report path.")
+    ] = None,
+) -> None:
+    """Run the deterministic profiler self-test with changing frame/board revisions."""
+    from .work_audit import run_fuzzy
+
+    try:
+        audit = run_fuzzy(seed=seed, frames=frames, board_revisions=board_revisions)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+    print(audit.format_text())
+    if json_out is not None:
+        print(f"[OK] Work audit: {audit.write_json(json_out)}")
 
 
 @app.command()
 def doctor(
     gpu: bool = typer.Option(False, "--gpu", help="Also run ROCm/PyTorch GPU validation (required before training)."),
-    camera: int | None = typer.Option(None, "--camera", help="Camera check for index N (open + read one frame)."),
     json_out: bool = typer.Option(False, "--json", help="Also output machine-readable JSON report."),
 ) -> None:
-    """Pre-flight: validate Python, app deps, optional GPU (ROCm) and camera."""
-    code = doctor_mod.run(gpu=gpu, camera=camera, json_out=json_out)
+    """Pre-flight: validate Python, app deps and optional GPU (ROCm)."""
+    code = doctor_mod.run(gpu=gpu, json_out=json_out)
     raise typer.Exit(code)
-
-
-@app.command()
-def cameras(
-    index: int | None = typer.Option(None, "--index", help="Probe only this camera index (else all)."),
-    probe: bool = typer.Option(True, "--probe/--no-probe", help="Measure the real resolutions/fps per index."),
-    grab: int = typer.Option(20, "--grab", help="Frames to time per mode when probing."),
-) -> None:
-    """List connected cameras and probe the resolutions/fps they REALLY deliver.
-
-    The name/index list shows what's connected; the probe table forces MJPG and times real
-    frames per mode (CAP_PROP_FPS lies). USB 4K cams need a direct USB-3 port to reach 4K."""
-    from .camera import cli_cameras
-    raise typer.Exit(cli_cameras(index=index, do_probe=probe, grab=grab))
-
-
-@calibrate_app.command("check")
-def calibrate_check(
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile", help="Profile name."),
-    camera: int = typer.Option(0, "--camera", help="Camera index."),
-) -> None:
-    """Live overlay of the 8×8 grid on the camera image for visual inspection."""
-    raise typer.Exit(calibration_mod.calibrate_check(camera=camera, profile=profile))
 
 
 @calibrate_app.command("list")
@@ -114,165 +126,14 @@ def calibrate_markers(
     marker_px: int = typer.Option(300, "--marker-px"),
 ) -> None:
     """Generate printable ArUco marker sheet (glue onto a8/h8/h1/a1)."""
-    p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
+    try:
+        p = calibration_mod.generate_markers(out, dict_name=dict_name, marker_px=marker_px)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] Marker sheet: {p} — print out, cut out, glue one marker centered on each "
-          "corner a8/h8/h1/a1. Then run `chesslab calibrate auto`.")
+          "corner a8/h8/h1/a1.")
 
-
-@calibrate_app.command("auto")
-def calibrate_auto(
-    camera: int = typer.Option(0, "--camera"),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
-    board_size: int = typer.Option(config.DEFAULT_BOARD_SIZE, "--board-size"),
-    dict_name: str = typer.Option("DICT_4X4_50", "--dict"),
-    margin: float = typer.Option(config.DEFAULT_MARKER_MARGIN, "--margin", help="Fraction by which markers sit OUTSIDE the board (adjust live in --preview with w/e)."),
-    min_markers: int = typer.Option(4, "--min-markers", help="Required markers (4 = robust; 2/3 only useful with top-down camera)."),
-    preview: bool = typer.Option(False, "--preview", help="Show marker box + board box live (adjust with w/e, s=save)."),
-) -> None:
-    """Auto-calibrate via ArUco markers (markers outside, board inset; no clicking)."""
-    raise typer.Exit(calibration_mod.calibrate_auto(camera=camera, profile=profile, board_size=board_size,
-                                                    dict_name=dict_name, margin=margin, preview=preview,
-                                                    min_markers=min_markers))
-
-
-@lens_app.command("calibrate")
-def lens_calibrate(
-    camera: int = typer.Option(0, "--camera", help="Camera index (the rig camera whose lens this is)."),
-    out: str = typer.Option(None, "--out", help="Target .npz (default: data/lens/calib.npz)."),
-    min_frames: int = typer.Option(15, "--min-frames", help="Minimum accepted views before solving."),
-    cols: int = typer.Option(7, "--cols", help="INNER corners across (7 for a normal 8x8 board)."),
-    rows: int = typer.Option(7, "--rows", help="INNER corners down (7 for a normal 8x8 board)."),
-    square_mm: float = typer.Option(1.0, "--square-mm", help="Square edge length (world scale only; K/D do not depend on it)."),
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing calibration file."),
-    alpha: float = typer.Option(None, "--alpha", help="0 = no black borders, 1 = keep all pixels (default: config.LENS.alpha)."),
-) -> None:
-    """Measure the lens distortion by waving a printed chessboard in front of the camera.
-
-    Frames are captured AUTOMATICALLY (novel pose + cooldown), a live HUD shows which image
-    regions are still uncovered, and the solve starts by itself once coverage is adequate.
-    Keys: q = quit, space = force capture, u = undo last.
-
-    WARNING: with the 5-50 mm VARIFOCAL lens the result is only valid at the zoom/focus it
-    was shot at. Re-run this after touching the lens ring, otherwise undistortion silently
-    bends straight lines the wrong way. Board profiles are re-stamped automatically.
-    """
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_calibrate(camera=camera, out=out, min_frames=min_frames,
-                                             cols=cols, rows=rows, square_mm=square_mm,
-                                             force=force, alpha=alpha))
-
-
-@lens_app.command("calibrate-board")
-def lens_calibrate_board(
-    sessions: str = typer.Option(None, "--sessions", help="Sessions root (default: data/sessions)."),
-    out: str = typer.Option(None, "--out", help="Target .npz (default: data/lens/calib.npz)."),
-    force: bool = typer.Option(False, "--force", help="Overwrite an existing calibration file."),
-    min_views: int = typer.Option(8, "--min-views", help="Distinct camera poses required before solving."),
-    novelty_px: float = typer.Option(30.0, "--novelty-px", help="Minimum board-corner displacement (px) between accepted poses."),
-    min_coverage: int = typer.Option(4, "--min-coverage", help="Image regions (of 3x3) the grid points must cover."),
-    min_points: int = typer.Option(20, "--min-points", help="Minimum validated inner corners per frame (of 49)."),
-    max_frames_per_session: int = typer.Option(6, "--max-frames-per-session", help="Evenly spaced frames tried per session (a fixed camera makes more redundant)."),
-    profile: str = typer.Option(None, "--profile", help="Only harvest sessions of this board profile."),
-    size: str = typer.Option(None, "--size", help="Calibrate for this frame size (WxH; default: the size with the most views)."),
-    max_rms: float = typer.Option(2.0, "--max-rms", help="Refuse to save above this reprojection RMS (px)."),
-) -> None:
-    """Calibrate the lens from RECORDED sessions — zero interaction, no pattern waving.
-
-    The physical board IS the calibration pattern: real sessions in data/sessions/ store
-    per-frame board corners next to the frame image, and different sessions were recorded
-    with the camera mounted differently — that pose variety is exactly what
-    `calibrateCamera` needs. The board's 7x7 inner checker corners are detected around the
-    logged corners (piece-occluded intersections are rejected), poses are gated for
-    diversity, and the solve is VALIDATED on a held-out frame: it is only saved when the
-    board's grid lines actually get straighter. Board profiles are re-stamped on save,
-    same as after `lens calibrate`.
-    """
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_calibrate_board(
-        sessions=sessions, out=out, force=force, min_views=min_views, novelty_px=novelty_px,
-        min_coverage=min_coverage, min_points=min_points,
-        max_frames_per_session=max_frames_per_session, profile=profile, size=size,
-        max_rms=max_rms))
-
-
-@lens_app.command("show")
-def lens_show(
-    path: str = typer.Option(None, "--path", help="Calibration .npz (default: data/lens/calib.npz)."),
-) -> None:
-    """Print the stored lens calibration (K, distortion, RMS, resolution it was shot at)."""
-    from . import lens as lens_mod
-    raise typer.Exit(lens_mod.lens_show(path))
-
-
-@collect_app.command("pgn")
-def collect_pgn(
-    pgn: str = typer.Option(..., "--pgn", help="PGN file."),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
-    camera: int = typer.Option(0, "--camera"),
-    every: int = typer.Option(1, "--every", help="Only capture every Nth half-move."),
-    session: str = typer.Option(None, "--session", help="Session ID (default: timestamp)."),
-    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Target samples per class (UI)."),
-) -> None:
-    """PGN replay: physically replay a game, capture after each half-move."""
-    raise typer.Exit(collect_mod.collect_pgn(pgn=pgn, profile=profile, camera=camera, every=every,
-                                             session=session, ui=ui, target=target))
-
-
-@collect_app.command("live")
-def collect_live(
-    start_fen: str = typer.Option(None, "--start-fen", help="Starting position as FEN (otherwise initial position)."),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
-    camera: int = typer.Option(0, "--camera"),
-    session: str = typer.Option(None, "--session"),
-    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target", help="Target samples per class (UI)."),
-) -> None:
-    """Free play: type move (SAN/UCI), then capture."""
-    raise typer.Exit(collect_mod.collect_live(start_fen=start_fen, profile=profile, camera=camera,
-                                              session=session, ui=ui, target=target))
-
-
-@collect_app.command("play")
-def collect_play(
-    strategy: str = typer.Option("random", "--strategy", help="random | stockfish | coverage | sweep"),
-    max_plies: int = typer.Option(40, "--max-plies", help="Max. half-moves of the generated game (random/stockfish)."),
-    seed: int = typer.Option(config.SEED, "--seed", help="Seed for strategy=random."),
-    stockfish_path: str = typer.Option(None, "--stockfish-path", help="Path to the UCI binary (for stockfish)."),
-    start_fen: str = typer.Option(None, "--start-fen", help="Starting position (otherwise initial position)."),
-    profile: str = typer.Option(config.DEFAULT_PROFILE, "--profile"),
-    camera: int = typer.Option(0, "--camera"),
-    session: str = typer.Option(None, "--session"),
-    ui: bool = typer.Option(False, "--ui", help="Show live dashboard (Stage 6)."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
-    sets: int = typer.Option(1, "--sets", help="Number of physical piece sets (coverage/sweep): ×N per class."),
-    count: int = typer.Option(20, "--count", help="Number of dense setups (only strategy=coverage)."),
-    passes: int = typer.Option(1, "--passes", help="sweep: repetitions per color (per pass 8 photos)."),
-    pieces: str = typer.Option("special", "--pieces", help="sweep: special | pawn | all."),
-    together: bool = typer.Option(False, "--together", help="sweep: both colors simultaneously (half the photo count)."),
-    offset: int = typer.Option(0, "--offset", help="sweep: shift rank→piece mapping (0..7)."),
-    auto_offset: bool = typer.Option(False, "--auto-offset", help="sweep: offset automatically (cycled across sessions)."),
-) -> None:
-    """Engine plays the game (random/stockfish), coverage: dense setups targeting rare classes,
-    or sweep: piece row systematically moves across the board. You reposition and photograph."""
-    raise typer.Exit(collect_mod.collect_play(strategy=strategy, max_plies=max_plies, seed=seed,
-                                              stockfish_path=stockfish_path, start_fen=start_fen,
-                                              profile=profile, camera=camera, session=session,
-                                              ui=ui, target=target, sets=sets, count=count,
-                                              passes=passes, pieces=pieces, together=together,
-                                              offset=offset, auto_offset=auto_offset))
-
-
-@app.command("ui")
-def ui_cmd(
-    sessions: str = typer.Option(None, "--sessions", help="Sessions directory (default: data/sessions)."),
-    manifest: str = typer.Option(None, "--manifest", help="Optional manifest (informational only)."),
-    target: int = typer.Option(config.UI_TARGET_PER_CLASS, "--target"),
-) -> None:
-    """Stage 6 — Training data dashboard standalone (without active capture)."""
-    from .collect_ui import run_ui
-
-    raise typer.Exit(run_ui(sessions_dir=sessions, manifest=manifest, target_per_class=target))
 
 
 # `session` — everything that edits a recorded session before it is sliced.
@@ -362,10 +223,7 @@ def session_settle_scan(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
         r = _session_call(sessions_mod.settle_scan_session, sid)
@@ -374,8 +232,9 @@ def session_settle_scan(
             failed += 1
             continue
         short = f", {r['too_short']} in zu kurzen Intervallen" if r["too_short"] else ""
+        blind = f", {r['unseen']} ohne sichtbaren Zug" if r.get("unseen") else ""
         print(f"[OK] {sid}: {r['scored']}/{r['of']} Frames bewertet über {r['plies']} Intervalle"
-              f"{short} — backup {r['backup']}", flush=True)
+              f"{short} — {r['intervals']} Plies geprüft{blind}, backup {r['backup']}", flush=True)
     if failed:
         raise typer.Exit(1)
 
@@ -394,10 +253,7 @@ def session_boards(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
         r = _session_call(sessions_mod.write_boards_session, sid)
@@ -406,7 +262,65 @@ def session_boards(
             failed += 1
             continue
         missing = f", {r['missing']} without a readable frame" if r["missing"] else ""
-        print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing} — backup {r['backup']}", flush=True)
+        print(f"[OK] {sid}: {r['written']}/{r['of']} boards{missing}, {r['straightened']} "
+              f"geradegezogen — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
+@session_app.command("rewarp")
+def session_rewarp(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Rebuild a store from its VIDEO — straight, in one resample. The good retrofit.
+
+    `session straighten` is the other one: it pulls boards whose frames are gone and pays a second
+    resample for it. Where the video exists this is strictly better, because mesh and optics fold
+    into the map the warp already builds (+57 % Laplacian energy in the finished crop, 2026-08-21).
+    """
+    from . import sessions as sessions_mod
+
+    ids = _target_sessions(session, all_sessions)
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.rewarp_boards_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        optics = ", Optik aus lens.json" if r.get("lens") else ""
+        print(f"[OK] {sid}: {r['rewarped']}/{r['of']} neu gewarpt, {r['no_mesh']} ohne Mesh, "
+              f"{r['no_frame']} ohne Bild{optics} — backup {r['backup']}", flush=True)
+    if failed:
+        raise typer.Exit(1)
+
+
+@session_app.command("straighten")
+def session_straighten(
+    session: str = typer.Argument(None, help="Session ID."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session with a log, one by one."),
+) -> None:
+    """Pull an existing board store straight — the retrofit for sessions written before it was.
+
+    The store is where the barrel comes out, once, so that every cut afterwards is a plain
+    rectangle. A frame whose own grid a hand covered borrows its clean neighbours' mesh; measured
+    2026-08-21, that is worth 1.2 px against 1.0 for a frame's own and 16 px for none at all.
+    Idempotent: a board that already says `board_straightened` is left alone.
+    """
+    from . import sessions as sessions_mod
+
+    ids = _target_sessions(session, all_sessions)
+    failed = 0
+    for sid in ids:
+        r = _session_call(sessions_mod.straighten_boards_session, sid)
+        if r.get("error"):
+            print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
+            continue
+        print(f"[OK] {sid}: {r['straightened']}/{r['of']} geradegezogen, {r['already']} schon, "
+              f"{r['no_mesh']} ohne Mesh, {r['no_board']} ohne Brett — backup {r['backup']}",
+              flush=True)
     if failed:
         raise typer.Exit(1)
 
@@ -456,10 +370,7 @@ def session_park_frames(
     """
     from . import sessions as sessions_mod
 
-    if not (session or all_sessions):
-        print("[FAIL] specify a session ID or --all.")
-        raise typer.Exit(1)
-    ids = [s["session_id"] for s in sessions_mod.list_sessions()] if all_sessions else [session]
+    ids = _target_sessions(session, all_sessions)
     total = 0.0
     for sid in ids:
         r = _session_call(sessions_mod.park_frames_session, sid)
@@ -614,7 +525,7 @@ def session_review(
 
 @realgames_app.command("confirm")
 def realgames_confirm(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     yes: bool = typer.Option(False, "--yes",
                              help="Unprompted: keep every matched ply, drop every unmatched one."),
 ) -> None:
@@ -641,9 +552,10 @@ def realgames_confirm(
 
 @realgames_app.command("scan-video")
 def realgames_scan_video(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     stride: int = typer.Option(0, "--stride", help="Scan every Nth frame (0 = the measured 3)."),
     rescan: bool = typer.Option(False, "--rescan", help="Redo a scan that is already on disk."),
+    gate: str = typer.Option("", "--gate", help="Welcher Hand-Gate unter data/models/ misst."),
 ) -> None:
     """Measure every Nth frame of the recording before anything is picked from it.
 
@@ -654,7 +566,8 @@ def realgames_scan_video(
     from . import framescan
 
     try:
-        r = framescan.scan_video(name, stride=stride or framescan.SCAN_STRIDE, resume=not rescan)
+        r = framescan.scan_video(name, stride=stride or framescan.SCAN_STRIDE, resume=not rescan,
+                                 tag=gate)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -666,7 +579,7 @@ def realgames_scan_video(
 
 @realgames_app.command("export-session")
 def realgames_export_session(
-    name: str = typer.Argument(..., help="Real-game name under data/realgames/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     quiet_margin_s: float = typer.Option(1.0, "--quiet-margin-s",
                                          help="Declared hand margin around each commit."),
     dirty: bool = typer.Option(True, "--dirty/--no-dirty",
@@ -683,7 +596,7 @@ def realgames_export_session(
     report_only: bool = typer.Option(False, "--report-only",
                                      help="Compute the yield table, write nothing."),
 ) -> None:
-    """Turn a CONFIRMED real-game candidate into `data/sessions/rg-<name>/` for `chesslab slice`.
+    """Cut a CONFIRMED candidate into its own folder `data/recordings/<name>/` for `chesslab slice`.
 
     The night-light domain and every occlusion window exist only in the recorded videos, and
     nothing extracted them. A reviewed ply's `fen_after` is the known position from its commit
@@ -710,7 +623,7 @@ def realgames_export_session(
 
 @realgames_app.command("fit-stored")
 def realgames_fit_stored(
-    name: str | None = typer.Argument(None, help="Real-game name under data/realgames/."),
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
     all_bundles: bool = typer.Option(False, "--all",
                                      help="Every bundle with a stored session, one after the other."),
 ) -> None:
@@ -739,7 +652,7 @@ def realgames_fit_stored(
 
 @realgames_app.command("model-read")
 def realgames_model_read(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     model: str = typer.Option(..., "--model", help="Run dir of a model that did NOT train on "
                                                    "this session (refused if it did)."),
     device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
@@ -763,6 +676,37 @@ def realgames_model_read(
           f"({_Path(res['model']).name}) -> {res['path']}")
 
 
+@realgames_app.command("adopt-dirty")
+def realgames_adopt_dirty(
+    name: str = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_recordings: bool = typer.Option(False, "--all", help="Every recording with a log."),
+) -> None:
+    """Take the hands a human reported into `log.jsonl` — the matte can start without a re-export.
+
+    A reported frame only reaches the pile through `export-session` otherwise, which re-plans the
+    whole recording. This marks the stored rows `occluded`, which is also what makes the coming
+    matte RESCUE them: measured coverage on a row still classed `clean` condemns it instead.
+    """
+    from . import realgames as rg_mod
+
+    names = [p.name for p in sorted(config.DATA.recordings.glob("*")) if (p / "log.jsonl").exists()]
+    if not (bool(name) ^ all_recordings):
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    total = 0
+    for target in (names if all_recordings else [name]):
+        try:
+            res = rg_mod.adopt_reported_dirty(target)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            print(f"[ERR] {target}: {e}")
+            continue
+        total += res["changed"]
+        if res["changed"]:
+            print(f"[OK] {target}: {res['changed']} von {res['reported']} gemeldeten Frames "
+                  f"auf `occluded` gesetzt (Backup {res['backup']})")
+    print(f"[OK] {total} Frames warten jetzt auf die Matte — `chesslab occluders alpha-worker`")
+
+
 @realgames_app.command("audit-corrections")
 def realgames_audit_corrections() -> None:
     """Check the correction ledger against the rules of chess — the audit that PROVES.
@@ -774,7 +718,7 @@ def realgames_audit_corrections() -> None:
     from . import label_audit
 
     r = label_audit.audit_corrections()
-    path = label_audit.write_report(r["rows"], config.DATA.manifests / "correction-violations.jsonl")
+    path = label_audit.write_report(r["rows"], config.DATA.reports / "correction-violations.jsonl")
     print(f"[OK] {r['frames']} frames break a rule after their corrections "
           f"({r['cells']} correction cells of {r['corrections_total']}) -> {path}")
     for rule, n in sorted(r["per_rule"].items(), key=lambda kv: -kv[1]):
@@ -783,8 +727,57 @@ def realgames_audit_corrections() -> None:
         print(f"  {sid:34} {n} frames")
 
 
+@realgames_app.command("hand-flags")
+def realgames_hand_flags(
+    cut: float = typer.Option(hand_flags_mod.DEFAULT_CUT, "--cut",
+                              help="Ab dieser Coverage-Vorhersage legt der Occlusion-Kopf eine "
+                                   "Verdeckung vor. Tief, weil ein verpasster Handframe 64 Labels "
+                                   "verdirbt und ein Fehlalarm einen Blick kostet."),
+) -> None:
+    """Wo das Modell eine Hand sieht und die Matte keine — die Vorlage der `Hand?`-Lane.
+
+    Braucht `model-reads.jsonl` aus einem Lauf MIT Occlusion-Kopf (`realgames model-read`);
+    ein Lauf ohne den Kopf schreibt kein `cov` und wird uebersprungen statt geraten.
+    """
+    r = hand_flags_mod.hand_flags(cut=cut)
+    print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n}")
+    if r["without_coverage"]:
+        print(f"  ! ohne `cov` uebersprungen ({len(r['without_coverage'])}): "
+              f"{', '.join(r['without_coverage'][:6])} — `model-read` dort neu laufen lassen, "
+              f"mit einem Lauf MIT Occlusion-Kopf")
+
+
+@realgames_app.command("position-flags")
+def realgames_position_flags() -> None:
+    """Zellen, deren Bild von der Stellung ihres Intervalls abweicht — die Vorlage der Lane.
+
+    Braucht `settle_dev` aus `chesslab session settle-scan`; ohne Messung ist eine Zelle nicht
+    unstrittig, sondern ungemessen, und sie wird uebersprungen statt geraten.
+    """
+    from . import position_flags as position_flags_mod
+
+    r = position_flags_mod.position_flags()
+    print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n}")
+    i = position_flags_mod.interval_flags()
+    print(f"[OK] {i['plies']} Plies geprueft, {i['unseen']} ohne sichtbaren Zug -> {i['path']}")
+
+
 @realgames_app.command("audit-flags")
-def realgames_audit_flags() -> None:
+def realgames_audit_flags(
+    occupancy: bool = typer.Option(False, "--occupancy/--all",
+                                   help="Only flags disputing whether the square is OCCUPIED. Use "
+                                        "it whenever the proposer comes from another domain: a "
+                                        "model that never saw this piece set reads shapes badly, "
+                                        "and its type flags are its own gap, not your labels."),
+    visible: bool = typer.Option(False, "--visible/--any-coverage",
+                                 help="Drop the cells the matte measured as covered. `OcclusionLoss` "
+                                      "masks those out of the class loss anyway, so a verdict on "
+                                      "them reaches no model."),
+) -> None:
     """Question every FEN label with the models the proposals already ran — confident learning.
 
     Per session and class, `t_j` is the mean self-confidence over the cells labelled `j`
@@ -794,10 +787,14 @@ def realgames_audit_flags() -> None:
     """
     from . import audit_flags as audit_mod
 
-    r = audit_mod.audit_flags()
+    r = audit_mod.audit_flags(occupancy_only=occupancy, visible_only=visible)
     rate = r["flags"] / r["cells_scanned"] if r["cells_scanned"] else 0.0
     for s in r["skipped"]:
         print(f"[SKIP] {s['session']}: {s['reason']}")
+    if r["dropped_by_scope"]:
+        print(f"[i] scope={r['scope']}: {r['dropped_by_scope']} type/colour flags left out")
+    if r["dropped_as_covered"]:
+        print(f"[i] coverage={r['coverage_scope']}: {r['dropped_as_covered']} covered cells left out")
     print(f"[OK] {r['flags']} flags over {r['cells_scanned']} cells ({rate:.1%}) "
           f"in {len(r['sessions'])} sessions -> {r['path']}")
 
@@ -844,6 +841,32 @@ def session_trim(
           f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")
 
 
+def _out_size(value: str | None) -> tuple[int, int] | None:
+    """`WxH` from a command line — a bad one is a message, not a stack."""
+    if not value:
+        return None
+    try:
+        return labeling_mod.parse_out_size(value)
+    except ValueError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+
+
+def _target_sessions(session: str | None, every: bool) -> list[str]:
+    """One session, or every ACTIVE one — archived sessions stay out of bulk verbs.
+
+    Archiving is a retirement with a stated reason; re-boarding or re-parking one behind the
+    user's back undoes that. `list_sessions` returns both kinds, so the filter belongs here.
+    """
+    if not (session or every):
+        print("[FAIL] specify a session ID or --all.")
+        raise typer.Exit(1)
+    if not every:
+        return [session]
+    from . import sessions as sessions_mod
+    return [s["session_id"] for s in sessions_mod.list_sessions() if not s["archived"]]
+
+
 def _session_call(fn, *args):
     """Run a `sessions` operation, turning its errors into a message and an exit code.
 
@@ -871,80 +894,20 @@ def slice_cmd(
     pad_side: float = typer.Option(None, "--pad-side", help="Override side crop extension."),
     out_size: str = typer.Option(None, "--out-size", help="Crop size WxH, e.g. 96x128."),
     preview: str = typer.Option(None, "--preview", help="Session ID: visually check label vs crop."),
-    geometry: str = typer.Option("warp", "--geometry", help="Crop geometry: warp | box3d."),
-    photometry: str = typer.Option("none", "--photometry", help="Filter: none | clahe | grayworld | gamma."),
-    piece_height: float = typer.Option(config.EXP_PIECE_HEIGHT_CELLS, "--piece-height",
-                                       help="box3d: extrusion height in cells."),
     variant_tag: str = typer.Option(None, "--variant-tag",
-                                    help="Store crops/manifest with variant tag (squares__<tag>/)."),
+                                    help="Store crops/manifest with variant tag (crops/<tag>/)."),
 ) -> None:
     """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
         pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
-        geometry_mode=geometry, photometry=photometry, piece_height_cells=piece_height,
         variant_tag=variant_tag,
     ))
 
 
-def _csv_list(s: str) -> list[str]:
-    return [x.strip() for x in s.split(",") if x.strip()]
-
-
-@experiment_app.command("run")
-def experiment_run(
-    sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
-    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries", help="e.g. warp,box3d."),
-    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries",
-                                     help="e.g. none,clahe,grayworld,gamma."),
-    heads: str = typer.Option("combined", "--heads", help="Model heads: combined,factored,twostage."),
-    epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
-    seed: int = typer.Option(config.SEED, "--seed"),
-    backbone: str = typer.Option(config.DEFAULT_BACKBONE, "--backbone"),
-    eval_split: str = typer.Option("test", "--eval-split", help="Metric split: test | val (val for <3 sessions)."),
-    force: bool = typer.Option(False, "--force", help="All stages fresh (otherwise skip completed ones)."),
-) -> None:
-    """Full grid train Geometry×Photometry×Head + comparison table by board accuracy."""
-    from . import experiment as experiment_mod
-
-    raise typer.Exit(experiment_mod.run_experiment(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads),
-        epochs=epochs, seed=seed, backbone=backbone, eval_split=eval_split, force=force))
-
-
-@experiment_app.command("table")
-def experiment_table(
-    sessions: str = typer.Option(..., "--sessions", help="Comma-separated session IDs."),
-    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
-    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
-    heads: str = typer.Option("combined", "--heads"),
-    eval_split: str = typer.Option("test", "--eval-split"),
-) -> None:
-    """Rebuild comparison table from already-trained runs (no re-training)."""
-    from . import experiment as experiment_mod
-
-    raise typer.Exit(experiment_mod.rebuild_table(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads),
-        eval_split=eval_split))
-
-
-@experiment_app.command("list")
-def experiment_list(
-    sessions: str = typer.Option("", "--sessions", help="(optional, irrelevant for table columns)."),
-    geometries: str = typer.Option(",".join(config.EXP_GEOMETRIES), "--geometries"),
-    photometries: str = typer.Option(",".join(config.PHOTOMETRY_METHODS), "--photometries"),
-    heads: str = typer.Option("combined", "--heads"),
-) -> None:
-    """Status per variant: sliced / dataset / train / eval."""
-    from . import experiment as experiment_mod
-
-    raise typer.Exit(experiment_mod.variant_status(
-        _csv_list(sessions), _csv_list(geometries), _csv_list(photometries), _csv_list(heads)))
-
-
 @app.command("stats")
 def stats_cmd(
-    manifest: str = typer.Option(None, "--manifest", help="Manifest path (default: data/manifests/squares.jsonl)."),
+    manifest: str = typer.Option(None, "--manifest", help="Manifest path (default: data/crops/default/manifest.jsonl)."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     """Dataset report: 13-class distribution + light/dark coverage + warnings."""
@@ -971,16 +934,22 @@ def split_cmd(
 def occluders_composite(
     video: str = typer.Option(..., "--video", help="Board clip (ArUco per frame)."),
     fen: str = typer.Option(..., "--fen", help="The position the board holds for the whole clip."),
-    plates: str = typer.Option("data/occluders/plates", "--plates", help="RGBA tiles."),
-    tag: str = typer.Option("comp", "--tag", help="Crop pool `data/squares__<tag>/` + manifest."),
+    occluders: str = typer.Option(str(config.DATA.occluders), "--occluders", help="RGBA tiles."),
+    tag: str = typer.Option("comp", "--tag", help="Crop pool `data/crops/<tag>/` + manifest."),
     stride: int = typer.Option(composite_mod.STRIDE, "--stride",
                                help="Frames between two boards. On the turntable that is an "
                                     "ANGLE: 0.43 deg per frame, so 8 is ~3.4 deg."),
-    board_size: int = typer.Option(1280, "--board-size", help="Warp resolution (px)."),
-    out_size: str = typer.Option("80x80", "--out-size", help="Crop size WxH."),
+    board_size: int = typer.Option(0, "--board-size",
+                                   help="Warp-Aufloesung in px. 0 = aus dem Quad der Quelle "
+                                        "gemessen, was der Clip wirklich hergibt (`measured_board_"
+                                        "size`). Fest 1280 rechnete 1080p-Clips um 1,93x hoch."),
+    out_size: str = typer.Option("128x128", "--out-size",
+                                 help="Crop size WxH. 128 wie der echte Export: bei 80 liegt der "
+                                      "Crop schon auf der Modellgroesse und hat keine Reserve, "
+                                      "waehrend echte Crops noch Detail uebrig haben."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
-    """Lay occluder plates over a board clip and cut crops with an EXACT coverage per cell.
+    """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
 
     The second target replaces the hand-marked `occluded` class: coverage is a fraction the
     composite knows, not a yes/no somebody had to judge (docs/occluder-plates.md)."""
@@ -988,12 +957,17 @@ def occluders_composite(
 
     from . import composite as comp
 
-    res = comp.build_from_video(
-        video=Path(video), plate_dir=Path(plates),
-        out_root=config.DATA.root / f"squares__{tag}",
-        manifest=config.DATA.manifests / f"squares__{tag}.jsonl",
-        fen=fen, board_size=board_size, out_size=labeling_mod.parse_out_size(out_size),
-        stride=stride, seed=seed)
+    try:
+        with locks.pool_lock(config.DATA.crops / tag, f"composite {Path(video).name}"):
+            res = comp.build_from_video(
+                video=Path(video), plate_dir=Path(occluders),
+                out_root=config.DATA.crops / tag,
+                manifest=config.DATA.crops / tag / "manifest.jsonl",
+                fen=fen, board_size=board_size, out_size=_out_size(out_size),
+                stride=stride, seed=seed)
+    except RuntimeError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     if res.get("error"):
         print(f"[FAIL] {res['error']}")
         raise typer.Exit(1)
@@ -1004,8 +978,9 @@ def occluders_composite(
 
 @occluders_app.command("extract")
 def occluders_extract(
-    src: str = typer.Option("data/occluders", "--in", help="Folder of clips shot over a backdrop."),
-    out: str = typer.Option("data/occluders/plates", "--out", help="Where the RGBA tiles land."),
+    src: str = typer.Option(str(config.DATA.footage / "occluders"), "--in",
+                            help="Folder of clips shot over a backdrop."),
+    out: str = typer.Option(str(config.DATA.occluders), "--out", help="Where the RGBA tiles land."),
     stride: int = typer.Option(2, "--stride", help="Take every Nth frame before novelty filtering."),
     max_iou: float = typer.Option(0.85, "--max-iou",
                                   help="Overlap above which a pose counts as one already kept."),
@@ -1033,13 +1008,13 @@ def occluders_extract(
         total += s.get("written", 0)
         print(f"  {s['video']:<28} {s.get('written', 0):>4} Kacheln  "
               f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
-    (Path(out) / "plates.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+    (Path(out) / "occluders.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
     print(f"[OK] {total} Kacheln in {out}")
 
 
 @occluders_app.command("recut")
 def occluders_recut(
-    name: str = typer.Argument(..., help="Real-game name under data/sessions/rg-<name>/."),
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
 ) -> None:
     """Recompute coverage for every frame whose alpha a human corrected in the matte view.
 
@@ -1057,9 +1032,101 @@ def occluders_recut(
           f"({res['frames']} Zeilen) -> {res['path']}")
 
 
+@occluders_app.command("close-seams")
+def occluders_close_seams(
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session that has a matte.jsonl."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only, touch nothing."),
+) -> None:
+    """Close the hairline the concept UNION leaves in alphas already on disk, and recut coverage.
+
+    Watch and arm come from two SAM concepts and meet on a line neither covers. `alpha_sam3` does
+    this for every new matte; this is the one-off for the ones cut before it did.
+    """
+    from . import matte as matte_mod
+
+    if bool(name) == all_sessions:
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    if all_sessions:
+        from .sessions import all_sessions as _all
+
+        names = [sid[3:] for sid, _ in _all() if sid.startswith("rg-")]
+    else:
+        names = [name]
+    total = {"closed": 0, "frames": 0, "crossed": 0}
+    for one in names:
+        try:
+            res = matte_mod.close_seams(one, dry_run=dry_run, progress=not all_sessions)
+        except (FileNotFoundError, ValueError, KeyError, OSError) as e:
+            print(f"[ERR] {one}: {e}")
+            continue
+        for k in total:
+            total[k] += res[k]
+        if res["closed"]:
+            print(f"[OK] {one}: {res['closed']}/{res['frames']} Alphas geschlossen, "
+                  f"+{res['px']} px, {res['crossed']} Zellen wechseln die Schwelle"
+                  f"{' (dry-run)' if dry_run else ''}")
+    if len(names) > 1:
+        print(f"[OK] gesamt {total['closed']}/{total['frames']} Alphas, "
+              f"{total['crossed']} Zellen wechseln PIECE_VISIBLE_MAX")
+
+
+@occluders_app.command("gate-train")
+def occluders_gate_train(
+    backbone: str = typer.Option("mobilenet_v3_small", "--backbone"),
+    size: int = typer.Option(320, "--size", help="Kantenlaenge, in der der Kopf das Brett sieht."),
+    epochs: int = typer.Option(8, "--epochs"),
+    holdout: int = typer.Option(4, "--holdout", help="GANZE Sessions, die nur geprueft werden."),
+    batch: int = typer.Option(32, "--batch"),
+    workers: int = typer.Option(4, "--workers", help="Loader-Prozesse; 8 ist die Obergrenze."),
+    lr: float = typer.Option(3e-4, "--lr"),
+    tag: str = typer.Option("", "--tag", help="Eigener Ordner unter data/models/, fuer Vergleiche."),
+) -> None:
+    """Den Hand-Gate auf SAM 3s Urteil trainieren — das Ja/Nein, das kein Alpha braucht.
+
+    SAM ist der Lehrer UND der Pruefer: die zurueckgehaltenen Sessions werden gegen sein Urteil
+    gemessen, nicht gegen ein Frame-Sample derselben Beleuchtung.
+    """
+    from . import hand_gate
+
+    r = hand_gate.train_gate(backbone=backbone, size=size, epochs=epochs, holdout=holdout,
+                             batch=batch, workers=workers, lr=lr, tag=tag)
+    c = r["chosen"]
+    print(f"[OK] {r['train_boards']} Bretter trainiert, {r['val_boards']} geprueft "
+          f"({r['val_hands']} mit Hand) -> {r['path']}")
+    cov = r["coverage"]
+    print(f"     Veto {c['thr']}: recall {c['recall']}, {c['false_pos']} saubere Bretter verworfen "
+          f"({100 * c['clean_lost']:.1f} %)")
+    print(f"     Felder > 0.15: recall {cov['recall']} praezision {cov['precision']}, "
+          f"MAE {cov['mae']} | {r['ms_per_board']} ms je Brett")
+
+
+@occluders_app.command("gate-scan")
+def occluders_gate_scan(
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_sessions: bool = typer.Option(False, "--all", help="Jede Session mit gespeicherten Brettern."),
+    tag: str = typer.Option("", "--tag", help="Welcher Lauf unter data/models/ gelesen wird."),
+) -> None:
+    """Den Hand-Gate ueber eine Session laufen lassen -> `gate.jsonl` neben `matte.jsonl`.
+
+    Getrennte Datei mit Absicht: SAMs Messung und die des Schuelers duerfen nie in derselben Zeile
+    stehen, sonst weiss spaeter niemand, wessen Zahl in den Trainingssatz gelaufen ist.
+    """
+    from . import hand_gate
+    from .realgames import bundles_with_stored
+
+    names = bundles_with_stored() if all_sessions else [name]
+    if not names or names == [None]:
+        raise typer.BadParameter("Name oder --all angeben.")
+    for one in names:
+        r = hand_gate.gate_scan(one, tag=tag)
+        print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto -> {r['path']}", flush=True)
+
+
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
-    name: str | None = typer.Argument(None, help="Real-game name under data/sessions/rg-<name>/."),
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
     all_sessions: bool = typer.Option(False, "--all",
                                       help="Every exported session in ONE process — the weights "
                                            "load once instead of per session (6-10 min each)."),
@@ -1069,27 +1136,44 @@ def occluders_alpha_worker(
     reason: str = typer.Option("occluded", "--reason",
                                help="Which dirty rows to matte: `occluded` (FEN still valid, the "
                                     "labelable ones) or `all`."),
+    reported: bool = typer.Option(False, "--reported",
+                                  help="Re-measure exactly the frames a human reported dirty in "
+                                       "the labeling stream. Overrides --limit and any matte "
+                                       "already there — the report is a verdict on that matte."),
 ) -> None:
     """Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.
 
     Runs long by design (11.9 s a frame) and appends every row as it lands, so it can be stopped
     and resumed at any point. The pile itself was chosen by the frame scan (`docs/frame-scan.md`).
     """
-    from . import config
     from . import matte as matte_mod
+
+    config.cap_blas_threads()          # GPU path: the BLAS arenas are 3.2 GB of dead reservation
+    matte_mod.exit_with_parent()
 
     if bool(name) == all_sessions:
         print("[ERR] name or --all, not both")
         raise typer.Exit(1)
     if all_sessions:
-        names = sorted(d.name[3:] for d in config.DATA.sessions.glob("rg-*") if d.is_dir())
+        from .sessions import all_sessions
+
+        names = [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
         res = matte_mod.alpha_worker_all(names, limit=limit or None, reason=reason)
         print(f"[OK] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
               f"({res['already']} lagen schon vor)", flush=True)
         sys.stdout.flush()
         os._exit(0)
+    frames = None
+    if reported:
+        from .realgames import reported_dirty
+
+        frames = {f"{index:06d}" for index in reported_dirty(f"rg-{name}")}
+        if not frames:
+            print(f"[OK] {name}: nothing reported dirty by hand")
+            raise typer.Exit(0)
+        print(f"[i] {len(frames)} frames reported, re-measuring those")
     try:
-        res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason)
+        res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason, frames=frames)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -1098,8 +1182,10 @@ def occluders_alpha_worker(
           f"({res['already']} lagen schon vor) -> {res['path']}", flush=True)
     print(f"     uebersprungen — {skipped}", flush=True)
     # Measured twice on 2026-08-19: the run finishes its frames, writes them, and then never
-    # exits — the ROCm teardown wedges and the loop above it waits out its timeout. Everything is
-    # already on disk here (each row is appended and flushed), so leave without unwinding.
+    # exits — the ROCm teardown wedges. Everything is on disk (each row is appended and flushed),
+    # so leave without unwinding — but drop the weights first, like the `--all` path: a wedge
+    # BEFORE `os._exit` left the worker alive holding its VRAM (measured 2026-08-21).
+    matte_mod.unload_models()
     sys.stdout.flush()
     os._exit(0)
 
@@ -1112,19 +1198,17 @@ def dataset_verify() -> None:
 
 @app.command("ingest")
 def ingest_cmd(
-    adapter: str = typer.Argument(..., help="chesscog | chessred | synthetic (external/synthetic dataset)."),
+    adapter: str = typer.Argument(..., help="synthetic (rendered dataset)."),
     root: str = typer.Argument(..., help="Path to locally extracted dataset."),
     tag: str | None = typer.Option(None, "--tag", help="Name for sessions/dataset (default: pretrain-<adapter>)."),
-    geometry: str = typer.Option("warp", "--geometry", help="warp (recommended, no intrinsics) | box3d."),
-    photometry: str = typer.Option("none", "--photometry", help="none | clahe | grayworld | gamma — must match the finetune dataset."),
     board_size: int = typer.Option(900, "--board-size", help="Warp resolution (px). Keep moderate (phone source), otherwise upscale blur."),
     limit: int | None = typer.Option(None, "--limit", help="Only the first N images (quick test)."),
     debug_overlay: int = typer.Option(0, "--debug-overlay", help="Warp N frames + overlay FEN labels (visual check against label swapping)."),
     no_build: bool = typer.Option(False, "--no-build", help="Only slice, don't build a dataset."),
 ) -> None:
-    """Ingest external dataset (chesscog/ChessReD2K) into our crop format -> pretrain dataset.
+    """Ingest a corner-annotated dataset into our crop format -> pretrain dataset.
 
-    Afterwards: `chesslab train --dataset <tag> --head twostage --backbone mobilenet_v3_small`, then on
+    Afterwards: `chesslab train --dataset <tag> --backbone mobilenet_v3_small`, then on
     your own sessions `train --dataset <yours> --resume <pretrain-run>`. IMPORTANT: before the big
     run with `--debug-overlay 8` check orientation (wrong corners silently swap all labels)."""
     from . import ingest as ingest_mod
@@ -1132,7 +1216,7 @@ def ingest_cmd(
     t = tag or f"pretrain-{adapter.lower()}"
     try:
         summary = ingest_mod.run_ingest(
-            adapter, root, tag=t, geometry=geometry, photometry=photometry, board_size=board_size,
+            adapter, root, tag=t, board_size=board_size,
             limit=limit, debug_overlay_n=debug_overlay, build=not no_build)
     except (ValueError, FileNotFoundError) as e:
         print(f"[FAIL] {e}")
@@ -1176,14 +1260,14 @@ def dataset_build_cmd(
         help="Pack at the MODEL's size (e.g. 80x80) instead of the crop file's. Scales once."),
     source_manifest: str | None = typer.Option(None, "--source-manifest",
                                                help="Crop pool(s) to filter, comma-separated. Default: "
-                                                    "manifests/squares.jsonl. Needed after `ingest --tag X "
-                                                    "--no-build`, which writes manifests/squares__X.jsonl."),
+                                                    "crops/default/manifest.jsonl. Needed after `ingest "
+                                                    "--tag X --no-build`, which writes crops/X/manifest.jsonl."),
     classes: str | None = typer.Option(None, "--classes",
                                        help="pieces13 (13, default) | pieces (14, with `occluded`, "
-                                            "which has zero rows in the corpus) | occupancy (2: "
-                                            "empty/occupied). The narrower modes NARROW the existing "
-                                            "labels at build time — no crop is re-labelled, no row "
-                                            "is lost. With --like this is the ONE flag that still "
+                                            "which has zero rows in the corpus). pieces13 NARROWS the "
+                                            "existing labels at build time — no crop is re-labelled, "
+                                            "only `occluded` rows are dropped. With --like this is "
+                                            "the ONE flag that still "
                                             "wins over the donor: a twin that differs in its class "
                                             "list is the whole point of building one."),
     like: str | None = typer.Option(None, "--like",
@@ -1201,6 +1285,13 @@ def dataset_build_cmd(
                                              "metric, which is a max over empty crops - more crops "
                                              "can only raise it, so numbers from the donor's test "
                                              "set are NOT comparable to numbers from this one."),
+    force_train: str | None = typer.Option(None, "--force-train",
+                                          help="Session IDs (comma-separated) pinned to TRAIN. "
+                                               "Pins the whole split group, so naming one block of "
+                                               "a clip keeps the clip together. Use it for material "
+                                               "that must not sit in a holdout - the only position "
+                                               "a composite corpus has, an all-empty lighting "
+                                               "capture - and say in the dataset why."),
     add_train: str | None = typer.Option(None, "--add-train",
                                          help="With --like: extra session IDs appended to the TRAIN "
                                               "split. Unlike --add-test this CHANGES what the model "
@@ -1219,8 +1310,9 @@ def dataset_build_cmd(
                                phash_hamming=hamming, per_position=per_position,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
-                               pack_size=labeling_mod.parse_out_size(pack_size) if pack_size else None,
+                               pack_size=_out_size(pack_size),
                                class_mode=classes, like=like,
+                               force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],
                                add_train=[s.strip() for s in (add_train or '').split(',') if s.strip()])
     except ValueError as e:
@@ -1259,9 +1351,8 @@ def dataset_build_synth_cmd(
                                      "and diverse renders already carry the variance."),
     workers: int | None = typer.Option(None, "--workers", help="Pixel-pass processes (default: auto)."),
     classes: str = typer.Option("pieces13", "--classes",
-                                help="pieces13 (13, default) | pieces (14, with `occluded`) | "
-                                     "occupancy (2: empty/occupied). The narrower modes narrow the "
-                                     "FEN labels at build time."),
+                                help="pieces13 (13, default) | pieces (14, with `occluded`). "
+                                     "pieces13 narrows the FEN labels at build time."),
 ) -> None:
     """Fused synthetic build: renders -> packed memmap directly.
 
@@ -1287,16 +1378,67 @@ def dataset_build_synth_cmd(
 
 
 @dataset_app.command("pack")
-def dataset_pack_cmd(name: str = typer.Argument(..., help="Dataset to pack.")) -> None:
+def dataset_pack_cmd(
+    name: str = typer.Argument(..., help="Dataset to pack."),
+    pack_size: str = typer.Option(None, "--pack-size",
+                                  help="Pack at the MODEL's resolution (e.g. 80x80) instead of the "
+                                       "crop file's. The crop store went to 128 px for the label "
+                                       "view; packing that verbatim costs 22.6 GB where the 80 px "
+                                       "recipe needs 9.5, and every batch then pays a resize."),
+    from_: str = typer.Option(None, "--from",
+                              help="Read another dataset's memmap instead of decoding a second "
+                                   "copy. For a variant whose manifest only re-SELECTS rows the "
+                                   "owner already packed; refused when it needs a crop the owner "
+                                   "does not carry. Deletes this dataset's own memmap if present."),
+) -> None:
     """Pack a dataset's crops into one memmap for fast training (1M+ PNG I/O fix).
 
     Decodes every crop once into ``data/datasets/<name>/packed_images.u8``; `train --dataset <name>`
     then reads from the memmap instead of opening 1M files per epoch. Re-run after rebuilding.
     """
+    if from_:
+        from .training.pack import link_pack
+
+        try:
+            link_pack(name, from_)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"[FAIL] {e}")
+            raise typer.Exit(1) from None
+        return
     from .training.pack import pack_dataset
 
-    res = pack_dataset(name)
+    try:
+        res = pack_dataset(name, out_size=_out_size(pack_size))
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
+
+
+@dataset_app.command("folds")
+def dataset_folds_cmd(
+    name: str = typer.Argument(..., help="Built dataset to cut into folds."),
+    k: int = typer.Option(4, "-k", "--folds", help="Number of folds (docs/cross-labeling-literature.md: 4)."),
+    seed: int | None = typer.Option(None, "--seed", help="Default: the dataset's own split seed."),
+    val_frac: float | None = typer.Option(None, "--val-frac", help="Default: the dataset's own."),
+    prefix: str = typer.Option("split-f", "--prefix", help="File name prefix, e.g. split-f0.json."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report only, write nothing."),
+    force: bool = typer.Option(False, "--force", help="Overwrite existing fold files."),
+    allow_asymmetric: bool = typer.Option(False, "--allow-asymmetric",
+                                          help="Proceed although the dataset was deduped train-only."),
+) -> None:
+    """Session-grouped cross-validation folds: k `split-f<i>.json` beside the dataset's split.
+
+    For out-of-fold label auditing — every session is predicted by a model that never trained
+    on it. All folds share the one pack, so nothing is re-packed."""
+    from . import dataset_build as db
+
+    try:
+        db.make_folds(name, k, seed=seed, val_frac=val_frac, prefix=prefix,
+                     dry_run=dry_run, force=force, allow_asymmetric=allow_asymmetric)
+    except (ValueError, FileNotFoundError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
 
 
 @dataset_app.command("list")
@@ -1314,7 +1456,11 @@ def dataset_delete_cmd(name: str = typer.Argument(...)) -> None:
     """Delete dataset (raw material/sessions remain)."""
     from . import dataset_build as db
 
-    db.delete_dataset(name)
+    try:
+        db.delete_dataset(name)
+    except FileNotFoundError as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
     print(f"[OK] Dataset '{name}' deleted.")
 
 
@@ -1323,7 +1469,8 @@ def train_cmd(
     backbone: str = typer.Option(
         config.DEFAULT_BACKBONE,
         "--backbone",
-        help="smallcnn | mobilenet_v3_small | any timm model",
+        help="Any timm model (default: mobilenetv4_conv_small_035, what every shipped model is) "
+             "| mobilenet_v3_small | smallcnn. WARNING: `smallcnn` hard-crashes ROCm-Windows.",
     ),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
@@ -1354,18 +1501,17 @@ def train_cmd(
                                         "LOST on the 18-clip harness (whole-board occupancy: rgb "
                                         "0.9978, rgb+sobel 0.0308, gray+sobel 0.0307) — keep `rgb` "
                                         "unless you are re-running the experiment."),
-    norm: str | None = typer.Option(None, "--norm", help="batchnorm | groupnorm | none (default: groupnorm on Windows, otherwise batchnorm)."),
+    norm: str | None = typer.Option(None, "--norm", help="batchnorm (default) | groupnorm | none."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
     head: str = typer.Option("occlusion", "--head",
-                             help="occlusion (default) | combined | factored | twostage. `occlusion` adds a "
+                             help="occlusion (default) | combined. `occlusion` adds a "
                                   "sigmoid coverage unit beside the classes and trains it from the "
                                   "manifest's `coverage` — see docs/occluder-plates.md."),
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
-    bg_p: float | None = typer.Option(None, "--bg-p", help="Override background-randomization prob on occupied crops."),
       jitter_translate: float | None = typer.Option(None, "--jitter-translate",
                                                   help="Override the affine translation jitter, as a "
                                                        "fraction of the crop. The default 0.03 is ~3.3 % "
@@ -1376,7 +1522,7 @@ def train_cmd(
       hard_negative_multiplier: float = typer.Option(
           1.0,
           "--hard-negative-multiplier",
-          help="Sampling weight for paths in data/manifests/hard_empty.jsonl (1 = disabled).",
+          help="Sampling weight for paths in data/reports/hard_empty.jsonl (1 = disabled).",
       ),
     split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
                                      "(default: split.json). Lets several folds share ONE packed "
@@ -1411,7 +1557,7 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
-                               erase_p=erase_p, bg_p=bg_p,
+                               erase_p=erase_p,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split))
@@ -1420,15 +1566,28 @@ def train_cmd(
 @app.command("eval")
 def eval_cmd(
     run: str = typer.Option(..., "--run", help="Run directory from `train`."),
-    split: str = typer.Option("test", "--split", help="train | val | test"),
+    split: str = typer.Option("test", "--split", help="train | val | test | all (no split filter)"),
     input_size: int | None = typer.Option(None, "--input-size", help="Eingabegröße für die Auswertung "
                                            "(z.B. 64/96/128). Misst die Genauigkeit bei einer Deployment-Auflösung "
                                            "(für die Auflösungs-Kurve eines Multi-Scale-Modells)."),
+    dataset: str | None = typer.Option(None, "--dataset",
+                                       help="Measure against THIS dataset instead of the one the "
+                                            "run was trained on. Writes eval_<split>__<dataset>.json "
+                                            "so the run's own numbers stay put, and warns about "
+                                            "sessions the run trained on."),
+    split_file: str | None = typer.Option(None, "--split-file",
+                                          help="Split file inside the dataset (default: split.json, "
+                                               "or the run's own). Names a fold, e.g. split-f0.json."),
+    sessions: str | None = typer.Option(None, "--sessions",
+                                        help="Comma-separated session IDs to narrow the split to."),
 ) -> None:
-    """Board accuracy, per-class recall and confusion matrix (text + PNG)."""
+    """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
-    raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size))
+    raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
+                              split_file=split_file,
+                              sessions=[s.strip() for s in sessions.split(",") if s.strip()]
+                              if sessions else None))
 
 
 @app.command("reliance")
@@ -1450,6 +1609,9 @@ def reliance_cmd(
     from .training.gradcam import reliance_for_run
 
     run_dir = Path(run)
+    if not (run_dir / "config.json").exists():
+        print(f"[FAIL] no config.json in {run_dir} — first run `chesslab train`.")
+        raise typer.Exit(1)
     stats = reliance_for_run(run_dir, split=split, per_class=per_class)
     typer.echo(f"{'class':>8}  {'n':>4}  {'piece%':>7}  {'base':>5}  flag")
     for r in sorted(stats, key=lambda s: s["piece_frac"]):
@@ -1480,7 +1642,7 @@ def export_cmd(
     """Export best.pt to TorchScript/ONNX + model_card.json (handoff to inference app)."""
     from .training.evaluate import run_export
 
-    size = labeling_mod.parse_out_size(infer_size) if infer_size else None
+    size = _out_size(infer_size)
     raise typer.Exit(run_export(run=run, fmt=fmt, infer_size=size))
 
 
@@ -1504,39 +1666,10 @@ def quantize_cmd(
                                   weight_type=weight, per_channel=per_channel))
 
 
-@feedback_app.command("ingest")
-def track_feedback_ingest(
-    assume_ghost: bool = typer.Option(True, "--assume-ghost/--no-assume-ghost",
-                                      help="Label undone frames from fen_before (true only if the "
-                                           "undone move was a GHOST, not a mis-identified real move)."),
-    visualize: bool = typer.Option(False, "--visualize",
-                                   help="Also write per-record label montages to review/ for eyeballing."),
-    profile: str = typer.Option("phone", "--profile",
-                                help="Fallback profile for records without one (crop geometry)."),
-) -> None:
-    """Ingest UNDO=bad feedback into hard-negative crops appended to the squares manifest.
-
-    These are the squares the recognizer got wrong. After ingesting, rebuild the dataset
-    (`chesslab dataset ...`) and retrain; the crops carry session id 'track-feedback'. Verify with
-    --visualize first — labels assume the undone move was a ghost (no piece actually moved)."""
-    from .track_feedback import ingest_feedback
-    res = ingest_feedback(assume_ghost=assume_ghost, visualize=visualize, default_profile=profile)
-    if not res.get("ok"):
-        print(f"[FAIL] {res.get('error')}")
-        raise typer.Exit(1)
-    print(f"[OK] ingested {res['records']} undone move(s) -> {res['crops']} crops "
-          f"(session '{res['session_id']}').")
-    if res.get("classes"):
-        print("      per class: " + ", ".join(f"{k}={v}" for k, v in sorted(res["classes"].items())))
-    if res.get("review_dir"):
-        print(f"      review montages: {res['review_dir']}")
-    raise typer.Exit(0)
-
-
 @synth_app.command("render")
 def synth_render(
     out: str = typer.Option(..., "--out", help="Target directory (required)."),
-    blend: str = typer.Option(None, "--blend", help="Blender scene (default: synth_assets/Chess Scene.blend)."),
+    blend: str = typer.Option(None, "--blend", help="Blender scene (default: synth/assets/Chess Scene.blend)."),
     pieces_dir: str = typer.Option(None, "--pieces-dir", help="Scanned piece templates (default: synth_pieces/)."),
     board_texture: str | None = typer.Option(None, "--board-texture",
                                              help="Rectified board photo texture (default: synth_pieces/board_texture.png"

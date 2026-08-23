@@ -10,10 +10,9 @@ import {
   meshFromLines,
   meshPoint,
   meshPointInverse,
+  smoothMeshCurvature,
   squareColRow,
   squareCropBox,
-  squareMeshBox,
-  squareMeshQuad,
   type TiltedMesh,
 } from "@/lib/warp";
 
@@ -77,7 +76,7 @@ test("the crop box is square_to_crop_box, pads included", () => {
   expect([e2.x0, e2.y0]).toEqual([464, 696]);
 });
 
-/** The SAME fixture `MeshCropParityTest.kt` pins `meshCropBoxExact` on — one file, two readers. */
+/** The SAME fixture `MeshPointParityTest.kt` pins `meshPoint` on — one file, three readers. */
 const MESH_FIXTURE = JSON.parse(
   readFileSync(
     path.join(
@@ -92,10 +91,39 @@ const MESH_FIXTURE = JSON.parse(
   padUp: number;
   whitePov: boolean;
   mesh: Required<GridMesh>;
-  boxes: Record<string, number[]>;
-  quads: Record<string, number[][]>;
-  curvedQuads: Record<string, number[][]>;
+  meshPoints: number[][];
+  curvedMeshPoints: number[][];
 };
+
+/** The REAL poisoned mesh of rg-2026-08-15-22-57-06 — pawn feet fake cy[2], a +11.6 px arch in the
+ *  finished board. `CurvatureTrendParityTest.kt` and `tests/test_mesh_crop.py` read this same file. */
+const TREND_FIXTURE = JSON.parse(
+  readFileSync(
+    path.join(
+      __dirname,
+      "../../../android/core-engine/src/test/resources/parity/_geometry/curvature_trend_parity.json",
+    ),
+    "utf8",
+  ),
+) as { mesh: Required<GridMesh>; healedCx: number[]; healedCy: number[]; linearCurv: number[] };
+
+test("the trend heal matches the shared fixture", () => {
+  const healed = smoothMeshCurvature(meshFromLines(TREND_FIXTURE.mesh) as Required<GridMesh>);
+  for (const [got, want] of [
+    [healed.cx, TREND_FIXTURE.healedCx],
+    [healed.cy, TREND_FIXTURE.healedCy],
+  ] as const) {
+    got.forEach((v, i) => expect(v).toBeCloseTo(want[i], 9));
+  }
+});
+
+test("a genuinely linear curvature profile survives the heal", () => {
+  const lin = TREND_FIXTURE.linearCurv;
+  const mesh = { ...TREND_FIXTURE.mesh, cx: [...lin], cy: [...lin] };
+  smoothMeshCurvature(mesh).cx.forEach((v, i) => expect(v).toBeCloseTo(lin[i], 9));
+  const scalar: GridMesh = { x: TREND_FIXTURE.mesh.x, y: TREND_FIXTURE.mesh.y };
+  expect(smoothMeshCurvature(scalar).cx).toBeUndefined();
+});
 
 const LINEAR_MESH: TiltedMesh = {
   x: MESH_FIXTURE.mesh.x,
@@ -104,66 +132,26 @@ const LINEAR_MESH: TiltedMesh = {
   ty: MESH_FIXTURE.mesh.ty,
 };
 
-test("squareMeshBox cuts the Kotlin fixture's rectangles on all 64 squares", () => {
-  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
-  expect(Object.keys(MESH_FIXTURE.boxes).length).toBe(64);
-  for (const [square, [x0, y0, x1, y1]] of Object.entries(MESH_FIXTURE.boxes)) {
-    const box = squareMeshBox(square, MESH_FIXTURE.boardSize, MESH_FIXTURE.mesh, crop, MESH_FIXTURE.whitePov);
-    expect(box.x0, `${square}.x0`).toBeCloseTo(x0, 9);
-    expect(box.y0, `${square}.y0`).toBeCloseTo(y0, 9);
-    expect(box.x1, `${square}.x1`).toBeCloseTo(x1, 9);
-    expect(box.y1, `${square}.y1`).toBeCloseTo(y1, 9);
+test.each([
+  ["meshPoints", LINEAR_MESH],
+  ["curvedMeshPoints", MESH_FIXTURE.mesh],
+] as const)("%s map exactly as the shared fixture says", (key, mesh) => {
+  const rows = MESH_FIXTURE[key];
+  expect(rows.length).toBe(100);
+  for (const [u, v, wx, wy] of rows) {
+    const [x, y] = meshPoint(u, v, mesh);
+    expect(x, `x at (${u}, ${v})`).toBeCloseTo(wx, 9);
+    expect(y, `y at (${u}, ${v})`).toBeCloseTo(wy, 9);
   }
 });
 
-test("squareMeshQuad hits the Kotlin fixture's four source points on all 64 squares", () => {
-  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
-  for (const [name, mesh] of [
-    ["quads", LINEAR_MESH],
-    ["curvedQuads", MESH_FIXTURE.mesh],
-  ] as const) {
-    const wanted = MESH_FIXTURE[name];
-    expect(Object.keys(wanted).length).toBe(64);
-    for (const [square, want] of Object.entries(wanted)) {
-      const got = squareMeshQuad(square, MESH_FIXTURE.boardSize, mesh, crop, MESH_FIXTURE.whitePov);
-      for (let corner = 0; corner < 4; corner++) {
-        expect(got[corner][0], `${name} ${square}[${corner}].x`).toBeCloseTo(want[corner][0], 9);
-        expect(got[corner][1], `${name} ${square}[${corner}].y`).toBeCloseTo(want[corner][1], 9);
-      }
-    }
-  }
-});
-
-test("zero tilts put the quad's corners on the scalar box", () => {
-  const crop = { pad_side: MESH_FIXTURE.padSide, pad_up: MESH_FIXTURE.padUp };
-  const flat = { ...LINEAR_MESH, tx: Array(9).fill(0), ty: Array(9).fill(0) };
-  const box = squareMeshBox("e4", MESH_FIXTURE.boardSize, flat, crop);
-  const quad = squareMeshQuad("e4", MESH_FIXTURE.boardSize, flat, crop);
-  expect(quad[0]).toEqual([box.x0, box.y0]);
-  expect(quad[2]).toEqual([box.x1, box.y1]);
-});
-
-test("the nominal mesh reproduces squareCropBox", () => {
-  const nominal = { x: [...Array(9)].map((_, k) => k / 8), y: [...Array(9)].map((_, k) => k / 8) };
-  for (const square of ["a8", "e4", "h1", "a1", "d5"]) {
-    const want = squareCropBox(square, 928, { pad_up: 0.25, pad_side: 0.05 });
-    const got = squareMeshBox(square, 928, nominal, { pad_up: 0.25, pad_side: 0.05 });
-    for (const key of ["x0", "y0", "x1", "y1"] as const) {
-      expect(got[key], `${square}.${key}`).toBeCloseTo(want[key], 9);
-    }
-  }
-});
-
-test("a mesh point at a crossing IS that crossing — the cell quads and the board agree", () => {
-  // Both solvers iterate to the same crossing from different seeds, so they agree to their own
-  // residual, not to the last bit — a hundredth of a pixel on a 928 board.
-  const crop = { pad_side: 0, pad_up: 0 };
-  for (const [square, k, l] of [["a8", 0, 0], ["e4", 4, 4], ["h1", 7, 7], ["c6", 2, 2]] as const) {
-    const [tl] = squareMeshQuad(square, MESH_FIXTURE.boardSize, MESH_FIXTURE.mesh, crop);
-    const [x, y] = meshPoint(k / 8, l / 8, MESH_FIXTURE.mesh);
-    expect(Math.abs(x * MESH_FIXTURE.boardSize - tl[0]), `${square}.x`).toBeLessThan(0.01);
-    expect(Math.abs(y * MESH_FIXTURE.boardSize - tl[1]), `${square}.y`).toBeLessThan(0.01);
-  }
+// The scalar stage: offsets without tilts are still a correction, and a map that refused them
+// would drop it silently — the very kind of quiet loss the per-cell cut used to hide.
+test("a mesh without tilts moves a point by its offsets alone", () => {
+  const shifted = [...Array(9)].map((_, k) => k / 8 + 0.01);
+  const [x, y] = meshPoint(0.5, 0.5, { x: shifted, y: [...shifted] });
+  expect(x).toBeCloseTo(0.51, 9);
+  expect(y).toBeCloseTo(0.51, 9);
 });
 
 test("a nominal mesh moves no pixel — the board warp falls back to itself", () => {

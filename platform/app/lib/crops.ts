@@ -1,29 +1,17 @@
 /**
  * Cell crops and rectified boards, cut out of the session's stored board (`cutSource`).
  *
- * The review PNGs under `data/realgames/<name>/frames/` are rectified but cover only the commit
+ * The review PNGs under `data/recordings/<name>/review/` are rectified but cover only the commit
  * bursts (60 of 1 729 stems on rec-20260808-003957), so they cannot serve the stream's frames.
  * `sharp` only decodes and encodes here; the sampling is `lib/warp.ts`, which has the projective
  * warp sharp lacks.
  */
 import { readFile, stat } from "node:fs/promises";
 import sharp from "sharp";
-import { sessionDir } from "@/lib/chain";
 import { alphaPath } from "@/lib/matte";
-import { boardPath, boardToStored, framePath, loadSession, type Session } from "@/lib/session";
+import { boardPath, boardToStored, loadSession, type Session, sessionDir } from "@/lib/session";
 import path from "node:path";
-import {
-  boardToImage,
-  type Mat3,
-  type Raster,
-  sampleBox,
-  sampleBoxMesh,
-  sampleQuad,
-  squareCropBox,
-  squareMeshBox,
-  squareMeshQuad,
-  type TiltedMesh,
-} from "@/lib/warp";
+import { type Mat3, type Raster, sampleBox, squareCropBox } from "@/lib/warp";
 
 /**
  * A decoded 1080p frame is 6 MB and its PNG costs ~0.25 s to inflate; a page of the bucket grid
@@ -35,19 +23,26 @@ const decoded = new Map<string, Raster>();
 const inFlight = new Map<string, Promise<Raster>>();
 
 /**
- * The raster a cut reads: the session's STORED board when it has one, the raw frame otherwise.
+ * The raster a cut reads: the session's STORED board, and nothing else.
  *
  * The board is the rectified frame under the row's own quad (`realgames.write_board`) — the same
- * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. Reading
- * it here is what makes "the label view shows the crop the model will get" structural instead of
- * two independent cuts that happen to agree.
+ * raster `crop_square` cuts the training crop from, at 115 KB against the frame's 3.3 MB. That is
+ * what makes "the label view shows the crop the model will get" structural. A row without one is a
+ * broken export, not a fallback: no recording has held `frames/` since the board store (2026-08-17).
  */
 async function cutSource(session: Session, name: string, stem: string): Promise<{ raster: Raster; h: Mat3 }> {
   const board = session.byStem.get(stem)?.board;
-  if (board && (await stat(boardPath(name, board.rel)).then(() => true, () => false))) {
-    return { raster: await rasterOf(boardPath(name, board.rel)), h: boardToStored(session, board) };
+  if (!board) throw new Error(`${name}/${stem}: row carries no board — re-export the recording`);
+  const file = boardPath(name, board.rel);
+  if (!(await stat(file).then(() => true, () => false))) {
+    throw new Error(`${name}/${stem}: board ${board.rel} is missing — re-export the recording`);
   }
-  return { raster: await rasterOf(framePath(name, stem)), h: homographyFor(session, stem) };
+  // The store is where the bow comes out, once. Cutting a board that has not been through that
+  // would put the barrel back into every crop, silently — so say so instead.
+  if (!board.straightened) {
+    throw new Error(`${name}/${stem}: board is not straightened — run \`chesslab session straighten\``);
+  }
+  return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
 /** The pen overwrites a file this cache keys by PATH alone — a stale raster would outlive it. */
@@ -84,28 +79,13 @@ function encode(rgb: Buffer, width: number, height: number): Promise<Buffer> {
   return sharp(rgb, { raw: { width, height, channels: 3 } }).webp({ quality: 92 }).toBuffer();
 }
 
-function homographyFor(session: Session, stem: string) {
-  const corners = session.byStem.get(stem)?.corners;
-  if (!corners) throw new Error(`frame ${stem} is not in the session log`);
-  return boardToImage(corners, session.boardSize, session.margin);
-}
-
 /**
  * One square out of one frame, at the board's OWN boundaries when the row carries them: the
- * cell's perspective quad with tilts (curved corners with the parabola term), its scalar
- * rectangle with offsets alone, the nominal box without a mesh. The same ladder `storedCellPng`
- * walks and `crop_square` (labeling.py) cuts the training crop with — the label view has to show
- * the crop the model will get, not a differently framed one.
+ * the nominal box, out of a board that is already straight. Same cut as `crop_square`
+ * (labeling.py) — the label view has to show the crop the model will get.
  */
-function cellRgb(session: Session, stem: string, square: string, raster: Raster, h: Mat3, size: number) {
-  const mesh = session.byStem.get(stem)?.mesh;
-  if (mesh?.tx && mesh.ty) {
-    const quad = squareMeshQuad(square, session.boardSize, mesh as TiltedMesh, session.crop, session.whitePov);
-    return sampleQuad(raster, h, quad, size, size);
-  }
-  const box = mesh
-    ? squareMeshBox(square, session.boardSize, mesh, session.crop, session.whitePov)
-    : squareCropBox(square, session.boardSize, session.crop, session.whitePov);
+function cellRgb(session: Session, square: string, raster: Raster, h: Mat3, size: number) {
+  const box = squareCropBox(square, session.boardSize, session.crop, session.whitePov);
   return sampleBox(raster, h, box, size, size);
 }
 
@@ -123,12 +103,11 @@ const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__
 export async function cellPng(name: string, stem: string, square: string, size: number) {
   const session = await loadSession(name);
   const rel = session.byStem.get(stem)?.board?.rel;
-  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Frame-Datei — ein Schlüssel nur
-  // über das Frame servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15).
-  // Die Quelle selbst muss drinstehen, nicht das Frame: `session boards` schreibt das Brett neu,
-  // ohne das Log anzufassen, und ein geparktes Frame liefert für jeden Stem dieselbe 0.
+  // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Brett-Datei — ein Schlüssel nur
+  // über das Brett servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15), und
+  // `session boards` schreibt das Brett neu, ohne das Log anzufassen.
   const [srcM, logM] = await Promise.all([
-    stat(rel ? boardPath(name, rel) : framePath(name, stem)).then((s) => s.mtimeMs, () => 0),
+    rel ? stat(boardPath(name, rel)).then((s) => s.mtimeMs, () => 0) : Promise.resolve(0),
     stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
   ]);
   // CUT_MIME too: this map holds ENCODED bytes and deliberately survives HMR on `globalThis`, so
@@ -141,35 +120,27 @@ export async function cellPng(name: string, stem: string, square: string, size: 
     return hit;
   }
   const { raster, h } = await cutSource(session, name, stem);
-  const rgb = cellRgb(session, stem, square, raster, h, size);
+  const rgb = cellRgb(session, square, raster, h, size);
   const out = await encode(rgb, size, size);
   cellPngs.set(key, out);
   if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
   return out;
 }
 
-/**
- * The whole playing field, rectified — the drilldown's canvas and the tinder thumbnail. With a
- * mesh the field is pulled straight GLOBALLY (`sampleBoxMesh`): every pixel is looked up where
- * the board's own lines say it sits, so the grooves come out straight instead of 64 cells being
- * straightened one by one. Without one, the plain quad warp, unchanged.
- */
+/** The whole playing field — the drilldown's canvas. Straight already: see `cutSource`. */
 export async function boardPng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
-  return encode(field(session, stem, await cutSource(session, name, stem), size), size, size);
+  return encode(field(session, await cutSource(session, name, stem), size), size, size);
 }
 
-function field(session: Session, stem: string, src: { raster: Raster; h: Mat3 }, size: number) {
+function field(session: Session, src: { raster: Raster; h: Mat3 }, size: number) {
   const box = { x0: 0, y0: 0, x1: session.boardSize, y1: session.boardSize };
-  const mesh = session.byStem.get(stem)?.mesh;
-  return mesh?.tx && mesh.ty
-    ? sampleBoxMesh(src.raster, src.h, box, mesh as TiltedMesh, session.boardSize, size, size)
-    : sampleBox(src.raster, src.h, box, size, size);
+  return sampleBox(src.raster, src.h, box, size, size);
 }
 
 /**
- * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad and mesh as the
- * board under it: the matte is written over the stored raster (`matte.alpha_sam3`), so anything
+ * SAM 3's alpha — or the hand-corrected one beside it — cut with the SAME quad as the board under
+ * it: the matte IS that raster (`matte.alpha_sam3`) and was pulled straight with it, so anything
  * else would overlay it a border off.
  */
 export async function mattePng(name: string, stem: string, size: number) {
@@ -178,7 +149,7 @@ export async function mattePng(name: string, stem: string, size: number) {
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
   const file = await alphaPath(name, stem);
   const src = { raster: await rasterOf(file), h: boardToStored(session, board) };
-  return encode(field(session, stem, src, size), size, size);
+  return encode(field(session, src, size), size, size);
 }
 
 /**
@@ -195,12 +166,12 @@ export async function medianPng(name: string, stem: string, square: string, size
   const step = Math.max(1, Math.floor(stems.length / SAMPLES));
   const picked = stems.filter((_, i) => i % step === 0).slice(0, SAMPLES);
 
-  // Each sample through ITS OWN mesh: the frames of one interval are cut to the same cell, so the
-  // median stacks the same square and not a slowly sliding one.
+  // Each sample through its own board: the frames of one interval were straightened with their
+  // own mesh, so the median stacks the same square and not a slowly sliding one.
   const stack: Buffer[] = [];
   for (const s of picked) {
     const { raster, h } = await cutSource(session, name, s);
-    stack.push(cellRgb(session, s, square, raster, h, size));
+    stack.push(cellRgb(session, square, raster, h, size));
   }
   const out = Buffer.alloc(size * size * 3);
   const lane: number[] = [];

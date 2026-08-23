@@ -25,42 +25,20 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
  * in the APK and in `filesDir`, so there is no table mapping a label to a path that could rot.
  *
- * Each carries its own `config.json`, so each declares its own `infer_size` (specs/22) and the crops
- * follow it. The GroupNorm three: measured on `occ-real3`'s two test sessions, `v6-80` 11 misses /
- * 0 phantoms, `v4-128` 17 / 2 with a wider margin on the anchor session, `shipped` the model the
- * user has been running.
+ * Each carries its own `config.json` and so declares its own `infer_size` (specs/22); the crops
+ * follow it. The GroupNorm and 2-class occupancy families were retired (see `RETIRED_MODELS` in
+ * `AppSettings`), and only BatchNorm graphs are trained now.
  *
- * The three `bnNN-80` entries are the first BatchNorm models this app has carried, at width 0.35,
- * 0.50 and 1.00 of `mobilenetv4_conv_small`. All three export to **89 nodes** where the GroupNorm
- * graphs export to 503: a BatchNorm layer is a fixed per-channel affine at inference and folds into
- * the preceding convolution, while GroupNorm's `InstanceNormalization` blocks are not implemented by
- * XNNPACK and fall back to the CPU EP between every pair of convolutions. Measured on this SoC at
- * batch 64: 7.9 ms, ~10 ms and 24.0 ms against `v6-80`'s 30.0.
- *
- * Trained 2026-08-01 on `occ-warm` at lr 3e-03. On its test split — the anchor session, the phone
- * session and a held-out session shot under warm light at R:B 51 against the corpus's 1.1 — all
- * three are phantom-free everywhere, and the held-out session separates them: 254 misses at 0.35,
- * 114 at 0.50, **3** at 1.00, against `v6-80`'s recipe at 126. Capacity has a threshold here rather
- * than a slope, and 0.50 is off the line: it halves the misses of 0.35 but carries a worse margin
- * (0.095 against 0.013) and is the only one that misses on a normal session.
- *
- * `id35-80` is the first IDENTITY model here: 13 classes, so `Observations` carries a label map and
- * everything gated on `hasIdentity` becomes reachable — the alarm card's "accept CNN position", CNN
- * recovery under an alarm, the alarm's "looks like Qxd4" guess, and telling a queen capture from the
- * three occupancy-identical alternatives. Phantom-free at 0 phantoms / 3 misses, matching the
- * 2-class full-width champion at a third of its width, with piece identity at 0.882 (specs/29,
- * 2026-08-01).
- *
- * `real14-80` adds the explicit `occluded` class. It is the default because the physical-phone
- * tracker has proved stable with it and, unlike a 13-class model, it can directly veto a hand that
- * the model-free grid-groove detector misses. `id35-80` remains bundled as the conservative
- * 13-class fallback and comparison arm.
+ * `real14-80` is the default: 14 classes with an explicit `occluded`, so it can veto a hand the
+ * model-free grid detector misses, and the physical phone has been stable on it. `id35-80` stays
+ * as the conservative 13-class comparison arm — phantom-free at 0 phantoms / 3 misses with piece
+ * identity at 0.882 (specs/29, 2026-08-01). `comp13-occ-bn-lr1e2-bs512` combines 13 identity
+ * classes with an independent coverage output for the current on-device occlusion experiment.
  */
 const val DEFAULT_MODEL = "real14-80"
 
 /** Default first, so Settings presents the model a fresh install actually runs at the top. */
-val BUNDLED_MODELS =
-    listOf(DEFAULT_MODEL, "id35-80", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128", "shipped")
+val BUNDLED_MODELS = listOf(DEFAULT_MODEL, "comp13-occ-bn-lr1e2-bs512", "id35-80")
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

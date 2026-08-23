@@ -1,5 +1,5 @@
 /**
- * `data/realgames/<name>/useless.json` — the human's verdict that a recording is not worth work.
+ * `data/recordings/<name>/useless.json` — the human's verdict that a recording is not worth work.
  *
  * A marker beside `candidate.json`, never a deletion: the repo rule is park, don't delete, so the
  * undo stamps `undone_at` instead of removing the file and the two timestamps stay as the record

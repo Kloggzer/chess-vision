@@ -86,3 +86,52 @@ There is no network in this. No endpoint, no token, no discovery, no upload — 
 file and you export it. The predecessor design had all four and its own review found that the token
 it invented to protect the write path would have been served, unauthenticated, by the read path of
 the same server. See `specs/34-diagnostics-you-can-read/STATUS.md`.
+
+## Reading a desktop replay: what is repeatable, and what is not evidence
+
+From the retired spec tree (`docs/specs-index.md`). The engine's own rules are in
+`docs/tracker-flow.md`.
+
+### A replay is a repeatable experiment — two constants make it one (`specs/52`, 2026-08-08)
+
+The same file ran 54 plies once and 39 the next. Two causes, both fixed for replays only:
+
+| Cause | Fix |
+|---|---|
+| **When** an async inference lands relative to the frames is wall-clock | The observer runs its inference INLINE (`TrackerSeed.observerDispatcher`, `Dispatchers.Unconfined` on the desktop) on a fixed video-time cadence. |
+| **4 intra-op ONNX threads make parallel float reductions non-bit-exact** — a logit wobbling in its last digits flipped a thresholded decision at ply 26 of VID | The desktop replay opens the classifier with **ONE** intra-op thread (`DesktopMain`), against the desktop default of 4. Cost: **47 ms vs 19 ms** per observation — a fraction of the cadence. |
+
+Proof: rec-20260808 three times byte-identical at **67 plies**, VID identical across warm runs.
+
+### `REPLAY_OBSERVER_INTERVAL_S = 0.0` (`desktop/ReplayOptions.kt`)
+
+Free-running, and it is **declared** rather than the accident of a race. The honest-looking
+"modelled live rate" of 0.15 s was tried on 2026-08-08 and **starved the ladder**:
+
+| run | free (0.0) | throttled (0.15) |
+|---|---|---|
+| rec-20260808 | 67 plies | **26 plies** |
+| rec-20260807 | 25 / 0 / 0 | **23 / 2 / 1 — a phantom, the veto** |
+
+Every "good" run on record had in fact observed free (rec-0808: **5 069 observations against
+1 013** throttled), because an async default overwrote the intended throttle within the first
+frames. Two rival hypotheses died by A/B on one binary before the cause was accepted:
+`set:liveAlign=false` → still 26, and a faster throttle `set:observerIntervalS=0.07` → still 26.
+The verify ladder and recovery voting are tuned to observations arriving every 1–2 frames.
+
+A file replay therefore keeps the *replay's* cadence, not the phone's. When the phone's cadence IS
+the experiment, `set:observerIntervalS=<s>` says so explicitly. `TrackerStack.init` applies the
+seed's interval synchronously before attach, so cold and warm runs start on the same cadence.
+
+### Two numbers on a recovery row that are tautologies, not evidence (`specs/37`)
+
+Both were examined as corroboration levers against a live log and **both are refuted**:
+
+| Field | Why it says nothing |
+|---|---|
+| `best = -3.12` on every recovery row | It is `bestScore` from the last `tryDetect`, and `Hypothesis.noSingleFitsGate` fires on `best < 0.0` — the branch that marks the tracker stuck, which is the recovery's own trigger. A negative `best` is a **precondition** of a recovery, not evidence against it. "Do not commit against negative frame-diff evidence" would have disabled the feature while looking like a hardening. |
+| `motion = 0.0000` on every recovery row | `cnnTick` evaluates only on a stable or stuck board, and `state.motion` is per-frame motion. A legitimate fast sequence also settles before it is read. |
+
+Neither number distinguishes *"the diff is poor because several real moves happened"* from *"the
+diff is poor because this bridge is fiction"*. Nothing measured so far does, and that is the
+valuable open question.

@@ -56,7 +56,7 @@ class RealGameScoreTest {
         // The committed 2026-08-02 candidate is the schema contract; when it is present on this
         // machine the reader must reproduce its 22 plies. Data is gitignored, so absent = skipped,
         // exactly like the video-gated harness runs.
-        val candidate = File("../../data/realgames/game-2026-08-02/candidate.json")
+        val candidate = File("../../data/recordings/game-2026-08-02/candidate.json")
         if (!candidate.isFile) return
         val label = labelPlies(candidate)
         assertEquals(22, label.size, "the Python reference records 22 plies")

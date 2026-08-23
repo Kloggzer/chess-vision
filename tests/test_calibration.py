@@ -393,12 +393,14 @@ def test_ensure_profile_loads_existing_and_autocreates(tmp_path, monkeypatch):
         ensure_profile("nomarkers", str(blank_path), attempts=3)
 
 
-def test_ensure_profile_regeneration_keeps_tuned_geometry(tmp_path, monkeypatch):
-    """A STALE profile is regenerated for the new lens — but everything the USER configured
-    must survive it. `white_pov` is the dangerous one: silently resetting it to the default
-    flips the board and transposes every single label of the next session (CLAUDE.md)."""
+def test_ensure_profile_returns_an_existing_profile_untouched(tmp_path, monkeypatch):
+    """The hand-set values survive because nothing regenerates over them.
+
+    Until 2026-08-20 a lens-stamp mismatch made the profile STALE and `ensure_profile` rebuilt
+    it, carrying the user's settings across by hand. Profiles carry no stamp now, so the file
+    is simply returned — `white_pov` is the one that transposes every label if it resets.
+    """
     import cv2
-    import pytest
 
     from chesslab import config
     from chesslab.calibration import CropParams, ensure_profile, load_profile, profile_path
@@ -408,47 +410,31 @@ def test_ensure_profile_regeneration_keeps_tuned_geometry(tmp_path, monkeypatch)
     cv2.imwrite(str(img_path), _marker_frame())
 
     tuned = ensure_profile("tuned", str(img_path), board_size=800)
-    tuned.white_pov = False                       # flipped board, hand-set by the user
+    tuned.white_pov = False
     tuned.margin = 0.11
-    tuned.marker_dict = "DICT_4X4_50"
     tuned.crop = CropParams(cell=100.0, pad_up=0.77, pad_side=0.33, out_size=(48, 96))
-    # A lens stamp that no longer matches a file source makes the profile STALE.
-    tuned.undistorted = True
-    tuned.lens_calib_id = "deadbeef"
     tuned.save(profile_path("tuned"))
 
     prof = ensure_profile("tuned", str(img_path))
-    assert prof.undistorted is False              # regenerated, i.e. this path really ran
     assert prof.white_pov is False                # THE label-transposing one
     assert prof.margin == pytest.approx([0.11] * 4)
     assert prof.board_size == 800
-    assert prof.crop.pad_up == pytest.approx(0.77)
-    assert prof.crop.pad_side == pytest.approx(0.33)
     assert prof.crop.out_size == (48, 96)
-
-    on_disk = load_profile("tuned")               # and it was persisted that way
-    assert on_disk.white_pov is False
-    assert on_disk.crop.pad_up == pytest.approx(0.77)
-    # the pre-regeneration file is recoverable
-    assert profile_path("tuned").with_suffix(".yaml.bak").exists()
+    assert load_profile("tuned").crop.pad_up == pytest.approx(0.77)
 
 
-def test_ensure_profile_explicit_kwargs_still_win_over_the_stale_values(tmp_path, monkeypatch):
+def test_ensure_profile_kwargs_apply_when_the_profile_is_missing(tmp_path, monkeypatch):
     import cv2
 
     from chesslab import config
-    from chesslab.calibration import ensure_profile, profile_path
+    from chesslab.calibration import ensure_profile
 
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
     img_path = tmp_path / "frame.png"
     cv2.imwrite(str(img_path), _marker_frame())
 
-    prof = ensure_profile("ov", str(img_path), board_size=800, white_pov=False)
-    prof.undistorted = True                       # -> stale against a file source
-    prof.save(profile_path("ov"))
-
-    regen = ensure_profile("ov", str(img_path), white_pov=True)
-    assert regen.white_pov is True
+    prof = ensure_profile("fresh", str(img_path), board_size=800, white_pov=False)
+    assert prof.board_size == 800 and prof.white_pov is False
 
 
 def test_profile_save_is_atomic_and_leaves_no_temp_file(tmp_path):

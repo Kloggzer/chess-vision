@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .. import config
+from ..work_audit import measure
 
 
 def load_manifest(path: Path) -> list[dict]:
@@ -24,7 +25,10 @@ def load_manifest(path: Path) -> list[dict]:
         # Semantics as before Rework 05: missing manifest is a hard error, not an empty
         # dataset — otherwise one silently "trains" on nothing.
         raise FileNotFoundError(f"Manifest not found: {p}")
-    return read_jsonl(p)
+    st = p.stat()
+    with measure("manifest loads", (p.resolve(), st.st_mtime_ns, st.st_size),
+                 processed_bytes=st.st_size):
+        return read_jsonl(p)
 
 
 def crop_of_rows(rows: list[dict]) -> tuple[float, float] | None:
@@ -60,14 +64,6 @@ def class_to_idx(classes: list[str]) -> dict[str, int]:
     return {c: i for i, c in enumerate(classes)}
 
 
-def group_frames(rows: list[dict]) -> dict[tuple[str, str], list[dict]]:
-    """Group crops per frame by (session_id, frame) — basis for board accuracy."""
-    groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for r in rows:
-        groups[(r["session_id"], str(r["frame"]))].append(r)
-    return dict(groups)
-
-
 def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
     """Fraction of frames where ALL squares are correct.
 
@@ -81,31 +77,6 @@ def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
         return 0.0
     boards = [all(v) for v in groups.values()]
     return sum(boards) / len(boards)
-
-
-def macro_f1(trues: list[int], preds: list[int], n_classes: int) -> float:
-    """Macro-F1 over classes: unweighted mean of per-class F1. Unlike raw
-    accuracy, this prevents the empty dominance from skewing the picture. Averaged over all classes
-    with support (true-count>0) or prediction — absent classes don't distort the average."""
-    tp = defaultdict(int)
-    fp = defaultdict(int)
-    fn = defaultdict(int)
-    present: set[int] = set()
-    for t, p in zip(trues, preds, strict=False):
-        present.add(t)
-        present.add(p)
-        if t == p:
-            tp[t] += 1
-        else:
-            fp[p] += 1
-            fn[t] += 1
-    if not present:
-        return 0.0
-    f1s = []
-    for c in present:
-        denom = 2 * tp[c] + fp[c] + fn[c]
-        f1s.append((2 * tp[c] / denom) if denom else 0.0)
-    return sum(f1s) / len(f1s)
 
 
 def _piece_type(label: str) -> str:
@@ -170,10 +141,16 @@ def checkpoint_score(rows: list[dict], classes: list[str],
                      trues: list[int], preds: list[int]) -> tuple[float, float, float]:
     """Sortable score for checkpoint/early-stopping:
     (occ_board_acc, occ_acc, macro_recall) — occupancy first, macro_recall as tiebreaker."""
+    return checkpoint_metrics(rows, classes, trues, preds)[0]
+
+
+def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
+                       preds: list[int]) -> tuple[tuple[float, float, float], dict]:
+    """Compute the checkpoint score and its shared occupancy breakdown in one pass."""
     occ_ba = occupancy_board_acc(rows, classes, trues, preds)
     bd = occupancy_piece_breakdown(classes, trues, preds)
     mr = _macro_recall(trues, preds, len(classes))
-    return (occ_ba, bd["occ_acc"], mr)
+    return (occ_ba, bd["occ_acc"], mr), bd
 
 
 def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:
@@ -185,24 +162,28 @@ def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], 
     return board_accuracy(items)
 
 
-def grouped_board_acc(rows: list[dict], group_key: str) -> dict[str, float]:
-    """Board accuracy per group (e.g. `session_id` or `camera`/`profile`). Boards remain defined by
-    (session_id, frame); only the aggregation is split by `group_key`.
+def per_session_metrics(rows: list[dict], classes: list[str],
+                        trues: list[int], preds: list[int]) -> dict[str, dict]:
+    """The same three numbers as the corpus line, but one row per session.
 
-    `rows`: dicts with `group_key`, `session_id`, `frame`, `correct` (bool)."""
-    groups: dict[str, list[tuple[tuple, bool]]] = defaultdict(list)
-    for r in rows:
-        groups[str(r[group_key])].append(((r["session_id"], str(r["frame"])), bool(r["correct"])))
-    return {g: board_accuracy(items) for g, items in groups.items()}
-
-
-def board_acc_spread(grouped: dict[str, float]) -> float:
-    """Spread (max−min) of grouped board accuracy = robustness metric (across lighting/setup/camera).
-    0 for < 2 groups."""
-    if len(grouped) < 2:
-        return 0.0
-    vals = list(grouped.values())
-    return max(vals) - min(vals)
+    `evaluate_dataset` runs with `shuffle=False`, so `trues[i]`/`preds[i]` line up with `rows[i]`.
+    A corpus mean hides the one session that carries the whole error — which is exactly the
+    question when a model is pointed at a dataset it was not trained on.
+    """
+    by_sid: dict[str, list[tuple[dict, int, int]]] = defaultdict(list)
+    for r, t, p in zip(rows, trues, preds, strict=False):
+        by_sid[r["session_id"]].append((r, t, p))
+    out: dict[str, dict] = {}
+    for sid, items in by_sid.items():
+        rs = [r for r, _, _ in items]
+        ts = [t for _, t, _ in items]
+        ps = [p for _, _, p in items]
+        ok = [t == p for t, p in zip(ts, ps, strict=True)]
+        boards = [((r["session_id"], str(r["frame"])), c) for r, c in zip(rs, ok, strict=True)]
+        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok),
+                    "board_acc": board_accuracy(boards),
+                    "occ_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
+    return out
 
 
 def build_model_card(

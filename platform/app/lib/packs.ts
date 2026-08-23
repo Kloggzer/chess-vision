@@ -10,7 +10,7 @@ import path from "node:path";
 import { dataDir } from "@/lib/data";
 import { sessionLogs } from "@/lib/pool";
 
-export type Counts = { frames: number | null; crops: number | null };
+type Counts = { frames: number | null; crops: number | null };
 export type PackSummary = {
   /** `accepted` = packs from 2026-08-14 on, `clean` = the older key set, no quarantine column. */
   schema: "accepted" | "clean";
@@ -71,7 +71,7 @@ async function packSummary(dir: string): Promise<PackSummary | null> {
 
 /** Every bundle that carries at least one pack, canonical first, siblings named but not added up. */
 export async function listPacks(): Promise<Bundle[]> {
-  const root = path.join(dataDir(), "realgames");
+  const root = path.join(dataDir(), "recordings");
   let games;
   try {
     games = await readdir(root, { withFileTypes: true });

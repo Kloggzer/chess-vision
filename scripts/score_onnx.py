@@ -74,8 +74,8 @@ class OnnxModel:
 
     `predict_arrays` builds a normalized NCHW float tensor and calls `model(batch)`; it never
     asks what kind of module it holds. So the whole serving path — the crop geometry, the
-    photometry, the normalisation, the softmax — stays byte-identical between the torch row and
-    the ONNX rows, and the only difference measured is the graph.
+    normalisation, the softmax — stays byte-identical between the torch row and the ONNX rows,
+    and the only difference measured is the graph.
 
     The export bakes a static batch of 64 (`evaluate.ONNX_BATCH`), while a path-A frame carries
     only its LABELLED squares. Short batches are padded by repeating the last crop, and the
@@ -142,6 +142,9 @@ def main() -> None:
     ap.add_argument("--run", default="occ-v6-f5nd")
     ap.add_argument("--dataset", default="occ-real6")
     ap.add_argument("--split", default="test")
+    ap.add_argument("--split-file", default="split.json",
+                    help="Split file inside the dataset, e.g. a fold's split-f0.json. "
+                         "A fold model scored against split.json measures its own train sessions.")
     ap.add_argument("--size", type=int, default=80)
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--device", default="cpu", help="the torch row's device; ONNX is always CPU EP")
@@ -176,7 +179,7 @@ def main() -> None:
 
     dd = dataset_dir(args.dataset)
     rows = filter_rows_by_split(load_manifest(dd / "manifest.jsonl"),
-                                load_split(dd / "split.json"), args.split)
+                                load_split(dd / args.split_file), args.split)
     if not rows:
         raise SystemExit(f"{args.split} split of {args.dataset} is empty")
     frames = len({(r["session_id"], str(r["frame"])) for r in rows})
@@ -184,7 +187,7 @@ def main() -> None:
     log(f"== {args.split}: {len(rows)} crops / {frames} boards / {occ_n} occupied ==")
 
     # One pass over the frames scores every variant on the SAME pixels: `sweep_path_a` cuts the
-    # crops once per (geometry, photometry) variant and re-seeds the serving cache per model.
+    # crops once and re-seeds the serving cache per model.
     a_all = sweep_path_a(runs, rows, (size,), args.device, log)
     sids = session_index(frames_for_split(rows))
 

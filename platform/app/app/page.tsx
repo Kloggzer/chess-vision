@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /** BRETTER first, cells second (CONCEPT.md 6.2): the board is the unit a human clears. */
 async function progress(name: string) {
-  const decided = await judgedKeys(sessionId(name));
+  const decided = await judgedKeys(name);
   const { census, boards, done } = await boardProgressOf(name, decided.keys());
   const { rows } = await loadModelReads(name);
   return {
@@ -118,7 +118,7 @@ export default async function Home() {
       ) : null}
       {games.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          Nichts unter <code>$CHESSLAB_DATA_DIR/realgames</code> — <code>.env.local</code> prüfen.
+          Nichts unter <code>$CHESSLAB_DATA_DIR/recordings</code> — <code>.env.local</code> prüfen.
         </p>
       )}
     </main>

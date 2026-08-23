@@ -3,10 +3,14 @@ package com.chesslab.engine
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
+import com.chesslab.engine.api.IllegalMoveException
 import com.chesslab.engine.api.TrackerEvent
 import kotlin.math.abs
 
 internal const val ALARM_ILLEGAL_MOVE = "illegal_move"
+
+/** Kind of the latch [refuseIllegalMove] raises — distinct so a log row says WHO was wrong. */
+internal const val ALARM_MOVE_REFUSED = "illegal_move_refused"
 
 /** [TrackerEvent.AlarmCleared] reason of a VERIFIED restore (no user correction, no log row). */
 internal const val ALARM_BOARD_RESTORED = "board_restored"
@@ -92,16 +96,10 @@ internal fun EngineState.desyncEvidence(
     // contradiction — exactly one vacated and one received square — and a castling (2-and-2, the
     // rec-20260807 ending) or a single disagreeing square (1-and-0, S17-SIM-2) never has that
     // shape. It latches the same alarm with no guess; `alarmNote` falls back to the conflict list.
-    //
-    // Identity-gated, and that is not a detail: `resolvesAlarmConflicts` returns false outright
-    // when the observation carries no labels, so latching on a 2-class run would block the ONE
-    // automatic way out — a recovery that explains every conflict square. On an identity run the
-    // alarm is a stop sign; on an occupancy-only run it would be a trap. No labels, no latch.
     val standoffDue =
         alarmable &&
             config.desyncStandoffObsN > 0 &&
-            desyncObs >= config.desyncStandoffObsN &&
-            Squares.ALL.any { snap.obs.label(it) != null }
+            desyncObs >= config.desyncStandoffObsN
     if (standoffDue) {
         val raised = latchAlarm(conflicts, guess = null)
         note = alarmNote(raised)
@@ -174,6 +172,26 @@ private fun EngineState.raiseAlarmIfDue(
     val due = alarmable && desyncObs >= config.desyncObsN
     if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
     return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
+}
+
+/**
+ * [IllegalMoveException] came back out of a tick: report it, do not drop it.
+ *
+ * Same latch as a desync, and for the same reason — a move source that produced an impossible move
+ * has no claim on the position any more, so commits stop until a human undoes or resyncs. The
+ * offending UCI rides in `guess`, so the alarm card, the speech and the timeline row all name it.
+ */
+internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<TrackerEvent> {
+    val squares = listOf(cause.uci.take(2), cause.uci.drop(2).take(2)).filter { Squares.index(it) >= 0 }
+    // Rendered against the position it was attempted IN, which is not always the live board: a
+    // probe or a copy is just as capable of being handed a fabrication.
+    val san = runCatching { Game(cause.fen).alarmGuessSan(cause.uci) }.getOrNull()
+    val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san)
+    alarm = raised
+    alarmSince = nowS
+    recordRejection(cause.uci, "REFUSED illegal move ${cause.uci} in ${cause.fen}")
+    note = "ILLEGAL MOVE REFUSED: ${cause.uci} is not legal in ${cause.fen} — undo or resync"
+    return listOf(raised)
 }
 
 /** Latch the alarm. Released only by [clearAlarm] — nothing in the pipeline may heal it silently. */

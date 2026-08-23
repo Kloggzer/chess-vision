@@ -1,10 +1,10 @@
-"""Ingestion of external chess datasets (e.g. chesscog, ChessReD2K) into our crop format —
-for transfer learning (pretrain on diverse foreign boards → `train --resume` finetune on
+"""Ingestion of corner-annotated datasets (currently: synthetic renders) into our crop format —
+for transfer learning (pretrain on rendered boards → `train --resume` finetune on
 own fixed-camera sessions).
 
-**Core idea — NO pipeline changes:** external images bring their own 4 board corners
+**Core idea — NO pipeline changes:** imported images bring their own 4 board corners
 (`[a8,h8,h1,a1]` in image pixels) + FEN. We write them as **synthetic sessions** (exactly the
-`session.yaml`+`log.jsonl` schema from `collect.SessionWriter`) and let the existing
+`session.yaml`+`log.jsonl` schema from `session_writer.SessionWriter`) and let the existing
 `labeling.slice_session → dataset_build.build_dataset → training.train` chain run.
 
 - Per frame `corners` are present → **no ArUco markers** needed (slice uses stored corners).
@@ -13,7 +13,7 @@ own fixed-camera sessions).
   GBs). `slice_session` resolves `session_dir / entry["frame"]`; an absolute path wins.
 - One session **per game/group** → the existing session-based split logic applies unchanged
   (clean train/val without leakage).
-- Crops land in a **variant manifest** (`squares__<tag>.jsonl`) → the real `data/squares` pool
+- Crops land in a **variant pool** (`crops/<tag>/manifest.jsonl`) → the real `data/crops/default` pool
   remains untouched.
 """
 
@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import config
+from . import config, locks
+from .work_audit import measure, span
 
 _FILES = "abcdefgh"
 
@@ -153,17 +155,16 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
 
 
 def _variant_paths(variant_tag: str | None, paths: config.Paths) -> tuple[Path, Path]:
-    """Like `labeling.variant_paths`, but bound to `paths` (test isolation): `squares__<tag>.jsonl`
-    + `squares__<tag>/` under the given data root."""
+    """Like `labeling.variant_paths`, but bound to `paths` (test isolation): the pool
+    `crops/<tag>/` and its own `manifest.jsonl` under the given data root."""
     if not variant_tag:
-        return paths.manifests / "squares.jsonl", paths.squares
-    return paths.manifests / f"squares__{variant_tag}.jsonl", paths.root / f"squares__{variant_tag}"
+        return paths.crop_pool / "manifest.jsonl", paths.crop_pool
+    return paths.crops / variant_tag / "manifest.jsonl", paths.crops / variant_tag
 
 
-def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
-                   photometry: str = "none", out_size: tuple[int, int] | None = None,
+def slice_imported(session_ids: list[str], *, profile, out_size: tuple[int, int] | None = None,
                    variant_tag: str, paths: config.Paths = config.DATA) -> dict:
-    """Slice each synthetic session into the variant manifest `squares__<variant_tag>.jsonl`
+    """Slice each synthetic session into the variant pool `crops/<variant_tag>/`
     (via the existing `labeling.slice_session`)."""
     from . import labeling
 
@@ -171,16 +172,29 @@ def slice_imported(session_ids: list[str], *, profile, geometry: str = "warp",
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     tot = {"sessions": 0, "frames": 0, "crops": 0, "skipped": 0}
     n = len(session_ids)
-    for sid in session_ids:
-        res = labeling.slice_session(
-            paths.sessions / sid, profile=profile, manifest_path=manifest_path,
-            squares_root=squares_root, out_size=out_size, geometry_mode=geometry, photometry=photometry)
-        tot["sessions"] += 1
-        tot["frames"] += res["frames"]
-        tot["crops"] += res["crops"]
-        tot["skipped"] += res.get("skipped", 0)
-        print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
-              f"(last {sid}: {res['frames']} frames)", flush=True)
+    with locks.pool_lock(squares_root, f"ingest {n} session(s)"):
+        manifest_batch: dict[str, list[str]] = {}
+        try:
+            with ThreadPoolExecutor(
+                max_workers=labeling.SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
+            ) as write_pool:
+                for sid in session_ids:
+                    with span("Ingest.slice"):
+                        res = labeling.slice_session(
+                            paths.sessions / sid, profile=profile, manifest_path=manifest_path,
+                            squares_root=squares_root, out_size=out_size,
+                            manifest_batch=manifest_batch, write_pool=write_pool)
+                    tot["sessions"] += 1
+                    tot["frames"] += res["frames"]
+                    tot["crops"] += res["crops"]
+                    tot["skipped"] += res.get("skipped", 0)
+                    print(f"[slice] {tot['sessions']}/{n} sessions · {tot['crops']} crops "
+                          f"(last {sid}: {res['frames']} frames)", flush=True)
+        finally:
+            # Preserve the old partial-progress contract: sessions completed before a later
+            # adapter/session failure remain published, but still with one rewrite in the normal
+            # successful case.
+            labeling._replace_sessions_in_manifest(manifest_path, manifest_batch)
     tot["manifest"] = str(manifest_path)
     tot["squares_root"] = str(squares_root)
     return tot
@@ -226,20 +240,13 @@ def debug_overlay(session_id: str, n: int, out_dir: Path, *, profile,
 
 def _load_adapter(name: str) -> Callable[[Path], Iterable[ImportItem]]:
     name = name.lower()
-    if name == "chesscog":
-        from .ingest_adapters.chesscog import iter_items
-        return iter_items
-    if name in ("chessred", "chessred2k"):
-        from .ingest_adapters.chessred import iter_items
-        return iter_items
     if name in ("synthetic", "synth"):
         from .ingest_adapters.synthetic import iter_items
         return iter_items
-    raise ValueError(f"unbekannter Adapter {name!r} (chesscog | chessred | synthetic).")
+    raise ValueError(f"unbekannter Adapter {name!r} (synthetic).")
 
 
-def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "warp",
-               photometry: str = "none", board_size: int = 900,
+def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 900,
                out_size: tuple[int, int] | None = None, limit: int | None = None,
                debug_overlay_n: int = 0, build: bool = True,
                paths: config.Paths = config.DATA) -> dict:
@@ -248,13 +255,15 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
     iter_items = _load_adapter(adapter)
     items: list[ImportItem] = []
     skipped = 0
-    for it in iter_items(Path(root)):
-        if it is None:
-            skipped += 1
-            continue
-        items.append(it)
-        if limit and len(items) >= limit:
-            break
+    with span("Ingest.adapter"):
+        with measure("adapter scans", (adapter, Path(root).resolve(), limit)):
+            for it in iter_items(Path(root)):
+                if it is None:
+                    skipped += 1
+                    continue
+                items.append(it)
+                if limit and len(items) >= limit:
+                    break
     if not items:
         raise ValueError(f"Adapter {adapter!r} found no usable images under {root} "
                          f"(skipped: {skipped}). Check path/annotation file.")
@@ -266,15 +275,19 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
     out_prof = profile_path(tag)
     out_prof.parent.mkdir(parents=True, exist_ok=True)
     prof.save(out_prof)
-    session_ids = synthesize_sessions(items, tag=tag, profile_name=tag, paths=paths)
+    with span("Ingest.sessions"):
+        with measure("ingest session synthesis", (tag, len(items))):
+            session_ids = synthesize_sessions(items, tag=tag, profile_name=tag, paths=paths)
 
     overlays: list[Path] = []
     if debug_overlay_n and session_ids:
-        overlays = debug_overlay(session_ids[0], debug_overlay_n,
-                                 paths.root / f"ingest_debug__{tag}", profile=prof, paths=paths)
+        with measure("ingest debug overlays", (tag, session_ids[0], debug_overlay_n)):
+            overlays = debug_overlay(session_ids[0], debug_overlay_n,
+                                     paths.root / f"ingest_debug__{tag}", profile=prof, paths=paths)
 
-    sliced = slice_imported(session_ids, profile=prof, geometry=geometry, photometry=photometry,
-                            out_size=out_size, variant_tag=tag, paths=paths)
+    with measure("ingest slicing", (tag, tuple(session_ids))):
+        sliced = slice_imported(session_ids, profile=prof,
+                                out_size=out_size, variant_tag=tag, paths=paths)
 
     summary = {"adapter": adapter, "tag": tag, "items": len(items), "skipped_items": skipped,
                "sessions": len(session_ids), "session_ids": session_ids,
@@ -285,9 +298,11 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, geometry: str = "war
         manifest_path, _ = _variant_paths(tag, paths)
         # Pretrain: NO rotation (fixed-camera rule) and NO aggressive dedup (external frames are
         # diverse anyway — we want maximum variety for pretraining).
-        res = dataset_build.build_dataset(
-            tag, session_ids, source_manifest=manifest_path, paths=paths,
-            rotations=(0,), per_cell_cap=10**9, phash_enabled=False)
+        with span("Ingest.dataset_build"):
+            with measure("ingest dataset builds", (tag, tuple(session_ids))):
+                res = dataset_build.build_dataset(
+                    tag, session_ids, source_manifest=manifest_path, paths=paths,
+                    rotations=(0,), per_cell_cap=10**9, phash_enabled=False)
         summary["dataset"] = tag
         summary["dataset_counts"] = res.get("counts")
     return summary

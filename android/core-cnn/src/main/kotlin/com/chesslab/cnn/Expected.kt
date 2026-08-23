@@ -40,3 +40,34 @@ fun expectedOccupancy(board: Board): Map<String, Boolean> = ALL_SQUARES.associat
 
 /** `cnn_recovery.py:108 expected_labels`. */
 fun expectedLabels(board: Board): Map<String, String> = ALL_SQUARES.associateWith { labelAt(board, it) }
+
+/**
+ * Per square, every label reachable within [plies] half-moves — the CURRENT placement included,
+ * because most frames sit between moves and a prior without that option masks away the truth on
+ * every resting frame. Feeds [applyPrior]; a square whose set holds one label cannot be misread.
+ */
+fun possibleLabels(
+    board: Board,
+    plies: Int = 1,
+): Map<String, Set<String>> {
+    val out = ALL_SQUARES.associateWithTo(LinkedHashMap<String, MutableSet<String>>()) { mutableSetOf() }
+    val seen = HashSet<String>()
+    var level = listOf(board)
+    for (depth in 0..plies) {
+        val kept = ArrayList<Board>(level.size)
+        for (b in level) {
+            if (!seen.add(b.boardFen())) continue
+            for (sq in ALL_SQUARES) out.getValue(sq).add(labelAt(b, sq))
+            kept.add(b)
+        }
+        if (depth == plies || kept.isEmpty()) break
+        level = kept.flatMap { b -> b.legalMoves().map { mv -> b.clone().also { it.doMove(mv) } } }
+    }
+    return out
+}
+
+/** FEN overload so consumers outside `:core-cnn` need no chesslib of their own. Throws on a bad FEN. */
+fun possibleLabels(
+    fen: String,
+    plies: Int = 1,
+): Map<String, Set<String>> = possibleLabels(boardOf(fen), plies)

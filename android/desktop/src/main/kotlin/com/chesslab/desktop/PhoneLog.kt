@@ -2,6 +2,7 @@ package com.chesslab.desktop
 
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
+import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -113,7 +114,14 @@ internal fun gameMarks(
     val first = moves.first().text("tsEpochMs").toDouble()
     return moves.map { row ->
         val uci = row.text("uci")
-        require(board.doMove(Move(uci, board.sideToMove))) { "game record has an illegal move $uci" }
+        // See TrainingVideoPack: `doMove`'s return value is not a legality check at any
+        // validation level, so the generator has to be asked.
+        val move = Move(uci, board.sideToMove)
+        val before = board.fen
+        require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
+            "game record has an illegal move $uci at ply ${row.text("ply")} in $before"
+        }
+        board.doMove(move)
         PlyMark(
             ply = row.text("ply").toInt(),
             san = row.text("san"),
@@ -166,7 +174,7 @@ private fun Board.moveTo(placement: String): String {
             undoMove()
             hit
         }
-    requireNotNull(move) { "log.jsonl has no legal move onto $placement" }
+    requireNotNull(move) { "log.jsonl has no legal move onto $placement from $fen" }
     doMove(move)
     return move.toString()
 }

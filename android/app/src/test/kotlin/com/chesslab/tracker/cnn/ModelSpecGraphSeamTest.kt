@@ -16,8 +16,8 @@ import kotlin.math.abs
  * The Python→Kotlin seam: two integers in a JSON file against the shape an ONNX graph declares.
  *
  * The size crosses the boundary as `infer_size` in the run's `config.json` (specs/22) and the
- * graph is the schema — the config only describes it. So this test runs the REAL bundled assets —
- * all three of them — through REAL ORT sessions and compares what [ModelSpec] parsed with what each
+ * graph is the schema — the config only describes it. So this test runs the REAL bundled assets,
+ * every one of them, through REAL ORT sessions and compares what [ModelSpec] parsed with what each
  * session says it takes. A fake on either side would prove nothing about the seam: the old guard was
  * exactly such a check (`out_size == 128`, the app against itself) and it never once looked at the
  * graph.
@@ -39,15 +39,12 @@ class ModelSpecGraphSeamTest {
     }
 
     /**
-     * **Every** bundled model, not just the default one: the whole point of shipping three is that
-     * the user can switch between them on a real board, and a model that only fails when selected
-     * fails mid-game.
+     * **Every** bundled model, not just the default one: the point of shipping more than one is that
+     * the user can switch on a real board, and a model that only fails when selected fails mid-game.
      *
-     * This is also what proves the size is READ rather than assumed. The three declare 96, 80 and
-     * 128 px, so no single constant can satisfy all of them — the assertion could not pass if
-     * anything in the chain (`ModelSpec` → tensor shape → `preprocessInto` → the graph) were pinned
-     * to whatever the default asset happens to declare. Until this commit that proof needed a
-     * gitignored scratch export and skipped whenever nobody had built one.
+     * It also proves the size is READ rather than assumed. Both survivors declare 80 px, so a span
+     * of sizes can no longer carry that proof (2026-08-20 retirement); what still does is that the
+     * measured size is not [ASSUMED_SIZE] — the constant the deleted `out_size == 128` guard was.
      */
     @Test
     fun everyBundledModelAgreesWithItsOwnGraph(
@@ -59,8 +56,8 @@ class ModelSpecGraphSeamTest {
             }
         assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
         assertTrue(
-            sizes.map { it.second }.distinct().size > 1,
-            "all bundled models declare the same input size, so this cannot show the size being read: $sizes",
+            sizes.none { it.second == ASSUMED_SIZE },
+            "a bundled model declares the size the old guard assumed, so this cannot show it being read: $sizes",
         )
     }
 
@@ -103,7 +100,11 @@ class ModelSpecGraphSeamTest {
                 }
             val probs = cnn.classify(crops)
             assertEquals(ALL_SQUARES.size, probs.size)
-            probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
+            probs.forEach { row ->
+                assertEquals(spec.outputWidth, row.size, "classes plus optional coverage output")
+                val classSum = row.take(spec.classes.size).sum()
+                assertTrue(abs(classSum - 1.0f) < 1e-4f, "class probabilities sum to $classSum")
+            }
         }
         assertEquals(spec.outWidth, spec.outHeight, "${dir.name}: this test only covers square inputs")
         return spec.outWidth
@@ -121,3 +122,6 @@ class ModelSpecGraphSeamTest {
  * shape. "The config and the graph agree" is not on its own enough to ship.
  */
 internal const val SHIPPED_INPUT_SIZE = 80
+
+/** What the deleted `out_size == 128` guard hard-coded; no bundled model may declare it. */
+internal const val ASSUMED_SIZE = 128
