@@ -28,10 +28,14 @@
   the human only checks that the alpha and the shown position are right.
   The 2-class `occupancy` scheme is **gone** (2026-08-20), Python and Kotlin: `--classes` takes
   `pieces13` or `pieces` only (`dataset_build.CLASS_MODES`).
-  **Android has not followed on coverage:** the APK bundles exactly `real14-80` (14-class softmax,
-  `occluded` at index 13, the default) and `id35-80` (13-class, so `pOccluded` = 0.0) — neither
-  declares `coverage_output`, and the one occlusion run exists as `.pt` but not as ONNX. So
-  `gridOccluded` stays the arm to trust (`docs/class-scheme.md`).
+  **Android now ships coverage (2026-08-23):** the APK bundles `real14-80` (14-class softmax,
+  `occluded` at index 13, the default), `id35-80` (13-class, so `pOccluded` = 0.0) and
+  `comp13-occ-bn-lr1e2-bs512`, which DOES declare `coverage_output` — 13 class logits plus an
+  independent coverage sigmoid in column 13 (`Observations.kt`, `Preprocess.kt`). Same 14 columns
+  as `real14-80`, different meaning. Where it is declared, `TrackerService` switches the model-free
+  arm OFF (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms
+  have never been measured against each other, so `gridOccluded` is still the one with evidence
+  behind it (`docs/class-scheme.md`).
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed); its web callers went with the FastAPI layer.
