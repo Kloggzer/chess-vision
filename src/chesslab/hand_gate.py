@@ -323,6 +323,7 @@ def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs:
                holdout: int = 4, batch: int = 32, workers: int = 4, lr: float = 3e-4,
                seed: int = 0, tag: str = "", progress: bool = True) -> dict:
     """Den Kopf auf SAMs Urteil trainieren und ihn auf ZURÜCKGEHALTENEN Sessions prüfen."""
+    miopen_fast()
     import torch
     from torch.utils.data import DataLoader
 
@@ -399,8 +400,20 @@ def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs:
              "ms_per_board", "coverage")}}
 
 
+def miopen_fast() -> None:
+    """ROCm sucht auf Windows sonst je Conv-Form erschöpfend nach Kerneln — 20 Minuten für nichts.
+
+    Muss stehen, BEVOR die erste Faltung läuft, deshalb hier und nicht im Aufrufer: den Scan hätte
+    es sonst genauso getroffen wie das Training, nur ohne dass es jemandem auffällt.
+    """
+    import os
+
+    os.environ.setdefault("MIOPEN_FIND_MODE", "FAST")
+
+
 def load_gate(tag: str = ""):
     """Gewichte und Modellkarte eines Laufs -> `(model, card, device)`, bereit zum Lesen."""
+    miopen_fast()
     import torch
 
     out = config.DATA.models / (f"{GATE_DIR}-{tag}" if tag else GATE_DIR)
@@ -411,29 +424,44 @@ def load_gate(tag: str = ""):
     return model.to(device, memory_format=torch.channels_last).eval(), card, device
 
 
-def read_gate(model, device, paths: list[Path], size: int, batch: int = 24):
-    """Die Bretter unter [paths] durch den Kopf — je Brett `(Veto, 64 Coverage-Werte)`."""
+def _forward(model, device, images: list, batch: int) -> list:
+    """Fertige RGB-Bilder in Modellgröße durch den Kopf — `(Veto, 64 Coverage-Werte)` je Bild."""
     import numpy as np
     import torch
 
-    mean = torch.tensor(MEAN).view(3, 1, 1)
-    std = torch.tensor(STD).view(3, 1, 1)
+    # uint8 zur GPU, dort erst float: als float32 sind 640 px 4,9 MB je Bild, und das Rechnen
+    # davon auf der CPU kostete im Scan mehr als der ganze Rest zusammen.
+    mean = torch.tensor(MEAN, device=device).view(1, 3, 1, 1) * 255.0
+    std = torch.tensor(STD, device=device).view(1, 3, 1, 1) * 255.0
     out = []
-    with torch.inference_mode():
-        for i in range(0, len(paths), batch):
-            images = [_read_board(p, size) for p in paths[i:i + batch]]
-            keep = [im for im in images if im is not None]
-            if not keep:
-                out += [None] * len(images)
-                continue
-            x = torch.stack([(torch.from_numpy(im.astype(np.float32) / 255.0).permute(2, 0, 1)
-                              - mean) / std for im in keep]).to(device)
-            x = x.contiguous(memory_format=torch.channels_last)
-            with torch.autocast("cuda", dtype=torch.bfloat16, enabled=device == "cuda"):
-                said = torch.sigmoid(model(x).float()).cpu().tolist()
-            it = iter(said)
-            out += [next(it) if im is not None else None for im in images]
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16,
+                                                enabled=device == "cuda"):
+        for i in range(0, len(images), batch):
+            raw = np.ascontiguousarray(np.stack(images[i:i + batch]))
+            x = torch.from_numpy(raw).to(device).permute(0, 3, 1, 2)
+            x = ((x.contiguous(memory_format=torch.channels_last).float() - mean) / std)
+            out += torch.sigmoid(model(x).float()).cpu().tolist()
     return out
+
+
+def read_gate(model, device, paths: list[Path], size: int, batch: int = 24):
+    """Die Bretter unter [paths] durch den Kopf — je Brett `(Veto, 64 Coverage-Werte)`."""
+    images = [_read_board(p, size) for p in paths]
+    said = iter(_forward(model, device, [im for im in images if im is not None], batch))
+    return [next(said) if im is not None else None for im in images]
+
+
+def read_boards(model, device, boards: list, size: int, batch: int = 16) -> list:
+    """Schon gewarpte Bretter durch den Kopf — der Frame-Scan hält sie ohnehin in der Hand.
+
+    Ohne Randschnitt: `scan_video` gibt das reine Brett weiter, den Rand schneidet `_read_board`
+    nur dort ab, wo er auf der Platte mitgespeichert ist.
+    """
+    import cv2
+
+    images = [cv2.cvtColor(cv2.resize(b, (size, size), interpolation=cv2.INTER_AREA),
+                           cv2.COLOR_BGR2RGB) for b in boards]
+    return _forward(model, device, images, batch)
 
 
 def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:

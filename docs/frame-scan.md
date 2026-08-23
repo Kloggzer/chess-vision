@@ -26,13 +26,42 @@ gemessen an 800 Brettern aus 20 Sessions:
 
 ## Die Sensoren
 
-| Sensor | Kosten | Was er sieht | Was er übersieht |
-|---|---|---|---|
-| Rillen (`grid_occlusion.hand_squares`) | 13,6 ms | modellfrei, benennt die Felder | eine Hand, die keine Linie kreuzt |
-| RT-DETR r18 (COCO, `person`) | 24,6 ms | Arm, Körper, Ärmel | Fingerspitzen am Rand (< 0,20) |
-| `skin_patch` | 6,8 ms | genau diese Randfinger | alles ohne Hautton |
+Bis 2026-08-22 zählten drei, weil sie **verschieden** scheitern. Seitdem entscheidet der
+destillierte Hand-Gate allein (`docs/hand-gate.md`), und die Rillen bleiben nur noch, weil sie die
+**Felder benennen** — als Handstimme tragen sie nichts mehr bei.
 
-Alle drei zählen, weil sie **verschieden** scheitern (`framescan.occupied`).
+| Sensor | Kosten | Rolle heute |
+|---|---|---|
+| **Hand-Gate** (`hand_gate`) | **2,1 ms** | entscheidet, ob eine Hand auf dem Brett liegt |
+| Rillen (`grid_occlusion.hand_squares`) | 13,6 ms | benennt die Felder (`hand_squares`), stimmt nicht mit |
+| ~~RT-DETR r18~~ | ~~24,6 ms~~ | entfernt |
+| ~~`skin_patch`~~ | ~~6,8 ms~~ | entfernt |
+
+Gemessen gegen SAM auf **vier komplett zurückgehaltenen Sessions** (1 783 Bretter, 865 mit Hand):
+
+| | Recall | Präzision |
+|---|---|---|
+| **Hand-Gate** | **0,9988** | **0,9920** |
+| die drei alten zusammen | 0,9618 | 0,9509 |
+
+Der Gate findet **33 Hände**, die alle drei übersehen. Umgekehrt retten sie **einen** Frame — und
+der lag beim Gate auf 0,516 gegen die Schwelle 0,60, also knapp darunter statt unsichtbar. Die
+Schwelle auf **0,50** gesenkt fängt er alle 865 und verwirft 10 von 918 sauberen Brettern; RT-DETR
+kostet 24,6 ms je Frame, um denselben Frame ein zweites Mal zu finden. Die Rillen retten als
+Handstimme **null** und kosten 36 Fehlalarme.
+
+| Schwelle | Recall | verpasst | Fehlalarm |
+|---|---|---|---|
+| 0,60 | 0,9988 | 1 | 7 (0,8 %) |
+| **0,50** | **1,0000** | **0** | **10 (1,1 %)** |
+| 0,40 | 1,0000 | 0 | 22 (2,4 %) |
+
+Alte Scans tragen kein `gate`; `occupied` liest sie weiter nach der alten Regel, sonst gälte ein
+ganzer Korpus über Nacht als handfrei.
+
+**Bekanntes Risiko:** der Gate ist auf DIESEM Aufbau kalibriert. Ein neuer Aufbau kann ihn
+verschieben, ohne dass es auffällt — RT-DETR hätte das gemerkt. Wer eine neue Kamera anfährt,
+misst den Gate gegen SAM auf einer Session, bevor er dem Scan glaubt.
 
 ### Warum RT-DETR und nicht Grounding DINO
 

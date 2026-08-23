@@ -1080,11 +1080,6 @@ def occluders_gate_train(
     SAM ist der Lehrer UND der Pruefer: die zurueckgehaltenen Sessions werden gegen sein Urteil
     gemessen, nicht gegen ein Frame-Sample derselben Beleuchtung.
     """
-    import os
-
-    # ROCm-Windows sucht sonst fuer JEDE neue Conv-Form erschoepfend nach Kerneln: der 640er Lauf
-    # brachte damit in 20 Minuten keine einzige Epoche zustande, mit FAST sind es 45 Sekunden.
-    os.environ.setdefault("MIOPEN_FIND_MODE", "FAST")
     from . import hand_gate
 
     r = hand_gate.train_gate(backbone=backbone, size=size, epochs=epochs, holdout=holdout,

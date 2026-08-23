@@ -292,3 +292,22 @@ def test_deleting_a_session_counts_the_handwork_first(tmp_path, monkeypatch):
     cost = sessions.deletion_cost("s1", paths)
 
     assert cost == {"session_id": "s1", "frames": 2, "crops": 0, "corrections": 1}
+
+
+def test_the_gate_is_the_witness_and_the_old_sensors_only_answer_for_old_scans():
+    """Seit 2026-08-22 entscheidet der destillierte Kopf, ob eine Hand auf dem Brett liegt.
+
+    Gemessen gegen SAM auf vier zurueckgehaltenen Sessions: Gate 0,9988/0,9920 gegen 0,9618/0,9509
+    der drei alten Sensoren zusammen. Alte Scans tragen kein `gate` und werden weiter so gelesen,
+    wie sie geschrieben wurden — sonst gaelte ein ganzer Korpus ueber Nacht als handfrei.
+    """
+    assert fs.occupied({"gate": fs.GATE_THR + 0.1}) is True
+    assert fs.occupied({"gate": fs.GATE_THR - 0.1}) is False
+
+    # Die Rillen stimmen NICHT mehr mit: null gerettete Frames, 36 Fehlalarme.
+    assert fs.occupied({"gate": 0.0, "grid": ["e4", "e5"]}) is False
+
+    # Ohne `gate` bleibt die alte Regel stehen.
+    assert fs.occupied({"grid": ["e4"]}) is True
+    assert fs.occupied({"person": 0.9}) is True
+    assert fs.occupied({"person": 0.11, "skin": False, "grid": []}) is False

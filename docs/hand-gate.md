@@ -100,7 +100,9 @@ einmal je Brett auf einer Desktop-GPU, also gilt keine dieser Schranken.
 Ohne sie brachte ein 640er Lauf in **20 Minuten keine einzige Epoche** zustande:
 
 - **`MIOPEN_FIND_MODE=FAST`.** ROCm sucht auf Windows sonst für jede neue Conv-Form erschöpfend
-  nach Kerneln. Das war der stille Killer, nicht das Modell. Die CLI setzt es jetzt selbst.
+  nach Kerneln. Das war der stille Killer, nicht das Modell — und es traf danach den Frame-Scan
+  genauso (94 ms je Frame statt 74). Steht deshalb in `hand_gate.miopen_fast()`, vor der ersten
+  Faltung, und nicht im Aufrufer.
 - **bf16 und `channels_last`.** Der Lauf war fp32/NCHW und belegte bei Batch 24 auf 640 px 17 GB.
 - **Kein `float(loss)` je Batch.** Das synchronisiert die GPU an jedem Schritt; der Verlust wird
   jetzt auf dem Gerät summiert und einmal je Epoche gelesen.
@@ -116,7 +118,11 @@ Ohne sie brachte ein 640er Lauf in **20 Minuten keine einzige Epoche** zustande:
 | Veto bei Recall **1,0000** | Schwelle 0,60 — **5** von 994 sauberen Brettern fälschlich verworfen |
 | Felder über `PIECE_VISIBLE_MAX` | Recall **0,9852**, Präzision **0,9810** (22 015 Zellen) |
 | Coverage-MAE | **0,0042** |
-| Tempo | **2,1 ms je Brett** gegen SAMs 2,76 s — Faktor 1 300 |
+| Tempo | **2,1 ms je Brett** gebatcht gegen SAMs 2,76 s — Faktor 1 300 |
+
+Im Frame-Scan, wo je 16 Bretter aus dem laufenden Decode kommen und von 928 auf 640 skaliert
+werden, sind es **9,0 ms je Frame**. Das ersetzt RT-DETR (25,3 ms) und `skin_patch` (7,2 ms),
+gemessen auf derselben Aufnahme ohne den Modell-Ladevorgang im Mittel.
 
 Zum Vergleich: der ausgelieferte Occlusion-Kopf des Zell-Klassifikators liegt bei `occ_mae`
 0,0162, also viermal daneben — und als Torwächter verpasst er 34 von 59 Fällen.
