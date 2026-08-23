@@ -305,6 +305,37 @@ the repair (1 344 rows) and holds after it. Originals sit beside each file as `.
 two remaining phantoms are 00-39-57's `Nbc3`/`Bf3`, committed transposed but reconverging three
 plies later. By the phantom veto the corpus now carries no fabrication at all.
 
+### Building recovery confidence under a hand — built, measured, reverted (2026-08-23)
+
+`recoveryVoteConfirmed` refuses a vote when ANY square carries a hand flag, so a hand over six
+squares throws away the other 58 legible ones and the vote — which wants two clean looks in a row —
+almost never gets them mid-game. The obvious relaxation: gate on the BRIDGE's own squares
+(`moveTouchedMask` over the sequence) instead of the board, and let a covered glance PAUSE the
+streak rather than reset it, the rule `resyncVoteFen` already runs on.
+
+Built it. Two findings, in this order:
+
+**A commit under a hand poisons the reference.** `commitRecovery` anchors `setRef` on the committing
+glance. With the relaxed gate, 00-39-57's `Nbc3` committed at `motion = 1.93` with `stuck = occluded`
+— correctly, and at the right ply for once — and the reference then held the hand. When the hand
+left, every later frame differed from it everywhere: `QUIET ambiguous — evidence, but no candidate
+formed`, forever. 65 found collapsed to 27. The clean-board demand was never only about the reading;
+it is what keeps the diff channel's reference honest.
+
+**Split, it becomes a no-op.** Letting votes accrue under a hand off the bridge while requiring the
+COMMITTING glance to be hand-free scores **164 / 24 / 2** across the six recordings — identical to
+the baseline, not one move different. On this corpus a fully clean frame always arrives before the
+accrued votes would have bought anything. The starvation that did cost plies was the confirmer being
+RESET (by `dispatch`, and by the cooldown pushing the second glance past the next move); once those
+two are fixed the occlusion gate is not what holds recovery back.
+
+Reverted. Worth knowing before anyone builds the stronger version — commit provisionally under the
+hand, then require the next clean frame to equal baseline plus every provisional commit: on
+11-59-12, the one recording where the tracker really does fall behind, recovery returns `[]` on 725
+consecutive reads. There is no hypothesis to commit provisionally, so a transactional window has
+nothing to carry either. The bottleneck there is that the board outran `recoveryMaxPlies = 4`, and
+raising it to 6 changes nothing while 8 does not finish.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
