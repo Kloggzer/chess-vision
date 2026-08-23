@@ -828,7 +828,15 @@ def cell_deviations(cells, ref, visible) -> Any:
     return dev / (px[:, 0, 0, 0] * cells.shape[-1]), weight.mean(axis=(1, 2, 3))
 
 
-def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: float) -> Any:
+#: Wie viele zusammenhängende Felder eine Änderung höchstens umfasst. Ein Zug berührt ZWEI —
+#: benachbart beim Bauernschritt, sonst zwei Blöcke zu eins; drei am Stück kann kein Zug. Gemessen
+#: 2026-08-22: 89 % der Karten auf Zugfeldern liegen in Blöcken von 1 oder 2, ab 3 fällt die
+#: Trefferquote von 19 % auf 2–4 % und damit auf den Hintergrund.
+MAX_DEPART_BLOCK = 2
+
+
+def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: float,
+               max_block: int = MAX_DEPART_BLOCK) -> Any:
     """`(frames, 64) -> (frames, 64) bool`: hat dieses Feld die gesetzte Stellung VERLASSEN?
 
     Drei Zustände je Zelle, denn eine verdeckte Zelle passt nicht zur Referenz — sie ist ungesehen,
@@ -849,9 +857,19 @@ def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: 
         start = int(at[-1]) + 1 if len(at) else 0
         if start < left.shape[0] and gone[start:, c].any():
             left[start:, c] = True
-    # Nie eine verdeckte Zelle: die ist das Occlusion-Ziel, und ihre Coverage nimmt sie schon aus
-    # dem Klassifikations-Loss. Als "verlassen" gemeldet wuerde sie stattdessen weggeworfen.
-    return left & ~covered
+    left &= ~covered
+    # Form statt Menge: ein Schatten deckt einen zusammenhängenden Block, ein Zug zwei Felder.
+    # `all_squares()` läuft reihenweise ab a1, also ist die 8x8-Sicht das Brett selbst.
+    for f in range(left.shape[0]):
+        block = left[f].reshape(8, 8)
+        n, lab, stats, _c = cv2.connectedComponentsWithStats(block.astype(np.uint8),
+                                                             connectivity=4)
+        big = [c for c in range(1, n) if stats[c, cv2.CC_STAT_AREA] > max_block]
+        if big:
+            block[np.isin(lab, big)] = False
+    # Verdeckte Zellen sind das Occlusion-Ziel: ihre Coverage nimmt sie schon aus dem
+    # Klassifikations-Loss, als "verlassen" gemeldet würden sie stattdessen weggeworfen.
+    return left
 
 
 def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:

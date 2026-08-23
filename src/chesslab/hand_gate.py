@@ -17,6 +17,10 @@ from . import config
 GATE_AREA_MIN = 0.25
 #: Wohin Gewichte und Modellkarte gehen. `bn` im Namen ist Pflicht (CLAUDE.md, Model Guidelines).
 GATE_DIR = "hand-gate-bn"
+#: Der Lauf, den die Pipeline benutzt, wenn niemand einen anderen nennt. NICHT der namenlose
+#: Ordner: dort liegt der erste Versuch mit global gepooltem Kopf, den `GateNet` gar nicht laden
+#: kann — und ein leerer Vorgabewert hat genau deshalb einen ganzen Korpus-Rescan gekostet.
+DEFAULT_GATE = "mnv4-640"
 CARD_FILE = "card.json"
 WEIGHTS_FILE = "gate.pt"
 
@@ -416,7 +420,7 @@ def load_gate(tag: str = ""):
     miopen_fast()
     import torch
 
-    out = config.DATA.models / (f"{GATE_DIR}-{tag}" if tag else GATE_DIR)
+    out = config.DATA.models / f"{GATE_DIR}-{tag or DEFAULT_GATE}"
     card = json.loads((out / CARD_FILE).read_text(encoding="utf-8"))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = GateNet(card["backbone"], pretrained=False)

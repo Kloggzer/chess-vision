@@ -160,3 +160,33 @@ def test_a_cell_the_alpha_barely_saw_is_flagged_on_its_own():
     left = _left(dev, seen, cover)
 
     assert left[1, c] and not left[0, c] and not left[2, c]
+
+
+def test_a_shadow_block_is_dropped_and_a_move_survives():
+    """Form statt Menge: ein Zug beruehrt ZWEI Felder — benachbart beim Bauernschritt, sonst zwei
+    Bloecke zu eins. Drei am Stueck kann kein Zug erzeugen, das ist der vorgebeugte Spieler."""
+    sq = all_squares()
+    dev, seen, cover, _c = _states(4)
+    for name in ("a2", "a3"):                      # der laufende Bauer: ein Block zu zwei
+        dev[1:, sq.index(name)] = SETTLE_LIMIT + 10
+    for name in ("e2", "e4"):                      # der weite Zug: zwei Bloecke zu eins
+        dev[1:, sq.index(name)] = SETTLE_LIMIT + 10
+    for name in ("f1", "g1", "h1", "g2"):          # der Schatten auf der Grundreihe
+        dev[1:, sq.index(name)] = SETTLE_LIMIT + 10
+
+    left = _left(dev, seen, cover)
+
+    kept = {s for i, s in enumerate(sq) if left[3, i]}
+    assert kept == {"a2", "a3", "e2", "e4"}, kept
+
+
+def test_the_block_rule_counts_per_frame_not_per_interval():
+    """Ein Schatten, der wandert, darf nicht durch die Summe ueber das Intervall gross werden."""
+    sq = all_squares()
+    dev, seen, cover, _c = _states(4)
+    dev[1:, sq.index("d4")] = SETTLE_LIMIT + 10
+    dev[1:, sq.index("h8")] = SETTLE_LIMIT + 10    # weit weg, eigener Block
+
+    left = _left(dev, seen, cover)
+
+    assert left[3, sq.index("d4")] and left[3, sq.index("h8")]

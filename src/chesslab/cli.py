@@ -555,6 +555,7 @@ def realgames_scan_video(
     name: str = typer.Argument(..., help="Recording name under data/recordings/."),
     stride: int = typer.Option(0, "--stride", help="Scan every Nth frame (0 = the measured 3)."),
     rescan: bool = typer.Option(False, "--rescan", help="Redo a scan that is already on disk."),
+    gate: str = typer.Option("", "--gate", help="Welcher Hand-Gate unter data/models/ misst."),
 ) -> None:
     """Measure every Nth frame of the recording before anything is picked from it.
 
@@ -565,7 +566,8 @@ def realgames_scan_video(
     from . import framescan
 
     try:
-        r = framescan.scan_video(name, stride=stride or framescan.SCAN_STRIDE, resume=not rescan)
+        r = framescan.scan_video(name, stride=stride or framescan.SCAN_STRIDE, resume=not rescan,
+                                 tag=gate)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
