@@ -586,21 +586,14 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
   **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
 
-- **Vorschlag: den Composite-Pool nicht ueber 128 packen (gemessen 2026-08-23).** `pack_dataset`
-  schneidet heute aus `data/crops/comp13-v3` (128 px) auf 80. Das ist ein Resampling zu viel: der
-  Pfad ist Zelle -> `board_size` -> 128 -> 80, waehrend Kotlin auf `board_size` warpt und in EINEM
-  Schritt auf die Modellgroesse schneidet.
-  **Gemessen** auf echten Quellframes, gleiche Zelle, gleiches Ziel 80 px:
-  direkt 160->80 gegen 160->128->80 bringt **1,54x Laplace-Varianz** (je Quelle 1,49x und 1,56x),
-  Rolloff 78 gegen 66. Zum Vergleich liegt die Zieldomaene `real13-straight-80-v3` bei Laplace
-  1618, der Direktschnitt bei 786, der Pool-Umweg bei 511 — der Umweg reisst also gut die Haelfte
-  des verbleibenden Abstands selbst auf.
-  **Warum das sauber ist:** der reale Pfad macht es schon so (`boards/` mit `board_size` 928,
-  Zelle 116, ein Schritt auf 80). Der Composite waere damit ANGEGLICHEN, nicht schaerfer als die
-  Zieldomaene. Die Kotlin-Paritaet bleibt unberuehrt: `MAX_BOARD_SIZE = 1280` ist bewusst gespiegelt
-  (`realgames.py` <-> `CalibrationStore.kt`), daran wird NICHT gedreht.
-  **Wie:** den 128er Pool als Reserve behalten, aber `pack_dataset` bei abweichender Zielgroesse
-  aus der Quelle neu schneiden statt aus dem Pool — sonst verliert man die Mehrfach-Aufloesung.
-  **Offen:** das ist eine BILDmessung. Ob 1,54x Laplace am Val-Wert etwas bewegt, ist ungemessen;
-  der Gegentest waere ein Trainingslauf gegen `comp13-occ-bn-lr1e2-bs512` als Basis. Und es faellt
-  in `composite.py`, wo gerade ein anderer Kontext arbeitet — vorher abstimmen.
+- **ERLEDIGT: der Crop schreibt seine eigene Boxgroesse (2026-08-23).** `build_from_video`
+  schrieb fest 128 px. Fuer den ECHTEN Export ist das zufaellig exakt richtig — `board_size` 928,
+  Zelle 116, `pad_side` 0,05 ergibt eine Box von 127,6 px, also Faktor 1,000. Fuer den Composite
+  passt es nicht: 4K hat eine Box von 176 (Faktor 0,727 herunter), 1080p eine von 92 (Faktor
+  1,391 HOCH). Jetzt liefert `native_out_size` die Boxgroesse, `--out-size` ueberschreibt.
+  Gemessen durch den echten Pfad (ArUco-Ecken, echte Homographie, `crops_for_frame`), Laplace
+  auf 80 px wie `pack_dataset` es packt: 4K 980 -> 1219 (**1,24x**), 1080p 652 -> 865 (**1,33x**).
+  Die synthetische Vorschaetzung lag bei 1,54x — die zaehlte den Warp nicht mit.
+  **Offen:** `comp13-v3` ist mit dem alten festen 128 gebaut und muesste neu laufen, um es zu
+  bekommen. Und ob 1,24-1,33x am Val-Wert etwas bewegt, ist ungemessen — Gegentest waere ein Lauf
+  gegen `comp13-occ-bn-lr1e2-bs512`.

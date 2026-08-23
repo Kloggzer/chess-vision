@@ -16,7 +16,7 @@ from threading import Event, Thread
 import cv2
 import numpy as np
 
-from .calibration import CalibrationProfile, GridMesh, mesh_from_lines
+from .calibration import CalibrationProfile, GridMesh, mesh_from_lines, square_to_crop_box
 from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
 from .realgames import measured_board_size
@@ -301,8 +301,14 @@ def labels_of(fen: str) -> dict[str, str]:
     return out
 
 
+def native_out_size(profile: CalibrationProfile) -> tuple[int, int]:
+    """The crop box's own size in the rectified board — writing anything else resamples."""
+    x0, y0, x1, y1 = square_to_crop_box("e4", profile, clamp=False)
+    return x1 - x0, y1 - y0
+
+
 def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Path, fen: str,
-                     board_size: int = 0, out_size: tuple[int, int] = (128, 128),
+                     board_size: int = 0, out_size: tuple[int, int] | None = None,
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
                      blocks: int = 6) -> dict:
@@ -355,7 +361,13 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                            board_size=board_size, image_corners=corners,
                            homography=compute_homography(corners, board_size, base.margin),
                            crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
-                                           pad_side=base.crop.pad_side, out_size=out_size))
+                                           pad_side=base.crop.pad_side,
+                                           out_size=out_size or (1, 1)))
+            # Die Box schreibt ihre EIGENE Groesse. Fuer den echten Export sind das die 128,
+            # fuer einen 4K-Clip 176 und fuer 1080p 92 — jede andere Zahl skaliert einmal
+            # zu oft, und `pack_dataset` skaliert danach ohnehin auf die Modellgroesse.
+            if out_size is None:
+                prof = replace(prof, crop=replace(prof.crop, out_size=native_out_size(prof)))
             mesh = median_mesh(cap, prof)
         batch = next(plates)
         if batch:
