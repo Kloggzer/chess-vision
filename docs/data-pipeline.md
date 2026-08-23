@@ -287,6 +287,24 @@ Quelle** auf Zielgroesse zu schneiden — genau das macht `synth_build` bereits:
 frame is loaded ONCE, warped ONCE, and its selected squares are cropped straight into the final
 `packed_images.u8` memmap", mit virtuellen `mm://`-Zeilen statt Crop-Dateien.
 
+**Umgesetzt 2026-08-23:** `pack_dataset` schneidet Composite-Zeilen aus der QUELLE, sobald die
+Zielgroesse von der Dateigroesse abweicht. Moeglich, weil Kachel und Pose an der Frame-ID
+haengen und `composite.json` die Herkunft je Clip traegt.
+
+| Quelle | Dateien | Pixel-Pass | Schaerfe | Zeit |
+|---|---|---|---|---|
+| 1080p, 4 224 Crops | 609 | 819 | **1,34x** | 0,51x |
+| 4K, 640 Crops | 968 | 1 228 | **1,27x** | 2,80x |
+
+**Der Schaerfegewinn haelt, das Tempo NICHT.** Es haengt am Verhaeltnis von Datei-Oeffnen zu
+Video-Dekodieren: viele Crops aus einem kleinen Video -> die vielen kleinen WebP dominieren
+und der Quellweg gewinnt; wenige Crops aus 4K -> der Dekoder dominiert und die Dateien
+gewinnen. Wer den Weg waehlt, waehlt ihn fuer die Schaerfe, nicht fuer die Zeit.
+
+Reale Datensaetze haben keine `composite.json` und nehmen weiter den Dateiweg. Geschrieben
+wird mit `seek`, NICHT ueber `pack.row_window`: nach dem Split liegen die Zeilen eines Clips
+verstreut, ein Fenster ueber min..max waere fast die ganze Datei.
+
 Merksatz: **die Zahl 128 gehoert zu `board_size` 928, nicht zum Pool.** Wer eine andere Quelle
 anfaehrt, rechnet die Box neu — oder schneidet fuer das Modell gleich aus der Quelle.
 

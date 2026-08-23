@@ -108,6 +108,44 @@ def _pack_chunk(task) -> tuple[int, int]:
     return start, len(items)
 
 
+def source_provenance(rows: list[dict]) -> dict | None:
+    """Traegt JEDE Zeile eine Composite-Herkunft? Nur dann kann aus der Quelle geschnitten werden."""
+    from ..composite import read_provenance
+
+    prov: dict = {}
+    for pool in {Path(r["path"]).parents[1] for r in rows}:
+        prov.update(read_provenance(pool))
+    if not prov or any(r.get("split_group") not in prov for r in rows):
+        return None
+    return prov
+
+
+def pack_from_source(rows: list[dict], prov: dict, img_path: Path, wh: tuple[int, int]) -> int:
+    """Die Zeilen aus der QUELLE schneiden statt aus dem 128er Pool zu skalieren.
+
+    Geschrieben wird mit `seek`, nicht ueber ein Memmap-Fenster: nach Split liegen die Zeilen
+    eines Clips verstreut, ein Fenster ueber min..max waere fast die ganze Datei.
+    """
+    from ..composite import recut_frames
+
+    w, h = wh
+    crop_bytes = h * w * 3
+    at: dict[str, dict[int, list[str]]] = {}
+    where: dict[tuple[str, int, str], int] = {}
+    for i, r in enumerate(rows):
+        clip, frame, sq = r["split_group"], int(r["frame"]), r["square"]
+        at.setdefault(clip, {}).setdefault(frame, []).append(sq)
+        where[(clip, frame, sq)] = i
+    written = 0
+    with open(img_path, "r+b") as fh:
+        for clip, wanted in at.items():
+            for frame, sq, crop in recut_frames(prov[clip], wanted, (w, h)):
+                fh.seek(where[(clip, frame, sq)] * crop_bytes)
+                fh.write(np.ascontiguousarray(crop[:, :, ::-1]).tobytes())   # BGR -> RGB
+                written += 1
+    return written
+
+
 def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None,
                  out_size: tuple[int, int] | None = None) -> dict:
     """Decode every crop of dataset ``name`` once into a single (N,H,W,3) uint8 memmap (parallel).
@@ -150,6 +188,25 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     # still matches, since it describes the same manifest. load_packed would then serve a file
     # that is half old pixels, half new, with no sidecar left to hint at it.
     meta_path.unlink(missing_ok=True)
+
+    # Composite-Zeilen tragen ihre Herkunft — dann schneidet der Pixel-Pass aus der Quelle
+    # statt den 128er Pool auf die Modellgroesse zu skalieren. Ein Resample statt zwei
+    # (`docs/data-pipeline.md` 3.1).
+    # Nur wenn die Zielgroesse von der Dateigroesse abweicht — sonst waeren die Dateien
+    # schon exakt und das Dekodieren ist der kuerzere Weg.
+    prov = None if (w, h) == tuple(rows[0]["out_size"]) else source_provenance(rows)
+    if prov is not None:
+        got = pack_from_source(rows, prov, img_path, (w, h))
+        if got != n:
+            raise RuntimeError(f"pixel pass incomplete: {got}/{n} crops")
+        meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
+                                         "digest": _manifest_digest(rows),
+                                         "crop_fingerprint": {},
+                                         "paths": [r["path"] for r in rows]}),
+                              encoding="utf-8")
+        progress_path.unlink(missing_ok=True)
+        return {"n": n, "h": h, "w": w, "path": str(img_path),
+                "gb": round(total_bytes / 1e9, 2), "source": "composite"}
 
     # Many SMALL chunks instead of a few huge ones: each worker only maps its own chunk, so peak
     # commit stays flat regardless of dataset size, progress is fine-grained, and — with the
