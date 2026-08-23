@@ -69,7 +69,11 @@ internal fun EngineState.dispatch(
             startedS = nowS,
             lastTickS = nowS,
         )
-    recoveryConfirmer.reset()
+    // NOT `recoveryConfirmer.reset()`. A candidate merely ENTERING verification is no evidence
+    // against what the CNN reads; only a commit is, and `clearStuck` already resets there. While
+    // `pending` stands every observation goes to the verify ladder, so the recovery streak freezes
+    // rather than restarts — a phantom the diff re-proposes each cycle used to starve the vote at
+    // 1/2 forever (2026-08-08-00-39-57, `a2a4` against the CNN's correct `c3e4`).
     verifyState = VERIFY_STATE_VERIFYING
     note = candidateNote ?: "checking ${board.sanSequence(moves).joinToString(" + ")} via CNN…"
     return emptyList()

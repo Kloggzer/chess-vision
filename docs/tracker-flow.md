@@ -195,6 +195,18 @@ now resolves alarm conflicts on occupancy only. A focused repeat of that session
 safe lambda-4 arm improved **36 found / 31 missed / 2 invented** to **48 / 19 / 2**: +12 found,
 -12 missed, with the phantom count unchanged.
 
+The 19 that still went missing were one starvation, not nineteen failures. From ply 51 the tracker
+fell silent for 1 800 frames while the CNN read the right move on every glance: `c3e4` at agreement
+1.000, then `c3e4 c8b8`, then `c3e4 c8b8 h1e1` — always at vote 1 of 2. `dispatch` cleared the
+recovery confirmer the moment a candidate became PENDING, and the diff channel re-proposed the same
+phantom `a2a4` (a shadow on the a-file, rejected as a ghost every time) once per cycle. Two votes
+were never reachable. Entering verification is not evidence against what the CNN reads — a commit
+is, and `clearStuck` already resets there — so the reset is gone and the streak now freezes for the
+duration of a verification instead of restarting. Same session, same arm: **48 / 19 / 2** to
+**65 / 2 / 2**. The two remaining misses are `Nbc3`/`Bf3` committed transposed, which the scorer
+counts twice — as both the misses and the two phantoms. Over all six confirmed recordings the arm
+went from 134 found / 53 missed to 153 / 34, with no session worse and no new phantom.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded

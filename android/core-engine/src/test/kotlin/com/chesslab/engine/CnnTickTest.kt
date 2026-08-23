@@ -212,6 +212,28 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history)
     }
 
+    /**
+     * The phantom starvation of 2026-08-08-00-39-57. The diff channel re-proposed `a2a4` on every
+     * cycle — a shadow on the a-file — and each dispatch cleared the streak, so the CNN's correct
+     * `c3e4` never got past 1/2 and 17 plies were lost while the read was right the whole time.
+     * A candidate merely ENTERING verification is not evidence against what the CNN sees.
+     */
+    @Test
+    fun aCandidateEnteringVerifyDoesNotResetTheRecoveryVote() {
+        val state = recoveryState(confirmFrames = 2)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.dispatch(listOf(moveOf(state, "g1f3")), grayFrame(), null, priorUsed = false, candidateNote = null, seq = 2)
+        assertNotNull(state.pending, "the candidate must be pending, not committed")
+        state.pending = null
+
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 3, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "a rejected candidate may not cost the vote")
+    }
+
     @Test
     fun recoveryCommitAnchorsOnObservedFrame() {
         val state = recoveryState()
