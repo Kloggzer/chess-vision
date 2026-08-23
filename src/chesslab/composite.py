@@ -234,9 +234,9 @@ def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int
         yield item
 
 
-def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int,
+def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride: int,
                 depth: int = TILE_LOOKAHEAD, workers: int = TILE_WORKERS
-                ) -> Iterator[list[tuple[str, np.ndarray, np.ndarray]]]:
+                ) -> Iterator[tuple[int, list[tuple[str, np.ndarray, np.ndarray]]]]:
     """Die Kacheln der naechsten Bretter schon dekodiert bereithalten — endlos, eine Liste je Brett.
 
     Von der Platte kostet eine Kachel 89 ms, mehr als das Brett selbst; alle 1440 im Speicher
@@ -246,18 +246,24 @@ def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int,
     stop = Event()
 
     def pump() -> None:
-        rng = np.random.default_rng(seed)
         names = np.array(tiles, dtype=object)
         with ThreadPoolExecutor(max_workers=workers) as pool:
+            idx = 0
             while not stop.is_set():
+                # An der FRAME-ID, nicht an einer Ordnungszahl: ein uebersprungenes Brett
+                # darf die Kacheln aller folgenden nicht verschieben, und ein zweiter Lauf
+                # mit anderem `stride` trifft fuer dieselbe ID dieselbe Wahl.
+                rng = np.random.default_rng([seed, idx])
                 k = int(rng.integers(per_frame[0], per_frame[1] + 1))
                 picks = rng.choice(names, size=k, replace=False) if k else []
-                q.put([(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks])
+                q.put((idx, [(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks]))
+                idx += stride
 
     Thread(target=pump, daemon=True).start()
     try:
         while True:
-            yield [(name, *job.result()) for name, job in q.get()]
+            idx, jobs = q.get()
+            yield idx, [(name, *job.result()) for name, job in jobs]
     finally:
         stop.set()
         while not q.empty():
@@ -329,7 +335,6 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     base = load_profile(profile_name)
     cap = cv2.VideoCapture(str(video))
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    rng = np.random.default_rng(seed)
     labels = labels_of(fen)
     stem_sid = f"comp-{clip_id(video)}"
     prof = mesh = None
@@ -339,7 +344,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
 
     pending: deque = deque()
     pool = ThreadPoolExecutor(max_workers=WRITE_THREADS)
-    plates = tile_stream(tiles, tiles_per_frame, seed + 1)
+    plates = tile_stream(tiles, tiles_per_frame, seed + 1, stride)
     for idx, frame in read_forward(video, stride):
         corners = detect_board_corners_aruco(frame)
         if corners is None:
@@ -357,9 +362,15 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                            crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
                                            pad_side=base.crop.pad_side, out_size=out_size))
             mesh = median_mesh(cap, prof)
-        batch = next(plates)
+        # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
+        batch_idx, batch = next(plates)
+        while batch_idx < idx:
+            batch_idx, batch = next(plates)
         if batch:
-            crops, cov, _ = composite_frame(frame, corners, prof, batch, rng, mesh=mesh,
+            # Die Pose haengt am FRAME-Index, nicht an der Aufrufreihenfolge — sonst
+            # verschiebt ein uebersprungenes Brett alle folgenden.
+            crops, cov, _ = composite_frame(frame, corners, prof, batch,
+                                            np.random.default_rng([seed, idx]), mesh=mesh,
                                             plate_long=plate_long)
         else:
             crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
