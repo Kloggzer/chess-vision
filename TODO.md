@@ -575,3 +575,13 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   Torch-Prozess und wuerde 3,2 GB Commit sparen, macht aber ggf. CPU-Inferenz — vorher die
   Latenz messen, nicht blind setzen. `training/evaluate.py` und `gradcam.py` laufen kurz, lohnen
   kaum. Der Blender-Sharder in `cli.py` spawnt keine Torch-Prozesse und ist nicht betroffen.
+
+- **SAM 3.1 ist fuer uns kein Upgrade (geprueft 2026-08-23).** `facebook/sam3.1` enthaelt KEIN
+  `model.safetensors`, nur `sam3.1_multiplex.pt` (3,50 GB); die config sagt
+  `architectures: ['Sam3VideoModel']`, `model_type: sam3_video`. `Sam3Model.from_pretrained`
+  laedt das nicht — ein Drop-in-Test existiert in unserem Pfad nicht.
+  Inhaltlich passt es auch nicht: der Gewinn ist Object Multiplexing (bis 16 Objekte in einem
+  Forward-Pass, ~7x schnelleres Tracking, bessere VOS-Zahlen). Wir schneiden EIN Standbild ohne
+  Tracking, und gemessen kommt genau EINE Instanz zurueck (`person`/`hand` treffen,
+  `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
+  **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
