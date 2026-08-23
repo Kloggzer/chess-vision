@@ -439,6 +439,46 @@ overfitted. And 114 plies of trustworthy reference is a thin corpus for a decisi
 reference whose tail the board rasters already contradicted. It cannot confirm the chain and it
 cannot refute it.
 
+### A better classifier that decodes worse (2026-08-23)
+
+`comp13-occ-bn-lr1e2-bs512-packsource`, the next compositional pretrain, read every recording
+(`realgames model-read`) and went through the same chain at the same floor. It is **better per
+square** on five of the six, and better on exactly the quantity the chain consumes:
+
+| recording | square acc old → new | occupancy old → new | P(true label) old → new |
+| --- | --- | --- | --- |
+| 2026-08-08-00-39-57 | 0.870 → **0.879** | 0.991 → 0.995 | 0.867 → **0.873** |
+| 2026-08-07-13-52-38 | 0.819 → **0.873** | 0.992 → 0.986 | 0.813 → **0.868** |
+| 2026-08-08-11-59-12 | 0.837 → **0.861** | 0.992 → 0.994 | 0.828 → **0.858** |
+
+And it decodes far worse. Over the verifiable references the chain drops from **114 / 1 / 0** to
+**92 / 23 / 21**; on the gold 67-ply reference from 67 / 0 / 0 to 48 / 19 / 16, and no floor from
+0.02 to 0.35 recovers it — the plateau that made 0.08 trustworthy for the old model simply is not
+there.
+
+The mechanism is visible at the first divergence, ply 28, where the chain plays `Bxe2` instead of
+`Bf3`. Both models misread `e2`, whose truth is a white KNIGHT, as a pawn. What differs is the
+certainty:
+
+    old   wP(0.92) wP(0.94) wP(0.74) wP(0.89) wP(0.92) wP(0.84) …
+    new   wP(1.00) wP(1.00) wP(1.00) wP(1.00) wP(1.00) wP(1.00) …
+
+At 0.85 the wrong label leaves room for the alternative and the chain keeps the knight. At 1.00 it
+does not, so a story that removes the e2 piece becomes the best explanation, and the position never
+recovers. The same shows up in aggregate: the new model makes FEWER errors (7 245 against 7 950 on
+that recording) but a higher share of them CONTINUE from the previous frame (86.8 % against 80.4 %),
+packed into fewer, longer runs (953 independent episodes against 1 562).
+
+A flickering error averages out over frames. A confident, persistent one is indistinguishable from
+evidence. Per-square accuracy cannot see either property, which is why it went up while the decode
+went down.
+
+So the metric to train against, for the tracker, is not accuracy but CALIBRATION — and the lever is
+label smoothing, temperature scaling or an explicit confidence penalty, not more capacity. This was
+measured on a compositional pretrain, not a finished model; the point is the metric, not the verdict
+on this checkpoint. Both read sets are kept beside each recording as `model-reads.jsonl.packsource`
+and `.bak.comp13`; the primary file is comp13's, so the table above this section still reproduces.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
