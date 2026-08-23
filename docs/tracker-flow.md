@@ -514,6 +514,43 @@ the fix is available on BOTH sides: post-hoc on the decoder, where it costs one 
 change accuracy, and at training time through calibration, which would let the decoder run at a sane
 temperature instead of a saturated one. Nothing here argues against `packsource`.
 
+### The rank is doing the classifier's work (2026-08-23)
+
+Splitting the recordings' reads by rank shows the model is not only classifying the crop. Non-pawn
+pieces, share read correctly:
+
+| rank | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pieces | 36 % | 47 % | 41 % | **8 %** | 34 % | 26 % | **10 %** | 57 % |
+
+Pawns are 75–98 % on every rank they appear on. And when a real piece IS misread, what it becomes
+names the shortcut: on rank 7 it is called `bP` **85 %** of the time, on rank 2 `wP` 58 %, on rank 4
+a pawn of one colour or the other 62 %. The model has learnt "rank 2/7 → pawn" firmly enough that a
+rook standing on rank 7 collapses to 10 % while the same rook on rank 8 reads at 57 %.
+
+A turntable recording made for exactly this — the start position shifted two ranks inward, so pieces
+sit on 3 and 6 and pawns on 4 and 5, under a dark orange light — puts numbers on it. 50 boards,
+3 200 crops cut with `desktop crops`, orientation verified from crop brightness rather than from the
+model (ranks 3/4 at 91/88, ranks 5/6 at 33/40), the crops checked by eye for alignment first:
+
+| rank | holds | comp13 | packsource |
+| --- | --- | --- | --- |
+| 3 | white pieces | 57.5 % | 39.2 % |
+| 4 | white pawns | **76.0 %** | 69.2 % |
+| 5 | black pawns | **69.5 %** | 44.0 % |
+| 6 | black pieces | 24.0 % | 28.5 % |
+
+Two failure modes at once, neither visible in any existing recording. **Pawns collapse when they
+leave ranks 2 and 7** — 84–98 % there against 44–76 % here — which is the same shortcut seen from
+the other side. And **colour breaks**: `bP → wP` is the top confusion (87 for comp13, 154 for
+packsource) where colour error over the recordings is 0.7 %. The orange light is a domain nothing in
+the corpus covers, and it costs the dark pieces most: rank 6 at 24–28 %.
+
+Which raises a question about where the recording belongs. As pretrain material it is a strong
+counterexample set. As a HOLD-OUT it is currently the only thing in the repo that measures either
+the rank shortcut or colour robustness, and folding it into training spends that. There are 246
+positions of training data and no test for either property.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
