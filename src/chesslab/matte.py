@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import gc
 import json
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
-from time import perf_counter
+from threading import Thread
+from time import perf_counter, sleep
 
 import cv2
 import numpy as np
@@ -152,6 +155,91 @@ def unload_models() -> None:
         torch.cuda.empty_cache()
 
 
+def _win_ancestors(pid: int) -> list[tuple[int, str]]:
+    """(pid, image) up the tree, via Toolhelp — no third-party dependency for one lookup."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Entry(ctypes.Structure):
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                    ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_void_p),
+                    ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long),
+                    ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_char * 260)]
+
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    snap = k.CreateToolhelp32Snapshot(0x00000002, 0)
+    tree: dict[int, tuple[int, str]] = {}
+    entry = Entry()
+    entry.dwSize = ctypes.sizeof(Entry)
+    ok = k.Process32First(snap, ctypes.byref(entry))
+    while ok:
+        tree[entry.th32ProcessID] = (entry.th32ParentProcessID,
+                                     entry.szExeFile.decode("latin-1"))
+        ok = k.Process32Next(snap, ctypes.byref(entry))
+    k.CloseHandle(snap)
+
+    chain, seen = [], set()
+    while pid in tree and pid not in seen:
+        seen.add(pid)
+        pid, image = tree[pid]
+        chain.append((pid, image))
+    return chain
+
+
+def _owner_pid() -> int:
+    """The shell that launched us, not the venv shim.
+
+    `.venv/Scripts/python.exe` re-executes the real interpreter and then WAITS on it, so the
+    two keep each other alive and watching `getppid()` never fires (measured 2026-08-23).
+    """
+    if sys.platform != "win32":
+        return os.getppid()
+
+    for pid, image in _win_ancestors(os.getpid()):
+        if image.lower() != "python.exe":
+            return pid
+    return os.getppid()
+
+
+def _wait_for_exit(pid: int) -> None:
+    """Block until `pid` is gone — Windows waits on a handle, POSIX watches for reparenting."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        k = ctypes.windll.kernel32
+        k.OpenProcess.restype = wintypes.HANDLE
+        handle = k.OpenProcess(0x00100000, False, pid)          # SYNCHRONIZE
+        if handle:
+            k.WaitForSingleObject(handle, 0xFFFFFFFF)
+            k.CloseHandle(handle)
+            return
+
+    while os.getppid() == pid:
+        sleep(5.0)
+
+
+def exit_with_parent() -> None:
+    """Drop the weights and go when the launching shell dies.
+
+    A stopped task kills the shell, not the worker: it kept running and held its VRAM, three
+    times on 2026-08-23. Set CHESSLAB_NO_PARENT_WATCH=1 for a deliberately detached run.
+    """
+    if os.environ.get("CHESSLAB_NO_PARENT_WATCH"):
+        return
+
+    owner = _owner_pid()
+
+    def watch() -> None:
+        _wait_for_exit(owner)
+        unload_models()
+        os._exit(1)
+
+    Thread(target=watch, daemon=True).start()
+
+
 def person_score(board: np.ndarray) -> float:
     """How sure a COCO detector is that a person reaches into this board raster.
 
@@ -212,7 +300,10 @@ def solid(alpha: np.ndarray, close_px: int = UNION_CLOSE_PX,
     if close_px > 1:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (close_px, close_px))
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, k)
-    n, lab, stats, _c = cv2.connectedComponentsWithStats((1 - m).astype(np.uint8), 4)
+    # 4 on the BACKGROUND against the 8-connected foreground the close leaves: same-connectivity
+    # on both sides lets a pocket leak out along a diagonal the mask counts as sealed.
+    n, lab, stats, _c = cv2.connectedComponentsWithStats(
+        (1 - m).astype(np.uint8), connectivity=4)
     outside = set(lab[0]) | set(lab[-1]) | set(lab[:, 0]) | set(lab[:, -1])
     cap = max(1.0, m.sum() * max_hole_frac)
     small = [i for i in range(1, n) if i not in outside and stats[i, cv2.CC_STAT_AREA] <= cap]

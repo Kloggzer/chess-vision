@@ -129,3 +129,38 @@ keine davon besser:
 Verpasste Hände kosten nichts, erfundene Flächen kosten das Training (User, 2026-08-18). Deshalb
 Konsens statt Union: die Union aus Score und SAM 2 hatte die beste Trefferzahl (186) und war
 trotzdem die schlechteste Wahl — sie erbt jede Falschflagge beider Seiten.
+
+## Die Konnektivität im Loch-Test (2026-08-23)
+
+`solid()` schrieb `connectedComponentsWithStats((1 - m), 4)`. Die 4 landete auf dem
+`labels`-Ausgabeparameter, nicht auf `connectivity` — gemessen: positional 4 und positional 8
+liefern dieselbe Komponentenzahl, erst `connectivity=4` trennt Diagonalnachbarn. Der Test lief
+also mit der Vorgabe 8. Jetzt steht `connectivity=4` da.
+
+**4 ist richtig**, weil der Hintergrund komplementär zum Vordergrund zählen muss: nach dem CLOSE
+mit Ellipsen-Kernel ist die Maske 8-verbunden, und 8 auf beiden Seiten lässt eine Tasche über eine
+Diagonale entweichen, die der Vordergrund als geschlossen führt.
+
+**Richtung, gegen die Intuition:** 4 füllt *mehr*, nicht weniger — unter 8 fließt eine Tasche
+diagonal zum Rand ab und gilt gar nicht erst als Loch. Der Schutz für den Hintergrund in der
+hohlen Hand ist der **Größendeckel** (`MAX_HOLE_FRAC`), nicht die Konnektivität.
+
+Gemessen, zwei Läufe. **Bestätigungslauf auf der ROHEN Union** (`alpha_sam3(fill=False)`,
+fp32/Produktionseinstellung, 394 Frames aus `2026-08-08-00-39-57`, 2,90 s/Frame) — das ist genau
+der Input, den `solid()` in Produktion sieht:
+
+| | Pixel gesamt | gefüllt | große Löcher offen | Frames mit Unterschied | Label-Zellen gekippt |
+|---|---|---|---|---|---|
+| `connectivity=8` | 61 611 296 | 32 | 38 | — | — |
+| `connectivity=4` | 61 611 296 | 32 | 38 | **0 / 394** | **0** |
+
+Auf der rohen Union sind die beiden **bitgleich**, größte Coverage-Verschiebung 0,0.
+
+Der Vorlauf auf 712 geparkten Alphas (`data/_parked/matte-seams-2026-08-22/`, Zustand vor
+`close-seams`) fand einen einzigen abweichenden Frame — 006831, +218 px. Der ist ein **Artefakt der
+Messung, kein Produktionsfall**: die geparkten Alphas sind schon einmal gefüllt (231 975 px gegen
+231 378 px roh), und erst diese erste Füllung formt den Knöchel-Schlitz so um, dass die Tasche unter
+8 diagonal abfließt. Auf der rohen Union finden beide Konnektivitäten dasselbe Loch (`small=1`).
+
+**Kein Alpha auf der Platte muss neu geschnitten werden**, und das destillierte Hand-Gate hat aus
+nichts gelernt, was sich hier ändert. Die Änderung ist eine Korrektheits-, keine Verhaltensänderung.
