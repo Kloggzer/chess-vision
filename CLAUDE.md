@@ -40,8 +40,9 @@
 ## Known Pitfalls (Critical)
 
 ### 0. Frame selection (2026-08-18)
-- **Measure first, pick after.** `framescan.py` scans every 3rd frame (grooves + RT-DETR `person`
-  + `skin_patch`, 45 ms) before anything is chosen; `classify` then rules per frame. The old
+- **Measure first, pick after.** `framescan.py` scans every 3rd frame (distilled hand gate
+  2,1 ms + grooves 13,6 ms, which only NAME the squares) before anything is chosen; `classify`
+  then rules per frame. RT-DETR and `skin_patch` are gone — `docs/hand-gate.md`. The old
   export planned 8 boards per position and flagged afterwards, so a flagged slot went missing:
   20 % of positions kept their 8, now 91 % (`docs/frame-scan.md`).
 - **The board is the witness, not the hand.** Labels hold while the position still looks like the

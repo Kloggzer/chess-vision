@@ -108,18 +108,18 @@ Substantivphrasen, einzeln geprompted, Masken vereinigt. Gemessen wurde neben de
 Grounding DINO und SAM 2.1 sind **entfernt**. Sie saßen zwischen den beiden Aufgaben und machten
 keine davon besser:
 
-- **Finden** macht jetzt RT-DETR im Frame-Scan: 24,6 ms gegen DINOs 405 ms, bei gleichem Urteil
-  (`docs/frame-scan.md`). Verkleinern ließ DINO sich nicht — bei 512 px flaggte es 23 von 24
-  sauberen Brettern.
+- **Finden** macht der destillierte Hand-Gate im Frame-Scan (2,1 ms, `docs/hand-gate.md`). Erst
+  löste RT-DETR das DINO ab (24,6 ms gegen 405 ms bei gleichem Urteil), dann der Gate das
+  RT-DETR. Verkleinern ließ DINO sich nicht — bei 512 px flaggte es 23 von 24 sauberen Brettern.
 - **Matten** macht SAM 3, weil nur dessen Kante ein Label trägt (Ring 4 px statt 96 px).
 - Die Maske von SAM 2.1 war im Messlauf sogar gratis (482 ms gegen 511 ms für DINO allein) — sie
   hing nur an einem Detektor, den wir nicht mehr brauchen.
 
 ## Die Sperren
 
-1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Drei Zeugen entscheiden, OB
-   eine Hand da ist (Rillen, RT-DETR, `skin_patch`), das Modell nur WO. Damit hängt kein Frame
-   allein an einem Foundation-Modell.
+1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Der destillierte Gate
+   entscheidet, OB eine Hand da ist, SAM 3 nur WO. Der Gate ist auf SAM destilliert, hängt
+   im Betrieb aber an keinem Foundation-Modell (`docs/hand-gate.md`).
 2. **Nur `occluded`, nicht `stale`.** Ein Alpha über einer Stellung, die niemand kennt, ist 11,9 s
    für nichts — die FEN muss unter der Hand noch gelten.
 3. **Zone über 60 % des Bretts → Frame verwerfen.** Das ist Licht, kein Arm.
