@@ -207,6 +207,25 @@ duration of a verification instead of restarting. Same session, same arm: **48 /
 counts twice — as both the misses and the two phantoms. Over all six confirmed recordings the arm
 went from 134 found / 53 missed to 153 / 34, with no session worse and no new phantom.
 
+The next session down the list, 2026-08-08-11-59-12, broke on a different mechanism at ply 47. On a
+STILL board — motion 0.0074, nothing changed — the coverage head reported a ten-square occlusion
+band over `d3`-`g3`, exactly where `f2f4` was being played, so the diff commit was vetoed, the
+candidate `d2d1` was rejected as a ghost and the alarm latched on fourteen squares. Recovery had the
+answer one glance later: `f2f4 e5c4` at agreement 1.000. It stood at vote 1 of 2, and the second
+glance arrived 98 frames — 3.3 s — later, because `evaluationDue` holds the stuck arm behind
+`cnnCooldownS`. Two plies had been played by then, the key never repeated, and once the gap outgrew
+`recoveryMaxPlies` the search returned `[]` for the remaining 2 500 frames.
+
+A vote wants two looks at the SAME board; a cooldown between them delivers two looks at a board that
+had seconds to change. An open recovery vote is therefore due unconditionally. The two-vote floor is
+untouched — only the waiting between the votes is gone. 11-59-12 went **45 / 27 / 1** to
+**51 / 21 / 1** and 11-55-19 **13 / 2 / 2** to **15 / 0 / 0**, both phantoms included; the other four
+sessions are unchanged. Over the six confirmed recordings: 153 found / 34 missed / 5 invented to
+**161 / 26 / 3**.
+
+What remains on 11-59-12 is upstream of the engine: a coverage head that paints a hand-sized band
+across a quiet board is what starts the whole chain, and no gate downstream can un-see it.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded

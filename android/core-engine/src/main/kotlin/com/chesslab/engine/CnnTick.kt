@@ -70,9 +70,12 @@ internal fun EngineState.cnnTick(
 
 /**
  * `stuck` deliberately does NOT require a stable board — a stuck tracker is exactly the case where
- * the board never looks quiet enough — while the periodic check does.
+ * the board never looks quiet enough — while the periodic check does. An OPEN recovery vote needs
+ * no gate at all: it wants two looks at the SAME board, and a cooldown between them delivers two
+ * looks at a board that had seconds to change (`docs/tracker-flow.md`, 2026-08-08-11-59-12).
  */
 private fun EngineState.evaluationDue(): Boolean {
+    if (recoveryConfirmer.count > 0) return true
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck =
         stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS

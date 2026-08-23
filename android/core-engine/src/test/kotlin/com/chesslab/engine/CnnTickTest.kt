@@ -234,6 +234,25 @@ class CnnTickTest {
         assertEquals(listOf("e4"), state.history, "a rejected candidate may not cost the vote")
     }
 
+    /**
+     * The vote asks for two looks at the SAME board; a cooldown between them asks for two looks at
+     * a board that had seconds to change. On 2026-08-08-11-59-12 the bridge `f2f4 e5c4` stood at
+     * agreement 1.000 and vote 1/2, the next glance came 98 frames later, and by then two more
+     * plies had been played — the key never repeated and the session never recovered.
+     */
+    @Test
+    fun anOpenRecoveryVoteIsDueDespiteTheCooldown() {
+        val state = recoveryState(confirmFrames = 2)
+        state.config = state.config.copy(cnnCooldownS = 60.0)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1, gray = grayFrame()))
+        assertTrue(state.note!!.contains("(1/2)"), state.note!!)
+
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2, gray = grayFrame()))
+        assertEquals(listOf("e4"), state.history, "the second look may not wait out the cooldown")
+    }
+
     @Test
     fun recoveryCommitAnchorsOnObservedFrame() {
         val state = recoveryState()
