@@ -39,3 +39,17 @@ def test_the_source_sets_the_warp_size_so_nothing_is_invented_and_thrown_away():
         assert size <= edge + 16, f"{edge} px Quelle darf nicht auf {size} hochgerechnet werden"
         crop = (size / 8) * 1.10          # Zelle plus pad_side 0.05 auf beiden Seiten
         assert crop >= 80, f"{edge} px Quelle liefert nur {crop:.0f} px fuer einen 80er Crop"
+
+
+def test_a_generic_filename_is_no_clip_id():
+    """Vier Turntable-Quellen heissen `video.mp4` in verschiedenen Ordnern. Ueber den Stem benannt
+    wurden sie alle zu `comp-video` — das Manifest behielt einen, und die Crops ueberschrieben sich
+    gegenseitig auf der Platte, weil auch der Dateiname aus der Kennung kommt.
+    """
+    from pathlib import Path
+
+    from chesslab.composite import clip_id
+
+    assert clip_id(Path("data/footage/turntable/VID_20260731_092133/video.mp4")) == "VID_20260731_092133"
+    assert clip_id(Path("data/footage/turntable/VID_20260731_222043/video.mp4")) == "VID_20260731_222043"
+    assert clip_id(Path("data/footage/turntable/VID_20260817_214400.mp4")) == "VID_20260817_214400"

@@ -37,6 +37,19 @@ class Placement:
     flipped: bool
 
 
+#: Dateinamen, die den Clip NICHT benennen — dann steht die Kennung im Ordner darueber.
+GENERIC_STEMS = frozenset({"video", "clip", "input", "out"})
+
+
+def clip_id(video: Path) -> str:
+    """Woran ein Clip im geteilten Pool erkennbar ist — Dateiname, sonst der Ordner darueber.
+
+    Vier Quellen heissen `video.mp4`: ueber den Stem benannt wurden sie alle zu `comp-video`, und
+    die Crops ueberschrieben sich auf der Platte, weil auch der Dateiname daraus kommt.
+    """
+    return video.parent.name if video.stem in GENERIC_STEMS else video.stem
+
+
 def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
     """Die längste Kante der Aufnahme, aus der die Kacheln geschnitten wurden — aus dem Index.
 
@@ -220,7 +233,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     rng = np.random.default_rng(seed)
     labels = labels_of(fen)
-    stem_sid = f"comp-{video.stem}"
+    stem_sid = f"comp-{clip_id(video)}"
     prof = mesh = None
     rows, written, skipped = [], 0, 0
 

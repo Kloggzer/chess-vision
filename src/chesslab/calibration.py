@@ -576,11 +576,21 @@ def _aruco_dictionary(dict_name: str):
     return cv2.aruco.getPredefinedDictionary(known)
 
 
+#: Fenstergrößen (min, max, step), die die Binarisierung des Markers durchprobiert. 13 statt 3 —
+#: der Preis ist Rechenzeit je Frame, der Gewinn die Randmarker.
+ADAPTIVE_THRESH_WIN = (3, 53, 4)
+
+
 def _detect_marker_quads(frame, dict_name: str, ids: tuple[int, ...]) -> dict[int, np.ndarray]:
     """Raw detection: {id: (4,2) corner array} per found marker (order as from ArUco)."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
     params = cv2.aruco.DetectorParameters()
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # more precise corners
+    # Ein Randmarker steht auf dünnem Weiß vor dunklem Holz; bei OpenCVs drei Fenstergrößen kippt
+    # dort ein Bit und er wird als 17 oder 37 gelesen (2026-08-23: 2/30 Frames gegen 21-25/30).
+    params.adaptiveThreshWinSizeMin = ADAPTIVE_THRESH_WIN[0]
+    params.adaptiveThreshWinSizeMax = ADAPTIVE_THRESH_WIN[1]
+    params.adaptiveThreshWinSizeStep = ADAPTIVE_THRESH_WIN[2]
     detector = cv2.aruco.ArucoDetector(_aruco_dictionary(dict_name), params)
     found_corners, found_ids, _ = detector.detectMarkers(gray)
     if found_ids is None:
