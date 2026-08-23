@@ -133,4 +133,4 @@ private fun note(
 }
 
 /** The placement-only FEN field — `chess.Board.board_fen()`. */
-private fun Board.boardFen(): String = getFen(false).substringBefore(' ')
+internal fun Board.boardFen(): String = getFen(false).substringBefore(' ')

@@ -1,5 +1,7 @@
 package com.chesslab.cnn
 
+import kotlin.math.exp
+
 /**
  * Port of `cnn_recovery.py:63 observation_from_probs`.
  *
@@ -12,6 +14,8 @@ package com.chesslab.cnn
 fun observationFromProbs(
     perSquareProbs: Map<String, DoubleArray>,
     classes: List<String>,
+    possible: Map<String, Set<String>>? = null,
+    priorLambda: Double = 0.0,
 ): OccupancyObservation {
     val iEmpty = classes.indexOf("empty")
     require(iEmpty >= 0) { "class list has no \"empty\" entry: $classes" }
@@ -22,10 +26,11 @@ fun observationFromProbs(
     val label = LinkedHashMap<String, String>(perSquareProbs.size)
     val conf = LinkedHashMap<String, Double>(perSquareProbs.size)
     val runnerUpConf = LinkedHashMap<String, Double>(perSquareProbs.size)
-    for ((square, probs) in perSquareProbs) {
-        require(probs.size == classes.size || probs.size == classes.size + 1) {
-            "square $square carries ${probs.size} values for ${classes.size} classes"
+    for ((square, raw) in perSquareProbs) {
+        require(raw.size == classes.size || raw.size == classes.size + 1) {
+            "square $square carries ${raw.size} values for ${classes.size} classes"
         }
+        val probs = applyPrior(raw, classes, possible?.get(square), priorLambda)
         val pe = probs[iEmpty]
         // The `occluded` class where the run has one; otherwise the occlusion head's coverage
         // value, which sits one past the classes (`ModelSpec.coverageOutput`). Until that column
@@ -61,13 +66,15 @@ fun observationFromProbs(
 fun observationFromProbs(
     probs: Array<FloatArray>,
     classes: List<String>,
+    possible: Map<String, Set<String>>? = null,
+    priorLambda: Double = 0.0,
 ): OccupancyObservation {
     require(probs.size == ALL_SQUARES.size) { "expected ${ALL_SQUARES.size} probability rows, got ${probs.size}" }
     val rows = LinkedHashMap<String, DoubleArray>(probs.size)
     for (i in probs.indices) {
         rows[ALL_SQUARES[i]] = DoubleArray(probs[i].size) { probs[i][it].toDouble() }
     }
-    return observationFromProbs(rows, classes)
+    return observationFromProbs(rows, classes, possible, priorLambda)
 }
 
 /** Squares whose OCCUPANCY statement is reliable, in [ALL_SQUARES] order. */
@@ -86,4 +93,29 @@ private fun argmaxFirst(
         if (probs[i] > probs[top]) top = i
     }
     return top
+}
+
+/**
+ * Reweight a square's classes by what chess allows, then renormalise. The head emits
+ * log-probabilities, so this IS `logProb + lambda * logPrior` under the original softmax.
+ * [lambda] stays FINITE: a wrong committed move must stay arguable by the pixels. `occluded`
+ * is never penalised — a hand is a statement about SIGHT, not about chess.
+ */
+internal fun applyPrior(
+    probs: DoubleArray,
+    classes: List<String>,
+    allowed: Set<String>?,
+    lambda: Double,
+): DoubleArray {
+    if (lambda <= 0.0 || allowed == null) return probs
+    val penalty = exp(-lambda)
+    val out = probs.copyOf()
+    var sum = 0.0
+    for (i in classes.indices) {
+        if (classes[i] !in allowed && classes[i] != "occluded") out[i] = probs[i] * penalty
+        sum += out[i]
+    }
+    if (sum <= 0.0) return probs
+    for (i in classes.indices) out[i] /= sum
+    return out
 }

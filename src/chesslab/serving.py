@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -440,12 +441,39 @@ class OccupancyObservation:
     def occupied(self, sq: str) -> bool:
         return self.p_occ[sq] > self.p_empty[sq]
 
+def apply_prior(probs: list[float], classes: list[str], allowed: set[str] | None,
+                lam: float) -> list[float]:
+    """Reweight a square's classes by what chess allows there, then renormalise.
+
+    The head emits log-probabilities, so this IS `logit + lam * log_prior` under the original
+    softmax. `lam` stays FINITE: a wrongly committed move must stay arguable by the pixels.
+    `occluded` is never penalised — a hand is a statement about SIGHT, not about chess.
+    """
+    if lam <= 0.0 or allowed is None:
+        return probs
+    penalty = math.exp(-lam)
+    out = list(probs)
+    for i, cls in enumerate(classes):
+        if cls not in allowed and cls != "occluded":
+            out[i] = probs[i] * penalty
+    total = sum(out[:len(classes)])
+    if total <= 0.0:
+        return probs
+    for i in range(len(classes)):
+        out[i] /= total
+    return out
+
+
 def observation_from_probs(per_square_probs: dict[str, list[float]],
-                           classes: list[str]) -> OccupancyObservation:
+                           classes: list[str],
+                           possible: dict[str, set[str]] | None = None,
+                           prior_lambda: float = 0.0) -> OccupancyObservation:
     """Full softmax per square to occupancy plus identity.
 
     Class indices are ALWAYS derived from the run's own `classes` list — 13- and 14-class runs
     both exist and their positions differ, so a guessed index is a silently transposed reading.
+    `possible` (from `state.possible_labels`) plus a positive `prior_lambda` folds in what chess
+    allows per square; at the default 0.0 the pixels decide alone. Kotlin twin: `Observations.kt`.
     """
     i_empty = classes.index("empty")
     i_occl = classes.index("occluded") if "occluded" in classes else None
@@ -454,7 +482,8 @@ def observation_from_probs(per_square_probs: dict[str, list[float]],
     p_occluded: dict[str, float] = {}
     label: dict[str, str] = {}
     conf: dict[str, float] = {}
-    for sq, probs in per_square_probs.items():
+    for sq, raw in per_square_probs.items():
+        probs = apply_prior(raw, classes, possible.get(sq) if possible else None, prior_lambda)
         pe = float(probs[i_empty])
         po = float(probs[i_occl]) if i_occl is not None else 0.0
         p_empty[sq] = pe

@@ -91,6 +91,39 @@ class GameState:
             raise ValueError(f"invalid square: {square!r}") from e
 
 
+
+def possible_labels(board: chess.Board, plies: int = 1) -> dict[str, set[str]]:
+    """Per square, every label reachable within `plies` half-moves.
+
+    The CURRENT placement is included: most frames sit between moves, and a prior without that
+    option masks away the truth on every resting frame. Kotlin twin: `Expected.kt possibleLabels`.
+    """
+    out: dict[str, set[str]] = {chess.square_name(sq): set() for sq in chess.SQUARES}
+    seen: set[str] = set()
+    level = [board]
+    for depth in range(plies + 1):
+        kept = []
+        for b in level:
+            key = b.board_fen()
+            if key in seen:
+                continue
+            seen.add(key)
+            for sq in chess.SQUARES:
+                piece = b.piece_at(sq)
+                out[chess.square_name(sq)].add(config.label_from_piece(piece.symbol() if piece else None))
+            kept.append(b)
+        if depth == plies or not kept:
+            break
+        level = [_child(b, mv) for b in kept for mv in b.legal_moves]
+    return out
+
+
+def _child(board: chess.Board, move: chess.Move) -> chess.Board:
+    nxt = board.copy(stack=False)
+    nxt.push(move)
+    return nxt
+
+
 # --- PGN-Helfer (Modus A) -------------------------------------------------------------
 
 def physical_inventory_violations(fen: str, inventory: dict[str, int] | None = None) -> list[str]:

@@ -2,6 +2,7 @@ package com.chesslab.tracker.cnn
 
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.observationFromProbs
+import com.chesslab.cnn.possibleLabels
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
@@ -65,6 +66,8 @@ class CnnObserver(
     private val source: CnnFrameSource,
     private val fen: () -> String?,
     private val onSnapshot: (CnnSnapshot) -> Unit,
+    /** Weight of the legal-placement prior on the identity softmax; 0.0 keeps the pixels alone. */
+    private val priorLambda: Double = 0.0,
     private val log: CnnLog = NoopTrackerLog,
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dispatcher: CoroutineDispatcher =
@@ -225,6 +228,12 @@ class CnnObserver(
         log.info("CNN observation ${inferMs.toLong()} ms for $crops crops = ${prep.toLong()} prep + ${session.toLong()} session")
     }
 
+    /** Null at lambda 0 (so no board is built) and on a cold start, where there is no prior to have. */
+    private fun possibleFor(fen: String?): Map<String, Set<String>>? {
+        if (priorLambda <= 0.0 || fen == null) return null
+        return runCatching { possibleLabels(fen) }.getOrNull()
+    }
+
     private fun runObservation(startFen: String?) {
         attempts += 1
         val cnn =
@@ -243,7 +252,9 @@ class CnnObserver(
             }
         WorkProfiler.span(WorkOperation.CNN_OBSERVATION, frame.seq) {
             val started = nowMs()
-            val obs = frame.cachedObservation ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes)
+            val obs =
+                frame.cachedObservation
+                    ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes, possibleFor(startFen), priorLambda)
             val inferMs = (nowMs() - started).toDouble()
             logObservation(cnn, inferMs, frame.crops.size)
             emitted += 1
