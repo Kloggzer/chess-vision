@@ -532,21 +532,19 @@ internal fun replayRun(
     scope.cancel()
 }
 
-/** Seconds of lead kept before the first commit: the move's own motion has to stay on the video. */
-private const val PRE_ROLL_LEAD_MS = 2_000.0
-
 /**
- * Wind the decoder to where the game starts, and say so. Null when there is nothing to skip —
- * a camera-roll video, or a run that asked for `start=0` to look at the pre-roll itself.
+ * Wind the decoder to where `start=` says, and say so. Null when nothing is skipped, which is the
+ * DEFAULT: the phone tracks from its first frame, so a replay that skips measures a tracker the
+ * device never runs. It used to wind to `session.yaml`'s `video_pre_roll_ns` less a two-second
+ * lead. On 2026-08-14-20-35-52 that landed 0.7 s before the first move — too little runway to take
+ * a clean reference, so `e4` never registered as a change and the run scored 1/4 instead of 3/4.
  */
 private fun skipPreRoll(
     source: FrameSource,
     video: File?,
     options: ReplayOptions,
 ): String? {
-    val target =
-        options.startSeconds?.times(1000.0)
-            ?: video?.parentFile?.let { preRollMs(File(it, "session.yaml")) }?.minus(PRE_ROLL_LEAD_MS)
+    val target = options.startSeconds?.times(1000.0)
     if (target == null || target <= 0.0) return null
     var skipped = 0
     while (source.timestampMs < target && source.next() != null) skipped++

@@ -247,6 +247,33 @@ consecutive reads** — the gap has outgrown `recoveryMaxPlies = 4` and nothing 
 arm does not help either: `set:autoResyncObsN=3` scores 51/21/1, identical, which is what the kings
 guard already predicted for this recording in `resyncVoteFen`'s own comment.
 
+2026-08-14-20-35-52 then turned out to be measuring the harness, not the tracker. `replay` wound the
+decoder to `session.yaml`'s `video_pre_roll_ns` less a fixed two-second lead — on that recording to
+3.3 s, which is 0.7 s before the first move. That is not enough runway to acquire a quiet reference,
+so `e2e4` never registered as a CHANGE: the engine's first reference already had the pawn on e4, it
+entered `cnn_desync` on its first read and stayed there. `Nf3` was then rejected three times as a
+ghost with the reason `board contradicts post-move position: e4`.
+
+Sweeping the lead on that video shows how arbitrary the two seconds were — 2.0 s and 2.5 s score
+1/4, 3.0 s scores 2/4, and from 3.5 s on it scores 3/4. Rather than pick a better constant, the skip
+is gone: the phone tracks from its first frame, so a replay that skips is measuring a tracker the
+device never runs. `start=` remains as the explicit instrument. Only this one recording in the
+corpus ever skipped anything. Both models gain: comp13 1/3/0 to **3/1/0**, id35-80 2/2/1 to 3/1/0.
+
+Corpus after the three changes of 2026-08-23, comp13 at lambda 4 with the safe prior:
+
+| recording | before | after |
+| --- | --- | --- |
+| 2026-08-08-00-39-57 | 48 / 19 / 2 | 65 / 2 / 2 |
+| 2026-08-07-13-52-38 | 23 / 2 / 0 | 25 / 0 / 0 |
+| 2026-08-08-11-55-19 | 13 / 2 / 2 | 15 / 0 / 0 |
+| 2026-08-08-11-59-12 | 45 / 27 / 1 | 51 / 21 / 1 |
+| 2026-08-13-12-46-24 | 4 / 0 / 0 | 4 / 0 / 0 |
+| 2026-08-14-20-35-52 | 1 / 3 / 0 | 3 / 1 / 0 |
+| **total** | 134 / 53 / 5 | **163 / 24 / 3** |
+
+21 of the 24 remaining misses are 11-59-12's unreviewed tail.
+
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
 reaching the same FEN, collapse when one branch dominates — possibly several plies later. Bounded
