@@ -312,10 +312,13 @@ def build_model_card(
     hip_version: str | None,
     exported_formats: list[str],
     infer_size: tuple[int, int] | None = None,
+    coverage_gate: float | None = None,
 ) -> dict:
     """`out_size` = the size the crops were built at; `infer_size` = the size the exported graph
     takes (specs/22). They are the same number for every run predating that pack, which is what
     `infer_size=None` records."""
+    from .occlusion import PIECE_VISIBLE_MAX
+
     size = infer_size or out_size
     return {
         "classes": list(classes),
@@ -323,6 +326,9 @@ def build_model_card(
         "infer_size": [int(size[0]), int(size[1])],
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
         "backbone": backbone,
+        # Ab welcher Verdeckung ein Feld nicht mehr zaehlt; die App liest es als `coverage_gate`
+        # (ModelSpec.kt). Ueber 0,25 faellt die Genauigkeit auf 0,42 — schlechter als Raten.
+        "coverage_gate": PIECE_VISIBLE_MAX if coverage_gate is None else float(coverage_gate),
         "metrics": metrics,
         "torch_version": torch_version,
         "rocm_hip": hip_version,

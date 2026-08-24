@@ -131,7 +131,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               hard_negative_multiplier: float = 1.0,
               split: str | None = None,
               swa: bool = False, swa_lr: float = 5e-4,
-              swa_start: float = 0.75, allow_unpacked: bool = False) -> int:
+              swa_start: float = 0.75, allow_unpacked: bool = False,
+              visible_max: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -373,8 +374,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
-        from .occlusion import OcclusionLoss
-        criterion = OcclusionLoss(weights).to(device)
+        from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss
+
+        # Nur die TRAININGS-Maske. Die Metriken bleiben auf PIECE_VISIBLE_MAX, sonst wuerden
+        # zwei Laeufe auf verschiedenen Zellmengen benotet und waeren nicht vergleichbar.
+        vmax = PIECE_VISIBLE_MAX if visible_max is None else visible_max
+        criterion = OcclusionLoss(weights, visible_max=vmax).to(device)
+        if visible_max is not None:
+            print(f"[occ] Trainingsmaske bei coverage <= {vmax:g} "
+                  f"(Bewertung weiterhin bei {PIECE_VISIBLE_MAX:g})")
     elif loss == "ce":
         criterion = nn.CrossEntropyLoss(weight=weights)
     elif loss == "focal":
@@ -473,6 +481,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
+        "visible_max": vmax if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
     }, indent=2), encoding="utf-8")

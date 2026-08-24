@@ -1533,6 +1533,10 @@ def train_cmd(
     swa_lr: float = typer.Option(5e-4, "--swa-lr", help="Konstante Rate ab dem SWA-Start."),
     swa_start: float = typer.Option(0.75, "--swa-start",
                                     help="Anteil der Epochen, ab dem gemittelt wird."),
+    visible_max: float = typer.Option(None, "--visible-max",
+                                      help="Coverage-Grenze der TRAININGS-Maske (Vorgabe "
+                                           "PIECE_VISIBLE_MAX = 0.15). Die Metriken bleiben auf "
+                                           "der Vorgabe, damit Laeufe vergleichbar bleiben."),
     allow_unpacked: bool = typer.Option(False, "--allow-unpacked",
                                         help="Training ohne Memmap zulassen. Ohne das bricht ein "
                                              "packbarer Datensatz ab, statt still auf den "
@@ -1575,7 +1579,7 @@ def train_cmd(
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
-                                 allow_unpacked=allow_unpacked))
+                                 allow_unpacked=allow_unpacked, visible_max=visible_max))
 
 
 @app.command("eval")
