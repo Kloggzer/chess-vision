@@ -6,6 +6,20 @@
 
 ## Next up (agreed, not started)
 
+- **Das Training ist nicht deterministisch** (Nutzer, 2026-08-24: *„swa ist leider auch nur im
+  Rauschen, der Trainingskram scheint nicht deterministisch zu sein"*). Solange zwei Läufe mit
+  identischem Rezept auseinanderlaufen, ist **kein** A/B entscheidbar — das SWA-Experiment
+  (`swa5e4` 0,7406 gegen `swa1e4` 0,7444 gegen Basis 0,7159) liegt genau in diesem Band, und die
+  eigene Notiz sagt es seit Langem: Seed-Streuung schlägt die Effekte, drei Seeds und der Median.
+  Die üblichen drei Quellen, in dieser Reihenfolge zu prüfen: `DataLoader`-Shuffling ohne eigenen
+  `torch.Generator`, `num_workers > 0` ohne `worker_init_fn` (jeder Worker zieht seinen eigenen
+  Seed), und nicht-deterministische Kernel (`torch.use_deterministic_algorithms(True)`,
+  `cudnn.benchmark = False` — auf ROCm nicht selbstverständlich, kann Leistung kosten).
+  **Messung zuerst, nicht Fix zuerst:** zweimal dasselbe Rezept mit demselben Seed fahren und die
+  `metrics.jsonl` Epoche für Epoche vergleichen. Sind sie bit-identisch, liegt die Streuung woanders
+  (Datensatz-Reihenfolge, Split); weichen sie ab, sagt die erste abweichende Epoche, welche der drei
+  Quellen es ist. Ohne diese Grundlage kostet jeder künftige Vergleich drei Läufe statt einem.
+
 - **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
   nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
   `to_occupancy_class`, `classesHaveIdentity` und die sechs Belegungsmodelle im APK sind gelöscht.
