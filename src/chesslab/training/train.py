@@ -55,6 +55,15 @@ def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> Non
         f"Repack: chesslab dataset pack {dataset} - absichtlich ohne Pack: --allow-unpacked.")
 
 
+def _conf_mean(vis_conf, wrong: bool) -> float | None:
+    """Mittlere Konfidenz auf falschen bzw. richtigen Vorhersagen."""
+    trues, preds, conf = vis_conf
+    if not conf:
+        return None
+    sel = [c for t, p, c in zip(trues, preds, conf, strict=False) if (t != p) is wrong]
+    return float(sum(sel) / len(sel)) if sel else None
+
+
 def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
                            visible_max: float) -> dict[str, float | int]:
     """Derive every coverage/visibility metric from the regular validation's predictions."""
@@ -532,9 +541,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         t0 = time.perf_counter()
         true_labels = val["trues"].tolist()
         pred_labels = val["preds"].tolist()
-        from .data import confidence_auroc
+        from .data import confidence_auroc, visible_confidence
 
-        auroc = confidence_auroc(true_labels, pred_labels, val.get("conf") or [])
+        # Auf denselben Zellen wie die Genauigkeits-Terme: verdeckte Zellen irren zu 55-63 %,
+        # dabei aber unsicher — sie druecken conf_wrong um acht Punkte und schoenen damit
+        # genau das Mass, das ueberzeugte Fehler aufdecken soll (gemessen 2026-08-24).
+        vis_conf = visible_confidence(val_rows, true_labels, pred_labels, val.get("conf") or [])
+        auroc = confidence_auroc(*vis_conf)
         score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels,
                                        auroc=auroc)
         t_score = time.perf_counter() - t0
@@ -562,9 +575,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_piece_acc": bd["piece_acc"],
             # Die Zahl, die zwei gleich genaue Modelle trennt: ueberzeugte Fehler brechen
             # die Dekodierung, unsichere lassen sich korrigieren.
-            "val_conf_wrong": val.get("conf_wrong"),
+            "val_conf_wrong": _conf_mean(vis_conf, wrong=True),
             "val_conf_auroc": auroc,
-            "val_conf_right": val.get("conf_right"),
+            "val_conf_right": _conf_mean(vis_conf, wrong=False),
             "val_checkpoint_score": score[0],
             "lr": scheduler.get_last_lr()[0],
             # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:

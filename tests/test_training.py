@@ -210,7 +210,8 @@ def test_checkpoint_metrics_reuses_the_score_breakdown():
     assert score == checkpoint_score(rows, classes, trues, preds)
     plain = occupancy_piece_breakdown(classes, trues, preds)
     # `checkpoint_metrics` haengt das Brett-Mass an, sonst identisch.
-    extra = {"occupied_board_acc", "calibration"}   # von checkpoint_metrics angehaengt
+    extra = {"occupied_board_acc", "calibration",   # von checkpoint_metrics angehaengt
+             "visible_piece_acc", "visible_occupied_acc"}
     assert {k: v for k, v in breakdown.items() if k not in extra} == plain
 
 

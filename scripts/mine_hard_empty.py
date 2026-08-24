@@ -67,7 +67,7 @@ from chesslab.serving import observation_from_probs  # noqa: E402
 _CAMERA_SESSION_RE = re.compile(r"^(rg-.+|\d{8}-\d{6})$")
 
 
-def training_rows_and_reader(name, split_name):
+def training_rows_and_reader(name, split_name, which="train"):
     """Genau die Zeilen und Pixel, die das Training frisst: Trainings-Split + eigene Memmap.
 
     Der Crop-Pool ist das falsche Ziel — er kennt keinen Split, also lagen rund 30 % der
@@ -84,7 +84,7 @@ def training_rows_and_reader(name, split_name):
     dd = dataset_dir(name)
     manifest = load_manifest(dd / "manifest.jsonl")
     split = load_split(dd / (split_name or "split.json"))
-    rows = filter_rows_by_split(manifest, split, "train")
+    rows = filter_rows_by_split(manifest, split, which)
     packed = load_packed(name, manifest_rows=manifest)
     if packed is None:
         raise SystemExit(f"[FAIL] '{name}' hat keine nutzbare Memmap — erst "
@@ -95,7 +95,7 @@ def training_rows_and_reader(name, split_name):
     index = path2idx if path2idx is not None else {
         r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
     mm = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
-    print(f"[i] {len(rows)} Trainingszeilen aus {name} (Memmap {n} Zeilen @ {w}px)")
+    print(f"[i] {len(rows)} Zeilen ({which}) aus {name} (Memmap {n} Zeilen @ {w}px)")
     return rows, (lambda path: (np.array(mm[index[path]])[:, :, ::-1]
                                 if path in index else None)), (w, h)
 
@@ -156,6 +156,9 @@ def main() -> None:
                          "Pixel aus der Memmap dieses Datensatzes. Ersetzt --source.")
     ap.add_argument("--split", default=None,
                     help="Split-Datei im Datensatz (Vorgabe: split.json).")
+    ap.add_argument("--which", default="train", choices=("train", "val", "test"),
+                    help="Welche Haelfte des Splits. `train` fuers Verstaerken, `test` um zu "
+                         "messen, wie oft das Modell ueberzeugt falsch liegt.")
     ap.add_argument("--device", default="cpu",
                     help="cpu is fine — mining is offline (default: cpu)")
     ap.add_argument("--conf-thr", type=float, default=0.5,
@@ -204,7 +207,7 @@ def main() -> None:
     want = {c.strip() for c in args.classes.split(",") if c.strip()}
     reader = pool_size = None
     if args.dataset:
-        rows, reader, pool_size = training_rows_and_reader(args.dataset, args.split)
+        rows, reader, pool_size = training_rows_and_reader(args.dataset, args.split, args.which)
         src = Path(args.dataset)
     else:
         rows = load_manifest(src)

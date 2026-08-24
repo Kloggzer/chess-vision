@@ -144,13 +144,13 @@ def checkpoint_score(rows: list[dict], classes: list[str],
     return checkpoint_metrics(rows, classes, trues, preds)[0]
 
 
-#: Die beiden Ebenen eines Feldes — belegt, und wenn ja welche Figur — plus die Kalibrierung.
-#: Die ersten beiden gleich, weil keine vorgeht. `calibration` = 1 - mittlere Konfidenz auf
-#: FALSCHEN Vorhersagen: ueberzeugte Fehler brechen die Dekodierung, unsichere lassen sich
-#: korrigieren. Klein gewichtet, weil sie mit piece_acc ohnehin bei r = -0,71 mitlaeuft und
-#: nur entscheiden soll, wenn zwei Epochen gleich genau sind. `calibration` ist die AUROC der
-#: Konfidenz als Falsch-Detektor: skaleninvariant, misst Trennschaerfe statt Niveau.
-CHECKPOINT_WEIGHTS = {"piece_acc": 0.45, "occupied_acc": 0.45, "calibration": 0.10}
+#: Die beiden Ebenen eines SICHTBAREN Feldes — belegt, und wenn ja welche Figur — plus die
+#: Kalibrierung. Die ersten beiden gleich, weil keine vorgeht. `calibration` ist die AUROC der
+#: Konfidenz als Falsch-Detektor: skaleninvariant, misst Trennschaerfe statt Niveau. Klein
+#: gewichtet, weil sie mit der Figurengenauigkeit ohnehin mitlaeuft und nur entscheiden soll,
+#: wenn zwei Epochen gleich genau sind.
+CHECKPOINT_WEIGHTS = {"visible_piece_acc": 0.45, "visible_occupied_acc": 0.45,
+                      "calibration": 0.10}
 
 
 def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
@@ -159,6 +159,15 @@ def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
     """Gewichteter Checkpoint-Score plus die geteilte Belegungs-Aufschluesselung, in einem Durchgang."""
     bd = occupancy_piece_breakdown(classes, trues, preds)
     bd["occupied_board_acc"] = occupancy_board_acc(rows, classes, trues, preds)
+    # Benotet wird, was der Verlust auch lernt: alles ueber PIECE_VISIBLE_MAX ist ausmaskiert,
+    # es mitzuzaehlen waehlt Checkpoints nach Zellen, die das Modell nie treffen sollte. Ohne
+    # Coverage-Spalte bleibt jede Zelle sichtbar und die Zahlen sind die alten.
+    from .occlusion import PIECE_VISIBLE_MAX
+
+    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
+    bd_vis = occupancy_piece_breakdown(classes, [trues[i] for i in vis], [preds[i] for i in vis])         if 0 < len(vis) < len(rows) else bd
+    bd["visible_piece_acc"] = bd_vis["piece_acc"]
+    bd["visible_occupied_acc"] = bd_vis["occupied_acc"]
     # Ohne gemessene Konfidenz zaehlt die Kalibrierung neutral (0,5 = Zufall), damit ein
     # Aufrufer ohne sie nicht stillschweigend bestraft oder belohnt wird.
     bd["calibration"] = auroc if auroc is not None else 0.5
@@ -198,6 +207,18 @@ def per_session_metrics(rows: list[dict], classes: list[str],
                     "board_acc": board_accuracy(boards),
                     "occupied_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
     return out
+
+
+def visible_confidence(rows, trues, preds, conf):
+    """(trues, preds, conf) nur auf sichtbaren Zellen — leere Konfidenz reicht sie durch."""
+    from .occlusion import PIECE_VISIBLE_MAX
+
+    if not conf:
+        return trues, preds, conf
+    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
+    if not 0 < len(vis) < len(rows):
+        return trues, preds, conf
+    return [trues[i] for i in vis], [preds[i] for i in vis], [conf[i] for i in vis]
 
 
 def confidence_auroc(trues, preds, conf) -> float:
