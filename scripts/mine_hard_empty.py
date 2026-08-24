@@ -60,8 +60,87 @@ from chesslab.serving import observation_from_probs  # noqa: E402
 # PNGs also live on disk — mining those drowns the deployment-relevant real failures:
 # on 2026-07-21, 697 of 786 mined "hard empties" turned out to be crops of the obsolete
 # unframed ~51 px/square renders, and the headline stats described the wrong problem.
-_CAMERA_SESSION_RE = re.compile(r"^\d{8}-\d{6}$")
+# Seit der Umbenennung tragen echte Aufnahmen ein `rg-`-Praefix (`rg-2026-08-15-23-01-43`,
+# `rg-VID_20260727_233929`). Das alte Muster `^\d{8}-\d{6}$` traf davon nichts mehr und
+# hat SAEMTLICHE echten Sessions als Synth-Pool verworfen — der Miner lief ins Leere,
+# ohne zu scheitern (2026-08-24: 235 304 uebersprungen, 0 gescannt).
+_CAMERA_SESSION_RE = re.compile(r"^(rg-.+|\d{8}-\d{6})$")
 
+
+def training_rows_and_reader(name, split_name):
+    """Genau die Zeilen und Pixel, die das Training frisst: Trainings-Split + eigene Memmap.
+
+    Der Crop-Pool ist das falsche Ziel — er kennt keinen Split, also lagen rund 30 % der
+    gefundenen Crops in val/test und konnten nie eine Batch erreichen. Und der Pool steht auf
+    128 px, das Modell auf 80: gemessen wurde damit eine andere Skalierung als die trainierte.
+    """
+    import numpy as np
+
+    from chesslab.dataset import load_manifest
+    from chesslab.dataset_build import dataset_dir
+    from chesslab.training.data import filter_rows_by_split, load_split
+    from chesslab.training.pack import load_packed
+
+    dd = dataset_dir(name)
+    manifest = load_manifest(dd / "manifest.jsonl")
+    split = load_split(dd / (split_name or "split.json"))
+    rows = filter_rows_by_split(manifest, split, "train")
+    packed = load_packed(name, manifest_rows=manifest)
+    if packed is None:
+        raise SystemExit(f"[FAIL] '{name}' hat keine nutzbare Memmap — erst "
+                         f"`chesslab dataset pack {name}` laufen lassen.")
+    img_path, (n, h, w), path2idx = packed
+    # Bei uebergebenen Manifest-Zeilen markiert load_packed `_packed_idx` an der Zeile und baut
+    # kein Pfad-Woerterbuch — derselbe Weg, den PackedSquareDataset nimmt.
+    index = path2idx if path2idx is not None else {
+        r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
+    mm = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    print(f"[i] {len(rows)} Trainingszeilen aus {name} (Memmap {n} Zeilen @ {w}px)")
+    return rows, (lambda path: (np.array(mm[index[path]])[:, :, ::-1]
+                                if path in index else None)), (w, h)
+
+
+def packed_reader(src, out_size):
+    """Die Crops aus der passenden Memmap statt aus 235 000 Einzeldateien.
+
+    Gemessen 2026-08-24: 9,72 ms je Crop ueber `cv2.imread`, 0,089 ms ueber die Memmap — fuer den
+    vollen Pool 38 Minuten gegen 21 Sekunden. Derselbe Engpass, den `training/pack.py` beschreibt.
+
+    Welche Memmap, sagt der Datensatz selbst (`source_manifest`). Die Groesse MUSS zum Pool passen:
+    vier Packs stammen aus demselben Manifest, drei davon bei 80 px — einen davon zu nehmen wuerde
+    die Crops still herunterskalieren und etwas anderes messen als die Dateien.
+    """
+    import numpy as np
+    import yaml
+
+    src = Path(src).as_posix()
+    for cfg in sorted(config.DATA.datasets.glob("*/dataset.yaml")):
+        try:
+            d = yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError):
+            continue
+        srcs = d.get("source_manifest") or []
+        if isinstance(srcs, str):
+            srcs = [srcs]
+        if not any(Path(s).as_posix() == src for s in srcs):
+            continue
+        meta_path = cfg.with_name("packed_meta.json")
+        img = cfg.with_name("packed_images.u8")
+        if not (meta_path.exists() and img.exists()):
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        if (meta.get("w"), meta.get("h")) != (int(out_size[0]), int(out_size[1])):
+            continue
+        paths = meta.get("paths") or []
+        if not paths or str(paths[0]).startswith("mm://"):
+            continue
+        mm = np.memmap(img, dtype=np.uint8, mode="r",
+                       shape=(meta["n"], meta["h"], meta["w"], 3))
+        index = {q: k for k, q in enumerate(paths)}
+        print(f"[i] Crops aus {cfg.parent.name} (Memmap, {meta['n']} Zeilen @ {meta['w']}px)")
+        return lambda path: (np.array(mm[index[path]])[:, :, ::-1]
+                             if path in index else None)
+    return None
 
 def is_camera_session(session_id: str | None) -> bool:
     return bool(session_id and _CAMERA_SESSION_RE.match(str(session_id)))
@@ -72,11 +151,24 @@ def main() -> None:
     ap.add_argument("--run", required=True, help="model run dir (e.g. data/models/p3-finetune)")
     ap.add_argument("--source", default=None,
                     help="crop manifest (default: data/crops/default/manifest.jsonl)")
+    ap.add_argument("--dataset", default=None,
+                    help="Aus dem ECHTEN Trainingsmaterial minen: Zeilen des Trainings-Splits, "
+                         "Pixel aus der Memmap dieses Datensatzes. Ersetzt --source.")
+    ap.add_argument("--split", default=None,
+                    help="Split-Datei im Datensatz (Vorgabe: split.json).")
     ap.add_argument("--device", default="cpu",
                     help="cpu is fine — mining is offline (default: cpu)")
     ap.add_argument("--conf-thr", type=float, default=0.5,
                     help="keep misreads with confidence >= this (default 0.5; the really "
                          "dangerous ones are >= the tracker's 0.85)")
+    ap.add_argument("--classes", default="empty",
+                    help="Welche WAHREN Klassen minen: `empty` (Vorgabe), `all`, oder eine Liste "
+                         "wie `wK,bB`. Ueberzeugte Fehler gibt es in jeder Klasse — die groesste "
+                         "Einzelverwechslung war zwar empty->wR (989), aber bB->bP lag bei 914.")
+    ap.add_argument("--fresh", action="store_true",
+                    help="Ergebnisdatei neu schreiben statt mit ihr zu verschmelzen. Noetig, wenn "
+                         "sich die Quelle geaendert hat — sonst ueberleben Zeilen aus einem "
+                         "anderen Zuschnitt (Pool statt Trainings-Split) unbemerkt.")
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--limit", type=int, default=0, help="cap crops scanned (0 = all)")
     ap.add_argument("--out", default=None,
@@ -109,7 +201,14 @@ def main() -> None:
     montage = Path(args.montage) if args.montage else config.DATA.reports / "perf" / "hard_empty.png"
     run_dir = Path(args.run)
 
-    rows = [r for r in load_manifest(src) if r["label"] == "empty" and r.get("path")]
+    want = {c.strip() for c in args.classes.split(",") if c.strip()}
+    reader = pool_size = None
+    if args.dataset:
+        rows, reader, pool_size = training_rows_and_reader(args.dataset, args.split)
+        src = Path(args.dataset)
+    else:
+        rows = load_manifest(src)
+    rows = [r for r in rows if r.get("path") and ("all" in want or r["label"] in want)]
     # Fused synthetic pools are packed (mm:// rows have no files) — this miner targets REAL crops.
     rows = [r for r in rows if not str(r["path"]).startswith("mm://")]
     if not args.include_synthetic:
@@ -119,6 +218,9 @@ def main() -> None:
             print(f"skipping {n_before - len(rows)} empty crops from non-camera sessions "
                   f"(classic-ingested synth pools; --include-synthetic to scan them)")
     excluded = {s.strip() for s in args.exclude_sessions.split(",") if s.strip()}
+    if reader is None:
+        pool_size = (rows[0].get("out_size") or [128, 128]) if rows else [128, 128]
+        reader = packed_reader(src, pool_size)
     if excluded:
         n_before = len(rows)
         rows = [r for r in rows if str(r.get("session_id")) not in excluded]
@@ -149,7 +251,9 @@ def main() -> None:
         chunk = rows[i : i + args.batch]
         crops, kept_rows = [], []
         for r in chunk:
-            img = cv2.imread(str(r["path"]))    # manifest paths are repo-cwd-relative
+            img = reader(r["path"]) if reader else None
+            if img is None:
+                img = cv2.imread(str(r["path"]))   # Rueckfall: Pfade sind cwd-relativ
             if img is None:
                 continue
             crops.append(img)
@@ -160,7 +264,7 @@ def main() -> None:
         preds = serving.predict_arrays(run_dir, crops, device=args.device, return_probs=want_probs)
         n_seen += len(crops)
         for r, p in zip(kept_rows, preds, strict=True):
-            rec = {"path": r["path"], "label": "empty",
+            rec = {"path": r["path"], "label": r["label"],
                    "pred": p["pred_label"], "conf": round(float(p["confidence"]), 3),
                    "session_id": r.get("session_id"), "square": r.get("square"),
                    "square_color": r.get("square_color"), "run": run_dir.name}
@@ -179,7 +283,7 @@ def main() -> None:
                 # a piece class actually win the argmax? Only the second is a classic hard example.
                 rec["kind"] = "piece_argmax" if p["pred_label"] != "empty" else "summed_mass"
                 hard.append(rec)
-            elif p["pred_label"] != "empty" and float(p["confidence"]) >= args.conf_thr:
+            elif p["pred_label"] != r["label"] and float(p["confidence"]) >= args.conf_thr:
                 hard.append(rec)
         if (i // args.batch) % 20 == 0:
             print(f"  {n_seen}/{len(rows)} scanned, {len(hard)} hard so far", flush=True)
@@ -189,6 +293,18 @@ def main() -> None:
             if args.criterion == "occupancy" else f"conf >= {args.conf_thr}")
     print(f"\n{len(hard)} hard empties ({crit}) out of {n_seen} scanned "
           f"({100.0 * len(hard) / max(1, n_seen):.1f}%)")
+    # Wie viele EIGENE Situationen stecken dahinter? `wK` hatte 378 Fehler aus VIER
+    # (Session,Feld)-Situationen — sie zu vervielfachen ueberpasst auf vier Stellungen,
+    # statt die Klasse zu lehren. Bei `empty` sind es Tausende, dort traegt es.
+    by_class: dict[str, set] = {}
+    for h in hard:
+        by_class.setdefault(h["label"], set()).add((h.get("session_id"), h.get("square")))
+    if by_class:
+        print("Situationen je Klasse (Crops / eigene Situationen):")
+        per = Counter(h["label"] for h in hard)
+        for lab, sits in sorted(by_class.items(), key=lambda kv: -per[kv[0]]):
+            flag = "  <- zu wenige, nicht verstaerken" if len(sits) < 20 else ""
+            print(f"   {lab:6s} {per[lab]:6d} / {len(sits):4d}{flag}")
     print("by predicted class:", dict(Counter(h["pred"] for h in hard).most_common()))
     print("by square color:  ", dict(Counter(str(h["square_color"]) for h in hard).most_common()))
     print("by session:       ", dict(Counter(str(h["session_id"]) for h in hard).most_common()))
@@ -209,8 +325,8 @@ def main() -> None:
 
     # Merge, de-duplicated by path (re-running with a newer model updates pred/conf).
     merged: dict[str, dict] = {}
-    if out.exists():
-        for line in out.read_text(encoding="utf-8").splitlines():
+    if out.exists() and not args.fresh:
+        for line in out.read_text(encoding="utf-8-sig").splitlines():
             if line.strip():
                 r = json.loads(line)
                 merged[r["path"]] = r
@@ -224,7 +340,7 @@ def main() -> None:
             side = out.with_suffix(".synthetic.jsonl")
             existing = {}
             if side.exists():
-                for line in side.read_text(encoding="utf-8").splitlines():
+                for line in side.read_text(encoding="utf-8-sig").splitlines():
                     if line.strip():
                         r = json.loads(line)
                         existing[r["path"]] = r

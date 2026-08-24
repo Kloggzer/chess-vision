@@ -6,6 +6,7 @@ import atexit
 import json
 import os
 import time
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +39,22 @@ def _load_training_pack(dataset: str | None, manifest_rows: list[dict]):
     return load_packed(dataset, manifest_rows=manifest_rows)
 
 
+def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> None:
+    """Ohne Memmap gar nicht erst starten, sobald der Datensatz gross genug zum Packen ist.
+
+    Ein verworfener Pack fiel bisher still auf den Datei-Loader zurueck: die Folds und der
+    SWA-Lauf liefen dreifach langsam an einem veralteten Pack vorbei, ohne dass es jemand sah.
+    """
+    from ..dataset_build import _PACK_MIN_CROPS
+
+    if allow_unpacked or dataset is None or n_rows < _PACK_MIN_CROPS:
+        return
+    raise ValueError(
+        f"'{dataset}' hat keine nutzbare Memmap ({n_rows} Crops) - das Training bricht ab "
+        f"statt still auf den Datei-Loader zu fallen. Grund steht in der WARNING darueber. "
+        f"Repack: chesslab dataset pack {dataset} - absichtlich ohne Pack: --allow-unpacked.")
+
+
 def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
                            visible_max: float) -> dict[str, float | int]:
     """Derive every coverage/visibility metric from the regular validation's predictions."""
@@ -62,14 +79,14 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     occ_want, occ_hit = int(want.sum()), int(hit.sum())
     vis_n = int(visible.sum())
     return {
-        "val_occ_mae": float(np.abs(cov_pred - cov_true).mean()),
-        "val_occ_recall": occ_tp / occ_want if occ_want else 0.0,
-        "val_occ_precision": occ_tp / occ_hit if occ_hit else 0.0,
+        "val_coverage_mae": float(np.abs(cov_pred - cov_true).mean()),
+        "val_coverage_recall": occ_tp / occ_want if occ_want else 0.0,
+        "val_coverage_precision": occ_tp / occ_hit if occ_hit else 0.0,
         "val_visible_acc": float((pred_cls[visible] == true_cls[visible]).mean())
         if vis_n else float("nan"),
-        "val_visible_occ_acc": float((pred_occ[visible] == true_occ[visible]).mean())
+        "val_visible_occupied_acc": float((pred_occ[visible] == true_occ[visible]).mean())
         if vis_n else float("nan"),
-        "val_visible_occ_board_acc": (
+        "val_visible_occupied_board_acc": (
             sum(visible_boards.values()) / len(visible_boards)
             if visible_boards else float("nan")),
         "val_visible_n": vis_n,
@@ -103,7 +120,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               sched: str = "cosine",
               jitter_translate: float | None = None,
               hard_negative_multiplier: float = 1.0,
-              split: str | None = None) -> int:
+              split: str | None = None,
+              swa: bool = False, swa_lr: float = 5e-4,
+              swa_start: float = 0.75, allow_unpacked: bool = False) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -286,6 +305,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed,
                                      with_coverage=occluding)
     else:
+        _require_pack(dataset, len(train_rows) + len(val_rows), allow_unpacked)
         train_ds = SquareDataset(train_rows, classes, train_tf, with_coverage=occluding,
                                  augment=True, policy=policy)
         val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
@@ -449,10 +469,29 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     }, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
-        # Checkpoint/early-stopping via occupancy-first score: occ_board_acc (all 64 squares
-    # empty/occupied correct) is the signal the tracker primarily needs — more robust
-    # than full board accuracy with little val data. occ_acc + macro_recall as tiebreaker.
-    best_score = (-1.0, -1.0, -1.0)   # (occ_board_acc, occ_acc, macro_recall)
+        # Checkpoint und Early Stopping am GEWICHTETEN Score (`data.CHECKPOINT_WEIGHTS`), nicht
+    # mehr am Brett-Mass allein: das schwankt um 19,4 % und liess `patience` gegen einen
+    # fruehen Ausreisser zaehlen. Brett-Mass und macro_recall bleiben als Stichentscheid.
+    best_score = (-1.0, -1.0, -1.0)   # (gewichteter Score, occupied_board_acc, macro_recall)
+    best_piece = (-1.0, -1)           # (val_piece_acc, Epoche) — eigener Checkpoint
+    # Die Validierung schwankt hier um den Faktor 1,2-1,3 je Epoche, bei 57 000 Crops also
+    # nicht als Stichprobenrauschen erklaerbar. Ein Einzelwert waehlt darum den gluecklichsten
+    # Ausreisser und laesst `patience` gegen ihn zaehlen. Entschieden wird ueber das Mittel
+    # der letzten drei Epochen; gespeichert wird trotzdem der aktuelle Stand.
+    recent: deque = deque(maxlen=3)
+    # SWA mittelt die Gewichte ueber die Epochen statt eine einzelne auszuwaehlen. Es findet
+    # flache Minima, und die trennen die Konfidenz richtiger von falschen Vorhersagen besser
+    # (FMFP, ECCV 2022 — `docs/references.md`). Nebeneffekt: das Springen der Validierung
+    # verschwindet, weil kein Einzelstand mehr die Auswahl traegt.
+    swa_model = swa_sched = None
+    swa_from = int(epochs * swa_start) if swa else -1
+    if swa:
+        from torch.optim.swa_utils import SWALR, AveragedModel
+
+        swa_model = AveragedModel(model)
+        swa_sched = SWALR(optimizer, swa_lr=swa_lr)
+        print(f"[OK] SWA ab Epoche {swa_from}, davor unveraenderter {sched}-Plan; "
+              f"danach konstant {swa_lr}")
     epochs_no_improve = 0
     print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
     for epoch in range(epochs):
@@ -477,7 +516,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             scaler.update()
             running += loss.item() * x.size(0)
             seen += x.size(0)
-        scheduler.step()
+        # Sobald SWA uebernimmt, haelt SWALR die Rate — der Cosine-Plan darf dann nicht
+        # weiterlaufen, sonst treten zwei Scheduler gegen denselben Optimizer an.
+        if swa_from < 0 or epoch < swa_from:
+            scheduler.step()
         t_train = time.perf_counter() - t_epoch
 
         t0 = time.perf_counter()
@@ -490,7 +532,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         t0 = time.perf_counter()
         true_labels = val["trues"].tolist()
         pred_labels = val["preds"].tolist()
-        score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels)
+        from .data import confidence_auroc
+
+        auroc = confidence_auroc(true_labels, pred_labels, val.get("conf") or [])
+        score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels,
+                                       auroc=auroc)
         t_score = time.perf_counter() - t0
         # --- occlusion validation diagnostics ---
         # The regular class metrics intentionally still score every crop for backwards
@@ -511,9 +557,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_acc": val["square_acc"],
             "val_macro_recall": val["macro_recall"],
             "val_board_acc": val["board_acc"],
-            "val_occ_acc": bd["occ_acc"],
-            "val_occ_board_acc": score[0],
+            "val_occupied_acc": bd["occupied_acc"],
+            "val_occupied_board_acc": bd["occupied_board_acc"],
             "val_piece_acc": bd["piece_acc"],
+            # Die Zahl, die zwei gleich genaue Modelle trennt: ueberzeugte Fehler brechen
+            # die Dekodierung, unsichere lassen sich korrigieren.
+            "val_conf_wrong": val.get("conf_wrong"),
+            "val_conf_auroc": auroc,
+            "val_conf_right": val.get("conf_right"),
+            "val_checkpoint_score": score[0],
             "lr": scheduler.get_last_lr()[0],
             # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:
             # the eval loader, the metric block and the checkpoint are three different suspects.
@@ -525,30 +577,82 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
         print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_acc {rec['val_acc']:.4f} "
-              f"| macro_recall {rec['val_macro_recall']:.4f} | occ_board_acc {score[0]:.4f}")
+              f"| macro_recall {rec['val_macro_recall']:.4f} | score {score[0]:.4f}")
 
         if occ_diag:
             print(
-                f"          coverage_mae {occ_diag['val_occ_mae']:.4f} "
-                f"| cov_recall@0.5 {occ_diag['val_occ_recall']:.4f} "
-                f"| cov_precision@0.5 {occ_diag['val_occ_precision']:.4f} "
+                f"          coverage_mae {occ_diag['val_coverage_mae']:.4f} "
+                f"| cov_recall@0.5 {occ_diag['val_coverage_recall']:.4f} "
+                f"| cov_precision@0.5 {occ_diag['val_coverage_precision']:.4f} "
                 f"| visible_acc {occ_diag['val_visible_acc']:.4f} "
-                f"| visible_occ_acc {occ_diag['val_visible_occ_acc']:.4f} "
-                f"| visible_occ_board_acc {occ_diag['val_visible_occ_board_acc']:.4f}"
+                f"| visible_occupied_acc {occ_diag['val_visible_occupied_acc']:.4f} "
+                f"| visible_occupied_board_acc {occ_diag['val_visible_occupied_board_acc']:.4f}"
             )
 
         torch.save(model.state_dict(), run_dir / "last.pt")
-        if score > best_score:
-            best_score = score
+        # Ein ZWEITER Checkpoint auf die reine Figurengenauigkeit. Der gewichtete Score
+        # sieht Kalibrierung nicht: ein spaeterer, ueberkonfidenter Lauf kann ihn gewinnen
+        # und den frueheren verdraengen, der besser dekodiert. Beide bleiben messbar.
+        if bd["piece_acc"] > best_piece[0]:
+            best_piece = (bd["piece_acc"], epoch)
+            torch.save(model.state_dict(), run_dir / "best_piece.pt")
+        # Bis `swa_from` laeuft das Rezept unveraendert; erst danach wird gemittelt und die
+        # Rate konstant gehalten. Sonst waere es ein anderes Rezept, kein A/B.
+        if swa_model is not None and epoch >= swa_from:
+            swa_model.update_parameters(model)
+            swa_sched.step()
+        recent.append(score)
+        smooth = tuple(sum(v[i] for v in recent) / len(recent) for i in range(3))
+        if smooth > best_score:
+            best_score = smooth
             epochs_no_improve = 0
             torch.save(model.state_dict(), run_dir / "best.pt")
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                print(f"[OK] Early stopping (no improvement in occ_board_acc for {patience} epochs). "
+                print(f"[OK] Early stopping (no improvement in the weighted score for {patience} epochs). "
                       "Increase patience with `--patience N`.")
                 break
 
-    print(f"[OK] done. best by occ_board_acc={best_score[0]:.4f} (occ_acc={best_score[1]:.4f}, "
+    print(f"[OK] done. best by score={best_score[0]:.4f} (occupied_board_acc={best_score[1]:.4f}, "
           f"macro_recall={best_score[2]:.4f}); best.pt in {run_dir}")
+    print(f"[OK] best_piece.pt: piece_acc={best_piece[0]:.4f} bei Epoche {best_piece[1]} "
+          "— gegen best.pt messen, bevor eine Stufe darauf aufbaut.")
+
+    # SWA abschliessen: die gemittelten Gewichte haben NIE einen Batch gesehen, ihre
+    # BatchNorm-Statistiken sind daher die des letzten Einzelstands. Ohne diesen Durchlauf
+    # ueber die Trainingsdaten ist ein SWA-Modell unbrauchbar.
+    if swa_model is not None:
+        from torch.optim.swa_utils import update_bn
+
+        print("[i] SWA: BatchNorm-Statistiken werden neu geschaetzt ...", flush=True)
+        update_bn(train_loader, swa_model, device=device)
+        inner = swa_model.module
+        torch.save(inner.state_dict(), run_dir / "swa.pt")
+        sv = evaluate_dataset(inner, val_ds, device, criterion=criterion,
+                              batch_size=batch_size, num_workers=nw, keep_workers=False)
+        st, sbd = checkpoint_metrics(
+            val_rows, classes, list(sv["trues"]), list(sv["preds"]),
+            auroc=confidence_auroc(sv["trues"], sv["preds"], sv.get("conf") or []))
+        print(f"[OK] swa.pt: score {st[0]:.4f} piece {sbd['piece_acc']:.4f} "
+              f"auroc {sbd['calibration']:.4f} — gegen best.pt {best_score[0]:.4f} messen")
+
+    # Temperatur auf val anpassen und mitschreiben: der Dekoder soll keine handgesetzte
+    # Konstante brauchen, jedes Modell bringt seine eigene mit. Argmax und Genauigkeit
+    # aendern sich dabei nicht, nur die Wahrscheinlichkeiten werden ehrlich.
+    try:
+        from .data import fit_temperature
+
+        model.load_state_dict(torch.load(run_dir / "best.pt", map_location=device))
+        cal = evaluate_dataset(model, val_ds, device, batch_size=batch_size,
+                               num_workers=nw, keep_workers=False)
+        temp = fit_temperature(cal.get("logits"), cal["trues"])
+        cfg_path = run_dir / "config.json"
+        cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
+        cfg_now["temperature"] = round(temp, 4)
+        cfg_path.write_text(json.dumps(cfg_now, indent=2), encoding="utf-8")
+        print(f"[OK] Temperatur {temp:.3f} auf val angepasst -> config.json "
+              f"(conf auf Fehlern {cal['conf_wrong']:.3f})")
+    except Exception as e:  # noqa: BLE001 — Kalibrierung darf keinen Lauf kippen
+        print(f"[WARN] Temperatur nicht angepasst: {e}")
     return 0

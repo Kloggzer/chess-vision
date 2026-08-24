@@ -248,16 +248,18 @@ def cap_blas_threads() -> None:
 
 
 def loader_kwargs(num_workers: int | None = None, *, pin_memory: bool = True,
-                  prefetch_factor: int = 4) -> dict:
+                  prefetch_factor: int = 4, persistent: bool = True) -> dict:
     """The DataLoader policy every training path shares; `batch_size` and `shuffle` stay local.
 
     `pin_memory=False` is the gate trainer's: two pinned loaders together blew the HIP host heap.
+    `persistent=False` for a loader that runs ONCE: kept workers hold ~1.2 GB each for a
+    pass that never comes again.
     """
     workers = DEFAULT_NUM_WORKERS if num_workers is None else num_workers
     kw: dict = {"num_workers": workers, "pin_memory": pin_memory}
     if workers > 0:
         cap_blas_threads()
-        kw.update(persistent_workers=True, prefetch_factor=prefetch_factor)
+        kw.update(persistent_workers=persistent, prefetch_factor=prefetch_factor)
     return kw
 
 

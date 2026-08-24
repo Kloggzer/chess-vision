@@ -117,7 +117,7 @@ def test_per_session_metrics_separate_a_good_session_from_a_bad_one():
 
     m = per_session_metrics(rows, CLASSES, trues, preds)
 
-    assert m["a"] == {"crops": 2, "square_acc": 1.0, "board_acc": 1.0, "occ_board_acc": 1.0}
+    assert m["a"] == {"crops": 2, "square_acc": 1.0, "board_acc": 1.0, "occupied_board_acc": 1.0}
     assert m["b"]["square_acc"] == 0.5 and m["b"]["board_acc"] == 0.0
 
 

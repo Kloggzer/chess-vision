@@ -121,10 +121,10 @@ def test_occlusion_diagnostics_reuse_the_regular_validation_arrays():
 
     diag = _occlusion_diagnostics(val, rows, ["empty", "piece"], visible_max=0.3)
 
-    assert diag["val_occ_mae"] == pytest.approx(0.2)
-    assert diag["val_occ_recall"] == 1.0
-    assert diag["val_occ_precision"] == 0.5
+    assert diag["val_coverage_mae"] == pytest.approx(0.2)
+    assert diag["val_coverage_recall"] == 1.0
+    assert diag["val_coverage_precision"] == 0.5
     assert diag["val_visible_acc"] == pytest.approx(2 / 3)
-    assert diag["val_visible_occ_acc"] == pytest.approx(2 / 3)
-    assert diag["val_visible_occ_board_acc"] == 0.5
+    assert diag["val_visible_occupied_acc"] == pytest.approx(2 / 3)
+    assert diag["val_visible_occupied_board_acc"] == 0.5
     assert diag["val_visible_n"] == 3

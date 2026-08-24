@@ -93,7 +93,7 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
     """Head-INDEPENDENT error diagnosis from the 14-class output — shows WHERE errors occur
     (the central question from research: occupancy vs. type vs. color).
 
-    - `occ_acc`: empty-vs-occupied per square correct (quality of the occupancy level; `occluded` counts as occupied).
+    - `occupied_acc`: empty-vs-occupied per square correct (quality of the occupancy level; `occluded` counts as occupied).
     - `piece_acc`: among the TRULY occupied squares, the piece is exactly right (quality of the piece level).
     - `type_err` / `color_err`: fraction of true REAL pieces (12 classes) with type or pure
       color confusion (`wB→wN` = type; `wB→bB` = color). Sum ≤ (1−piece_acc on real pieces).
@@ -116,7 +116,7 @@ def occupancy_piece_breakdown(classes: list[str], trues: list[int], preds: list[
                 elif _piece_color(pl) != _piece_color(tl):
                     color_err_n += 1
     return {
-        "occ_acc": occ_ok / occ_n if occ_n else 0.0,
+        "occupied_acc": occ_ok / occ_n if occ_n else 0.0,
         "piece_acc": piece_ok / occ_total if occ_total else 0.0,
         "type_err": type_err_n / real_n if real_n else 0.0,
         "color_err": color_err_n / real_n if real_n else 0.0,
@@ -140,17 +140,31 @@ def _macro_recall(trues: list[int], preds: list[int], n_classes: int) -> float:
 def checkpoint_score(rows: list[dict], classes: list[str],
                      trues: list[int], preds: list[int]) -> tuple[float, float, float]:
     """Sortable score for checkpoint/early-stopping:
-    (occ_board_acc, occ_acc, macro_recall) — occupancy first, macro_recall as tiebreaker."""
+    (gewichteter Score, occupied_board_acc, macro_recall) — Gewichte in CHECKPOINT_WEIGHTS."""
     return checkpoint_metrics(rows, classes, trues, preds)[0]
 
 
+#: Die beiden Ebenen eines Feldes — belegt, und wenn ja welche Figur — plus die Kalibrierung.
+#: Die ersten beiden gleich, weil keine vorgeht. `calibration` = 1 - mittlere Konfidenz auf
+#: FALSCHEN Vorhersagen: ueberzeugte Fehler brechen die Dekodierung, unsichere lassen sich
+#: korrigieren. Klein gewichtet, weil sie mit piece_acc ohnehin bei r = -0,71 mitlaeuft und
+#: nur entscheiden soll, wenn zwei Epochen gleich genau sind. `calibration` ist die AUROC der
+#: Konfidenz als Falsch-Detektor: skaleninvariant, misst Trennschaerfe statt Niveau.
+CHECKPOINT_WEIGHTS = {"piece_acc": 0.45, "occupied_acc": 0.45, "calibration": 0.10}
+
+
 def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
-                       preds: list[int]) -> tuple[tuple[float, float, float], dict]:
-    """Compute the checkpoint score and its shared occupancy breakdown in one pass."""
-    occ_ba = occupancy_board_acc(rows, classes, trues, preds)
+                       preds: list[int],
+                       auroc: float | None = None) -> tuple[tuple[float, float, float], dict]:
+    """Gewichteter Checkpoint-Score plus die geteilte Belegungs-Aufschluesselung, in einem Durchgang."""
     bd = occupancy_piece_breakdown(classes, trues, preds)
+    bd["occupied_board_acc"] = occupancy_board_acc(rows, classes, trues, preds)
+    # Ohne gemessene Konfidenz zaehlt die Kalibrierung neutral (0,5 = Zufall), damit ein
+    # Aufrufer ohne sie nicht stillschweigend bestraft oder belohnt wird.
+    bd["calibration"] = auroc if auroc is not None else 0.5
+    score = sum(w * bd[k] for k, w in CHECKPOINT_WEIGHTS.items())
     mr = _macro_recall(trues, preds, len(classes))
-    return (occ_ba, bd["occ_acc"], mr), bd
+    return (score, bd["occupied_board_acc"], mr), bd
 
 
 def occupancy_board_acc(rows: list[dict], classes: list[str], trues: list[int], preds: list[int]) -> float:
@@ -182,8 +196,89 @@ def per_session_metrics(rows: list[dict], classes: list[str],
         boards = [((r["session_id"], str(r["frame"])), c) for r, c in zip(rs, ok, strict=True)]
         out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok),
                     "board_acc": board_accuracy(boards),
-                    "occ_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
+                    "occupied_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
     return out
+
+
+def confidence_auroc(trues, preds, conf) -> float:
+    """Wie gut trennt die Konfidenz richtig von falsch — 0,5 = zufaellig, 1,0 = perfekt.
+
+    Skaleninvariant, anders als `conf_right - conf_wrong`: `conf_right` liegt flach
+    (StdAbw 0,008 gegen 0,029), ein Abstandsmass misst darum fast nur `conf_wrong` neu.
+    Nur diese Trennschaerfe macht Temperature Scaling hinterher etwas nuetzlich.
+    """
+    import numpy as np
+
+    t, p, c = np.asarray(trues), np.asarray(preds), np.asarray(conf, dtype=float)
+    if not len(c):
+        return 0.5
+    ok = t == p
+    n_pos, n_neg = int(ok.sum()), int((~ok).sum())
+    if not n_pos or not n_neg:
+        return 0.5
+    # Rangbasiert (Mann-Whitney) mit DURCHSCHNITTSRAENGEN: ohne die faellt der Fall
+    # "alle gleich sicher" je nach Sortierreihenfolge auf 0,0 oder 1,0 statt auf 0,5.
+    order = np.argsort(c, kind="mergesort")
+    s = c[order]
+    ranks = np.empty(len(c), dtype=float)
+    i = 0
+    while i < len(s):
+        j = i
+        while j + 1 < len(s) and s[j + 1] == s[i]:
+            j += 1
+        ranks[order[i:j + 1]] = (i + j) / 2.0 + 1.0
+        i = j + 1
+    return float((ranks[ok].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
+
+
+def confident_confusions(classes: list[str], trues, preds, conf, top: int = 8) -> list[dict]:
+    """Welche Verwechslungen tragen die UEBERZEUGTEN Fehler — (wahr, vorhergesagt, n, mean_conf).
+
+    `conf_wrong` ist ein Mittelwert ueber alle Fehler. Ob er aus vielen mittelmaessig
+    sicheren oder wenigen sehr sicheren Fehlern kommt, aendert die Gegenmassnahme.
+    Sortiert nach n * mean_conf: was am meisten Schaden anrichtet, steht oben.
+    """
+    import numpy as np
+
+    t, p, c = np.asarray(trues), np.asarray(preds), np.asarray(conf, dtype=float)
+    wrong = t != p
+    if not wrong.any():
+        return []
+    out: dict[tuple[int, int], list[float]] = {}
+    for ti, pi, ci in zip(t[wrong], p[wrong], c[wrong], strict=True):
+        out.setdefault((int(ti), int(pi)), []).append(float(ci))
+    rows = [{"true": classes[k[0]], "pred": classes[k[1]], "n": len(v),
+             "mean_conf": sum(v) / len(v)} for k, v in out.items()]
+    rows.sort(key=lambda r: r["n"] * r["mean_conf"], reverse=True)
+    return rows[:top]
+
+
+def fit_temperature(logits, trues, iters: int = 200) -> float:
+    """Ein Skalar, der die Wahrscheinlichkeiten ehrlich macht — der Argmax bleibt unberuehrt.
+
+    Post-hoc auf val angepasst (Guo et al. 2017). Deshalb aendert sich KEINE Genauigkeit,
+    nur die Konfidenz — der Dekoder braucht dann keine handgesetzte Konstante mehr.
+    """
+    import torch
+
+    if logits is None or not len(trues):
+        return 1.0
+    z = logits.detach().float()
+    y = torch.as_tensor(trues, dtype=torch.long)
+    if z.shape[1] > 1 and z.shape[1] != int(y.max()) + 1:
+        z = z[:, :int(y.max()) + 1]          # Coverage-Logit gehoert nicht dazu
+    log_t = torch.zeros(1, requires_grad=True)
+    opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=iters)
+    loss_fn = torch.nn.CrossEntropyLoss()
+
+    def step():
+        opt.zero_grad()
+        loss = loss_fn(z / log_t.exp(), y)
+        loss.backward()
+        return loss
+
+    opt.step(step)
+    return float(log_t.exp().item())
 
 
 def build_model_card(

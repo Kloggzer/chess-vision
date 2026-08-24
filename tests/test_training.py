@@ -83,7 +83,7 @@ def test_occupancy_piece_breakdown_splits_error_sources():
     trues = [_ci(t) for t, _ in pairs]
     preds = [_ci(p) for _, p in pairs]
     bd = occupancy_piece_breakdown(config.CLASSES, trues, preds)
-    assert bd["occ_acc"] == pytest.approx(5 / 7)
+    assert bd["occupied_acc"] == pytest.approx(5 / 7)
     assert bd["n_occupied"] == 5            # wP,wB,wB,wK,occluded
     assert bd["piece_acc"] == pytest.approx(2 / 5)   # wP und occluded exakt richtig
     assert bd["n_pieces"] == 4              # echte Figuren: wP,wB,wB,wK
@@ -171,16 +171,20 @@ def _crop_row(session="s0", frame=0, square="a1"):
 
 
 def test_checkpoint_score_occ_perfect_types_wrong():
-    """Occupancy perfect, all types wrong → occ_board_acc == 1.0 (high score)."""
+    """Belegung perfekt, alle Typen falsch: das Brett-Mass ist 1,0, der SCORE aber nur 0,5.
+
+    Bis 2026-08-24 stand hier der Brett-Wert an erster Stelle, ein Modell ohne jede richtige
+    Figur war damit bestbewertet. Der gewichtete Score haelt beide Ebenen auseinander."""
     classes = config.CLASSES
     # 64 Felder, alle occupied, alle Figuren falsch geraten
     rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
     # All truly occupied (wP), prediction guesses other pieces — occupancy remains correct
     trues = [classes.index("wP")] * 64
     preds = [classes.index("wN")] * 64
-    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
-    assert occ_ba == 1.0  # alle Felder occupancy-korrekt
-    assert mr < 1.0       # Typen falsch → macro_recall nicht perfekt
+    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 1.0        # alle Felder occupancy-korrekt
+    assert score == pytest.approx(0.5)   # 0,45*0 + 0,45*1 + 0,10*0,5 (Kalibrierung neutral)
+    assert mr < 1.0                # Typen falsch → macro_recall nicht perfekt
 
 
 def test_checkpoint_score_one_occ_flip_per_frame():
@@ -190,9 +194,9 @@ def test_checkpoint_score_one_occ_flip_per_frame():
     rows = [_crop_row(frame=i, square="a1") for i in range(4)]
     trues = [classes.index("empty")] * 4
     preds = [classes.index("wP")] * 4
-    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
-    assert occ_ba == 0.0
-    assert occ_acc == 0.0  # alle Felder occupancy-falsch
+    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 0.0
+    assert score == pytest.approx(0.05)   # beide Ebenen 0, nur die neutrale Kalibrierung
 
 
 def test_checkpoint_metrics_reuses_the_score_breakdown():
@@ -204,13 +208,16 @@ def test_checkpoint_metrics_reuses_the_score_breakdown():
     score, breakdown = checkpoint_metrics(rows, classes, trues, preds)
 
     assert score == checkpoint_score(rows, classes, trues, preds)
-    assert breakdown == occupancy_piece_breakdown(classes, trues, preds)
+    plain = occupancy_piece_breakdown(classes, trues, preds)
+    # `checkpoint_metrics` haengt das Brett-Mass an, sonst identisch.
+    extra = {"occupied_board_acc", "calibration"}   # von checkpoint_metrics angehaengt
+    assert {k: v for k, v in breakdown.items() if k not in extra} == plain
 
 
 def test_checkpoint_score_tuple_ordering_sortable():
     """Score-Tupel lassen sich korrekt vergleichen (lexikografisch)."""
-    assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # occ_board_acc sticht
-    assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem occ_ba: occ_acc sticht
+    assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # der gewichtete Score sticht
+    assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem Score: occupied_board_acc sticht
     assert (0.8, 0.8, 0.5) > (0.8, 0.8, 0.3)  # macro_recall als letzter Tiebreaker
 
 
@@ -298,9 +305,11 @@ def test_occupancy_breakdown_on_two_classes():
     trues = [0, 1, 1, 0]
     preds = [0, 1, 0, 0]
     bd = occupancy_piece_breakdown(classes, trues, preds)
-    assert bd["occ_acc"] == 0.75
+    assert bd["occupied_acc"] == 0.75
     rows = [_crop("s0", "0", sq, "x") for sq in ("a1", "a2", "a3", "a4")]
-    assert checkpoint_score(rows, classes, trues, preds)[0] == 0.0
+    score, occ_board, _ = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 0.0                       # ein Flip im einzigen Brett
+    assert score == pytest.approx(0.6125)        # 0,45*0,5 + 0,45*0,75 + 0,10*0,5
 
 
 # =======================================================================================

@@ -1533,6 +1533,10 @@ def train_cmd(
     swa_lr: float = typer.Option(5e-4, "--swa-lr", help="Konstante Rate ab dem SWA-Start."),
     swa_start: float = typer.Option(0.75, "--swa-start",
                                     help="Anteil der Epochen, ab dem gemittelt wird."),
+    allow_unpacked: bool = typer.Option(False, "--allow-unpacked",
+                                        help="Training ohne Memmap zulassen. Ohne das bricht ein "
+                                             "packbarer Datensatz ab, statt still auf den "
+                                             "langsamen Datei-Loader zu fallen."),
     split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
                                      "(default: split.json). Lets several folds share ONE packed "
                                      "corpus instead of packing the same crops per fold."),
@@ -1570,7 +1574,8 @@ def train_cmd(
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
-                                 swa=swa, swa_lr=swa_lr, swa_start=swa_start))
+                                 swa=swa, swa_lr=swa_lr, swa_start=swa_start,
+                                 allow_unpacked=allow_unpacked))
 
 
 @app.command("eval")
