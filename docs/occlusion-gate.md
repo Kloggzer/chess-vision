@@ -31,16 +31,63 @@ Bänder:
 | `real13-ms-s2-bn80-bs256-swa1e4` | 80,7 % | 73,9 % | 63,4 % | **0,15** |
 | `real13-ms-s3-hn4-bn80` | 80,6 % | 76,7 % | 64,9 % | **0,15** |
 
+Die drei Bänder von hn4 im Übergang (77,0 / 77,3 / 75,7 %) fallen gleichmäßig; swa1e4 bricht bei
+0,02–0,05 auf 70,2 % ein und erholt sich wieder, was Stichprobenrauschen ist. Beide landen bei
+λ = 2 auf 0,15, hn4 aber mit mehr Luft.
+
 Faktor 7 zwischen comp13 und den real13-Läufen. Eine gemeinsame Konstante kann für beide nicht
 stimmen, deshalb bringt jedes Modell seine als `coverage_gate` in der `config.json` mit;
 `ModelSpec` liest sie, `TrackerService` legt sie auf `TrackerConfig.pOccludedThr`. Fehlt der
 Schlüssel, gilt der alte Default.
+
+`build_model_card` führt das Feld seit 2026-08-24, schreibt es aber **nur, wenn ein Wert übergeben
+wird** — ohne Messung bleibt es weg, damit kein Default als gemessener Wert durchgeht.
+`scripts/stage_model_asset.py --gate` bleibt der Weg, einen gemessenen Wert zu stempeln.
 
 λ = 3 verlangt 75 % und ist mit comp13 nicht zu haben (bestes Band 68,1 %); die real13-Läufe
 schaffen es bei τ = 0,02. λ = 5 erreicht keines.
 
 **Das Zumachen kostet fast nichts:** von 0,5 auf 0,15 bleiben 90 % aller Reads. Verloren gehen
 genau die, die ohnehin falsch waren.
+
+## Was ausgeliefert wird
+
+Die APK bündelt seit 2026-08-24 vier Modelle, jedes mit seinem gemessenen `coverage_gate`:
+`real14-80` (14 Klassen, kein Gate), `real13-ms-s3-hn4-bn80` und
+`real13-ms-s2-bn80-bs256-swa1e4` (je 0,15), `comp13-occ-bn-lr1e2-bs512` (0,02). Die Liste steht in
+`BUNDLED_MODELS` und ist HANDGEPFLEGT — zwei Tests prüfen je Eintrag Graph-Form und Crop-Größe,
+also erzwingt sie, dass jemand die Form eines neuen Modells hinschreibt. Wer ein Modell nur nach
+`assets/cnn_model/` legt, findet es im Picker nicht wieder, und `bundledModelOrDefault` setzt einen
+von Hand gesetzten Namen still auf den Default zurück.
+
+`scripts/stage_model_asset.py` legt ein Modell ab und ergänzt dabei `coverage_output` und
+`coverage_gate` — `chesslab export` schreibt beides nicht, und ein 14-spaltiger Graph ohne
+`coverage_output` würde als 14 Klassen gesoftmaxt.
+
+## Warum die Wahl von τ im Mittelfeld kaum etwas ändert
+
+Die Verdeckung ist zweigipflig verteilt, gemessen über `real13-straight-80-v3` (424 519 Zellen):
+
+| Coverage | Zellen | Anteil |
+|---|---|---|
+| exakt 0,0 | 376 347 | **88,7 %** |
+| 0,001–0,02 | 2 652 | 0,6 % |
+| 0,02–0,25 | 9 657 | **2,3 %** |
+| 0,25–0,75 | 12 739 | 3,0 % |
+| 0,75–1,00 | 22 602 | **5,3 %** |
+
+Eine Hand ist viel größer als ein Feld: ein Feld liegt entweder unter ihr oder daneben, teilweise
+verdeckt sind nur die Felder am Silhouettenrand. Deshalb liegen zwischen 0,02 und 0,25 — dem
+Bereich, in dem τ überhaupt entscheidet — nur 2,3 % aller Zellen.
+
+**Die Gate-Entscheidung ist praktisch binär:** nimmt man die 8,3 % stark verdeckten Zellen an oder
+nicht? Bei 42 % Genauigkeit lautet die Antwort nein, für jedes λ ≥ 1. Ob τ dann auf 0,02, 0,15 oder
+0,25 steht, verschiebt ein paar tausend Zellen. Der Schaden entsteht allein dadurch, dass der alte
+Default von 0,5 den ganzen 0,25+-Block durchlässt.
+
+Aus demselben Grund lohnt es nicht, die Trainingsmaske zu verschieben: `--visible-max 0.2` statt
+0,15 fügt dem Training 1 086 Zellen hinzu — 0,37 %. Ein Von-Grund-auf-Vergleich könnte den Effekt
+nicht von der Seed-Streuung trennen.
 
 ## Fallen bei der Messung
 

@@ -77,9 +77,27 @@
   a7 at 20 on 20-41-33), so a black piece on a near-black square moves the score by ~1.5 against a
   threshold of 15. `interval-check.jsonl` measures this per ply instead of hiding it; closing it
   means normalising by the cell's own contrast, not lowering the threshold.
+- **Bewertet wird nur, was der Verlust auch lernt (2026-08-24):** der Occlusion-Verlust maskiert
+  alles über `PIECE_VISIBLE_MAX`, also zählen `CHECKPOINT_WEIGHTS`, `auroc` und `conf_wrong` nur
+  sichtbare Zellen. Über alle Zellen gerechnet sah das Modell 8 Punkte besser kalibriert aus, als
+  es ist: verdeckte Zellen sind zu 55–63 % falsch, dabei aber *unsicher*. Aus demselben Grund
+  kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
+  2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 
 ### 2. Data & Splits
+- **Ohne Memmap kein Training (2026-08-24):** ein veralteter Pack fiel still auf den Datei-Loader
+  zurück — die Folds und die SWA-Läufe liefen dreifach langsam an ihm vorbei, ohne dass es jemand
+  sah. `_require_pack` bricht jetzt ab; `--allow-unpacked` nur für Sets unter der Packgrenze.
+  **Nach jedem Re-Slice neu packen**, sonst trägt der Pack Pixel von vorgestern.
+- **Hard-Negative-Mining auf Trainingsdaten findet fast nur Verdecktes (2026-08-24):** 98,6 % der
+  gefundenen Fälle liegen über `PIECE_VISIBLE_MAX` und sind damit aus dem Klassifikationsverlust
+  maskiert — sie 4× zu verstärken kostet Sampling-Budget und lehrt den Figurenkopf nichts. Grund:
+  auf dem Trainings-Split ist alles Lernbare gelernt, übrig bleibt, was der Verlust nie sah
+  (sichtbar UND überzeugt falsch: 156 von 292 105 Zeilen). Mining lohnt nur auf **ungesehenem**
+  Material. `scripts/mine_hard_empty.py --dataset <name>` liest Trainings-Split und Memmap statt
+  des splitlosen Crop-Pools; `--fresh` verhindert, dass Zeilen aus einem anderen Zuschnitt
+  überleben.
 - **Reproducibility:** Splits are not deterministic from Params → **always use `split.json`**.
 - **Geometry Fix (2026-07-31):** Old dataset was mis-aligned (3-6px Offset). Crops must be re-sliced. Old Path-A numbers are void.
 - **Hard Empties:** `hard_empty.jsonl` is global training input. **Park** if not in use (`data/_parked/`).
