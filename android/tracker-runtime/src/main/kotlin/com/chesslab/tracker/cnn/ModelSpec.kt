@@ -7,6 +7,7 @@ import com.chesslab.cnn.requireExpectedClasses
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -71,6 +72,11 @@ data class ModelSpec(
      * is what every model shipped before the occlusion head declares.
      */
     val coverageOutput: Boolean = false,
+    /**
+     * `coverage_gate` — ab welcher Verdeckung ein Feld dieses Modells nicht mehr zaehlt. Je Modell
+     * verschieden, weil die Schwelle aus seiner Guete folgt (`docs/occlusion-gate.md`).
+     */
+    val coverageGate: Double? = null,
 ) {
     /** Channels the ONNX input expects — [repr]'s, never a literal 3. */
     val channels: Int get() = repr.channels
@@ -126,6 +132,7 @@ data class ModelSpec(
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
+                coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
             )
         }
 

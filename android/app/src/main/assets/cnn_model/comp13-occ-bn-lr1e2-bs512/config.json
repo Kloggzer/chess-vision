@@ -187,5 +187,6 @@
     "bQ": 3.3845999240875244,
     "bK": 3.3845999240875244
   },
-  "coverage_output": true
+  "coverage_output": true,
+  "coverage_gate": 0.02
 }

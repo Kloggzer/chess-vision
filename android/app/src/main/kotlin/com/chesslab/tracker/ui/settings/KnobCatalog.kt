@@ -34,6 +34,21 @@ private val BY_KEY = KNOBS.associateBy { it.key }
  */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
+        "refusedStreakForEval" to
+            "Not a preference but a repair: after this many identical rejections the CNN is allowed to look, " +
+            "because the diff channel alone has demonstrably stopped making progress. Measured 2026-08-24, a " +
+            "player moved while in check and the tracker refused the same Kf1 seventy times in nine seconds " +
+            "without one whole-board read, so the illegal-move alarm could never fire.",
+        "pOccludedThr" to
+            "Measured, not chosen: the coverage above which a square stops counting as a witness follows from " +
+            "the MODEL's accuracy there, so each model brings its own as `coverage_gate` and the app applies " +
+            "it on attach. Measured at loss ratio 2 against the SAM mattes, `comp13` carries 0.02 where the " +
+            "real13 runs carry 0.15 — a slider here would overwrite a measurement with a guess.",
+        "cnnEvalOnSettle" to
+            "Not a preference but the observation schedule: read once when the board comes to rest, then stay " +
+            "quiet until it moves again. Measured 2026-08-24 over the 10-recording corpus at 304/90/7 against " +
+            "302/92/9 for the clock, and it removed the 2 s latency tail on the phone. Turning it off restores " +
+            "a slower, worse tracker.",
         "boardSize" to
             "Measured by the calibration profile from the detected quad, and copied into the config so the " +
             "engine can derive its square boxes. A value that disagrees with the profile makes the frame " +

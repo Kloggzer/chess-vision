@@ -167,7 +167,7 @@ internal fun EngineState.gridHandSquares(snap: CnnSnapshot): Long {
 internal fun EngineState.modelHandSquares(snap: CnnSnapshot): Long {
     var flagged = 0L
     for (i in 0 until Squares.COUNT) {
-        if (snap.obs.pOccluded(Squares.ALL[i]) > P_OCCLUDED_THR) flagged = flagged.with(i)
+        if (snap.obs.pOccluded(Squares.ALL[i]) > config.pOccludedThr) flagged = flagged.with(i)
     }
     if (flagged == 0L || !config.modelHandGate) return flagged
     var paired = false
@@ -236,7 +236,7 @@ internal fun EngineState.cnnConfirmedUnchanged(candidates: Long): Long {
     var confirmed = 0L
     candidates.forEachSquare { i ->
         val name = Squares.ALL[i]
-        if (obs.confident(name, thr) && obs.pOccluded(name) <= P_OCCLUDED_THR && occupancyAgreesWithBoard(i, obs)) {
+        if (obs.confident(name, thr) && obs.pOccluded(name) <= config.pOccludedThr && occupancyAgreesWithBoard(i, obs)) {
             confirmed = confirmed.with(i)
         }
     }

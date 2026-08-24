@@ -226,7 +226,14 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
             piece.uppercaseChar() == 'K' &&
                 abs(from % Squares.N - to % Squares.N) == 2 &&
                 !hasCastlingRights(piece.isUpperCase())
-        val reason = if (castling) "castling not available" else "illegal move suspected"
+        // Steht die Seite am Zug im Schach, IST das der Grund — und der einzige, der dem Spieler
+        // sagt, was er tun soll. "illegal move suspected" laesst ihn raten (User, 2026-08-24).
+        val reason =
+            when {
+                castling -> "castling not available"
+                result().inCheck -> "you are in check"
+                else -> "illegal move suspected"
+            }
         "${piece.uppercaseChar()} $squares ($reason)"
     }
 }

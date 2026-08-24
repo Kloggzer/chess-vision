@@ -33,12 +33,20 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * model-free grid detector misses, and the physical phone has been stable on it. `id35-80` stays
  * as the conservative 13-class comparison arm — phantom-free at 0 phantoms / 3 misses with piece
  * identity at 0.882 (specs/29, 2026-08-01). `comp13-occ-bn-lr1e2-bs512` combines 13 identity
- * classes with an independent coverage output for the current on-device occlusion experiment.
+ * classes with an independent coverage output; the two `real13` runs are the newer ones of that
+ * shape and carry a measured `coverage_gate` (`docs/occlusion-gate.md`).
  */
 const val DEFAULT_MODEL = "real14-80"
 
 /** Default first, so Settings presents the model a fresh install actually runs at the top. */
-val BUNDLED_MODELS = listOf(DEFAULT_MODEL, "comp13-occ-bn-lr1e2-bs512", "id35-80")
+val BUNDLED_MODELS =
+    listOf(
+        DEFAULT_MODEL,
+        "real13-ms-s3-hn4-bn80",
+        "real13-ms-s2-bn80-bs256-swa1e4",
+        "comp13-occ-bn-lr1e2-bs512",
+        "id35-80",
+    )
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

@@ -54,6 +54,15 @@ data class TrackerConfig(
     // Every 10 s was a 0.16 % duty cycle; every 3 s is 0.5 %, and it is the only thing that notices
     // a board that drifted out from under a quiet game.
     val cnnCheckIntervalS: Double = 3.0,
+    // Lies, sobald das Brett einrastet, statt wenn die Uhr es erlaubt: 304/90/7 gegen 302/92/9,
+    // und der 2-s-Latenzschwanz faellt weg (`docs/emission-correlation.md`).
+    val cnnEvalOnSettle: Boolean = true,
+    // Nur der Default: die Schwelle folgt aus der Modellguete und reist als `coverage_gate`
+    // im Modell (0.02 fuer comp13, 0.15 fuer real13 — `docs/occlusion-gate.md`).
+    val pOccludedThr: Double = 0.5,
+    // Nach so vielen identischen Ablehnungen darf die CNN sehen, auch wenn kein anderes Tor
+    // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/refused-streak.md`).
+    val refusedStreakForEval: Int = 3,
     val verifyWindow: Int = 8,
     // ...and the same deadline in SECONDS, which is the unit the player experiences.
     // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN — unbounded if the

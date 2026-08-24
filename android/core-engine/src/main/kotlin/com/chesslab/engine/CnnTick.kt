@@ -56,6 +56,7 @@ internal fun EngineState.cnnTick(
         } ?: return emptyList()
     val read = identityRead(model, snap.obs)
     lastCnnTs = nowS
+    lastEvalEpoch = motionEpoch
     cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
         // The state moved on while we looked — the reading describes a position we no longer hold.
@@ -79,7 +80,17 @@ private fun EngineState.evaluationDue(): Boolean {
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck =
         stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS
-    return stuck || (stable && (nowS - lastCnnTs) >= config.cnnCheckIntervalS)
+    // Wiederholtes Scheitern hielt die CNN bisher AUS: `stuck` braucht einen Zaehler, den das
+    // Flattern nicht hochlaufen laesst, und `stable` einen Puffer, den es leert. Genau dann ist
+    // ein Ganzbrett-Blick am meisten wert — 70x `Kf1` ohne einen einzigen Read, 2026-08-24.
+    val refused =
+        config.refusedStreakForEval > 0 &&
+            refusedStreak >= config.refusedStreakForEval &&
+            (nowS - lastCnnTs) >= config.cnnCooldownS
+    if (refused) return true
+    // Eine Bewegung seit der letzten Auswertung heisst: dieser Read ist neu, die Uhr ist egal.
+    val settled = config.cnnEvalOnSettle && motionEpoch != lastEvalEpoch
+    return stuck || (stable && (settled || (nowS - lastCnnTs) >= config.cnnCheckIntervalS))
 }
 
 private fun EngineState.applyRead(

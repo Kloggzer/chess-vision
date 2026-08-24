@@ -74,6 +74,8 @@ internal fun EngineState.cornersJumped(): Boolean {
 internal fun EngineState.clearStuck() {
     stuckReason = null
     stuckCount = 0
+    refusedKey = null
+    refusedStreak = 0
     recoveryConfirmer.reset()
 }
 

@@ -210,6 +210,7 @@ internal class FrameLoop(
     private fun motionBranch(input: FrameInput): FrameOutcome {
         val cfg = state.config
         state.stableCount = 0
+        state.restSettled = false
         // A hand entered → a real move is now possible; commits must follow motion promptly.
         state.motionSinceRef = true
         state.lastMotionTs = state.nowS
@@ -274,6 +275,10 @@ internal class FrameLoop(
                 // never reference an obscured image.
                 if (ready) setRef(cur, curBgr) else state.note = NOTE_WAITING_CLEAR
             } else if (ready && state.state != STATE_MOVE) {
+                if (!state.restSettled) {
+                    state.restSettled = true
+                    state.motionEpoch += 1
+                }
                 outcome =
                     if (occludedCoreCount() > OCCLUDED_CORE_LIMIT) {
                         state.state = STATE_OCCLUDED

@@ -194,6 +194,7 @@ class TrackerStack<T>(
 
     /** The ledger channel: one line per emitted observation, `adb logcat -s chesslabObs`-able. */
     private val obsLog = seed.logs("chesslabObs")
+    private val occludedThr = seed.config.pOccludedThr
 
     /**
      * The observation LEDGER, one line per emitted snapshot: which frame the CNN looked at, at
@@ -205,7 +206,7 @@ class TrackerStack<T>(
     private fun submitObserved(snap: CnnSnapshot) {
         observationSink?.invoke(snap)
         observed.incrementAndGet()
-        val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
+        val occluded = allSquares().count { snap.obs.pOccluded(it) > occludedThr }
         // `grid` remains the model-free fallback for models without a coverage output. Coverage
         // models deliberately report zero here because running both arms wastes a full-board pass.
         val grid = "0x%016x".format(snap.gridOccluded)
@@ -310,12 +311,6 @@ class TrackerStack<T>(
         pipeline.close()
     }
 }
-
-/**
- * The ledger's hand test, numerically the engine's own (`Taint.P_OCCLUDED_THR`, internal there):
- * a square whose `occluded` class dominates is a hand in the observer's OWN reading.
- */
-private const val LEDGER_OCCLUDED_THR = 0.5
 
 private const val MS_PER_S_D = 1000.0
 

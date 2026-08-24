@@ -133,7 +133,7 @@ class TrackerService :
         StackSwitch {
             TrackerStack(
                 TrackerSeed(
-                    onMeasuredBoard(settings.config.value, geometry),
+                    onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec),
                     ::geometry,
                     corners,
                     publisher.lastFen ?: STARTPOS,
@@ -331,7 +331,8 @@ class TrackerService :
             )
         settings.submit = {
             // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
-            stacks.current?.host?.submit(EngineAction.UpdateConfig(onMeasuredBoard(settings.config.value, geometry)))
+            val cfg = onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec)
+            stacks.current?.host?.submit(EngineAction.UpdateConfig(cfg))
         }
         camera =
             TrackerCamera(
@@ -415,7 +416,7 @@ class TrackerService :
                 { settings.appSettings.value },
                 // The config the ENGINE runs, measured boardSize included — the stored knobs
                 // alone would claim config.py's 1600 while the profile served something else.
-                { onMeasuredBoard(settings.config.value, geometry) },
+                { onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec) },
             )
         settings.config
             .onEach { sessionSettings.configChanged(onMeasuredBoard(it, geometry)) }
@@ -525,7 +526,7 @@ class TrackerService :
                         // with nothing. See [onMeasuredBoard].
                         runStartOf(
                             settings.appSettings.value,
-                            onMeasuredBoard(settings.config.value, geometry),
+                            onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec),
                             modelSpec,
                             // The pads the crops are REALLY cut at, so a legacy model shows up as a
                             // profile value nobody chose rather than as an absent field (specs/45).
@@ -660,3 +661,9 @@ private suspend fun declaredModelSpec(
             ModelSpec.parse(cnnAssetsFrom(context, app.modelDir, app.modelAsset).stage().configJson)
         }.getOrNull()
     }
+
+/**
+ * Die Verdeckungsschwelle des MODELLS, wenn es eine nennt — sie folgt aus dessen Guete und ist
+ * deshalb keine Engine-Konstante (`docs/occlusion-gate.md`).
+ */
+private fun TrackerConfig.withCoverageGateOf(spec: ModelSpec?): TrackerConfig = spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
