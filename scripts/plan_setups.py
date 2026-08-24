@@ -109,11 +109,49 @@ def draw(used: dict[str, tuple[str, str]]) -> str:
     return "\n".join(out)
 
 
+def write_html(out: Path, cards, occluders: str) -> None:
+    """Alle Bretter als SVG in EINER Seite — zum Offenlassen, waehrend du aufstellst."""
+    import chess
+    import chess.svg
+
+    css = (
+        "body{font-family:system-ui;background:#14161a;color:#e6e6e6;margin:24px}"
+        ".b{display:inline-block;vertical-align:top;margin:0 22px 30px 0}"
+        "code{background:#232730;padding:2px 6px;border-radius:4px;font-size:12px}"
+        "h2{margin:6px 0 2px;font-size:15px}p{margin:4px 0;font-size:13px;color:#9aa4b2}"
+        "pre{background:#232730;padding:8px;border-radius:6px;font-size:11px;"
+        "white-space:pre-wrap;max-width:360px}"
+    )
+    parts = ["<meta charset='utf-8'><title>Aufstellungen</title>",
+             f"<style>{css}</style>",
+             "<h1>Aufstellungen fuer die seltenen Klassen</h1>"]
+    for i, fen, used, gain in cards:
+        board = chess.Board(fen + " w - - 0 1")
+        # Die belegten Felder markieren — dorthin muss die Figur wirklich.
+        marks = chess.SquareSet(chess.parse_square(sq) for sq in used)
+        svg = chess.svg.board(board, size=340, squares=marks, coordinates=True)
+        bs = chr(92)                      # Zeilenfortsetzung, ohne Escape-Ebenen zu stapeln
+        nl = chr(10)
+        cmd = nl.join([
+            f".venv/Scripts/chesslab.exe occluders composite {bs}",
+            f"  --video &lt;clip.mp4&gt; {bs}",
+            f'  --fen "{fen}" {bs}',
+            f"  --occluders {occluders} --tag comp13-v3",
+        ])
+        parts.append(
+            f"<div class='b'>{svg}<h2>Aufstellung {i}</h2>"
+            f"<p>{len(used)} Figuren, {gain} auf neuen (Figur,Feld)</p>"
+            f"<p><code>{fen}</code></p><pre>{cmd}</pre></div>")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(parts), encoding="utf-8")
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", "--boards", type=int, default=5, help="Wie viele Aufstellungen planen.")
     ap.add_argument("--manifest", default="data/crops/default/manifest.jsonl")
     ap.add_argument("--occluders", default="data/occluders")
+    ap.add_argument("--out", default="data/reports/setup-plan.html",
+                    help="HTML mit Brettbildern. ASCII bleibt auf der Konsole.")
     ap.add_argument("--max-pieces", type=int, default=16,
                     help="Figuren je Brett. Weniger = naeher an einer echten Partie; die "
                          "Nachbarn blenden ueber `pad_side` in jeden Crop mit hinein.")
@@ -129,6 +167,7 @@ def main() -> int:
             print(f"   {cls}: {len(sq):2d} Felder  (dunkel {dark}, hell {len(sq) - dark})")
 
     plan = build(collections.Counter(cov), a.boards, a.max_pieces)
+    cards = []
     for i, used in enumerate(plan, 1):
         fen = to_fen(used)
         gain = sum(1 for sq, (c, p) in used.items() if not cov[(c + p, sq)])
@@ -138,6 +177,11 @@ def main() -> int:
         print("Ingest nach dem Filmen:")
         print("  .venv/Scripts/chesslab.exe occluders composite --video <clip.mp4> \\")
         print(f'    --fen "{fen}" --occluders {a.occluders} --tag comp13-v3')
+        cards.append((i, fen, used, gain))
+
+    write_html(Path(a.out), cards, a.occluders)
+    print()
+    print(f"[OK] Brettbilder -> {a.out}")
     return 0
 
 
