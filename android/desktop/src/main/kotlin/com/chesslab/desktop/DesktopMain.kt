@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
 import java.awt.image.BufferedImage
 import java.io.File
+import java.util.Locale
 import kotlin.system.exitProcess
 
 /**
@@ -565,6 +567,30 @@ private fun openView(
     return view
 }
 
+/**
+ * The signals the engine had AT COMMIT TIME, for calibrating a commit threshold against a target
+ * fabrication rate instead of hand-tuning one. Measured 2026-08-24: they do not separate
+ * fabrications from hits (`docs/commit-calibration.md`), so this stays a diagnostic.
+ */
+private fun DebugDecision.confidenceLine(): String =
+    (
+        "ply=%d best=%.4f second=%.4f margin=%.4f agree=%.4f " +
+            "prior=%b cov=%.4f motion=%.4f changed=%d verify=%s accepted=%b"
+    ).format(
+        Locale.ROOT,
+        ply,
+        bestScore,
+        secondScore,
+        margin,
+        cnnAgreement,
+        priorUsed,
+        gridCoverage,
+        motion,
+        changed.size,
+        verifyOutcome ?: "-",
+        accepted,
+    )
+
 /** The object graph the phone builds too, with this host's frame type and this run's optics. */
 @Suppress("LongParameterList")
 private fun buildStack(
@@ -599,6 +625,7 @@ private fun buildStack(
             startFen = STARTPOS,
             onDecision = {
                 println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
+                println("decision-conf: " + it.confidenceLine())
                 collector?.offer(it)
             },
             // The frame loop's own account of where a move's latency went, on the video clock. The
