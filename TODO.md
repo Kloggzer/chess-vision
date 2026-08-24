@@ -649,3 +649,20 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Offen:** das ist eine BILDmessung. Ob 1,54x Laplace am Val-Wert etwas bewegt, ist ungemessen;
   der Gegentest waere ein Trainingslauf gegen `comp13-occ-bn-lr1e2-bs512` als Basis. Und es faellt
   in `composite.py`, wo gerade ein anderer Kontext arbeitet — vorher abstimmen.
+
+- **`--per-position` von 8 auf 2 oder 1 senken (2026-08-24).** `framescan.select` nimmt heute
+  `per_position=8` und `dirty_per_position=8` (`framescan.py:212`, CLI `cli.py:588`). Acht Bretter
+  je Stellung sind acht fast identische Ansichten desselben Aufbaus — der Datensatz waechst, die
+  Information nicht.
+  **Warum das plausibel ist:** der Korpus traegt 246 Stellungen bei 38 Aufnahmen je Stellung, und
+  ein Lauf mit **3,9 % der Crops** war gleich gut (Memory `corpus-is-threefold-redundant`). Die
+  Redundanz ist also gemessen, nicht vermutet.
+  **Was es braeuchte:** einen Vergleich `--per-position 8` gegen `2` gegen `1` bei sonst gleichem
+  Rezept, gemessen auf dem Test-Split. Erwartung: gleiche `piece_acc` bei einem Viertel bis Achtel
+  der Crops — und damit Platz, mehr STELLUNGEN aufzunehmen statt mehr Bilder derselben.
+  **Nebeneffekt Rechenzeit:** `real13-straight-80-v3` hat 292 105 Trainings-Crops und kostet
+  42,6 s je Epoche. Bei `per-position 2` waeren es rund 73 000 und ~11 s — der Faktor, um den
+  Experimente heute langsam sind.
+  **Achtung:** betrifft NUR den echten Export, nicht den Composite-Pfad. Und `dirty_per_position`
+  separat betrachten: verdeckte Bretter sind das Material fuer den Occlusion-Kopf, dort ist die
+  Redundanz moeglicherweise noetiger.
