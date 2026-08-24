@@ -372,6 +372,19 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         split = {**split, "class_weights": cw}
         print("[loss] class-weight override: "
               + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
+    # Die Gewichte in split.json zaehlen ALLE Zellen, der Occlusion-Verlust sieht nur die
+    # sichtbaren. Verdeckung ist nicht gleich verteilt — weiss 11-15 %, schwarz 2-6 %, weil die
+    # Hand immer von der weissen Seite kommt —, also stimmt die angenommene Haeufigkeit nicht.
+    # Hier statt im Split, damit split.json unangetastet bleibt (es ist die Reproduzierbarkeit).
+    if occluding:
+        from ..dataset import compute_class_weights
+        from .occlusion import PIECE_VISIBLE_MAX
+
+        vis_counts: dict[str, int] = {}
+        for r in train_rows:
+            if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX:
+                vis_counts[r["label"]] = vis_counts.get(r["label"], 0) + 1
+        split = {**split, "class_weights": compute_class_weights(vis_counts, classes)}
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
         from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss
