@@ -25,6 +25,29 @@ Damit ist auch benannt, was `--floor` in `scripts/chain_decode.py` tatsächlich 
 gefundene Wert 0,08 deckelt, wieviel ein einzelnes Feld bezeugen darf; das ist eine
 Korrelationskorrektur ohne diesen Namen.
 
+## Warten kauft keine Unabhängigkeit
+
+Wenn ein Verfahren zwei Stimmen im Abstand von 0,7 s einholt, unterstellt es, dass der Fehler in
+dieser Zeit vergisst. Er tut es nicht. Fehlerkorrelation nach zeitlichem Abstand, innerhalb
+derselben Stellung:
+
+| Abstand | Paare | P(Fehler \| Fehler) | ρ |
+|---|---|---|---|
+| 0,10 s | 149 877 | 0,945 | **0,935** |
+| 0,40 s | 137 793 | 0,914 | 0,897 |
+| 1,00 s | 96 968 | 0,900 | 0,872 |
+| 1,50 s | 81 677 | 0,907 | **0,874** |
+
+Sechs Punkte über den Faktor 15 im Abstand, danach flach. Drei Beobachtungen im Sekundentakt
+tragen also so viel wie drei direkt hintereinander — kosten aber zwei Sekunden mehr.
+
+Das entwertet Cooldowns als Mittel zur Unabhängigkeit. `cnnCooldownS` bleibt trotzdem sinnvoll,
+aber aus einem anderen Grund: als Kostenbremse gegen Reads, die nach derselben Messung ohnehin
+nichts beitragen. Was er NICHT leistet, ist die Stimmen unabhängiger zu machen — wer damit
+argumentiert, argumentiert gegen diese Tabelle.
+
+Gemessen mit `scripts/emission_lag.py` über dieselben 20 Recordings.
+
 ## Beobachtungen wegwerfen macht die Kette besser
 
 `--every N` nimmt nur jeden N-ten Read. Wenn Reads Evidenz wären, müsste mehr davon helfen.

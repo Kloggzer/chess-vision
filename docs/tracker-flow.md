@@ -785,3 +785,32 @@ game that ran 83 plies live. That is not "the CNN got 22 and the rest were hard"
 deadlock, entered later. With the geometry fixed (`specs/41`) both the diff evidence and the CNN
 observations are good at that point, so the failure is in how they are **combined**, not in what
 they see.
+
+## Stand 2026-08-24: 304 / 90 / 7 über zehn Recordings
+
+Der Korpus ist von sechs auf zehn Aufnahmen gewachsen; die 164/24/2 weiter oben sind der alte
+Stand über die alten sechs. Aktuell, Modell `comp13-occ-bn-lr1e2-bs512`, gemessen mit
+`scripts/commit_truth.py`:
+
+| | gefunden | verpasst | erfunden |
+|---|---|---|---|
+| Uhr-Takt (vorher) | 302 | 92 | 9 |
+| **Stellungswechsel-Takt** | **304** | **90** | **7** |
+
+Drei Änderungen desselben Tages stecken darin, zwei davon so gemessen:
+
+**Der Takt.** `evaluationDue` liest, sobald das Brett nach einer Störung einrastet, statt nach der
+Uhr — und schweigt danach bis zur nächsten. Am Gerät fällt damit der Latenzschwanz weg: Median
+0,29 → 0,19 s, max 2,15 → 0,37 s. Der Zähler hängt an `ready`, nicht am Bewegungsbeginn; am Beginn
+gezählt waren es 14× so viele Ereignisse (Hände, Schatten) und die erste Fassung verlor 27 Plies
+(275/119/3). Warum weniger Lesen nicht schadet, steht in `docs/emission-correlation.md`.
+
+**Das Occlusion-Gate** reist jetzt im Modell (`docs/occlusion-gate.md`).
+
+**Der Alarmpfad** fragt endlich `handInFrame()` und nennt den Grund statt „illegal move suspected"
+(`docs/alarm-path.md`). Der `refusedStreak` löst im Korpus nie aus — die zehn Aufnahmen enthalten
+den Fall nicht —, ist dort also neutral und für seinen Zweck ungetestet.
+
+Die Deadlock-Notiz darüber gilt unverändert: der Diff-Referenzanker zieht nur bei einem Commit
+nach. Was 2026-08-24 dazukam, ist die Messung, wie das aussieht, wenn niemand committen kann —
+70-mal derselbe verworfene Kandidat in 9 Sekunden, ohne eine einzige CNN-Auswertung.
