@@ -1,4 +1,12 @@
-"""The tracker's Markov chain, completed and decoded offline (`docs/tracker-flow.md`).
+"""An INSTRUMENT, never a tracker (`docs/tracker-flow.md`).
+
+The offline tracker is `desktop replay`: it runs the shipping `:core-engine` over a video, so it
+cannot diverge from the device by construction. This file is a different algorithm on purpose — it
+answers "how much do the emissions support at best", which the engine cannot answer about itself.
+Nothing in the app calls it and nothing should; what it proves belongs in `:core-engine`, measured
+through `desktop replay` afterwards. Kotlin is the reference implementation.
+
+The chain, completed and decoded offline.
 
 Hidden state: the board position. Transition: one legal ply or nothing. Emission: the recorded
 per-square distribution in `model-reads.jsonl`, weighted down by that square's coverage. Decoding:
@@ -84,10 +92,12 @@ def touched(board, move):
     return out
 
 
-def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-reads.jsonl"):
+def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-reads.jsonl", every=1):
     candidate = json.loads((ROOT / session / "candidate.json").read_text(encoding="utf-8"))
     table = load_reads(session, floor, use_coverage, temp, reads)
-    frames = sorted(table)
+    # `every` thins the frames. The cost of every stage is linear in them, and a recording carries
+    # far more boards than plies — the question a sweep answers is how few still name every move.
+    frames = sorted(table)[::every]
     stay_cost = math.log(1.0 - p_move)
 
     start = chess.Board(candidate.get("start_fen") or chess.STARTING_FEN)
@@ -116,6 +126,55 @@ def decode(session, beam, p_move, floor, use_coverage, temp=1.0, reads="model-re
     return max(states, key=lambda s: s[0]), candidate
 
 
+def filter_decode(session, beam, p_move, floor, use_coverage, temp=1.0,
+                  reads="model-reads.jsonl", every=1):
+    """The same chain, but committing as it goes — no lookahead, no taking anything back.
+
+    A streaming beam emits what every surviving hypothesis already agrees on: the longest common
+    prefix. That prefix is then FINAL and the beam is pruned to it, which is what makes this a
+    filter rather than a smoother. Everything else — the emission, the transition prior, the beam
+    width — is identical to [decode], so the difference between the two is the lookahead alone.
+    """
+    candidate = json.loads((ROOT / session / "candidate.json").read_text(encoding="utf-8"))
+    table = load_reads(session, floor, use_coverage, temp, reads)
+    frames = sorted(table)[::every]
+    stay_cost = math.log(1.0 - p_move)
+
+    start = chess.Board(candidate.get("start_fen") or chess.STARTING_FEN)
+    states = [(0.0, start, ())]
+    committed: tuple = ()
+    for frame in frames:
+        cells = table[frame]
+        scored = {}
+        for logp, board, path in states:
+            base = emission(board, cells)
+            key = (board.board_fen(), board.turn, len(path))
+            if key not in scored or logp + stay_cost + base > scored[key][0]:
+                scored[key] = (logp + stay_cost + base, board, path)
+            moves = list(board.legal_moves)
+            move_cost = math.log(p_move / max(len(moves), 1))
+            for mv in moves:
+                sqs = touched(board, mv)
+                before = sum(cells[sq][label_of(board, sq)] for sq in sqs)
+                nxt = board.copy(stack=False)
+                nxt.push(mv)
+                after = sum(cells[sq][label_of(nxt, sq)] for sq in sqs)
+                nxt_path = path + ((frame, mv.uci()),)
+                total = logp + move_cost + base - before + after
+                k2 = (nxt.board_fen(), nxt.turn, len(nxt_path))
+                if k2 not in scored or total > scored[k2][0]:
+                    scored[k2] = (total, nxt, nxt_path)
+        states = sorted(scored.values(), key=lambda s: -s[0])[:beam]
+        shortest = min(len(p) for _, _, p in states)
+        agreed = 0
+        while agreed < shortest and len({p[agreed][1] for _, _, p in states}) == 1:
+            agreed += 1
+        if agreed > len(committed):
+            committed = states[0][2][:agreed]
+            states = [s for s in states if s[2][:agreed] == committed]
+    return (max(states, key=lambda s: s[0])[0], None, committed), candidate
+
+
 def lcs_score(reference, found):
     """found / missed / invented, the replay scorer's shape: an LCS over the SAN sequences."""
     n, m = len(reference), len(found)
@@ -136,10 +195,13 @@ if __name__ == "__main__":
     ap.add_argument("--no-coverage", action="store_true")
     ap.add_argument("--temp", type=float, default=1.0)
     ap.add_argument("--reads", default="model-reads.jsonl")
+    ap.add_argument("--every", type=int, default=1)
+    ap.add_argument("--filter", action="store_true", help="commit as you go, no lookahead")
     args = ap.parse_args()
 
-    (logp, board, path), candidate = decode(
-        args.session, args.beam, args.pmove, args.floor, not args.no_coverage, args.temp, args.reads
+    run = filter_decode if args.filter else decode
+    (logp, board, path), candidate = run(
+        args.session, args.beam, args.pmove, args.floor, not args.no_coverage, args.temp, args.reads, args.every
     )
     reference = [m["san"] for m in candidate["moves"]]
     replay = chess.Board(candidate.get("start_fen") or chess.STARTING_FEN)
@@ -149,7 +211,7 @@ if __name__ == "__main__":
         sans.append(replay.san(mv))
         replay.push(mv)
     found, missed, invented = lcs_score(reference, sans)
-    print(f"{args.session}  beam={args.beam} pmove={args.pmove} floor={args.floor} temp={args.temp} reads={args.reads}")
+    print(f"{args.session}  beam={args.beam} pmove={args.pmove} floor={args.floor} temp={args.temp} filter={args.filter}")
     print(f"  Referenz {len(reference)} Plies, Kette {len(sans)} Plies, logP {logp:.0f}")
     print(f"  gefunden {found} / verpasst {missed} / erfunden {invented}")
     if missed or invented:

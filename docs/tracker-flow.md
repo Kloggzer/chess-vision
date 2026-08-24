@@ -305,6 +305,29 @@ the repair (1 344 rows) and holds after it. Originals sit beside each file as `.
 two remaining phantoms are 00-39-57's `Nbc3`/`Bf3`, committed transposed but reconverging three
 plies later. By the phantom veto the corpus now carries no fabrication at all.
 
+**The chain is an instrument and must stay one (user, 2026-08-24):** *"ich möchte in Zukunft, dass
+der Offline-Tracker nie vom Live-Tracker divergiert — der Offline-Tracker soll den Live-Tracker für
+Replays ermöglichen."* That offline tracker is `desktop replay`, which runs the shipping
+`:core-engine` and therefore cannot drift from the device. `scripts/chain_decode.py` is a second
+algorithm on purpose and answers a question the engine cannot ask about itself; it may never become
+a production path. What it proves is ported into `:core-engine` and re-measured through `replay`.
+
+Run as a committing FILTER — same beam, same emission, but the longest common prefix of the
+surviving hypotheses is emitted and final, no lookahead — it is not a replacement:
+
+| recording | smoother | filter | live tracker |
+| --- | --- | --- | --- |
+| 2026-08-16-20-41-33 | 66 / 0 / 0 | 65 / 1 / 0 | — |
+| 2026-08-08-00-39-57 | 67 / 0 / 0 | 65 / 2 / 0 | 65 / 2 / 2 |
+| 2026-08-07-13-52-38 | 24 / 1 / 0 | **16 / 9 / 0** | **25 / 0 / 0** |
+| 2026-08-08-11-55-19 | 15 / 0 / 0 | 14 / 1 / 0 | 15 / 0 / 0 |
+
+Dropping the lookahead costs 12 of 172 plies, and on 13-52-38 the filter falls below the tracker it
+was meant to replace — the frame-diff channel, which the chain does not have at all, carries that
+recording. An earlier estimate that lookahead is worth "5 %" counted FRAMES whose best path was
+already a prefix of the final one (249 of 262); that does not translate into plies, because a single
+revision a filter can no longer make costs the rest of the game.
+
 ### Building recovery confidence under a hand — built, measured, reverted (2026-08-23)
 
 `recoveryVoteConfirmed` refuses a vote when ANY square carries a hand flag, so a hand over six
