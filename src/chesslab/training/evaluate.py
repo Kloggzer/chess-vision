@@ -10,11 +10,15 @@ from .data import crop_of_rows, filter_rows_by_split, load_manifest, load_split
 from .model import stock_batchnorm
 
 
-def load_run(run_dir: Path):
+def load_run(run_dir: Path, weights: str | None = None):
     """Load model + run config from a run directory (best.pt, otherwise last.pt).
 
     Public because `chesslab.serving.load_run` (the canonical inference facade,
     see specs/rework/01-serving-facade.md) calls this function with a cache in front.
+
+    [weights] names a checkpoint inside the run instead — `swa.pt`, `best_piece.pt`. A run can
+    hold several and the training deliberately picks no winner among them, so the caller says
+    which one it means. Note that the temperature in `model_card.json` was fitted on `best.pt`.
     """
     import torch
 
@@ -30,9 +34,14 @@ def load_run(run_dir: Path):
                         norm=cfg.get("norm", "batchnorm"),
                         head="combined" if occluding else cfg.get("head", "combined"),
                         in_chans=input_repr_of(cfg)[1])
-    ckpt = run_dir / "best.pt"
-    if not ckpt.exists():
-        ckpt = run_dir / "last.pt"
+    if weights:
+        ckpt = run_dir / weights
+        if not ckpt.exists():
+            raise FileNotFoundError(f"{run_dir.name} holds no {weights}")
+    else:
+        ckpt = run_dir / "best.pt"
+        if not ckpt.exists():
+            ckpt = run_dir / "last.pt"
     model.load_state_dict(torch.load(ckpt, map_location="cpu"))
     return model, cfg
 
@@ -137,7 +146,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         return 1
     else:
         ds = SquareDataset(rows, classes, tf, with_coverage=with_coverage)
-    res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size)
+    res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size,
+                           keep_workers=False)
 
     # 1. Board-Accuracy (Hauptmetrik)
     if input_size is not None:
@@ -148,9 +158,32 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     bd = occupancy_piece_breakdown(classes, list(res["trues"]), list(res["preds"]))
     occ_bacc = occupancy_board_acc(rows, classes, list(res["trues"]), list(res["preds"]))
-    print(f"Occupancy: square {bd['occ_acc']:.4f} | board {occ_bacc:.4f}   "
+    print(f"Occupancy: square {bd['occupied_acc']:.4f} | board {occ_bacc:.4f}   "
           f"Figur (auf besetzt): {bd['piece_acc']:.4f}   "
           f"Fehler: Typ {bd['type_err']:.3f} / Farbe {bd['color_err']:.3f}")
+    # Dieselbe Aufschluesselung NUR auf sichtbaren Zellen. Der Trainingsverlust maskiert
+    # alles ueber PIECE_VISIBLE_MAX aus — es zu benoten misst, was das Modell nie lernen
+    # sollte. Beide Zahlen stehen da, damit niemand die falsche zitiert.
+    from .occlusion import PIECE_VISIBLE_MAX
+
+    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
+    bd_vis = None
+    if 0 < len(vis) < len(rows):
+        bd_vis = occupancy_piece_breakdown(
+            classes, [res["trues"][i] for i in vis], [res["preds"][i] for i in vis])
+        share = 100.0 * (len(rows) - len(vis)) / len(rows)
+        print(f"  nur SICHTBAR ({share:.1f} % verdeckt ausgelassen): "
+              f"Figur {bd_vis['piece_acc']:.4f}   Belegung {bd_vis['occupied_acc']:.4f}   "
+              f"Typ {bd_vis['type_err']:.3f}")
+    # Welche Verwechslungen tragen die ueberzeugten Fehler? Ein Mittelwert sagt nicht,
+    # ob es viele laue oder wenige sehr sichere sind — und das entscheidet die Gegenmassnahme.
+    from .data import confident_confusions
+
+    top = confident_confusions(classes, res["trues"], res["preds"], res.get("conf") or [])
+    if top:
+        print(f"Ueberzeugte Fehler (conf auf Fehlern {res.get('conf_wrong', 0):.3f}):")
+        for r in top:
+            print(f"   {r['true']:>5} -> {r['pred']:<5} n={r['n']:6d}  conf {r['mean_conf']:.3f}")
     # 1c. Per session: a corpus mean hides the one recording that carries the whole error.
     from .data import per_session_metrics
 
@@ -158,7 +191,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     if len(per_session) > 1:
         print("Per session (worst board accuracy first):")
         for sid, m in sorted(per_session.items(), key=lambda kv: kv[1]["board_acc"]):
-            print(f"  {sid:<34} board {m['board_acc']:.4f}  occ {m['occ_board_acc']:.4f}  "
+            print(f"  {sid:<34} board {m['board_acc']:.4f}  occ {m['occupied_board_acc']:.4f}  "
                   f"square {m['square_acc']:.4f}  ({m['crops']} crops)")
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
@@ -178,7 +211,11 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + stem + '.txt')} (+ .png)")
 
     summary = {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
-               "square_acc": res["square_acc"], "occ_acc": bd["occ_acc"], "occ_board_acc": occ_bacc,
+               "square_acc": res["square_acc"], "occupied_acc": bd["occupied_acc"],
+               "occupied_board_acc": occ_bacc,
+               "visible_piece_acc": (bd_vis or {}).get("piece_acc"),
+               "visible_occupied_acc": (bd_vis or {}).get("occupied_acc"),
+               "visible_type_err": (bd_vis or {}).get("type_err"),
                "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
                "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
                "per_session": per_session}

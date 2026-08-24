@@ -656,6 +656,10 @@ def realgames_model_read(
     model: str = typer.Option(..., "--model", help="Run dir of a model that did NOT train on "
                                                    "this session (refused if it did)."),
     device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
+    weights: str | None = typer.Option(None, "--weights",
+                                       help="Checkpoint inside the run instead of its default: "
+                                            "swa.pt, best_piece.pt. A run holds several and the "
+                                            "training picks no winner among them."),
 ) -> None:
     """Read every square of a session with a model into `model-reads.jsonl`.
 
@@ -668,7 +672,7 @@ def realgames_model_read(
     from . import occluded_model
 
     try:
-        res = occluded_model.read_session(name, _Path(model), device=device)
+        res = occluded_model.read_session(name, _Path(model), device=device, weights=weights)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -1524,6 +1528,11 @@ def train_cmd(
           "--hard-negative-multiplier",
           help="Sampling weight for paths in data/reports/hard_empty.jsonl (1 = disabled).",
       ),
+    swa: bool = typer.Option(False, "--swa",
+                             help="Gewichte ueber die letzten Epochen mitteln (SWA). Findet flache Minima, die die Konfidenz richtiger von falschen Vorhersagen besser trennen (FMFP, ECCV 2022). Der Plan davor bleibt unveraendert."),
+    swa_lr: float = typer.Option(5e-4, "--swa-lr", help="Konstante Rate ab dem SWA-Start."),
+    swa_start: float = typer.Option(0.75, "--swa-start",
+                                    help="Anteil der Epochen, ab dem gemittelt wird."),
     split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
                                      "(default: split.json). Lets several folds share ONE packed "
                                      "corpus instead of packing the same crops per fold."),
@@ -1560,7 +1569,8 @@ def train_cmd(
                                erase_p=erase_p,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
-                                 hard_negative_multiplier=hard_negative_multiplier, split=split))
+                                 hard_negative_multiplier=hard_negative_multiplier, split=split,
+                                 swa=swa, swa_lr=swa_lr, swa_start=swa_start))
 
 
 @app.command("eval")

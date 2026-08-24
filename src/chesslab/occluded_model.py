@@ -70,11 +70,12 @@ def check_not_circular(run_dir: Path, session_id: str) -> None:
         )
 
 
-def all_reads(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[dict]:
+def all_reads(run_dir: Path, cells: list[np.ndarray], device: str = "cpu",
+              weights: str | None = None) -> list[dict]:
     """Per crop the full softmax AND the occlusion head's coverage, where the run carries one."""
     from . import serving
 
-    return serving.predict_arrays(run_dir, cells, device=device, return_probs=True)
+    return serving.predict_arrays(run_dir, cells, device=device, return_probs=True, weights=weights)
 
 
 def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
@@ -116,7 +117,7 @@ READS_FILE = "model-reads.jsonl"
 
 
 def read_session(name: str, model_dir: Path, *, device: str = "cpu",
-                 progress: bool = True) -> dict:
+                 progress: bool = True, weights: str | None = None) -> dict:
     """Every square of every board, as the model reads it, into `model-reads.jsonl`.
 
     EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
@@ -137,9 +138,10 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     written = 0
     with path.open("w", encoding="utf-8") as fh:
         fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
+                             **({"_weights": weights} if weights else {}),
                              "_written_at": datetime.now(UTC).isoformat()}) + "\n")
         for n, row in enumerate(rows, 1):
-            reads = all_reads(model_dir, frame_cells(session_dir, row, profile), device)
+            reads = all_reads(model_dir, frame_cells(session_dir, row, profile), device, weights)
             stem = Path(row["frame"]).stem
             labels = GameState(row["fen"]).labels()
             for sq, read in zip(squares, reads, strict=True):

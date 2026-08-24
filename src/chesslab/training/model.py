@@ -348,12 +348,18 @@ def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:
     return len(keep), len(sd) - len(keep)
 
 
-def checkpoint_of(run_dir):
-    """A run's weights: `best.pt`, else `last.pt`, else None — the order every caller wants."""
+def checkpoint_of(run_dir, prefer: str | None = None):
+    """A run's weights: `best.pt`, else `last.pt`, else None — the order every caller wants.
+
+    [prefer] names another checkpoint of the same run first (`swa.pt`, `best_piece.pt`). It is
+    not the default order on purpose: the training writes all of them, prints their scores side
+    by side and picks NO winner, so preferring one here would decide that silently — and the
+    temperature in `model_card.json` was fitted on `best.pt`.
+    """
     from pathlib import Path
 
     d = Path(run_dir)
-    for name in ("best.pt", "last.pt"):
+    for name in ((prefer,) if prefer else ()) + ("best.pt", "last.pt"):
         if (d / name).is_file():
             return d / name
     return None
