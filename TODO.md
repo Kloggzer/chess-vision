@@ -6,6 +6,21 @@
 
 ## Next up (agreed, not started)
 
+- **Beide Occlusion-Arme gegeneinander messen** (offen seit Wochen, CLAUDE.md: *„never been
+  measured against each other"*). Auf dem Gerät läuft heute NUR der Coverage-Kopf: sobald ein
+  Modell `coverage_output` deklariert, schaltet `TrackerService` den Rillen-Arm ab
+  (`runGridOcclusion = coverageOutput != true`) — und alle aktuellen Modelle deklarieren ihn. Der
+  abgeschaltete Arm ist der mit dem 67/67-Meilenstein hinter sich, der laufende hat keine Messung.
+  Der Desktop-Replay fährt beide, der A/B ist also machbar; er braucht nur, dass der Schalter ein
+  Knob wird statt einer Zeile in `TrackerService`. Drei Arme: Modell / Rillen / beide.
+
+- **Der `refusedStreak` ist im Korpus untestbar** (2026-08-24). Er öffnet das CNN-Tor nach drei
+  identischen Ablehnungen und war die Antwort auf 70× `Kf1` in 9 Sekunden ohne eine einzige
+  Auswertung. Im A/B über die zehn Recordings ändert er **nichts** — 304/90/7 in beiden Armen, bei
+  identischen Read-Zahlen —, weil keine der Aufnahmen den Fall enthält: dort zieht niemand illegal
+  im Schach. Also entweder eine Aufnahme davon machen, oder einen Clip bauen. Bis dahin steht eine
+  Engine-Änderung ohne Beleg im Baum.
+
 - **Das Training ist nicht deterministisch** (Nutzer, 2026-08-24: *„swa ist leider auch nur im
   Rauschen, der Trainingskram scheint nicht deterministisch zu sein"*). Solange zwei Läufe mit
   identischem Rezept auseinanderlaufen, ist **kein** A/B entscheidbar — das SWA-Experiment
@@ -26,9 +41,14 @@
   Was bleibt, ist die Coverage-Lücke. Python ist seit 2026-08-18 auf 13 Klassen +
   Coverage-Regression: `dataset build` defaultet auf `pieces13`, `train` auf `--head occlusion`,
   das Modell gibt 13 Softmax-Logits plus EIN unabhängiges Sigmoid.
-  Das Handy bündelt nur noch `real14-80` (Default, echtes 14-Klassen-Softmax mit `occluded` auf
-  Index 13) und `id35-80` (13 Klassen, also `pOccluded = 0.0`) — **keines** deklariert
-  `coverage_output`.
+  **Der Export ist seit 2026-08-24 erledigt.** Das Handy bündelt vier Modelle: `real14-80`
+  (Default, 14-Klassen-Softmax), `id35-80` (13 Klassen, `pOccluded = 0.0`) und drei mit
+  `coverage_output` — `comp13-occ-bn-lr1e2-bs512`, `real13-ms-s3-hn4-bn80`,
+  `real13-ms-s2-bn80-bs256-swa1e4`. `scripts/stage_model_asset.py` legt sie ab und ergänzt dabei
+  `coverage_output` und `coverage_gate`, die `chesslab export` beide NICHT schreibt.
+  **Offen ist nur noch Schritt (3):** der Replay-A/B gegen `real14-80`, mit der Veto-Metrik als
+  Entscheider. Und: `BUNDLED_MODELS` ist handgepflegt — ein Modell allein im Asset-Ordner
+  erscheint nie im Picker.
   **Die Bruchstelle ist der Export, nicht die Leseseite.** `ModelSpec.coverageOutput` und
   `observationFromProbs` lesen die Extraspalte längst, die Vertragstests dafür stehen
   (`OnnxSquareClassifierContractTest`) — sie feuern nur nie. Von den zehn Occlusion-Läufen ist
@@ -141,7 +161,14 @@
   (`core-engine/Taint.kt`, Knob `modelHandGate`) zählt occluded-Flags nur noch, wenn sie
   handförmig sind (adjazentes Paar, die Regel des Grid-Arms) UND Motion frisch ist oder der
   Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
-  Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
+  *Gemessen 2026-08-24, gegen die Vermutung:* die BREITE der Vetos ist kein Fehler. Aus 11 306
+  gematteten Frames deckt eine echte Hand im Median 3 Felder, im p90 **23** und maximal 41 — eine
+  Ausdehnungsgrenze würde echte Hände wegwerfen. Der Coverage-Kopf ist zudem gut kalibriert (echte
+  Verdeckung < 5 % → Vorhersage Median 0,001; > 45 % → 0,838). Was fehlte, war die SCHWELLE: 0,5
+  ließ Reads durch, die zu 84 % falsch sind. Sie reist jetzt als `coverage_gate` im Modell
+  (`docs/occlusion-gate.md`). Offen bleibt der A/B der beiden Arme gegeneinander — Coverage-Kopf
+  gegen Rillen —, den CLAUDE.md seit Wochen als „never measured" führt und den der Schalter
+  `runGridOcclusion = coverageOutput != true` heute gar nicht zulässt.
 
 - **ERLEDIGT ANDERS, 2026-08-21: der Mesh nimmt die Wölbung, nicht die Linse.** Gemessen über
   drei Rig-Aufnahmen mit Hold-out (`scripts/straighten_ab.py`): roher Brett-Bogen 15,2–16,6 px,
@@ -613,37 +640,6 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Offen:** ob 1,24-1,33x am Val-Wert etwas bewegen. Gegentest gegen
   `comp13-occ-bn-lr1e2-bs512`.
 
-- **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
-  RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
-  Reservierung sind OpenBLAS-Thread-Arenen (14 Threads = 14 Kerne), nicht Torch selbst:
-  `OPENBLAS_NUM_THREADS=1` druckt den Commit auf **0,28 GB (12x)** und laesst
-  `torch.get_num_threads()` trotzdem auf 14. `OMP_NUM_THREADS=1` spart genauso viel, setzt aber
-  auch Torch auf 1 Thread; `MKL_NUM_THREADS` tut im ROCm-Build gar nichts. Skaliert linear:
-  2 Threads 0,45 GB, 4 Threads 0,79 GB.
-  **Warum das zaehlt:** 16 Dataloader-Worker = 56 GB Commit allein fuers Importieren. Am
-  2026-08-23 hielten 44 verwaiste python.exe **115 GB Commit** von 160 GB Limit, und Tests fielen
-  mit `WinError 1455 Auslagerungsdatei zu klein` + `OpenBLAS error: Memory allocation still failed`.
-  Das ist der Mechanismus hinter „max 8 Worker".
-  **Naechster Schritt:** `OPENBLAS_NUM_THREADS=1` fuer Worker-Prozesse setzen (GPU-Pfade wie SAM 3
-  nutzen OpenBLAS ohnehin nicht) — vorher auf den CPU-lastigen Pfaden (`dataset build`) die
-  Laufzeit gegenmessen, nicht blind setzen.
-
-- **`OPENBLAS_NUM_THREADS=1` fuer die uebrigen Torch-Prozesse pruefen (2026-08-23).** Gesetzt ist
-  der Cap jetzt in `config.loader_kwargs` (alle Loader-Worker) und im SAM-3-Alpha-Worker — beides
-  GPU-Pfade, die OpenBLAS nicht anfassen. **Offen:** `serving.py` haelt einen langlebigen
-  Torch-Prozess und wuerde 3,2 GB Commit sparen, macht aber ggf. CPU-Inferenz — vorher die
-  Latenz messen, nicht blind setzen. `training/evaluate.py` und `gradcam.py` laufen kurz, lohnen
-  kaum. Der Blender-Sharder in `cli.py` spawnt keine Torch-Prozesse und ist nicht betroffen.
-
-- **SAM 3.1 ist fuer uns kein Upgrade (geprueft 2026-08-23).** `facebook/sam3.1` enthaelt KEIN
-  `model.safetensors`, nur `sam3.1_multiplex.pt` (3,50 GB); die config sagt
-  `architectures: ['Sam3VideoModel']`, `model_type: sam3_video`. `Sam3Model.from_pretrained`
-  laedt das nicht — ein Drop-in-Test existiert in unserem Pfad nicht.
-  Inhaltlich passt es auch nicht: der Gewinn ist Object Multiplexing (bis 16 Objekte in einem
-  Forward-Pass, ~7x schnelleres Tracking, bessere VOS-Zahlen). Wir schneiden EIN Standbild ohne
-  Tracking, und gemessen kommt genau EINE Instanz zurueck (`person`/`hand` treffen,
-  `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
-  **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
 
 - **Vorschlag: den Composite-Pool nicht ueber 128 packen (gemessen 2026-08-23).** `pack_dataset`
   schneidet heute aus `data/crops/comp13-v3` (128 px) auf 80. Das ist ein Resampling zu viel: der
