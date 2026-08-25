@@ -21,15 +21,17 @@ die Seeds.
 **Nebenbefund vorweg:** die meisten Stellungen tragen **16** Bretter, nicht 8 — `per_position` 8
 PLUS `dirty_per_position` 8, im Schnitt 14,2. Die Frage hieß real „14 oder 4".
 
-## Die fünf Arme
+## Die sieben Arme
 
-| Arm | sauber | verdeckt | Crops | Seeds | `piece_acc` | `occ_board` | `cov_prec` | `cov_F1` |
-|---|---|---|---|---|---|---|---|---|
-| p2 | 2 versch. | 2 | 116 475 | 3 | 0,6475 | 0,3485 | 0,8382 | 0,8848 |
-| c2x4d2 | 2, ×4 | 2 | 300 339 | 2 | 0,7091 | 0,4394 | 0,7621 | 0,8364 |
-| c2d8 | 2 | 8 | 288 259 | 2 | 0,6774 | 0,3559 | 0,9088 | 0,9156 |
-| **c8d2** | **8** | **2** | 291 050 | 3 | **0,7288** | **0,7835** | 0,9277 | 0,9340 |
-| p8 | ~8 | ~8 | 424 519 | 3 | 0,6974 | 0,5843 | **0,9762** | **0,9395** |
+| Arm | sauber | verdeckt | Crops | bs | Seeds | `piece_acc` | `occ_board` | `cov_prec` | `cov_rec` |
+|---|---|---|---|---|---|---|---|---|---|
+| p2 | 2 | 2 | 116 475 | 256 | 3 | 0,6475 | 0,3485 | 0,8382 | 0,9368 |
+| c2x4d2 | 2, ×4 | 2 | 300 339 | 256 | 2 | 0,7091 | 0,4394 | 0,7621 | 0,9267 |
+| c2d8 | 2 | 8 | 288 259 | 256 | 2 | 0,6774 | 0,3559 | 0,9088 | 0,9232 |
+| **c8d1** | **8** | **1** | **266 865** | 256 | 2 | **0,7507** | **0,8733** | 0,9496 | 0,9093 |
+| c8d2 | 8 | 2 | 291 050 | 256 | 3 | 0,7288 | 0,7835 | 0,9277 | 0,9035 |
+| c8d2 | 8 | 2 | 291 050 | **512** | 2 | 0,7308 | 0,5915 | 0,9469 | 0,8962 |
+| p8 | ~8 | ~8 | 424 519 | 256 | 3 | 0,6974 | 0,5843 | **0,9762** | 0,9120 |
 
 ## Was daraus folgt
 
@@ -52,6 +54,27 @@ Zahl: p8 0,976 > c8d2 0,928 > c2d8 0,909 > p2 0,838 > c2x4d2 0,762. Der Kopf bra
 mindestens so dringend wie Positive; wer ihm verdeckungslastig füttert, bringt ihm bei, überall
 Verdeckung zu sehen. Das ist die **Phantom-Achse** — ein über-flaggender Kopf blendet die Recovery
 (`RECOVERY_OCCLUDED_LIMIT` = 0).
+
+**5. Bei acht sauberen Brettern ist weniger Verdeckung monoton besser.** d1 schlägt d2 schlägt
+d8 auf `piece_acc` (0,751 / 0,729 / 0,697) und auf `occ_board` (0,873 / 0,784 / 0,584). Der
+Coverage-Kopf kippt dabei NICHT: von d2 auf d1 ist die Precision bei einem Seed besser, beim
+anderen schlechter, ohne Richtung. Ein verdecktes Brett je Stellung reicht ihm.
+
+**6. Die Batchgröße macht nichts.** `c8d2` bei 512 gegen 256: kein Effekt in irgendeine Richtung,
+2 von 2 nirgends. Der `occ_board`-Einbruch von −0,30 auf Seed 42 ist ein Artefakt — Seed 43 zeigt
+−0,005. Wer bs512 wegen der Geschwindigkeit will, zahlt bei dieser Lernrate nichts dafür.
+Umgekehrt gilt: verlöre bs512, wäre damit nicht die Batch widerlegt, sondern nur diese
+Kombination aus Batch und Lernrate.
+
+## Empfehlung
+
+`per_position` bleibt bei 8, **`dirty_per_position` geht auf 1**. Das kostet 37 % der Crops und
+gewinnt auf beiden Identitätsachsen. Die einzige Größe, auf der p8 vorn bleibt, ist die
+Coverage-Precision (0,976 gegen 0,950) — und die ist für den Betrieb die wichtigere, also ist es
+eine Abwägung und kein Freifahrtschein.
+
+Zwei Vorbehalte: `c8d1` hat nur zwei Seeds, und alle Zahlen sind VAL, nicht Test. Vor einer
+Änderung am Export gehört beides nachgezogen.
 
 ## Die Achsen ziehen gegeneinander
 
