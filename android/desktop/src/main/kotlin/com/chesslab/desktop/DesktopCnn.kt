@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ASSET_ROOT_DIR
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
@@ -109,3 +110,13 @@ fun desktopModelSpec(model: String): ModelSpec? =
     runCatching { ModelSpec.parse(desktopCnnAssets(model).stage().configJson) }
         .onFailure { println("no model spec for '$model' — crops keep the geometry's defaults (${it.message})") }
         .getOrNull()
+
+/**
+ * The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`): it follows
+ * from that run's accuracy and differs by a factor of seven between families.
+ *
+ * `:app` has applied it on attach since it was measured; the replay did not, so every measurement
+ * here ran at the 0.5 default while the phone ran the model's own — and a square covered between
+ * the two counted as a witness in one and not in the other.
+ */
+fun TrackerConfig.withCoverageGateOf(spec: ModelSpec?): TrackerConfig = spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this

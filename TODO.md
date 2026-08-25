@@ -4,6 +4,24 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Der Replay hat das Coverage-Gate des Modells nie angewandt (gefunden 2026-08-25)
+
+`:app` setzt es beim Attach (`withCoverageGateOf`, `TrackerService.kt:679`), der Desktop nicht —
+also lief **jede Replay-Messung dieses Projekts** mit dem Default `pOccludedThr = 0,5`, waehrend
+das Geraet die 0,15 des Modells faehrt. Ein Feld, das zwischen den beiden verdeckt ist, zaehlte im
+Replay als Zeuge und auf dem Telefon nicht. Behoben; `docs/occlusion-gate.md` sagt seit der Messung,
+dass die Schwelle mit dem Modell reist.
+
+**Die Diff-Engine ist davon unberuehrt** — voller Regressionssatz vorher/nachher zeilengleich. Was
+sie aus der Coverage liest, liegt offenbar nie zwischen den beiden Schwellen. Fuer die
+Stillstands-Engine, die jedes Feld ueber dem Gate aus der Evidenz nimmt, ist es dagegen der
+Unterschied zwischen 7 und 67 Plies auf `2026-08-08-00-39-57`.
+
+**Und es ist kein einseitiger Gewinn.** Auf `VID_20260824_154327` kostet dasselbe korrekte Gate:
+101/16/0 mit 0,5, aber 66/51/0 mit 0,15 — beide ohne Phantome. Das strengere Gate verwirft mehr
+Felder als verdeckt und damit auch Evidenz. Die 0,15 stammen aus einer Messung an anderem Material
+(loss ratio 2 gegen die SAM-Matten); ob sie fuer diese Kamera stimmen, ist eine eigene Frage.
+
 ## Pull ist gebaut — und war NICHT die Ursache von `00-39-57` (gemessen 2026-08-25)
 
 `EngineOps.wantsCnnRead()` ist die Bedarfsfrage, die der Naht fehlte: der Observer stellt sie einmal
@@ -24,11 +42,11 @@ Bild etwas geaendert hat UND seither eine Hand darueber war.
 Ergebnis unveraendert oder besser: 15/0/0, 35/0/0 — und `154327` gegen die volle 117-Ply-PGN
 **101/16/0**, gegen 81/36/0 unter Push und 10/107/0 mit der Diff-Engine. Null Phantome.
 
-**Die Hypothese zu `00-39-57` ist widerlegt.** Sie lautete: der Arm bricht dort ein (7 statt 67),
-weil die Lesungen geschoben statt gezogen kommen. Mit Pull steht dasselbe Ergebnis, 7/60/2. Bleibt
-die zweite Erklaerung, und sie ist jetzt die einzige: **die Bildquelle**. Der Port bekommt
-`FrameInput.bgrDet`, den Detection-Warp bei `detSize`, und skaliert selbst auf 160 px; in der Arena
-las derselbe Code das volle Brett. Dort ansetzen.
+**Die Hypothese zu `00-39-57` war widerlegt und ist inzwischen geloest.** Nicht die Taktung: mit
+Pull stand dasselbe 7/60/2. Es waren zwei andere Dinge, beide gemessen: das Bild (`bgrDet` ist
+schon ein Resample, 1920 -> 464 -> 160 glaettet zweimal) brachte 7 -> 24, und das fehlende
+Modell-Gate den Rest, 24 -> **67/0/0 bei 192 Lesungen**. Der Agent hatte in der Arena 67/0/0 bei
+178 — die Zahlen decken sich, weil er dort immer beides richtig hatte.
 
 **Neu daneben:** mit Pull faellt `11-59-12` auf 66/7/97 (Push: 52/21/0) — mehr gefunden, aber die
 Skip-Kaskade des Agenten tritt auf (er hatte dort 66/7/171). Das ist derselbe Mittelspiel-Knoten,

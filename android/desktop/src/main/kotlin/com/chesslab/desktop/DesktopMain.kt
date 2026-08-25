@@ -380,7 +380,11 @@ internal fun replayRun(
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
         val geometry = boardGeometryFor(quad).withCropOf(spec)
-        val config = options.trackerConfig(geometry, live = camera != null)
+        // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`), and
+        // `:app` has applied it on attach since it was measured. The replay did not — so every
+        // measurement here ran at the 0.5 default while the phone ran the model's own 0.15, and a
+        // square between the two counted as a witness in one and not in the other.
+        val config = options.trackerConfig(geometry, live = camera != null).withCoverageGateOf(spec)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")

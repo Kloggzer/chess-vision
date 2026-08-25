@@ -128,6 +128,11 @@ data class ReplayOptions(
     val engine: EngineKind = EngineKind.CLASSIC,
 ) {
     companion object {
+        /** One of the engine names, or a refusal that lists them — a typo must not pick a default. */
+        private fun engineNamed(name: String): EngineKind =
+            EngineKind.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
+                ?: error("engine= wants one of ${EngineKind.entries.map { it.name.lowercase() }}, got '$name'")
+
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
         private val FLAGS: Map<String, (ReplayOptions) -> ReplayOptions> =
             mapOf(
@@ -183,12 +188,7 @@ data class ReplayOptions(
                             word.removePrefix("start=").toDoubleOrNull()?.takeIf { it >= 0 }
                                 ?: error("start= wants seconds, got '$word'"),
                     )
-                word.startsWith("engine=") ->
-                    options.copy(
-                        engine =
-                            EngineKind.entries.firstOrNull { it.name.equals(word.removePrefix("engine="), ignoreCase = true) }
-                                ?: error("engine= wants one of ${EngineKind.entries.map { it.name.lowercase() }}, got '$word'"),
-                    )
+                word.startsWith("engine=") -> options.copy(engine = engineNamed(word.removePrefix("engine=")))
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("prior=") ->
                     options.copy(

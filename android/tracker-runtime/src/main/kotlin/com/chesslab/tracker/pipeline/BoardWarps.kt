@@ -154,6 +154,9 @@ class OpenCvStages<T>(
     private var frame: Mat? = null
     private var warped: Mat? = null
 
+    /** The corners the last detection warp used — what [boardAt] must warp with to agree with it. */
+    private var lastWarpCorners: FloatArray? = null
+
     /** Owned and reused, like every other Mat here — released with the rest. */
     private var lumaScratch: Mat? = null
     private var grayMat: Mat? = null
@@ -194,6 +197,7 @@ class OpenCvStages<T>(
         if (src != null && !src.empty() && detSize > 0) {
             val dst = warped ?: Mat().also { warped = it }
             warpFromCorners(src, geometry, cornersFromFlat(corners), detSize, dst, homographies)
+            lastWarpCorners = corners.copyOf()
             ok = true
         }
         return ok
@@ -235,6 +239,24 @@ class OpenCvStages<T>(
     override fun bgrDet(): BgrImage {
         val warp = detectionWarp()
         return toBgrImage(warp, bgrRing.next(warp.rows() * warp.cols() * BGR_CHANNELS))
+    }
+
+    /**
+     * One warp straight from the converted frame at [size], for an engine that measures grey levels
+     * on the board — `bgrDet` scaled down is a second resample and smooths what it would measure.
+     *
+     * Its own output `Mat` per call rather than a ring: nothing here knows how many sizes a caller
+     * will ask for, and the copy into the seam plane happens immediately anyway.
+     */
+    override fun boardAt(size: Int): BgrImage? {
+        val source = frame ?: return null
+        val corners = lastWarpCorners ?: return null
+        val board = warpFromCorners(source, geometry, cornersFromFlat(corners), size)
+        try {
+            return toBgrImage(board)
+        } finally {
+            board.release()
+        }
     }
 
     override fun gridCoverage(): Double = grid.of(requireNotNull(grayMat) { "grayDet must run first" })

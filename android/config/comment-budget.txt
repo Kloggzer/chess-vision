@@ -137,6 +137,7 @@ core-engine/src/main/kotlin/com/chesslab/engine/api/CnnObservation.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CommitGates.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/DebugPayload.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/EngineOps.kt 2
+core-engine/src/main/kotlin/com/chesslab/engine/api/FrameInput.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerConfig.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerEngine.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/BaselineOcclusion.kt 4
@@ -231,7 +232,7 @@ desktop/src/main/kotlin/com/chesslab/desktop/AnnotatedFrames.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/CachingClassifier.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Cost.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Crops.kt 1
-desktop/src/main/kotlin/com/chesslab/desktop/DesktopCnn.kt 2
+desktop/src/main/kotlin/com/chesslab/desktop/DesktopCnn.kt 3
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopLens.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt 5
 desktop/src/main/kotlin/com/chesslab/desktop/FrameSource.kt 3
@@ -281,7 +282,7 @@ tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/LensCalibration.kt
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/geometry/ModelCrop.kt 2
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/log/TrackerLog.kt 2
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/BoardWarps.kt 3
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/FramePipeline.kt 4
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/FramePipeline.kt 5
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/FrameSizeGuard.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/PlaneRing.kt 3
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/pipeline/RoiMotion.kt 1

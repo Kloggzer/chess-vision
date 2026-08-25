@@ -41,7 +41,9 @@ class StillnessEngine(
 
     override fun onFrame(input: FrameInput): List<TrackerEvent> {
         rate.saw(input.timestampMs)
-        val gray = grayBoard(input.bgrDet)
+        // The board straight from the frame where the host offers it: `bgrDet` is already a
+        // resample, and the thresholds below are grey levels that a second one flattens.
+        val gray = grayBoard(input.board?.invoke(BOARD_PX) ?: input.bgrDet)
         // Two gates the pull design did not need: the reading must lie inside the CURRENT rest
         // phase — one taken while the hand was over the board explains nothing — and it must have
         // been taken against the position we are still on, or a committed move lands a second time.

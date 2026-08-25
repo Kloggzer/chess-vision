@@ -17,4 +17,14 @@ data class FrameInput(
     // mean luma BEFORE CLAHE — dark-frame gate
     val lumaPreClahe: Double,
     val timestampMs: Long,
+    /**
+     * The rectified board at a size of the ENGINE's choosing, warped from the frame in one step —
+     * or null when the host offers none.
+     *
+     * Deliberately a function and not a plane: only an engine that measures the board itself wants
+     * it, it costs a warp per call, and asking is what makes that cost visible. Not the same
+     * picture as [bgrDet] scaled down, which resamples twice and smooths away the contrast such an
+     * engine measures.
+     */
+    val board: ((Int) -> BgrImage?)? = null,
 )

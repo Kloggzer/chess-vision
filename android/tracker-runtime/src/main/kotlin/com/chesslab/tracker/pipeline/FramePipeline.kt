@@ -93,6 +93,18 @@ interface FrameStages<T> {
 
     fun bgrDet(): BgrImage
 
+    /**
+     * The rectified board at an arbitrary size, warped from the CONVERTED frame in one step.
+     *
+     * Not the same picture as [bgrDet] scaled down. That one is already a resample of the frame at
+     * `detectScale`, and going 1920 -> 464 -> 160 smooths twice; an engine whose thresholds are
+     * grey levels on the board loses exactly the contrast it measures. One warp, one resample.
+     *
+     * Null before the first frame or without geometry. Costs a warp per call — an engine that asks
+     * every frame pays for it, which is the point of asking rather than being handed one.
+     */
+    fun boardAt(size: Int): BgrImage? = null
+
     fun gridCoverage(): Double
 
     fun roiMotion(corners: FloatArray): Double
@@ -237,7 +249,9 @@ class FramePipeline<T>(
             stages.updateCropFrame(pts, seq, timestampMs, bgr, gray)
             cropStore.served()
         }
-        return FrameResult.Ready(FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs))
+        return FrameResult.Ready(
+            FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt),
+        )
     }
 
     /**
