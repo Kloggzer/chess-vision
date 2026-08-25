@@ -507,6 +507,7 @@ internal fun replayRun(
                 parallelVisual = parallelVisual,
                 priorLambda = options.priorLambda,
                 priorSafety = options.priorSafety,
+                motionDump = options.motionDump,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -613,6 +614,8 @@ private fun buildStack(
     parallelVisual: ParallelVisualPrepass? = null,
     priorLambda: Double = 0.0,
     priorSafety: Boolean = true,
+    /** `motiondump=<file>`, or null. Measurement only — see `MotionDump`. */
+    motionDump: String? = null,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -634,7 +637,7 @@ private fun buildStack(
             onState = { from, to, tsS -> println("state: %s -> %s at %.2fs".format(from, to, tsS)) },
             logs = logs,
             stages = { geo, cfg, store, frameBus, boardBus ->
-                OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
+                motionDumped(OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics), motionDump)
             },
             // The VIDEO's clock, not this machine's — see `FrameClock`.
             nowMs = clock::now,

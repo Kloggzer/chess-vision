@@ -110,6 +110,8 @@ data class ReplayOptions(
      * measurement of THIS footage, applied after the file.
      */
     val configFile: String? = null,
+    /** `motiondump=<file>`: one row per emitted frame with its ROI motion score. See `MotionDump`. */
+    val motionDump: String? = null,
     /** Build this cache when absent; consume it strictly by frame sequence when present. */
     val visualCache: String? = null,
     /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
@@ -192,6 +194,11 @@ data class ReplayOptions(
                     options.copy(
                         configFile =
                             word.removePrefix("config=").ifEmpty { error("config= wants a settings.json or envelope file") },
+                    )
+                word.startsWith("motiondump=") ->
+                    options.copy(
+                        motionDump =
+                            word.removePrefix("motiondump=").ifEmpty { error("motiondump= wants a file path") },
                     )
                 word.startsWith("visualcache=") -> options.copy(visualCache = word.removePrefix("visualcache="))
                 word.startsWith("visualworkers=") ->
