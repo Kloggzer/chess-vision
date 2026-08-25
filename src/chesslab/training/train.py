@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import random
 import time
 from collections import deque
 from datetime import datetime
@@ -189,6 +190,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     torch.manual_seed(seed)
     np.random.seed(seed)
+    # Die Augmentierung zieht aus `random`, nicht aus torch oder numpy. In Workern seedet PyTorch
+    # das selbst; bei `--num-workers 0` niemand — gemessen 2026-08-25, dort waren zwei Laeufe mit
+    # gleichem Seed pixelverschieden bei identischer Batch-Reihenfolge.
+    random.seed(seed)
 
     # Held apart from the local `split`, which is REBOUND to the loaded policy dict further down —
     # the collision wrote that dict into config.json and left the guard reading a dict as a path.
