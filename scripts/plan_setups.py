@@ -127,9 +127,10 @@ def write_html(out: Path, cards, occluders: str) -> None:
              "<h1>Aufstellungen fuer die seltenen Klassen</h1>"]
     for i, fen, used, gain in cards:
         board = chess.Board(fen + " w - - 0 1")
-        # Die belegten Felder markieren — dorthin muss die Figur wirklich.
-        marks = chess.SquareSet(chess.parse_square(sq) for sq in used)
-        svg = chess.svg.board(board, size=340, squares=marks, coordinates=True)
+        # `squares=` malt ein X ueber das Feld — das sah aus, als waeren die Figuren
+        # durchgestrichen. `fill=` faerbt stattdessen den Untergrund, was gemeint war.
+        marks = {chess.parse_square(sq): "#f0b03288" for sq in used}
+        svg = chess.svg.board(board, size=340, fill=marks, coordinates=True)
         bs = chr(92)                      # Zeilenfortsetzung, ohne Escape-Ebenen zu stapeln
         nl = chr(10)
         cmd = nl.join([
