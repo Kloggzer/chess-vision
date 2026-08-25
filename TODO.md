@@ -4,7 +4,107 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Aus dem Arena-Experiment (2026-08-25)
+
+- **`cnnColorAxis` ist gebaut und gemessen — die Margin fehlt noch.** Der Knob schaltet den
+  Suchkanal in `DeepSearch` von der exakten Figurenklasse auf Belegung+Farbe (`wR` und `wN` fallen
+  auf `w` zusammen). Voller Regressionssatz, `model=real13-ms-s3-hn4-bn80`:
+
+  | Aufnahme | aus | an |
+  |---|---|---|
+  | sechs Rig-Aufnahmen | unveraendert | unveraendert |
+  | `VID_20260824_153751` | 9/26/0 | **35/0/0**, Alarm weg |
+  | `VID_20260824_154327` (gegen die 117-Ply-PGN) | 10/107/0 | 54/63/**5** |
+
+  Also: kein Schaden, wo Identitaet nie das Problem war, und ein Faktor 5 dort, wo sie kollabiert
+  — aber auf 154327 kauft es 44 Plies fuer 5 Phantome. **Naechster Schritt:** eine groebere Achse
+  macht Hypothesen aehnlicher, also `cnnMarginSquares` (heute 1) mitziehen und beides zusammen
+  messen. Vorher NICHT scharfschalten — Phantome disqualifizieren.
+
+Der Fable-Agent hat einen Tracker von Null gebaut (`docs/agent-briefs/tracker-from-scratch.md`,
+Arbeitsbaum `../chess-vision-arena`). Was er gefunden hat, ist nachgeprueft; was er BRAUCHT, steht
+hier als Arbeit an uns. Reihenfolge nach gemessenem Ertrag.
+
+- **Ein Hand-Signal je Feld, das Hand von Schatten trennt** (sein groesster Engpass, und unserer).
+  Seine verbleibenden Fehler sind Ordnungsknoten: bei identischer Endstellung sind „3 Zuege" und
+  „2 Zuege" aus Standbildern nicht unterscheidbar (11-59-12 Ply 48). Die Zwischen-Standbilder
+  traegen die Antwort, aber sein Bild-Veto starb an Schatten und Warp-Jitter (~10 Graustufen
+  Rauschen), waehrend echte dunkle Zuege darunter liegen. Wir haben den Kanal bereits: die
+  Coverage-Spalte der 13+1-Modelle. **Zu tun:** `FrameView` gibt Coverage je Feld heraus (steht
+  schon in Spalte 13, wird aber nirgends als eigenes Signal angeboten), und wir messen, ob
+  Coverage die Trennung leistet, an der die Graustufen-Differenz scheitert.
+
+- **Warp-Glaettung: die Quad-Neumessung erzeugt das Rauschen, gegen das alle Schwellen kaempfen.**
+  Die Arena misst den Quad alle 30 Frames neu; jede Messung verschiebt das entzerrte Brett um
+  Pixel und hebt den Zellen-Rauschboden. Das zwingt Bewegungs- und Aenderungsschwellen hoch und
+  hat sein Ordnungs-Veto unbrauchbar gemacht. **Zu tun:** Median ueber die letzten N Quads statt
+  der letzten Messung — in der Arena UND im Tracker, dort heisst es `alignEvery`/LiveAlign.
+  Danach die Schwellen neu messen, nicht vorher.
+
+- **Ein zweites Modell als Schiedsrichter, aber nur im Streitfall.** Bei persistentem
+  Identitaets-Konflikt eine Zweitlesung mit `comp13`/`real13-s2` holen (~5-10 Extra-Lesungen je
+  Partie). Die Arena zaehlt Lesungen bereits je Modell, das Werkzeug ist also da. Offene Frage:
+  ob die Familien unabhaengig genug irren — sonst kauft die zweite Stimme nichts
+  (`docs/emission-correlation.md`).
+
+- **Aufnahmen mit Auslauf.** `VID_20260727_233929` verliert seine letzten vier Zuege, weil das
+  Video rund drei Sekunden nach dem letzten Zug schneidet und nie ein lesbares Ruhefenster kommt.
+  Beide Tracker verlieren sie. **Zwei Sekunden Stillstand am Ende jeder Aufnahme sind gratis
+  Recall** — gehoert in die Aufnahmeanweisung, nicht in den Code.
+
+- **Referenzen mit geratener Zugreihenfolge korrigieren.** 51 von 606 Referenz-Plies (8 %) liegen
+  in Buendeln, also mehrere Zuege auf demselben Frame — der alte Tracker hat dort einen Rueckstand
+  in geratener Ordnung committet. Auf `VID_20260726_233432` ist die Ordnung nachweislich falsch
+  (`Nf3+e5@335`, waehrend die Bilder e4@240, e5@280, Nf3@360 zeigen — Dump in
+  `tmp/arena/order-233432.jsonl`); auf `VID_20260802_222741` steht ein Endzug `Nxf3+@7425`, den
+  das Video nicht zeigt, und die Partie laeuft dort bis Frame 9468 mit einer kohaerenten
+  Mattsequenz weiter. Solange das so steht, misst die Latte gegen falsche Labels und ein besserer
+  Tracker sieht schlechter aus. **Zu tun:** die acht Aufnahmen mit Buendeln durchsehen, Ordnung
+  aus den Bildern bestaetigen, `reference.pgn` von Hand nachziehen.
+
+- **Arena: Ordnungs-Aequivalenz auch im Scorer.** Wo zwei Zugfolgen dieselbe Endstellung erreichen,
+  ist die Reihenfolge aus Standbildern nicht beweisbar. Der LCS-Scorer bestraft die Abweichung
+  trotzdem und zaehlt danach alles als Phantom (Skip-Kaskade: 171 „invented" auf 11-59-12, die
+  fast vollstaendig hinter dem Referenz-Ende liegen). **Zu tun:** Umordnungen mit identischer
+  Endstellung als Treffer werten, und die `beyond`-Regel auch dann greifen lassen, wenn davor ein
+  solcher Knoten liegt.
+
 ## Next up (agreed, not started)
+
+- **Auf 4K-Aufnahmen kippt die IDENTITAET, nicht die Belegung** (gemessen 2026-08-25 auf der
+  Grundstellung, also ohne jede Verdeckung; gefunden vom Arena-Agenten, unabhaengig nachgeprueft).
+  `real13-ms-s3-hn4-bn80` auf vier Frames je Aufnahme, 256 Zellen:
+
+  | Aufnahme | Zelle | Belegung+Farbe | Identitaet |
+  |---|---:|---:|---:|
+  | `2026-08-08-11-55-19` (Rig 928) | 116 px | 1,000 | 1,000 |
+  | `VID_20260824_153751` (4K 1280) | 160 px | 0,973 | 0,859 |
+  | `VID_20260824_154327` (4K 1280) | 160 px | 0,969 | 0,812 |
+
+  Verwechselt wird typisiert und farbtreu: `wR->wK`, `wN->wR`, `wB->wR`, `bK->bB`, `bP->bB`. Auf dem
+  Rig-Material kein einziger Fehler. Das ist der Sampling-Shift aus `CLAUDE.md` 0.1 — trainiert auf
+  116-px-Zellen, serviert mit 160.
+  **Zwei Folgerungen, unabhaengig voneinander:**
+  (1) *Daten/Training:* 4K gehoert in `--scales`, oder der 4K-Crop muss auf die trainierte
+  Zellgroesse gebracht werden statt auf 80 px hochskaliert. Vorher messen, welcher der beiden Wege
+  die Identitaet hebt.
+  (2) *Engine:* Der Hypothesen-Score sollte Belegung und Farbe voll gewichten und die Identitaet
+  schwach — ein Turm, der als Springer gelesen wird, darf einen sonst eindeutigen Zug nicht
+  blockieren. Der Faktor folgt aus dem gemessenen Verhaeltnis der beiden Zuverlaessigkeiten, nicht
+  aus einer Handkalibrierung. Erklaert vermutlich die Regression auf `154327` (10 von 117).
+
+- **Der Replay-Default `real14-80` verriegelt den Tracker — jede Messung damit ist eine andere
+  Messung** (gemessen 2026-08-25 beim Aufbau der Arena). `ReplayOptions.model` steht auf
+  `DEFAULT_MODEL` = `real14-80`, das kein `coverage_output` deklariert, also laeuft der modellfreie
+  Hand-Arm mit. Derselbe Aufruf, nur `model=real13-ms-s3-hn4-bn80` dazu:
+  `2026-08-07-13-52-38` von **4/21/3 auf 25/0/0**, `2026-08-08-00-39-57` von **0/67/0 auf 67/0/0**
+  (`tmp/arena/baseline/*.log` gegen `*.r13.log`). Bei `real14-80` haengt der Lauf dauerhaft in
+  `STUCK occluded` mit ueber das ganze Brett verstreuten `occlVeto`-Feldern bei `motion=0` — also
+  flaggt der Gitter-Sensor dort keine Hand, sondern etwas anderes.
+  **Zu klaeren:** (1) Ist der Default noch richtig, wenn die gemessen bessere Wahl daneben liegt?
+  (2) Was flaggt `gridOccludedSquares` auf diesen Frames wirklich — die Regel „nur handfoermige
+  Flags" aus `CLAUDE.md` sollte genau das verhindern. (3) `docs/tracker-flow.md` nennt einen
+  ungeklaerten Bruch auf 003957; mit dem 13+1-Modell loest dieselbe Aufnahme 67/67 auf.
 
 - **`board_acc` misst `piece_acc` hoch 32 — und ignoriert die Verdeckung** (gemessen 2026-08-25,
   Frage des Users: *„warum ist die board accuracy so low, wird da occlusion nicht bedacht?"*).
