@@ -128,8 +128,18 @@ class CnnObserver(
     var gateInterval = 0L
         private set
 
-    /** `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy. */
-    fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs
+    /** Frames the ENGINE declined — the pull half of the throttle, counted like the others. */
+    var gateUnwanted = 0L
+        private set
+
+    /**
+     * `_observer_due`. Also drives 05b's `CropFrameStore.wantsFrame()` — no crop warp while busy.
+     *
+     * [demand] is the engine's own answer to "would a reading tell you anything". The diff engine
+     * always says yes and this reads exactly as before; an engine that knows it is blind says no
+     * and saves a whole inference, which is the only way the observer can ever read less.
+     */
+    fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs && demand()
 
     /** Called per frame from the analyzer thread; returns immediately. */
     fun onFrameAvailable() {
@@ -137,6 +147,7 @@ class CnnObserver(
             when {
                 !enabled || state.value !is CnnState.Ready -> gateOff += 1
                 busy -> gateBusy += 1
+                !demand() -> gateUnwanted += 1
                 else -> gateInterval += 1
             }
             return
@@ -158,6 +169,19 @@ class CnnObserver(
     fun retryAttach(open: () -> Attached) {
         if (!holder.retry()) return
         scope.launch { load(open) }
+    }
+
+    /**
+     * The engine's own answer to "would a reading help me now" — set once, when the stack is wired.
+     *
+     * A constant yes reproduces the push behaviour exactly, which is what the diff engine wants:
+     * it takes every reading and sorts them out afterwards. A property rather than a constructor
+     * argument for the same reason as [setEnabled]: the observer is built before the thing it asks.
+     */
+    private var demand: () -> Boolean = { true }
+
+    fun demandFrom(source: () -> Boolean) {
+        demand = source
     }
 
     fun setEnabled(on: Boolean) {

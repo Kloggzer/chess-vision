@@ -33,7 +33,7 @@ class StillnessEngine(
     private var explainer: MoveExplainer? = null
     private var pending: CnnSnapshot? = null
     private var plies = 0
-    private var note = "waiting for the board"
+    private val notes = StillNotes()
     private var stuck: String? = null
     private val alarms = StillAlarm()
     private var covered: List<String> = emptyList()
@@ -54,8 +54,8 @@ class StillnessEngine(
                 }
             }
         return when {
-            gray == null -> note("no board yet")
-            snap == null -> if (phase.moving) note("moving") else emptyList()
+            gray == null -> notes.say("no board yet")
+            snap == null -> if (phase.moving) notes.say("moving") else emptyList()
             !phase.due(input.timestampMs, gray) -> emptyList()
             else -> {
                 pending = null
@@ -76,12 +76,20 @@ class StillnessEngine(
 
     override fun fen(): String = position.fen
 
+    /**
+     * The pull half of the method, and the reason it costs a few hundred readings instead of a few
+     * thousand: a reading is only worth its inference when the board is at rest AND differs from
+     * the last understood still image AND a hand has crossed since then. While a hand is over the
+     * board, or while nothing has changed, the answer is no and the observer skips the work.
+     */
+    override fun wantsCnnRead(): Boolean = phase.wantsRead()
+
     private fun explain(
         snap: CnnSnapshot,
         gray: ByteArray,
         input: FrameInput,
     ): List<TrackerEvent> {
-        val reading = Reading.of(snap) ?: return note("the reading carries no probabilities")
+        val reading = Reading.of(snap) ?: return notes.say("the reading carries no probabilities")
         val model = explainer ?: MoveExplainer(reading.classes).also { explainer = it }
         val gate = config.pOccludedThr
         covered = reading.coveredSquares(gate)
@@ -106,7 +114,7 @@ class StillnessEngine(
         gray: ByteArray,
         input: FrameInput,
     ): List<TrackerEvent> {
-        if (alarms.current != null) return note("alarm latched — not committing")
+        if (alarms.current != null) return notes.say("alarm latched — not committing")
         val ucis = verdict.moves.map(::uci)
         val sans = sansOf(position, verdict.moves)
         val before = position.fen
@@ -128,7 +136,7 @@ class StillnessEngine(
             phase.smudge()
         }
         stuck = null
-        note = "committed ${sans.joinToString(" ")}"
+        notes.set("committed ${sans.joinToString(" ")}")
         return events
     }
 
@@ -138,24 +146,19 @@ class StillnessEngine(
         reading: Reading,
     ): List<TrackerEvent> {
         stuck = STUCK_UNCLEAR
-        note = "reading does not explain the board"
+        notes.set("reading does not explain the board")
         val conflicts = model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr)
         val raised = alarms.onUnclear(snap.seq, conflicts, covered.size, plies, config.desyncObsN)
         if (raised.isNotEmpty()) {
             // The invariant `StatusUiModel` relies on: a latched alarm always names a stuck reason.
             stuck = STUCK_NO_LEGAL_MOVE
-            note = alarms.describe()
+            notes.set(alarms.describe())
         }
         return raised
     }
 
-    private fun note(text: String): List<TrackerEvent> {
-        val changed = text != note
-        note = text
-        return if (changed) listOf(TrackerEvent.Note(text)) else emptyList()
-    }
-
-    internal fun snapshotState(): StillState = StillState(position.fen, note, stuck, alarms.current, covered, rate.fps, phase.state())
+    internal fun snapshotState(): StillState =
+        StillState(position.fen, notes.current, stuck, alarms.current, covered, rate.fps, phase.state())
 
     internal fun mutate(block: (Board) -> Unit): List<TrackerEvent> {
         block(position)
@@ -177,7 +180,7 @@ class StillnessEngine(
 
     internal fun undoLast(): List<TrackerEvent> =
         if (plies <= 0) {
-            note("nothing to take back")
+            notes.say("nothing to take back")
         } else {
             plies -= 1
             mutate { it.undoMove() }

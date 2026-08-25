@@ -4,6 +4,34 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Pull ist gebaut — und war NICHT die Ursache von `00-39-57` (gemessen 2026-08-25)
+
+`EngineOps.wantsCnnRead()` ist die Bedarfsfrage, die der Naht fehlte: der Observer stellt sie einmal
+je Frame vor seinen eigenen Toren (`CnnObserver.wantsFrame`), Default `true` — womit sich fuer die
+Diff-Engine nichts aendert, die ohnehin jede Lesung nimmt und hinterher aussortiert. Die
+Stillstands-Engine antwortet nur mit ja, wenn das Brett ruht UND sich seit dem letzten verstandenen
+Bild etwas geaendert hat UND seither eine Hand darueber war.
+
+**Was es spart, gemessen:**
+
+| Aufnahme | Lesungen Push | Lesungen Pull |
+|---|---:|---:|
+| `2026-08-08-11-55-19` | 972 | **210** |
+| `VID_20260824_153751` | 1 783 | **92** |
+| `2026-08-08-00-39-57` | 5 069 | — |
+
+Beide Aufnahmen mit unveraendertem Ergebnis (15/0/0 und 35/0/0).
+
+**Die Hypothese zu `00-39-57` ist widerlegt.** Sie lautete: der Arm bricht dort ein (7 statt 67),
+weil die Lesungen geschoben statt gezogen kommen. Mit Pull steht dasselbe Ergebnis, 7/60/2. Bleibt
+die zweite Erklaerung, und sie ist jetzt die einzige: **die Bildquelle**. Der Port bekommt
+`FrameInput.bgrDet`, den Detection-Warp bei `detSize`, und skaliert selbst auf 160 px; in der Arena
+las derselbe Code das volle Brett. Dort ansetzen.
+
+**Neu daneben:** mit Pull faellt `11-59-12` auf 66/7/97 (Push: 52/21/0) — mehr gefunden, aber die
+Skip-Kaskade des Agenten tritt auf (er hatte dort 66/7/171). Das ist derselbe Mittelspiel-Knoten,
+kein neues Verhalten, aber unter dieser Wertung sind 97 Phantome 97 Phantome.
+
 ## Der Alarm rastet auf IDENTITAET ein, obwohl er das nicht darf (gemessen 2026-08-25)
 
 `VID_20260824_154327`: der Tracker committet zehn Plies, dann `ALARM latched on
@@ -21,13 +49,22 @@ Stellung nach Ply 10 gemessen (`tmp/arena/alarm-154327.jsonl`, Frame 1000, Cover
 | f8 | bB | bN | 0,75 | Identitaet |
 | d4, g4, c5, g5 | — | korrekt | — | kein Konflikt |
 
-**Null Belegungs- oder Farbfehler, alle Felder unverdeckt.** `Alarm.kt` beschreibt den Latch als
-"only when OCCUPANCY disagrees" — die Bedingung war nicht erfuellt und er fiel trotzdem. Und es
-gibt einen Schutz, der genau das verhindern soll: `identityRead` (`CnnTick.kt:130`) prueft einen
-Identitaets-Mismatch mit `occupancyOnly()` nach und erklaert das Brett fuer in Ordnung, wenn die
-Belegung passt. **Warum er hier nicht griff, ist die Frage** — `resyncCheck` mit gestrippter
-Identitaet muss false geliefert haben, obwohl die Belegung nachweislich stimmte. Dort anfangen,
-nicht am Latch.
+**Null Belegungs- oder Farbfehler auf diesen Feldern, alle unverdeckt.**
+
+**Korrektur (nachgemessen, gegen die erste Lesart dieses Eintrags):** der Latch ist trotzdem NICHT
+falsch gefallen. `hasOccupancyConflict` (`Resync.kt:37`, das Alarmtor) prueft die Belegungsachse
+und ist damit genau die Regel, die es sein soll — nur zaehlt es ueber die ganze Konfliktliste, und
+die enthielt neben den sechs Identitaetsfeldern auch `g4`, `g5` und `c5`. Dort war der Widerspruch
+echt: `g4->empty@1,00`, `g5->wP@1,00`, `c5->empty@1,00` ab Frame 1100. Das sind **die naechsten
+Zuege** (g4-g5, cxd4), die der Tracker nicht erkannt hat.
+
+Die Kette ist also: Identitaet kippt → `deriveMovesDeep` sucht auf der Identitaetsachse und findet
+die Zuege nicht → das Brett laeuft weg → jetzt widerspricht die BELEGUNG wirklich → Alarm, zu
+Recht. **Der Latch ist die Folge, nicht der Fehler.** Repariert wird die Suche, nicht das Tor.
+
+Was NICHT hilft: `cnnMarginSquares` hochziehen. Mit der Farbachse und Margin 2 faellt derselbe
+Lauf von 50/1/9 auf 7/44/0 — dieselbe Beobachtung wie bei `plyCostSquares` ("at 2 recovery commits
+nothing at all").
 
 Zusammenhang: dieselbe Ursache, aus der `cnnColorAxis` denselben Lauf von 10/107/0 auf 54/63/5
 hebt und der Stillstands-Arm auf 81/36/0 kommt — der bepreist Identitaet von vornherein nur mit

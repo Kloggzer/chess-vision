@@ -154,12 +154,11 @@ class TrackerStack<T>(
             seed.config,
             CnnRecovery(cnnConfig(seed.config)),
             seed.startFen,
-            seed.onDecision,
+            EngineHooks(seed.onDecision, stateSink(seed)) { pipeline.onConfigChanged(it) },
             // Its own channel, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the
             // move-by-move provenance with nothing else in it, which is the form these lines get read in.
             log = seed.logs("chesslabDecision"),
-            onState = stateSink(seed),
-        ) { pipeline.onConfigChanged(it) }
+        )
 
     /**
      * The frame loop's state transitions: a line on their OWN channel (`adb logcat -s chesslabState`
@@ -248,6 +247,11 @@ class TrackerStack<T>(
                 dispatcher = seed.observerDispatcher,
             )
         }
+
+    init {
+        // The pull half of the CNN path: the observer asks before it spends an inference.
+        observer.demandFrom(host::wantsCnnRead)
+    }
 
     val coordinator =
         TrackerCoordinator(

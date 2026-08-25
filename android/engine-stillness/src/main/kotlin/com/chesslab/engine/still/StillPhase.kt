@@ -68,6 +68,15 @@ internal class StillPhase {
             }
         }
 
+    /**
+     * Asked BEFORE an inference: is the board in a state where a reading could say anything.
+     *
+     * The same question [due] answers, minus the picture — it is asked once per frame from the
+     * observer's gate and must not cost a comparison of its own. It is deliberately permissive:
+     * saying yes once too often costs one reading, saying no once too seldom costs a move.
+     */
+    fun wantsRead(): Boolean = !moving && (dirty || sawHand)
+
     /** Whether a reading available right now would tell us anything we do not already know. */
     fun due(
         nowMs: Long,

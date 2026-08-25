@@ -29,6 +29,19 @@ private const val ACTION_CAPACITY = 32
 private const val SNAPSHOT_CAPACITY = 4
 
 /**
+ * Where an engine's output goes. Three callbacks that are always wired together, so they travel
+ * together rather than as three more parameters.
+ */
+class EngineHooks(
+    /** Every decision, committed or rejected — and what `replay … score` reads. */
+    val onDecision: (DebugDecision) -> Unit,
+    /** Frame-loop state transitions. */
+    val onState: (String, String, Double) -> Unit = { _, _, _ -> },
+    /** The frame pipeline's half of live tuning; runs in the same action as the engine's own. */
+    val onConfigApplied: (TrackerConfig) -> Unit,
+)
+
+/**
  * `TrackerEngine` is named in exactly this file, so "one engine owner" is a grep and not a
  * convention — and with [EngineOps] in `:core-engine` that holds for every engine, not just this
  * one.
@@ -50,6 +63,9 @@ class TrackerEngineOps(
     override fun status(): TrackerStatus = engine.status()
 
     override fun fen(): String = engine.fen()
+
+    /** The diff engine takes every reading it can get; `evaluationDue` sorts them out afterwards. */
+    override fun wantsCnnRead(): Boolean = true
 
     override fun apply(action: EngineAction): List<TrackerEvent> =
         when (action) {
@@ -145,10 +161,19 @@ class EngineHost(
      * part of [status] that cannot be sampled — and building the whole `TrackerStatus` for it was
      * four 64-entry maps and four sorted square-name sets per frame.
      */
+
     fun fen(): String {
         claim()
         return ops.fen()
     }
+
+    /**
+     * Whether the engine wants a reading now — the observer's question, answered on this thread.
+     *
+     * Deliberately NOT `claim()`ed: it is asked from the same per-frame call that already owns the
+     * engine, and a wrong answer costs one skipped inference, never state.
+     */
+    fun wantsCnnRead(): Boolean = ops.wantsCnnRead()
 
     private fun claim() {
         val current = Thread.currentThread()
@@ -179,11 +204,12 @@ fun engineHost(
     config: TrackerConfig,
     cnn: CnnEvaluator?,
     startFen: String,
-    onDecision: (DebugDecision) -> Unit,
+    hooks: EngineHooks,
     log: TrackerLog = NoopTrackerLog,
-    onState: (String, String, Double) -> Unit = { _, _, _ -> },
-    onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
+    val onDecision = hooks.onDecision
+    val onState = hooks.onState
+    val onConfigApplied = hooks.onConfigApplied
     if (kind == EngineKind.STILLNESS) {
         return EngineHost(stillnessOps(config, startFen, onDecision, log, onConfigApplied))
     }

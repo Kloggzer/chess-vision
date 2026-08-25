@@ -136,7 +136,7 @@ core-engine/src/main/kotlin/com/chesslab/engine/AnomalyPatcher.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CnnObservation.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CommitGates.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/DebugPayload.kt 2
-core-engine/src/main/kotlin/com/chesslab/engine/api/EngineOps.kt 1
+core-engine/src/main/kotlin/com/chesslab/engine/api/EngineOps.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerConfig.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerEngine.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/BaselineOcclusion.kt 4
