@@ -25,14 +25,33 @@ Der Fable-Agent hat einen Tracker von Null gebaut (`docs/agent-briefs/tracker-fr
 Arbeitsbaum `../chess-vision-arena`). Was er gefunden hat, ist nachgeprueft; was er BRAUCHT, steht
 hier als Arbeit an uns. Reihenfolge nach gemessenem Ertrag.
 
+- **Der Bildvergleich taugt NICHT als Hand-Signal — gemessen, nicht vermutet** (2026-08-25, nach
+  Freigabe unseres Trackers an den Arena-Agenten). Er hat unsere beste Idee nachgebaut:
+  Per-Zell-Nivellierung gegen den Schatten (`docs/position-check.md`) plus Census-Transform gegen
+  die Helligkeit, an drei bekannten Knoten bei 160 px und 320 px vermessen. Ergebnis:
+  (a) ein Arm auf dem Brett saettigt Census ueber 25+ Zellen — **ein Arm IST Struktur**, und
+  helligkeitsinvariant hilft dagegen nicht; (b) der entscheidende Zug `e7e5` auf `233432`
+  erscheint in KEINEM sauberen Zwischenbild, bei keiner Aufloesung: er fiel vollstaendig unter die
+  Hand; (c) auf dem `233929`-Tail widerspricht das einzige lesbare Signal der Referenz und ist
+  unverifizierbar. Seine Sonde (`GapProbe`, log-only) bleibt als Instrument, entscheidet aber
+  nichts.
+  **Was das heisst:** Wer ein Hand-Signal sucht, soll es nicht aus Frame-Differenzen bauen. Die
+  verbliebene Option ist die Coverage-Spalte des Modells — sie ist aus Pixeln GELERNT, nicht aus
+  Differenzen gerechnet, und damit die einzige Quelle, die von diesem Negativergebnis nicht
+  getroffen ist. Und: wo ein Zug vollstaendig unter der Hand liegt, gibt es kein Zwischenbild,
+  das irgendein Verfahren finden koennte — dort ist die Reihenfolge prinzipiell unbeweisbar und
+  gehoert in die Wertung (siehe `reordered` im Arena-Scorer), nicht in ein besseres Veto.
+
 - **Ein Hand-Signal je Feld, das Hand von Schatten trennt** (sein groesster Engpass, und unserer).
   Seine verbleibenden Fehler sind Ordnungsknoten: bei identischer Endstellung sind „3 Zuege" und
   „2 Zuege" aus Standbildern nicht unterscheidbar (11-59-12 Ply 48). Die Zwischen-Standbilder
   traegen die Antwort, aber sein Bild-Veto starb an Schatten und Warp-Jitter (~10 Graustufen
   Rauschen), waehrend echte dunkle Zuege darunter liegen. Wir haben den Kanal bereits: die
   Coverage-Spalte der 13+1-Modelle. **Zu tun:** `FrameView` gibt Coverage je Feld heraus (steht
-  schon in Spalte 13, wird aber nirgends als eigenes Signal angeboten), und wir messen, ob
-  Coverage die Trennung leistet, an der die Graustufen-Differenz scheitert.
+  schon in Spalte 13, wird aber nirgends als eigenes Signal angeboten) — **erledigt 2026-08-25,
+  `frame.coverage()` und `frame.covered()`**. Offen bleibt die Messung: leistet Coverage die
+  Trennung, an der die Graustufen-Differenz nachweislich scheitert (siehe Eintrag darueber)? Das
+  ist die eigentliche Frage, und sie ist noch unbeantwortet.
 
 - **Warp-Glaettung: die Quad-Neumessung erzeugt das Rauschen, gegen das alle Schwellen kaempfen.**
   Die Arena misst den Quad alle 30 Frames neu; jede Messung verschiebt das entzerrte Brett um

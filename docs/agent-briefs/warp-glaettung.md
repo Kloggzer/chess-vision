@@ -14,8 +14,16 @@ Agenten, der einen Tracker allein auf Bildvergleichen gebaut hat: Feld-Differenz
 ruhigen Frames erreichten **16 bis 26 Graustufen** (Schatten, Arm am Bildrand, Warp-Jitter),
 während ein echter Zug einer dunklen Figur auf ein dunkles Feld **unter 12** bleibt. Die beiden
 Verteilungen überlappen, also ist die Schwelle nicht wählbar: bei 12 stirbt die Wahrheit, bei 4
-regiert das Rauschen. Sein Verfahren zur Zug-Reihenfolge musste daran scheitern und ist gestrichen
-worden.
+regiert das Rauschen.
+
+**Erwarte davon nicht, dass es die Zug-Reihenfolge beweisbar macht.** Derselbe Agent hat das
+danach mit den besten verfügbaren Mitteln versucht — Per-Zell-Nivellierung gegen den Schatten
+(`docs/position-check.md`) plus Census-Transform gegen die Helligkeit — und es an drei bekannten
+Stellen vermessen: ein Arm auf dem Brett sättigt Census über 25 Zellen hinweg, weil ein Arm selbst
+Struktur ist; und der entscheidende Zug `e7e5` auf `233432` erscheint **in keinem sauberen
+Zwischenbild, bei keiner Auflösung** — er fiel vollständig unter die Hand. Ein ruhigerer Warp
+senkt den Rauschboden, aber er erzeugt kein Bild, das es nicht gibt. Der Gewinn dieser Aufgabe ist
+also ein niedrigerer Boden für ALLE Bildschwellen, nicht ein neues Verfahren obendrauf.
 
 ## Was zu tun ist
 
@@ -63,7 +71,8 @@ Das betrifft zwei Orte, die dieselbe Krankheit haben:
    `squareOffsetOf` über die Aufnahme. Ein Bild allein zählt nicht.
 2. **Der Rauschboden der Feld-Differenz.** Zwei ruhige, aufeinanderfolgende Frames, 64 Felder, die
    Verteilung der Differenzen — vorher und nachher. Das ist die Zahl, um die es eigentlich geht:
-   sie soll unter die 12 fallen, an denen ein echter dunkler Zug liegt.
+   sie soll unter die 12 fallen, an denen ein echter dunkler Zug liegt. Sie zu senken ist das
+   Ergebnis; was ein anderer damit anfängt, ist eine andere Arbeit.
 3. **Der Regressionssatz darf sich nicht verschlechtern.** Zehn Aufnahmen unter
    `data/recordings/`, gemessen mit `replay <video> score name=<aufnahme>
    model=real13-ms-s3-hn4-bn80`. Erwartet wird found/missed/invented je Aufnahme; die heutigen
