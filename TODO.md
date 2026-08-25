@@ -47,31 +47,15 @@
   im Schach. Also entweder eine Aufnahme davon machen, oder einen Clip bauen. Bis dahin steht eine
   Engine-Änderung ohne Beleg im Baum.
 
-- **Das Training IST deterministisch — das Problem ist die Seed-Empfindlichkeit** (gemessen
-  2026-08-25, damit ist die frühere Fassung dieses Punktes widerlegt). Zwei Läufe, `--seed 42`,
-  gleiches Rezept, 2 Epochen auf `real13-straight-80-v3`: **jede Metrik bit-identisch**, bis zur
-  letzten Stelle — auf ROCm (RX 7900 XT), mit AMP, mit 8 Workern, und ohne dass
-  `torch.use_deterministic_algorithms` oder `cudnn.benchmark = False` gesetzt wären. Ein Fix an
-  RNG oder Kerneln ist also nicht nötig; er hätte nur Rechenzeit gekostet.
-  **Was tatsächlich streut, ist der Seed:**
-
-  | | Seed 42 (2×) | Seed 43 | Seed 44 | Spanne |
-  |---|---|---|---|---|
-  | `val_checkpoint_score` | 0,6047 / 0,6047 | 0,6352 | 0,5278 | **0,1074** |
-  | `val_piece_acc` | 0,3401 / 0,3401 | 0,3101 | 0,2909 | 0,0493 |
-  | `val_acc` | 0,5591 / 0,5591 | 0,6120 | 0,3866 | 0,2255 |
-
-  **Vorbehalt:** das sind 2 Epochen, also frühes Training, wo die Seed-Streuung am größten ist.
-  Bei voller Länge ist sie kleiner — wie viel kleiner, ist NICHT gemessen. Genau das fehlt.
-  **Was daraus folgt:** „im Rauschen" heißt nicht, dass ein Lauf unzuverlässig wäre, sondern dass
-  der Effekt einen Seed-Wechsel nicht überlebt. Kein Determinismus-Fix entfernt das. Ein A/B
-  braucht **drei Seeds und den Median**, und die Rauschgrenze muss bei VOLLER Länge für die
-  Metrik gemessen werden, die entscheidet — das ist die eine offene Aufgabe hier. Danach ist auch
-  `--per-position` 8 → 2 entscheidbar.
-  **Nebenbefund, gefixt:** `train.py` seedete `torch` und `numpy`, aber nie Python's `random` —
-  und die Augmentierung zieht von dort. Bei 8 Workern beisst das nicht (PyTorch seedet sie selbst),
-  bei `--num-workers 0` schon: gleiche Batch-Reihenfolge, andere Pixel. Das war ausgerechnet der
-  Pfad, auf dem man Nichtdeterminismus untersucht. Messwerkzeug: `scripts/loader_determinism.py`.
+- **Rauschgrenze steht — jedes A/B braucht drei Seeds** (gemessen 2026-08-25, Zahlen und Methode
+  in `docs/seed-noise-floor.md`). Der frühere Punkt „das Training ist nicht deterministisch" ist
+  widerlegt: gleicher Seed liefert bit-identische Läufe. Was streut, ist der Seed — beim
+  s2-Rezept `val_visible_acc` um 0,0097, `val_piece_acc` um 0,0247, `val_conf_auroc` um 0,0994.
+  **Offen bleibt daraus:** (1) die berichteten Unterschiede zwischen s2/s3 (0,011) liegen im
+  Rauschen, es gibt also derzeit keinen belegten „besten Stand" — wer einen will, fährt drei Seeds
+  je Kandidat. (2) Die Rauschgrenze ist nur für **s2** gemessen; s3 und der Composite-Pfad haben
+  ihre eigene und könnten enger sein. (3) `val_conf_auroc` ist als Entscheidungsgröße unbrauchbar,
+  solange ihre Spanne so groß ist wie der Abstand, den man messen will.
 
 - **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
   nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
@@ -661,12 +645,13 @@ webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
   **Warum das plausibel ist:** der Korpus traegt 246 Stellungen bei 38 Aufnahmen je Stellung, und
   ein Lauf mit **3,9 % der Crops** war gleich gut (Memory `corpus-is-threefold-redundant`). Die
   Redundanz ist also gemessen, nicht vermutet.
-  **BLOCKIERT — aber nicht durch Nichtdeterminismus** (User, 2026-08-25: *„dafuer muss aber das
-  training deterministisch"*). Der Gedanke stimmt, die Ursache ist eine andere: das Training ist
-  deterministisch (gemessen, siehe oben), aber seed-empfindlich. Der erwartete Effekt hier ist
-  „gleich gut bei einem Viertel der Daten", also ein NULL-Effekt — und den kann man gegen
-  Seed-Streuung nicht zeigen. Es braucht deshalb wirklich drei Seeds je Arm, und vorher die
-  Rauschgrenze bei voller Laufzeit.
+  **JETZT ENTSCHEIDBAR** (User, 2026-08-25: *„dafuer muss aber das training deterministisch"* —
+  der Gedanke stimmt, die Ursache war eine andere). Das Training ist deterministisch, streut aber
+  über den Seed, und die Grenze ist seit 2026-08-25 gemessen: `val_visible_acc` ± 0,0097 beim
+  s2-Rezept (`docs/seed-noise-floor.md`). Der erwartete Effekt hier ist ein NULL-Effekt („gleich
+  gut bei einem Viertel der Daten"), also lautet die Frage: bleibt `--per-position 2` innerhalb
+  dieser 0,0097 von `8`? Drei Seeds je Arm, Median, sechs Läufe. Die Läufe sind mit dem s2-Rezept
+  kurz — Early Stopping griff bei 13–25 Epochen.
   **Was es braeuchte:** einen Vergleich `--per-position 8` gegen `2` gegen `1` bei sonst gleichem
   Rezept, gemessen auf dem Test-Split. Erwartung: gleiche `piece_acc` bei einem Viertel bis Achtel
   der Crops — und damit Platz, mehr STELLUNGEN aufzunehmen statt mehr Bilder derselben.
