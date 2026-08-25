@@ -117,7 +117,8 @@ val KNOB_CATALOG: List<KnobUi> =
             5.0,
             0.05,
             "Motion gate: PERCENT of strongly-changed pixels. Low on purpose — a slow hand only moves a thin " +
-                "edge band between frames; wobble stays ~0 thanks to blur + motionPxThr.",
+                "edge band between frames; wobble stays ~0 thanks to blur + motionPxThr. Measured against the " +
+                "PREVIOUS frame, so the engine runs this scaled by 30/fps at the camera frame rate you chose.",
         ),
         row(
             "motionPxThr",
@@ -435,8 +436,9 @@ val KNOB_CATALOG: List<KnobUi> =
             0.0,
             5.0,
             0.05,
-            "Min seconds between CNN observation starts; 0 = free-running (desktop). Raise on " +
-                "battery/thermal-constrained devices (Android port).",
+            "Min seconds between CNN observation starts. 0 = free-running and still the default: the " +
+                "observer then starts ~20 whole-board reads a second and the engine discards ~90 %. " +
+                "0.20 measured 247 mA cheaper on the phone and is unvalidated in play (docs/battery.md).",
         ),
         flag(
             "cnnVerify",
