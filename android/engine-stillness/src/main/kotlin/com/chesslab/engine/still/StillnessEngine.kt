@@ -36,6 +36,7 @@ class StillnessEngine(
     private val notes = StillNotes()
     private var stuck: String? = null
     private val alarms = StillAlarm()
+    private val blind = BlindSquares()
     private var covered: List<String> = emptyList()
     private val rate = FrameRate()
 
@@ -94,6 +95,10 @@ class StillnessEngine(
         val reading = Reading.of(snap) ?: return notes.say("the reading carries no probabilities")
         val model = explainer ?: MoveExplainer(reading.classes).also { explainer = it }
         val gate = config.pOccludedThr
+        // A square this camera never reads right is unreadable in the same sense a covered one is,
+        // so it leaves the evidence the same way — otherwise the search keeps trying to explain it
+        // as a move and finds nothing.
+        reading.hide(blind.known())
         covered = reading.coveredSquares(gate)
         val verdict = model.explain(position, reading.rows, reading.coverage, gate)
         phase.read(input.timestampMs)
@@ -101,13 +106,14 @@ class StillnessEngine(
             Verdict.Unchanged -> {
                 phase.settle(gray)
                 stuck = null
+                blind.sawExplained(model.conflicts(position, reading.rows, reading.coverage, gate))
                 alarms.clear() + listOf(TrackerEvent.ReAnchored)
             }
             Verdict.Unclear -> {
                 phase.smudge()
                 unclear(snap, model, reading)
             }
-            is Verdict.Moves -> commit(verdict, gray, input)
+            is Verdict.Moves -> commit(verdict, gray, input, model, reading)
         }
     }
 
@@ -115,6 +121,8 @@ class StillnessEngine(
         verdict: Verdict.Moves,
         gray: ByteArray,
         input: FrameInput,
+        model: MoveExplainer,
+        reading: Reading,
     ): List<TrackerEvent> {
         if (alarms.current != null) return notes.say("alarm latched — not committing")
         val ucis = verdict.moves.map(::uci)
@@ -131,6 +139,8 @@ class StillnessEngine(
             } else {
                 TrackerEvent.SequenceCommitted(ucis, sans, position.fen, DECIDER)
             }
+        // Against the position we just moved INTO: what still disagrees there explained nothing.
+        blind.sawExplained(model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr))
         if (verdict.complete) {
             phase.settle(gray)
             events += TrackerEvent.ReAnchored
@@ -149,7 +159,8 @@ class StillnessEngine(
     ): List<TrackerEvent> {
         stuck = STUCK_UNCLEAR
         notes.set("reading does not explain the board")
-        val conflicts = model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr)
+        // Blind squares are not evidence of a wrong board, they are evidence of a bad view.
+        val conflicts = model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr) - blind.known()
         val raised = alarms.onUnclear(snap.seq, conflicts, covered.size, plies, config.desyncObsN)
         if (raised.isNotEmpty()) {
             // The invariant `StatusUiModel` relies on: a latched alarm always names a stuck reason.
@@ -168,6 +179,7 @@ class StillnessEngine(
         pending = null
         phase.reset()
         stuck = null
+        blind.forget()
         return alarms.clear()
     }
 

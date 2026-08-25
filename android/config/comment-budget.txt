@@ -252,6 +252,7 @@ desktop/src/main/kotlin/com/chesslab/desktop/TrainingVideoPack.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Undistort.kt 1
 desktop/src/test/kotlin/com/chesslab/desktop/AlignmentMarkerPrepassTest.kt 1
 desktop/src/test/kotlin/com/chesslab/desktop/ReplayConfigFileTest.kt 1
+engine-stillness/src/main/kotlin/com/chesslab/engine/still/BlindSquares.kt 1
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/BoardMotion.kt 1
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/MoveExplainer.kt 3
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/Reading.kt 1

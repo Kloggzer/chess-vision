@@ -24,6 +24,12 @@ internal class Reading(
     val rows: Array<DoubleArray>,
     val coverage: DoubleArray,
 ) {
+    /** Treat these squares as unreadable — the same exit from the evidence a covered square takes. */
+    fun hide(squares: Set<String>) {
+        if (squares.isEmpty()) return
+        BOARD_SQUARES.forEachIndexed { i, name -> if (name in squares) coverage[i] = 1.0 }
+    }
+
     fun coveredSquares(gate: Double): List<String> = BOARD_SQUARES.filterIndexed { i, _ -> coverage[i] > gate }
 
     companion object {
