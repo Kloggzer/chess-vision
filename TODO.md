@@ -6,6 +6,29 @@
 
 ## Next up (agreed, not started)
 
+- **`board_acc` misst `piece_acc` hoch 32 — und ignoriert die Verdeckung** (gemessen 2026-08-25,
+  Frage des Users: *„warum ist die board accuracy so low, wird da occlusion nicht bedacht?"*).
+  Zwei Ursachen, sehr ungleich gewichtet.
+  **(a) Die Verdeckung fehlt.** `board_accuracy` (`training/data.py:67`) gruppiert ALLE Crops eines
+  Frames, ohne Coverage-Filter. Ein Brett gilt nur als richtig, wenn auch jede verdeckte Zelle
+  stimmt — und die sind aus dem Verlust maskiert, das Modell lernt sie nie. Im Val-Split von
+  `real13-straight-80-v3` tragen **46 % der 1 020 Bretter mindestens eine verdeckte Zelle** (Median
+  12, max 32), also ist `board_acc` konstruktionsbedingt auf **54 %** gedeckelt. Für die Belegung
+  gibt es den sichtbar-Zwilling schon (`visible_occupied_board_acc` = 0,678), für die Identität
+  **nicht** — `visible_board_acc` existiert nicht.
+  **(b) Der Exponent, und der ist der eigentliche Grund.** Ein Brett hat rund 32 Figuren; bei
+  `piece_acc` = 0,657 sind alle gleichzeitig richtig mit `0,657^32 = 1,5e-06`. Dass 1,9 %
+  herauskommen, liegt nur an figurenarmen Endspielen und stark korrelierten Fehlern. Die
+  Deckelung erklärt 54 statt 100 — sie erklärt nicht 1,9.
+  **Vorschlag, in dieser Reihenfolge:** (1) `visible_board_acc` als Zwilling ergänzen, damit die
+  Zahl wenigstens ehrlich ist (hebt sie kaum: Deckel weg, Exponent bleibt). (2) Eine Variante MIT
+  TOLERANZ danebenstellen — „höchstens eine Zelle falsch" statt „alle richtig". Bei 0,657 je Figur
+  ist „alles richtig" keine Metrik, sondern ein Lotterielos, und eine Größe, die fast immer 0 ist,
+  kann keine Auswahl steuern. (3) Erst dann diskutieren, ob sie in `CHECKPOINT_WEIGHTS` gehört —
+  heute steht dort aus gutem Grund `occupied_board_acc`, weil die Belegung sichtbar bei 99,4 %
+  liegt und die 64 Zellen übersteht.
+  **Achtung:** Trainingscode, also mit dem laufenden Agenten abstimmen.
+
 - **`minGridLineCoverage` ist der Hebel, der `motionThr` entlasten koennte** — gefunden beim
   Strom-Auftrag (2026-08-25), nicht verfolgt, weil der User `motionThr` so lassen wollte.
   Der Motion-Score macht zwei Jobs: Puffer-Hygiene in `stableBranch` (welche Frames duerfen in
