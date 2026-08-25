@@ -1,5 +1,13 @@
 # Wie viele Bretter je Stellung — und welche (2026-08-25)
 
+> **ZURÜCKGEZOGEN, 2026-08-26.** Die Tabelle unten misst `piece_acc` je Arm auf dem EIGENEN,
+> mit ausgedünnten Val-Split. Das Ausdünnen trifft auch Val, also hat jeder Arm einen anderen
+> Verdeckungsanteil — 2,9 % (c8d1) bis 15,0 % (c2d8). Verdeckte Zellen sind zu 55–63 % falsch,
+> also rangiert `piece_acc` fast rein nach diesem Anteil. Was hier als „c8d1 gewinnt" steht, ist
+> die Eigenschaft des Splits, nicht des Modells. Die korrigierte Messung steht unten unter
+> [Korrektur](#korrektur-2026-08-26); alles davor bleibt als Protokoll stehen.
+
+
 Die Vermutung war, acht Bretter je Stellung seien acht fast identische Ansichten: der Datensatz
 wachse, die Information nicht. Gemessen ist das Gegenteil, und die interessante Achse ist eine
 andere als die vermutete.
@@ -96,3 +104,44 @@ gesetzt werden sollte.
 
     uv run python scripts/thin_per_position.py <quelle> <ziel> --clean 8 --dirty 2 [--clean-repeat N]
     uv run chesslab dataset pack <ziel> --pack-size 80x80 --from <quelle>
+
+## Korrektur (2026-08-26)
+
+Jeder Arm noch einmal, aber alle gegen **denselben** Val-Satz: den vollen von
+`real13-straight-80-v3`, gleiche Session, gleiche 26 755 Zellen, 9,8 % verdeckt für alle. Kein
+Arm hat auf dieser Session trainiert. Und benotet wird `piece_acc` **nur auf sichtbaren** Zellen
+— das ist die Achse, die der Verlust auch lernt.
+
+| Arm | verdeckt im eigenen Val | ALT `piece_acc` (eigener Split) | NEU sichtbar, geteilter Val | Seed-Spanne |
+|---|---|---|---|---|
+| p8 | 9,5 % | 0,7196 | 0,7679 | 0,0617 |
+| p2 | 13,1 % | 0,6500 | **0,7142** | 0,0165 |
+| c2d8 | 15,0 % | 0,6774 | 0,7668 | 0,0196 |
+| c8d2 | 5,2 % | 0,7401 | 0,7694 | 0,0276 |
+| c8d1 | 2,9 % | **0,7507** | 0,7649 | 0,0127 |
+
+**Die alte Rangfolge ist die Rangfolge des Verdeckungsanteils**, rückwärts: 2,9 → 5,2 → 9,5 →
+15,0 %. Der Arm mit den wenigsten verdeckten Zellen im Val gewann, weil er die schwersten Zellen
+gar nicht erst gezählt hat.
+
+**Korrigiert bleibt kein Gewinner übrig.** p8, c2d8, c8d2 und c8d1 liegen zwischen 0,7649 und
+0,7694 — **0,0046 auseinander**, während ein Seed-Wechsel p8 um **0,0617** bewegt. Diese vier
+Arme sind bei zwei Seeds nicht unterscheidbar. Punkt 5 oben („d1 schlägt d2 schlägt d8") ist
+damit widerlegt: 0,7649 / 0,7694 / 0,7668 hat keine Richtung.
+
+**Was übrig bleibt, ist p2.** 0,7142 gegen ~0,767 — der Abstand ist ~8× die eigene Seed-Spanne
+und die einzige Aussage, die die Korrektur überlebt: **zwei Bretter je Stellung sind zu wenig.**
+Das war Punkt 1 und der steht.
+
+Nicht neu gemessen sind `occ_board` und die Coverage-Precision — sie hängen nicht an der
+Figurenklasse und sind vom Konfundierer weniger betroffen, aber auch sie stehen auf verschieden
+großen Val-Sätzen. Vor einer Änderung an `dirty_per_position` gehören sie über denselben Satz.
+
+**Damit das nicht wiederkommt:** `val_visible_piece_acc` steht ab jetzt in `metrics.jsonl` neben
+`val_piece_acc` (`training/train.py`, `_occlusion_diagnostics`). Wer Arme vergleicht, deren Val
+verschieden geschnitten ist, misst mit `chesslab eval --dataset <gemeinsamer> --split val` und
+liest die Zeile „nur SICHTBAR".
+
+    for r in p8 p2 c2d8 c8d2 c8d1; do
+      uv run chesslab eval --run data/models/_ab/$r-seed42 --split val         --dataset real13-straight-80-v3 | grep "nur SICHTBAR"
+    done

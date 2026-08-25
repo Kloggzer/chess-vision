@@ -88,6 +88,8 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     occ_tp = int((want & hit).sum())
     occ_want, occ_hit = int(want.sum()), int(hit.sum())
     vis_n = int(visible.sum())
+    vis_occ = visible & true_occ
+    vis_occ_n = int(vis_occ.sum())
     return {
         "val_coverage_mae": float(np.abs(cov_pred - cov_true).mean()),
         "val_coverage_recall": occ_tp / occ_want if occ_want else 0.0,
@@ -96,6 +98,11 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
         if vis_n else float("nan"),
         "val_visible_occupied_acc": float((pred_occ[visible] == true_occ[visible]).mean())
         if vis_n else float("nan"),
+        # Die Figurenachse, die `CHECKPOINT_WEIGHTS` benotet. `val_piece_acc` daneben zaehlt
+        # verdeckte Zellen mit und haengt damit am Verdeckungsanteil des Splits, nicht am Modell.
+        "val_visible_piece_acc": float((pred_cls[vis_occ] == true_cls[vis_occ]).mean())
+        if vis_occ_n else float("nan"),
+        "val_visible_occupied_n": vis_occ_n,
         "val_visible_occupied_board_acc": (
             sum(visible_boards.values()) / len(visible_boards)
             if visible_boards else float("nan")),
@@ -626,6 +633,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                 f"| cov_precision@0.5 {occ_diag['val_coverage_precision']:.4f} "
                 f"| visible_acc {occ_diag['val_visible_acc']:.4f} "
                 f"| visible_occupied_acc {occ_diag['val_visible_occupied_acc']:.4f} "
+                f"| visible_piece_acc {occ_diag['val_visible_piece_acc']:.4f} "
                 f"| visible_occupied_board_acc {occ_diag['val_visible_occupied_board_acc']:.4f}"
             )
 

@@ -86,8 +86,14 @@
 - **Bewertet wird nur, was der Verlust auch lernt (2026-08-24):** der Occlusion-Verlust maskiert
   alles über `PIECE_VISIBLE_MAX`, also zählen `CHECKPOINT_WEIGHTS`, `auroc` und `conf_wrong` nur
   sichtbare Zellen. Über alle Zellen gerechnet sah das Modell 8 Punkte besser kalibriert aus, als
-  es ist: verdeckte Zellen sind zu 55–63 % falsch, dabei aber *unsicher*. Aus demselben Grund
-  kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
+  es ist: verdeckte Zellen sind zu 55–63 % falsch, dabei aber *unsicher*.
+  **Arme mit verschieden geschnittenem Val sind auf `piece_acc` gar nicht vergleichbar
+  (2026-08-26):** die Ausdünn-Varianten trugen 2,9 % bis 15,0 % verdeckte Val-Zellen, und die
+  Rangfolge der Arme war exakt die Rangfolge dieses Anteils — der gemeldete Sieger verschwand,
+  sobald alle gegen DENSELBEN Val-Satz auf sichtbaren Zellen gemessen wurden
+  (`docs/per-position-mix.md`, Korrektur). `val_visible_piece_acc` steht deshalb in
+  `metrics.jsonl`, und Quervergleiche laufen über `chesslab eval --dataset <gemeinsamer>`.
+  Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 
