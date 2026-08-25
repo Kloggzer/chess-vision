@@ -6,6 +6,13 @@ zwei Zellen, gegenlaeufig falsch, zusammen ein legaler Zug. Diese Pruefung sucht
 Umfang: sie liest jede Zelle mit dem Modell und vergleicht das gelesene Brett gegen die FEN von
 ply-1, ply und ply+1.
 
+URSACHE, gemessen 2026-08-25: das Ply-Intervall endet beim COMMIT, nicht beim Zug. Der Commit
+hinkt dem physischen Zug um die Trackerlatenz hinterher (Median 0,29 s, p75 0,50 s, Schwanz bis
+2 s — `docs/tracker-flow.md`), und in diesem Fenster zeigt das Brett schon die neue Stellung. 186
+der 304 Treffer sind buchstaeblich der LETZTE Frame ihres Intervalls, 86 % liegen in dessen
+letzten 20 %, waehrend alle Frames gleichverteilt sind. Es ist kein Labelfehler, es ist die
+Latenz, die sich in die Trainingsdaten schreibt.
+
 Ein Modell irrt oefter als ein Label. Gemeldet wird deshalb nur, wo ein NACHBAR-Ply STRIKT besser
 passt als der eigene — und verdeckte Zellen zaehlen gar nicht mit, weil das Modell sie nicht
 lesen kann.
