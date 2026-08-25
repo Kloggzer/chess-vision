@@ -8,6 +8,12 @@ This file is git-tracked on purpose — `data/` is gitignored and was lost once 
 **A recording with no entry here is unusable for labelling**, however good its pixels are. Add the
 entry when the file arrives, not when someone needs it.
 
+**Let the camera run two seconds after the last move.** A tracker reads a move from a board that
+has come to rest, so a recording that cuts three seconds after the final piece lands never offers
+the still frame that would prove it. `VID_20260727_233929` loses its last four plies to exactly
+this, and both trackers measured on it lose the same four (2026-08-25). Two seconds of nothing
+happening are the cheapest recall in this project.
+
 ## Columns
 
 - **position** — the FEN placement field that holds for the WHOLE recording, or `game` when it

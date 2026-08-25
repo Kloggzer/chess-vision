@@ -1,5 +1,6 @@
 package com.chesslab.arena
 
+import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.warpFromCorners
@@ -47,6 +48,26 @@ class FrameView(
         models.counted(model)
         val vision = models.of(model)
         return vision.readSquares(raw, corners, vision.geometryFor(corners)).also { cached[model] = it }
+    }
+
+    /**
+     * How covered each square is, `a1..h8` — the model's own answer to "is a hand over this".
+     *
+     * The same number as the last column of [squares], named and free of the class list: a reader
+     * that has to know which column is not a class will one day softmax it along with the rest.
+     * Free once [squares] ran for this model on this frame, and a read otherwise.
+     */
+    fun coverage(model: String = models.default): DoubleArray? {
+        val rows = squares(model) ?: return null
+        val last = models.of(model).classes.size
+        return DoubleArray(rows.size) { rows[it][last].toDouble() }
+    }
+
+    /** Squares whose class read this model considers worthless — [coverage] above its own gate. */
+    fun covered(model: String = models.default): Set<String>? {
+        val gate = models.of(model).coverageGate ?: return null
+        val rows = coverage(model) ?: return null
+        return ALL_SQUARES.filterIndexedTo(LinkedHashSet()) { i, _ -> rows[i] > gate }
     }
 
     /** The rectified board as an image, `size` px on a side. The CALLER releases it. */

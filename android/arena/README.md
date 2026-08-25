@@ -49,6 +49,8 @@ was zurückkommt, und weist alles Illegale ab (laut, gezählt). Nichts zurückge
 | `quad` | die vier Brettecken im Bild (`a8, h8, h1, a1`), oder `null` |
 | `squares()` | 64 Zeilen `a1..h8` mit den Klassenwahrscheinlichkeiten des Modells |
 | `board(size)` | das entzerrte Brett als Bild; der Aufrufer gibt es frei |
+| `coverage()` | wie verdeckt jedes Feld ist, `a1..h8` — die Coverage-Spalte, benannt |
+| `covered()` | die Felder, deren Klassenlesung dieses Modell selbst fuer wertlos haelt |
 | `classes`, `coverageOutput`, `coverageGate` | was die Spalten von `squares()` bedeuten |
 
 `squares()` kostet echte Zeit (~20–40 ms für alle 64 Felder) und **jeder Aufruf wird gezählt**. Die
@@ -98,10 +100,18 @@ Drei Zahlen, nie zu einer verrechnet:
 found 15 / missed 0 / invented 0 · median lag 1 frames
 ```
 
-`found` sind Züge der Referenz, die der Lauf in der richtigen Reihenfolge gefunden hat (längste
-gemeinsame Teilfolge über die SANs). `missed` sind Referenzzüge, die er nie gemeldet hat.
+`found` sind Züge der Referenz, die der Lauf gefunden hat. `missed` sind Referenzzüge, die er nie
+gemeldet hat.
 `invented` sind Commits, die in der Referenz nicht vorkommen — **Phantome**. Ein Phantom
 disqualifiziert, ein Miss ist verhandelbar; deshalb wird nie gemittelt.
+
+`reordered` zaehlt Plies, die der Lauf in ANDERER Reihenfolge, aber ueber dieselbe Zahl von
+Halbzuegen zur selben Stellung gefunden hat. Ein Standbild kann eine Reihenfolge nicht beweisen —
+wo zwei Halbzuege auf demselben Brett landen, sind `Nf3 e5` und `e5 Nf3` dieselbe Evidenz, und die
+Bewertung laeuft deshalb ueber die STELLUNGEN, die beide Folgen durchlaufen, nicht ueber die
+Zugnamen. Unsere eigenen Referenzen tragen diese Mehrdeutigkeit als Tatsache: 8 % ihrer Plies
+wurden gebuendelt auf einem Frame committet, und auf `VID_20260726_233432` ist die gebuendelte
+Reihenfolge nachweislich falsch.
 
 `median lag` ist der Abstand in Frames zwischen dem Referenzframe eines Zuges und dem Frame, auf
 dem der Lauf ihn gemeldet hat. Bei einer PGN-Referenz gibt es keine Frames und keinen Lag.
