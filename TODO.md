@@ -170,24 +170,6 @@
   gegen Rillen —, den CLAUDE.md seit Wochen als „never measured" führt und den der Schalter
   `runGridOcclusion = coverageOutput != true` heute gar nicht zulässt.
 
-- **ERLEDIGT ANDERS, 2026-08-21: der Mesh nimmt die Wölbung, nicht die Linse.** Gemessen über
-  drei Rig-Aufnahmen mit Hold-out (`scripts/straighten_ab.py`): roher Brett-Bogen 15,2–16,6 px,
-  Gitter-Mesh allein 0,9–1,1, gefittete Linse allein 3,0–4,4, beides 0,4–0,7. Auf 116 px
-  Zellbreite ist ein Pixel unter einem Prozent einer Zelle, also ist die Linse den Fit pro
-  Aufnahme nicht wert. Der Store wird stattdessen einmal geradegezogen
-  (`realgames.straighten_boards`). Was unten steht, ist der ALTE Plan und nur noch Historie.
-
-- ~~**Lens end-to-end für die Rig-Kamera**~~ (2026-08-10: *"ich würde gerne überall die Bilder sehen
-  die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
-  korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
-  dieser Reihenfolge und nie einzeln: (1) alle Rig-Sessions im Pool undistorten + re-slicen
-  (rg-2026-08-08-00-39-57 ist schon durch), (2) Modell auf dem korrigierten Korpus neu trainieren,
-  Path-A gegen den Champion, (3) erst dann Label-Replays und Serving auf `lens` default. Bis dahin
-  zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `review-extra/`
-  (bis 2026-08-20 `frames-extra/`) ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt. Umfang gemessen 2026-08-10: NUR
-  die Rig-Kamera (OBS-Videos: k1 ≈ −0,23, Bow halbiert, Fit akzeptiert); die vier Phone-Videos
-  lehnt der Grid-Fit dreimal unabhängig ab (k1 ≈ 0) — die Handykamera entzerrt selbst, dort gibt
-  es nichts zu tun.
 
 - **The static takes still miss the gap they were filmed for.** Take 1 covers a1-e4 — White's
   half again, mostly empty squares. The corpus is already 57 % "occluded over empty" with 8
@@ -239,33 +221,6 @@
   `unknown_squares` existed, because re-running the export meant decoding the whole video again.
   Re-export is cheap now (frames on disk are kept) and non-destructive (a repaired quad is carried
   over), so after any change to `plan_rows`, re-export and check the field is actually there.
-
-## Lens: die Krümmung, die im Brett-Store sichtbar wurde (2026-08-17, gelöst 2026-08-21)
-
-Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`, und am 2026-08-20 in
-einem Trainings-Crop. Befund, gemessen:
-
-- **Die Ursache war die Hand, nicht die Linse.** 1 116 der 7 344 exportierten Frames trugen gar
-  keinen Mesh, und das waren AUSNAHMSLOS Frames mit einer Hand auf dem Brett; wo doch einer
-  zustande kam, war er von der Hand verzogen (Hand-Frames blieben bei 15,6–15,7 px Bogen,
-  saubere bei 1,0). Das ist genau das Occlusion-Material.
-- **Gelöst**: der Store wird beim Schreiben einmal geradegezogen, ein Hand-Frame leiht den Mesh
-  seiner fünf nächsten sauberen Nachbarn (die Kamera steht fest). Gemessen an 207 echten
-  Brettern: sauber 16,57 → 0,99 px, mit Hand 15,78 → 1,95 px.
-- Das gespeicherte Brett WAR der rohe rektifizierte Warp; Trainings-Crop und Label-Ansicht
-  begradigten jeder für sich. Beides ist weg — es gibt eine Begradigung, im Store.
-- Gemessene Wölbung über das 928er Brett, Mittel über 200 Frames je Session: die eine
-  undistortete Session (`00-39-57`, k1 = −0,269) liegt bei 13,7 px in x, alle rohen bei 15–56 px.
-- Der Fit gehört laut `Undistort.kt` bewusst nach Kotlin (`data/lens/calib.npz` wurde bei
-  2560×1440 mit RMS 5,46 px gefittet, die Kamera liefert 1920×1080). Das ANWENDEN eines
-  gefitteten Modells ist dagegen ein `cv2.undistort` und könnte im Stream vor dem Warp laufen —
-  dann bräuchte Undistortion nicht mehr den PNG-Umweg über `frames/`.
-- Offen bleibt NUR die Inferenz: der Tracker warpt roh und kennt gar keinen Mesh (Kotlin kann
-  Gitterlinien messen, aber `gridLinesWithCurvature`/`gridLineFracs` sind nicht portiert). Solange
-  das so ist, sieht das Gerät eine andere Geometrie als der neue Trainingskorpus. Das darf NICHT
-  einzeln scharfgeschaltet werden — specs/52 hat gemessen, dass entzerrte Inferenz gegen ein roh
-  trainiertes Modell 003957 von 67 auf 15 Plies fallen lässt. Reihenfolge: erst auf dem geraden
-  Korpus neu trainieren, dann Tracker-seitig begradigen.
 
 ## Zwei Aufnahmen behalten ihren Bogen — die Kruemmung war nie messbar (2026-08-21)
 
@@ -591,10 +546,6 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   Ausserdem aus dem Papier: Realismus auf PATCH-Ebene genuegt, global unrealistische Kompositionen
   schaden nicht — das ist die Rechtfertigung dafuer, dass wir Haende ueberhaupt aufkleben duerfen.
 
-- **SAM 3 unter autocast: ERLEDIGT (2026-08-23).** fp16 steht in `alpha_sam3`, gemessen
-  **5,72x** auf dem Produktionspfad (2,866 -> 0,501 s/Frame), abgesichert ueber 150 Frames:
-  0 von 9 600 Coverage-Zellen kippen. Zahlen in `docs/session-mattes.md`.
-
 - **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
   RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
   Reservierung sind OpenBLAS-Thread-Arenen (14 Threads = 14 Kerne), nicht Torch selbst:
@@ -667,6 +618,11 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Warum das plausibel ist:** der Korpus traegt 246 Stellungen bei 38 Aufnahmen je Stellung, und
   ein Lauf mit **3,9 % der Crops** war gleich gut (Memory `corpus-is-threefold-redundant`). Die
   Redundanz ist also gemessen, nicht vermutet.
+  **BLOCKIERT durch das nicht-deterministische Training** (User, 2026-08-25: *„dafuer muss aber das
+  training deterministisch"*). Genau richtig: der erwartete Effekt ist „gleich gut bei einem
+  Viertel der Daten", also ein NULL-Effekt — und ein Null-Effekt ist gegen Seed-Streuung nicht
+  nachweisbar. Dasselbe hat das SWA-Experiment erledigt. Erst der Determinismus-Punkt ganz oben,
+  dann das hier; sonst kostet die Antwort drei Seeds je Arm statt einem Lauf.
   **Was es braeuchte:** einen Vergleich `--per-position 8` gegen `2` gegen `1` bei sonst gleichem
   Rezept, gemessen auf dem Test-Split. Erwartung: gleiche `piece_acc` bei einem Viertel bis Achtel
   der Crops — und damit Platz, mehr STELLUNGEN aufzunehmen statt mehr Bilder derselben.
@@ -676,3 +632,16 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Achtung:** betrifft NUR den echten Export, nicht den Composite-Pfad. Und `dirty_per_position`
   separat betrachten: verdeckte Bretter sind das Material fuer den Occlusion-Kopf, dort ist die
   Redundanz moeglicherweise noetiger.
+
+## Erledigt — das Ergebnis in einer Zeile
+
+Die Langfassungen stehen in `docs/` und in der Git-Historie; hier bleibt nur, was sie GEMESSEN
+haben, damit niemand dieselbe Frage nochmal stellt.
+
+- **Linse gegen Mesh (2026-08-21):** roher Brett-Bogen 15,2–16,6 px, Gitter-Mesh allein 0,9–1,1,
+  gefittete Linse allein 3,0–4,4, beides 0,4–0,7. Auf 116 px Zellbreite ist ein Pixel unter einem
+  Prozent — die Linse ist den Fit pro Aufnahme nicht wert. Der Store wird stattdessen einmal
+  geradegezogen (`realgames.straighten_boards`). Der ganze `calib.npz`-Pfad ist weg: er löste aus
+  vielen Brett-POSEN, die ein fester Aufbau nicht liefern kann.
+- **SAM 3 unter autocast (2026-08-23):** fp16 bringt **5,72×** auf dem Produktionspfad
+  (2,866 → 0,501 s/Frame), über 150 Frames abgesichert — 0 von 9 600 Coverage-Zellen kippen.
