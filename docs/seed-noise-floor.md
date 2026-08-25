@@ -16,27 +16,40 @@ jedem Worker `random` und `torch` selbst deterministisch seedet. Bei `--num-work
 gleiche Batch-Reihenfolge, andere Pixel. Das war ausgerechnet der Pfad, auf dem man
 Nichtdeterminismus untersucht. Messwerkzeug: `scripts/loader_determinism.py`.
 
-## 2. Wie weit streut der Seed? Weiter als die Effekte.
+## 2. Wie weit streut der Seed?
 
-Dreimal das s2-Rezept (`--resume comp13-ms-s1-pretrain-bn80`, 60 Epochen, bs 256, lr 0,01, cosine,
-BatchNorm, `--head occlusion`), nur der Seed wechselt. Werte am BESTEN Checkpoint, nicht in der
-letzten Epoche:
+**Korrigiert 2026-08-25 nachmittags.** Die erste Fassung dieser Seite maß die Streuung
+ABGEBROCHENER Läufe: Early Stopping (`--patience 7`) beendete sie nach 13–25 von 60 Epochen, mitten
+in der Hochlern-Phase — die letzte Lernrate lag noch bei 6,3e-3 bis 8,9e-3 von 1e-2, der
+Cosine-Schedule hatte kaum begonnen. Das beste Ergebnis lag bei Epoche 4–8, während der
+Referenzlauf `swa1e4` seins bei 45 hatte. Gemessen war also die Varianz der lauten Frühphase.
 
-| Metrik | Seed 42 | Seed 43 | Seed 44 | Spanne | relativ |
-|---|---|---|---|---|---|
-| `val_visible_acc` | 0,8879 | 0,8783 | 0,8873 | **0,0097** | 1,1 % |
-| `val_checkpoint_score` | 0,8716 | 0,8537 | 0,8607 | 0,0180 | 2,1 % |
-| `val_piece_acc` | 0,6778 | 0,6531 | 0,6772 | 0,0247 | 3,7 % |
-| `val_macro_recall` | 0,5530 | 0,5507 | 0,5851 | 0,0344 | 6,1 % |
-| `val_occupied_board_acc` | 0,5667 | 0,4951 | 0,5755 | 0,0804 | 14,7 % |
-| `val_conf_auroc` | 0,9222 | 0,8588 | 0,8229 | **0,0994** | 11,4 % |
+Mit `--epochs 60 --patience 60`, drei Seeds, Werte am besten Checkpoint:
 
-Auch die Länge streut: Early Stopping nach **25 / 13 / 14** Epochen, bester Checkpoint bei
-Epoche **8 / 4 / 6**.
+| Arm | `visible_acc` | `piece_acc` |
+|---|---|---|
+| p2 (116 475 Crops) | 0,0080 | 0,0145 |
+| p8 (424 519 Crops) | 0,0270 | 0,0589 |
 
-`val_visible_acc` ist die stabilste Größe und zugleich die, auf der die Checkpoint-Auswahl seit
-`83db7e75` beruht — das passt zusammen. `val_conf_auroc` ist die unbrauchbarste: ihre Spanne ist
-so groß wie der Abstand zwischen „gut" und „mäßig".
+Der größere Datensatz streut MEHR, nicht weniger. Eine Erklärung dafür steht aus.
+
+## Gepaart vergleichen, wenn die Seeds geteilt sind
+
+Die Spanne oben ist die falsche Schranke, sobald beide Arme dieselben Seeds fahren. Dann ist die
+Differenz JE SEED die Beobachtung, und die Frage lautet nicht „ist der Abstand größer als die
+Streuung", sondern „zeigt jeder einzelne Seed in dieselbe Richtung".
+
+Beim p2/p8-Vergleich hätte die ungepaarte Lesart in die Irre geführt: der Median-Abstand auf
+`piece_acc` ist 0,0499, die Seed-Spanne von p8 allein 0,0589 — nach dieser Schranke wäre der
+Effekt „im Rauschen". Gepaart ist er es nicht:
+
+| Metrik | Seed 42 | Seed 43 | Seed 44 |
+|---|---|---|---|
+| `visible_acc` | +0,0330 | +0,0052 | +0,0049 |
+| `piece_acc` | +0,0990 | +0,0401 | +0,0354 |
+| `occupied_board_acc` | +0,3570 | +0,2280 | +0,1271 |
+
+Drei von drei, jede Metrik, dasselbe Vorzeichen. Der gemeinsame Seed hebt sich heraus.
 
 ## Was das für die bisherigen Vergleiche heißt
 

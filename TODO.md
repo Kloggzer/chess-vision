@@ -674,29 +674,27 @@ webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
   der Gegentest waere ein Trainingslauf gegen `comp13-occ-bn-lr1e2-bs512` als Basis. Und es faellt
   in `composite.py`, wo gerade ein anderer Kontext arbeitet — vorher abstimmen.
 
-- **`--per-position` von 8 auf 2 oder 1 senken (2026-08-24).** `framescan.select` nimmt heute
-  `per_position=8` und `dirty_per_position=8` (`framescan.py:212`, CLI `cli.py:588`). Acht Bretter
-  je Stellung sind acht fast identische Ansichten desselben Aufbaus — der Datensatz waechst, die
-  Information nicht.
-  **Warum das plausibel ist:** der Korpus traegt 246 Stellungen bei 38 Aufnahmen je Stellung, und
-  ein Lauf mit **3,9 % der Crops** war gleich gut (Memory `corpus-is-threefold-redundant`). Die
-  Redundanz ist also gemessen, nicht vermutet.
-  **JETZT ENTSCHEIDBAR** (User, 2026-08-25: *„dafuer muss aber das training deterministisch"* —
-  der Gedanke stimmt, die Ursache war eine andere). Das Training ist deterministisch, streut aber
-  über den Seed, und die Grenze ist seit 2026-08-25 gemessen: `val_visible_acc` ± 0,0097 beim
-  s2-Rezept (`docs/seed-noise-floor.md`). Der erwartete Effekt hier ist ein NULL-Effekt („gleich
-  gut bei einem Viertel der Daten"), also lautet die Frage: bleibt `--per-position 2` innerhalb
-  dieser 0,0097 von `8`? Drei Seeds je Arm, Median, sechs Läufe. Die Läufe sind mit dem s2-Rezept
-  kurz — Early Stopping griff bei 13–25 Epochen.
-  **Was es braeuchte:** einen Vergleich `--per-position 8` gegen `2` gegen `1` bei sonst gleichem
-  Rezept, gemessen auf dem Test-Split. Erwartung: gleiche `piece_acc` bei einem Viertel bis Achtel
-  der Crops — und damit Platz, mehr STELLUNGEN aufzunehmen statt mehr Bilder derselben.
-  **Nebeneffekt Rechenzeit:** `real13-straight-80-v3` hat 292 105 Trainings-Crops und kostet
-  42,6 s je Epoche. Bei `per-position 2` waeren es rund 73 000 und ~11 s — der Faktor, um den
-  Experimente heute langsam sind.
-  **Achtung:** betrifft NUR den echten Export, nicht den Composite-Pfad. Und `dirty_per_position`
-  separat betrachten: verdeckte Bretter sind das Material fuer den Occlusion-Kopf, dort ist die
-  Redundanz moeglicherweise noetiger.
+- **BEANTWORTET: `--per-position` 8 → 2 kostet spürbar** (gemessen 2026-08-25, drei Seeds je Arm,
+  volle 60 Epochen). Die Vermutung war „acht Bretter je Stellung sind acht fast identische
+  Ansichten, der Datensatz wächst und die Information nicht". Sie ist widerlegt.
+  Ausgedünnt wurde OHNE Neu-Export (`scripts/thin_per_position.py`): dieselben Crops aus derselben
+  Memmap, nur weniger davon — 6 799 Bretter auf 1 916, 424 519 Crops auf 116 475. Ein Neu-Export
+  hätte andere Bilder gewählt und zwei Änderungen vermischt.
+  Gepaart je Seed, p8 minus p2 — **3 von 3 positiv auf jeder Metrik**:
+
+  | Metrik | Seed 42 | Seed 43 | Seed 44 |
+  |---|---|---|---|
+  | `visible_acc` | +0,0330 | +0,0052 | +0,0049 |
+  | `piece_acc` | +0,0990 | +0,0401 | +0,0354 |
+  | `occupied_board_acc` | +0,3570 | +0,2280 | +0,1271 |
+
+  **Nebenbefund:** die meisten Stellungen tragen 16 Bretter, nicht 8 — `per_position` 8 PLUS
+  `dirty_per_position` 8, im Schnitt 14,2. Die Frage hieß real „14 oder 4".
+  **Offen bleibt, welche Hälfte den Wert trägt:** zwei Arme laufen, `c8d2` (8 saubere + 2
+  verdeckte) gegen `c2d8`, bei gleicher Größe (291k gegen 288k Crops) und gleicher Batch. Da
+  `piece_acc` am stärksten einbrach und Identität aus SICHTBAREN Zellen gelernt wird, ist die
+  Erwartung, dass die sauberen Bretter tragen — dann wäre die Antwort nicht „weniger", sondern
+  „anders gemischt".
 
 ## Erledigt — das Ergebnis in einer Zeile
 
