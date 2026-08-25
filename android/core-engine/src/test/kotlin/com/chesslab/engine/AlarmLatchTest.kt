@@ -347,7 +347,10 @@ class AlarmLatchTest {
         assertNull(state.board.alarmGuessSan(null))
         assertNull(state.board.alarmGuessSan("zz9"))
         assertEquals("a4->a5", state.board.alarmGuessSan("a4a5"), "an empty from-square has no piece")
-        assertEquals("N f3->e5 (illegal move suspected)", state.board.alarmGuessSan("f3e5"))
+        // Schwarz ist am Zug, der Springer auf f3 ist weiss — das ist der Grund, nicht "suspected".
+        assertEquals("N f3->e5 (it is Black to move)", state.board.alarmGuessSan("f3e5"))
+        // Dieselbe Stellung, aber eine schwarze Figur: die Seite stimmt, also bleibt es generisch.
+        assertEquals("N b8->a6 (illegal move suspected)", state.board.alarmGuessSan("b8a6"))
     }
 
     @Test

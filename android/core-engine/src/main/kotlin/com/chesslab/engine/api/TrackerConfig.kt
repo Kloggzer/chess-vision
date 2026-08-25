@@ -45,10 +45,10 @@ data class TrackerConfig(
     // median whole frame at 26-28 fps. The old figures these two were chosen against — 146 ms and
     // 290 ms per observation — belonged to the wide GroupNorm model, which no longer ships.
     //
-    // [cnnCooldownS] is the throttle on the STUCK arm, so it is the floor on how fast a recovery can
-    // answer a board that has gone wrong: at 2.0 a bridge could not arrive sooner than two seconds
-    // after the tracker noticed, and any confirmer above one vote pays it again per vote. At 0.7 the
-    // whole-board read costs about 2 % of one frame's budget per second.
+    // [cnnCooldownS] throttles the STUCK arm — the FIRST read after the tracker notices. Folgestimmen
+    // zahlen ihn seit 2026-08-24 nicht mehr (`evaluationDue` laesst `recoveryConfirmer.count > 0`
+    // durch); der hier fruehere Satz "any confirmer above one vote pays it again per vote" stimmt
+    // nicht mehr und hat am selben Tag eine Fehlanalyse getragen.
     val cnnCooldownS: Double = 0.7,
     // [cnnCheckIntervalS] is the STABLE arm: a whole-board sanity read while nothing is happening.
     // Every 10 s was a 0.16 % duty cycle; every 3 s is 0.5 %, and it is the only thing that notices
@@ -63,6 +63,10 @@ data class TrackerConfig(
     // Nach so vielen identischen Ablehnungen darf die CNN sehen, auch wenn kein anderes Tor
     // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/refused-streak.md`).
     val refusedStreakForEval: Int = 3,
+    // So viele Beobachtungen ueber `desyncObsN` hinaus wartet der Latch — Luft fuer den
+    // Hand-Latch, in der Einheit, die der Rest des Desyncs benutzt (bei ~10 Obs/s ist 1 ~ 100 ms).
+    // Die Serie laeuft weiter, nur das Einrasten haelt an. 0 = nur die Handpruefung.
+    val alarmDeferObs: Int = 0,
     val verifyWindow: Int = 8,
     // ...and the same deadline in SECONDS, which is the unit the player experiences.
     // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN — unbounded if the
@@ -83,6 +87,8 @@ data class TrackerConfig(
     val recoveryMaxPlies: Int = 4,
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
+    /** Experiment arm: derive moves on occupancy+colour rather than on the piece type. */
+    val cnnColorAxis: Boolean = false,
     val motionMargin: Double = 0.10,
     val overhang: Double = 0.25,
     val alignEvery: Int = 3,

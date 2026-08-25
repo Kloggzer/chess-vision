@@ -32,7 +32,7 @@ fun CnnRecovery.deriveMovesDeepFull(
     maxPlies: Int = config.recoveryMaxPlies,
     beam: Int = config.beam,
 ): DerivedMoves {
-    val channel = channelFor(obs, config.confThr)
+    val channel = channelFor(obs, config.confThr, config.colorAxis)
     val n = channel.squares.size
     if (n < config.minConfidentRecovery) {
         return DerivedMoves(emptyList(), NO_AGREEMENT, NO_AGREEMENT)
@@ -81,16 +81,21 @@ fun CnnRecovery.deriveMovesDeepFull(
 private fun channelFor(
     obs: OccupancyObservation,
     confThr: Double,
+    colorAxis: Boolean = false,
 ): SearchChannel =
     if (obs.label != null) {
         val squares = obs.labelConfidentSquares(confThr)
-        SearchChannel(squares, squares.associateWith { obs.label(it) as Any }) { b, sq -> labelAt(b, sq) }
+        val axis: (String) -> Any = if (colorAxis) ::sideOfLabel else { label -> label }
+        SearchChannel(squares, squares.associateWith { axis(obs.label(it)!!) }) { b, sq -> axis(labelAt(b, sq)) }
     } else {
         val squares = obs.confidentSquares(confThr)
         SearchChannel(squares, squares.associateWith { obs.occupied(it) as Any }) { b, sq ->
             b.getPiece(squareOf(sq)) != Piece.NONE
         }
     }
+
+/** `wR` and `wN` collapse to `w`; `empty` stays itself. The colour axis of [CnnConfig.colorAxis]. */
+private fun sideOfLabel(label: String): Any = if (label == "empty") label else label.take(1)
 
 private fun conflictsOf(
     channel: SearchChannel,

@@ -157,8 +157,7 @@ class LiveAlignDispatchTest {
 
         override fun latestCalibrationSample(): CalibrationFrame = sample()
 
-        override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? =
-            if (afterVersion == version) null else sample()
+        override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame? = if (afterVersion == version) null else sample()
 
         private fun sample(): CalibrationFrame {
             clones += 1

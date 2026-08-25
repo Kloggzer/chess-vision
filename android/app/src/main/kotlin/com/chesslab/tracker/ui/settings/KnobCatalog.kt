@@ -34,6 +34,10 @@ private val BY_KEY = KNOBS.associateBy { it.key }
  */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
+        "alarmDeferObs" to
+            "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
+            "tracked, and the latch may wait this many observations beyond the threshold so an arriving hand " +
+            "can still cancel it. Zero relies on the hand check alone, which is the part that is measured.",
         "refusedStreakForEval" to
             "Not a preference but a repair: after this many identical rejections the CNN is allowed to look, " +
             "because the diff channel alone has demonstrably stopped making progress. Measured 2026-08-24, a " +

@@ -375,4 +375,5 @@ private fun cnnConfig(config: TrackerConfig) =
         minConfidentBoard = config.minConfidentBoard,
         minConfidentRecovery = config.minConfidentRecovery,
         recoveryMaxPlies = config.recoveryMaxPlies,
+        colorAxis = config.cnnColorAxis,
     )

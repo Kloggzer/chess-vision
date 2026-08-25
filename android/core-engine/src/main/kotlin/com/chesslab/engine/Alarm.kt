@@ -59,6 +59,15 @@ internal fun EngineState.onStableMismatch(
 private val EngineState.alarmable: Boolean get() = alarm == null && history.isNotEmpty()
 
 /**
+ * Haelt das Einrasten an, solange eine Hand im Bild ist.
+ *
+ * Die Serie laeuft weiter — Blitz braucht das —, nur der Latch wartet. `handInFrame` ist die
+ * Vereinigung aller Occlusion-Signale, und der Alarmpfad war die einzige Stelle, die sie nie
+ * gefragt hat: eine Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
+ */
+private fun EngineState.alarmDeferred(): Boolean = handInFrame() || desyncObs < config.desyncObsN + config.alarmDeferObs
+
+/**
  * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
  *
  * The veto hands the standoff to CNN recovery, but recovery can only end it when a LEGAL move
@@ -83,7 +92,7 @@ internal fun EngineState.desyncEvidence(
     conflicts: List<String>,
 ): List<TrackerEvent> {
     advanceDesyncStreak(snap.seq, conflicts)
-    val due = alarmable && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
     if (guess != null) {
         val raised = latchAlarm(conflicts, guess)
@@ -99,7 +108,8 @@ internal fun EngineState.desyncEvidence(
     val standoffDue =
         alarmable &&
             config.desyncStandoffObsN > 0 &&
-            desyncObs >= config.desyncStandoffObsN
+            desyncObs >= config.desyncStandoffObsN &&
+            !alarmDeferred()
     if (standoffDue) {
         val raised = latchAlarm(conflicts, guess = null)
         note = alarmNote(raised)
@@ -169,7 +179,7 @@ private fun EngineState.raiseAlarmIfDue(
     obs: CnnObservation,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    val due = alarmable && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
     return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
 }
@@ -226,11 +236,14 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
             piece.uppercaseChar() == 'K' &&
                 abs(from % Squares.N - to % Squares.N) == 2 &&
                 !hasCastlingRights(piece.isUpperCase())
-        // Steht die Seite am Zug im Schach, IST das der Grund — und der einzige, der dem Spieler
-        // sagt, was er tun soll. "illegal move suspected" laesst ihn raten (User, 2026-08-24).
+        // Der Grund, nicht nur die Feststellung: "illegal move suspected" laesst den Spieler raten,
+        // wo der Motor es genau weiss. Reihenfolge nach Handlungsbedarf — wer am Zug ist, steht
+        // ueber dem Schach, weil sonst der Falsche nach seinem Koenig sucht (User, 2026-08-24).
         val reason =
             when {
                 castling -> "castling not available"
+                piece.isUpperCase() != whiteToMove ->
+                    "it is ${if (whiteToMove) "White" else "Black"} to move"
                 result().inCheck -> "you are in check"
                 else -> "illegal move suspected"
             }

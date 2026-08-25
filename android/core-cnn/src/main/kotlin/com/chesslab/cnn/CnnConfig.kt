@@ -31,4 +31,13 @@ data class CnnConfig(
     val recoveryMaxPlies: Int = 4,
     // cnn_recovery.py:286 derive_moves_deep(beam=8)
     val beam: Int = 8,
+    /**
+     * Search on COLOUR (empty / white / black) instead of the exact piece type.
+     *
+     * The two axes fail apart, and measurably so: on the 4K recordings of 2026-08-24 the model
+     * reads occupancy-plus-colour of an unobstructed start position at 0.97 and the piece type at
+     * 0.81 (`TODO.md`), so a rook read as a knight makes an otherwise unambiguous move
+     * unexplainable. Off by default — this is an experiment arm, not a retuning.
+     */
+    val colorAxis: Boolean = false,
 )
