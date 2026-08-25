@@ -18,9 +18,11 @@ Bild etwas geaendert hat UND seither eine Hand darueber war.
 |---|---:|---:|
 | `2026-08-08-11-55-19` | 972 | **210** |
 | `VID_20260824_153751` | 1 783 | **92** |
+| `VID_20260824_154327` | 6 238 | **891** |
 | `2026-08-08-00-39-57` | 5 069 | — |
 
-Beide Aufnahmen mit unveraendertem Ergebnis (15/0/0 und 35/0/0).
+Ergebnis unveraendert oder besser: 15/0/0, 35/0/0 — und `154327` gegen die volle 117-Ply-PGN
+**101/16/0**, gegen 81/36/0 unter Push und 10/107/0 mit der Diff-Engine. Null Phantome.
 
 **Die Hypothese zu `00-39-57` ist widerlegt.** Sie lautete: der Arm bricht dort ein (7 statt 67),
 weil die Lesungen geschoben statt gezogen kommen. Mit Pull steht dasselbe Ergebnis, 7/60/2. Bleibt
