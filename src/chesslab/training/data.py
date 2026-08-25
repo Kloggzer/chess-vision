@@ -193,6 +193,8 @@ def per_session_metrics(rows: list[dict], classes: list[str],
     A corpus mean hides the one session that carries the whole error — which is exactly the
     question when a model is pointed at a dataset it was not trained on.
     """
+    from .occlusion import PIECE_VISIBLE_MAX
+
     by_sid: dict[str, list[tuple[dict, int, int]]] = defaultdict(list)
     for r, t, p in zip(rows, trues, preds, strict=False):
         by_sid[r["session_id"]].append((r, t, p))
@@ -203,7 +205,12 @@ def per_session_metrics(rows: list[dict], classes: list[str],
         ps = [p for _, _, p in items]
         ok = [t == p for t, p in zip(ts, ps, strict=True)]
         boards = [((r["session_id"], str(r["frame"])), c) for r, c in zip(rs, ok, strict=True)]
+        # `piece_acc` gehoert dazu: sie streut ueber die Sessions am staerksten (gemessen
+        # 2026-08-25 ueber vier Folds: 0,584 bis 0,993), und genau sie entscheidet.
+        vis = [(t, p_) for r, t, p_ in items
+               if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX and classes[t] != "empty"]
         out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok),
+                    "visible_piece_acc": (sum(t == p_ for t, p_ in vis) / len(vis)) if vis else None,
                     "board_acc": board_accuracy(boards),
                     "occupied_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
     return out

@@ -188,11 +188,22 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     from .data import per_session_metrics
 
     per_session = per_session_metrics(rows, classes, list(res["trues"]), list(res["preds"]))
+    spread = session_spread(per_session)
     if len(per_session) > 1:
-        print("Per session (worst board accuracy first):")
-        for sid, m in sorted(per_session.items(), key=lambda kv: kv[1]["board_acc"]):
-            print(f"  {sid:<34} board {m['board_acc']:.4f}  occ {m['occupied_board_acc']:.4f}  "
-                  f"square {m['square_acc']:.4f}  ({m['crops']} crops)")
+        print("Per session (worst piece accuracy first):")
+        for sid, m in sorted(per_session.items(),
+                             key=lambda kv: (kv[1].get("visible_piece_acc") is None,
+                                             kv[1].get("visible_piece_acc") or 0.0)):
+            vp = m.get("visible_piece_acc")
+            piece = f"{vp:.4f}" if vp is not None else "  —   "
+            print(f"  {sid:<34} piece {piece}  board {m['board_acc']:.4f}  "
+                  f"occ {m['occupied_board_acc']:.4f}  square {m['square_acc']:.4f}  "
+                  f"({m['crops']} crops)")
+        for key, sp in spread.items():
+            print(f"Streuung {key}: {sp['min']:.4f} bis {sp['max']:.4f} "
+                  f"(Median {sp['median']:.4f}, Spanne {sp['range']:.4f}, {sp['n']} Sessions)")
+        print("  Der Korpuswert ist ein Mittel darueber. Ein Vergleich zweier Laeufe muss diese "
+              "Spanne schlagen, sonst misst er, welche Sessions im Split lagen.")
     # 2. Per-Klassen-Recall
     cm = confusion_matrix(res["trues"], res["preds"], len(classes))
     recall = per_class_recall(cm)
@@ -218,7 +229,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
                "visible_type_err": (bd_vis or {}).get("type_err"),
                "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
                "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
-               "per_session": per_session}
+               "per_session": per_session, "session_spread": spread}
     (run_dir / f"eval_{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"[OK] {run_dir / f'eval_{stem}.json'}")
     return 0
@@ -227,6 +238,24 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 #: The one batch the tracker ever infers: 64 squares of a board, read in a single call.
 #: Baked into the exported graph — see `_export_onnx` for why it must not be dynamic.
 ONNX_BATCH = 64
+
+
+def session_spread(per_session: dict[str, dict]) -> dict[str, dict]:
+    """Wie weit die Sessions auseinanderliegen — die Unsicherheit hinter dem Korpuswert.
+
+    Gemessen 2026-08-25 ueber vier Folds, jede der 20 Sessions genau einmal ungesehen:
+    `visible_piece_acc` reicht von 0,584 bis 0,993. Diese Spanne ist groesser als jeder
+    Rezeptunterschied, den ein A/B an diesem Korpus bisher gemessen hat.
+    """
+    import statistics as st
+
+    out: dict[str, dict] = {}
+    for key in ("visible_piece_acc", "square_acc", "occupied_board_acc"):
+        vals = [m[key] for m in per_session.values() if m.get(key) is not None]
+        if len(vals) > 1:
+            out[key] = {"min": min(vals), "median": st.median(vals), "max": max(vals),
+                        "range": max(vals) - min(vals), "n": len(vals)}
+    return out
 
 
 def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:

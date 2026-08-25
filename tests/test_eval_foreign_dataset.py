@@ -117,8 +117,12 @@ def test_per_session_metrics_separate_a_good_session_from_a_bad_one():
 
     m = per_session_metrics(rows, CLASSES, trues, preds)
 
-    assert m["a"] == {"crops": 2, "square_acc": 1.0, "board_acc": 1.0, "occupied_board_acc": 1.0}
+    assert m["a"] == {"crops": 2, "square_acc": 1.0, "visible_piece_acc": 1.0,
+                      "board_acc": 1.0, "occupied_board_acc": 1.0}
     assert m["b"]["square_acc"] == 0.5 and m["b"]["board_acc"] == 0.0
+    # `visible_piece_acc` je Session ist die Achse, die am staerksten streut — ueber vier Folds
+    # 0,584 bis 0,993 (2026-08-25). Ohne sie liest man den Korpuswert fuer bare Muenze.
+    assert m["b"]["visible_piece_acc"] == 0.0
 
 
 def test_an_occlusion_run_is_scored_over_its_classes_only(tmp_path, paths):
