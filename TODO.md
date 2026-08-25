@@ -47,21 +47,31 @@
   im Schach. Also entweder eine Aufnahme davon machen, oder einen Clip bauen. Bis dahin steht eine
   Engine-Änderung ohne Beleg im Baum.
 
-- **Das Training ist nicht deterministisch** (Nutzer, 2026-08-24: *„swa ist leider auch nur im
-  Rauschen, der Trainingskram scheint nicht deterministisch zu sein"*). Solange zwei Läufe mit
-  identischem Rezept auseinanderlaufen, ist **kein** A/B entscheidbar — das SWA-Experiment
-  (`swa5e4` 0,7406 gegen `swa1e4` 0,7444 gegen Basis 0,7159) liegt genau in diesem Band, und die
-  eigene Notiz sagt es seit Langem: Seed-Streuung schlägt die Effekte, drei Seeds und der Median.
-  Die üblichen drei Quellen, in dieser Reihenfolge zu prüfen: `DataLoader`-Shuffling ohne eigenen
-  `torch.Generator`, `num_workers > 0` ohne `worker_init_fn` (jeder Worker zieht seinen eigenen
-  Seed), und nicht-deterministische Kernel (`torch.use_deterministic_algorithms(True)`,
-  `cudnn.benchmark = False` — auf ROCm nicht selbstverständlich, kann Leistung kosten).
-  **Messung zuerst, nicht Fix zuerst:** zweimal dasselbe Rezept mit demselben Seed fahren und die
-  `metrics.jsonl` Epoche für Epoche vergleichen. Sind sie bit-identisch, liegt die Streuung woanders
-  (Datensatz-Reihenfolge, Split); weichen sie ab, sagt die erste abweichende Epoche, welche der drei
-  Quellen es ist. Ohne diese Grundlage kostet jeder künftige Vergleich drei Läufe statt einem.
-  **Daran hängt konkret:** `--per-position` 8 → 2 (unten) und der Datensatz-Kreuztest — beide
-  erwarten einen NULL-Effekt, und den kann man gegen Seed-Rauschen nicht zeigen.
+- **Das Training IST deterministisch — das Problem ist die Seed-Empfindlichkeit** (gemessen
+  2026-08-25, damit ist die frühere Fassung dieses Punktes widerlegt). Zwei Läufe, `--seed 42`,
+  gleiches Rezept, 2 Epochen auf `real13-straight-80-v3`: **jede Metrik bit-identisch**, bis zur
+  letzten Stelle — auf ROCm (RX 7900 XT), mit AMP, mit 8 Workern, und ohne dass
+  `torch.use_deterministic_algorithms` oder `cudnn.benchmark = False` gesetzt wären. Ein Fix an
+  RNG oder Kerneln ist also nicht nötig; er hätte nur Rechenzeit gekostet.
+  **Was tatsächlich streut, ist der Seed:**
+
+  | | Seed 42 (2×) | Seed 43 | Seed 44 | Spanne |
+  |---|---|---|---|---|
+  | `val_checkpoint_score` | 0,6047 / 0,6047 | 0,6352 | 0,5278 | **0,1074** |
+  | `val_piece_acc` | 0,3401 / 0,3401 | 0,3101 | 0,2909 | 0,0493 |
+  | `val_acc` | 0,5591 / 0,5591 | 0,6120 | 0,3866 | 0,2255 |
+
+  **Vorbehalt:** das sind 2 Epochen, also frühes Training, wo die Seed-Streuung am größten ist.
+  Bei voller Länge ist sie kleiner — wie viel kleiner, ist NICHT gemessen. Genau das fehlt.
+  **Was daraus folgt:** „im Rauschen" heißt nicht, dass ein Lauf unzuverlässig wäre, sondern dass
+  der Effekt einen Seed-Wechsel nicht überlebt. Kein Determinismus-Fix entfernt das. Ein A/B
+  braucht **drei Seeds und den Median**, und die Rauschgrenze muss bei VOLLER Länge für die
+  Metrik gemessen werden, die entscheidet — das ist die eine offene Aufgabe hier. Danach ist auch
+  `--per-position` 8 → 2 entscheidbar.
+  **Nebenbefund, gefixt:** `train.py` seedete `torch` und `numpy`, aber nie Python's `random` —
+  und die Augmentierung zieht von dort. Bei 8 Workern beisst das nicht (PyTorch seedet sie selbst),
+  bei `--num-workers 0` schon: gleiche Batch-Reihenfolge, andere Pixel. Das war ausgerechnet der
+  Pfad, auf dem man Nichtdeterminismus untersucht. Messwerkzeug: `scripts/loader_determinism.py`.
 
 - **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
   nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
@@ -651,11 +661,12 @@ webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
   **Warum das plausibel ist:** der Korpus traegt 246 Stellungen bei 38 Aufnahmen je Stellung, und
   ein Lauf mit **3,9 % der Crops** war gleich gut (Memory `corpus-is-threefold-redundant`). Die
   Redundanz ist also gemessen, nicht vermutet.
-  **BLOCKIERT durch das nicht-deterministische Training** (User, 2026-08-25: *„dafuer muss aber das
-  training deterministisch"*). Genau richtig: der erwartete Effekt ist „gleich gut bei einem
-  Viertel der Daten", also ein NULL-Effekt — und ein Null-Effekt ist gegen Seed-Streuung nicht
-  nachweisbar. Dasselbe hat das SWA-Experiment erledigt. Erst der Determinismus-Punkt ganz oben,
-  dann das hier; sonst kostet die Antwort drei Seeds je Arm statt einem Lauf.
+  **BLOCKIERT — aber nicht durch Nichtdeterminismus** (User, 2026-08-25: *„dafuer muss aber das
+  training deterministisch"*). Der Gedanke stimmt, die Ursache ist eine andere: das Training ist
+  deterministisch (gemessen, siehe oben), aber seed-empfindlich. Der erwartete Effekt hier ist
+  „gleich gut bei einem Viertel der Daten", also ein NULL-Effekt — und den kann man gegen
+  Seed-Streuung nicht zeigen. Es braucht deshalb wirklich drei Seeds je Arm, und vorher die
+  Rauschgrenze bei voller Laufzeit.
   **Was es braeuchte:** einen Vergleich `--per-position 8` gegen `2` gegen `1` bei sonst gleichem
   Rezept, gemessen auf dem Test-Split. Erwartung: gleiche `piece_acc` bei einem Viertel bis Achtel
   der Crops — und damit Platz, mehr STELLUNGEN aufzunehmen statt mehr Bilder derselben.
