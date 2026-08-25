@@ -1,24 +1,19 @@
 """Traegt jeder Frame die FEN, die sein Brett zeigt — oder die vom Nachbar-Ply?
 
-Der Verdacht aus dem Hard-Negative-Mining (2026-08-25): einzelne Frames sind mit der Stellung VOR
-dem Zug gelabelt, obwohl das Brett sie danach zeigt. Vier Frames trugen die eindeutige Signatur —
-zwei Zellen, gegenlaeufig falsch, zusammen ein legaler Zug. Diese Pruefung sucht den vollen
-Umfang: sie liest jede Zelle mit dem Modell und vergleicht das gelesene Brett gegen die FEN von
-ply-1, ply und ply+1.
+ZURUECKGENOMMEN, 2026-08-25: dieses Skript vergleicht gegen `fen`, die Stellung des PLY. Trainiert
+wird aber auf `label`, und eine menschliche Korrektur ueberschreibt nur das Label. Auf den 304
+Frames, die es hier meldet, stimmt das Modell zu **98 %** mit dem Label ueberein — gegen ~89 % im
+Schnitt. Sie sind BESSER gelabelt als der Rest, nicht schlechter. Von 1 889 Abweichungen zwischen
+`fen` und `label` im ganzen Datensatz ist keine einzige unerklaert; `tests/test_manifest_fen_label.py`
+haelt das fest.
 
-URSACHE, gemessen 2026-08-25: das Ply-Intervall endet beim COMMIT, nicht beim Zug. Der Commit
-hinkt dem physischen Zug um die Trackerlatenz hinterher (Median 0,29 s, p75 0,50 s, Schwanz bis
-2 s — `docs/tracker-flow.md`), und in diesem Fenster zeigt das Brett schon die neue Stellung. 186
-der 304 Treffer sind buchstaeblich der LETZTE Frame ihres Intervalls, 86 % liegen in dessen
-letzten 20 %, waehrend alle Frames gleichverteilt sind. Es ist kein Labelfehler, es ist die
-Latenz, die sich in die Trainingsdaten schreibt.
+Was das Skript weiterhin richtig misst, ist der Versatz der FEN-SPALTE: 1 004 zu 4 nach vorn, 86 %
+der Treffer in den letzten 20 % ihres Ply-Intervalls, 61 % im allerletzten Frame. Ursache ist die
+Commit-Latenz — das Intervall endet beim Commit, nicht beim Zug (Median 0,29 s, p75 0,50 s,
+`docs/tracker-flow.md`). Das ist eine Inkonsistenz der Metadaten, kein Fehler in den Trainingslabels.
 
-Ein Modell irrt oefter als ein Label. Gemeldet wird deshalb nur, wo ein NACHBAR-Ply STRIKT besser
-passt als der eigene — und verdeckte Zellen zaehlen gar nicht mit, weil das Modell sie nicht
-lesen kann.
+Wer es benutzt, vergleiche also gegen `label`, nicht gegen `fen`.
 
-    uv run python scripts/scan_ply_offset.py <dataset> [--out data/reports/ply_offset.jsonl]
-"""
 import argparse
 import collections
 import json
