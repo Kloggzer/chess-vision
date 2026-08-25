@@ -117,6 +117,8 @@ app/src/test/kotlin/com/chesslab/tracker/ui/settings/KnobCatalogTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/ui/theme/DpLiteralGuardTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/ui/theme/PaperAndInkTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/ui/theme/StringLiteralGuardTest.kt 1
+arena/src/main/kotlin/com/chesslab/arena/Arena.kt 1
+arena/src/main/kotlin/com/chesslab/arena/ArenaMain.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/AlarmGuess.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/CnnConfig.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/DeepSearch.kt 1
