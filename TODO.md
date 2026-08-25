@@ -4,6 +4,35 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Der Alarm rastet auf IDENTITAET ein, obwohl er das nicht darf (gemessen 2026-08-25)
+
+`VID_20260824_154327`: der Tracker committet zehn Plies, dann `ALARM latched on
+a1,g1,h1,d4,f4,g4,c5,g5,a8,f8` — und danach nichts mehr, 107 Plies und 11 000 Frames lang, weil
+der Latch nur ein Mensch loest und im Replay keiner da ist. Die zehn genannten Felder, gegen die
+Stellung nach Ply 10 gemessen (`tmp/arena/alarm-154327.jsonl`, Frame 1000, Coverage-Gate 0,15):
+
+| Feld | erwartet | gelesen | Konfidenz | Art |
+|---|---|---|---|---|
+| a1 | wR | wP | 0,93 | Identitaet |
+| g1 | wN | wR | 0,94 | Identitaet |
+| h1 | wR | wB | 0,99 | Identitaet |
+| f4 | wB | wP | 0,95 | Identitaet |
+| a8 | bR | bN | 0,96 | Identitaet |
+| f8 | bB | bN | 0,75 | Identitaet |
+| d4, g4, c5, g5 | — | korrekt | — | kein Konflikt |
+
+**Null Belegungs- oder Farbfehler, alle Felder unverdeckt.** `Alarm.kt` beschreibt den Latch als
+"only when OCCUPANCY disagrees" — die Bedingung war nicht erfuellt und er fiel trotzdem. Und es
+gibt einen Schutz, der genau das verhindern soll: `identityRead` (`CnnTick.kt:130`) prueft einen
+Identitaets-Mismatch mit `occupancyOnly()` nach und erklaert das Brett fuer in Ordnung, wenn die
+Belegung passt. **Warum er hier nicht griff, ist die Frage** — `resyncCheck` mit gestrippter
+Identitaet muss false geliefert haben, obwohl die Belegung nachweislich stimmte. Dort anfangen,
+nicht am Latch.
+
+Zusammenhang: dieselbe Ursache, aus der `cnnColorAxis` denselben Lauf von 10/107/0 auf 54/63/5
+hebt und der Stillstands-Arm auf 81/36/0 kommt — der bepreist Identitaet von vornherein nur mit
+0,4 und hat gar keinen Identitaets-Alarm.
+
 ## Die zweite Engine laeuft — was als Naechstes zu messen ist (2026-08-25)
 
 `engine=stillness` gegen `classic`, voller Regressionssatz, `real13-ms-s3-hn4-bn80`:
