@@ -45,6 +45,7 @@ import com.chesslab.tracker.record.SessionSettingsHost
 import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
+import com.chesslab.tracker.settings.FrameRateMode
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.cameraLook
@@ -133,7 +134,7 @@ class TrackerService :
         StackSwitch {
             TrackerStack(
                 TrackerSeed(
-                    onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec),
+                    engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
                     ::geometry,
                     corners,
                     publisher.lastFen ?: STARTPOS,
@@ -331,13 +332,13 @@ class TrackerService :
             )
         settings.submit = {
             // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
-            val cfg = onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec)
+            val cfg = engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate)
             stacks.current?.host?.submit(EngineAction.UpdateConfig(cfg))
         }
         camera =
             TrackerCamera(
                 this,
-                cameraRequestFor(settings.appSettings.value.resolutionMode),
+                cameraRequestFor(settings.appSettings.value.resolutionMode, settings.appSettings.value.frameRate),
                 { image, delivered ->
                     binder.deliveredSize = delivered
                     publisher.cameraHealth = camera.cameraState.value
@@ -416,7 +417,7 @@ class TrackerService :
                 { settings.appSettings.value },
                 // The config the ENGINE runs, measured boardSize included — the stored knobs
                 // alone would claim config.py's 1600 while the profile served something else.
-                { onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec) },
+                { engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate) },
             )
         settings.config
             .onEach { sessionSettings.configChanged(onMeasuredBoard(it, geometry)) }
@@ -456,7 +457,7 @@ class TrackerService :
         swapStack()
         // Before the bind, so the FIRST binding already asks for the persisted mode instead of
         // binding at the default and immediately rebinding.
-        camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
+        camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode, settings.appSettings.value.frameRate))
         camera.bind(this)
         publisher.events.onEach(::onEvent).launchIn(lifecycleScope)
         recordingSettings.prefs
@@ -487,7 +488,7 @@ class TrackerService :
             modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value)
             geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
             swapStack()
-            camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode))
+            camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode, settings.appSettings.value.frameRate))
         }
     }
 
@@ -526,7 +527,7 @@ class TrackerService :
                         // with nothing. See [onMeasuredBoard].
                         runStartOf(
                             settings.appSettings.value,
-                            onMeasuredBoard(settings.config.value, geometry).withCoverageGateOf(modelSpec),
+                            engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
                             modelSpec,
                             // The pads the crops are REALLY cut at, so a legacy model shows up as a
                             // profile value nobody chose rather than as an absent field (specs/45).
@@ -638,6 +639,14 @@ private fun onMeasuredBoard(
     geometry: BoardGeometry,
 ): TrackerConfig = if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize)
 
+/** The three corrections between the STORED knobs and what the engine runs. One place, four callers. */
+private fun engineConfig(
+    stored: TrackerConfig,
+    geometry: BoardGeometry,
+    spec: ModelSpec?,
+    rate: FrameRateMode,
+): TrackerConfig = onMeasuredBoard(stored, geometry).withCoverageGateOf(spec).withMotionThrFor(rate)
+
 /**
  * The model's own declaration of the crop size it takes, through the one Kotlin reader
  * (`ModelSpec.parse`, specs/22): `infer_size` when the run has one, else `out_size`.
@@ -667,3 +676,16 @@ private suspend fun declaredModelSpec(
  * deshalb keine Engine-Konstante (`docs/occlusion-gate.md`).
  */
 private fun TrackerConfig.withCoverageGateOf(spec: ModelSpec?): TrackerConfig = spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+
+/**
+ * `motionThr` scaled to the frame rate: it is a percent of pixels changed against the PREVIOUS
+ * frame, so it silently means "motion per frame period".
+ *
+ * 273/55/102 at 15 fps against the baseline's 303/25/6, and 312/16/30 once scaled; 30 fps scales
+ * by one, so every number measured there stands (`docs/battery.md`).
+ */
+private fun TrackerConfig.withMotionThrFor(rate: FrameRateMode): TrackerConfig =
+    if (rate == REFERENCE_RATE) this else copy(motionThr = motionThr * REFERENCE_RATE.fps / rate.fps)
+
+/** The rate every `motionThr` on record was measured at. Scaling is relative to it. */
+private val REFERENCE_RATE = FrameRateMode.FPS30

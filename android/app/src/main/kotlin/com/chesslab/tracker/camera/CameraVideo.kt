@@ -17,7 +17,10 @@ const val MIN_VIDEO_HEIGHT = 1440
 
 private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
 private const val VIDEO_BIT_RATE = 20_000_000
+
+/** Only the fallback for [CameraVideo.frameRate] — the camera request sets the real one. */
 private const val VIDEO_FRAME_RATE = 30
+
 private const val VIDEO_I_FRAME_SECONDS = 1
 
 /**
@@ -173,6 +176,16 @@ class CameraVideo : AutoCloseable {
         return true
     }
 
+    /**
+     * The encoder's rate-control hint, set from the camera request.
+     *
+     * `KEY_BIT_RATE` is per SECOND and the encoder spends it per FRAME, so a 15 fps stream told 30
+     * budgets half of it away — the recording is training material, and half the bits is half the
+     * detail the crops are cut from.
+     */
+    @Volatile
+    var frameRate: Int = VIDEO_FRAME_RATE
+
     /** Arms the encoder. No file and no muxer exist until [keep] -- see the class KDoc. */
     @Synchronized
     fun start(
@@ -202,7 +215,7 @@ class CameraVideo : AutoCloseable {
                 MediaFormat.createVideoFormat(VIDEO_MIME, size.width, size.height).apply {
                     setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
                     setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BIT_RATE)
-                    setInteger(MediaFormat.KEY_FRAME_RATE, VIDEO_FRAME_RATE)
+                    setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
                     setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, VIDEO_I_FRAME_SECONDS)
                 }
             codec =

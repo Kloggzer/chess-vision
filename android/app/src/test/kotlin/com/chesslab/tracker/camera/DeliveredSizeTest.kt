@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test
 class DeliveredSizeTest {
     @Test
     fun deliveredSizeIsReadFromTheImageNeverFromTheRequest() {
-        val request = CameraRequest(width = 1280, height = 720)
+        val request = CameraRequest(width = 1280, height = 720, targetFps = 30)
         val delivered = deliveredSizeOf(FakeImageProxy(width = 1280, height = 960, rotation = 90))
 
         assertEquals(1280, delivered.width)
@@ -34,7 +34,7 @@ class DeliveredSizeTest {
     fun requestAndDeliveredAreNeverConflated() {
         // The only public producer of a DeliveredSize takes an ImageProxy; CameraRequest has no
         // path to one. Downshifting changes the WISH and nothing else.
-        val downshifted = CameraRequest(width = 3840, height = 2160).downshifted()
+        val downshifted = CameraRequest(width = 3840, height = 2160, targetFps = 30).downshifted()
         assertEquals(1280, downshifted.width)
         assertEquals(720, downshifted.height)
     }

@@ -237,6 +237,7 @@ class TrackerCamera(
         // they were independent.
         val extender = Camera2Interop.Extender(builder)
         pinFrameRate(extender, cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() })
+        video.frameRate = target.targetFps
         optics.prepare(extender)
         val analysis = builder.build()
         analysis.setAnalyzer(analyzerExecutor, ::deliver)
@@ -285,6 +286,9 @@ class TrackerCamera(
                 ?.filter { it.upper == target.targetFps }
                 ?.maxByOrNull { it.lower }
         if (range == null) {
+            // Loud, because the setting then reads 15 while the sensor runs at 30: the back camera
+            // of a 24117RK2CG advertises no locked range below 15, and one it does not advertise
+            // is a binding failure rather than a slower camera.
             Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
             return
         }

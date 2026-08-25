@@ -426,6 +426,19 @@ private fun LazyListScope.landing(
     item(key = "analysis-row") { AnalysisRow(nav) }
     item(key = "recording-row") { RecordingRow(nav) }
     item(key = "transfer-row") { TransferRow(nav) }
+    item(key = "camera-heading") { SectionHeading("Camera & model") }
+    // Die drei, die der Nutzer tatsaechlich anfasst (2026-08-25: *„nutze eigentlich nur fps,
+    // aufloesung und modell"*). specs/51 hatte sie mit den 29 Reglern hinter dieselbe Tuer
+    // geschoben, die er nie oeffnet — die Tuer bleibt, diese drei nicht dahinter.
+    item(key = "device-row-top") {
+        DisclosureRow(
+            title = "Camera & model",
+            subtitle = "${app.resolutionMode.label} · ${app.frameRate.label} · ${app.modelDir}",
+            onOpen = { nav.openGroup(SettingsPlace.Device) },
+            icon = Icons.Filled.Build,
+            chevron = false,
+        )
+    }
     item(key = "advanced-heading") { SectionHeading("Advanced") }
     item(key = "developer-row") {
         DisclosureRow(
@@ -524,12 +537,8 @@ private fun LazyListScope.developer(
             subtitle = "${knobsIn(group).size} settings" + if (n > 0) "  •$n modified" else "",
         ) { nav.openGroup(SettingsPlace.Group(group)) }
     }
-    item(key = "device-heading") { SectionHeading("Device") }
-    item(key = "device-row") {
-        DisclosureRow("Device & model", "Camera resolution, CNN model, graph and execution provider") {
-            nav.openGroup(SettingsPlace.Device)
-        }
-    }
+    item(key = "runtime-heading") { SectionHeading("Runtime") }
+    item(key = "runtime-row") { RuntimeSettingsSection(app) { viewModel.setApp(it) } }
     item(key = "diagnostics-heading") { SectionHeading("Diagnostics") }
     // The debug panels kept their own route: `TrackerStatus.debug` is assembled only while that
     // screen is composed, and thirteen panels do not belong inside a settings LazyColumn. What the

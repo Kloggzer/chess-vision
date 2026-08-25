@@ -32,6 +32,22 @@ enum class ResolutionMode(
     R2160("2160p"),
 }
 
+/**
+ * What the sensor is asked to RUN at — pinned onto `CONTROL_AE_TARGET_FPS_RANGE`.
+ *
+ * A LOCKED range, never an upper bound: `[15, 30]` leaves auto-exposure its old freedom, so only
+ * `[15, 15]` halves the sensor, the ISP and every per-frame stage. Every entry is a range this
+ * device advertises — `pinFrameRate` refuses to ask for one that is not (`docs/battery.md`).
+ */
+enum class FrameRateMode(
+    val label: String,
+    val fps: Int,
+) {
+    FPS15("15 fps", 15),
+    FPS24("24 fps", 24),
+    FPS30("30 fps", 30),
+}
+
 /** Which ONNX execution provider to REQUEST. What was actually selected is 07b's CNN panel. */
 enum class EpRequest(
     val label: String,
@@ -79,6 +95,14 @@ data class AppSettings(
      * measurement (`measuredBoardSize`) rather than fixed at 1600.
      */
     val resolutionMode: ResolutionMode = ResolutionMode.R1440,
+    /**
+     * 15, not the sensor's 30: at 30 the tracker drew more than the charger delivered and the
+     * battery fell while plugged in — 490 mA, `docs/battery.md`. It is NOT free. The regression set
+     * reads 273/55/102 against 303/25/6, because `settleFrames` counts FRAMES for a window that
+     * means TIME, so halving the rate halves it. Shipped at 15 on the user's call (2026-08-25);
+     * 30 is the way back.
+     */
+    val frameRate: FrameRateMode = FrameRateMode.FPS15,
     val orientation: BoardOrientation = BoardOrientation.WHITE_BOTTOM,
     /**
      * WHICH bundled model — a directory under `assets/cnn_model/`, one of `BUNDLED_MODELS`.
