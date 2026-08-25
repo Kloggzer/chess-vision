@@ -119,8 +119,10 @@ app/src/test/kotlin/com/chesslab/tracker/ui/theme/PaperAndInkTest.kt 1
 app/src/test/kotlin/com/chesslab/tracker/ui/theme/StringLiteralGuardTest.kt 1
 arena/src/main/kotlin/com/chesslab/arena/Arena.kt 1
 arena/src/main/kotlin/com/chesslab/arena/ArenaMain.kt 1
+arena/src/main/kotlin/com/chesslab/arena/Score.kt 1
+arena/src/main/kotlin/com/chesslab/arena/Truth.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/AlarmGuess.kt 1
-core-cnn/src/main/kotlin/com/chesslab/cnn/CnnConfig.kt 1
+core-cnn/src/main/kotlin/com/chesslab/cnn/CnnConfig.kt 2
 core-cnn/src/main/kotlin/com/chesslab/cnn/DeepSearch.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/Observations.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/Preprocess.kt 5
@@ -134,6 +136,7 @@ core-engine/src/main/kotlin/com/chesslab/engine/AnomalyPatcher.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CnnObservation.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/CommitGates.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/DebugPayload.kt 2
+core-engine/src/main/kotlin/com/chesslab/engine/api/EngineOps.kt 1
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerConfig.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/api/TrackerEngine.kt 12
 core-engine/src/main/kotlin/com/chesslab/engine/BaselineOcclusion.kt 4
@@ -286,7 +289,7 @@ tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CameraSwitch.kt 4
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/CnnCropAdapter.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/DebugPayloadAssembler.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/DebugProbes.kt 1
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/EngineHost.kt 2
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/EngineHost.kt 3
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/GameSessionWiring.kt 2
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/StatusPublisher.kt 4
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/service/TrackerCoordinator.kt 8

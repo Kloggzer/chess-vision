@@ -38,6 +38,11 @@ val NOT_A_SETTING: Map<String, String> =
             "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
             "tracked, and the latch may wait this many observations beyond the threshold so an arriving hand " +
             "can still cancel it. Zero relies on the hand check alone, which is the part that is measured.",
+        "cnnColorAxis" to
+            "Not a preference but an experiment arm: it searches on occupancy and colour instead of the piece " +
+            "type, which is right where the model confuses types and wrong where it does not. Measured " +
+            "2026-08-25 it lifts VID_20260824_153751 from 9/26/0 to 35/0/0 and costs five phantoms on " +
+            "VID_20260824_154327 — a trade nobody should make from a settings screen.",
         "refusedStreakForEval" to
             "Not a preference but a repair: after this many identical rejections the CNN is allowed to look, " +
             "because the diff channel alone has demonstrably stopped making progress. Measured 2026-08-24, a " +

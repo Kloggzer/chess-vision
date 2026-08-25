@@ -3,6 +3,8 @@ package com.chesslab.tracker.service
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.engine.api.EngineAction
+import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
@@ -25,23 +27,10 @@ private const val ACTION_CAPACITY = 32
 private const val SNAPSHOT_CAPACITY = 4
 
 /**
- * The engine, behind a seam. `TrackerEngine` is named in exactly this file, so "one engine owner"
- * is a grep and not a convention, and the host's ordering can be tested against a fake.
- */
-interface EngineOps {
-    fun onFrame(input: FrameInput): List<TrackerEvent>
-
-    fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent>
-
-    fun apply(action: EngineAction): List<TrackerEvent>
-
-    fun status(): TrackerStatus
-
-    /** The game FEN without the rest of [status] — see [EngineHost.fen]. */
-    fun fen(): String
-}
-
-/**
+ * `TrackerEngine` is named in exactly this file, so "one engine owner" is a grep and not a
+ * convention — and with [EngineOps] in `:core-engine` that holds for every engine, not just this
+ * one.
+ *
  * The real engine plus the `:app`-side half of `app.py::_apply_live_tuning`.
  *
  * [onConfigApplied] is the frame pipeline's `onConfigChanged`, which resets the motion ROI and

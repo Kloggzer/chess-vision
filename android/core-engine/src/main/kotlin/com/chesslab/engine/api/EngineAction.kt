@@ -1,6 +1,4 @@
-package com.chesslab.tracker.service
-
-import com.chesslab.engine.api.TrackerConfig
+package com.chesslab.engine.api
 
 /**
  * Everything the outside world can ask the engine to do.
