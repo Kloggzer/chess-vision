@@ -6,6 +6,19 @@
 
 ## Next up (agreed, not started)
 
+- **`minGridLineCoverage` ist der Hebel, der `motionThr` entlasten koennte** — gefunden beim
+  Strom-Auftrag (2026-08-25), nicht verfolgt, weil der User `motionThr` so lassen wollte.
+  Der Motion-Score macht zwei Jobs: Puffer-Hygiene in `stableBranch` (welche Frames duerfen in
+  das gemittelte Paar) und Scharfschalten des Commit-Gates. **Gemessen ist, dass die obere Wand
+  am ERSTEN haengt**: bei `motionThr = 1.0` faellt `2026-08-08-00-39-57` von 67 auf 4 Plies, und
+  mit `nomotion` — also ohne Commit-Gate — bleibt es bei 4. Die Hand wird dann in den Mittelwert
+  gerechnet, statt die Puffer zu leeren.
+  CNN-Occlusion kann das nicht uebernehmen (Frage des Users): sie kommt pro Beobachtung, darf
+  `OBS_MAX_AGE_S = 3.0` s alt sein und beantwortet „ist da eine Hand" statt „ist dieser Frame
+  kontaminiert". `occludedByGrid(input.gridLineCoverage)` macht denselben Job aber schon, pro
+  Frame und im selben Pfad — es verwirft beide Puffer, wenn der Verdecker geht. Wer `motionThr`
+  Luft verschaffen will, dreht dort. Zahlen: `docs/battery.md`.
+
 - **Der Alarm feuert bei Bewegung zu schnell — Latch zu kurz, oder das Prinzip stimmt nicht**
   (User am Brett, 2026-08-25: *„bei bewegen wird zu schnell ein alarm getriggert"*). Steht NACH
   dem Handcheck vom Vortag, ist also nicht damit erledigt.
