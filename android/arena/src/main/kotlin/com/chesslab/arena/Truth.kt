@@ -12,10 +12,14 @@ import java.io.File
  * The reference for a recording: the LONGER of its two sources, never the more convenient one.
  *
  * `candidate.json` carries a frame per ply, which is what a lag measurement needs — but a tracker
- * run wrote it and most of them stop early ("Position lost — tracking paused"). On
- * `VID_20260824_154327` it holds 51 plies where the PGN holds the whole 117-ply game. Scoring
- * against the short one would count every ply a BETTER tracker finds as a phantom, so the PGN
- * decides the sequence and the candidate only lends its frames to the plies it agrees on.
+ * run wrote it, and it can be wrong in two ways. It stops early ("Position lost — tracking
+ * paused"): on `VID_20260824_154327` it holds 51 plies where the PGN holds the whole 117-ply game.
+ * And it GUESSES ORDER: a run that commits a backlog puts several plies on one frame, 51 of 606
+ * across the corpus sit in such a bundle, and on `VID_20260726_233432` the guess is demonstrably
+ * wrong — the pictures show e4 at frame 240, the candidate calls it ply 3.
+ *
+ * So the PGN decides the sequence wherever there is one, and the candidate only lends its frames
+ * to the plies it agrees with.
  */
 fun truthOf(dir: File): List<TruthPly> {
     val candidate = candidatePlies(dir)
@@ -23,7 +27,7 @@ fun truthOf(dir: File): List<TruthPly> {
     check(candidate.isNotEmpty() || pgn.isNotEmpty()) {
         "no reference for ${dir.name} — neither candidate.json with moves nor reference.pgn"
     }
-    if (pgn.size <= candidate.size) return candidate.ifEmpty { pgn.map { TruthPly(it, -1) } }
+    if (pgn.isEmpty()) return candidate
     return pgn.mapIndexed { i, san -> TruthPly(san, candidate.getOrNull(i)?.takeIf { it.san == san }?.frame ?: -1) }
 }
 

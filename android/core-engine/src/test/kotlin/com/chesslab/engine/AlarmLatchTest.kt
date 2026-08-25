@@ -38,7 +38,7 @@ class AlarmLatchTest {
         assertNull(raised.guess, "there is no move-shaped guess — the standoff bound latched without one")
         assertTrue("g1" in raised.conflicts)
         assertNotNull(state.alarm)
-        assertTrue(state.note!!.contains("ILLEGAL MOVE?"), state.note!!)
+        assertTrue(state.note!!.contains("llegal move", ignoreCase = true), state.note!!)
     }
 
     @Test
@@ -95,7 +95,7 @@ class AlarmLatchTest {
         assertEquals(setOf("e1", "g1"), alarm.conflicts.toSet())
         assertEquals("e1g1", alarm.guess)
         assertTrue(events.any { it is TrackerEvent.Alarm })
-        assertTrue(state.note!!.contains("ILLEGAL"), state.note!!)
+        assertTrue(state.note!!.contains("llegal", ignoreCase = true), state.note!!)
     }
 
     @Test
@@ -338,7 +338,7 @@ class AlarmLatchTest {
         assertEquals("e1g1", alarm.guess)
         assertEquals("K e1->g1 (castling not available)", alarm.guessSan)
         assertTrue(state.alarmSince > 0.0)
-        assertTrue(state.toStatus().note!!.contains("ILLEGAL"))
+        assertTrue(state.toStatus().note!!.contains("llegal", ignoreCase = true))
     }
 
     @Test

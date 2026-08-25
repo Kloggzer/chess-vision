@@ -1,5 +1,7 @@
 package com.chesslab.desktop
 
+import com.github.bhlangonijr.chesslib.Board
+import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -70,8 +72,29 @@ internal fun scoreMoves(
     return MoveScore(found, missed, invented)
 }
 
-/** The label's plies out of a `candidate.json`. */
+/**
+ * The label's plies: the `reference.pgn` where one exists, with the candidate's frames alongside.
+ *
+ * The PGN is the checked source and the candidate is a tracker artefact — and the two can disagree
+ * about ORDER. A run that commits a backlog puts several plies on one frame and guesses their
+ * sequence; 51 of 606 label plies across the corpus sit in such a bundle, and on
+ * `VID_20260726_233432` the guess is demonstrably wrong (the pictures show e4 at frame 240, the
+ * label calls it ply 3). Scoring against the guess makes a tracker that reads the video correctly
+ * look worse than the one that wrote the label.
+ */
 internal fun labelPlies(candidate: File): List<ScoredPly> {
+    val fromCandidate = candidatePlies(candidate)
+    val pgn = File(candidate.parentFile, "reference.pgn")
+    if (!pgn.isFile) return fromCandidate
+    val sans = runCatching { pgnSans(pgn.readText()) }.getOrDefault(emptyList())
+    if (sans.isEmpty()) return fromCandidate
+    return sans.mapIndexed { i, san ->
+        val same = fromCandidate.getOrNull(i)?.takeIf { it.san == san }
+        ScoredPly(san, same?.frame ?: -1, same?.decider ?: "reference")
+    }
+}
+
+private fun candidatePlies(candidate: File): List<ScoredPly> {
     val root = Json.parseToJsonElement(candidate.readText()).jsonObject
     return root.getValue("moves").jsonArray.map { row ->
         val move = row.jsonObject
@@ -82,6 +105,32 @@ internal fun labelPlies(candidate: File): List<ScoredPly> {
         )
     }
 }
+
+/** The mainline SANs, normalised through chesslib so they compare against a run's. */
+private fun pgnSans(text: String): List<String> {
+    val body =
+        text
+            .lineSequence()
+            .filterNot { it.startsWith("[") }
+            .joinToString(" ")
+            .replace(PGN_COMMENT, " ")
+            .replace(PGN_NUMBER, " ")
+            .replace(PGN_RESULT, " ")
+    val board = Board()
+    val out = mutableListOf<String>()
+    for (token in body.split(PGN_SPACE).filter { it.isNotBlank() }) {
+        val list = MoveList(board.fen)
+        list.loadFromSan(token)
+        out += list.toSanArray().first()
+        board.doMove(list.first())
+    }
+    return out
+}
+
+private val PGN_COMMENT = Regex("""\{[^}]*\}""")
+private val PGN_NUMBER = Regex("""\d+\.(\.\.)?""")
+private val PGN_RESULT = Regex("""(1-0|0-1|1/2-1/2|\*)""")
+private val PGN_SPACE = Regex("""\s+""")
 
 /** Three numbers, three lists, no average. */
 internal fun printScore(

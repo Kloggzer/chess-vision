@@ -4,6 +4,25 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Ein Doppelschlag aufs selbe Feld faellt fast immer durch die Ambiguitaetsschwelle (2026-08-26)
+
+Live beobachtet, Damentausch auf d4 (`tmp/live/session.log`, ply 11/12): der Paar-Kandidat
+`d1d4 + d8d4` scort 17,60 gegen 17,33 des besten Rivalen — Margin **0,27** bei geforderten
+`ambiguityMarginLl = 2,0`. Zweimal "QUIET ambiguous", dann committet der Motor die Haelften
+einzeln, die zweite ueber den Legalitaets-Prior.
+
+Der Grund steht im Code (`Scoring.kt:104`): teilen sich beide Haelften ein Zielfeld, zaehlt es in
+`unionSum` **einmal**. Ein Doppelschlag beruehrt damit drei Felder (d1, d8, d4), sein Rivale — der
+Einzelzug `d8d4` — zwei davon. Der Vorsprung schrumpft auf EIN Feld, waehrend ein gewoehnliches
+Paar vier verschiedene Felder beruehrt und den doppelten Abstand hat. Die Schwelle ist fuer den
+Normalfall gesetzt und trifft den Sonderfall mit voller Haerte.
+
+Kein Datenverlust: die Zuege kamen einzeln durch. Aber es ist Reibung genau dort, wo Blitz sie
+haeuft, und der Prior entscheidet statt des Bildes. **Zu messen, bevor jemand die Schwelle
+anfasst:** ob eine Ausnahme fuer Paare mit geteiltem Zielfeld (z. B. Margin gegen die Zahl der
+UNTERSCHIEDLICHEN Felder normiert) Phantome kostet — `ambiguityMarginLl` ist die Konstante, die
+`docs/how-we-got-here.md` als teuerste im Motor fuehrt.
+
 ## Der Replay hat das Coverage-Gate des Modells nie angewandt (gefunden 2026-08-25)
 
 `:app` setzt es beim Attach (`withCoverageGateOf`, `TrackerService.kt:679`), der Desktop nicht —

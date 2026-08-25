@@ -150,6 +150,9 @@ class TrackerService :
                     androidTrackerLogs,
                     ::cameraStages,
                     runGridOcclusion = modelSpec?.coverageOutput != true,
+                    // Read here, once, like every other AppSettings value: a change restarts the
+                    // stack, which is what `StackSwitch` exists for.
+                    engine = settings.appSettings.value.engine,
                 ),
                 settings,
                 publisher,

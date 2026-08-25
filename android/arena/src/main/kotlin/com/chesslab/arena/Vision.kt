@@ -103,6 +103,7 @@ class Vision(
 val COVERAGE_MODELS =
     listOf(
         "real13-ms-s3-hn4-bn80",
+        "c8d1-seed43",
         "real13-ms-s2-bn80-bs256-swa1e4",
         "comp13-occ-bn-lr1e2-bs512",
     )

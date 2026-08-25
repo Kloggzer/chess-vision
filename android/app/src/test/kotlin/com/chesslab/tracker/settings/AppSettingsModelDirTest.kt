@@ -15,7 +15,10 @@ import org.junit.jupiter.api.Test
 class AppSettingsModelDirTest {
     @Test
     fun aFreshInstallRunsTheOcclusionAwareIdentityModel() {
-        assertEquals("real14-80", DEFAULT_MODEL)
+        // Named, not just "the default": a 14-class run declares no `coverage_output`, which leaves
+        // the model-free grid arm on, and on the regression set that arm locks the tracker
+        // (2026-08-07-13-52-38: four found with three phantoms, against 25/0/0 with this one).
+        assertEquals("real13-ms-s3-hn4-bn80", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
     }

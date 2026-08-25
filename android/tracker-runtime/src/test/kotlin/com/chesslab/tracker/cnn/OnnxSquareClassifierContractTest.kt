@@ -158,9 +158,15 @@ class OnnxSquareClassifierContractTest {
             // warm-up batch. A bare provider name is only ever printed after it was observed.
             assertEquals("CPU", classifier.backend)
             assertEquals(assetClasses(), classifier.classes)
-            val probs = classifier.classify(crops(ModelSpec.parse(staged.configJson).outWidth))
+            val assetSpec = ModelSpec.parse(staged.configJson)
+            val probs = classifier.classify(crops(assetSpec.outWidth))
             assertEquals(ALL_SQUARES.size, probs.size)
-            probs.forEach { assertTrue(abs(it.sum() - 1.0f) < 1e-4f, "row sums to ${it.sum()}") }
+            // The CLASSES sum to one. A coverage run carries one more column, and that one is a
+            // sigmoid beside them — adding it in would assert against a number that means nothing.
+            probs.forEach {
+                val classMass = if (assetSpec.coverageOutput) it.dropLast(1).sum() else it.sum()
+                assertTrue(abs(classMass - 1.0f) < 1e-4f, "row classes sum to $classMass")
+            }
             assertTrue(classifier.lastRunMs > 0.0)
         }
         // Derived, not a literal: the desktop natives carry the CPU provider and nothing else, so

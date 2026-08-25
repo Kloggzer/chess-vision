@@ -122,7 +122,17 @@ internal fun EngineState.desyncEvidence(
     return emptyList()
 }
 
+/**
+ * The line the player reads while a game is running, so the REASON comes first and short.
+ *
+ * It used to lead with the squares and hide the reason in brackets behind them — "ILLEGAL MOVE?
+ * K e1->f1 (you are in check) — take it back, or resync to accept". Everything a player needs is
+ * in the last three words of the middle, and by then the eye has left (User, 2026-08-26). Where
+ * the engine knows why, it says only why; where it does not, the conflict list and what to do
+ * about it are still the most useful thing it has.
+ */
 private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
+    board.alarmReason(latched.guess)?.let { return "Illegal move — $it" }
     val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
     return "ILLEGAL MOVE? $what — take it back, or resync to accept"
 }
@@ -232,22 +242,32 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
     return if (piece == null) {
         squares
     } else {
-        val castling =
-            piece.uppercaseChar() == 'K' &&
-                abs(from % Squares.N - to % Squares.N) == 2 &&
-                !hasCastlingRights(piece.isUpperCase())
-        // Der Grund, nicht nur die Feststellung: "illegal move suspected" laesst den Spieler raten,
-        // wo der Motor es genau weiss. Reihenfolge nach Handlungsbedarf — wer am Zug ist, steht
-        // ueber dem Schach, weil sonst der Falsche nach seinem Koenig sucht (User, 2026-08-24).
-        val reason =
-            when {
-                castling -> "castling not available"
-                piece.isUpperCase() != whiteToMove ->
-                    "it is ${if (whiteToMove) "White" else "Black"} to move"
-                result().inCheck -> "you are in check"
-                else -> "illegal move suspected"
-            }
+        val reason = alarmReason(guess) ?: "illegal move suspected"
         "${piece.uppercaseChar()} $squares ($reason)"
+    }
+}
+
+/**
+ * Why the suspected move cannot be legal, or null when the engine only knows THAT it is not.
+ *
+ * Order by what the player has to do about it: who is to move outranks being in check, because
+ * otherwise the wrong person starts looking for their king (User, 2026-08-24).
+ */
+internal fun Game.alarmReason(guess: String?): String? {
+    if (guess == null || guess.length < UCI_SQUARES_LEN) return null
+    val from = Squares.index(guess.substring(0, 2).lowercase())
+    val to = Squares.index(guess.substring(2, UCI_SQUARES_LEN).lowercase())
+    if (from < 0 || to < 0) return null
+    val piece = pieceCharAt(from) ?: return null
+    val castling =
+        piece.uppercaseChar() == 'K' &&
+            abs(from % Squares.N - to % Squares.N) == 2 &&
+            !hasCastlingRights(piece.isUpperCase())
+    return when {
+        castling -> "castling not available"
+        piece.isUpperCase() != whiteToMove -> "it is ${if (whiteToMove) "White" else "Black"} to move"
+        result().inCheck -> "you are in check"
+        else -> null
     }
 }
 

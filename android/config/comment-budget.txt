@@ -130,7 +130,7 @@ core-cnn/src/main/kotlin/com/chesslab/cnn/Recovery.kt 2
 core-cnn/src/test/kotlin/com/chesslab/cnn/DeepSearchTest.kt 1
 core-cnn/src/test/kotlin/com/chesslab/cnn/EngineSeamIntegrationTest.kt 1
 core-cnn/src/test/kotlin/com/chesslab/cnn/PreprocessTest.kt 5
-core-engine/src/main/kotlin/com/chesslab/engine/Alarm.kt 4
+core-engine/src/main/kotlin/com/chesslab/engine/Alarm.kt 5
 core-engine/src/main/kotlin/com/chesslab/engine/Ambiguity.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/AnomalyPatcher.kt 2
 core-engine/src/main/kotlin/com/chesslab/engine/api/CnnObservation.kt 2
@@ -242,6 +242,7 @@ desktop/src/main/kotlin/com/chesslab/desktop/Mp4Index.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/NativeCv.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/ParallelVisualPrepass.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RealGameCandidate.kt 2
+desktop/src/main/kotlin/com/chesslab/desktop/RealGameScore.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RecordingSource.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Rectify.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RepairRecording.kt 2
