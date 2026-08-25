@@ -133,6 +133,10 @@
 - **Alarm & Occlusion:** `docs/alarm-path.md` (was den Latch haelt und was er sagt),
   `docs/occlusion-gate.md` (die Schwelle je Modell), `docs/emission-correlation.md` (warum
   Cooldowns keine Unabhaengigkeit kaufen und mehr Reads nichts beitragen).
+- **Strom:** `docs/battery.md` — das Messgeraet (`cmd battery get -f current_now`, NEGATIV heisst
+  laden), die Aufteilung, und warum die Bildrate der Hebel ist und nicht die Rechenzeit. Wer die
+  Bildrate anfasst, muss `motionThr` mitziehen: `TrackerService.engineConfig()` tut das mit
+  `× 30 / fps`, und die Kopplung ist am Regressions-Satz gemessen.
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not
