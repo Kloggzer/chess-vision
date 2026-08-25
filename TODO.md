@@ -34,6 +34,8 @@
   `metrics.jsonl` Epoche für Epoche vergleichen. Sind sie bit-identisch, liegt die Streuung woanders
   (Datensatz-Reihenfolge, Split); weichen sie ab, sagt die erste abweichende Epoche, welche der drei
   Quellen es ist. Ohne diese Grundlage kostet jeder künftige Vergleich drei Läufe statt einem.
+  **Daran hängt konkret:** `--per-position` 8 → 2 (unten) und der Datensatz-Kreuztest — beide
+  erwarten einen NULL-Effekt, und den kann man gegen Seed-Rauschen nicht zeigen.
 
 - **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
   nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
