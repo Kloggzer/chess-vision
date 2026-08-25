@@ -72,7 +72,7 @@ also den größten Teil der Periode.
 Encoder gibt es pro FRAME aus, ein 15-fps-Strom als 30 konfiguriert hätte die halbe Bitrate
 weggeworfen — und die Aufnahme ist Trainingsmaterial.
 
-### Was 15 fps kostet — und warum der Default trotzdem 30 ist
+### Was 15 fps kostet
 
 Über die zehn Recordings mit Kandidat (`data/recordings/<n>/candidate.json`, 328 Label-Plies), mit
 dem Handy-Modell `real13-ms-s3-hn4-bn80`:
