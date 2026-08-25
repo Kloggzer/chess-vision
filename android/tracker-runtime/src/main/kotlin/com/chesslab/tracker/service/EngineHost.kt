@@ -13,9 +13,11 @@ import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.engine.perf.UNKNOWN_INPUT
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
+import com.chesslab.engine.still.StillnessEngine
 import com.chesslab.engine.toLogLine
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
+import com.chesslab.tracker.settings.EngineKind
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.atomic.AtomicLong
@@ -173,6 +175,7 @@ class EngineHost(
  * itself may happen anywhere. [startFen] is how the game survives the restart.
  */
 fun engineHost(
+    kind: EngineKind,
     config: TrackerConfig,
     cnn: CnnEvaluator?,
     startFen: String,
@@ -181,6 +184,9 @@ fun engineHost(
     onState: (String, String, Double) -> Unit = { _, _, _ -> },
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
+    if (kind == EngineKind.STILLNESS) {
+        return EngineHost(stillnessOps(config, startFen, onDecision, log, onConfigApplied))
+    }
     // Not gated on the debug switch. A decision row is written at most once per committed or
     // rejected move — not per frame — and the one session where it is needed is always the one
     // nobody armed a debug flag for beforehand.
@@ -203,6 +209,27 @@ fun engineHost(
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }
+
+/**
+ * The second engine, adapted to the same seam.
+ *
+ * It writes the same decision rows as the first, and that is not decoration: `replay … score`
+ * reads the DECISION sink, not the event stream (`DesktopMain`), so an engine that only emitted
+ * `MoveCommitted` would measure zero found however well it tracked.
+ */
+private fun stillnessOps(
+    config: TrackerConfig,
+    startFen: String,
+    onDecision: (DebugDecision) -> Unit,
+    log: TrackerLog,
+    onConfigApplied: (TrackerConfig) -> Unit,
+): EngineOps =
+    StillnessEngine(config, startFen, onConfigApplied) { decision ->
+        for (row in decision.rows()) {
+            log.info(row.toLogLine())
+            onDecision(row)
+        }
+    }
 
 /** True when at least one older entry had to be displaced to make room. */
 private fun <T> offerDroppingOldest(

@@ -29,6 +29,7 @@ import com.chesslab.tracker.service.StatusPublisher
 import com.chesslab.tracker.service.TrackerSeed
 import com.chesslab.tracker.service.TrackerStack
 import com.chesslab.tracker.settings.ConfigStore
+import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -508,6 +509,7 @@ internal fun replayRun(
                 priorLambda = options.priorLambda,
                 priorSafety = options.priorSafety,
                 motionDump = options.motionDump,
+                engine = options.engine,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -616,6 +618,7 @@ private fun buildStack(
     priorSafety: Boolean = true,
     /** `motiondump=<file>`, or null. Measurement only — see `MotionDump`. */
     motionDump: String? = null,
+    engine: EngineKind = EngineKind.CLASSIC,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -653,6 +656,7 @@ private fun buildStack(
             cachedAlignment = visualCache?.alignmentLookup,
             alignmentSink = visualCache?.alignmentSink,
             cachedMarkerDetections = markerPrepass?.lookup,
+            engine = engine,
         ),
         settings,
         publisher,

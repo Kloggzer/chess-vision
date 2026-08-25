@@ -31,6 +31,9 @@ dependencies {
     api(project(":core-engine"))
     api(project(":core-geometry"))
     api(project(":core-cnn"))
+    // The second engine. `implementation`, not `api`: which engine runs is decided HERE, and
+    // nothing above this module should be able to name one.
+    implementation(project(":engine-stillness"))
     compileOnly(libs.bytedeco.opencv)
     // Same rule as OpenCV, same reason: the `ai.onnxruntime` API is identical in both artifacts,
     // so this module compiles against one and each runtime brings its own — `:app` the Android AAR

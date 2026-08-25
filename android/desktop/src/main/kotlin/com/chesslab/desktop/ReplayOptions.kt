@@ -4,6 +4,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.settings.ConfigCodec
+import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.KNOBS
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -120,6 +121,11 @@ data class ReplayOptions(
     val visualWorkers: Int = 0,
     /** Exact source-work call graph, semantic repeats, copied bytes and cache hits. */
     val workProfile: Boolean = false,
+    /**
+     * `engine=<name>` — which engine decides. The A/B this whole seam exists for: two runs that
+     * differ in one word, scored the same way.
+     */
+    val engine: EngineKind = EngineKind.CLASSIC,
 ) {
     companion object {
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
@@ -146,7 +152,7 @@ data class ReplayOptions(
                     FLAGS[word]?.invoke(options) ?: assigned(options, word)
                         ?: error(
                             "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
-                                "| dump=<n> | name=<x> | model=<name> | config=<file> | fps=<n> | visualcache=<file>)",
+                                "| dump=<n> | name=<x> | model=<name> | engine=<name> | config=<file> | fps=<n> | visualcache=<file>)",
                         )
             }
             return options
@@ -176,6 +182,12 @@ data class ReplayOptions(
                         startSeconds =
                             word.removePrefix("start=").toDoubleOrNull()?.takeIf { it >= 0 }
                                 ?: error("start= wants seconds, got '$word'"),
+                    )
+                word.startsWith("engine=") ->
+                    options.copy(
+                        engine =
+                            EngineKind.entries.firstOrNull { it.name.equals(word.removePrefix("engine="), ignoreCase = true) }
+                                ?: error("engine= wants one of ${EngineKind.entries.map { it.name.lowercase() }}, got '$word'"),
                     )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("prior=") ->

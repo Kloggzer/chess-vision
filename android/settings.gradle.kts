@@ -19,6 +19,7 @@ dependencyResolutionManagement {
 }
 
 include(":core-engine")
+include(":engine-stillness")
 include(":core-geometry")
 include(":core-cnn")
 include(":tracker-runtime")

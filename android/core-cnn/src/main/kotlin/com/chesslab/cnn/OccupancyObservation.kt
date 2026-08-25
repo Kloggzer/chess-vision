@@ -20,7 +20,17 @@ data class OccupancyObservation(
     val invalidMassBySquare: Map<String, Double> = emptyMap(),
     /** Non-null only when this observation has been conditioned on a position prior. */
     val raw: OccupancyObservation? = null,
+    /**
+     * The undivided classifier output, for an engine that scores by likelihood rather than by
+     * top label. Held in a class rather than inline because `data class` compares a `DoubleArray`
+     * by identity — one reference comparison that is visible beats 64 that are not.
+     */
+    val probs: CnnProbs? = null,
 ) : CnnObservation {
+    override fun classProbs(square: String): DoubleArray = probs?.rows?.get(square) ?: DoubleArray(0)
+
+    override val classNames: List<String> get() = probs?.classes.orEmpty()
+
     /** `cnn_recovery.py:43` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
 
@@ -80,12 +90,24 @@ data class OccupancyObservation(
             raw = null,
         )
 
-    /** The `_cnn_tick` fallback: identity stripped, occupancy preserved. */
+    /** The `_cnn_tick` fallback: identity stripped, occupancy preserved — the rows go too. */
     override fun occupancyOnly(): OccupancyObservation =
         copy(
             label = null,
             conf = null,
             runnerUpConf = null,
             raw = raw?.occupancyOnly(),
+            probs = null,
         )
 }
+
+/**
+ * The classifier's rows as they came out of the graph, before any position prior.
+ *
+ * Raw on purpose: `applyPrior` weights by legality, and an engine that searches legal moves would
+ * count that prior a second time.
+ */
+class CnnProbs(
+    val classes: List<String>,
+    val rows: Map<String, DoubleArray>,
+)
