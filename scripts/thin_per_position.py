@@ -24,6 +24,8 @@ def main():
     ap.add_argument("target")
     ap.add_argument("--clean", type=int, default=2, help="saubere Bretter je Stellung")
     ap.add_argument("--dirty", type=int, default=2, help="verdeckte Bretter je Stellung")
+    ap.add_argument("--clean-repeat", type=int, default=1,
+                    help="saubere Zeilen so oft wiederholen — trennt Haeufigkeit von Vielfalt")
     args = ap.parse_args()
 
     src = dataset_dir(args.source)
@@ -39,13 +41,25 @@ def main():
         per_pos[(sess, ply)].append(frame)
 
     keep = set()
+    # SAUBER heisst hier: im Rang der Stellung vorn. Ein absoluter Coverage-Schnitt taugt
+    # nicht — eine Hand ueber 12 von 64 Zellen ergibt im Mittel auch nur ~0,15.
+    clean_keys = set()
     for (sess, ply), frames in per_pos.items():
         ordered = sorted(frames, key=lambda f: (mean[(sess, ply, f)], f))
         c, dy = args.clean, args.dirty
-        chosen = ordered[:c] + ordered[len(ordered) - dy:] if len(ordered) > c + dy else ordered
+        head, tail = (ordered[:c], ordered[len(ordered) - dy:]) if len(ordered) > c + dy else (ordered, [])
+        chosen = head + tail
+        clean_keys.update((sess, ply, f) for f in head)
         keep.update((sess, ply, f) for f in chosen)
 
-    kept = [r for r in rows if (r["session_id"], r["ply"], r["frame"]) in keep]
+    kept = []
+    for r in rows:
+        k = (r["session_id"], r["ply"], r["frame"])
+        if k not in keep:
+            continue
+        # Wiederholte Zeilen zeigen auf dieselben Memmap-Eintraege: identische Pixel, nur oefter
+        # gezogen. So variiert die HAEUFIGKEIT sauberer Zellen ohne ihre Vielfalt zu aendern.
+        kept.extend([r] * (args.clean_repeat if k in clean_keys else 1))
     dst = dataset_dir(args.target)
     dst.mkdir(parents=True, exist_ok=True)
     (dst / "manifest.jsonl").write_text(
