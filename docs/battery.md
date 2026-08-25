@@ -117,6 +117,42 @@ zeigt `override: settleFramesOverride=2.0` — er ändert nur nichts.
 `motionThr × 30 / fps`, an einem Ort für vier Aufrufer. Bei 30 fps ist der Faktor 1, also gilt jede
 Zahl, die je bei 30 fps gemessen wurde, unverändert weiter.
 
+### Warum der Faktor 2 ist und nicht 4
+
+`motiondump=` (siehe `scripts/motion_stats.py`) macht die Verteilung sichtbar, und sie beantwortet
+zwei von drei Fragen.
+
+**Ablesbar ist die Schwelle nicht.** Ein Gipfel bei exakt 0 — 26,1 % der Frames, ein stilles Brett
+überschreitet `motionPxThr = 20` nach dem Blur nie — und danach eine stetige Rampe bis 34. Kein Tal,
+keine zweite Mode. Das Gate trennt nicht zwei Populationen, es entscheidet, wie viel „irgendetwas"
+als Bewegung zählt.
+
+**Die Skalierung ist messbar, aber keine einzelne Zahl.** Verhältnis 15 fps / 30 fps über die
+bewegten Frames von `VID_20260824_154327`:
+
+| Quantil | p25 | p50 | p75 | p90 | p99 |
+|---|---|---|---|---|---|
+| Verhältnis | 2,51 | **2,01** | 1,55 | 1,45 | 1,39 |
+
+Am Median genau linear, wie angenommen. Bei großen Bewegungen sättigt es, weil eine Hand schon bei
+30 fps einen guten Teil des ROI füllt und die überstrichene Fläche nicht doppelt so groß werden
+KANN. Die Ruhe-Population schrumpft dabei von 26,1 % auf 19,0 % exakte Nullen.
+
+**Der Arbeitspunkt-Abgleich ist die falsche Zielgröße.** Gleich viele Frames als „Bewegung" zu
+lesen wie die Baseline (55,3 %) verlangt bei 15 fps eine Schwelle von **1,0**, nicht 0,5. Gemessen
+kostet das 75 Plies: die Schwelle hat ZWEI Wände, und diese Rechnung optimiert nur die eine.
+
+| Satz | gefunden / verpasst / erfunden | woran es scheitert |
+|---|---|---|
+| 15 fps, 0,25 | 273 / 55 / 102 | zu niedrig — hängt in `moving`, liest nichts |
+| **15 fps, 0,50** | **312 / 16 / 30** | der Kompromiss |
+| 15 fps, 1,00 | 237 / 91 / 8 | zu hoch — keine Bewegung registriert, `requireMotionForMove` blockt |
+
+Bei 1,0 fällt `2026-08-08-00-39-57` von 67 auf 4 Plies, während `2026-08-08-11-59-12` exakt auf die
+Baseline zurückkommt (52/21/0, Phantome weg). Die 30 Phantome bei 0,5 sind also das Symptom einer
+noch zu niedrigen Schwelle, nicht der Bildrate — pro Recording gäbe es ein Optimum, ein einziger
+Wert muss den Kompromiss tragen.
+
 **Eine Einschränkung des Instruments:** `fps=<n>` im Replay ist ein Frame-STRIDE über ein
 30-fps-Video, also jeder 2. Frame mit KURZER Belichtung. Am Gerät hat ein 15-fps-Frame die doppelte
 Belichtungszeit, eine bewegte Hand ist verschmiert statt gesprungen. Das Replay kann den Schaden
