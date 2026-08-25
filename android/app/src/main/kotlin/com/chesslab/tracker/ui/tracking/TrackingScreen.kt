@@ -108,7 +108,7 @@ fun TrackingRoute(
     // Recalibrating IS the camera screen in board mode. There used to be a second route for it with
     // byte-identical arguments; an alias is not an intent.
     LaunchedEffect(viewModel) { viewModel.recalibrateRequests.collect { onCamera() } }
-    TrackingScreen(viewModel, running, onBack, onGameSaved, onGameDiscarded)
+    ScreenBlackout { TrackingScreen(viewModel, running, onBack, onGameSaved, onGameDiscarded) }
 }
 
 /**
