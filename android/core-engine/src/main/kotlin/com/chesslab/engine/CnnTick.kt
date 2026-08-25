@@ -77,6 +77,11 @@ internal fun EngineState.cnnTick(
  */
 private fun EngineState.evaluationDue(): Boolean {
     if (recoveryConfirmer.count > 0) return true
+    // Ein angefangener Desync macht seine Schwelle im Beobachtungstakt voll, statt je Stimme
+    // 0,7 s zu zahlen — Blitz braucht das, und Warten kauft keine Unabhaengigkeit (rho faellt
+    // zwischen 0,1 s und 1,5 s nur von 0,935 auf 0,874, `docs/emission-correlation.md`). Gegen
+    // die Hand schuetzt jetzt `alarmDeferred`, nicht die Langsamkeit.
+    if (desyncObs in 1 until config.desyncObsN) return true
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck =
         stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS

@@ -6,6 +6,32 @@
 
 ## Next up (agreed, not started)
 
+- **Der Alarm feuert bei Bewegung zu schnell — Latch zu kurz, oder das Prinzip stimmt nicht**
+  (User am Brett, 2026-08-25: *„bei bewegen wird zu schnell ein alarm getriggert"*). Steht NACH
+  dem Handcheck vom Vortag, ist also nicht damit erledigt.
+  **Erster Verdacht, und er zeigt auf eine eigene Aenderung:** `desyncObsN` = 3 ist im Code als
+  *„persistent over seconds"* dokumentiert, ausdruecklich NICHT als „dreimal ausgewertet". Seit
+  2026-08-24 macht `evaluationDue` einen angefangenen Desync aber im Beobachtungstakt voll
+  (`desyncObs in 1 until desyncObsN`), damit Blitz mitkommt — drei Beobachtungen sind damit rund
+  **300 ms** statt 2,1 s. Genau davor warnt der Kommentar an `advanceDesyncStreak`. Die
+  Begruendung dafuer war die Korrelationsmessung (Warten kauft keine Unabhaengigkeit), und die
+  gilt weiter; was sie NICHT sagt, ist dass die Dauer selbst egal waere — sie ist die Definition
+  von „anhaltend".
+  **Drei Hebel, in dieser Reihenfolge zu pruefen:**
+  (1) Dauer und Anzahl TRENNEN — eine eigene Mindestdauer (`nowS - desyncSince`) neben
+  `desyncObsN`, statt beides ueber das Produkt aus Anzahl und Cooldown zu erschlagen. Das ist der
+  saubere Zuschnitt: schnelle Serie fuer Blitz, aber der Latch wartet trotzdem eine echte Sekunde.
+  (2) `alarmDeferObs` von 0 hochdrehen — vorhanden, per Knob, kostet keinen Neubau. Schnellster
+  Test, ob mehr Luft ueberhaupt hilft.
+  (3) Den Handcheck nachmessen: `handInFrame()` traegt auf dem Geraet nur drei seiner vier
+  Quellen, weil `runGridOcclusion = coverageOutput != true` den Rillen-Arm abschaltet. Wenn eine
+  bewegte Hand vom Coverage-Kopf zu spaet erkannt wird, hilft kein Zeitfenster.
+  **Die Grundsatzfrage des Users daneben:** ob ein LATCH ueberhaupt die richtige Form ist. Er
+  haelt bis Undo oder Resync — bei einem Fehlalarm waehrend des Zugs ist das teuer, und die
+  Alternative (eine Warnung, die von selbst verfaellt, wenn die Stellung wieder passt) ist nie
+  gemessen worden. Vor Hebel (1) klaeren, sonst optimiert man die Schwelle einer Mechanik, die
+  vielleicht die falsche ist.
+
 - **Beide Occlusion-Arme gegeneinander messen** (offen seit Wochen, CLAUDE.md: *„never been
   measured against each other"*). Auf dem Gerät läuft heute NUR der Coverage-Kopf: sobald ein
   Modell `coverage_output` deklariert, schaltet `TrackerService` den Rillen-Arm ab
