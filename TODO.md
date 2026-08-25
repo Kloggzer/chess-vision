@@ -4,6 +4,34 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Die zweite Engine laeuft — was als Naechstes zu messen ist (2026-08-25)
+
+`engine=stillness` gegen `classic`, voller Regressionssatz, `real13-ms-s3-hn4-bn80`:
+
+| Aufnahme | classic | stillness |
+|---|---|---|
+| `2026-08-08-11-55-19` | 15/0/0 | 15/0/0 |
+| `2026-08-07-13-52-38` | 25/0/0 | 25/0/0 |
+| `2026-08-08-11-59-12` | 52/21/0 | 52/21/0 |
+| `VID_20260727_233929` | 7/3/0 | 7/3/0 |
+| `VID_20260802_222203` | 3/0/0 | 3/0/0 (+14 hinter der Referenz) |
+| `VID_20260802_222741` | 27/1/**6** | 27/1/**1** |
+| `VID_20260824_153751` | 9/26/0 | **35/0/0** |
+| `VID_20260824_154327` (gegen die 117-Ply-PGN) | 10/107/0 | **81/36/0** |
+| `VID_20260726_233432` | 21/0/0 | 19/2/2 (Referenz falsch geordnet, siehe unten) |
+| `2026-08-08-00-39-57` | **67/0/0** | 7/60/2 |
+
+- **`00-39-57` ist der eine echte Rueckschritt und der naechste Messpunkt.** Derselbe Code holt in
+  der Arena dort 67/0/0 bei 178 Lesungen. Zwei Unterschiede kommen infrage, und sie sind trennbar:
+  die Lesungen kommen GESCHOBEN statt gezogen (Stufe 2 des Umbaus), und das Bild ist der
+  Detection-Warp bei `detSize` statt des vollen Bretts. Erst den zweiten pruefen — er ist billiger.
+- **Die Lesezahl ist unter PUSH nicht messbar.** `observerIntervalS = 0.0` heisst: der Observer
+  liest, so schnell die Inferenz fertig wird. Was diese Engine an Strom spart, zeigt sich erst,
+  wenn sie selbst zieht.
+- **Zwei Zeilen sind Referenzartefakte, kein Verhalten.** `222203` hat drei Referenz-Plies und der
+  Lauf spielt weiter (der Desktop-Scorer kennt kein `beyond`, der Arena-Scorer schon); `233432`
+  traegt eine geratene Zugreihenfolge.
+
 ## Aus dem Arena-Experiment (2026-08-25)
 
 - **`cnnColorAxis` ist gebaut und gemessen — die Margin fehlt noch.** Der Knob schaltet den
