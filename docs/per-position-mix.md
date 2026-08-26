@@ -145,3 +145,32 @@ liest die Zeile „nur SICHTBAR".
     for r in p8 p2 c2d8 c8d2 c8d1; do
       uv run chesslab eval --run data/models/_ab/$r-seed42 --split val         --dataset real13-straight-80-v3 | grep "nur SICHTBAR"
     done
+
+## Der neue Pretrain kostet 1,4 Punkte (2026-08-26)
+
+`comp13-ms-s1-pretrain-bn80-v4` trägt vier neue Turntable-Stellungen gegenüber
+`comp13-ms-s1-pretrain-bn80`. Gepaart geprüft: derselbe s2-Datensatz (`…-v3-c8d1`), dasselbe
+Rezept, dieselben drei Seeds, nur der `--resume` variiert. Gemessen gegen den gemeinsamen
+v3-Val-Satz, sichtbare Zellen.
+
+| Seed | alt | v4 | Δ Figur | Δ `occ_board` |
+|---|---|---|---|---|
+| 42 | 0,7585 | 0,7426 | −0,0159 | −0,131 |
+| 43 | 0,7712 | 0,7605 | −0,0107 | −0,030 |
+| 44 | 0,7192 | 0,7045 | −0,0147 | −0,040 |
+| | | **Mittel** | **−0,0138** (sd 0,0027, t(2) −8,8) | −0,067 (t(2) −2,1) |
+
+**3/3 negativ, und die Größe ist stabil** — 1,1 bis 1,6 Punkte. Der Vorzeichentest allein sagt
+bei drei Punkten wenig (p = 0,125), der gepaarte t-Test sagt p ≈ 0,013. Nur weil gepaart gemessen
+wird, ist das überhaupt sichtbar: die Seed-Streuung des alten Arms ist 0,052, also **fast das
+Vierfache des Effekts**. Ungepaart wäre hier nichts zu sehen gewesen.
+
+`occ_board` zieht in dieselbe Richtung, ist aber zu verrauscht für eine eigene Aussage.
+
+**Die Falle daneben:** der v4-Pretrain sieht auf SEINEM Val besser aus (Checkpoint-Score 0,7507
+gegen 0,6809). Anderer Datensatz, anderer Val-Satz — dieselbe Nicht-Vergleichbarkeit wie in der
+Korrektur oben. Ein Pretrain wird am s2-Transfer gemessen, nicht an seiner eigenen Zahl.
+
+Offen ist, WORAN es liegt: an den vier Stellungen selbst, oder daran, dass v4 60 Epochen lief und
+best@54 nahm, während der alte bei 35 Epochen best@24 nahm. Das trennt nur ein v4 mit dem alten
+Epochenbudget.
