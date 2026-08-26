@@ -27,7 +27,16 @@ def _train_lock_path() -> Path:
 
     Two locks that do not know each other are no lock: the Autopilot started a replay onto the GPU
     while a training held it, and the only remedy was pausing it by hand (2026-08-16).
+
+    `CHESSLAB_TRAIN_SLOT` gibt einem Lauf einen EIGENEN Lock und laesst damit zwei Trainings
+    nebeneinander zu. Der Grund, dass es das gibt: gemessen 2026-08-26 kostet ein Lauf 11,7 GB
+    Commit von 79,8, und bei 25 ms je Batch ist er datengebunden, nicht rechengebunden. Der Grund,
+    dass es NICHT der Default ist: der Lock existiert wegen eines Speicher-Absturzes, und wer
+    Slots benutzt, umgeht auch die Serialisierung gegen den Autopilot.
     """
+    slot = os.environ.get("CHESSLAB_TRAIN_SLOT")
+    if slot:
+        return config.DATA.heavy_lock.with_name(f"heavy-{slot}.lock")
     return config.DATA.heavy_lock
 
 
@@ -169,6 +178,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # concurrent-run out-of-memory crash). Released on exit (normal, exception, or clean stop).
     if not _acquire_train_lock(f"{backbone} bs={batch_size} ep={epochs} head={head}"):
         return 1
+    if os.environ.get("CHESSLAB_TRAIN_SLOT"):
+        print(f"[WARN] Slot {os.environ['CHESSLAB_TRAIN_SLOT']}: eigener Lock, laeuft NEBEN "
+              "anderen Trainings und neben dem Autopilot. Speicher im Auge behalten.")
     atexit.register(_release_train_lock)
     # Reduce ROCm/CUDA allocator fragmentation OOM (the allocator can otherwise fail to find a
     # large contiguous block even when plenty of VRAM is free — the earlier crash). Must be set
