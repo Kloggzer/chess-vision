@@ -1,5 +1,7 @@
 package com.chesslab.engine.still
 
+import com.chesslab.engine.board.GRID
+import com.chesslab.engine.board.Reading
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.Piece
 import com.github.bhlangonijr.chesslib.PieceType
@@ -50,22 +52,21 @@ internal class MoveExplainer(
 
     fun explain(
         position: Board,
-        rows: Array<DoubleArray>,
-        coverage: DoubleArray,
+        reading: Reading,
         coverageGate: Double,
     ): Verdict {
-        val evidence = visibleLogProbs(rows, coverage, coverageGate)
-        trace?.invoke(mismatches(position, rows, evidence))
+        val evidence = visibleLogProbs(reading, coverageGate)
+        trace?.invoke(mismatches(position, reading.rows, evidence))
         val hypotheses = search(position, evidence) ?: return Verdict.Unclear
         val best = hypotheses.maxBy { it.score }
         val idle = hypotheses.first()
         val near = hypotheses.filter { it.score >= best.score - AMBIGUITY }
         trace?.invoke(diagnostic(hypotheses, near, idle, evidence))
         val agreed = commonPrefix(near.map { it.moves } + listOf(commonPrefix(orderings(position, best.moves))))
-        val prefix = visiblePrefix(position, agreed, evidence)
+        val prefix = visiblePrefix(position, agreed, reading, coverageGate)
         val direct =
             prefix.isNotEmpty() &&
-                hypotheses.first { it.moves == prefix }.score - idle.score >= COMMIT_PER_PLY * prefix.size
+                hypotheses.first { it.moves == prefix }.score - idle.score >= priceOf(position, prefix, evidence)
         val backed = prefix.isNotEmpty() && (direct || best.score - idle.score >= REFUTE)
         return when {
             near.all { it.moves.isEmpty() } -> Verdict.Unchanged
@@ -75,19 +76,24 @@ internal class MoveExplainer(
     }
 
     /**
-     * A move only commits while every square it touches is readable RIGHT NOW. Without this, a
+     * A move only commits while every square it touches is COVERED by nothing. Without this, a
      * lifted piece commits as a half-move: its origin already reads empty, its destination is
      * still in the hand — and wherever the piece actually lands makes that commit a phantom.
+     *
+     * Blind squares are exempt, and that is the whole distinction: a hand lifts, so waiting costs
+     * one reading, while a blind square never becomes legible and waiting costs the piece. A
+     * knight whose home square is blind could otherwise never be seen to leave it.
      */
     private fun visiblePrefix(
         position: Board,
         moves: List<Move>,
-        evidence: Array<DoubleArray?>,
+        reading: Reading,
+        coverageGate: Double,
     ): List<Move> {
         val board = position.clone()
         val committable = ArrayList<Move>()
         for (move in moves) {
-            if (touched(board, move).any { evidence[it] == null }) break
+            if (touched(board, move).any { reading.coverage[it] > coverageGate }) break
             committable += move
             board.doMove(move)
         }
@@ -103,12 +109,12 @@ internal class MoveExplainer(
      * recording when identity was priced like occupancy).
      */
     private fun visibleLogProbs(
-        rows: Array<DoubleArray>,
-        coverage: DoubleArray,
+        reading: Reading,
         coverageGate: Double,
-    ): Array<DoubleArray?> =
-        Array(rows.size) { i ->
-            if (rows[i].isEmpty() || coverage[i] > coverageGate) {
+    ): Array<DoubleArray?> {
+        val rows = reading.rows
+        return Array(rows.size) { i ->
+            if (rows[i].isEmpty() || reading.coverage[i] > coverageGate || reading.blind[i]) {
                 null
             } else {
                 val white = whiteColumns.sumOf { rows[i][it] }
@@ -127,6 +133,28 @@ internal class MoveExplainer(
                 }
             }
         }
+    }
+
+    /**
+     * What a prefix must gain over "nothing happened" — in proportion to how much of it can be
+     * SEEN. A move out of a blind square has only its destination as a witness, and charging it
+     * for two squares' worth of evidence is charging for a witness that will never appear.
+     */
+    private fun priceOf(
+        position: Board,
+        moves: List<Move>,
+        evidence: Array<DoubleArray?>,
+    ): Double {
+        val board = position.clone()
+        var price = 0.0
+        for (move in moves) {
+            val touched = touched(board, move)
+            val legible = touched.count { evidence[it] != null }.coerceAtLeast(1)
+            price += COMMIT_PER_PLY * legible / touched.size
+            board.doMove(move)
+        }
+        return price
+    }
 
     private class Hypothesis(
         val moves: List<Move>,
@@ -279,16 +307,15 @@ internal class MoveExplainer(
      */
     fun conflicts(
         position: Board,
-        rows: Array<DoubleArray>,
-        coverage: DoubleArray,
+        reading: Reading,
         coverageGate: Double,
     ): List<String> {
-        val evidence = visibleLogProbs(rows, coverage, coverageGate)
+        val evidence = visibleLogProbs(reading, coverageGate)
         return (0 until SQUARES).mapNotNull { i ->
             if (evidence[i] == null) return@mapNotNull null
             val piece = position.getPiece(Square.squareAt(i))
             val expected = if (piece == Piece.NONE) emptyColumn else columns.getValue(piece)
-            val argmax = classes.indices.maxBy { rows[i][it] }
+            val argmax = classes.indices.maxBy { reading.rows[i][it] }
             if (group(argmax) == group(expected)) null else sqName(i)
         }
     }
@@ -343,7 +370,10 @@ internal class MoveExplainer(
         /** A hypothesis this close to the best is not ruled out — only their shared prefix commits. */
         const val AMBIGUITY = 3.0
 
-        /** What a prefix backed by its own evidence must gain per ply over "nothing happened". */
+        /**
+         * What a prefix backed by its own evidence must gain over "nothing happened", for a ply
+         * whose every square is legible. [priceOf] prorates it for the ones that are not.
+         */
         const val COMMIT_PER_PLY = 6.0
 
         /**

@@ -8,6 +8,13 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.board.BOARD_PX
+import com.chesslab.engine.board.FrameRate
+import com.chesslab.engine.board.Reading
+import com.chesslab.engine.board.StillPhase
+import com.chesslab.engine.board.grayBoard
+import com.chesslab.engine.board.sansOf
+import com.chesslab.engine.board.uci
 import com.github.bhlangonijr.chesslib.Board
 
 /**
@@ -26,6 +33,12 @@ class StillnessEngine(
     private var config: TrackerConfig,
     startFen: String,
     private val onConfigApplied: (TrackerConfig) -> Unit = {},
+    /**
+     * Why a reading was refused, one line per reading. Not gated on a debug switch and not per
+     * frame — it fires only where the engine actually decides, and the session that needs it is
+     * always the one nobody armed a flag for.
+     */
+    private val onTrace: (String) -> Unit = {},
     private val onDecision: (StillDecision) -> Unit = {},
 ) : EngineOps {
     private val position = Board().apply { loadFromFen(startFen) }
@@ -33,38 +46,41 @@ class StillnessEngine(
     private var explainer: MoveExplainer? = null
     private var pending: CnnSnapshot? = null
     private var plies = 0
-    private val notes = StillNotes()
+    private val notes = StillNotes { onTrace("note: $it") }
     private var stuck: String? = null
     private val alarms = StillAlarm()
     private val blind = BlindSquares()
     private var covered: List<String> = emptyList()
+
+    /** The same de-bounce as [notes], for the gate: a frame that ends there writes nothing else. */
+    private val gateLine = StillNotes { onTrace("gate: $it") }
     private val rate = FrameRate()
 
     override fun onFrame(input: FrameInput): List<TrackerEvent> {
         rate.saw(input.timestampMs)
         // The board straight from the frame where the host offers it: `bgrDet` is already a
         // resample, and the thresholds below are grey levels that a second one flattens.
-        val gray = grayBoard(input.board?.invoke(BOARD_PX) ?: input.bgrDet)
-        // Two gates the pull design did not need: the reading must lie inside the CURRENT rest
-        // phase — one taken while the hand was over the board explains nothing — and it must have
-        // been taken against the position we are still on, or a committed move lands a second time.
-        val snap =
-            gray?.let {
-                if (phase.observe(it, input)) {
-                    null
-                } else {
-                    pending?.takeIf { s -> s.seq > phase.lastMotionSeq && s.fen == position.fen }
-                }
+        val gray = grayBoard(input.board?.invoke(BOARD_PX) ?: input.bgrDet) ?: return notes.say("no board yet")
+        val moving = phase.observe(gray, input)
+        val snap = pending
+        // Each of these ends the frame in silence, and from outside a stall looked the same
+        // whichever one it was — so they are named, and the name is what reaches the log.
+        // Two of them the pull design did not need: a reading taken while the hand was over the
+        // board explains nothing, and one taken against a position we have left would land its
+        // move a second time.
+        val blocked =
+            when {
+                moving -> "moving"
+                snap == null -> "no reading has arrived"
+                snap.seq <= phase.lastMotionSeq -> "the reading is older than the last motion"
+                snap.fen != position.fen -> "the reading was taken of another position"
+                !phase.due(input.timestampMs, gray) -> "nothing new to read"
+                else -> null
             }
-        return when {
-            gray == null -> notes.say("no board yet")
-            snap == null -> if (phase.moving) notes.say("moving") else emptyList()
-            !phase.due(input.timestampMs, gray) -> emptyList()
-            else -> {
-                pending = null
-                explain(snap, gray, input)
-            }
-        }
+        gateLine.set("${blocked ?: "open"} · ${phase.debug()}")
+        if (blocked != null || snap == null) return if (moving) notes.say("moving") else emptyList()
+        pending = null
+        return explain(snap, gray, input)
     }
 
     /** Decides nothing: the newest reading wins, and [onFrame] says whether it is worth anything. */
@@ -93,20 +109,20 @@ class StillnessEngine(
         input: FrameInput,
     ): List<TrackerEvent> {
         val reading = Reading.of(snap) ?: return notes.say("the reading carries no probabilities")
-        val model = explainer ?: MoveExplainer(reading.classes).also { explainer = it }
+        val model = explainer ?: MoveExplainer(reading.classes, onTrace).also { explainer = it }
         val gate = config.pOccludedThr
-        // A square this camera never reads right is unreadable in the same sense a covered one is,
-        // so it leaves the evidence the same way — otherwise the search keeps trying to explain it
-        // as a move and finds nothing.
+        // A square this camera never reads right carries no evidence, or the search keeps trying to
+        // explain it as a move. It is NOT covered, though — see `Reading.blind`.
         reading.hide(blind.known())
         covered = reading.coveredSquares(gate)
-        val verdict = model.explain(position, reading.rows, reading.coverage, gate)
+        val verdict = model.explain(position, reading, gate)
         phase.read(input.timestampMs)
+        onTrace("verdict=${verdict.javaClass.simpleName} blind=${blind.known().sorted()} covered=$covered")
         return when (verdict) {
             Verdict.Unchanged -> {
                 phase.settle(gray)
                 stuck = null
-                blind.sawExplained(model.conflicts(position, reading.rows, reading.coverage, gate))
+                blind.sawExplained(model.conflicts(position, reading, gate))
                 alarms.clear() + listOf(TrackerEvent.ReAnchored)
             }
             Verdict.Unclear -> {
@@ -140,7 +156,7 @@ class StillnessEngine(
                 TrackerEvent.SequenceCommitted(ucis, sans, position.fen, DECIDER)
             }
         // Against the position we just moved INTO: what still disagrees there explained nothing.
-        blind.sawExplained(model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr))
+        blind.sawExplained(model.conflicts(position, reading, config.pOccludedThr))
         if (verdict.complete) {
             phase.settle(gray)
             events += TrackerEvent.ReAnchored
@@ -160,7 +176,7 @@ class StillnessEngine(
         stuck = STUCK_UNCLEAR
         notes.set("reading does not explain the board")
         // Blind squares are not evidence of a wrong board, they are evidence of a bad view.
-        val conflicts = model.conflicts(position, reading.rows, reading.coverage, config.pOccludedThr) - blind.known()
+        val conflicts = model.conflicts(position, reading, config.pOccludedThr)
         val raised = alarms.onUnclear(snap.seq, conflicts, covered.size, plies, config.desyncObsN)
         if (raised.isNotEmpty()) {
             // The invariant `StatusUiModel` relies on: a latched alarm always names a stuck reason.

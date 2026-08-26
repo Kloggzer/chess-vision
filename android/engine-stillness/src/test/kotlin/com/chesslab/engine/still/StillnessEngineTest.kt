@@ -8,6 +8,8 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.engine.board.BOARD_SQUARES
+import com.chesslab.engine.board.uci
 import com.github.bhlangonijr.chesslib.Board
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue

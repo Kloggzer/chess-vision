@@ -51,16 +51,19 @@ enum class FrameRateMode(
 /**
  * Which engine decides what a move is.
  *
- * Two verdicts on the same pictures: the diff channel reads what CHANGED against a reference and
- * asks the model to confirm it; the stillness engine waits for the board to come to rest and asks
- * which legal continuation explains the reading. Neither is better everywhere, which is why the
- * choice exists at all (`docs/agent-briefs/tracker-from-scratch.md`).
+ * Three verdicts on the same pictures. The diff channel reads what CHANGED against a reference and
+ * asks the model to confirm it; the stillness engine waits for rest and asks which legal
+ * continuation explains the READING; the changeset engine waits for rest like the second but
+ * decides like the first, asking the model only empty/white/black and never which piece — because
+ * identity is the weakest thing it produces (`docs/engine-changeset.md`). None is better
+ * everywhere, which is why the choice exists at all.
  */
 enum class EngineKind(
     val label: String,
 ) {
     CLASSIC("Diff + CNN (Standard)"),
     STILLNESS("Stillstand + Legalitaetssuche"),
+    CHANGESET("Stillstand + Veraenderung (CNN nur Farbe)"),
 }
 
 /** Which ONNX execution provider to REQUEST. What was actually selected is 07b's CNN panel. */

@@ -1,6 +1,7 @@
 package com.chesslab.engine.still
 
 import com.chesslab.engine.api.EngineAction
+import com.chesslab.engine.board.fenOf
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
 

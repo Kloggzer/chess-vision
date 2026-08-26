@@ -1,4 +1,4 @@
-package com.chesslab.engine.still
+package com.chesslab.engine.board
 
 import com.chesslab.engine.api.FrameInput
 
@@ -10,9 +10,13 @@ import com.chesslab.engine.api.FrameInput
  * scene, above [ACTIVITY_THR] a hand has crossed, and [CHANGE_THR] against the last UNDERSTOOD
  * still image is what makes a reading worth its cost.
  */
-internal class StillPhase {
+class StillPhase {
     private var prev: ByteArray? = null
-    private var reference: ByteArray? = null
+
+    /** The last picture that was UNDERSTOOD — what a diff engine measures its change against. */
+    var reference: ByteArray? = null
+        private set
+
     private var quietSinceMs = Long.MIN_VALUE
     private var lastReadMs = Long.MIN_VALUE
     private var retries = 0
@@ -41,10 +45,13 @@ internal class StillPhase {
         corners = input.corners.copyOf()
         val previous = prev
         prev = gray
-        if (reference == null) reference = gray
         val interPeak = if (previous == null || !sameView) null else peak(cellDeltas(previous, gray))
         if (interPeak != null && interPeak > ACTIVITY_THR) sawHand = true
         moving = decide(interPeak, previous, input)
+        // Only a RESTING board may become the reference. Measured 2026-08-26: taking the first
+        // frame whatever it showed baselined a hand mid-reach on `11-55-19`, and every comparison
+        // afterwards measured against it — twelve squares "changed" before a move was played.
+        if (reference == null && !moving) reference = gray
         return moving
     }
 
@@ -115,6 +122,9 @@ internal class StillPhase {
         sawHand = false
         lastMotionSeq = Long.MAX_VALUE
     }
+
+    /** The gate's own state, for the log line that explains a frame which decided nothing. */
+    fun debug(): String = "dirty=$dirty retries=$retries hand=$sawHand"
 
     fun state(): String =
         when {

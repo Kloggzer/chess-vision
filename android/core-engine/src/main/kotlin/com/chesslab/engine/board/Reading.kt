@@ -1,4 +1,4 @@
-package com.chesslab.engine.still
+package com.chesslab.engine.board
 
 import com.chesslab.engine.api.CnnSnapshot
 
@@ -9,7 +9,7 @@ import com.chesslab.engine.api.CnnSnapshot
  * classifier's crop order. `ReadingOrderTest` asserts the first of those; a silent offset by one
  * rank would be a tracker that looks plausible and commits the wrong moves.
  */
-internal val BOARD_SQUARES: List<String> = (1..8).flatMap { rank -> "abcdefgh".map { "$it$rank" } }
+val BOARD_SQUARES: List<String> = (1..8).flatMap { rank -> "abcdefgh".map { "$it$rank" } }
 
 /**
  * One classifier reading in the shape the search wants: the full distribution per square, and
@@ -19,15 +19,22 @@ internal val BOARD_SQUARES: List<String> = (1..8).flatMap { rank -> "abcdefgh".m
  * search indexes by the latter, so a divergence here would be a tracker that looks plausible and
  * finds the wrong moves. [ORDER_HOLDS] is where that is asserted.
  */
-internal class Reading(
+class Reading(
     val classes: List<String>,
     val rows: Array<DoubleArray>,
     val coverage: DoubleArray,
 ) {
-    /** Treat these squares as unreadable — the same exit from the evidence a covered square takes. */
+    /**
+     * Squares this camera never reads right. They leave the EVIDENCE like a covered square, but
+     * they are not the same thing and must not be written into [coverage]: a hand lifts, a blind
+     * spot does not. Holding a move until a covered square is legible is correct; holding one
+     * until a blind square is legible mures its piece in place forever.
+     */
+    val blind = BooleanArray(BOARD_SQUARES.size)
+
     fun hide(squares: Set<String>) {
         if (squares.isEmpty()) return
-        BOARD_SQUARES.forEachIndexed { i, name -> if (name in squares) coverage[i] = 1.0 }
+        BOARD_SQUARES.forEachIndexed { i, name -> if (name in squares) blind[i] = true }
     }
 
     fun coveredSquares(gate: Double): List<String> = BOARD_SQUARES.filterIndexed { i, _ -> coverage[i] > gate }

@@ -51,7 +51,8 @@ fun AppSettingsSection(
             title = "Move engine",
             summary =
                 "Which engine decides what a move is · Diff reads what CHANGED against a reference, " +
-                    "Stillness waits for the board to rest and asks which legal move explains the reading",
+                    "Stillness waits for rest and asks which legal move explains the reading, " +
+                    "Change waits for rest but decides on the pixels and asks the model only for colour",
             options = EngineKind.entries.map { it.label to it },
             selected = app.engine,
             onSelect = { onChange(app.copy(engine = it)) },

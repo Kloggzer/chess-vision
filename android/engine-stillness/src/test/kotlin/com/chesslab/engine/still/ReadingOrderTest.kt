@@ -1,5 +1,6 @@
 package com.chesslab.engine.still
 
+import com.chesslab.engine.board.BOARD_SQUARES
 import com.github.bhlangonijr.chesslib.Square
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test

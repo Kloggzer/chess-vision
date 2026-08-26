@@ -948,6 +948,28 @@ webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
   Erwartung, dass die sauberen Bretter tragen — dann wäre die Antwort nicht „weniger", sondern
   „anders gemischt".
 
+## Die dritte Engine — was noch offen ist (2026-08-26)
+
+`:engine-changeset` steht, gemessen und dokumentiert in `docs/engine-changeset.md`. Offen:
+
+- **Mehrdeutige Routen kosten Züge.** Drei Wege derselben Dame zum selben Feld teilen keinen
+  ersten Zug, also committet nichts. Die beste zu raten wurde probiert und kostete 2 Phantome
+  (`11-55-19`). Denkbarer Ausweg: die STELLUNG re-ankern, ohne Zugzeilen zu erfinden — dann
+  zählen die Plies als verpasst statt als erfunden, und die Verfolgung läuft weiter.
+- **Ein verlorener Ply dreht die Zugfarbe** und macht die halbe Suche unbrauchbar. Betrifft alle
+  drei Engines. Bisher nur über `ResyncToBoard` zu heilen.
+- **`wantsRead()` ignoriert das Wiederholungslimit, das `due()` durchsetzt** (Engine 2 und 3).
+  Kostet Inferenzen, keine Korrektheit — aber es ist Strom.
+- **Der Prior aus dem alten Tracker ist ungenutzt.** `Expected.possibleLabels` + `applyPrior` +
+  `invalidMass` würden unmögliche Klassen wegdrücken (`d4:bQ@1.00`, wo die schwarze Dame auf `d8`
+  steht). Hindernis: `possibleLabels` läuft mit einem Halbzug und expandiert breit — Tiefe 6, die
+  Engine 2 erklärt, ist rechnerisch nicht zu haben. Für Engine 3 weniger dringend, weil sie
+  Identität ohnehin nicht befragt.
+- **`:tracker-runtime:detekt` scheitert mit 10 vorbestehenden Befunden** (u. a.
+  `CnnCropAdapter.cropFrameSource` 66 Zeilen). Nicht von diesem Umbau, aber es blockiert das Gate.
+- **Das Coverage-Gate für DIESE Kamera ist geerbt, nicht gemessen.** `c8d1-seed43` trägt 0,15 aus
+  der `real13`-Familie. Live standen `e1`/`g1` dauerhaft als verdeckt.
+
 ## Erledigt — das Ergebnis in einer Zeile
 
 Die Langfassungen stehen in `docs/` und in der Git-Historie; hier bleibt nur, was sie GEMESSEN

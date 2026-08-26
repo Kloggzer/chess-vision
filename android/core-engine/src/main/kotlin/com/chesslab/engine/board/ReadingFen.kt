@@ -1,4 +1,4 @@
-package com.chesslab.engine.still
+package com.chesslab.engine.board
 
 import com.chesslab.engine.api.CnnSnapshot
 
@@ -9,7 +9,7 @@ import com.chesslab.engine.api.CnnSnapshot
  * camera cannot invent them. The side to move is taken as White, which is what `loadFromFen`
  * needs to accept the string at all; the next commit corrects it if it is wrong.
  */
-internal fun fenOf(snap: CnnSnapshot): String? {
+fun fenOf(snap: CnnSnapshot): String? {
     val reading = Reading.of(snap) ?: return null
     val letters = reading.classes
     val board =

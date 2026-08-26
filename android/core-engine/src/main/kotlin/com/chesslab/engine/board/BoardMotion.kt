@@ -1,9 +1,9 @@
-package com.chesslab.engine.still
+package com.chesslab.engine.board
 
 import com.chesslab.engine.api.BgrImage
 
-internal const val BOARD_PX = 160
-internal const val GRID = 8
+const val BOARD_PX = 160
+const val GRID = 8
 private const val CELL = BOARD_PX / GRID
 private const val MASK = 0xFF
 private const val CHANNELS = 3
@@ -24,7 +24,7 @@ private const val R_WEIGHT = 0.299
  * The board arrives at `detSize` (half of a measured `boardSize`, so 160..640) and is box-averaged
  * down, area-weighted so the noise floor does not travel with the board size.
  */
-internal fun grayBoard(bgr: BgrImage): ByteArray? {
+fun grayBoard(bgr: BgrImage): ByteArray? {
     if (bgr.width <= 0 || bgr.height <= 0) return null
     val out = ByteArray(BOARD_PX * BOARD_PX)
     val sx = bgr.width.toDouble() / BOARD_PX
@@ -70,7 +70,7 @@ private fun boxLuma(
  * Auto-exposure and daylight move every cell together, a hand or a piece moves a few — the median
  * is the light, what stays is the scene.
  */
-internal fun cellDeltas(
+fun cellDeltas(
     a: ByteArray,
     b: ByteArray,
 ): DoubleArray {
@@ -88,4 +88,4 @@ internal fun cellDeltas(
     return cells
 }
 
-internal fun peak(deltas: DoubleArray): Double = deltas.max()
+fun peak(deltas: DoubleArray): Double = deltas.max()

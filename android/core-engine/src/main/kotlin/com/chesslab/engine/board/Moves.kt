@@ -1,4 +1,4 @@
-package com.chesslab.engine.still
+package com.chesslab.engine.board
 
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.PieceType
@@ -6,7 +6,7 @@ import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveList
 
 /** `e2e4`, `e7e8q` — what the seam speaks. */
-internal fun uci(move: Move): String {
+fun uci(move: Move): String {
     val promotion =
         when (move.promotion.pieceType) {
             PieceType.KNIGHT -> "n"
@@ -19,7 +19,7 @@ internal fun uci(move: Move): String {
 }
 
 /** The same moves as SAN, from the position they start in. Falls back to UCI rather than throwing. */
-internal fun sansOf(
+fun sansOf(
     from: Board,
     moves: List<Move>,
 ): List<String> {
@@ -32,7 +32,7 @@ internal fun sansOf(
  * Frames per second, smoothed. Zero would show as "no detection" on the phone over a game that is
  * being tracked perfectly well, so this is not decoration.
  */
-internal class FrameRate {
+class FrameRate {
     var fps = 0.0
         private set
 

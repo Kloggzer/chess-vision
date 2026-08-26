@@ -10,6 +10,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.changeset.ChangeSetEngine
 import com.chesslab.engine.perf.UNKNOWN_INPUT
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
@@ -213,6 +214,9 @@ fun engineHost(
     if (kind == EngineKind.STILLNESS) {
         return EngineHost(stillnessOps(config, startFen, onDecision, log, onConfigApplied))
     }
+    if (kind == EngineKind.CHANGESET) {
+        return EngineHost(changesetOps(config, startFen, onDecision, log, onConfigApplied))
+    }
     // Not gated on the debug switch. A decision row is written at most once per committed or
     // rejected move — not per frame — and the one session where it is needed is always the one
     // nobody armed a debug flag for beforehand.
@@ -250,7 +254,28 @@ private fun stillnessOps(
     log: TrackerLog,
     onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineOps =
-    StillnessEngine(config, startFen, onConfigApplied) { decision ->
+    StillnessEngine(config, startFen, onConfigApplied, onTrace = log::info) { decision ->
+        for (row in decision.rows()) {
+            log.info(row.toLogLine())
+            onDecision(row)
+        }
+    }
+
+/**
+ * The third engine, adapted to the same seam.
+ *
+ * Same contract as its siblings, decision rows included: `replay ... score` reads the DECISION
+ * sink and not the event stream, so an engine that only emitted `MoveCommitted` would measure
+ * zero found however well it tracked.
+ */
+private fun changesetOps(
+    config: TrackerConfig,
+    startFen: String,
+    onDecision: (DebugDecision) -> Unit,
+    log: TrackerLog,
+    onConfigApplied: (TrackerConfig) -> Unit,
+): EngineOps =
+    ChangeSetEngine(config, startFen, onConfigApplied, onTrace = log::info) { decision ->
         for (row in decision.rows()) {
             log.info(row.toLogLine())
             onDecision(row)
