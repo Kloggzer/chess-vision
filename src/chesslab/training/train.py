@@ -155,7 +155,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               hflip_p: float | None = None,
               balance: str = "none",
               epoch_frac: float = 1.0,
-              rot90: bool | None = None) -> int:
+              rot90: bool | None = None,
+              aug_scale: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -308,6 +309,27 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
     policy = config.AUGMENT
+    if aug_scale is not None:
+        # EIN Regler ueber alle Staerken. Sie sind samt und sonders von Hand gesetzt und nie
+        # abgetastet worden (`config.AugPolicy`), sie kosten 308 ms je Batch und schieben 11 % der
+        # Trainingsbilder aus dem Helligkeitsbereich, den die Kamera je liefert — und verhindern
+        # das Auswendiglernen trotzdem nicht (99,93 % auf Train). Also abtastbar machen.
+        from dataclasses import replace as _replace
+
+        a = aug_scale
+        policy = _replace(
+            policy,
+            brightness=policy.brightness * a, contrast=policy.contrast * a,
+            color_jitter=policy.color_jitter * a, noise_std=policy.noise_std * a,
+            jitter_translate=policy.jitter_translate * a, jitter_scale=policy.jitter_scale * a,
+            erase_p=policy.erase_p * a,
+            # Gegen die Untergrenze von GaussianBlur, nicht gegen null: sigma=(0.1, 0)
+            # ist kein gueltiges Intervall und bricht den Aufbau.
+            blur_sigma_max=0.1 + (policy.blur_sigma_max - 0.1) * a,
+            gamma=(1.0 - (1.0 - policy.gamma[0]) * a, 1.0 + (policy.gamma[1] - 1.0) * a),
+        )
+        print(f"[aug] alle Staerken x{a:g}: brightness {policy.brightness:.3f}, "
+              f"gamma {policy.gamma[0]:.2f}-{policy.gamma[1]:.2f}, erase {policy.erase_p:.3f}")
     if erase_p is not None or jitter_translate is not None or hflip_p is not None:
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
@@ -600,6 +622,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "aug_jitter_translate": policy.jitter_translate,
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
         "aug_rot90": rot90,
+        "aug_scale": aug_scale,
         "weight_decay": wd,
         "label_smoothing": label_smoothing,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),

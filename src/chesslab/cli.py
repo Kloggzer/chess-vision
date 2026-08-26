@@ -1579,6 +1579,10 @@ def train_cmd(
                                      "`piece` tut dasselbe, laesst `empty` aber auf seinem "
                                      "Anteil — sonst verliert der Verdeckungskopf seine "
                                      "Negativbeispiele (Precision 0,944 -> 0,680)."),
+    aug_scale: float | None = typer.Option(None, "--aug-scale",
+                                           help="Alle Augmentierungs-Staerken mal DIESEM Faktor. "
+                                                "0 = keine, 1 = wie bisher. Die Werte sind von "
+                                                "Hand gesetzt und nie abgetastet worden."),
     rot90: bool | None = typer.Option(None, "--rot90/--no-rot90",
                                       help="90-Grad-Drehungen, unabhaengig davon, womit der "
                                            "Datensatz gebaut wurde (alle stehen auf "
@@ -1632,7 +1636,7 @@ def train_cmd(
                                  weight_cap=weight_cap, weight_decay=weight_decay,
                                  label_smoothing=label_smoothing, hflip_p=hflip_p,
                                  balance=balance, epoch_frac=epoch_frac,
-                                 rot90=rot90))
+                                 rot90=rot90, aug_scale=aug_scale))
 
 
 @app.command("eval")
