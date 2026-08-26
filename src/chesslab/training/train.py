@@ -153,6 +153,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               weight_decay: float | None = None,
               label_smoothing: float = 0.0,
               hflip_p: float | None = None,
+              vflip_p: float | None = None,
               balance: str = "none",
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
@@ -330,12 +331,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         )
         print(f"[aug] alle Staerken x{a:g}: brightness {policy.brightness:.3f}, "
               f"gamma {policy.gamma[0]:.2f}-{policy.gamma[1]:.2f}, erase {policy.erase_p:.3f}")
-    if erase_p is not None or jitter_translate is not None or hflip_p is not None:
+    if (erase_p is not None or jitter_translate is not None
+            or hflip_p is not None or vflip_p is not None):
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"jitter_translate": jitter_translate}
                             if jitter_translate is not None else {}),
-                         **({"hflip_p": hflip_p} if hflip_p is not None else {}))
+                         **({"hflip_p": hflip_p} if hflip_p is not None else {}),
+                         **({"vflip_p": vflip_p} if vflip_p is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
@@ -621,6 +624,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
+        "aug_vflip_p": getattr(policy, "vflip_p", 0.0),
         "aug_rot90": rot90,
         "aug_scale": aug_scale,
         "weight_decay": wd,

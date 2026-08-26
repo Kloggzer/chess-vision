@@ -95,6 +95,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ]
     if train and getattr(policy, "hflip_p", 0.0) > 0:
         ops += [T.RandomHorizontalFlip(p=policy.hflip_p)]
+    if train and getattr(policy, "vflip_p", 0.0) > 0:
+        ops += [T.RandomVerticalFlip(p=policy.vflip_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]

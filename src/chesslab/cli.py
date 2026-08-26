@@ -1588,6 +1588,11 @@ def train_cmd(
                                            "Datensatz gebaut wurde (alle stehen auf "
                                            "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
                                            "die volle Symmetriegruppe des Quadrats."),
+    vflip_p: float | None = typer.Option(None, "--vflip-p",
+                                         help="Senkrechte Spiegelung. Mit --hflip-p zusammen "
+                                              "entsteht die 180-Grad-Drehung als Kombination — "
+                                              "die einzige physikalisch echte Variante, sie "
+                                              "entspricht dem Blick von der anderen Tischseite."),
     hflip_p: float | None = typer.Option(None, "--hflip-p",
                                          help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
                                               "Auf einem Zellcrop zulaessig und spiegelt den "
@@ -1634,7 +1639,7 @@ def train_cmd(
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
-                                 label_smoothing=label_smoothing, hflip_p=hflip_p,
+                                 label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p,
                                  balance=balance, epoch_frac=epoch_frac,
                                  rot90=rot90, aug_scale=aug_scale))
 

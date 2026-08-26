@@ -189,6 +189,11 @@ class AugmentPolicy:
     # zeigt dieselbe Figur auf derselben Feldfarbe. Es spiegelt aber den Lichtgradienten
     # (h3 bei 156, a7 bei 20), und der unterscheidet die Sessions. 0 = aus.
     hflip_p: float = 0.0
+    # Senkrechte Spiegelung. Zusammen mit `hflip_p` ergibt sich die 180-Grad-Drehung als
+    # Kombination beider — und DIE ist die einzige physikalisch echte: sie entsteht, wenn von
+    # der anderen Tischseite gefilmt wird. Eine Spiegelung allein kann keine Kamera erzeugen,
+    # sie taugt trotzdem, weil jede Figur entweder eine Spiegelebene hat oder sich drehen laesst.
+    vflip_p: float = 0.0
     noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
                                   # "too clean" render/synthetic look and makes more robust
     # Random Erasing (Cutout): blanks a random rectangle after ToTensor (p=erase_p). Forces the
