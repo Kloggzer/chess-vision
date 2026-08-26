@@ -1551,6 +1551,12 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    epoch_frac: float = typer.Option(1.0, "--epoch-frac",
+                                     help="Ziehungen je Epoche als Anteil des Trainingssatzes. "
+                                          "1 643 Situationen liegen als 184 735 Crops vor; wer "
+                                          "sie gleichmaessig zieht, braucht nicht jede Kopie. "
+                                          "Die Cosine haengt an --epochs, also ist das echte "
+                                          "gesparte Zeit."),
     balance: str = typer.Option("none", "--balance",
                                 help="none | situation | session | class | piece. `situation` zieht jede "
                                      "(Session, Feld, Klasse) gleich oft statt jeden Crop "
@@ -1611,7 +1617,7 @@ def train_cmd(
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
                                  label_smoothing=label_smoothing, hflip_p=hflip_p,
-                                 balance=balance))
+                                 balance=balance, epoch_frac=epoch_frac))
 
 
 @app.command("eval")

@@ -153,7 +153,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               weight_decay: float | None = None,
               label_smoothing: float = 0.0,
               hflip_p: float | None = None,
-              balance: str = "none") -> int:
+              balance: str = "none",
+              epoch_frac: float = 1.0) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -548,10 +549,23 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
     elif situation_w is not None:
         sample_weights = torch.tensor(situation_w, dtype=torch.double)
+    if epoch_frac != 1.0 and situation_w is None and hard_negative_multiplier == 1.0:
+        # Ohne Balance und ohne Hard Negatives gibt es noch keinen Sampler — einer mit
+        # Gleichgewichten zieht dieselbe Verteilung, nur weniger davon.
+        sample_weights = torch.ones(len(train_rows), dtype=torch.double)
+        situation_w = []
     if hard_negative_multiplier != 1.0 or situation_w is not None:
+        # `num_samples` war immer len(train_rows) — Konvention, nicht Notwendigkeit. Der Korpus
+        # traegt 1 643 Situationen auf 184 735 Crops; wer sie gleichmaessig zieht, braucht fuer
+        # eine Epoche nicht jede Kopie. Die Cosine haengt an --epochs, nicht an der Epochengroesse,
+        # also ist das echte Wanduhrzeit und keine Verkuerzung des Zeitplans.
+        n_draw = max(1, int(round(epoch_frac * len(train_rows))))
         generator = torch.Generator().manual_seed(seed)
-        sampler = WeightedRandomSampler(sample_weights, len(train_rows), replacement=True,
+        sampler = WeightedRandomSampler(sample_weights, n_draw, replacement=True,
                                         generator=generator)
+        if epoch_frac != 1.0:
+            print(f"[sampler] {n_draw} Ziehungen je Epoche statt {len(train_rows)} "
+                  f"({epoch_frac:g}x)")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
@@ -592,6 +606,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
         "balance": balance,
+        "epoch_frac": epoch_frac,
         "visible_max": vmax if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
