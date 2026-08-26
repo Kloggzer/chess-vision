@@ -154,7 +154,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               label_smoothing: float = 0.0,
               hflip_p: float | None = None,
               balance: str = "none",
-              epoch_frac: float = 1.0) -> int:
+              epoch_frac: float = 1.0,
+              rot90: bool | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -326,6 +327,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         return 1
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
+    want_rot = rot90
     rot90 = False
     if dataset:
         from ..dataset_build import _read_yaml, dataset_dir
@@ -334,6 +336,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if rot90:
             print("[aug] on-the-fly 90-degree rotations (dataset built with rotations="
                   f"{list(ds_rot)})")
+    if want_rot is not None and want_rot != rot90:
+        # Am Lauf statt am Build: jeder Datensatz steht heute auf rotations=[0], und die Frage
+        # ist eine Rezeptfrage. Auf einem achsenparallelen Zellcrop bleibt bei Vielfachen von 90°
+        # die Feldgeometrie gueltig — und die perspektivische Neigung dreht mit: eine Figur der
+        # Reihe 8 neigt nach oben, um 90° gedreht nach rechts, also wie eine auf der a-Linie.
+        # Genau die Positionsabhaengigkeit, an der die Grundreihen scheitern.
+        rot90 = want_rot
+        print(f"[aug] 90-Grad-Drehungen per Flag {'AN' if rot90 else 'AUS'}")
     tf_kw = {"policy": policy, "per_crop": per_crop, "input_repr": input_repr}
     train_tf = build_transform(out_size, train=True, rot90=rot90, **tf_kw)
     val_tf = build_transform(out_size, train=False, **tf_kw)
@@ -589,6 +599,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
+        "aug_rot90": rot90,
         "weight_decay": wd,
         "label_smoothing": label_smoothing,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),

@@ -951,6 +951,15 @@ def occluders_composite(
                                  help="Crop size WxH. 128 wie der echte Export: bei 80 liegt der "
                                       "Crop schon auf der Modellgroesse und hat keine Reserve, "
                                       "waehrend echte Crops noch Detail uebrig haben."),
+    clean: bool = typer.Option(False, "--clean",
+                               help="GAR KEINE Verdecker auflegen. Dann ist der Drehteller "
+                                    "Blickwinkel-Material statt Verdeckungs-Material, und die "
+                                    "Coverage 0 ist die Wahrheit, keine fehlende Messung."),
+    angle_buckets: int = typer.Option(0, "--angle-buckets",
+                                      help="Pseudo-Sessions nach WINKEL statt nach Position im "
+                                           "Clip. Bei 3,1 Umdrehungen ist ein fortlaufendes "
+                                           "Zwoelftel 92 Grad breit; modulo einer Umdrehung sind "
+                                           "12 Eimer wirklich 30 Grad."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
     """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
@@ -968,7 +977,7 @@ def occluders_composite(
                 out_root=config.DATA.crops / tag,
                 manifest=config.DATA.crops / tag / "manifest.jsonl",
                 fen=fen, board_size=board_size, out_size=_out_size(out_size),
-                stride=stride, seed=seed)
+                stride=stride, seed=seed, clean=clean, angle_buckets=angle_buckets)
     except RuntimeError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None
@@ -1570,6 +1579,11 @@ def train_cmd(
                                      "`piece` tut dasselbe, laesst `empty` aber auf seinem "
                                      "Anteil — sonst verliert der Verdeckungskopf seine "
                                      "Negativbeispiele (Precision 0,944 -> 0,680)."),
+    rot90: bool | None = typer.Option(None, "--rot90/--no-rot90",
+                                      help="90-Grad-Drehungen, unabhaengig davon, womit der "
+                                           "Datensatz gebaut wurde (alle stehen auf "
+                                           "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
+                                           "die volle Symmetriegruppe des Quadrats."),
     hflip_p: float | None = typer.Option(None, "--hflip-p",
                                          help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
                                               "Auf einem Zellcrop zulaessig und spiegelt den "
@@ -1617,7 +1631,8 @@ def train_cmd(
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
                                  label_smoothing=label_smoothing, hflip_p=hflip_p,
-                                 balance=balance, epoch_frac=epoch_frac))
+                                 balance=balance, epoch_frac=epoch_frac,
+                                 rot90=rot90))
 
 
 @app.command("eval")

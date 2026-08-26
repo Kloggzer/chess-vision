@@ -28,6 +28,8 @@ RIG_SCALE = 0.60
 SCALE_JITTER = (0.85, 1.15)
 #: Frames between two boards. The turntable turns 0.43 deg/frame, so this is ~3.4 deg —
 #: the historical ingest step, and below it consecutive crops shift by under a pixel.
+#: Grad je Frame auf dem Drehteller — steht so in der CLI-Hilfe von `occluders composite`.
+DEG_PER_FRAME = 0.43
 STRIDE = 8
 
 
@@ -419,17 +421,28 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      board_size: int = 0, out_size: tuple[int, int] = (128, 128),
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
-                     blocks: int = 6) -> dict:
+                     blocks: int = 6, clean: bool = False,
+                     angle_buckets: int = 0, deg_per_frame: float = DEG_PER_FRAME) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
     `blocks` cuts the clip into that many pseudo-sessions, so the session-grouped split has
     something to group BY — and neighbouring rotation angles cannot straddle train and test.
+
+    `angle_buckets` gruppiert nach WINKEL statt nach Position im Clip. Fortlaufende Bloecke sind
+    auf einem Clip mit 3,1 Umdrehungen keine Winkel-Eimer — ein Zwoelftel davon ist 92 Grad breit.
+    Modulo einer Umdrehung landet dieselbe Ansicht aus verschiedenen Durchgaengen im selben Eimer,
+    was fuer den Sampler genau richtig ist: eine Situation ist eine ANSICHT, kein Zeitabschnitt.
+
+    `clean` legt GAR KEINE Verdecker auf. Der Drehteller ist dann nicht mehr Verdeckungs-Material,
+    sondern Blickwinkel-Material: dieselbe Figur ueber die ganze Drehung. Die Coverage 0 ist dort
+    keine fehlende Messung wie in der Matte-Falle (CLAUDE.md), sondern die Wahrheit — es liegt
+    nichts drauf.
     """
     import json
 
     from .labeling import CROP_ENCODE, CROP_SUFFIX, square_color
 
-    if not load_tiles(plate_dir):
+    if not clean and not load_tiles(plate_dir):
         return {"error": f"no plates in {plate_dir}"}
     probe = cv2.VideoCapture(str(video))
     n = int(probe.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -445,10 +458,16 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     stats: dict = {}
     prof = None
     for idx, crops, cov, prof in composed_boards(
-            video, plate_dir, board_size=board_size, out_size=out_size, stride=stride,
+            video, None if clean else plate_dir, board_size=board_size, out_size=out_size,
+            stride=stride,
             tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
         stem = f"{idx:06d}"
-        sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
+        if angle_buckets:
+            per_turn = 360.0 / deg_per_frame
+            b = int((idx % per_turn) / (per_turn / angle_buckets)) % angle_buckets
+            sid = f"{stem_sid}-a{b:02d}"
+        else:
+            sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
         for sq, crop in zip(all_squares(), crops, strict=True):
             label = labels[sq]
             path = out_root / label / f"{sid}_{stem}_{sq}{CROP_SUFFIX}"
@@ -477,6 +496,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     _write_provenance(out_root, stem_sid, {
         "video": Path(video).resolve().as_posix(), "fen": fen, "seed": int(seed),
         "board_size": int(board_size), "stride": int(stride), "blocks": int(blocks),
+        "angle_buckets": int(angle_buckets), "clean": bool(clean),
         "tiles_per_frame": list(tiles_per_frame), "profile": profile_name,
         "plate_dir": Path(plate_dir).resolve().as_posix(),
     })
