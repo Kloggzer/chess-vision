@@ -51,30 +51,37 @@ class ChangeSearch(
     )
 
     /**
-     * [accepts] is the model's say, and it CHOOSES rather than vetoes.
+     * [objections] is the model's say, and it COSTS a hypothesis rather than killing it.
      *
-     * Built the other way round first, and measured wrong on `11-55-19`: as a veto it killed the
-     * best hypothesis and the engine gave up, where three routes of the same queen (`d8a5`,
-     * `d8d7`, `d8e8`) tied within the ambiguity band and one look at whether `a5` or `d7` is
-     * occupied separates them. A check that only kills throws that away.
+     * Two wrong shapes were measured before this one. As a plain veto it killed the best
+     * hypothesis and the engine gave up. As a hard filter over the ranked list it was worse: on
+     * `VID_20260726_233432` the model reads badly, refused nearly every candidate, and the arm
+     * committed NOTHING in 21 plies — `a2a4` sat there at 10.0 against a commit floor of 4 and
+     * was thrown out.
+     *
+     * A price is the honest shape. The colour axis was measured wrong at full confidence twice in
+     * one session, so it is a witness, not a gate: enough to separate hypotheses that the pixels
+     * leave tied (three routes of one queen to a4), never enough to overrule pixels that plainly
+     * moved.
      */
     fun explain(
         position: Board,
         evidence: ChangeEvidence,
         covered: Set<Int>,
-        accepts: (Board, Set<Int>) -> Boolean = { _, _ -> true },
+        objections: (Board, Set<Int>) -> Int = { _, _ -> 0 },
     ): Change {
-        val ranked = search(position, evidence).sortedByDescending { it.score }
-        // Only the top of the list is put to the model: below it the score has ruled a hypothesis
-        // out already, and every question costs a board clone.
-        val viable = ranked.take(WEIGHED).filter { agreeable(position, it, accepts) }
+        val raw = search(position, evidence).sortedByDescending { it.score }
+        // Only the top of the list is priced: below it the pixels have ruled a hypothesis out
+        // already, and every question costs a board clone.
+        val priced = raw.take(WEIGHED).map { charged(position, it, objections) }.sortedByDescending { it.score }
+        val viable = priced + raw.drop(WEIGHED)
         val best = viable.firstOrNull()
         val near = viable.filter { best != null && it.score >= best.score - AMBIGUITY }
-        trace?.invoke(diagnostic(ranked, near, evidence))
-        // "Nothing happened" is always agreeable, so the question is whether a MOVE survived. If
-        // the pixels offered one and the model refused every one, that is a dispute, not a verdict.
-        val moveSurvived = viable.any { it.moves.isNotEmpty() }
-        val moveOffered = ranked.any { it.moves.isNotEmpty() && it.score > 0.0 }
+        trace?.invoke(diagnostic(viable, near, evidence))
+        // The pixels offered a move and the price pushed it under "nothing happened": two
+        // witnesses at odds, most often a hand halfway out of frame — not a wrong board.
+        val moveSurvived = best != null && best.moves.isNotEmpty()
+        val moveOffered = raw.any { it.moves.isNotEmpty() && it.score > 0.0 }
         if (best == null || best.moves.isEmpty() || best.score <= 0.0) return idle(evidence, moveOffered, moveSurvived)
         // Routes that end in the same position are still not interchangeable AS PLIES, and the
         // ply list is the deliverable. Committing the best of them was measured on `11-55-19`:
@@ -87,15 +94,17 @@ class ChangeSearch(
         return Change.Moves(prefix, complete = near.size == 1 && prefix == best.moves)
     }
 
-    /** Does the model agree with the position this hypothesis produces, on the squares it moved? */
-    private fun agreeable(
+    /** The same hypothesis, minus what the model's disagreement costs it. */
+    private fun charged(
         position: Board,
         hypothesis: Hypothesis,
-        accepts: (Board, Set<Int>) -> Boolean,
-    ): Boolean {
-        if (hypothesis.moves.isEmpty()) return true
+        objections: (Board, Set<Int>) -> Int,
+    ): Hypothesis {
+        if (hypothesis.moves.isEmpty()) return hypothesis
         val after = position.clone().also { board -> hypothesis.moves.forEach(board::doMove) }
-        return accepts(after, hypothesis.touched)
+        val count = objections(after, hypothesis.touched)
+        if (count == 0) return hypothesis
+        return Hypothesis(hypothesis.moves, hypothesis.touched, hypothesis.score - OBJECTION_COST * count)
     }
 
     /**
@@ -280,5 +289,12 @@ class ChangeSearch(
          * already ruled them out, and each question costs a board clone.
          */
         private const val WEIGHED = 12
+
+        /**
+         * What one contradicted square costs a hypothesis. Above [AMBIGUITY], so it separates
+         * hypotheses the pixels leave tied; well under two squares of evidence, so it cannot
+         * overrule a move the pixels plainly show.
+         */
+        private const val OBJECTION_COST = 4.0
     }
 }

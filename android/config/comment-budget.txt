@@ -256,9 +256,9 @@ desktop/src/main/kotlin/com/chesslab/desktop/Undistort.kt 1
 desktop/src/test/kotlin/com/chesslab/desktop/AlignmentMarkerPrepassTest.kt 1
 desktop/src/test/kotlin/com/chesslab/desktop/ReplayConfigFileTest.kt 1
 engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeAlarm.kt 1
-engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeEvidence.kt 2
-engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeSearch.kt 1
-engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeSetEngine.kt 1
+engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeEvidence.kt 4
+engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeSearch.kt 3
+engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeSetEngine.kt 2
 engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ChangeStatus.kt 1
 engine-changeset/src/main/kotlin/com/chesslab/engine/changeset/ColourCheck.kt 1
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/BlindSquares.kt 1

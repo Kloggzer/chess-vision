@@ -16,6 +16,18 @@ import com.chesslab.engine.board.cellDeltas
  */
 class ChangeEvidence(
     private val logits: DoubleArray,
+    /** Raw grey levels beside the log-odds: a threshold can only be tuned against what it saw. */
+    private val deltas: DoubleArray = DoubleArray(0),
+    private val threshold: Double = 0.0,
+    /**
+     * How much of the WHOLE board moved — the upper quartile of the cell deltas.
+     *
+     * This is the hand detector, and it had to be: on `VID_20260726_233432` a hand crossed the
+     * queenside, seven cells moved by 26 to 48 grey levels, and the model reported `covered=[]`.
+     * A guard that asks the model about hands is blind exactly when it matters. A chess move
+     * touches two to four cells out of 64, so a high QUARTILE cannot be a move.
+     */
+    val busy: Double = 0.0,
 ) {
     /** Log-odds that this square changed. Positive means it did; the size is the confidence. */
     fun at(square: Int): Double = logits[deltaIndexOf(square)]
@@ -26,11 +38,13 @@ class ChangeEvidence(
     /** Squares the picture says changed, for the alarm and the log. */
     fun changed(): List<Int> = (0 until SQUARES).filter { at(it) > 0.0 }
 
-    fun describe(): String =
-        changed()
-            .sortedByDescending { at(it) }
-            .joinToString(" ") { "${nameOf(it)}@${round1(at(it))}" }
-            .ifEmpty { "none" }
+    fun describe(): String {
+        val listed =
+            changed()
+                .sortedByDescending { at(it) }
+                .joinToString(" ") { "${nameOf(it)}@${round1(at(it))}/${round1(deltas.getOrElse(deltaIndexOf(it)) { 0.0 })}" }
+        return "${listed.ifEmpty { "none" }} thr=${round1(threshold)}"
+    }
 
     companion object {
         const val SQUARES = 64
@@ -66,11 +80,18 @@ class ChangeEvidence(
             after: ByteArray,
         ): ChangeEvidence {
             val deltas = cellDeltas(before, after)
-            val threshold = maxOf(CHANGE_THR, NOISE_MULT * quartile(deltas))
+            val busy = quartile(deltas)
+            val threshold = maxOf(FLOOR_THR, NOISE_MULT * busy)
             return ChangeEvidence(
+                // Relative to the board's own quiet level, not to a fixed grey level. Measured
+                // 2026-08-26: a real move moves 11 to 15 grey levels on `13-52-38` and over 25 on
+                // `11-55-19`; one absolute threshold serves one of them and starves the other.
                 DoubleArray(deltas.size) { i ->
-                    (K * (deltas[i] - threshold)).coerceIn(-CLIP, CLIP)
+                    (K * (deltas[i] / threshold - 1.0)).coerceIn(-CLIP, CLIP)
                 },
+                deltas,
+                threshold,
+                busy,
             )
         }
 
@@ -80,14 +101,30 @@ class ChangeEvidence(
         private const val UPPER_QUARTILE_NUM = 3
         private const val UPPER_QUARTILE_DEN = 4
 
-        /** Grey levels of change before a square counts as moved — `StillPhase` measured this one. */
-        private const val CHANGE_THR = 10.0
+        /** Under this the picture is flat and a relative bar would divide by its own noise. */
+        private const val FLOOR_THR = 4.0
 
-        /** On a noisy frame the bar rises with the noise: this many times the typical cell. */
+        /** The bar is this many times the board's quiet level. */
         private const val NOISE_MULT = 3.0
 
-        /** Log-odds per grey level. A piece arriving (~40) reaches the clip; a shadow (~12) does not. */
-        private const val K = 0.4
+        /**
+         * Log-odds per multiple of the bar. A square at four times it reaches the clip, one at
+         * twice it does not — which is the gap that separates a moved piece from its shadow.
+         */
+        private const val K = 2.5
+
+        /**
+         * Above this quiet level the picture is of something crossing the board, or of a
+         * reference that has gone stale — not of a position.
+         *
+         * Measured 2026-08-26 across two recordings, and the two distributions barely touch: a
+         * working arm on `VID_20260824_153751` sits at a median of 2.1 with a 90th percentile of
+         * 8.4, while `VID_20260726_233432` against a stale reference sits at a MEDIAN of 18.6. A
+         * The bar sits at the low end on purpose: raising it to 12 was measured WORSE on both
+         * (`233432` fell from 19 back to 1), because a reading just under the bar reaches the
+         * search and decides badly, where a skipped one costs only a retry.
+         */
+        const val CROWDED = 5.0
 
         /**
          * No single square may decide alone. The second engine let one confidently wrong square

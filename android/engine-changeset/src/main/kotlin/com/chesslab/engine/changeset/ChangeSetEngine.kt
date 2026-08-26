@@ -49,6 +49,9 @@ class ChangeSetEngine(
     internal var stuck: String? = null
     internal var covered: Set<Int> = emptySet()
 
+    /** Consecutive readings whose picture was too crowded to be a position — see [crowded]. */
+    private var crowdedRuns = 0
+
     override fun onFrame(input: FrameInput): List<TrackerEvent> {
         rate.saw(input.timestampMs)
         val gray = grayBoard(input.board?.invoke(BOARD_PX) ?: input.bgrDet) ?: return notes.say("no board yet")
@@ -88,19 +91,18 @@ class ChangeSetEngine(
         gray: ByteArray,
         input: FrameInput,
     ): List<TrackerEvent> {
-        val before = phase.reference ?: return notes.say("no understood picture yet")
         val reading = Reading.of(snap)
         val check = reading?.let { ColourCheck(it, config.pOccludedThr) }
         covered = check?.covered().orEmpty()
-        // A hand over the board explains any amount of change, so nothing here is evidence of
-        // anything. Waiting costs one reading; treating it as unexplained burns a retry and walks
-        // the alarm ladder towards a latch nobody should see.
-        if (covered.size > HAND_LIMIT) return notes.say("a hand is over the board")
-        val evidence = ChangeEvidence.of(before, gray)
+        val evidence = phase.reference?.let { ChangeEvidence.of(it, gray) }
+        evidence?.let { onTrace("busy=${ChangeEvidence.round1(it.busy)}") }
+        val held = held(evidence, gray)
+        if (held != null || evidence == null) return held.orEmpty()
+        crowdedRuns = 0
         // The model chooses among hypotheses rather than vetoing the winner — see `ChangeSearch`.
         val verdict =
             search.explain(position, evidence, covered) { after, touched ->
-                check == null || check.objections(after, touched).isEmpty()
+                check?.objections(after, touched)?.size ?: 0
             }
         phase.read(input.timestampMs)
         onTrace("verdict=${verdict.javaClass.simpleName} covered=${covered.map(ChangeEvidence::nameOf)}")
@@ -126,13 +128,18 @@ class ChangeSetEngine(
         gray: ByteArray,
         input: FrameInput,
     ): List<TrackerEvent> {
+        // A latched alarm stops every commit, deadlock and all. Letting an UNAMBIGUOUS one through
+        // was tried and measured: it found far more (`11-59-12` 31 -> 53 plies, `13-52-38` 9 -> 21)
+        // and put phantoms where there had been none (2, 2 and 3 across three recordings). Misses
+        // are recoverable, fabrications are the veto, so the strict form stays. What the deadlock
+        // really wants is a way OUT of the latch that is not a commit.
         if (alarms.current != null) return notes.say("alarm latched — not committing")
         val ucis = verdict.moves.map(::uci)
         val sans = sansOf(position, verdict.moves)
         val before = position.fen
         verdict.moves.forEach { position.doMove(it) }
         plies += verdict.moves.size
-        onDecision(ChangeDecision(input.timestampMs, plies, ucis, sans, before, position.fen, coveredNames()))
+        onDecision(ChangeDecision(input.timestampMs, plies, ucis, sans, before, position.fen, coveredNames))
         val events = mutableListOf<TrackerEvent>()
         events += alarms.clear()
         events +=
@@ -168,10 +175,49 @@ class ChangeSetEngine(
         return raised
     }
 
-    internal fun coveredNames(): List<String> = covered.map(ChangeEvidence::nameOf).sorted()
+    /**
+     * Three reasons to say nothing yet, and the run-length that turns one of them into a verdict
+     * about the REFERENCE.
+     *
+     * A hand over the board explains any amount of change, so nothing under it is evidence —
+     * waiting costs one reading, where treating it as unexplained burns a retry and walks the
+     * alarm ladder. `busy` is the pixels' own hand detector and the one that works: the model
+     * missed a hand across the queenside entirely (`covered=[]`) while a quarter of the board was
+     * moving.
+     *
+     * And the reference only advances on a board this engine UNDERSTOOD, so a start it cannot
+     * explain locks it out for good — nothing commits, the reference stays on the first frame, and
+     * every played move widens the gap. Measured on `VID_20260726_233432`: unrest at a median of
+     * 18.6 grey levels against a bar of 5, and 0 of 21 plies. One crowded reading is a hand and
+     * worth waiting out; a run of them is a reference that has to be given up. **0/21/0 -> 19/2/0.**
+     */
+    private fun held(
+        evidence: ChangeEvidence?,
+        gray: ByteArray,
+    ): List<TrackerEvent>? {
+        if (evidence == null) return notes.say("no understood picture yet")
+        // Before the counter, not after: a reading skipped because of a HAND says nothing about
+        // the reference, and counting it towards "stale" was measured to cost three plies.
+        if (covered.size > HAND_LIMIT) return notes.say("a hand is over the board")
+        val crowded = evidence.busy > ChangeEvidence.CROWDED
+        crowdedRuns = if (crowded) crowdedRuns + 1 else 0
+        val stale = crowdedRuns >= CROWDED_PATIENCE
+        if (stale) {
+            crowdedRuns = 0
+            phase.settle(gray)
+        }
+        return when {
+            stale -> notes.say("the reference was stale — measuring from the board as it stands")
+            crowded -> notes.say("too much of the board is moving")
+            else -> null
+        }
+    }
+
+    internal val coveredNames: List<String> get() = covered.map(ChangeEvidence::nameOf).sorted()
 
     internal fun mutate(block: (Board) -> Unit): List<TrackerEvent> {
         block(position)
+        crowdedRuns = 0
         pending = null
         phase.reset()
         stuck = null
@@ -199,6 +245,9 @@ class ChangeSetEngine(
 
         /** Above this many covered squares the picture is of a hand, not of a position. */
         const val HAND_LIMIT = 6
+
+        /** Crowded readings in a row before the reference, not the board, is the suspect. */
+        const val CROWDED_PATIENCE = 5
         const val STUCK_NO_LEGAL_MOVE = "no_legal_move"
     }
 }

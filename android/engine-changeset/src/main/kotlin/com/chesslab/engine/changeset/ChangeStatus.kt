@@ -18,7 +18,7 @@ object ChangeStatus {
         fps: Double,
         plies: Int,
     ): TrackerStatus {
-        val covered = engine.coveredNames().toSet()
+        val covered = engine.coveredNames.toSet()
         val phase = engine.phase.state()
         return TrackerStatus(
             state = if (covered.size > OCCLUDED_AT && phase != "moving") "occluded" else phase,

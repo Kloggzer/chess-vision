@@ -53,14 +53,31 @@ zeigte. Auf `11-55-19` war das eine Hand mitten in der Bewegung, und jeder Vergl
 gegen sie: zwoelf „veraenderte" Felder, bevor ein Zug gespielt war. Jetzt wird die Referenz erst
 gesetzt, wenn `!moving`. (Gilt auch fuer die zweite Engine.)
 
-**Eine Hand ist ein Grund zu warten, nie zu alarmieren.** Ueber `HAND_LIMIT` verdeckten Feldern
-bricht `explain` ab, bevor irgendetwas bewertet wird.
+**Die Hand kommt aus den PIXELN, nicht aus dem Modell.** Auf `VID_20260726_233432` kreuzte eine
+Hand den Damenfluegel, sieben Zellen bewegten sich um 26 bis 48 Graustufen — und das Modell meldete
+`covered=[]`. Ein Schutz, der das Modell nach Haenden fragt, ist blind genau dann, wenn es darauf
+ankommt. Ein Zug beruehrt 2 bis 4 von 64 Zellen, also kann ein hohes oberes QUARTIL kein Zug sein.
 
-**Die Farbpruefung waehlt, sie vetot nicht.** Als nachtraegliches Veto gebaut, und das war falsch:
-sie toetete die beste Hypothese und die Engine gab auf. Auf `11-55-19` standen drei Wege derselben
-Dame nach a4 (`d8a5+a5a4`, `d8d7+d7a4`, `d8e8+e8a4`) im Mehrdeutigkeitsband, ohne gemeinsamen
-ersten Zug — ein Blick darauf, ob `a5` oder `d7` besetzt ist, trennt sie. Ein Test, der nur toetet,
-verschenkt das. Jetzt filtert `accepts` die besten Hypothesen VOR der Auswahl.
+**Eine veraltete Referenz muss aufgegeben werden.** Die Referenz waechst nur an einem Brett fort,
+das die Engine VERSTANDEN hat — ein Start, den sie nicht erklaeren kann, sperrt sie damit fuer die
+ganze Aufnahme aus: nichts committet, die Referenz bleibt auf dem ersten Bild, und jeder gespielte
+Zug vergroessert den Abstand, bis das Bild wie eine Hand aussieht. Gemessen auf `233432`: Unruhe im
+**Median 18,6** gegen eine Schwelle von 5, und 0 von 21 Plies. Eine ueberfuellte Lesung ist eine
+Hand und Warten wert; eine SERIE davon ist eine Referenz, die weg muss. **0/21/0 → 19/2/0.**
+
+**Der Latch stoppt unsichere Commits, nie sichere.** Erste Fassung: der Alarm blockierte jeden
+Commit, und aufloesen konnte ihn nur ein unveraendertes Brett — das nie kommt, solange gespielt
+wird. Auf `VID_20260824_153751` vier abgelehnte Lesungen nach einem Latch.
+
+**Die Farbpruefung KOSTET, sie toetet nicht.** Drei Formen wurden gemessen. Als nachtraegliches
+Veto toetete sie die beste Hypothese und die Engine gab auf — auf `11-55-19` standen drei Wege
+derselben Dame nach a4 im Mehrdeutigkeitsband, und ein Blick darauf, ob `a5` oder `d7` besetzt ist,
+trennt sie. Als harter Filter ueber die Rangliste war sie noch schlechter: auf `VID_20260726_233432`
+liest das Modell schwach, lehnte fast jeden Kandidaten ab, und der Arm committete in 21 Plies
+**nichts** — `a2a4` stand bei 10,0 gegen eine Schwelle von 4 und flog raus. Ein PREIS ist die
+ehrliche Form: genug, um Hypothesen zu trennen, die die Pixel unentschieden lassen, nie genug, um
+Pixel zu ueberstimmen, die sich sichtbar bewegt haben. Die Farbachse war in derselben Sitzung
+zweimal bei voller Ueberzeugung falsch.
 
 **Streit ist nicht Unerklaerlichkeit.** Wenn die Pixel Kandidaten anbieten und das Modell **alle**
 ablehnt, stehen zwei Zeugen gegeneinander — meist eine Hand halb aus dem Bild. Das ist kein Beweis,
@@ -90,4 +107,57 @@ aussen sahen alle gleich aus, naemlich wie gar nichts. Sie heissen jetzt und ste
   Mensch, der ihn ausloest, hat das Brett gesehen.
 - **Mehrdeutige Routen bleiben liegen.** Siehe oben: bewusst, weil die Alternative Phantome sind.
 
+## Die offene Frage: die Skala der Evidenz
+
+Der Ausschlag eines echten Zuges ist **nicht kameraunabhaengig**, und keine der beiden Formen, die
+gemessen wurden, taugt fuer alle Aufnahmen:
+
+| | `13-52-38` | `11-55-19` | `153751` |
+|---|---|---|---|
+| Ausschlag eines echten Zuges | 11–15 Graustufen | > 25 | ~30 |
+| Ruhepegel des Bretts (oberes Quartil) | ~1 | ~2–3 | 2,1 |
+
+Eine **absolute** Schwelle (10 Graustufen) laesst auf `13-52-38` fast nichts uebrig — der richtige
+Zug `d2d4` stand bei 0,7 gegen eine Commit-Schwelle von 4. Eine **relative** (Vielfaches des
+Ruhepegels) rettet die Aufnahme, gibt aber auf `153751` auch marginalen Feldern Gewicht, erzeugt
+Mehrdeutigkeit und kostet dort 24 von 35 Plies.
+
+Gemessen, beide Richtungen, jeweils auf der Aufnahme, die es zeigt — hier steht bewusst KEINE
+weitere Konstante. Was fehlt, ist eine Ableitung der Skala aus etwas Messbarem (Kontrast der
+Figuren gegen ihr Feld, aus dem Board-Store), nicht ein weiterer Handgriff am Regler.
+
 ## Messung
+
+Regressionssatz, 2026-08-26, `model=real13-ms-s3-hn4-bn80`, je gefunden/verpasst/**erfunden**:
+
+| Aufnahme (Plies) | Diff (`classic`) | Stillstand (`stillness`) | Veraenderung (`changeset`) |
+|---|---|---|---|
+| `2026-08-07-13-52-38` (25) | **25/0/0** | **25/0/0** | 9/16/0 |
+| `2026-08-08-00-39-57` (67) | **67/0/0** | **67/0/0** | 28/39/0 |
+| `2026-08-08-11-55-19` (15) | **15/0/0** | **15/0/0** | **15/0/0** |
+| `2026-08-08-11-59-12` (73) | 52/21/0 | 66/7/**96** | 31/42/0 |
+| `VID_20260726_233432` (21) | 19/2/**2** | **21/0/0** | 19/2/0 |
+| `VID_20260824_153751` (35) | 9/26/0 | **35/0/0** | 10/25/0 |
+| `VID_20260824_154327` (117) | 10/107/0 | **28/89/0** | 4/113/**3** |
+
+`2026-08-16-20-41-33` traegt kein Video (Handy-Session) und ist im Video-Replay nicht messbar.
+
+**Der dritte Arm ist heute nicht konkurrenzfaehig.** Er erreicht `11-55-19` fehlerfrei, ist auf
+`233432` phantomfrei besser als der Diff-Arm, und auf `11-59-12` der einzige ohne Phantome — aber
+auf `00-39-57`, `153751` und `154327` liegt er weit zurueck. Der Grund steht oben unter „Die offene
+Frage": die Skala der Evidenz ist nicht abgeleitet, sondern eingestellt.
+
+### Der Latch: was der Phantom-Verzicht kostet
+
+Eine Variante, die dem Latch ERLAUBT, eine eindeutige Erklaerung durchzulassen, wurde gemessen:
+
+| Aufnahme | streng (Vorgabe) | Latch aufgeweicht |
+|---|---|---|
+| `13-52-38` | 9/16/**0** | 21/4/**2** |
+| `00-39-57` | 28/39/**0** | 33/34/**2** |
+| `11-59-12` | 31/42/**0** | 53/20/**0** |
+| `154327` | 4/113/3 | 6/111/3 |
+
+Deutlich mehr gefunden, und Phantome dort, wo vorher keine waren. Nach der Projektregel ist das
+kein Tausch, sondern ein Ausschluss — die strenge Form bleibt die Vorgabe. Was der Deadlock
+wirklich braucht, ist ein Ausweg aus dem Latch, der kein Commit ist.
