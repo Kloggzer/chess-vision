@@ -134,6 +134,15 @@ def test_weight_cap_flattens_the_spread_without_moving_the_loss_scale():
     assert sorted(capped, key=capped.get) == sorted(plain, key=plain.get)
 
 
+def test_cap_one_is_no_weighting_at_all():
+    """Der andere Endpunkt derselben Achse: a = 0, jedes Gewicht 1,0."""
+    counts = {"empty": 198309, "wP": 40782, "wQ": 4998}
+    assert set(compute_class_weights(counts, list(counts), cap=1.0).values()) == {1.0}
+
+    with pytest.raises(ValueError, match="must be >= 1"):
+        compute_class_weights(counts, list(counts), cap=0.5)
+
+
 def test_a_cap_above_the_actual_spread_changes_nothing():
     counts = {"empty": 100, "wP": 80}
     assert compute_class_weights(counts, list(counts), cap=10.0) ==            compute_class_weights(counts, list(counts))

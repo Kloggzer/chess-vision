@@ -397,8 +397,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX:
                 vis_counts[r["label"]] = vis_counts.get(r["label"], 0) + 1
         split = {**split, "class_weights": compute_class_weights(vis_counts, classes, weight_cap)}
-        if weight_cap:
-            print(f"[loss] Gewichte auf {weight_cap:g}x gekappt (geglaettet, nicht beschnitten).")
+        if weight_cap is not None:
+            print(f"[loss] Gewichte auf {weight_cap:g}x gekappt"
+                  + (" — das ist UNGEWICHTET." if weight_cap == 1 else " (geglaettet, nicht beschnitten)."))
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
         from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss

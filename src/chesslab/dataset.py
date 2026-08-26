@@ -184,7 +184,8 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None,
     `cap` begrenzt das Verhaeltnis groesstes/kleinstes Gewicht, indem die Haeufigkeit mit einem
     Exponenten geglaettet wird (w ~ 1/n^a) statt die Raender abzuschneiden — die Reihenfolge und
     die Abstaende dazwischen bleiben, nur flacher. Bei 12,4x und cap 3 ist a = 0,44, also nahe
-    an der klassischen Wurzel-Inversfrequenz.
+    an der klassischen Wurzel-Inversfrequenz. `cap=1` ist der andere Endpunkt derselben Achse:
+    a = 0, jedes Gewicht 1,0 — gar keine Gewichtung.
 
     Weighting by raw frequency is the scheme the class-balanced-loss paper argues AGAINST — its
     case is that each further sample of a class adds less than the last, so inverse frequency
@@ -200,9 +201,13 @@ def compute_class_weights(counts: dict, classes: list[str] | None = None,
         return weights
     total = sum(present.values())
     alpha = 1.0
-    if cap and cap > 1.0 and len(present) > 1:
+    if cap is not None and len(present) > 1:
+        if cap < 1.0:
+            raise ValueError(f"weight cap must be >= 1 (1 = uniform, no weighting), got {cap}")
         spread = max(present.values()) / min(present.values())
         if spread > cap:
+            # cap == 1 -> log(1) == 0 -> alpha 0 -> jedes Gewicht 1,0. Das ist der andere
+            # Endpunkt derselben Achse, nicht ein Sonderfall daneben.
             alpha = math.log(cap) / math.log(spread)
     raw = {c: n ** -alpha for c, n in present.items()}
     # Dieselbe Normierung wie ungekappt: sum(w*n) == total, damit der Verlustmassstab und
