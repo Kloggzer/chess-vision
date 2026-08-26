@@ -1551,11 +1551,14 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
-    balance_situations: bool = typer.Option(False, "--balance-situations",
-                                            help="Jede (Session, Feld, Klasse) gleich oft ziehen "
-                                                 "statt jeden Crop. Die Gruppen sind 13,6x "
-                                                 "ungleich; wK kennt 22 Platzierungen, jede "
-                                                 "131-fach je Epoche."),
+    balance: str = typer.Option("none", "--balance",
+                                help="none | situation | session. `situation` zieht jede "
+                                     "(Session, Feld, Klasse) gleich oft statt jeden Crop "
+                                     "(Gruppen sind 13,6x ungleich; wK kennt 22 Platzierungen, "
+                                     "jede 131-fach je Epoche). `session` legt darueber, dass "
+                                     "jede Aufnahme gleich oft drankommt — Licht und Kamera sind "
+                                     "die Achse, auf der Val zurueckgehalten wird, und die "
+                                     "Anteile streuen heute 18,8x."),
     hflip_p: float | None = typer.Option(None, "--hflip-p",
                                          help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
                                               "Auf einem Zellcrop zulaessig und spiegelt den "
@@ -1603,7 +1606,7 @@ def train_cmd(
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
                                  label_smoothing=label_smoothing, hflip_p=hflip_p,
-                                 balance_situations=balance_situations))
+                                 balance=balance))
 
 
 @app.command("eval")

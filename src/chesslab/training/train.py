@@ -144,7 +144,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               weight_decay: float | None = None,
               label_smoothing: float = 0.0,
               hflip_p: float | None = None,
-              balance_situations: bool = False) -> int:
+              balance: str = "none") -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -473,15 +473,24 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # Platzierungen, jede 131-fach je Epoche. Gleiche Ziehungsmasse je Situation laesst die
     # Lichtvariation der Frames drin und nimmt nur die Schieflage raus.
     situation_w = None
-    if balance_situations:
+    if balance != "none":
         import collections
 
-        groups = collections.Counter(
-            (r["session_id"], r["square"], r["label"]) for r in train_rows)
-        situation_w = [1.0 / groups[(r["session_id"], r["square"], r["label"])]
-                       for r in train_rows]
-        print(f"[sampler] {len(groups)} Situationen gleichgewichtet "
-              f"(Gruppen {min(groups.values())}-{max(groups.values())} Crops)")
+        keys = [(r["session_id"], r["square"], r["label"]) for r in train_rows]
+        groups = collections.Counter(keys)
+        # Situation: jede (Session, Feld, Klasse) gleich oft, egal wie viele Frames sie traegt.
+        situation_w = [1.0 / groups[k] for k in keys]
+        if balance == "session":
+            # Und darueber jede SESSION gleich oft. Val ist eine zurueckgehaltene Session, also
+            # ist Licht und Kamera die Achse, auf der generalisiert werden muss; heute streuen
+            # die Anteile 18,8x (0,8 % bis 15,6 %), mit Situations-Balance noch 2,0x.
+            per_session: dict[str, int] = collections.Counter()
+            for sid, _sq, _lab in set(keys):
+                per_session[sid] += 1
+            situation_w = [w / per_session[k[0]] for w, k in zip(situation_w, keys, strict=True)]
+        print(f"[sampler] balance={balance}: {len(groups)} Situationen aus "
+              f"{len({k[0] for k in keys})} Sessions, Gruppen "
+              f"{min(groups.values())}-{max(groups.values())} Crops")
     if hard_negative_multiplier != 1.0:
         if hard_negative_multiplier < 1.0:
             print("[FAIL] --hard-negative-multiplier must be at least 1.")
@@ -541,7 +550,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
-        "balance_situations": balance_situations,
+        "balance": balance,
         "visible_max": vmax if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),

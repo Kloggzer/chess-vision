@@ -1,4 +1,4 @@
-"""`--balance-situations`: gleiche Ziehungsmasse je (Session, Feld, Klasse), nicht je Crop.
+"""`--balance`: gleiche Ziehungsmasse je Situation — und wahlweise je Session.
 
 Der Korpus traegt 1 643 Situationen auf 184 735 Crops, Gruppen 13,6x ungleich. Ohne Balance
 holen die groessten 10 % der Situationen 30 % aller Ziehungen — und `wK` kennt 22 Platzierungen,
@@ -12,10 +12,17 @@ import collections
 import torch
 
 
-def situation_weights(rows: list[dict]) -> list[float]:
+def situation_weights(rows: list[dict], mode: str = "situation") -> list[float]:
     """Dieselbe Rechnung wie `run_train`, hier isoliert pruefbar."""
-    groups = collections.Counter((r["session_id"], r["square"], r["label"]) for r in rows)
-    return [1.0 / groups[(r["session_id"], r["square"], r["label"])] for r in rows]
+    keys = [(r["session_id"], r["square"], r["label"]) for r in rows]
+    groups = collections.Counter(keys)
+    w = [1.0 / groups[k] for k in keys]
+    if mode == "session":
+        per = collections.Counter()
+        for sid, _sq, _lab in set(keys):
+            per[sid] += 1
+        w = [x / per[k[0]] for x, k in zip(w, keys, strict=True)]
+    return w
 
 
 def _rows(spec: dict[tuple[str, str, str], int]) -> list[dict]:
@@ -47,3 +54,18 @@ def test_the_sampler_draws_the_rare_situation_about_half_the_time():
         replacement=True, generator=torch.Generator().manual_seed(0))
     rare = sum(1 for i in sampler if i == len(rows) - 1)
     assert 0.4 < rare / 2000 < 0.6      # ohne Balance waeren es 0,1 %
+
+
+def test_session_mode_gives_every_recording_the_same_mass():
+    """Val ist eine zurueckgehaltene SESSION — Licht und Kamera sind die Achse, auf der
+    generalisiert werden muss. Im Trainingssplit streuen die Anteile heute 18,8x."""
+    rows = _rows({("gross", "a1", "wP"): 500, ("gross", "b2", "wP"): 500,
+                  ("gross", "c3", "wN"): 500, ("klein", "d4", "wK"): 3})
+    w = situation_weights(rows, mode="session")
+
+    mass = collections.defaultdict(float)
+    for r, x in zip(rows, w, strict=True):
+        mass[r["session_id"]] += x
+    assert round(mass["gross"], 9) == round(mass["klein"], 9) == 1.0
+    # Innerhalb der grossen Session bleiben die drei Situationen untereinander gleich.
+    assert round(w[0] * 500, 9) == round(w[1000] * 500, 9)
