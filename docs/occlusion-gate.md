@@ -111,3 +111,39 @@ nicht von der Seed-Streuung trennen.
 Zulässig sind nur Sessions, auf denen das Modell nicht trainiert hat. Für die real13-Läufe sind
 das `2026-08-08-00-39-57` und `2026-08-08-11-55-19` — der Split von `real13-straight-80-v3` ist
 session-getrennt.
+
+## Kopf gegen Spezialist, gegen dieselbe Matte (2026-08-26)
+
+Die Frage kam auf, den Coverage-Kopf aus dem Figurenmodell zu ziehen und den destillierten
+Hand-Schüler (`hand_gate.py`) an seine Stelle zu setzen. Gemessen auf 16 000 Zellen aus
+`rg-2026-08-16-20-41-33` — Val des Figurenmodells UND Holdout in der Karte des Schülers, also
+beiden ungesehen. Wahrheit ist SAM 3s Matte, `scripts/coverage_arms.py`.
+
+| bei τ = 0,15 | Precision | Recall | F1 | MAE gesamt | MAE auf verdeckten |
+|---|---|---|---|---|---|
+| CNN-Kopf `c8d1-seed43` | **0,958** | 0,959 | **0,958** | **0,0099** | 0,091 |
+| Hand-Schüler `mnv4-640` | 0,520 | **0,988** | 0,682 | 0,0453 | 0,065 |
+
+Der Schüler ist ein **Recall-Sieb**, und das ist kein Mangel: er wurde für den Ingest gebaut, wo
+eine verpasste Hand 64 Labels verdirbt und ein Fehlalarm ein Frame kostet. Sein bestes F1 über
+alle Schwellen ist 0,765 (bei 0,50) und bleibt damit weit unter dem Kopf. Als Präzisionsinstrument
+auf dem Gerät ist er die schlechtere Wahl — zusätzlich zu einem eigenen Vorwärtslauf je Brett.
+
+**Wo die wahrgenommene Unschärfe herkommt: comp13 an seinem eigenen Gate.**
+
+| Modell | bei 0,02 | bei 0,10 | bei 0,15 | MAE gesamt | MAE auf verdeckten |
+|---|---|---|---|---|---|
+| `comp13-occ-bn-lr1e2-bs512` (Gate 0,02) | **0,682** | 0,956 | 0,972 | 0,0161 | **0,158** |
+| `real13-ms-s2-bn80-bs256-swa1e4` (Gate 0,15) | 0,894 | 0,940 | 0,956 | 0,0079 | 0,078 |
+
+(Precision gegen die Matte.) An seinem ausgelieferten Arbeitspunkt ist jede dritte Meldung von
+comp13 auf einer real klaren Zelle. Das widerspricht der λ-Herleitung oben nicht — die fragt, ob
+ein Read über τ noch zu glauben ist, nicht wie viele klare Zellen τ wegwirft. Beides zusammen
+heißt: comp13s Kopf ist auf echten Brettern doppelt so schlecht kalibriert wie die real13-Läufe
+(MAE auf verdeckten 0,158 gegen 0,078), was zu seinem Trainingsmaterial passt.
+
+**Folgerung:** den Kopf behalten, den Schüler im Ingest lassen, comp13 als Verdeckungsquelle
+ablösen. Offen bleibt der Vergleich, den `docs/class-scheme.md` benennt: der modellfreie
+`gridOccluded`-Arm ist gegen keinen der beiden gemessen.
+
+    uv run python scripts/coverage_arms.py --run data/models/<lauf> [--no-gate]
