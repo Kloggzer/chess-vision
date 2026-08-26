@@ -10,7 +10,7 @@ import random
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import Dataset
 
 from .. import config
@@ -58,6 +58,28 @@ class _EvalRgbTransform:
         # NumPy materialization.
         x = torch.from_numpy(arr).permute(2, 0, 1).to(dtype=torch.float32).div_(255)
         return x.sub_(self.mean).div_(self.std)
+
+
+class _RandomInvert:
+    """Mit Wahrscheinlichkeit p die Helligkeit umkehren, LABEL unveraendert.
+
+    Der Gedanke ist Polaritaets-Invarianz: ob eine Figur heller oder dunkler als ihr Feld ist,
+    soll nicht die Identitaet sein — die Form soll es sein. Das Projekt hat das schon einmal
+    vollstaendig erzwungen (`|Gx|+|Gy|` als Kanal, siehe `InputRepresentation`) und dabei zwei
+    Groessenordnungen auf der Brettgenauigkeit verloren, weil danach WEISS von SCHWARZ nicht mehr
+    zu trennen war.
+
+    Ein kleines p ist etwas anderes: es macht die Polaritaet unzuverlaessig, nicht unbrauchbar.
+    Der Farbfehler liegt bei 0,004 und der Typfehler bei 0,234 — ein Stueck Farbsicherheit gegen
+    Formsicherheit zu tauschen kann sich rechnen. Bei p = 0,1 bleibt die Polaritaet in 90 % der
+    Ziehungen intakt.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        return ImageOps.invert(img) if random.random() < self.p else img
 
 
 class _RandomFlipXor:
@@ -135,6 +157,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [_RandomRot180(policy.rot180_p)]
     if train and getattr(policy, "flip_xor_p", 0.0) > 0:
         ops += [_RandomFlipXor(policy.flip_xor_p)]
+    if train and getattr(policy, "invert_p", 0.0) > 0:
+        ops += [_RandomInvert(policy.invert_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
@@ -167,7 +191,13 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
 
 # How many channels each representation feeds the first convolution. The NAME is recorded in the
 # run's own config.json (`input_repr`), so serving reads what training did instead of guessing.
-INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1}
+INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1,
+                               # Luminanz auf DREI Kanaele repliziert: dieselbe Architektur,
+                               # derselbe Pretrain, nur Farbton und Saettigung weg. Als Sperre
+                               # gedacht, nicht als Merkmal — der Korpus traegt bewusst zwei
+                               # Kameras, und Farbe ist die Achse, auf der zwei ISPs am staerksten
+                               # auseinanderlaufen (Drehteller +39 % Saettigung).
+                               "gray3": 3}
 
 def eval_transform_for(cfg: dict, out_size=None):
     """The val/test/serving transform a run's `config.json` describes: resize plus EXACTLY the
@@ -294,6 +324,12 @@ class InputRepresentation(torch.nn.Module):
             parts.append((x - torch.tensor(config.NORMALIZE_MEAN, **kw).view(3, 1, 1))
                          / torch.tensor(config.NORMALIZE_STD, **kw).view(3, 1, 1))
         gray = luminance(x)
+        if self.kind == "gray3":
+            # Auf die RGB-Statistik normiert, damit die Vortrainings-Gewichte dieselbe Skala sehen.
+            kw = {"dtype": x.dtype, "device": x.device}
+            g3 = gray.expand(*gray.shape[:-3], 3, *gray.shape[-2:])
+            return ((g3 - torch.tensor(config.NORMALIZE_MEAN, **kw).view(3, 1, 1))
+                    / torch.tensor(config.NORMALIZE_STD, **kw).view(3, 1, 1))
         if self.kind.startswith("gray"):
             parts.append((gray - _GRAY_MEAN) / _GRAY_STD)
         if self.kind.endswith("sobel"):

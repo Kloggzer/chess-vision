@@ -199,6 +199,9 @@ class AugmentPolicy:
     rot180_p: float = 0.0
     #: Genau EINE Achse, nie beide — schliesst die 180-Grad-Drehung aus.
     flip_xor_p: float = 0.0
+    #: Helligkeit umkehren, Label unveraendert — Polaritaets-Invarianz erzwingen.
+    #: Klein halten: bei 1,0 waere Weiss von Schwarz nicht mehr zu trennen.
+    invert_p: float = 0.0
     noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
                                   # "too clean" render/synthetic look and makes more robust
     # Random Erasing (Cutout): blanks a random rectangle after ToTensor (p=erase_p). Forces the
