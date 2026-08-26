@@ -27,9 +27,11 @@ class OcclusionLoss(nn.Module):
     """
 
     def __init__(self, class_weights: torch.Tensor, occ_weight: float = 1.0,
-                 visible_max: float = PIECE_VISIBLE_MAX) -> None:
+                 visible_max: float = PIECE_VISIBLE_MAX,
+                 label_smoothing: float = 0.0) -> None:
         super().__init__()
-        self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction="none")
+        self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction="none",
+                                      label_smoothing=label_smoothing)
         self.bce = nn.BCEWithLogitsLoss()
         self.occ_weight = occ_weight
         self.visible_max = visible_max

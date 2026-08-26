@@ -1551,6 +1551,13 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    weight_decay: float | None = typer.Option(None, "--weight-decay",
+                                              help="AdamW-Zerfall. Ohne Angabe PyTorchs 0,01 — "
+                                                   "der Wert, auf dem jeder bisherige Lauf lief, "
+                                                   "ohne dass ihn jemand gewaehlt haette."),
+    label_smoothing: float = typer.Option(0.0, "--label-smoothing",
+                                          help="Gegen ueberzeugte Fehler: die Konfidenz auf "
+                                               "Fehlern liegt bei 0,75-0,84."),
     weight_cap: float | None = typer.Option(None, "--weight-cap",
                                             help="Verhaeltnis groesstes/kleinstes Klassengewicht "
                                                  "hoechstens SO. Geglaettet (w ~ 1/n^a), nicht "
@@ -1585,7 +1592,8 @@ def train_cmd(
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
-                                 weight_cap=weight_cap))
+                                 weight_cap=weight_cap, weight_decay=weight_decay,
+                                 label_smoothing=label_smoothing))
 
 
 @app.command("eval")

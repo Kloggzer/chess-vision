@@ -140,7 +140,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               split: str | None = None,
               swa: bool = False, swa_lr: float = 5e-4,
               swa_start: float = 0.75, allow_unpacked: bool = False,
-              visible_max: float | None = None, weight_cap: float | None = None) -> int:
+              visible_max: float | None = None, weight_cap: float | None = None,
+              weight_decay: float | None = None,
+              label_smoothing: float = 0.0) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -407,7 +409,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # Nur die TRAININGS-Maske. Die Metriken bleiben auf PIECE_VISIBLE_MAX, sonst wuerden
         # zwei Laeufe auf verschiedenen Zellmengen benotet und waeren nicht vergleichbar.
         vmax = PIECE_VISIBLE_MAX if visible_max is None else visible_max
-        criterion = OcclusionLoss(weights, visible_max=vmax).to(device)
+        criterion = OcclusionLoss(weights, visible_max=vmax,
+                                  label_smoothing=label_smoothing).to(device)
         if visible_max is not None:
             print(f"[occ] Trainingsmaske bei coverage <= {vmax:g} "
                   f"(Bewertung weiterhin bei {PIECE_VISIBLE_MAX:g})")
@@ -425,10 +428,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         return 1
     print(f"[loss] {loss}" + (f" gamma={focal_gamma}" if loss == "focal" else "")
           + f", effective weights: {dict(zip(classes, [round(float(w), 4) for w in weights.tolist()], strict=True))}")
-    # AdamW = Adam with decoupled weight decay (docs/references.md#loshchilov-2017). Note that no
-    # `weight_decay` is passed, so the run uses PyTorch's default — the one parameter that paper is
-    # about is a parameter this project has never chosen.
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+    # AdamW = Adam with decoupled weight decay (docs/references.md#loshchilov-2017). Bis 2026-08-26
+    # lief jeder Lauf auf PyTorchs Default 0,01 — bei train_loss 0,03 gegen val_loss 1,33
+    # (`docs/measurement-floor.md`) ist das der erste Knopf, nicht der letzte.
+    wd = 0.01 if weight_decay is None else weight_decay
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+    if weight_decay is not None or label_smoothing:
+        print(f"[reg] weight_decay={wd} label_smoothing={label_smoothing}")
     # Cosine annealing without restarts; the schedule comes from SGDR
     # (docs/references.md#loshchilov-2016), where the cosine runs over the period T_i.
     #
@@ -495,6 +501,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
+        "weight_decay": wd,
+        "label_smoothing": label_smoothing,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "split_file": split_file, "split": split, "resumed_from": resumed_from, "head": head,
         **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
