@@ -137,6 +137,10 @@ internal fun recoveryConfig(
         boardSize = TEST_BOARD_SIZE,
         detectScale = 1.0,
         cnnCooldownS = 0.0,
+        // The latch's DURATION gate off by default here: these fixtures feed snapshots with the
+        // clock standing still, and every test built on them asserts the COUNT rule. The duration
+        // rule has its own test, which sets the knob itself (`AlarmDurationTest`).
+        alarmMinS = 0.0,
         cnnCheckIntervalS = 3600.0,
         desyncObsN = desyncObsN,
         settleFramesOverride = 1,

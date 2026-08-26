@@ -140,6 +140,14 @@ data class TrackerConfig(
     val commitLlFloor: Double = 2.0,
     val detectScale: Double = 0.5,
     val desyncObsN: Int = 3,
+    // Wie lange der Widerspruch STEHEN muss, bevor der Latch zuschnappt.
+    //
+    // `desyncObsN` sollte laut seinem eigenen Kommentar "anhaltend ueber Sekunden" heissen, hat
+    // aber nur Beobachtungen gezaehlt. Solange die CNN nach der Uhr las, war das dasselbe; seit
+    // sie beim Einrasten liest, kommen die Beobachtungen alle 0,07 s (gemessen auf
+    // `VID_20260824_154327`), und aus "Sekunden" wurden 0,21 s. Der Latch schnappte dort auf einem
+    // Brett zu, das Zeichen fuer Zeichen der Wahrheit entsprach, und kostete 107 der 117 Plies.
+    val alarmMinS: Double = 1.5,
     /**
      * EXPERIMENT (2026-08-08, unmeasured until the A/B run that motivates it): commits and
      * verify votes only while NOTHING reads as a hand — no engine-side occlusion latch and no

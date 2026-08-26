@@ -65,7 +65,10 @@ private val EngineState.alarmable: Boolean get() = alarm == null && history.isNo
  * Vereinigung aller Occlusion-Signale, und der Alarmpfad war die einzige Stelle, die sie nie
  * gefragt hat: eine Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
  */
-private fun EngineState.alarmDeferred(): Boolean = handInFrame() || desyncObs < config.desyncObsN + config.alarmDeferObs
+private fun EngineState.alarmDeferred(): Boolean =
+    handInFrame() ||
+        desyncObs < config.desyncObsN + config.alarmDeferObs ||
+        nowS - desyncSince < config.alarmMinS
 
 /**
  * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
@@ -257,8 +260,8 @@ internal fun Game.alarmReason(guess: String?): String? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null
     val from = Squares.index(guess.substring(0, 2).lowercase())
     val to = Squares.index(guess.substring(2, UCI_SQUARES_LEN).lowercase())
-    if (from < 0 || to < 0) return null
-    val piece = pieceCharAt(from) ?: return null
+    val piece = if (from < 0 || to < 0) null else pieceCharAt(from)
+    if (piece == null) return null
     val castling =
         piece.uppercaseChar() == 'K' &&
             abs(from % Squares.N - to % Squares.N) == 2 &&

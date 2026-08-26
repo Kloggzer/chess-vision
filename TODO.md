@@ -948,6 +948,21 @@ webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
   Erwartung, dass die sauberen Bretter tragen — dann wäre die Antwort nicht „weniger", sondern
   „anders gemischt".
 
+## Der Latch: gefixt, und was daran noch offen ist (2026-08-26)
+
+`alarmMinS` (1,5 s) macht aus dem Beobachtungs-Zaehler die Dauer, die sein KDoc immer behauptet
+hat. Gemessen: `153751` 9/26/0 → **35/0/0**, `154327` 10/107/0 → 64/53/11, fuenf weitere Aufnahmen
+unveraendert. Offen:
+
+- **Der Scorer zaehlt Versatz als Erfindung.** Auf `154327` stehen 7 der 11 „erfundenen" Zuege
+  gleichzeitig in der Verpasst-Liste — richtig gespielt, nur nach einem fehlenden Zug verschoben.
+  Echte Erfindungen: `d4`, `d3` (und `Rd8` gegen gelabeltes `Rhd8`, derselbe Zug). Wer die Zahl
+  „11 Phantome" ohne diese Aufteilung zitiert, trifft eine falsche Entscheidung.
+- **Der Latch hat weiterhin keinen Ausweg ausser einem Menschen.** Das ist der naechste Schritt und
+  betrifft alle drei Engines: ein Alarm, der zu Recht steht, sperrt die Aufnahme bis zum Resync.
+- **`CnnTick.kt` traegt zwei Detekt-Befunde** (`evaluationDue` 4 Rueckgaben, `DoubleNegativeLambda`)
+  aus dem Takt-Commit. Nicht angefasst, aber sie blockieren `:core-engine:detekt`.
+
 ## Die dritte Engine — was noch offen ist (2026-08-26)
 
 `:engine-changeset` steht, gemessen und dokumentiert in `docs/engine-changeset.md`. Offen:
