@@ -17,6 +17,11 @@ def situation_weights(rows: list[dict], mode: str = "situation") -> list[float]:
     keys = [(r["session_id"], r["square"], r["label"]) for r in rows]
     groups = collections.Counter(keys)
     w = [1.0 / groups[k] for k in keys]
+    if mode == "class":
+        per = collections.Counter()
+        for _sid, _sq, lab in set(keys):
+            per[lab] += 1
+        w = [x / per[k[2]] for x, k in zip(w, keys, strict=True)]
     if mode == "session":
         per = collections.Counter()
         for sid, _sq, _lab in set(keys):
@@ -69,3 +74,16 @@ def test_session_mode_gives_every_recording_the_same_mass():
     assert round(mass["gross"], 9) == round(mass["klein"], 9) == 1.0
     # Innerhalb der grossen Session bleiben die drei Situationen untereinander gleich.
     assert round(w[0] * 500, 9) == round(w[1000] * 500, 9)
+
+
+def test_class_mode_puts_the_balancing_in_the_sampler_instead_of_the_loss():
+    """Gewichtete CE skaliert Gradienten; ein Sampler aendert nur, was im Batch liegt.
+    Gehoert deshalb mit `--weight-cap 1` zusammen, sonst gleicht man zweimal aus."""
+    rows = _rows({("s1", "a1", "empty"): 900, ("s1", "b2", "empty"): 900,
+                  ("s1", "c3", "wK"): 3})
+    w = situation_weights(rows, mode="class")
+
+    mass = collections.defaultdict(float)
+    for r, x in zip(rows, w, strict=True):
+        mass[r["label"]] += x
+    assert round(mass["empty"], 9) == round(mass["wK"], 9) == 1.0

@@ -480,6 +480,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         groups = collections.Counter(keys)
         # Situation: jede (Session, Feld, Klasse) gleich oft, egal wie viele Frames sie traegt.
         situation_w = [1.0 / groups[k] for k in keys]
+        if balance == "class":
+            # Der Ausgleich im SAMPLER statt im Verlust: jede Klasse gleich oft, darunter jede
+            # Situation gleich oft. Gewichtete CE skaliert Gradienten und verzerrt damit die
+            # Schrittweite; ein Sampler aendert nur, was im Batch liegt. Gehoert mit
+            # `--weight-cap 1` zusammen, sonst wird zweimal ausgeglichen.
+            per_class: dict[str, int] = collections.Counter()
+            for _sid, _sq, lab in set(keys):
+                per_class[lab] += 1
+            situation_w = [w / per_class[k[2]] for w, k in zip(situation_w, keys, strict=True)]
         if balance == "session":
             # Und darueber jede SESSION gleich oft. Val ist eine zurueckgehaltene Session, also
             # ist Licht und Kamera die Achse, auf der generalisiert werden muss; heute streuen
