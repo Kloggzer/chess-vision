@@ -20,8 +20,17 @@ je zehn Epochen. Mit `--epochs 60 --sched cosine` endet der Lauf, wo er noch fae
 flach ist.
 
 **Folge:** jeder Armvergleich in `docs/per-position-mix.md` und `docs/occlusion-gate.md` wurde auf
-unkonvergierten Modellen gefahren. Ein Arm, der bei 60 Epochen vorn liegt, kann bei 120 hinten
-liegen — geprueft ist das nicht.
+unkonvergierten Modellen gefahren.
+
+**Laenger trainieren hilft trotzdem nicht — im Gegenteil (nachgetragen 2026-08-26).** 120 Epochen
+mit voller Cosine gegen 60, seed 42, gemessen auf dem geteilten Val: **0,7460 gegen 0,7585**, also
+−0,0125. Die Ueberanpassungsluecke waechst dabei von 1,34 auf 1,58. `macro_recall` steigt
+(0,5930 → 0,6248) und `occ_board` auch (0,8666 → 0,8784), die Figurenachse faellt.
+
+Das ist kein Widerspruch zur steigenden Kurve oben: INNERHALB einer 60-Epochen-Cosine steigt sie
+bis zum Schluss, aber eine 120-Epochen-Cosine ist ein anderer Lauf — sie verbringt mehr Zeit bei
+hoher Lernrate und memoriert mehr. Die Kurve steigt, weil der Lauf noch laeuft, nicht weil noch
+Generalisierung zu holen waere.
 
 ## 2. `best-by-score` meldet zwei Punkte, die es nicht gibt
 
