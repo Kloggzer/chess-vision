@@ -547,6 +547,15 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         ) : null}
       </div>
 
+      {lane === "audit" && stream.auditStaleSince ? (
+        <p className="text-destructive mb-3 text-xs">
+          Veraltet: seit {new Date(stream.auditStaleSince).toLocaleString("de-DE")} gibt es neuere
+          Matten oder Modell-Lesarten. Diese Lane zeigt Zellen, die der Coverage-Filter heute
+          wegwerfen wuerde — meist Haende. Neu bauen mit{" "}
+          <code>chesslab realgames audit-flags --occupancy --visible</code>.
+        </p>
+      ) : null}
+
       {lane === "classwall" ? (
         <WallQueryBar
           busy={asking}

@@ -112,6 +112,8 @@ export type LabelStream = {
   cells: StreamCell[];
   /** `null` = `audit-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   audit: StreamAuditCell[] | null;
+  /** Set when a matte or model read is newer than the flags — the lane then shows stale work. */
+  auditStaleSince?: string;
   /** `false` = `correction-violations.jsonl` does not exist; same `—`, for the same reason. */
   rules: boolean;
   /** `null` = `hand-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
@@ -283,6 +285,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     boards,
     cells,
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
+    auditStaleSince: auditRows.staleSince,
     rules: ruleRows.present,
     hands: handRows.present ? handCells(handRows.rows, bySession) : null,
     positions: positionRows.present ? positionCells(positionRows.rows, bySession) : null,

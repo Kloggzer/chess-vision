@@ -13,6 +13,7 @@ Commit-Latenz — das Intervall endet beim Commit, nicht beim Zug (Median 0,29 s
 `docs/tracker-flow.md`). Das ist eine Inkonsistenz der Metadaten, kein Fehler in den Trainingslabels.
 
 Wer es benutzt, vergleiche also gegen `label`, nicht gegen `fen`.
+"""
 
 import argparse
 import collections
