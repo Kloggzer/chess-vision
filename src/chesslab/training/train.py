@@ -492,6 +492,26 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         groups = collections.Counter(keys)
         # Situation: jede (Session, Feld, Klasse) gleich oft, egal wie viele Frames sie traegt.
         situation_w = [1.0 / groups[k] for k in keys]
+        if balance == "piece":
+            # Wie `class`, aber `empty` behaelt seinen natuerlichen Anteil. Grund: `class` drueckt
+            # empty von 54 % auf 7,7 %, und empty-Zellen sind der Hauptlieferant sauberer
+            # NEGATIVBEISPIELE fuer den Verdeckungskopf — dessen Precision fiel dadurch von 0,944
+            # auf 0,680 (2026-08-26). Die zwoelf Figurenklassen teilen sich den Rest zu gleichen
+            # Teilen, empty bleibt wie es ist.
+            per_piece: dict[str, int] = collections.Counter()
+            for _sid, _sq, lab in set(keys):
+                if lab != "empty":
+                    per_piece[lab] += 1
+            n_empty = sum(1 for k in keys if k[2] == "empty")
+            situation_w = [w if k[2] == "empty" else w / per_piece[k[2]]
+                           for w, k in zip(situation_w, keys, strict=True)]
+            # empty auf seinen Crop-Anteil normieren, damit `piece` nur die Figuren umverteilt.
+            share = n_empty / len(keys)
+            w_empty = sum(w for w, k in zip(situation_w, keys, strict=True) if k[2] == "empty")
+            w_piece = sum(w for w, k in zip(situation_w, keys, strict=True) if k[2] != "empty")
+            scale = (share / (1 - share)) * w_piece / max(w_empty, 1e-12)
+            situation_w = [w * scale if k[2] == "empty" else w
+                           for w, k in zip(situation_w, keys, strict=True)]
         if balance == "class":
             # Der Ausgleich im SAMPLER statt im Verlust: jede Klasse gleich oft, darunter jede
             # Situation gleich oft. Gewichtete CE skaliert Gradienten und verzerrt damit die

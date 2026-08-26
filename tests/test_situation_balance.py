@@ -17,6 +17,17 @@ def situation_weights(rows: list[dict], mode: str = "situation") -> list[float]:
     keys = [(r["session_id"], r["square"], r["label"]) for r in rows]
     groups = collections.Counter(keys)
     w = [1.0 / groups[k] for k in keys]
+    if mode == "piece":
+        per = collections.Counter()
+        for _sid, _sq, lab in set(keys):
+            if lab != "empty":
+                per[lab] += 1
+        w = [x if k[2] == "empty" else x / per[k[2]] for x, k in zip(w, keys, strict=True)]
+        sh = sum(1 for k in keys if k[2] == "empty") / len(keys)
+        we = sum(x for x, k in zip(w, keys, strict=True) if k[2] == "empty")
+        wp = sum(x for x, k in zip(w, keys, strict=True) if k[2] != "empty")
+        sc = (sh / (1 - sh)) * wp / max(we, 1e-12)
+        w = [x * sc if k[2] == "empty" else x for x, k in zip(w, keys, strict=True)]
     if mode == "class":
         per = collections.Counter()
         for _sid, _sq, lab in set(keys):
@@ -87,3 +98,18 @@ def test_class_mode_puts_the_balancing_in_the_sampler_instead_of_the_loss():
     for r, x in zip(rows, w, strict=True):
         mass[r["label"]] += x
     assert round(mass["empty"], 9) == round(mass["wK"], 9) == 1.0
+
+
+def test_piece_mode_equalises_the_pieces_and_leaves_empty_where_it_was():
+    """`class` drueckt empty von 54 % auf 7,7 % — und empty ist der Hauptlieferant sauberer
+    Negativbeispiele fuer den Verdeckungskopf, dessen Precision dabei von 0,944 auf 0,680 fiel."""
+    rows = _rows({("s", "a1", "empty"): 540, ("s", "b1", "wP"): 400,
+                  ("s", "c1", "wK"): 60})
+    w = situation_weights(rows, mode="piece")
+
+    mass = collections.defaultdict(float)
+    for r, x in zip(rows, w, strict=True):
+        mass[r["label"]] += x
+    total = sum(mass.values())
+    assert round(mass["empty"] / total, 3) == 0.54          # unveraendert
+    assert round(mass["wP"], 9) == round(mass["wK"], 9)     # Figuren untereinander gleich

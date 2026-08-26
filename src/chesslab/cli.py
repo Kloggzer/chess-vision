@@ -1552,7 +1552,7 @@ def train_cmd(
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
     balance: str = typer.Option("none", "--balance",
-                                help="none | situation | session | class. `situation` zieht jede "
+                                help="none | situation | session | class | piece. `situation` zieht jede "
                                      "(Session, Feld, Klasse) gleich oft statt jeden Crop "
                                      "(Gruppen sind 13,6x ungleich; wK kennt 22 Platzierungen, "
                                      "jede 131-fach je Epoche). `session` legt darueber, dass "
@@ -1560,7 +1560,10 @@ def train_cmd(
                                      "die Achse, auf der Val zurueckgehalten wird, und die "
                                      "Anteile streuen heute 18,8x. `class` gleicht die KLASSEN "
                                      "im Sampler aus statt im Verlust — gehoert mit "
-                                     "--weight-cap 1 zusammen, sonst wird zweimal geglichen."),
+                                     "--weight-cap 1 zusammen, sonst wird zweimal geglichen. "
+                                     "`piece` tut dasselbe, laesst `empty` aber auf seinem "
+                                     "Anteil — sonst verliert der Verdeckungskopf seine "
+                                     "Negativbeispiele (Precision 0,944 -> 0,680)."),
     hflip_p: float | None = typer.Option(None, "--hflip-p",
                                          help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
                                               "Auf einem Zellcrop zulaessig und spiegelt den "
