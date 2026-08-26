@@ -119,6 +119,26 @@ def test_class_weights_largest_class_has_smallest_weight():
     assert w["bN"] == 0.0                                # absent -> 0
 
 
+def test_weight_cap_flattens_the_spread_without_moving_the_loss_scale():
+    """Kappen darf nur die Spanne aendern. Verschoebe es auch den Massstab, waere die
+    effektive Lernrate mitgewandert und der Vergleich gekappt/ungekappt waere zwei Aenderungen."""
+    counts = {"empty": 198309, "wP": 40782, "wN": 10215, "wQ": 4998}
+    plain = compute_class_weights(counts, list(counts))
+    capped = compute_class_weights(counts, list(counts), cap=3.0)
+
+    total = sum(counts.values())
+    assert max(plain.values()) / min(plain.values()) > 3.0
+    assert max(capped.values()) / min(capped.values()) == pytest.approx(3.0, abs=0.01)
+    assert sum(capped[c] * n for c, n in counts.items()) / total == pytest.approx(1.0, abs=0.01)
+    # Die Reihenfolge bleibt: geglaettet, nicht beschnitten.
+    assert sorted(capped, key=capped.get) == sorted(plain, key=plain.get)
+
+
+def test_a_cap_above_the_actual_spread_changes_nothing():
+    counts = {"empty": 100, "wP": 80}
+    assert compute_class_weights(counts, list(counts), cap=10.0) ==            compute_class_weights(counts, list(counts))
+
+
 def test_split_is_session_disjoint_and_respects_empty_ratio():
     rows = _dataset()
     split = make_split(rows, val_frac=0.25, test_frac=0.25, max_empty_ratio=1.5, seed=42)

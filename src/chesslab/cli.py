@@ -1551,6 +1551,11 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    weight_cap: float | None = typer.Option(None, "--weight-cap",
+                                            help="Verhaeltnis groesstes/kleinstes Klassengewicht "
+                                                 "hoechstens SO. Geglaettet (w ~ 1/n^a), nicht "
+                                                 "beschnitten; der Verlustmassstab bleibt gleich. "
+                                                 "Ungekappt sind es ~12x."),
     sched: str = typer.Option("cosine", "--sched",
                               help="cosine (default) | none. The cosine period is tied to --epochs, "
                                    "so a longer run is a different trajectory, not a longer one: "
@@ -1579,7 +1584,8 @@ def train_cmd(
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
-                                 allow_unpacked=allow_unpacked, visible_max=visible_max))
+                                 allow_unpacked=allow_unpacked, visible_max=visible_max,
+                                 weight_cap=weight_cap))
 
 
 @app.command("eval")

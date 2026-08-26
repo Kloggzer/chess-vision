@@ -140,7 +140,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               split: str | None = None,
               swa: bool = False, swa_lr: float = 5e-4,
               swa_start: float = 0.75, allow_unpacked: bool = False,
-              visible_max: float | None = None) -> int:
+              visible_max: float | None = None, weight_cap: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -396,7 +396,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         for r in train_rows:
             if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX:
                 vis_counts[r["label"]] = vis_counts.get(r["label"], 0) + 1
-        split = {**split, "class_weights": compute_class_weights(vis_counts, classes)}
+        split = {**split, "class_weights": compute_class_weights(vis_counts, classes, weight_cap)}
+        if weight_cap:
+            print(f"[loss] Gewichte auf {weight_cap:g}x gekappt (geglaettet, nicht beschnitten).")
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
         from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss
