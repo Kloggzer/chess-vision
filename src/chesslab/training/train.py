@@ -142,7 +142,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               swa_start: float = 0.75, allow_unpacked: bool = False,
               visible_max: float | None = None, weight_cap: float | None = None,
               weight_decay: float | None = None,
-              label_smoothing: float = 0.0) -> int:
+              label_smoothing: float = 0.0,
+              hflip_p: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -292,11 +293,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Augmentation policy — optionally override the anti-shortcut knobs per run (ablation/tuning).
     policy = config.AUGMENT
-    if erase_p is not None or jitter_translate is not None:
+    if erase_p is not None or jitter_translate is not None or hflip_p is not None:
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"jitter_translate": jitter_translate}
-                            if jitter_translate is not None else {}))
+                            if jitter_translate is not None else {}),
+                         **({"hflip_p": hflip_p} if hflip_p is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
@@ -501,6 +503,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
+        "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
         "weight_decay": wd,
         "label_smoothing": label_smoothing,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),

@@ -87,11 +87,14 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
             T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast, saturation=policy.color_jitter),
             _RandomGamma(*policy.gamma),
             T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3),
-            # degrees=0 -> NO rotation; no flip -> square color/geometry remain valid.
+            # degrees=0 -> KEINE Drehung. Flips waren hier pauschal verboten; waagerecht ist
+            # auf einem Zellcrop zulaessig und faehrt ueber `hflip_p`.
             T.RandomAffine(degrees=0,
                            translate=(policy.jitter_translate, policy.jitter_translate),
                            scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale)),
         ]
+    if train and getattr(policy, "hflip_p", 0.0) > 0:
+        ops += [T.RandomHorizontalFlip(p=policy.hflip_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
