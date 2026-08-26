@@ -159,6 +159,11 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [_RandomFlipXor(policy.flip_xor_p)]
     if train and getattr(policy, "invert_p", 0.0) > 0:
         ops += [_RandomInvert(policy.invert_p)]
+    if train and getattr(policy, "grayscale_p", 0.0) > 0:
+        # ZUFAELLIG entfaerben, nicht immer: das ist der Unterschied zwischen "Farbe darf nicht
+        # allein tragen" und "Farbe gibt es nicht" (`--input-repr gray3`). Drei Kanaele bleiben,
+        # also aendert sich weder Architektur noch Pretrain.
+        ops += [T.RandomGrayscale(p=policy.grayscale_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]

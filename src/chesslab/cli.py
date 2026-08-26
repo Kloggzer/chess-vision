@@ -1588,6 +1588,11 @@ def train_cmd(
                                            "Datensatz gebaut wurde (alle stehen auf "
                                            "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
                                            "die volle Symmetriegruppe des Quadrats."),
+    grayscale_p: float | None = typer.Option(None, "--grayscale-p",
+                                             help="ZUFAELLIG entfaerben. Anders als "
+                                                  "--input-repr gray3, das die Farbe ganz nimmt: "
+                                                  "hier bleibt sie nutzbar, nur nicht mehr "
+                                                  "verlaesslich."),
     invert_p: float | None = typer.Option(None, "--invert-p",
                                           help="Helligkeit umkehren, Label unveraendert. Zwingt "
                                                "das Modell auf die Form statt auf die Polaritaet. "
@@ -1657,6 +1662,7 @@ def train_cmd(
                                  label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
                                  flip_xor_p=flip_xor_p,
                                  invert_p=invert_p,
+                                 grayscale_p=grayscale_p,
                                  balance=balance, epoch_frac=epoch_frac,
                                  rot90=rot90, aug_scale=aug_scale))
 

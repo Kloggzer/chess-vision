@@ -157,6 +157,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               rot180_p: float | None = None,
               flip_xor_p: float | None = None,
               invert_p: float | None = None,
+              grayscale_p: float | None = None,
               balance: str = "none",
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
@@ -337,7 +338,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if (erase_p is not None or jitter_translate is not None
             or hflip_p is not None or vflip_p is not None
             or rot180_p is not None or flip_xor_p is not None
-            or invert_p is not None):
+            or invert_p is not None or grayscale_p is not None):
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"jitter_translate": jitter_translate}
@@ -347,7 +348,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                          **({"rot180_p": rot180_p} if rot180_p is not None else {}),
                          **({"flip_xor_p": flip_xor_p}
                             if flip_xor_p is not None else {}),
-                         **({"invert_p": invert_p} if invert_p is not None else {}))
+                         **({"invert_p": invert_p} if invert_p is not None else {}),
+                         **({"grayscale_p": grayscale_p}
+                            if grayscale_p is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
@@ -637,6 +640,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "aug_rot180_p": getattr(policy, "rot180_p", 0.0),
         "aug_flip_xor_p": getattr(policy, "flip_xor_p", 0.0),
         "aug_invert_p": getattr(policy, "invert_p", 0.0),
+        "aug_grayscale_p": getattr(policy, "grayscale_p", 0.0),
         "aug_rot90": rot90,
         "aug_scale": aug_scale,
         "weight_decay": wd,
