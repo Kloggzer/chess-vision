@@ -143,7 +143,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               visible_max: float | None = None, weight_cap: float | None = None,
               weight_decay: float | None = None,
               label_smoothing: float = 0.0,
-              hflip_p: float | None = None) -> int:
+              hflip_p: float | None = None,
+              balance_situations: bool = False) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -466,6 +467,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
     loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
     sampler = None
+    # Eine SITUATION ist (Session, Feld, Klasse) — dieselbe Figur auf demselben Feld, ueber die
+    # Frames hinweg. Der Korpus traegt 1 643 davon auf 184 735 Crops, und die Gruppen sind 13,6x
+    # ungleich (p10 18, p90 245): die groessten 10 % holen 30 % aller Ziehungen. `wK` kennt 22
+    # Platzierungen, jede 131-fach je Epoche. Gleiche Ziehungsmasse je Situation laesst die
+    # Lichtvariation der Frames drin und nimmt nur die Schieflage raus.
+    situation_w = None
+    if balance_situations:
+        import collections
+
+        groups = collections.Counter(
+            (r["session_id"], r["square"], r["label"]) for r in train_rows)
+        situation_w = [1.0 / groups[(r["session_id"], r["square"], r["label"])]
+                       for r in train_rows]
+        print(f"[sampler] {len(groups)} Situationen gleichgewichtet "
+              f"(Gruppen {min(groups.values())}-{max(groups.values())} Crops)")
     if hard_negative_multiplier != 1.0:
         if hard_negative_multiplier < 1.0:
             print("[FAIL] --hard-negative-multiplier must be at least 1.")
@@ -473,14 +489,19 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if not priority_paths:
             print("[FAIL] --hard-negative-multiplier needs data/reports/hard_empty.jsonl.")
             return 1
-        sample_weights = torch.tensor(
-            [hard_negative_multiplier if row.get("path") in priority_paths else 1.0 for row in train_rows],
-            dtype=torch.double,
-        )
-        generator = torch.Generator().manual_seed(seed)
-        sampler = WeightedRandomSampler(sample_weights, len(train_rows), replacement=True, generator=generator)
+        base_w = [hard_negative_multiplier if row.get("path") in priority_paths else 1.0
+                  for row in train_rows]
+        if situation_w is not None:
+            base_w = [a * b for a, b in zip(base_w, situation_w, strict=True)]
+        sample_weights = torch.tensor(base_w, dtype=torch.double)
         hard_count = sum(row.get("path") in priority_paths for row in train_rows)
         print(f"[hard-negative] {hard_count} protected crops sampled at {hard_negative_multiplier:g}x weight")
+    elif situation_w is not None:
+        sample_weights = torch.tensor(situation_w, dtype=torch.double)
+    if hard_negative_multiplier != 1.0 or situation_w is not None:
+        generator = torch.Generator().manual_seed(seed)
+        sampler = WeightedRandomSampler(sample_weights, len(train_rows), replacement=True,
+                                        generator=generator)
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
@@ -520,6 +541,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
+        "balance_situations": balance_situations,
         "visible_max": vmax if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),

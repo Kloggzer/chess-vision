@@ -1551,6 +1551,11 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    balance_situations: bool = typer.Option(False, "--balance-situations",
+                                            help="Jede (Session, Feld, Klasse) gleich oft ziehen "
+                                                 "statt jeden Crop. Die Gruppen sind 13,6x "
+                                                 "ungleich; wK kennt 22 Platzierungen, jede "
+                                                 "131-fach je Epoche."),
     hflip_p: float | None = typer.Option(None, "--hflip-p",
                                          help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
                                               "Auf einem Zellcrop zulaessig und spiegelt den "
@@ -1597,7 +1602,8 @@ def train_cmd(
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
-                                 label_smoothing=label_smoothing, hflip_p=hflip_p))
+                                 label_smoothing=label_smoothing, hflip_p=hflip_p,
+                                 balance_situations=balance_situations))
 
 
 @app.command("eval")
