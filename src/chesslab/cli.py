@@ -1588,6 +1588,15 @@ def train_cmd(
                                            "Datensatz gebaut wurde (alle stehen auf "
                                            "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
                                            "die volle Symmetriegruppe des Quadrats."),
+    flip_xor_p: float | None = typer.Option(None, "--flip-xor-p",
+                                            help="Genau EINE Achse spiegeln, nie beide. "
+                                                 "Schliesst die 180-Grad-Drehung aus, die zwei "
+                                                 "unabhaengige Muenzen mit erzeugen wuerden."),
+    rot180_p: float | None = typer.Option(None, "--rot180-p",
+                                          help="Halbe Drehung ALLEIN. --hflip-p und --vflip-p "
+                                               "zusammen wuerfeln unabhaengig und ergeben die "
+                                               "ganze Vierergruppe zu je 25 %; dieser Regler "
+                                               "isoliert die Drehung."),
     vflip_p: float | None = typer.Option(None, "--vflip-p",
                                          help="Senkrechte Spiegelung. Mit --hflip-p zusammen "
                                               "entsteht die 180-Grad-Drehung als Kombination — "
@@ -1639,7 +1648,8 @@ def train_cmd(
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
-                                 label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p,
+                                 label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
+                                 flip_xor_p=flip_xor_p,
                                  balance=balance, epoch_frac=epoch_frac,
                                  rot90=rot90, aug_scale=aug_scale))
 

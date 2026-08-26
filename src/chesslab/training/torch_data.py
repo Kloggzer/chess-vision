@@ -60,6 +60,40 @@ class _EvalRgbTransform:
         return x.sub_(self.mean).div_(self.std)
 
 
+class _RandomFlipXor:
+    """Mit Wahrscheinlichkeit p GENAU EINE Achse spiegeln, nie beide.
+
+    Zwei unabhaengige Muenzen (`hflip_p` und `vflip_p`) erzeugen auch den Fall "beide", und der
+    IST die 180-Grad-Drehung. Wer die Drehung ausschliessen will — weil sie in `_RandomRot90`
+    mitlief, das schadete —, braucht ein Entweder-Oder statt zweier Muenzen.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        if random.random() >= self.p:
+            return img
+        return img.transpose(Image.FLIP_LEFT_RIGHT if random.random() < 0.5
+                             else Image.FLIP_TOP_BOTTOM)
+
+
+class _RandomRot180:
+    """Halbe Drehung mit Wahrscheinlichkeit p — die einzige EIGENTLICHE der drei.
+
+    Zwei Spiegelungen an senkrechten Achsen ergeben eine Drehung: die Haendigkeit kippt zweimal.
+    `hflip` und `vflip` unabhaengig zu wuerfeln erzeugt dagegen die ganze Kleinsche Vierergruppe
+    (Original, waagerecht, senkrecht, 180) zu je 25 % — wer die Drehung MESSEN will, braucht sie
+    allein. Sie ist die physikalisch realisierbare: so sieht das Brett von der anderen Tischseite aus.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        return img.transpose(Image.ROTATE_180) if random.random() < self.p else img
+
+
 class _RandomRot90:
     """Random k*90° rotation (k in 0..3). Square-color/geometry stay valid for 90°-multiples —
     this replaces the former build-time materialization of rotated crop copies (4x disk/memmap):
@@ -97,6 +131,10 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [T.RandomHorizontalFlip(p=policy.hflip_p)]
     if train and getattr(policy, "vflip_p", 0.0) > 0:
         ops += [T.RandomVerticalFlip(p=policy.vflip_p)]
+    if train and getattr(policy, "rot180_p", 0.0) > 0:
+        ops += [_RandomRot180(policy.rot180_p)]
+    if train and getattr(policy, "flip_xor_p", 0.0) > 0:
+        ops += [_RandomFlipXor(policy.flip_xor_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]

@@ -194,6 +194,11 @@ class AugmentPolicy:
     # der anderen Tischseite gefilmt wird. Eine Spiegelung allein kann keine Kamera erzeugen,
     # sie taugt trotzdem, weil jede Figur entweder eine Spiegelebene hat oder sich drehen laesst.
     vflip_p: float = 0.0
+    #: Halbe Drehung ALLEIN. `hflip_p` und `vflip_p` unabhaengig ergeben die ganze
+    #: Vierergruppe; wer nur die Drehung will, nimmt diesen Regler.
+    rot180_p: float = 0.0
+    #: Genau EINE Achse, nie beide — schliesst die 180-Grad-Drehung aus.
+    flip_xor_p: float = 0.0
     noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
                                   # "too clean" render/synthetic look and makes more robust
     # Random Erasing (Cutout): blanks a random rectangle after ToTensor (p=erase_p). Forces the
