@@ -251,6 +251,9 @@ class TrackerStack<T>(
     init {
         // The pull half of the CNN path: the observer asks before it spends an inference.
         observer.demandFrom(host::wantsCnnRead)
+        // The same bargain one layer down, and the reason it is set here rather than passed in:
+        // the pipeline is built before the engine that answers for it.
+        pipeline.reads = host.reads
     }
 
     val coordinator =

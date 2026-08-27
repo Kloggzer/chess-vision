@@ -35,4 +35,25 @@ interface EngineOps {
      * Asked on the engine's own thread, once per frame, before the observer's own gates.
      */
     fun wantsCnnRead(): Boolean = true
+
+    /**
+     * Which of the two optional per-frame measurements this engine consumes.
+     *
+     * Read once when the stack is built, not per frame: the engine is chosen at restart. Same
+     * bargain as [wantsCnnRead] — an engine that admits it never looks at a number buys the host
+     * the right not to compute it.
+     */
+    val reads: FrameReads get() = FrameReads()
 }
+
+/**
+ * What an engine takes from [FrameInput] beyond the pixels — the fields the host may skip.
+ *
+ * Both defaults are true, i.e. the diff engine's appetite, so an engine that says nothing keeps
+ * today's frame. [gridCoverage] is the expensive one: a Canny over the whole detection plane,
+ * measured at 7-20 ms per frame on the phone (`GridLines.kt`).
+ */
+data class FrameReads(
+    val gridCoverage: Boolean = true,
+    val roiMotion: Boolean = true,
+)

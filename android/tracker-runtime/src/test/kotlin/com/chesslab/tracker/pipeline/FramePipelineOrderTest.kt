@@ -1,6 +1,7 @@
 package com.chesslab.tracker.pipeline
 
 import com.chesslab.engine.api.BgrImage
+import com.chesslab.engine.api.FrameReads
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -97,6 +98,31 @@ class FramePipelineOrderTest {
     }
 
     /**
+     * The stillness and changeset engines read neither number — they measure the board on their
+     * own 160 warp — so neither stage may run. The grid pass is the one that pays for this: a
+     * Canny over the whole detection plane, 7-20 ms per frame on the phone.
+     */
+    @Test
+    fun `an engine that reads neither takes neither measurement`() {
+        stages.motion = 1.75
+        stages.coverage = 0.5
+        pipeline.reads = FrameReads(gridCoverage = false, roiMotion = false)
+        val input = ready(pipeline.onFrame(FakeImage(), 1280, 720, 1_000L))
+        assertEquals(0, stages.gridCalls)
+        assertEquals(0, stages.motionCalls)
+        assertEquals(GRID_GATE_OFF, input.gridLineCoverage)
+        assertEquals(MOTION_UNREAD, input.motionRoiScore)
+    }
+
+    /** The default is the diff engine's appetite: nothing is skipped unless an engine says so. */
+    @Test
+    fun `the default reads everything`() {
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
+        assertEquals(1, stages.gridCalls)
+        assertEquals(1, stages.motionCalls)
+    }
+
+    /**
      * The lens sits between the convert and the publish, and that placement IS the design.
      *
      * `publishFrame` feeds `CameraFrameBus`, and through it `latestCalibrationFrame()` — which is
@@ -134,6 +160,7 @@ private class FakeStages : FrameStages<FakeImage> {
     var boardPublishCalls = 0
     var grayCalls = 0
     var gridCalls = 0
+    var motionCalls = 0
     var cropWarps = 0
     val cropSeqs = mutableListOf<Long>()
 
@@ -182,7 +209,10 @@ private class FakeStages : FrameStages<FakeImage> {
         return coverage
     }
 
-    override fun roiMotion(corners: FloatArray): Double = motion
+    override fun roiMotion(corners: FloatArray): Double {
+        motionCalls += 1
+        return motion
+    }
 
     override fun updateCropFrame(
         corners: FloatArray,

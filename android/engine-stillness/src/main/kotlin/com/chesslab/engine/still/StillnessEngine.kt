@@ -5,6 +5,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
+import com.chesslab.engine.api.FrameReads
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
@@ -102,6 +103,9 @@ class StillnessEngine(
      * board, or while nothing has changed, the answer is no and the observer skips the work.
      */
     override fun wantsCnnRead(): Boolean = phase.wantsRead()
+
+    /** Neither number is read here: this engine measures the board itself, on its own 160 warp. */
+    override val reads = FrameReads(gridCoverage = false, roiMotion = false)
 
     private fun explain(
         snap: CnnSnapshot,

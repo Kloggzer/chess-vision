@@ -6,6 +6,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
+import com.chesslab.engine.api.FrameReads
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
@@ -175,6 +176,9 @@ class EngineHost(
      * engine, and a wrong answer costs one skipped inference, never state.
      */
     fun wantsCnnRead(): Boolean = ops.wantsCnnRead()
+
+    /** Constant for the life of this host — the engine is chosen at restart, like every seed value. */
+    val reads: FrameReads get() = ops.reads
 
     private fun claim() {
         val current = Thread.currentThread()

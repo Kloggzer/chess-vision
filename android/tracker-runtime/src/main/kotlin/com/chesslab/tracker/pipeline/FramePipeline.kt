@@ -2,6 +2,7 @@ package com.chesslab.tracker.pipeline
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.FrameInput
+import com.chesslab.engine.api.FrameReads
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.perf.WorkOperation
@@ -20,6 +21,9 @@ internal const val NOTE_WAITING_MARKERS = "waiting for markers…"
 
 /** "Clear board" — what a disabled grid gate must never be able to act on. */
 internal const val GRID_GATE_OFF = 1.0
+
+/** "Nothing moved" — the neutral end of `max(frameMotion, motionRoiScore)` in `FrameLoop`. */
+internal const val MOTION_UNREAD = 0.0
 
 /** What one camera frame produced. */
 sealed interface FrameResult {
@@ -142,6 +146,16 @@ class FramePipeline<T>(
     @Volatile
     var corners: FloatArray? = null
 
+    /**
+     * What the engine consumes, so the two measurements it does not are never taken.
+     *
+     * Set from the host, which `TrackerStack` builds AFTER this pipeline — hence a field rather
+     * than a constructor argument. The default is the diff engine's appetite, i.e. every frame
+     * fully measured, so a host that never sets it loses nothing.
+     */
+    @Volatile
+    var reads: FrameReads = FrameReads()
+
     private var seq = 0L
     private var sourceSeq = 0L
     private var luma = 0.0
@@ -239,7 +253,7 @@ class FramePipeline<T>(
         val gray = stages.grayDet()
         val bgr = stages.bgrDet()
         timings.mark(Stage.GRAY)
-        val motion = stages.roiMotion(pts)
+        val motion = if (reads.roiMotion) stages.roiMotion(pts) else MOTION_UNREAD
         timings.mark(Stage.MOTION)
         val coverage = gridCoverage()
         timings.mark(Stage.GRID)
@@ -257,11 +271,13 @@ class FramePipeline<T>(
     /**
      * Python computes the coverage inside `_occluded_by_grid`, i.e. only in the branches that
      * consult it; here it is a plain `FrameInput` field, so the app cannot see the engine's
-     * branch. What it CAN see is the gate being switched off — `minGridLineCoverage <= 0` is the
-     * engine's own first line, before it even reads the value — and then the Canny pass is pure
-     * waste. Any value would do; [GRID_GATE_OFF] is the one that cannot gate anything.
+     * branch. Two things it CAN see: the gate switched off (`minGridLineCoverage <= 0`, read before
+     * the engine even looks at the value), and an engine that never reads it at all ([FrameReads]).
+     * Either way the Canny pass is waste; [GRID_GATE_OFF] is the value that cannot gate anything.
      */
-    private fun gridCoverage(): Double = if (config.minGridLineCoverage > 0) stages.gridCoverage() else GRID_GATE_OFF
+    private fun gridCoverage(): Double = if (wantsCoverage()) stages.gridCoverage() else GRID_GATE_OFF
+
+    private fun wantsCoverage(): Boolean = reads.gridCoverage && config.minGridLineCoverage > 0
 
     private fun darkNote(): String? =
         if (config.darkLumaThr > 0 && luma < config.darkLumaThr) {
