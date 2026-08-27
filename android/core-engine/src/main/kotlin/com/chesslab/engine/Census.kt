@@ -220,15 +220,10 @@ private inline fun rowCodes(
         val t2 = px(data, rowT + xp)
         val c2 = px(data, rowC + xp)
         val b2 = px(data, rowB + xp)
-        var code = 0
-        if (c1 > t0 + CENSUS_EPS) code = code or BIT0
-        if (c1 > t1 + CENSUS_EPS) code = code or BIT1
-        if (c1 > t2 + CENSUS_EPS) code = code or BIT2
-        if (c1 > c0 + CENSUS_EPS) code = code or BIT3
-        if (c1 > c2 + CENSUS_EPS) code = code or BIT4
-        if (c1 > b0 + CENSUS_EPS) code = code or BIT5
-        if (c1 > b1 + CENSUS_EPS) code = code or BIT6
-        if (c1 > b2 + CENSUS_EPS) code = code or BIT7
+        val code =
+            brighter(c1, t0) or (brighter(c1, t1) shl 1) or (brighter(c1, t2) shl 2) or
+                (brighter(c1, c0) shl 3) or (brighter(c1, c2) shl 4) or
+                (brighter(c1, b0) shl 5) or (brighter(c1, b1) shl 6) or (brighter(c1, b2) shl 7)
         emit(rowC + x, code)
         t0 = t1
         t1 = t2
@@ -238,6 +233,19 @@ private inline fun rowCodes(
         b1 = b2
     }
 }
+
+/**
+ * `1` when [centre] beats [neighbour] by more than [CENSUS_EPS], else `0` — the sign bit of the
+ * difference, not a branch.
+ *
+ * Image data makes all eight comparisons per pixel unpredictable, so the branch form paid a
+ * mispredict where the arithmetic pays a subtract. Both operands are `0..255`, so nothing
+ * overflows, and `eps` stays in the expression: at 0 the compiler folds it away.
+ */
+private fun brighter(
+    centre: Int,
+    neighbour: Int,
+): Int = (neighbour + CENSUS_EPS - centre) ushr SIGN_SHIFT
 
 private fun px(
     data: ByteArray,
@@ -251,11 +259,6 @@ private const val BOTTOM = 2
 private const val CENSUS_CODES = 256
 private const val BYTE_MASK = 0xFF
 private const val CENSUS_SCALE = 255.0 / 8.0
-private const val BIT0 = 1
-private const val BIT1 = 2
-private const val BIT2 = 4
-private const val BIT3 = 8
-private const val BIT4 = 16
-private const val BIT5 = 32
-private const val BIT6 = 64
-private const val BIT7 = 128
+
+/** Sign bit of a 32-bit int — see [brighter]. */
+private const val SIGN_SHIFT = 31
