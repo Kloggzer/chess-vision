@@ -717,6 +717,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
         "balance": balance,
+        # Ohne diese zwei ist ein Lauf aus seiner config.json NICHT reproduzierbar: sie
+        # tragen genau die zwei Regler, die den aktuellen Sieger ausmachen. Gefehlt haben
+        # sie, bis der Architektur-Sweep die Rezepte vergleichen wollte (2026-08-27).
+        "weight_cap": weight_cap,
+        "class_weight": dict(class_weight) if class_weight else None,
         "pretrained": want_pre,
         "no_empty_cap": no_empty_cap,
         "epoch_frac": epoch_frac,
