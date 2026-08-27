@@ -162,7 +162,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               balance: str = "none",
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
-              aug_scale: float | None = None) -> int:
+              aug_scale: float | None = None,
+              pretrained: bool | None = None,
+              no_empty_cap: bool = False) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -298,6 +300,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
     board_mode = backbone.startswith("board:")
+    if board_mode and (scales or head != "occlusion"):
+        print("[FAIL] board:-Backbones brauchen --head occlusion und vertragen kein --scales: "
+              "der Batch traegt eine Zellachse, die beides nicht kennt.")
+        return 1
+    if no_empty_cap and ts.get("max_empty_ratio"):
+        # Der Brett-Arm MUSS ohne Kappe laufen; ein Zell-Arm mit Kappe saehe dann einen anderen
+        # Datenpool. Fuer einen gepaarten Sweep gehoert der Schalter auf beide Seiten.
+        print("[i] --no-empty-cap: die empty-Kappe des Splits bleibt aus.")
+        ts = {**ts, "max_empty_ratio": None}
     if board_mode and ts.get("max_empty_ratio"):
         # Aus einem Brett laesst sich keine Zelle wegwerfen. Das Ausduennen bleibt hier also aus,
         # und `empty` wird ueber die Verlustgewichte ausgeglichen statt ueber den Sampler.
@@ -421,7 +432,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # this machine, so the workaround outlived the bug it dodged.
     norm_eff = norm or "batchnorm"
     device = get_device(require_gpu=True)
-    model = build_model(backbone, len(classes) + occluding, pretrained=(backbone != "smallcnn"),
+    # Ohne den Schalter misst ein Breiten-Sweep das ImageNet-Vortraining: `_035` bringt als
+    # einziges Backbone KEINE Gewichte mit, `_050` und Breite 1,0 schon.
+    want_pre = (backbone != "smallcnn") if pretrained is None else pretrained
+    model = build_model(backbone, len(classes) + occluding, pretrained=want_pre,
                         norm=norm_eff, head="combined", in_chans=in_chans).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
@@ -461,12 +475,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             print(f"[FAIL] --class-weight names classes not in this dataset: {unknown} "
                   f"(dataset classes: {classes}).")
             return 1
-        cw = dict(split.get("class_weights", {}))
-        for c, v in class_weight.items():
-            cw[c] = float(v)
-        split = {**split, "class_weights": cw}
-        print("[loss] class-weight override: "
-              + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     # Die Gewichte in split.json zaehlen ALLE Zellen, der Occlusion-Verlust sieht nur die
     # sichtbaren. Verdeckung ist nicht gleich verteilt — weiss 11-15 %, schwarz 2-6 %, weil die
     # Hand immer von der weissen Seite kommt —, also stimmt die angenommene Haeufigkeit nicht.
@@ -483,6 +491,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if weight_cap is not None:
             print(f"[loss] Gewichte auf {weight_cap:g}x gekappt"
                   + (" — das ist UNGEWICHTET." if weight_cap == 1 else " (geglaettet, nicht beschnitten)."))
+    # ZULETZT, sonst umsonst: der Occlusion-Zweig oben schreibt `class_weights` komplett neu.
+    # Bis 2026-08-27 stand das Setzen davor und wurde bei JEDEM Occlusion-Lauf still verworfen —
+    # also bei allen. Ein gezieltes Gewicht ist etwas anderes als der pauschale Ausgleich: es
+    # verbietet EINEN Tausch, den der Verlust sonst belohnt (bB -> bP kostet weniger, weil Bauern
+    # haeufiger sind).
+    if class_weight:
+        cw = dict(split.get("class_weights", {}))
+        cw.update({c: float(v) for c, v in class_weight.items()})
+        split = {**split, "class_weights": cw}
+        print("[loss] class-weight override: "
+              + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
         from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss
@@ -637,10 +656,18 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             print(f"[sampler] {n_draw} Ziehungen je Epoche statt {len(train_rows)} "
                   f"({epoch_frac:g}x)")
     if board_mode and sampler is not None:
-        # Der Sampler zieht ZEILEN; auf Brettern gibt es keine Zeile, die man einzeln ziehen kann.
-        print("[FAIL] --balance / --hard-negative-multiplier / --epoch-frac gelten nicht fuer "
-              "board:-Backbones. Der Ausgleich muss ueber --weight-cap in den Verlust.")
-        return 1
+        # Ein Brett so oft ziehen, wie der Zell-Sampler es getroffen HAETTE: die Summe der
+        # Zellgewichte ist genau diese Randwahrscheinlichkeit. Exakt zwischen den Brettern,
+        # nicht innerhalb — jeder Besuch trainiert alle 64 Zellen (`docs/measurement-floor.md`).
+        by_path = dict(zip((r["path"] for r in train_rows), sample_weights.tolist(), strict=True))
+        cells = [by_path[r["path"]] for r in train_ds.rows]
+        board_w = torch.tensor(
+            [sum(cells[i:i + BOARD_CELLS]) for i in range(0, len(cells), BOARD_CELLS)],
+            dtype=torch.double)
+        n_draw = max(1, int(round(epoch_frac * len(board_w))))
+        sampler = WeightedRandomSampler(board_w, n_draw, replacement=True,
+                                        generator=torch.Generator().manual_seed(seed))
+        print(f"[board] Sampler ueber {len(board_w)} Bretter, {n_draw} Ziehungen je Epoche")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
@@ -690,6 +717,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
         "balance": balance,
+        "pretrained": want_pre,
+        "no_empty_cap": no_empty_cap,
         "epoch_frac": epoch_frac,
         "visible_max": vmax if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
