@@ -60,11 +60,27 @@ VAL   bB <-> bP   1071 von 3900 Fehlern = 27 %   (42,5 % aller schwarzen Laeufer
 TEST  Figuren -> empty  586 von 2738 = 21 %       anderer Fehlermodus, andere Kamera
 ```
 
-Gemessen: die scheinbare Groesse trennt `bB` von `bP` **nicht** (Cohens d = 0,20; zum Vergleich
-`bK` gegen `bR` d = 1,53). Schwarze Figuren tragen in der Draufsicht keine Textur — eine schwarze
-Figur auf dunklem Feld hebt sich 6 Graustufen ab, auf hellem 40. **Die Information ist im 80-px-
-Crop nicht enthalten.** Kein Backbone erfindet sie. Ein Architektur-Gewinn muss also aus den
-UEBRIGEN 73 % kommen, und ein Arm, der nur `bB↔bP` nicht loest, ist deswegen nicht gescheitert.
+> **ZURUECKGEZOGEN, 2026-08-27, vom Sweep selbst widerlegt.** Der Satz „die Information ist im
+> Crop nicht enthalten" stand hier und war falsch. Bei 128 px faellt `bB↔bP` von 1071 auf 121
+> (−88,7 %) und der `bB`-Recall steigt von 0,529 auf 0,913 — mit DEMSELBEN Modell, nur mehr
+> Pixeln. Die Information war die ganze Zeit in den Quell-Crops (128 px); der 80-px-Pack hat sie
+> weggeworfen.
+>
+> **Mein Fehler war methodisch, nicht numerisch.** Gemessen habe ich EINE handgebaute Statistik —
+> die dunkle Flaeche ueber einer Schwelle — bei vollen 128 px, und dort trennt sie `bB` von `bP`
+> mit Cohens d = 0,20 tatsaechlich nicht (zum Vergleich `bK` gegen `bR`: 1,53). Daraus habe ich
+> „keine Information" geschlossen. Ein CNN findet aber Merkmale, die eine Schwelle wegwirft.
+> Abwesenheit von Beleg ist kein Beleg fuer Abwesenheit.
+>
+> **Zweiter Fehler in derselben Analyse:** jede Konfusionstabelle, die ich gezeigt habe, hat die
+> Zeile `empty` herausgefiltert (`if a == "empty": continue`). Phantome tauchten deshalb nie auf,
+> obwohl sie beim 80-px-Modell 1 271 von 9 308 Fehlern sind und `empty → wR` mit 614 auf Platz 4
+> steht. Bei 128 px sind Phantome mit 49,5 % der groesste Restposten — die Achse, die ich
+> unsichtbar gemacht hatte, ist jetzt die wichtigste.
+
+Was davon stehenbleibt: bei **80 px** war `bB↔bP` der groesste Posten unter den besetzten Zellen,
+und Kapazitaet allein haette ihn nicht geloest. Was nicht stehenbleibt: die daraus abgeleitete
+Decke. Sie gab es nicht.
 
 ## 5. Randbedingungen der Architektur
 
