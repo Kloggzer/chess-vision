@@ -141,6 +141,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               head: str = "occlusion", scales: list[int] | None = None,
               input_size: str | None = None,
               erase_p: float | None = None,
+              erase_scale: tuple[float, float] | None = None,
               loss: str = "ce", focal_gamma: float = 2.0,
               class_weight: dict[str, float] | None = None,
               sched: str = "cosine",
@@ -200,12 +201,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     import torch.nn as nn
     from torch.utils.data import DataLoader, WeightedRandomSampler
 
+    from .boardnet import CELLS as BOARD_CELLS
     from .engine import evaluate_dataset, get_device
     from .model import build_model
     from .torch_data import (
         INPUT_REPRS,
+        PackedBoardDataset,
         PackedSquareDataset,
         SquareDataset,
+        board_collate,
         build_transform,
         class_weights_tensor,
     )
@@ -293,6 +297,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     priority_paths = load_priority_paths()
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
+    board_mode = backbone.startswith("board:")
+    if board_mode and ts.get("max_empty_ratio"):
+        # Aus einem Brett laesst sich keine Zelle wegwerfen. Das Ausduennen bleibt hier also aus,
+        # und `empty` wird ueber die Verlustgewichte ausgeglichen statt ueber den Sampler.
+        print("[board] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
+        ts = {**ts, "max_empty_ratio": None}
     train_rows = subsample_classes(
         filter_rows_by_split(manifest, split, "train"),
         max_empty_ratio=ts.get("max_empty_ratio"),
@@ -335,12 +345,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         )
         print(f"[aug] alle Staerken x{a:g}: brightness {policy.brightness:.3f}, "
               f"gamma {policy.gamma[0]:.2f}-{policy.gamma[1]:.2f}, erase {policy.erase_p:.3f}")
-    if (erase_p is not None or jitter_translate is not None
+    if (erase_p is not None or erase_scale is not None or jitter_translate is not None
             or hflip_p is not None or vflip_p is not None
             or rot180_p is not None or flip_xor_p is not None
             or invert_p is not None or grayscale_p is not None):
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
+                         **({"erase_scale": erase_scale}
+                            if erase_scale is not None else {}),
                          **({"jitter_translate": jitter_translate}
                             if jitter_translate is not None else {}),
                          **({"hflip_p": hflip_p} if hflip_p is not None else {}),
@@ -387,10 +399,16 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if packed is not None:
         n, h, w = packed[1]
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
-        train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed,
-                                       with_coverage=occluding)
-        val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed,
-                                     with_coverage=occluding)
+        if board_mode:
+            train_ds = PackedBoardDataset(train_rows, classes, train_tf, packed)
+            val_ds = PackedBoardDataset(val_rows, classes, val_tf, packed)
+            print(f"[board] {len(train_ds)} Trainings- und {len(val_ds)} Val-Bretter, "
+                  f"{train_ds.n_dropped + val_ds.n_dropped} unvollstaendige verworfen")
+        else:
+            train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed,
+                                           with_coverage=occluding)
+            val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed,
+                                         with_coverage=occluding)
     else:
         _require_pack(dataset, len(train_rows) + len(val_rows), allow_unpacked)
         train_ds = SquareDataset(train_rows, classes, train_tf, with_coverage=occluding,
@@ -526,6 +544,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
     nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
     loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
+    if board_mode:
+        # `--batch-size` zaehlt jetzt BRETTER, also 64x so viele Crops. 4 Bretter = 256 Crops.
+        loader_kw = {**loader_kw, "batch_size": max(1, batch_size // BOARD_CELLS),
+                     "collate_fn": board_collate}
+        print(f"[board] batch_size {batch_size} Crops = {loader_kw['batch_size']} Bretter je Schritt")
     sampler = None
     # Eine SITUATION ist (Session, Feld, Klasse) — dieselbe Figur auf demselben Feld, ueber die
     # Frames hinweg. Der Korpus traegt 1 643 davon auf 184 735 Crops, und die Gruppen sind 13,6x
@@ -613,6 +636,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if epoch_frac != 1.0:
             print(f"[sampler] {n_draw} Ziehungen je Epoche statt {len(train_rows)} "
                   f"({epoch_frac:g}x)")
+    if board_mode and sampler is not None:
+        # Der Sampler zieht ZEILEN; auf Brettern gibt es keine Zeile, die man einzeln ziehen kann.
+        print("[FAIL] --balance / --hard-negative-multiplier / --epoch-frac gelten nicht fuer "
+              "board:-Backbones. Der Ausgleich muss ueber --weight-cap in den Verlust.")
+        return 1
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
     # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
@@ -635,6 +663,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
+        "aug_erase_p": policy.erase_p,
+        "aug_erase_scale": list(policy.erase_scale),
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
         "aug_vflip_p": getattr(policy, "vflip_p", 0.0),
         "aug_rot180_p": getattr(policy, "rot180_p", 0.0),

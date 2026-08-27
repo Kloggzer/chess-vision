@@ -425,18 +425,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      angle_buckets: int = 0, deg_per_frame: float = DEG_PER_FRAME) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
-    `blocks` cuts the clip into that many pseudo-sessions, so the session-grouped split has
-    something to group BY — and neighbouring rotation angles cannot straddle train and test.
-
-    `angle_buckets` gruppiert nach WINKEL statt nach Position im Clip. Fortlaufende Bloecke sind
-    auf einem Clip mit 3,1 Umdrehungen keine Winkel-Eimer — ein Zwoelftel davon ist 92 Grad breit.
-    Modulo einer Umdrehung landet dieselbe Ansicht aus verschiedenen Durchgaengen im selben Eimer,
-    was fuer den Sampler genau richtig ist: eine Situation ist eine ANSICHT, kein Zeitabschnitt.
-
-    `clean` legt GAR KEINE Verdecker auf. Der Drehteller ist dann nicht mehr Verdeckungs-Material,
-    sondern Blickwinkel-Material: dieselbe Figur ueber die ganze Drehung. Die Coverage 0 ist dort
-    keine fehlende Messung wie in der Matte-Falle (CLAUDE.md), sondern die Wahrheit — es liegt
-    nichts drauf.
+    `blocks`, `angle_buckets` und `clean` sind drei verschiedene Dinge: `docs/turntable-ingest.md`.
     """
     import json
 

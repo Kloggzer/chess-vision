@@ -1588,6 +1588,11 @@ def train_cmd(
                                            "Datensatz gebaut wurde (alle stehen auf "
                                            "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
                                            "die volle Symmetriegruppe des Quadrats."),
+    erase_scale: str | None = typer.Option(None, "--erase-scale",
+                                           help="Flaechenanteil des geloeschten Rechtecks als "
+                                                "MIN,MAX (heute 0.02,0.15). Der Hebel gegen "
+                                                "Sproedigkeit: ein einzelner 16-px-Fleck kostet "
+                                                "das Modell heute 75-92 % der Wahrscheinlichkeit."),
     grayscale_p: float | None = typer.Option(None, "--grayscale-p",
                                              help="ZUFAELLIG entfaerben. Anders als "
                                                   "--input-repr gray3, das die Farbe ganz nimmt: "
@@ -1640,6 +1645,13 @@ def train_cmd(
     from .training.train import run_train
 
     scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
+    _erase_scale = None
+    if erase_scale:
+        parts = [float(x) for x in erase_scale.split(",")]
+        if len(parts) != 2 or not 0 < parts[0] < parts[1] <= 1:
+            print("[FAIL] --erase-scale erwartet MIN,MAX mit 0 < min < max <= 1.")
+            raise typer.Exit(1)
+        _erase_scale = (parts[0], parts[1])
     cw: dict[str, float] = {}
     for item in (s.strip() for s in (class_weight or "").split(",") if s.strip()):
         if "=" not in item:
@@ -1652,7 +1664,7 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
-                               erase_p=erase_p,
+                               erase_p=erase_p, erase_scale=_erase_scale,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
