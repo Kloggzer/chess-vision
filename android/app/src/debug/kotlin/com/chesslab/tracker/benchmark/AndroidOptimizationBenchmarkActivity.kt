@@ -56,13 +56,26 @@ class AndroidOptimizationBenchmarkActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val only = intent?.getStringExtra("only")
-        Thread({ runBenchmark(only) }, "chesslab-android-benchmark").start()
+        val soak = intent?.getIntExtra("soak", 0) ?: 0
+        val secs = intent?.getIntExtra("secs", SOAK_SECONDS) ?: SOAK_SECONDS
+        Thread({ runBenchmark(only, soak, secs) }, "chesslab-android-benchmark").start()
     }
 
-    private fun runBenchmark(only: String?) {
+    private fun runBenchmark(
+        only: String?,
+        soak: Int,
+        secs: Int,
+    ) {
         val runner = AndroidOptimizationBenchmark(this)
         Log.i(TAG, "START device=${android.os.Build.MODEL} battery=${runner.batteryLine()}")
-        runCatching { if (only == "cnnsize") runner.cnnInputSize() else runner.run() }
+        val work = {
+            when {
+                soak > 0 -> runner.cnnSoak(soak, secs)
+                only == "cnnsize" -> runner.cnnInputSize()
+                else -> runner.run()
+            }
+        }
+        runCatching(work)
             .onFailure { Log.e(TAG, "FAILED", it) }
             .onSuccess { Log.i(TAG, "DONE battery=${runner.batteryLine()}") }
         runOnUiThread(::finish)
@@ -91,13 +104,11 @@ private class AndroidOptimizationBenchmark(
         // artefact that belongs to the measurement, not to the APK.
         //   chesslab export --run <run> --format onnx --infer-size 80x80   (and 128x128)
         //   adb push model.onnx /sdcard/Android/data/com.chesslab.tracker/files/cnn_bench/model80.onnx
-        val directory = File(context.getExternalFilesDir(null), BENCH_MODELS)
         val sizes = listOf(CNN_SIZE, CNN_SIZE_LARGE)
-        val missing = sizes.map { File(directory, "model$it.onnx") }.filterNot(File::isFile)
-        if (missing.isNotEmpty()) {
-            Log.i(TAG, "cnnInputSize skipped — push ${missing.joinToString { it.name }} to $directory")
-            return
-        }
+        // Zwei Orte, weil HyperOS der App nicht zeigt, was `adb push` in ihr EXTERNES
+        // Datenverzeichnis legt (2026-08-27: Datei da, Rechte und SELinux stimmen, App sieht
+        // nichts). Der interne Pfad ist ueber `run-as` befuellbar und immer sichtbar.
+        val directory = benchModelDir(sizes) ?: return
         run {
             val environment = OrtEnvironment.getEnvironment()
             val sessions = sizes.associateWith { sessionAt(environment, File(directory, "model$it.onnx"), CNN_BENCH_THREADS) }
@@ -399,6 +410,51 @@ private class AndroidOptimizationBenchmark(
         )
     }
 
+    /** Zwei Orte, weil HyperOS der App nicht zeigt, was `adb push` in ihr EXTERNES Datenverzeichnis
+     * legt (2026-08-27: Datei da, Rechte und SELinux stimmen, App sieht nichts). Der interne Pfad
+     * ist ueber `run-as` befuellbar und immer sichtbar. */
+    private fun benchModelDir(sizes: List<Int>): File? {
+        val places = listOf(File(context.getExternalFilesDir(null), BENCH_MODELS), File(context.filesDir, BENCH_MODELS))
+        val directory = places.firstOrNull { dir -> sizes.all { File(dir, "model$it.onnx").isFile } }
+        if (directory == null) {
+            Log.i(TAG, "cnn bench skipped — push ${sizes.joinToString { "model$it.onnx" }} to ${places.joinToString(" or ")}")
+        }
+        return directory
+    }
+
+    /** Dauerlast fuer die Strommessung: `cmd battery get -f current_now` braucht Sekunden, der
+     * Zeitvergleich braucht Millisekunden. Deshalb hier EINE Groesse, so lange am Stueck, dass
+     * der Zaehler den Unterschied traegt — siehe `docs/battery.md`. */
+    fun cnnSoak(
+        size: Int,
+        seconds: Int,
+    ) {
+        val directory = benchModelDir(listOf(size)) ?: return
+        val environment = OrtEnvironment.getEnvironment()
+        val session = sessionAt(environment, File(directory, "model$size.onnx"), CNN_BENCH_THREADS)
+        val input = cnnInput(environment, size)
+        try {
+            repeat(CNN_WARMUP) { session.run(mapOf("input" to input)).close() }
+            Log.i(TAG, "soak ${size}px begin battery=${batteryLine()}")
+            val deadline = System.nanoTime() + seconds * NANOS_PER_S
+            var runs = 0L
+            val started = System.nanoTime()
+            while (System.nanoTime() < deadline) {
+                session.run(mapOf("input" to input)).close()
+                runs++
+            }
+            val elapsed = (System.nanoTime() - started) / NANOS_PER_MS
+            Log.i(
+                TAG,
+                "soak ${size}px batch=$CNN_BATCH threads=$CNN_BENCH_THREADS: %d boards in %.0f ms (%.2f ms/board) battery=%s"
+                    .format(Locale.US, runs, elapsed, elapsed / runs, batteryLine()),
+            )
+        } finally {
+            input.close()
+            session.close()
+        }
+    }
+
     private fun samples(
         warmup: Int,
         rounds: Int,
@@ -675,5 +731,7 @@ private const val CNN_SIZE_LARGE = 128
 private const val CNN_BENCH_THREADS = 4
 private const val CNN_WARMUP = 5
 private const val CNN_ROUNDS = 40
+private const val SOAK_SECONDS = 120
+private const val NANOS_PER_S = 1_000_000_000L
 private val MARKER_IDS = setOf(0, 1, 2, 3)
 private val THREAD_COUNTS = listOf(1, 4)

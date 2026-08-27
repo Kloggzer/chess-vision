@@ -467,3 +467,53 @@ installDebug`: on a signature mismatch the former fails while the latter uninsta
 `files/` was 8.7 GB on this device (unchanged across both installs here, verified). And a graph
 exported straight from `torch.onnx.export` at opset 18 **SIGSEGV'd** the on-device runtime 41 ms in;
 the project's own `chesslab export` emits opset 17 and runs. Use the project's exporter.
+
+## Was 128 px an Strom kostet (2026-08-27)
+
+Die Zeitmessung oben sagt, wie lange gerechnet wird, nicht was es zieht. Dafuer hat der Benchmark
+einen Dauerlauf bekommen (`--ei soak <px> --ei secs <n>`): EINE Groesse am Stueck, lang genug, dass
+`cmd battery get -f current_now` den Unterschied traegt. Drei Laeufe a 150 s, vier Ruhephasen a 90 s
+dazwischen gegen die Ladedrift, 24117RK2CG bei 92-93 %, 32,2 -> 35,6 C, Bildschirm an bei 81/255.
+
+| Phase | Median | Last ueber Ruhe | ms/Brett |
+| --- | --- | --- | --- |
+| Ruhe (Median aus 4) | −644 mA | — | — |
+| 80 px, 100 % Duty | −103 mA | **541 mA** | 20,74 / 21,63 |
+| 128 px, 100 % Duty | +18 mA | **662 mA** | 50,23 |
+
+Negativ heisst laedt (`docs/battery.md`). **Bei Volllast kostet 128 px nur 22 % mehr Strom, aber
+2,4x mehr Zeit** — beide saettigen dieselben vier Kerne, die Leistung ist also fast dieselbe. Was
+zaehlt, ist die Energie JE BRETT: **11,2 mA·s gegen 33,3 mA·s, Faktor 3,0.**
+
+Live haengt es am Lesetakt. Aus 17 Recordings (`model-reads.jsonl`, verschiedene Frames je
+Recording gegen die Spanne bei 30 fps): Median 2,65 Reads/s, p10 0,76, p90 4,58 — deutlich ueber dem
+stabilen Arm allein (`cnnCheckIntervalS = 3.0`), weil Cooldown- und Settle-Arm waehrend des Spiels
+mitlesen. Gegen Zeile 10 der Batterietabelle (15 fps, ausgeliefert, 737 mA), die den 80-px-Kopf
+bereits traegt, also nur die Differenz:
+
+| Lesetakt | Duty 80 -> 128 | Aufschlag | Laufzeit bei 5622 mAh |
+| --- | --- | --- | --- |
+| nur stabiler Arm (0,33/s) | 0,7 -> 1,7 % | +7 mA | 7,63 -> 7,55 h (−1 %) |
+| p10 (0,76/s) | 1,6 -> 3,8 % | +17 mA | 7,63 -> 7,46 h (−2 %) |
+| **Median (2,65/s)** | 5,5 -> 13,3 % | **+58 mA** | **7,63 -> 7,07 h (−7 %)** |
+| p90 (4,58/s) | 9,5 -> 23,0 % | +101 mA | 7,63 -> 6,71 h (−12 %) |
+
+−7 % Laufzeit gegen 88,7 % weniger bB<->bP. Die Bildrate bleibt der groessere Hebel: 30 -> 15 fps
+waren 490 mA, 128 px liegt eine Groessenordnung darunter.
+
+### Die 6,91 ms von 2026-08-23 passen nicht
+
+Derselbe Backbone, dasselbe Geraet, beide ONNX exakt 2 571 kB gross — und heute 20,05 ms (kurz)
+bzw. 20,74 / 21,63 ms (150 s Dauerlast) statt 6,91. Das Kostenmodell dieses Dokuments sagt
+2,731 x 6,7 = 18,3 ms/Brett voraus, also stuetzt es die heutige Zahl und nicht die alte. Kurzlauf
+und Dauerlauf stimmen auf 4 % ueberein, bei 32 -> 35,6 C ist in diesem Fenster kein Throttling.
+Bis jemand die alte Zahl reproduziert, ist ihr Absolutwert unbelegt; ihr VERHAELTNIS (2,18 gegen
+heute 2,37) haelt.
+
+Nachmessen:
+
+    adb shell am start -n com.chesslab.tracker/com.chesslab.tracker.benchmark.AndroidOptimizationBenchmarkActivity --ei soak 128 --ei secs 150
+
+Die Modelle muessen bei `run-as`-Sichtbarkeit liegen: HyperOS zeigt der App nicht, was `adb push`
+in ihr externes Datenverzeichnis legt (Datei da, Rechte und SELinux-Kontext stimmen, App sieht
+nichts). Der Benchmark sucht deshalb erst extern, dann in `filesDir/cnn_bench`.
