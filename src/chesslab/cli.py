@@ -1485,6 +1485,18 @@ def train_cmd(
         help="Any timm model (default: mobilenetv4_conv_small_035, what every shipped model is) "
              "| mobilenet_v3_small | smallcnn. WARNING: `smallcnn` hard-crashes ROCm-Windows.",
     ),
+    pretrained: bool | None = typer.Option(
+        None, "--pretrained/--no-pretrained",
+        help="ImageNet-Gewichte fuer das Backbone. Default: an, ausser bei `smallcnn`. Fuer einen "
+             "Architektur-Sweep AUSschalten — `_035` hat als einziges keine."),
+    neighbour_p: float = typer.Option(
+        None, "--neighbour-p",
+        help="Wahrscheinlichkeit, einer LEEREN Zelle den Rand einer besetzten anzukleben "
+             "(Fuss der Nachbarfigur). Zielt auf Phantome; Default aus."),
+    no_empty_cap: bool = typer.Option(
+        False, "--no-empty-cap",
+        help="Die `max_empty_ratio`-Kappe des Splits ignorieren. Board-Backbones tun das immer; "
+             "fuer einen gepaarten Sweep muessen die Zell-Arme mitziehen."),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
     input_size: str = typer.Option(
@@ -1676,7 +1688,8 @@ def train_cmd(
                                  invert_p=invert_p,
                                  grayscale_p=grayscale_p,
                                  balance=balance, epoch_frac=epoch_frac,
-                                 rot90=rot90, aug_scale=aug_scale))
+                                 rot90=rot90, aug_scale=aug_scale, pretrained=pretrained,
+                                 no_empty_cap=no_empty_cap, neighbour_p=neighbour_p))
 
 
 @app.command("eval")
@@ -1696,12 +1709,16 @@ def eval_cmd(
                                                "or the run's own). Names a fold, e.g. split-f0.json."),
     sessions: str | None = typer.Option(None, "--sessions",
                                         help="Comma-separated session IDs to narrow the split to."),
+    boards_only: bool = typer.Option(False, "--boards-only",
+                                     help="Nur vollständige 64-Zell-Bretter — der Schnitt, den ein "
+                                          "Brett-Modell erzwingt. Ohne ihn vergleicht ein Zell- "
+                                          "gegen ein Brett-Modell zwei verschiedene Zeilenmengen."),
 ) -> None:
     """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
     raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
-                              split_file=split_file,
+                              split_file=split_file, boards_only=boards_only,
                               sessions=[s.strip() for s in sessions.split(",") if s.strip()]
                               if sessions else None))
 

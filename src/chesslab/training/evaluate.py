@@ -52,12 +52,13 @@ _load_run = load_run
 
 def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
              dataset: str | None = None, split_file: str | None = None,
-             sessions: list[str] | None = None) -> int:
+             sessions: list[str] | None = None, boards_only: bool = False) -> int:
     """`dataset` points the run at a corpus it was not trained on — the "validate with the
     pretrain" step, which used to need a throwaway script. `split_name="all"` skips the split
     filter, `sessions` narrows it further, and both guards below only fire on that path.
     """
 
+    from .boardnet import CELLS as BOARD_CELLS
     from .engine import (
         confusion_matrix,
         evaluate_dataset,
@@ -113,6 +114,19 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
             print(f"[FAIL] --sessions: not in {split_name} of '{ds_name}': {', '.join(sorted(unknown))}")
             return 1
         rows = [r for r in rows if r["session_id"] in wanted]
+    if boards_only:
+        # Ein Brett-Modell sieht nur VOLLSTAENDIGE Bretter (`PackedBoardDataset`), ein Zell-Modell
+        # alle Zeilen — 33 984 gegen 37 572 auf real13-mix-v4-128. Ohne diesen Schnitt vergleicht
+        # ein Quervergleich der beiden Familien zwei verschiedene Datensaetze.
+        from .boardnet import CELLS
+
+        groups: dict[tuple[str, str], list] = {}
+        for r in rows:
+            groups.setdefault((r["session_id"], r["frame"]), []).append(r)
+        kept = [r for v in groups.values() if len(v) == CELLS for r in v]
+        print(f"[boards-only] {len(kept)} von {len(rows)} Zeilen "
+              f"({len(groups) - len(kept) // CELLS} unvollstaendige Bretter verworfen)")
+        rows = kept
     if not rows:
         print(f"[FAIL] {split_name} split is empty.")
         return 1
@@ -133,22 +147,35 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         from .pack import load_packed
         packed = load_packed(ds_name)
     tf = eval_transform_for(cfg)
+    batch = 256
     # An occlusion run's last logit is the coverage sigmoid, not a class. `evaluate_dataset` only
     # strips it when the batch carries a 2-wide target, so without this every such run argmaxed
     # over one unit too many: IndexError in the breakdown, board accuracy 0.
     with_coverage = cfg.get("head") == "occlusion"
     if packed is not None:
         from .torch_data import PackedSquareDataset
-        ds = PackedSquareDataset(rows, classes, tf, packed, with_coverage=with_coverage)
+        if str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
+            # Ein Brett-Modell will `(B, 64, C, H, W)`; der flache Loader liefert `(N, C, H, W)`
+            # und der Vorwaertspfad brach ab. `evaluate_dataset` liest das Zusammenlegen und die
+            # Zeilenreihenfolge vom Datensatz selbst, also reicht der richtige Datensatz hier.
+            from .torch_data import PackedBoardDataset
+
+            ds = PackedBoardDataset(rows, classes, tf, packed)
+            batch = max(1, 256 // BOARD_CELLS)
+        else:
+            ds = PackedSquareDataset(rows, classes, tf, packed, with_coverage=with_coverage)
     elif rows and str(rows[0].get("path", "")).startswith("mm://"):
         print(f"[FAIL] dataset '{ds_name}' is a fused synth build but its packed memmap is "
               "missing/stale — re-run `chesslab dataset build-synth`.")
         return 1
     else:
         ds = SquareDataset(rows, classes, tf, with_coverage=with_coverage)
-    res = evaluate_dataset(model, ds, device, batch_size=256, input_size=input_size,
+    # Ab hier zaehlt die Reihenfolge des DATENSATZES: der Brettdatensatz behaelt nur vollstaendige
+    # Bretter und sortiert sie nach Feld, also passt `rows` weder in Laenge noch in Reihenfolge.
+    res = evaluate_dataset(model, ds, device, batch_size=batch, input_size=input_size,
                            keep_workers=False)
 
+    rows = getattr(ds, "rows", None) or rows
     # 1. Board-Accuracy (Hauptmetrik)
     if input_size is not None:
         print(f"[eval @ input_size={input_size}px]")
