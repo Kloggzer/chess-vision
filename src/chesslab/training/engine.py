@@ -38,6 +38,10 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
     kw = {"batch_size": batch_size, "shuffle": False,
           **config.loader_kwargs(num_workers, persistent=keep_workers)}
+    # Der Brettdatensatz bringt sein eigenes Zusammenlegen mit — ohne das kaeme das Ziel als
+    # `(B, 64, 2)` an und `occluding` unten laege still falsch.
+    if getattr(dataset, "collate_fn", None) is not None:
+        kw["collate_fn"] = dataset.collate_fn
     # Kept across calls: the training loop evaluates once per EPOCH, and a fresh loader spawns
     # `num_workers` processes that each re-import torch — on Windows spawn that is the idle gap
     # between epochs, and it grows with the worker count instead of shrinking.
@@ -62,11 +66,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         if input_size is not None and input_size != x.shape[-1]:
-            x = torch.nn.functional.interpolate(x, size=(input_size, input_size), mode="bilinear", align_corners=False)
+            flat = x.flatten(0, 1) if x.dim() == 5 else x
+            flat = torch.nn.functional.interpolate(flat, size=(input_size, input_size),
+                                                   mode="bilinear", align_corners=False)
+            x = flat.view(*x.shape[:2], *flat.shape[1:]) if x.dim() == 5 else flat
         logits = model(x)
         n_out = int(logits.shape[1])
         if criterion is not None:
-            loss_sum += float(criterion(logits, y)) * x.size(0)
+            loss_sum += float(criterion(logits, y)) * logits.shape[0]
         # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
         # coverage — the class metrics must look past both or they score a regression head.
         occluding = y.dim() == 2

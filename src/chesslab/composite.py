@@ -333,7 +333,8 @@ def read_provenance(pool: Path) -> dict:
 def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: int = 0,
                     out_size: tuple[int, int] = (128, 128), stride: int = STRIDE,
                     tiles_per_frame: tuple[int, int] = (0, 2), seed: int = 42,
-                    profile_name: str = "desktop", stats: dict | None = None
+                    profile_name: str = "desktop", stats: dict | None = None,
+                    pad_side: float | None = None
                     ) -> Iterator[tuple[int, list, dict[str, float], CalibrationProfile]]:
     """Jedes Brett des Clips, fertig komponiert: (frame_id, 64 Crops, coverage, Profil).
 
@@ -373,7 +374,8 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                                board_size=board_size, image_corners=corners,
                                homography=compute_homography(corners, board_size, base.margin),
                                crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
-                                               pad_side=base.crop.pad_side, out_size=out_size))
+                                               pad_side=(base.crop.pad_side if pad_side is None
+                                                         else pad_side), out_size=out_size))
                 mesh = median_mesh(cap, prof)
             # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
             batch = []
@@ -422,10 +424,12 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
                      blocks: int = 6, clean: bool = False,
-                     angle_buckets: int = 0, deg_per_frame: float = DEG_PER_FRAME) -> dict:
+                     angle_buckets: int = 0, deg_per_frame: float = DEG_PER_FRAME,
+                     pad_side: float | None = None) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
-    `blocks`, `angle_buckets` und `clean` sind drei verschiedene Dinge: `docs/turntable-ingest.md`.
+    `blocks`, `angle_buckets`, `clean`: `docs/turntable-ingest.md`. `pad_side` uebersteuert das
+    Profil und muss zum Rand der ECHTEN Crops passen — sonst zwei Rahmungen im Training.
     """
     import json
 
@@ -448,7 +452,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     prof = None
     for idx, crops, cov, prof in composed_boards(
             video, None if clean else plate_dir, board_size=board_size, out_size=out_size,
-            stride=stride,
+            stride=stride, pad_side=pad_side,
             tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
         stem = f"{idx:06d}"
         if angle_buckets:

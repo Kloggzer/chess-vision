@@ -33,7 +33,9 @@ def load_run(run_dir: Path, weights: str | None = None):
     model = build_model(cfg["backbone"], len(cfg["classes"]) + occluding,
                         norm=cfg.get("norm", "batchnorm"),
                         head="combined" if occluding else cfg.get("head", "combined"),
-                        in_chans=input_repr_of(cfg)[1])
+                        in_chans=input_repr_of(cfg)[1],
+                        board_width=cfg.get("board_width", 128),
+                        board_layers=cfg.get("board_layers", 2))
     if weights:
         ckpt = run_dir / weights
         if not ckpt.exists():
@@ -389,6 +391,19 @@ def run_export(run: str, fmt: str = "torchscript",
     # ONE size per export — TorchScript and ONNX are traced from the same example, so the two
     # artifacts of a run can never disagree about what the network takes.
     example = torch.randn(ONNX_BATCH, input_repr_of(cfg)[1], in_h, in_w)
+    if str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
+        # Ein Brett-Modell will `(B, 64, C, H, W)`, die App schickt genau EIN Brett als
+        # `(64, C, H, W)`. Die Huelle ergaenzt die fehlende Achse — bitgleich zum direkten
+        # Aufruf. Ohne sie waere kein Brett-Modell auf dem Geraet lauffaehig.
+        class _BoardExport(torch.nn.Module):
+            def __init__(self, inner):
+                super().__init__()
+                self.inner = inner
+
+            def forward(self, x):
+                return self.inner(x.unsqueeze(0))
+
+        model = _BoardExport(model).eval()
 
     def _export_onnx() -> None:
         # NO dynamic_axes. A dynamic batch dim is not a harmless generalisation here: under ORT's

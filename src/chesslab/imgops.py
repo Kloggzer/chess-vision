@@ -47,3 +47,63 @@ def skin_patch(board_bgr, cell_px: float, pad_frac: float = 0.05,
     centres = np.array([int(round((i + 0.5) * cell_px)) for i in range(8)])
     centres = np.clip(centres, 0, min(box.shape[:2]) - 1)
     return float(box[np.ix_(centres, centres)].max()) > frac
+
+
+def cell_illumination(board_bgr, board_size: int, border: int) -> np.ndarray:
+    """Relative Helligkeit je Feld als 8x8-Karte, aus den FeldRAENDERN und je Feldfarbe normiert.
+
+    Nicht aus allen Pixeln: Figuren stehen mittig, also traegt der aeussere Ring einer Zelle fast
+    immer Brettflaeche. Je Feldfarbe auf deren eigenen Mittelwert bezogen, sonst waere das
+    Karomuster im Feld und die Korrektur loeschte genau den Kontrast, den die Figur braucht.
+    """
+    g = cv2.cvtColor(board_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    cell = board_size / 8.0
+    ring = max(2, int(cell * 0.15))
+    med = np.zeros((8, 8), np.float32)
+    for f in range(8):
+        for r in range(8):
+            y0, x0 = int(border + r * cell), int(border + f * cell)
+            c = g[y0:y0 + int(cell), x0:x0 + int(cell)]
+            med[r, f] = np.median(np.concatenate([
+                c[:ring].ravel(), c[-ring:].ravel(),
+                c[ring:-ring, :ring].ravel(), c[ring:-ring, -ring:].ravel()])) if c.size else 1.0
+    rel = np.ones_like(med)
+    idx = np.add.outer(np.arange(8), np.arange(8)) % 2
+    for colour in (0, 1):
+        m = idx == colour
+        rel[m] = med[m] / max(float(med[m].mean()), 1e-3)
+    return rel
+
+
+def illumination_field(board_bgr, board_size: int, border: int,
+                       cells: np.ndarray | None = None) -> np.ndarray:
+    """Die 8x8-Karte auf das ganze Raster INTERPOLIERT — nicht durch ein Polynom gefittet.
+
+    Ein Polynom extrapoliert: ueber fuenf Sessions gemessen ging das Feld auf -0,36 bis 3,46 und
+    machte zwei davon schlechter als roh. Bilineare Interpolation kann das nicht
+    (`docs/flat-field.md`).
+    """
+    rel = cell_illumination(board_bgr, board_size, border) if cells is None else cells
+    h, w = board_bgr.shape[:2]
+    # Auf die ZELLMITTEN setzen und ueber den Rand fortsetzen, sonst sitzt die Karte um
+    # eine halbe Zelle daneben.
+    big = cv2.resize(rel, (board_size, board_size), interpolation=cv2.INTER_CUBIC)
+    field = np.ones((h, w), np.float32)
+    field[border:border + board_size, border:border + board_size] = big
+    field[:border] = field[border:border + 1]
+    field[border + board_size:] = field[border + board_size - 1:border + board_size]
+    field[:, :border] = field[:, border:border + 1]
+    field[:, border + board_size:] = field[:, border + board_size - 1:border + board_size]
+    return field
+
+
+def flat_field(board_bgr, board_size: int, border: int,
+               cells: np.ndarray | None = None, lo: float = 0.5, hi: float = 2.0):
+    """Das geschaetzte Feld herausdividieren. Eine Interpolation, eine Division.
+
+    `cells` uebersteuert die Schaetzung — dafuer gedacht, EINE Karte je Session zu nehmen: die
+    Kamera bewegt sich nicht, und je Frame geschaetzt schwankt das Feld mit der Stellung.
+    """
+    fld = illumination_field(board_bgr, board_size, border, cells)
+    gain = 1.0 / np.clip(fld, lo, hi)
+    return np.clip(board_bgr.astype(np.float32) * gain[..., None], 0, 255).astype(np.uint8)

@@ -119,14 +119,92 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     }
 
 
+# Zwei Laeufe passen neben den Pack, drei nicht: gemessen 2026-08-29 auf 31,8 GB kosteten drei
+# Slots 23,9 GB privat, der 11,7-GB-Pack flog damit aus dem Seitencache und die Loader lasen ihn
+# mit 642 Seitenfehlern/s von der SSD zurueck. Bei zweien bleibt er warm.
+_MAX_LIVE_TRAININGS = 2
+
+
+def _max_live_trainings() -> int:
+    """Die Obergrenze, `CHESSLAB_MAX_TRAININGS` hebt sie bewusst an (groessere Maschine)."""
+    raw = os.environ.get("CHESSLAB_MAX_TRAININGS")
+    if not raw:
+        return _MAX_LIVE_TRAININGS
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        print(f"[WARN] CHESSLAB_MAX_TRAININGS={raw!r} ist keine Zahl — bleibe bei "
+              f"{_MAX_LIVE_TRAININGS}.")
+        return _MAX_LIVE_TRAININGS
+
+
+def _live_train_locks() -> list[tuple[Path, dict]]:
+    """Jeder `heavy*.lock`, den ein LEBENDER Prozess haelt — der Default-Lock und jeder Slot.
+
+    `locks.held_by` meldet den EIGENEN Lock als frei (damit ein Aufrufer sich nicht selbst als
+    fremden Halter sieht), darum wird der eigene Datensatz hier direkt gelesen. Veraltete
+    Slot-Locks fallen dabei raus, ohne dass jemand sie loeschen muss.
+    """
+    lock_path = _train_lock_path()
+    inbox = lock_path.parent
+    live: list[tuple[Path, dict]] = []
+    for path in sorted(inbox.glob(f"{config.DATA.heavy_lock.stem}*.lock")):
+        info = locks.held_by(path)
+        if info is None:
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError, TypeError):
+                continue
+            if int(raw.get("childPid") or raw.get("pid") or -1) != os.getpid():
+                continue                       # fremd und tot -> veraltet, zaehlt nicht mit
+            info = raw
+        live.append((path, info))
+    return live
+
+
+def _trainings_ahead_of_us() -> list[dict]:
+    """Die Laeufe, die vor uns dran waren, falls wir ueber der Grenze liegen — sonst leer.
+
+    Slot-Locks kennen einander nicht: `CHESSLAB_TRAIN_SLOT` gibt jedem Lauf eine EIGENE Datei
+    und der Guard in `scripts/sweep_architectures.sh` prueft nur den eigenen Slot. So starteten
+    am 2026-08-29 drei Laeufe (C/D/E, 0,8 s auseinander) auf einer Maschine, die zwei traegt.
+
+    Entschieden wird nach `startedAt`, der spaeteste tritt zurueck. Das haelt auch dem Rennen
+    stand, das die drei erzeugt haben: jeder schreibt erst seinen Lock und zaehlt dann, also
+    liest jeder dieselbe Reihenfolge — und wer zu frueh zaehlt, um den Dritten zu sehen, wird
+    von genau diesem Dritten gesehen.
+    """
+    cap = _max_live_trainings()
+    live = _live_train_locks()
+    if len(live) <= cap:
+        return []
+    order = sorted(live, key=lambda item: (str(item[1].get("startedAt", "")),
+                                           int(item[1].get("childPid") or item[1].get("pid") or 0)))
+    ours = _train_lock_path()
+    rank = next((i for i, (path, _) in enumerate(order) if path == ours), None)
+    if rank is None or rank < cap:
+        return []
+    return [info for _, info in order[:cap]]
+
+
 def _acquire_train_lock(desc: str) -> bool:
     """False if another LIVE training holds the GPU. A stale lock is reclaimed automatically."""
     holder = locks.acquire(_train_lock_path(), "train", desc)
-    if holder is None:
-        return True
-    print(f"[FAIL] {locks.describe(holder)} is already running. The GPU takes one at a time - "
-          "stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
-    return False
+    if holder is not None:
+        print(f"[FAIL] {locks.describe(holder)} is already running. The GPU takes one at a time - "
+              "stop it first (Training tab 'Stop', Autopilot pause, or kill the process).")
+        return False
+    ahead = _trainings_ahead_of_us()
+    if ahead:
+        _release_train_lock()                  # unser eigener Lock, gerade erst geschrieben
+        print(f"[FAIL] {len(ahead)} Trainings laufen bereits, das Maximum ist "
+              f"{_max_live_trainings()} — der Datensatz-Pack passt sonst nicht mehr neben sie "
+              f"in den Speicher:")
+        for info in ahead:
+            print(f"        {locks.describe(info)}")
+        print("       Warten, eines stoppen, oder bewusst CHESSLAB_MAX_TRAININGS hochsetzen.")
+        return False
+    return True
 
 
 def _release_train_lock() -> None:
@@ -139,6 +217,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               head: str = "occlusion", scales: list[int] | None = None,
+              board_width: int = 128, board_layers: int = 2,
+              clahe_clip: float = 0.0, clahe_tile: int = 8,
+              clahe_min_mean: float = 0.0, clahe_max_mean: float = 255.0,
+              clahe_denoise: str = "off",
               input_size: str | None = None,
               erase_p: float | None = None,
               erase_scale: tuple[float, float] | None = None,
@@ -159,12 +241,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               flip_xor_p: float | None = None,
               invert_p: float | None = None,
               grayscale_p: float | None = None,
+              brightness: float | None = None,
+              gamma: tuple[float, float] | None = None,
               balance: str = "none",
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
               aug_scale: float | None = None,
               pretrained: bool | None = None,
-              no_empty_cap: bool = False) -> int:
+              no_empty_cap: bool = False,
+              neighbour_p: float | None = None) -> int:
     """`scales`: Multi-Scale-Training (YOLO-Stil). Ist eine Liste wie [64,96,128] gesetzt, wird
     JEDER Batch zufällig auf eine dieser Eingabegrößen skaliert → das size-agnostische Modell
     (AdaptiveAvgPool) lernt alle Auflösungen in EINEM Lauf. So deckt das Training die
@@ -197,6 +282,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # large contiguous block even when plenty of VRAM is free — the earlier crash). Must be set
     # before the first CUDA allocation, i.e. before torch initializes the device.
     os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+    # Ebenfalls VOR dem Import: `loader_kwargs` ruft das auch, aber erst wenn OpenBLAS seine
+    # Arenen laengst reserviert hat. Die Worker erbten die gekappte Umgebung und standen bei
+    # 0,6 GB Commit, der Hauptprozess bei 2,9 — gemessen 2026-08-29, Kappung wirkt nur vorher.
+    config.cap_blas_threads()
 
     import numpy as np
     import torch
@@ -299,7 +388,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     priority_paths = load_priority_paths()
     if priority_paths:
         print(f"[i] hard-empty keep list: {len(priority_paths)} crops protected from the empty cap")
-    board_mode = backbone.startswith("board:")
+    if neighbour_p:
+        print(f"[aug] Nachbar-Uebersprung auf leeren Zellen: p={neighbour_p:g} "
+              f"(Streifen {config.AUGMENT.neighbour_frac})")
+    board_mode = backbone.startswith(("board:", "boardattn:"))
     if board_mode and (scales or head != "occlusion"):
         print("[FAIL] board:-Backbones brauchen --head occlusion und vertragen kein --scales: "
               "der Batch traegt eine Zellachse, die beides nicht kennt.")
@@ -359,7 +451,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if (erase_p is not None or erase_scale is not None or jitter_translate is not None
             or hflip_p is not None or vflip_p is not None
             or rot180_p is not None or flip_xor_p is not None
-            or invert_p is not None or grayscale_p is not None):
+            or invert_p is not None or grayscale_p is not None
+            or brightness is not None or gamma is not None):
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"erase_scale": erase_scale}
@@ -373,9 +466,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                             if flip_xor_p is not None else {}),
                          **({"invert_p": invert_p} if invert_p is not None else {}),
                          **({"grayscale_p": grayscale_p}
-                            if grayscale_p is not None else {}))
+                            if grayscale_p is not None else {}),
+                         **({"brightness": brightness} if brightness is not None else {}),
+                         **({"gamma": gamma} if gamma is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} "
-              f"jitter_translate={policy.jitter_translate}")
+              f"jitter_translate={policy.jitter_translate} "
+              f"brightness={policy.brightness} gamma={policy.gamma}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
     # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
     # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
@@ -404,7 +500,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # Genau die Positionsabhaengigkeit, an der die Grundreihen scheitern.
         rot90 = want_rot
         print(f"[aug] 90-Grad-Drehungen per Flag {'AN' if rot90 else 'AUS'}")
-    tf_kw = {"policy": policy, "per_crop": per_crop, "input_repr": input_repr}
+    tf_kw = {"policy": policy, "per_crop": per_crop, "input_repr": input_repr,
+             "clahe_clip": clahe_clip, "clahe_tile": clahe_tile,
+             "clahe_min_mean": clahe_min_mean, "clahe_max_mean": clahe_max_mean,
+             "clahe_denoise": clahe_denoise}
     train_tf = build_transform(out_size, train=True, rot90=rot90, **tf_kw)
     val_tf = build_transform(out_size, train=False, **tf_kw)
     if packed is not None:
@@ -417,7 +516,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   f"{train_ds.n_dropped + val_ds.n_dropped} unvollstaendige verworfen")
         else:
             train_ds = PackedSquareDataset(train_rows, classes, train_tf, packed,
-                                           with_coverage=occluding)
+                                           with_coverage=occluding, policy=policy,
+                                           neighbour_p=neighbour_p or 0.0)
             val_ds = PackedSquareDataset(val_rows, classes, val_tf, packed,
                                          with_coverage=occluding)
     else:
@@ -436,7 +536,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # einziges Backbone KEINE Gewichte mit, `_050` und Breite 1,0 schon.
     want_pre = (backbone != "smallcnn") if pretrained is None else pretrained
     model = build_model(backbone, len(classes) + occluding, pretrained=want_pre,
-                        norm=norm_eff, head="combined", in_chans=in_chans).to(device)
+                        norm=norm_eff, head="combined", in_chans=in_chans,
+                        board_width=board_width, board_layers=board_layers).to(device)
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
 
@@ -563,10 +664,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
     nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
     loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
+    eval_batch = batch_size
     if board_mode:
         # `--batch-size` zaehlt jetzt BRETTER, also 64x so viele Crops. 4 Bretter = 256 Crops.
         loader_kw = {**loader_kw, "batch_size": max(1, batch_size // BOARD_CELLS),
                      "collate_fn": board_collate}
+        # Die Auswertung baut ihren EIGENEN Loader und muss dieselbe Umrechnung sehen. Ohne sie
+        # las sie 256 BRETTER statt 256 Crops — 3,2 GB je Charge, was den Lauf am 28.08. auf
+        # 10,9 GB Commit trieb, waehrend der Per-Zell-Arm bei 2,5 GB stand.
+        eval_batch = loader_kw["batch_size"]
         print(f"[board] batch_size {batch_size} Crops = {loader_kw['batch_size']} Bretter je Schritt")
     sampler = None
     # Eine SITUATION ist (Session, Feld, Klasse) — dieselbe Figur auf demselben Feld, ueber die
@@ -655,6 +761,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if epoch_frac != 1.0:
             print(f"[sampler] {n_draw} Ziehungen je Epoche statt {len(train_rows)} "
                   f"({epoch_frac:g}x)")
+    # Alles, was Zeilen gegen Vorhersagen haelt, muss die Reihenfolge des DATENSATZES nehmen:
+    # der Brettdatensatz behaelt nur vollstaendige Bretter und sortiert sie nach Feld.
+    score_rows = getattr(val_ds, "rows", None) or val_rows
+
     if board_mode and sampler is not None:
         # Ein Brett so oft ziehen, wie der Zell-Sampler es getroffen HAETTE: die Summe der
         # Zellgewichte ist genau diese Randwahrscheinlichkeit. Exakt zwischen den Brettern,
@@ -693,6 +803,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "aug_erase_p": policy.erase_p,
         "aug_erase_scale": list(policy.erase_scale),
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
+        "aug_brightness": policy.brightness,
+        "aug_gamma": list(policy.gamma),
         "aug_vflip_p": getattr(policy, "vflip_p", 0.0),
         "aug_rot180_p": getattr(policy, "rot180_p", 0.0),
         "aug_flip_xor_p": getattr(policy, "flip_xor_p", 0.0),
@@ -704,6 +816,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "label_smoothing": label_smoothing,
         "seed": seed, "amp": amp, "norm": norm_eff, "classes": classes, "out_size": list(out_size),
         "dataset": dataset, "split_file": split_file, "split": split, "resumed_from": resumed_from, "head": head,
+        # eval and export rebuild from this; a head built at another size does not take the checkpoint.
+        **({} if not board_mode else {"board_width": board_width, "board_layers": board_layers}),
+        # Serving must reproduce this, exactly like `normalize` above.
+        **({} if clahe_clip <= 0 else {
+            "clahe_clip": clahe_clip, "clahe_tile": clahe_tile,
+            "clahe_min_mean": clahe_min_mean, "clahe_max_mean": clahe_max_mean,
+            "clahe_denoise": clahe_denoise}),
         **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
         # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets
@@ -712,7 +831,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                       "mode": "per_crop" if per_crop else "fixed"},
         "input_repr": input_repr, "in_chans": in_chans,
         "scales": scales,
-        "aug": {"erase_p": policy.erase_p},
+        "aug": {"erase_p": policy.erase_p, "neighbour_p": neighbour_p or 0.0},
         "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
@@ -785,7 +904,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         t_train = time.perf_counter() - t_epoch
 
         t0 = time.perf_counter()
-        val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=batch_size, num_workers=nw)
+        val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=eval_batch, num_workers=nw)
         t_val = time.perf_counter() - t0
         work_audit = current_work_audit()
         validation_key = (id(model), id(val_ds), epoch)
@@ -799,9 +918,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # Auf denselben Zellen wie die Genauigkeits-Terme: verdeckte Zellen irren zu 55-63 %,
         # dabei aber unsicher — sie druecken conf_wrong um acht Punkte und schoenen damit
         # genau das Mass, das ueberzeugte Fehler aufdecken soll (gemessen 2026-08-24).
-        vis_conf = visible_confidence(val_rows, true_labels, pred_labels, val.get("conf") or [])
+        # Die Vorhersagen folgen der Reihenfolge des DATENSATZES, nicht der von `val_rows`:
+        # der Brettdatensatz behaelt nur vollstaendige Bretter und sortiert sie nach Feld.
+        # Mit `val_rows` indiziert, lief das in einen IndexError statt in falsche Zahlen.
+        vis_conf = visible_confidence(score_rows, true_labels, pred_labels, val.get("conf") or [])
         auroc = confidence_auroc(*vis_conf)
-        score, bd = checkpoint_metrics(val_rows, classes, true_labels, pred_labels,
+        score, bd = checkpoint_metrics(score_rows, classes, true_labels, pred_labels,
                                        auroc=auroc)
         t_score = time.perf_counter() - t0
         # --- occlusion validation diagnostics ---
@@ -814,7 +936,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if occluding:
             from .occlusion import PIECE_VISIBLE_MAX
 
-            occ_diag = _occlusion_diagnostics(val, val_rows, classes, PIECE_VISIBLE_MAX)
+            occ_diag = _occlusion_diagnostics(val, score_rows, classes, PIECE_VISIBLE_MAX)
 
         rec = {
             "epoch": epoch,
@@ -897,9 +1019,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         inner = swa_model.module
         torch.save(inner.state_dict(), run_dir / "swa.pt")
         sv = evaluate_dataset(inner, val_ds, device, criterion=criterion,
-                              batch_size=batch_size, num_workers=nw, keep_workers=False)
+                              batch_size=eval_batch, num_workers=0, keep_workers=False)
         st, sbd = checkpoint_metrics(
-            val_rows, classes, list(sv["trues"]), list(sv["preds"]),
+            score_rows, classes, list(sv["trues"]), list(sv["preds"]),
             auroc=confidence_auroc(sv["trues"], sv["preds"], sv.get("conf") or []))
         print(f"[OK] swa.pt: score {st[0]:.4f} piece {sbd['piece_acc']:.4f} "
               f"auroc {sbd['calibration']:.4f} — gegen best.pt {best_score[0]:.4f} messen")
@@ -911,8 +1033,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         from .data import fit_temperature
 
         model.load_state_dict(torch.load(run_dir / "best.pt", map_location=device))
-        cal = evaluate_dataset(model, val_ds, device, batch_size=batch_size,
-                               num_workers=nw, keep_workers=False)
+        # num_workers=0: a fresh worker loader built AFTER the last epoch deadlocks on Windows
+        # spawn — two 60-epoch runs hung here for 36 h with every checkpoint already written.
+        # One eval pass does not earn workers anyway.
+        cal = evaluate_dataset(model, val_ds, device, batch_size=eval_batch,
+                               num_workers=0, keep_workers=False)
         temp = fit_temperature(cal.get("logits"), cal["trues"])
         cfg_path = run_dir / "config.json"
         cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))

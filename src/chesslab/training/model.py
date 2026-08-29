@@ -256,6 +256,47 @@ class SmallCNN(nn.Module):
         return self.head(x)
 
 
+#: Trunk-Leiter fuer die Geschwindigkeitsfrage: (Breiten, Patch-Stride). Der Stem ist eine
+#: Patchify-Faltung statt zweier dichter 3x3 — die kosten in `mnv4_035` die Haelfte aller MACs,
+#: und ein entzerrter Zellcrop braucht keine ImageNet-Kantenbank. Messwerte: `docs/`-Bericht.
+CELLNET_PRESETS = {
+    "cellnet_p4":  ((32, 64, 64, 128, 128, 192), 4),
+    "cellnet_p4w": ((32, 64, 96, 160, 192, 256), 4),
+    "cellnet_p8":  ((24, 48, 64, 96, 128, 192), 8),
+    "cellnet_p8w": ((32, 64, 96, 160, 192, 256), 8),
+}
+
+
+def _dw_pw(c_in: int, c_out: int, stride: int) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Conv2d(c_in, c_in, 3, stride, 1, groups=c_in, bias=False), batchnorm2d(c_in),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(c_in, c_out, 1, bias=False), batchnorm2d(c_out), nn.ReLU(inplace=True))
+
+
+class CellNet(nn.Module):
+    """Elf Faltungen statt 46, Patchify-Stem, sonst DW/PW — auf Geschwindigkeit ausgelegt.
+
+    Der Global-Average-Pool haelt ihn groessenagnostisch, wie `SmallCNN`; `num_classes=0` gibt
+    die Merkmale heraus, was `boardnet.build_trunk` fuer die Kopf-Varianten braucht.
+    """
+
+    def __init__(self, widths: tuple[int, ...], patch: int, num_classes: int,
+                 in_chans: int = 3) -> None:
+        super().__init__()
+        self.stem = nn.Sequential(nn.Conv2d(in_chans, widths[0], patch, patch, bias=False),
+                                  batchnorm2d(widths[0]), nn.ReLU(inplace=True))
+        strides = (2, 1, 2, 1, 2)[:len(widths) - 1]
+        self.body = nn.Sequential(*[_dw_pw(a, b, s) for a, b, s
+                                    in zip(widths[:-1], widths[1:], strides, strict=True)])
+        self.num_features = widths[-1]
+        self.head = nn.Linear(widths[-1], num_classes) if num_classes else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.body(self.stem(x)).mean((2, 3)))
+
+
+
 def _retune_stem(m: nn.Module, in_chans: int) -> None:
     """Rebuild a torchvision MobileNetV3's first convolution for `in_chans` inputs, in place.
 
@@ -278,7 +319,8 @@ def _retune_stem(m: nn.Module, in_chans: int) -> None:
 
 def build_model(backbone: str, num_classes: int, pretrained: bool = False,
                 norm: str = "batchnorm", head: str = "combined",
-                in_chans: int = 3) -> nn.Module:
+                in_chans: int = 3, board_width: int = 128,
+                board_layers: int = 2) -> nn.Module:
     """One flat head over the class list; `head` is kept as an argument so a wrong value fails
     loudly rather than silently building something else.
 
@@ -287,8 +329,20 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
     """
     if head != "combined":
         raise ValueError(f"unknown head {head!r} — the model builds one flat head.")
+    if backbone.startswith(("board:", "boardattn:")):
+        from .boardnet import BoardNet, build_trunk
+
+        attention = backbone.startswith("boardattn:")
+        trunk_name = backbone.split(":", 1)[1]
+        trunk, feat = build_trunk(trunk_name, in_chans=in_chans,
+                                  pretrained=pretrained and trunk_name != "smallcnn")
+        return BoardNet(trunk, feat, num_classes, board_width=board_width,
+                        board_layers=board_layers, attention=attention)
     if backbone == "smallcnn":
         return SmallCNN(num_classes, in_channels=in_chans, norm=norm)
+    if backbone in CELLNET_PRESETS:
+        widths, patch = CELLNET_PRESETS[backbone]
+        return CellNet(widths, patch, num_classes, in_chans=in_chans)
     if backbone == "mobilenet_v3_small":
         from torchvision import models
 
@@ -336,7 +390,11 @@ def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:
     msd = model.state_dict()
 
     def candidates(k: str) -> list[str]:
-        return [k, k[len("_mobile."):]] if k.startswith("_mobile.") else [k, "_mobile." + k]
+        """Beide Schreibweisen jeder Huelle, plus die Umbenennung des Kopfs in `BoardNet`."""
+        out = [k]
+        out.extend(k[len(w):] if k.startswith(w) else w + k for w in ("_mobile.", "trunk."))
+        out.extend("cell_head." + k[len(h):] for h in ("classifier.", "head.") if k.startswith(h))
+        return out
 
     keep = {}
     for k, v in sd.items():

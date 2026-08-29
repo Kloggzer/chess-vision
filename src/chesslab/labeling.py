@@ -186,7 +186,8 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
 def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
                     out_size: tuple[int, int] | None = None,
                     mesh: GridMesh | None = None,
-                    board=None):
+                    board=None,
+                    flat_cells=None):
     """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice.
     Single Source for live inference so the model sees exactly the same crop live as during
     training.
@@ -196,11 +197,16 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
     (`realgames.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
     `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
     then be None.
+    `flat_cells`: Beleuchtungskarte der Session, herausgerechnet VOR dem Zuschnitt (`docs/flat-field.md`).
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
     if mesh is not None:
         warped = straighten_board(warped, mesh, profile.board_size, crop_border_px(profile))
+    if flat_cells is not None:
+        from .imgops import flat_field
+
+        warped = flat_field(warped, int(profile.board_size), crop_border_px(profile), flat_cells)
     return [crop_square(warped, square, profile, out) for square in all_squares()]
 
 
@@ -347,6 +353,30 @@ def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     return {r["frame"]: r["coverage"] for r in read_jsonl(path) if r.get("coverage")}
 
 
+def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationProfile,
+                        n: int = 24):
+    """EINE Beleuchtungskarte fuer die ganze Session, Median ueber saubere Frames.
+
+    Je Frame geschaetzt liest der Fit die Stellung mit: ueber fuenf Sessions gemessen schwankte die
+    Karte um bis zu 79 %, und die Korrektur machte zwei davon schlechter als roh. Die Kamera
+    bewegt sich nicht, also ist das Feld eine Eigenschaft der Session (`docs/flat-field.md`).
+    """
+    import numpy as np
+
+    from .imgops import cell_illumination
+
+    clean = [e for e in log
+             if not e.get("unusable") and not e.get("dirty") and usable_board(e, prof)]
+    if not clean:
+        return None
+    maps = []
+    for entry in clean[:: max(1, len(clean) // n)][:n]:
+        board = _read_slice_image(session_dir / entry["board"])
+        if board is not None:
+            maps.append(cell_illumination(board, int(prof.board_size), crop_border_px(prof)))
+    return np.median(np.stack(maps), axis=0) if maps else None
+
+
 def _slice_session(
     session_dir: Path,
     *,
@@ -357,6 +387,7 @@ def _slice_session(
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
+    flat_field: bool = False,
     manifest_batch: dict[str, list[str]] | None = None,
 ) -> dict:
     """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
@@ -392,6 +423,7 @@ def _slice_session(
     squares = tuple(all_squares())
     fen_cache: dict[str, tuple[str, ...]] = {}
     out_dirs: dict[str, Path] = {}
+    flat_cells = _session_flat_cells(session_dir, log, prof) if flat_field else None
     for entry in log:
         if entry.get("unusable"):
             n_unusable += 1
@@ -426,7 +458,8 @@ def _slice_session(
         # crops_for_frame as single source (Rework 01: de-duplication).
         with measure("slice board crop batches", (session_id, Path(entry["frame"]).stem),
                      processed_bytes=(board.nbytes if board is not None else frame.nbytes)):
-            crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh, board=board)
+            crops = crops_for_frame(frame, corners, prof, out_size=out, mesh=mesh,
+                                    board=board, flat_cells=flat_cells)
 
         explicit = entry.get("labels")          # Inference/Active-Learning: explicit 64 labels
         labels = None if explicit else _fen_labels(entry["fen"], squares, fen_cache)
@@ -562,6 +595,7 @@ def slice_session(
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
+    flat_field: bool = False,
     manifest_batch: dict[str, list[str]] | None = None,
     write_pool: ThreadPoolExecutor | None = None,
 ) -> dict:
@@ -571,6 +605,7 @@ def slice_session(
             session_dir, profile=profile, manifest_path=manifest_path,
             squares_root=squares_root, write_pool=write_pool, pad_up=pad_up,
             pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+            flat_field=flat_field,
         )
     with ThreadPoolExecutor(
         max_workers=SLICE_WRITE_WORKERS, thread_name_prefix="slice-webp"
@@ -579,6 +614,7 @@ def slice_session(
             session_dir, profile=profile, manifest_path=manifest_path,
             squares_root=squares_root, write_pool=owned_pool, pad_up=pad_up,
             pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
+            flat_field=flat_field,
         )
 
 
@@ -608,6 +644,7 @@ def run_slice(
     out_size: str | None = None,
     preview: str | None = None,
     variant_tag: str | None = None,
+    flat_field: bool = False,
 ) -> int:
     try:
         out_size_t = parse_out_size(out_size) if out_size else None
@@ -653,7 +690,7 @@ def run_slice(
                                 session_dir, profile=prof, manifest_path=manifest_path,
                                 squares_root=squares_root, pad_up=pad_up, pad_side=pad_side,
                                 out_size=out_size_t, manifest_batch=manifest_batch,
-                                write_pool=write_pool,
+                                write_pool=write_pool, flat_field=flat_field,
                             )
                             extra = (f" ({stats['overrides']} corrections)"
                                      if stats.get("overrides") else "")

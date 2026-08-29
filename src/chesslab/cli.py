@@ -900,12 +900,16 @@ def slice_cmd(
     preview: str = typer.Option(None, "--preview", help="Session ID: visually check label vs crop."),
     variant_tag: str = typer.Option(None, "--variant-tag",
                                     help="Store crops/manifest with variant tag (crops/<tag>/)."),
+    flat_field: bool = typer.Option(False, "--flat-field",
+                                    help="Den Beleuchtungsgradienten des Bretts herausrechnen, VOR "
+                                         "dem Zuschnitt — eine 8x8-Karte je Session, Median ueber "
+                                         "saubere Frames. Gehoert in einen eigenen --variant-tag."),
 ) -> None:
     """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
         pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
-        variant_tag=variant_tag,
+        variant_tag=variant_tag, flat_field=flat_field,
     ))
 
 
@@ -960,6 +964,11 @@ def occluders_composite(
                                            "Clip. Bei 3,1 Umdrehungen ist ein fortlaufendes "
                                            "Zwoelftel 92 Grad breit; modulo einer Umdrehung sind "
                                            "12 Eimer wirklich 30 Grad."),
+    pad_side: float = typer.Option(None, "--pad-side",
+                                   help="Randbreite je Seite als Bruchteil der Zelle. Default: aus "
+                                        "dem Profil (0,05). Muss zu dem passen, womit die ECHTEN "
+                                        "Crops geschnitten wurden — sonst sieht das Modell im "
+                                        "Training zwei Rahmungen."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
     """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
@@ -977,7 +986,8 @@ def occluders_composite(
                 out_root=config.DATA.crops / tag,
                 manifest=config.DATA.crops / tag / "manifest.jsonl",
                 fen=fen, board_size=board_size, out_size=_out_size(out_size),
-                stride=stride, seed=seed, clean=clean, angle_buckets=angle_buckets)
+                stride=stride, seed=seed, clean=clean, angle_buckets=angle_buckets,
+                pad_side=pad_side)
     except RuntimeError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None
@@ -1536,7 +1546,35 @@ def train_cmd(
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
+    clahe_clip: float = typer.Option(
+        0.0, "--clahe-clip",
+        help="Lokaler Kontrast (CLAHE) auf dem L-Kanal, NACH dem Resize. 0 = aus. Der Wert landet "
+             "in der config.json, damit Eval und Export ihn mitlesen."),
+    clahe_tile: int = typer.Option(8, "--clahe-tile", help="CLAHE-Kachelraster (tile x tile)."),
+    clahe_min_mean: float = typer.Option(
+        0.0, "--clahe-min-mean",
+        help="CLAHE nur ab dieser mittleren Zellhelligkeit. Zusammen mit --clahe-max-mean ein "
+             "BAND: gemessen hebt CLAHE 25-40 um 5,9 Punkte und drueckt alles darunter um 2,6."),
+    clahe_max_mean: float = typer.Option(
+        255.0, "--clahe-max-mean", help="CLAHE nur bis zu dieser mittleren Zellhelligkeit."),
+    clahe_denoise: str = typer.Option(
+        "off", "--clahe-denoise",
+        help="off | pre | post — medianBlur(3) vor oder nach CLAHE. `fastNlMeans` ist mit "
+             "1438 ms je Brett auf dem Geraet ausgeschlossen."),
+    board_width: int = typer.Option(128, "--board-width",
+                                    help="Breite des Brettkopfs bei board:/boardattn: — er laeuft EINMAL je "
+                                         "Brett, kostet also 1/64 je Crop."),
+    board_layers: int = typer.Option(2, "--board-layers",
+                                     help="Bloecke im Brettkopf bei board:/boardattn:."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
+    brightness: float | None = typer.Option(None, "--brightness",
+                                            help="ColorJitter-Helligkeit als Bruchteil (Default 0.35). "
+                                                 "0 schaltet sie ab."),
+    gamma: str | None = typer.Option(None, "--gamma",
+                                     help="Gamma-Spanne LO,HI (Default 0.6,1.8). '1,1' schaltet sie ab. "
+                                          "Gemessen 2026-08-29: mit den Defaults liegen 9,8 % der "
+                                          "Ziehungen unter dem 0,5-Perzentil dessen, was je serviert "
+                                          "wird, ohne Gamma nur 5,5 %."),
       jitter_translate: float | None = typer.Option(None, "--jitter-translate",
                                                   help="Override the affine translation jitter, as a "
                                                        "fraction of the crop. The default 0.03 is ~3.3 % "
@@ -1664,6 +1702,13 @@ def train_cmd(
             print("[FAIL] --erase-scale erwartet MIN,MAX mit 0 < min < max <= 1.")
             raise typer.Exit(1)
         _erase_scale = (parts[0], parts[1])
+    _gamma = None
+    if gamma:
+        parts = [float(x) for x in gamma.split(",")]
+        if len(parts) != 2 or not 0 < parts[0] <= parts[1]:
+            print("[FAIL] --gamma erwartet LO,HI mit 0 < lo <= hi.")
+            raise typer.Exit(1)
+        _gamma = (parts[0], parts[1])
     cw: dict[str, float] = {}
     for item in (s.strip() for s in (class_weight or "").split(",") if s.strip()):
         if "=" not in item:
@@ -1676,7 +1721,12 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
+                               board_width=board_width, board_layers=board_layers,
+                               clahe_clip=clahe_clip, clahe_tile=clahe_tile,
+                               clahe_min_mean=clahe_min_mean, clahe_max_mean=clahe_max_mean,
+                               clahe_denoise=clahe_denoise,
                                erase_p=erase_p, erase_scale=_erase_scale,
+                               brightness=brightness, gamma=_gamma,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
