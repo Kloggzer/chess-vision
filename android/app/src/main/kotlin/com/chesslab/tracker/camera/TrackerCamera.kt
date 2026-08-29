@@ -68,6 +68,9 @@ class TrackerCamera(
     /** Brightness and illuminant, steering the automatic. See [CameraLookControl]. */
     val look: CameraLookPort get() = optics.looks
 
+    /** Was die Geraete-Automatik zuletzt gewaehlt hat — der Startpunkt fuer die eigene. */
+    val observedExposure: ExposureSetting? get() = optics.observedExposure
+
     private var target: CameraRequest = request
 
     // Analyzer thread only — see [noteSensorRate].

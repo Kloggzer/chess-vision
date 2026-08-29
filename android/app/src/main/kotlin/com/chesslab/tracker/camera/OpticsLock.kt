@@ -63,6 +63,14 @@ class OpticsLock(
     private var observedFocus: Float? = null
 
     /**
+     * Was die Automatik zuletzt gewaehlt hat. NUR zum Messen — gestellt wird die
+     * Belichtungskorrektur, siehe [ExposureSetting].
+     */
+    @Volatile
+    var observedExposure: ExposureSetting? = null
+        private set
+
+    /**
      * Brightness and illuminant. Its own owner ([CameraLookControl]) — the steering and the request
      * are different acts; this class only carries the values into the request it owns.
      */
@@ -87,10 +95,11 @@ class OpticsLock(
     }
 
     /**
-     * Reads the focus distance and NOTHING else.
+     * Liest die zwei Zahlen, die von aussen nicht zu erfragen sind: die Fokusdistanz fuer das
+     * Schloss und den Belichtungszustand als Startpunkt der eigenen Automatik.
      *
-     * This callback used to carry the whole automatic: it watched for AE, AWB and AF to report
-     * settled and then froze them unasked. All that is left is the one number a manual lock needs.
+     * Dieser Callback trug einmal die ganze Automatik — er wartete auf AE, AWB und AF und fror sie
+     * ungefragt ein. Was bleibt, sind gemessene Werte, keine Entscheidungen.
      */
     private val callback =
         object : CameraCaptureSession.CaptureCallback() {
@@ -100,6 +109,9 @@ class OpticsLock(
                 result: TotalCaptureResult,
             ) {
                 result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.let { observedFocus = it }
+                val time = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
+                if (time != null && iso != null) observedExposure = ExposureSetting(time, iso)
             }
         }
 
@@ -162,7 +174,11 @@ class OpticsLock(
 
     private fun said(distance: Float?): String {
         val look = looks.look.value
-        val head = if (look.locked) "locked: exposure, white balance" else "steered"
+        // Der beobachtete Zustand steht IMMER in der Zeile: ohne ihn ist nach einer Sitzung nicht
+        // zu sagen, wie viel Luft ueberhaupt da war — und genau daran hing der Befund, dass das
+        // Geraet 30 von 66,7 moeglichen Millisekunden brachliegen laesst.
+        val seen = observedExposure?.let { " (Sensor %.1f ms ISO %d)".format(it.timeNs / 1e6, it.iso) } ?: ""
+        val head = (if (look.locked) "locked: exposure, white balance" else "steered") + seen
         val focus =
             distance?.let { ", focus %.3f dpt%s".format(it, if (look.focus != null) " manual" else " held") }
                 ?: ", focus auto"
