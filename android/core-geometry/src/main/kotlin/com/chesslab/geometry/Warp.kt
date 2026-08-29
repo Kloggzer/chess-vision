@@ -53,6 +53,8 @@ fun warpFromCorners(
     targetSize: Int? = null,
     dst: Mat? = null,
     homographyCache: HomographyCache? = null,
+    /** Wer diesen Warp bezahlt. Sonst schriebe jeder Aufrufer seine Zeit auf die Detektion. */
+    op: WorkOperation = WorkOperation.DETECTION_WARP,
 ): Mat {
     val sz = targetSize ?: geom.boardSize
     val h = computeHomography(corners, geom.boardSize, geom.margin, homographyCache)
@@ -69,7 +71,7 @@ fun warpFromCorners(
         h.writeH(m)
     }
     val out = dst ?: Mat()
-    WorkProfiler.span(WorkOperation.DETECTION_WARP) {
+    WorkProfiler.span(op) {
         Imgproc.warpPerspective(frame, out, h, Size(sz.toDouble(), sz.toDouble()))
     }
     h.release()

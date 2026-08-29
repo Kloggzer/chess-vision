@@ -154,8 +154,8 @@ class ModelCropTest {
         val frame = syntheticFrame()
         val warp = warpBoardForCrops(frame, geom, CORNERS)
         frame.release()
-        store.update(CropFrameStore.Pending(warp, 7L, 11L, BgrImage(2, 2, ByteArray(12)), GrayImage(2, 2, ByteArray(4))))
-        return requireNotNull(cropFrameSource(store) { geom }.take()) { "the store held a pending warp" }.crops
+        store.update(CropFrameStore.Pending(warp, 7L, 11L, BgrImage(2, 2, ByteArray(12)), GrayImage(2, 2, ByteArray(4)), geom))
+        return requireNotNull(cropFrameSource(store).take()) { "the store held a pending warp" }.crops
     }
 
     companion object {

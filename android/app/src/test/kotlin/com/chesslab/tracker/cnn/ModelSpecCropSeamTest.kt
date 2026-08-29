@@ -59,10 +59,10 @@ class ModelSpecCropSeamTest {
      *
      * The switch is only real if the crop size follows it: the selected model's `config.json` is
      * what `TrackerService` re-reads into `withCropOf` on every geometry write, so keeping the old
-     * crops would kill the first observation after the restart. Since the 2026-08-20 retirement both
-     * survivors crop at 80 px, so what rules out a constant here is [ASSUMED_SIZE], the geometry
-     * default `withCropOf` must overwrite — `withoutTheModelsSizeTheShippedAssetRefusesTheCrops`
-     * is the other half of that proof.
+     * crops would kill the first observation after the restart. Die p4-Familie (2026-08-28) bringt
+     * wieder eine SPANNE mit — 80, 96 und 128 px —, also traegt der urspruengliche Beweis erneut:
+     * mehr als eine gemessene Groesse kann keine Konstante sein. [ASSUMED_SIZE] war der Ersatz
+     * dafuer, solange alle Ueberlebenden 80 px hatten.
      */
     @Test
     @EnabledIf(OPENCV_GATE)
@@ -75,8 +75,8 @@ class ModelSpecCropSeamTest {
             }
         assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
         assertTrue(
-            sizes.none { it.second == ASSUMED_SIZE },
-            "a bundled model crops at the geometry default, so this cannot show the size following the model: $sizes",
+            sizes.map { it.second }.distinct().size > 1,
+            "all bundled models crop at one size, so this cannot show the size following the model: $sizes",
         )
     }
 
@@ -122,10 +122,10 @@ class ModelSpecCropSeamTest {
     /**
      * And phase 01's wiring is LOAD-BEARING, not decorative.
      *
-     * Without it the geometry keeps [BoardGeometry]'s own 128 px default — which is what the app did
-     * until specs/23 phase 01 — and the shipped 96 px classifier refuses those crops outright. That
-     * refusal is the whole reason phase 02 could not go first, and it is asserted here so a
-     * regression in the wiring cannot be mistaken for a harmless default.
+     * Ohne sie behaelt die Geometrie ihren eigenen 128-px-Default, und ein Modell mit ANDERER
+     * Groesse lehnt solche Crops rundweg ab. Genommen wird deshalb das erste gebundelte Modell,
+     * dessen Groesse vom Default abweicht — seit `p4full-128` (2026-08-28) trifft der Default die
+     * Groesse des Standardmodells, der Beweis braucht also einen der kleineren Arme.
      */
     @Test
     @EnabledIf(OPENCV_GATE)
@@ -133,11 +133,18 @@ class ModelSpecCropSeamTest {
         @TempDir tmp: File,
     ) {
         val unwired = cropsAsHandedToTheClassifier(liveGeometry())
-        assertEquals(BoardGeometry().outW, unwired[0].width, "the unwired path must still be the old default")
-        OnnxSquareClassifier.open(stagedModelIn(assetDir(), tmp), RecordingLog()).use { cnn ->
+        val default = BoardGeometry().outW
+        assertEquals(default, unwired[0].width, "the unwired path must still be the old default")
+        val other =
+            bundledAssetDirs().firstOrNull {
+                ModelSpec.parse(File(it, MODEL_CONFIG_FILE).readText()).outWidth != default
+            }
+        assertTrue(other != null, "no bundled model differs from the geometry default, so nothing can refuse")
+        val want = ModelSpec.parse(File(other!!, MODEL_CONFIG_FILE).readText()).outWidth
+        OnnxSquareClassifier.open(stagedModelIn(other, tmp), RecordingLog()).use { cnn ->
             val error = assertThrows<IllegalArgumentException> { cnn.classify(unwired) }
             assertTrue(
-                error.message!!.contains("expected ${SHIPPED_INPUT_SIZE}x$SHIPPED_INPUT_SIZE"),
+                error.message!!.contains("expected ${want}x$want"),
                 "the refusal must name the size the model wants, got: ${error.message}",
             )
         }
@@ -158,13 +165,14 @@ class ModelSpecCropSeamTest {
                 11L,
                 BgrImage(2, 2, ByteArray(12)),
                 GrayImage(2, 2, ByteArray(4)),
+                geom,
             ),
         )
         val probe = RecordingWorkProbe()
         val profiling = WorkProfiler.install(probe)
         val result =
             try {
-                requireNotNull(cropFrameSource(store, runGridOcclusion = false) { geom }.take())
+                requireNotNull(cropFrameSource(store, runGridOcclusion = false).take())
             } finally {
                 profiling.close()
             }
@@ -224,8 +232,8 @@ private fun cropsAsHandedToTheClassifier(geom: BoardGeometry): List<BgrImage> {
     val frame = syntheticFrame()
     val warp = warpBoardForCrops(frame, geom, CORNERS)
     frame.release()
-    store.update(CropFrameStore.Pending(warp, 7L, 11L, BgrImage(2, 2, ByteArray(12)), GrayImage(2, 2, ByteArray(4))))
-    return requireNotNull(cropFrameSource(store) { geom }.take()) { "the store held a pending warp" }.crops
+    store.update(CropFrameStore.Pending(warp, 7L, 11L, BgrImage(2, 2, ByteArray(12)), GrayImage(2, 2, ByteArray(4)), geom))
+    return requireNotNull(cropFrameSource(store).take()) { "the store held a pending warp" }.crops
 }
 
 /**

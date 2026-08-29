@@ -2,6 +2,7 @@ package com.chesslab.tracker.pipeline
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.geometry.BoardGeometry
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -30,6 +31,7 @@ class CropFrameStoreTest {
             tsMs = seq,
             bgrDet = BgrImage(1, 1, ByteArray(3)),
             grayDet = GrayImage(1, 1, ByteArray(1)),
+            geometry = BoardGeometry(),
         )
 
     companion object {
