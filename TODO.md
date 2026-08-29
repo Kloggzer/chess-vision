@@ -4,6 +4,141 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Modell- und Engine-Wechsel sollen ohne Neustart gehen (2026-08-30, User)
+
+Die App sagt es heute selbst: *"Saved, waiting for a tracker restart: app settings — This build
+cannot restart the tracker from here — close and reopen the app to apply."* Beim Umschalten auf
+`p4a-80-clahe` musste die App per `am force-stop` neu gestartet werden.
+
+Die Maschinerie dafuer steht schon: `StackSwitch` kann den Stack tauschen, und die Reihenfolge
+(**detach, close, build**) ist dort dokumentiert und begruendet. Was fehlt, ist der Weg von der
+Einstellung zu diesem Tausch — `AppSettings.modelDir` und `engine` sind als restart-only gelesen
+(`TrackerService`, Kommentar "a change restarts the stack, which is what `StackSwitch` exists
+for"), aber die Stelle, die den Neustart ausloest, gibt es in diesem Build nicht.
+
+Zu klaeren: was ein Wechsel mitten in einer Partie mit der Zughistorie macht. Ein neues Modell
+liest dieselbe Stellung moeglicherweise anders, und die Pixel-Referenz ist danach ohnehin hin —
+`CaptureBaseline` waere die naheliegende Antwort, dieselbe wie bei der Belichtungsverstellung.
+
+## Belichtungsregelung und das CLAHE-Fenster arbeiten gegeneinander (2026-08-30, gemessen)
+
+Das Fenster `--clahe-min-mean 25 --clahe-max-mean 40` ist auf den Zellmittelwert in 8 bit
+definiert, und der haengt an der Belichtung. Ueber die sichtbaren Val-Zellen gerechnet
+(`tmp/clahe_vs_ev.py`):
+
+| EV | im Fenster | davon **besetzt** | Median | unter 25 |
+|---:|---:|---:|---:|---:|
+| ±0 (Korpus) | 15,6 % | **2 236** | 56,7 | 13,7 % |
+| +0,70 | 14,1 % | 1 641 | 70,7 | 6,5 % |
+| **+1,70** | 11,4 % | **813** | 96,9 | **0,0 %** |
+| +2,40 | 4,5 % | 308 | 120,8 | 0,0 % |
+
++1,70 EV ist der Wert, den `BoardExposureGovernor` live selbst gewaehlt hat
+(`docs/board-exposure.md`). Dort fallen **64 % der besetzten Zellen aus dem Fenster**, und der
+Anteil zu dunkler Zellen geht auf null.
+
+Kein Widerspruch — es ist derselbe Gewinn auf dem besseren Weg: echtes Licht am Sensor statt
+gestreckter Kontrast im Nachhinein. Aber zwei Dinge folgen:
+
+- **Ein absolutes Graufenster ist die falsche Parametrisierung**, sobald die Belichtung geregelt
+  wird. Es gehoert an ein Perzentil der Brettverteilung oder an den KONTRAST der Zelle statt an
+  ihren Pegel.
+- **Die CLAHE-Arme sind auf ungeregeltem Material trainiert.** Geht die Regelung live, sieht das
+  Modell hellere Bretter als im Training — eine Train/Serve-Luecke, die niemand gemessen hat.
+
+Ungeklaert bleibt ausserdem die AUFTEILUNG: das Geraet faehrt 30,0 ms bei ISO ~3190, obwohl
+66,7 ms moeglich sind. Der manuelle Lauf zeigte dieselbe Helligkeit bei 28 % weniger Verstaerkung —
+ueber die Belichtungskorrektur ist das nicht steuerbar.
+
+## `cnn_desync` rastet auf einem KORREKTEN Brett ein (2026-08-29, live belegt)
+
+Testpartie im dunklen Buero, `data/games/2026-08-29-abend/testpartie-2329.pgn`. Nach 11.Nxd4 haengt
+der Tracker 25 Minuten in der Schleife
+
+    ply=21 REJECT why=STUCK cnn_desync    changed=[]  cnnAgree=1.000
+    ply=21 REJECT why=STUCK no_legal_move
+
+Alle 64 Felder aus der Live-Ansicht gegen `r1b1kb1r/pp3ppp/2p5/3pP3/BP1Nn3/1PN5/2P2PPP/R1B1K2R b`
+gelesen: **die Stellung stimmt exakt**, der zweifelhafte Commit 11.Nxd4 (`by=cnn_recovery`,
+margin 0,13) eingeschlossen. Das Veto ist also falsch, und es blockiert dauerhaft den stillen
+Re-Anchor (`TrackerEngine.quietOutcome`, Zweig `desync != null`).
+
+Die UI meldet abwechselnd "Change on 1 squares" bis "8 squares, but no legal move fits" —
+Rauschpegel, kein Zug. Und sie bietet keinen Ausweg: das Ueberlaufmenue hat Recalibrate,
+Camera view, Tracking camera, Light, Share on Wi-Fi. Kein Resync, kein Baseline. Uebrig bleiben
+"Take back move" (waere hier falsch gewesen) und "End game".
+
+Zwei Dinge zu klaeren: WELCHES Feld das CNN anders liest (der Konflikt steht nur in `state.note`
+und wird nirgends geloggt), und ob der Standoff-Bound `desyncStandoffObsN` hier ueberhaupt greift.
+
+Dazu, aus derselben Partie: von 21 Halbzuegen kamen 4 ueber `cnn_recovery` ("position was LOST —
+rebuilt by the CNN, not detected") und einer ueber `cnn_overrule`. Der Frame-Diff-Pfad traegt die
+Partie nicht, das CNN traegt sie.
+
+## ERLEDIGT, negativ: Flat-field auf Brettebene (2026-08-30)
+
+Gebaut, 463 739 Crops geschnitten, zwei Datensaetze auf identischer Zeilenmenge gepackt, zwei Arme
+zu 60 Epochen. Ergebnis: **klar schlechter.**
+
+| Arm | best | letzte 10 | val-Fehler | Genauigkeit | macro |
+|---|---:|---:|---:|---:|---:|
+| ohne Flat-field | 0,9524 | 0,9227 | 648 | 0,9800 | 0,9399 |
+| Flat-field | 0,9255 | 0,9026 | **1 020** | 0,9685 | 0,9026 |
+
+57 % mehr Fehler. Und der Grund steht in den Helligkeitsbaendern: die Korrektur hat getan, was sie
+versprach — "sehr dunkel" schrumpft von 1 307 auf **39** Zellen, "dunkel" waechst von 1 580 auf
+2 644. Nur ist die Genauigkeit im Band "dunkel" dabei von 0,9544 auf **0,8211** gefallen, und die
+Laeufer/Bauer-Verwechslung hat sich mehr als verdoppelt (119 auf 285 von 1 710).
+
+**Die Lehre ist dieselbe wie beim CLAHE-Band:** eine Verstaerkung hebt das Rauschen mit. Wo kein
+Signal ist, macht Nachbearbeitung keins — sie macht die Zelle nur heller und genauso mehrdeutig.
+CLAHE traegt deshalb NUR im Fenster 25-40 und drueckt darunter; Flat-field legt seine Verstaerkung
+ueber alles, auch ueber die dunkelste Ecke, und genau dort bricht es.
+
+Was WIRKT, ist echtes Licht am Sensor: `docs/board-exposure.md`.
+
+Code bleibt (`imgops.cell_illumination`, `slice --flat-field`), die Datensaetze
+`real13-mix-v4-ff*` auch — wer die Idee wieder aufgreift, soll die Messung nicht zweimal machen.
+
+## Der native Crop-Warp verkleinert auch das Hand-Gate (2026-08-29, ungemessen)
+
+`BoardGeometry.forNativeCrops()` zieht den bordierten Crop-Warp von der kalibrierten `boardSize`
+(real 1008-1248) auf die aus dem Modell abgeleitete: **576 bei `outW` 80**, 928 bei 128. Gemessen
+ist der Nutzen auf der Figurenachse (nativ 0,9120 gegen 0,9095 heruntergerechnet, 18 282 Zellen).
+
+**Nicht gemessen ist die Nebenwirkung.** `gridOccludedSquares` liest DENSELBEN Warp
+(`CnnCropAdapter.kt`), und `gridSegments(gray, geom.boardSize, ...)` skaliert seine Suchfenster
+zwar mit, aber die Rillenlinien haben bei 576 nur noch gut die Haelfte der Pixel. Das ist der
+modellfreie Arm hinter dem 67/67-Meilenstein — der, der Fabrikationen verhindert.
+
+**Zu messen, bevor das aufs Geraet geht:** den Regressionssatz zweimal replayen, einmal mit
+kalibrierter und einmal mit nativer Crop-Groesse, und `gridOccluded` je Ply vergleichen. Ein
+Gate, das seltener anschlaegt, kauft Genauigkeit mit Phantomen — der schlechteste Tausch, den
+dieses Projekt kennt.
+
+## CLAHE verstaerkt das Rauschen, das der Blur danach wieder wegnimmt (2026-08-29)
+
+`GrayPipeline.toGray` ist `cvtColor -> [CLAHE] -> GaussianBlur(5,5)`. Der Blur laeuft
+**unbedingt**, auch bei `claheClip = 0` — er gehoert also nicht zu CLAHE, sondern zum Verbraucher:
+`FrameLoop.kt:146` zaehlt ueber `motionScore` Pixel mit Differenz ueber `motionPxThr = 20`, und
+Sensorrauschen erzeugt genau solche. Nur hebt CLAHE denselben Rauschboden vorher an — im Projekt
+belegt (`FrameLoop.kt:105`: „CLAHE amplifies near-black sensor noise"), weshalb das
+Dunkelframe-Gate VOR CLAHE misst.
+
+Signaltechnisch waere **erst glaetten, dann verstaerken** besser: man verstaerkt das Rauschen gar
+nicht erst. Die heutige Reihenfolge ist aus `tracker.py:1008 _gray` portiert und mit
+Vergleichbarkeit begruendet („reference and current must be enhanced identically"), was beide
+Reihenfolgen erfuellen.
+
+**Zu messen, bevor jemand tauscht:** `motionPxThr = 20` und `motionThr` sind an der HEUTIGEN Kette
+kalibriert, inklusive der `motionThr x 30 / fps`-Kopplung. Ein Tausch verschiebt den Rauschboden im
+Differenzbild und entwertet beide Schwellen. Also: Rauschboden vorher/nachher auf dem
+Regressionssatz messen (`scripts/motion_stats.py`, `motiondump=`), dann erst entscheiden — und die
+Schwellen im selben Zug neu bestimmen, nicht danach.
+
+Nebenbefund derselben Untersuchung: genau dieser Blur macht `grayDet` fuer die CNN-Spur unbrauchbar
+— `median3`, eine aehnliche Glaettung, kippte alle drei hellen Testzellen von `wB` auf `wP`.
+
 ## Ein Doppelschlag aufs selbe Feld faellt fast immer durch die Ambiguitaetsschwelle (2026-08-26)
 
 Live beobachtet, Damentausch auf d4 (`tmp/live/session.log`, ply 11/12): der Paar-Kandidat
