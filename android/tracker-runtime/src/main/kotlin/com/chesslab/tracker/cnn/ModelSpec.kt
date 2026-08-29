@@ -20,8 +20,15 @@ import kotlinx.serialization.json.jsonPrimitive
  * lives there. What the app can check is that the graph it is about to run agrees with the config
  * beside it — see [OnnxSquareClassifier].
  */
+
 private const val MIN_INPUT_SIZE = 32
 private const val MAX_INPUT_SIZE = 512
+
+// Der einzige `clahe_denoise`-Wert, den `CropClahe` reproduziert; der `--clahe-tile`-Default aus
+// `training/torch_data.py`; und die Obergrenze, bei der das Band keins mehr ist.
+private const val DENOISE_OFF = "off"
+private const val DEFAULT_CLAHE_TILE = 8
+private const val MAX_LEVEL = 255.0
 
 /**
  * The subset of a run's `config.json` the tracker needs. Everything here is READ from the
@@ -77,6 +84,16 @@ data class ModelSpec(
      * verschieden, weil die Schwelle aus seiner Guete folgt (`docs/occlusion-gate.md`).
      */
     val coverageGate: Double? = null,
+    /**
+     * `clahe_*` — lokaler Kontrast je Crop, VOR der Normalisierung, wie im Training.
+     *
+     * Wer das ignoriert, fuettert ein Modell mit rohen Crops, das auf behandelten trainiert
+     * wurde. Das Fenster ist ein BAND und kein Schwellwert (`docs/clahe-band.md`); 0 heisst aus.
+     */
+    val claheClip: Double = 0.0,
+    val claheTile: Int = DEFAULT_CLAHE_TILE,
+    val claheMinMean: Double = 0.0,
+    val claheMaxMean: Double = MAX_LEVEL,
 ) {
     /** Channels the ONNX input expects — [repr]'s, never a literal 3. */
     val channels: Int get() = repr.channels
@@ -116,6 +133,15 @@ data class ModelSpec(
             val normalize = root["normalize"]?.jsonObject
             // Both pads or neither: half a crop declaration is not one, and the half that is
             // missing would be filled from the profile — a box nobody chose.
+            // Was der Lauf an Vorverarbeitung VERLANGT, muss diese Seite auch koennen. Sonst
+            // bekommt ein Modell Pixel, die es nie gesehen hat — und nichts sagt es: kein
+            // Absturz, keine Warnung, nur ein paar Punkte weniger, die niemand einem Schalter
+            // zuordnet. Deshalb wird hier abgelehnt statt ignoriert.
+            val denoise = root["clahe_denoise"]?.jsonPrimitive?.content ?: DENOISE_OFF
+            require(denoise == DENOISE_OFF) {
+                "model asks for clahe_denoise=$denoise, which this runtime does not implement — " +
+                    "serving it without would feed it crops it was never trained on"
+            }
             val padSide = root["pad_side"]?.jsonPrimitive?.content?.toDouble()
             val padUp = root["pad_up"]?.jsonPrimitive?.content?.toDouble()
             require((padSide == null) == (padUp == null)) {
@@ -133,6 +159,10 @@ data class ModelSpec(
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
                 coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
+                claheClip = root["clahe_clip"]?.jsonPrimitive?.double ?: 0.0,
+                claheTile = root["clahe_tile"]?.jsonPrimitive?.content?.toInt() ?: DEFAULT_CLAHE_TILE,
+                claheMinMean = root["clahe_min_mean"]?.jsonPrimitive?.double ?: 0.0,
+                claheMaxMean = root["clahe_max_mean"]?.jsonPrimitive?.double ?: MAX_LEVEL,
             )
         }
 

@@ -15,7 +15,9 @@ import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.CropClahe
 import com.chesslab.tracker.BuildConfig
+import com.chesslab.tracker.camera.BoardExposureGovernor
 import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.TrackerCamera
@@ -150,9 +152,20 @@ class TrackerService :
                     androidTrackerLogs,
                     ::cameraStages,
                     runGridOcclusion = modelSpec?.coverageOutput != true,
+                    // Aus der `config.json` des Modells, nicht aus einer Einstellung: ein mit
+                    // CLAHE trainiertes Modell ohne CLAHE zu bedienen ist eine stille
+                    // Train/Serve-Luecke, und die faellt niemandem auf.
+                    cropClahe =
+                        modelSpec?.takeIf { it.claheClip > 0.0 }?.let {
+                            CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean)
+                        },
                     // Read here, once, like every other AppSettings value: a change restarts the
                     // stack, which is what `StackSwitch` exists for.
                     engine = settings.appSettings.value.engine,
+                    // Die Belichtungskorrektur nach dem BRETT. Der Startpunkt ist, was auf dem
+                    // Schieber steht — die Regelung uebersteuert eine Einstellung des Nutzers
+                    // nicht, sie fuehrt sie weiter.
+                    exposure = BoardExposureGovernor(camera.look),
                 ),
                 settings,
                 publisher,

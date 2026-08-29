@@ -6,7 +6,9 @@ import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.allSquares
+import com.chesslab.tracker.camera.ExposureGovernor
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoTrackerLogs
@@ -82,6 +84,14 @@ class TrackerSeed<T>(
     /** False only when the successfully parsed model spec supplies its own coverage output. */
     val runGridOcclusion: Boolean = true,
     /**
+     * Lokaler Kontrast je Crop, wenn das geladene Modell ihn deklariert (`ModelSpec.claheClip`).
+     *
+     * Null ist der Zustand jedes bisher ausgelieferten Modells. Ein Modell, das mit CLAHE
+     * trainiert wurde, aber ohne bedient wird, bekommt Pixel, die es nie gesehen hat — deshalb
+     * kommt der Wert aus der `config.json` des Laufs und nicht aus einer Einstellung.
+     */
+    val cropClahe: CropClahe? = null,
+    /**
      * What the engine calls now. The wall clock for a camera; the VIDEO's clock for a replay,
      * where wall time has nothing to do with when a frame was taken — see `TrackerCoordinator`.
      */
@@ -97,6 +107,13 @@ class TrackerSeed<T>(
     val observerDispatcher: CoroutineDispatcher? = null,
     /** Desktop-only acceleration: independent square crops retain encounter order. */
     val parallelCrops: Boolean = false,
+    /**
+     * Belichtung nach dem BRETT statt nach dem Rahmen — nur das Handy setzt das.
+     *
+     * Vorgabe [ExposureGovernor.NONE]: ein Replay stellt keine Kamera, und eine Verstellung mitten
+     * im Replay waere eine Eingabe, die in der Datei nicht steht.
+     */
+    val exposure: ExposureGovernor = ExposureGovernor.NONE,
     /** Offline two-pass source; absence keeps the phone and ordinary replay path unchanged. */
     val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
     /** Records emitted observations during the visual-cache build pass. */
@@ -172,10 +189,22 @@ class TrackerStack<T>(
         }
     }
 
+    /**
+     * Gehoert dem Stack, weil sie mit ihm stirbt — [close] gibt ihre Mats zurueck.
+     *
+     * Und sie sagt beim Anlegen Bescheid: ob ein Modell seine eigene Vorverarbeitung bekommt, ist
+     * sonst von aussen nicht zu sehen, und eine still ausbleibende Stufe ist genau die Sorte
+     * Fehler, die nur als "ein paar Punkte weniger" auffaellt.
+     */
+    private val clahe =
+        seed.cropClahe?.also {
+            seed.logs("chesslabCnn").info("crop CLAHE aktiv: $it")
+        }
+
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
     val cropTap =
         DebugCropTap(
-            cropFrameSource(cropStore, seed.parallelCrops, seed.runGridOcclusion, seed.geometry),
+            cropFrameSource(cropStore, seed.parallelCrops, seed.runGridOcclusion, clahe),
         )
 
     private val observed = AtomicLong()
@@ -287,6 +316,7 @@ class TrackerStack<T>(
             ),
             timings,
             seed.nowMs,
+            seed.exposure,
         )
 
     init {
@@ -320,6 +350,7 @@ class TrackerStack<T>(
         scope.cancel()
         observer.close()
         pipeline.close()
+        clahe?.close()
     }
 }
 

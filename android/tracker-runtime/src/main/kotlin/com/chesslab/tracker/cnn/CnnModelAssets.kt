@@ -25,32 +25,28 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
  * in the APK and in `filesDir`, so there is no table mapping a label to a path that could rot.
  *
- * Each carries its own `config.json` and so declares its own `infer_size` (specs/22); the crops
- * follow it. The GroupNorm and 2-class occupancy families were retired (see `RETIRED_MODELS` in
- * `AppSettings`), and only BatchNorm graphs are trained now.
- *
- * `real13-ms-s3-hn4-bn80` is the default since 2026-08-25, and it replaced `real14-80` on a
- * measurement, not a preference: 14-class runs declare no `coverage_output`, which leaves the
- * model-free grid arm switched on, and on the regression set that arm locks the tracker. Same
- * recording, same everything else, only the model: `2026-08-07-13-52-38` goes from four found,
- * 21 missed and THREE phantoms to 25/0/0, and `2026-08-08-00-39-57` from no committed ply at all
- * to 67/0/0.
- *
- * `real14-80` stays bundled as the 14-class comparison arm, `id35-80` as the conservative
- * identity-only one (specs/29). The `real13`/`comp13` runs carry a measured `coverage_gate`
- * (`docs/occlusion-gate.md`), which the app applies on attach.
+ * Each carries its own `config.json` and so declares its own `infer_size` (specs/22), its
+ * `coverage_gate` (`docs/occlusion-gate.md`) and — seit `p4a-80-clahe` — seine Vorverarbeitung.
+ * Die `real13`/`real14`/`id35`-Familien sind mit dem `p4`-Wechsel (2026-08-30) ausgezogen.
  */
-const val DEFAULT_MODEL = "real13-ms-s3-hn4-bn80"
+const val DEFAULT_MODEL = "p4full-128"
 
-/** Default first, so Settings presents the model a fresh install actually runs at the top. */
+/**
+ * Default first, so Settings presents the model a fresh install actually runs at the top.
+ *
+ * `p4a` = Aufmerksamkeitskopf ueber die 64 Zellen, Zahl = Crop-Groesse, `full` = langes Rezept.
+ * `p4a-80-clahe` verlangt als erstes Modell eigene Vorverarbeitung (`docs/clahe-band.md`).
+ */
 val BUNDLED_MODELS =
     listOf(
         DEFAULT_MODEL,
-        "c8d1-seed43",
-        "real14-80",
-        "real13-ms-s2-bn80-bs256-swa1e4",
-        "comp13-occ-bn-lr1e2-bs512",
-        "id35-80",
+        "p4afull-128",
+        "p4a-128",
+        "p4-128",
+        "p4a-96",
+        "p4a-80-clahe",
+        "p4a-80",
+        "p4-80",
     )
 
 /**
