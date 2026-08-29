@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.AlarmReason
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
@@ -135,7 +136,7 @@ internal fun EngineState.desyncEvidence(
  * about it are still the most useful thing it has.
  */
 private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
-    board.alarmReason(latched.guess)?.let { return "Illegal move — $it" }
+    board.alarmReason(latched.guess)?.let { return "Illegal move — ${it.text()}" }
     val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
     return "ILLEGAL MOVE? $what — take it back, or resync to accept"
 }
@@ -209,7 +210,7 @@ internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<Tr
     // Rendered against the position it was attempted IN, which is not always the live board: a
     // probe or a copy is just as capable of being handed a fabrication.
     val san = runCatching { Game(cause.fen).alarmGuessSan(cause.uci) }.getOrNull()
-    val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san)
+    val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san, AlarmReason.ENGINE_REFUSED)
     alarm = raised
     alarmSince = nowS
     recordRejection(cause.uci, "REFUSED illegal move ${cause.uci} in ${cause.fen}")
@@ -222,7 +223,11 @@ private fun EngineState.latchAlarm(
     conflicts: List<String>,
     guess: String?,
 ): TrackerEvent.Alarm {
-    val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess))
+    // Ohne Zug gibt es keinen Regelgrund: dann weicht nur die Erkennung ab, und das sagt der Code.
+    val reason =
+        board.alarmReason(guess)
+            ?: if (guess == null) AlarmReason.BOARD_MISMATCH else AlarmReason.NOT_LEGAL
+    val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess), reason)
     alarm = raised
     alarmSince = nowS
     // Only `clearAlarm` used to write a row, so the moment the board was declared lost — the single
@@ -245,7 +250,7 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
     return if (piece == null) {
         squares
     } else {
-        val reason = alarmReason(guess) ?: "illegal move suspected"
+        val reason = alarmReason(guess)?.text() ?: "illegal move suspected"
         "${piece.uppercaseChar()} $squares ($reason)"
     }
 }
@@ -256,7 +261,7 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
  * Order by what the player has to do about it: who is to move outranks being in check, because
  * otherwise the wrong person starts looking for their king (User, 2026-08-24).
  */
-internal fun Game.alarmReason(guess: String?): String? {
+internal fun Game.alarmReason(guess: String?): AlarmReason? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null
     val from = Squares.index(guess.substring(0, 2).lowercase())
     val to = Squares.index(guess.substring(2, UCI_SQUARES_LEN).lowercase())
@@ -267,11 +272,24 @@ internal fun Game.alarmReason(guess: String?): String? {
             abs(from % Squares.N - to % Squares.N) == 2 &&
             !hasCastlingRights(piece.isUpperCase())
     return when {
-        castling -> "castling not available"
-        piece.isUpperCase() != whiteToMove -> "it is ${if (whiteToMove) "White" else "Black"} to move"
-        result().inCheck -> "you are in check"
+        castling -> AlarmReason.NO_CASTLING
+        piece.isUpperCase() != whiteToMove ->
+            if (whiteToMove) AlarmReason.WHITE_TO_MOVE else AlarmReason.BLACK_TO_MOVE
+        result().inCheck -> AlarmReason.IN_CHECK
         else -> null
     }
 }
+
+/** Die englische Prosa fuer Note und Karte; die Sprachansage formuliert selbst ([AlarmReason]). */
+internal fun AlarmReason.text(): String =
+    when (this) {
+        AlarmReason.NO_CASTLING -> "castling not available"
+        AlarmReason.WHITE_TO_MOVE -> "it is White to move"
+        AlarmReason.BLACK_TO_MOVE -> "it is Black to move"
+        AlarmReason.IN_CHECK -> "you are in check"
+        AlarmReason.NOT_LEGAL -> "illegal move suspected"
+        AlarmReason.BOARD_MISMATCH -> "the board and the app disagree"
+        AlarmReason.ENGINE_REFUSED -> "the app was handed a move it cannot play"
+    }
 
 private fun List<String>.shown(): String = take(CONFLICTS_SHOWN).joinToString(", ") + if (size > CONFLICTS_SHOWN) "…" else ""

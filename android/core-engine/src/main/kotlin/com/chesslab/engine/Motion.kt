@@ -45,9 +45,8 @@ internal fun motionScore(
  * The smallest absdiff that still satisfies `d > pxThr`, or null when no diff can — so the loop
  * compares two ints instead of widening every one of 640 000 pixels to a double.
  *
- * `d` is an integer in `0..255`, and for an integer `d` the strict `d > pxThr` is exactly
- * `d >= floor(pxThr) + 1`. The two ends are the cases that would break that: a threshold of 255 or
- * more is unreachable, and NaN counts nothing — both what the double comparison already did.
+ * For an integer `d` in `0..255` the strict `d > pxThr` is exactly `d >= floor(pxThr) + 1`. A
+ * threshold of 255+ is unreachable and NaN counts nothing — both as the double comparison did.
  */
 private fun leastCountingDiff(pxThr: Double): Int? =
     when {

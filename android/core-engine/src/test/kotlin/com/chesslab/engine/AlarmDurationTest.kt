@@ -7,15 +7,9 @@ import org.junit.jupiter.api.Test
 /**
  * The latch measures a DURATION, and a burst of readings is not one.
  *
- * `desyncObsN` always claimed to mean "persistent over seconds" — its own KDoc says so — but it
- * only ever counted observations. While the CNN read on a clock those were the same thing. Since
- * it reads when the board settles (`feat(engine): auf Stellungswechsel takten`, 2026-08-24) the
- * observations arrive in bursts: measured on `VID_20260824_154327`, one every **0.07 s**, so three
- * of them are 0.21 s and the phrase "over seconds" was gone without the number changing.
- *
- * What it cost, on the same recording: the latch fired at ply 10 on a board whose FEN matched the
- * label character for character, and the remaining **107 of 117 plies** never committed, because a
- * latched alarm has no way out that is not a human resync.
+ * `desyncObsN` claimed "persistent over seconds" but only counted observations. Since the CNN
+ * reads on settle they arrive every 0.07 s, so three of them are 0.21 s — measured on
+ * `VID_20260824_154327`, where the latch then cost 107 of 117 plies (`docs/alarm-path.md`).
  */
 class AlarmDurationTest {
     private val obsGapS = 0.07

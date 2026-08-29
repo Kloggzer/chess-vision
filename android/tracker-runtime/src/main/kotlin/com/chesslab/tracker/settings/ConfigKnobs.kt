@@ -83,6 +83,7 @@ val KNOBS: List<Knob> =
         Knob("pOccludedThr", DOUBLE, { it.pOccludedThr }, { c, v -> c.copy(pOccludedThr = v) }),
         Knob("refusedStreakForEval", INT, { it.refusedStreakForEval.toDouble() }, { c, v -> c.copy(refusedStreakForEval = v.toInt()) }),
         Knob("alarmDeferObs", INT, { it.alarmDeferObs.toDouble() }, { c, v -> c.copy(alarmDeferObs = v.toInt()) }),
+        Knob("alarmMinS", DOUBLE, { it.alarmMinS }, { c, v -> c.copy(alarmMinS = v) }),
         Knob("verifyWindow", INT, { it.verifyWindow.toDouble() }, { c, v -> c.copy(verifyWindow = v.toInt()) }),
         Knob("verifyTimeoutS", DOUBLE, { it.verifyTimeoutS }, { c, v -> c.copy(verifyTimeoutS = v) }),
         Knob("cnnMinAgreement", DOUBLE, { it.cnnMinAgreement }, { c, v -> c.copy(cnnMinAgreement = v) }),

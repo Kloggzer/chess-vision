@@ -38,6 +38,11 @@ val NOT_A_SETTING: Map<String, String> =
             "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
             "tracked, and the latch may wait this many observations beyond the threshold so an arriving hand " +
             "can still cancel it. Zero relies on the hand check alone, which is the part that is measured.",
+        "alarmMinS" to
+            "Measured, not chosen: the desync latch must see the contradiction STAND for this long. It used " +
+            "to count observations only, which meant seconds while the CNN read by the clock and 0.21 s once " +
+            "it read on arrival — measured on VID_20260824_154327 the latch then closed on a board that was " +
+            "correct sign for sign and cost 107 of 117 plies.",
         "cnnColorAxis" to
             "Not a preference but an experiment arm: it searches on occupancy and colour instead of the piece " +
             "type, which is right where the model confuses types and wrong where it does not. Measured " +
