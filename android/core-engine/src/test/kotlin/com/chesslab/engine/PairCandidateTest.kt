@@ -30,6 +30,50 @@ class PairCandidateTest {
         assertEquals(false, pair.priorUsed)
     }
 
+    /**
+     * Drei Schlaege auf DASSELBE Feld in einem Blick: `f3xe5 c6xe5 d4xe5` leert f3, c6 und d4 und
+     * stellt einen weissen Bauern auf e5. Als Paar gelesen gewann `f3e5 c6d4`, weil es alle vier
+     * beruehrten Felder erklaert — und dabei einen Springer auf d4 erfindet (2026-08-30 live).
+     */
+    @Test
+    fun threeCapturesOntoOneSquareAreASequence() {
+        val state = hypothesisState("r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4")
+        val z = zOf("f3" to HOT, "c6" to HOT, "d4" to HOT, "e5" to HOT)
+
+        val found =
+            loglikSequenceScores(state.board, z, state.config.zThr, LL_K, maxPlies = 3)
+                .map { (seq, _) -> seq.map { uciOf(it) } }
+
+        assertTrue(listOf("f3e5", "c6e5", "d4e5") in found, "der Dreifachschlag muss gebildet werden")
+    }
+
+    /**
+     * Und warum er den Blick allein nicht gewinnt: `f3e5 c6d4` beruehrt DIESELBEN vier Felder und
+     * scort damit gleich. Der Diff kann die beiden nicht trennen — das kann nur das Modell, und
+     * das tut es eine Stufe spaeter (`VerifyPair.pairColourConflicts`).
+     */
+    @Test
+    fun theWrongPairScoresTheSameAsTheRightTriple() {
+        val state = hypothesisState("r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4")
+        val z = zOf("f3" to HOT, "c6" to HOT, "d4" to HOT, "e5" to HOT)
+        val scored = loglikSequenceScores(state.board, z, state.config.zThr, LL_K, maxPlies = 3)
+
+        fun scoreOf(vararg ucis: String) = scored.first { (s, _) -> s.map { uciOf(it) } == ucis.toList() }.second
+
+        assertEquals(scoreOf("f3e5", "c6e5", "d4e5"), scoreOf("f3e5", "c6d4"), 1e-9)
+    }
+
+    /** Ohne gemeinsames Zielfeld bleibt es bei zwei — sonst erfindet die dritte Ebene Zuege. */
+    @Test
+    fun aThirdPlyNeedsTheSameTargetSquare() {
+        val state = hypothesisState()
+        val z = zOf("e2" to HOT, "e4" to HOT, "e7" to HOT, "e5" to HOT, "g1" to HOT, "f3" to HOT)
+
+        val candidate = state.pairCandidate(z, NO_SCORE)
+
+        assertTrue(candidate == null || candidate.moves.size <= 2, "drei Ziele, drei Felder: kein Tripel")
+    }
+
     /** `test_pair_requires_endpoint_evidence` — only one half has evidence -> no pair at all. */
     @Test
     fun pairRequiresEndpointEvidence() {

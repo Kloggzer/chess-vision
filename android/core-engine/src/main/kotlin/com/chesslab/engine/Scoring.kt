@@ -33,6 +33,12 @@ internal const val LOGIT_CLIP = 12.0
 /** `soft = z_thr * 0.5` when the caller passes none. */
 internal const val PAIR_SOFT_FACTOR = 0.5
 
+/** Was ein Paar ist, und die kuerzeste Sequenz, die als Kandidat zaehlt. */
+internal const val PAIR_PLIES = 2
+
+/** Deckel gegen den Suchbaum; [endpointsOk] beschneidet ihn ohnehin auf die bewegten Felder. */
+private const val SEQUENCE_NODE_CAP = 4000
+
 /** `logit = clip(k * (z - zThr), -12, +12)` per square. */
 internal fun logits(
     z: DoubleArray,
@@ -90,25 +96,54 @@ internal fun loglikPairScores(
     zThr: Double = Z_THR_DEFAULT,
     k: Double = LL_K,
     soft: Double? = null,
+): List<Pair<List<Move>, Double>> = loglikSequenceScores(g, z, zThr, k, soft, PAIR_PLIES)
+
+/**
+ * Dasselbe fuer bis zu [maxPlies] Halbzuege, jenseits von zwei nur der Abtausch auf DEMSELBEN
+ * Zielfeld: `f3xe5 c6xe5 d4xe5` leert drei Felder und besetzt eines, und als Paar gelesen gewinnt
+ * die Erklaerung, die alle vier beruehrt und dabei eine Figur erfindet. Frei gesucht erfand die
+ * dritte Ebene ein `Rg1` statt `Bc4 Bc5 O-O` (2026-08-30).
+ */
+internal fun loglikSequenceScores(
+    g: Game,
+    z: DoubleArray,
+    zThr: Double = Z_THR_DEFAULT,
+    k: Double = LL_K,
+    soft: Double? = null,
+    maxPlies: Int = PAIR_PLIES,
 ): List<Pair<List<Move>, Double>> {
     val cut = soft ?: zThr * PAIR_SOFT_FACTOR
     val logit = logits(z, zThr, k)
-    val first = IntArray(TOUCHED_MAX)
-    val second = IntArray(TOUCHED_MAX)
     val scored = ArrayList<Pair<List<Move>, Double>>()
-    for (mv1 in g.legalMoves()) {
-        if (!endpointsOk(z, mv1, cut)) continue
-        val n1 = moveTouchedIndices(g, mv1, first)
-        g.push(mv1)
-        for (mv2 in g.legalMoves()) {
-            // mv1's target square may be reused by mv2 (capture exchange) — mv2's endpoint
-            // evidence still counts, but the shared square is only summed once.
-            if (!endpointsOk(z, mv2, cut)) continue
-            val n2 = moveTouchedIndices(g, mv2, second)
-            scored.add(listOf(mv1, mv2) to unionSum(logit, first, n1, second, n2))
+    val buffer = IntArray(TOUCHED_MAX)
+    var nodes = 0
+
+    fun walk(
+        path: MutableList<Move>,
+        claimed: Set<Int>,
+    ) {
+        if (path.size >= maxPlies || nodes > SEQUENCE_NODE_CAP) return
+        for (mv in g.legalMoves()) {
+            if (!endpointsOk(z, mv, cut)) continue
+            // Ab dem dritten Halbzug NUR der Schlagabtausch auf demselben Feld. Eine allgemeine
+            // Tiefensuche erfand in der Paritaet ein `Rg1` statt `Bc4 Bc5 O-O`: mehr Felder
+            // erklaert, und trotzdem falsch.
+            if (path.size >= PAIR_PLIES && mv.to != path.last().to) continue
+            nodes += 1
+            val n = moveTouchedIndices(g, mv, buffer)
+            // Ein geteiltes Feld zaehlt einmal — der Schlagabtausch auf einem Feld ist genau der
+            // Fall, fuer den das gilt.
+            val union = claimed + (0 until n).map { buffer[it] }
+            path.add(mv)
+            scored.add(path.toList() to union.sumOf { logit[it] })
+            g.push(mv)
+            walk(path, union)
+            g.pop()
+            path.removeAt(path.size - 1)
         }
-        g.pop()
     }
+    walk(ArrayList(), emptySet())
+    scored.removeAll { it.first.size < PAIR_PLIES }
     sortByValueDescending(scored)
     return scored
 }

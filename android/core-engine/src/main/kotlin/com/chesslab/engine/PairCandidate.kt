@@ -26,8 +26,8 @@ internal fun EngineState.pairCandidate(
 ): Candidate? {
     val soft = config.zThr * PAIR_SOFT_FACTOR
     val viable =
-        loglikPairScores(board, z, config.zThr, LL_K)
-            .filter { pairViable(it.first, z, soft) }
+        loglikSequenceScores(board, z, config.zThr, LL_K, maxPlies = FAST_PLIES)
+            .filter { sequenceViable(it.first, z, soft) }
     if (viable.isEmpty()) return null
     val (seq, best) = viable[0]
     val second = if (viable.size > 1) viable[1].second else NO_SCORE
@@ -50,17 +50,26 @@ internal fun EngineState.pairCandidate(
  * the square derivation reads the move stack, so the result is identical without a FEN reparse
  * per pair (same rationale as STATUS D02a-8).
  */
-private fun EngineState.pairViable(
+private fun EngineState.sequenceViable(
     seq: List<Move>,
     z: DoubleArray,
     soft: Double,
 ): Boolean {
-    val (mv1, mv2) = seq
-    var touched = moveTouchedMask(board, mv1)
-    var dests = moveDestinationMask(board, mv1)
-    board.push(mv1)
-    touched = touched or moveTouchedMask(board, mv2)
-    dests = dests or moveDestinationMask(board, mv2)
-    board.pop()
+    var touched = 0L
+    var dests = 0L
+    for (mv in seq) {
+        touched = touched or moveTouchedMask(board, mv)
+        dests = dests or moveDestinationMask(board, mv)
+        board.push(mv)
+    }
+    repeat(seq.size) { board.pop() }
     return allAbove(touched, z, soft) && dests and shadowVetoed == 0L
 }
+
+/**
+ * Wie viele Halbzuege schnelles Spiel hoechstens in einem Blick unterbringt.
+ *
+ * Drei, seit `f3xe5 c6xe5 d4xe5` als Paar gelesen einen Springer auf d4 erfand, der dort nie
+ * stand (gemessen 2026-08-30). Vier waeren der naechste Schritt und brauchen eine eigene Messung.
+ */
+private const val FAST_PLIES = 3
