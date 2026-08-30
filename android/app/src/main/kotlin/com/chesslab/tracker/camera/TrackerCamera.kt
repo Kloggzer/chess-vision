@@ -1,6 +1,7 @@
 package com.chesslab.tracker.camera
 
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES
 import android.hardware.camera2.CaptureRequest
 import android.os.Handler
@@ -239,7 +240,9 @@ class TrackerCamera(
         // builder is a second view of one config, and splitting the options across two reads as if
         // they were independent.
         val extender = Camera2Interop.Extender(builder)
-        pinFrameRate(extender, cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() })
+        val bound = cameraProvider.availableCameraInfos.firstOrNull { selector.filter(listOf(it)).isNotEmpty() }
+        pinFrameRate(extender, bound)
+        pinExposureTime(extender, bound)
         video.frameRate = target.targetFps
         optics.prepare(extender)
         val analysis = builder.build()
@@ -304,6 +307,55 @@ class TrackerCamera(
         extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
         Log.i(TAG, "AE target fps range pinned to $range (of ${available.joinToString()})")
     }
+
+    /**
+     * Der Automatik die Belichtungszeit vorgeben und ihr nur noch das ISO ueberlassen.
+     *
+     * Dieses Tuning waehlt sonst 10,0 ms und bezahlt den Rest mit Verstaerkung. Qualcomms
+     * `iso_exp_priority` ist der Weg daran vorbei, der die AE anlaesst — gemessen 2026-08-30:
+     * ISO 404 auf 55, bei gleicher Helligkeit und Bildrate (`docs/board-exposure.md`).
+     */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun pinExposureTime(
+        extender: Camera2Interop.Extender<*>,
+        info: CameraInfo?,
+    ) {
+        val select = vendorKey(SELECT_PRIORITY, Int::class.javaObjectType) ?: return
+        val value = vendorKey(USE_ISO_EXP_PRIORITY, Long::class.javaObjectType) ?: return
+        // Die halbe Bildperiode: lang genug, um das ISO zu druecken, mit Luft gegen einen
+        // Ratenabfall — eine Belichtung ueber der Periode kostet Bilder.
+        val wanted = HALF_SECOND_NS / target.targetFps
+        val allowed = info?.let { vendorRange(it) }
+        val capped = allowed?.let { wanted.coerceIn(it[0], it[1]) } ?: wanted
+        extender.setCaptureRequestOption(select, EXP_PRIORITY)
+        extender.setCaptureRequestOption(value, capped)
+        Log.i(TAG, "exposure time pinned to %.1f ms, AE keeps the ISO".format(capped / 1e6))
+    }
+
+    /** Ein Vendor-Tag als Request-Schluessel; sein Konstruktor steht nicht im SDK. */
+    private fun <T> vendorKey(
+        name: String,
+        type: Class<T>,
+    ): CaptureRequest.Key<T>? =
+        runCatching {
+            @Suppress("UNCHECKED_CAST")
+            CaptureRequest.Key::class.java
+                .getConstructor(String::class.java, Class::class.java)
+                .newInstance(name, type) as CaptureRequest.Key<T>
+        }.getOrNull()
+
+    /** Derselbe Weg fuer die Charakteristik, die den erlaubten Zeitbereich nennt. */
+    @OptIn(ExperimentalCamera2Interop::class)
+    private fun vendorRange(info: CameraInfo): LongArray? =
+        runCatching {
+            @Suppress("UNCHECKED_CAST")
+            val key =
+                CameraCharacteristics.Key::class.java
+                    .getConstructor(String::class.java, Class::class.java)
+                    .newInstance(EXPOSURE_TIME_RANGE, LongArray::class.java)
+                    as CameraCharacteristics.Key<LongArray>
+            Camera2CameraInfo.from(info).getCameraCharacteristic(key)
+        }.getOrNull()?.takeIf { it.size == 2 }
 
     /**
      * The requested mode is a wish; [ResolutionStrategy] may hand back anything it likes.
@@ -395,6 +447,15 @@ class TrackerCamera(
 
     private companion object {
         const val TAG = "chesslabCamera"
+
+        /** Qualcomms Belichtungs-Vorrang: `select_priority` = 1 ist CAM_EXP_PRIORITY. */
+        const val SELECT_PRIORITY = "org.codeaurora.qcamera3.iso_exp_priority.select_priority"
+        const val USE_ISO_EXP_PRIORITY = "org.codeaurora.qcamera3.iso_exp_priority.use_iso_exp_priority"
+        const val EXPOSURE_TIME_RANGE = "org.codeaurora.qcamera3.iso_exp_priority.exposure_time_range"
+        const val EXP_PRIORITY = 1
+
+        /** Halbe Sekunde in ns — geteilt durch die Bildrate ergibt die halbe Bildperiode. */
+        const val HALF_SECOND_NS = 500_000_000L
         const val MS_PER_S = 1000.0
         const val NANOS_PER_MS = 1_000_000.0
         const val SENSOR_LOG_INTERVAL_MS = 1000L

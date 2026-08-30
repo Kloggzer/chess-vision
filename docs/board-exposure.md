@@ -93,7 +93,7 @@ Governor erkennt das daran, dass `evIndex` von etwas anderem als ihm selbst geä
 Beginn einer Aufhell-Episode (nicht bei jedem Schritt) meldet der Governor eine `ExposureNotice`,
 und der `TrackerService` macht daraus einen Toast: „Dark board detected — brightening by +0,7 EV".
 
-## Die 10,0 ms sind nicht verhandelbar (2026-08-30, dreifach gemessen)
+## Die 10,0 ms — vier Sackgassen und der Ausweg (2026-08-30)
 
 Der Sensor-Auszug zeigte immer dasselbe Paar: **Zeit 10,0 ms, ISO variabel**. Der Verdacht lag
 nahe, die Bildraten-Spanne deckle die Belichtungszeit — bei `[30,30]` sind es 33,3 ms. Also drei
@@ -121,14 +121,34 @@ laesst das Telefon 85 % seines Zeitbudgets liegen und bezahlt sie mit Verstaerku
 **Der Pin bleibt damit richtig, aber aus einem anderen Grund als gedacht:** er kostet keine
 Belichtungszeit (die AE nimmt sie ohnehin nicht), er haelt nur die Bildrate stabil.
 
-**Damit ist der Weg zu Ende, der die Automatik anlaesst.** Bleibt nur `AE_MODE_OFF`, und der ist
-oben schon gemessen und verworfen: manuell faellt die ISP-Verstaerkung weg, und der Sensor allein
-kommt nicht dorthin, wo die ganze Kette hinkommt (65 gegen 109 luma).
+Damit ist der Weg zu Ende, der die Automatik nur BITTET. Was fehlte, war ein Weg, ihr die Zeit
+zu SETZEN, ohne sie abzuschalten — und den gibt es.
 
-Was das praktisch heisst: **das ISO ist keine Stellschraube dieser App.** Wer das Rauschen senken
-will, muss die Szene beleuchten. Sichtbar ist es seit heute wenigstens — `OpticsLock` schreibt
-`sensor <ms> ISO <n>`, sobald sich eine der beiden Zahlen merklich bewegt, und nicht mehr nur bei
-einer Verstellung der Regelung.
+### Der Ausweg: Qualcomms Belichtungs-Vorrang
+
+```
+org.codeaurora.qcamera3.iso_exp_priority.select_priority      = 1   (CAM_EXP_PRIORITY)
+org.codeaurora.qcamera3.iso_exp_priority.use_iso_exp_priority = <ns>
+```
+
+Beide Tags meldet dieses Geraet als Request-Keys, und `exposure_time_range` nennt den erlaubten
+Bereich: **0,02 ms bis 392 ms**. Die AE laeuft weiter und regelt nur noch das ISO. Gemessen:
+
+| | Zeit | ISO | fps | luma |
+|---|---:|---:|---:|---:|
+| vorher | 10,0 ms | **404** | 15,2 | 129,2 |
+| mit Vorrang, 30 ms | 30,0 ms | **55–67** | 15,0–15,3 | 129,1–129,3 |
+| eingebaut, halbe Bildperiode | 33,3 ms | **71** | 15,0–15,1 | 129 |
+
+Gleiche Helligkeit, gleiche Bildrate, **ein Sechstel der Verstaerkung**. Gesetzt wird die halbe
+Bildperiode: lang genug fuers ISO, mit Luft gegen einen Ratenabfall.
+
+`CONTROL_AE_PRIORITY_MODE` waere seit API 36 der offizielle Weg zum selben Ziel, aber dieses
+Geraet meldet unter `aeAvailablePriorityModes` nur `[0]` (OFF). Der Vendor-Pfad ist der einzige,
+den es anbietet — deshalb faellt `pinExposureTime` still aus, wo die Tags fehlen.
+
+Sichtbar wurde das alles erst durch das Instrument: `OpticsLock` schreibt `sensor <ms> ISO <n>`,
+sobald sich eine der beiden Zahlen merklich bewegt, und nicht mehr nur bei einer Verstellung.
 
 ## Zwei Fallen beim Verdrahten
 
