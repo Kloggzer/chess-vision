@@ -4,16 +4,16 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
-## TEILWEISE ERLEDIGT: der Replay folgt jetzt der Handy-Messung (2026-08-30)
+## ERLEDIGT: der Replay folgt der Handy-Messung (2026-08-30)
 
 Ecken, Frame-Auswahl und Startstellung kommen aus der Aufnahme selbst (`baa0167c`), die
-Zeitleiste traegt den Vorlauf, den das Video schon hatte (`626acb60`). Der Replay erfindet damit
-nichts mehr — vorher committete er `Nf3 d5` statt `d4 d5` — und trifft die ersten drei Live-Zuege.
+Zeitleiste traegt den Vorlauf, den das Video schon hatte (`626acb60`). Er erfindet nichts mehr —
+vorher committete er `Nf3 d5` statt `d4 d5` — und trifft die Live-Zuege. Dass er nicht jeden
+Lauf bis zum Ende nachfaehrt, wird NICHT weiterverfolgt: als Werkzeug reicht er.
 
-**Offen:** er bleibt bei ply 4 (`Nc6`) stehen, wo live `cnn_recovery` uebernahm, nachdem der Diff
-blind war. Solange kostet jede Runde einen Durchgang am Brett. Der urspruengliche Befund:
+Der urspruengliche Befund, zur Herkunft:
 
-## Der Replay sieht mehr Frames als das Telefon — und entscheidet deshalb anders (2026-08-30)
+## Der Replay sah mehr Frames als das Telefon — und entschied deshalb anders (2026-08-30)
 
 Gefordert: *"replay sollte sich verhalten wie das live spiel"*. Tut er nicht. Dieselbe Aufnahme,
 live acht Halbzuege, im Replay vier und dann `no_legal_move`. Ausgeschlossen wurden nacheinander
