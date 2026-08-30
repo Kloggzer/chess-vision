@@ -105,9 +105,13 @@ class ChangeSetEngine(
         crowdedRuns = 0
         // The model chooses among hypotheses rather than vetoing the winner — see `ChangeSearch`.
         val verdict =
-            search.explain(position, evidence, covered) { after, touched ->
-                check?.objections(after, touched)?.size ?: 0
-            }
+            search.explain(
+                position,
+                evidence,
+                covered,
+                objections = { after, touched -> check?.objections(after, touched)?.size ?: 0 },
+                captures = { was, now, quiet -> check?.captures(was, now, quiet)?.size ?: 0 },
+            )
         phase.read(input.timestampMs)
         onTrace("verdict=${verdict.javaClass.simpleName} covered=${covered.map(ChangeEvidence::nameOf)}")
         return when (verdict) {

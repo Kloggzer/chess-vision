@@ -49,6 +49,27 @@ class ColourCheck(
             mass[wanted] < 1.0 - SURE && mass.max() >= SURE
         }
 
+    /**
+     * Felder, auf denen ein Schlag stattfand und das Modell die NEUE Farbe sicher bestaetigt.
+     *
+     * Der Frame-Diff kann einen Schlag auf besetztem Feld nicht sehen — vorher steht dort eine
+     * Figur, nachher auch (`docs/engine-changeset.md`). Die Farbe aendert sich trotzdem, und das
+     * ist die Achse, auf der dieses Modell gut ist.
+     */
+    fun captures(
+        before: Board,
+        after: Board,
+        squares: Set<Int>,
+    ): List<Int> =
+        squares.filter { square ->
+            val was = groupOf(before.getPiece(Square.squareAt(square)))
+            val now = groupOf(after.getPiece(Square.squareAt(square)))
+            if (was == EMPTY || now == EMPTY || was == now) return@filter false
+            val row = reading.rows[indexIn(square)]
+            if (row.isEmpty() || square in covered()) return@filter false
+            groupMass(row)[now] >= SURE
+        }
+
     private fun groupMass(row: DoubleArray): DoubleArray {
         val out = DoubleArray(GROUPS)
         for (c in classes.indices) out[groupOfColumn(c)] += row[c]

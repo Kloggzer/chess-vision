@@ -69,11 +69,12 @@ class ChangeSearch(
         evidence: ChangeEvidence,
         covered: Set<Int>,
         objections: (Board, Set<Int>) -> Int = { _, _ -> 0 },
+        captures: (Board, Board, Set<Int>) -> Int = { _, _, _ -> 0 },
     ): Change {
         val raw = search(position, evidence).sortedByDescending { it.score }
         // Only the top of the list is priced: below it the pixels have ruled a hypothesis out
         // already, and every question costs a board clone.
-        val priced = raw.take(WEIGHED).map { charged(position, it, objections) }.sortedByDescending { it.score }
+        val priced = raw.take(WEIGHED).map { charged(position, it, evidence, objections, captures) }.sortedByDescending { it.score }
         val viable = priced + raw.drop(WEIGHED)
         val best = viable.firstOrNull()
         val near = viable.filter { best != null && it.score >= best.score - AMBIGUITY }
@@ -94,17 +95,28 @@ class ChangeSearch(
         return Change.Moves(prefix, complete = near.size == 1 && prefix == best.moves)
     }
 
-    /** The same hypothesis, minus what the model's disagreement costs it. */
+    /**
+     * Dieselbe Hypothese, minus dem Widerspruch des Modells und plus dem, was es bestaetigt.
+     *
+     * Gutgeschrieben wird NUR, wo der Frame-Diff prinzipiell blind ist: ein Schlag auf besetztem
+     * Feld laesst dort eine Figur stehen, also schweigen die Pixel und die Hypothese zahlt fuer
+     * ihr eigenes Zielfeld drauf. Wo sie sprechen, entscheiden sie allein (`docs/engine-changeset.md`).
+     */
     private fun charged(
         position: Board,
         hypothesis: Hypothesis,
+        evidence: ChangeEvidence,
         objections: (Board, Set<Int>) -> Int,
+        captures: (Board, Board, Set<Int>) -> Int,
     ): Hypothesis {
         if (hypothesis.moves.isEmpty()) return hypothesis
         val after = position.clone().also { board -> hypothesis.moves.forEach(board::doMove) }
-        val count = objections(after, hypothesis.touched)
-        if (count == 0) return hypothesis
-        return Hypothesis(hypothesis.moves, hypothesis.touched, hypothesis.score - OBJECTION_COST * count)
+        val objected = objections(after, hypothesis.touched)
+        val quiet = hypothesis.touched.filterTo(HashSet()) { evidence.at(it) <= 0.0 }
+        val confirmed = if (quiet.isEmpty()) 0 else captures(position, after, quiet)
+        if (objected == 0 && confirmed == 0) return hypothesis
+        val score = hypothesis.score - OBJECTION_COST * objected + CAPTURE_CREDIT * confirmed
+        return Hypothesis(hypothesis.moves, hypothesis.touched, score)
     }
 
     /**
@@ -296,5 +308,13 @@ class ChangeSearch(
          * overrule a move the pixels plainly show.
          */
         private const val OBJECTION_COST = 4.0
+
+        /**
+         * Was ein bestaetigter Schlag auf stummem Feld zurueckholt.
+         *
+         * Er soll die Strafe aufwiegen, die das Feld fuer sein eigenes Schweigen kassiert, nicht
+         * mehr: unter [OBJECTION_COST], damit ein Einwand einen Zuspruch weiterhin ueberstimmt.
+         */
+        private const val CAPTURE_CREDIT = 3.0
     }
 }

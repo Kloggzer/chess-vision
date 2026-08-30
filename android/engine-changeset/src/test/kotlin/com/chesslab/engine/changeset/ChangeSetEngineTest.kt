@@ -131,6 +131,55 @@ class ChangeSetEngineTest {
     }
 
     /**
+     * Ein Schlag auf besetztem Feld: der Diff sieht NUR das Herkunftsfeld, denn auf dem Zielfeld
+     * steht vorher wie nachher eine Figur. Live gemessen 2026-08-30 — `Nxe5 Nxe5 dxe5` blieb
+     * 314 s bei `no_legal_move`, und `e5` wurde in 205 Entscheidungen kein einziges Mal genannt.
+     */
+    @Test
+    fun `a capture onto an occupied square commits`() {
+        val start = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+        val after = "r1bqkbnr/pppp1ppp/2n5/4N3/3PP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4"
+        val engine = ChangeSetEngine(TrackerConfig(), start)
+        var at = settle(engine, start, 0L)
+        engine.onFrame(frame(after, at))
+        at += FRAME_MS
+        val seen = mutableListOf<TrackerEvent>()
+        repeat(8) {
+            engine.onCnnSnapshot(blindReading(after, engine.fen(), seq))
+            seen += engine.onFrame(frame(after, at))
+            at += FRAME_MS
+        }
+        assertEquals(listOf("f3e5"), seen.filterIsInstance<TrackerEvent.MoveCommitted>().map { it.uci }, "events were $seen")
+        assertEquals(after, engine.fen())
+    }
+
+    /**
+     * Der Zuspruch haengt an der BESTAETIGUNG, nicht am Schlag.
+     *
+     * Liest das Modell auf dem Zielfeld weiterhin die alte Farbe, bezeugt niemand den Schlag —
+     * weder die Pixel noch das Modell — und dann darf auch nichts committen. Sonst waere der
+     * Kredit eine Erlaubnis, sich Schlaege auszudenken.
+     */
+    @Test
+    fun `a capture the model does not confirm stays uncommitted`() {
+        val start = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+        val after = "r1bqkbnr/pppp1ppp/2n5/4N3/3PP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4"
+        val engine = ChangeSetEngine(TrackerConfig(), start)
+        var at = settle(engine, start, 0L)
+        engine.onFrame(frame(after, at))
+        at += FRAME_MS
+        val seen = mutableListOf<TrackerEvent>()
+        repeat(8) {
+            // Das Bild zeigt den Schlag, das Modell sieht auf e5 weiter Schwarz.
+            engine.onCnnSnapshot(blindReading(start, engine.fen(), seq))
+            seen += engine.onFrame(frame(after, at))
+            at += FRAME_MS
+        }
+        assertTrue(seen.filterIsInstance<TrackerEvent.MoveCommitted>().isEmpty()) { "committed: $seen" }
+        assertEquals(start, engine.fen())
+    }
+
+    /**
      * A board that changed into something no legal move reaches must alarm — at ply ZERO too.
      * Its predecessor required a committed move first and so stayed silent through a whole game
      * that never got started (measured live, 2026-08-26).

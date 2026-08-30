@@ -107,6 +107,35 @@ aussen sahen alle gleich aus, naemlich wie gar nichts. Sie heissen jetzt und ste
   Mensch, der ihn ausloest, hat das Brett gesehen.
 - **Mehrdeutige Routen bleiben liegen.** Siehe oben: bewusst, weil die Alternative Phantome sind.
 
+## Der Schlag auf besetztes Feld (2026-08-30)
+
+Der Diff kann ihn **prinzipiell nicht sehen**: vorher steht dort eine Figur, nachher auch. Weil
+`sum()` ueber die beruehrten Felder summiert und ein Feld unter der Schwelle negativ zaehlt, zahlt
+die richtige Hypothese fuer ihr eigenes Zielfeld drauf.
+
+Live gemessen an `Nxe5 Nxe5 dxe5`: 314 s, 205 Entscheidungen, alle `no_legal_move`. Die
+Herkunftsfelder sprachen (`f3` 12/205 bei z 5,5, `d4` 3/205 bei 4,2–4,6), das Zielfeld `e5` wurde
+**kein einziges Mal** genannt — auch nicht unter der Schwelle, bei durchschnittlich 7,9 gelisteten
+Feldern je Entscheidung.
+
+Der Ausweg ist die Achse, auf der das Modell nachweislich gut ist: nicht die Identitaet, sondern
+die **Farbe**. Bei `Nxe5` wechselt `e5` von Schwarz auf Weiss. `ColourCheck.captures` meldet genau
+diese Felder, und `charged()` schreibt `CAPTURE_CREDIT` dafuer gut — unter vier Bedingungen:
+
+1. die Hypothese wechselt dort die Farbgruppe, und keine Seite ist `empty` (also ein Schlag);
+2. das Modell liest die NEUE Gruppe mit mindestens `SURE`;
+3. die Pixel schweigen dort (`evidence.at(sq) <= 0`) — nur wo der Diff blind ist;
+4. das Feld ist nicht verdeckt.
+
+Bedingung 3 ist der Schutz: ein Zug auf ein LEERES Feld wechselt auch die Gruppe, aber dort
+sprechen die Pixel laut, und der Kredit bleibt aus. An Phantomzuegen aendert sich nichts.
+
+`CAPTURE_CREDIT` (3,0) liegt unter `OBJECTION_COST` (4,0), damit ein Einwand einen Zuspruch
+weiterhin ueberstimmt. **Der Wert ist noch nicht am Regressionssatz kalibriert** — die vier
+Aufnahmen aus `scripts/replay-batch.ps1` liegen nicht mehr unter `data/`. Er ist so gewaehlt, dass
+er die Strafe knapp aufwiegt, und zwei Tests halten die Richtung fest: der Schlag committet, und
+er committet NICHT, wenn das Modell die neue Farbe nicht bestaetigt.
+
 ## Die offene Frage: die Skala der Evidenz
 
 Der Ausschlag eines echten Zuges ist **nicht kameraunabhaengig**, und keine der beiden Formen, die
