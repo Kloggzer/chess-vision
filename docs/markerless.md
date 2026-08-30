@@ -54,18 +54,21 @@ nur, wenn der Rand an der 9. Linie keine Kante hat — dieses Brett hat dort sei
 Wer markerlos an `alignment_of` misst, bekommt also 16 von 18 „bestanden" und glaubt es. Das
 richtige Maß ist der Abstand zu den ArUco-Ecken, in Zellen:
 
-| | von 18 |
-|---|---|
-| Brett gefunden | **17** |
-| dieselbe Lösung wie ArUco (< 0,25 Zellen) | **11** |
-| Ecken um 90° rotiert (dann 1,25 Zellen) | 4 |
-| eine Zelle daneben | 2 |
-| kein Brett | 1 |
+Ueber 14 Aufnahmen, 65 Frames:
 
-Die elf Treffer liegen bei **0,00 bis 0,01 Zellen** — exakt auf ArUcos Lösung, aus einem Bild ohne
-Marker. Die vier rotierten sind `2026-08-13-12-46-24`, wo das Brett um 90° gedreht steht: rollt man
-die Eckenliste um eins, fällt der Fehler von 8,6 auf 1,25 Zellen. Das Brett ist also gefunden, nur
-die Rollen stimmen nicht.
+| | von 65 |
+|---|---|
+| Brett gefunden | **63** |
+| dieselbe Lösung wie ArUco (< 0,25 Zellen) | **37** (57 %) |
+| eine Zelle daneben | 21 |
+| Eckenrollen um 90° gedreht | 5 |
+| kein Brett | 2 |
+
+Die 37 Treffer liegen nach dem Grid-Fit bei **0,00 bis 0,01 Zellen** — exakt auf ArUcos Lösung,
+aus einem Bild ohne Marker. Mit dem Karo als Phasen-Merkmal waren es vorher rund 22 %.
+
+Auf den fünf Aufnahmen, an denen entwickelt wurde, sind es 11 von 18; der Abstand zu den 57 % über
+alle 14 ist der übliche: **was man beim Bauen ansieht, wird besser als der Rest.**
 
 **Warum das Karo als Phasen-Merkmal ausschied.** Der erste Entwurf nahm dafür die Korrelation der
 64 Zellmittel. Gemessen: um eine Zelle verschoben ist ein Karo einfach INVERTIERT und punktet
@@ -90,11 +93,14 @@ lesen, die Grundstellung erkennen, oder den Nutzer einmal fragen.
 
 ## Offen
 
-- **Die Orientierung.** Vier Frames haben die Eckenrollen um 90° gedreht — das ist jetzt der
-  größte verbleibende Posten, und das Karo kann ihn prinzipiell nicht lösen.
+- **Die Phase, immer noch.** 21 von 65 sitzen eine Zelle daneben. Auf den Entwicklungs-Aufnahmen
+  löst das Linien-Ende-Maß es, über alle 14 nicht — dort ist noch etwas anderes im Spiel.
+- **Die Orientierung**, 5 von 65. Eine Idee ist gemessen und VERWORFEN: „a1 ist dunkel" halbiert
+  die vier Drehungen auf zwei, aber die Umsetzung wählte die falsche und riss zwei funktionierende
+  Aufnahmen von 0,00 auf 7,8 Zellen. Der Gedanke bleibt richtig, die Ausführung war es nicht.
 - **`2026-08-13-12-46-24`** bleibt auch nach dem Rollen bei 1,25 Zellen: anderes Brett, deutliche
-  Perspektive, dünnere Rillen. Dort ist noch etwas anderes offen.
-- Ein Frame findet gar kein Brett (`00-39-57/3379`, Hand über dem Brett).
+  Perspektive, dünnere Rillen.
+- Zwei Frames finden gar kein Brett — beide mit einer Hand mitten darüber.
 - Perspektive: der Fit trägt sie, aber gemessen ist der Bereich nicht.
 - Laufzeit: der Phasen-Suchlauf ist Sekunden, nicht Millisekunden. Für eine **Kalibrierung** ist
   das egal, für einen Frame-Pfad nicht — und Kalibrierung ist der Anwendungsfall.
