@@ -1048,3 +1048,59 @@ def calibrate_list() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"  {p.name:<12} [unreadable: {e!r}]")
     return 0
+
+
+def run_markerless(source: str, frame_no: int, profile_name: str, out: str | None) -> int:
+    """Das Brett ohne ArUco suchen und das Ergebnis vom Grid-Fit beurteilen lassen.
+
+    Der Detektor schlaegt vor, `alignment_of` entscheidet: ein um eine Zelle verschobenes Gitter
+    liegt genauso auf Rillen und faellt nur ueber `unread` (`docs/markerless.md`).
+    """
+    from pathlib import Path
+
+    import cv2
+
+    from .alignment import alignment_of, correct_quad
+    from .markerless import board_candidates
+
+    src = Path(source)
+    if not src.exists():
+        print(f"[FAIL] {src} gibt es nicht.")
+        return 1
+    if src.suffix.lower() in {".mp4", ".mov", ".mkv", ".avi"}:
+        cap = cv2.VideoCapture(str(src))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+        ok, frame = cap.read()
+        cap.release()
+    else:
+        frame = cv2.imread(str(src))
+        ok = frame is not None
+    if not ok:
+        print(f"[FAIL] Frame {frame_no} aus {src} nicht lesbar.")
+        return 1
+
+    profile = load_profile(profile_name)
+    best = None
+    for quad in board_candidates(frame):
+        fixed = correct_quad(frame, quad, profile)
+        verdict = alignment_of(frame, fixed if fixed is not None else quad, profile)
+        key = (verdict.unread, verdict.worst)
+        if best is None or key < best[0]:
+            best = (key, fixed if fixed is not None else quad, verdict)
+        if verdict.ok:
+            break
+    if best is None:
+        print("[FAIL] kein Brett gefunden.")
+        return 1
+    _, quad, verdict = best
+    print("Ecken (a8, h8, h1, a1): " + " ".join(f"({x:.1f},{y:.1f})" for x, y in quad))
+    print(verdict)
+    if out:
+        import numpy as np
+
+        vis = frame.copy()
+        cv2.polylines(vis, [np.array(quad, np.int32)], True, (0, 255, 0), 3)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(out, vis)
+        print(f"geschrieben: {out}")
+    return 0 if verdict.ok else 2

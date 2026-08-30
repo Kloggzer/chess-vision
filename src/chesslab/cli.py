@@ -119,6 +119,17 @@ def calibrate_list() -> None:
     raise typer.Exit(calibration_mod.calibrate_list())
 
 
+@calibrate_app.command("markerless")
+def calibrate_markerless(
+    source: str = typer.Option(..., "--source", help="Video oder Bild, aus dem das Brett gesucht wird."),
+    frame: int = typer.Option(0, "--frame", help="Frame-Nummer, wenn --source ein Video ist."),
+    profile: str = typer.Option("desktop", "--profile", help="Profil, gegen dessen Raster geprueft wird."),
+    out: str = typer.Option(None, "--out", help="PNG mit dem gefundenen Quad."),
+) -> None:
+    """Das Brett OHNE ArUco finden — Ecken plus das Urteil des Grid-Fits (`docs/markerless.md`)."""
+    raise typer.Exit(calibration_mod.run_markerless(source, frame, profile, out))
+
+
 @calibrate_app.command("markers")
 def calibrate_markers(
     out: str = typer.Option("data/calibration/markers.png", "--out", help="Target PNG of the marker sheet."),
