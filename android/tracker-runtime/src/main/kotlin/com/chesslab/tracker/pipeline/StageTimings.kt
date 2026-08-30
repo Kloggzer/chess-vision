@@ -132,10 +132,11 @@ class StageTimings(
     fun endFrame(
         skipNote: String? = null,
         luma: Double = -1.0,
+        noise: Double = NOISE_UNMEASURED,
     ) {
         mark(Stage.POST)
         mark(Stage.FRAME)
-        maybeLog(skipNote, luma)
+        maybeLog(skipNote, luma, noise)
         lastEnd = nowNs()
     }
 
@@ -143,6 +144,7 @@ class StageTimings(
     fun maybeLog(
         skipNote: String? = null,
         luma: Double = -1.0,
+        noise: Double = NOISE_UNMEASURED,
     ) {
         val now = nowNs()
         if (lastLog == 0L || now - lastLog >= LOG_INTERVAL_NS) {
@@ -155,12 +157,18 @@ class StageTimings(
             // string and one double per second.
             val why = if (skipNote != null) " skip=$skipNote" else " skip=-"
             val lum = if (luma >= 0) " luma=${format(luma)}" else ""
+            // `luma` says how much light reaches the sensor, `noise` what survives the cell mean —
+            // the two are what an exposure change trades against each other (`NoiseFloor`).
+            val floor = if (noise >= 0) " noise=${formatFine(noise)}" else ""
             val extra = extras?.invoke()?.let { " $it" }.orEmpty()
-            logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum$extra")
+            logLine("$stages fps=${format(fps)} idle=${format(idle)}$why$lum$floor$extra")
         }
     }
 
     private fun stageValue(stage: Stage): String = if (ran[stage.ordinal]) format(ms[stage.ordinal]) else NOT_RUN
 
     private fun format(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+    /** The noise floor lives between 0 and a few grey levels; one decimal would quantise it away. */
+    private fun formatFine(value: Double): String = String.format(Locale.US, "%.2f", value)
 }

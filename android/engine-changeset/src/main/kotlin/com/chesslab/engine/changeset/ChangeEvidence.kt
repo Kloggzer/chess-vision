@@ -1,6 +1,7 @@
 package com.chesslab.engine.changeset
 
 import com.chesslab.engine.board.GRID
+import com.chesslab.engine.board.busyLevel
 import com.chesslab.engine.board.cellDeltas
 
 /**
@@ -80,7 +81,7 @@ class ChangeEvidence(
             after: ByteArray,
         ): ChangeEvidence {
             val deltas = cellDeltas(before, after)
-            val busy = quartile(deltas)
+            val busy = busyLevel(deltas)
             val threshold = maxOf(FLOOR_THR, NOISE_MULT * busy)
             return ChangeEvidence(
                 // Relative to the board's own quiet level, not to a fixed grey level. Measured
@@ -94,12 +95,6 @@ class ChangeEvidence(
                 busy,
             )
         }
-
-        /** The upper quartile: with four squares moved out of 64, this is still untouched board. */
-        private fun quartile(values: DoubleArray): Double = values.sorted()[values.size * UPPER_QUARTILE_NUM / UPPER_QUARTILE_DEN]
-
-        private const val UPPER_QUARTILE_NUM = 3
-        private const val UPPER_QUARTILE_DEN = 4
 
         /** Under this the picture is flat and a relative bar would divide by its own noise. */
         private const val FLOOR_THR = 4.0

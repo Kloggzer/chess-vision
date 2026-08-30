@@ -119,4 +119,13 @@ class StageTimingsVerdictTest {
         assertTrue(line.contains("skip=frame too dark (6 < 18.0)"), line)
         assertTrue(line.endsWith("luma=6.4"), line)
     }
+
+    /** Two decimals: the floor lives between 0 and a few grey levels, one decimal quantises it. */
+    @Test
+    fun `the noise floor rides beside the luma it trades against`() {
+        timings.begin()
+        now += 1_000_000
+        timings.endFrame(luma = 41.0, noise = 0.37)
+        assertTrue(lines.last().endsWith("luma=41.0 noise=0.37"), lines.last())
+    }
 }
