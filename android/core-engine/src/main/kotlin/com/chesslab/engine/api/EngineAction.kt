@@ -18,6 +18,9 @@ sealed interface EngineAction {
 
     data object CaptureBaseline : EngineAction
 
+    /** Der Warp steht anders als bei der Referenzaufnahme — `docs/verifier-stall.md`. */
+    data object RectificationChanged : EngineAction
+
     data class ChoosePromotion(
         val piece: Char,
     ) : EngineAction

@@ -75,6 +75,7 @@ class TrackerEngineOps(
             is EngineAction.ResetToStart -> engine.resetToStart()
             is EngineAction.SetFen -> engine.setFen(action.fen)
             is EngineAction.CaptureBaseline -> engine.captureBaseline()
+            is EngineAction.RectificationChanged -> engine.rectificationChanged()
             is EngineAction.ChoosePromotion -> engine.choosePromotion(action.piece)
             is EngineAction.AcceptCnnPosition -> engine.acceptCnnPosition()
             is EngineAction.ResyncToBoard -> engine.resyncToBoard()

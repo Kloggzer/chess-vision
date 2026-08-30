@@ -23,6 +23,8 @@ internal class StillActions(
             is EngineAction.SetFen -> engine.mutate { it.loadFromFen(action.fen) }
             // The board is declared understood as it stands: exactly what settling means here.
             is EngineAction.CaptureBaseline -> engine.mutate { }
+            // Kein Pixel-Vergleich gegen eine Referenz, also nichts zu verwerfen.
+            is EngineAction.RectificationChanged -> emptyList()
             is EngineAction.ResyncToBoard -> adopt()
             is EngineAction.AcceptCnnPosition -> adopt()
             // The search picks the promotion piece itself — identity at weight 0.4 still separates

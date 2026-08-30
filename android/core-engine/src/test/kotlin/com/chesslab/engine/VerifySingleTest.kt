@@ -50,6 +50,20 @@ class VerifySingleTest {
     }
 
     /**
+     * `applyVerdict` raeumte `pending` weg, BEVOR die Zeile geschrieben wurde, also trug ausgerechnet
+     * die Zeile der Leiter `verify=` leer — und leer hiess beides (`docs/verifier-stall.md`).
+     */
+    @Test
+    fun theCommittedRowNamesTheRungThatCommittedIt() {
+        val state = pendingState()
+        state.glance(VerifyEvaluator(occAgree = 1.0, occN = 2), VerifyObs())
+
+        assertEquals(listOf("e4"), state.history)
+        assertEquals("commit", state.decisionLog.last().verifyOutcome)
+        assertNull(state.verdictOutcome, "genau eine Zeile erbt ihn")
+    }
+
+    /**
      * The 003957 ply-39 incident (2026-08-09): a resting hand over the destination read
      * "confidently occupied" — `pOccluded` is identically 0.0 under a 13-class model — and the
      * confirm rung committed a fabricated `g4` through it. The grid-groove read of the observed

@@ -48,44 +48,47 @@ haelt die Zuordnung Video-Zeit zu Engine-Zeit.
 Bis dahin gilt: **ein Replay ist keine Reproduktion.** Wer einen Live-Fehler nachstellen will,
 kann sich auf ihn nicht verlassen, und das ist genau der Fall, in dem man ihn am meisten braucht.
 
-## Der Verifier bleibt haengen, die lila Felder loesen sich nicht auf (2026-08-30, User + Log)
+## Der Verifier bleibt haengen — zwei von drei Fragen sind zu (2026-08-30)
 
-Gemeldet: *"manchmal ist der verifier stuck, da werden lila felder nicht aufgeloest"*. Lila ist
-das `changed`-Overlay (`Color.kt`: "changed magenta"), also die Zellen, die der Frame-Diff fuer
-veraendert haelt.
+Gemeldet: *"manchmal ist der verifier stuck, da werden lila felder nicht aufgeloest"*. Der ganze
+Befund samt Zahlen steht jetzt in `docs/verifier-stall.md`; hier nur das Ergebnis.
 
-Im Log derselben Sitzung (`diag-150.ndjson`, ply 6) steht das Bild dazu: **314 s, 205
-Entscheidungen, 204 abgelehnt**, und `verifyOutcome` ist bei **allen 205 `null`** — der
-Verify-Pfad kommt nie zu einem Ergebnis, obwohl `cnnVerify = 1` steht und `cnnAgree` bei 0,918
-liegt. Gleichzeitig meldet `changed` dauerhaft 13 bis 17 Felder, fast immer dieselben:
+**1. `verifyOutcome` leer: kein Fehler des Verifiers.** `pending` entsteht nur in
+`Dispatch.dispatch`, also erst nach einem Kandidaten — und bei 13 bis 17 geaenderten Feldern
+entsteht keiner (`maxChanged` = 6). Die Leiter wurde nie gefragt. Was das beantwortet, stand schon
+in derselben Zeile: `cnnSnaps=.../<zur Leiter>/...`. Behoben wurde nur die Zweideutigkeit:
+`applyVerdict` loeschte `pending`, BEVOR die Zeile geschrieben wurde, also trug ausgerechnet die
+Zeile der Leiter `verify=` leer wie die 204 ohne Kandidat. `EngineState.verdictOutcome` traegt den
+Spruch jetzt eine Zeile weit — leer heisst danach nur noch "nie geurteilt".
 
-| Feld | genannt | z |
-|---|---:|---:|
-| f8 | 199/205 | 5–8 |
-| g7 | 199/205 | 5–8 |
-| h8 | 196/205 | 5–8 |
-| c7 | 193/205 | 5–8 |
-| d8 | 187/205 | 5–8 |
+**2. Die Drift kostet jetzt die Pixel-Referenz.** `expireCorrection` mass die Korrektur nach und
+liess die Referenz stehen; danach verglich jeder Frame gegen ein anders ausgerichtetes Bild.
+`cornerJumpPx` = 6,0 px faengt das nicht: an `2026-08-30-14-33-02` gemessen ist eine Frame-Zelle
+~126 px, die Schwelle also **4,8 % einer Zelle**, waehrend 0,26 Zellen Drift ~32 px sind. Der Refit
+schickt jetzt `EngineAction.RectificationChanged`; der Latch bleibt dabei stehen (nicht
+`captureBaseline`, Invariante 9).
 
-Dabei ist `motion` im Median **0,0** — es bewegt sich nichts, und die halbe schwarze Grundreihe
-glueht trotzdem. Die Ursache liegt vermutlich nicht im Bildinhalt, sondern in der Ausrichtung:
-kurz davor steht `board moved 0,26 cells since the grid fit — re-measuring the correction`, und
-der Versatz trifft die perspektivisch kleinsten Zellen am haertesten, also genau die achte Reihe.
+**3. Offen: das Verfallsdatum gibt es, und es ist im Fehlerfall zu.** `maybePatchAnomaly` zieht
+ein dauerhaft geaendertes Feld nach 5 s (besetzt) bzw. 30 s (leer) in die Referenz nach — ueber
+314 s laengst faellig. Zwei Bedingungen halten es zu:
 
-Zu klaeren, in dieser Reihenfolge:
+- `n <= maxChanged + 2` = 8, gemessen waren 13 bis 17. Die Decke heisst "resting-hand protection",
+  und eine ruhende Hand ist genau das, was `motion` = 0,0 ueber 205 Entscheidungen mit immer
+  denselben Feldern nicht ist.
+- `cnnStatus == "mismatch"` ist eine Sperre ohne Ablauf: gesetzt in `CnnTick.onMismatch`, geloescht
+  nur bei `onMatchOk` oder einem Commit — im Stillstand kommt keines von beidem. Dieselbe Form
+  wurde bei `desyncObs` schon gefunden und mit `clearDesyncStreak()` geschlossen.
 
-1. Warum `verifyOutcome` leer bleibt. Ein Verifier, der nie ein Urteil faellt, ist schlimmer als
-   einer, der falsch urteilt — er haelt das Overlay offen und niemand sieht, dass er steht.
-2. Ob eine Drift von 0,26 Zellen ueberhaupt zu einer neuen Pixel-Referenz fuehren muss. Heute
-   wird die Korrektur nachgemessen, aber die Referenz bleibt, und dann ist jeder Vergleich
-   danach gegen ein anders ausgerichtetes Bild.
-3. Ob das Overlay ein eigenes Verfallsdatum braucht: bleibt `changed` ueber N Entscheidungen
-   stehen, ohne dass ein Zug entsteht, ist es keine Evidenz mehr, sondern eine Anzeige, der man
-   nicht mehr glauben darf.
+Die Decke einfach zu lockern waere geraten: sie wurde gegen die Hand gebaut. Der ehrliche Weg ist,
+das Hand-Kriterium an die Hand-Signale zu haengen, die es ohnehin gibt (`locatedHand`,
+`gridHandSquares`, `motion`), statt an die blosse Anzahl — und das an einer Aufnahme zu messen.
+Dafuer fehlt Material: in `2026-08-30-14-33-02` bewegten sich die Ecken ueber 377 Frames um
+**exakt 0,0 px**, die Live-Ausrichtung lieferte 31 s lang keine neue Detektion. Wer den Fall
+nachstellen will, braucht eine Aufnahme, in der der Refit wirklich feuert.
 
-Verwandt: `cnn_desync` rastet auf einem korrekten Brett ein (oben), und der `STUCK occluded`-Fall
-mit ueber das Brett verstreuten Feldern bei `motion=0` weiter unten — moeglicherweise dasselbe
-Ausrichtungsproblem unter drei Namen.
+Verwandt und vermutlich derselbe Zustand unter drei Namen: `cnn_desync` rastet auf einem korrekten
+Brett ein (oben), `STUCK occluded` mit verstreuten Feldern bei `motion=0` (weiter unten). Beide
+haengen daran, dass `changed` nie 0 wird und `quietOutcome` deshalb nie laeuft.
 
 ## Was aus der Belichtungsarbeit offen blieb (2026-08-30, User)
 

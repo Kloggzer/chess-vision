@@ -120,6 +120,7 @@ internal fun EngineState.applyVerdict(
 ): List<TrackerEvent> {
     val at = anchor ?: CommitAnchor(pend.cur, pend.curBgr)
     val moves = verdict.replacement ?: pendingMoves(pend.ucis)
+    if (moves.isNotEmpty()) verdictOutcome = pend.voteOutcome
     pending = null
     return when {
         moves.isEmpty() -> emptyList()

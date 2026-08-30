@@ -4,6 +4,7 @@ import com.chesslab.cnn.CnnConfig
 import com.chesslab.cnn.CnnRecovery
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
@@ -313,6 +314,7 @@ class TrackerStack<T>(
                 cachedCorners = seed.cachedAlignment,
                 cornerSink = seed.alignmentSink,
                 cachedMarkers = seed.cachedMarkerDetections,
+                onRectificationChanged = { host.submit(EngineAction.RectificationChanged) },
             ),
             timings,
             seed.nowMs,
