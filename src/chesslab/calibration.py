@@ -1048,3 +1048,67 @@ def calibrate_list() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"  {p.name:<12} [unreadable: {e!r}]")
     return 0
+
+
+def field_to_profile(field, profile) -> list[list[float]]:
+    """Ein SPIELFELD-Quad in die Profil-Konvention, also nach aussen um `margin` gedehnt.
+
+    `markerless.find_board` liefert die vier Feldecken, `correct_quad` und `alignment_of` rechnen
+    dagegen wie die Marker: `margin` ausserhalb des Feldes (`compute_homography`).
+    """
+    import cv2
+    import numpy as np
+
+    bs = profile.board_size
+    m = [v * bs for v in margins4(profile.margin)]
+    h = cv2.getPerspectiveTransform(
+        np.array([[0, 0], [bs, 0], [bs, bs], [0, bs]], np.float32), np.array(field, np.float32))
+    box = np.array([[[-m[0], -m[0]], [bs + m[1], -m[1]],
+                     [bs + m[2], bs + m[2]], [-m[3], bs + m[3]]]], np.float32)
+    return [[float(x), float(y)] for x, y in cv2.perspectiveTransform(box, h)[0]]
+
+
+def run_markerless(source: str, frame_no: int, profile_name: str, out: str | None) -> int:
+    """Das Brett ohne ArUco suchen und das Ergebnis vom Grid-Fit beurteilen lassen."""
+    from pathlib import Path
+
+    import cv2
+
+    from .alignment import alignment_of, correct_quad
+    from .markerless import find_board
+
+    src = Path(source)
+    if not src.exists():
+        print(f"[FAIL] {src} gibt es nicht.")
+        return 1
+    if src.suffix.lower() in {".mp4", ".mov", ".mkv", ".avi"}:
+        cap = cv2.VideoCapture(str(src))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_no)
+        ok, frame = cap.read()
+        cap.release()
+    else:
+        frame = cv2.imread(str(src))
+        ok = frame is not None
+    if not ok:
+        print(f"[FAIL] Frame {frame_no} aus {src} nicht lesbar.")
+        return 1
+
+    profile = load_profile(profile_name)
+    field = find_board(frame)
+    if field is None:
+        print("[FAIL] kein Brett gefunden.")
+        return 1
+    quad = field_to_profile(field, profile)
+    quad = correct_quad(frame, quad, profile) or quad
+    verdict = alignment_of(frame, quad, profile)
+    print("Ecken (a8, h8, h1, a1): " + " ".join(f"({x:.1f},{y:.1f})" for x, y in quad))
+    print(verdict)
+    if out:
+        import numpy as np
+
+        vis = frame.copy()
+        cv2.polylines(vis, [np.array(quad, np.int32)], True, (0, 255, 0), 3)
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(out, vis)
+        print(f"geschrieben: {out}")
+    return 0 if verdict.ok else 2

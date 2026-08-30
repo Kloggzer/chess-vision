@@ -4,6 +4,7 @@ import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import com.chesslab.tracker.settings.FrameRateMode
 import com.chesslab.tracker.settings.ResolutionMode
 
 /** The CameraX fact behind [DeliveredSize]: read off the ImageProxy, never off the request. */
@@ -31,7 +32,7 @@ data class CameraRequest(
     val height: Int,
     val lensFacing: Int = CameraSelector.LENS_FACING_BACK,
     /** Pinned onto `CONTROL_AE_TARGET_FPS_RANGE` — see `TrackerCamera.pinFrameRate`. */
-    val targetFps: Int = DEFAULT_TARGET_FPS,
+    val targetFps: Int,
 ) {
     /** The one lower mode a repeatedly failing high-bandwidth binding retries at. */
     fun downshifted(): CameraRequest = copy(width = DOWNSHIFT_WIDTH, height = DOWNSHIFT_HEIGHT)
@@ -55,14 +56,16 @@ internal fun aspectRatioFor(request: CameraRequest): Int =
  * (commit `a7dab73`). AUTO is 1080p rather than "whatever CameraX picks", because 1080p is the
  * mode the 15 fps analyzer budget was measured at — an unnamed default is not a measured one.
  */
-fun cameraRequestFor(mode: ResolutionMode): CameraRequest =
+fun cameraRequestFor(
+    mode: ResolutionMode,
+    rate: FrameRateMode,
+): CameraRequest =
     when (mode) {
-        ResolutionMode.AUTO, ResolutionMode.R1080 -> CameraRequest(WIDTH_1080, HEIGHT_1080)
-        ResolutionMode.R1440 -> CameraRequest(WIDTH_1440, HEIGHT_1440)
-        ResolutionMode.R2160 -> CameraRequest(WIDTH_2160, HEIGHT_2160)
+        ResolutionMode.AUTO, ResolutionMode.R1080 -> CameraRequest(WIDTH_1080, HEIGHT_1080, targetFps = rate.fps)
+        ResolutionMode.R1440 -> CameraRequest(WIDTH_1440, HEIGHT_1440, targetFps = rate.fps)
+        ResolutionMode.R2160 -> CameraRequest(WIDTH_2160, HEIGHT_2160, targetFps = rate.fps)
     }
 
-private const val DEFAULT_TARGET_FPS = 30
 private const val WIDTH_4_3 = 4
 private const val HEIGHT_4_3 = 3
 private const val DOWNSHIFT_WIDTH = 1280

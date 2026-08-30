@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -28,6 +29,7 @@ import com.chesslab.tracker.service.StatusPublisher
 import com.chesslab.tracker.service.TrackerSeed
 import com.chesslab.tracker.service.TrackerStack
 import com.chesslab.tracker.settings.ConfigStore
+import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +39,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import org.opencv.core.Mat
 import java.awt.image.BufferedImage
 import java.io.File
+import java.util.Locale
 import kotlin.system.exitProcess
 
 /**
@@ -377,7 +380,11 @@ internal fun replayRun(
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
         val geometry = boardGeometryFor(quad).withCropOf(spec)
-        val config = options.trackerConfig(geometry, live = camera != null)
+        // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`), and
+        // `:app` has applied it on attach since it was measured. The replay did not — so every
+        // measurement here ran at the 0.5 default while the phone ran the model's own 0.15, and a
+        // square between the two counted as a witness in one and not in the other.
+        val config = options.trackerConfig(geometry, live = camera != null).withCoverageGateOf(spec)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
@@ -505,6 +512,8 @@ internal fun replayRun(
                 parallelVisual = parallelVisual,
                 priorLambda = options.priorLambda,
                 priorSafety = options.priorSafety,
+                motionDump = options.motionDump,
+                engine = options.engine,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -565,6 +574,30 @@ private fun openView(
     return view
 }
 
+/**
+ * The signals the engine had AT COMMIT TIME, for calibrating a commit threshold against a target
+ * fabrication rate instead of hand-tuning one. Measured 2026-08-24: they do not separate
+ * fabrications from hits (`docs/commit-calibration.md`), so this stays a diagnostic.
+ */
+private fun DebugDecision.confidenceLine(): String =
+    (
+        "ply=%d best=%.4f second=%.4f margin=%.4f agree=%.4f " +
+            "prior=%b cov=%.4f motion=%.4f changed=%d verify=%s accepted=%b"
+    ).format(
+        Locale.ROOT,
+        ply,
+        bestScore,
+        secondScore,
+        margin,
+        cnnAgreement,
+        priorUsed,
+        gridCoverage,
+        motion,
+        changed.size,
+        verifyOutcome ?: "-",
+        accepted,
+    )
+
 /** The object graph the phone builds too, with this host's frame type and this run's optics. */
 @Suppress("LongParameterList")
 private fun buildStack(
@@ -587,6 +620,9 @@ private fun buildStack(
     parallelVisual: ParallelVisualPrepass? = null,
     priorLambda: Double = 0.0,
     priorSafety: Boolean = true,
+    /** `motiondump=<file>`, or null. Measurement only — see `MotionDump`. */
+    motionDump: String? = null,
+    engine: EngineKind = EngineKind.CLASSIC,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -599,6 +635,7 @@ private fun buildStack(
             startFen = STARTPOS,
             onDecision = {
                 println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
+                println("decision-conf: " + it.confidenceLine())
                 collector?.offer(it)
             },
             // The frame loop's own account of where a move's latency went, on the video clock. The
@@ -607,7 +644,7 @@ private fun buildStack(
             onState = { from, to, tsS -> println("state: %s -> %s at %.2fs".format(from, to, tsS)) },
             logs = logs,
             stages = { geo, cfg, store, frameBus, boardBus ->
-                OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics)
+                motionDumped(OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics), motionDump)
             },
             // The VIDEO's clock, not this machine's — see `FrameClock`.
             nowMs = clock::now,
@@ -623,6 +660,7 @@ private fun buildStack(
             cachedAlignment = visualCache?.alignmentLookup,
             alignmentSink = visualCache?.alignmentSink,
             cachedMarkerDetections = markerPrepass?.lookup,
+            engine = engine,
         ),
         settings,
         publisher,

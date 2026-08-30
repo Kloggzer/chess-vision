@@ -32,6 +32,40 @@ enum class ResolutionMode(
     R2160("2160p"),
 }
 
+/**
+ * What the sensor is asked to RUN at — pinned onto `CONTROL_AE_TARGET_FPS_RANGE`.
+ *
+ * A LOCKED range, never an upper bound: `[15, 30]` leaves auto-exposure its old freedom, so only
+ * `[15, 15]` halves the sensor, the ISP and every per-frame stage. Every entry is a range this
+ * device advertises — `pinFrameRate` refuses to ask for one that is not (`docs/battery.md`).
+ */
+enum class FrameRateMode(
+    val label: String,
+    val fps: Int,
+) {
+    FPS15("15 fps", 15),
+    FPS24("24 fps", 24),
+    FPS30("30 fps", 30),
+}
+
+/**
+ * Which engine decides what a move is.
+ *
+ * Three verdicts on the same pictures. The diff channel reads what CHANGED against a reference and
+ * asks the model to confirm it; the stillness engine waits for rest and asks which legal
+ * continuation explains the READING; the changeset engine waits for rest like the second but
+ * decides like the first, asking the model only empty/white/black and never which piece — because
+ * identity is the weakest thing it produces (`docs/engine-changeset.md`). None is better
+ * everywhere, which is why the choice exists at all.
+ */
+enum class EngineKind(
+    val label: String,
+) {
+    CLASSIC("Diff + CNN (Standard)"),
+    STILLNESS("Stillstand + Legalitaetssuche"),
+    CHANGESET("Stillstand + Veraenderung (CNN nur Farbe)"),
+}
+
 /** Which ONNX execution provider to REQUEST. What was actually selected is 07b's CNN panel. */
 enum class EpRequest(
     val label: String,
@@ -79,6 +113,14 @@ data class AppSettings(
      * measurement (`measuredBoardSize`) rather than fixed at 1600.
      */
     val resolutionMode: ResolutionMode = ResolutionMode.R1440,
+    /**
+     * 15, not the sensor's 30: at 30 the tracker drew more than the charger delivered and the
+     * battery fell while plugged in — 490 mA, `docs/battery.md`. It is NOT free. The regression set
+     * reads 273/55/102 against 303/25/6, because `settleFrames` counts FRAMES for a window that
+     * means TIME, so halving the rate halves it. Shipped at 15 on the user's call (2026-08-25);
+     * 30 is the way back.
+     */
+    val frameRate: FrameRateMode = FrameRateMode.FPS15,
     val orientation: BoardOrientation = BoardOrientation.WHITE_BOTTOM,
     /**
      * WHICH bundled model — a directory under `assets/cnn_model/`, one of `BUNDLED_MODELS`.
@@ -92,6 +134,8 @@ data class AppSettings(
     val modelDir: String = DEFAULT_MODEL,
     val modelAsset: String = "model.onnx",
     val epRequest: EpRequest = EpRequest.AUTO,
+    /** Read once when the stack is built; a change restarts the tracker like every other one here. */
+    val engine: EngineKind = EngineKind.CLASSIC,
     /** Read by 07b; only the settings screen writes it. Off means the payload is not assembled. */
     val debugEnabled: Boolean = false,
     /** 08c. Off by default: an app that starts talking uninvited is a bug, not a feature. */

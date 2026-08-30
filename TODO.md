@@ -4,7 +4,481 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Modell- und Engine-Wechsel sollen ohne Neustart gehen (2026-08-30, User)
+
+Die App sagt es heute selbst: *"Saved, waiting for a tracker restart: app settings — This build
+cannot restart the tracker from here — close and reopen the app to apply."* Beim Umschalten auf
+`p4a-80-clahe` musste die App per `am force-stop` neu gestartet werden.
+
+Die Maschinerie dafuer steht schon: `StackSwitch` kann den Stack tauschen, und die Reihenfolge
+(**detach, close, build**) ist dort dokumentiert und begruendet. Was fehlt, ist der Weg von der
+Einstellung zu diesem Tausch — `AppSettings.modelDir` und `engine` sind als restart-only gelesen
+(`TrackerService`, Kommentar "a change restarts the stack, which is what `StackSwitch` exists
+for"), aber die Stelle, die den Neustart ausloest, gibt es in diesem Build nicht.
+
+Zu klaeren: was ein Wechsel mitten in einer Partie mit der Zughistorie macht. Ein neues Modell
+liest dieselbe Stellung moeglicherweise anders, und die Pixel-Referenz ist danach ohnehin hin —
+`CaptureBaseline` waere die naheliegende Antwort, dieselbe wie bei der Belichtungsverstellung.
+
+## Belichtungsregelung und das CLAHE-Fenster arbeiten gegeneinander (2026-08-30, gemessen)
+
+Das Fenster `--clahe-min-mean 25 --clahe-max-mean 40` ist auf den Zellmittelwert in 8 bit
+definiert, und der haengt an der Belichtung. Ueber die sichtbaren Val-Zellen gerechnet
+(`tmp/clahe_vs_ev.py`):
+
+| EV | im Fenster | davon **besetzt** | Median | unter 25 |
+|---:|---:|---:|---:|---:|
+| ±0 (Korpus) | 15,6 % | **2 236** | 56,7 | 13,7 % |
+| +0,70 | 14,1 % | 1 641 | 70,7 | 6,5 % |
+| **+1,70** | 11,4 % | **813** | 96,9 | **0,0 %** |
+| +2,40 | 4,5 % | 308 | 120,8 | 0,0 % |
+
++1,70 EV ist der Wert, den `BoardExposureGovernor` live selbst gewaehlt hat
+(`docs/board-exposure.md`). Dort fallen **64 % der besetzten Zellen aus dem Fenster**, und der
+Anteil zu dunkler Zellen geht auf null.
+
+Kein Widerspruch — es ist derselbe Gewinn auf dem besseren Weg: echtes Licht am Sensor statt
+gestreckter Kontrast im Nachhinein. Aber zwei Dinge folgen:
+
+- **Ein absolutes Graufenster ist die falsche Parametrisierung**, sobald die Belichtung geregelt
+  wird. Es gehoert an ein Perzentil der Brettverteilung oder an den KONTRAST der Zelle statt an
+  ihren Pegel.
+- **Die CLAHE-Arme sind auf ungeregeltem Material trainiert.** Geht die Regelung live, sieht das
+  Modell hellere Bretter als im Training — eine Train/Serve-Luecke, die niemand gemessen hat.
+
+Ungeklaert bleibt ausserdem die AUFTEILUNG: das Geraet faehrt 30,0 ms bei ISO ~3190, obwohl
+66,7 ms moeglich sind. Der manuelle Lauf zeigte dieselbe Helligkeit bei 28 % weniger Verstaerkung —
+ueber die Belichtungskorrektur ist das nicht steuerbar.
+
+## `cnn_desync` rastet auf einem KORREKTEN Brett ein (2026-08-29, live belegt)
+
+Testpartie im dunklen Buero, `data/games/2026-08-29-abend/testpartie-2329.pgn`. Nach 11.Nxd4 haengt
+der Tracker 25 Minuten in der Schleife
+
+    ply=21 REJECT why=STUCK cnn_desync    changed=[]  cnnAgree=1.000
+    ply=21 REJECT why=STUCK no_legal_move
+
+Alle 64 Felder aus der Live-Ansicht gegen `r1b1kb1r/pp3ppp/2p5/3pP3/BP1Nn3/1PN5/2P2PPP/R1B1K2R b`
+gelesen: **die Stellung stimmt exakt**, der zweifelhafte Commit 11.Nxd4 (`by=cnn_recovery`,
+margin 0,13) eingeschlossen. Das Veto ist also falsch, und es blockiert dauerhaft den stillen
+Re-Anchor (`TrackerEngine.quietOutcome`, Zweig `desync != null`).
+
+Die UI meldet abwechselnd "Change on 1 squares" bis "8 squares, but no legal move fits" —
+Rauschpegel, kein Zug. Und sie bietet keinen Ausweg: das Ueberlaufmenue hat Recalibrate,
+Camera view, Tracking camera, Light, Share on Wi-Fi. Kein Resync, kein Baseline. Uebrig bleiben
+"Take back move" (waere hier falsch gewesen) und "End game".
+
+Zwei Dinge zu klaeren: WELCHES Feld das CNN anders liest (der Konflikt steht nur in `state.note`
+und wird nirgends geloggt), und ob der Standoff-Bound `desyncStandoffObsN` hier ueberhaupt greift.
+
+Dazu, aus derselben Partie: von 21 Halbzuegen kamen 4 ueber `cnn_recovery` ("position was LOST —
+rebuilt by the CNN, not detected") und einer ueber `cnn_overrule`. Der Frame-Diff-Pfad traegt die
+Partie nicht, das CNN traegt sie.
+
+## ERLEDIGT, negativ: Flat-field auf Brettebene (2026-08-30)
+
+Gebaut, 463 739 Crops geschnitten, zwei Datensaetze auf identischer Zeilenmenge gepackt, zwei Arme
+zu 60 Epochen. Ergebnis: **klar schlechter.**
+
+| Arm | best | letzte 10 | val-Fehler | Genauigkeit | macro |
+|---|---:|---:|---:|---:|---:|
+| ohne Flat-field | 0,9524 | 0,9227 | 648 | 0,9800 | 0,9399 |
+| Flat-field | 0,9255 | 0,9026 | **1 020** | 0,9685 | 0,9026 |
+
+57 % mehr Fehler. Und der Grund steht in den Helligkeitsbaendern: die Korrektur hat getan, was sie
+versprach — "sehr dunkel" schrumpft von 1 307 auf **39** Zellen, "dunkel" waechst von 1 580 auf
+2 644. Nur ist die Genauigkeit im Band "dunkel" dabei von 0,9544 auf **0,8211** gefallen, und die
+Laeufer/Bauer-Verwechslung hat sich mehr als verdoppelt (119 auf 285 von 1 710).
+
+**Die Lehre ist dieselbe wie beim CLAHE-Band:** eine Verstaerkung hebt das Rauschen mit. Wo kein
+Signal ist, macht Nachbearbeitung keins — sie macht die Zelle nur heller und genauso mehrdeutig.
+CLAHE traegt deshalb NUR im Fenster 25-40 und drueckt darunter; Flat-field legt seine Verstaerkung
+ueber alles, auch ueber die dunkelste Ecke, und genau dort bricht es.
+
+Was WIRKT, ist echtes Licht am Sensor: `docs/board-exposure.md`.
+
+Code bleibt (`imgops.cell_illumination`, `slice --flat-field`), die Datensaetze
+`real13-mix-v4-ff*` auch — wer die Idee wieder aufgreift, soll die Messung nicht zweimal machen.
+
+## Der native Crop-Warp verkleinert auch das Hand-Gate (2026-08-29, ungemessen)
+
+`BoardGeometry.forNativeCrops()` zieht den bordierten Crop-Warp von der kalibrierten `boardSize`
+(real 1008-1248) auf die aus dem Modell abgeleitete: **576 bei `outW` 80**, 928 bei 128. Gemessen
+ist der Nutzen auf der Figurenachse (nativ 0,9120 gegen 0,9095 heruntergerechnet, 18 282 Zellen).
+
+**Nicht gemessen ist die Nebenwirkung.** `gridOccludedSquares` liest DENSELBEN Warp
+(`CnnCropAdapter.kt`), und `gridSegments(gray, geom.boardSize, ...)` skaliert seine Suchfenster
+zwar mit, aber die Rillenlinien haben bei 576 nur noch gut die Haelfte der Pixel. Das ist der
+modellfreie Arm hinter dem 67/67-Meilenstein — der, der Fabrikationen verhindert.
+
+**Zu messen, bevor das aufs Geraet geht:** den Regressionssatz zweimal replayen, einmal mit
+kalibrierter und einmal mit nativer Crop-Groesse, und `gridOccluded` je Ply vergleichen. Ein
+Gate, das seltener anschlaegt, kauft Genauigkeit mit Phantomen — der schlechteste Tausch, den
+dieses Projekt kennt.
+
+## CLAHE verstaerkt das Rauschen, das der Blur danach wieder wegnimmt (2026-08-29)
+
+`GrayPipeline.toGray` ist `cvtColor -> [CLAHE] -> GaussianBlur(5,5)`. Der Blur laeuft
+**unbedingt**, auch bei `claheClip = 0` — er gehoert also nicht zu CLAHE, sondern zum Verbraucher:
+`FrameLoop.kt:146` zaehlt ueber `motionScore` Pixel mit Differenz ueber `motionPxThr = 20`, und
+Sensorrauschen erzeugt genau solche. Nur hebt CLAHE denselben Rauschboden vorher an — im Projekt
+belegt (`FrameLoop.kt:105`: „CLAHE amplifies near-black sensor noise"), weshalb das
+Dunkelframe-Gate VOR CLAHE misst.
+
+Signaltechnisch waere **erst glaetten, dann verstaerken** besser: man verstaerkt das Rauschen gar
+nicht erst. Die heutige Reihenfolge ist aus `tracker.py:1008 _gray` portiert und mit
+Vergleichbarkeit begruendet („reference and current must be enhanced identically"), was beide
+Reihenfolgen erfuellen.
+
+**Zu messen, bevor jemand tauscht:** `motionPxThr = 20` und `motionThr` sind an der HEUTIGEN Kette
+kalibriert, inklusive der `motionThr x 30 / fps`-Kopplung. Ein Tausch verschiebt den Rauschboden im
+Differenzbild und entwertet beide Schwellen. Also: Rauschboden vorher/nachher auf dem
+Regressionssatz messen (`scripts/motion_stats.py`, `motiondump=`), dann erst entscheiden — und die
+Schwellen im selben Zug neu bestimmen, nicht danach.
+
+Nebenbefund derselben Untersuchung: genau dieser Blur macht `grayDet` fuer die CNN-Spur unbrauchbar
+— `median3`, eine aehnliche Glaettung, kippte alle drei hellen Testzellen von `wB` auf `wP`.
+
+## Ein Doppelschlag aufs selbe Feld faellt fast immer durch die Ambiguitaetsschwelle (2026-08-26)
+
+Live beobachtet, Damentausch auf d4 (`tmp/live/session.log`, ply 11/12): der Paar-Kandidat
+`d1d4 + d8d4` scort 17,60 gegen 17,33 des besten Rivalen — Margin **0,27** bei geforderten
+`ambiguityMarginLl = 2,0`. Zweimal "QUIET ambiguous", dann committet der Motor die Haelften
+einzeln, die zweite ueber den Legalitaets-Prior.
+
+Der Grund steht im Code (`Scoring.kt:104`): teilen sich beide Haelften ein Zielfeld, zaehlt es in
+`unionSum` **einmal**. Ein Doppelschlag beruehrt damit drei Felder (d1, d8, d4), sein Rivale — der
+Einzelzug `d8d4` — zwei davon. Der Vorsprung schrumpft auf EIN Feld, waehrend ein gewoehnliches
+Paar vier verschiedene Felder beruehrt und den doppelten Abstand hat. Die Schwelle ist fuer den
+Normalfall gesetzt und trifft den Sonderfall mit voller Haerte.
+
+Kein Datenverlust: die Zuege kamen einzeln durch. Aber es ist Reibung genau dort, wo Blitz sie
+haeuft, und der Prior entscheidet statt des Bildes. **Zu messen, bevor jemand die Schwelle
+anfasst:** ob eine Ausnahme fuer Paare mit geteiltem Zielfeld (z. B. Margin gegen die Zahl der
+UNTERSCHIEDLICHEN Felder normiert) Phantome kostet — `ambiguityMarginLl` ist die Konstante, die
+`docs/how-we-got-here.md` als teuerste im Motor fuehrt.
+
+## Der Replay hat das Coverage-Gate des Modells nie angewandt (gefunden 2026-08-25)
+
+`:app` setzt es beim Attach (`withCoverageGateOf`, `TrackerService.kt:679`), der Desktop nicht —
+also lief **jede Replay-Messung dieses Projekts** mit dem Default `pOccludedThr = 0,5`, waehrend
+das Geraet die 0,15 des Modells faehrt. Ein Feld, das zwischen den beiden verdeckt ist, zaehlte im
+Replay als Zeuge und auf dem Telefon nicht. Behoben; `docs/occlusion-gate.md` sagt seit der Messung,
+dass die Schwelle mit dem Modell reist.
+
+**Die Diff-Engine ist davon unberuehrt** — voller Regressionssatz vorher/nachher zeilengleich. Was
+sie aus der Coverage liest, liegt offenbar nie zwischen den beiden Schwellen. Fuer die
+Stillstands-Engine, die jedes Feld ueber dem Gate aus der Evidenz nimmt, ist es dagegen der
+Unterschied zwischen 7 und 67 Plies auf `2026-08-08-00-39-57`.
+
+**Und es ist kein einseitiger Gewinn.** Auf `VID_20260824_154327` kostet dasselbe korrekte Gate:
+101/16/0 mit 0,5, aber 66/51/0 mit 0,15 — beide ohne Phantome. Das strengere Gate verwirft mehr
+Felder als verdeckt und damit auch Evidenz. Die 0,15 stammen aus einer Messung an anderem Material
+(loss ratio 2 gegen die SAM-Matten); ob sie fuer diese Kamera stimmen, ist eine eigene Frage.
+
+## Pull ist gebaut — und war NICHT die Ursache von `00-39-57` (gemessen 2026-08-25)
+
+`EngineOps.wantsCnnRead()` ist die Bedarfsfrage, die der Naht fehlte: der Observer stellt sie einmal
+je Frame vor seinen eigenen Toren (`CnnObserver.wantsFrame`), Default `true` — womit sich fuer die
+Diff-Engine nichts aendert, die ohnehin jede Lesung nimmt und hinterher aussortiert. Die
+Stillstands-Engine antwortet nur mit ja, wenn das Brett ruht UND sich seit dem letzten verstandenen
+Bild etwas geaendert hat UND seither eine Hand darueber war.
+
+**Was es spart, gemessen:**
+
+| Aufnahme | Lesungen Push | Lesungen Pull |
+|---|---:|---:|
+| `2026-08-08-11-55-19` | 972 | **210** |
+| `VID_20260824_153751` | 1 783 | **92** |
+| `VID_20260824_154327` | 6 238 | **891** |
+| `2026-08-08-00-39-57` | 5 069 | — |
+
+Ergebnis unveraendert oder besser: 15/0/0, 35/0/0 — und `154327` gegen die volle 117-Ply-PGN
+**101/16/0**, gegen 81/36/0 unter Push und 10/107/0 mit der Diff-Engine. Null Phantome.
+
+**Die Hypothese zu `00-39-57` war widerlegt und ist inzwischen geloest.** Nicht die Taktung: mit
+Pull stand dasselbe 7/60/2. Es waren zwei andere Dinge, beide gemessen: das Bild (`bgrDet` ist
+schon ein Resample, 1920 -> 464 -> 160 glaettet zweimal) brachte 7 -> 24, und das fehlende
+Modell-Gate den Rest, 24 -> **67/0/0 bei 192 Lesungen**. Der Agent hatte in der Arena 67/0/0 bei
+178 — die Zahlen decken sich, weil er dort immer beides richtig hatte.
+
+**Neu daneben:** mit Pull faellt `11-59-12` auf 66/7/97 (Push: 52/21/0) — mehr gefunden, aber die
+Skip-Kaskade des Agenten tritt auf (er hatte dort 66/7/171). Das ist derselbe Mittelspiel-Knoten,
+kein neues Verhalten, aber unter dieser Wertung sind 97 Phantome 97 Phantome.
+
+## Der Alarm rastet auf IDENTITAET ein, obwohl er das nicht darf (gemessen 2026-08-25)
+
+`VID_20260824_154327`: der Tracker committet zehn Plies, dann `ALARM latched on
+a1,g1,h1,d4,f4,g4,c5,g5,a8,f8` — und danach nichts mehr, 107 Plies und 11 000 Frames lang, weil
+der Latch nur ein Mensch loest und im Replay keiner da ist. Die zehn genannten Felder, gegen die
+Stellung nach Ply 10 gemessen (`tmp/arena/alarm-154327.jsonl`, Frame 1000, Coverage-Gate 0,15):
+
+| Feld | erwartet | gelesen | Konfidenz | Art |
+|---|---|---|---|---|
+| a1 | wR | wP | 0,93 | Identitaet |
+| g1 | wN | wR | 0,94 | Identitaet |
+| h1 | wR | wB | 0,99 | Identitaet |
+| f4 | wB | wP | 0,95 | Identitaet |
+| a8 | bR | bN | 0,96 | Identitaet |
+| f8 | bB | bN | 0,75 | Identitaet |
+| d4, g4, c5, g5 | — | korrekt | — | kein Konflikt |
+
+**Null Belegungs- oder Farbfehler auf diesen Feldern, alle unverdeckt.**
+
+**Korrektur (nachgemessen, gegen die erste Lesart dieses Eintrags):** der Latch ist trotzdem NICHT
+falsch gefallen. `hasOccupancyConflict` (`Resync.kt:37`, das Alarmtor) prueft die Belegungsachse
+und ist damit genau die Regel, die es sein soll — nur zaehlt es ueber die ganze Konfliktliste, und
+die enthielt neben den sechs Identitaetsfeldern auch `g4`, `g5` und `c5`. Dort war der Widerspruch
+echt: `g4->empty@1,00`, `g5->wP@1,00`, `c5->empty@1,00` ab Frame 1100. Das sind **die naechsten
+Zuege** (g4-g5, cxd4), die der Tracker nicht erkannt hat.
+
+Die Kette ist also: Identitaet kippt → `deriveMovesDeep` sucht auf der Identitaetsachse und findet
+die Zuege nicht → das Brett laeuft weg → jetzt widerspricht die BELEGUNG wirklich → Alarm, zu
+Recht. **Der Latch ist die Folge, nicht der Fehler.** Repariert wird die Suche, nicht das Tor.
+
+Was NICHT hilft: `cnnMarginSquares` hochziehen. Mit der Farbachse und Margin 2 faellt derselbe
+Lauf von 50/1/9 auf 7/44/0 — dieselbe Beobachtung wie bei `plyCostSquares` ("at 2 recovery commits
+nothing at all").
+
+Zusammenhang: dieselbe Ursache, aus der `cnnColorAxis` denselben Lauf von 10/107/0 auf 54/63/5
+hebt und der Stillstands-Arm auf 81/36/0 kommt — der bepreist Identitaet von vornherein nur mit
+0,4 und hat gar keinen Identitaets-Alarm.
+
+## Die zweite Engine laeuft — was als Naechstes zu messen ist (2026-08-25)
+
+`engine=stillness` gegen `classic`, voller Regressionssatz, `real13-ms-s3-hn4-bn80`:
+
+| Aufnahme | classic | stillness |
+|---|---|---|
+| `2026-08-08-11-55-19` | 15/0/0 | 15/0/0 |
+| `2026-08-07-13-52-38` | 25/0/0 | 25/0/0 |
+| `2026-08-08-11-59-12` | 52/21/0 | 52/21/0 |
+| `VID_20260727_233929` | 7/3/0 | 7/3/0 |
+| `VID_20260802_222203` | 3/0/0 | 3/0/0 (+14 hinter der Referenz) |
+| `VID_20260802_222741` | 27/1/**6** | 27/1/**1** |
+| `VID_20260824_153751` | 9/26/0 | **35/0/0** |
+| `VID_20260824_154327` (gegen die 117-Ply-PGN) | 10/107/0 | **81/36/0** |
+| `VID_20260726_233432` | 21/0/0 | 19/2/2 (Referenz falsch geordnet, siehe unten) |
+| `2026-08-08-00-39-57` | **67/0/0** | 7/60/2 |
+
+- **`00-39-57` ist der eine echte Rueckschritt und der naechste Messpunkt.** Derselbe Code holt in
+  der Arena dort 67/0/0 bei 178 Lesungen. Zwei Unterschiede kommen infrage, und sie sind trennbar:
+  die Lesungen kommen GESCHOBEN statt gezogen (Stufe 2 des Umbaus), und das Bild ist der
+  Detection-Warp bei `detSize` statt des vollen Bretts. Erst den zweiten pruefen — er ist billiger.
+- **Die Lesezahl ist unter PUSH nicht messbar.** `observerIntervalS = 0.0` heisst: der Observer
+  liest, so schnell die Inferenz fertig wird. Was diese Engine an Strom spart, zeigt sich erst,
+  wenn sie selbst zieht.
+- **Zwei Zeilen sind Referenzartefakte, kein Verhalten.** `222203` hat drei Referenz-Plies und der
+  Lauf spielt weiter (der Desktop-Scorer kennt kein `beyond`, der Arena-Scorer schon); `233432`
+  traegt eine geratene Zugreihenfolge.
+
+## Aus dem Arena-Experiment (2026-08-25)
+
+- **`cnnColorAxis` ist gebaut und gemessen — die Margin fehlt noch.** Der Knob schaltet den
+  Suchkanal in `DeepSearch` von der exakten Figurenklasse auf Belegung+Farbe (`wR` und `wN` fallen
+  auf `w` zusammen). Voller Regressionssatz, `model=real13-ms-s3-hn4-bn80`:
+
+  | Aufnahme | aus | an |
+  |---|---|---|
+  | sechs Rig-Aufnahmen | unveraendert | unveraendert |
+  | `VID_20260824_153751` | 9/26/0 | **35/0/0**, Alarm weg |
+  | `VID_20260824_154327` (gegen die 117-Ply-PGN) | 10/107/0 | 54/63/**5** |
+
+  Also: kein Schaden, wo Identitaet nie das Problem war, und ein Faktor 5 dort, wo sie kollabiert
+  — aber auf 154327 kauft es 44 Plies fuer 5 Phantome. **Naechster Schritt:** eine groebere Achse
+  macht Hypothesen aehnlicher, also `cnnMarginSquares` (heute 1) mitziehen und beides zusammen
+  messen. Vorher NICHT scharfschalten — Phantome disqualifizieren.
+
+Der Fable-Agent hat einen Tracker von Null gebaut (`docs/agent-briefs/tracker-from-scratch.md`,
+Arbeitsbaum `../chess-vision-arena`). Was er gefunden hat, ist nachgeprueft; was er BRAUCHT, steht
+hier als Arbeit an uns. Reihenfolge nach gemessenem Ertrag.
+
+- **Der Bildvergleich taugt NICHT als Hand-Signal — gemessen, nicht vermutet** (2026-08-25, nach
+  Freigabe unseres Trackers an den Arena-Agenten). Er hat unsere beste Idee nachgebaut:
+  Per-Zell-Nivellierung gegen den Schatten (`docs/position-check.md`) plus Census-Transform gegen
+  die Helligkeit, an drei bekannten Knoten bei 160 px und 320 px vermessen. Ergebnis:
+  (a) ein Arm auf dem Brett saettigt Census ueber 25+ Zellen — **ein Arm IST Struktur**, und
+  helligkeitsinvariant hilft dagegen nicht; (b) der entscheidende Zug `e7e5` auf `233432`
+  erscheint in KEINEM sauberen Zwischenbild, bei keiner Aufloesung: er fiel vollstaendig unter die
+  Hand; (c) auf dem `233929`-Tail widerspricht das einzige lesbare Signal der Referenz und ist
+  unverifizierbar. Seine Sonde (`GapProbe`, log-only) bleibt als Instrument, entscheidet aber
+  nichts.
+  **Was das heisst:** Wer ein Hand-Signal sucht, soll es nicht aus Frame-Differenzen bauen. Die
+  verbliebene Option ist die Coverage-Spalte des Modells — sie ist aus Pixeln GELERNT, nicht aus
+  Differenzen gerechnet, und damit die einzige Quelle, die von diesem Negativergebnis nicht
+  getroffen ist. Und: wo ein Zug vollstaendig unter der Hand liegt, gibt es kein Zwischenbild,
+  das irgendein Verfahren finden koennte — dort ist die Reihenfolge prinzipiell unbeweisbar und
+  gehoert in die Wertung (siehe `reordered` im Arena-Scorer), nicht in ein besseres Veto.
+
+- **Ein Hand-Signal je Feld, das Hand von Schatten trennt** (sein groesster Engpass, und unserer).
+  Seine verbleibenden Fehler sind Ordnungsknoten: bei identischer Endstellung sind „3 Zuege" und
+  „2 Zuege" aus Standbildern nicht unterscheidbar (11-59-12 Ply 48). Die Zwischen-Standbilder
+  traegen die Antwort, aber sein Bild-Veto starb an Schatten und Warp-Jitter (~10 Graustufen
+  Rauschen), waehrend echte dunkle Zuege darunter liegen. Wir haben den Kanal bereits: die
+  Coverage-Spalte der 13+1-Modelle. **Zu tun:** `FrameView` gibt Coverage je Feld heraus (steht
+  schon in Spalte 13, wird aber nirgends als eigenes Signal angeboten) — **erledigt 2026-08-25,
+  `frame.coverage()` und `frame.covered()`**. Offen bleibt die Messung: leistet Coverage die
+  Trennung, an der die Graustufen-Differenz nachweislich scheitert (siehe Eintrag darueber)? Das
+  ist die eigentliche Frage, und sie ist noch unbeantwortet.
+
+- **Warp-Glaettung: die Quad-Neumessung erzeugt das Rauschen, gegen das alle Schwellen kaempfen.**
+  Die Arena misst den Quad alle 30 Frames neu; jede Messung verschiebt das entzerrte Brett um
+  Pixel und hebt den Zellen-Rauschboden. Das zwingt Bewegungs- und Aenderungsschwellen hoch und
+  hat sein Ordnungs-Veto unbrauchbar gemacht. **Zu tun:** Median ueber die letzten N Quads statt
+  der letzten Messung — in der Arena UND im Tracker, dort heisst es `alignEvery`/LiveAlign.
+  Danach die Schwellen neu messen, nicht vorher.
+
+- **Ein zweites Modell als Schiedsrichter, aber nur im Streitfall.** Bei persistentem
+  Identitaets-Konflikt eine Zweitlesung mit `comp13`/`real13-s2` holen (~5-10 Extra-Lesungen je
+  Partie). Die Arena zaehlt Lesungen bereits je Modell, das Werkzeug ist also da. Offene Frage:
+  ob die Familien unabhaengig genug irren — sonst kauft die zweite Stimme nichts
+  (`docs/emission-correlation.md`).
+
+- **Aufnahmen mit Auslauf.** `VID_20260727_233929` verliert seine letzten vier Zuege, weil das
+  Video rund drei Sekunden nach dem letzten Zug schneidet und nie ein lesbares Ruhefenster kommt.
+  Beide Tracker verlieren sie. **Zwei Sekunden Stillstand am Ende jeder Aufnahme sind gratis
+  Recall** — gehoert in die Aufnahmeanweisung, nicht in den Code.
+
+- **Referenzen mit geratener Zugreihenfolge korrigieren.** 51 von 606 Referenz-Plies (8 %) liegen
+  in Buendeln, also mehrere Zuege auf demselben Frame — der alte Tracker hat dort einen Rueckstand
+  in geratener Ordnung committet. Auf `VID_20260726_233432` ist die Ordnung nachweislich falsch
+  (`Nf3+e5@335`, waehrend die Bilder e4@240, e5@280, Nf3@360 zeigen — Dump in
+  `tmp/arena/order-233432.jsonl`); auf `VID_20260802_222741` steht ein Endzug `Nxf3+@7425`, den
+  das Video nicht zeigt, und die Partie laeuft dort bis Frame 9468 mit einer kohaerenten
+  Mattsequenz weiter. Solange das so steht, misst die Latte gegen falsche Labels und ein besserer
+  Tracker sieht schlechter aus. **Zu tun:** die acht Aufnahmen mit Buendeln durchsehen, Ordnung
+  aus den Bildern bestaetigen, `reference.pgn` von Hand nachziehen.
+
+- **Arena: Ordnungs-Aequivalenz auch im Scorer.** Wo zwei Zugfolgen dieselbe Endstellung erreichen,
+  ist die Reihenfolge aus Standbildern nicht beweisbar. Der LCS-Scorer bestraft die Abweichung
+  trotzdem und zaehlt danach alles als Phantom (Skip-Kaskade: 171 „invented" auf 11-59-12, die
+  fast vollstaendig hinter dem Referenz-Ende liegen). **Zu tun:** Umordnungen mit identischer
+  Endstellung als Treffer werten, und die `beyond`-Regel auch dann greifen lassen, wenn davor ein
+  solcher Knoten liegt.
+
 ## Next up (agreed, not started)
+
+- **Auf 4K-Aufnahmen kippt die IDENTITAET, nicht die Belegung** (gemessen 2026-08-25 auf der
+  Grundstellung, also ohne jede Verdeckung; gefunden vom Arena-Agenten, unabhaengig nachgeprueft).
+  `real13-ms-s3-hn4-bn80` auf vier Frames je Aufnahme, 256 Zellen:
+
+  | Aufnahme | Zelle | Belegung+Farbe | Identitaet |
+  |---|---:|---:|---:|
+  | `2026-08-08-11-55-19` (Rig 928) | 116 px | 1,000 | 1,000 |
+  | `VID_20260824_153751` (4K 1280) | 160 px | 0,973 | 0,859 |
+  | `VID_20260824_154327` (4K 1280) | 160 px | 0,969 | 0,812 |
+
+  Verwechselt wird typisiert und farbtreu: `wR->wK`, `wN->wR`, `wB->wR`, `bK->bB`, `bP->bB`. Auf dem
+  Rig-Material kein einziger Fehler. Das ist der Sampling-Shift aus `CLAUDE.md` 0.1 — trainiert auf
+  116-px-Zellen, serviert mit 160.
+  **Zwei Folgerungen, unabhaengig voneinander:**
+  (1) *Daten/Training:* 4K gehoert in `--scales`, oder der 4K-Crop muss auf die trainierte
+  Zellgroesse gebracht werden statt auf 80 px hochskaliert. Vorher messen, welcher der beiden Wege
+  die Identitaet hebt.
+  (2) *Engine:* Der Hypothesen-Score sollte Belegung und Farbe voll gewichten und die Identitaet
+  schwach — ein Turm, der als Springer gelesen wird, darf einen sonst eindeutigen Zug nicht
+  blockieren. Der Faktor folgt aus dem gemessenen Verhaeltnis der beiden Zuverlaessigkeiten, nicht
+  aus einer Handkalibrierung. Erklaert vermutlich die Regression auf `154327` (10 von 117).
+
+- **Der Replay-Default `real14-80` verriegelt den Tracker — jede Messung damit ist eine andere
+  Messung** (gemessen 2026-08-25 beim Aufbau der Arena). `ReplayOptions.model` steht auf
+  `DEFAULT_MODEL` = `real14-80`, das kein `coverage_output` deklariert, also laeuft der modellfreie
+  Hand-Arm mit. Derselbe Aufruf, nur `model=real13-ms-s3-hn4-bn80` dazu:
+  `2026-08-07-13-52-38` von **4/21/3 auf 25/0/0**, `2026-08-08-00-39-57` von **0/67/0 auf 67/0/0**
+  (`tmp/arena/baseline/*.log` gegen `*.r13.log`). Bei `real14-80` haengt der Lauf dauerhaft in
+  `STUCK occluded` mit ueber das ganze Brett verstreuten `occlVeto`-Feldern bei `motion=0` — also
+  flaggt der Gitter-Sensor dort keine Hand, sondern etwas anderes.
+  **Zu klaeren:** (1) Ist der Default noch richtig, wenn die gemessen bessere Wahl daneben liegt?
+  (2) Was flaggt `gridOccludedSquares` auf diesen Frames wirklich — die Regel „nur handfoermige
+  Flags" aus `CLAUDE.md` sollte genau das verhindern. (3) `docs/tracker-flow.md` nennt einen
+  ungeklaerten Bruch auf 003957; mit dem 13+1-Modell loest dieselbe Aufnahme 67/67 auf.
+
+- **`board_acc` misst `piece_acc` hoch 32 — und ignoriert die Verdeckung** (gemessen 2026-08-25,
+  Frage des Users: *„warum ist die board accuracy so low, wird da occlusion nicht bedacht?"*).
+  Zwei Ursachen, sehr ungleich gewichtet.
+  **(a) Die Verdeckung fehlt.** `board_accuracy` (`training/data.py:67`) gruppiert ALLE Crops eines
+  Frames, ohne Coverage-Filter. Ein Brett gilt nur als richtig, wenn auch jede verdeckte Zelle
+  stimmt — und die sind aus dem Verlust maskiert, das Modell lernt sie nie. Im Val-Split von
+  `real13-straight-80-v3` tragen **46 % der 1 020 Bretter mindestens eine verdeckte Zelle** (Median
+  12, max 32), also ist `board_acc` konstruktionsbedingt auf **54 %** gedeckelt. Für die Belegung
+  gibt es den sichtbar-Zwilling schon (`visible_occupied_board_acc` = 0,678), für die Identität
+  **nicht** — `visible_board_acc` existiert nicht.
+  **(b) Der Exponent, und der ist der eigentliche Grund.** Ein Brett hat rund 32 Figuren; bei
+  `piece_acc` = 0,657 sind alle gleichzeitig richtig mit `0,657^32 = 1,5e-06`. Dass 1,9 %
+  herauskommen, liegt nur an figurenarmen Endspielen und stark korrelierten Fehlern. Die
+  Deckelung erklärt 54 statt 100 — sie erklärt nicht 1,9.
+  **Vorschlag, in dieser Reihenfolge:** (1) `visible_board_acc` als Zwilling ergänzen, damit die
+  Zahl wenigstens ehrlich ist (hebt sie kaum: Deckel weg, Exponent bleibt). (2) Eine Variante MIT
+  TOLERANZ danebenstellen — „höchstens eine Zelle falsch" statt „alle richtig". Bei 0,657 je Figur
+  ist „alles richtig" keine Metrik, sondern ein Lotterielos, und eine Größe, die fast immer 0 ist,
+  kann keine Auswahl steuern. (3) Erst dann diskutieren, ob sie in `CHECKPOINT_WEIGHTS` gehört —
+  heute steht dort aus gutem Grund `occupied_board_acc`, weil die Belegung sichtbar bei 99,4 %
+  liegt und die 64 Zellen übersteht.
+  **Achtung:** Trainingscode, also mit dem laufenden Agenten abstimmen.
+
+- **`minGridLineCoverage` ist der Hebel, der `motionThr` entlasten koennte** — gefunden beim
+  Strom-Auftrag (2026-08-25), nicht verfolgt, weil der User `motionThr` so lassen wollte.
+  Der Motion-Score macht zwei Jobs: Puffer-Hygiene in `stableBranch` (welche Frames duerfen in
+  das gemittelte Paar) und Scharfschalten des Commit-Gates. **Gemessen ist, dass die obere Wand
+  am ERSTEN haengt**: bei `motionThr = 1.0` faellt `2026-08-08-00-39-57` von 67 auf 4 Plies, und
+  mit `nomotion` — also ohne Commit-Gate — bleibt es bei 4. Die Hand wird dann in den Mittelwert
+  gerechnet, statt die Puffer zu leeren.
+  CNN-Occlusion kann das nicht uebernehmen (Frage des Users): sie kommt pro Beobachtung, darf
+  `OBS_MAX_AGE_S = 3.0` s alt sein und beantwortet „ist da eine Hand" statt „ist dieser Frame
+  kontaminiert". `occludedByGrid(input.gridLineCoverage)` macht denselben Job aber schon, pro
+  Frame und im selben Pfad — es verwirft beide Puffer, wenn der Verdecker geht. Wer `motionThr`
+  Luft verschaffen will, dreht dort. Zahlen: `docs/battery.md`.
+
+- **Der Alarm feuert bei Bewegung zu schnell — Latch zu kurz, oder das Prinzip stimmt nicht**
+  (User am Brett, 2026-08-25: *„bei bewegen wird zu schnell ein alarm getriggert"*). Steht NACH
+  dem Handcheck vom Vortag, ist also nicht damit erledigt.
+  **Erster Verdacht, und er zeigt auf eine eigene Aenderung:** `desyncObsN` = 3 ist im Code als
+  *„persistent over seconds"* dokumentiert, ausdruecklich NICHT als „dreimal ausgewertet". Seit
+  2026-08-24 macht `evaluationDue` einen angefangenen Desync aber im Beobachtungstakt voll
+  (`desyncObs in 1 until desyncObsN`), damit Blitz mitkommt — drei Beobachtungen sind damit rund
+  **300 ms** statt 2,1 s. Genau davor warnt der Kommentar an `advanceDesyncStreak`. Die
+  Begruendung dafuer war die Korrelationsmessung (Warten kauft keine Unabhaengigkeit), und die
+  gilt weiter; was sie NICHT sagt, ist dass die Dauer selbst egal waere — sie ist die Definition
+  von „anhaltend".
+  **Drei Hebel, in dieser Reihenfolge zu pruefen:**
+  (1) Dauer und Anzahl TRENNEN — eine eigene Mindestdauer (`nowS - desyncSince`) neben
+  `desyncObsN`, statt beides ueber das Produkt aus Anzahl und Cooldown zu erschlagen. Das ist der
+  saubere Zuschnitt: schnelle Serie fuer Blitz, aber der Latch wartet trotzdem eine echte Sekunde.
+  (2) `alarmDeferObs` von 0 hochdrehen — vorhanden, per Knob, kostet keinen Neubau. Schnellster
+  Test, ob mehr Luft ueberhaupt hilft.
+  (3) Den Handcheck nachmessen: `handInFrame()` traegt auf dem Geraet nur drei seiner vier
+  Quellen, weil `runGridOcclusion = coverageOutput != true` den Rillen-Arm abschaltet. Wenn eine
+  bewegte Hand vom Coverage-Kopf zu spaet erkannt wird, hilft kein Zeitfenster.
+  **Die Grundsatzfrage des Users daneben:** ob ein LATCH ueberhaupt die richtige Form ist. Er
+  haelt bis Undo oder Resync — bei einem Fehlalarm waehrend des Zugs ist das teuer, und die
+  Alternative (eine Warnung, die von selbst verfaellt, wenn die Stellung wieder passt) ist nie
+  gemessen worden. Vor Hebel (1) klaeren, sonst optimiert man die Schwelle einer Mechanik, die
+  vielleicht die falsche ist.
+
+- **Beide Occlusion-Arme gegeneinander messen** (offen seit Wochen, CLAUDE.md: *„never been
+  measured against each other"*). Auf dem Gerät läuft heute NUR der Coverage-Kopf: sobald ein
+  Modell `coverage_output` deklariert, schaltet `TrackerService` den Rillen-Arm ab
+  (`runGridOcclusion = coverageOutput != true`) — und alle aktuellen Modelle deklarieren ihn. Der
+  abgeschaltete Arm ist der mit dem 67/67-Meilenstein hinter sich, der laufende hat keine Messung.
+  Der Desktop-Replay fährt beide, der A/B ist also machbar; er braucht nur, dass der Schalter ein
+  Knob wird statt einer Zeile in `TrackerService`. Drei Arme: Modell / Rillen / beide.
+
+- **Der `refusedStreak` ist im Korpus untestbar** (2026-08-24). Er öffnet das CNN-Tor nach drei
+  identischen Ablehnungen und war die Antwort auf 70× `Kf1` in 9 Sekunden ohne eine einzige
+  Auswertung. Im A/B über die zehn Recordings ändert er **nichts** — 304/90/7 in beiden Armen, bei
+  identischen Read-Zahlen —, weil keine der Aufnahmen den Fall enthält: dort zieht niemand illegal
+  im Schach. Also entweder eine Aufnahme davon machen, oder einen Clip bauen. Bis dahin steht eine
+  Engine-Änderung ohne Beleg im Baum.
+
+- **Rauschgrenze steht — jedes A/B braucht drei Seeds** (gemessen 2026-08-25, Zahlen und Methode
+  in `docs/seed-noise-floor.md`). Der frühere Punkt „das Training ist nicht deterministisch" ist
+  widerlegt: gleicher Seed liefert bit-identische Läufe. Was streut, ist der Seed — beim
+  s2-Rezept `val_visible_acc` um 0,0097, `val_piece_acc` um 0,0247, `val_conf_auroc` um 0,0994.
+  **Offen bleibt daraus:** (1) die berichteten Unterschiede zwischen s2/s3 (0,011) liegen im
+  Rauschen, es gibt also derzeit keinen belegten „besten Stand" — wer einen will, fährt drei Seeds
+  je Kandidat. (2) Die Rauschgrenze ist nur für **s2** gemessen; s3 und der Composite-Pfad haben
+  ihre eigene und könnten enger sein. (3) `val_conf_auroc` ist als Entscheidungsgröße unbrauchbar,
+  solange ihre Spanne so groß ist wie der Abstand, den man messen will.
 
 - **Python und Kotlin stehen auf verschiedenen Klassenschemata** (gemessen 2026-08-20, nachgezogen
   nach dem Aufräumen). Das 2-Klassen-`occupancy` ist auf BEIDEN Seiten weg — `OCCUPANCY_CLASSES`,
@@ -12,9 +486,14 @@
   Was bleibt, ist die Coverage-Lücke. Python ist seit 2026-08-18 auf 13 Klassen +
   Coverage-Regression: `dataset build` defaultet auf `pieces13`, `train` auf `--head occlusion`,
   das Modell gibt 13 Softmax-Logits plus EIN unabhängiges Sigmoid.
-  Das Handy bündelt nur noch `real14-80` (Default, echtes 14-Klassen-Softmax mit `occluded` auf
-  Index 13) und `id35-80` (13 Klassen, also `pOccluded = 0.0`) — **keines** deklariert
-  `coverage_output`.
+  **Der Export ist seit 2026-08-24 erledigt.** Das Handy bündelt vier Modelle: `real14-80`
+  (Default, 14-Klassen-Softmax), `id35-80` (13 Klassen, `pOccluded = 0.0`) und drei mit
+  `coverage_output` — `comp13-occ-bn-lr1e2-bs512`, `real13-ms-s3-hn4-bn80`,
+  `real13-ms-s2-bn80-bs256-swa1e4`. `scripts/stage_model_asset.py` legt sie ab und ergänzt dabei
+  `coverage_output` und `coverage_gate`, die `chesslab export` beide NICHT schreibt.
+  **Offen ist nur noch Schritt (3):** der Replay-A/B gegen `real14-80`, mit der Veto-Metrik als
+  Entscheider. Und: `BUNDLED_MODELS` ist handgepflegt — ein Modell allein im Asset-Ordner
+  erscheint nie im Picker.
   **Die Bruchstelle ist der Export, nicht die Leseseite.** `ModelSpec.coverageOutput` und
   `observationFromProbs` lesen die Extraspalte längst, die Vertragstests dafür stehen
   (`OnnxSquareClassifierContractTest`) — sie feuern nur nie. Von den zehn Occlusion-Läufen ist
@@ -127,26 +606,15 @@
   (`core-engine/Taint.kt`, Knob `modelHandGate`) zählt occluded-Flags nur noch, wenn sie
   handförmig sind (adjazentes Paar, die Regel des Grid-Arms) UND Motion frisch ist oder der
   Grid-Arm die ruhende Hand bezeugt. A/B über Replays desselben Videos (`set:modelHandGate=…`).
-  Offen bleibt das MODELL selbst (Kopf neu kalibrieren oder 13c + Grid-Arm als Default).
+  *Gemessen 2026-08-24, gegen die Vermutung:* die BREITE der Vetos ist kein Fehler. Aus 11 306
+  gematteten Frames deckt eine echte Hand im Median 3 Felder, im p90 **23** und maximal 41 — eine
+  Ausdehnungsgrenze würde echte Hände wegwerfen. Der Coverage-Kopf ist zudem gut kalibriert (echte
+  Verdeckung < 5 % → Vorhersage Median 0,001; > 45 % → 0,838). Was fehlte, war die SCHWELLE: 0,5
+  ließ Reads durch, die zu 84 % falsch sind. Sie reist jetzt als `coverage_gate` im Modell
+  (`docs/occlusion-gate.md`). Offen bleibt der A/B der beiden Arme gegeneinander — Coverage-Kopf
+  gegen Rillen —, den CLAUDE.md seit Wochen als „never measured" führt und den der Schalter
+  `runGridOcclusion = coverageOutput != true` heute gar nicht zulässt.
 
-- **ERLEDIGT ANDERS, 2026-08-21: der Mesh nimmt die Wölbung, nicht die Linse.** Gemessen über
-  drei Rig-Aufnahmen mit Hold-out (`scripts/straighten_ab.py`): roher Brett-Bogen 15,2–16,6 px,
-  Gitter-Mesh allein 0,9–1,1, gefittete Linse allein 3,0–4,4, beides 0,4–0,7. Auf 116 px
-  Zellbreite ist ein Pixel unter einem Prozent einer Zelle, also ist die Linse den Fit pro
-  Aufnahme nicht wert. Der Store wird stattdessen einmal geradegezogen
-  (`realgames.straighten_boards`). Was unten steht, ist der ALTE Plan und nur noch Historie.
-
-- ~~**Lens end-to-end für die Rig-Kamera**~~ (2026-08-10: *"ich würde gerne überall die Bilder sehen
-  die auch der Algo sieht"*). Der Hebel ist an die DATEN gekoppelt (CLAUDE.md, specs/52: lens-
-  korrigierte Inferenz gegen den roh trainierten Korpus = 003957 von 67 auf 15 Plies), deshalb in
-  dieser Reihenfolge und nie einzeln: (1) alle Rig-Sessions im Pool undistorten + re-slicen
-  (rg-2026-08-08-00-39-57 ist schon durch), (2) Modell auf dem korrigierten Korpus neu trainieren,
-  Path-A gegen den Champion, (3) erst dann Label-Replays und Serving auf `lens` default. Bis dahin
-  zeigen die gelabelten Burst-Bilder im Confirm bewusst das ROHE Algo-Bild und nur `review-extra/`
-  (bis 2026-08-20 `frames-extra/`) ist korrigiert — die Mischung im ◀ ▶ ist bekannt und gewollt. Umfang gemessen 2026-08-10: NUR
-  die Rig-Kamera (OBS-Videos: k1 ≈ −0,23, Bow halbiert, Fit akzeptiert); die vier Phone-Videos
-  lehnt der Grid-Fit dreimal unabhängig ab (k1 ≈ 0) — die Handykamera entzerrt selbst, dort gibt
-  es nichts zu tun.
 
 - **The static takes still miss the gap they were filmed for.** Take 1 covers a1-e4 — White's
   half again, mostly empty squares. The corpus is already 57 % "occluded over empty" with 8
@@ -198,33 +666,6 @@
   `unknown_squares` existed, because re-running the export meant decoding the whole video again.
   Re-export is cheap now (frames on disk are kept) and non-destructive (a repaired quad is carried
   over), so after any change to `plan_rows`, re-export and check the field is actually there.
-
-## Lens: die Krümmung, die im Brett-Store sichtbar wurde (2026-08-17, gelöst 2026-08-21)
-
-Der User sah die Wölbung in `rg-2026-08-07-13-52-38/boards/000147.webp`, und am 2026-08-20 in
-einem Trainings-Crop. Befund, gemessen:
-
-- **Die Ursache war die Hand, nicht die Linse.** 1 116 der 7 344 exportierten Frames trugen gar
-  keinen Mesh, und das waren AUSNAHMSLOS Frames mit einer Hand auf dem Brett; wo doch einer
-  zustande kam, war er von der Hand verzogen (Hand-Frames blieben bei 15,6–15,7 px Bogen,
-  saubere bei 1,0). Das ist genau das Occlusion-Material.
-- **Gelöst**: der Store wird beim Schreiben einmal geradegezogen, ein Hand-Frame leiht den Mesh
-  seiner fünf nächsten sauberen Nachbarn (die Kamera steht fest). Gemessen an 207 echten
-  Brettern: sauber 16,57 → 0,99 px, mit Hand 15,78 → 1,95 px.
-- Das gespeicherte Brett WAR der rohe rektifizierte Warp; Trainings-Crop und Label-Ansicht
-  begradigten jeder für sich. Beides ist weg — es gibt eine Begradigung, im Store.
-- Gemessene Wölbung über das 928er Brett, Mittel über 200 Frames je Session: die eine
-  undistortete Session (`00-39-57`, k1 = −0,269) liegt bei 13,7 px in x, alle rohen bei 15–56 px.
-- Der Fit gehört laut `Undistort.kt` bewusst nach Kotlin (`data/lens/calib.npz` wurde bei
-  2560×1440 mit RMS 5,46 px gefittet, die Kamera liefert 1920×1080). Das ANWENDEN eines
-  gefitteten Modells ist dagegen ein `cv2.undistort` und könnte im Stream vor dem Warp laufen —
-  dann bräuchte Undistortion nicht mehr den PNG-Umweg über `frames/`.
-- Offen bleibt NUR die Inferenz: der Tracker warpt roh und kennt gar keinen Mesh (Kotlin kann
-  Gitterlinien messen, aber `gridLinesWithCurvature`/`gridLineFracs` sind nicht portiert). Solange
-  das so ist, sieht das Gerät eine andere Geometrie als der neue Trainingskorpus. Das darf NICHT
-  einzeln scharfgeschaltet werden — specs/52 hat gemessen, dass entzerrte Inferenz gegen ein roh
-  trainiertes Modell 003957 von 67 auf 15 Plies fallen lässt. Reihenfolge: erst auf dem geraden
-  Korpus neu trainieren, dann Tracker-seitig begradigen.
 
 ## Zwei Aufnahmen behalten ihren Bogen — die Kruemmung war nie messbar (2026-08-21)
 
@@ -369,6 +810,22 @@ Falls je gebaut: CNN schlägt vor, **Grid-Fit hat das Veto** (findet er nicht al
 innerhalb `MAX_OFFSET_FRAC`, wird abgelehnt, nicht gemittelt), und das Abnahmekriterium ist das
 Maß des Grid-Fits — ein falsches Maß hat hier schon 302 Frames zertifiziert, deren Gitter mit
 blossem Auge falsch war. Erst mehr Aufbauten, sonst misst man auswendig gelerntes Mobiliar.
+
+## Markerlos: was nach 90 % noch fehlt (2026-08-30, gemessen)
+
+`src/chesslab/markerless.py` sitzt auf 140 von 155 Frames exakt auf ArUcos Lösung, medianer
+Eckenfehler 0,06 Zellen, 70 ms je Frame (`docs/markerless.md`). Offen:
+
+- **Die Orientierung.** Bewusst ausgeklammert — welche Ecke a8 ist, kann ein Gitter prinzipiell
+  nicht sagen. Soll aus dem CNN kommen. „a1 ist dunkel" ist gemessen und VERWORFEN: halbiert die
+  vier Drehungen auf zwei, die Umsetzung wählte die falsche.
+- **6 Frames finden gar kein Brett**, überwiegend mit einem Arm quer darüber. ArUcos eigentlicher
+  Vorteil ist hier ungenutzt: `MarkerTracker` hat ein Gedächtnis über Frames, dieser Detektor
+  fängt jeden Frame bei null an. Das ist der billigste nächste Schritt.
+- **9 Frames bleiben eine Zelle daneben.** Ein grösserer Suchbereich hilft nicht (±2 und ±3 sind
+  identisch) — das Paritätsmass wählt dort falsch, es greift nicht zu kurz.
+- **Perspektive ist nicht vermessen.** Der 81-Punkt-Fit trägt sie, aber der Bereich ist unbekannt.
+- **Kotlin fehlt ganz.** Alles Python-Prototyp; ein Umzug braucht vorher einen Paritätstest.
 
 ## `board_size` folgt nicht dem gemessenen Quad (2026-08-20, gemessen)
 
@@ -515,6 +972,11 @@ aussehen als die, die der Tracker auf dem Gerät sieht.
 Verwandt: der Sampler-Unterschied zwischen Python (`cv2.resize`, `INTER_AREA` beim Verkleinern) und
 der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser Datei.
 
+## Datenpipeline: gesammelt, nicht sortiert (2026-08-22 bis 2026-08-24)
+
+Einzelbefunde aus der Pipeline-Arbeit. Sie standen bis 2026-08-25 unter der
+webp-Paritaets-Ueberschrift darueber, mit der sie nichts zu tun haben.
+
 - **`SETTLE_CELL_PX` sweepen (2026-08-22).** Steht auf 32 px und ist nie gemessen worden — der
   Kommentar begruendet nur, warum es KLEIN ist. Weniger kann reichen: die Frage ist, ob sich der
   Inhalt geaendert hat, nicht wie scharf er ist. Achtung, `SETTLE_LIMIT = 15.0` ist an dieser
@@ -549,10 +1011,6 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
 
   Ausserdem aus dem Papier: Realismus auf PATCH-Ebene genuegt, global unrealistische Kompositionen
   schaden nicht — das ist die Rechtfertigung dafuer, dass wir Haende ueberhaupt aufkleben duerfen.
-
-- **SAM 3 unter autocast: ERLEDIGT (2026-08-23).** fp16 steht in `alpha_sam3`, gemessen
-  **5,72x** auf dem Produktionspfad (2,866 -> 0,501 s/Frame), abgesichert ueber 150 Frames:
-  0 von 9 600 Coverage-Zellen kippen. Zahlen in `docs/session-mattes.md`.
 
 - **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
   RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
@@ -599,37 +1057,6 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Offen:** ob 1,24-1,33x am Val-Wert etwas bewegen. Gegentest gegen
   `comp13-occ-bn-lr1e2-bs512`.
 
-- **Der Speicherfresser ist OpenBLAS, nicht Torch (2026-08-23, gemessen).** Ein Torch-Prozess
-  RESERVIERT 3,48 GB Commit, bevor er irgendwas rechnet — Working Set dabei 0,38 GB. Die
-  Reservierung sind OpenBLAS-Thread-Arenen (14 Threads = 14 Kerne), nicht Torch selbst:
-  `OPENBLAS_NUM_THREADS=1` druckt den Commit auf **0,28 GB (12x)** und laesst
-  `torch.get_num_threads()` trotzdem auf 14. `OMP_NUM_THREADS=1` spart genauso viel, setzt aber
-  auch Torch auf 1 Thread; `MKL_NUM_THREADS` tut im ROCm-Build gar nichts. Skaliert linear:
-  2 Threads 0,45 GB, 4 Threads 0,79 GB.
-  **Warum das zaehlt:** 16 Dataloader-Worker = 56 GB Commit allein fuers Importieren. Am
-  2026-08-23 hielten 44 verwaiste python.exe **115 GB Commit** von 160 GB Limit, und Tests fielen
-  mit `WinError 1455 Auslagerungsdatei zu klein` + `OpenBLAS error: Memory allocation still failed`.
-  Das ist der Mechanismus hinter „max 8 Worker".
-  **Naechster Schritt:** `OPENBLAS_NUM_THREADS=1` fuer Worker-Prozesse setzen (GPU-Pfade wie SAM 3
-  nutzen OpenBLAS ohnehin nicht) — vorher auf den CPU-lastigen Pfaden (`dataset build`) die
-  Laufzeit gegenmessen, nicht blind setzen.
-
-- **`OPENBLAS_NUM_THREADS=1` fuer die uebrigen Torch-Prozesse pruefen (2026-08-23).** Gesetzt ist
-  der Cap jetzt in `config.loader_kwargs` (alle Loader-Worker) und im SAM-3-Alpha-Worker — beides
-  GPU-Pfade, die OpenBLAS nicht anfassen. **Offen:** `serving.py` haelt einen langlebigen
-  Torch-Prozess und wuerde 3,2 GB Commit sparen, macht aber ggf. CPU-Inferenz — vorher die
-  Latenz messen, nicht blind setzen. `training/evaluate.py` und `gradcam.py` laufen kurz, lohnen
-  kaum. Der Blender-Sharder in `cli.py` spawnt keine Torch-Prozesse und ist nicht betroffen.
-
-- **SAM 3.1 ist fuer uns kein Upgrade (geprueft 2026-08-23).** `facebook/sam3.1` enthaelt KEIN
-  `model.safetensors`, nur `sam3.1_multiplex.pt` (3,50 GB); die config sagt
-  `architectures: ['Sam3VideoModel']`, `model_type: sam3_video`. `Sam3Model.from_pretrained`
-  laedt das nicht — ein Drop-in-Test existiert in unserem Pfad nicht.
-  Inhaltlich passt es auch nicht: der Gewinn ist Object Multiplexing (bis 16 Objekte in einem
-  Forward-Pass, ~7x schnelleres Tracking, bessere VOS-Zahlen). Wir schneiden EIN Standbild ohne
-  Tracking, und gemessen kommt genau EINE Instanz zurueck (`person`/`hand` treffen,
-  `arm`/`sleeve`/`wristwatch` liefern 0 Instanzen). Bildqualitaet beansprucht das Model Card nicht.
-  **Neu pruefen, wenn** Meta einen transformers-nativen Bild-Checkpoint unter 3.1 nachreicht.
 
 - **Vorschlag: den Composite-Pool nicht ueber 128 packen (gemessen 2026-08-23).** `pack_dataset`
   schneidet heute aus `data/crops/comp13-v3` (128 px) auf 80. Das ist ein Resampling zu viel: der
@@ -649,3 +1076,75 @@ der Labeling-Oberfläche (bilinear pro Ausgabepixel) steht weiter oben in dieser
   **Offen:** das ist eine BILDmessung. Ob 1,54x Laplace am Val-Wert etwas bewegt, ist ungemessen;
   der Gegentest waere ein Trainingslauf gegen `comp13-occ-bn-lr1e2-bs512` als Basis. Und es faellt
   in `composite.py`, wo gerade ein anderer Kontext arbeitet — vorher abstimmen.
+
+- **BEANTWORTET: `--per-position` 8 → 2 kostet spürbar** (gemessen 2026-08-25, drei Seeds je Arm,
+  volle 60 Epochen). Die Vermutung war „acht Bretter je Stellung sind acht fast identische
+  Ansichten, der Datensatz wächst und die Information nicht". Sie ist widerlegt.
+  Ausgedünnt wurde OHNE Neu-Export (`scripts/thin_per_position.py`): dieselben Crops aus derselben
+  Memmap, nur weniger davon — 6 799 Bretter auf 1 916, 424 519 Crops auf 116 475. Ein Neu-Export
+  hätte andere Bilder gewählt und zwei Änderungen vermischt.
+  Gepaart je Seed, p8 minus p2 — **3 von 3 positiv auf jeder Metrik**:
+
+  | Metrik | Seed 42 | Seed 43 | Seed 44 |
+  |---|---|---|---|
+  | `visible_acc` | +0,0330 | +0,0052 | +0,0049 |
+  | `piece_acc` | +0,0990 | +0,0401 | +0,0354 |
+  | `occupied_board_acc` | +0,3570 | +0,2280 | +0,1271 |
+
+  **Nebenbefund:** die meisten Stellungen tragen 16 Bretter, nicht 8 — `per_position` 8 PLUS
+  `dirty_per_position` 8, im Schnitt 14,2. Die Frage hieß real „14 oder 4".
+  **Offen bleibt, welche Hälfte den Wert trägt:** zwei Arme laufen, `c8d2` (8 saubere + 2
+  verdeckte) gegen `c2d8`, bei gleicher Größe (291k gegen 288k Crops) und gleicher Batch. Da
+  `piece_acc` am stärksten einbrach und Identität aus SICHTBAREN Zellen gelernt wird, ist die
+  Erwartung, dass die sauberen Bretter tragen — dann wäre die Antwort nicht „weniger", sondern
+  „anders gemischt".
+
+## Der Latch: gefixt, und was daran noch offen ist (2026-08-26)
+
+`alarmMinS` (1,5 s) macht aus dem Beobachtungs-Zaehler die Dauer, die sein KDoc immer behauptet
+hat. Gemessen: `153751` 9/26/0 → **35/0/0**, `154327` 10/107/0 → 64/53/11, fuenf weitere Aufnahmen
+unveraendert. Offen:
+
+- **Der Scorer zaehlt Versatz als Erfindung.** Auf `154327` stehen 7 der 11 „erfundenen" Zuege
+  gleichzeitig in der Verpasst-Liste — richtig gespielt, nur nach einem fehlenden Zug verschoben.
+  Echte Erfindungen: `d4`, `d3` (und `Rd8` gegen gelabeltes `Rhd8`, derselbe Zug). Wer die Zahl
+  „11 Phantome" ohne diese Aufteilung zitiert, trifft eine falsche Entscheidung.
+- **Der Latch hat weiterhin keinen Ausweg ausser einem Menschen.** Das ist der naechste Schritt und
+  betrifft alle drei Engines: ein Alarm, der zu Recht steht, sperrt die Aufnahme bis zum Resync.
+- **`CnnTick.kt` traegt zwei Detekt-Befunde** (`evaluationDue` 4 Rueckgaben, `DoubleNegativeLambda`)
+  aus dem Takt-Commit. Nicht angefasst, aber sie blockieren `:core-engine:detekt`.
+
+## Die dritte Engine — was noch offen ist (2026-08-26)
+
+`:engine-changeset` steht, gemessen und dokumentiert in `docs/engine-changeset.md`. Offen:
+
+- **Mehrdeutige Routen kosten Züge.** Drei Wege derselben Dame zum selben Feld teilen keinen
+  ersten Zug, also committet nichts. Die beste zu raten wurde probiert und kostete 2 Phantome
+  (`11-55-19`). Denkbarer Ausweg: die STELLUNG re-ankern, ohne Zugzeilen zu erfinden — dann
+  zählen die Plies als verpasst statt als erfunden, und die Verfolgung läuft weiter.
+- **Ein verlorener Ply dreht die Zugfarbe** und macht die halbe Suche unbrauchbar. Betrifft alle
+  drei Engines. Bisher nur über `ResyncToBoard` zu heilen.
+- **`wantsRead()` ignoriert das Wiederholungslimit, das `due()` durchsetzt** (Engine 2 und 3).
+  Kostet Inferenzen, keine Korrektheit — aber es ist Strom.
+- **Der Prior aus dem alten Tracker ist ungenutzt.** `Expected.possibleLabels` + `applyPrior` +
+  `invalidMass` würden unmögliche Klassen wegdrücken (`d4:bQ@1.00`, wo die schwarze Dame auf `d8`
+  steht). Hindernis: `possibleLabels` läuft mit einem Halbzug und expandiert breit — Tiefe 6, die
+  Engine 2 erklärt, ist rechnerisch nicht zu haben. Für Engine 3 weniger dringend, weil sie
+  Identität ohnehin nicht befragt.
+- **`:tracker-runtime:detekt` scheitert mit 10 vorbestehenden Befunden** (u. a.
+  `CnnCropAdapter.cropFrameSource` 66 Zeilen). Nicht von diesem Umbau, aber es blockiert das Gate.
+- **Das Coverage-Gate für DIESE Kamera ist geerbt, nicht gemessen.** `c8d1-seed43` trägt 0,15 aus
+  der `real13`-Familie. Live standen `e1`/`g1` dauerhaft als verdeckt.
+
+## Erledigt — das Ergebnis in einer Zeile
+
+Die Langfassungen stehen in `docs/` und in der Git-Historie; hier bleibt nur, was sie GEMESSEN
+haben, damit niemand dieselbe Frage nochmal stellt.
+
+- **Linse gegen Mesh (2026-08-21):** roher Brett-Bogen 15,2–16,6 px, Gitter-Mesh allein 0,9–1,1,
+  gefittete Linse allein 3,0–4,4, beides 0,4–0,7. Auf 116 px Zellbreite ist ein Pixel unter einem
+  Prozent — die Linse ist den Fit pro Aufnahme nicht wert. Der Store wird stattdessen einmal
+  geradegezogen (`realgames.straighten_boards`). Der ganze `calib.npz`-Pfad ist weg: er löste aus
+  vielen Brett-POSEN, die ein fester Aufbau nicht liefern kann.
+- **SAM 3 unter autocast (2026-08-23):** fp16 bringt **5,72×** auf dem Produktionspfad
+  (2,866 → 0,501 s/Frame), über 150 Frames abgesichert — 0 von 9 600 Coverage-Zellen kippen.

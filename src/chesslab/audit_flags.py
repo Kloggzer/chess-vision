@@ -161,6 +161,14 @@ def visible_cells(session_dir: Path) -> set[tuple[str, str]]:
             for square, value in cells.items() if value > MATTE_DIRTY}
 
 
+def newest_input(rec: Path) -> str | None:
+    """Der juengste Produzenten-Zeitstempel — Matten und Modell-Lesarten. Ist er neuer als
+    `written_at`, sind die Flags veraltet und die Lane zeigt Arbeit, die es nicht mehr gibt."""
+    ts = [p.stat().st_mtime for pat in ("*/matte.jsonl", "*/model-reads.jsonl")
+          for p in rec.glob(pat)] if rec.exists() else []
+    return datetime.fromtimestamp(max(ts), UTC).isoformat() if ts else None
+
+
 def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dict:
     """Rewrite both audit files from every proposal file that names the model it was scored with.
 
@@ -221,6 +229,10 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
         "skipped": skipped,
         "per_class": dict(sorted(per_class.items(), key=lambda kv: (-kv[1], kv[0]))),
         "written_at": ts,
+        # Die Lane hat am 26.8. einen Stand vom 21.8. ausgeliefert: die Matten kamen erst am
+        # 22./23., also hatte der Coverage-Filter beim Bauen nichts zum Wegwerfen und es lagen
+        # Handzellen mit cov 0,93 drin. Der Zeitstempel macht das nachpruefbar.
+        "inputs_newest_at": newest_input(rec),
     }
     path = write_flags(config.DATA.reports / "audit-flags.jsonl", flags)
     write_summary(config.DATA.reports / "audit-flags.summary.json", summary)

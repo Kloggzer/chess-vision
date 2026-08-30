@@ -6,7 +6,9 @@ import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.allSquares
+import com.chesslab.tracker.camera.ExposureGovernor
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoTrackerLogs
@@ -16,6 +18,7 @@ import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.StageTimings
+import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.withLiveKnobsOf
 import kotlinx.coroutines.CoroutineDispatcher
@@ -81,6 +84,14 @@ class TrackerSeed<T>(
     /** False only when the successfully parsed model spec supplies its own coverage output. */
     val runGridOcclusion: Boolean = true,
     /**
+     * Lokaler Kontrast je Crop, wenn das geladene Modell ihn deklariert (`ModelSpec.claheClip`).
+     *
+     * Null ist der Zustand jedes bisher ausgelieferten Modells. Ein Modell, das mit CLAHE
+     * trainiert wurde, aber ohne bedient wird, bekommt Pixel, die es nie gesehen hat — deshalb
+     * kommt der Wert aus der `config.json` des Laufs und nicht aus einer Einstellung.
+     */
+    val cropClahe: CropClahe? = null,
+    /**
      * What the engine calls now. The wall clock for a camera; the VIDEO's clock for a replay,
      * where wall time has nothing to do with when a frame was taken — see `TrackerCoordinator`.
      */
@@ -96,6 +107,13 @@ class TrackerSeed<T>(
     val observerDispatcher: CoroutineDispatcher? = null,
     /** Desktop-only acceleration: independent square crops retain encounter order. */
     val parallelCrops: Boolean = false,
+    /**
+     * Belichtung nach dem BRETT statt nach dem Rahmen — nur das Handy setzt das.
+     *
+     * Vorgabe [ExposureGovernor.NONE]: ein Replay stellt keine Kamera, und eine Verstellung mitten
+     * im Replay waere eine Eingabe, die in der Datei nicht steht.
+     */
+    val exposure: ExposureGovernor = ExposureGovernor.NONE,
     /** Offline two-pass source; absence keeps the phone and ordinary replay path unchanged. */
     val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
     /** Records emitted observations during the visual-cache build pass. */
@@ -110,6 +128,8 @@ class TrackerSeed<T>(
     val alignmentSink: ((Long, FloatArray) -> Unit)? = null,
     /** Offline cold path: raw marker detections precomputed independently per alignment frame. */
     val cachedMarkerDetections: ((Long) -> Map<Int, DoubleArray>)? = null,
+    /** Which engine decides. Read once, here — a change rebuilds the stack like every other one. */
+    val engine: EngineKind = EngineKind.CLASSIC,
 )
 
 /**
@@ -147,15 +167,15 @@ class TrackerStack<T>(
 
     val host =
         engineHost(
+            seed.engine,
             seed.config,
             CnnRecovery(cnnConfig(seed.config)),
             seed.startFen,
-            seed.onDecision,
+            EngineHooks(seed.onDecision, stateSink(seed)) { pipeline.onConfigChanged(it) },
             // Its own channel, not `chesslabTracker`: `adb logcat -s chesslabDecision` then gives the
             // move-by-move provenance with nothing else in it, which is the form these lines get read in.
             log = seed.logs("chesslabDecision"),
-            onState = stateSink(seed),
-        ) { pipeline.onConfigChanged(it) }
+        )
 
     /**
      * The frame loop's state transitions: a line on their OWN channel (`adb logcat -s chesslabState`
@@ -169,10 +189,22 @@ class TrackerStack<T>(
         }
     }
 
+    /**
+     * Gehoert dem Stack, weil sie mit ihm stirbt — [close] gibt ihre Mats zurueck.
+     *
+     * Und sie sagt beim Anlegen Bescheid: ob ein Modell seine eigene Vorverarbeitung bekommt, ist
+     * sonst von aussen nicht zu sehen, und eine still ausbleibende Stufe ist genau die Sorte
+     * Fehler, die nur als "ein paar Punkte weniger" auffaellt.
+     */
+    private val clahe =
+        seed.cropClahe?.also {
+            seed.logs("chesslabCnn").info("crop CLAHE aktiv: $it")
+        }
+
     /** 07b's crop tap. Inert until the debug switch arms it; the service re-arms it after a restart. */
     val cropTap =
         DebugCropTap(
-            cropFrameSource(cropStore, seed.parallelCrops, seed.runGridOcclusion, seed.geometry),
+            cropFrameSource(cropStore, seed.parallelCrops, seed.runGridOcclusion, clahe),
         )
 
     private val observed = AtomicLong()
@@ -194,6 +226,7 @@ class TrackerStack<T>(
 
     /** The ledger channel: one line per emitted observation, `adb logcat -s chesslabObs`-able. */
     private val obsLog = seed.logs("chesslabObs")
+    private val occludedThr = seed.config.pOccludedThr
 
     /**
      * The observation LEDGER, one line per emitted snapshot: which frame the CNN looked at, at
@@ -205,7 +238,7 @@ class TrackerStack<T>(
     private fun submitObserved(snap: CnnSnapshot) {
         observationSink?.invoke(snap)
         observed.incrementAndGet()
-        val occluded = allSquares().count { snap.obs.pOccluded(it) > LEDGER_OCCLUDED_THR }
+        val occluded = allSquares().count { snap.obs.pOccluded(it) > occludedThr }
         // `grid` remains the model-free fallback for models without a coverage output. Coverage
         // models deliberately report zero here because running both arms wastes a full-board pass.
         val grid = "0x%016x".format(snap.gridOccluded)
@@ -244,6 +277,14 @@ class TrackerStack<T>(
             )
         }
 
+    init {
+        // The pull half of the CNN path: the observer asks before it spends an inference.
+        observer.demandFrom(host::wantsCnnRead)
+        // The same bargain one layer down, and the reason it is set here rather than passed in:
+        // the pipeline is built before the engine that answers for it.
+        pipeline.reads = host.reads
+    }
+
     val coordinator =
         TrackerCoordinator(
             pipeline,
@@ -275,6 +316,7 @@ class TrackerStack<T>(
             ),
             timings,
             seed.nowMs,
+            seed.exposure,
         )
 
     init {
@@ -308,14 +350,9 @@ class TrackerStack<T>(
         scope.cancel()
         observer.close()
         pipeline.close()
+        clahe?.close()
     }
 }
-
-/**
- * The ledger's hand test, numerically the engine's own (`Taint.P_OCCLUDED_THR`, internal there):
- * a square whose `occluded` class dominates is a hand in the observer's OWN reading.
- */
-private const val LEDGER_OCCLUDED_THR = 0.5
 
 private const val MS_PER_S_D = 1000.0
 
@@ -380,4 +417,5 @@ private fun cnnConfig(config: TrackerConfig) =
         minConfidentBoard = config.minConfidentBoard,
         minConfidentRecovery = config.minConfidentRecovery,
         recoveryMaxPlies = config.recoveryMaxPlies,
+        colorAxis = config.cnnColorAxis,
     )

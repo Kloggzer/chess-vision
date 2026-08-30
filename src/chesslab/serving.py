@@ -139,21 +139,26 @@ class _ONNXModel:
 # ---------------------------------------------------------------------------
 
 
-def load_run(run_dir: Path, device: str = "cpu"):
+def load_run(run_dir: Path, device: str = "cpu", weights: str | None = None):
     """Load model + run config from a run directory and cache them.
     Prefers ONNX when available (model.onnx) — ONNX Runtime is 2-4× faster
     than raw PyTorch inference.
 
     Returns (model, cfg). The model is in eval() mode and on `device`.
+
+    [weights] asks for a named checkpoint (`swa.pt`) rather than the run's default. It joins the
+    cache key — one run holds several checkpoints and a key of the directory alone would hand the
+    second caller the first one's model — and it skips `model.onnx`, which is an export of
+    whatever was current when it was written, not of the checkpoint being asked for.
     """
-    key = str(Path(run_dir).resolve())
+    key = (str(Path(run_dir).resolve()), weights)
     if key in _CACHE:
         model, cfg = _CACHE[key]
         model.to(device)
         return model, cfg
 
     onnx_path = Path(run_dir) / "model.onnx"
-    if onnx_path.exists():
+    if onnx_path.exists() and not weights:
         try:
             import onnxruntime
             # ONNX is only a win when it can actually serve the REQUESTED device. This
@@ -178,7 +183,7 @@ def load_run(run_dir: Path, device: str = "cpu"):
 
     from .training.evaluate import load_run as _load_run
 
-    model, cfg = _load_run(Path(run_dir))
+    model, cfg = _load_run(Path(run_dir), weights)
     model.eval().to(device)
     _CACHE[key] = (model, cfg)
     return model, cfg
@@ -315,7 +320,7 @@ def _is_plain_rgb(cfg: dict) -> bool:
 
 
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
-                   return_probs: bool = False) -> list[dict]:
+                   return_probs: bool = False, weights: str | None = None) -> list[dict]:
     """Prediction for in-memory crops (BGR np.ndarray) — for live inference.
 
     Returns per crop {'pred_label', 'confidence'} in input order.
@@ -328,7 +333,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
 
     from .training.torch_data import infer_size_of
 
-    model, cfg = load_run(run_dir, device)
+    model, cfg = load_run(run_dir, device, weights)
     classes = cfg["classes"]
     # The size the graph takes (specs/22) — comparing against the crops' build size would send
     # every already-correctly-sized crop down the slow PIL path forever.

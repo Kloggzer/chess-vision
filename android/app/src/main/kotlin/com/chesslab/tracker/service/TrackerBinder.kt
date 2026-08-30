@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import android.graphics.Bitmap
 import android.os.Binder
+import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus

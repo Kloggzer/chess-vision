@@ -51,6 +51,30 @@ fun squareToCropBox(
 }
 
 /**
+ * Dieselbe Geometrie, aber mit dem `boardSize`, das die Crops NATIV in Modellgroesse cuttet.
+ *
+ * Der Kasten folgt aus `outW` und `pad_side`, nicht aus dem Kalibrierprofil —
+ * `docs/data-pipeline.md` 3.1.
+ */
+fun BoardGeometry.forNativeCrops(): BoardGeometry = copy(boardSize = BOARD_SIDE * nativeCell())
+
+/**
+ * Die Zelle, deren Crop-Kasten genau `outW` breit wird.
+ *
+ * GESUCHT, nicht gerechnet: [squareToCropBox] rundet die ENDPUNKTE einzeln, also ist die Breite
+ * `cell + 2*round(padSide*cell)`. Bei `outW` 80 gibt die Formel 73 und einen 81er Kasten, richtig
+ * ist 72. Trifft keine Zelle exakt, gewinnt die naechstkleinere.
+ */
+private fun BoardGeometry.nativeCell(): Int {
+    val guess = (outW / (1.0 + 2.0 * padSide)).toInt()
+    val candidates = (max(1, guess - 3)..guess + 3).toList()
+    return candidates.minByOrNull { cell ->
+        val width = cell + 2 * pyRound(padSide * cell)
+        abs(width - outW) * 2 + if (width > outW) 1 else 0
+    } ?: guess
+}
+
+/**
  * Border in pixels the board is warped with for the DATA crop, so edge squares have real
  * content for their `padSide`/`padUp` extension. Port of `calibration.py:384 crop_border_px`.
  *

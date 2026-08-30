@@ -45,15 +45,28 @@ data class TrackerConfig(
     // median whole frame at 26-28 fps. The old figures these two were chosen against — 146 ms and
     // 290 ms per observation — belonged to the wide GroupNorm model, which no longer ships.
     //
-    // [cnnCooldownS] is the throttle on the STUCK arm, so it is the floor on how fast a recovery can
-    // answer a board that has gone wrong: at 2.0 a bridge could not arrive sooner than two seconds
-    // after the tracker noticed, and any confirmer above one vote pays it again per vote. At 0.7 the
-    // whole-board read costs about 2 % of one frame's budget per second.
+    // [cnnCooldownS] throttles the STUCK arm — the FIRST read after the tracker notices. Folgestimmen
+    // zahlen ihn seit 2026-08-24 nicht mehr (`evaluationDue` laesst `recoveryConfirmer.count > 0`
+    // durch); der hier fruehere Satz "any confirmer above one vote pays it again per vote" stimmt
+    // nicht mehr und hat am selben Tag eine Fehlanalyse getragen.
     val cnnCooldownS: Double = 0.7,
     // [cnnCheckIntervalS] is the STABLE arm: a whole-board sanity read while nothing is happening.
     // Every 10 s was a 0.16 % duty cycle; every 3 s is 0.5 %, and it is the only thing that notices
     // a board that drifted out from under a quiet game.
     val cnnCheckIntervalS: Double = 3.0,
+    // Lies, sobald das Brett einrastet, statt wenn die Uhr es erlaubt: 304/90/7 gegen 302/92/9,
+    // und der 2-s-Latenzschwanz faellt weg (`docs/emission-correlation.md`).
+    val cnnEvalOnSettle: Boolean = true,
+    // Nur der Default: die Schwelle folgt aus der Modellguete und reist als `coverage_gate`
+    // im Modell (0.02 fuer comp13, 0.15 fuer real13 — `docs/occlusion-gate.md`).
+    val pOccludedThr: Double = 0.5,
+    // Nach so vielen identischen Ablehnungen darf die CNN sehen, auch wenn kein anderes Tor
+    // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/refused-streak.md`).
+    val refusedStreakForEval: Int = 3,
+    // So viele Beobachtungen ueber `desyncObsN` hinaus wartet der Latch — Luft fuer den
+    // Hand-Latch, in der Einheit, die der Rest des Desyncs benutzt (bei ~10 Obs/s ist 1 ~ 100 ms).
+    // Die Serie laeuft weiter, nur das Einrasten haelt an. 0 = nur die Handpruefung.
+    val alarmDeferObs: Int = 0,
     val verifyWindow: Int = 8,
     // ...and the same deadline in SECONDS, which is the unit the player experiences.
     // `verifyWindow` counts OBSERVATIONS and what one costs is set by the CNN — unbounded if the
@@ -74,6 +87,8 @@ data class TrackerConfig(
     val recoveryMaxPlies: Int = 4,
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
+    /** Experiment arm: derive moves on occupancy+colour rather than on the piece type. */
+    val cnnColorAxis: Boolean = false,
     val motionMargin: Double = 0.10,
     val overhang: Double = 0.25,
     val alignEvery: Int = 3,
@@ -125,6 +140,14 @@ data class TrackerConfig(
     val commitLlFloor: Double = 2.0,
     val detectScale: Double = 0.5,
     val desyncObsN: Int = 3,
+    // Wie lange der Widerspruch STEHEN muss, bevor der Latch zuschnappt.
+    //
+    // `desyncObsN` sollte laut seinem eigenen Kommentar "anhaltend ueber Sekunden" heissen, hat
+    // aber nur Beobachtungen gezaehlt. Solange die CNN nach der Uhr las, war das dasselbe; seit
+    // sie beim Einrasten liest, kommen die Beobachtungen alle 0,07 s (gemessen auf
+    // `VID_20260824_154327`), und aus "Sekunden" wurden 0,21 s. Der Latch schnappte dort auf einem
+    // Brett zu, das Zeichen fuer Zeichen der Wahrheit entsprach, und kostete 107 der 117 Plies.
+    val alarmMinS: Double = 1.5,
     /**
      * EXPERIMENT (2026-08-08, unmeasured until the A/B run that motivates it): commits and
      * verify votes only while NOTHING reads as a hand — no engine-side occlusion latch and no

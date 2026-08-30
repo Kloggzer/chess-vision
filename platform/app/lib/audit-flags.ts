@@ -6,7 +6,7 @@
  * labels a row carries, ranked by `margin`. Its absence is a `—` chip, never an empty lane
  * pretending to be finished.
  */
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { dataDir } from "@/lib/data";
@@ -26,10 +26,31 @@ export type AuditFlags = {
   rows: AuditFlag[];
   /** `false` = the producer has not run; the lane renders `—` and says so. */
   present: boolean;
+  /**
+   * Set when a matte or a model read is NEWER than the flags — the lane then shows work the
+   * producer would no longer flag. On 2026-08-26 that was a five-day-old file whose coverage
+   * filter had run before the mattes existed: 4 878 flags, mostly hands, against 728 after a
+   * rebuild. Silence about it cost an entire review pass.
+   */
+  staleSince?: string;
 };
 
 function auditFlagsPath(): string {
   return path.join(dataDir(), "reports", "audit-flags.jsonl");
+}
+
+/** The newest producer timestamp the summary saw. Older than a matte on disk = the flags are stale. */
+async function newestInput(): Promise<number> {
+  const dir = path.join(dataDir(), "recordings");
+  const names = await readdir(dir).catch(() => [] as string[]);
+  const stamps = await Promise.all(
+    names.flatMap((n) =>
+      ["matte.jsonl", "model-reads.jsonl"].map((f) =>
+        stat(path.join(dir, n, f)).then((s) => s.mtimeMs, () => 0),
+      ),
+    ),
+  );
+  return stamps.length ? Math.max(...stamps) : 0;
 }
 
 type Cache = Map<string, { key: string; value: AuditFlags }>;
@@ -41,9 +62,13 @@ const num = (v: unknown, fallback: number) => (typeof v === "number" ? v : fallb
 /** Margin-descending, which is the order the lane works in — the surest disagreements first. */
 export async function loadAuditFlags(): Promise<AuditFlags> {
   const file = auditFlagsPath();
-  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const own = await stat(file).then((s) => s, () => null);
+  const newest = await newestInput();
+  const key = own ? `${own.mtimeMs}:${own.size}:${newest}` : `none:${newest}`;
   const hit = cache.get(file);
   if (hit?.key === key) return hit.value;
+  const staleSince =
+    own && newest > own.mtimeMs ? new Date(newest).toISOString() : undefined;
 
   let text: string;
   try {
@@ -94,7 +119,7 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
       a.predicted.localeCompare(b.predicted) ||
       b.margin - a.margin,
   );
-  const value: AuditFlags = { rows, present: true };
+  const value: AuditFlags = { rows, present: true, staleSince };
   cache.set(file, { key, value });
   return value;
 }

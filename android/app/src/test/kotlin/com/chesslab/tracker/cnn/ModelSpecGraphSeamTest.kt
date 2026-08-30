@@ -42,9 +42,9 @@ class ModelSpecGraphSeamTest {
      * **Every** bundled model, not just the default one: the point of shipping more than one is that
      * the user can switch on a real board, and a model that only fails when selected fails mid-game.
      *
-     * It also proves the size is READ rather than assumed. Both survivors declare 80 px, so a span
-     * of sizes can no longer carry that proof (2026-08-20 retirement); what still does is that the
-     * measured size is not [ASSUMED_SIZE] — the constant the deleted `out_size == 128` guard was.
+     * It also proves the size is READ rather than assumed. Die p4-Familie (2026-08-28) deckt 80,
+     * 96 und 128 px ab, also traegt wieder die SPANNE selbst den Beweis — nach der Ausmusterung
+     * vom 2026-08-20 musste [ASSUMED_SIZE] dafuer einspringen.
      */
     @Test
     fun everyBundledModelAgreesWithItsOwnGraph(
@@ -56,7 +56,7 @@ class ModelSpecGraphSeamTest {
             }
         assertEquals(BUNDLED_MODELS, sizes.map { it.first }, "every bundled model must be covered")
         assertTrue(
-            sizes.none { it.second == ASSUMED_SIZE },
+            sizes.map { it.second }.distinct().size > 1,
             "a bundled model declares the size the old guard assumed, so this cannot show it being read: $sizes",
         )
     }
@@ -112,16 +112,16 @@ class ModelSpecGraphSeamTest {
 }
 
 /**
- * The inference size the default model is served at — **80 px**, the trained deployment size of
- * `real14-80`. This is the 14-class identity model whose explicit `occluded` output is used by
- * the tracker as a hand veto in addition to the model-free grid-groove detector.
+ * The inference size the default model is served at — **128 px**, die trainierte Groesse von
+ * `p4full-128`. Sie kostet trotz der hoeheren Aufloesung WENIGER als der 80-px-Vorgaenger
+ * (5,7 gegen 6,7 MMAC je Crop), weil der Trunk elf statt 46 Faltungen hat.
  *
  * A literal on purpose, and the only one. `config.json` remains the single source the CODE reads
  * (`ModelSpec.parse`); this is a tripwire on the DECISION, so that re-exporting the asset at another
  * size has to be a deliberate act with this line edited rather than a graph that quietly changes
  * shape. "The config and the graph agree" is not on its own enough to ship.
  */
-internal const val SHIPPED_INPUT_SIZE = 80
+internal const val SHIPPED_INPUT_SIZE = 128
 
 /** What the deleted `out_size == 128` guard hard-coded; no bundled model may declare it. */
 internal const val ASSUMED_SIZE = 128

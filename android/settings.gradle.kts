@@ -19,8 +19,11 @@ dependencyResolutionManagement {
 }
 
 include(":core-engine")
+include(":engine-stillness")
+include(":engine-changeset")
 include(":core-geometry")
 include(":core-cnn")
 include(":tracker-runtime")
 include(":desktop")
+include(":arena")
 include(":app")

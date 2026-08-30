@@ -6,18 +6,24 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
+import com.chesslab.geometry.BlurNode
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.BoardWarpNode
+import com.chesslab.geometry.ClaheNode
+import com.chesslab.geometry.FrameScope
 import com.chesslab.geometry.GridCoverage
 import com.chesslab.geometry.HomographyCache
+import com.chesslab.geometry.ImageNode
+import com.chesslab.geometry.MatPool
+import com.chesslab.geometry.ToGrayNode
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
+import com.chesslab.geometry.forNativeCrops
 import com.chesslab.geometry.toBgrImage
 import com.chesslab.geometry.toGrayImage
 import com.chesslab.geometry.warpBoardForCrops
-import com.chesslab.geometry.warpFromCorners
 import org.opencv.core.Core
 import org.opencv.core.Mat
-import org.opencv.imgproc.Imgproc
 
 // The two warps of entry.md invariant 1, and the OpenCV half of the frame pipeline.
 //
@@ -57,6 +63,13 @@ class CropFrameStore(
         val tsMs: Long,
         val bgrDet: BgrImage,
         val grayDet: GrayImage,
+        /**
+         * Die Geometrie, mit der [cropWarp] entstanden ist — nicht die, die beim Abholen gilt.
+         *
+         * Der Observer holte sie sich bisher frisch; landet zwischen Warp und Abholung eine
+         * Kalibrierung, schneidet er Kaesten in ein Raster, das es nicht mehr gibt.
+         */
+        val geometry: BoardGeometry,
         val cached: CachedVisual? = null,
     )
 
@@ -147,16 +160,31 @@ class OpenCvStages<T>(
      */
     private val lens: Undistorter? = null,
 ) : FrameStages<T> {
-    private val gray = GrayPipeline(config.diffClaheClip)
     private val grid = GridCoverage()
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private val homographies = HomographyCache()
     private var frame: Mat? = null
     private var warped: Mat? = null
 
-    /** Owned and reused, like every other Mat here — released with the rest. */
-    private var lumaScratch: Mat? = null
+    /** The corners the last detection warp used — what [boardAt] must warp with to agree with it. */
+    private var lastWarpCorners: FloatArray? = null
+
     private var grayMat: Mat? = null
+
+    /** Siehe [cropGeometry] — verworfen, wenn die Geometrie wechselt. */
+    private var cropGeom: BoardGeometry? = null
+
+    // Die Detektionsspur als Kette. Der Scope lebt EINEN Frame; `lumaPreClahe` und `grayDet`
+    // teilen sich dadurch die Graustufe, die vorher zweimal gerechnet wurde.
+    private val pool = MatPool()
+    private var scope: FrameScope? = null
+    private var chain: DetectionChain? = null
+
+    /** Nur die Identitaet des Frames fuers Profiling — der Engine-`seq` zaehlt EMITTIERTE Frames. */
+    private var seqCounter = 0L
+
+    // Je Groesse einer: eine Engine darf `boardAt` jetzt beliebig oft rufen, ohne zu bezahlen.
+    private val boardNodes = HashMap<Int, BoardWarpNode>()
 
     // The two seam planes are recycled, not reallocated (see PlaneRing.kt). One ring each: they have
     // different sizes and the gray one is written a stage earlier, so a shared ring would have to
@@ -169,6 +197,7 @@ class OpenCvStages<T>(
         get() = if (config.detectScale < 1.0) (geometry.boardSize * config.detectScale).toInt() else geometry.boardSize
 
     override fun convert(image: T) {
+        endFrame()
         WorkProfiler.span(WorkOperation.FRAME_CONVERT) {
             frame = toBgr(image)
         }
@@ -192,8 +221,11 @@ class OpenCvStages<T>(
         val src = frame
         var ok = false
         if (src != null && !src.empty() && detSize > 0) {
-            val dst = warped ?: Mat().also { warped = it }
-            warpFromCorners(src, geometry, cornersFromFlat(corners), detSize, dst, homographies)
+            val nodes = chain ?: DetectionChain(detSize, config.diffClaheClip).also { chain = it }
+            val open = FrameScope(src, geometry, cornersFromFlat(corners), seqCounter++, pool, homographies)
+            scope = open
+            warped = open.get(nodes.warp)
+            lastWarpCorners = corners.copyOf()
             ok = true
         }
         return ok
@@ -213,18 +245,10 @@ class OpenCvStages<T>(
      * well-lit board, and detection pauses while the preview keeps updating — which is exactly what
      * it looked like on the device.
      */
-    override fun lumaPreClahe(): Double {
-        val warp = detectionWarp()
-        val dst = lumaScratch ?: Mat().also { lumaScratch = it }
-        WorkProfiler.span(WorkOperation.LUMA_GRAY) {
-            Imgproc.cvtColor(warp, dst, Imgproc.COLOR_BGR2GRAY)
-        }
-        return Core.mean(dst).`val`[0]
-    }
+    override fun lumaPreClahe(): Double = Core.mean(node(requireChain().gray)).`val`[0]
 
     override fun grayDet(): GrayImage {
-        // `gray` owns and reuses the destination; `grayMat` only aliases it for `gridCoverage`.
-        val g = gray.toGray(detectionWarp())
+        val g = node(requireChain().grayDet)
         grayMat = g
         // NOT a fresh ByteArray, and not a single reused one either: the engine's running mean keeps
         // references to the planes it averaged (entry.md invariant 14), so the buffer comes from a
@@ -235,6 +259,18 @@ class OpenCvStages<T>(
     override fun bgrDet(): BgrImage {
         val warp = detectionWarp()
         return toBgrImage(warp, bgrRing.next(warp.rows() * warp.cols() * BGR_CHANNELS))
+    }
+
+    /**
+     * One warp straight from the converted frame at [size], for an engine that measures grey levels
+     * on the board — `bgrDet` scaled down is a second resample and smooths what it would measure.
+     *
+     * Its own output `Mat` per call rather than a ring: nothing here knows how many sizes a caller
+     * will ask for, and the copy into the seam plane happens immediately anyway.
+     */
+    override fun boardAt(size: Int): BgrImage? {
+        val open = scope ?: return null
+        return toBgrImage(open.get(boardNodes.getOrPut(size) { BoardWarpNode(size, WorkOperation.BOARD_WARP) }))
     }
 
     override fun gridCoverage(): Double = grid.of(requireNotNull(grayMat) { "grayDet must run first" })
@@ -249,10 +285,11 @@ class OpenCvStages<T>(
         bgr: BgrImage,
         gray: GrayImage,
     ) {
+        val cropGeom = cropGeometry()
         val cached = cropStore.cached(seq)
         val warp =
             if (cached == null) {
-                frame?.let { warpBoardForCrops(it, geometry, cornersFromFlat(corners), homographyCache = homographies) }
+                frame?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
             } else {
                 null
             }
@@ -270,12 +307,12 @@ class OpenCvStages<T>(
                 WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
                 bgrCopy to grayCopy
             }
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cached))
+        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached))
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {
         config = newConfig
-        gray.onConfigChanged(newConfig)
+        dropChain()
         motion.onConfigChanged(newConfig)
         // `avgFramesOverride` is a live knob, so the ring's depth follows the config.
         grayRing.resize(ringDepth(newConfig))
@@ -284,6 +321,8 @@ class OpenCvStages<T>(
 
     override fun onGeometryChanged(newGeometry: BoardGeometry) {
         geometry = newGeometry
+        cropGeom = null
+        dropChain()
         motion.onGeometryChanged()
     }
 
@@ -292,18 +331,63 @@ class OpenCvStages<T>(
         // After `undistort` ran, `frame` aliases the undistorter's own output Mat rather than the
         // converter's — so both owners have to be closed, and neither of them is this class.
         lens?.close()
-        gray.close()
         grid.close()
         motion.close()
-        warped?.release()
-        warped = null
-        lumaScratch?.release()
-        lumaScratch = null
+        endFrame()
+        dropChain()
+        pool.close()
         frame = null
-        grayMat = null
     }
 
     private fun detectionWarp(): Mat = requireNotNull(warped) { "warpDetection must run first" }
+
+    private fun requireChain(): DetectionChain = requireNotNull(chain) { "warpDetection must run first" }
+
+    private fun node(of: ImageNode): Mat = requireNotNull(scope) { "warpDetection must run first" }.get(of)
+
+    /** Puffer zurueck in den Pool. Was laenger leben muss, ist bis hier in eine Ebene kopiert. */
+    private fun endFrame() {
+        scope?.close()
+        scope = null
+        warped = null
+        grayMat = null
+    }
+
+    /**
+     * Die Rastergroesse des Crop-Warps: aus dem Modell abgeleitet, nicht aus dem Kalibrierprofil.
+     * Einmal je Geometrie gerechnet, weil `boardSize` sich nur mit ihr aendert.
+     */
+    private fun cropGeometry(): BoardGeometry = cropGeom ?: geometry.forNativeCrops().also { cropGeom = it }
+
+    private fun dropChain() {
+        chain?.close()
+        chain = null
+        boardNodes.values.forEach(BoardWarpNode::close)
+        boardNodes.clear()
+    }
+}
+
+/**
+ * Die Detektionsspur als Kette: Warp -> Grau -> [CLAHE] -> Blur.
+ *
+ * `lumaPreClahe` zieht [gray], `grayDet` zieht [grayDet] — gleicher Praefix, eine Rechnung. Ohne
+ * Clip faellt der CLAHE-Knoten weg, genau wie `GrayPipeline` ihn uebersprang.
+ */
+private class DetectionChain(
+    detSize: Int,
+    claheClip: Double,
+) : AutoCloseable {
+    val warp = BoardWarpNode(detSize)
+    val gray = ToGrayNode(warp)
+    private val enhanced: ImageNode = if (claheClip > 0) ClaheNode(gray, claheClip) else gray
+    val grayDet: ImageNode = BlurNode(enhanced)
+
+    override fun close() {
+        grayDet.close()
+        enhanced.close()
+        gray.close()
+        warp.close()
+    }
 }
 
 /** A plane that owns its pixels — for the hand-offs that outlive the ring's cycle. */

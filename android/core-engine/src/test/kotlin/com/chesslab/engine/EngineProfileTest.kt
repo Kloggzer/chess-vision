@@ -2,6 +2,10 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
+import com.chesslab.engine.board.BOARD_PX
+import com.chesslab.engine.board.cellDeltas
+import com.chesslab.engine.board.grayBoard
+import com.chesslab.engine.board.peak
 import com.chesslab.engine.parity.ParityFixtures
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty
@@ -106,13 +110,41 @@ private class ProfileBench(
         results["RunningMeanBgr append"] = time { bgr.append(curBgr) }
         results["RunningMeanBgr mean"] = time { bgr.meanUint8() }
 
+        // What the stillness and changeset engines do EVERY frame, and it is all they do per
+        // frame: box-average the raw board warp to 160 and compare it per cell. Their own
+        // decision work runs on a reading, which arrives once per ply.
+        val refWarp = boardWarp(refBgr)
+        val curWarp = boardWarp(curBgr)
+        val refBoard = requireNotNull(grayBoard(refWarp))
+        val curBoard = requireNotNull(grayBoard(curWarp))
+        results["grayBoard (from ${BOARD_PX}px warp)"] = time { grayBoard(curWarp) }
+        results["grayBoard (from $size fallback)"] = time { grayBoard(curBgr) }
+        results["cellDeltas + peak (160)"] = time { peak(cellDeltas(refBoard, curBoard)) }
+
         val width = results.keys.maxOf { it.length }
         for ((name, ms) in results) println("  ${name.padEnd(width)}  ${"%8.3f".format(ms)} ms")
         println(
             "\n  MOTION branch = motionScore + baselineOcclusionAndShadow\n" +
                 "  DETECT branch = motionScore + 2x RunningMean + perSquareDiff +\n" +
-                "                  perSquareCensusChange(+codes) + candidate-box HSV + hsvShadowSquares\n",
+                "                  perSquareCensusChange(+codes) + candidate-box HSV + hsvShadowSquares\n" +
+                "  STILL branch  = grayBoard(160 warp) + cellDeltas + peak  (engines 2 and 3)\n",
         )
+    }
+
+    /** What `FrameInput.board(BOARD_PX)` hands those two: the board warped straight to 160. */
+    private fun boardWarp(source: BgrImage): BgrImage {
+        val out = ByteArray(BOARD_PX * BOARD_PX * 3)
+        for (y in 0 until BOARD_PX) {
+            val sy = y * source.height / BOARD_PX
+            for (x in 0 until BOARD_PX) {
+                val d = (y * BOARD_PX + x) * 3
+                val s = (sy * source.width + x * source.width / BOARD_PX) * 3
+                out[d] = source.data[s]
+                out[d + 1] = source.data[s + 1]
+                out[d + 2] = source.data[s + 2]
+            }
+        }
+        return BgrImage(BOARD_PX, BOARD_PX, out)
     }
 
     /** What the shadow veto now converts: the candidates' boxes of both planes, nothing else. */

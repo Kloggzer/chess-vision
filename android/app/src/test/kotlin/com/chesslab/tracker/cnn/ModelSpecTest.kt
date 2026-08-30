@@ -204,6 +204,35 @@ class ModelSpecTest {
         }
     }
 
+    @Test
+    fun `the run's own clahe declaration is what serving reproduces`() {
+        val spec =
+            ModelSpec.parse(
+                config(clahe = ", \"clahe_clip\": 2.0, \"clahe_tile\": 8, \"clahe_min_mean\": 25.0, \"clahe_max_mean\": 40.0"),
+            )
+        assertEquals(2.0, spec.claheClip)
+        assertEquals(8, spec.claheTile)
+        assertEquals(25.0, spec.claheMinMean)
+        assertEquals(40.0, spec.claheMaxMean)
+    }
+
+    @Test
+    fun `a run without a clahe key asks for none`() {
+        // Der Zustand jedes bisher ausgelieferten Modells — und `0.0` ist das Aus-Signal.
+        assertEquals(0.0, ModelSpec.parse(config()).claheClip)
+    }
+
+    @Test
+    fun `preprocessing this runtime cannot reproduce is refused, not ignored`() {
+        // Still zu ignorieren hiesse, dem Modell Pixel zu geben, die es nie gesehen hat: kein
+        // Absturz, keine Warnung, nur ein paar Punkte weniger, die niemand einem Schalter zuordnet.
+        val e =
+            assertThrows<IllegalArgumentException> {
+                ModelSpec.parse(config(clahe = ", \"clahe_clip\": 2.0, \"clahe_denoise\": \"pre\""))
+            }
+        assertTrue(e.message!!.contains("clahe_denoise")) { e.message!! }
+    }
+
     private fun config(
         classes: List<String> = EXPECTED_CLASSES,
         outSize: List<Int> = listOf(128, 128),
@@ -213,6 +242,7 @@ class ModelSpecTest {
         padSide: Double? = null,
         padUp: Double? = null,
         coverageOutput: Boolean = false,
+        clahe: String? = null,
     ): String {
         val normalize =
             mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
@@ -220,8 +250,9 @@ class ModelSpecTest {
         val infer = inferSize?.let { ", \"infer_size\": ${it.joinToString(",", "[", "]")}" }.orEmpty()
         val crop = (padSide?.let { ", \"pad_side\": $it" }.orEmpty()) + (padUp?.let { ", \"pad_up\": $it" }.orEmpty())
         val coverage = if (coverageOutput) ", \"coverage_output\": true" else ""
+        val cla = clahe.orEmpty()
         return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr$coverage}"""
+            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr$coverage$cla}"""
     }
 }
 

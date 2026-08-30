@@ -163,6 +163,12 @@ internal class EngineState(
     var lastCur: GrayImage? = null // `_last_cur`
     var lastCurBgr: BgrImage? = null // `_last_cur_bgr`
     var state: String = STATE_WAITING // `state`: waiting | moving | occluded | move
+
+    // Zaehlt STELLUNGSWECHSEL, nicht Bewegungsereignisse — am Bewegungsbeginn gezaehlt waren es
+    // 14x so viele (Haende, Schatten); `ready` entprellt ueber settleFrames + motionHoldS.
+    var motionEpoch: Long = 0
+    var lastEvalEpoch: Long = -1
+    var restSettled: Boolean = false
     var motion: Double = 0.0 // `_motion`
     var lastMotionTs: Double = 0.0 // `_last_motion_ts`
     var motionSinceRef: Boolean = false // `_motion_since_ref`
@@ -362,6 +368,11 @@ internal class EngineState(
 
     var stuckReason: String? = null // `_stuck_reason`
     var stuckCount: Int = 0 // `_stuck_count`
+
+    // Derselbe Kandidat, wieder und wieder am Evidenzboden abgewiesen. Zaehlt REPEATS, wie
+    // `stuckCount` — nur ueberlebt dieser das Flattern, weil er an der Ablehnung haengt.
+    var refusedKey: String? = null
+    var refusedStreak: Int = 0
 
     /** `_anomaly_since` — squares persistently changed but unexplained, and since when. */
     var anomalySince: Long = 0L

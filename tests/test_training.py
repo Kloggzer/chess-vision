@@ -83,7 +83,7 @@ def test_occupancy_piece_breakdown_splits_error_sources():
     trues = [_ci(t) for t, _ in pairs]
     preds = [_ci(p) for _, p in pairs]
     bd = occupancy_piece_breakdown(config.CLASSES, trues, preds)
-    assert bd["occ_acc"] == pytest.approx(5 / 7)
+    assert bd["occupied_acc"] == pytest.approx(5 / 7)
     assert bd["n_occupied"] == 5            # wP,wB,wB,wK,occluded
     assert bd["piece_acc"] == pytest.approx(2 / 5)   # wP und occluded exakt richtig
     assert bd["n_pieces"] == 4              # echte Figuren: wP,wB,wB,wK
@@ -171,16 +171,20 @@ def _crop_row(session="s0", frame=0, square="a1"):
 
 
 def test_checkpoint_score_occ_perfect_types_wrong():
-    """Occupancy perfect, all types wrong → occ_board_acc == 1.0 (high score)."""
+    """Belegung perfekt, alle Typen falsch: das Brett-Mass ist 1,0, der SCORE aber nur 0,5.
+
+    Bis 2026-08-24 stand hier der Brett-Wert an erster Stelle, ein Modell ohne jede richtige
+    Figur war damit bestbewertet. Der gewichtete Score haelt beide Ebenen auseinander."""
     classes = config.CLASSES
     # 64 Felder, alle occupied, alle Figuren falsch geraten
     rows = [_crop_row(frame=0, square=f"{(chr(97+c//8))}{8-(c%8)}") for c in range(64)]
     # All truly occupied (wP), prediction guesses other pieces — occupancy remains correct
     trues = [classes.index("wP")] * 64
     preds = [classes.index("wN")] * 64
-    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
-    assert occ_ba == 1.0  # alle Felder occupancy-korrekt
-    assert mr < 1.0       # Typen falsch → macro_recall nicht perfekt
+    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 1.0        # alle Felder occupancy-korrekt
+    assert score == pytest.approx(0.5)   # 0,45*0 + 0,45*1 + 0,10*0,5 (Kalibrierung neutral)
+    assert mr < 1.0                # Typen falsch → macro_recall nicht perfekt
 
 
 def test_checkpoint_score_one_occ_flip_per_frame():
@@ -190,9 +194,9 @@ def test_checkpoint_score_one_occ_flip_per_frame():
     rows = [_crop_row(frame=i, square="a1") for i in range(4)]
     trues = [classes.index("empty")] * 4
     preds = [classes.index("wP")] * 4
-    occ_ba, occ_acc, mr = checkpoint_score(rows, classes, trues, preds)
-    assert occ_ba == 0.0
-    assert occ_acc == 0.0  # alle Felder occupancy-falsch
+    score, occ_board, mr = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 0.0
+    assert score == pytest.approx(0.05)   # beide Ebenen 0, nur die neutrale Kalibrierung
 
 
 def test_checkpoint_metrics_reuses_the_score_breakdown():
@@ -204,13 +208,17 @@ def test_checkpoint_metrics_reuses_the_score_breakdown():
     score, breakdown = checkpoint_metrics(rows, classes, trues, preds)
 
     assert score == checkpoint_score(rows, classes, trues, preds)
-    assert breakdown == occupancy_piece_breakdown(classes, trues, preds)
+    plain = occupancy_piece_breakdown(classes, trues, preds)
+    # `checkpoint_metrics` haengt das Brett-Mass an, sonst identisch.
+    extra = {"occupied_board_acc", "calibration",   # von checkpoint_metrics angehaengt
+             "visible_piece_acc", "visible_occupied_acc"}
+    assert {k: v for k, v in breakdown.items() if k not in extra} == plain
 
 
 def test_checkpoint_score_tuple_ordering_sortable():
     """Score-Tupel lassen sich korrekt vergleichen (lexikografisch)."""
-    assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # occ_board_acc sticht
-    assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem occ_ba: occ_acc sticht
+    assert (1.0, 0.5, 0.3) > (0.9, 0.9, 0.9)  # der gewichtete Score sticht
+    assert (0.8, 0.9, 0.3) > (0.8, 0.8, 0.9)  # bei gleichem Score: occupied_board_acc sticht
     assert (0.8, 0.8, 0.5) > (0.8, 0.8, 0.3)  # macro_recall als letzter Tiebreaker
 
 
@@ -244,6 +252,85 @@ class TestTrainLock:
         tr._train_lock_path().write_text(_json.dumps({"pid": 424242, "ts": "now"}))
         tr._release_train_lock()                       # not our pid -> must NOT delete
         assert tr._train_lock_path().exists()
+
+    @staticmethod
+    def _foreign_slots(tmp_path, *slots):
+        """Fremde Slot-Locks, alle mit einem `startedAt` VOR unserem (sonst haengt der Test am
+        heutigen Datum). Gibt die PIDs zurueck, die `pid_alive` als lebend melden soll."""
+        import json as _json
+
+        inbox = tmp_path / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        pids = []
+        for i, slot in enumerate(slots):
+            pid = 111000 + i
+            pids.append(pid)
+            (inbox / f"heavy-{slot}.lock").write_text(_json.dumps(
+                {"pid": pid, "childPid": pid, "job": "train", "name": f"slot {slot}",
+                 "startedAt": f"2020-01-01T00:0{i}:00"}), encoding="utf-8")
+        return pids
+
+    def test_two_slots_allowed(self, monkeypatch, tmp_path):
+        """Zwei parallele Laeufe sind der dokumentierte Fall (+7 % Laufzeit, doppelter Durchsatz)."""
+        from chesslab import locks
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        pids = self._foreign_slots(tmp_path, "C")
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
+        monkeypatch.setenv("CHESSLAB_TRAIN_SLOT", "D")
+        assert tr._acquire_train_lock("zweiter") is True
+        assert tr._train_lock_path().exists()
+
+    def test_third_slot_refused_and_own_lock_released(self, monkeypatch, tmp_path):
+        """Der dritte Lauf tritt zurueck — und laesst keinen Lock liegen, der den Slot blockiert.
+
+        Slot-Locks kennen einander nicht; ohne diese Grenze liefen am 2026-08-29 drei Laeufe
+        gleichzeitig und trieben den Datensatz-Pack aus dem Seitencache.
+        """
+        from chesslab import locks
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        pids = self._foreign_slots(tmp_path, "C", "D")
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
+        monkeypatch.setenv("CHESSLAB_TRAIN_SLOT", "E")
+        assert tr._acquire_train_lock("dritter") is False
+        assert not tr._train_lock_path().exists()
+
+    def test_cap_counts_the_default_lock_too(self, monkeypatch, tmp_path):
+        """Ein Slot neben einem Lauf OHNE Slot ist derselbe Speicher — der Default zaehlt mit."""
+        import json as _json
+
+        from chesslab import locks
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        pids = self._foreign_slots(tmp_path, "C")
+        config.DATA.heavy_lock.write_text(_json.dumps(
+            {"pid": 222222, "childPid": 222222, "job": "train", "name": "autopilot",
+             "startedAt": "2020-01-01T00:00:30"}), encoding="utf-8")
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in (*pids, 222222))
+        monkeypatch.setenv("CHESSLAB_TRAIN_SLOT", "E")
+        assert tr._acquire_train_lock("dritter") is False
+
+    def test_stale_slot_lock_does_not_count(self, monkeypatch, tmp_path):
+        """Ein Slot-Lock mit totem PID hat nie Speicher belegt und darf niemanden aussperren."""
+        from chesslab import locks
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        pids = self._foreign_slots(tmp_path, "C", "D")
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid == pids[0])   # D ist verwaist
+        monkeypatch.setenv("CHESSLAB_TRAIN_SLOT", "E")
+        assert tr._acquire_train_lock("dritter") is True
+
+    def test_cap_can_be_raised_deliberately(self, monkeypatch, tmp_path):
+        """`CHESSLAB_MAX_TRAININGS` ist der bewusste Ausweg auf einer groesseren Maschine."""
+        from chesslab import locks
+        from chesslab.training import train as tr
+        monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+        pids = self._foreign_slots(tmp_path, "C", "D")
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: pid in pids)
+        monkeypatch.setenv("CHESSLAB_TRAIN_SLOT", "E")
+        monkeypatch.setenv("CHESSLAB_MAX_TRAININGS", "3")
+        assert tr._acquire_train_lock("dritter") is True
 
 
 # --- Focal loss + class-weight override — specs/18-occupancy-model/02-two-class-model.md -
@@ -298,9 +385,11 @@ def test_occupancy_breakdown_on_two_classes():
     trues = [0, 1, 1, 0]
     preds = [0, 1, 0, 0]
     bd = occupancy_piece_breakdown(classes, trues, preds)
-    assert bd["occ_acc"] == 0.75
+    assert bd["occupied_acc"] == 0.75
     rows = [_crop("s0", "0", sq, "x") for sq in ("a1", "a2", "a3", "a4")]
-    assert checkpoint_score(rows, classes, trues, preds)[0] == 0.0
+    score, occ_board, _ = checkpoint_score(rows, classes, trues, preds)
+    assert occ_board == 0.0                       # ein Flip im einzigen Brett
+    assert score == pytest.approx(0.6125)        # 0,45*0,5 + 0,45*0,75 + 0,10*0,5
 
 
 # =======================================================================================
@@ -418,3 +507,62 @@ def test_primitive_batchnorm_keeps_finite_stats_in_half_precision():
     assert torch.isfinite(bn.running_var).all(), "running_var overflowed — statistics must be fp32"
     assert torch.isfinite(bn.running_mean).all()
     assert bn(x).dtype == x.dtype, "and the output dtype must follow the input"
+
+
+def test_neighbour_paste_only_touches_empty_cells(tmp_path):
+    """Der Nachbar-Uebersprung darf nur `empty` treffen — auf einer besetzten Zelle waere er
+    eine falsche Figur. Default 0,0, damit kein Altlauf sein Verhalten aendert."""
+    import numpy as np
+    import torch
+
+    from chesslab.training.torch_data import PackedSquareDataset, build_transform
+
+    n, side = 12, 32
+    mm = np.random.RandomState(0).randint(0, 255, (n, side, side, 3), dtype=np.uint8)
+    path = tmp_path / "packed_images.u8"
+    np.memmap(path, dtype=np.uint8, mode="w+", shape=mm.shape)[:] = mm
+    labels = ["empty" if i % 2 else "wR" for i in range(n)]
+    rows = [{"path": f"p{i}", "label": labels[i], "_packed_idx": i} for i in range(n)]
+    packed = (str(path), (n, side, side), None)
+    classes = ["empty", "wR"]
+    tf = build_transform((side, side), train=False)
+
+    off = PackedSquareDataset(rows, classes, tf, packed)
+    on = PackedSquareDataset(rows, classes, tf, packed, neighbour_p=1.0)
+    assert off.neighbour_p == 0.0
+    for i in range(n):
+        same = torch.equal(off[i][0], on[i][0])
+        assert same == (labels[i] != "empty"), f"Zeile {i} ({labels[i]}) falsch behandelt"
+
+
+def test_pread_reader_matches_the_memmap(tmp_path, monkeypatch):
+    """Beide Leser muessen dieselben Bytes liefern — der eine haelt sie nur nicht fest."""
+    import numpy as np
+
+    from chesslab.training.pack import open_packed_memmap
+
+    n, side = 9, 16
+    data = np.random.RandomState(1).randint(0, 255, (n, side, side, 3), dtype=np.uint8)
+    path = tmp_path / "packed_images.u8"
+    np.memmap(path, dtype=np.uint8, mode="w+", shape=data.shape)[:] = data
+
+    monkeypatch.setenv("CHESSLAB_PACK_READER", "memmap")
+    mm = open_packed_memmap(str(path), (n, side, side))
+    monkeypatch.setenv("CHESSLAB_PACK_READER", "pread")
+    pr = open_packed_memmap(str(path), (n, side, side))
+    assert type(pr).__name__ == "_PreadRows"
+    for i in range(n):
+        assert np.array_equal(np.array(mm[i]), np.array(pr[i]))
+
+
+def test_blas_cap_runs_before_torch_is_imported():
+    """`cap_blas_threads` wirkt nur VOR dem Import — danach hat OpenBLAS seine Arenen reserviert.
+
+    Gemessen 2026-08-29: der Hauptprozess stand bei 2,9 GB Commit, seine Worker bei 0,6, weil
+    `loader_kwargs` erst lange nach `import torch` kappt und nur die Worker die Umgebung erben.
+    """
+    from pathlib import Path
+
+    from chesslab.training import train as tr
+    body = Path(tr.__file__).read_text(encoding="utf-8").split("def run_train(", 1)[1]
+    assert body.index("cap_blas_threads()") < body.index("\n    import torch")

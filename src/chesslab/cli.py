@@ -119,6 +119,17 @@ def calibrate_list() -> None:
     raise typer.Exit(calibration_mod.calibrate_list())
 
 
+@calibrate_app.command("markerless")
+def calibrate_markerless(
+    source: str = typer.Option(..., "--source", help="Video oder Bild, aus dem das Brett gesucht wird."),
+    frame: int = typer.Option(0, "--frame", help="Frame-Nummer, wenn --source ein Video ist."),
+    profile: str = typer.Option("desktop", "--profile", help="Profil, gegen dessen Raster geprueft wird."),
+    out: str = typer.Option(None, "--out", help="PNG mit dem gefundenen Quad."),
+) -> None:
+    """Das Brett OHNE ArUco finden — Ecken plus das Urteil des Grid-Fits (`docs/markerless.md`)."""
+    raise typer.Exit(calibration_mod.run_markerless(source, frame, profile, out))
+
+
 @calibrate_app.command("markers")
 def calibrate_markers(
     out: str = typer.Option("data/calibration/markers.png", "--out", help="Target PNG of the marker sheet."),
@@ -656,6 +667,10 @@ def realgames_model_read(
     model: str = typer.Option(..., "--model", help="Run dir of a model that did NOT train on "
                                                    "this session (refused if it did)."),
     device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
+    weights: str | None = typer.Option(None, "--weights",
+                                       help="Checkpoint inside the run instead of its default: "
+                                            "swa.pt, best_piece.pt. A run holds several and the "
+                                            "training picks no winner among them."),
 ) -> None:
     """Read every square of a session with a model into `model-reads.jsonl`.
 
@@ -668,7 +683,7 @@ def realgames_model_read(
     from . import occluded_model
 
     try:
-        res = occluded_model.read_session(name, _Path(model), device=device)
+        res = occluded_model.read_session(name, _Path(model), device=device, weights=weights)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -896,12 +911,16 @@ def slice_cmd(
     preview: str = typer.Option(None, "--preview", help="Session ID: visually check label vs crop."),
     variant_tag: str = typer.Option(None, "--variant-tag",
                                     help="Store crops/manifest with variant tag (crops/<tag>/)."),
+    flat_field: bool = typer.Option(False, "--flat-field",
+                                    help="Den Beleuchtungsgradienten des Bretts herausrechnen, VOR "
+                                         "dem Zuschnitt — eine 8x8-Karte je Session, Median ueber "
+                                         "saubere Frames. Gehoert in einen eigenen --variant-tag."),
 ) -> None:
     """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
         pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
-        variant_tag=variant_tag,
+        variant_tag=variant_tag, flat_field=flat_field,
     ))
 
 
@@ -947,6 +966,20 @@ def occluders_composite(
                                  help="Crop size WxH. 128 wie der echte Export: bei 80 liegt der "
                                       "Crop schon auf der Modellgroesse und hat keine Reserve, "
                                       "waehrend echte Crops noch Detail uebrig haben."),
+    clean: bool = typer.Option(False, "--clean",
+                               help="GAR KEINE Verdecker auflegen. Dann ist der Drehteller "
+                                    "Blickwinkel-Material statt Verdeckungs-Material, und die "
+                                    "Coverage 0 ist die Wahrheit, keine fehlende Messung."),
+    angle_buckets: int = typer.Option(0, "--angle-buckets",
+                                      help="Pseudo-Sessions nach WINKEL statt nach Position im "
+                                           "Clip. Bei 3,1 Umdrehungen ist ein fortlaufendes "
+                                           "Zwoelftel 92 Grad breit; modulo einer Umdrehung sind "
+                                           "12 Eimer wirklich 30 Grad."),
+    pad_side: float = typer.Option(None, "--pad-side",
+                                   help="Randbreite je Seite als Bruchteil der Zelle. Default: aus "
+                                        "dem Profil (0,05). Muss zu dem passen, womit die ECHTEN "
+                                        "Crops geschnitten wurden — sonst sieht das Modell im "
+                                        "Training zwei Rahmungen."),
     seed: int = typer.Option(42, "--seed"),
 ) -> None:
     """Lay occluders over a board clip and cut crops with an EXACT coverage per cell.
@@ -964,7 +997,8 @@ def occluders_composite(
                 out_root=config.DATA.crops / tag,
                 manifest=config.DATA.crops / tag / "manifest.jsonl",
                 fen=fen, board_size=board_size, out_size=_out_size(out_size),
-                stride=stride, seed=seed)
+                stride=stride, seed=seed, clean=clean, angle_buckets=angle_buckets,
+                pad_side=pad_side)
     except RuntimeError as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None
@@ -1472,6 +1506,18 @@ def train_cmd(
         help="Any timm model (default: mobilenetv4_conv_small_035, what every shipped model is) "
              "| mobilenet_v3_small | smallcnn. WARNING: `smallcnn` hard-crashes ROCm-Windows.",
     ),
+    pretrained: bool | None = typer.Option(
+        None, "--pretrained/--no-pretrained",
+        help="ImageNet-Gewichte fuer das Backbone. Default: an, ausser bei `smallcnn`. Fuer einen "
+             "Architektur-Sweep AUSschalten — `_035` hat als einziges keine."),
+    neighbour_p: float = typer.Option(
+        None, "--neighbour-p",
+        help="Wahrscheinlichkeit, einer LEEREN Zelle den Rand einer besetzten anzukleben "
+             "(Fuss der Nachbarfigur). Zielt auf Phantome; Default aus."),
+    no_empty_cap: bool = typer.Option(
+        False, "--no-empty-cap",
+        help="Die `max_empty_ratio`-Kappe des Splits ignorieren. Board-Backbones tun das immer; "
+             "fuer einen gepaarten Sweep muessen die Zell-Arme mitziehen."),
     epochs: int = typer.Option(config.DEFAULT_EPOCHS, "--epochs"),
     batch_size: int = typer.Option(config.DEFAULT_BATCH_SIZE, "--batch-size"),
     input_size: str = typer.Option(
@@ -1511,7 +1557,35 @@ def train_cmd(
     scales: str | None = typer.Option(None, "--scales", help="Multi-Scale-Training: Komma-Liste von Eingabegrößen "
                                       "(z.B. 64,96,128). Pro Batch wird zufällig eine gewählt → ein Modell für alle "
                                       "Auflösungen (size-agnostisch, für günstige Low-Res-Inferenz)."),
+    clahe_clip: float = typer.Option(
+        0.0, "--clahe-clip",
+        help="Lokaler Kontrast (CLAHE) auf dem L-Kanal, NACH dem Resize. 0 = aus. Der Wert landet "
+             "in der config.json, damit Eval und Export ihn mitlesen."),
+    clahe_tile: int = typer.Option(8, "--clahe-tile", help="CLAHE-Kachelraster (tile x tile)."),
+    clahe_min_mean: float = typer.Option(
+        0.0, "--clahe-min-mean",
+        help="CLAHE nur ab dieser mittleren Zellhelligkeit. Zusammen mit --clahe-max-mean ein "
+             "BAND: gemessen hebt CLAHE 25-40 um 5,9 Punkte und drueckt alles darunter um 2,6."),
+    clahe_max_mean: float = typer.Option(
+        255.0, "--clahe-max-mean", help="CLAHE nur bis zu dieser mittleren Zellhelligkeit."),
+    clahe_denoise: str = typer.Option(
+        "off", "--clahe-denoise",
+        help="off | pre | post — medianBlur(3) vor oder nach CLAHE. `fastNlMeans` ist mit "
+             "1438 ms je Brett auf dem Geraet ausgeschlossen."),
+    board_width: int = typer.Option(128, "--board-width",
+                                    help="Breite des Brettkopfs bei board:/boardattn: — er laeuft EINMAL je "
+                                         "Brett, kostet also 1/64 je Crop."),
+    board_layers: int = typer.Option(2, "--board-layers",
+                                     help="Bloecke im Brettkopf bei board:/boardattn:."),
     erase_p: float | None = typer.Option(None, "--erase-p", help="Override RandomErasing/Cutout prob (anti-shortcut)."),
+    brightness: float | None = typer.Option(None, "--brightness",
+                                            help="ColorJitter-Helligkeit als Bruchteil (Default 0.35). "
+                                                 "0 schaltet sie ab."),
+    gamma: str | None = typer.Option(None, "--gamma",
+                                     help="Gamma-Spanne LO,HI (Default 0.6,1.8). '1,1' schaltet sie ab. "
+                                          "Gemessen 2026-08-29: mit den Defaults liegen 9,8 % der "
+                                          "Ziehungen unter dem 0,5-Perzentil dessen, was je serviert "
+                                          "wird, ohne Gamma nur 5,5 %."),
       jitter_translate: float | None = typer.Option(None, "--jitter-translate",
                                                   help="Override the affine translation jitter, as a "
                                                        "fraction of the crop. The default 0.03 is ~3.3 % "
@@ -1524,6 +1598,19 @@ def train_cmd(
           "--hard-negative-multiplier",
           help="Sampling weight for paths in data/reports/hard_empty.jsonl (1 = disabled).",
       ),
+    swa: bool = typer.Option(False, "--swa",
+                             help="Gewichte ueber die letzten Epochen mitteln (SWA). Findet flache Minima, die die Konfidenz richtiger von falschen Vorhersagen besser trennen (FMFP, ECCV 2022). Der Plan davor bleibt unveraendert."),
+    swa_lr: float = typer.Option(5e-4, "--swa-lr", help="Konstante Rate ab dem SWA-Start."),
+    swa_start: float = typer.Option(0.75, "--swa-start",
+                                    help="Anteil der Epochen, ab dem gemittelt wird."),
+    visible_max: float = typer.Option(None, "--visible-max",
+                                      help="Coverage-Grenze der TRAININGS-Maske (Vorgabe "
+                                           "PIECE_VISIBLE_MAX = 0.15). Die Metriken bleiben auf "
+                                           "der Vorgabe, damit Laeufe vergleichbar bleiben."),
+    allow_unpacked: bool = typer.Option(False, "--allow-unpacked",
+                                        help="Training ohne Memmap zulassen. Ohne das bricht ein "
+                                             "packbarer Datensatz ab, statt still auf den "
+                                             "langsamen Datei-Loader zu fallen."),
     split: str | None = typer.Option(None, "--split", help="Split file inside the dataset "
                                      "(default: split.json). Lets several folds share ONE packed "
                                      "corpus instead of packing the same crops per fold."),
@@ -1534,6 +1621,80 @@ def train_cmd(
                                             "override as comma-separated KEY=VALUE (e.g. "
                                             "'occupied=2.0' or 'empty=0.9,occupied=2.0'). Applied "
                                             "on top of split.json's inverse-frequency weights."),
+    epoch_frac: float = typer.Option(1.0, "--epoch-frac",
+                                     help="Ziehungen je Epoche als Anteil des Trainingssatzes. "
+                                          "1 643 Situationen liegen als 184 735 Crops vor; wer "
+                                          "sie gleichmaessig zieht, braucht nicht jede Kopie. "
+                                          "Die Cosine haengt an --epochs, also ist das echte "
+                                          "gesparte Zeit."),
+    balance: str = typer.Option("none", "--balance",
+                                help="none | situation | session | class | piece. `situation` zieht jede "
+                                     "(Session, Feld, Klasse) gleich oft statt jeden Crop "
+                                     "(Gruppen sind 13,6x ungleich; wK kennt 22 Platzierungen, "
+                                     "jede 131-fach je Epoche). `session` legt darueber, dass "
+                                     "jede Aufnahme gleich oft drankommt — Licht und Kamera sind "
+                                     "die Achse, auf der Val zurueckgehalten wird, und die "
+                                     "Anteile streuen heute 18,8x. `class` gleicht die KLASSEN "
+                                     "im Sampler aus statt im Verlust — gehoert mit "
+                                     "--weight-cap 1 zusammen, sonst wird zweimal geglichen. "
+                                     "`piece` tut dasselbe, laesst `empty` aber auf seinem "
+                                     "Anteil — sonst verliert der Verdeckungskopf seine "
+                                     "Negativbeispiele (Precision 0,944 -> 0,680)."),
+    aug_scale: float | None = typer.Option(None, "--aug-scale",
+                                           help="Alle Augmentierungs-Staerken mal DIESEM Faktor. "
+                                                "0 = keine, 1 = wie bisher. Die Werte sind von "
+                                                "Hand gesetzt und nie abgetastet worden."),
+    rot90: bool | None = typer.Option(None, "--rot90/--no-rot90",
+                                      help="90-Grad-Drehungen, unabhaengig davon, womit der "
+                                           "Datensatz gebaut wurde (alle stehen auf "
+                                           "rotations=[0]). Mit --hflip-p 0.5 zusammen ist es "
+                                           "die volle Symmetriegruppe des Quadrats."),
+    erase_scale: str | None = typer.Option(None, "--erase-scale",
+                                           help="Flaechenanteil des geloeschten Rechtecks als "
+                                                "MIN,MAX (heute 0.02,0.15). Der Hebel gegen "
+                                                "Sproedigkeit: ein einzelner 16-px-Fleck kostet "
+                                                "das Modell heute 75-92 % der Wahrscheinlichkeit."),
+    grayscale_p: float | None = typer.Option(None, "--grayscale-p",
+                                             help="ZUFAELLIG entfaerben. Anders als "
+                                                  "--input-repr gray3, das die Farbe ganz nimmt: "
+                                                  "hier bleibt sie nutzbar, nur nicht mehr "
+                                                  "verlaesslich."),
+    invert_p: float | None = typer.Option(None, "--invert-p",
+                                          help="Helligkeit umkehren, Label unveraendert. Zwingt "
+                                               "das Modell auf die Form statt auf die Polaritaet. "
+                                               "Klein halten — bei 1,0 waere Weiss von Schwarz "
+                                               "nicht mehr zu trennen; der Sobel-Kanal hat genau "
+                                               "das erzwungen und zwei Groessenordnungen verloren."),
+    flip_xor_p: float | None = typer.Option(None, "--flip-xor-p",
+                                            help="Genau EINE Achse spiegeln, nie beide. "
+                                                 "Schliesst die 180-Grad-Drehung aus, die zwei "
+                                                 "unabhaengige Muenzen mit erzeugen wuerden."),
+    rot180_p: float | None = typer.Option(None, "--rot180-p",
+                                          help="Halbe Drehung ALLEIN. --hflip-p und --vflip-p "
+                                               "zusammen wuerfeln unabhaengig und ergeben die "
+                                               "ganze Vierergruppe zu je 25 %; dieser Regler "
+                                               "isoliert die Drehung."),
+    vflip_p: float | None = typer.Option(None, "--vflip-p",
+                                         help="Senkrechte Spiegelung. Mit --hflip-p zusammen "
+                                              "entsteht die 180-Grad-Drehung als Kombination — "
+                                              "die einzige physikalisch echte Variante, sie "
+                                              "entspricht dem Blick von der anderen Tischseite."),
+    hflip_p: float | None = typer.Option(None, "--hflip-p",
+                                         help="Wahrscheinlichkeit fuer waagerechte Spiegelung. "
+                                              "Auf einem Zellcrop zulaessig und spiegelt den "
+                                              "Lichtgradienten des Bretts mit."),
+    weight_decay: float | None = typer.Option(None, "--weight-decay",
+                                              help="AdamW-Zerfall. Ohne Angabe PyTorchs 0,01 — "
+                                                   "der Wert, auf dem jeder bisherige Lauf lief, "
+                                                   "ohne dass ihn jemand gewaehlt haette."),
+    label_smoothing: float = typer.Option(0.0, "--label-smoothing",
+                                          help="Gegen ueberzeugte Fehler: die Konfidenz auf "
+                                               "Fehlern liegt bei 0,75-0,84."),
+    weight_cap: float | None = typer.Option(None, "--weight-cap",
+                                            help="Verhaeltnis groesstes/kleinstes Klassengewicht "
+                                                 "hoechstens SO. Geglaettet (w ~ 1/n^a), nicht "
+                                                 "beschnitten; der Verlustmassstab bleibt gleich. "
+                                                 "Ungekappt sind es ~12x."),
     sched: str = typer.Option("cosine", "--sched",
                               help="cosine (default) | none. The cosine period is tied to --epochs, "
                                    "so a longer run is a different trajectory, not a longer one: "
@@ -1545,6 +1706,20 @@ def train_cmd(
     from .training.train import run_train
 
     scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
+    _erase_scale = None
+    if erase_scale:
+        parts = [float(x) for x in erase_scale.split(",")]
+        if len(parts) != 2 or not 0 < parts[0] < parts[1] <= 1:
+            print("[FAIL] --erase-scale erwartet MIN,MAX mit 0 < min < max <= 1.")
+            raise typer.Exit(1)
+        _erase_scale = (parts[0], parts[1])
+    _gamma = None
+    if gamma:
+        parts = [float(x) for x in gamma.split(",")]
+        if len(parts) != 2 or not 0 < parts[0] <= parts[1]:
+            print("[FAIL] --gamma erwartet LO,HI mit 0 < lo <= hi.")
+            raise typer.Exit(1)
+        _gamma = (parts[0], parts[1])
     cw: dict[str, float] = {}
     for item in (s.strip() for s in (class_weight or "").split(",") if s.strip()):
         if "=" not in item:
@@ -1557,10 +1732,25 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
-                               erase_p=erase_p,
+                               board_width=board_width, board_layers=board_layers,
+                               clahe_clip=clahe_clip, clahe_tile=clahe_tile,
+                               clahe_min_mean=clahe_min_mean, clahe_max_mean=clahe_max_mean,
+                               clahe_denoise=clahe_denoise,
+                               erase_p=erase_p, erase_scale=_erase_scale,
+                               brightness=brightness, gamma=_gamma,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
-                                 hard_negative_multiplier=hard_negative_multiplier, split=split))
+                                 hard_negative_multiplier=hard_negative_multiplier, split=split,
+                                 swa=swa, swa_lr=swa_lr, swa_start=swa_start,
+                                 allow_unpacked=allow_unpacked, visible_max=visible_max,
+                                 weight_cap=weight_cap, weight_decay=weight_decay,
+                                 label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
+                                 flip_xor_p=flip_xor_p,
+                                 invert_p=invert_p,
+                                 grayscale_p=grayscale_p,
+                                 balance=balance, epoch_frac=epoch_frac,
+                                 rot90=rot90, aug_scale=aug_scale, pretrained=pretrained,
+                                 no_empty_cap=no_empty_cap, neighbour_p=neighbour_p))
 
 
 @app.command("eval")
@@ -1580,12 +1770,16 @@ def eval_cmd(
                                                "or the run's own). Names a fold, e.g. split-f0.json."),
     sessions: str | None = typer.Option(None, "--sessions",
                                         help="Comma-separated session IDs to narrow the split to."),
+    boards_only: bool = typer.Option(False, "--boards-only",
+                                     help="Nur vollständige 64-Zell-Bretter — der Schnitt, den ein "
+                                          "Brett-Modell erzwingt. Ohne ihn vergleicht ein Zell- "
+                                          "gegen ein Brett-Modell zwei verschiedene Zeilenmengen."),
 ) -> None:
     """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
 
     raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
-                              split_file=split_file,
+                              split_file=split_file, boards_only=boards_only,
                               sessions=[s.strip() for s in sessions.split(",") if s.strip()]
                               if sessions else None))
 

@@ -15,7 +15,10 @@ import org.junit.jupiter.api.Test
 class AppSettingsModelDirTest {
     @Test
     fun aFreshInstallRunsTheOcclusionAwareIdentityModel() {
-        assertEquals("real14-80", DEFAULT_MODEL)
+        // Named, not just "the default": a 14-class run declares no `coverage_output`, which leaves
+        // the model-free grid arm on, and on the regression set that arm locks the tracker
+        // (2026-08-07-13-52-38: four found with three phantoms, against 25/0/0 with this one).
+        assertEquals("p4full-128", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
     }
@@ -30,7 +33,7 @@ class AppSettingsModelDirTest {
         val previousIdentityDefault = """{"modelRelease":3,"modelDir":"id35-80","modelAsset":"model.onnx"}"""
         assertEquals(DEFAULT_MODEL, decodeAppSettings(previousIdentityDefault).modelDir)
 
-        val explicitCurrentChoice = AppSettings(modelDir = "id35-80")
+        val explicitCurrentChoice = AppSettings(modelDir = "p4a-128")
         assertEquals(explicitCurrentChoice, decodeAppSettings(encodeAppSettings(explicitCurrentChoice)))
     }
 

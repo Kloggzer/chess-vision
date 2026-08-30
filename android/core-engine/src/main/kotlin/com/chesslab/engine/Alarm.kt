@@ -1,5 +1,6 @@
 package com.chesslab.engine
 
+import com.chesslab.engine.api.AlarmReason
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
@@ -59,6 +60,18 @@ internal fun EngineState.onStableMismatch(
 private val EngineState.alarmable: Boolean get() = alarm == null && history.isNotEmpty()
 
 /**
+ * Haelt das Einrasten an, solange eine Hand im Bild ist.
+ *
+ * Die Serie laeuft weiter — Blitz braucht das —, nur der Latch wartet. `handInFrame` ist die
+ * Vereinigung aller Occlusion-Signale, und der Alarmpfad war die einzige Stelle, die sie nie
+ * gefragt hat: eine Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
+ */
+private fun EngineState.alarmDeferred(): Boolean =
+    handInFrame() ||
+        desyncObs < config.desyncObsN + config.alarmDeferObs ||
+        nowS - desyncSince < config.alarmMinS
+
+/**
  * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
  *
  * The veto hands the standoff to CNN recovery, but recovery can only end it when a LEGAL move
@@ -83,7 +96,7 @@ internal fun EngineState.desyncEvidence(
     conflicts: List<String>,
 ): List<TrackerEvent> {
     advanceDesyncStreak(snap.seq, conflicts)
-    val due = alarmable && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
     if (guess != null) {
         val raised = latchAlarm(conflicts, guess)
@@ -99,7 +112,8 @@ internal fun EngineState.desyncEvidence(
     val standoffDue =
         alarmable &&
             config.desyncStandoffObsN > 0 &&
-            desyncObs >= config.desyncStandoffObsN
+            desyncObs >= config.desyncStandoffObsN &&
+            !alarmDeferred()
     if (standoffDue) {
         val raised = latchAlarm(conflicts, guess = null)
         note = alarmNote(raised)
@@ -112,7 +126,17 @@ internal fun EngineState.desyncEvidence(
     return emptyList()
 }
 
+/**
+ * The line the player reads while a game is running, so the REASON comes first and short.
+ *
+ * It used to lead with the squares and hide the reason in brackets behind them — "ILLEGAL MOVE?
+ * K e1->f1 (you are in check) — take it back, or resync to accept". Everything a player needs is
+ * in the last three words of the middle, and by then the eye has left (User, 2026-08-26). Where
+ * the engine knows why, it says only why; where it does not, the conflict list and what to do
+ * about it are still the most useful thing it has.
+ */
 private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
+    board.alarmReason(latched.guess)?.let { return "Illegal move — ${it.text()}" }
     val what = board.alarmGuessSan(latched.guess) ?: latched.conflicts.shown()
     return "ILLEGAL MOVE? $what — take it back, or resync to accept"
 }
@@ -169,7 +193,7 @@ private fun EngineState.raiseAlarmIfDue(
     obs: CnnObservation,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    val due = alarmable && desyncObs >= config.desyncObsN
+    val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
     return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
 }
@@ -186,7 +210,7 @@ internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<Tr
     // Rendered against the position it was attempted IN, which is not always the live board: a
     // probe or a copy is just as capable of being handed a fabrication.
     val san = runCatching { Game(cause.fen).alarmGuessSan(cause.uci) }.getOrNull()
-    val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san)
+    val raised = TrackerEvent.Alarm(ALARM_MOVE_REFUSED, squares, cause.uci, san, AlarmReason.ENGINE_REFUSED)
     alarm = raised
     alarmSince = nowS
     recordRejection(cause.uci, "REFUSED illegal move ${cause.uci} in ${cause.fen}")
@@ -199,7 +223,11 @@ private fun EngineState.latchAlarm(
     conflicts: List<String>,
     guess: String?,
 ): TrackerEvent.Alarm {
-    val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess))
+    // Ohne Zug gibt es keinen Regelgrund: dann weicht nur die Erkennung ab, und das sagt der Code.
+    val reason =
+        board.alarmReason(guess)
+            ?: if (guess == null) AlarmReason.BOARD_MISMATCH else AlarmReason.NOT_LEGAL
+    val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess), reason)
     alarm = raised
     alarmSince = nowS
     // Only `clearAlarm` used to write a row, so the moment the board was declared lost — the single
@@ -222,13 +250,46 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
     return if (piece == null) {
         squares
     } else {
-        val castling =
-            piece.uppercaseChar() == 'K' &&
-                abs(from % Squares.N - to % Squares.N) == 2 &&
-                !hasCastlingRights(piece.isUpperCase())
-        val reason = if (castling) "castling not available" else "illegal move suspected"
+        val reason = alarmReason(guess)?.text() ?: "illegal move suspected"
         "${piece.uppercaseChar()} $squares ($reason)"
     }
 }
+
+/**
+ * Why the suspected move cannot be legal, or null when the engine only knows THAT it is not.
+ *
+ * Order by what the player has to do about it: who is to move outranks being in check, because
+ * otherwise the wrong person starts looking for their king (User, 2026-08-24).
+ */
+internal fun Game.alarmReason(guess: String?): AlarmReason? {
+    if (guess == null || guess.length < UCI_SQUARES_LEN) return null
+    val from = Squares.index(guess.substring(0, 2).lowercase())
+    val to = Squares.index(guess.substring(2, UCI_SQUARES_LEN).lowercase())
+    val piece = if (from < 0 || to < 0) null else pieceCharAt(from)
+    if (piece == null) return null
+    val castling =
+        piece.uppercaseChar() == 'K' &&
+            abs(from % Squares.N - to % Squares.N) == 2 &&
+            !hasCastlingRights(piece.isUpperCase())
+    return when {
+        castling -> AlarmReason.NO_CASTLING
+        piece.isUpperCase() != whiteToMove ->
+            if (whiteToMove) AlarmReason.WHITE_TO_MOVE else AlarmReason.BLACK_TO_MOVE
+        result().inCheck -> AlarmReason.IN_CHECK
+        else -> null
+    }
+}
+
+/** Die englische Prosa fuer Note und Karte; die Sprachansage formuliert selbst ([AlarmReason]). */
+internal fun AlarmReason.text(): String =
+    when (this) {
+        AlarmReason.NO_CASTLING -> "castling not available"
+        AlarmReason.WHITE_TO_MOVE -> "it is White to move"
+        AlarmReason.BLACK_TO_MOVE -> "it is Black to move"
+        AlarmReason.IN_CHECK -> "you are in check"
+        AlarmReason.NOT_LEGAL -> "illegal move suspected"
+        AlarmReason.BOARD_MISMATCH -> "the board and the app disagree"
+        AlarmReason.ENGINE_REFUSED -> "the app was handed a move it cannot play"
+    }
 
 private fun List<String>.shown(): String = take(CONFLICTS_SHOWN).joinToString(", ") + if (size > CONFLICTS_SHOWN) "…" else ""

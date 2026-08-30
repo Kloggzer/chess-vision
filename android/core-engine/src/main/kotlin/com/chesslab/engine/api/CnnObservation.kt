@@ -35,6 +35,19 @@ interface CnnObservation {
         thr: Double,
     ): Boolean = invalidMass(square) >= thr
 
+    /**
+     * The classifier's whole answer for this square, or empty when the source kept none.
+     *
+     * The reduced views above ([occupied], [label], [conf]) are what a diff-driven engine needs; an
+     * engine that scores hypotheses by likelihood needs the distribution itself, and the group sums
+     * white/black cannot be rebuilt from a top label. Column order is [classNames]; a coverage
+     * column is NOT part of it — that is [pOccluded].
+     */
+    fun classProbs(square: String): DoubleArray = DoubleArray(0)
+
+    /** Column names of [classProbs], empty when there are none. */
+    val classNames: List<String> get() = emptyList()
+
     /** Pixels-only view. Conditioned observations override this for recovery/resync. */
     fun rawObservation(): CnnObservation = this
 

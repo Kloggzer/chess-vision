@@ -25,7 +25,7 @@ _LOADERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 @torch.no_grad()
 def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4,
-                     input_size: int | None = None) -> dict:
+                     input_size: int | None = None, keep_workers: bool = True) -> dict:
     """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset.
 
     `input_size`: wenn gesetzt, wird jeder Batch auf diese Eingabegröße skaliert (size-agnostisches
@@ -36,19 +36,29 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
     from .. import config
 
-    kw = {"batch_size": batch_size, "shuffle": False, **config.loader_kwargs(num_workers)}
+    kw = {"batch_size": batch_size, "shuffle": False,
+          **config.loader_kwargs(num_workers, persistent=keep_workers)}
+    # Der Brettdatensatz bringt sein eigenes Zusammenlegen mit — ohne das kaeme das Ziel als
+    # `(B, 64, 2)` an und `occluding` unten laege still falsch.
+    if getattr(dataset, "collate_fn", None) is not None:
+        kw["collate_fn"] = dataset.collate_fn
     # Kept across calls: the training loop evaluates once per EPOCH, and a fresh loader spawns
     # `num_workers` processes that each re-import torch — on Windows spawn that is the idle gap
     # between epochs, and it grows with the worker count instead of shrinking.
-    per_ds = _LOADERS.setdefault(dataset, {})
-    loader = per_ds.get((batch_size, num_workers))
-    if loader is None:
-        loader = per_ds[(batch_size, num_workers)] = DataLoader(dataset, **kw)
+    if keep_workers:
+        per_ds = _LOADERS.setdefault(dataset, {})
+        loader = per_ds.get((batch_size, num_workers))
+        if loader is None:
+            loader = per_ds[(batch_size, num_workers)] = DataLoader(dataset, **kw)
+    else:
+        loader = DataLoader(dataset, **kw)
     model.eval()
     trues: list[int] = []
     preds: list[int] = []
     cover: list[float] = []
     probs: list[float] = []
+    conf: list[float] = []
+    keep_logits: list = []
     loss_sum = 0.0
     n = 0
     n_out = 0
@@ -56,11 +66,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         x = x.to(device, non_blocking=True)
         y = y.to(device, non_blocking=True)
         if input_size is not None and input_size != x.shape[-1]:
-            x = torch.nn.functional.interpolate(x, size=(input_size, input_size), mode="bilinear", align_corners=False)
+            flat = x.flatten(0, 1) if x.dim() == 5 else x
+            flat = torch.nn.functional.interpolate(flat, size=(input_size, input_size),
+                                                   mode="bilinear", align_corners=False)
+            x = flat.view(*x.shape[:2], *flat.shape[1:]) if x.dim() == 5 else flat
         logits = model(x)
         n_out = int(logits.shape[1])
         if criterion is not None:
-            loss_sum += float(criterion(logits, y)) * x.size(0)
+            loss_sum += float(criterion(logits, y)) * logits.shape[0]
         # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
         # coverage — the class metrics must look past both or they score a regression head.
         occluding = y.dim() == 2
@@ -69,6 +82,11 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
             probs.extend(torch.sigmoid(logits[:, -1]).cpu().tolist())
             logits, y = logits[:, :-1], y[:, 0].long()
         p = logits.argmax(1)
+        # Wie SICHER ist das Modell? Nicht die Genauigkeit entscheidet die Dekodierung,
+        # sondern wie ueberzeugt ein Fehler auftritt — ein Modell mit 1,00 auf falschen
+        # Feldern reisst den Beam mit, eines mit 0,80 laesst sich korrigieren.
+        conf.extend(logits.softmax(1).max(1).values.cpu().tolist())
+        keep_logits.append(logits.detach().cpu())
         trues.extend(y.cpu().tolist())
         preds.extend(p.cpu().tolist())
         n += x.size(0)
@@ -111,6 +129,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         "board_acc": board_acc,
         "trues": trues_a,
         "preds": preds_a,
+        "conf_wrong": float(np.array(conf)[trues_a != preds_a].mean())
+        if n and (trues_a != preds_a).any() else 0.0,
+        "conf_right": float(np.array(conf)[trues_a == preds_a].mean())
+        if n and (trues_a == preds_a).any() else 0.0,
+        # Roh-Logits fuer die Temperatur-Anpassung: der Argmax bleibt, nur die
+        # Wahrscheinlichkeiten werden ehrlich (`fit_temperature`).
+        "logits": torch.cat(keep_logits) if keep_logits else None,
+        "conf": conf,
         **({"occ_mae": float(np.abs(np.array(probs) - np.array(cover)).mean()),
             "occ_recall": _hit_rate(probs, cover),
             "coverage_trues": np.asarray(cover, dtype=np.float32),

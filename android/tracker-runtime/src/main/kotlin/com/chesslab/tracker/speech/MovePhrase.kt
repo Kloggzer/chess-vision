@@ -10,7 +10,7 @@ enum class SpeechVerbosity(
 }
 
 /** Everything a spoken move needs beyond the piece names. `MORE` carries an `%s` for the count. */
-private enum class Term { TAKES, PLAYS, CHECK, MATE, PROMOTES, PROMOTES_TO, KINGSIDE, QUEENSIDE, WHITE, BLACK, MORE }
+private enum class Term { TAKES, PLAYS, CHECK, MATE, PROMOTES, PROMOTES_TO, KINGSIDE, QUEENSIDE, WHITE, BLACK, MORE, AND }
 
 /**
  * The vocabulary of one language: a table, because the only thing that varies between languages is
@@ -38,6 +38,7 @@ private val ENGLISH =
             Term.WHITE to "White",
             Term.BLACK to "Black",
             Term.MORE to "and %s more moves",
+            Term.AND to "and",
         ),
     )
 
@@ -56,6 +57,7 @@ private val GERMAN =
             Term.WHITE to "Weiß",
             Term.BLACK to "Schwarz",
             Term.MORE to "und %s weitere Züge",
+            Term.AND to "und",
         ),
     )
 
@@ -93,6 +95,9 @@ object MovePhrase {
         // "White castles kingside", not "White plays castles kingside".
         return if (castle != null) "$side $body$suffix" else "$side ${w[Term.PLAYS]} $body$suffix"
     }
+
+    /** Was zwei Zuege einer Sequenz verbindet — ein Bruecken-Commit spricht sie in einem Satz. */
+    fun and(language: String): String = table(language)[Term.AND]
 
     /** The overflow announcement, in the speaking language — see `UtteranceQueue`. */
     fun moreMoves(

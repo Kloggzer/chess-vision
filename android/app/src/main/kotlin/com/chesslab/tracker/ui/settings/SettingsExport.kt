@@ -60,6 +60,7 @@ object SettingsExport {
             put("version", appVersion)
             put("device", deviceModel)
             put("resolutionMode", app.resolutionMode.name)
+            put("frameRate", app.frameRate.name)
             put("orientation", app.orientation.name)
             put("modelDir", app.modelDir)
             put("modelAsset", app.modelAsset)

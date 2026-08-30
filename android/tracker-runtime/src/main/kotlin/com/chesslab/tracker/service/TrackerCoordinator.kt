@@ -1,5 +1,6 @@
 package com.chesslab.tracker.service
 
+import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
@@ -14,6 +15,7 @@ import com.chesslab.geometry.gridCorrection
 import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.quadDriftCells
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.ExposureGovernor
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -65,6 +67,14 @@ class TrackerCoordinator<T>(
      * real video committed nothing.
      */
     private val nowMs: () -> Long = System::currentTimeMillis,
+    /**
+     * Belichtung nach dem Brett statt nach dem Rahmen.
+     *
+     * Vorgabe [ExposureGovernor.NONE], damit Replay und Clip-Sim unveraendert bleiben: die stellen
+     * keine Kamera, und eine Verstellung mitten im Replay waere eine Eingabe, die nicht in der
+     * Datei steht.
+     */
+    private val exposure: ExposureGovernor = ExposureGovernor.NONE,
 ) {
     private var sourceSeq = 0L
 
@@ -96,6 +106,18 @@ class TrackerCoordinator<T>(
         // A PROVIDER: the publisher samples at 10 Hz and only builds the status when it will use it.
         publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
         observer.onFrameAvailable()
+        // Nach dem Frame, nicht davor: die Messung liest den Warp, den dieser Frame schon bezahlt
+        // hat. Eine Verstellung verschiebt jeden Pixel, also ist die Pixel-Referenz danach hin —
+        // `CaptureBaseline` ist genau das, ohne die Stellung zu verlieren.
+        val ready = result as? FrameResult.Ready
+        // `quiet`: dieser Frame hat die Engine NICHT beschaeftigt. Ein Ereignis heisst Commit,
+        // Alarm oder Re-Anchor — alles Momente, in denen die Pixel-Referenz gerade entsteht.
+        val quiet = events.isEmpty()
+        if (ready != null &&
+            exposure.onBoard(ready.input.seq, quiet) { ready.input.board?.invoke(METER_BOARD_PX) }
+        ) {
+            host.submit(EngineAction.CaptureBaseline)
+        }
         align.maybeAlign(bus, delivered)
         timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma())
     }
@@ -359,3 +381,9 @@ class LiveAlign(
  * `specs/36`.
  */
 private const val DRIFT_REFIT_CELLS = 0.25
+
+/**
+ * Woraus die Belichtung gemessen wird: 160 px sind 20 px je Feld — reichlich fuer einen
+ * Mittelwert, und die Groesse, die die Stillstands-Engine ohnehin schon warpt.
+ */
+private const val METER_BOARD_PX = 160

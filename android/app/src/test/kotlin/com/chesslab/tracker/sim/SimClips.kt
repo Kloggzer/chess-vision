@@ -116,7 +116,7 @@ internal fun simModels(): List<SimModel> {
  * (`assets/cnn_model/<model>/`), so the root holds no `model.onnx` at all. Any other model
  * directory is an ordinary path and can be compared by naming it in `-Pchesslab.sim.models`.
  */
-private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model/real14-80"
+private const val ASSET_MODEL_DIR = "android/app/src/main/assets/cnn_model/p4full-128"
 
 /** What the Blender scene rendered — the answer every run is scored against. */
 internal class SimTruth(

@@ -43,6 +43,7 @@
          names, so they stay the same whichever way the toggle stands. -->
     <string name="tracking_light">Camera light</string>
     <string name="tracking_camera_view">Camera view</string>
+    <string name="tracking_blackout">Screen dimmed. Tracking continues. Tap to show the board.</string>
 
     <!-- Setting the board up: a framing aid, never a claim that the board was found. -->
     <string name="tracking_aim">Fit the whole board inside the frame</string>
@@ -83,4 +84,6 @@
     <string name="games_result_black">Black wins</string>
     <string name="games_result_draw">Draw</string>
     <string name="games_result_unfinished">Unfinished</string>
+    <!-- Toast when the board-metered exposure lifts a dark scene; %1$s is the offset in EV. -->
+    <string name="tracking_exposure_brightening">Dark board detected — brightening by %1$s EV</string>
 </resources>

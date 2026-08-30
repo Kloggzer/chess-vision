@@ -1,5 +1,6 @@
 package com.chesslab.tracker.speech
 
+import com.chesslab.engine.api.AlarmReason
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.ConfigStore
@@ -34,6 +35,12 @@ private class RecordingSpeaker : Speaker {
         flush: Boolean,
     ) {
         said += Triple(text, flush, Thread.currentThread().name)
+    }
+
+    val languages = mutableListOf<String>()
+
+    override fun setLanguage(tag: String) {
+        languages += tag
     }
 
     override fun dropPending() {
@@ -88,7 +95,10 @@ class MoveAnnouncerTest {
         fen: String = FEN_WHITE_MOVED,
     ) = TrackerEvent.MoveCommitted("g1f3", san, fen, "score", false)
 
-    private fun alarm(kind: String = "cnn_desync") = TrackerEvent.Alarm(kind, listOf("e4", "d5"), null, null)
+    private fun alarm(
+        kind: String = "cnn_desync",
+        reason: AlarmReason = AlarmReason.BOARD_MISMATCH,
+    ) = TrackerEvent.Alarm(kind, listOf("e4", "d5"), null, null, reason)
 
     @Test
     fun speechIsOffByDefault() {
@@ -163,7 +173,7 @@ class MoveAnnouncerTest {
     fun movesAreNotSpokenWhileAlarmed() {
         announcer()
         emit(alarm())
-        assertEquals("Position mismatch: 2 squares disagree", speaker.next()?.first)
+        assertEquals("App error, check the pieces", speaker.next()?.first)
         emit(move())
         emit(move("e5", FEN_BLACK_MOVED))
         speaker.nothing()
@@ -181,11 +191,43 @@ class MoveAnnouncerTest {
         speaker.nothing()
     }
 
+    /** Kategorie zuerst, Grund dahinter — und kein geratener Zug durch den SAN-Ansager. */
     @Test
-    fun alarmGuessIsSpoken() {
+    fun alarmSaysTheCategoryAndTheReason() {
         announcer()
-        emit(TrackerEvent.Alarm("illegal", listOf("e4"), "g1f3", "Nf3"))
-        assertEquals("Position mismatch: 1 squares disagree, possible move Knight f3", speaker.next()?.first)
+        emit(alarm("illegal_move", AlarmReason.IN_CHECK))
+        assertEquals("Illegal, king is in check", speaker.next()?.first)
+    }
+
+    @Test
+    fun aDifferentReasonUnderTheSameLatchIsNewNews() {
+        announcer()
+        emit(alarm("illegal_move", AlarmReason.IN_CHECK))
+        assertEquals("Illegal, king is in check", speaker.next()?.first)
+        emit(alarm("illegal_move", AlarmReason.IN_CHECK))
+        speaker.nothing()
+        emit(alarm("illegal_move", AlarmReason.WHITE_TO_MOVE))
+        assertEquals("Illegal, White to move", speaker.next()?.first)
+    }
+
+    @Test
+    fun germanSpeaksGerman() {
+        announcer(AppSettings(speechEnabled = true, speechLanguage = "de-DE"))
+        emit(alarm("illegal_move", AlarmReason.IN_CHECK))
+        assertEquals("Ungültig, König steht im Schach", speaker.next()?.first)
+        emit(TrackerEvent.AlarmCleared("verified"))
+        assertEquals("Stellung wieder da", speaker.next()?.first)
+        emit(move())
+        assertEquals("Springer f3", speaker.next()?.first)
+    }
+
+    /** Die Stimme muss der Sprache folgen; sonst liest eine en-US-Stimme deutsche Wörter. */
+    @Test
+    fun theVoiceFollowsTheSetting() {
+        announcer(AppSettings(speechEnabled = true, speechLanguage = "de-DE"))
+        emit(move())
+        speaker.next()
+        assertEquals(listOf("de-DE"), speaker.languages)
     }
 
     @Test

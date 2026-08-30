@@ -28,14 +28,20 @@
   the human only checks that the alpha and the shown position are right.
   The 2-class `occupancy` scheme is **gone** (2026-08-20), Python and Kotlin: `--classes` takes
   `pieces13` or `pieces` only (`dataset_build.CLASS_MODES`).
-  **Android now ships coverage (2026-08-23):** the APK bundles `real14-80` (14-class softmax,
-  `occluded` at index 13, the default), `id35-80` (13-class, so `pOccluded` = 0.0) and
-  `comp13-occ-bn-lr1e2-bs512`, which DOES declare `coverage_output` — 13 class logits plus an
-  independent coverage sigmoid in column 13 (`Observations.kt`, `Preprocess.kt`). Same 14 columns
-  as `real14-80`, different meaning. Where it is declared, `TrackerService` switches the model-free
-  arm OFF (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms
-  have never been measured against each other, so `gridOccluded` is still the one with evidence
-  behind it (`docs/class-scheme.md`).
+  **Android ships coverage (2026-08-24):** the APK bundles `real14-80` (14-class softmax,
+  `occluded` at index 13, the `DEFAULT_MODEL`), `id35-80` (13-class, so `pOccluded` = 0.0),
+  `comp13-occ-bn-lr1e2-bs512` and the two newer `real13-ms-*` runs. The latter three declare
+  `coverage_output` — 13 class logits plus an INDEPENDENT coverage sigmoid in column 13
+  (`Observations.kt`, `Preprocess.kt`): same 14 columns as `real14-80`, different meaning. Where it
+  is declared, `TrackerService` switches the model-free arm OFF
+  (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms have
+  never been measured against each other (`docs/class-scheme.md`).
+  **The threshold rides in the model, not the engine (2026-08-24):** `coverage_gate` in the
+  model's `config.json`, read by `ModelSpec`, applied onto `TrackerConfig.pOccludedThr`. It follows
+  from the model's accuracy and differs by a factor of 7 between families — comp13 carries 0.02
+  where the real13 runs carry 0.15, both at loss ratio 2 (`docs/occlusion-gate.md`). The old
+  constant 0.5 admitted reads that are 84 % wrong. `BUNDLED_MODELS` is hand-maintained: a model
+  merely dropped into `assets/cnn_model/` never appears in the picker.
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed); its web callers went with the FastAPI layer.
@@ -77,9 +83,33 @@
   a7 at 20 on 20-41-33), so a black piece on a near-black square moves the score by ~1.5 against a
   threshold of 15. `interval-check.jsonl` measures this per ply instead of hiding it; closing it
   means normalising by the cell's own contrast, not lowering the threshold.
+- **Bewertet wird nur, was der Verlust auch lernt (2026-08-24):** der Occlusion-Verlust maskiert
+  alles über `PIECE_VISIBLE_MAX`, also zählen `CHECKPOINT_WEIGHTS`, `auroc` und `conf_wrong` nur
+  sichtbare Zellen. Über alle Zellen gerechnet sah das Modell 8 Punkte besser kalibriert aus, als
+  es ist: verdeckte Zellen sind zu 55–63 % falsch, dabei aber *unsicher*.
+  **Arme mit verschieden geschnittenem Val sind auf `piece_acc` gar nicht vergleichbar
+  (2026-08-26):** die Ausdünn-Varianten trugen 2,9 % bis 15,0 % verdeckte Val-Zellen, und die
+  Rangfolge der Arme war exakt die Rangfolge dieses Anteils — der gemeldete Sieger verschwand,
+  sobald alle gegen DENSELBEN Val-Satz auf sichtbaren Zellen gemessen wurden
+  (`docs/per-position-mix.md`, Korrektur). `val_visible_piece_acc` steht deshalb in
+  `metrics.jsonl`, und Quervergleiche laufen über `chesslab eval --dataset <gemeinsamer>`.
+  Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
+  2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 
 ### 2. Data & Splits
+- **Ohne Memmap kein Training (2026-08-24):** ein veralteter Pack fiel still auf den Datei-Loader
+  zurück — die Folds und die SWA-Läufe liefen dreifach langsam an ihm vorbei, ohne dass es jemand
+  sah. `_require_pack` bricht jetzt ab; `--allow-unpacked` nur für Sets unter der Packgrenze.
+  **Nach jedem Re-Slice neu packen**, sonst trägt der Pack Pixel von vorgestern.
+- **Hard-Negative-Mining auf Trainingsdaten findet fast nur Verdecktes (2026-08-24):** 98,6 % der
+  gefundenen Fälle liegen über `PIECE_VISIBLE_MAX` und sind damit aus dem Klassifikationsverlust
+  maskiert — sie 4× zu verstärken kostet Sampling-Budget und lehrt den Figurenkopf nichts. Grund:
+  auf dem Trainings-Split ist alles Lernbare gelernt, übrig bleibt, was der Verlust nie sah
+  (sichtbar UND überzeugt falsch: 156 von 292 105 Zeilen). Mining lohnt nur auf **ungesehenem**
+  Material. `scripts/mine_hard_empty.py --dataset <name>` liest Trainings-Split und Memmap statt
+  des splitlosen Crop-Pools; `--fresh` verhindert, dass Zeilen aus einem anderen Zuschnitt
+  überleben.
 - **Reproducibility:** Splits are not deterministic from Params → **always use `split.json`**.
 - **Geometry Fix (2026-07-31):** Old dataset was mis-aligned (3-6px Offset). Crops must be re-sliced. Old Path-A numbers are void.
 - **Hard Empties:** `hard_empty.jsonl` is global training input. **Park** if not in use (`data/_parked/`).
@@ -106,6 +136,13 @@
   mount cannot give, so it always refused.
 
 ## Verification
+- **Alarm & Occlusion:** `docs/alarm-path.md` (was den Latch haelt und was er sagt),
+  `docs/occlusion-gate.md` (die Schwelle je Modell), `docs/emission-correlation.md` (warum
+  Cooldowns keine Unabhaengigkeit kaufen und mehr Reads nichts beitragen).
+- **Strom:** `docs/battery.md` — das Messgeraet (`cmd battery get -f current_now`, NEGATIV heisst
+  laden), die Aufteilung, und warum die Bildrate der Hebel ist und nicht die Rechenzeit. Wer die
+  Bildrate anfasst, muss `motionThr` mitziehen: `TrackerService.engineConfig()` tut das mit
+  `× 30 / fps`, und die Kopplung ist am Regressions-Satz gemessen.
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not

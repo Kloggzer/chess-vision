@@ -10,11 +10,67 @@ import random
 
 import numpy as np
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torch.utils.data import Dataset
 
 from .. import config
 from .data import class_to_idx
+
+
+class _Clahe:
+    """Lokaler Kontrast auf dem L-Kanal, damit die Farbe bleibt — dieselbe Form, die auf dem Geraet
+    ueber `Imgproc.createCLAHE` laeuft. Der Handle wird EINMAL angelegt; ihn je Bild zu bauen ist
+    ein messbarer Posten (`core-geometry/GrayPipeline.kt` haelt dieselbe Lehre fest).
+
+    Laeuft NACH dem Resize: so sind die Kacheln immer `out_size / tile` gross und Training und
+    Serving sehen denselben Operator, egal wie gross der Quellkasten war.
+    """
+
+    def __init__(self, clip: float, tile: int, min_mean: float = 0.0,
+                 max_mean: float = 255.0, denoise: str = "off") -> None:
+        if denoise not in ("off", "pre", "post"):
+            raise ValueError(f"unbekanntes denoise {denoise!r} (off|pre|post)")
+        self.clip = clip
+        self.tile = tile
+        self.min_mean = min_mean
+        self.max_mean = max_mean
+        self.denoise = denoise
+        self._handle = None
+
+    def __getstate__(self):
+        # Weder das cv2-Modul noch der CLAHE-Handle sind picklebar, und Spawn-Worker bekommen die
+        # Transformation gepickelt. Sie bauen den Handle beim ersten Bild selbst.
+        return {"clip": self.clip, "tile": self.tile, "min_mean": self.min_mean,
+                "max_mean": self.max_mean, "denoise": self.denoise, "_handle": None}
+
+    def _inside(self, cv2, arr) -> bool:
+        """Das Fenster ist ein BAND, keine Schwelle.
+
+        Gemessen 2026-08-29 auf 13 953 besetzten Val-Zellen: CLAHE hebt das Band 25-40 um 5,9
+        Punkte und DRUECKT alles unter 25 um 2,6 — dort verstaerkt es Sensorrauschen statt Struktur.
+        """
+        if self.min_mean <= 0.0 and self.max_mean >= 255.0:
+            return True
+        edge = max(1, arr.shape[0] // 10)
+        mean = float(cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)[edge:-edge, edge:-edge].mean())
+        return self.min_mean <= mean < self.max_mean
+
+    def __call__(self, img):
+        import cv2
+
+        arr = np.asarray(img.convert("RGB"))
+        if not self._inside(cv2, arr):
+            return img
+        if self.denoise == "pre":
+            arr = cv2.medianBlur(arr, 3)
+        if self._handle is None:
+            self._handle = cv2.createCLAHE(clipLimit=self.clip, tileGridSize=(self.tile, self.tile))
+        lab = cv2.cvtColor(arr, cv2.COLOR_RGB2LAB)
+        lab[:, :, 0] = self._handle.apply(lab[:, :, 0])
+        out = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+        if self.denoise == "post":
+            out = cv2.medianBlur(out, 3)
+        return Image.fromarray(out)
 
 
 class _RandomGamma:
@@ -60,6 +116,62 @@ class _EvalRgbTransform:
         return x.sub_(self.mean).div_(self.std)
 
 
+class _RandomInvert:
+    """Mit Wahrscheinlichkeit p die Helligkeit umkehren, LABEL unveraendert.
+
+    Der Gedanke ist Polaritaets-Invarianz: ob eine Figur heller oder dunkler als ihr Feld ist,
+    soll nicht die Identitaet sein — die Form soll es sein. Das Projekt hat das schon einmal
+    vollstaendig erzwungen (`|Gx|+|Gy|` als Kanal, siehe `InputRepresentation`) und dabei zwei
+    Groessenordnungen auf der Brettgenauigkeit verloren, weil danach WEISS von SCHWARZ nicht mehr
+    zu trennen war.
+
+    Ein kleines p ist etwas anderes: es macht die Polaritaet unzuverlaessig, nicht unbrauchbar.
+    Der Farbfehler liegt bei 0,004 und der Typfehler bei 0,234 — ein Stueck Farbsicherheit gegen
+    Formsicherheit zu tauschen kann sich rechnen. Bei p = 0,1 bleibt die Polaritaet in 90 % der
+    Ziehungen intakt.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        return ImageOps.invert(img) if random.random() < self.p else img
+
+
+class _RandomFlipXor:
+    """Mit Wahrscheinlichkeit p GENAU EINE Achse spiegeln, nie beide.
+
+    Zwei unabhaengige Muenzen (`hflip_p` und `vflip_p`) erzeugen auch den Fall "beide", und der
+    IST die 180-Grad-Drehung. Wer die Drehung ausschliessen will — weil sie in `_RandomRot90`
+    mitlief, das schadete —, braucht ein Entweder-Oder statt zweier Muenzen.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        if random.random() >= self.p:
+            return img
+        return img.transpose(Image.FLIP_LEFT_RIGHT if random.random() < 0.5
+                             else Image.FLIP_TOP_BOTTOM)
+
+
+class _RandomRot180:
+    """Halbe Drehung mit Wahrscheinlichkeit p — die einzige EIGENTLICHE der drei.
+
+    Zwei Spiegelungen an senkrechten Achsen ergeben eine Drehung: die Haendigkeit kippt zweimal.
+    `hflip` und `vflip` unabhaengig zu wuerfeln erzeugt dagegen die ganze Kleinsche Vierergruppe
+    (Original, waagerecht, senkrecht, 180) zu je 25 % — wer die Drehung MESSEN will, braucht sie
+    allein. Sie ist die physikalisch realisierbare: so sieht das Brett von der anderen Tischseite aus.
+    """
+
+    def __init__(self, p: float) -> None:
+        self.p = p
+
+    def __call__(self, img):
+        return img.transpose(Image.ROTATE_180) if random.random() < self.p else img
+
+
 class _RandomRot90:
     """Random k*90° rotation (k in 0..3). Square-color/geometry stay valid for 90°-multiples —
     this replaces the former build-time materialization of rotated crop copies (4x disk/memmap):
@@ -75,11 +187,16 @@ class _RandomRot90:
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD,
                     rot90: bool = False, per_crop: bool = False,
-                    input_repr: str = "rgb"):
+                    input_repr: str = "rgb",
+                    clahe_clip: float = 0.0, clahe_tile: int = 8,
+                    clahe_min_mean: float = 0.0, clahe_max_mean: float = 255.0,
+                    clahe_denoise: str = "off"):
     from torchvision import transforms as T
 
     out_w, out_h = out_size
     ops = [T.Resize((out_h, out_w))]
+    if clahe_clip > 0:
+        ops += [_Clahe(clahe_clip, clahe_tile, clahe_min_mean, clahe_max_mean, clahe_denoise)]
     if train and rot90:
         ops += [_RandomRot90()]
     if train:
@@ -87,11 +204,27 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
             T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast, saturation=policy.color_jitter),
             _RandomGamma(*policy.gamma),
             T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3),
-            # degrees=0 -> NO rotation; no flip -> square color/geometry remain valid.
+            # degrees=0 -> KEINE Drehung. Flips waren hier pauschal verboten; waagerecht ist
+            # auf einem Zellcrop zulaessig und faehrt ueber `hflip_p`.
             T.RandomAffine(degrees=0,
                            translate=(policy.jitter_translate, policy.jitter_translate),
                            scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale)),
         ]
+    if train and getattr(policy, "hflip_p", 0.0) > 0:
+        ops += [T.RandomHorizontalFlip(p=policy.hflip_p)]
+    if train and getattr(policy, "vflip_p", 0.0) > 0:
+        ops += [T.RandomVerticalFlip(p=policy.vflip_p)]
+    if train and getattr(policy, "rot180_p", 0.0) > 0:
+        ops += [_RandomRot180(policy.rot180_p)]
+    if train and getattr(policy, "flip_xor_p", 0.0) > 0:
+        ops += [_RandomFlipXor(policy.flip_xor_p)]
+    if train and getattr(policy, "invert_p", 0.0) > 0:
+        ops += [_RandomInvert(policy.invert_p)]
+    if train and getattr(policy, "grayscale_p", 0.0) > 0:
+        # ZUFAELLIG entfaerben, nicht immer: das ist der Unterschied zwischen "Farbe darf nicht
+        # allein tragen" und "Farbe gibt es nicht" (`--input-repr gray3`). Drei Kanaele bleiben,
+        # also aendert sich weder Architektur noch Pretrain.
+        ops += [T.RandomGrayscale(p=policy.grayscale_p)]
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
@@ -115,7 +248,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         # and its memory traffic from every train/validation sample without changing values.
         ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std, inplace=True)]
     transform = T.Compose(ops)
-    if not train and not per_crop and input_repr == "rgb":
+    # Der Schnellpfad ueberspringt die PIL-Kette ganz — mit CLAHE waere der Schritt still weg.
+    if not train and not per_crop and input_repr == "rgb" and clahe_clip <= 0:
         return _EvalRgbTransform(transform, (out_w, out_h), mean, std)
     return transform
 
@@ -124,7 +258,13 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
 
 # How many channels each representation feeds the first convolution. The NAME is recorded in the
 # run's own config.json (`input_repr`), so serving reads what training did instead of guessing.
-INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1}
+INPUT_REPRS: dict[str, int] = {"rgb": 3, "gray+sobel": 2, "rgb+sobel": 4, "sobel": 1,
+                               # Luminanz auf DREI Kanaele repliziert: dieselbe Architektur,
+                               # derselbe Pretrain, nur Farbton und Saettigung weg. Als Sperre
+                               # gedacht, nicht als Merkmal — der Korpus traegt bewusst zwei
+                               # Kameras, und Farbe ist die Achse, auf der zwei ISPs am staerksten
+                               # auseinanderlaufen (Drehteller +39 % Saettigung).
+                               "gray3": 3}
 
 def eval_transform_for(cfg: dict, out_size=None):
     """The val/test/serving transform a run's `config.json` describes: resize plus EXACTLY the
@@ -135,7 +275,12 @@ def eval_transform_for(cfg: dict, out_size=None):
                            mean=tuple(norm.get("mean", config.NORMALIZE_MEAN)),
                            std=tuple(norm.get("std", config.NORMALIZE_STD)),
                            per_crop=norm.get("mode") == "per_crop",
-                           input_repr=input_repr_of(cfg)[0])
+                           input_repr=input_repr_of(cfg)[0],
+                           clahe_clip=float(cfg.get("clahe_clip", 0.0)),
+                           clahe_tile=int(cfg.get("clahe_tile", 8)),
+                           clahe_min_mean=float(cfg.get("clahe_min_mean", 0.0)),
+                           clahe_max_mean=float(cfg.get("clahe_max_mean", 255.0)),
+                           clahe_denoise=str(cfg.get("clahe_denoise", "off")))
 
 
 def normalize_batch(cfg: dict, batch: torch.Tensor) -> torch.Tensor:
@@ -251,6 +396,12 @@ class InputRepresentation(torch.nn.Module):
             parts.append((x - torch.tensor(config.NORMALIZE_MEAN, **kw).view(3, 1, 1))
                          / torch.tensor(config.NORMALIZE_STD, **kw).view(3, 1, 1))
         gray = luminance(x)
+        if self.kind == "gray3":
+            # Auf die RGB-Statistik normiert, damit die Vortrainings-Gewichte dieselbe Skala sehen.
+            kw = {"dtype": x.dtype, "device": x.device}
+            g3 = gray.expand(*gray.shape[:-3], 3, *gray.shape[-2:])
+            return ((g3 - torch.tensor(config.NORMALIZE_MEAN, **kw).view(3, 1, 1))
+                    / torch.tensor(config.NORMALIZE_STD, **kw).view(3, 1, 1))
         if self.kind.startswith("gray"):
             parts.append((gray - _GRAY_MEAN) / _GRAY_STD)
         if self.kind.endswith("sobel"):
@@ -410,9 +561,14 @@ class PackedSquareDataset(Dataset):
     """Same contract as SquareDataset, but crops come from a single memmap (see training.pack)
     instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck."""
 
-    def __init__(self, rows, classes, transform, packed, with_coverage: bool = False) -> None:
+    def __init__(self, rows, classes, transform, packed, with_coverage: bool = False,
+                 neighbour_p: float = 0.0, policy=config.AUGMENT) -> None:
         path, shape, path2idx = packed
         self.with_coverage = with_coverage
+        # Die Nachbar-Paste lag bis 2026-08-27 NUR im Datei-Loader, und seit `_require_pack`
+        # laeuft alles gepackt — sie hat nie gefeuert. Default 0,0 haelt jeden Altlauf gleich.
+        self.neighbour_p = neighbour_p
+        self.policy = policy
         c2i = class_to_idx(classes)
         self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
         self.transform = transform
@@ -426,9 +582,17 @@ class PackedSquareDataset(Dataset):
         )
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
+        self._empty = c2i.get("empty", -1)
         self._path = path
         self._shape = shape
         self._mm = None
+        # Spender sind BESETZTE Zellen: ihre zentrierte Figur ist das, was in den leeren Crop
+        # blutet. `empty` und `occluded` koennen nicht spenden.
+        pool = [i for i, r in zip(self.idx, rows, strict=True) if r["label"] not in _NOT_A_PIECE]
+        n = min(getattr(policy, "neighbour_pool_size", 512), len(pool))
+        self.donors = np.array(random.sample(pool, n) if n else [], dtype=np.int64)
+        if not len(self.donors):
+            self.neighbour_p = 0.0
 
     def __getstate__(self):
         # Spawn DataLoader workers only need the int arrays + path/shape to serve items. The row
@@ -450,13 +614,98 @@ class PackedSquareDataset(Dataset):
 
     def __getitem__(self, i):
         arr = np.array(self._memmap()[self.idx[i]])            # copy out of the read-only memmap
-        if isinstance(self.transform, _EvalRgbTransform):
+        paste = (self.neighbour_p > 0 and self.labels[i] == self._empty
+                 and random.random() < self.neighbour_p)
+        if paste:
+            donor = Image.fromarray(np.array(self._memmap()[random.choice(self.donors)]))
+            x = self.transform(paste_neighbour_strip(Image.fromarray(arr), donor,
+                                                     self.policy.neighbour_frac))
+        elif isinstance(self.transform, _EvalRgbTransform):
             x = self.transform.from_uint8_hwc(arr)
         else:
             x = self.transform(Image.fromarray(arr))
         if not self.with_coverage:
             return x, int(self.labels[i])
         return x, torch.tensor([float(self.labels[i]), float(self.cover[i])])
+
+
+def board_collate(batch):
+    """`(B, 64, C, H, W)` fuer das Modell, `(B*64, 2)` fuer den Verlust.
+
+    Das flache Ziel ist der Grund, warum `engine.py`, `OcclusionLoss` und die Metriken vom
+    Brettkopf nichts merken — sie sehen die Form, die auch der Per-Zell-Lauf liefert.
+    """
+    xs, ys = zip(*batch, strict=True)
+    return torch.stack(xs), torch.cat(ys)
+
+
+class PackedBoardDataset(Dataset):
+    """Ganze Bretter statt einzelner Zellen — 64 Crops eines Frames, in `a1..h8`-Reihenfolge.
+
+    Nur VOLLSTAENDIGE Bretter: im Manifest von `real13-mix-v4` sind das 9 218 von 9 619 (95,8 %),
+    also kostet die Vollstaendigkeit fast nichts und erspart dem Brettkopf jede Maskierung.
+    Der Ausgleich von `empty` kann hier nicht mehr ueber `max_empty_ratio` laufen (aus einem Brett
+    laesst sich keine Zelle wegwerfen) — er gehoert in die Verlustgewichte.
+    """
+
+    #: Von `evaluate_dataset` und dem Trainings-Loader gelesen, damit beide gleich zusammenlegen.
+    collate_fn = staticmethod(board_collate)
+
+    def __init__(self, rows, classes, transform, packed, with_coverage: bool = True) -> None:
+        from .boardnet import CELLS, square_index
+
+        path, shape, path2idx = packed
+        c2i = class_to_idx(classes)
+        boards: dict[tuple[str, str], list] = {}
+        for r in rows:
+            boards.setdefault((r["session_id"], r["frame"]), []).append(r)
+        keep = [v for v in boards.values() if len(v) == CELLS]
+        self.n_dropped = len(boards) - len(keep)
+        if not keep:
+            raise ValueError(f"kein vollstaendiges Brett unter {len(boards)} — "
+                             "wurde der Split mit --max-empty-ratio ausgeduennt?")
+        self.with_coverage = with_coverage
+        self.transform = transform
+        self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
+        self.idx = np.array(
+            [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in self.rows],
+            dtype=np.int64,
+        ).reshape(-1, CELLS)
+        self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
+        self.cover = np.array([float(r.get("coverage", 0.0)) for r in self.rows],
+                              dtype=np.float32).reshape(-1, CELLS)
+        self._path = path
+        self._shape = shape
+        self._mm = None
+
+    def __getstate__(self):
+        state = dict(self.__dict__)
+        state["rows"] = None
+        state["_mm"] = None
+        return state
+
+    def _memmap(self):
+        if self._mm is None:
+            from .pack import open_packed_memmap
+            self._mm = open_packed_memmap(self._path, self._shape)
+        return self._mm
+
+    def __len__(self) -> int:
+        return len(self.idx)
+
+    def __getitem__(self, b):
+        mm = self._memmap()
+        crops = []
+        for i in self.idx[b]:
+            arr = np.array(mm[i])
+            if isinstance(self.transform, _EvalRgbTransform):
+                crops.append(self.transform.from_uint8_hwc(arr))
+            else:
+                crops.append(self.transform(Image.fromarray(arr)))
+        x = torch.stack(crops)
+        y = torch.stack([torch.tensor(self.labels[b], dtype=torch.float32),
+                         torch.tensor(self.cover[b], dtype=torch.float32)], dim=1)
+        return x, y
 
 
 def class_weights_tensor(split: dict, classes: list[str]) -> torch.Tensor:

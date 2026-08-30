@@ -147,6 +147,16 @@ data class CameraAbilities(
 }
 
 /**
+ * Zeit und Verstaerkung, wie das Geraet sie zuletzt GEWAEHLT hat — ein Messwert, kein
+ * Stellwert. Selbst stellen war die erste Fassung und ist live verworfen worden
+ * (`docs/board-exposure.md`).
+ */
+data class ExposureSetting(
+    val timeNs: Long,
+    val iso: Int,
+)
+
+/**
  * What a screen needs to drive [CameraLook] — so the controls can be driven by a fake.
  *
  * Kept here beside the data rather than in `service/`: the values ARE the camera's, and a screen

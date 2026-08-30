@@ -284,7 +284,9 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     cap.release()
     return {"video": video.name, "frames": n, "fps": round(fps, 2), "written": written,
             "skipped_thin": skipped_thin, "skipped_duplicate": skipped_dup,
-            "stage_px": int(on.sum()), "tile": [int(x1 - x0), int(y1 - y0)],
+            "stage_px": int(on.sum()),
+            # Was WIRKLICH geschrieben wurde, nicht der Kasten in Maskenkoordinaten.
+            "tile": [int(round((x1 - x0) * scale)), int(round((y1 - y0) * scale))],
             # In WELCHER Auflösung die Kachel geschnitten wurde. Deklariert, nicht geraten: der
             # Composite skalierte sie bisher blind um `WORK_SIZE` zurück.
             "source": [int(cap_w), int(cap_h)]}

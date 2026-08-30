@@ -28,6 +28,8 @@ RIG_SCALE = 0.60
 SCALE_JITTER = (0.85, 1.15)
 #: Frames between two boards. The turntable turns 0.43 deg/frame, so this is ~3.4 deg —
 #: the historical ingest step, and below it consecutive crops shift by under a pixel.
+#: Grad je Frame auf dem Drehteller — steht so in der CLI-Hilfe von `occluders composite`.
+DEG_PER_FRAME = 0.43
 STRIDE = 8
 
 
@@ -331,7 +333,8 @@ def read_provenance(pool: Path) -> dict:
 def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: int = 0,
                     out_size: tuple[int, int] = (128, 128), stride: int = STRIDE,
                     tiles_per_frame: tuple[int, int] = (0, 2), seed: int = 42,
-                    profile_name: str = "desktop", stats: dict | None = None
+                    profile_name: str = "desktop", stats: dict | None = None,
+                    pad_side: float | None = None
                     ) -> Iterator[tuple[int, list, dict[str, float], CalibrationProfile]]:
     """Jedes Brett des Clips, fertig komponiert: (frame_id, 64 Crops, coverage, Profil).
 
@@ -371,7 +374,8 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                                board_size=board_size, image_corners=corners,
                                homography=compute_homography(corners, board_size, base.margin),
                                crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
-                                               pad_side=base.crop.pad_side, out_size=out_size))
+                                               pad_side=(base.crop.pad_side if pad_side is None
+                                                         else pad_side), out_size=out_size))
                 mesh = median_mesh(cap, prof)
             # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
             batch = []
@@ -419,17 +423,19 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
                      board_size: int = 0, out_size: tuple[int, int] = (128, 128),
                      stride: int = STRIDE, tiles_per_frame: tuple[int, int] = (0, 2),
                      seed: int = 42, profile_name: str = "desktop",
-                     blocks: int = 6) -> dict:
+                     blocks: int = 6, clean: bool = False,
+                     angle_buckets: int = 0, deg_per_frame: float = DEG_PER_FRAME,
+                     pad_side: float | None = None) -> dict:
     """A whole clip into crops with TWO targets per cell: the piece, and how much is covered.
 
-    `blocks` cuts the clip into that many pseudo-sessions, so the session-grouped split has
-    something to group BY — and neighbouring rotation angles cannot straddle train and test.
+    `blocks`, `angle_buckets`, `clean`: `docs/turntable-ingest.md`. `pad_side` uebersteuert das
+    Profil und muss zum Rand der ECHTEN Crops passen — sonst zwei Rahmungen im Training.
     """
     import json
 
     from .labeling import CROP_ENCODE, CROP_SUFFIX, square_color
 
-    if not load_tiles(plate_dir):
+    if not clean and not load_tiles(plate_dir):
         return {"error": f"no plates in {plate_dir}"}
     probe = cv2.VideoCapture(str(video))
     n = int(probe.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -445,10 +451,16 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     stats: dict = {}
     prof = None
     for idx, crops, cov, prof in composed_boards(
-            video, plate_dir, board_size=board_size, out_size=out_size, stride=stride,
+            video, None if clean else plate_dir, board_size=board_size, out_size=out_size,
+            stride=stride, pad_side=pad_side,
             tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
         stem = f"{idx:06d}"
-        sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
+        if angle_buckets:
+            per_turn = 360.0 / deg_per_frame
+            b = int((idx % per_turn) / (per_turn / angle_buckets)) % angle_buckets
+            sid = f"{stem_sid}-a{b:02d}"
+        else:
+            sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
         for sq, crop in zip(all_squares(), crops, strict=True):
             label = labels[sq]
             path = out_root / label / f"{sid}_{stem}_{sq}{CROP_SUFFIX}"
@@ -477,6 +489,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     _write_provenance(out_root, stem_sid, {
         "video": Path(video).resolve().as_posix(), "fen": fen, "seed": int(seed),
         "board_size": int(board_size), "stride": int(stride), "blocks": int(blocks),
+        "angle_buckets": int(angle_buckets), "clean": bool(clean),
         "tiles_per_frame": list(tiles_per_frame), "profile": profile_name,
         "plate_dir": Path(plate_dir).resolve().as_posix(),
     })

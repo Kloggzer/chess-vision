@@ -80,7 +80,24 @@ class EngineSeamIntegrationTest {
         val obs = observationOf(fenAfter("e2e4"), mapOf("d2" to ("empty" to 0.99)))
         assertNull(rig.alarmOf(rig.observe(obs)), "one glance is not a desync")
         assertNull(rig.alarmOf(rig.observe(obs)), "two glances are not a desync")
-        val alarm = requireNotNull(rig.alarmOf(rig.observe(obs))) { "three stable glances must alarm" }
+        // Seit `5d3c0955` misst der Latch eine DAUER und nicht drei Bilder: er zaehlte vorher nur
+        // Beobachtungen, und seit die CNN beim Einrasten liest statt nach der Uhr, kamen die alle
+        // 0,07 s — aus "anhaltend ueber Sekunden" wurden 0,21 s. Bei 100 ms je Blick braucht
+        // `alarmMinS` = 1,5 s hier also mindestens 15 weitere Blicke.
+        var alarm: TrackerEvent.Alarm? = null
+        var glances = 0
+        while (alarm == null && glances < MAX_GLANCES) {
+            // Frames dazwischen, weil `nowS` NUR im `FrameLoop` laeuft: eine Beobachtung allein
+            // laesst die Uhr stehen, und eine Dauer, die nie verstreicht, rastet nie ein.
+            rig.frame(listOf("e4"))
+            alarm = rig.alarmOf(rig.observe(obs))
+            glances += 1
+        }
+        requireNotNull(alarm) { "ein stehender Widerspruch muss nach alarmMinS einrasten" }
+        // Der Punkt der Aenderung: die drei Blicke, mit denen dieser Test frueher fertig war,
+        // reichen nicht mehr. Auf eine Millisekundenzahl wird NICHT geprueft — `nowS` laeuft nur
+        // im `FrameLoop`, die Umrechnung von Blicken in Sekunden gehoert nicht in diesen Test.
+        assertTrue(glances > 1) { "nach $glances Blicken — der Latch zaehlt wieder nur Bilder" }
 
         assertEquals("illegal_move", alarm.kind)
         assertEquals(listOf("d2"), alarm.conflicts)
@@ -149,6 +166,9 @@ class EngineSeamIntegrationTest {
         const val BLOB_LEVEL = 220
         const val CORNER_FLOATS = 8
         const val MS_PER_FRAME = 100L
+
+        /** Genug Blicke, dass `alarmMinS` sicher verstreicht — der Latch braucht rund sechs. */
+        const val MAX_GLANCES = 40
 
         /** `square_region`'s inset, so a blob lands inside the region the evidence channel reads. */
         const val INSET = 0.16

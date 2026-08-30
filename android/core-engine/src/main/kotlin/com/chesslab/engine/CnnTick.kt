@@ -56,6 +56,7 @@ internal fun EngineState.cnnTick(
         } ?: return emptyList()
     val read = identityRead(model, snap.obs)
     lastCnnTs = nowS
+    lastEvalEpoch = motionEpoch
     cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
         // The state moved on while we looked — the reading describes a position we no longer hold.
@@ -76,10 +77,25 @@ internal fun EngineState.cnnTick(
  */
 private fun EngineState.evaluationDue(): Boolean {
     if (recoveryConfirmer.count > 0) return true
+    // Ein angefangener Desync macht seine Schwelle im Beobachtungstakt voll, statt je Stimme
+    // 0,7 s zu zahlen — Blitz braucht das, und Warten kauft keine Unabhaengigkeit (rho faellt
+    // zwischen 0,1 s und 1,5 s nur von 0,935 auf 0,874, `docs/emission-correlation.md`). Gegen
+    // die Hand schuetzt jetzt `alarmDeferred`, nicht die Langsamkeit.
+    if (desyncObs in 1 until config.desyncObsN) return true
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
     val stuck =
         stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS
-    return stuck || (stable && (nowS - lastCnnTs) >= config.cnnCheckIntervalS)
+    // Wiederholtes Scheitern hielt die CNN bisher AUS: `stuck` braucht einen Zaehler, den das
+    // Flattern nicht hochlaufen laesst, und `stable` einen Puffer, den es leert. Genau dann ist
+    // ein Ganzbrett-Blick am meisten wert — 70x `Kf1` ohne einen einzigen Read, 2026-08-24.
+    val refused =
+        config.refusedStreakForEval > 0 &&
+            refusedStreak >= config.refusedStreakForEval &&
+            (nowS - lastCnnTs) >= config.cnnCooldownS
+    if (refused) return true
+    // Eine Bewegung seit der letzten Auswertung heisst: dieser Read ist neu, die Uhr ist egal.
+    val settled = config.cnnEvalOnSettle && motionEpoch != lastEvalEpoch
+    return stuck || (stable && (settled || (nowS - lastCnnTs) >= config.cnnCheckIntervalS))
 }
 
 private fun EngineState.applyRead(

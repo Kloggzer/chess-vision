@@ -55,6 +55,11 @@ private fun EngineState.llFloorGate(
 ): Boolean {
     if (!cand.vote || config.commitLlFloor <= 0 || bestScore >= config.commitLlFloor) return true
     confirmer.reset()
+    // Derselbe Kandidat zum wiederholten Mal: das Tor hier laesst die Referenz stehen, also misst
+    // der naechste Frame denselben Diff und schlaegt denselben Zug vor. `evaluationDue` liest die
+    // Serie und holt die CNN dazu (`docs/refused-streak.md`).
+    refusedStreak = if (key == refusedKey) refusedStreak + 1 else 1
+    refusedKey = key
     note =
         "$sans? evidence too weak (${pyFixed(bestScore, 2)} < ${pyFixed(config.commitLlFloor, 1)}) — " +
         "not committing"

@@ -3,17 +3,23 @@ package com.chesslab.tracker.service
 import com.chesslab.engine.api.CnnEvaluator
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.engine.api.EngineAction
+import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
+import com.chesslab.engine.api.FrameReads
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.engine.changeset.ChangeSetEngine
 import com.chesslab.engine.perf.UNKNOWN_INPUT
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
+import com.chesslab.engine.still.StillnessEngine
 import com.chesslab.engine.toLogLine
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
+import com.chesslab.tracker.settings.EngineKind
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.atomic.AtomicLong
@@ -25,23 +31,23 @@ private const val ACTION_CAPACITY = 32
 private const val SNAPSHOT_CAPACITY = 4
 
 /**
- * The engine, behind a seam. `TrackerEngine` is named in exactly this file, so "one engine owner"
- * is a grep and not a convention, and the host's ordering can be tested against a fake.
+ * Where an engine's output goes. Three callbacks that are always wired together, so they travel
+ * together rather than as three more parameters.
  */
-interface EngineOps {
-    fun onFrame(input: FrameInput): List<TrackerEvent>
-
-    fun onCnnSnapshot(snap: CnnSnapshot): List<TrackerEvent>
-
-    fun apply(action: EngineAction): List<TrackerEvent>
-
-    fun status(): TrackerStatus
-
-    /** The game FEN without the rest of [status] — see [EngineHost.fen]. */
-    fun fen(): String
-}
+class EngineHooks(
+    /** Every decision, committed or rejected — and what `replay … score` reads. */
+    val onDecision: (DebugDecision) -> Unit,
+    /** Frame-loop state transitions. */
+    val onState: (String, String, Double) -> Unit = { _, _, _ -> },
+    /** The frame pipeline's half of live tuning; runs in the same action as the engine's own. */
+    val onConfigApplied: (TrackerConfig) -> Unit,
+)
 
 /**
+ * `TrackerEngine` is named in exactly this file, so "one engine owner" is a grep and not a
+ * convention — and with [EngineOps] in `:core-engine` that holds for every engine, not just this
+ * one.
+ *
  * The real engine plus the `:app`-side half of `app.py::_apply_live_tuning`.
  *
  * [onConfigApplied] is the frame pipeline's `onConfigChanged`, which resets the motion ROI and
@@ -59,6 +65,9 @@ class TrackerEngineOps(
     override fun status(): TrackerStatus = engine.status()
 
     override fun fen(): String = engine.fen()
+
+    /** The diff engine takes every reading it can get; `evaluationDue` sorts them out afterwards. */
+    override fun wantsCnnRead(): Boolean = true
 
     override fun apply(action: EngineAction): List<TrackerEvent> =
         when (action) {
@@ -154,10 +163,22 @@ class EngineHost(
      * part of [status] that cannot be sampled — and building the whole `TrackerStatus` for it was
      * four 64-entry maps and four sorted square-name sets per frame.
      */
+
     fun fen(): String {
         claim()
         return ops.fen()
     }
+
+    /**
+     * Whether the engine wants a reading now — the observer's question, answered on this thread.
+     *
+     * Deliberately NOT `claim()`ed: it is asked from the same per-frame call that already owns the
+     * engine, and a wrong answer costs one skipped inference, never state.
+     */
+    fun wantsCnnRead(): Boolean = ops.wantsCnnRead()
+
+    /** Constant for the life of this host — the engine is chosen at restart, like every seed value. */
+    val reads: FrameReads get() = ops.reads
 
     private fun claim() {
         val current = Thread.currentThread()
@@ -184,14 +205,22 @@ class EngineHost(
  * itself may happen anywhere. [startFen] is how the game survives the restart.
  */
 fun engineHost(
+    kind: EngineKind,
     config: TrackerConfig,
     cnn: CnnEvaluator?,
     startFen: String,
-    onDecision: (DebugDecision) -> Unit,
+    hooks: EngineHooks,
     log: TrackerLog = NoopTrackerLog,
-    onState: (String, String, Double) -> Unit = { _, _, _ -> },
-    onConfigApplied: (TrackerConfig) -> Unit,
 ): EngineHost {
+    val onDecision = hooks.onDecision
+    val onState = hooks.onState
+    val onConfigApplied = hooks.onConfigApplied
+    if (kind == EngineKind.STILLNESS) {
+        return EngineHost(stillnessOps(config, startFen, onDecision, log, onConfigApplied))
+    }
+    if (kind == EngineKind.CHANGESET) {
+        return EngineHost(changesetOps(config, startFen, onDecision, log, onConfigApplied))
+    }
     // Not gated on the debug switch. A decision row is written at most once per committed or
     // rejected move — not per frame — and the one session where it is needed is always the one
     // nobody armed a debug flag for beforehand.
@@ -214,6 +243,48 @@ fun engineHost(
     engine.attachCnn(cnn)
     return EngineHost(TrackerEngineOps(engine, onConfigApplied))
 }
+
+/**
+ * The second engine, adapted to the same seam.
+ *
+ * It writes the same decision rows as the first, and that is not decoration: `replay … score`
+ * reads the DECISION sink, not the event stream (`DesktopMain`), so an engine that only emitted
+ * `MoveCommitted` would measure zero found however well it tracked.
+ */
+private fun stillnessOps(
+    config: TrackerConfig,
+    startFen: String,
+    onDecision: (DebugDecision) -> Unit,
+    log: TrackerLog,
+    onConfigApplied: (TrackerConfig) -> Unit,
+): EngineOps =
+    StillnessEngine(config, startFen, onConfigApplied, onTrace = log::info) { decision ->
+        for (row in decision.rows()) {
+            log.info(row.toLogLine())
+            onDecision(row)
+        }
+    }
+
+/**
+ * The third engine, adapted to the same seam.
+ *
+ * Same contract as its siblings, decision rows included: `replay ... score` reads the DECISION
+ * sink and not the event stream, so an engine that only emitted `MoveCommitted` would measure
+ * zero found however well it tracked.
+ */
+private fun changesetOps(
+    config: TrackerConfig,
+    startFen: String,
+    onDecision: (DebugDecision) -> Unit,
+    log: TrackerLog,
+    onConfigApplied: (TrackerConfig) -> Unit,
+): EngineOps =
+    ChangeSetEngine(config, startFen, onConfigApplied, onTrace = log::info) { decision ->
+        for (row in decision.rows()) {
+            log.info(row.toLogLine())
+            onDecision(row)
+        }
+    }
 
 /** True when at least one older entry had to be displaced to make room. */
 private fun <T> offerDroppingOldest(

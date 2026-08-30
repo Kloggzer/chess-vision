@@ -2,7 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
-import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.SquareCropper
 import com.chesslab.geometry.allSquares
 import com.chesslab.geometry.cropBorderPx
@@ -28,7 +28,7 @@ fun cropFrameSource(
     store: CropFrameStore,
     parallel: Boolean = false,
     runGridOcclusion: Boolean = true,
-    geometry: () -> BoardGeometry,
+    clahe: CropClahe? = null,
 ): CnnFrameSource =
     CnnFrameSource {
         val pending = store.take()
@@ -50,19 +50,25 @@ fun cropFrameSource(
                     )
                 }
                 WorkProfiler.cache(WorkOperation.CNN_CROP, hit = false, input = pending.seq)
-                val geom = geometry()
+                val geom = pending.geometry
                 val cropWarp = requireNotNull(pending.cropWarp)
                 val squares = allSquares()
                 val cropOne = { square: String ->
                     val crop = cropSquare(cropWarp, square, geom)
                     try {
+                        // Vor der Normalisierung und je Zelle — genau die Reihenfolge des Trainings.
+                        clahe?.applyTo(crop)
                         toBgrImage(crop)
                     } finally {
                         crop.release()
                     }
                 }
                 val visual =
-                    if (parallel) {
+                    // `clahe == null` ist die Bedingung und keine Vorsicht: [CropClahe] haelt
+                    // Scratch-Mats und einen CLAHE-Handle, beides Ein-Besitzer. Der parallele Pfad
+                    // ist ohnehin Desktop-only, also kostet der sequentielle Rueckfall dort Zeit
+                    // und hier nichts.
+                    if (parallel && clahe == null) {
                         val grid =
                             if (runGridOcclusion) {
                                 CompletableFuture.supplyAsync {
@@ -78,7 +84,11 @@ fun cropFrameSource(
                     } else {
                         val crops =
                             SquareCropper().use { cropper ->
-                                squares.map { square -> toBgrImage(cropper.crop(cropWarp, square, geom)) }
+                                squares.map { square ->
+                                    val crop = cropper.crop(cropWarp, square, geom)
+                                    clahe?.applyTo(crop)
+                                    toBgrImage(crop)
+                                }
                             }
                         val grid =
                             if (runGridOcclusion) {

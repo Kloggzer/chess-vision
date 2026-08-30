@@ -34,6 +34,35 @@ private val BY_KEY = KNOBS.associateBy { it.key }
  */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
+        "alarmDeferObs" to
+            "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
+            "tracked, and the latch may wait this many observations beyond the threshold so an arriving hand " +
+            "can still cancel it. Zero relies on the hand check alone, which is the part that is measured.",
+        "alarmMinS" to
+            "Measured, not chosen: the desync latch must see the contradiction STAND for this long. It used " +
+            "to count observations only, which meant seconds while the CNN read by the clock and 0.21 s once " +
+            "it read on arrival — measured on VID_20260824_154327 the latch then closed on a board that was " +
+            "correct sign for sign and cost 107 of 117 plies.",
+        "cnnColorAxis" to
+            "Not a preference but an experiment arm: it searches on occupancy and colour instead of the piece " +
+            "type, which is right where the model confuses types and wrong where it does not. Measured " +
+            "2026-08-25 it lifts VID_20260824_153751 from 9/26/0 to 35/0/0 and costs five phantoms on " +
+            "VID_20260824_154327 — a trade nobody should make from a settings screen.",
+        "refusedStreakForEval" to
+            "Not a preference but a repair: after this many identical rejections the CNN is allowed to look, " +
+            "because the diff channel alone has demonstrably stopped making progress. Measured 2026-08-24, a " +
+            "player moved while in check and the tracker refused the same Kf1 seventy times in nine seconds " +
+            "without one whole-board read, so the illegal-move alarm could never fire.",
+        "pOccludedThr" to
+            "Measured, not chosen: the coverage above which a square stops counting as a witness follows from " +
+            "the MODEL's accuracy there, so each model brings its own as `coverage_gate` and the app applies " +
+            "it on attach. Measured at loss ratio 2 against the SAM mattes, `comp13` carries 0.02 where the " +
+            "real13 runs carry 0.15 — a slider here would overwrite a measurement with a guess.",
+        "cnnEvalOnSettle" to
+            "Not a preference but the observation schedule: read once when the board comes to rest, then stay " +
+            "quiet until it moves again. Measured 2026-08-24 over the 10-recording corpus at 304/90/7 against " +
+            "302/92/9 for the clock, and it removed the 2 s latency tail on the phone. Turning it off restores " +
+            "a slower, worse tracker.",
         "boardSize" to
             "Measured by the calibration profile from the detected quad, and copied into the config so the " +
             "engine can derive its square boxes. A value that disagrees with the profile makes the frame " +
@@ -102,7 +131,8 @@ val KNOB_CATALOG: List<KnobUi> =
             5.0,
             0.05,
             "Motion gate: PERCENT of strongly-changed pixels. Low on purpose — a slow hand only moves a thin " +
-                "edge band between frames; wobble stays ~0 thanks to blur + motionPxThr.",
+                "edge band between frames; wobble stays ~0 thanks to blur + motionPxThr. Measured against the " +
+                "PREVIOUS frame, so the engine runs this scaled by 30/fps at the camera frame rate you chose.",
         ),
         row(
             "motionPxThr",
@@ -420,8 +450,9 @@ val KNOB_CATALOG: List<KnobUi> =
             0.0,
             5.0,
             0.05,
-            "Min seconds between CNN observation starts; 0 = free-running (desktop). Raise on " +
-                "battery/thermal-constrained devices (Android port).",
+            "Min seconds between CNN observation starts. 0 = free-running and still the default: the " +
+                "observer then starts ~20 whole-board reads a second and the engine discards ~90 %. " +
+                "0.20 measured 247 mA cheaper on the phone and is unvalidated in play (docs/battery.md).",
         ),
         flag(
             "cnnVerify",

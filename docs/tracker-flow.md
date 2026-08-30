@@ -305,6 +305,29 @@ the repair (1 344 rows) and holds after it. Originals sit beside each file as `.
 two remaining phantoms are 00-39-57's `Nbc3`/`Bf3`, committed transposed but reconverging three
 plies later. By the phantom veto the corpus now carries no fabrication at all.
 
+**The chain is an instrument and must stay one (user, 2026-08-24):** *"ich möchte in Zukunft, dass
+der Offline-Tracker nie vom Live-Tracker divergiert — der Offline-Tracker soll den Live-Tracker für
+Replays ermöglichen."* That offline tracker is `desktop replay`, which runs the shipping
+`:core-engine` and therefore cannot drift from the device. `scripts/chain_decode.py` is a second
+algorithm on purpose and answers a question the engine cannot ask about itself; it may never become
+a production path. What it proves is ported into `:core-engine` and re-measured through `replay`.
+
+Run as a committing FILTER — same beam, same emission, but the longest common prefix of the
+surviving hypotheses is emitted and final, no lookahead — it is not a replacement:
+
+| recording | smoother | filter | live tracker |
+| --- | --- | --- | --- |
+| 2026-08-16-20-41-33 | 66 / 0 / 0 | 65 / 1 / 0 | — |
+| 2026-08-08-00-39-57 | 67 / 0 / 0 | 65 / 2 / 0 | 65 / 2 / 2 |
+| 2026-08-07-13-52-38 | 24 / 1 / 0 | **16 / 9 / 0** | **25 / 0 / 0** |
+| 2026-08-08-11-55-19 | 15 / 0 / 0 | 14 / 1 / 0 | 15 / 0 / 0 |
+
+Dropping the lookahead costs 12 of 172 plies, and on 13-52-38 the filter falls below the tracker it
+was meant to replace — the frame-diff channel, which the chain does not have at all, carries that
+recording. An earlier estimate that lookahead is worth "5 %" counted FRAMES whose best path was
+already a prefix of the final one (249 of 262); that does not translate into plies, because a single
+revision a filter can no longer make costs the rest of the game.
+
 ### Building recovery confidence under a hand — built, measured, reverted (2026-08-23)
 
 `recoveryVoteConfirmed` refuses a vote when ANY square carries a hand flag, so a hand over six
@@ -438,6 +461,118 @@ overfitted. And 114 plies of trustworthy reference is a thin corpus for a decisi
 11-59-12 is the exception and stays uninterpretable: the chain returns 63 plies against a 73-ply
 reference whose tail the board rasters already contradicted. It cannot confirm the chain and it
 cannot refute it.
+
+### A better classifier that decodes worse (2026-08-23)
+
+`comp13-occ-bn-lr1e2-bs512-packsource`, the next compositional pretrain, read every recording
+(`realgames model-read`) and went through the same chain at the same floor. It is **better per
+square** on five of the six, and better on exactly the quantity the chain consumes:
+
+| recording | square acc old → new | occupancy old → new | P(true label) old → new |
+| --- | --- | --- | --- |
+| 2026-08-08-00-39-57 | 0.870 → **0.879** | 0.991 → 0.995 | 0.867 → **0.873** |
+| 2026-08-07-13-52-38 | 0.819 → **0.873** | 0.992 → 0.986 | 0.813 → **0.868** |
+| 2026-08-08-11-59-12 | 0.837 → **0.861** | 0.992 → 0.994 | 0.828 → **0.858** |
+
+And it decodes far worse. Over the verifiable references the chain drops from **114 / 1 / 0** to
+**92 / 23 / 21**; on the gold 67-ply reference from 67 / 0 / 0 to 48 / 19 / 16, and no floor from
+0.02 to 0.35 recovers it — the plateau that made 0.08 trustworthy for the old model simply is not
+there.
+
+The mechanism is visible at the first divergence, ply 28, where the chain plays `Bxe2` instead of
+`Bf3`. Both models misread `e2`, whose truth is a white KNIGHT, as a pawn. What differs is the
+certainty:
+
+    old   wP(0.92) wP(0.94) wP(0.74) wP(0.89) wP(0.92) wP(0.84) …
+    new   wP(1.00) wP(1.00) wP(1.00) wP(1.00) wP(1.00) wP(1.00) …
+
+At 0.85 the wrong label leaves room for the alternative and the chain keeps the knight. At 1.00 it
+does not, so a story that removes the e2 piece becomes the best explanation, and the position never
+recovers. The same shows up in aggregate: the new model makes FEWER errors (7 245 against 7 950 on
+that recording) but a higher share of them CONTINUE from the previous frame (86.8 % against 80.4 %),
+packed into fewer, longer runs (953 independent episodes against 1 562).
+
+A flickering error averages out over frames. A confident, persistent one is indistinguishable from
+evidence. Per-square accuracy cannot see either property, which is why it went up while the decode
+went down.
+
+So the metric to train against, for the tracker, is not accuracy but CALIBRATION — and the lever is
+label smoothing, temperature scaling or an explicit confidence penalty, not more capacity. This was
+measured on a compositional pretrain, not a finished model; the point is the metric, not the verdict
+on this checkpoint. Both read sets are kept beside each recording as `model-reads.jsonl.packsource`
+and `.bak.comp13`; the primary file is comp13's, so the table above this section still reproduces.
+
+**Retracted the same day: that was the decoder, not the model.** `chain_decode.py` gained `--temp`,
+which rebuilds the full 13-way distribution (`model-reads.jsonl` stores only the significant
+entries, so the missing mass is spread over the labels it omitted) and applies `p ** (1/T)` before
+renormalising. T = 1 is the stored distribution exactly and the argmax never moves, so per-square
+accuracy is untouched by construction. At **T = 5, floor 0.08**, one setting for every recording:
+
+| recording | comp13 T=1 | comp13 T=5 | packsource T=1 | packsource T=5 |
+| --- | --- | --- | --- | --- |
+| 2026-08-08-00-39-57 | 67 / 0 / 0 | 67 / 0 / 0 | 48 / 19 / 16 | **67 / 0 / 0** |
+| 2026-08-07-13-52-38 | 25 / 0 / 0 | 25 / 0 / 0 | 23 / 2 / 4 | **25 / 0 / 0** |
+| 2026-08-08-11-55-19 | 15 / 0 / 0 | 15 / 0 / 0 | 14 / 1 / 1 | 14 / 1 / 1 |
+| 2026-08-08-11-59-12 | 43 / 30 / 11 | **54 / 19 / 0** | 35 / 38 / 27 | **54 / 19 / 0** |
+| 2026-08-13-12-46-24 | 4 / 0 / 0 | 4 / 0 / 0 | 4 / 0 / 0 | 4 / 0 / 0 |
+| 2026-08-14-20-35-52 | 3 / 1 / 0 | 3 / 1 / 0 | 3 / 1 / 0 | 3 / 1 / 0 |
+| **total** | 157 / 31 / 11 | **168 / 20 / 0** | 127 / 61 / 48 | 167 / 21 / 1 |
+
+The two models land within one ply of each other, and the corpus loses every phantom — including on
+11-59-12, whose remaining 19 misses are the tail the board rasters already contradicted. The verdict
+"a better classifier that decodes worse" was an artefact of a decoder tuned to one model's
+overconfidence.
+
+It is not a fitted calibration temperature either. T from 5 to 100 gives the identical answer, so
+the regime is saturated: what the knob really does is shrink the LEVERAGE of a single square. At
+T = 1 a square read `wP` at 1.00 where a knight stands is worth up to 2.5 nats against the truth, and
+a handful of them outvote any move prior — raising the move price from `pmove` 0.06 to 0.0001 moves
+the score from 48 to 44, i.e. not at all, because the damage is per SQUARE while the price is per
+MOVE. At T = 5 that leverage collapses and the prior can win.
+
+So the finding survives with its shape changed. Per-square accuracy still does not predict decode
+quality, and the errors of the newer model are still fewer but more persistent and far more
+confident (`wP(1.00)` every frame on `e2` where the old model wobbled between 0.74 and 0.94). But
+the fix is available on BOTH sides: post-hoc on the decoder, where it costs one scalar and cannot
+change accuracy, and at training time through calibration, which would let the decoder run at a sane
+temperature instead of a saturated one. Nothing here argues against `packsource`.
+
+### The rank is doing the classifier's work (2026-08-23)
+
+Splitting the recordings' reads by rank shows the model is not only classifying the crop. Non-pawn
+pieces, share read correctly:
+
+| rank | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| pieces | 36 % | 47 % | 41 % | **8 %** | 34 % | 26 % | **10 %** | 57 % |
+
+Pawns are 75–98 % on every rank they appear on. And when a real piece IS misread, what it becomes
+names the shortcut: on rank 7 it is called `bP` **85 %** of the time, on rank 2 `wP` 58 %, on rank 4
+a pawn of one colour or the other 62 %. The model has learnt "rank 2/7 → pawn" firmly enough that a
+rook standing on rank 7 collapses to 10 % while the same rook on rank 8 reads at 57 %.
+
+A turntable recording made for exactly this — the start position shifted two ranks inward, so pieces
+sit on 3 and 6 and pawns on 4 and 5, under a dark orange light — puts numbers on it. 50 boards,
+3 200 crops cut with `desktop crops`, orientation verified from crop brightness rather than from the
+model (ranks 3/4 at 91/88, ranks 5/6 at 33/40), the crops checked by eye for alignment first:
+
+| rank | holds | comp13 | packsource |
+| --- | --- | --- | --- |
+| 3 | white pieces | 57.5 % | 39.2 % |
+| 4 | white pawns | **76.0 %** | 69.2 % |
+| 5 | black pawns | **69.5 %** | 44.0 % |
+| 6 | black pieces | 24.0 % | 28.5 % |
+
+Two failure modes at once, neither visible in any existing recording. **Pawns collapse when they
+leave ranks 2 and 7** — 84–98 % there against 44–76 % here — which is the same shortcut seen from
+the other side. And **colour breaks**: `bP → wP` is the top confusion (87 for comp13, 154 for
+packsource) where colour error over the recordings is 0.7 %. The orange light is a domain nothing in
+the corpus covers, and it costs the dark pieces most: rank 6 at 24–28 %.
+
+Which raises a question about where the recording belongs. As pretrain material it is a strong
+counterexample set. As a HOLD-OUT it is currently the only thing in the repo that measures either
+the rank shortcut or colour robustness, and folding it into training spends that. There are 246
+positions of training data and no test for either property.
 
 **The approved-but-never-built beam** (`specs/10/DIRECTION.md`, 2026-07-09, user idea): keep K
 candidate boards, score each frame's evidence against each branch's legal moves, merge branches
@@ -650,3 +785,32 @@ game that ran 83 plies live. That is not "the CNN got 22 and the rest were hard"
 deadlock, entered later. With the geometry fixed (`specs/41`) both the diff evidence and the CNN
 observations are good at that point, so the failure is in how they are **combined**, not in what
 they see.
+
+## Stand 2026-08-24: 304 / 90 / 7 über zehn Recordings
+
+Der Korpus ist von sechs auf zehn Aufnahmen gewachsen; die 164/24/2 weiter oben sind der alte
+Stand über die alten sechs. Aktuell, Modell `comp13-occ-bn-lr1e2-bs512`, gemessen mit
+`scripts/commit_truth.py`:
+
+| | gefunden | verpasst | erfunden |
+|---|---|---|---|
+| Uhr-Takt (vorher) | 302 | 92 | 9 |
+| **Stellungswechsel-Takt** | **304** | **90** | **7** |
+
+Drei Änderungen desselben Tages stecken darin, zwei davon so gemessen:
+
+**Der Takt.** `evaluationDue` liest, sobald das Brett nach einer Störung einrastet, statt nach der
+Uhr — und schweigt danach bis zur nächsten. Am Gerät fällt damit der Latenzschwanz weg: Median
+0,29 → 0,19 s, max 2,15 → 0,37 s. Der Zähler hängt an `ready`, nicht am Bewegungsbeginn; am Beginn
+gezählt waren es 14× so viele Ereignisse (Hände, Schatten) und die erste Fassung verlor 27 Plies
+(275/119/3). Warum weniger Lesen nicht schadet, steht in `docs/emission-correlation.md`.
+
+**Das Occlusion-Gate** reist jetzt im Modell (`docs/occlusion-gate.md`).
+
+**Der Alarmpfad** fragt endlich `handInFrame()` und nennt den Grund statt „illegal move suspected"
+(`docs/alarm-path.md`). Der `refusedStreak` löst im Korpus nie aus — die zehn Aufnahmen enthalten
+den Fall nicht —, ist dort also neutral und für seinen Zweck ungetestet.
+
+Die Deadlock-Notiz darüber gilt unverändert: der Diff-Referenzanker zieht nur bei einem Commit
+nach. Was 2026-08-24 dazukam, ist die Messung, wie das aussieht, wenn niemand committen kann —
+70-mal derselbe verworfene Kandidat in 9 Sekunden, ohne eine einzige CNN-Auswertung.

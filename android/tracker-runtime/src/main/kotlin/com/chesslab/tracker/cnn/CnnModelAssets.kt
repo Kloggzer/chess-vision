@@ -25,20 +25,29 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * The model directories bundled under `assets/cnn_model/`. **The string IS the directory name**,
  * in the APK and in `filesDir`, so there is no table mapping a label to a path that could rot.
  *
- * Each carries its own `config.json` and so declares its own `infer_size` (specs/22); the crops
- * follow it. The GroupNorm and 2-class occupancy families were retired (see `RETIRED_MODELS` in
- * `AppSettings`), and only BatchNorm graphs are trained now.
- *
- * `real14-80` is the default: 14 classes with an explicit `occluded`, so it can veto a hand the
- * model-free grid detector misses, and the physical phone has been stable on it. `id35-80` stays
- * as the conservative 13-class comparison arm — phantom-free at 0 phantoms / 3 misses with piece
- * identity at 0.882 (specs/29, 2026-08-01). `comp13-occ-bn-lr1e2-bs512` combines 13 identity
- * classes with an independent coverage output for the current on-device occlusion experiment.
+ * Each carries its own `config.json` and so declares its own `infer_size` (specs/22), its
+ * `coverage_gate` (`docs/occlusion-gate.md`) and — seit `p4a-80-clahe` — seine Vorverarbeitung.
+ * Die `real13`/`real14`/`id35`-Familien sind mit dem `p4`-Wechsel (2026-08-30) ausgezogen.
  */
-const val DEFAULT_MODEL = "real14-80"
+const val DEFAULT_MODEL = "p4full-128"
 
-/** Default first, so Settings presents the model a fresh install actually runs at the top. */
-val BUNDLED_MODELS = listOf(DEFAULT_MODEL, "comp13-occ-bn-lr1e2-bs512", "id35-80")
+/**
+ * Default first, so Settings presents the model a fresh install actually runs at the top.
+ *
+ * `p4a` = Aufmerksamkeitskopf ueber die 64 Zellen, Zahl = Crop-Groesse, `full` = langes Rezept.
+ * `p4a-80-clahe` verlangt als erstes Modell eigene Vorverarbeitung (`docs/clahe-band.md`).
+ */
+val BUNDLED_MODELS =
+    listOf(
+        DEFAULT_MODEL,
+        "p4afull-128",
+        "p4a-128",
+        "p4-128",
+        "p4a-96",
+        "p4a-80-clahe",
+        "p4a-80",
+        "p4-80",
+    )
 
 /**
  * [name] when the APK really bundles it, else [DEFAULT_MODEL].

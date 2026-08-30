@@ -56,6 +56,9 @@ interface Speaker {
         flush: Boolean = false,
     )
 
+    /** Die Ansagesprache. Default no-op: ein Test-Speaker hat keine Stimme, die sie betrifft. */
+    fun setLanguage(tag: String) = Unit
+
     /** The alarm latched: whatever is still queued describes a board we no longer believe in. */
     fun dropPending()
 
@@ -81,7 +84,8 @@ class SpeechEngine(
     private var language = "en-US"
     private val queue = UtteranceQueue(MAX_PENDING, { MovePhrase.moreMoves(it, language) }, ::emit)
 
-    fun setLanguage(tag: String) {
+    override fun setLanguage(tag: String) {
+        if (tag == language) return
         language = tag
         tts?.let { current.value = it.setLanguage(tag) }
     }

@@ -33,6 +33,7 @@ class MoveAnnouncer(
 ) {
     private var latched: String? = null
     private var job: Job? = null
+    private var spoken: String? = null
 
     fun attach(events: Flow<TrackerEvent>) {
         job = scope.launch(Dispatchers.Default) { events.collect(::onEvent) }
@@ -46,6 +47,11 @@ class MoveAnnouncer(
     private fun onEvent(event: TrackerEvent) {
         val app = settings.appSettings.value
         if (!app.speechEnabled) return
+        // Die Stimme folgt der Einstellung. Ohne das sprach eine en-US-Stimme deutsche Wörter.
+        if (app.speechLanguage != spoken) {
+            spoken = app.speechLanguage
+            speaker.setLanguage(app.speechLanguage)
+        }
         when (event) {
             is TrackerEvent.Alarm -> onAlarm(event, app)
             is TrackerEvent.AlarmCleared -> onCleared(app)
@@ -66,28 +72,23 @@ class MoveAnnouncer(
         app: AppSettings,
     ) {
         speaker.dropPending()
-        // A re-latch of the same kind without an intervening clear is the same news twice.
-        if (latched == alarm.kind || !app.speechAnnounceAlarms) {
-            latched = alarm.kind
+        // Derselbe Grund ohne zwischenzeitliches Clear ist dieselbe Nachricht zweimal; ein anderer
+        // Grund ist neue Nachricht, auch wenn dieselbe Sperre hält.
+        val news = "${alarm.kind}/${alarm.reason}"
+        if (latched == news || !app.speechAnnounceAlarms) {
+            latched = news
             return
         }
-        latched = alarm.kind
-        val guess = alarm.guessSan?.let { ", possible move ${phrase(it, 1, app)}" } ?: ""
-        // A refusal's conflicts are the two squares of the move that was thrown out, not squares
-        // that disagree — saying "2 squares disagree" would name the wrong thing.
-        val what =
-            if (alarm.kind == "illegal_move_refused") {
-                "Position lost, a move could not be played"
-            } else {
-                "Position mismatch: ${alarm.conflicts.size} squares disagree"
-            }
-        speaker.say("$what$guess", flush = true)
+        latched = news
+        // Nur der Grund. Der geratene Zug lief hier durch den SAN-Ansager und kam als
+        // "king e1->f1 illegal move suspec ted" heraus — er steht auf der Karte (User, 2026-08-28).
+        speaker.say(AlarmPhrase.of(alarm.reason, app.speechLanguage), flush = true)
     }
 
     private fun onCleared(app: AppSettings) {
         if (latched == null) return
         latched = null
-        if (app.speechAnnounceAlarms) speaker.say("Position restored")
+        if (app.speechAnnounceAlarms) speaker.say(AlarmPhrase.restored(app.speechLanguage))
     }
 
     private fun onSequence(
@@ -101,7 +102,7 @@ class MoveAnnouncer(
                 .mapIndexed { i, san ->
                     // Only the parity is used; the offset keeps it positive for the earlier plies.
                     phrase(san, last + i - event.sans.lastIndex + event.sans.size * 2, app)
-                }.joinToString(" and ")
+                }.joinToString(" ${MovePhrase.and(app.speechLanguage)} ")
         speaker.say(text)
     }
 

@@ -65,13 +65,18 @@ fun observationFromProbs(
         perSquareProbs.mapValues { (square, probs) ->
             invalidMass(probs, classes, possible?.get(square))
         }
-    val raw = read(perSquareProbs).copy(invalidMassBySquare = invalid)
+    // The rows ride along RAW on both views: an engine that searches legal moves must not be
+    // handed a distribution that `applyPrior` already weighted by legality.
+    // Trimmed to the CLASS columns: a coverage run carries one more, and that one is `pOccluded`,
+    // not a class. Handing it over as if it were would have it softmaxed with the rest.
+    val rows = CnnProbs(classes, perSquareProbs.mapValues { (_, row) -> row.copyOf(classes.size) })
+    val raw = read(perSquareProbs).copy(invalidMassBySquare = invalid, probs = rows)
     if (priorLambda <= 0.0 || possible == null) return raw
     val conditioned =
         perSquareProbs.mapValues { (square, probs) ->
             applyPrior(probs, classes, possible[square], priorLambda)
         }
-    return read(conditioned).copy(invalidMassBySquare = invalid, raw = raw)
+    return read(conditioned).copy(invalidMassBySquare = invalid, raw = raw, probs = rows)
 }
 
 /**

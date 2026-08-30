@@ -184,6 +184,27 @@ class AugmentPolicy:
     jitter_translate: float = 0.03  # ± fraction of crop size (small homography drift)
     jitter_scale: float = 0.03
     color_jitter: float = 0.1
+    # Waagerechte Spiegelung. Der Kommentar in `build_transform` verbot Flips wegen "square
+    # color/geometry" — das gilt fuers BRETT, nicht fuer einen Zellcrop: ein gespiegeltes Bild
+    # zeigt dieselbe Figur auf derselben Feldfarbe. Es spiegelt aber den Lichtgradienten
+    # (h3 bei 156, a7 bei 20), und der unterscheidet die Sessions. 0 = aus.
+    hflip_p: float = 0.0
+    # Senkrechte Spiegelung. Zusammen mit `hflip_p` ergibt sich die 180-Grad-Drehung als
+    # Kombination beider — und DIE ist die einzige physikalisch echte: sie entsteht, wenn von
+    # der anderen Tischseite gefilmt wird. Eine Spiegelung allein kann keine Kamera erzeugen,
+    # sie taugt trotzdem, weil jede Figur entweder eine Spiegelebene hat oder sich drehen laesst.
+    vflip_p: float = 0.0
+    #: Halbe Drehung ALLEIN. `hflip_p` und `vflip_p` unabhaengig ergeben die ganze
+    #: Vierergruppe; wer nur die Drehung will, nimmt diesen Regler.
+    rot180_p: float = 0.0
+    #: Genau EINE Achse, nie beide — schliesst die 180-Grad-Drehung aus.
+    flip_xor_p: float = 0.0
+    #: Helligkeit umkehren, Label unveraendert — Polaritaets-Invarianz erzwingen.
+    #: Klein halten: bei 1,0 waere Weiss von Schwarz nicht mehr zu trennen.
+    invert_p: float = 0.0
+    #: ZUFAELLIG entfaerben. Anders als `--input-repr gray3`, das die Farbe ganz
+    #: nimmt: hier bleibt sie nutzbar, nur nicht mehr verlaesslich.
+    grayscale_p: float = 0.0
     noise_std: float = 0.03       # additive Gaussian noise on the [0,1] tensor (p=0.5); breaks the
                                   # "too clean" render/synthetic look and makes more robust
     # Random Erasing (Cutout): blanks a random rectangle after ToTensor (p=erase_p). Forces the
@@ -248,16 +269,18 @@ def cap_blas_threads() -> None:
 
 
 def loader_kwargs(num_workers: int | None = None, *, pin_memory: bool = True,
-                  prefetch_factor: int = 4) -> dict:
+                  prefetch_factor: int = 4, persistent: bool = True) -> dict:
     """The DataLoader policy every training path shares; `batch_size` and `shuffle` stay local.
 
     `pin_memory=False` is the gate trainer's: two pinned loaders together blew the HIP host heap.
+    `persistent=False` for a loader that runs ONCE: kept workers hold ~1.2 GB each for a
+    pass that never comes again.
     """
     workers = DEFAULT_NUM_WORKERS if num_workers is None else num_workers
     kw: dict = {"num_workers": workers, "pin_memory": pin_memory}
     if workers > 0:
         cap_blas_threads()
-        kw.update(persistent_workers=True, prefetch_factor=prefetch_factor)
+        kw.update(persistent_workers=persistent, prefetch_factor=prefetch_factor)
     return kw
 
 

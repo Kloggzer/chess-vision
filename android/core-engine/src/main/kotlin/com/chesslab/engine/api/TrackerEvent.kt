@@ -26,6 +26,8 @@ sealed interface TrackerEvent {
         val conflicts: List<String>,
         val guess: String?,
         val guessSan: String?,
+        /** Default ist der Erkennungsfall: ein Latch ohne Zug hat nie einen Regelgrund. */
+        val reason: AlarmReason = AlarmReason.BOARD_MISMATCH,
     ) : TrackerEvent
 
     data class AlarmCleared(
