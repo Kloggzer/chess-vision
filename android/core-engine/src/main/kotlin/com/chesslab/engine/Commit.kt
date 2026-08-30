@@ -229,6 +229,10 @@ internal fun EngineState.recordDecision(
 ) {
     val reason =
         (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "") + reasonSuffix
+    // Genau EINE Zeile erbt den Spruch der Leiter (`EngineState.verdictOutcome`) — die naechste
+    // waere schon eine andere Entscheidung.
+    val verdict = pending?.voteOutcome ?: verdictOutcome
+    verdictOutcome = null
     decisionLog.add(
         DecisionRecord(
             tsS = nowS,
@@ -262,7 +266,7 @@ internal fun EngineState.recordDecision(
             // Captured HERE, not read off the state when the debug screen renders: by then the
             // commit has cleared both and every historic row would show the newest values.
             stuckReason = stuckReason,
-            verifyOutcome = pending?.voteOutcome,
+            verifyOutcome = verdict,
         ),
     )
 }

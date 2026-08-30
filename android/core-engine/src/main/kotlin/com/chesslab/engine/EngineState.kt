@@ -314,6 +314,14 @@ internal class EngineState(
     var verifyState: String? = null // `_verify_state`: null | "verifying" | "confirmed" | "ghost"
 
     /**
+     * Der Spruch der Verify-Leiter, der das Loeschen von [pending] ueberlebt — eine Zeile lang.
+     *
+     * Ohne ihn trug ausgerechnet die Zeile, die der Leiter entschied, `verify=` leer, und leer hiess
+     * zweierlei: 205 leere Zeilen lasen sich als "der Verifier haengt" statt als "nie gefragt".
+     */
+    var verdictOutcome: String? = null
+
+    /**
      * The window both confirmers are currently built for — the same defect [avgWindow] had.
      *
      * Python resolves `confirm_frames` ONCE at construction, from a CNN state that is also fixed at

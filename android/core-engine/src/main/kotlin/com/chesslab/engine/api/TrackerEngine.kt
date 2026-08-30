@@ -7,6 +7,7 @@ import com.chesslab.engine.EngineState
 import com.chesslab.engine.FrameLoop
 import com.chesslab.engine.FrameOutcome
 import com.chesslab.engine.Game
+import com.chesslab.engine.NOTE_GEOMETRY_SHIFTED
 import com.chesslab.engine.STATE_WAITING
 import com.chesslab.engine.STUCK_NO_LEGAL_MOVE
 import com.chesslab.engine.Squares
@@ -359,6 +360,18 @@ class TrackerEngine(
         val events = state.clearAlarm(ALARM_ACCEPTED)
         state.note = "Baseline: re-capturing reference from the next clear frame…"
         return events
+    }
+
+    /**
+     * Die Rektifizierung hat sich geaendert — dieselbe Antwort wie auf eine neue Ebenengroesse.
+     *
+     * Nicht [captureBaseline]: der Latch bleibt. Ein verrutschtes Brett sagt nichts darueber, ob
+     * Stellung und Brett wieder zusammenpassen, und Invariante 9 haengt genau daran.
+     */
+    fun rectificationChanged(): List<TrackerEvent> {
+        state.discardVisualReference()
+        state.note = NOTE_GEOMETRY_SHIFTED
+        return emptyList()
     }
 
     /** `choose_promotion` — the Q/R/B/N answer for a pending promotion. */

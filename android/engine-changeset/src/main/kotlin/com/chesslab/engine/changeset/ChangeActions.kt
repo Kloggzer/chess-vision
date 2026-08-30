@@ -22,6 +22,8 @@ class ChangeActions(
             // The picture is declared understood as it stands, the position kept: for an engine
             // that measures CHANGE, that is exactly what a new baseline means.
             is EngineAction.CaptureBaseline -> engine.mutate { }
+            // Kein Pixel-Vergleich gegen eine Referenz, also nichts zu verwerfen.
+            is EngineAction.RectificationChanged -> emptyList()
             is EngineAction.ResyncToBoard -> adopt()
             is EngineAction.AcceptCnnPosition -> adopt()
             // A promotion is the one question where WHICH piece is the question, so it is the one

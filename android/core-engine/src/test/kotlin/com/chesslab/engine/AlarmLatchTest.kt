@@ -320,6 +320,19 @@ class AlarmLatchTest {
         assertTrue(engine.state.decisionLog.any { it.reason == "illegal_move_accepted" })
     }
 
+    /**
+     * Ein verrutschtes Brett sagt nichts darueber, ob Stellung und Brett wieder zusammenpassen —
+     * also faellt die Pixel-Referenz und der Latch bleibt (Invariante 9, `docs/verifier-stall.md`).
+     */
+    @Test
+    fun aChangedRectificationDropsTheReferenceAndKeepsTheLatch() {
+        val engine = alarmedEngine()
+        engine.state.refGray = grayFrame()
+        engine.rectificationChanged()
+        assertNull(engine.state.refGray)
+        assertNotNull(engine.state.alarm)
+    }
+
     @Test
     fun resetFenClearsAlarmLatch() {
         val engine = alarmedEngine()

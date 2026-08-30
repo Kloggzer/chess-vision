@@ -195,6 +195,13 @@ class LiveAlign(
     private val cornerSink: ((Long, FloatArray) -> Unit)? = null,
     /** Offline cold path: independent raw detections calculated in parallel before replay. */
     private val cachedMarkers: ((Long) -> Map<Int, DoubleArray>)? = null,
+    /**
+     * Die Rektifizierung ist gewechselt — dieselbe Lage wie bei der Belichtung, siehe [onFrame].
+     *
+     * Vorgabe leer, damit Replay und Tests unveraendert bleiben; live haengt daran die
+     * Pixel-Referenz, die nach einer neuen Korrektur gegen ein anders ausgerichtetes Bild vergleicht.
+     */
+    private val onRectificationChanged: () -> Unit = {},
 ) {
     private var tracker = MarkerTracker()
     private val markerDetector = BoardMarkerDetector()
@@ -341,7 +348,8 @@ class LiveAlign(
      * Drop the correction when the board is no longer where it was fitted.
      *
      * Logged both ways round: a correction that silently vanishes is as hard to debug as one that
-     * silently persists, and this one only ever fires on a real change of setup.
+     * silently persists, and this one only ever fires on a real change of setup. Warum die
+     * Pixel-Referenz mitgeht: `docs/verifier-stall.md`.
      */
     private fun expireCorrection(
         current: FloatArray,
@@ -354,6 +362,7 @@ class LiveAlign(
         correction = null
         correctionTried = false
         fittedAt = null
+        onRectificationChanged()
     }
 
     /**

@@ -86,6 +86,43 @@ class LiveAlignDispatchTest {
         assertEquals(1, source.clones, "a known frame version must be rejected before its full-plane clone")
     }
 
+    /**
+     * Der Refit sagt es weiter. Die Korrektur wird seit jeher nachgemessen, die Pixel-Referenz blieb
+     * — danach verglich jeder Frame gegen ein anders ausgerichtetes Bild (`docs/verifier-stall.md`).
+     */
+    @Test
+    fun aRegridSaysSoAndOnlyWhenTheBoardReallyMoved() {
+        assertEquals(0, refitsAfterMarkerShift(shiftPx = 0.5), "marker jitter must not throw the reference away")
+        assertEquals(1, refitsAfterMarkerShift(shiftPx = 60.0), "a board that moved must drop the reference")
+    }
+
+    /** Two aligns from cached markers, the second one [shiftPx] away; returns the refits reported. */
+    private fun refitsAfterMarkerShift(shiftPx: Double): Int {
+        val refits = AtomicInteger()
+        val align =
+            LiveAlign(
+                CoroutineScope(Dispatchers.Unconfined),
+                { BoardGeometry(boardSize = BOARD_SIZE) },
+                { CONFIG },
+                {},
+                dispatcher = Dispatchers.Unconfined,
+                cachedMarkers = { frame -> markerQuad(if (frame == 1L) 0.0 else shiftPx) },
+                onRectificationChanged = { refits.incrementAndGet() },
+            )
+        align.maybeAlign(BoardSizedBlankFrame, DeliveredSize(BOARD_SIZE, BOARD_SIZE, 0))
+        align.maybeAlign(BoardSizedBlankFrame, DeliveredSize(BOARD_SIZE, BOARD_SIZE, 0))
+        return refits.get()
+    }
+
+    /** The four board markers `[a8, h8, h1, a1]`, all of them moved [shiftPx] along x. */
+    private fun markerQuad(shiftPx: Double): Map<Int, DoubleArray> =
+        mapOf(
+            0 to doubleArrayOf(MARKER_LOW + shiftPx, MARKER_LOW),
+            1 to doubleArrayOf(MARKER_HIGH + shiftPx, MARKER_LOW),
+            2 to doubleArrayOf(MARKER_HIGH + shiftPx, MARKER_HIGH),
+            3 to doubleArrayOf(MARKER_LOW + shiftPx, MARKER_HIGH),
+        )
+
     @Test
     fun alignRunsOffTheScopesOwnThread() {
         val ran = runAlignOn(dispatcher = null)
@@ -149,6 +186,15 @@ class LiveAlignDispatchTest {
         override val cameraHealth: StateFlow<CameraHealth> = MutableStateFlow(CameraHealth.Up)
     }
 
+    /** Big enough that the marker quad and its shift stay inside the image. */
+    private object BoardSizedBlankFrame : CalibrationFrames<Unit> by OneBlankFrame {
+        override fun latestCalibrationFrame(): Mat = Mat(BOARD_SIZE, BOARD_SIZE, CvType.CV_8UC3)
+
+        override fun latestCalibrationSample(): CalibrationFrame = CalibrationFrame(null, latestCalibrationFrame())
+
+        override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame = latestCalibrationSample()
+    }
+
     private class VersionedBlankFrame(
         private val version: Long,
     ) : CalibrationFrames<Unit> by OneBlankFrame {
@@ -174,6 +220,10 @@ class LiveAlignDispatchTest {
         const val NAMED_THREAD = "somewhere-else"
         const val FRAME_SIDE = 64
         const val BOARD_SIZE = 320
+
+        /** A quad inside [BOARD_SIZE]; one cell is 40 px, so `DRIFT_REFIT_CELLS` is 10 px. */
+        const val MARKER_LOW = 40.0
+        const val MARKER_HIGH = 240.0
         const val TIMEOUT_SECONDS = 10L
 
         /** `alignEvery = 1` so the very first frame aligns; the default of 3 would need three. */
