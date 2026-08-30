@@ -101,14 +101,25 @@ Versuche, der Automatik mehr Zeit zu erlauben, ohne sie abzuschalten:
 
 | Eingriff | erlaubt | gefahren |
 |---|---:|---:|
-| `CONTROL_AE_TARGET_FPS_RANGE = [15,15]` (15 fps) | 66,7 ms | **10,0 ms** |
-| `CONTROL_SCENE_MODE = NIGHT` | — | **10,0 ms** |
-| `CONTROL_AE_ANTIBANDING_MODE = OFF` | — | **10,0 ms** |
+| `CONTROL_AE_TARGET_FPS_RANGE = [15,15]` (15 fps) | 66,7 ms | **10,0 ms**, ISO 329 |
+| `CONTROL_SCENE_MODE = NIGHT` | — | **10,0 ms**, ISO 231 |
+| `CONTROL_AE_ANTIBANDING_MODE = OFF` | — | **10,0 ms**, ISO 162–237 |
+| **gar keine Spanne gesetzt**, AE voellig frei | 1000 ms | **10,0 ms**, ISO 404, 31 fps |
 
-Das ISO wanderte dabei frei (329, 231, 237, 196, 162), die Zeit kein einziges Mal. Es ist also
-weder das Flimmer-Raster (20 und 30 ms waeren ebenfalls Vielfache von 1/100 s und wurden nie
-gewaehlt) noch ein Szenenziel, sondern eine Festlegung des Geraete-Tunings. Bei 15 fps laesst das
-Telefon 85 % seines Zeitbudgets liegen und bezahlt sie mit Verstaerkung.
+Die letzte Zeile ist die aussagekraeftigste: ohne jeden Pin darf die Automatik die Bildrate
+senken und die Zeit strecken — die Literatur beschreibt genau das als Normalverhalten
+([AEG-Patent](https://patents.justia.com/patent/20110164146): "the change of the exposure time is
+preferred over the change of the gain";
+[MS auto-exposure priority](https://learn.microsoft.com/en-us/windows-hardware/drivers/stream/ksproperty-cameracontrol-auto-exposure-priority):
+Rate auf 25 fps senken, um 40 ms zu belichten). Dieses Geraet tut das Gegenteil und faehrt
+10,0 ms bei ISO 404 und 31 fps.
+
+Es ist also weder das Flimmer-Raster (20 und 30 ms waeren ebenfalls Vielfache von 1/100 s und
+wurden nie gewaehlt) noch ein Szenenziel noch der Pin, sondern das Tuning selbst. Bei 15 fps
+laesst das Telefon 85 % seines Zeitbudgets liegen und bezahlt sie mit Verstaerkung.
+
+**Der Pin bleibt damit richtig, aber aus einem anderen Grund als gedacht:** er kostet keine
+Belichtungszeit (die AE nimmt sie ohnehin nicht), er haelt nur die Bildrate stabil.
 
 **Damit ist der Weg zu Ende, der die Automatik anlaesst.** Bleibt nur `AE_MODE_OFF`, und der ist
 oben schon gemessen und verworfen: manuell faellt die ISP-Verstaerkung weg, und der Sensor allein
