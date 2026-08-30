@@ -82,6 +82,29 @@ ist auf vollen Brettern tot"), dann mit einem Vorzeichen, das ich für ein fehle
 Beide Male sah die falsche Erklärung plausibel aus. Der Ausweg war beide Male, die Annahme
 auszurechnen statt sie zu glauben.
 
+## ArUco ist widerstandsfähiger, und zwar aus Bauart
+
+Auf denselben 65 Frames, beide Wege pro Frame:
+
+| | gefunden | Anteil |
+|---|---:|---:|
+| ArUco | **65** | 100,0 % |
+| markerlos | 63 | 96,9 % |
+
+Kein einziger Frame, in dem markerlos etwas findet und ArUco nicht. Die zwei Ausfälle sind beide
+ein Arm quer über dem Brett — und genau dort liegt der Unterschied:
+
+- **Die Marker sitzen ausserhalb des Spielfelds.** Eine Hand greift in die Mitte, die vier Ecken
+  bleiben frei. Markerlos braucht die Gitterlinien quer über das ganze Brett.
+- **ArUco hat ein Gedächtnis.** `MarkerTracker` hält Marker über Frames; dieser Detektor fängt
+  jeden Frame bei null an.
+- **Ein Marker ist eindeutig, ein Karo nicht.** Die vier Marker sind verschieden und sagen damit
+  auch die Orientierung — was das Gitter prinzipiell nicht kann.
+
+Als **Ersatz** für ArUco taugt der Detektor in diesem Stand nicht. Der einzige Grund, ihn zu
+wollen, ist der Kaltstart auf einem unpräparierten Brett: dort landen 37 von 63 exakt richtig, und
+die Fehlerarten sind benannt statt diffus.
+
 ## Was das Raster NICHT liefert
 
 Die Orientierung. Welche Ecke a8 ist, sagt das Karo nicht — die vier 90°-Drehungen sind
