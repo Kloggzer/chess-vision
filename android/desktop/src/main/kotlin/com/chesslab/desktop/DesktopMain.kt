@@ -36,6 +36,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.core.Mat
 import java.awt.image.BufferedImage
 import java.io.File
@@ -361,6 +365,7 @@ internal fun replayRun(
         // being able to see it — a day of suspecting `config=` for a difference the quad made.
         val quad =
             plan?.quad()?.also { println("quad: from the label plan's geometry scan") }
+                ?: recordedQuad(options, video)?.also { println("quad: from the recording's log.jsonl — what the phone stood on") }
                 ?: locateBoard(corrected)?.also { println("quad: located on the first decoded frames") }
         if (quad == null) {
             println("no board found: the markers never decoded")
@@ -835,3 +840,33 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "labeled-session-pack" to ::packLabeledSession,
         "legacy-synth-dataset" to ::buildLegacySynthDataset,
     )
+
+/**
+ * Die Ecken, auf denen das TELEFON stand — aus dem `log.jsonl` der Aufnahme.
+ *
+ * Ohne sie sucht der Replay das Brett selbst, und die beiden Quellen liegen gemessen 6 bis 25
+ * Plies auseinander (specs/52). Genau daran ist am 2026-08-30 eine Reproduktion gescheitert:
+ * live liefen acht Halbzuege, im Replay vier, und `config=` wie `fps=` waren unschuldig.
+ */
+private fun recordedQuad(
+    options: ReplayOptions,
+    video: File?,
+): FloatArray? {
+    val name = options.name ?: video?.nameWithoutExtension ?: return null
+    val log = File(File(RECORDINGS_DIR, name), "log.jsonl")
+    if (!log.isFile) return null
+    val first = log.useLines { lines -> lines.firstOrNull { it.isNotBlank() } } ?: return null
+    return runCatching {
+        Json
+            .parseToJsonElement(first)
+            .jsonObject
+            .getValue("corners")
+            .jsonArray
+            .flatMap { point -> point.jsonArray.map { it.jsonPrimitive.content.toFloat() } }
+            .toFloatArray()
+            .takeIf { it.size == QUAD_FLOATS }
+    }.getOrNull()
+}
+
+/** Vier Ecken zu je x und y. */
+private const val QUAD_FLOATS = 8

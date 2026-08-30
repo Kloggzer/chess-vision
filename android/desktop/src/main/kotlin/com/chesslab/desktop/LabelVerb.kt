@@ -354,7 +354,7 @@ private fun sourceJson(
 }
 
 /** Candidates live under `data/` (gitignored), where the Python labeler put them. */
-private const val RECORDINGS_DIR = "../../data/recordings"
+internal const val RECORDINGS_DIR = "../../data/recordings"
 
 private const val DATA_DIR = "../../data"
 
