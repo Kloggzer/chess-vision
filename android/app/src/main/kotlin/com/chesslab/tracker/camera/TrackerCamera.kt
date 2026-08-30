@@ -270,13 +270,19 @@ class TrackerCamera(
      * bought a single frame.
      *
      * The range is chosen from what the device ADVERTISES, never invented: an unsupported range
-     * is a binding failure, and a dead camera is worse than a slow one. Preference is the
-     * narrowest range whose upper bound is [CameraRequest.targetFps] — a locked `[30,30]` is what
-     * actually stops AE from stretching the period, where `[15,30]` leaves it the same freedom it
-     * already had.
+     * is a binding failure, and a dead camera is worse than a slow one.
      *
-     * The trade is real and belongs in the log: a pinned rate caps exposure time, so the frame
-     * gets darker, and `darkLumaThr = 18` is a gate that can then start firing.
+     * Genommen wird die BREITESTE Spanne mit der Obergrenze [CameraRequest.targetFps], mit einem
+     * Boden bei der halben Zielrate. Ein festgenageltes `[30,30]` deckelt die Belichtungszeit auf
+     * 33,3 ms; gemessen 2026-08-30 fuhr das Geraet davon 10,0 ms und bezahlte den Rest mit
+     * ISO 410. Das Rauschen hebt `busy` und damit die Schwelle in `ChangeEvidence.of`, unter der
+     * echte Zuege verschwinden (`docs/board-exposure.md`).
+     *
+     * Der Boden ist die Kopplung an `motionThr`: `TrackerService.engineConfig()` skaliert sie mit
+     * `x 30 / fps` aus der EINSTELLUNG, nicht aus der gemessenen Rate — innerhalb von Faktor zwei
+     * bleibt der am Regressionssatz gemessene Wert brauchbar, darunter nicht mehr. Auf dem
+     * 24117RK2CG heisst das bei 30 fps `[24,30]` (41,7 ms), bei 15 fps `[10,15]` (100 ms): die
+     * Bildrate zu senken ist der eigentliche Hebel auf das ISO, nicht diese Auswahl.
      */
     @OptIn(ExperimentalCamera2Interop::class)
     private fun pinFrameRate(
@@ -284,19 +290,24 @@ class TrackerCamera(
         info: CameraInfo?,
     ) {
         val available = info?.let { Camera2CameraInfo.from(it).getCameraCharacteristic(CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) }
+        val floor = target.targetFps / 2
         val range =
             available
-                ?.filter { it.upper == target.targetFps }
-                ?.maxByOrNull { it.lower }
+                ?.filter { it.upper == target.targetFps && it.lower >= floor }
+                ?.minByOrNull { it.lower }
         if (range == null) {
             // Loud, because the setting then reads 15 while the sensor runs at 30: the back camera
             // of a 24117RK2CG advertises no locked range below 15, and one it does not advertise
             // is a binding failure rather than a slower camera.
-            Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
+            Log.w(
+                TAG,
+                "no ${target.targetFps} fps AE range at or above $floor advertised " +
+                    "(${available?.joinToString()}) — leaving auto-exposure alone",
+            )
             return
         }
         extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
-        Log.i(TAG, "AE target fps range pinned to $range")
+        Log.i(TAG, "AE target fps range pinned to $range (of ${available.joinToString()})")
     }
 
     /**
