@@ -4,6 +4,15 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## TEILWEISE ERLEDIGT: der Replay folgt jetzt der Handy-Messung (2026-08-30)
+
+Ecken, Frame-Auswahl und Startstellung kommen aus der Aufnahme selbst (`baa0167c`), die
+Zeitleiste traegt den Vorlauf, den das Video schon hatte (`626acb60`). Der Replay erfindet damit
+nichts mehr — vorher committete er `Nf3 d5` statt `d4 d5` — und trifft die ersten drei Live-Zuege.
+
+**Offen:** er bleibt bei ply 4 (`Nc6`) stehen, wo live `cnn_recovery` uebernahm, nachdem der Diff
+blind war. Solange kostet jede Runde einen Durchgang am Brett. Der urspruengliche Befund:
+
 ## Der Replay sieht mehr Frames als das Telefon — und entscheidet deshalb anders (2026-08-30)
 
 Gefordert: *"replay sollte sich verhalten wie das live spiel"*. Tut er nicht. Dieselbe Aufnahme,
@@ -77,6 +86,17 @@ Zu klaeren, in dieser Reihenfolge:
 Verwandt: `cnn_desync` rastet auf einem korrekten Brett ein (oben), und der `STUCK occluded`-Fall
 mit ueber das Brett verstreuten Feldern bei `motion=0` weiter unten — moeglicherweise dasselbe
 Ausrichtungsproblem unter drei Namen.
+
+## Zwei Kleinigkeiten, die aus der Belichtungsarbeit offen blieben (2026-08-30, User)
+
+- **`CameraLook.locked` ausbauen.** Sein Zweck war "halte genau diese Belichtung fest". Seit die
+  Belichtungszeit ueber Qualcomms `iso_exp_priority` gesetzt wird und die Brett-Regelung den
+  Rest macht, friert er nur noch etwas ein, das ohnehin steht — und das ISO soll sich anpassen
+  duerfen. Zoom, Fokus und Weissabgleich bleiben: dort entscheidet der Mensch ueber die Szene.
+- **Ein Rauschmass in die Perf-Zeile.** Belegt ist, dass das Rohbild seit `1ee08beb` rund sechsmal
+  weniger Verstaerkung sieht (ISO 404 auf 71). Ungemessen ist, ob das im ZELLMITTEL ankommt:
+  `cellDeltas` mittelt ueber 92x92 Pixel und daempft unkorreliertes Rauschen um rund Faktor 92.
+  Ohne diese Zahl bleibt der Gewinn Physik statt Wirkung.
 
 ## Modell- und Engine-Wechsel sollen ohne Neustart gehen (2026-08-30, User)
 
@@ -212,6 +232,16 @@ Schwellen im selben Zug neu bestimmen, nicht danach.
 
 Nebenbefund derselben Untersuchung: genau dieser Blur macht `grayDet` fuer die CNN-Spur unbrauchbar
 — `median3`, eine aehnliche Glaettung, kippte alle drei hellen Testzellen von `wB` auf `wP`.
+
+## ERLEDIGT: der Abtausch auf einem Feld ist jetzt EIN Kandidat (2026-08-30)
+
+`loglikSequenceScores` sucht bis drei Halbzuege, jenseits von zwei aber nur den Abtausch auf
+DEMSELBEN Zielfeld — frei gesucht erfand die dritte Ebene ein `Rg1` statt `Bc4 Bc5 O-O` und
+brach die Paritaet. Live bestaetigt: schnelles Vor und Zurueck laeuft. Was der Diff NICHT kann,
+steht unten: `f3e5 c6e5 d4e5` und `f3e5 c6d4` beruehren dieselben vier Felder und scoren gleich —
+diese Wahl trifft das Modell in `pairColourConflicts`, und das ist die richtige Zustaendigkeit.
+
+Der urspruengliche Befund von 2026-08-26, zur Herkunft:
 
 ## Ein Doppelschlag aufs selbe Feld faellt fast immer durch die Ambiguitaetsschwelle (2026-08-26)
 
