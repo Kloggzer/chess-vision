@@ -85,7 +85,9 @@ internal object VerifyPair {
             pend.frames >= state.config.verifyWindow || state.verifyExpired(pend) ->
                 state.pairWindowEnd(moves, pend, checked, before, after)
             else -> {
-                state.note = "checking double move ${pairKey(moves)} via CNN… (${pend.frames}/${state.config.verifyWindow})"
+                state.note =
+                    "checking double move ${pairKey(moves)} via CNN… (${pend.frames}/${state.config.verifyWindow}) " +
+                    colourTrace(obs, afterBoard, touchedMask(boardSnap, moves), checked)
                 emptyList()
             }
         }
@@ -198,6 +200,28 @@ private fun confidentMask(
 }
 
 /**
+ * Was das Modell auf den beruehrten Feldern liest, gegen das, was das Paar dort behauptet.
+ *
+ * `~` markiert ein Feld, das die Konfidenzschwelle NICHT nimmt und damit aus [checked] faellt —
+ * dort schweigt die Farbachse, ohne dass man es ihr ansieht.
+ */
+private fun colourTrace(
+    obs: CnnObservation,
+    afterBoard: Game,
+    touched: Long,
+    checked: Long,
+): String {
+    val parts = ArrayList<String>()
+    touched.forEachSquare { i ->
+        val name = Squares.ALL[i]
+        val want = afterBoard.pieceCharAt(i)?.toString() ?: "-"
+        val sure = if (checked.has(i)) "" else "~"
+        parts += "$name$sure want=$want read=${obs.label(name) ?: "?"}@${(obs.conf(name) * PERCENT).toInt()}"
+    }
+    return "colour[${parts.joinToString(" ")}]"
+}
+
+/**
  * Beruehrte Felder, deren FARBE der Stellung nach beiden Halbzuegen widerspricht.
  *
  * Die zweite Achse neben [pairAgreement]: `f3e5 c6e5` und `f3e5 c6d4` lassen dieselben Felder
@@ -241,3 +265,6 @@ private fun pairAgreement(
 }
 
 private fun pairKey(moves: List<Move>): String = moves.joinToString(" ") { uciOf(it) }
+
+/** Konfidenz als ganze Prozent — zwei Nachkommastellen sind in einer Logzeile Rauschen. */
+private const val PERCENT = 100
