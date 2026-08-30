@@ -62,6 +62,9 @@ class OpticsLock(
     @Volatile
     private var observedFocus: Float? = null
 
+    /** Der zuletzt protokollierte Belichtungszustand — gegen eine Zeile je Bild. */
+    private var lastTraced: ExposureSetting? = null
+
     /**
      * Was die Automatik zuletzt gewaehlt hat. NUR zum Messen — gestellt wird die
      * Belichtungskorrektur, siehe [ExposureSetting].
@@ -111,9 +114,28 @@ class OpticsLock(
                 result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.let { observedFocus = it }
                 val time = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                 val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
-                if (time != null && iso != null) observedExposure = ExposureSetting(time, iso)
+                if (time != null && iso != null) {
+                    val seen = ExposureSetting(time, iso)
+                    observedExposure = seen
+                    traceExposure(seen)
+                }
             }
         }
+
+    /**
+     * Zeit und ISO, sobald sich eine von beiden merklich bewegt.
+     *
+     * Wie die AE ihr Ziel auf Zeit und Verstaerkung aufteilt, stand bisher nur in der Zeile einer
+     * VERSTELLUNG — und genau wenn die Regelung nichts tut, war sie unsichtbar. Das ISO treibt
+     * ueber `busy` die Schwelle in `ChangeEvidence` (`docs/board-exposure.md`).
+     */
+    private fun traceExposure(seen: ExposureSetting) {
+        val was = lastTraced
+        val isoMoved = was == null || seen.iso > was.iso * ISO_STEP || seen.iso * ISO_STEP < was.iso
+        if (!isoMoved && was.timeNs == seen.timeNs) return
+        lastTraced = seen
+        Log.i(TAG, "sensor %.1f ms ISO %d".format(seen.timeNs / 1e6, seen.iso))
+    }
 
     /**
      * Adopt the bound camera and re-assert the user's look.
@@ -203,6 +225,9 @@ class OpticsLock(
     }
 
     internal companion object {
+        /** Ab dieser relativen Aenderung ist ein neues ISO eine Meldung wert. */
+        private const val ISO_STEP = 1.2
+
         const val TAG = "OpticsLock"
     }
 }
