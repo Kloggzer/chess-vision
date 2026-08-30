@@ -431,7 +431,8 @@ internal fun replayRun(
         // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both. Which
         // is why nothing here may READ it for a knob the run owns: it holds the defaults.
         val settings = SettingsRepository(MemoryConfigStore, scope)
-        val stride = strideOf(options.fps, source.fps, live = camera != null)
+        val recorded = recordedFrameGate(options, video)
+        val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
         val visualCache =
             options.visualCache?.let { path ->
                 require(video != null && camera == null) { "visualcache= is only valid for a recorded video" }
@@ -519,6 +520,7 @@ internal fun replayRun(
                 priorSafety = options.priorSafety,
                 motionDump = options.motionDump,
                 engine = options.engine,
+                startFen = recordedStartFen(options, video),
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -530,7 +532,7 @@ internal fun replayRun(
                     training?.frame(index, frame, publisher.status.value, timeMs)
                 }
             }
-        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride)
+        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride, recorded)
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
@@ -628,6 +630,8 @@ private fun buildStack(
     /** `motiondump=<file>`, or null. Measurement only — see `MotionDump`. */
     motionDump: String? = null,
     engine: EngineKind = EngineKind.CLASSIC,
+    // Die Stellung der Aufnahme beim ersten Frame — eine Aufnahme beginnt mitten im Spiel.
+    startFen: String = STARTPOS,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -637,7 +641,7 @@ private fun buildStack(
             config = config,
             geometry = { geometry },
             corners = null,
-            startFen = STARTPOS,
+            startFen = startFen,
             onDecision = {
                 println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
                 println("decision-conf: " + it.confidenceLine())
@@ -700,6 +704,9 @@ private fun drive(
     // off each frame's PTS either way, so skipping changes what the tracker SEES, never what time
     // it is.
     stride: Int = 1,
+    // Die Frames, die das TELEFON sah. Ist sie da, gilt sie und [stride] ruht — ein Replay, der
+    // andere Bilder waehlt als die Messung, ist keine Reproduktion (`TODO.md`).
+    recorded: RecordedFrameGate? = null,
 ): Int {
     var frames = 0
     var strideDropped = 0
@@ -707,12 +714,16 @@ private fun drive(
         val open = view?.awaitStep(publisher.status.value) ?: true
         val frame = if (open) source.next() else null
         if (frame == null) {
-            if (strideDropped > 0) println("stride $stride: dropped $strideDropped of $frames decoded frames, by design")
+            if (strideDropped > 0) {
+                val how = if (recorded != null) "recorded list (${recorded.taken} taken)" else "stride $stride"
+                println("$how: dropped $strideDropped of $frames decoded frames, by design")
+            }
             return frames
         }
         // No clock tick: time comes off the frame's own PTS (`FrameClock`), so a stride-skipped
         // frame still advances it — the property the counted clock had to maintain by hand.
-        if (frames % stride != 0) {
+        val take = recorded?.accept(source.timestampMs) ?: (frames % stride == 0)
+        if (!take) {
             strideDropped += 1
             frames += 1
             continue
@@ -870,3 +881,31 @@ private fun recordedQuad(
 
 /** Vier Ecken zu je x und y. */
 private const val QUAD_FLOATS = 8
+
+/** Die Stellung, auf der die Aufnahme beginnt — sonst die Grundstellung. */
+private fun recordedStartFen(
+    options: ReplayOptions,
+    video: File?,
+): String {
+    val name = options.name ?: video?.nameWithoutExtension ?: return STARTPOS
+    val fen = RecordedFrames.startFen(File(File(RECORDINGS_DIR, name), "timeline.jsonl")) ?: return STARTPOS
+    if (fen != STARTPOS) println("start: $fen — where the recording begins, not the initial position")
+    return fen
+}
+
+/**
+ * Die Frame-Auswahl der Aufnahme, oder `null` wo keine gemessen wurde.
+ *
+ * Nur dann darf der Replay dezimieren: `fps=<n>` trifft die Anzahl der Frames, aber nicht die
+ * Bilder, die CameraX live durchliess — und daran haengt, was der Diff vergleicht.
+ */
+private fun recordedFrameGate(
+    options: ReplayOptions,
+    video: File?,
+): RecordedFrameGate? {
+    val name = options.name ?: video?.nameWithoutExtension ?: return null
+    val times = RecordedFrames.times(File(File(RECORDINGS_DIR, name), "timeline.jsonl")) ?: return null
+    println("frames: replaying the ${times.size} the phone processed, from its timeline.jsonl")
+    if (options.fps != null) println("  fps=${options.fps} ignored — the recording's own measurement wins")
+    return RecordedFrameGate(times)
+}
