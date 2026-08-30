@@ -33,6 +33,42 @@ class HypothesisTest {
         assertTrue(moves.best > 0.0, "the evidence speaks net FOR the move")
     }
 
+    /**
+     * Ein Schlag auf besetztem Feld: der Diff sieht das ZIEL nicht, weil dort vorher wie nachher
+     * eine Figur steht. Gemessen 2026-08-30 an `Nxe5 Nxe5 dxe5` — 205 Entscheidungen,
+     * `no_legal_move`, und `e5` kein einziges Mal in `changed`.
+     */
+    @Test
+    fun captureOntoAnOccupiedSquareStaysViable() {
+        val state = hypothesisState(CAPTURE_FEN)
+        state.cnnSnap = recoverySnap(state, obsForBoard(Game(AFTER_NXE5)), seq = 1)
+
+        val moves = state.scoreViableMoves(zOf("f3" to HOT))
+
+        assertEquals("f3e5", moves.obsMove?.let { uciOf(it) }, "der Schlag muss viabel bleiben")
+    }
+
+    /** Ohne Modell keine Ausnahme: eine Lockerung auf blosse Legalitaet waere eine Phantomquelle. */
+    @Test
+    fun captureWithoutAModelReadingIsNotViable() {
+        val state = hypothesisState(CAPTURE_FEN)
+
+        val moves = state.scoreViableMoves(zOf("f3" to HOT))
+
+        assertNull(moves.obsMove, "ohne Bestaetigung darf das stumme Ziel nicht durchgehen")
+    }
+
+    /** Liest das Modell auf dem Ziel die ALTE Farbe, bezeugt niemand den Schlag. */
+    @Test
+    fun captureTheModelContradictsIsNotViable() {
+        val state = hypothesisState(CAPTURE_FEN)
+        state.cnnSnap = recoverySnap(state, obsForBoard(Game(CAPTURE_FEN)), seq = 1)
+
+        val moves = state.scoreViableMoves(zOf("f3" to HOT))
+
+        assertNull(moves.obsMove, "das Modell sieht auf e5 weiter Schwarz")
+    }
+
     /** Just BELOW the soft gate the same move is not viable at all. */
     @Test
     fun targetBelowTheSoftGateIsNotViable() {
@@ -566,6 +602,10 @@ class HypothesisTest {
         const val EN_PASSANT_FEN = "rnbqkbnr/pp1pp1pp/8/2p1Pp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3"
         const val ROOK_H1_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1"
         const val TWO_KNIGHTS_FEN = "rnbqkb1r/ppp2ppp/4pn2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+
+        /** Nach 1.e4 e5 2.Nf3 Nc6 3.d4, Weiss am Zug — `Nf3xe5` ist legal und schlaegt. */
+        const val CAPTURE_FEN = "r1bqkbnr/pppp1ppp/2n5/4p3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+        const val AFTER_NXE5 = "r1bqkbnr/pppp1ppp/2n5/4N3/3PP3/8/PPP2PPP/RNBQKB1R b KQkq - 0 4"
         const val PROMOTION_FEN = "8/P6k/8/8/8/8/7K/8 w - - 0 1"
         const val MIN_PARITY_FRAMES = 150
 

@@ -61,7 +61,7 @@ internal fun EngineState.scoreViableMoves(z: DoubleArray): ViableMoves {
     val scored = loglikScores(board, z, config.zThr, LL_K)
     val soft = config.zThr * PAIR_SOFT_FACTOR
     val veto = shadowVetoed
-    val viableRaw = scored.filter { (mv, _) -> allAbove(moveTouchedMask(board, mv), z, soft) }
+    val viableRaw = scored.filter { (mv, _) -> touchedReadable(mv, z, soft) }
     val viable = viableRaw.filter { (mv, _) -> moveDestinationMask(board, mv) and veto == 0L }
     val kept = viable.mapTo(HashSet()) { it.first }
     shadowBlocked.clear()
@@ -82,6 +82,49 @@ internal fun EngineState.scoreViableMoves(z: DoubleArray): ViableMoves {
     }
     return ViableMoves(scored, viableRaw, viable, obsMove, best, second)
 }
+
+/**
+ * Wie [allAbove], aber ein stummes ZIELFELD darf ein vom Modell bestaetigter Schlag sein.
+ *
+ * Ein Schlag auf besetztem Feld laesst dort eine Figur stehen: der Diff sieht nichts, das Feld
+ * faellt unter `soft`, und der richtige Zug ist nicht mehr viabel. Gemessen 2026-08-30 an
+ * `Nxe5 Nxe5 dxe5`: 205 Entscheidungen, `e5` kein einziges Mal in `changed`, `no_legal_move`.
+ */
+internal fun EngineState.touchedReadable(
+    mv: Move,
+    z: DoubleArray,
+    soft: Double,
+): Boolean {
+    val mask = moveTouchedMask(board, mv)
+    if (allAbove(mask, z, soft)) return true
+    val to = mv.to.ordinal
+    // Jedes ANDERE stumme Feld bleibt ein Ausschluss — gelockert wird nur das Ziel des Schlags.
+    for (i in 0 until Squares.COUNT) {
+        if (mask.has(i) && z[i] < soft && i != to) return false
+    }
+    return mask.has(to) && z[to] < soft && capturesConfirmedColour(mv)
+}
+
+/**
+ * Ein Schlag, der die FARBE des Zielfelds wechselt und den das Modell dort sicher bestaetigt.
+ *
+ * Farbe, nicht Identitaet: die bleibt die schwaechste Achse, und hier haengt ein Zug daran. Als
+ * Unterscheider zwischen zwei Schlaegen auf DASSELBE Feld waere sie das naechste, was sich lohnt
+ * (`TODO.md`, Doppelschlag).
+ */
+private fun EngineState.capturesConfirmedColour(mv: Move): Boolean {
+    val taken = board.pieceCharAt(mv.to.ordinal) ?: return false
+    val moving = board.pieceCharAt(mv.from.ordinal) ?: return false
+    if (taken.isUpperCase() == moving.isUpperCase()) return false
+    val obs = cnnSnap?.obs ?: return false
+    val name = Squares.ALL[mv.to.ordinal]
+    val label = obs.label(name) ?: return false
+    if (label == "empty") return false
+    return label.startsWith(if (moving.isUpperCase()) "w" else "b") && obs.conf(name) >= CAPTURE_SURE
+}
+
+/** Wie sicher das Modell die neue Farbe lesen muss, damit ein stummes Zielfeld durchgeht. */
+private const val CAPTURE_SURE = 0.9
 
 internal fun allAbove(
     mask: Long,
