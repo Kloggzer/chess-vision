@@ -3,6 +3,17 @@ package com.chesslab.tracker.camera
 import com.chesslab.engine.api.BgrImage
 
 /**
+ * Dass die Regelung gerade aufhellt, in Worten fuer den Spieler.
+ *
+ * Sie greift in das Bild ein, aus dem der Tracker liest — wer am Brett sitzt, soll das erfahren
+ * und nicht raten, warum es heller wurde.
+ */
+data class ExposureNotice(
+    /** Um wie viel EV ueber dem Schieberwert die Regelung steht. */
+    val evAboveBase: Double,
+)
+
+/**
  * Wer nach jedem Frame entscheiden darf, ob die Belichtung nachgestellt wird.
  *
  * Eine Schnittstelle mit einem Vorgabe-Nichtstun, damit sich fuer Replay und Clip-Sim nichts
@@ -41,10 +52,19 @@ class BoardExposureGovernor(
     private val everyFrames: Long = DEFAULT_INTERVAL,
     /** So lange nach einem unruhigen Frame bleibt die Regelung still. */
     private val holdFrames: Long = DEFAULT_HOLD,
+    /** Gerufen, wenn eine Aufhell-Episode BEGINNT — einmal, nicht je Schritt (Toast/Ansage). */
+    private val onBrighten: (ExposureNotice) -> Unit = {},
 ) : ExposureGovernor {
     private var state: ExposureState? = null
     private var due = 0L
     private var hold = 0L
+
+    /** Der Wert des Schiebers, unter den die Regelung nicht geht. */
+    private var baseEv = 0.0
+
+    /** Der Index, den WIR zuletzt gesetzt haben — alles andere kam vom Nutzer. */
+    private var lastSet: Int? = null
+    private var brightening = false
 
     /** Der zuletzt gestellte Versatz in EV, oder null solange die Regelung nichts getan hat. */
     val ev: Double? get() = state?.ev
@@ -63,14 +83,30 @@ class BoardExposureGovernor(
         val raster = board() ?: return false
         due = seq + everyFrames
         // Der Startpunkt ist, was auf dem Schieber steht — sonst spraenge der erste Schritt an
-        // einer vom Nutzer gesetzten Korrektur vorbei.
-        val current = state ?: ExposureState(port.look.value.evIndex * range.stepEv.toDouble())
-        val next = nextExposure(current, meterBoard(raster), range.evLimits(), policy) ?: return false
+        // einer vom Nutzer gesetzten Korrektur vorbei. Stellt der Nutzer waehrenddessen selbst,
+        // ist sein Wert der neue Boden und die Regelung faengt dort an.
+        val look = port.look.value
+        if (look.evIndex != lastSet) {
+            baseEv = look.evIndex * range.stepEv.toDouble()
+            state = null
+            brightening = false
+        }
+        val current = state ?: ExposureState(baseEv)
+        val next = nextExposure(current, meterBoard(raster), range.evLimits(), policy, baseEv) ?: return false
         state = next
         val index = range.indexFor(next.ev)
-        if (index == port.look.value.evIndex) return false
-        port.setLook(port.look.value.copy(evIndex = index))
+        if (index == look.evIndex) return false
+        port.setLook(look.copy(evIndex = index))
+        lastSet = index
+        announce(next.ev)
         return true
+    }
+
+    /** Einmal je Episode reden: jeder Schritt einer Aufhellung ist dasselbe Ereignis. */
+    private fun announce(ev: Double) {
+        val lifting = ev > baseEv + policy.deadbandEv
+        if (lifting && !brightening) onBrighten(ExposureNotice(ev - baseEv))
+        brightening = lifting
     }
 
     private companion object {

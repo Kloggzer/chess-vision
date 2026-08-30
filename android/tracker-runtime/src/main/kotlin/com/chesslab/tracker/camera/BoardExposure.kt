@@ -86,21 +86,26 @@ data class ExposureState(
  * Der naechste Stellwert, oder `null` wenn nichts zu tun ist.
  *
  * `null` ist der haeufige und der wichtige Fall: jede Aenderung kostet die Pixel-Referenz, also
- * Totband und Schrittdeckel statt eines Reglers, der jeden Frame nachfuehrt.
+ * Totband und Schrittdeckel statt eines Reglers, der jeden Frame nachfuehrt. [baseEv] ist der
+ * Boden des Nutzers — die Regelung hellt darueber auf und blendet nie darunter ab.
  */
 fun nextExposure(
     state: ExposureState,
     reading: ExposureReading,
     limitEv: ClosedFloatingPointRange<Double>,
     policy: ExposurePolicy = ExposurePolicy(),
+    baseEv: Double = limitEv.start,
 ): ExposureState? {
     val ceiling = updatedCeiling(state, reading, policy)
-    val wanted = minOf(state.ev + desiredStepEv(reading, policy), ceiling).coerceIn(limitEv)
+    // Die Klinke begrenzt nur die EIGENE Aufhellung: sie blendete sonst ein gut belichtetes Brett
+    // ab, sobald Spitzlichter ueber `clipCap` lagen (`docs/board-exposure.md`, 2026-08-30).
+    val floorEv = maxOf(limitEv.start, baseEv)
+    val wanted = minOf(state.ev + desiredStepEv(reading, policy), ceiling).coerceIn(floorEv, limitEv.endInclusive)
     val step = wanted - state.ev
     if (abs(step) <= policy.deadbandEv) {
         return state.copy(ceilingEv = ceiling).takeIf { it.ceilingEv != state.ceilingEv }
     }
-    val next = (state.ev + step.coerceIn(-policy.maxStepEv, policy.maxStepEv)).coerceIn(limitEv)
+    val next = (state.ev + step.coerceIn(-policy.maxStepEv, policy.maxStepEv)).coerceIn(floorEv, limitEv.endInclusive)
     return ExposureState(next, ceiling).takeIf { it.ev != state.ev }
 }
 

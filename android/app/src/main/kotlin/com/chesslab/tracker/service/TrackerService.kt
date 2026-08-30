@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
+import android.widget.Toast
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.chesslab.engine.api.EngineAction
@@ -17,9 +18,11 @@ import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
 import com.chesslab.tracker.BuildConfig
+import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.BoardExposureGovernor
 import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.ExposureNotice
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
@@ -165,7 +168,7 @@ class TrackerService :
                     // Die Belichtungskorrektur nach dem BRETT. Der Startpunkt ist, was auf dem
                     // Schieber steht — die Regelung uebersteuert eine Einstellung des Nutzers
                     // nicht, sie fuehrt sie weiter.
-                    exposure = BoardExposureGovernor(camera.look),
+                    exposure = BoardExposureGovernor(camera.look, onBrighten = ::announceBrightening),
                 ),
                 settings,
                 publisher,
@@ -634,6 +637,17 @@ class TrackerService :
         // exposure, white balance and focus, on the reasoning that the setup had just moved; with
         // no freeze to re-arm (`OpticsLock`) the camera is either on its own automatic or on the
         // values the user pinned, and neither is this function's business.
+    }
+
+    /**
+     * Dass die Regelung aufhellt, gehoert auf den Schirm: sie veraendert das Bild, aus dem der
+     * Tracker liest, und wer am Brett sitzt soll nicht raten, warum es heller geworden ist.
+     */
+    private fun announceBrightening(notice: ExposureNotice) {
+        val text = getString(R.string.tracking_exposure_brightening, "%+.1f".format(notice.evAboveBase))
+        lifecycleScope.launch(Dispatchers.Main) {
+            Toast.makeText(this@TrackerService, text, Toast.LENGTH_LONG).show()
+        }
     }
 }
 

@@ -69,6 +69,30 @@ liest die Helligkeitsstufe sonst als Bewegung. Der Preis einer Verstellung ist a
 Zug, nicht ein verlorener Frame. Deshalb Totband, Schrittdeckel, Messung nur jeden 30. Frame, und
 eine Sperre von 60 Frames nach jedem Frame, der die Engine beschäftigt hat.
 
+## Sie hellt auf, sie blendet nicht ab (2026-08-30)
+
+Gemeldet: „der auto ev und iso kram dunkelt gut belichtete bilder ab". Stimmt, und der Weg dahin
+war die Sperrklinke, nicht der Aufhellwunsch. Sie fällt bei `clippedFraction > clipCap` (2 %) auf
+`ev - 0,4`, und zwar unabhängig davon, ob die Regelung je aufgehellt hat. Ein gut belichtetes
+Brett mit ein paar Spitzlichtern — jede Lampe, jede weiße Figur im Streiflicht — lief damit
+Schritt für Schritt nach unten. Über `desiredStepEv` konnte es nicht kommen: bei 8-Bit-Werten ist
+`headroom` höchstens `2,2 * log2(250/255)` = **-0,06 EV** und liegt immer im Totband.
+
+Der Boden ist jetzt der Schieberwert des Nutzers (`nextExposure(baseEv = …)`):
+
+- **darüber** regelt sie frei — das Aufhellen ist unverändert;
+- **darunter** nie, auch die Klinke nicht. Zurückgenommen wird nur die eigene Aufhellung.
+
+Abblenden bleibt damit bei der Geräte-AE und beim Schieber, und das ist die ehrliche Aufteilung:
+die Regelung ist gebaut, um eine zu dunkle Szene lesbar zu machen, nicht um zu belichten.
+
+Stellt der Nutzer den Schieber während des Betriebs, ist sein neuer Wert der neue Boden — der
+Governor erkennt das daran, dass `evIndex` von etwas anderem als ihm selbst geändert wurde.
+
+**Wer regelt, sagt es.** Jede Verstellung verändert das Bild, aus dem der Tracker liest. Beim
+Beginn einer Aufhell-Episode (nicht bei jedem Schritt) meldet der Governor eine `ExposureNotice`,
+und der `TrackerService` macht daraus einen Toast: „Dark board detected — brightening by +0,7 EV".
+
 ## Zwei Fallen beim Verdrahten
 
 - **Zeit/ISO gehören nicht in `CameraLook`.** Dort lagen sie zuerst, und

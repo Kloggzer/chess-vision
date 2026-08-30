@@ -76,6 +76,27 @@ class BoardExposureGovernorTest {
     }
 
     @Test
+    fun `a bright board with blown highlights is not dimmed`() {
+        // Der gemeldete Fehler: die Klinke faellt bei Saettigung, und ein Brett ohne ein einziges
+        // zu dunkles Feld wurde so Schritt fuer Schritt abgeblendet.
+        val port = FakePort(able)
+        assertFalse(governor(port).onBoard(1, true) { board(255) })
+        assertEquals(0, port.sets) { "abgeblendet, obwohl nichts zu dunkel war" }
+    }
+
+    @Test
+    fun `the player is told once per brightening episode`() {
+        // Jeder Schritt derselben Aufhellung ist dasselbe Ereignis — sonst redet die App bei
+        // jedem Tick, und das Fenster ist zwei Sekunden breit.
+        val port = FakePort(able)
+        val said = mutableListOf<ExposureNotice>()
+        val gov = BoardExposureGovernor(port, everyFrames = 1, holdFrames = 0, onBrighten = { said += it })
+        repeat(5) { tick -> gov.onBoard(tick.toLong(), true) { board(10) } }
+        assertEquals(1, said.size) { "gemeldet: $said" }
+        assertTrue(said.first().evAboveBase > 0.0)
+    }
+
+    @Test
     fun `metering is skipped between ticks`() {
         val port = FakePort(able)
         val gov = BoardExposureGovernor(port, everyFrames = 30, holdFrames = 0)

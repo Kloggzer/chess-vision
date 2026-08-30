@@ -102,6 +102,35 @@ class BoardExposureTest {
     }
 
     @Test
+    fun `a well lit board is not dimmed below the user's setting`() {
+        // Der gemeldete Fehler: ein paar Spitzlichter ueber `clipCap` liessen die Klinke fallen
+        // und blendeten ein Brett ab, an dem KEIN Feld zu dunkel war.
+        val bright = reading(90f, highlight = 255f, clipped = 0.10f)
+        val next = nextExposure(start, bright, limits, baseEv = 0.0)
+        assertEquals(start.ev, next?.ev ?: start.ev, 1e-9) { "abgeblendet auf ${next?.ev} EV" }
+        // Ohne den Boden faellt sie, und genau so sah es der Nutzer.
+        assertTrue(nextExposure(start, bright, limits)!!.ev < start.ev)
+    }
+
+    @Test
+    fun `the ratchet takes back its own lift but stops at the floor`() {
+        // Aufhellen darf sie zuruecknehmen — bis dahin, wo der Schieber steht, und keinen Schritt
+        // weiter. Sonst waere der Boden nur eine andere Art, die Regelung abzuschalten.
+        val lifted = ExposureState(ev = 1.5)
+        val next = nextExposure(lifted, reading(90f, highlight = 255f, clipped = 0.10f), limits, baseEv = 0.0)!!
+        assertTrue(next.ev < lifted.ev) { "nimmt die eigene Aufhellung nicht zurueck" }
+        assertTrue(next.ev >= 0.0) { "unter den Schieber gefallen: ${next.ev} EV" }
+    }
+
+    @Test
+    fun `a dark board is still brightened above the floor`() {
+        // Der Boden darf das Aufhellen nicht behindern — nur das Abblenden.
+        val next = nextExposure(start, reading(12f, highlight = 90f), limits, baseEv = 0.0)
+        assertNotNull(next)
+        assertTrue(next!!.ev > 0.0)
+    }
+
+    @Test
     fun `the index is the device step, not a stop`() {
         // 1/6 EV je Schritt: wer +1 EV will, braucht Index 6 — nicht 1.
         assertEquals(6, range.indexFor(1.0))
