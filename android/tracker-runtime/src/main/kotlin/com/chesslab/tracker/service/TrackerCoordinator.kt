@@ -21,6 +21,7 @@ import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameResult
+import com.chesslab.tracker.pipeline.NoiseFloor
 import com.chesslab.tracker.pipeline.Stage
 import com.chesslab.tracker.pipeline.StageTimings
 import kotlinx.coroutines.CoroutineDispatcher
@@ -78,6 +79,9 @@ class TrackerCoordinator<T>(
 ) {
     private var sourceSeq = 0L
 
+    /** Das Grundrauschen im Zellmittel fuer die Perf-Zeile — misst zwei Frames je Sekunde. */
+    private val noise = NoiseFloor()
+
     /**
      * The frame clock spans this WHOLE method.
      *
@@ -110,6 +114,9 @@ class TrackerCoordinator<T>(
         // hat. Eine Verstellung verschiebt jeden Pixel, also ist die Pixel-Referenz danach hin —
         // `CaptureBaseline` ist genau das, ohne die Stellung zu verlieren.
         val ready = result as? FrameResult.Ready
+        // Vor der Regelung, damit kein Paar ueber eine Verstellung hinweg gemessen wird. Denselben
+        // 160er-Warp wie die Belichtung, und der ist je Frame memoisiert — also hoechstens einer.
+        if (ready != null) noise.observe(ready.input.seq, ready.input.corners) { ready.input.board?.invoke(it) }
         // `quiet`: dieser Frame hat die Engine NICHT beschaeftigt. Ein Ereignis heisst Commit,
         // Alarm oder Re-Anchor — alles Momente, in denen die Pixel-Referenz gerade entsteht.
         val quiet = events.isEmpty()
@@ -117,9 +124,10 @@ class TrackerCoordinator<T>(
             exposure.onBoard(ready.input.seq, quiet) { ready.input.board?.invoke(METER_BOARD_PX) }
         ) {
             host.submit(EngineAction.CaptureBaseline)
+            noise.disarm()
         }
         align.maybeAlign(bus, delivered)
-        timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma())
+        timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma(), noise.busy)
     }
 
     /**

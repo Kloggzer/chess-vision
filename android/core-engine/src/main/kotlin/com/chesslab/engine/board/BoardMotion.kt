@@ -89,3 +89,15 @@ fun cellDeltas(
 }
 
 fun peak(deltas: DoubleArray): Double = deltas.max()
+
+/**
+ * The board's quiet level: the upper quartile of [cellDeltas].
+ *
+ * A move touches two to four cells of 64, so what stands at the quartile is never a move — it is
+ * the floor every change threshold has to clear. `ChangeEvidence` sets its bar on it; the perf
+ * line reports it so the floor can be watched on an engine that never computes one.
+ */
+fun busyLevel(deltas: DoubleArray): Double = deltas.sorted()[deltas.size * UPPER_QUARTILE_NUM / UPPER_QUARTILE_DEN]
+
+private const val UPPER_QUARTILE_NUM = 3
+private const val UPPER_QUARTILE_DEN = 4

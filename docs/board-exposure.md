@@ -158,3 +158,34 @@ sobald sich eine der beiden Zahlen merklich bewegt, und nicht mehr nur bei einer
   später weg, und der Tracker blieb im dunklen Fenster hängen.
 - **`setExposureCompensationIndex` ist ein AE-Aufruf** und holt `CONTROL_AE_MODE` zurück auf ON.
   Solange manuell gestellt wurde, hätte der Helligkeitsschieber die Automatik still abgeschaltet.
+
+## Wo der Gewinn ankommt — und wo nicht (2026-08-30)
+
+Ein Sechstel Verstaerkung im Rohbild ist Physik. Ob sie beim Tracker ankommt, entscheidet die
+Mittelung: `cellDeltas` mittelt eine ganze Zelle (bei `boardSize` 976 rund 122x122 Quellpixel),
+und Mittelung daempft unkorreliertes Rauschen um sqrt(N). Gemessen wird das jetzt: `NoiseFloor`
+nimmt zweimal je 15 Frames ein Paar aufeinanderfolgender Bretter, rechnet `busyLevel` darueber —
+dieselbe Groesse, auf die `ChangeEvidence.busy` seine Schwelle setzt — und schreibt sie als
+`noise=` auf die Perf-Zeile. Die App laeuft auf `CLASSIC`, wo `busy` sonst nie entsteht.
+
+Zwei Replays, `desktop replay ... quiet model=p4a-80-clahe`:
+
+| Aufnahme | Quelle | ISO-Regime | p10 | Median | p75 |
+|---|---|---|---:|---:|---:|
+| `VID_20260824_153751` | 3840x2160, 30 fps | vor `1ee08beb` | 0,41 | 1,09 | 2,59 |
+| `2026-08-30-14-33-02` | 2560x1440, 15 fps | nach `1ee08beb` | 0,33 | 2,63 | 4,36 |
+
+**Kein Gewinn sichtbar.** Die beiden Grundrauschen liegen in derselben Groessenordnung, nicht um
+Faktor 6 und nicht um sqrt(6) auseinander — und die Verzerrung laeuft zugunsten der aelteren
+Aufnahme (2,25-fache Flaeche je Zelle, halbe Bildperiode zwischen den Paaren), also ist der echte
+Abstand eher noch kleiner. Was `busy` traegt, ist auf beiden Seiten nicht das Sensorrauschen,
+sondern Warp-Zittern, Schattendrift und Restbewegung.
+
+Der scharfe Teil des Befunds braucht die Aufnahmen gar nicht zu vergleichen: bei einem ruhigen
+Brett ist `3 * busy` rund 1,0 bis 1,2 Graustufen und damit weit unter `ChangeEvidence.FLOOR_THR`
+von 4,0. Die Schwelle haengt dort am absoluten Boden, der Rauschterm greift erst ab `busy` 1,33.
+Ein Rauschgewinn unterhalb dieser Grenze kann die Zugentscheidung nicht erreichen — er bezahlt
+sich, wenn ueberhaupt, im CNN-Crop, nicht im Diff-Kanal.
+
+Offen bleibt der saubere A/B: dieselbe Stellung, dasselbe Licht, einmal mit und einmal ohne
+`iso_exp_priority`. Es gibt nur eine Aufnahme mit `settings.json` und sie liegt nach dem Umbau.
