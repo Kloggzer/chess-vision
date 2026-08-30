@@ -1,4 +1,4 @@
-"""Das Brett ohne ArUco finden — Takt aus den Linien, Lage aus dem Karo.
+"""Das Brett ohne ArUco finden — Takt aus den Linien, Lage aus der Paritaet.
 
 Gemessen und begründet in `docs/markerless.md`: ArUco allein besteht `alignment_of` nie, die
 Genauigkeit kommt aus dem Grid-Fit — markerlos braucht nur einen einfangbaren Startquad.
@@ -31,6 +31,20 @@ OUTSIDE_WEIGHT = 2.0
 
 #: Wie weit über die gefundenen Linien hinaus gesucht wird, in Vielfachen von [SPACING_HI].
 SEARCH_PAD = 1.5
+
+#: Pixel je Zelle, in denen die Lage geprüft wird. Grob genug, dass es nichts kostet.
+PHASE_CELL = 32
+
+#: Wie viele Zellen Versatz die Lagekorrektur durchsucht.
+PHASE_RANGE = 1
+
+#: Wie die Homographie ueber die 81 Schnittpunkte geschaetzt wird. Der Bauch ist SYSTEMATISCH,
+#: kein Ausreisser — Konsens waehlt dann eine Bildregion aus, kleinste Quadrate mitteln ihn.
+GRID_FIT, GRID_FIT_THR = cv2.LMEDS, 0.0
+
+#: Der Ring, aus dem die Feldfarbe kommt, als Anteil der Zelle vom Rand nach innen.
+#: Weiter aussen liegt die Rille und bei ungenauem Quad die Nachbarzelle, weiter innen die Figur.
+PHASE_RING = (0.10, 0.32)
 
 
 def _segments(bgr):
@@ -129,6 +143,28 @@ def _intersect(l1, l2):
     return None if abs(np.linalg.det(a)) < 1e-6 else np.linalg.solve(a, np.array([c1, c2]))
 
 
+def _quad_from_grid(la, lb):
+    """Die Ecken aus ALLEN 81 Schnittpunkten, nicht aus den vier aeussersten.
+
+    Die vier sind die am staerksten tonnenverzeichneten Punkte im Bild (roh 15-17 px Bauch);
+    eine Homographie ueber das ganze Gitter mittelt den Bauch statt ihn dort abzulesen.
+    """
+    src, dst = [], []
+    for i, a in enumerate(la):
+        for j, b in enumerate(lb):
+            p = _intersect(b, a)
+            if p is not None:
+                src.append(p)
+                dst.append([j, i])
+    if len(src) < 4 * LINES:
+        return None
+    h, _ = cv2.findHomography(np.array(dst, np.float32), np.array(src, np.float32), GRID_FIT, GRID_FIT_THR)
+    if h is None:
+        return None
+    box = np.array([[[0, 0], [CELLS, 0], [CELLS, CELLS], [0, CELLS]]], np.float32)
+    return list(cv2.perspectiveTransform(box, h)[0])
+
+
 def _canonical(quad):
     """[a8, h8, h1, a1] — links oben zuerst, dann im Uhrzeigersinn.
 
@@ -141,7 +177,54 @@ def _canonical(quad):
     return [pts[(start + k) % 4] for k in range(4)]
 
 
-def find_board(bgr):
+def _ring_means(board, n):
+    """Je Zelle das Mittel ihres AUSSENRINGS: in der Mitte steht die Figur, am Rand das Feld."""
+    c = board.reshape(n, PHASE_CELL, n, PHASE_CELL).swapaxes(1, 2).astype(np.float32)
+    lo, hi = (int(round(f * PHASE_CELL)) for f in PHASE_RING)
+    outer, inner = c[:, :, lo:-lo, lo:-lo], c[:, :, hi:-hi, hi:-hi]
+    n_out, n_in = (PHASE_CELL - 2 * lo) ** 2, (PHASE_CELL - 2 * hi) ** 2
+    return (outer.sum((2, 3)) - inner.sum((2, 3))) / (n_out - n_in)
+
+
+#: Karo-Vorzeichen: +1/-1 nach (i+j), das einzige Muster, dem ein Brettfeld folgen MUSS.
+_PARITY = (np.indices((CELLS, CELLS)).sum(0) % 2) * 2 - 1
+
+
+def _parity_fit(m, i, j, pad):
+    """Wie gut die SCHWAECHSTE Reihe des 8x8 dem Karo folgt — vorzeichenrichtig.
+
+    Der Betrag reicht nicht: ein beschrifteter Rand variiert von den Buchstaben ebenso stark,
+    nur nicht im Takt (`docs/markerless.md`).
+    """
+    f = m[pad + i:pad + i + CELLS, pad + j:pad + j + CELLS]
+    g = np.sign((f - f.mean()) * _PARITY).sum() or 1.0
+    d = g * _PARITY * (f - f.mean(1, keepdims=True))
+    e = g * _PARITY * (f - f.mean(0, keepdims=True))
+    return float(min(d.mean(1).min(), e.mean(0).min()))
+
+
+def fix_phase(bgr, quad, rng: int = PHASE_RANGE):
+    """`quad` um ganze Zellen verschieben, bis keine Randreihe mehr drin liegt.
+
+    Der Detektor trifft den Takt zuverlaessig, aber nicht immer die Lage — die verbleibenden
+    Fehler sind fast alle genau eine Zelle. Gemessen in `docs/markerless.md`.
+    """
+    q = np.array(quad, float)
+    du, dv = (q[1] - q[0]) / CELLS, (q[3] - q[0]) / CELLS
+    pad, n = rng + 1, CELLS + 2 * (rng + 1)
+    s = n * PHASE_CELL
+    src = np.array([q[0] - pad * (du + dv), q[0] + (CELLS + pad) * du - pad * dv,
+                    q[0] + (CELLS + pad) * (du + dv), q[0] - pad * du + (CELLS + pad) * dv], np.float32)
+    dst = np.array([[0, 0], [s, 0], [s, s], [0, s]], np.float32)
+    gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+    board = cv2.warpPerspective(gray, cv2.getPerspectiveTransform(src, dst), (s, s))
+    m = _ring_means(board, n)
+    i, j = max(((i, j) for i in range(-rng, rng + 1) for j in range(-rng, rng + 1)),
+               key=lambda k: _parity_fit(m, k[0], k[1], pad))
+    return [[float(x), float(y)] for x, y in q + i * dv + j * du]
+
+
+def find_board(bgr, phase: bool = True):
     """Vier Feldecken in Bildpixeln, oder None."""
     small, segs, scale = _segments(bgr)
     if len(segs) < 2 * LINES:
@@ -169,29 +252,8 @@ def find_board(bgr):
     lb = _fit_family(fb, nv, [b[1] + k * b[2] for k in range(LINES)], b[2], v)
     if la is None or lb is None:
         return None
-    quad = [_intersect(lb[0], la[0]), _intersect(lb[-1], la[0]),
-            _intersect(lb[-1], la[-1]), _intersect(lb[0], la[-1])]
-    if any(q is None for q in quad):
-        return None
-    return [[float(p[0] / scale), float(p[1] / scale)] for p in _canonical(quad)]
-
-
-def board_candidates(bgr, shifts: int = 1):
-    """Der gefundene Quad und seine Nachbarn, je eine Zelle versetzt — Vorschlag, keine Loesung.
-
-    Ein um eine Zelle verschobenes Gitter liegt GENAUSO auf Rillen, und `alignment_of` bevorzugt
-    es sogar. Wer hieraus auswaehlt, braucht ein anderes Kriterium — `docs/markerless.md`.
-    """
-    quad = find_board(bgr)
+    quad = _quad_from_grid(la, lb)
     if quad is None:
-        return []
-    q = np.array(quad, float)
-    du, dv = (q[1] - q[0]) / CELLS, (q[3] - q[0]) / CELLS
-    out = [
-        [[float(x), float(y)] for x, y in q + i * du + j * dv]
-        for i in range(-shifts, shifts + 1)
-        for j in range(-shifts, shifts + 1)
-    ]
-    # Die Mitte zuerst: bei Gleichstand gewinnt der ungeschobene Vorschlag.
-    out.sort(key=lambda c: float(np.linalg.norm(np.array(c) - q)))
-    return out
+        return None
+    out = [[float(p[0] / scale), float(p[1] / scale)] for p in _canonical(quad)]
+    return fix_phase(bgr, out) if phase else out

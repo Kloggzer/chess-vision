@@ -1,8 +1,25 @@
 # Markerlos: das Brett ohne ArUco finden
 
-> Spike vom 2026-08-30. Prototyp in `tmp/mless_board.py`, Prüfstand `tmp/mless_bench.py`.
-> `CLAUDE.md` führt markerlosen Kaltstart als **nicht unterstützt** — dieser Text misst, was
-> nötig wäre, um das zu ändern.
+> Spike 2026-08-30. Code in `src/chesslab/markerless.py`, CLI `chesslab calibrate markerless`,
+> Prüfsatz `data/reports/markerless/fixture` (155 Frames aus 20 Aufnahmen, je mit ArUcos
+> gitterangepasstem Quad). `CLAUDE.md` führt markerlosen Kaltstart als **nicht unterstützt** —
+> dieser Text misst, was nötig wäre, um das zu ändern.
+
+## Stand
+
+Gegen ArUcos Spielfeld, Orientierung ausgeklammert (dazu unten):
+
+| | von 155 |
+|---|---:|
+| Brett gefunden | 149 (96 %) |
+| roh auf ArUcos Lösung (< 0,25 Zellen) | 137 (88 %) |
+| nach `correct_quad` | **140 (90 %)** |
+
+Medianer Eckenfehler **0,06 Zellen**, 90 % unter 0,22. Laufzeit **70 ms je Frame** auf 1080p,
+davon 2 ms für die Lagekorrektur.
+
+`data/reports/markerless/aruco-gegen-markerlos.png` zeigt es am Ergebnis — dem entzerrten Brett.
+Vier von sechs Crops sind deckungsgleich; die zwei übrigen sind um 90° gedreht, das Feld stimmt.
 
 ## Die Latte ist niedriger, als sie aussieht
 
@@ -23,109 +40,97 @@ Markerlos muss also nicht ArUcos Präzision erreichen, sondern nur einen Startqu
 1. **Liniensegmente** (LSD auf 960 px Arbeitsbreite, Segmente > 25 px).
 2. **Gitterrichtung** aus dem **vierfachen** Winkel. Nicht dem doppelten: ein Gitter hat zwei
    senkrechte Familien, und die legt der doppelte Winkel aufeinander — 0° und 90° werden beide
-   zu 0°. Mit `2θ` lag der „Hauptwinkel" eines Bretts *zwischen* den Familien; mit `4θ` wird eine
-   um 5,94° gedrehte Aufnahme korrekt als solche erkannt.
+   zu 0°. Mit `2θ` lag der „Hauptwinkel" eines Bretts *zwischen* den Familien.
 3. **Takt** je Familie aus einem Kamm von 9 Linien, gewertet mit **sättigender** Summe: ohne
-   Deckel trägt eine einzige lange Tischkante den ganzen Kamm. Takt und Lage fallen in EINER
-   Suche je Achse — beides steht in derselben Kurve.
-4. **Lage aus den Linien-ENDEN, nicht aus dem Karo.** Ein Brett hat genau neun Linien je Achse;
-   an Position -1 und +9 ist keine. Gemessen liegt dort an der richtigen Stelle **exakt null**, auf
-   vier Aufnahmen und beiden Achsen — das ist das eindeutigste Merkmal im ganzen Bild.
-5. **Echte Linien anpassen** statt das Raster zu nehmen. Das Raster liefert nur die Zuordnung,
-   welche Segmente zusammengehören; gefittet wird längengewichtet, Richtung frei. Ein
-   Parallelogramm kann keine Perspektive, geschnittene Linien schon.
-6. `board_candidates` bietet den Quad und seine acht Nachbarn (je eine Zelle versetzt) an —
-   **als Vorschlag, nicht als Lösung.** Wer daraus mit `alignment_of` auswählt, wählt falsch: siehe
-   unten. Der Aufrufer braucht eine eigene Entscheidung.
+   Deckel trägt eine einzige lange Tischkante den ganzen Kamm.
+4. **Echte Linien anpassen** statt das Raster zu nehmen. Das Raster liefert nur die Zuordnung,
+   welche Segmente zusammengehören; gefittet wird längengewichtet, Richtung frei.
+5. **Der Quad aus allen 81 Schnittpunkten**, nicht aus den vier äußersten. Die Ecken sind die am
+   stärksten tonnenverzeichneten Punkte im Bild (roh 15–17 px Bauch, `CLAUDE.md`); eine
+   Homographie über das ganze Gitter mittelt den Bauch, statt ihn an seinem Maximum abzulesen.
+   Gemessen: medianer Fehler 0,156 → 0,067 Zellen, Anteil unter 0,15 Zellen 72 → 106 von 149.
+6. **Die Lage aus der Parität** (`fix_phase`), siehe unten.
 
-Die Schritte 2 und 4 kamen jeweils aus einem Fehlschlag, den erst die Messung sichtbar gemacht hat.
-Der `Alignment`-Docstring des Projekts sagt die Lehre dahinter schon: *„`unread` is part of the
-verdict, not a footnote … calling that a pass is how the pinned metric certified 302 bad frames in
-2026-07."*
+## Die Phase war das ganze Problem
 
-## Wie weit es trägt — und wie es NICHT zu messen ist
+Nach Schritt 5 ist die Skala exakt (Größenverhältnis 1,000 ± 0,01) und **jeder** verbleibende
+Fehler ein ganzzahliger Zellversatz. Vier Merkmale probiert, zwei gemessen und verworfen:
 
-**Erst der Messfehler, weil er die halbe Arbeit war.** `alignment_of` ist absolut, aber es kann
-eine um eine ZELLE verschobene Lösung nicht von der richtigen unterscheiden: ein Schachbrettgitter
-sieht so verschoben genauso aus. Gemessen auf `00-39-57/3379` besteht ein 104 px (= eine Zelle)
-daneben liegender Quad mit **3,10 px**, während ArUco selbst **4,41 px** hat. `unread` fängt es
-nur, wenn der Rand an der 9. Linie keine Kante hat — dieses Brett hat dort seine Beschriftung.
+| Merkmal | trifft die Lage |
+|---|---:|
+| Karo-Korrelation der 64 Zellmittel | verworfen |
+| „außerhalb ist keine Linie" (`OUTSIDE_WEIGHT`) | ohne Wirkung |
+| Alternation der schwächsten Reihe, Betrag | 121 / 155 |
+| **Alternation der schwächsten Reihe, vorzeichenrichtig** | **137 / 155** |
 
-Wer markerlos an `alignment_of` misst, bekommt also 16 von 18 „bestanden" und glaubt es. Das
-richtige Maß ist der Abstand zu den ArUco-Ecken, in Zellen:
+- **Das Karo kann die Lage nicht bestimmen.** Um eine Zelle verschoben ist es nur INVERTIERT und
+  punktet praktisch gleich — 1,880 gegen 1,879 auf `11-59-12`. Der Betrag ist gleich groß, das
+  Vorzeichen sagt nur, ob die Ursprungszelle hell oder dunkel ist.
+- **`OUTSIDE_WEIGHT` ist wirkungslos geworden.** Über 0,0 bis 3,0 gemessen: 121 bis 125 Treffer,
+  also flach. Die Regel „bei −1 und +9 ist keine Linie" stimmt auf Brettern mit
+  Beschriftungsrand ohnehin nicht — dort liegt genau da die Außenkante.
+- **Betrag reicht nicht, Vorzeichen schon.** Der erste Ansatz nahm das Minimum über die 16 Reihen
+  und Spalten der *Stärke* der Alternation. Ein beschrifteter Rand variiert von den Buchstaben
+  aber ebenso stark wie ein Karo, und die echte Grundreihe steht voller Figuren und variiert
+  dadurch WENIGER. Genau deshalb brach `11-55-19` von 7/7 auf 2/7 ein. Vorzeichenrichtig gegen
+  das Karo gerechnet, kehrt sich das um: Buchstaben folgen keinem Takt.
 
-Ueber 14 Aufnahmen, 65 Frames:
+Das Maß ist gegen seine Parameter unempfindlich — über sechs Ring-Geometrien schwankt es um
+±1 Frame, während die Betrags-Version zwischen 106 und 130 lag. Ein größerer Suchbereich als
+±1 Zelle bringt nichts (identisch bei ±2 und ±3).
 
-| | von 65 |
-|---|---|
-| Brett gefunden | **63** |
-| dieselbe Lösung wie ArUco (< 0,25 Zellen) | **37** (57 %) |
-| eine Zelle daneben | 21 |
-| Eckenrollen um 90° gedreht | 5 |
-| kein Brett | 2 |
+## Wie es NICHT zu messen ist
 
-Die 37 Treffer liegen nach dem Grid-Fit bei **0,00 bis 0,01 Zellen** — exakt auf ArUcos Lösung,
-aus einem Bild ohne Marker. Mit dem Karo als Phasen-Merkmal waren es vorher rund 22 %.
+Drei Messfehler, und zusammen machten sie aus 140 Treffern die Zahl 48.
 
-Auf den fünf Aufnahmen, an denen entwickelt wurde, sind es 11 von 18; der Abstand zu den 57 % über
-alle 14 ist der übliche: **was man beim Bauen ansieht, wird besser als der Rest.**
+**1. `alignment_of` kann eine um eine Zelle verschobene Lösung nicht erkennen.** Ein
+Schachbrettgitter sieht so verschoben genauso aus. Auf `00-39-57/3379` besteht ein 104 px daneben
+liegender Quad mit **3,10 px**, während ArUco selbst **4,41 px** hat. Wer markerlos daran misst,
+bekommt 16 von 18 „bestanden" und glaubt es.
 
-**Warum das Karo als Phasen-Merkmal ausschied.** Der erste Entwurf nahm dafür die Korrelation der
-64 Zellmittel. Gemessen: um eine Zelle verschoben ist ein Karo einfach INVERTIERT und punktet
-praktisch gleich — 1,880 gegen 1,879 auf `11-59-12`. Der Betrag ist gleich groß, das Vorzeichen
-sagt nur, ob die Ursprungszelle hell oder dunkel ist, und das hängt daran, welche Ecke im
-gefundenen Achsensystem der Ursprung ist. Es kann den Takt bestimmen, aber niemals die Lage.
+**2. Die Referenz trägt `margin`, der Detektor nicht.** Ein Kalibrierprofil-Quad liegt
+`margin = 0,045` je Seite **außerhalb** des Spielfelds (`compute_homography`), ist also 1,09× so
+groß. Dagegen sah jeder richtige markerlose Quad um 7,4 % zu klein und um 0,36 Zellen versetzt aus
+— gemessen 0,925 und +0,30. Das ist keine Ungenauigkeit, das ist eine Konvention.
+`field_to_profile` rechnet um.
 
-Auf dem Weg dahin habe ich mich zweimal selbst getäuscht: erst mit einer Sonde, deren Achsen bei
-einem Gitterwinkel nahe 90° vom Brett WEG zeigten (sie maß neben dem Brett und meldete „das Karo
-ist auf vollen Brettern tot"), dann mit einem Vorzeichen, das ich für ein fehlendes Signal hielt.
-Beide Male sah die falsche Erklärung plausibel aus. Der Ausweg war beide Male, die Annahme
-auszurechnen statt sie zu glauben.
+**3. Die Orientierung als Fehler zu zählen.** 39 von 155 Frames lagen exakt richtig, nur mit
+gerollten Ecken. Welche Ecke a8 ist, kann ein Gitter prinzipiell nicht sagen — die vier Drehungen
+sind ununterscheidbar. Bewertet wird deshalb der kleinste Eckenabstand über die vier Rollen.
 
-## ArUco ist widerstandsfähiger, und zwar aus Bauart
+Auf dem Weg dahin zusätzlich zwei Selbsttäuschungen: eine Sonde, deren Achsen bei einem
+Gitterwinkel nahe 90° vom Brett WEG zeigten und daraufhin „das Karo ist auf vollen Brettern tot"
+meldete, und ein Vorzeichen, das ich für ein fehlendes Signal hielt. Der Ausweg war beide Male,
+die Annahme auszurechnen statt sie zu glauben.
 
-Auf denselben 65 Frames, beide Wege pro Frame:
+## Was ArUco anders macht — und warum es widerstandsfähiger bleibt
 
-| | gefunden | Anteil |
-|---|---:|---:|
-| ArUco | **65** | 100,0 % |
-| markerlos | 63 | 96,9 % |
+Ein ArUco-Detektor sucht **kein Gitter**: adaptive Schwelle → Konturen → Polygone auf vier Ecken
+reduzieren → jedes Viereck entzerren → **Bits auslesen**. Die Identität kommt aus einem
+fehlerkorrigierenden Code. Daraus folgt der Unterschied:
 
-Kein einziger Frame, in dem markerlos etwas findet und ArUco nicht. Die zwei Ausfälle sind beide
-ein Arm quer über dem Brett — und genau dort liegt der Unterschied:
-
-- **Die Marker sitzen ausserhalb des Spielfelds.** Eine Hand greift in die Mitte, die vier Ecken
-  bleiben frei. Markerlos braucht die Gitterlinien quer über das ganze Brett.
+- **Der Marker ist eine geschlossene Fläche mit garantiert schwarzem Rahmen.** Das Spielfeld hat
+  keine solche Kontur — es geht nahtlos in den Beschriftungsrand über.
+- **Die Phase löst der Code, nicht das Bild.** Genau dafür gibt es ChArUco: ein reines Schachbrett
+  ist mehrdeutig, also klebt man Marker in die weißen Felder.
+- **Die Marker sitzen außerhalb des Spielfelds.** Eine Hand greift in die Mitte, die vier Ecken
+  bleiben frei; markerlos braucht Gitterlinien quer über das ganze Brett. Beide Frames ohne Fund
+  sind ein Arm quer über dem Brett.
 - **ArUco hat ein Gedächtnis.** `MarkerTracker` hält Marker über Frames; dieser Detektor fängt
   jeden Frame bei null an.
-- **Ein Marker ist eindeutig, ein Karo nicht.** Die vier Marker sind verschieden und sagen damit
-  auch die Orientierung — was das Gitter prinzipiell nicht kann.
 
-Als **Ersatz** für ArUco taugt der Detektor in diesem Stand nicht. Der einzige Grund, ihn zu
-wollen, ist der Kaltstart auf einem unpräparierten Brett: dort landen 37 von 63 exakt richtig, und
-die Fehlerarten sind benannt statt diffus.
-
-## Was das Raster NICHT liefert
-
-Die Orientierung. Welche Ecke a8 ist, sagt das Karo nicht — die vier 90°-Drehungen sind
-ununterscheidbar. Der Prototyp nimmt „links oben = a8", was zu den vorhandenen Aufnahmen passt,
-aber eine Annahme bleibt. ArUco löst das, weil die vier Marker verschieden sind.
-
-Für einen echten markerlosen Kaltstart braucht es dafür eine eigene Quelle: die Rand-Beschriftung
-lesen, die Grundstellung erkennen, oder den Nutzer einmal fragen.
+Als **Ersatz** für ArUco im Frame-Pfad taugt der Detektor nicht. Der Anwendungsfall ist der
+Kaltstart auf einem unpräparierten Brett — und dort sitzt er in 90 % der Fälle exakt auf ArUcos
+Lösung.
 
 ## Offen
 
-- **Die Phase, immer noch.** 21 von 65 sitzen eine Zelle daneben. Auf den Entwicklungs-Aufnahmen
-  löst das Linien-Ende-Maß es, über alle 14 nicht — dort ist noch etwas anderes im Spiel.
-- **Die Orientierung**, 5 von 65. Eine Idee ist gemessen und VERWORFEN: „a1 ist dunkel" halbiert
-  die vier Drehungen auf zwei, aber die Umsetzung wählte die falsche und riss zwei funktionierende
-  Aufnahmen von 0,00 auf 7,8 Zellen. Der Gedanke bleibt richtig, die Ausführung war es nicht.
-- **`2026-08-13-12-46-24`** bleibt auch nach dem Rollen bei 1,25 Zellen: anderes Brett, deutliche
-  Perspektive, dünnere Rillen.
-- Zwei Frames finden gar kein Brett — beide mit einer Hand mitten darüber.
-- Perspektive: der Fit trägt sie, aber gemessen ist der Bereich nicht.
-- Laufzeit: der Phasen-Suchlauf ist Sekunden, nicht Millisekunden. Für eine **Kalibrierung** ist
-  das egal, für einen Frame-Pfad nicht — und Kalibrierung ist der Anwendungsfall.
-- Kotlin: alles hier ist Python-Prototyp. `docs/` und `MEMORY` halten fest, dass die Kotlin-Seite
-  die Referenz ist; ein Umzug braucht vorher einen Paritätstest.
+- **Die Orientierung.** Bewusst nicht gelöst; sie kommt aus dem CNN. Eine Idee ist gemessen und
+  VERWORFEN: „a1 ist dunkel" halbiert die vier Drehungen auf zwei, aber die Umsetzung wählte die
+  falsche und riss zwei funktionierende Aufnahmen von 0,00 auf 7,8 Zellen.
+- **9 Frames bleiben eine Zelle daneben**, 3 weitere zwischen 0,3 und 0,45 Zellen.
+- **6 Frames finden kein Brett**, überwiegend mit einer Hand quer darüber. Ein Gedächtnis über
+  Frames — ArUcos eigentlicher Vorteil — ist hier ungenutzt.
+- **Perspektive**: der Fit trägt sie, aber gemessen ist der Bereich nicht.
+- **Kotlin**: alles hier ist Python-Prototyp. Die Kotlin-Seite ist die Referenz; ein Umzug braucht
+  vorher einen Paritätstest.

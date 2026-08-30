@@ -1050,18 +1050,32 @@ def calibrate_list() -> int:
     return 0
 
 
-def run_markerless(source: str, frame_no: int, profile_name: str, out: str | None) -> int:
-    """Das Brett ohne ArUco suchen und das Ergebnis vom Grid-Fit beurteilen lassen.
+def field_to_profile(field, profile) -> list[list[float]]:
+    """Ein SPIELFELD-Quad in die Profil-Konvention, also nach aussen um `margin` gedehnt.
 
-    Der Detektor schlaegt vor, `alignment_of` entscheidet: ein um eine Zelle verschobenes Gitter
-    liegt genauso auf Rillen und faellt nur ueber `unread` (`docs/markerless.md`).
+    `markerless.find_board` liefert die vier Feldecken, `correct_quad` und `alignment_of` rechnen
+    dagegen wie die Marker: `margin` ausserhalb des Feldes (`compute_homography`).
     """
+    import cv2
+    import numpy as np
+
+    bs = profile.board_size
+    m = [v * bs for v in margins4(profile.margin)]
+    h = cv2.getPerspectiveTransform(
+        np.array([[0, 0], [bs, 0], [bs, bs], [0, bs]], np.float32), np.array(field, np.float32))
+    box = np.array([[[-m[0], -m[0]], [bs + m[1], -m[1]],
+                     [bs + m[2], bs + m[2]], [-m[3], bs + m[3]]]], np.float32)
+    return [[float(x), float(y)] for x, y in cv2.perspectiveTransform(box, h)[0]]
+
+
+def run_markerless(source: str, frame_no: int, profile_name: str, out: str | None) -> int:
+    """Das Brett ohne ArUco suchen und das Ergebnis vom Grid-Fit beurteilen lassen."""
     from pathlib import Path
 
     import cv2
 
     from .alignment import alignment_of, correct_quad
-    from .markerless import board_candidates
+    from .markerless import find_board
 
     src = Path(source)
     if not src.exists():
@@ -1080,19 +1094,13 @@ def run_markerless(source: str, frame_no: int, profile_name: str, out: str | Non
         return 1
 
     profile = load_profile(profile_name)
-    best = None
-    for quad in board_candidates(frame):
-        fixed = correct_quad(frame, quad, profile)
-        verdict = alignment_of(frame, fixed if fixed is not None else quad, profile)
-        key = (verdict.unread, verdict.worst)
-        if best is None or key < best[0]:
-            best = (key, fixed if fixed is not None else quad, verdict)
-        if verdict.ok:
-            break
-    if best is None:
+    field = find_board(frame)
+    if field is None:
         print("[FAIL] kein Brett gefunden.")
         return 1
-    _, quad, verdict = best
+    quad = field_to_profile(field, profile)
+    quad = correct_quad(frame, quad, profile) or quad
+    verdict = alignment_of(frame, quad, profile)
     print("Ecken (a8, h8, h1, a1): " + " ".join(f"({x:.1f},{y:.1f})" for x, y in quad))
     print(verdict)
     if out:

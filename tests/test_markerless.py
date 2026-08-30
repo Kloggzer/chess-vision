@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab.markerless import CELLS, board_candidates, find_board, grid_angle
+from chesslab.markerless import CELLS, find_board, fix_phase, grid_angle
 
 # Groesser als die Arbeitsbreite des Detektors (960): er ist fuers HERUNTERskalieren gebaut,
 # und ein hochskaliertes Miniaturbrett prueft etwas anderes als eine Aufnahme.
@@ -16,14 +16,25 @@ BORDER = 140
 DARK, LIGHT = 60, 200
 
 
-def board_image(angle_deg: float = 0.0, size: int = 1280) -> np.ndarray:
-    """Ein Brett mit Rand, gedreht — der Rand ist der Teil, der die Phase mehrdeutig macht."""
+def board_image(angle_deg: float = 0.0, size: int = 1280, labels: bool = False) -> np.ndarray:
+    """Ein Brett mit Rand, gedreht — der Rand ist der Teil, der die Phase mehrdeutig macht.
+
+    `labels` setzt Zeichen in den Rand. Genau die brachten den ersten Ansatz zu Fall: er mass die
+    STAERKE der Alternation, und ein beschrifteter Rand variiert ebenso stark wie ein Karo.
+    """
     img = np.full((size, size, 3), 130, np.uint8)
     for i in range(CELLS):
         for j in range(CELLS):
             v = LIGHT if (i + j) % 2 == 0 else DARK
             y, x = BORDER + i * CELL, BORDER + j * CELL
             img[y:y + CELL, x:x + CELL] = v
+    if labels:
+        for k in range(CELLS):
+            for y in (BORDER - CELL // 2, BORDER + CELLS * CELL + CELL // 2):
+                cv2.putText(img, "ABCDEFGH"[k], (BORDER + k * CELL + CELL // 3, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (40, 40, 40), 3)
+                cv2.putText(img, "12345678"[k], (y, BORDER + k * CELL + 2 * CELL // 3),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1.0, (40, 40, 40), 3)
     if angle_deg:
         m = cv2.getRotationMatrix2D((size / 2, size / 2), angle_deg, 1.0)
         img = cv2.warpAffine(img, m, (size, size), borderValue=(130, 130, 130))
@@ -67,12 +78,15 @@ def test_the_grid_angle_uses_four_theta_not_two():
     assert min(got, 90 - got) < 2.0, f"{got} Grad liegt zwischen den Familien"
 
 
-def test_candidates_offer_the_neighbours_with_the_unshifted_one_first():
-    # Ein um eine Zelle verschobenes Gitter liegt genauso auf Rillen — der Grid-Fit entscheidet.
-    cands = board_candidates(board_image())
-    assert len(cands) == 9
-    first = np.array(cands[0], float)
-    assert np.abs(first - np.array(find_board(board_image()), float)).max() < 1e-6
+@pytest.mark.parametrize("labels", [False, True])
+@pytest.mark.parametrize("shift", [(1, 0), (0, -1), (-1, 1)])
+def test_a_quad_off_by_one_cell_is_pulled_back(labels, shift):
+    """Der eine Fehler, der nach dem Takt uebrig bleibt — und der Rand darf nicht taeuschen."""
+    img = board_image(labels=labels)
+    true = np.array(find_board(img), float)
+    du, dv = (true[1] - true[0]) / CELLS, (true[3] - true[0]) / CELLS
+    off = true + shift[0] * du + shift[1] * dv
+    assert np.abs(np.array(fix_phase(img, off), float) - true).max() < CELL / 4
 
 
 def test_a_frame_without_a_board_yields_nothing():
