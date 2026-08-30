@@ -230,7 +230,7 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
     reason = (reason or "").strip()
     if not reason:
         raise ValueError("archiving needs a reason — it is the only record of WHY data left the corpus")
-    src = paths.sessions / sid
+    src = active_session_dir(sid, paths)
     if not src.exists():
         raise FileNotFoundError(f"Session '{sid}' not found.")
     paths.sessions_archive.mkdir(parents=True, exist_ok=True)
@@ -271,7 +271,7 @@ def restore_session(session_id: str, paths: config.Paths = config.DATA) -> dict:
     src = paths.sessions_archive / sid
     if not src.exists():
         raise FileNotFoundError(f"Archived session '{sid}' not found.")
-    dst = paths.sessions / sid
+    dst = active_session_dir(sid, paths)
     if dst.exists():
         raise FileExistsError(f"Active session '{sid}' already exists.")
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -449,6 +449,18 @@ def all_sessions(paths: config.Paths | None = None) -> list[tuple[str, Path]]:
     return out
 
 
+def active_session_dir(session_id: str, paths: config.Paths) -> Path:
+    """Wo eine Session aktiv liegt — ob sie dort schon existiert, sagt das nicht.
+
+    Eine Aufnahme (`rg-`) gehoert unter `recordings/` ohne den Praefix, alles andere unter
+    `sessions/`. Wer den Ort selbst zusammensetzt, findet Aufnahmen nicht: `archive_session` tat
+    genau das und meldete jede Aufnahme als "not found", waehrend `all_sessions` sie einsammelte
+    und `slice --all` ihre Zeilen schnitt (2026-08-30).
+    """
+    sid = _safe_id(session_id)
+    return paths.recordings / sid[3:] if sid.startswith("rg-") else paths.sessions / sid
+
+
 def session_dir(session_id: str, paths: config.Paths | None = None) -> tuple[Path, bool]:
     """`(directory, archived)` for an active or archived session.
 
@@ -460,8 +472,7 @@ def session_dir(session_id: str, paths: config.Paths | None = None) -> tuple[Pat
     # tests monkeypatch, and a default argument would freeze the pre-patch object at import.
     paths = paths or config.DATA
     safe_sid = _safe_id(session_id)
-    active = (paths.recordings / safe_sid[3:] if safe_sid.startswith("rg-")
-              else paths.sessions / safe_sid)
+    active = active_session_dir(safe_sid, paths)
     if active.exists():
         return active, False
     archived = paths.sessions_archive / safe_sid
