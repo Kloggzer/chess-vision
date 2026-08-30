@@ -484,6 +484,13 @@ hier als Arbeit an uns. Reihenfolge nach gemessenem Ertrag.
   blockieren. Der Faktor folgt aus dem gemessenen Verhaeltnis der beiden Zuverlaessigkeiten, nicht
   aus einer Handkalibrierung. Erklaert vermutlich die Regression auf `154327` (10 von 117).
 
+- **ERLEDIGT (2026-08-30): der Replay-Default ist jetzt `p4a-80-clahe`** (`8ae77814`), das
+  `coverage_output` deklariert — der modellfreie Hand-Arm laeuft damit nicht mehr mit, und
+  `real14-80` ist gar nicht mehr gebuendelt. Der Score nennt sein Modell seitdem in der
+  Kopfzeile, denn derselbe Satz gab unter zwei Modellen 10 gegen 8 gefundene Halbzuege. Offen
+  bleibt allein die Frage (2) unten: was `gridOccludedSquares` auf jenen Frames wirklich flaggte.
+  Der urspruengliche Befund:
+
 - **Der Replay-Default `real14-80` verriegelt den Tracker — jede Messung damit ist eine andere
   Messung** (gemessen 2026-08-25 beim Aufbau der Arena). `ReplayOptions.model` steht auf
   `DEFAULT_MODEL` = `real14-80`, das kein `coverage_output` deklariert, also laeuft der modellfreie
