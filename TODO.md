@@ -4,6 +4,45 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Der Verifier bleibt haengen, die lila Felder loesen sich nicht auf (2026-08-30, User + Log)
+
+Gemeldet: *"manchmal ist der verifier stuck, da werden lila felder nicht aufgeloest"*. Lila ist
+das `changed`-Overlay (`Color.kt`: "changed magenta"), also die Zellen, die der Frame-Diff fuer
+veraendert haelt.
+
+Im Log derselben Sitzung (`diag-150.ndjson`, ply 6) steht das Bild dazu: **314 s, 205
+Entscheidungen, 204 abgelehnt**, und `verifyOutcome` ist bei **allen 205 `null`** — der
+Verify-Pfad kommt nie zu einem Ergebnis, obwohl `cnnVerify = 1` steht und `cnnAgree` bei 0,918
+liegt. Gleichzeitig meldet `changed` dauerhaft 13 bis 17 Felder, fast immer dieselben:
+
+| Feld | genannt | z |
+|---|---:|---:|
+| f8 | 199/205 | 5–8 |
+| g7 | 199/205 | 5–8 |
+| h8 | 196/205 | 5–8 |
+| c7 | 193/205 | 5–8 |
+| d8 | 187/205 | 5–8 |
+
+Dabei ist `motion` im Median **0,0** — es bewegt sich nichts, und die halbe schwarze Grundreihe
+glueht trotzdem. Die Ursache liegt vermutlich nicht im Bildinhalt, sondern in der Ausrichtung:
+kurz davor steht `board moved 0,26 cells since the grid fit — re-measuring the correction`, und
+der Versatz trifft die perspektivisch kleinsten Zellen am haertesten, also genau die achte Reihe.
+
+Zu klaeren, in dieser Reihenfolge:
+
+1. Warum `verifyOutcome` leer bleibt. Ein Verifier, der nie ein Urteil faellt, ist schlimmer als
+   einer, der falsch urteilt — er haelt das Overlay offen und niemand sieht, dass er steht.
+2. Ob eine Drift von 0,26 Zellen ueberhaupt zu einer neuen Pixel-Referenz fuehren muss. Heute
+   wird die Korrektur nachgemessen, aber die Referenz bleibt, und dann ist jeder Vergleich
+   danach gegen ein anders ausgerichtetes Bild.
+3. Ob das Overlay ein eigenes Verfallsdatum braucht: bleibt `changed` ueber N Entscheidungen
+   stehen, ohne dass ein Zug entsteht, ist es keine Evidenz mehr, sondern eine Anzeige, der man
+   nicht mehr glauben darf.
+
+Verwandt: `cnn_desync` rastet auf einem korrekten Brett ein (oben), und der `STUCK occluded`-Fall
+mit ueber das Brett verstreuten Feldern bei `motion=0` weiter unten — moeglicherweise dasselbe
+Ausrichtungsproblem unter drei Namen.
+
 ## Modell- und Engine-Wechsel sollen ohne Neustart gehen (2026-08-30, User)
 
 Die App sagt es heute selbst: *"Saved, waiting for a tracker restart: app settings — This build
