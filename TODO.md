@@ -87,12 +87,12 @@ Verwandt: `cnn_desync` rastet auf einem korrekten Brett ein (oben), und der `STU
 mit ueber das Brett verstreuten Feldern bei `motion=0` weiter unten — moeglicherweise dasselbe
 Ausrichtungsproblem unter drei Namen.
 
-## Zwei Kleinigkeiten, die aus der Belichtungsarbeit offen blieben (2026-08-30, User)
+## Was aus der Belichtungsarbeit offen blieb (2026-08-30, User)
 
-- **`CameraLook.locked` ausbauen.** Sein Zweck war "halte genau diese Belichtung fest". Seit die
-  Belichtungszeit ueber Qualcomms `iso_exp_priority` gesetzt wird und die Brett-Regelung den
-  Rest macht, friert er nur noch etwas ein, das ohnehin steht — und das ISO soll sich anpassen
-  duerfen. Zoom, Fokus und Weissabgleich bleiben: dort entscheidet der Mensch ueber die Szene.
+`CameraLook.locked` ist ausgebaut. Was der Ausbau kostet: der Fokus kann wieder wandern, solange
+niemand eine Distanz nennt — die Automatik wird nicht mehr festgehalten. Der `Manual`-Regler im
+Fokus-Panel ist die Antwort darauf.
+
 - **Ein Rauschmass in die Perf-Zeile.** Belegt ist, dass das Rohbild seit `1ee08beb` rund sechsmal
   weniger Verstaerkung sieht (ISO 404 auf 71). Ungemessen ist, ob das im ZELLMITTEL ankommt:
   `cellDeltas` mittelt ueber 92x92 Pixel und daempft unkorreliertes Rauschen um rund Faktor 92.

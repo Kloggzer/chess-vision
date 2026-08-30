@@ -14,9 +14,8 @@ import kotlinx.coroutines.flow.asStateFlow
  * The camera's controls, held the way [TorchLamp] holds the lamp: a small owner of one concern,
  * attached to whatever camera is currently bound.
  *
- * Its own class rather than four fields on [OpticsLock] for the reason the lamp got one — the lock
- * owns the 3A FREEZE, and steering the camera is a different act with a different lifetime. The
- * freeze is earned once, at convergence; these are asserted immediately and survive every rebind.
+ * Its own class rather than four fields on [OpticsLock] for the reason the lamp got one — that one
+ * owns the repeating request and the stabilizers, and steering the camera is a different act.
  *
  * The WANT and the DEVICE are separate on purpose, the same rule again: a rebind (resolution change,
  * reconnect, downshift) starts the session at the device's defaults, so the want outlives [detach]
@@ -47,15 +46,6 @@ class CameraLookControl(
     override val look: StateFlow<CameraLook> = want.asStateFlow()
 
     override val abilities: StateFlow<CameraAbilities?> = offers.asStateFlow()
-
-    /**
-     * True while an illuminant is pinned, which means auto-white-balance has nothing left to do.
-     *
-     * [OpticsLock.converged] needs it: with `CONTROL_AWB_MODE` set to a preset the device reports
-     * `CONTROL_AWB_STATE` as `INACTIVE` — measured — which is not a settled state, so a re-measure
-     * would run to its deadline and restore the previous lock every single time.
-     */
-    val illuminantPinned: Boolean get() = want.value.whiteBalance != WhiteBalance.AUTO
 
     fun attach(bound: Camera) {
         camera = bound
@@ -90,9 +80,6 @@ class CameraLookControl(
      * the same mapping the reference IP-camera app uses, and the only one that is device-independent.
      */
     fun focusDiopters(): Float? = want.value.focus?.let { it * (offers.value?.minFocusDiopters ?: 0f) }
-
-    /** False on a fixed-focus lens — there is no distance to pin and no control to show. */
-    val canFocus: Boolean get() = offers.value?.canFocus == true
 
     /**
      * The axes CameraX has an API for. Both return futures nobody awaits: a rejected zoom or an

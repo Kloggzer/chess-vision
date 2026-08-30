@@ -611,11 +611,6 @@ class TrackerService :
         notification.post(publisher.status.value?.state, moves, cameraRunning.value)
     }
 
-    /**
-     * @param relockOptics whether to let focus/exposure/white balance re-converge afterwards. False
-     * only for the re-measure sequence, which converged them BEFORE it measured this quad —
-     * re-arming there would release the very lock the quad was measured under.
-     */
     override fun applyCalibration(
         geom: BoardGeometry,
         pts: FloatArray,

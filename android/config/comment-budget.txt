@@ -12,7 +12,7 @@ app/src/main/kotlin/com/chesslab/tracker/analysis/WinChance.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/CameraLookControl.kt 1
 app/src/main/kotlin/com/chesslab/tracker/camera/CameraModels.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/CameraVideo.kt 4
-app/src/main/kotlin/com/chesslab/tracker/camera/OpticsLock.kt 3
+app/src/main/kotlin/com/chesslab/tracker/camera/OpticsLock.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/PreRollRing.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/ReconnectPolicy.kt 2
 app/src/main/kotlin/com/chesslab/tracker/camera/ResolutionMismatchLogger.kt 1
@@ -268,7 +268,7 @@ engine-stillness/src/main/kotlin/com/chesslab/engine/still/StillAlarm.kt 1
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/StillnessEngine.kt 1
 engine-stillness/src/main/kotlin/com/chesslab/engine/still/StillStatus.kt 1
 engine-stillness/src/test/kotlin/com/chesslab/engine/still/BlindOriginTest.kt 1
-tracker-runtime/src/main/kotlin/com/chesslab/tracker/camera/CameraLook.kt 6
+tracker-runtime/src/main/kotlin/com/chesslab/tracker/camera/CameraLook.kt 5
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/camera/DeliveredSize.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/cnn/CnnModelAssets.kt 1
 tracker-runtime/src/main/kotlin/com/chesslab/tracker/cnn/CnnObserver.kt 4
