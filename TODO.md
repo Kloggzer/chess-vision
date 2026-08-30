@@ -4,6 +4,41 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Der Replay sieht mehr Frames als das Telefon — und entscheidet deshalb anders (2026-08-30)
+
+Gefordert: *"replay sollte sich verhalten wie das live spiel"*. Tut er nicht. Dieselbe Aufnahme,
+live acht Halbzuege, im Replay vier und dann `no_legal_move`. Ausgeschlossen wurden nacheinander
+`config=` (die Session bringt ihre eigene mit), `fps=` (die Bildraten-Emulation) und der Quad
+(seitdem liest der Replay die Ecken der Aufnahme, 6f09f5ac). Keiner davon war es.
+
+Die `timeline.jsonl` der Aufnahme zeigt, was live wirklich geschah:
+
+```
+seq=  0  ply=2  best= 20.24  changed=8   committet (e4 e5)
+seq=199  ply=2  best= -2.05  changed=0   STUCK cnn_desync
+seq=204  ply=2  best= -1.71  changed=1   STUCK no_legal_move
+seq=209  ply=2  best= -1.84  changed=0   STUCK cnn_desync
+seq=214  ply=3               changed=0   position was LOST - rebuilt by the CNN
+```
+
+**Live war der Frame-Diff blind** — `changed=0`, obwohl `d4` und `d5` gespielt waren. Die
+Position lief auseinander und das CNN holte sie ueber `cnn_recovery` ein, mit der richtigen
+Folge. Der Replay dagegen SIEHT dort etwas, committet `Nf3 d5` statt `d4 d5`, geraet nie in
+den Verlust-Zustand und damit nie in die Recovery, die live die Rettung war.
+
+Der Replay sieht also **mehr** als das Telefon. `fps=<n>` nimmt jeden k-ten dekodierten Frame
+und trifft damit statistisch die richtige Anzahl, aber nicht dieselben Bilder, die CameraX live
+durchgelassen hat — und der Diff haengt daran, WELCHE zwei Bilder er vergleicht.
+
+**Die Aufnahme traegt die Loesung schon:** 377 `frame`-Eintraege in `timeline.jsonl`, jeder mit
+`sensorTsNs`, `wallTsMs`, `fen`, `state` und `corners`. Das sind exakt die Frames, die die Engine
+live verarbeitet hat. Eine Frame-Quelle, die dieser Liste folgt statt zu dezimieren, macht den
+Replay deterministisch gleich — und `video_sync` (379 Eintraege, mit `durationNs` und `bytes`)
+haelt die Zuordnung Video-Zeit zu Engine-Zeit.
+
+Bis dahin gilt: **ein Replay ist keine Reproduktion.** Wer einen Live-Fehler nachstellen will,
+kann sich auf ihn nicht verlassen, und das ist genau der Fall, in dem man ihn am meisten braucht.
+
 ## Der Verifier bleibt haengen, die lila Felder loesen sich nicht auf (2026-08-30, User + Log)
 
 Gemeldet: *"manchmal ist der verifier stuck, da werden lila felder nicht aufgeloest"*. Lila ist
