@@ -4,6 +4,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.MIN_VIDEO_HEIGHT
 import com.chesslab.tracker.camera.MIN_VIDEO_WIDTH
+import com.chesslab.tracker.camera.PRE_ROLL_SECONDS
 import com.chesslab.tracker.camera.VideoProgress
 import com.chesslab.tracker.camera.VideoRecorderPort
 import com.chesslab.tracker.settings.ConfigStore
@@ -21,6 +22,12 @@ import org.junit.jupiter.api.io.TempDir
 import java.io.File
 
 private const val OPENING_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+private const val STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+private fun frameAt(
+    elapsedNs: Long,
+    fen: String,
+) = TimelineFrame(elapsedNs, elapsedNs, elapsedNs / 1_000_000L, 2560, 1440, 0, fen, "waiting", null)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecordingBundleHostTest {
@@ -116,6 +123,68 @@ class RecordingBundleHostTest {
 
             assertEquals(2, camera.arms, "the changeover armed more than once and discarded the first ring")
             host.close()
+        }
+
+    /**
+     * `rg-2026-08-30-14-33-02`: 6,27 s of video ahead of the commit, and a `timeline.jsonl` whose
+     * first frame row already read the position after `e4 e5` — the rows of the armed phase fell
+     * on a null timeline while the footage they describe was kept.
+     */
+    @Test
+    fun theArmedPhasesFramesReachTheTimelineAheadOfTheCommit() =
+        runTest {
+            val host =
+                RecordingBundleHost(
+                    FakeVideoCamera(),
+                    RecordingSettings(MemoryStore()),
+                    sessionsRoot,
+                    this,
+                    UnconfinedTestDispatcher(testScheduler),
+                )
+
+            host.frame(frameAt(1_000_000_000L, STARTPOS_FEN))
+            host.frame(frameAt(2_000_000_000L, STARTPOS_FEN))
+            host.opened(SessionRecorder(sessionDir, SessionMeta("s", "default", 2560, 1440)))
+            host.frame(frameAt(3_000_000_000L, OPENING_FEN))
+            host.close()
+            advanceUntilIdle()
+
+            val rows = File(sessionDir, "timeline.jsonl").readLines().map { Json.parseToJsonElement(it).jsonObject }
+            assertEquals(
+                listOf("1000000000", "2000000000", "3000000000"),
+                rows.map { it.getValue("elapsedNs").jsonPrimitive.content },
+                "the pre-roll rows are missing or out of order",
+            )
+            assertEquals(
+                STARTPOS_FEN,
+                rows
+                    .first()
+                    .getValue("fen")
+                    .jsonPrimitive.content,
+            )
+        }
+
+    /** The ring is the video's: a frame row the footage no longer covers describes nothing. */
+    @Test
+    fun aFrameOlderThanTheVideoRingIsDropped() =
+        runTest {
+            val host =
+                RecordingBundleHost(
+                    FakeVideoCamera(),
+                    RecordingSettings(MemoryStore()),
+                    sessionsRoot,
+                    this,
+                    UnconfinedTestDispatcher(testScheduler),
+                )
+
+            host.frame(frameAt(0L, STARTPOS_FEN))
+            host.frame(frameAt(PRE_ROLL_SECONDS * 1_000_000_000L + 1L, OPENING_FEN))
+            host.opened(SessionRecorder(sessionDir, SessionMeta("s", "default", 2560, 1440)))
+            host.close()
+            advanceUntilIdle()
+
+            val rows = File(sessionDir, "timeline.jsonl").readLines()
+            assertEquals(1, rows.size, "the row outside the pre-roll window survived")
         }
 
     @Test

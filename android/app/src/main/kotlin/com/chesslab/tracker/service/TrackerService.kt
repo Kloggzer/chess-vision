@@ -377,7 +377,7 @@ class TrackerService :
                             delivered.height,
                             delivered.rotationDegrees,
                             publisher.lastFen,
-                            publisher.status.value,
+                            publisher.status.value?.state,
                             publisher.corners,
                         ),
                     )

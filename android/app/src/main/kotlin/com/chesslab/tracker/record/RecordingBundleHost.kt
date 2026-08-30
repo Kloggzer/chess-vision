@@ -4,9 +4,12 @@ import android.os.SystemClock
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.PRE_ROLL_SECONDS
 import com.chesslab.tracker.camera.VideoRecorderPort
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import java.io.File
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Android orchestration around the platform-free still/session recorder.
@@ -18,10 +21,11 @@ import java.io.File
  * a move therefore leaves no video at all, which is the point: nine of eleven transferred
  * recordings on 2026-08-13/14 carried no game.
  *
- * Since 2026-08-14, the session opens (timeline is created) BY the first committed move.
- * The decision row for the opening move is emitted before the timeline exists and would be lost
- * — so it is buffered here and written to the fresh timeline as soon as [opened] is called.
- * This buffers ONLY the most recent decision; the incident is exactly one row.
+ * Since 2026-08-14, the session opens (timeline is created) BY the first committed move, so
+ * everything the armed phase produces is emitted before a timeline exists. Two things are held
+ * back for it: the opening move's decision row (only the most recent — the incident is exactly one
+ * row) and the frame rows, which get the video ring's own window (see [preRollFrames]). Both are
+ * written to the fresh timeline as soon as [opened] is called.
  *
  * This class is also the ONE owner of the arming decision. [armVideo], [opened],
  * [videoAvailability] and [finished] only *request* an arm; [startVideo] alone decides, against
@@ -32,6 +36,7 @@ class RecordingBundleHost(
     private val settings: RecordingSettings,
     private val sessionsRoot: File,
     private val scope: CoroutineScope,
+    private val timelineContext: CoroutineContext = Dispatchers.IO,
 ) : AutoCloseable {
     @Volatile
     private var timeline: SessionTimeline? = null
@@ -53,6 +58,15 @@ class RecordingBundleHost(
     private var bufferedDecision: Pair<com.chesslab.engine.api.DebugDecision, Long>? = null
 
     /**
+     * The armed phase's frame rows, held for the same window the video ring holds its samples.
+     *
+     * The video reaches back past the first move; the timeline did not, because these rows fell on
+     * a null timeline — 6,27 s of footage on `rg-2026-08-30-14-33-02` against a first frame row
+     * already reading `e4 e5`, which is what made the replay start on a position that never stood.
+     */
+    private val preRollFrames = ArrayDeque<TimelineFrame>()
+
+    /**
      * Arm the encoder ahead of any session: the ring must already hold the pre-roll when the
      * first move commits. Idempotent, and a no-op while recording is off or the camera cannot
      * deliver QHD yet.
@@ -60,9 +74,9 @@ class RecordingBundleHost(
     fun armVideo() = startVideo()
 
     fun opened(recorder: SessionRecorder) {
-        val next = SessionTimeline(recorder.dir, scope)
+        val next = SessionTimeline(recorder.dir, scope, timelineContext)
         timeline?.close()
-        timeline = next
+        adopt(next)
         session = recorder
         startVideo()
         // The session exists BECAUSE a ply committed (`SessionCaptureController`'s commit gate),
@@ -100,10 +114,31 @@ class RecordingBundleHost(
         if (size != null) startVideo()
     }
 
-    fun frame(frame: TimelineFrame) = timeline?.frame(frame)
+    @Synchronized
+    fun frame(frame: TimelineFrame) {
+        val live = timeline
+        if (live != null) {
+            live.frame(frame)
+            return
+        }
+        preRollFrames.addLast(frame)
+        while (frame.elapsedNs - preRollFrames.first().elapsedNs > PRE_ROLL_WINDOW_NS) preRollFrames.removeFirst()
+    }
+
+    /**
+     * The held rows go in FIRST, under the same lock [frame] takes: a live row written ahead of
+     * them would leave the file out of chronological order, and the replay reads the position it
+     * starts on off the first row (`RecordedFrames.startFen`).
+     */
+    @Synchronized
+    private fun adopt(next: SessionTimeline) {
+        preRollFrames.forEach(next::frame)
+        preRollFrames.clear()
+        timeline = next
+    }
 
     fun event(event: TrackerEvent) {
-        // A committed ply is the proof the footage carries a game — the buffered 20 s become a
+        // A committed ply is the proof the footage carries a game — the buffered window becomes a
         // file here. Which collector wins the race against `opened` does not matter: `keepVideo`
         // latches once, and with no session yet `opened` is the one that will carry the file.
         if (event is TrackerEvent.MoveCommitted || event is TrackerEvent.SequenceCommitted) {
@@ -205,3 +240,6 @@ class RecordingBundleHost(
 
 /** The bundle's video name — segment 0; later segments derive from it (`CameraVideo.segmentFile`). */
 private const val VIDEO_FILE = "video.mp4"
+
+/** One window for both rings: a frame row the video has no footage for describes nothing. */
+private const val PRE_ROLL_WINDOW_NS = PRE_ROLL_SECONDS * 1_000_000_000L

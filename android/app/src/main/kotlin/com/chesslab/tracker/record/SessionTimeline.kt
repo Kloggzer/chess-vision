@@ -2,7 +2,6 @@ package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
-import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import kotlinx.coroutines.CoroutineScope
@@ -16,7 +15,14 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.coroutines.CoroutineContext
 
-private const val TIMELINE_QUEUE = 512
+/**
+ * Deep enough for the pre-roll flush, which arrives as ONE burst.
+ *
+ * `RecordingBundleHost` holds the armed phase's frame rows back until the session exists and then
+ * writes the whole window at once — up to `PRE_ROLL_SECONDS` × 30 fps rows. At 512 that burst
+ * evicted its own head and the decision row behind it, `DROP_OLDEST` making the loss invisible.
+ */
+private const val TIMELINE_QUEUE = 4096
 private val TIMELINE_JSON = Json { encodeDefaults = true }
 
 private sealed interface TimelineEntry {
@@ -31,7 +37,9 @@ data class TimelineFrame(
     val height: Int,
     val rotation: Int,
     val fen: String?,
-    val status: TrackerStatus?,
+    /** The engine state, not the whole `TrackerStatus`: the pre-roll ring holds these rows for
+     * `PRE_ROLL_SECONDS`, and a status carries three 64-entry maps per frame. */
+    val state: String?,
     val corners: FloatArray?,
 )
 
@@ -147,7 +155,7 @@ class SessionTimeline(
                 frame.height,
                 frame.rotation,
                 frame.fen,
-                frame.status?.state,
+                frame.state,
                 frame.corners?.map(Float::toDouble),
             ),
         )
