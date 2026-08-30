@@ -17,8 +17,7 @@ internal object RecordedFrames {
      * Videozeiten in ms, aufsteigend, oder `null` wenn die Aufnahme keine Messung mitbringt.
      *
      * Die Bruecke zwischen Systemuhr und Videozeit sind die `video_sync`-Zeilen: jede sagt, wie
-     * lang das Video zu einem `elapsedNs` war. Dazwischen wird linear interpoliert, denn beide
-     * Uhren laufen gleich schnell.
+     * lang das Video zu einem `elapsedNs` war.
      */
     fun times(timeline: File): List<Double>? {
         if (!timeline.isFile) return null
@@ -34,31 +33,39 @@ internal object RecordedFrames {
                 else -> Unit
             }
         }
-        if (syncs.size < 2 || frames.isEmpty()) return null
+        if (syncs.isEmpty() || frames.isEmpty()) return null
         syncs.sortBy { it.first }
         val out = frames.sorted().map { videoNsAt(it, syncs) / NS_PER_MS }
         return out.filter { it >= 0.0 }.takeIf { it.isNotEmpty() }
     }
 
-    /** Lineare Interpolation zwischen den beiden umgebenden Sync-Punkten, ausserhalb extrapoliert. */
+    /**
+     * Der naechstgelegene Sync-Punkt plus die verstrichene Systemzeit — die Steigung ist 1.
+     *
+     * Beide Uhren laufen gleich schnell (85 ms Drift auf 25,3 s ueber die 379 Sync-Zeilen von
+     * `rg-2026-08-30-14-33-02`). Aus zwei BENACHBARTEN Punkten geschaetzt las sie 2,36 — reiner
+     * Callback-Jitter —, und die Vorlauf-Zeilen vor dem ersten Sync landeten damit bei -8,5 s.
+     */
     private fun videoNsAt(
         elapsedNs: Long,
         syncs: List<Pair<Long, Long>>,
     ): Double {
-        val i = syncs.indexOfFirst { it.first >= elapsedNs }
-        val (loWall, loVideo) = if (i <= 0) syncs[0] else syncs[i - 1]
-        val (hiWall, hiVideo) = if (i <= 0) syncs[1] else syncs[i]
-        if (hiWall == loWall) return loVideo.toDouble()
-        val t = (elapsedNs - loWall).toDouble() / (hiWall - loWall)
-        return loVideo + t * (hiVideo - loVideo)
+        val after = syncs.indexOfFirst { it.first >= elapsedNs }
+        val anchor =
+            when {
+                after < 0 -> syncs.last()
+                after == 0 -> syncs.first()
+                else -> listOf(syncs[after - 1], syncs[after]).minBy { kotlin.math.abs(it.first - elapsedNs) }
+            }
+        return anchor.second + (elapsedNs - anchor.first).toDouble()
     }
 
     /**
      * Die Stellung, auf der das Telefon beim ERSTEN aufgezeichneten Frame stand.
      *
-     * Eine Aufnahme beginnt mitten im Spiel: der Vorlauf-Ring wird beim ersten Commit geleert, und
-     * die Engine war da laengst ein paar Halbzuege weit. Ein Replay auf der Grundstellung glaubt
-     * an ein Brett, das nie so dastand.
+     * Seit die Frame-Zeilen den Vorlauf mittragen (`RecordingBundleHost.preRollFrames`) ist das
+     * bei einer frischen Partie wieder die Grundstellung. Bei Aufnahmen von vor dem 2026-08-30
+     * beginnt die Zeitleiste am ersten Commit, und dann ist es die Stellung von dort.
      */
     fun startFen(timeline: File): String? {
         if (!timeline.isFile) return null

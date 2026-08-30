@@ -658,17 +658,16 @@ hier als Arbeit an uns. Reihenfolge nach gemessenem Ertrag.
   Modell-Rotation pro Session (erstes nicht-zirkuläres Modell aus einer Präferenzliste).
 
 - **Der Vorlauf kam mit ~1,4 s statt 20 s an** (gemessen am Handy 2026-08-14, Session
-  `20260814-142947`). Rechnung: Commit (Verzeichnis) 14:29:47.998, Segment 0 geschlossen
-  14:30:47.154 → 59,2 s Wanduhr, `mvhd`-Dauer 60,6 s, also ~1,4 s vor dem Commit — ziemlich genau
-  EINE GOP. Der Ring ist es nicht: `PreRollRing` hält unter einem realistischen Feed (30 fps,
-  1-s-GOPs, 83 kB/Sample, gedeckelt wie ausgeliefert) 19-20 s, und der Test dazu steht jetzt in
-  `PreRollRingTest`. Verdacht ist damit der ZEITPUNKT der Scharfschaltung: `startVideo()` gibt
-  still auf, solange `camera.videoResolution == null` ist, und der einzige zweite Auslöser ist
-  `videoAvailability` — schlägt der fehl, armt erst `opened()`, also der Commit selbst. Beweisbar
-  war das bisher nicht, weil die Armed-Phase keine Session hat und ihre Progress-Zeilen am
-  `null`-Timeline verfallen. Jetzt loggt `CameraVideo` Arm, Ringtiefe (alle 5 s) und die geflushte
-  Vorlauflänge, und `session.yaml` trägt `video_pre_roll_ns`. Nächster 60-Sekunden-Lauf am Handy
-  beantwortet es ohne Forensik: `adb logcat -s chesslabVideo`.
+  `20260814-142947`). *Beantwortet 2026-08-30 an `rg-2026-08-30-14-33-02`: der Ring war es nicht
+  und die Scharfschaltung auch nicht — `video_pre_roll_ns` = 6,27 s, und im Video steht bei t=0
+  die Grundstellung, die Hand greift bei t≈2,8 s nach e2, committet wird bei t≈6,33 s. Die
+  Belichtung regelt in der ersten Sekunde noch hoch, also armte der Encoder mit dem Kamera-Bind:
+  der Vorlauf ist so lang, wie die Kamera vor dem ersten Zug lief, und `PRE_ROLL_SECONDS` = 45
+  ist nur die Obergrenze. Wer 45 s will, muss den Tracker 45 s vor dem ersten Zug starten.*
+  **Offen bleibt die Gegenprobe an einem langen Lauf** (`adb logcat -s chesslabVideo` nennt Arm,
+  Ringtiefe alle 5 s und die geflushte Länge): dass die Byte-Grenze greift, bevor die Zeitgrenze
+  es tut, ist gerechnet, aber nicht gemessen — 45 s × 12,9 Mbit/s (die effektive Rate dieser
+  Aufnahme) sind 72 MB gegen `PRE_ROLL_MAX_BYTES` = 80 MB, also keine Handbreit Luft.
 
 - **Das 14er-Modell ist bei `occluded` zu aggressiv** (User am Brett, 2026-08-14). Deckt sich mit
   den Replay-Logs vom selben Tag: real14-80 las beim Start eine ganze Damenflügel-Flanke

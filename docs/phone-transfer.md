@@ -130,14 +130,17 @@ cd android && ./gradlew.bat :desktop:installDist
   Since the pre-roll (below) such recordings should no longer exist on the phone at all — the
   skip stays as defence in depth, for kill leftovers and for phones on older builds.
 
-## The video starts with the first move — and reaches 20 s back
+## The video starts with the first move — and reaches 45 s back
 
 Measured 2026-08-13/14: of eleven transferred recordings, TWO carried a game; the rest were board
 setup, ArUco taping, calibration and empty-board tests — 4.7 GB deleted by hand. The recorder
 therefore starts ARMED (`CameraVideo` + `PreRollRing`): the encoder runs from tracking start, but
-its samples stay in a memory ring capped at 20 s and 80 MB, trimmed only at key-frame boundaries.
-The first committed ply opens the muxer, writes the buffered pre-roll with timestamps rebased to
-zero and continues live — one recording per game, minute-segmentation unchanged, because the quiet
+its samples stay in a memory ring capped at `PRE_ROLL_SECONDS` (45) and 80 MB, trimmed only at
+key-frame boundaries. The `timeline.jsonl` frame rows get the same window since 2026-08-30
+(`RecordingBundleHost.preRollFrames`): they used to fall on a null timeline, so the recording's
+own per-frame record began at the commit while the footage reached back past it, and the replay
+read its start position off the first row. The first committed ply opens the muxer, writes the
+buffered pre-roll with timestamps rebased to zero and continues live — one recording per game, minute-segmentation unchanged, because the quiet
 stretches BETWEEN moves are the labeled training data. No commit means no muxer, no `video.mp4`,
 and — since the session directory itself now opens on the first commit
 (`SessionCaptureController`) — no session at all: a calibration run leaves nothing to transfer,
