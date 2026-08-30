@@ -34,26 +34,13 @@ data class CameraLook(
      * Manual focus, 0 = infinity to 1 = the lens's nearest, or null for automatic.
      *
      * Null means the device's own autofocus, and it will hunt — a refocus between the reference
-     * frame and the current one changes every edge on the board at once. [locked] is the cheap way
-     * out of that; a manual distance is for the board the automatic keeps focusing past.
+     * frame and the current one changes every edge on the board at once. Since the padlock went
+     * (2026-08-30) a stated distance is the only thing that stops it.
      */
     val focus: Float? = null,
-    /**
-     * Hold what the automatic has right now: exposure, white balance and the focus distance.
-     *
-     * The camera's AE-L/AF-L, and the deliberate replacement for the automatic converge-and-freeze
-     * that used to run at start-up (see `OpticsLock`). The mechanism was never the problem — the
-     * TRIGGER was. Locking on a timer means locking whatever happened to be in frame while the
-     * board was still being set up; locking on a press means locking a picture somebody looked at.
-     *
-     * Not the same as setting each axis by hand, and that is the point: exposure has no user-facing
-     * value to state (the EV slider is an OFFSET from the automatic, not a replacement for it), so
-     * "keep exactly this brightness" is only expressible as a lock.
-     */
-    val locked: Boolean = false,
 ) {
     val isAuto: Boolean
-        get() = evIndex == 0 && whiteBalance == WhiteBalance.AUTO && zoomRatio == 1f && focus == null && !locked
+        get() = evIndex == 0 && whiteBalance == WhiteBalance.AUTO && zoomRatio == 1f && focus == null
 
     /** The device's ranges are only known once a camera is bound; a stored value may predate them. */
     fun clampedTo(abilities: CameraAbilities?): CameraLook {

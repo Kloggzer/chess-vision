@@ -293,7 +293,7 @@ private fun CameraDeck(
             CameraNote("Waiting for the camera…")
         } else {
             open?.let { AxisPanel(it, look, abilities, onLook) }
-            TileRow(look, abilities, open, onOpen, torchOn, hasTorch, onTorch, onLook)
+            TileRow(look, abilities, open, onOpen, torchOn, hasTorch, onTorch)
         }
     }
 }
@@ -307,7 +307,6 @@ private fun TileRow(
     torchOn: Boolean,
     hasTorch: Boolean,
     onTorch: (Boolean) -> Unit,
-    onLook: (CameraLook) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
         CameraAxis.entries.filter { it.availableOn(abilities) }.forEach { axis ->
@@ -320,18 +319,6 @@ private fun TileRow(
                 modifier = Modifier.weight(1f),
             )
         }
-        // Hold what the automatic found, rather than state a value. No panel, because it has no
-        // value to show — it is the one control whose whole content is "now". Deliberately a tile
-        // among the others and not a corner icon: it is the axis that decides whether the picture
-        // stays put, which is the one thing this screen exists to get right.
-        CameraTile(
-            label = "Lock",
-            value = if (look.locked) "Held" else "Open",
-            active = look.locked,
-            open = false,
-            onClick = { onLook(look.copy(locked = !look.locked)) },
-            modifier = Modifier.weight(1f),
-        )
         if (hasTorch) {
             // The lamp is not just a lamp: the service re-baselines the tracker around it, because
             // the reference was taken under the old light. See `TorchControl`. No panel, no value.
@@ -375,11 +362,10 @@ private fun AxisPanel(
 /**
  * Auto or a fixed distance, and the distance itself.
  *
- * "Auto" does not mean the lens keeps hunting: `OpticsLock` pins whatever the automatic converged
- * to, because a refocus between the reference frame and the current one changes every edge on the
- * board at once. Manual is for the board the automatic keeps focusing past — the far end reads as a
- * percentage rather than a diopter figure, because a number in diopters is not something anyone
- * aims by.
+ * "Auto" is the device's own autofocus and it hunts — a refocus between the reference frame and the
+ * current one changes every edge on the board at once, and since the padlock went (2026-08-30)
+ * Manual is the only answer to that. The far end reads as a percentage rather than a diopter
+ * figure, because a number in diopters is not something anyone aims by.
  */
 @Composable
 private fun FocusPanel(

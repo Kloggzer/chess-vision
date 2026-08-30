@@ -80,9 +80,7 @@ class CameraLookTest {
      */
     @Test
     fun autoWritesNoWhiteBalanceKeyAtAll() {
-        val control = CameraLookControl(reissue = {})
-        assertNull(control.awbMode())
-        assertTrue(!control.illuminantPinned)
+        assertNull(CameraLookControl(reissue = {}).awbMode())
     }
 
     @Test
@@ -93,14 +91,14 @@ class CameraLookTest {
         assertNull(CameraLookControl.awbModeFor(WhiteBalance.AUTO))
     }
 
-    /** A pinned illuminant is what lets a re-measure converge — see `OpticsLock.converged`. */
+    /** The illuminant is the one axis that holds by being STATED — nothing locks it any more. */
     @Test
-    fun aPresetPinsTheIlluminant() {
+    fun aPresetReachesTheCaptureRequestAndAutoTakesItBack() {
         val control = CameraLookControl(reissue = {})
         control.setLook(CameraLook(whiteBalance = WhiteBalance.DAYLIGHT))
-        assertTrue(control.illuminantPinned)
+        assertEquals(CameraMetadata.CONTROL_AWB_MODE_DAYLIGHT, control.awbMode())
         control.setLook(CameraLook())
-        assertTrue(!control.illuminantPinned)
+        assertNull(control.awbMode())
     }
 
     /**

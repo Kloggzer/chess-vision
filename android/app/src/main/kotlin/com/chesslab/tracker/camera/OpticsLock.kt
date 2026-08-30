@@ -30,20 +30,12 @@ import androidx.camera.core.Camera
  * - **Focus** hunting does the same thing with sharpness instead of brightness, and a refocus
  *   between the reference and the current frame changes every edge on the board at once.
  *
- * **The freeze is on a BUTTON now, not on a timer (2026-08-02).** This class used to watch the
- * capture results, wait for the device to report that everything had settled, and then lock it for
- * the session — with a `remeasure()` escape hatch for when it settled on the wrong moment. It kept
- * settling on the wrong moment: at start-up the board is often not placed, a hand is in the frame
- * or the lamp is not on yet, and the session then held that picture. An automatic that needs an
- * escape hatch beside it is a coin flip with extra machinery.
- *
- * What replaces it is [CameraLook.locked] — the same AE/AWB lock and the same focus pin, applied
- * when the user presses the padlock. The mechanism was never wrong; the trigger was. Locking on a
- * press means locking a picture somebody actually looked at.
- *
- * Unlocked, nothing here stops exposure and white balance from wandering, and the drift above is
- * real. The padlock is what keeps the frame-diff honest, and it is the user's call when to close
- * it.
+ * **Nothing is frozen here any more (2026-08-30).** The automatic converge-and-freeze went first
+ * (2026-08-02: it kept settling on a board that was not placed yet), the padlock that replaced it
+ * went with the vendor tag. `TrackerCamera.pinExposureTime` states the exposure TIME through
+ * `iso_exp_priority` and `BoardExposureGovernor` steers the rest, so an AE lock would freeze what
+ * already stands and stop the ISO from following the room. What is left against drift is a stated
+ * value per axis — the user's call on the scene, not a blanket hold on the automatic.
  */
 @OptIn(ExperimentalCamera2Interop::class)
 class OpticsLock(
@@ -52,12 +44,11 @@ class OpticsLock(
     private var camera: Camera? = null
 
     /**
-     * The distance the device's autofocus last reported, in diopters.
+     * Die Distanz, auf die der Autofokus zuletzt gestellt hat, in Dioptrien.
      *
-     * Read from every capture result and used for one thing: when the padlock closes, THIS is what
-     * the focus is pinned at. `AF_MODE_OFF` without a distance would strand the lens wherever it
-     * happened to be, so a lock with nothing to pin would be worse than no lock. Written on the
-     * camera thread, read when the request is rebuilt.
+     * Seit dem Ausbau des Schlosses nur noch ein Messwert: gestellt wird allein eine GENANNTE
+     * Distanz. Sie steht trotzdem in der Zeile, denn wanderndes Scharfstellen sieht im Frame-Diff
+     * aus wie ein Zug, und ohne die Zahl ist es hinterher nicht zu belegen.
      */
     @Volatile
     private var observedFocus: Float? = null
@@ -140,14 +131,10 @@ class OpticsLock(
     /**
      * Adopt the bound camera and re-assert the user's look.
      *
-     * Nothing here waits: every value is either stated or a lock flag, so the whole request can go
-     * out at once. Zoom included — changing it invalidates the board geometry, so the value it was
-     * calibrated under is the value that must come back after a rebind (default 1.0, so nothing
-     * changes for anyone who never touched it). See [CameraLook].
-     *
-     * A lock survives a rebind as a FLAG, but the pinned focus distance does not survive as a
-     * number: [observedFocus] starts empty on a new session and fills again from the first capture
-     * results. That is the honest behaviour — the old distance described the old session's lens.
+     * Nothing here waits: every value is stated, so the whole request can go out at once. Zoom
+     * included — changing it invalidates the board geometry, so the value it was calibrated under
+     * is the value that must come back after a rebind (default 1.0, so nothing changes for anyone
+     * who never touched it). See [CameraLook].
      */
     fun attach(camera: Camera) {
         this.camera = camera
@@ -163,26 +150,14 @@ class OpticsLock(
     /**
      * Build and issue the whole repeating request from the user's look.
      *
-     * One builder, because it is ONE request — the lock and the steered values are not two acts.
-     * An axis the user neither stated nor locked is left to the device's own automatic, which is
-     * exactly what "auto" means on the camera screen.
+     * An axis the user did not state is left to the device's own automatic, which is exactly what
+     * "auto" means on the camera screen.
      */
     private fun applyOptions() {
         val builder = CaptureRequestOptions.Builder()
-        val locked = looks.look.value.locked
-        if (locked) {
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, true)
-            // AWB_LOCK freezes the white-balance ALGORITHM at its last values, which on this device
-            // also suppresses a later change of `CONTROL_AWB_MODE`: measured, Bulb (2 700 K) and
-            // Shade (7 500 K) rendered identically under the lock (mean R/B 1.841 against 1.851)
-            // while both differed from automatic. A pinned illuminant does not drift, so the lock
-            // buys nothing there and costs the whole control.
-            builder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_LOCK, !looks.illuminantPinned)
-        }
-        // Focus, from whichever source has one. A MANUAL distance wins and needs no lock — it is a
-        // stated value, so it holds from the moment it is set. Otherwise the padlock pins whatever
-        // the autofocus last reported; unlocked and unstated, focus is left to the device.
-        val distance = looks.focusDiopters() ?: observedFocus.takeIf { locked && looks.canFocus }
+        // Nur eine GENANNTE Distanz haelt den Fokus: `AF_MODE_OFF` ohne Zahl strandet die Linse
+        // dort, wo sie zufaellig steht.
+        val distance = looks.focusDiopters()
         distance?.let {
             builder
                 .setCaptureRequestOption(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
@@ -200,10 +175,10 @@ class OpticsLock(
         // zu sagen, wie viel Luft ueberhaupt da war — und genau daran hing der Befund, dass das
         // Geraet 30 von 66,7 moeglichen Millisekunden brachliegen laesst.
         val seen = observedExposure?.let { " (Sensor %.1f ms ISO %d)".format(it.timeNs / 1e6, it.iso) } ?: ""
-        val head = (if (look.locked) "locked: exposure, white balance" else "steered") + seen
+        val head = "steered$seen"
         val focus =
-            distance?.let { ", focus %.3f dpt%s".format(it, if (look.focus != null) " manual" else " held") }
-                ?: ", focus auto"
+            distance?.let { ", focus %.3f dpt manual".format(it) }
+                ?: observedFocus?.let { ", focus auto (%.3f dpt)".format(it) } ?: ", focus auto"
         val ev =
             looks.abilities.value
                 ?.exposure
