@@ -20,15 +20,17 @@ SPACING_LO, SPACING_HI, SPACING_STEP = 24.0, 130.0, 0.25
 LINE_CAP = 260.0
 
 LINE_TOL = 3
-PHASE_STEP = 1.0
 SPACING_SLACK = 0.10
 ANGLE_TOL = 12.0
 
 #: Anteil einer Zelle, in dem ein Segment noch zu seiner Rasterlinie zählt.
 FIT_WINDOW = 0.22
 
-#: Wie schwer zählt, dass sich das Karo AUSSERHALB des Bretts fortsetzt.
-RING_WEIGHT = 1.0
+#: Wie schwer zählt, dass AUSSERHALB des Bretts noch eine Gitterlinie liegt.
+OUTSIDE_WEIGHT = 2.0
+
+#: Wie weit über die gefundenen Linien hinaus gesucht wird, in Vielfachen von [SPACING_HI].
+SEARCH_PAD = 1.5
 
 
 def _segments(bgr):
@@ -65,62 +67,34 @@ def _offsets(segs, normal):
     return mid @ normal, np.hypot(segs[:, 2] - segs[:, 0], segs[:, 3] - segs[:, 1])
 
 
-def _spacing(pos, weight):
-    """Nur der TAKT; über die Lage entscheidet das Karo."""
+def _axis(pos, weight, spacings=None):
+    """Takt UND Lage einer Achse: neun Linien sollen tragen, die nullte und zehnte nicht.
+
+    Das Karo kann den Takt bestimmen, aber nicht die Lage — verschoben ist es nur invertiert
+    (`docs/markerless.md`). Wo das Gitter AUFHOERT, steht dagegen in den Linien selbst.
+    """
     if len(pos) < LINES:
         return None
-    lo, span = pos.min(), int(np.ceil(pos.max() - pos.min()))
+    lo = float(pos.min()) - SEARCH_PAD * SPACING_HI
+    span = int(np.ceil(float(pos.max()) - lo + SEARCH_PAD * SPACING_HI))
     grid = np.zeros(span + 1)
     np.add.at(grid, np.clip((pos - lo).astype(int), 0, span), weight)
-    grid = cv2.GaussianBlur(grid.reshape(-1, 1), (1, 2 * LINE_TOL + 1), 0).ravel()
+    grid = cv2.GaussianBlur(grid.reshape(-1, 1), (1, 2 * LINE_TOL + 1), 0).ravel() * (2 * LINE_TOL + 1)
+    ks = np.arange(LINES)
     best = None
-    for d in np.arange(SPACING_LO, SPACING_HI, SPACING_STEP):
-        if (LINES - 1) * d > span:
-            continue
-        starts = np.arange(0, span - (LINES - 1) * d, 1.0)
+    for d in (spacings if spacings is not None else np.arange(SPACING_LO, SPACING_HI, SPACING_STEP)):
+        starts = np.arange(d, span - LINES * d, 1.0)
         if not len(starts):
             continue
-        idx = np.clip((starts[:, None] + d * np.arange(LINES)[None, :]).astype(int), 0, span)
-        s = float(np.minimum(grid[idx] * (2 * LINE_TOL + 1), LINE_CAP).sum(1).max())
-        if best is None or s > best[0]:
-            best = (s, float(d))
-    return None if best is None else best[1]
-
-
-def _phase(gray, u, v, d, extent):
-    """Beste Lage des 8x8 — nach dem Karo UND danach, wo es aufhört.
-
-    Das Karo allein reicht nicht: um eine Zelle verschoben punktet es 0,467 gegen 0,457, weil
-    sieben Reihen Brett plus eine Reihe Rand fast so gut passen. Der RING außerhalb entscheidet.
-    """
-    ii, jj = np.meshgrid(np.arange(-1, CELLS + 1), np.arange(-1, CELLS + 1), indexing="ij")
-    sign = np.where((ii + jj) % 2 == 0, 1.0, -1.0).ravel()
-    inner = ((ii >= 0) & (ii < CELLS) & (jj >= 0) & (jj < CELLS)).ravel()
-    ou, ov = ((jj.ravel() + 0.5) * d)[None, None, :], ((ii.ravel() + 0.5) * d)[None, None, :]
-    (ulo, uhi), (vlo, vhi) = extent
-    us = np.arange(ulo + d, max(ulo + d + 1, uhi - (CELLS + 1) * d), PHASE_STEP)
-    vs = np.arange(vlo + d, max(vlo + d + 1, vhi - (CELLS + 1) * d), PHASE_STEP)
-    if not len(us) or not len(vs):
-        return None
-    px = us[:, None, None] * u[0] + vs[None, :, None] * v[0] + ou * u[0] + ov * v[0]
-    py = us[:, None, None] * u[1] + vs[None, :, None] * v[1] + ou * u[1] + ov * v[1]
-    vals = gray[np.clip(py.astype(int), 0, gray.shape[0] - 1),
-                np.clip(px.astype(int), 0, gray.shape[1] - 1)]
-
-    def stats(mask):
-        w = vals[:, :, mask]
-        w = w - w.mean(axis=2, keepdims=True)
-        sd = w.std(axis=2)
-        return (w * sign[mask]).mean(axis=2) / (sd + 1e-6), sd
-
-    ci, sdi = stats(inner)
-    cr, sdr = stats(~inner)
-    # Die Strafe haengt am KONTRAST des Rings: ist draussen alles gleich (blanker Tisch), ist die
-    # Korrelation dort Rauschen durch Rauschen und wird +-1 — sie bestrafte dann ausgerechnet die
-    # richtige Lage. Nur wo es aussen etwas zu sehen gibt, kann sich ein Muster fortsetzen.
-    sc = ci - RING_WEIGHT * np.abs(cr) * np.minimum(1.0, sdr / (sdi + 1e-6))
-    k = np.unravel_index(np.argmax(sc), sc.shape)
-    return float(sc[k]), float(us[k[0]]), float(vs[k[1]])
+        idx = np.clip((starts[:, None] + d * ks[None, :]).astype(int), 0, span)
+        inside = np.minimum(grid[idx], LINE_CAP).sum(1)
+        out_lo = np.minimum(grid[np.clip((starts - d).astype(int), 0, span)], LINE_CAP)
+        out_hi = np.minimum(grid[np.clip((starts + LINES * d).astype(int), 0, span)], LINE_CAP)
+        sc = inside - OUTSIDE_WEIGHT * (out_lo + out_hi)
+        k = int(np.argmax(sc))
+        if best is None or sc[k] > best[0]:
+            best = (float(sc[k]), float(starts[k] + lo), float(d))
+    return best
 
 
 def _fit_family(segs, normal, targets, d, along):
@@ -180,35 +154,25 @@ def find_board(bgr):
     t2 = (t1 + 90) % 180
     v = np.array([np.cos(np.radians(t2)), np.sin(np.radians(t2))])
     nu, nv = np.array([-u[1], u[0]]), np.array([-v[1], v[0]])
-    da = _spacing(*_offsets(fa, nu))
-    db = _spacing(*_offsets(fb, nv))
-    if da is None or db is None:
+    a = _axis(*_offsets(fa, nu))
+    b = _axis(*_offsets(fb, nv))
+    if a is None or b is None:
         return None
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    corners = np.array([[0, 0], [small.shape[1], 0], [0, small.shape[0]],
-                        [small.shape[1], small.shape[0]]], np.float32)
-    extent = (((corners @ u).min(), (corners @ u).max()),
-              ((corners @ v).min(), (corners @ v).max()))
-    base = (da + db) / 2
-    best = None
-    for d in np.arange(base * (1 - SPACING_SLACK), base * (1 + SPACING_SLACK), 0.5):
-        got = _phase(cv2.GaussianBlur(gray, (0, 0), max(1.0, d * 0.30)), u, v, d, extent)
-        if got and (best is None or got[0] > best[0]):
-            best = (*got, float(d))
-    if best is None:
-        return None
-    _, a, b, d = best
-    o = a * u + b * v
-    la = _fit_family(fa, nu, [float((o + j * d * v) @ nu) for j in range(LINES)], d, u)
-    lb = _fit_family(fb, nv, [float((o + j * d * u) @ nv) for j in range(LINES)], d, v)
+    # Dieselbe Zellgroesse auf beiden Achsen: ein Brett ist quadratisch, und die Bedingung
+    # verwirft die meisten Loesungen, die sich an einer Fremdkante festgehalten haben.
+    d = (a[2] + b[2]) / 2
+    near = np.arange(d * (1 - SPACING_SLACK), d * (1 + SPACING_SLACK), SPACING_STEP)
+    a = _axis(*_offsets(fa, nu), near) or a
+    b = _axis(*_offsets(fb, nv), near) or b
+    d = (a[2] + b[2]) / 2
+    la = _fit_family(fa, nu, [a[1] + k * a[2] for k in range(LINES)], a[2], u)
+    lb = _fit_family(fb, nv, [b[1] + k * b[2] for k in range(LINES)], b[2], v)
     if la is None or lb is None:
-        side = CELLS * d
-        quad = [o, o + side * u, o + side * u + side * v, o + side * v]
-    else:
-        quad = [_intersect(lb[0], la[0]), _intersect(lb[-1], la[0]),
-                _intersect(lb[-1], la[-1]), _intersect(lb[0], la[-1])]
-        if any(q is None for q in quad):
-            return None
+        return None
+    quad = [_intersect(lb[0], la[0]), _intersect(lb[-1], la[0]),
+            _intersect(lb[-1], la[-1]), _intersect(lb[0], la[-1])]
+    if any(q is None for q in quad):
+        return None
     return [[float(p[0] / scale), float(p[1] / scale)] for p in _canonical(quad)]
 
 
