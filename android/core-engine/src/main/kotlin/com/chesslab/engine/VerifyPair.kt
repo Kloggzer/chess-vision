@@ -58,6 +58,7 @@ internal object VerifyPair {
         // elsewhere is irrelevant. `nConf` is the WHOLE board — the two are not interchangeable.
         val checked = touchedMask(boardSnap, moves) and conf
         val pairAgree = pairAgreement(obs, afterBoard, checked)
+        val wrongColour = pairColourConflicts(obs, afterBoard, checked)
         val nConf = conf.countOneBits()
 
         state.cnnAgreement = after.agreement
@@ -69,6 +70,12 @@ internal object VerifyPair {
         pend.lastTickS = state.nowS
         return when {
             before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
+            // Vor jeder Annahme: ein Farbwiderspruch auf einem sicher gelesenen Feld heisst, dass
+            // die Stellung NACH dem Paar eine andere waere — dann ist es nicht dieses Paar.
+            wrongColour.isNotEmpty() -> {
+                state.rejectPair("Double move ${pairKey(moves)} contradicted on colour — discarded", wrongColour)
+                emptyList()
+            }
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
                 if (state.pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) {
                     state.commitPair(moves, pend, DECIDER_CNN_PAIR)
@@ -188,6 +195,34 @@ private fun confidentMask(
         if (obs.confident(Squares.ALL[i], thr)) mask = mask.with(i)
     }
     return mask
+}
+
+/**
+ * Beruehrte Felder, deren FARBE der Stellung nach beiden Halbzuegen widerspricht.
+ *
+ * Die zweite Achse neben [pairAgreement]: `f3e5 c6e5` und `f3e5 c6d4` lassen dieselben Felder
+ * besetzt und sind ueber Belegtheit ununterscheidbar — getrennt werden sie allein durch die
+ * Farbe auf e5. Live committet am 2026-08-30 das falsche der beiden (`TODO.md`, Doppelschlag).
+ */
+private fun pairColourConflicts(
+    obs: CnnObservation,
+    afterBoard: Game,
+    checked: Long,
+): List<String> {
+    val out = ArrayList<String>()
+    checked.forEachSquare { i ->
+        val name = Squares.ALL[i]
+        val want = afterBoard.pieceCharAt(i) ?: return@forEachSquare
+        val readsWhite =
+            when (obs.label(name)?.firstOrNull()) {
+                'w' -> true
+                'b' -> false
+                // `empty` und ein unlesbares Feld sagen zur Farbe nichts — das deckt die Belegtheit.
+                else -> return@forEachSquare
+            }
+        if (readsWhite != want.isUpperCase()) out += name
+    }
+    return out
 }
 
 /** Occupancy agreement of the confident touched squares with the position after BOTH half-moves. */

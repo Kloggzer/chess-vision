@@ -42,6 +42,38 @@ class VerifyPairSeamTest {
         assertEquals(after, state.board.fen(), "both half-moves must be on the board")
     }
 
+    /**
+     * Zwei Paare, dieselbe Belegtheit: nach `f3e5 c6e5` wie nach `f3e5 c6d4` sind e5 und d4
+     * besetzt und f3, c6 leer. Getrennt werden sie nur durch die FARBE auf e5, und am
+     * 2026-08-30 committete der Motor live das falsche der beiden.
+     */
+    @Test
+    fun `a pair the model contradicts on colour is discarded`() {
+        val state = pairState(fen = CAPTURE_FEN, ucis = listOf("f3e5", "c6d4"))
+        val moves = pairMoves(state, listOf("f3e5", "c6d4"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        // Schwarz auf e5 waere `c6xe5` — nicht die Stellung, die dieses Paar behauptet.
+        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "bN"))
+
+        val events = pairTick(state, cnn, moves, obs)
+
+        assertTrue(events.isEmpty(), "ein Farbwiderspruch darf nicht committen: $events")
+        assertEquals(CAPTURE_FEN, state.board.fen(), "das Brett darf sich nicht bewegt haben")
+    }
+
+    /** Dieselbe Lage, aber das Modell bestaetigt die Farbe — dann bleibt der Weg frei. */
+    @Test
+    fun `a pair the model confirms on colour still commits`() {
+        val state = pairState(fen = CAPTURE_FEN, ucis = listOf("f3e5", "c6d4"))
+        val moves = pairMoves(state, listOf("f3e5", "c6d4"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "wN", "d4" to "bN"))
+
+        val events = pairTick(state, cnn, moves, obs)
+
+        assertTrue(events.isNotEmpty(), "ohne Widerspruch muss das Paar durchkommen")
+    }
+
     @Test
     fun `the reply survives resolution even though it is illegal before the first half-move`() {
         // The regression in one assertion, with no verifier involved: the reply e7e5 is not among
@@ -57,5 +89,12 @@ class VerifyPairSeamTest {
         // even after the first is dropped, and the candidate degrades to the single it really is.
         val state = pairState(ucis = listOf("e2e4", "a1a8"))
         assertEquals(1, state.pendingMoves(listOf("e2e4", "a1a8")).size)
+    }
+
+    private companion object {
+        /** Nach 1.e4 e5 2.Nf3 Nc6 3.d4 d5, Weiss am Zug — `Nf3xe5` und danach `Nc6xd4` sind legal. */
+        const val CAPTURE_FEN = "r1bqkbnr/ppp2ppp/2n5/3pp3/3PP3/5N2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+        val TOUCHED = setOf("f3", "e5", "c6", "d4")
+        val TOUCHED_OCCUPANCY = mapOf("e5" to true, "d4" to true, "f3" to false, "c6" to false)
     }
 }

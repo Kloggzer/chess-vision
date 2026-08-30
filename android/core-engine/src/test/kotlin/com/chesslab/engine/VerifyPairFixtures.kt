@@ -17,6 +17,8 @@ import com.github.bhlangonijr.chesslib.move.Move
 internal class PairObs(
     private val occupancy: Map<String, Boolean> = emptyMap(),
     private val sure: Set<String> = emptySet(),
+    /** Nur fuer die Farbachse; leer heisst "das Modell sagt zur Figur nichts", wie bisher. */
+    private val labels: Map<String, String> = emptyMap(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] ?: false
 
@@ -30,7 +32,7 @@ internal class PairObs(
         thr: Double,
     ): Boolean = false
 
-    override fun label(square: String): String? = null
+    override fun label(square: String): String? = labels[square]
 
     override fun conf(square: String): Double = 0.0
 
