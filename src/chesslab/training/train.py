@@ -945,6 +945,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_acc": val["square_acc"],
             "val_macro_recall": val["macro_recall"],
             "val_board_acc": val["board_acc"],
+            # Die harte Zahl ist auf 54 % gedeckelt (verdeckte Zellen zaehlen mit, obwohl der
+            # Verlust sie maskiert) und ein Alles-oder-nichts ueber 32 Figuren. Diese beiden
+            # sagen, was sie sagen soll: ohne die maskierten Zellen, und mit einer Zelle Spielraum.
+            "val_visible_board_acc": val["visible_board_acc"],
+            "val_board_acc_tol1": val["board_acc_tol1"],
             "val_occupied_acc": bd["occupied_acc"],
             "val_occupied_board_acc": bd["occupied_board_acc"],
             "val_piece_acc": bd["piece_acc"],

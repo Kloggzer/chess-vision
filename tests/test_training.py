@@ -566,3 +566,31 @@ def test_blas_cap_runs_before_torch_is_imported():
     from chesslab.training import train as tr
     body = Path(tr.__file__).read_text(encoding="utf-8").split("def run_train(", 1)[1]
     assert body.index("cap_blas_threads()") < body.index("\n    import torch")
+
+
+def test_board_accuracy_tolerance_counts_boards_with_one_slip():
+    """Der Ausweg aus dem Exponenten: bei 32 Figuren ist "alle richtig" fast immer 0."""
+    from chesslab.training.data import board_accuracy
+
+    one_wrong = [(("s", "1"), True), (("s", "1"), False), (("s", "1"), True)]
+    two_wrong = [(("s", "2"), False), (("s", "2"), False), (("s", "2"), True)]
+    items = one_wrong + two_wrong
+
+    assert board_accuracy(items) == 0.0
+    assert board_accuracy(items, tolerance=1) == 0.5
+    assert board_accuracy(items, tolerance=2) == 1.0
+
+
+def test_visible_board_items_drop_the_cells_the_loss_masks():
+    """Verdeckte Zellen lernt das Modell nie — sie duerfen ein Brett nicht falsch machen."""
+    from chesslab.training.data import board_accuracy, visible_board_items
+    from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+
+    rows = [
+        {"session_id": "s", "frame": 1, "coverage": 0.0},
+        {"session_id": "s", "frame": 1, "coverage": PIECE_VISIBLE_MAX + 0.1},
+    ]
+    trues, preds = [0, 0], [0, 1]          # nur die VERDECKTE Zelle ist falsch
+
+    assert board_accuracy([(("s", "1"), True), (("s", "1"), False)]) == 0.0
+    assert board_accuracy(visible_board_items(rows, trues, preds)) == 1.0

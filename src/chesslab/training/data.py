@@ -64,19 +64,36 @@ def class_to_idx(classes: list[str]) -> dict[str, int]:
     return {c: i for i, c in enumerate(classes)}
 
 
-def board_accuracy(items: list[tuple[tuple, bool]]) -> float:
-    """Fraction of frames where ALL squares are correct.
+def board_accuracy(items: list[tuple[tuple, bool]], tolerance: int = 0) -> float:
+    """Fraction of frames with at most `tolerance` wrong squares.
 
     `items`: list of ((session, frame), is_correct). A single wrong crop makes
     the whole board wrong — this is the metric that counts in real operation.
+
+    `tolerance` ist der Ausweg aus einem Exponenten: 32 Figuren gleichzeitig richtig sind bei
+    `piece_acc` = 0,657 genau 1,5e-06, und was fast immer 0 ist, steuert keine Auswahl.
     """
     groups: dict[tuple, list[bool]] = defaultdict(list)
     for key, correct in items:
         groups[key].append(bool(correct))
     if not groups:
         return 0.0
-    boards = [all(v) for v in groups.values()]
+    boards = [sum(1 for c in v if not c) <= tolerance for v in groups.values()]
     return sum(boards) / len(boards)
+
+
+def visible_board_items(rows: list[dict], trues: list[int], preds: list[int]) -> list[tuple[tuple, bool]]:
+    """Board-Items OHNE die verdeckten Zellen — die Zahl misst sonst, was nie gelernt wurde.
+
+    Der Occlusion-Verlust maskiert alles ueber `PIECE_VISIBLE_MAX`, geprueft wurde es trotzdem:
+    46 % der Bretter im Val-Split von `real13-straight-80-v3` tragen mindestens eine verdeckte
+    Zelle, `board_acc` ist damit konstruktionsbedingt auf 54 % gedeckelt.
+    """
+    from .occlusion import PIECE_VISIBLE_MAX
+
+    return [((r["session_id"], str(r["frame"])), bool(t == p))
+            for r, t, p in zip(rows, trues, preds, strict=False)
+            if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX]
 
 
 def _piece_type(label: str) -> str:

@@ -7,7 +7,7 @@ import weakref
 import numpy as np
 import torch
 
-from .data import board_accuracy
+from .data import board_accuracy, visible_board_items
 
 
 def get_device(require_gpu: bool):
@@ -121,12 +121,17 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     items = [((r["session_id"], str(r["frame"])), bool(t == p))
              for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
     board_acc = board_accuracy(items)
+    # Zwei Zwillinge neben der harten Zahl, weil die allein nicht lesbar ist: ohne die verdeckten
+    # Zellen (die der Verlust maskiert, also nie gelernt wurden) und mit einer Zelle Spielraum.
+    visible_items = visible_board_items(dataset.rows, trues, preds)
 
     return {
         "loss": loss_sum / n if (criterion is not None and n) else None,
         "square_acc": square_acc,
         "macro_recall": macro_recall,
         "board_acc": board_acc,
+        "visible_board_acc": board_accuracy(visible_items),
+        "board_acc_tol1": board_accuracy(items, tolerance=1),
         "trues": trues_a,
         "preds": preds_a,
         "conf_wrong": float(np.array(conf)[trues_a != preds_a].mean())
