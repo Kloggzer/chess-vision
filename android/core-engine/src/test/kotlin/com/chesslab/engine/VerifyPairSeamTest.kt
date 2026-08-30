@@ -61,6 +61,26 @@ class VerifyPairSeamTest {
         assertEquals(CAPTURE_FEN, state.board.fen(), "das Brett darf sich nicht bewegt haben")
     }
 
+    /**
+     * Drei schnelle Zuege auf DASSELBE Feld, und der Motor kann nur Paare: `f3xe5 c6xe5 d4xe5`
+     * laesst f3, c6 und d4 leer. Das Paar `f3e5 c6d4` erklaert alle vier geaenderten Felder und
+     * schlaegt damit das richtige `f3e5 c6e5`, das nur drei erklaert — es behauptet aber eine
+     * Figur auf d4, wo nichts steht. Live committet am 2026-08-30.
+     */
+    @Test
+    fun `a pair that fills a square the model reads as empty is discarded`() {
+        val state = pairState(fen = CAPTURE_FEN, ucis = listOf("f3e5", "c6d4"))
+        val moves = pairMoves(state, listOf("f3e5", "c6d4"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        // Das Modell sieht d4 leer — dort steht nach dem dritten Zug nichts mehr.
+        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "wP", "d4" to "empty"))
+
+        val events = pairTick(state, cnn, moves, obs)
+
+        assertTrue(events.isEmpty(), "ein leer gelesenes Zielfeld darf nicht committen: $events")
+        assertEquals(CAPTURE_FEN, state.board.fen(), "das Brett darf sich nicht bewegt haben")
+    }
+
     /** Dieselbe Lage, aber das Modell bestaetigt die Farbe — dann bleibt der Weg frei. */
     @Test
     fun `a pair the model confirms on colour still commits`() {

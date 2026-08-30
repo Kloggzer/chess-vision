@@ -222,7 +222,7 @@ private fun colourTrace(
 }
 
 /**
- * Beruehrte Felder, deren FARBE der Stellung nach beiden Halbzuegen widerspricht.
+ * Beruehrte Felder, deren GRUPPE der Stellung nach beiden Halbzuegen widerspricht.
  *
  * Die zweite Achse neben [pairAgreement]: `f3e5 c6e5` und `f3e5 c6d4` lassen dieselben Felder
  * besetzt und sind ueber Belegtheit ununterscheidbar — getrennt werden sie allein durch die
@@ -237,14 +237,14 @@ private fun pairColourConflicts(
     checked.forEachSquare { i ->
         val name = Squares.ALL[i]
         val want = afterBoard.pieceCharAt(i) ?: return@forEachSquare
-        val readsWhite =
-            when (obs.label(name)?.firstOrNull()) {
-                'w' -> true
-                'b' -> false
-                // `empty` und ein unlesbares Feld sagen zur Farbe nichts — das deckt die Belegtheit.
-                else -> return@forEachSquare
-            }
-        if (readsWhite != want.isUpperCase()) out += name
+        val label = obs.label(name) ?: return@forEachSquare
+        // Sicher LEER, wo das Paar eine Figur behauptet, ist der schaerfste Widerspruch: es ist
+        // die verlaesslichste Lesung des Modells (`VerifySingle`), und ein Paar, das ein Feld
+        // besetzt laesst, das leer dasteht, erklaert einen dritten Zug weg, den es nicht kennt.
+        when {
+            label == "empty" -> out += name
+            label.startsWith("w") != want.isUpperCase() -> out += name
+        }
     }
     return out
 }

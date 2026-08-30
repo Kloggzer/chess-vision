@@ -481,7 +481,10 @@ internal fun replayRun(
             } else {
                 null
             }
-        val canPrecomputeMarkers = video != null && !options.lens
+        // Der Prepass schneidet nach `stride`; die aufgezeichnete Auswahl folgt Zeitstempeln. Zwei
+        // Kadenzen, und der Docstring unten sagt, was das kostet — also rechnet LiveAlign dann
+        // selbst. Langsamer, aber es ist dieselbe Rechnung.
+        val canPrecomputeMarkers = video != null && !options.lens && recorded == null
         // The RUN's config, the same one `LiveAlign` obeys inside the stack: the prepass answers
         // the alignments LiveAlign will ask for, so a prepass cut on a different cadence than the
         // asker is a "marker prepass has no frame N" away from stopping the replay.
