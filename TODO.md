@@ -811,6 +811,22 @@ innerhalb `MAX_OFFSET_FRAC`, wird abgelehnt, nicht gemittelt), und das Abnahmekr
 Maß des Grid-Fits — ein falsches Maß hat hier schon 302 Frames zertifiziert, deren Gitter mit
 blossem Auge falsch war. Erst mehr Aufbauten, sonst misst man auswendig gelerntes Mobiliar.
 
+## Markerlos: was nach 90 % noch fehlt (2026-08-30, gemessen)
+
+`src/chesslab/markerless.py` sitzt auf 140 von 155 Frames exakt auf ArUcos Lösung, medianer
+Eckenfehler 0,06 Zellen, 70 ms je Frame (`docs/markerless.md`). Offen:
+
+- **Die Orientierung.** Bewusst ausgeklammert — welche Ecke a8 ist, kann ein Gitter prinzipiell
+  nicht sagen. Soll aus dem CNN kommen. „a1 ist dunkel" ist gemessen und VERWORFEN: halbiert die
+  vier Drehungen auf zwei, die Umsetzung wählte die falsche.
+- **6 Frames finden gar kein Brett**, überwiegend mit einem Arm quer darüber. ArUcos eigentlicher
+  Vorteil ist hier ungenutzt: `MarkerTracker` hat ein Gedächtnis über Frames, dieser Detektor
+  fängt jeden Frame bei null an. Das ist der billigste nächste Schritt.
+- **9 Frames bleiben eine Zelle daneben.** Ein grösserer Suchbereich hilft nicht (±2 und ±3 sind
+  identisch) — das Paritätsmass wählt dort falsch, es greift nicht zu kurz.
+- **Perspektive ist nicht vermessen.** Der 81-Punkt-Fit trägt sie, aber der Bereich ist unbekannt.
+- **Kotlin fehlt ganz.** Alles Python-Prototyp; ein Umzug braucht vorher einen Paritätstest.
+
 ## `board_size` folgt nicht dem gemessenen Quad (2026-08-20, gemessen)
 
 `board_size` ist konstant 928 für jede Aufnahme, aber wie gross das Brett im Bild sitzt, schwankt
