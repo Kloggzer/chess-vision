@@ -256,7 +256,12 @@ internal class LabelSession(
             // `collector.plies`, never [plies]: score measures THIS replay against a stored label,
             // and on a transferred session the phone's list is what the label already holds —
             // scoring it against itself is a perfect score that says nothing.
-            printScore(scoreCandidate, labelPlies(scoreCandidate), collector.plies.map { ScoredPly(it.san, it.frame, it.decider) })
+            printScore(
+                scoreCandidate,
+                labelPlies(scoreCandidate),
+                collector.plies.map { ScoredPly(it.san, it.frame, it.decider) },
+                options.model,
+            )
         }
     }
 }

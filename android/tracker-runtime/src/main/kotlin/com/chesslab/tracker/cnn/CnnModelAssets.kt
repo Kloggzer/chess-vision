@@ -29,22 +29,23 @@ const val ASSET_ROOT_DIR = "cnn_model"
  * `coverage_gate` (`docs/occlusion-gate.md`) and — seit `p4a-80-clahe` — seine Vorverarbeitung.
  * Die `real13`/`real14`/`id35`-Familien sind mit dem `p4`-Wechsel (2026-08-30) ausgezogen.
  */
-const val DEFAULT_MODEL = "p4full-128"
+const val DEFAULT_MODEL = "p4a-80-clahe"
 
 /**
  * Default first, so Settings presents the model a fresh install actually runs at the top.
  *
  * `p4a` = Aufmerksamkeitskopf ueber die 64 Zellen, Zahl = Crop-Groesse, `full` = langes Rezept.
- * `p4a-80-clahe` verlangt als erstes Modell eigene Vorverarbeitung (`docs/clahe-band.md`).
+ * Der Vorgabe-Zweig ist seit 2026-08-30 `p4a-80-clahe` — das Modell, das erforscht wird, und das
+ * einzige mit eigener Vorverarbeitung (`docs/clahe-band.md`). Ein Replay ohne `model=` misst es.
  */
 val BUNDLED_MODELS =
     listOf(
         DEFAULT_MODEL,
+        "p4full-128",
         "p4afull-128",
         "p4a-128",
         "p4-128",
         "p4a-96",
-        "p4a-80-clahe",
         "p4a-80",
         "p4-80",
     )

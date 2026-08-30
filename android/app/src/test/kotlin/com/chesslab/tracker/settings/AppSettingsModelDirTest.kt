@@ -15,10 +15,10 @@ import org.junit.jupiter.api.Test
 class AppSettingsModelDirTest {
     @Test
     fun aFreshInstallRunsTheOcclusionAwareIdentityModel() {
-        // Named, not just "the default": a 14-class run declares no `coverage_output`, which leaves
-        // the model-free grid arm on, and on the regression set that arm locks the tracker
-        // (2026-08-07-13-52-38: four found with three phantoms, against 25/0/0 with this one).
-        assertEquals("p4full-128", DEFAULT_MODEL)
+        // Named, not just "the default": ein 14-Klassen-Lauf meldet kein `coverage_output`, laesst
+        // damit den modellfreien Gitterarm an, und der sperrt den Tracker (2026-08-07-13-52-38:
+        // vier gefunden bei drei Phantomen). `p4a-80-clahe` meldet es und ist der erforschte Zweig.
+        assertEquals("p4a-80-clahe", DEFAULT_MODEL)
         assertEquals(DEFAULT_MODEL, AppSettings().modelDir)
         assertEquals(DEFAULT_MODEL, decodeAppSettings(null).modelDir)
     }

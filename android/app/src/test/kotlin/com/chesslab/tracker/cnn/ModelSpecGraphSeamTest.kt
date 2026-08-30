@@ -112,16 +112,16 @@ class ModelSpecGraphSeamTest {
 }
 
 /**
- * The inference size the default model is served at — **128 px**, die trainierte Groesse von
- * `p4full-128`. Sie kostet trotz der hoeheren Aufloesung WENIGER als der 80-px-Vorgaenger
- * (5,7 gegen 6,7 MMAC je Crop), weil der Trunk elf statt 46 Faltungen hat.
+ * The inference size the default model is served at — **80 px**, die trainierte Groesse von
+ * `p4a-80-clahe`. Seit 2026-08-30 ist das der Vorgabe-Zweig: es ist das Modell, das erforscht
+ * wird, und das einzige mit eigener Vorverarbeitung (`docs/clahe-band.md`).
  *
  * A literal on purpose, and the only one. `config.json` remains the single source the CODE reads
  * (`ModelSpec.parse`); this is a tripwire on the DECISION, so that re-exporting the asset at another
  * size has to be a deliberate act with this line edited rather than a graph that quietly changes
  * shape. "The config and the graph agree" is not on its own enough to ship.
  */
-internal const val SHIPPED_INPUT_SIZE = 128
+internal const val SHIPPED_INPUT_SIZE = 80
 
 /** What the deleted `out_size == 128` guard hard-coded; no bundled model may declare it. */
 internal const val ASSUMED_SIZE = 128

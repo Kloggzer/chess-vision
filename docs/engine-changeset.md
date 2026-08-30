@@ -155,6 +155,19 @@ Gemessen, beide Richtungen, jeweils auf der Aufnahme, die es zeigt — hier steh
 weitere Konstante. Was fehlt, ist eine Ableitung der Skala aus etwas Messbarem (Kontrast der
 Figuren gegen ihr Feld, aus dem Board-Store), nicht ein weiterer Handgriff am Regler.
 
+## Was der Score misst (2026-08-30)
+
+**Das Modell gehoert an die Zahl.** Derselbe Satz lief einmal unter `p4full-128` und einmal
+unter `p4a-80-clahe` und gab auf `VID_20260727_233929` 10 gegen 8 gefundene Halbzuege. Ohne den
+Namen daneben sind das zwei Zahlen ohne Aussage, und `printScore` schreibt ihn seitdem mit.
+
+**Das Label ist ein Benchmark, kein Urteil.** Beim Aufnehmen wurde je Zug gewartet, bis die
+DAMALIGE App ihn erkannte — `candidate.json` protokolliert einen historischen Stand aus App,
+Engine und Modell. Ein `missed` ist auf dieser Aufnahme echt schlechter, nur ist die Aufnahme
+kein Ziel an sich: ihre Trainingsdaten sind gesammelt, sie hat ihren Zweck erfuellt. Ein Satz,
+den ein Umbau nicht mehr vollstaendig einholt, kann ihn trotzdem wert sein — das ist eine
+Abwaegung und wird keine Zahl. `invented` ist die harte: ein erfundener Zug ist immer falsch.
+
 ## Messung
 
 Regressionssatz, 2026-08-26, `model=real13-ms-s3-hn4-bn80`, je gefunden/verpasst/**erfunden**:

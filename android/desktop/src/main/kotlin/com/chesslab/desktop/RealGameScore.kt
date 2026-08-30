@@ -132,14 +132,20 @@ private val PGN_NUMBER = Regex("""\d+\.(\.\.)?""")
 private val PGN_RESULT = Regex("""(1-0|0-1|1/2-1/2|\*)""")
 private val PGN_SPACE = Regex("""\s+""")
 
-/** Three numbers, three lists, no average. */
+/**
+ * Three numbers, three lists, no average — und das MODELL, mit dem sie entstanden sind.
+ *
+ * Ohne den Namen ist die Zahl nicht zuzuordnen, und das Label ist ein historischer App-Stand
+ * statt einer Wahrheit ueber das Brett: `docs/engine-changeset.md`, "Was der Score misst".
+ */
 internal fun printScore(
     candidate: File,
     label: List<ScoredPly>,
     run: List<ScoredPly>,
+    model: String,
 ) {
     val score = scoreMoves(label, run)
-    println("score vs ${candidate.path} — label ${label.size} plies, run ${run.size} plies")
+    println("score vs ${candidate.path} — model $model, label ${label.size} plies, run ${run.size} plies")
     println("  found ${score.found.size}:")
     for ((ply, committed) in score.found) {
         println("    %-8s label frame %6d   run frame %6d  (%s)".format(ply.san, ply.frame, committed.frame, committed.decider))
