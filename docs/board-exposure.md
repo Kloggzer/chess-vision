@@ -93,6 +93,32 @@ Governor erkennt das daran, dass `evIndex` von etwas anderem als ihm selbst geä
 Beginn einer Aufhell-Episode (nicht bei jedem Schritt) meldet der Governor eine `ExposureNotice`,
 und der `TrackerService` macht daraus einen Toast: „Dark board detected — brightening by +0,7 EV".
 
+## Die 10,0 ms sind nicht verhandelbar (2026-08-30, dreifach gemessen)
+
+Der Sensor-Auszug zeigte immer dasselbe Paar: **Zeit 10,0 ms, ISO variabel**. Der Verdacht lag
+nahe, die Bildraten-Spanne deckle die Belichtungszeit — bei `[30,30]` sind es 33,3 ms. Also drei
+Versuche, der Automatik mehr Zeit zu erlauben, ohne sie abzuschalten:
+
+| Eingriff | erlaubt | gefahren |
+|---|---:|---:|
+| `CONTROL_AE_TARGET_FPS_RANGE = [15,15]` (15 fps) | 66,7 ms | **10,0 ms** |
+| `CONTROL_SCENE_MODE = NIGHT` | — | **10,0 ms** |
+| `CONTROL_AE_ANTIBANDING_MODE = OFF` | — | **10,0 ms** |
+
+Das ISO wanderte dabei frei (329, 231, 237, 196, 162), die Zeit kein einziges Mal. Es ist also
+weder das Flimmer-Raster (20 und 30 ms waeren ebenfalls Vielfache von 1/100 s und wurden nie
+gewaehlt) noch ein Szenenziel, sondern eine Festlegung des Geraete-Tunings. Bei 15 fps laesst das
+Telefon 85 % seines Zeitbudgets liegen und bezahlt sie mit Verstaerkung.
+
+**Damit ist der Weg zu Ende, der die Automatik anlaesst.** Bleibt nur `AE_MODE_OFF`, und der ist
+oben schon gemessen und verworfen: manuell faellt die ISP-Verstaerkung weg, und der Sensor allein
+kommt nicht dorthin, wo die ganze Kette hinkommt (65 gegen 109 luma).
+
+Was das praktisch heisst: **das ISO ist keine Stellschraube dieser App.** Wer das Rauschen senken
+will, muss die Szene beleuchten. Sichtbar ist es seit heute wenigstens — `OpticsLock` schreibt
+`sensor <ms> ISO <n>`, sobald sich eine der beiden Zahlen merklich bewegt, und nicht mehr nur bei
+einer Verstellung der Regelung.
+
 ## Zwei Fallen beim Verdrahten
 
 - **Zeit/ISO gehören nicht in `CameraLook`.** Dort lagen sie zuerst, und
