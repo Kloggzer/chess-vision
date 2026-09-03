@@ -46,6 +46,27 @@ Abdeckung mitzuschleppen. (iii) `gridOccluded == 0` heisst "sauber", "abgeschalt
 Tick nicht gerechnet" zugleich; ein `HandEvidence(modelSquares, gridSquares, modelValid, gridValid)`
 mit den abgeleiteten Praedikaten an EINER Stelle wuerde die vier Verbraucher auf eine Latte setzen.
 
+**10. Die Baseline-Occlusion erreicht die Detektion nie (gemessen, Probe 2026-09-03).**
+`FrameLoop.updateBaselineOcclusion` laeuft nur in MOVING/OCCLUDED und stempelt `OCCLUSION_KEEPALIVE_S`
+= 0,1 s; die Detektion kommt fruehestens bei `holdUntil` = letzte Bewegung + `motionHoldS` (0,2 s).
+Hand auf sechs Feldern, 30 fps: 16 dilatierte / 6 Kern-Felder sind 0,1 s live, bei JEDEM `Detect`
+ist `motionOccluded = []`, `core = []`. Der Pixel-Arm der Verdeckung (Invariante 2, z nullen) und
+das Kern-Tor (> 2 → OCCLUDED) sind unter Default-Timing tot; nur `restingHandVeto` (Modellkopf)
+taintet. Der Keep-alive sollte laut eigenem Kommentar bis zum Ablauf des Holds bruecken — Fix waere
+`expiry = max(nowS + 0,1, holdUntil + ein Frame)`. Das macht den Arm ERSTMALS scharf und kann
+Zuege kosten (die Hand-Schleppe taintet das Zielfeld fuer `occluderHoldS`): Regressionssatz A/B.
+
+**11. CNN-Seite, erst messen.** (a) `identityRead` bricht bei `inconclusive` (< 32 label-sichere
+Felder) ab, bevor die Belegungsachse gefragt wird — im Dunkeln gibt es damit weder Match noch
+Recovery, obwohl `deriveMovesDeep` ab `minConfidentRecovery` = 8 Feldern arbeiten koennte.
+(b) `pOcc = 1 − pEmpty − pOccluded` behandelt die unabhaengige Coverage-Spalte wie eine
+Softmax-Klasse; bei Coverage 0,14 (unter dem 0,15-Tor) faellt ein sicher besetztes Feld auf 0,81
+und aus jedem Nenner. (c) `guessIllegalMove`/`hasOccupancyConflict` gaten mit `labelConfident`,
+obwohl das Praedikat Belegung ist — ein Ziel mit pOcc 0,99, verteilt auf mehrere Figuren, ist kein
+Ziel, und der Alarm verliert seine Zug-Form. (d) `cnnAdoptedFen` verlangt `needsMoves` — eine
+Mattstellung ist per CNN nicht adoptierbar, per `setFen` schon. (e) Das Dunkel-Tor liegt doppelt
+in `FramePipeline` und `FrameLoop`; der Engine-Zweig ist produktiv unerreichbar (nur Replay/Clips).
+
 ## ERLEDIGT: der Replay folgt der Handy-Messung (2026-08-30)
 
 Ecken, Frame-Auswahl und Startstellung kommen aus der Aufnahme selbst (`baa0167c`), die

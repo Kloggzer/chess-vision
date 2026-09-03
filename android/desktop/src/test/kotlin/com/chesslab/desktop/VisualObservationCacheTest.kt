@@ -63,3 +63,17 @@ class VisualObservationCacheTest {
         val CORNERS = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
     }
 }
+
+class TransposedGridTest {
+    @org.junit.jupiter.api.Test
+    fun `file-major bits land on the rank-major square`() {
+        // e4 = file 4, rank 3: file-major bit 4*8+3 = 35, rank-major index 3*8+4 = 28.
+        org.junit.jupiter.api.Assertions
+            .assertEquals(1L shl 28, transposedGrid(1L shl 35))
+        // The diagonal is a fixed point, and transposing twice is the identity.
+        org.junit.jupiter.api.Assertions
+            .assertEquals(1L shl 27, transposedGrid(1L shl 27))
+        org.junit.jupiter.api.Assertions
+            .assertEquals(0x00F0_0F00_1234_5678L, transposedGrid(transposedGrid(0x00F0_0F00_1234_5678L)))
+    }
+}

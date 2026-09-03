@@ -117,7 +117,7 @@ internal class VisualObservationCache private constructor(
             DataInputStream(BufferedInputStream(file.inputStream())).use { input ->
                 check(input.readInt() == MAGIC) { "unsupported visual cache ${file.absolutePath}" }
                 val version = input.readInt()
-                check(version == LEGACY_VERSION || version == PRIORLESS_VERSION || version == VERSION) {
+                check(version in LEGACY_VERSION..VERSION) {
                     "unsupported visual cache ${file.absolutePath}"
                 }
                 check(input.readUTF() == video.canonicalPath) { "visual cache belongs to another video" }
@@ -126,24 +126,27 @@ internal class VisualObservationCache private constructor(
                 }
                 check(input.readUTF() == model) { "visual cache was built for another model" }
                 if (version == LEGACY_VERSION) {
-                    CachedRows(readLegacy(input), emptyMap(), hasAlignmentStream = false)
+                    CachedRows(readLegacy(input, version), emptyMap(), hasAlignmentStream = false)
                 } else {
                     check(input.readUTF() == signature) { "visual cache was built for another replay configuration" }
-                    readRecords(input, hasPriorViews = version == VERSION)
+                    readRecords(input, version)
                 }
             }
 
-        private fun readLegacy(input: DataInputStream): Map<Long, CropFrameStore.CachedVisual> =
+        private fun readLegacy(
+            input: DataInputStream,
+            version: Int,
+        ): Map<Long, CropFrameStore.CachedVisual> =
             buildMap {
                 while (true) {
                     val seq = tryReadLong(input) ?: break
-                    check(put(seq, readObservation(input, hasPriorViews = false)) == null) { "duplicate visual seq $seq" }
+                    check(put(seq, readObservation(input, version)) == null) { "duplicate visual seq $seq" }
                 }
             }
 
         private fun readRecords(
             input: DataInputStream,
-            hasPriorViews: Boolean,
+            version: Int,
         ): CachedRows {
             val observations = LinkedHashMap<Long, CropFrameStore.CachedVisual>()
             val alignments = LinkedHashMap<Long, FloatArray>()
@@ -151,7 +154,7 @@ internal class VisualObservationCache private constructor(
                 when (tryReadByte(input) ?: break) {
                     RECORD_OBSERVATION -> {
                         val seq = input.readLong()
-                        check(observations.put(seq, readObservation(input, hasPriorViews)) == null) {
+                        check(observations.put(seq, readObservation(input, version)) == null) {
                             "duplicate visual seq $seq"
                         }
                     }
@@ -168,10 +171,12 @@ internal class VisualObservationCache private constructor(
 
         private fun readObservation(
             input: DataInputStream,
-            hasPriorViews: Boolean,
+            version: Int,
         ): CropFrameStore.CachedVisual {
+            val hasPriorViews = version >= PRIOR_VIEWS_VERSION
             input.readLong()
-            val grid = input.readLong()
+            // Masks written before 2026-09-04 came from the file-major `squareBit`; the engine is rank-major.
+            val grid = input.readLong().let { if (version < RANK_MAJOR_GRID_VERSION) transposedGrid(it) else it }
             val hasRaw = hasPriorViews && input.readBoolean()
             val pOcc = LinkedHashMap<String, Double>(ALL_SQUARES.size)
             val pEmpty = LinkedHashMap<String, Double>(ALL_SQUARES.size)
@@ -286,8 +291,9 @@ internal class VisualObservationCache private constructor(
 
         private const val MAGIC = 0x43564F31
         private const val LEGACY_VERSION = 2
-        private const val PRIORLESS_VERSION = 3
-        private const val VERSION = 4
+        private const val PRIOR_VIEWS_VERSION = 4
+        private const val RANK_MAJOR_GRID_VERSION = 5
+        private const val VERSION = RANK_MAJOR_GRID_VERSION
         private const val RECORD_OBSERVATION = 1
         private const val RECORD_ALIGNMENT = 2
         private const val CORNER_VALUES = 8
@@ -299,3 +305,14 @@ private class CachedRows(
     val alignments: Map<Long, FloatArray>,
     val hasAlignmentStream: Boolean,
 )
+
+/** Bit `file*8+rank` -> `rank*8+file`, for masks a pre-rank-major `squareBit` wrote. */
+internal fun transposedGrid(bits: Long): Long {
+    var out = 0L
+    for (file in 0 until 8) {
+        for (rank in 0 until 8) {
+            if (bits and (1L shl (file * 8 + rank)) != 0L) out = out or (1L shl (rank * 8 + file))
+        }
+    }
+    return out
+}
