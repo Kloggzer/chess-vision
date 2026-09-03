@@ -182,6 +182,10 @@ private fun EngineState.ladder(
         pend.frames >= config.verifyWindow || verifyExpired(pend) -> windowEnd(cnn, pend, sig, boardSnap, move)
 
         else -> {
+            // Eine brauchbare, aber unentschiedene Lesung ist keine Stimme, und [pendingVoted]
+            // verlangt AUFEINANDERFOLGENDE: sonst zaehlen shadow, neutral, shadow als zwei.
+            pend.voteOutcome = null
+            pend.voteCount = 0
             note = "checking ${board.san(move)} via CNN… (${pend.frames}/${config.verifyWindow})"
             emptyList()
         }

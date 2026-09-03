@@ -440,6 +440,33 @@ class VerifySingleTest {
         assertEquals("shadow", state.pending!!.voteOutcome)
     }
 
+    /**
+     * `pendingVoted` verlangt AUFEINANDERFOLGENDE Blicke, aber eine brauchbare, unentschiedene
+     * Lesung fiel in das letzte `else` und liess Stimme und Zaehler stehen — shadow(1/2), neutral,
+     * shadow(2/2) verwarf den Kandidaten auf zwei Stimmen, die nie hintereinander lagen.
+     */
+    @Test
+    fun aNeutralGlanceRestartsTheVote() {
+        val state = pendingState()
+        val shadowing = VerifyEvaluator(match = true)
+        val neutral = VerifyObs(mapOf("e4" to false, "e2" to false), mapOf("e4" to true, "e2" to true))
+
+        state.glance(shadowing, VerifyObs())
+        assertEquals(1, state.pending!!.voteCount)
+
+        state.glance(VerifyEvaluator(), neutral)
+        assertNull(state.pending!!.voteOutcome, "eine unentschiedene Lesung loescht die Serie")
+
+        state.glance(shadowing, VerifyObs())
+        assertNotNull(state.pending, "shadow, neutral, shadow sind keine zwei aufeinanderfolgenden Stimmen")
+        assertEquals(1, state.pending!!.voteCount)
+        assertEquals(emptyList<String>(), state.history)
+
+        // Ein zu alter Blick erreicht die Leiter gar nicht — er darf die Serie auch nicht loeschen.
+        state.glance(shadowing, VerifyObs(), seq = -1)
+        assertEquals(1, state.pending!!.voteCount)
+    }
+
     @Test
     fun blindGlanceDoesNotReAnchorOnACoveredBoard() {
         // `resyncCheck` matches VACUOUSLY under a hand. With the real `minConfidentBoard` the

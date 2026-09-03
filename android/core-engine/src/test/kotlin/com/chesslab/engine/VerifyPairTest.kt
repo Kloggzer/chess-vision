@@ -146,6 +146,25 @@ class VerifyPairTest {
         assertEquals("shadow", state.verifyState)
     }
 
+    /** Dieselbe Luecke in der Paar-Leiter: das letzte `else` liess die Stimme stehen. */
+    @Test
+    fun aNeutralGlanceRestartsThePairVote() {
+        val state = pairState(cur = grayFrame())
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val shadowing = PairRecovery(match = true)
+        val undecided = PairObs(occupancy = mapOf("e4" to true, "e5" to true), sure = setOf("e4", "e5"))
+
+        pairTick(state, shadowing, moves, PairObs())
+        assertEquals(1, state.pending!!.voteCount)
+
+        pairTick(state, PairRecovery(conflicts = listOf("c6")), moves, undecided)
+        assertNull(state.pending!!.voteOutcome, "eine unentschiedene Lesung loescht die Serie")
+
+        pairTick(state, shadowing, moves, PairObs())
+        assertNotNull(state.pending, "shadow, neutral, shadow sind keine zwei aufeinanderfolgenden Stimmen")
+        assertEquals(emptyList<String>(), state.history)
+    }
+
     @Test
     fun windowEndTerminalIsNotVoteGated() {
         val state = pairState(verifyWindow = 1)

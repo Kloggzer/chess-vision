@@ -74,6 +74,9 @@ internal object VerifyPair {
             pend.frames >= state.config.verifyWindow || state.verifyExpired(pend) ->
                 state.pairWindowEnd(moves, pend, checked, before, after)
             else -> {
+                // Siehe `VerifySingle`: die Serie muss aufeinanderfolgend sein.
+                pend.voteOutcome = null
+                pend.voteCount = 0
                 state.note =
                     "checking double move ${pairKey(moves)} via CNN… (${pend.frames}/${state.config.verifyWindow}) " +
                     colourTrace(obs, afterBoard, touchedMask(boardSnap, moves), checked)
