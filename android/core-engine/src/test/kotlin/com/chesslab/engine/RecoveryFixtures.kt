@@ -66,7 +66,8 @@ internal class RecoveryEvaluator(
     var conflicts: List<String> = emptyList(),
     var moves: List<String> = emptyList(),
     var agreement: Double = 1.0,
-    var occupancyMatch: Boolean = false,
+    /** `null` = occupancy says whatever identity says; a test that pits the two axes names it. */
+    var occupancyMatch: Boolean? = null,
     var occupancyConflict: Boolean = true,
     var guess: String? = null,
 ) : CnnEvaluator {
@@ -94,7 +95,7 @@ internal class RecoveryEvaluator(
     override fun resyncCheck(
         boardFen: String,
         obs: CnnObservation,
-    ): ResyncResult = ResyncResult(occupancyMatch, conflicts, 0, resyncMove, resyncAgreement)
+    ): ResyncResult = ResyncResult(occupancyMatch ?: match, conflicts, 0, resyncMove, resyncAgreement)
 
     override fun boardMatchesIdentity(
         boardFen: String,

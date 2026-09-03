@@ -112,19 +112,23 @@ private fun EngineState.identityRead(
     val fen = board.fen()
     val matches = cnn.boardMatchesIdentity(fen, obs)
     var derived = cnn.deriveMovesDeep(fen, obs, config.recoveryMaxPlies)
-    if (matches.match || matches.inconclusive) {
-        return CnnRead(derived.moves, derived.agreement, matches.conflicts, matches.match, matches.inconclusive)
+    if (matches.inconclusive) {
+        return CnnRead(derived.moves, derived.agreement, matches.conflicts, matches.match, inconclusive = true)
     }
     val occObs = obs.occupancyOnly()
-    if (cnn.resyncCheck(fen, occObs).match) {
-        // Identity-only disagreement: occupancy says the board DOES match the game state.
+    // BOTH axes, in both directions. Identity only sees LABEL-confident squares, so an extra piece
+    // on an occupancy-confident but label-unconfident one used to pass as "unchanged" and had
+    // `onMatchOk` clear the latch over it; occupancy alone still rescues an identity-only mismatch.
+    val occ = cnn.resyncCheck(fen, occObs)
+    if (occ.match) {
         return CnnRead(derived.moves, derived.agreement, emptyList(), matchOk = true, inconclusive = false)
     }
     if (derived.moves.isEmpty()) {
         val deep = cnn.deriveMovesDeep(fen, occObs, config.recoveryMaxPlies)
         if (deep.moves.isNotEmpty()) derived = deep
     }
-    return CnnRead(derived.moves, derived.agreement, matches.conflicts, matchOk = false, inconclusive = false)
+    val conflicts = if (matches.match) occ.conflicts else matches.conflicts
+    return CnnRead(derived.moves, derived.agreement, conflicts, matchOk = false, inconclusive = false)
 }
 
 /**

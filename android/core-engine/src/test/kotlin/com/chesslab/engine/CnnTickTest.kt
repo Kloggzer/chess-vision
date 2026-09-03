@@ -5,6 +5,7 @@ import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
@@ -163,6 +164,27 @@ class CnnTickTest {
         assertEquals("ok", state.cnnStatus)
         assertEquals(emptyList<String>(), state.cnnConflicts)
         assertNull(state.stuckReason)
+    }
+
+    /**
+     * The mirror image, and the dangerous direction: `boardMatchesIdentity` builds its conflict set
+     * from LABEL-confident squares only, so an extra piece on a square that is occupancy-confident
+     * but label-unconfident (wN 0.50 / wB 0.45 -> pOcc 0.95, no label at 0.85) is never checked.
+     * `match = true` then had `onMatchOk` clear the latch and pull the reference over that piece.
+     */
+    @Test
+    fun anIdentityMatchThatOccupancyContradictsIsNotAMatch() {
+        val (state, cnn) = alarmedState()
+        cnn.match = true
+        cnn.occupancyMatch = false
+        cnn.conflicts = listOf("e5")
+
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 11, gray = grayFrame()))
+
+        assertNotEquals("ok", state.cnnStatus, "an unexplained piece is not an unchanged board")
+        assertNotNull(state.alarm, "the latch may not be released over it")
+        assertEquals(listOf("e5"), state.cnnConflicts, "the occupancy conflicts are what is reported")
+        assertEquals(1, state.desyncObs, "and the mismatch path counted this observation")
     }
 
     @Test
