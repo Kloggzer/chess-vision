@@ -59,7 +59,11 @@ internal class EngineState(
         gamutPending = bgr
     }
 
-    /** A baseline from a previous detection plane is not comparable with the next frame. */
+    /**
+     * A baseline from a previous detection plane is not comparable with the next frame. The pending
+     * candidate goes with it: verified against the OLD geometry, a yes would anchor `pend.cur` as the
+     * reference, paired with the current corners where `cornersJumped` cannot see it.
+     */
     fun discardVisualReference() {
         refGray = null
         refBgr = null
@@ -73,6 +77,10 @@ internal class EngineState(
         grayBuf.clear()
         bgrBuf.clear()
         cnnSnap = null
+        pending = null
+        promoPending = null
+        verifyState = null
+        confirmer.reset()
         state = STATE_WAITING
     }
 
