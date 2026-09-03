@@ -383,6 +383,28 @@ class FrameLoopTest {
         assertEquals(0, h.state.frameSeq, "the guard fires before any state is touched")
     }
 
+    /**
+     * Das eine Bewegungsfenster, das `commitRecovery` gewaehrt, war tot: der Commit hinterliess
+     * `STATE_MOVE`, `stableMeans` detektiert nur ausserhalb davon, und `stableBranch` haelt MOVE bis
+     * zur naechsten Bewegung — also lief nichts bis zur naechsten Hand, wo `motionSinceRef` ohnehin
+     * gesetzt worden waere. Eine waehrend des Fensters gespielte Antwort blieb so liegen.
+     */
+    @Test
+    fun aRecoveryCommitReopensDetectionWithoutANewHand() {
+        val h = Harness(recoveryConfig())
+        repeat(RECOVERY_SETTLE_FRAMES) { h.feed() }
+        assertNotNull(h.state.refGray, "precondition: base truth is captured")
+        h.state.cnnRun = true
+        h.state.markStuck(STUCK_NO_LEGAL_MOVE)
+
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        h.state.recoveryGlances(cnn, obsForBoard(h.state.board), gray = grayFrame())
+        assertEquals(listOf("e4"), h.state.history, "precondition: the bridge committed")
+
+        val outcomes = (1..RECOVERY_SETTLE_FRAMES).map { h.feed() }
+        assertTrue(outcomes.any { it is FrameOutcome.Detect }, "quiet frames after a bridge must detect: $outcomes")
+    }
+
     /** `resize` mirrors Python building a fresh `_RunningMean`: a new window and an empty buffer. */
     @Test
     fun runningMeanResizeClears() {
@@ -441,6 +463,9 @@ class FrameLoopTest {
     private companion object {
         const val CORNER_FLOATS = 8
         const val SETTLE_FRAMES_NO_CNN = 4
+
+        /** `recoveryConfig`'s `settleFramesOverride` is 1, so this only has to fill `avgFrames`. */
+        const val RECOVERY_SETTLE_FRAMES = 4
         const val LONG_EXPIRY_S = 100.0
         const val FPS_AT_100_MS = 10.0
         const val HALF_SCALE_BOARD = 400

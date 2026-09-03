@@ -230,7 +230,7 @@ class CnnTickTest {
         assertSame(observed, state.refGray)
         assertEquals(state.board.fen(), state.refFen)
         assertEquals(DECIDER_CNN_RECOVERY, state.decisionLog.last().decider)
-        assertEquals(STATE_MOVE, state.state)
+        assertEquals(STATE_WAITING, state.state, "MOVE would suppress the very window the commit grants")
         assertTrue(state.recoveredLast)
         assertFalse(state.priorLast)
         assertNull(state.stuckReason)

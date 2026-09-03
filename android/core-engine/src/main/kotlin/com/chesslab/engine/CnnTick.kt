@@ -251,10 +251,13 @@ private fun EngineState.commitRecovery(
     }
     // Recovery means we WERE behind: a reply played during the recovery window is already visible
     // against this (old) reference, so grant exactly one motion window — otherwise the recency
-    // gate holds that reply hostage until the next recovery cycle.
+    // gate holds that reply hostage until the next recovery cycle. WAITING, not MOVE: `stableMeans`
+    // detects only outside MOVE and `stableBranch` holds MOVE until the next motion frame, so the
+    // granted window used to expire unused — nothing ran before the next hand set the flag anyway.
     motionSinceRef = true
     lastMotionTs = nowS
-    state = STATE_MOVE
+    state = STATE_WAITING
+    restSettled = false
     // Not cleared here either: a recovery reaching this point is at a position the hold does not
     // cover, so the FEN key already says so. Clearing was what let a second bridge free the first.
     recoveredLast = true
