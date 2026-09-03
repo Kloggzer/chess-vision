@@ -22,9 +22,6 @@ internal const val NO_HITS = -1
 // verify_move: at least the FROM and TO square must be readable (cnn_recovery.py:204).
 private const val MIN_VERIFIED_SQUARES = 2
 
-// derive_moves_identity only enumerates pairs from this ply budget upward.
-private const val PAIR_PLIES = 2
-
 /** `score_moves` result: the accepted move (or null) plus both agreement fractions. */
 data class ScoredMove(
     val move: Move?,
@@ -136,84 +133,12 @@ class CnnRecovery(
         }
     }
 
-    /** `cnn_recovery.py:371 verify_move_identity` — same shape, on the IDENTITY channel. */
-    fun verifyMoveIdentity(
-        board: Board,
-        moveUci: String,
-        obs: OccupancyObservation,
-    ): Pair<Double, Int> {
-        val move = parseMove(board, moveUci)
-        val after = board.clone().also { it.doMove(move) }
-        val confident = obs.labelConfidentSquares(config.confThr).toSet()
-        val checked = moveTouchedSquares(board, move).filter { it in confident }
-        val hits = checked.count { obs.label(it) == labelAt(after, it) }
-        return if (checked.size < MIN_VERIFIED_SQUARES) {
-            NO_AGREEMENT to checked.size
-        } else {
-            hits.toDouble() / checked.size to checked.size
-        }
-    }
-
     override fun boardMatchesIdentity(
         boardFen: String,
         obs: CnnObservation,
     ): IdentityResult {
         val full = boardMatchesIdentityFull(boardOf(boardFen), asObservation(obs))
         return IdentityResult(match = full.match, inconclusive = full.inconclusive, conflicts = full.conflicts)
-    }
-
-    /**
-     * `cnn_recovery.py:229 derive_moves_identity` — the legal move SEQUENCE (1, or with
-     * `maxPlies >= 2` also 2 half-moves) whose resulting identities best match the
-     * observation. Singles are preferred; the pair must beat the best SINGLE too, else the
-     * single is the more parsimonious explanation.
-     */
-    fun deriveMovesIdentity(
-        board: Board,
-        obs: OccupancyObservation,
-        maxPlies: Int = 1,
-    ): DerivedMoves {
-        val confSquares = obs.labelConfidentSquares(config.confThr)
-        val n = confSquares.size
-        if (n < config.minConfidentRecovery) {
-            return DerivedMoves(emptyList(), NO_AGREEMENT, NO_AGREEMENT)
-        }
-        val hitsOf = { b: Board -> confSquares.count { obs.label(it) == labelAt(b, it) } }
-        val singles = board.legalMoves().map { listOf(it) to board.clone().also { b -> b.doMove(it) } }
-        val single = pick(singles, hitsOf)
-        val best = frac(single.hits, n)
-        val second = frac(single.second, n)
-        var result = DerivedMoves(emptyList(), best, second)
-        if (single.seq.isNotEmpty() &&
-            best >= config.minAgreement &&
-            (single.hits - single.second) >= config.marginSquares
-        ) {
-            result = DerivedMoves(single.seq, best, second)
-        } else if (maxPlies >= PAIR_PLIES) {
-            val pairs =
-                singles.flatMap { (seq, b) ->
-                    b.legalMoves().map { mv2 -> (seq + mv2) to b.clone().also { it.doMove(mv2) } }
-                }
-            val pair = pick(pairs, hitsOf)
-            val pairBest = frac(pair.hits, n)
-            val rival = maxOf(pair.second, single.hits)
-            if (pair.seq.isNotEmpty() &&
-                pairBest >= config.minAgreement &&
-                (pair.hits - rival) >= config.marginSquares
-            ) {
-                result = DerivedMoves(pair.seq, pairBest, rival.toDouble() / n)
-            }
-        }
-        return result
-    }
-
-    /** `cnn_recovery.py:363 derive_move_identity` — the 1-ply wrapper. */
-    fun deriveMoveIdentity(
-        board: Board,
-        obs: OccupancyObservation,
-    ): ScoredMove {
-        val derived = deriveMovesIdentity(board, obs, maxPlies = 1)
-        return ScoredMove(derived.moves.firstOrNull(), derived.best, derived.second)
     }
 
     override fun deriveMovesDeep(

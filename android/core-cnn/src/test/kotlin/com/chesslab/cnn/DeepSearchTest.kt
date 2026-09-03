@@ -120,6 +120,15 @@ class DeepSearchTest {
         assertTrue(derived.best > 0.0, "occupancy fallback still scores")
     }
 
+    /** The `minConfidentRecovery` guard, inherited from the deleted identity search. */
+    @Test
+    fun `too few confident squares short-circuits the search`() {
+        val blind = FakeSquareClassifier(START_FEN, overrides = ALL_SQUARES.associateWith { "occluded" to 0.99 })
+        val derived = CnnRecovery().deriveMovesDeepFull(startBoard(), blind.observe(), maxPlies = 2, beam = 8)
+        assertTrue(derived.moves.isEmpty(), "a covered board offers no channel to search")
+        assertEquals(0.0, derived.best)
+    }
+
     @Test
     fun `the seam maps the deep result onto DeriveResult`() {
         val row = deepRow("deep_four_ply")

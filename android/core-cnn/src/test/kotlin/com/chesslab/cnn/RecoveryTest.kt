@@ -23,20 +23,14 @@ class RecoveryTest {
     }
 
     @Test
-    fun `verify_move and verify_move_identity match every golden row`() {
+    fun `verify_move matches every golden row`() {
         val rows = CnnFixtures.rows(CnnFixtures.VERIFY)
         assertEquals(4, rows.size, "row count")
         for (row in rows) {
             val name = row.str("name")
-            val recovery = recoveryFor(row)
-            val board = row.board()
-            val obs = row.observation()
-            val (agreement, checked) = recovery.verifyMove(row.str("fen"), row.str("uci"), obs)
+            val (agreement, checked) = recoveryFor(row).verifyMove(row.str("fen"), row.str("uci"), row.observation())
             assertClose(row.num("agreement"), agreement, "$name agreement")
             assertEquals(row.int("checked"), checked, "$name checked")
-            val (idAgreement, idChecked) = recovery.verifyMoveIdentity(board, row.str("uci"), obs)
-            assertClose(row.num("identityAgreement"), idAgreement, "$name identityAgreement")
-            assertEquals(row.int("identityChecked"), idChecked, "$name identityChecked")
         }
     }
 
@@ -133,7 +127,6 @@ class RecoveryTest {
         val refused = assertThrows<IllegalMoveException> { RECOVERY.verifyMove(START_FEN, "e2e5", obs) }
         assertEquals("e2e5", refused.uci)
         assertEquals(START_FEN, refused.fen)
-        assertThrows<IllegalMoveException> { RECOVERY.verifyMoveIdentity(startBoard(), "e2e5", obs) }
     }
 
     private fun occluded(squares: List<String>): Map<String, Pair<String, Double>> = squares.associateWith { "occluded" to 0.99 }
