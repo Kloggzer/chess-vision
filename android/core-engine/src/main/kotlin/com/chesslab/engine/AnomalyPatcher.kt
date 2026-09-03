@@ -30,6 +30,17 @@ private class PatchResult(
 )
 
 /**
+ * The timer, rebuilt from `changed` on EVERY detection frame: squares that stopped changing lose it,
+ * new ones start now. Separate from [maybePatchAnomaly] because only the two refusal arms call that —
+ * a square that went quiet over the candidate path kept its old start and came back already due.
+ */
+internal fun EngineState.trackAnomalies() {
+    val hot = changed
+    hot.forEachSquare { if (!anomalySince.has(it)) anomalyStart[it] = nowS }
+    anomalySince = hot
+}
+
+/**
  * Nudge/drift self-healing of the reference: a square persistently "changed" although NO viable move
  * explains it (`bestLl < 0`) has its cell pulled forward once its timeout expires, instead of discarding
  * the base truth. Empty squares wait longer — a changing empty square could also be a silent wrong move.
@@ -39,12 +50,7 @@ internal fun EngineState.maybePatchAnomaly(
     cur: GrayImage,
     curBgr: BgrImage?,
 ) {
-    // Maintain the timer by REBUILDING it: squares that stopped changing lose their timer, new
-    // ones start now.
-    val hot = changed
-    hot.forEachSquare { if (!anomalySince.has(it)) anomalyStart[it] = nowS }
-    anomalySince = hot
-
+    val hot = anomalySince
     val n = hot.countOneBits()
     // Never patch while the CNN says the board disagrees with the game state: a square that differs
     // because the PHYSICAL board moved on looks exactly the same to the patcher, and healing it into

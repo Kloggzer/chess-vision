@@ -42,6 +42,7 @@ import com.chesslab.engine.sortedSquareNames
 import com.chesslab.engine.squareNames
 import com.chesslab.engine.takeBack
 import com.chesslab.engine.topChangedVals
+import com.chesslab.engine.trackAnomalies
 import com.chesslab.engine.with
 
 const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -346,6 +347,7 @@ internal fun EngineState.tryDetect(
     changedVals = topChangedVals(lastZ, config.zThr)
     // 3. Vetoes (shadow keeps z as vacate evidence; occlusion zeroed it in step 2).
     applyVetoes(cur, curBgr, hot)
+    trackAnomalies()
     // 4. Noise learning on the post-veto sets, on EVERY stable frame — even while stuck.
     learnNoise()
     // 5. LL scoring + viability filter, then the quiet/re-anchor branch.

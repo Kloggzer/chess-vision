@@ -156,6 +156,31 @@ class AnomalyPatcherTest {
         assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
     }
 
+    /**
+     * Der Zeitgeber wurde nur in den beiden Verweigerungs-Armen gepflegt. Ein Feld, das bei t=0
+     * heiss war, ueber den Kandidaten-Pfad hundert Sekunden lang NICHT `changed` ist und dann wieder
+     * auftaucht, kam mit dem alten Start zurueck -- und war damit sofort faellig.
+     */
+    @Test
+    fun aQuietStretchRestartsTheAnomalyTimer() {
+        // The vote count keeps the candidate from committing — a commit clears the timers itself.
+        val state = detectState(detectConfig().copy(confirmFramesOverride = 3), ref = grayFrame())
+        val ref = requireNotNull(state.refGray)
+        state.armAnomaly("e4", since = 0.0)
+        state.nowS = 100.0
+
+        // A clean single move elsewhere: the candidate path, where no refusal arm ever runs.
+        state.tryDetect(grayFrame(listOf("g1", "f3")), null, seq = 1)
+        assertNull(state.stuckReason, "precondition: the candidate path ran, not a refusal")
+        assertEquals(emptyList<String>(), state.history, "precondition: nothing committed")
+
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 2)
+
+        assertEquals(ofSquares("e4"), state.changed, "precondition: e4 is hot again on a refusal frame")
+        assertTrue(ref.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer restarted, so nothing is due")
+        assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason, "and the refusal stands instead of being patched away")
+    }
+
     @Test
     fun patchInvalidatesRefCensusCache() {
         val state = detectState(ref = grayFrame())
