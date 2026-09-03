@@ -5,6 +5,7 @@ import com.chesslab.engine.DECIDER_USER
 import com.chesslab.engine.EngineState
 import com.chesslab.engine.FrameLoop
 import com.chesslab.engine.FrameOutcome
+import com.chesslab.engine.NOTE_ALARM_BLOCKED
 import com.chesslab.engine.NOTE_GEOMETRY_SHIFTED
 import com.chesslab.engine.STATE_WAITING
 import com.chesslab.engine.STUCK_NO_LEGAL_MOVE
@@ -268,6 +269,13 @@ class TrackerEngine(
         return when {
             symbol !in PROMO_PIECES -> listOf(TrackerEvent.Note("invalid piece: '$piece' (q/r/b/n)"))
             pending == null -> listOf(TrackerEvent.Note("no promotion pending"))
+            // Invariante 9: der Latch sperrt ALLES. Diese Tuer ging an `dispatch` vorbei direkt in
+            // `commitMove`; die Frage wird verworfen wie `VerifySingle.discardOnAlarm` es tut.
+            state.alarm != null -> {
+                state.promoPending = null
+                state.note = NOTE_ALARM_BLOCKED
+                listOf(TrackerEvent.Note(NOTE_ALARM_BLOCKED))
+            }
             state.board.fen() != pending.fen -> {
                 state.promoPending = null
                 listOf(TrackerEvent.Note("Position has changed"))

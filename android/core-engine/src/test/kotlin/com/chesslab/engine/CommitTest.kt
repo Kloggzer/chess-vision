@@ -306,6 +306,47 @@ class CommitTest {
         assertNull(state.promoPending)
     }
 
+    /**
+     * Invariante 9 — der Alarm sperrt ALLES: `choosePromotion` committete am `dispatch`-Gate vorbei
+     * direkt, obwohl die Stellung, gegen die die Promotion entschieden wurde, desynchron ist.
+     */
+    @Test
+    fun anAlarmBlocksTheChosenPromotion() {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val state = engine.state
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        assertNotNull(state.promoPending)
+        state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
+
+        val events = engine.choosePromotion('q')
+
+        assertEquals(emptyList<String>(), state.history, "the latch must block the promotion too")
+        assertNull(state.promoPending, "like VerifySingle.discardOnAlarm the prompt is dropped")
+        assertTrue(state.note.orEmpty().contains("desynced"), "note was '${state.note}'")
+        assertTrue(events.none { it is TrackerEvent.MoveCommitted }, "events were $events")
+    }
+
+    /** Derselbe Riegel fuer die CNN-getriebene Antwort — sie geht durch dieselbe Tuer. */
+    @Test
+    fun anAlarmBlocksTheCnnConfirmedPromotion() {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        val knight = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wN" else LABEL_EMPTY })
+        engine.onCnnSnapshot(recoverySnap(state, knight, seq = 2))
+        state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1", "d4"), null, null)
+
+        engine.onCnnSnapshot(recoverySnap(state, knight, seq = 3))
+
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.promoPending)
+    }
+
     @Test
     fun cnnConfirmsUnderpromotionAfterTwoDecisiveIdentityReads() {
         val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")
@@ -411,5 +452,9 @@ class CommitTest {
 
         assertNull(engine.state.refGray)
         assertEquals(STATE_WAITING, engine.state.state)
+    }
+
+    private companion object {
+        const val PROMOTION_FEN = "8/P6k/8/8/8/8/7K/8 w - - 0 1"
     }
 }
