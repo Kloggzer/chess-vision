@@ -211,7 +211,7 @@ private fun EngineState.noSingleFitsGate(
             pairCandidate(z, moves.best)?.let { out = Outcome(it) }
         }
         if (out == null && cnnOn) {
-            singleEndpointCandidate(z, moves.scored)?.let { sm ->
+            singleEndpointCandidate(z, moves.scored, cur, curBgr)?.let { sm ->
                 // vote = false: the CNN verify IS this candidate's multi-frame confirmation, so it
                 // skips both the confirmer (step 8) and the absolute LL floor (step 6b).
                 out =
@@ -224,6 +224,8 @@ private fun EngineState.noSingleFitsGate(
                         ),
                     )
             }
+            // Eine Promotion hat die Leiter selbst beantwortet — die Q/R/B/N-Frage steht, kein Stuck.
+            if (out == null && promoPending != null) out = Outcome(null)
         }
         if (out == null) {
             confirmer.reset()

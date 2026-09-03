@@ -53,26 +53,33 @@ private fun isPromotionTie(near: List<Pair<Move, Double>>): Boolean =
     near.all { it.first.promotion != null && it.first.promotion != Piece.NONE } &&
         near.map { it.first.from to it.first.to }.toSet().size == 1
 
-/**
- * Every promotion waits for `choosePromotion`. An identity-capable CNN may call the same public
- * path after stable high-confidence observations; otherwise the Q/R/B/N dialog remains open.
- */
 private fun EngineState.resolvePromotion(
     near: List<Pair<Move, Double>>,
     cur: GrayImage,
     curBgr: BgrImage?,
 ): Resolution {
-    val mv = near[0].first
+    raisePromotionPrompt(near[0].first, cur, curBgr)
+    return Resolution(null, priorUsed = false)
+}
+
+/**
+ * Every promotion waits for `choosePromotion`. An identity-capable CNN may call the same public
+ * path after stable high-confidence observations; otherwise the Q/R/B/N dialog remains open.
+ */
+internal fun EngineState.raisePromotionPrompt(
+    move: Move,
+    cur: GrayImage,
+    curBgr: BgrImage?,
+) {
     promoPending =
         PromoPending(
-            from = Squares.ALL[mv.from.ordinal],
-            to = Squares.ALL[mv.to.ordinal],
+            from = Squares.ALL[move.from.ordinal],
+            to = Squares.ALL[move.to.ordinal],
             cur = cur,
             curBgr = curBgr,
             fen = board.fen(),
         )
     note = NOTE_PROMOTION_PENDING
-    return Resolution(null, priorUsed = false)
 }
 
 /** `movePrior` breaks the near-tie, or the frame stays ambiguous. */

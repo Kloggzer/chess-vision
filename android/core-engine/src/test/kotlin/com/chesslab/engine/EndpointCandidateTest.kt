@@ -1,6 +1,8 @@
 package com.chesslab.engine
 
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.engine.api.tryDetect
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -29,7 +31,7 @@ class EndpointCandidateTest {
         val z = zOf("c6" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
-        val move = state.singleEndpointCandidate(z, scored)
+        val move = state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null)
 
         assertNotNull(move)
         assertEquals("c6", Squares.ALL[move!!.to.ordinal])
@@ -42,7 +44,7 @@ class EndpointCandidateTest {
         val z = zOf("c6" to HOT, "e4" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
-        assertNull(state.singleEndpointCandidate(z, scored))
+        assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
     /** Exactly one strong square is required — zero is as fatal as two. */
@@ -52,7 +54,7 @@ class EndpointCandidateTest {
         val z = zOf("c6" to state.config.zThr - 0.01)
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
-        assertNull(state.singleEndpointCandidate(z, scored))
+        assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
     /** A shadow-vetoed destination can never be an endpoint candidate. */
@@ -63,7 +65,7 @@ class EndpointCandidateTest {
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
         state.shadowVetoed = ofSquares("c6")
 
-        assertNull(state.singleEndpointCandidate(z, scored))
+        assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
     }
 
     /**
@@ -80,7 +82,7 @@ class EndpointCandidateTest {
         val z = zOf("d2" to HOT)
         val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
 
-        val move = state.singleEndpointCandidate(z, scored)
+        val move = state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null)
 
         assertNotNull(move)
         assertEquals("d2", Squares.ALL[move!!.to.ordinal])
@@ -115,6 +117,34 @@ class EndpointCandidateTest {
         assertTrue(cand.note!!.endsWith("? verifying via CNN…"))
     }
 
+    /**
+     * `a7a8q`, `a7a8r`, `a7a8b` und `a7a8n` sind ueber Belegtheit identisch, also haette CNN-Verify
+     * die Variante des Generators bestaetigt statt der gespielten Figur. Der Endpunkt-Kandidat fragt.
+     */
+    @Test
+    fun aPromotionEndpointAsksInsteadOfHandingOneVariantToVerify() {
+        val state = cnnState(PROMOTION)
+        val z = zOf("a8" to HOT)
+        val scored = loglikScores(state.board, z, state.config.zThr, LL_K)
+
+        assertNull(state.singleEndpointCandidate(z, scored, DUMMY_GRAY, null))
+        assertEquals("a7", state.promoPending?.from)
+        assertEquals("a8", state.promoPending?.to)
+    }
+
+    /** Und derselbe Weg durch `tryDetect`: die Q/R/B/N-Frage statt eines pending Kandidaten. */
+    @Test
+    fun aPromotionEndpointRaisesThePromptThroughTryDetect() {
+        val state = detectState(fen = PROMOTION, ref = grayFrame())
+        state.cnnRun = true
+
+        val events = state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+
+        assertNull(state.pending, "no occupancy-identical variant may reach the verifier")
+        assertEquals("a7", state.promoPending?.from)
+        assertTrue(events.any { it is TrackerEvent.PromotionPending }, "events were $events")
+    }
+
     /** Without a CNN the endpoint path does not exist at all — the frame goes stuck. */
     @Test
     fun withoutCnnThereIsNoEndpointCandidate() {
@@ -132,6 +162,7 @@ class EndpointCandidateTest {
     private companion object {
         const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
         const val TWO_KNIGHTS = "rnbqkb1r/ppp2ppp/4pn2/3p4/3P4/4PN2/PPP2PPP/RNBQKB1R w KQkq - 0 4"
+        const val PROMOTION = "8/P6k/8/8/8/8/7K/8 w - - 0 1"
     }
 }
 
