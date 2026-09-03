@@ -151,6 +151,28 @@ class NoiseLearningTest {
         assertTrue(state.noise.mean[Squares.index("a1")] > 0.0, "everything else learns")
     }
 
+    /**
+     * A tainted square is under a hand: `applyTaints` zeroed its z, so it never becomes `changed`
+     * and used to reach the EMA at FULL alpha. Learning the hand's delta as this square's noise
+     * desensitises exactly the square the hand will move a piece on.
+     */
+    @Test
+    fun taintedSquaresAreNotLearned() {
+        val state = testState()
+        state.feed(diffs = 40.0, cens = 40.0)
+        state.tainted = ofSquares("e4")
+        val i = Squares.index("e4")
+        val std = state.noise.std[i]
+
+        state.learnNoise()
+
+        assertEquals(0.0, state.noise.mean[i], 0.0, "the gray lane must learn NOTHING on a tainted square")
+        assertEquals(std, state.noise.std[i], 0.0, "and no spread either")
+        val slow = NOISE_ALPHA_DEFAULT * CENSUS_NOISE_EXCLUDE_ALPHA_SCALE
+        assertEquals(slow * 40.0, state.censusNoise.mean[i], 1e-12, "the census lane learns at alpha/8, like `changed`")
+        assertTrue(state.noise.mean[Squares.index("a1")] > 0.0, "everything else learns")
+    }
+
     /** `cens == null` (channel off or dropped) leaves the census lane completely untouched. */
     @Test
     fun censusLaneUntouchedWithoutAChannel() {
