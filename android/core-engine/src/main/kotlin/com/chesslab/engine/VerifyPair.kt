@@ -161,12 +161,9 @@ private fun EngineState.rejectPair(
 }
 
 /**
- * The squares EVERY half-move touches, each on the board its predecessors created — capture /
- * castling / en-passant squares depend on that position.
- *
- * Ueber alle Plies, nicht nur die ersten zwei: eine Dreier-Folge (`FAST_PLIES`) liess das
- * Ursprungsfeld des dritten Zuges aus `checked` fallen, und der lokale Arm committete sie, waehrend
- * das Modell dort sicher eine Figur las.
+ * The squares EVERY half-move touches, each on the board its predecessors created. All plies, not
+ * two: a three-ply exchange (`FAST_PLIES`) dropped the third move's origin from `checked` and the
+ * local arm committed it while the model read a piece there.
  */
 private fun touchedMask(
     boardSnap: Game,

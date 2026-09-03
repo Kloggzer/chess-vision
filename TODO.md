@@ -4,6 +4,48 @@
 > pieces of work. Newest first within a section. When one is done, move it out with a one-line
 > result, not a tick — what it MEASURED is the point.
 
+## Zwei Arme, zwei Latten — drei Annahmen im Classic-Motor, die nicht tragen (2026-09-03)
+
+Aus dem Engine-Review (Claude + Codex, nur lesend). Die sechs klaren Logikfehler desselben Reviews
+sind als `fix(engine)`-Commits mit roten Tests behoben; diese drei brauchen eine MESSUNG auf dem
+Regressionssatz, bevor jemand etwas anfasst — Phantome disqualifizieren.
+
+**7. `modelHandGate`-Ruheregel verlaesst sich auf den Rillen-Arm, der auf dem Handy AUS ist.**
+`Taint.modelHandSquares` verwirft die Coverage-Flags nach `OBS_MAX_AGE_S` (3 s) ohne Bewegung, es
+sei denn `gridHandSquares` bestaetigt sie — und `TrackerService` schaltet den Rillen-Arm bei jedem
+Modell mit `coverage_output` ab (`runGridOcclusion = coverageOutput != true`). Eine ruhende Hand
+laenger als 3 s ist auf dem Geraet fuer `handInFrame`, den Resting-Hand-Veto, das Recovery-Clean-Gate
+und die Alarm-Verzoegerung unsichtbar. Der Filter existiert wegen `real14-80`s Phantom-Flags auf
+ruhigem Brett (20260814-142947); jede Loesung muss das geschlossen halten.
+Optionen (Codex): (a) *bevorzugt* — bewegungsqualifizierter Latch: Flags, die WAEHREND Bewegung
+handfoermig waren, bleiben im Ruhezustand, solange DIESELBEN Felder weiter flaggen; keine neuen
+Felder in der Ruhe, Freigabe wenn die Flags selbst gehen. (b) `gridArmActive` als Fakt am Snapshot —
+"nicht gelaufen" darf nicht wie "gelaufen, nichts gesehen" aussehen; allein waere das aber die
+Rueckkehr des 142947-Problems. (c) Rillen-Arm auf dem Handy nur in Ruhephasen und nur, wenn das
+Modell noch Hand meldet — Kosten aus `docs/battery.md` messen. Messung: Ruhehand-Clips 3/10/30 s,
+Ueberleben je Feld, falsche saubere Recovery-Votes; 142947 muss 0 Phantome bleiben.
+
+**8. Window-End-Accept ohne Blind-Guard.** `VerifySingle.windowEnd` nimmt den Diff als
+`diff_after_verify`, wenn `resyncCheck(nach dem Zug)` keine Konflikte hat — die Konfliktmenge kommt
+nur aus SICHEREN Feldern, auf dunklem Brett also vakuum-leer; einzige Vorbedingung `toConf || fromConf`.
+Sprosse 1 hat den `minConfidentBoard`-Guard, Sprosse 5 nicht. `VerifyPair.pairWindowEnd` ebenso:
+`checked != 0L && preexisting` — ein sicheres beruehrtes Feld reicht.
+Optionen: (a) *bevorzugt* — positive LOKALE Evidenz verlangen: `occN >= 2` aus `verifyMove` (beide
+Endfelder lesbar) zusaetzlich zur Konfliktfreiheit, sonst HALTEN statt annehmen; fuer Paare die
+volle beruehrte Maske statt "eins reicht". (b) `confidentCount >= minConfidentBoard` auch hier —
+einfach, bestraft aber dunkle Ecken, die den Zug gar nicht betreffen. (c) Window-End nur noch
+halten, Recovery/Periodik entscheidet — sicherste, aber die meisten verpassten Zuege im Dunkeln.
+Messung: Emissionen nach `occN` 0/1/2 aufteilen, Phantome, spaetere Recovery-Latenz.
+
+**9. Kleinere.** (i) `advanceDesyncStreak` zaehlt Teil-/Obermengen als stabil — der Staffellauf
+`{a}→{a,b}→{b}→{b,c}→{c}` haelt die Serie, ohne dass ein Feld sie durchgehend traegt; schaerfere
+Regel: laufender Kern `core = core ∩ conflicts`, leer = Neustart. (ii) `handTolerantCells`
+(Experiment, Default 0, gemessen negativ laut `TrackerConfig`): `throughLocatedHand` verlaesst
+`STATE_MOVE` nie — Knob und die drei Pfade loeschen, statt eine zweite Zustandsmaschine ohne
+Abdeckung mitzuschleppen. (iii) `gridOccluded == 0` heisst "sauber", "abgeschaltet" und "diesen
+Tick nicht gerechnet" zugleich; ein `HandEvidence(modelSquares, gridSquares, modelValid, gridValid)`
+mit den abgeleiteten Praedikaten an EINER Stelle wuerde die vier Verbraucher auf eine Latte setzen.
+
 ## ERLEDIGT: der Replay folgt der Handy-Messung (2026-08-30)
 
 Ecken, Frame-Auswahl und Startstellung kommen aus der Aufnahme selbst (`baa0167c`), die
