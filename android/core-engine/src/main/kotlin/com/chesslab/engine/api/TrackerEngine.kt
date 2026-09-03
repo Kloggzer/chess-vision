@@ -201,6 +201,9 @@ class TrackerEngine(
             state.pendingCapture = null
             state.note = undoneNote(plies)
         }
+        // Unconditional, not via `clearAlarm`: that one returns early without a latch, so an undo
+        // on a healthy board left the streak standing against a position that no longer exists.
+        state.clearDesyncStreak()
         // AFTER the trim: the `decider = "user"` row is stamped with the current `history.size`, and
         // the trim drops every row above the restored size — written first, it deleted itself.
         return state.clearAlarm(ALARM_UNDONE)

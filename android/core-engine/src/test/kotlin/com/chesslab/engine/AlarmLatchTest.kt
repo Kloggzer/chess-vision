@@ -224,6 +224,86 @@ class AlarmLatchTest {
         assertNull(state.alarm, "two mismatches around a matching glance are not three in a row")
     }
 
+    /**
+     * "Alarm feuert zu schnell beim Ziehen" (TODO.md). Die Serie wurde gegen die VORIGE Stellung
+     * gezaehlt und ueberlebte den Commit — Zahl und Uhr waren beide schon voll, also rastete der
+     * erste abweichende Read nach einem echten Zug sofort ein.
+     */
+    @Test
+    fun aCommitClearsTheDesyncStreak() {
+        val (state, cnn) = streakedState()
+        state.commitMove(moveOf(state, "a7a6"), grayFrame(), null)
+        assertEquals(0, state.desyncObs, "the streak was counted against the position that just left")
+
+        state.nowS += STREAK_GAP_S
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        state.mismatchGlance(cnn, seq = 3)
+
+        assertEquals(1, state.desyncObs, "the next mismatch is the FIRST of a new streak")
+        assertNull(state.alarm, "one read after a move may not latch the alarm")
+    }
+
+    /** Dieselbe Serie, derselbe Stellungswechsel — nur committet ihn die CNN-Recovery. */
+    @Test
+    fun aRecoveryCommitClearsTheDesyncStreak() {
+        val (state, cnn) = streakedState()
+        cnn.moves = listOf("a7a6")
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = grayFrame())
+        assertEquals("a6", state.history.last(), "precondition: the bridge committed")
+        assertEquals(0, state.desyncObs, "the streak was counted against the position that just left")
+
+        cnn.moves = emptyList()
+        state.nowS += STREAK_GAP_S
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        state.mismatchGlance(cnn, seq = 3)
+
+        assertEquals(1, state.desyncObs, "the next mismatch is the FIRST of a new streak")
+        assertNull(state.alarm, "one read after a bridge may not latch the alarm")
+    }
+
+    /**
+     * Ohne Latch kehrt `clearAlarm` sofort zurueck, und genau dann raeumte niemand die Serie ab:
+     * der Undo verliess die Stellung, gegen die sie gezaehlt war, und nahm sie mit.
+     */
+    @Test
+    fun undoClearsTheDesyncStreakWithoutALatch() {
+        val engine = TrackerEngine(recoveryConfig().copy(alarmMinS = STREAK_ALARM_MIN_S), NF3_NO_CASTLING)
+        val state = engine.state
+        state.commitMove(moveOf(state, "a7a6"), grayFrame(), null)
+        state.commitMove(moveOf(state, "b1c3"), grayFrame(), null)
+        state.armed()
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
+        engine.attachCnn(cnn)
+        for (seq in 1L..2L) state.mismatchGlance(cnn, seq)
+        check(state.desyncObs == 2 && state.alarm == null) { "precondition: a streak of two, no latch" }
+
+        engine.undo()
+        assertEquals(0, state.desyncObs, "the undo left the position the streak was counted against")
+
+        state.nowS += STREAK_GAP_S
+        state.markStuck(STUCK_NO_LEGAL_MOVE)
+        state.mismatchGlance(cnn, seq = 3)
+
+        assertEquals(1, state.desyncObs, "the next mismatch is the FIRST of a new streak")
+        assertNull(state.alarm, "one read after an undo may not latch the alarm")
+    }
+
+    /** A streak of two against the current position, with the latch's duration gate live. */
+    private fun streakedState(): Pair<EngineState, RecoveryEvaluator> {
+        val config = recoveryConfig().copy(alarmMinS = STREAK_ALARM_MIN_S)
+        val state = EngineState(config, NF3_NO_CASTLING, whitePov = true).armed().underWay()
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
+        state.mismatchGlance(cnn, seq = 1)
+        state.mismatchGlance(cnn, seq = 2)
+        check(state.desyncObs == 2 && state.alarm == null) { "precondition: a streak of two, no latch" }
+        return state to cnn
+    }
+
+    private fun EngineState.mismatchGlance(
+        cnn: RecoveryEvaluator,
+        seq: Long,
+    ) = cnnTick(cnn, recoverySnap(this, obsForBoard(board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK")), seq))
+
     @Test
     fun alarmBlocksFabricatedRecovery() {
         // `test_alarm_blocks_fabricated_recovery`: g2g4 is legal and plausible but leaves the white
@@ -427,3 +507,8 @@ class AlarmLatchTest {
 
 /** Far past every threshold: long enough that "never" means never, cheap enough to soak. */
 private const val STANDOFF_SOAK = 50L
+
+/** The latch's duration gate, live — a streak that survives a commit brings its clock along. */
+private const val STREAK_ALARM_MIN_S = 5.0
+
+private const val STREAK_GAP_S = 30.0

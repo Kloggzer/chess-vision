@@ -261,6 +261,8 @@ private fun EngineState.commitRecovery(
     priorLast = false
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
+    // Same reason as in `finishCommit`: the streak belongs to the position the bridge just left.
+    clearDesyncStreak()
     confirmer.reset()
     clearStuck()
     // A successful commit while alarmed means the move resolved the conflict.

@@ -186,6 +186,10 @@ private fun EngineState.finishCommit(
     clearStuck()
     pending = null
     anomalySince = 0L
+    // Die Serie zaehlt gegen die Stellung, die der Commit gerade verlaesst. Sie ueberlebte ihn,
+    // also war nach einem echten Zug `desyncObs` schon voll und `desyncSince` lange her — der
+    // erste abweichende Read danach rastete sofort ein ("Alarm feuert zu schnell", TODO.md).
+    clearDesyncStreak()
     verifyState = VERIFY_STATE_CONFIRMED
 }
 
