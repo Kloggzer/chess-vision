@@ -1,6 +1,7 @@
 package com.chesslab.engine
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
@@ -144,6 +145,50 @@ class VerifyPairTest {
         pairTick(state, cnn, moves, PairObs())
         assertNull(state.pending)
         assertEquals("shadow", state.verifyState)
+    }
+
+    /**
+     * `VerifySingle.reject` schreibt jede Ablehnung ins Protokoll, die Paar-Leiter loeschte
+     * `pending` still — eine verworfene Hypothese war von einer nie gesehenen nicht zu unterscheiden.
+     */
+    @Test
+    fun aRejectedPairReachesTheDecisionLog() {
+        val state = pairState(verifyWindow = 1)
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        pairTick(state, PairRecovery(conflicts = listOf("c6")), moves, PairObs())
+
+        val row = state.decisionLog.last()
+        assertEquals(DECIDER_REJECTED, row.decider)
+        assertEquals("e2e4 e7e5", row.move, "die Zeile traegt den Paar-Schluessel")
+        assertTrue(row.reason.contains("occlusion"), row.reason)
+        assertFalse(row.accepted)
+    }
+
+    /** Und der Schatten-Ausgang ist genauso eine Ablehnung wie jeder andere. */
+    @Test
+    fun anAcceptedShadowReachesTheDecisionLog() {
+        val state = pairState(cur = grayFrame())
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(match = true)
+        repeat(2) { pairTick(state, cnn, moves, PairObs()) }
+
+        val row = state.decisionLog.last()
+        assertEquals(DECIDER_REJECTED, row.decider)
+        assertEquals("e2e4 e7e5", row.move)
+        assertFalse(row.accepted)
+    }
+
+    /** `Commit.recordDecision`: genau EINE Zeile erbt den Spruch der Leiter, nicht jede Ebene. */
+    @Test
+    fun onlyTheFirstRowOfACommittedPairCarriesTheVerdict() {
+        val state = pairState()
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        pairTick(state, PairRecovery(matchFen = afterFen(state, moves)), moves, PairObs())
+
+        assertEquals(listOf("e4", "e5"), state.history)
+        val rows = state.decisionLog.takeLast(2)
+        assertEquals("commit", rows[0].verifyOutcome)
+        assertNull(rows[1].verifyOutcome, "genau eine Zeile erbt ihn")
     }
 
     /** Dieselbe Luecke in der Paar-Leiter: das letzte `else` liess die Stimme stehen. */

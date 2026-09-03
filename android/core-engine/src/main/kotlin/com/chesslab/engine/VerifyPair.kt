@@ -67,7 +67,7 @@ internal object VerifyPair {
             wrongColour.isNotEmpty() -> state.colourReject(moves, wrongColour)
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
                 if (state.pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) {
-                    state.commitPair(moves, pend, DECIDER_CNN_PAIR)
+                    state.commitPair(pend, DECIDER_CNN_PAIR)
                 } else {
                     emptyList()
                 }
@@ -93,6 +93,7 @@ internal object VerifyPair {
  */
 private fun EngineState.acceptShadow(pend: PendingVerify): List<TrackerEvent> {
     if (!pendingVoted(OUTCOME_SHADOW, config.verifyObsVotes)) return emptyList()
+    recordRejection(pend.ucis.joinToString(" "), "$VERIFY_STATE_SHADOW — Shadow/no move (CNN: board unchanged)")
     pending = null
     confirmer.reset()
     // also resets the recovery confirmer
@@ -106,15 +107,18 @@ private fun EngineState.acceptShadow(pend: PendingVerify): List<TrackerEvent> {
     return emptyList()
 }
 
-/** Rung 2 / the window-end accept; `commitSequence` sets `verifyState`. */
+/**
+ * Rung 2 / the window-end accept; `commitSequence` sets `verifyState`. Ueber [applyVerdict], damit
+ * `pending` VOR den Zeilen faellt: sonst erbte jede Ebene des Paars `pend.voteOutcome`, wo genau eine
+ * ihn tragen soll (`Commit.recordDecision`).
+ */
 private fun EngineState.commitPair(
-    moves: List<Move>,
     pend: PendingVerify,
     decider: String,
 ): List<TrackerEvent> {
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
-    return listOf(commitSequence(moves, pend.cur, pend.curBgr, decider))
+    return applyVerdict(VerifyVerdict.For(decider), pend)
 }
 
 /**
@@ -133,16 +137,16 @@ private fun EngineState.pairWindowEnd(
     val preexisting = ofSquares(after.conflicts).without(ofSquares(before.conflicts)) == 0L
     return when {
         checked != 0L && preexisting -> {
-            val events = commitPair(moves, pend, DECIDER_DIFF_AFTER_VERIFY)
+            val events = commitPair(pend, DECIDER_DIFF_AFTER_VERIFY)
             note = "Double move $key accepted (CNN conflicts pre-existed the candidate)"
             events
         }
         checked == 0L -> {
-            rejectPair("Verification timed out under occlusion — no move committed", emptyList())
+            rejectPair(key, "Verification timed out under occlusion — no move committed", emptyList())
             emptyList()
         }
         else -> {
-            rejectPair("Double move $key not confirmed by CNN — discarded", after.conflicts)
+            rejectPair(key, "Double move $key not confirmed by CNN — discarded", after.conflicts)
             emptyList()
         }
     }
@@ -154,16 +158,22 @@ private fun EngineState.colourReject(
     wrongColour: List<String>,
 ): List<TrackerEvent> {
     if (pendingVoted(OUTCOME_COLOUR, config.verifyObsVotes)) {
-        rejectPair("Double move ${pairKey(moves)} contradicted on colour — discarded", wrongColour)
+        val key = pairKey(moves)
+        rejectPair(key, "Double move $key contradicted on colour — discarded", wrongColour)
     }
     return emptyList()
 }
 
-/** Drop the candidate; base truth stays where it is. */
+/**
+ * Drop the candidate; base truth stays where it is. Protokolliert wie `VerifySingle.reject`: eine
+ * still verworfene Hypothese ist von einer nie gesehenen nicht zu unterscheiden.
+ */
 private fun EngineState.rejectPair(
+    key: String,
     noteText: String,
     conflicts: List<String>,
 ) {
+    recordRejection(key, "$VERIFY_STATE_GHOST — $noteText")
     pending = null
     confirmer.reset()
     // NICHT `recoveryConfirmer.reset()`, wie in `VerifySingle.reject`: diese Ablehnung sagt nur,
