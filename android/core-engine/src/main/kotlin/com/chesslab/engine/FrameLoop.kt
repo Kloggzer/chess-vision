@@ -234,6 +234,10 @@ internal class FrameLoop(
                     // buffers, or residual hand pixels (half-shadows, the averaging mix) pollute the
                     // first detection after occlusion. Never "optimise" this away.
                     state.occlGridActive = false
+                    // The tail below only resets a state that is neither MOVE nor OCCLUDED, so
+                    // `occluded` used to survive until the next MOTION frame — and with it the
+                    // periodic CNN check, whose stable arm needs WAITING or MOVE.
+                    state.state = STATE_WAITING
                     state.holdUntil = max(state.holdUntil, state.nowS + state.config.occluderHoldS)
                     state.grayBuf.clear()
                     state.bgrBuf.clear()

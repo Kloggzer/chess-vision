@@ -200,6 +200,26 @@ class FrameLoopTest {
         assertNull(h.state.lastCur, "the mean of an emptied buffer is null, exactly as in Python")
     }
 
+    /**
+     * The occluder left, so the state has to leave `occluded` with it. The tail only resets a state
+     * that is neither MOVE nor OCCLUDED, so it used to stick until the next MOTION frame — and
+     * `CnnTick.evaluationDue`'s stable arm asks for WAITING or MOVE, which killed the periodic CNN
+     * check for the whole quiet stretch after every grid occlusion.
+     */
+    @Test
+    fun gridGateReleaseReturnsToWaiting() {
+        val h = Harness(testConfig(minGridLineCoverage = 0.5))
+        repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
+        h.feed(coverage = 0.3)
+        assertEquals(STATE_OCCLUDED, h.state.state)
+
+        h.feed(coverage = 0.9)
+
+        assertEquals(STATE_WAITING, h.state.state, "the release frame must leave the occluded state")
+        repeat(SETTLE_FRAMES_NO_CNN + 1) { h.feed() }
+        assertEquals(STATE_WAITING, h.state.state, "and quiet frames never put it back")
+    }
+
     /** `_occluded_by_grid` (`:1319-1326`) — `minGridLineCoverage <= 0` disables the gate entirely. */
     @Test
     fun gridGateDisabledLeavesCoverageUntouched() {
