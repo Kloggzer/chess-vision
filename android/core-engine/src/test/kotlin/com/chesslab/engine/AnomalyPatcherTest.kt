@@ -5,6 +5,7 @@ import com.chesslab.engine.api.tryDetect
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -120,6 +121,39 @@ class AnomalyPatcherTest {
         state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
 
         assertTrue(ref.data.any { it == TEST_BLOB_LEVEL.toByte() }, "the CNN agreed again — healing must resume")
+    }
+
+    /**
+     * Der Zeitgeber lief gegen die ALTE Referenz. `finishCommit` und der stille Neu-Anker raeumen
+     * `anomalySince` ab, die beiden CNN-Uebergaenge nicht — ein dort schon abgelaufener Timer
+     * autorisierte damit sofort einen Patch gegen eine Referenz, die er nie gesehen hat.
+     */
+    @Test
+    fun aMatchOkPullForwardRestartsTheAnomalyTimers() {
+        val state = recoveryState()
+        state.armAnomaly("e2")
+        val observed = grayFrame()
+        state.cnnTick(RecoveryEvaluator(match = true), recoverySnap(state, obsForBoard(state.board), 1, observed))
+        assertSame(observed, state.refGray, "precondition: the reference was pulled forward")
+
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("e2")), curBgr = null)
+
+        assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
+    }
+
+    /** Derselbe Uebergang, nur ueber die Recovery-Bruecke — und `a7` bleibt dabei besetzt. */
+    @Test
+    fun aRecoveryCommitRestartsTheAnomalyTimers() {
+        val state = recoveryState()
+        state.armAnomaly("a7")
+        val observed = grayFrame()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        state.recoveryGlances(cnn, obsForBoard(state.board), gray = observed)
+        assertEquals(listOf("e4"), state.history, "precondition: the bridge committed")
+
+        state.maybePatchAnomaly(bestLl = -1.0, cur = grayFrame(listOf("a7")), curBgr = null)
+
+        assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
     }
 
     @Test

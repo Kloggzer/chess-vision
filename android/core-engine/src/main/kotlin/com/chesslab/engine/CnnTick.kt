@@ -162,6 +162,9 @@ private fun EngineState.onMatchOk(
         // `fromCommit = true`: the CNN tolerates partial occlusion (`minConfidentRecovery`), so
         // this frame is not verifiably clean enough to rebuild the colour gamut (invariant 6).
         setRef(anchor.cur, anchor.curBgr, fromCommit = true)
+        // Ein gegen die alte Referenz gestarteter Timer autorisiert sonst sofort einen Patch
+        // gegen die neue — `finishCommit` und der stille Neu-Anker raeumen ihn aus demselben Grund.
+        anomalySince = 0L
         clearStuck()
         confirmer.reset()
         verifyState = VERIFY_STATE_RESYNCED
@@ -264,8 +267,10 @@ private fun EngineState.commitRecovery(
     priorLast = false
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
-    // Same reason as in `finishCommit`: the streak belongs to the position the bridge just left.
+    // Same reason as in `finishCommit`, for both: the streak and the per-square anomaly timers
+    // belong to the position and the reference the bridge just left.
     clearDesyncStreak()
+    anomalySince = 0L
     confirmer.reset()
     clearStuck()
     // A successful commit while alarmed means the move resolved the conflict.
