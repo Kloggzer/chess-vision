@@ -319,6 +319,7 @@ class TrackerStack<T>(
             timings,
             seed.nowMs,
             seed.exposure,
+            seed.logs("chesslabNote")::info,
         )
 
     init {

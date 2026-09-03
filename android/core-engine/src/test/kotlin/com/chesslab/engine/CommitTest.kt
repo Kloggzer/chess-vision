@@ -369,6 +369,48 @@ class CommitTest {
         assertNull(state.promoPending)
     }
 
+    /**
+     * The phantom prompt of 2026-08-08-00-39-57 @6436: residue on the 8th rank next to a pawn on the
+     * 7th read as a promotion tie, and with nobody to answer the replay lost 22 plies. Two glances
+     * that read the target confidently EMPTY withdraw the question.
+     */
+    @Test
+    fun cnnWithdrawsAPromotionPromptWhoseTargetReadsEmpty() {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        assertNotNull(state.promoPending)
+        val stillAPawn = RecoveryObs(Squares.ALL.associateWith { if (it == "a7") "wP" else LABEL_EMPTY })
+
+        engine.onCnnSnapshot(recoverySnap(state, stillAPawn, seq = 2))
+        assertNotNull(state.promoPending, "one glance is not a verdict (invariant 13)")
+        engine.onCnnSnapshot(recoverySnap(state, stillAPawn, seq = 3))
+
+        assertNull(state.promoPending, "the board never promoted — the question must go")
+        assertTrue(state.note.orEmpty().contains("withdrawn"), "note was '${state.note}'")
+        assertEquals(emptyList<String>(), state.history)
+    }
+
+    /** A covered or unreadable target says nothing either way — the prompt stays open. */
+    @Test
+    fun cnnKeepsThePromptWhileTheTargetIsUnreadable() {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        val blind = RecoveryObs(Squares.ALL.associateWith { LABEL_EMPTY }, confidence = 0.10)
+
+        engine.onCnnSnapshot(recoverySnap(state, blind, seq = 2))
+        engine.onCnnSnapshot(recoverySnap(state, blind, seq = 3))
+
+        assertNotNull(state.promoPending)
+    }
+
     @Test
     fun cnnLeavesPromotionPromptOpenForWrongColour() {
         val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")

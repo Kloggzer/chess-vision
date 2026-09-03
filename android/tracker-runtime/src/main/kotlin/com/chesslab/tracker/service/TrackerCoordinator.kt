@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
@@ -76,6 +77,8 @@ class TrackerCoordinator<T>(
      * Datei steht.
      */
     private val exposure: ExposureGovernor = ExposureGovernor.NONE,
+    /** Jede Notiz-/Stuck-Aenderung der Engine, eine Zeile: der Replay hat sonst nur Entscheidungszeilen. */
+    private val onNote: (String) -> Unit = {},
 ) {
     private var sourceSeq = 0L
 
@@ -102,6 +105,13 @@ class TrackerCoordinator<T>(
         // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, delivered.width, delivered.height, nowMs())
         val events = host.tick((result as? FrameResult.Ready)?.input)
+        for (event in events) {
+            when (event) {
+                is TrackerEvent.Note -> onNote("seq=$sourceSeq note: ${event.text}")
+                is TrackerEvent.Stuck -> onNote("seq=$sourceSeq stuck: ${event.reason}")
+                else -> Unit
+            }
+        }
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)
         publisher.sizeMismatch = pipeline.sizeMismatch

@@ -445,6 +445,8 @@ internal data class PromoPending(
     var cnnPiece: Char? = null,
     var cnnVotes: Int = 0,
     var lastCnnSeq: Long = -1L,
+    /** Distinct glances that read [to] confidently empty — the prompt's way out. */
+    var emptyVotes: Int = 0,
 )
 
 /** The per-move provenance row. */
