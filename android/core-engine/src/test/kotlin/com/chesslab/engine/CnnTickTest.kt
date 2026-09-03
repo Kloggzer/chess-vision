@@ -223,6 +223,28 @@ class CnnTickTest {
     }
 
     /**
+     * Dieselbe Aussage eine Stufe weiter: `VerifySingle.reject` laesst den Recovery-Vote absichtlich
+     * stehen (live Nf6), `rejectPair` loeschte ihn. Ein abgewiesener Diff-Kandidat sagt nichts
+     * darueber, was das Modell auf dem GANZEN Brett liest.
+     */
+    @Test
+    fun aRejectedPairDoesNotResetTheRecoveryVote() {
+        val state = recoveryState(confirmFrames = 2)
+        state.config = state.config.copy(verifyWindow = 1)
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 1, gray = grayFrame()))
+        assertEquals(1, state.recoveryConfirmer.count)
+
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        state.dispatch(moves, grayFrame(), null, priorUsed = false, candidateNote = null, seq = 2)
+        assertNotNull(state.pending, "the pair must be pending, not committed")
+        VerifyPair.tick(state, PairRecovery(), moves, state.board.copy(), snapshotOf(state, PairObs()))
+
+        assertNull(state.pending, "the window end must have dropped the pair")
+        assertEquals(1, state.recoveryConfirmer.count, "a rejected pair may not cost the whole-board vote")
+    }
+
+    /**
      * The vote asks for two looks at the SAME board; a cooldown between them asks for two looks at
      * a board that had seconds to change. On 2026-08-08-11-59-12 the bridge `f2f4 e5c4` stood at
      * agreement 1.000 and vote 1/2, the next glance came 98 frames later, and by then two more

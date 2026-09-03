@@ -163,7 +163,8 @@ private fun EngineState.rejectPair(
 ) {
     pending = null
     confirmer.reset()
-    recoveryConfirmer.reset()
+    // NICHT `recoveryConfirmer.reset()`, wie in `VerifySingle.reject`: diese Ablehnung sagt nur,
+    // dass das Paar seine lokale Pruefung nicht bestand, nichts ueber den Brett-Vote.
     verifyState = VERIFY_STATE_GHOST
     cnnStatus = VERIFY_STATE_GHOST
     cnnConflicts = conflicts
