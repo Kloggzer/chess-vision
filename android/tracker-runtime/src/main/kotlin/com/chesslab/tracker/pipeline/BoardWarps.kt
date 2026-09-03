@@ -71,6 +71,22 @@ class CropFrameStore(
          */
         val geometry: BoardGeometry,
         val cached: CachedVisual? = null,
+        /**
+         * Der Warp fuer den Rillen-Sensor in KALIBRIERgroesse, wenn sie von [geometry] abweicht: bei
+         * 80-px-Modellen ist der Crop-Warp 576 px, und dort flaggten die Rillen auf ruhigem Rig-Brett
+         * 13 Felder (gemessen 2026-09-04, 0 von 25 Plies). Null heisst: [cropWarp] taugt fuer beide.
+         */
+        val grid: GridPlane? = null,
+    ) {
+        fun release() {
+            cropWarp?.release()
+            grid?.warp?.release()
+        }
+    }
+
+    class GridPlane(
+        val warp: Mat,
+        val geometry: BoardGeometry,
     )
 
     private var pending: Pending? = null
@@ -97,7 +113,7 @@ class CropFrameStore(
 
     @Synchronized
     fun update(frame: Pending) {
-        pending?.cropWarp?.also {
+        pending?.also {
             it.release()
             overwritten += 1
         }
@@ -114,7 +130,7 @@ class CropFrameStore(
 
     @Synchronized
     fun close() {
-        pending?.cropWarp?.release()
+        pending?.release()
         pending = null
         wanted = false
     }
@@ -159,10 +175,13 @@ class OpenCvStages<T>(
      * knows which camera this is decides, and hands over a built one or nothing.
      */
     private val lens: Undistorter? = null,
+    /** Ob der Rillen-Sensor mitlaeuft — dann braucht er seinen Warp in Kalibriergroesse. */
+    private val gridArm: Boolean = true,
 ) : FrameStages<T> {
     private val grid = GridCoverage()
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private val homographies = HomographyCache()
+    private val gridHomographies = HomographyCache()
     private var frame: Mat? = null
     private var warped: Mat? = null
 
@@ -287,13 +306,19 @@ class OpenCvStages<T>(
     ) {
         val cropGeom = cropGeometry()
         val cached = cropStore.cached(seq)
-        val warp =
-            if (cached == null) {
-                frame?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
-            } else {
-                null
-            }
+        val source = if (cached == null) frame else null
+        val warp = source?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
         if (cached == null && warp == null) return
+        val gridGeom = geometry.takeIf { gridArm && it.boardSize != cropGeom.boardSize }
+        val gridPlane =
+            gridGeom?.let { g ->
+                source?.let {
+                    CropFrameStore.GridPlane(
+                        warpBoardForCrops(it, g, cornersFromFlat(corners), homographyCache = gridHomographies),
+                        g,
+                    )
+                }
+            }
         // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
         // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
         // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
@@ -307,7 +332,7 @@ class OpenCvStages<T>(
                 WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
                 bgrCopy to grayCopy
             }
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached))
+        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached, gridPlane))
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {

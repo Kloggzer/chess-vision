@@ -138,6 +138,7 @@ class TrackerService :
     // what it is for; the lambda is lazy, so the `lateinit` session parts are wired by then.
     private val stacks =
         StackSwitch {
+            val gridArm = modelSpec?.coverageOutput != true
             TrackerStack(
                 TrackerSeed(
                     engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
@@ -153,8 +154,8 @@ class TrackerService :
                         recording.state(from, to, tsS)
                     },
                     androidTrackerLogs,
-                    ::cameraStages,
-                    runGridOcclusion = modelSpec?.coverageOutput != true,
+                    { geo, cfg, store, frames, boards -> cameraStages(geo, cfg, store, frames, boards, gridArm = gridArm) },
+                    runGridOcclusion = gridArm,
                     // Aus der `config.json` des Modells, nicht aus einer Einstellung: ein mit
                     // CLAHE trainiertes Modell ohne CLAHE zu bedienen ist eine stille
                     // Train/Serve-Luecke, und die faellt niemandem auf.

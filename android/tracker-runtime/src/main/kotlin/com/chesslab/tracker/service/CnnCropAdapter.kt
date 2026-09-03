@@ -52,6 +52,8 @@ fun cropFrameSource(
                 WorkProfiler.cache(WorkOperation.CNN_CROP, hit = false, input = pending.seq)
                 val geom = pending.geometry
                 val cropWarp = requireNotNull(pending.cropWarp)
+                val gridWarp = pending.grid?.warp ?: cropWarp
+                val gridGeom = pending.grid?.geometry ?: geom
                 val squares = allSquares()
                 val cropOne = { square: String ->
                     val crop = cropSquare(cropWarp, square, geom)
@@ -72,7 +74,7 @@ fun cropFrameSource(
                         val grid =
                             if (runGridOcclusion) {
                                 CompletableFuture.supplyAsync {
-                                    gridOccludedSquares(cropWarp, geom, cropBorderPx(geom), parallel = true)
+                                    gridOccludedSquares(gridWarp, gridGeom, cropBorderPx(gridGeom), parallel = true)
                                 }
                             } else {
                                 null
@@ -92,12 +94,7 @@ fun cropFrameSource(
                             }
                         val grid =
                             if (runGridOcclusion) {
-                                gridOccludedSquares(
-                                    cropWarp,
-                                    geom,
-                                    cropBorderPx(geom),
-                                    parallel = true,
-                                )
+                                gridOccludedSquares(gridWarp, gridGeom, cropBorderPx(gridGeom), parallel = true)
                             } else {
                                 0L
                             }
@@ -106,7 +103,7 @@ fun cropFrameSource(
                 WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
                 // Models without a coverage output still receive the model-free hand read from
                 // this full-resolution warp. Coverage models skip that complete second analysis.
-                cropWarp.release()
+                pending.release()
                 CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
             }
         }

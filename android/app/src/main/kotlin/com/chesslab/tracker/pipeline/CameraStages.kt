@@ -28,7 +28,8 @@ fun cameraStages(
     frameBus: (Mat) -> Unit = {},
     boardBus: (Mat) -> Unit = {},
     lens: Undistorter? = null,
+    gridArm: Boolean = true,
 ): FrameStages<ImageProxy> {
     val yuv = YuvToBgr()
-    return OpenCvStages(yuv::convert, yuv::close, geometry, config, cropStore, frameBus, boardBus, lens)
+    return OpenCvStages(yuv::convert, yuv::close, geometry, config, cropStore, frameBus, boardBus, lens, gridArm)
 }
