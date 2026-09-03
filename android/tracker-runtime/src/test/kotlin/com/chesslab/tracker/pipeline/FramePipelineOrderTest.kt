@@ -7,6 +7,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertInstanceOf
+import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -136,6 +137,19 @@ class FramePipelineOrderTest {
         assertEquals(listOf("convert", "undistort", "publishFrame", "warpDetection"), stages.calls.take(4))
     }
 
+    /**
+     * LiveAlign writes `corners` from its own thread, so a frame warped with A must not be
+     * reported with B: the engine would tag a reference built from A with B and `cornersJumped`
+     * would never see the swap.
+     */
+    @Test
+    fun `the emitted corners are the ones the warp used`() {
+        val swapped = floatArrayOf(9f, 9f, 90f, 9f, 90f, 90f, 9f, 90f)
+        stages.onWarp = { pipeline.corners = swapped }
+        val input = ready(pipeline.onFrame(FakeImage(), 1280, 720, 1_000L))
+        assertSame(stages.warpCorners, input.corners)
+    }
+
     /** Same on the dark-frame exit: the gate must judge corrected pixels, not raw ones. */
     @Test
     fun `a dark frame still went through the lens`() {
@@ -163,6 +177,8 @@ private class FakeStages : FrameStages<FakeImage> {
     var motionCalls = 0
     var cropWarps = 0
     val cropSeqs = mutableListOf<Long>()
+    var warpCorners: FloatArray? = null
+    var onWarp: (() -> Unit)? = null
 
     /** Every stage in the order it was called: what makes the ORDER itself assertable. */
     val calls = mutableListOf<String>()
@@ -189,6 +205,8 @@ private class FakeStages : FrameStages<FakeImage> {
 
     override fun warpDetection(corners: FloatArray): Boolean {
         calls += "warpDetection"
+        warpCorners = corners
+        onWarp?.invoke()
         return warpOk
     }
 

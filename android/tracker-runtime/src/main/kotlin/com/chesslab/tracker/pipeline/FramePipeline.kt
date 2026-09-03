@@ -196,11 +196,15 @@ class FramePipeline<T>(
             // hands back something other than what was asked for poisons every warp until the next
             // calibration, and it does so silently.
             sizeGuard.note(width, height)
-            val note = readFrame(image)
+            // ONE read of the volatile per frame: LiveAlign swaps it from its own thread, and a
+            // frame warped with A but reported with B tags the new reference with corners it was
+            // never built from — `cornersJumped` then never sees the swap.
+            val pts = corners
+            val note = readFrame(image, pts)
             if (note != null) {
                 if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
             }
-            val result = if (note != null) FrameResult.Skipped(note) else emit(timestampMs)
+            val result = if (note != null) FrameResult.Skipped(note) else emit(requireNotNull(pts), timestampMs)
             timings.mark(Stage.TOTAL)
             result
         }
@@ -233,14 +237,16 @@ class FramePipeline<T>(
      * detection, but there is still a calibration screen that needs pixels, and it is the corners
      * that are missing precisely while the user is calibrating.
      */
-    private fun readFrame(image: T): String? {
+    private fun readFrame(
+        image: T,
+        pts: FloatArray?,
+    ): String? {
         stages.convert(image)
         timings.mark(Stage.CONVERT)
         if (stages.undistort()) timings.mark(Stage.LENS)
         stages.publishFrame()
         timings.mark(Stage.PUBLISH)
-        val pts = corners ?: return NOTE_WAITING_MARKERS
-        if (!stages.warpDetection(pts)) return NOTE_WAITING_MARKERS
+        if (pts == null || !stages.warpDetection(pts)) return NOTE_WAITING_MARKERS
         stages.publishBoard()
         timings.mark(Stage.WARP)
         luma = stages.lumaPreClahe()
@@ -248,8 +254,10 @@ class FramePipeline<T>(
     }
 
     /** Steps 6-10. `seq` counts EMITTED frames only — the engine requires it to increase. */
-    private fun emit(timestampMs: Long): FrameResult {
-        val pts = requireNotNull(corners)
+    private fun emit(
+        pts: FloatArray,
+        timestampMs: Long,
+    ): FrameResult {
         val gray = stages.grayDet()
         val bgr = stages.bgrDet()
         timings.mark(Stage.GRAY)
