@@ -38,8 +38,6 @@ data class OccupancyObservation(
      * `cnn_recovery.py:46` — occluded-dominant squares are NEVER confident and NEVER count
      * as occupied: a hand over the board must neither trigger recovery nor "occupy" squares.
      */
-    fun confident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { confident(it, thr) }
-
     override fun confident(
         square: String,
         thr: Double,
@@ -49,11 +47,11 @@ data class OccupancyObservation(
             !invalidConfident(square, thr)
 
     /**
-     * `cnn_recovery.py:54` — top confidence >= thr and not `occluded`. Without identity every
-     * key maps to `false` (never an empty map: the 64-key size is asserted).
+     * `cnn_recovery.py:54` — top confidence >= thr, and the same coverage gate [confident] carries.
+     * The `occluded` LABEL only exists on a 14-class softmax; on every coverage model a fully
+     * covered square keeps its class guess, and that guess used to reach `boardMatchesIdentity`,
+     * the deep search's identity channel and `cnnAdoptedFen`.
      */
-    fun labelConfident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { labelConfident(it, thr) }
-
     override fun labelConfident(
         square: String,
         thr: Double,
@@ -64,6 +62,7 @@ data class OccupancyObservation(
             confs != null &&
             confs.getValue(square) >= thr &&
             labels.getValue(square) != "occluded" &&
+            pOccluded.getValue(square) < (1.0 - thr) &&
             !invalidConfident(square, thr)
     }
 

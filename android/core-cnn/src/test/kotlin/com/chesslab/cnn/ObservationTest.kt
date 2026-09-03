@@ -84,6 +84,31 @@ class ObservationTest {
         assertTrue(flags.values.none { it })
     }
 
+    /**
+     * On a coverage model the label is never `occluded` — 13 classes plus an independent coverage
+     * column — so a fully covered square passed the `!= "occluded"` test and its guess reached
+     * `boardMatchesIdentity`, the identity channel of the deep search and `cnnAdoptedFen`.
+     * `confident` has gated on the coverage mass since it existed; the identity axis must too.
+     */
+    @Test
+    fun `labelConfident gates on the coverage column as well`() {
+        assertFalse(covered(0.9).labelConfident("e4", THR), "a covered square states no identity")
+        assertTrue(covered(0.05).labelConfident("e4", THR), "a clear one still does")
+
+        val softmax = DoubleArray(EXPECTED_CLASSES.size)
+        softmax[EXPECTED_CLASSES.indexOf("occluded")] = 0.99
+        val fourteen = observationFromProbs(mapOf("e4" to softmax), EXPECTED_CLASSES)
+        assertFalse(fourteen.labelConfident("e4", THR), "the 14-class softmax stays false as before")
+    }
+
+    /** One coverage-model square: `wQ` at 0.99 with the coverage column set to [coverage]. */
+    private fun covered(coverage: Double): OccupancyObservation {
+        val row = DoubleArray(PIECES13_CLASSES.size + 1)
+        row[PIECES13_CLASSES.indexOf("wQ")] = 0.99
+        row[PIECES13_CLASSES.size] = coverage
+        return observationFromProbs(mapOf("e4" to row), PIECES13_CLASSES)
+    }
+
     @Test
     fun `argmax ties go to the lowest class index`() {
         val classes = EXPECTED_CLASSES

@@ -96,6 +96,12 @@ fun observationFromProbs(
     return observationFromProbs(rows, classes, possible, priorLambda)
 }
 
+/** Every square's occupancy verdict — the whole-board form of [OccupancyObservation.confident]. */
+fun OccupancyObservation.confident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { confident(it, thr) }
+
+/** Same for identity; without labels every key maps to `false`, never to an empty map. */
+fun OccupancyObservation.labelConfident(thr: Double): Map<String, Boolean> = pOcc.keys.associateWith { labelConfident(it, thr) }
+
 /** Squares whose OCCUPANCY statement is reliable, in [ALL_SQUARES] order. */
 fun OccupancyObservation.confidentSquares(thr: Double): List<String> = ALL_SQUARES.filter { pOcc.containsKey(it) && confident(it, thr) }
 
