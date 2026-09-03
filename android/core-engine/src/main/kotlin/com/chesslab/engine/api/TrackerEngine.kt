@@ -27,6 +27,7 @@ import com.chesslab.engine.detectGuards
 import com.chesslab.engine.dispatch
 import com.chesslab.engine.flushSessionCapture
 import com.chesslab.engine.freshCnnOccludedSquares
+import com.chesslab.engine.freshSnapshot
 import com.chesslab.engine.generateHypothesis
 import com.chesslab.engine.learnNoise
 import com.chesslab.engine.legalMoveFor
@@ -54,11 +55,6 @@ private const val STUCK_CNN_DESYNC = "cnn_desync"
 private const val NOTE_WAITING_OCCLUDED = "waiting for occluded squares to clear…"
 
 private const val NOTE_CANNOT_ANCHOR = "ILLEGAL MOVE? board cannot be anchored to game state"
-
-/** The cnn_desync veto's freshness window. */
-private const val DESYNC_MAX_AGE_S = 5.0
-
-private const val MS_PER_S = 1000.0
 
 /** Alarm-release provenance reasons. */
 private const val ALARM_ACCEPTED = "illegal_move_accepted"
@@ -417,14 +413,17 @@ internal fun EngineState.quietOutcome(
 }
 
 /**
- * The confident OCCUPANCY conflicts between a fresh observation and the believed position.
- * Occupancy is the reliable axis: "b4 confidently EMPTY while a bishop is believed there" is a
- * desync, a misread piece TYPE is not.
+ * The confident OCCUPANCY conflicts between a fresh observation and the believed position — a
+ * misread piece TYPE is not a desync. Same blind-glance bar as `onMatchOk` and the verify rungs:
+ * one confident square on a dark board vetoed for 25 minutes while `identityRead` read the same
+ * glance as inconclusive and reset the streak (2026-08-29).
  */
 private fun EngineState.cnnDesync(): Desync? {
-    val snap = cnnSnap ?: return null
-    if (snap.fen != board.fen() || nowS - snap.tsMs / MS_PER_S >= DESYNC_MAX_AGE_S) return null
+    val snap = freshSnapshot() ?: return null
     val thr = config.cnnConfThr
+    if (snap.fen != board.fen() || Squares.ALL.count { snap.obs.confident(it, thr) } < config.minConfidentBoard) {
+        return null
+    }
     var conflicts = 0L
     for (i in 0 until Squares.COUNT) {
         val square = Squares.ALL[i]

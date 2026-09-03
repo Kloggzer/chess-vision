@@ -11,6 +11,7 @@ import com.github.bhlangonijr.chesslib.move.Move
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNotSame
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -81,13 +82,24 @@ internal class FakeObs(
     override fun occupancyOnly(): CnnObservation = this
 }
 
-/** The Bxc3 shape: g1 vacated (believed occupied, read empty) and g3 received. */
-internal fun movedPieceObs(): FakeObs =
+/**
+ * Ein LESBARES Brett: jedes Feld sicher gelesen, [flips] dagegen. Der Desync-Veto verlangt seit
+ * dem Livelock vom 2026-08-29 `minConfidentBoard` sichere Felder, sonst redet ein dunkles Brett.
+ */
+internal fun litObs(
+    state: EngineState,
+    flips: Map<String, Boolean> = emptyMap(),
+    labels: Map<String, String> = emptyMap(),
+): FakeObs =
     FakeObs(
-        mapOf("g1" to false, "g3" to true),
-        setOf("g1", "g3"),
-        mapOf("g1" to "empty", "g3" to "wN"),
+        Squares.ALL.associateWith { state.board.pieceCharAt(it) != null } + flips,
+        Squares.ALL.toSet(),
+        labels,
     )
+
+/** The Bxc3 shape: g1 vacated (believed occupied, read empty) and g3 received. */
+internal fun movedPieceObs(state: EngineState): FakeObs =
+    litObs(state, mapOf("g1" to false, "g3" to true), mapOf("g1" to "empty", "g3" to "wN"))
 
 internal fun snapshotOf(
     state: EngineState,
@@ -359,7 +371,7 @@ class DispatchTest {
         val ref = grayFrame()
         val state = detectState(ref = ref)
         state.cnnRun = true
-        state.cnnSnap = snapshotOf(state, FakeObs(mapOf("e2" to false), setOf("e2")))
+        state.cnnSnap = snapshotOf(state, litObs(state, mapOf("e2" to false)))
         state.tryDetect(grayFrame(), null, seq = 1)
         assertSame(ref, state.refGray, "re-anchored over a CNN-confirmed desync")
         assertEquals("cnn_desync", state.stuckReason)
@@ -386,7 +398,7 @@ class DispatchTest {
         val state = detectState(ref = ref).underWay()
         state.cnnRun = true
         val cnn = RecoveryEvaluator(guess = "g1g3")
-        val obs = movedPieceObs()
+        val obs = movedPieceObs(state)
         for (seq in 1L..2L) {
             state.cnnSnap = snapshotOf(state, obs, seq)
             state.tryDetect(grayFrame(), null, seq, cnn)
@@ -409,7 +421,7 @@ class DispatchTest {
         val state = detectState(ref = grayFrame())
         state.cnnRun = true
         val cnn = RecoveryEvaluator(guess = "g1g3")
-        val obs = movedPieceObs()
+        val obs = movedPieceObs(state)
         repeat(5) {
             state.cnnSnap = snapshotOf(state, obs, seq = 7)
             state.tryDetect(grayFrame(), null, seq = 7, cnn = cnn)
@@ -430,13 +442,55 @@ class DispatchTest {
         val state = detectState(ref = ref)
         state.cnnRun = true
         val cnn = RecoveryEvaluator(guess = null)
-        val obs = FakeObs(mapOf("g1" to false), setOf("g1"), mapOf("g1" to "empty"))
+        val obs = litObs(state, mapOf("g1" to false), mapOf("g1" to "empty"))
         for (seq in 1L..5L) {
             state.cnnSnap = snapshotOf(state, obs, seq)
             state.tryDetect(grayFrame(), null, seq, cnn)
         }
 
         assertNull(state.alarm)
+        assertEquals("cnn_desync", state.stuckReason)
+        assertSame(ref, state.refGray)
+    }
+
+    /**
+     * Der Livelock vom 2026-08-29: auf einem dunklen Brett vetote EIN sicheres Feld das ruhige
+     * Nachziehen, waehrend `identityRead` denselben Blick als `inconclusive` verwarf und die Serie
+     * gleich wieder loeschte — 25 Minuten `cnn_desync` ohne Alarm und ohne Referenz.
+     */
+    @Test
+    fun blindGlanceCannotVetoTheQuietReanchor() {
+        val ref = grayFrame()
+        val state = detectState(fen = NF3_NO_CASTLING, ref = ref)
+        state.history.add("Nf3")
+        state.cnnRun = true
+        state.nowS = 100.0
+        val obs = FakeObs(mapOf("e4" to true), setOf("e4"))
+        val cnn = RecoveryEvaluator(match = false, conflicts = listOf("e4")).apply { inconclusive = true }
+        var events = emptyList<TrackerEvent>()
+        repeat(40) { i ->
+            state.nowS += 0.7
+            val snap = snapshotOf(state, obs, seq = i + 1L)
+            state.cnnSnap = snap
+            state.cnnTick(cnn, snap)
+            events = state.tryDetect(grayFrame(), null, seq = i + 1L)
+        }
+
+        assertNull(state.stuckReason, "one confident square on a dark board must not veto")
+        assertTrue(events.any { it is TrackerEvent.ReAnchored }, "the quiet frame must re-anchor")
+        assertNotSame(ref, state.refGray)
+        assertEquals(0, state.desyncObs)
+    }
+
+    /** Die Gegenprobe: ein LESBARES Brett vetot weiter, sonst waere der Bxc3-Schutz weg. */
+    @Test
+    fun litBoardStillVetoesTheReanchor() {
+        val ref = grayFrame()
+        val state = detectState(fen = NF3_NO_CASTLING, ref = ref)
+        state.cnnRun = true
+        state.cnnSnap = snapshotOf(state, litObs(state, mapOf("e4" to true)))
+        state.tryDetect(grayFrame(), null, seq = 1)
+
         assertEquals("cnn_desync", state.stuckReason)
         assertSame(ref, state.refGray)
     }
