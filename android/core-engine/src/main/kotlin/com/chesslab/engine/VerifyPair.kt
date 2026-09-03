@@ -20,6 +20,8 @@ private const val OUTCOME_SHADOW = "shadow"
 
 private const val OUTCOME_COMMIT = "commit"
 
+private const val OUTCOME_COLOUR = "colour"
+
 /**
  * A real local majority: below this many confident touched squares the agreement is 0.0, never "the
  * fraction of what we have" — two lucky squares must not reach `cnnMinAgreement`.
@@ -49,7 +51,7 @@ internal object VerifyPair {
         // elsewhere is irrelevant. `nConf` is the WHOLE board — the two are not interchangeable.
         val checked = touchedMask(boardSnap, moves) and conf
         val pairAgree = pairAgreement(obs, afterBoard, checked)
-        val wrongColour = pairColourConflicts(obs, afterBoard, checked)
+        val wrongColour = pairColourConflicts(obs, afterBoard, checked, cnn.confThr)
         val nConf = conf.countOneBits()
 
         state.cnnAgreement = after.agreement
@@ -62,10 +64,7 @@ internal object VerifyPair {
             before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
             // Vor jeder Annahme: ein Farbwiderspruch auf einem sicher gelesenen Feld heisst, dass
             // die Stellung NACH dem Paar eine andere waere — dann ist es nicht dieses Paar.
-            wrongColour.isNotEmpty() -> {
-                state.rejectPair("Double move ${pairKey(moves)} contradicted on colour — discarded", wrongColour)
-                emptyList()
-            }
+            wrongColour.isNotEmpty() -> state.colourReject(moves, wrongColour)
             (after.match && nConf >= cnn.minConfidentBoard) || pairAgree >= cnn.minAgreement ->
                 if (state.pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) {
                     state.commitPair(moves, pend, DECIDER_CNN_PAIR)
@@ -146,6 +145,17 @@ private fun EngineState.pairWindowEnd(
     }
 }
 
+/** Auch die Farbachse entscheidet nie auf EINEN Blick gegen den Diff (Invariante 13). */
+private fun EngineState.colourReject(
+    moves: List<Move>,
+    wrongColour: List<String>,
+): List<TrackerEvent> {
+    if (pendingVoted(OUTCOME_COLOUR, config.verifyObsVotes)) {
+        rejectPair("Double move ${pairKey(moves)} contradicted on colour — discarded", wrongColour)
+    }
+    return emptyList()
+}
+
 /** Drop the candidate; base truth stays where it is. */
 private fun EngineState.rejectPair(
     noteText: String,
@@ -218,18 +228,19 @@ private fun pairColourConflicts(
     obs: CnnObservation,
     afterBoard: Game,
     checked: Long,
+    thr: Double,
 ): List<String> {
     val out = ArrayList<String>()
     checked.forEachSquare { i ->
         val name = Squares.ALL[i]
         val want = afterBoard.pieceCharAt(i) ?: return@forEachSquare
-        val label = obs.label(name) ?: return@forEachSquare
-        // Sicher LEER, wo das Paar eine Figur behauptet, ist der schaerfste Widerspruch: es ist
-        // die verlaesslichste Lesung des Modells (`VerifySingle`), und ein Paar, das ein Feld
-        // besetzt laesst, das leer dasteht, erklaert einen dritten Zug weg, den es nicht kennt.
+        val label = obs.label(name)
+        // Sicher LEER, wo das Paar eine Figur behauptet, ist der schaerfste Widerspruch — und er
+        // liegt auf der Belegtheitsachse, die [checked] schon sicher gelesen hat. Die FARBE dagegen
+        // ist die schwaechste Achse des Modells und zaehlt nur label-konfident.
         when {
-            label == "empty" -> out += name
-            label.startsWith("w") != want.isUpperCase() -> out += name
+            !obs.occupied(name) -> out += name
+            label != null && obs.labelConfident(name, thr) && label.startsWith("w") != want.isUpperCase() -> out += name
         }
     }
     return out

@@ -19,6 +19,8 @@ internal class PairObs(
     private val sure: Set<String> = emptySet(),
     /** Nur fuer die Farbachse; leer heisst "das Modell sagt zur Figur nichts", wie bisher. */
     private val labels: Map<String, String> = emptyMap(),
+    /** Welche Label sicher sind — die Farbachse zaehlt nur diese. */
+    private val labelSure: Set<String> = labels.keys,
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] ?: false
 
@@ -30,7 +32,7 @@ internal class PairObs(
     override fun labelConfident(
         square: String,
         thr: Double,
-    ): Boolean = false
+    ): Boolean = square in labelSure
 
     override fun label(square: String): String? = labels[square]
 

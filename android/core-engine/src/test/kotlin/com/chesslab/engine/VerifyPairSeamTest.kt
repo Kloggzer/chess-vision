@@ -3,6 +3,7 @@ package com.chesslab.engine
 import com.chesslab.engine.api.TrackerEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -55,10 +56,43 @@ class VerifyPairSeamTest {
         // Schwarz auf e5 waere `c6xe5` — nicht die Stellung, die dieses Paar behauptet.
         val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "bN"))
 
-        val events = pairTick(state, cnn, moves, obs)
+        val events = List(2) { pairTick(state, cnn, moves, obs) }.flatten()
 
         assertTrue(events.isEmpty(), "ein Farbwiderspruch darf nicht committen: $events")
+        assertNull(state.pending, "nach zwei einigen Blicken ist der Kandidat weg")
         assertEquals(CAPTURE_FEN, state.board.fen(), "das Brett darf sich nicht bewegt haben")
+    }
+
+    /**
+     * Die Farbe ist die schwaechste Achse des Modells, also darf eine Lesung UNTER der
+     * Konfidenzschwelle das Paar nicht kippen — `pairColourConflicts` las `label` ohne
+     * `labelConfident`, und ein 0,4-Read entschied gegen den Belegtheits-Arm.
+     */
+    @Test
+    fun `an unsure colour reading does not reject the pair`() {
+        val state = pairState(fen = CAPTURE_FEN, ucis = listOf("f3e5", "c6d4"))
+        val moves = pairMoves(state, listOf("f3e5", "c6d4"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "bN"), labelSure = emptySet())
+
+        val events = pairTick(state, cnn, moves, obs)
+
+        assertTrue(events.isNotEmpty(), "der Belegtheits-Arm committet wie zuvor: $events")
+        assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
+    }
+
+    /** Und ein sicherer Farbwiderspruch entscheidet nie auf EINEN Blick (Invariante 13). */
+    @Test
+    fun `a confident wrong colour needs two agreeing glances`() {
+        val state = pairState(fen = CAPTURE_FEN, ucis = listOf("f3e5", "c6d4"))
+        val moves = pairMoves(state, listOf("f3e5", "c6d4"))
+        val cnn = PairRecovery(matchFen = afterFen(state, moves))
+        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "bN"))
+
+        assertTrue(pairTick(state, cnn, moves, obs).isEmpty())
+
+        assertNotNull(state.pending, "ein Blick entscheidet nicht gegen den Diff")
+        assertEquals("colour", state.pending!!.voteOutcome)
     }
 
     /**
@@ -73,11 +107,12 @@ class VerifyPairSeamTest {
         val moves = pairMoves(state, listOf("f3e5", "c6d4"))
         val cnn = PairRecovery(matchFen = afterFen(state, moves))
         // Das Modell sieht d4 leer — dort steht nach dem dritten Zug nichts mehr.
-        val obs = PairObs(TOUCHED_OCCUPANCY, TOUCHED, mapOf("e5" to "wP", "d4" to "empty"))
+        val obs = PairObs(TOUCHED_OCCUPANCY + ("d4" to false), TOUCHED, mapOf("e5" to "wP"))
 
-        val events = pairTick(state, cnn, moves, obs)
+        val events = List(2) { pairTick(state, cnn, moves, obs) }.flatten()
 
         assertTrue(events.isEmpty(), "ein leer gelesenes Zielfeld darf nicht committen: $events")
+        assertNull(state.pending)
         assertEquals(CAPTURE_FEN, state.board.fen(), "das Brett darf sich nicht bewegt haben")
     }
 
