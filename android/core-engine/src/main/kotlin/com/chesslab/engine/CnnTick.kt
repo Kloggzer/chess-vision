@@ -12,7 +12,7 @@ private const val CNN_STATUS_OK = "ok"
 /** Not private: [maybePatchAnomaly] refuses to heal anything into the reference while it stands. */
 internal const val CNN_STATUS_MISMATCH = "mismatch"
 
-/** `_verify_state` after a match-ok reference pull-forward. */
+/** The verify state after a match-ok reference pull-forward. */
 internal const val VERIFY_STATE_RESYNCED = "resynced"
 
 private const val PERCENT = 100.0
@@ -27,13 +27,9 @@ private class CnnRead(
 )
 
 /**
- * `_cnn_tick` — evaluate one CNN observation. Phase 04a routes here when nothing is pending.
- *
- * The observation itself is unconditional (Spec 11); the old demand conditions survive only as the
- * EVALUATION gates in [evaluationDue]. The snapshot carries the anchor warp of the observed frame
- * and the FEN at observation start, so every commit here anchors base truth on the frame the CNN
- * actually LOOKED AT — `lastCur` is several frames newer and may already contain the opponent's
- * next move (entry.md invariant 5).
+ * Evaluate one CNN observation; the route taken when nothing is pending. The snapshot carries the
+ * anchor warp and FEN of the observed frame, so every commit here anchors base truth on the frame
+ * the CNN actually LOOKED AT — `lastCur` may already hold the opponent's next move (invariant 5).
  */
 internal fun EngineState.cnnTick(
     cnn: CnnEvaluator?,
@@ -71,31 +67,21 @@ internal fun EngineState.cnnTick(
 
 /**
  * `stuck` deliberately does NOT require a stable board — a stuck tracker is exactly the case where
- * the board never looks quiet enough — while the periodic check does. An OPEN recovery vote needs
- * no gate at all: it wants two looks at the SAME board, and a cooldown between them delivers two
- * looks at a board that had seconds to change (`docs/tracker-flow.md`, 2026-08-08-11-59-12).
+ * the board never looks quiet enough — while the periodic check does. An OPEN recovery vote needs no
+ * gate: it wants two looks at the SAME board, and a cooldown delivers two changed ones.
  */
 private fun EngineState.evaluationDue(): Boolean {
-    if (recoveryConfirmer.count > 0) return true
-    // Ein angefangener Desync macht seine Schwelle im Beobachtungstakt voll, statt je Stimme
-    // 0,7 s zu zahlen — Blitz braucht das, und Warten kauft keine Unabhaengigkeit (rho faellt
-    // zwischen 0,1 s und 1,5 s nur von 0,935 auf 0,874, `docs/emission-correlation.md`). Gegen
-    // die Hand schuetzt jetzt `alarmDeferred`, nicht die Langsamkeit.
-    if (desyncObs in 1 until config.desyncObsN) return true
+    // An open desync fills its threshold at observation rate: waiting buys no independence
+    // (`docs/emission-correlation.md`); `alarmDeferred` guards against the hand instead.
+    if (recoveryConfirmer.count > 0 || desyncObs in 1 until config.desyncObsN) return true
+    val cooled = (nowS - lastCnnTs) >= config.cnnCooldownS
     val stable = grayBuf.size >= avgFrames && (state == STATE_WAITING || state == STATE_MOVE)
-    val stuck =
-        stuckReason != null && stuckCount >= settleFrames && (nowS - lastCnnTs) >= config.cnnCooldownS
-    // Wiederholtes Scheitern hielt die CNN bisher AUS: `stuck` braucht einen Zaehler, den das
-    // Flattern nicht hochlaufen laesst, und `stable` einen Puffer, den es leert. Genau dann ist
-    // ein Ganzbrett-Blick am meisten wert — 70x `Kf1` ohne einen einzigen Read, 2026-08-24.
-    val refused =
-        config.refusedStreakForEval > 0 &&
-            refusedStreak >= config.refusedStreakForEval &&
-            (nowS - lastCnnTs) >= config.cnnCooldownS
-    if (refused) return true
-    // Eine Bewegung seit der letzten Auswertung heisst: dieser Read ist neu, die Uhr ist egal.
+    val stuck = stuckReason != null && stuckCount >= settleFrames && cooled
+    // Repeated refusal used to keep the CNN OUT — 70x `Kf1` without one read (`docs/refused-streak.md`).
+    val refused = config.refusedStreakForEval > 0 && refusedStreak >= config.refusedStreakForEval && cooled
+    // Motion since the last evaluation makes this read new whatever the clock says.
     val settled = config.cnnEvalOnSettle && motionEpoch != lastEvalEpoch
-    return stuck || (stable && (settled || (nowS - lastCnnTs) >= config.cnnCheckIntervalS))
+    return stuck || refused || (stable && (settled || (nowS - lastCnnTs) >= config.cnnCheckIntervalS))
 }
 
 private fun EngineState.applyRead(
@@ -115,17 +101,9 @@ private fun EngineState.applyRead(
     }
 
 /**
- * The identity axis is the WEAKER one: one confident type misread anywhere holds agreement below
- * `minAgreement` forever, so corrections and take-backs would never update (the b8b6->c6 correction
- * incident). Occupancy is the more reliable axis, so an identity mismatch is re-checked with
- * identity stripped before it is believed.
- *
- * This used to read "~40% on piece types". Measured on `occ-v10bn35-13c-hn` over the 7 217 occupied
- * crops of `occ-warm-13c-hn`'s test split it is **0.882**, against ~99.99% on `empty` — still an
- * asymmetry, but a much smaller one than the number this function was written against. What the
- * re-check defends is unchanged by that: it takes ONE misread square to sink whole-board agreement,
- * and 0.882 over 32 pieces still expects a few. Whether the strip-and-retry should now be narrower
- * is an open measurement question; nobody has re-run it.
+ * The identity axis is the WEAKER one — 0.882 on occupied crops against ~99.99 % on `empty`, and one
+ * confident type misread holds agreement below `minAgreement` forever, so corrections and take-backs
+ * would never update (the b8b6->c6 incident). An identity mismatch is re-checked with it stripped.
  */
 private fun EngineState.identityRead(
     cnn: CnnEvaluator,
@@ -158,12 +136,9 @@ private fun EngineState.onMatchOk(
     cnn: CnnEvaluator,
     snap: CnnSnapshot,
 ): List<TrackerEvent> {
-    // A glance that saw nothing cannot report "unchanged". `resyncCheckFull` builds its conflict
-    // set from CONFIDENT squares only, so zero confident squares yields an empty set, `match =
-    // true` and agreement 1.0 — a hand over the board then clears the alarm and pulls the
-    // reference onto the covered frame. The verify ladder has guarded exactly this with
-    // `minConfidentBoard` since it was written (`VerifySingle` rung 1); the periodic check never
-    // did, and Python does not either.
+    // A glance that saw nothing cannot report "unchanged": zero confident squares yields an empty
+    // conflict set, `match = true` and agreement 1.0, so a hand over the board would clear the alarm
+    // and pull the reference onto the covered frame. `VerifySingle` rung 1 has always guarded this.
     if (Squares.ALL.count { snap.obs.confident(it, cnn.confThr) } < cnn.minConfidentBoard) {
         cnnStatus = CNN_STATUS_OK
         note = "CNN: too little of the board is legible to confirm it — holding"
@@ -172,13 +147,9 @@ private fun EngineState.onMatchOk(
     cnnStatus = CNN_STATUS_OK
     cnnConflicts = emptyList()
     // A matching board is the END of a disagreement, and until now only a LATCHED one noticed: the
-    // reset lived solely in `clearAlarm`, which returns early when nothing is latched. Two
-    // consequences, both live. The alarm could be reached by mismatching observations INTERLEAVED
-    // with matching ones — three mismatches spread over a minute of otherwise clean glances latch
-    // it — while a merely *inconclusive* glance, which is strictly weaker evidence, did break the
-    // streak. And `desyncObs` then never returned to zero for the rest of the session, so
-    // `maybePatchAnomaly`, which refuses to heal while it is set, stayed off from the first
-    // disagreement onwards although its own comment says "while".
+    // reset lived solely in `clearAlarm`, which returns early when nothing is latched. So mismatches
+    // INTERLEAVED with clean glances still reached the alarm, and `desyncObs` never returned to
+    // zero, keeping `maybePatchAnomaly` off from the first disagreement onwards.
     clearDesyncStreak()
     val events = mutableListOf<TrackerEvent>()
     if (alarm != null) {
@@ -223,11 +194,9 @@ private fun EngineState.onRecovery(
     read: CnnRead,
 ): List<TrackerEvent> {
     val key = read.moves.joinToString(" ")
-    // The runaway of 2026-08-02. An undo moves the APP's position; the CNN reads the BOARD; the
-    // board is unchanged by an undo — so the very next observation derives the identical bridge and
-    // commits it again. Three presses, three re-commits, and no number of presses could have won:
-    // this record is the only thing that carries a human rejection into the recovery path.
-    if (recoveryHeld() || wasTakenBack(read.moves)) {
+    // An undo moves the app, not the board, so the next glance derives the same bridge again
+    // (2026-08-02, three presses, three re-commits). The hold is the only memory of that rejection.
+    if (recoveryHeld()) {
         recoveryConfirmer.reset()
         note = "$NOTE_TAKEN_BACK_PREFIX ($key) $NOTE_TAKEN_BACK_WAY_OUT"
         return emptyList()
@@ -255,9 +224,9 @@ private fun EngineState.resolvesAlarmConflicts(
     val after = board.copy()
     for (move in moves) after.push(move)
     val occupancy = obs.occupancyOnly()
-    return latched.conflicts.none {
-        occupancy.confident(it, config.cnnConfThr) &&
-            occupancy.occupied(it) != (after.labelAt(it) != "empty")
+    return latched.conflicts.all {
+        !occupancy.confident(it, config.cnnConfThr) ||
+            occupancy.occupied(it) == (after.labelAt(it) != "empty")
     }
 }
 
@@ -307,21 +276,9 @@ private fun EngineState.commitRecovery(
 }
 
 /**
- * Push the sequence onto the board and the history, and write ONE decision row per move.
- *
- * It used to write a single row for the whole bridge, on `moves.last()`, with the `fenBefore`
- * captured before the first move. On 2026-08-02 that turned a four-ply rewrite into one log line
- * and a four-ply gap in the ply numbers: three of the four moves existed nowhere in the log, and
- * the one row that did exist described a "before" four plies older than its "after", so anything
- * reconstructing the game from the rows reconstructed it wrong.
- *
- * Nothing else moves. The board, the history, `lastMove` and the emitted event are what they were —
- * this is the instrument, not the repair.
- *
- * A bridge of more than one move stamps every one of its rows with `i/N` and the joined ucis, so
- * the rows group back into the bridge they came from and are not readable as N independent
- * one-move recoveries. A single recovery — the common case — carries no stamp at all: its text is
- * what it always was.
+ * Push the sequence onto the board and the history, ONE decision row per move: a single row for the
+ * whole bridge left three of four moves nowhere in the log, with a `fenBefore` four plies older than
+ * its `fenAfter` (2026-08-02). A multi-move bridge stamps every row `i/N` so the rows group back.
  */
 private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
     val sans = ArrayList<String>(moves.size)
@@ -341,32 +298,18 @@ private fun EngineState.pushRecovery(moves: List<Move>): List<String> {
 }
 
 /**
- * The two clean agreeing glances a bridge demands; `false` while the vote is still open.
- *
- * A rewrite of history demands a board with no hand in it. The observer is deliberately not
- * motion-gated (`wantsFrame`) and the stuck arm deliberately needs no stable board
- * (`evaluationDue`), so the ONLY thing keeping a mid-move glance out of a bridge is the first
- * branch: any square the observer itself reads as occluded — by the model's occluded head OR by
- * the model-free grid-groove read (`gridOccluded`, since 2026-08-09; the head alone is blind on
- * every 13-class model) — blocks the vote AND resets the streak, exactly as an inconclusive read
- * does. The diff path's `OCCLUDED_CORE_LIMIT` (2) tolerates more because it gates a single-move
- * detection; a bridge rewrites up to four plies.
- *
- * Voting, not single-shot — TRUE since 2026-08-07 (specs/39 phase 02). The confirmer used to be
- * built from `confirmFrames`, which is 1 whenever `cnnOn`, so it confirmed on the first key it
- * ever saw and a four-ply rewrite committed on one glance. The floor is now `RECOVERY_MIN_VOTES`
- * agreeing looks from DISTINCT snapshots (one snapshot, one vote — the seq guard), at the cost
- * of one `cnnCooldownS` per bridge.
+ * The two clean agreeing glances a bridge demands; `false` while the vote is open. Neither observer
+ * nor stuck arm is motion-gated, so the first branch is the ONLY thing keeping a mid-move glance out
+ * of a bridge; the vote floor exists because `confirmFrames` is 1 with `cnnOn` (specs/39 phase 02).
  */
 private fun EngineState.recoveryVoteConfirmed(
     snap: CnnSnapshot,
     key: String,
 ): Boolean {
-    // Two arms, deliberately summed: the model's own occluded head (blind on 13-class models,
-    // and filtered to hand-shaped, motion-plausible flags — `modelHandSquares`; the raw head
-    // refused every vote of session 20260814-142947 over phantom flags on a quiet board) and the
-    // grid-groove read of the same frame — hand-shaped clusters only (`gridHandSquares`; a lone
-    // standing flag is a leaning piece and would refuse every vote for minutes).
+    // Two arms, deliberately summed: the model's own occluded head (blind on 13-class models, and
+    // filtered to hand-shaped, motion-plausible flags — the raw head refused every vote of session
+    // 20260814-142947) and the grid-groove read of the same frame, hand-shaped clusters only (a
+    // lone standing flag is a leaning piece and would refuse every vote for minutes).
     val occludedSquares =
         modelHandSquares(snap).countOneBits() +
             gridHandSquares(snap).countOneBits()
@@ -387,15 +330,22 @@ private fun EngineState.recoveryVoteConfirmed(
 }
 
 /**
- * Squares the observer may read as occluded before a recovery vote is refused: none. A finger
- * that covers part of one square is exactly how a misread next to it becomes a fabricated
- * bridge (the win-20260807 video's `Na3/Bxa3/Bf8`).
+ * Squares the observer may read as occluded before a recovery vote is refused: none. A finger that
+ * covers part of one square is exactly how a misread next to it becomes a fabricated bridge (the
+ * win-20260807 video's `Na3/Bxa3/Bf8`).
  */
 private const val RECOVERY_OCCLUDED_LIMIT = 0
 
 /** entry.md invariant 5 — `lastCur` is the fallback ONLY when the snapshot carries no usable warp. */
 private fun EngineState.recoveryAnchor(snap: CnnSnapshot): CommitAnchor? =
     snap.anchorAtDetSize(detSize) ?: lastCur?.let { CommitAnchor(it, lastCurBgr) }
+
+/** The snapshot's warp pair, or `null` unless it is at [detSize] — a mis-sized reference corrupts every later diff. */
+internal fun CnnSnapshot.anchorAtDetSize(detSize: Int): CommitAnchor? {
+    val warp = gray ?: return null
+    val sized = warp.width == detSize && warp.height == detSize && (warped?.width ?: detSize) == detSize
+    return if (sized) CommitAnchor(warp, warped) else null
+}
 
 /** The derived ucis as legal moves applied in order, or `null` if one of them does not apply. */
 private fun Game.resolveSequence(ucis: List<String>): List<Move>? {

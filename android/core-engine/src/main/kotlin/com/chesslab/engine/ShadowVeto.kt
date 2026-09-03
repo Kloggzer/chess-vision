@@ -4,14 +4,8 @@ import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * Cucchiara HSV cast-shadow test. Python `hsv_shadow_squares`.
- *
- * A square is "shadow" if its pixels, against the reference, keep their hue, are not markedly more
- * saturated and are darker. A hand's shadow satisfies this; an arriving piece does not.
- *
- * Invariant 2: a shadow square leaves `changed` but **keeps its z** — that is the caller's job
- * (`Vetoes.kt`), as is the extra `censusRaw[sq] < censusThr` requirement. This returns the pure
- * HSV verdict.
+ * Cucchiara HSV shadow: hue stays close, saturation does not rise markedly, and value falls.
+ * Invariant 2: vetoed shadows leave `changed` but retain z; callers also gate on raw census.
  */
 
 private const val BYTE_MASK = 0xFF
@@ -23,19 +17,14 @@ private const val V_RATIO_EPS = 1e-3
 /** Hue is circular over 0..179, so the distance wraps at 180. */
 private const val HUE_WRAP = 180.0
 
-// The live-tuned Cucchiara constants. Never change these to make something pass.
+// Live-tuned Cucchiara constants.
 private const val V_LO = 0.35
 private const val V_HI = 0.97
 private const val H_TOL = 15.0
 private const val S_TOL = 40.0
 private const val SHADOW_FRAC = 0.5
 
-/**
- * Subset of [candidates] that reads as a cast shadow rather than a real change.
- *
- * Both plane arguments are interleaved HSV at [geom]; the boxes use `geom.extendUp` — Python passes
- * the tracker's `overhang` here.
- */
+/** Uses [PlaneGeometry.extendUp] because cast shadows are tested over evidence boxes. */
 internal fun hsvShadowSquares(
     refHsv: ByteArray,
     curHsv: ByteArray,

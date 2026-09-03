@@ -5,24 +5,24 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/** Python's `_loop` divides by 1000 nowhere — the engine's clock is seconds, the seam's is ms. */
+/** The engine's clock is seconds, the seam's is ms. */
 private const val MS_PER_S = 1000.0
 
-/** `_fps` EMA weights. */
+/** EMA weights of the displayed fps. */
 private const val FPS_EMA_OLD = 0.9
 
 private const val FPS_EMA_NEW = 0.1
 
-/** `motion_px_thr * 4` — the baseline-occlusion absdiff threshold. */
+/** The baseline-occlusion absdiff threshold, as a multiple of `motionPxThr`. */
 private const val BASELINE_ABS_THR_FACTOR = 4.0
 
 /** The 100 ms occlusion keep-alive that bridges hand-leaves -> motion-hold-expires. */
 private const val OCCLUSION_KEEPALIVE_S = 0.1
 
 /**
- * `len(core_now) > 2` — the RAW UNDILATED core only (entry.md invariant 3). One genuinely strong
- * square dilates to five and would lock the tracker in `occluded`, where `_try_detect` — and with
- * it the CNN move-vs-hand arbitration — never runs.
+ * The RAW UNDILATED core only (entry.md invariant 3). One genuinely strong square dilates to five
+ * and would lock the tracker in `occluded`, where detection — and with it the CNN move-vs-hand
+ * arbitration — never runs.
  */
 private const val OCCLUDED_CORE_LIMIT = 2
 
@@ -45,8 +45,8 @@ internal const val SKIP_SETTLING = "settling"
 internal const val SKIP_OCCLUDED = "occluded"
 
 /**
- * What one frame-loop iteration decided. `Detect` means `_try_detect` must run on the averaged
- * pair (phase 03d wires it); `Skip` means the frame produced no detection evidence.
+ * What one frame-loop iteration decided. `Detect` means detection must run on the averaged pair;
+ * `Skip` means the frame produced no detection evidence.
  */
 internal sealed interface FrameOutcome {
     data class Detect(
@@ -61,37 +61,27 @@ internal sealed interface FrameOutcome {
 }
 
 /**
- * The per-frame body of Python's `_loop`, detection part only — the block between `_frame_seq += 1`
- * and the `state` reset.
- *
- * Camera read, reconnect/backoff, overlay encode, the perf log and the CNN worker spawn are NOT
- * here: none of them influences a detection decision.
- *
- * @param setRef the quiet base-truth capture (`_set_ref(cur, cur_bgr)` with `from_commit = false`),
- *   injected so the loop stays testable on its own.
+ * The per-frame detection body. Camera read, reconnect/backoff, overlay encode, the perf log and
+ * the CNN worker spawn are NOT here: none of them influences a detection decision.
+ * @param setRef the quiet base-truth capture (`fromCommit = false`), injected to stay testable.
  */
 internal class FrameLoop(
     private val state: EngineState,
     private val setRef: (GrayImage, BgrImage?) -> Unit,
 ) {
     /**
-     * One iteration, in Python's exact order.
-     *
-     * The trailing `state`-reset is applied **before** a `Detect` is returned, not after
-     * `_try_detect` as in Python. That is equivalent and provable: between `_try_detect` and the
-     * reset, Python neither reads `self.state` nor writes anything but `"move"`, which the reset
-     * preserves (STATUS D03a-4).
+     * One iteration. The trailing `state`-reset is applied **before** a `Detect` is returned, not
+     * after detection: that is equivalent and provable, because in between nothing reads `state` and
+     * nothing writes anything but `"move"`, which the reset preserves.
      */
     fun step(input: FrameInput): FrameOutcome {
         // Invariant 14: a repeated frame diffs to zero and reads as "stable" while a hand waves.
         require(input.seq > state.lastInputSeq) {
             "frame seq ${input.seq} was already delivered (last ${state.lastInputSeq})"
         }
-        // `detSize` is computed TWICE in this app — here from `config.boardSize * detectScale`,
-        // and in the frame pipeline from the CALIBRATION PROFILE's board size. They agreed only
-        // because both happened to be 1600. The moment the profile's size is measured rather than
-        // assumed they can diverge, and a divergence is silent: the engine reads square boxes at
-        // one scale out of a plane rendered at another, so every square is the wrong square.
+        // `detSize` is computed TWICE in this app — here from `config.boardSize * detectScale`, and
+        // in the frame pipeline from the CALIBRATION PROFILE's board size. A divergence is silent:
+        // the engine reads square boxes at one scale out of a plane rendered at another.
         require(input.grayDet.width == state.detSize && input.grayDet.height == state.detSize) {
             "detection plane is ${input.grayDet.width}x${input.grayDet.height}, " +
                 "but the engine indexes squares for ${state.detSize} " +
@@ -102,9 +92,8 @@ internal class FrameLoop(
         state.frameSeq += 1
         state.lastCorners = input.corners
         val cfg = state.config
-        // Dark-frame gate, measured on the luma BEFORE CLAHE: CLAHE amplifies near-black sensor
-        // noise into phantom changed squares, and z-scores plus legality then fabricate a move out
-        // of them. Measuring after CLAHE defeats the gate entirely.
+        // Measured on the luma BEFORE CLAHE: CLAHE amplifies near-black sensor noise into phantom
+        // changed squares, so measuring after it defeats the gate entirely.
         if (cfg.darkLumaThr > 0 && input.lumaPreClahe < cfg.darkLumaThr) {
             state.note = darkNote(input.lumaPreClahe, cfg.darkLumaThr)
             return FrameOutcome.Skip(SKIP_DARK)
@@ -140,8 +129,7 @@ internal class FrameLoop(
      */
     private fun updateMotion(input: FrameInput) {
         val prev = state.prevGray
-        // Python seeds `prev_gray` with the current frame on the first iteration. A size change
-        // (resolution renegotiated live) is treated the same way instead of throwing (D03a-6).
+        // First iteration and a live resolution change alike: seed from the current frame, never throw.
         val usable = if (prev != null && prev.data.size == input.grayDet.data.size) prev else input.grayDet
         val frameMotion = motionScore(usable.data, input.grayDet.data, state.config.motionPxThr)
         state.prevGray = input.grayDet
@@ -156,9 +144,8 @@ internal class FrameLoop(
         val ref = state.refGray
         val cfg = state.config
         // A calibration/profile update can replace the detection plane while an earlier baseline is
-        // still live. Comparing pixels from two differently sized warps is meaningless and used to
-        // throw here, which made the camera source drop every following frame. Drop the visual
-        // reference and let the normal stable-frame path establish a fresh one on this geometry.
+        // still live. Comparing pixels from two differently sized warps used to throw here, which
+        // made the camera source drop every following frame.
         if (ref != null && (ref.width != input.grayDet.width || ref.height != input.grayDet.height)) {
             state.discardVisualReference()
             state.note = NOTE_WAITING_CLEAR
@@ -194,10 +181,9 @@ internal class FrameLoop(
     }
 
     /**
-     * The experiment's branch: `motionBranch`'s bookkeeping without the two lines that END the
-     * frame — the buffers survive (there is nothing to diff without them) and no `Skip` is
-     * returned. `requireMotionForMove` still has to see this frame as motion, or the commit it
-     * protects would be refused as drift.
+     * The experiment's branch: [motionBranch]'s bookkeeping without the two lines that END the frame
+     * — the buffers survive (there is nothing to diff without them) and no `Skip` is returned.
+     * `requireMotionForMove` still has to see this frame as motion, or the commit is refused as drift.
      */
     private fun throughLocatedHand(input: FrameInput): FrameOutcome {
         state.motionSinceRef = true
@@ -227,7 +213,7 @@ internal class FrameLoop(
         return FrameOutcome.Skip(SKIP_MOVING)
     }
 
-    /** The quiet branch: average, gate, and hand the pair to `_try_detect`. */
+    /** The quiet branch: average, gate, and hand the pair to detection. */
     private fun stableBranch(input: FrameInput): FrameOutcome {
         state.stableCount += 1
         state.grayBuf.append(input.grayDet)
@@ -245,8 +231,8 @@ internal class FrameLoop(
             } else {
                 if (state.occlGridActive) {
                     // Gate just cleared: the occluder left. Double the settle hold and DROP both
-                    // buffers, or residual hand pixels (half-shadows, the averaging mix) pollute
-                    // the first detection after occlusion. Never "optimise" this away.
+                    // buffers, or residual hand pixels (half-shadows, the averaging mix) pollute the
+                    // first detection after occlusion. Never "optimise" this away.
                     state.occlGridActive = false
                     state.holdUntil = max(state.holdUntil, state.nowS + state.config.occluderHoldS)
                     state.grayBuf.clear()
@@ -265,7 +251,7 @@ internal class FrameLoop(
     private fun stableMeans(ready: Boolean): FrameOutcome {
         val cur = state.grayBuf.meanUint8()
         val curBgr = state.bgrBuf.meanUint8()
-        // Python assigns unconditionally, including the `None` right after a buffer clear.
+        // Assigned unconditionally, including the `null` right after a buffer clear.
         state.lastCur = cur
         state.lastCurBgr = curBgr
         var outcome: FrameOutcome = FrameOutcome.Skip(SKIP_SETTLING)
@@ -284,7 +270,7 @@ internal class FrameLoop(
                         state.state = STATE_OCCLUDED
                         FrameOutcome.Skip(SKIP_OCCLUDED)
                     } else {
-                        // seq = newest frame in the averaged buffer (decision signature, Spec 11).
+                        // seq = newest frame in the averaged buffer (the decision signature).
                         FrameOutcome.Detect(cur, curBgr, state.frameSeq)
                     }
             }
@@ -295,7 +281,7 @@ internal class FrameLoop(
     /** The live RAW UNDILATED occluded core — never the dilated `occlusionExpiry`. */
     private fun occludedCoreCount(): Int = state.liveExpiry(state.occlCoreExpiry).countOneBits()
 
-    /** Python `_occluded_by_grid`; `<= 0` disables the gate entirely. */
+    /** `<= 0` disables the gate entirely. */
     private fun occludedByGrid(coverage: Double): Boolean {
         val cfg = state.config
         if (cfg.minGridLineCoverage <= 0) return false
@@ -304,17 +290,14 @@ internal class FrameLoop(
     }
 }
 
-/** `f"frame too dark ({luma:.0f} < {thr}) — detection paused"`. */
 private fun darkNote(
     luma: Double,
     thr: Double,
 ): String = "frame too dark (${Math.rint(luma).toLong()} < $thr) — detection paused"
 
 /**
- * Python `_RunningMean` over gray planes: a fixed-window running mean.
- *
- * Appended planes are stored by REFERENCE, exactly like Python — the frame source must hand the
- * engine a fresh buffer per frame (entry.md invariant 14).
+ * A fixed-window running mean over gray planes. Appended planes are stored by REFERENCE, so the
+ * frame source must hand the engine a fresh buffer per frame (entry.md invariant 14).
  */
 internal class RunningMeanGray(
     maxlen: Int,
@@ -327,13 +310,13 @@ internal class RunningMeanGray(
 
     fun clear() = impl.clear()
 
-    /** New window length; drops everything buffered (Python builds a fresh `_RunningMean`). */
+    /** New window length; drops everything buffered. */
     fun resize(maxlen: Int) = impl.resize(maxlen)
 
     fun meanUint8(): GrayImage? = impl.mean()?.let { GrayImage(impl.width, impl.height, it) }
 }
 
-/** [RunningMeanGray] for interleaved BGR planes (`_bgr_buf`). */
+/** [RunningMeanGray] for interleaved BGR planes. */
 internal class RunningMeanBgr(
     maxlen: Int,
 ) {
@@ -351,18 +334,9 @@ internal class RunningMeanBgr(
 }
 
 /**
- * The shared arithmetic of both running means.
- *
- * The accumulator is an `IntArray`, not Python's float64: a window of at most a handful of `uint8`
- * planes sums to well under 2^31, so the sum is EXACT and the truncating division `sum / n` lands
- * on the same byte as `(sum.toDouble() / n).toInt()` does. That is also why Python's periodic
- * re-sum from the whole window has no counterpart here — it exists to kill float drift, and there
- * is none to kill. Halving the accumulator's width matters: the BGR plane is 1.92 MB at 800x800,
- * so the float64 version touched 15.4 MB per frame and blew every cache level.
- *
- * The buffer also SURVIVES [clear], which the frame loop calls on every motion frame — allocating
- * a fresh multi-megabyte accumulator on the first stable frame after each hand movement was a
- * large-object-space churn the collector then had to chase.
+ * The shared arithmetic of both running means. The accumulator is an `IntArray`: a handful of `uint8`
+ * planes sums to well under 2^31, so the sum is EXACT and float64's 15.4 MB per frame (a 1.92 MB BGR
+ * plane) is not paid. The buffer SURVIVES [clear], so the motion frames do not churn large objects.
  */
 private class PlaneMean(
     maxlen: Int,
@@ -413,12 +387,9 @@ private class PlaneMean(
     }
 
     /**
-     * `(sum / len(buf)).astype(np.uint8)` — TRUNCATION, not rounding.
-     *
-     * The division goes through a table because the window is tiny (2 to 4 frames) while the plane
-     * is not: every reachable sum is `0..255 * n`, so a ~1 KB lookup that stays in L1 replaces an
-     * integer division on each of 1.92 million BGR bytes. The table is rebuilt only when the
-     * window length changes, which happens on a config change and while the buffer fills.
+     * TRUNCATION, not rounding. The division goes through a table because the window is tiny (2 to 4
+     * frames) while the plane is not: every reachable sum is `0..255 * n`, so a ~1 KB lookup in L1
+     * replaces an integer division on each of 1.92 million BGR bytes.
      */
     fun mean(): ByteArray? {
         if (buf.isEmpty()) return null

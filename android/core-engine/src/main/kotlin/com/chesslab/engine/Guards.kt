@@ -7,16 +7,11 @@ internal const val NOTE_GEOMETRY_SHIFTED =
     "Board geometry shifted (marker/camera) — re-capturing reference"
 
 /**
- * Step 1 of `_try_detect` — the abort conditions, before any evidence is computed.
- * Python `_detect_guards`. `true` = go on and compute evidence.
- *
- * Each of the three gates returns `false`, and two of them **clear the base truth**. That is the
- * point: base truth is an `(image, FEN)` PAIR. A reference image whose FEN no longer matches the
- * board, or one taken through a different homography, produces phantom diffs on half the board —
- * dropping it forces a clean re-capture on the next quiet frame instead of chasing ghosts.
+ * Step 1 — the abort conditions, before any evidence is computed; `true` = go on. Two of the three
+ * gates **clear the base truth**, because it is an `(image, FEN)` PAIR: a reference whose FEN no longer
+ * matches, or one through a different homography, produces phantom diffs on half the board.
  */
 internal fun EngineState.detectGuards(): Boolean {
-    // Single exit: detekt's ReturnCount caps a function at two `return`s (STATUS D03a-7).
     var proceed = true
     if (pending != null || promoPending != null) {
         // Pending verification / promotion running: do not generate a new candidate.
@@ -45,12 +40,9 @@ internal fun EngineState.clearRef() {
 }
 
 /**
- * Python `_corners_jumped`: true when a warp corner moved by more than
- * `cornerJumpPx` (6.0) since the reference capture.
- *
- * The comparison is **axis-wise**, not Euclidean — a 6 px shift in x alone already invalidates the
- * reference. Python's `zip(..., strict=False)` stops at the shorter list, so a truncated corner
- * array compares only the pairs both sides have.
+ * True when a warp corner moved by more than `cornerJumpPx` since the reference capture. The comparison
+ * is **axis-wise**, not Euclidean — a 6 px shift in x alone already invalidates the reference — and a
+ * truncated corner array compares only the pairs both sides have.
  */
 internal fun EngineState.cornersJumped(): Boolean {
     val ref = refCorners
@@ -70,7 +62,7 @@ internal fun EngineState.cornersJumped(): Boolean {
     return jumped
 }
 
-/** Python `_clear_stuck` — also resets the recovery confirmer. */
+/** Also resets the recovery confirmer. */
 internal fun EngineState.clearStuck() {
     stuckReason = null
     stuckCount = 0
@@ -79,18 +71,13 @@ internal fun EngineState.clearStuck() {
     recoveryConfirmer.reset()
 }
 
-/** Python `_mark_stuck` — the streak counts REPEATS of the same reason. */
+/** The streak counts REPEATS of the same reason. */
 internal fun EngineState.markStuck(reason: String) {
     val entered = stuckReason != reason
     stuckCount = if (entered) 1 else stuckCount + 1
     stuckReason = reason
-    // Only on the TRANSITION: this fires on every stable frame, and `recordRejection`'s fold would
-    // collapse the repeats anyway, but writing the row once keeps the log at one line per event.
-    //
-    // Without it the log is ambiguous in the worst place. On 2026-08-01 a move took 16.5 s and the
-    // window between the two commits held nothing at all — no rejection, no candidate, only CNN
-    // observations ticking past. "Blocked before a candidate could form" and "nothing happened"
-    // looked identical, and the reason (8 changed squares against `maxChanged`, until the shadow
-    // veto knocked three out) could only be inferred from the PREVIOUS commit's `stuck=` field.
+    // Only on the TRANSITION: this fires on every stable frame, and one row per event is what keeps
+    // "blocked before a candidate could form" distinguishable from "nothing happened" (2026-08-01: a
+    // 16.5 s gap between two commits held no row at all).
     if (entered) recordRejection("", "STUCK $reason")
 }

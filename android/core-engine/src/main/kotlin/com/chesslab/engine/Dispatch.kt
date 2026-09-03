@@ -12,27 +12,18 @@ import kotlin.math.abs
 internal const val NOTE_ALARM_BLOCKED =
     "board desynced (ILLEGAL MOVE alarm) — no moves committed until take-back or resync"
 
-/** `_changed_vals` keeps the strongest 8 squares. */
+/** The debug list keeps the strongest 8 squares. */
 private const val CHANGED_VALS_LIMIT = 8
 
-/** The `z_thr * 0.5` soft gate of the `_changed_vals` debug list. */
 private const val CHANGED_VALS_SOFT_FACTOR = 0.5
 
-/** Python's `round(v, 1)` — one decimal, half-to-EVEN. */
+/** One decimal, HALF_EVEN like Python's `round`. */
 private const val ROUND_ONE_DECIMAL = 10.0
 
 /**
- * Step 9 — the ONE commit gate for every candidate kind (`_dispatch`).
- *
- * With CNN verify the candidate becomes pending and must survive occupancy verification (single
- * AND pair); without CNN it commits directly. The pair path does NOT get a shortcut: it arrived
- * here through the same LL floor, motion gate and confirmer as every single move.
- *
- * **entry.md invariant 9 — the alarm blocks EVERYTHING.** When the desync latch is set, the game
- * state provably mismatches the physical board, so every diff-vs-reference interpretation is
- * fiction (the d4->b3 incident: moving a rogue piece between two illegal positions committed a
- * plausible pawn push). Only alarm resolution moves the state: take-back, user resync, or a CNN
- * recovery sequence that resolves ALL conflict squares.
+ * Step 9 — the ONE commit gate for every candidate kind: with CNN verify the candidate goes pending,
+ * without it commits directly. **entry.md invariant 9 — the alarm blocks EVERYTHING**: under the desync
+ * latch every diff-vs-reference reading is fiction (d4->b3), only take-back/resync/recovery clears it.
  */
 internal fun EngineState.dispatch(
     moves: List<Move>,
@@ -54,8 +45,7 @@ internal fun EngineState.dispatch(
             listOf(commitSequence(moves, cur, curBgr, DECIDER_DIFF_PAIR))
         }
     }
-    // `seq` is the decision's frame signature — the newest frame in the averaged buffer. Phase 04's
-    // verify accepts only observations with `obs.seq >= seq` (Spec 11).
+    // `seq` is the decision's frame signature; verify accepts only observations with `obs.seq >= seq`.
     pending =
         PendingVerify(
             ucis = moves.map { uciOf(it) },
@@ -69,23 +59,18 @@ internal fun EngineState.dispatch(
             startedS = nowS,
             lastTickS = nowS,
         )
-    // NOT `recoveryConfirmer.reset()`. A candidate merely ENTERING verification is no evidence
-    // against what the CNN reads; only a commit is, and `clearStuck` already resets there. While
-    // `pending` stands every observation goes to the verify ladder, so the recovery streak freezes
-    // rather than restarts — a phantom the diff re-proposes each cycle used to starve the vote at
-    // 1/2 forever (2026-08-08-00-39-57, `a2a4` against the CNN's correct `c3e4`).
+    // NOT `recoveryConfirmer.reset()`: entering verification is no evidence against what the CNN
+    // reads. While `pending` stands the recovery streak freezes rather than restarts — a phantom the
+    // diff re-proposed each cycle starved the vote at 1/2 forever (2026-08-08-00-39-57, `a2a4`).
     verifyState = VERIFY_STATE_VERIFYING
     note = candidateNote ?: "checking ${board.sanSequence(moves).joinToString(" + ")} via CNN…"
     return emptyList()
 }
 
 /**
- * The verdict of one CNN verification tick. Phase 04 owns the ladders that produce it; the TYPE is
- * declared here because it is the commit seam.
- *
- * **entry.md invariant 10:** [For.replacement] is what makes Python's `cnn_overrule` expressible.
- * The legacy port had no such field, so an overruled move could only be dropped and re-detected —
- * the real move landed a whole cycle late.
+ * The verdict of one CNN verification tick; the TYPE lives here because this is the commit seam.
+ * **entry.md invariant 10:** [For.replacement] is what makes `cnn_overrule` expressible — without it
+ * an overruled move can only be dropped and re-detected, landing a whole cycle late.
  */
 internal sealed interface VerifyVerdict {
     data class For(
@@ -97,12 +82,9 @@ internal sealed interface VerifyVerdict {
 }
 
 /**
- * The frame a verified commit anchors its new reference on.
- *
- * **entry.md invariant 5 — anchoring is path-specific.** The verify path passes `pending.cur` /
- * `pending.curBgr` (the averaged frame the candidate was raised from, the default here); the
- * recovery path passes `snap.gray` / `snap.warped` (the frame the CNN actually looked at). Neither
- * may ever anchor on `lastCur`.
+ * **entry.md invariant 5 — anchoring is path-specific.** The verify path passes the averaged frame the
+ * candidate was raised from (the default here), the recovery path the frame the CNN actually looked
+ * at. Neither may ever anchor on `lastCur`.
  */
 internal class CommitAnchor(
     val cur: GrayImage,
@@ -143,20 +125,9 @@ internal fun EngineState.applyVerdict(
 internal fun EngineState.legalMoveFor(uci: String): Move? = board.legalMoves().firstOrNull { uciOf(it) == uci }
 
 /**
- * A pending candidate's ucis as moves — resolved IN SEQUENCE, not all against the current position.
- *
- * `_pending_ucis` is a list of one or two: for a pair (fast play) the second entry is the
- * OPPONENT's reply, generated on the board after the first was pushed. In the pre-move position its
- * from-square still holds an enemy piece, so `legalMoveFor` — legal in the CURRENT position —
- * always returned null for it. `mapNotNull` then silently dropped the reply, every pair collapsed
- * to `size == 1`, `VerifyPair.tick` became unreachable, and the commit anchored the reference on a
- * frame that already showed BOTH half-moves: the reply was baked into the reference and could never
- * be detected again. A silent, permanent one-ply desync, on the path built to prevent exactly that,
- * and only with the CNN attached (`pairBeforeSingle` runs `if (cnnOn)`).
- *
- * Python does not filter at all — `[chess.Move.from_uci(u) for u in ...]` (`tracker.py:2194`).
- * Resolving against a detached copy, pushing as we go, is the same thing without hand-building a
- * `Move` and guessing its promotion piece: each uci is matched where it was generated.
+ * A pending candidate's ucis as moves, resolved IN SEQUENCE on a detached copy: a pair's second entry
+ * is the OPPONENT's reply, legal only after the first was pushed. Matching it against the CURRENT
+ * position dropped it, collapsed every pair to one move and baked the reply in — a one-ply desync.
  */
 internal fun EngineState.pendingMoves(ucis: List<String>): List<Move> {
     val probe = board.copy()
@@ -169,7 +140,7 @@ internal fun EngineState.pendingMoves(ucis: List<String>): List<Move> {
     return out
 }
 
-/** `_changed_vals`: the debug list of squares at or just below `z_thr`. */
+/** The debug list of squares at or just below `zThr`. */
 internal fun topChangedVals(
     z: DoubleArray,
     zThr: Double,
@@ -185,11 +156,8 @@ internal fun topChangedVals(
 }
 
 /**
- * Python's `f"{value:.<scale>f}"`.
- *
- * `String.format` rounds HALF_UP on the exact decimal value of the double while Python rounds
- * HALF_EVEN, and it prints `0.00` where Python prints `-0.00`. Both are reproduced: the sign comes
- * from the raw value, the magnitude from an exact `BigDecimal`.
+ * `String.format` rounds HALF_UP and prints `0.00` where Python prints `-0.00`; this keeps the parity
+ * format — HALF_EVEN on an exact `BigDecimal`, sign taken from the raw value.
  */
 internal fun pyFixed(
     value: Double,

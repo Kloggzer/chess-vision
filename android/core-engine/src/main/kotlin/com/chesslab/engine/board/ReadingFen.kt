@@ -3,11 +3,8 @@ package com.chesslab.engine.board
 import com.chesslab.engine.api.CnnSnapshot
 
 /**
- * The position a reading shows, as a placement FEN — the answer to "adopt what you see".
- *
- * Only the placement: side to move, castling rights and the clocks are not on the board, and a
- * camera cannot invent them. The side to move is taken as White, which is what `loadFromFen`
- * needs to accept the string at all; the next commit corrects it if it is wrong.
+ * A camera can infer only placement, not turn, castling, or clocks; White is the parseable default.
+ * The next commit corrects the turn if needed.
  */
 fun fenOf(snap: CnnSnapshot): String? {
     val reading = Reading.of(snap) ?: return null
@@ -38,7 +35,6 @@ fun fenOf(snap: CnnSnapshot): String? {
     return "$ranks w - - 0 1"
 }
 
-/** `wR` -> `R`, `bN` -> `n`, anything else (empty, occluded) -> no piece. */
 private fun symbolOf(label: String): Char? {
     if (label.length != LABEL_LENGTH) return null
     val piece = label[1]

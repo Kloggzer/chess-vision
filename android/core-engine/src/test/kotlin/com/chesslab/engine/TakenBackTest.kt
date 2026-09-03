@@ -92,13 +92,11 @@ class TakenBackTest {
 
         repeat(4) { engine.undo() }
         assertEquals(emptyList<String>(), state.history)
-        assertEquals(listOf("e2e4", "e7e5", "g1f3", "b8c6"), state.takenBack!!.ucis)
+        assertEquals(STARTPOS, state.takenBack)
 
         engine.observe(seq = 2)
 
-        // The bridge is a strict PREFIX of what was taken back, which is the normal case: the user
-        // unwinds more than the recovery re-derives.
-        assertEquals(emptyList<String>(), state.history, "a prefix of the taken-back line is still rejected")
+        assertEquals(emptyList<String>(), state.history, "the position undone to is held")
     }
 
     /**
@@ -161,24 +159,5 @@ class TakenBackTest {
         engine.setFen(STARTPOS)
 
         assertNull(engine.state.takenBack)
-    }
-
-    /**
-     * A press that does not continue the previous one starts a new line rather than extending a
-     * stale one — otherwise a take-back would grow a tail of moves that were never adjacent to it.
-     */
-    @Test
-    fun aTakeBackFromSomewhereElseReplacesTheLineInsteadOfExtendingIt() {
-        val state = recoveryState()
-        state.board.push(moveOf(state, "e2e4"))
-        state.history.add("e4")
-        state.takeBack(plies = 1)
-        assertEquals(listOf("e2e4"), state.takenBack!!.ucis)
-
-        state.board.push(moveOf(state, "d2d4"))
-        state.history.add("d4")
-        state.takeBack(plies = 1)
-
-        assertEquals(listOf("d2d4"), state.takenBack!!.ucis, "a stale line must not grow a tail")
     }
 }

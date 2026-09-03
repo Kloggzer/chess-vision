@@ -73,9 +73,6 @@ val NOT_A_SETTING: Map<String, String> =
         "alignScale" to
             "ArUco on a downscaled frame. Measured, not chosen: ~3x faster at ±1 px, which is inside the " +
             "tracker's own dead-zone.",
-        "reanchorLlFloor" to
-            "Inert at -4.0 and harmful above -3.0 — the viability filter already bounds a move's score above " +
-            "this floor, so the comparison it guards cannot be true. See the field's own comment.",
         "cnnMarginSquares" to
             "Cannot be raised: a capture and its non-capture sibling differ by exactly one square, so 2 would " +
             "refuse every capture. Cannot be lowered below 1 either.",

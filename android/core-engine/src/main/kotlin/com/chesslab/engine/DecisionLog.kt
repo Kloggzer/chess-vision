@@ -5,50 +5,35 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.DebugPayload
 
 /**
- * How many decision rows survive. A row is ~25 scalars and strings, and nothing appends per frame,
- * so 64 buys a long stretch of provenance for a few kB and the phone never has to answer "how far
- * back does this go".
- *
- * It is no longer one row per committed or rejected move, though. Since [markStuck] started writing
- * a row on every stuck-REASON TRANSITION (`Guards.kt`), a board that alternates between
- * `too_many_changed` and `no_legal_move` — a hand hovering, which is the ordinary case — can burn
- * rows without a candidate ever forming, and the quiet edge (`Hypothesis.ambiguityOutcome`) writes
- * one more per distinct changed set. Only the transition writes and `recordRejection` folds an
- * identical consecutive row, so the rate is still bounded by events rather than by frames; but "64
- * rows is several games" is the wrong mental model for reading a ring that has filled up.
+ * How many decision rows survive: a row is ~25 scalars and nothing appends per frame, so 64 buys a long
+ * stretch of provenance for a few kB. NOT one row per move though — stuck transitions and the quiet
+ * edge write rows too, so a filled ring can cover far less than "several games".
  */
 internal const val DECISION_LOG_CAP = 64
 
 /**
- * Motion is printed to four places because it is the one field read against a threshold of 0.0025.
- * At two places every quiet frame prints `motion=0.00` and the value stops distinguishing "still"
- * from "just under the gate" — which is exactly the comparison a stuck log is read for.
+ * Motion is printed to four places because it is read against a threshold of 0.0025; at two places every
+ * quiet frame prints `motion=0.00` and stops distinguishing "still" from "just under the gate".
  */
 private const val MOTION_DP = 4
 
 /** Agreement is a fraction near 1; two places would print 0.98 for both 0.980 and 0.984. */
 private const val AGREEMENT_DP = 3
 
-/** `_decider` of a row that records why a candidate was NOT committed. */
+/** Decider of a row that records why a candidate was NOT committed. */
 internal const val DECIDER_REJECTED = "rejected"
 
 /**
- * `_decision_log` as a fixed-capacity ring.
- *
- * It is a `MutableList` on purpose: `undo` pops the rows of the undone plies from the tail and
- * `setFen` clears it, so the log has to behave like the list those two already speak. The only
- * added rule is that the OLDEST row is dropped once the capacity is reached — an unbounded log on
- * a phone that runs a tournament session is a slow leak nobody would ever see.
+ * The decision log as a fixed-capacity ring. A `MutableList` on purpose: `undo` pops the rows of the
+ * undone plies from the tail and `setFen` clears it. The added rule is that the OLDEST row is dropped
+ * at capacity — an unbounded log on a phone running a tournament session is a slow leak.
  */
 internal class DecisionLog(
     private val cap: Int = DECISION_LOG_CAP,
     /**
-     * Where a row goes the moment it is recorded. Default is a no-op so tests and the clip harness
-     * stay silent; `:app` wires it to logcat.
-     *
-     * It sits on `add` rather than at the three call sites because a fourth one will be written one
-     * day, and a decision that never reaches the log is exactly the situation this exists to end.
-     * The engine has no Android dependency and no wall clock, so the sink is injected, not imported.
+     * Where a row goes the moment it is recorded; a no-op by default so tests and the clip harness stay
+     * silent. It sits on `add`, not at the call sites, because a decision that never reaches the log is
+     * the situation this exists to end; injected because the engine has no Android dependency.
      */
     private val sink: (DecisionRecord) -> Unit = {},
 ) : AbstractMutableList<DecisionRecord>() {
@@ -76,22 +61,9 @@ internal class DecisionLog(
 }
 
 /**
- * One decision as a single greppable line.
- *
- * Written for the question that costs the most time on a live board: *why did the deterministic
- * path not commit this move?* Every field here is one that has actually been guessed at during a
- * debugging session — the changed set and its z-values say whether the evidence existed at all, the
- * two veto sets say whether it was thrown away, `best`/`2nd` say whether the scorer could separate
- * the candidates, and `cnn` says what the other channel thought at the same instant.
- *
- * The Qxd4 case of 2026-08-01 is the worked example: four legal moves produced a bit-identical
- * occupancy board, and the question "did the diff channel see d4 change?" was unanswerable because
- * nothing was written down. This line answers it.
- *
- * It renders the PUBLIC [DebugDecision] and is public itself, because the sink now hands out the
- * structure and the line is rendered at the edge that wants prose. It stays in `:core-engine`
- * regardless: [pyFixed] is the module's `internal` Python-parity primitive (`BigDecimal` +
- * `HALF_EVEN`), and moving the renderer would mean forking or widening it for one caller.
+ * One decision as a single greppable line, for the question that costs the most time on a live board: *why
+ * did the deterministic path not commit this move?* Qxd4 (2026-08-01) is the worked example — four legal
+ * moves gave a bit-identical occupancy board and nothing was written down. [pyFixed] keeps it in this module.
  */
 fun DebugDecision.toLogLine(): String {
     val z = changedVals.joinToString(" ") { (square, value) -> "$square=${pyFixed(value, 1)}" }
@@ -119,36 +91,9 @@ fun DebugDecision.toLogLine(): String {
 }
 
 /**
- * Record something the tracker declined to commit, or declined to keep believing.
- *
- * Python logs commits only, which is exactly the half that is never in question during a live
- * session — the interesting rows are "the tracker saw Nf3 and refused it, and here is the number
- * that refused it". The gates re-fire on every stable frame while the same weak candidate sits
- * there, so an identical consecutive rejection is folded into the row already at the tail; without
- * that fold one static phantom would evict the whole ring in a second.
- *
- * **Six callers, and three of them are not rejections of a candidate** — the name is narrower than
- * the function, and a reader who trusts it will mis-read the log:
- * - `TrackerEngine.commitGates` twice — the LL floor and the motion gate, the original case: a
- *   candidate existed and a gate threw it away. [key] is its uci sequence.
- * - `VerifySingle.reject` — the CNN verify ladder discarded the pending candidate.
- * - `Guards.markStuck` — no candidate ever formed; the row records the window in which nothing
- *   happened, because "blocked before a candidate could form" and "nothing happened at all" used
- *   to look identical in the log. [key] is the EMPTY string, so `toLogLine`'s `uci ?: "-"` does
- *   not fire (it guards null, not blank) and the line carries a double space where a uci goes.
- * - `Hypothesis.ambiguityOutcome` — the QUIET EDGE: evidence, no candidate, and no stuck either,
- *   so none of the rows above is written. [key] is empty like the stuck row's. This is the one
- *   caller that folds on the changed set ([foldOnChanged]).
- * - `Alarm.latchAlarm` — the opposite end: the board was declared LOST. [key] is the guessed
- *   illegal move, or empty when there is no guess. Not a rejection in any sense; it is here
- *   because the most consequential act of the engine used to leave no provenance at all.
- *
- * @param foldOnChanged also require the tail's changed set to match before folding. OFF by default,
- * because the four gate/ladder callers name a concrete candidate in [key] and their evidence set
- * flickers by a square while the same phantom sits there — folding on it would write the row per
- * frame, which is what the fold exists to stop. The quiet-edge caller has no [key] at all, so the
- * changed set is the ONLY thing separating two different silent events; without this a hand event
- * an hour later folds into a row that belongs to a different position.
+ * Record something the tracker declined to commit, or declined to keep believing; several callers are NOT
+ * candidate rejections (stuck transition, quiet edge, latched alarm) and pass an EMPTY [key]. An identical
+ * consecutive row folds into the tail — [foldOnChanged] adds the changed set, the quiet edge's only key.
  */
 internal fun EngineState.recordRejection(
     key: String,
@@ -156,42 +101,62 @@ internal fun EngineState.recordRejection(
     foldOnChanged: Boolean = false,
 ) {
     if (decisionLog.lastOrNull()?.foldsInto(key, why, changed, foldOnChanged) == true) return
-    decisionLog.add(
-        DecisionRecord(
-            tsS = nowS,
-            ply = history.size,
-            move = key,
-            san = null,
-            fenBefore = null,
-            fenAfter = board.fen(),
-            decider = DECIDER_REJECTED,
-            reason = why,
-            priorUsed = false,
-            bestScore = bestScore,
-            secondScore = secondScore,
-            margin = bestScore - secondScore,
-            changed = changed.sortedSquareNames(),
-            changedVals = changedVals.toList(),
-            shadowVetoed = shadowVetoed.sortedSquareNames(),
-            occludedVetoed = occludedVetoed.sortedSquareNames(),
-            gridCoverage = gridCoverage,
-            zThr = config.zThr,
-            motion = motion,
-            cnnRun = cnnRun,
-            cnnAgreement = cnnAgreement,
-            cnnReadsTaken = cnnReadsTaken,
-            cnnReadsStale = cnnReadsStale,
-            cnnSnaps = cnnSnapsSeen,
-            cnnSnapsToVerify = cnnSnapsToVerify,
-            cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
-            cnnSnapsNotDue = cnnSnapsNotDue,
-            cnnBestMove = cnnBestMove,
-            stuckReason = stuckReason,
-            verifyOutcome = pending?.voteOutcome,
-            accepted = false,
-        ),
-    )
+    decisionLog.add(decisionRow(DECIDER_REJECTED, why, move = key, verifyOutcome = pending?.voteOutcome, accepted = false))
 }
+
+/** One row over the state's evidence as it stands; a commit adds its move via `copy`. */
+internal fun EngineState.decisionRow(
+    decider: String,
+    reason: String,
+    move: String? = null,
+    verifyOutcome: String? = null,
+    accepted: Boolean = true,
+): DecisionRecord =
+    DecisionRecord(
+        tsS = nowS,
+        ply = history.size,
+        move = move,
+        san = null,
+        fenBefore = null,
+        fenAfter = board.fen(),
+        decider = decider,
+        reason = reason,
+        priorUsed = false,
+        bestScore = roundTo(bestScore, ROUND_2),
+        secondScore = roundTo(secondScore, ROUND_2),
+        margin = roundTo(bestScore - secondScore, ROUND_2),
+        changed = changed.sortedSquareNames(),
+        changedVals = changedVals.toList(),
+        shadowVetoed = shadowVetoed.sortedSquareNames(),
+        occludedVetoed = occludedVetoed.sortedSquareNames(),
+        gridCoverage = gridCoverage,
+        zThr = config.zThr,
+        // Unrounded: it is read against a threshold of 0.0025 (`MOTION_DP`).
+        motion = motion,
+        cnnRun = cnnRun,
+        cnnAgreement = roundTo(cnnAgreement, ROUND_3),
+        cnnReadsTaken = cnnReadsTaken,
+        cnnReadsStale = cnnReadsStale,
+        cnnSnaps = cnnSnapsSeen,
+        cnnSnapsToVerify = cnnSnapsToVerify,
+        cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
+        cnnSnapsNotDue = cnnSnapsNotDue,
+        cnnBestMove = cnnBestMove,
+        // Captured here: a commit clears both, so a row read later would show the newest values.
+        stuckReason = stuckReason,
+        verifyOutcome = verifyOutcome,
+        accepted = accepted,
+    )
+
+private const val ROUND_2 = 100.0
+
+private const val ROUND_3 = 1000.0
+
+/** HALF_EVEN on the exact value, like Python's `round`. */
+private fun roundTo(
+    value: Double,
+    factor: Double,
+): Double = Math.rint(value * factor) / factor
 
 private fun DecisionRecord.isSameRejection(
     key: String,
@@ -200,8 +165,7 @@ private fun DecisionRecord.isSameRejection(
 
 /**
  * Whether the row at the tail already says this. [changedNow] is compared only under [onChanged] —
- * `sortedSquareNames` allocates, and the callers that fold on the key alone take this path on every
- * stable frame.
+ * `sortedSquareNames` allocates, and the key-only callers take this path on every stable frame.
  */
 private fun DecisionRecord.foldsInto(
     key: String,
@@ -215,10 +179,9 @@ private fun DecisionRecord.foldsInto(
 }
 
 /**
- * The whole debug payload, assembled only while debug is on (see `TrackerEngine.setDebugEnabled`).
- *
- * Everything here is read off state that already exists — nothing is measured, cached or kept alive
- * for the debug screen's benefit, so switching it off restores the exact previous cost.
+ * The whole debug payload, assembled only while debug is on. Everything is read off state that already
+ * exists — nothing is measured or kept alive for the debug screen, so switching it off restores the
+ * exact previous cost.
  */
 internal fun EngineState.debugPayload(): DebugPayload {
     val snap = cnnSnap

@@ -9,7 +9,7 @@ private const val WHY_RESIDUE = "piece moved/hand residue"
 /** The empty-square reason. */
 private const val WHY_DRIFT = "light drift"
 
-/** `max_changed + 2` — the resting-hand protection ceiling. */
+/** The resting-hand protection ceiling. */
 private const val CHANGED_CEILING_SLACK = 2
 
 private const val BGR_CHANNELS = 3
@@ -23,25 +23,16 @@ private const val R_X1 = 2
 
 private const val R_Y1 = 3
 
-/** What one pass of the patcher healed, and why (the note names only the LAST reason, like Python). */
+/** What one pass of the patcher healed, and why (the note names only the LAST reason). */
 private class PatchResult(
     val patched: Long,
     val why: String,
 )
 
 /**
- * Nudge/drift self-healing of the reference without CNN — `_maybe_patch_anomaly`, Spec 10 part 4.
- *
- * Per-square timer: a square that is persistently "changed" although NO viable move explains the
- * situation (`bestLl < 0`) gets its cell pulled forward in the reference once its timeout expires,
- * rather than discarding the whole base truth.
- * - occupied squares (nudge / j'adoube / hand residue on the commit reference): `nudgeTimeoutS`;
- * - empty squares (local light drift): `driftWindowS` — more conservative, because a changing
- *   empty square could also be a silent wrong move.
- *
- * It runs WITH a CNN configured too: recovery needs `stuckCount >= settleFrames` plus cooldown plus
- * voting before it can heal, and in that window commit-frame hand residue keeps producing phantom
- * candidates. The cell patch is cheap, local and guarded, so it complements recovery.
+ * Nudge/drift self-healing of the reference: a square persistently "changed" although NO viable move
+ * explains it (`bestLl < 0`) has its cell pulled forward once its timeout expires, instead of discarding
+ * the base truth. Empty squares wait longer — a changing empty square could also be a silent wrong move.
  */
 internal fun EngineState.maybePatchAnomaly(
     bestLl: Double,
@@ -55,17 +46,9 @@ internal fun EngineState.maybePatchAnomaly(
     anomalySince = hot
 
     val n = hot.countOneBits()
-    // Never patch while the CNN says the board disagrees with the game state. The patcher exists
-    // to absorb shadow and drift; a square that differs because the PHYSICAL board moved on looks
-    // exactly the same to it, and healing that into the reference makes the diff channel agree
-    // with the wrong position permanently — the silent desync the quiet-re-anchor veto exists to
-    // prevent, on a path the veto does not cover.
-    //
-    // `stuckReason == STUCK_CNN_DESYNC` was the first attempt and was DEAD: the only two callers
-    // (`Hypothesis.kt:147`, `:198`) call `markStuck` on the line above, so the reason here is
-    // always `too_many_changed` or `no_legal_move`, and `STUCK_CNN_DESYNC` is written in exactly
-    // one place (`TrackerEngine.kt:424`) on a frame where `changed == 0` — which `n > 0` excludes.
-    // The condition could not be true. What the CNN actually knows lives in these three fields.
+    // Never patch while the CNN says the board disagrees with the game state: a square that differs
+    // because the PHYSICAL board moved on looks exactly the same to the patcher, and healing it into
+    // the reference makes the diff channel agree with the wrong position permanently.
     val desynced = alarm != null || desyncObs > 0 || cnnStatus == CNN_STATUS_MISMATCH
     val eligible = n > 0 && bestLl < 0.0 && n <= config.maxChanged + CHANGED_CEILING_SLACK && !desynced
     val ref = refGray
@@ -88,7 +71,7 @@ internal fun EngineState.maybePatchAnomaly(
     }
 }
 
-/** The per-square timeout loop, in Python's `sorted(changed)` order — the note names the LAST why. */
+/** The per-square timeout loop, in sorted-square order — the note names the LAST why. */
 private fun EngineState.patchDueSquares(
     hot: Long,
     ref: GrayImage,
@@ -110,11 +93,9 @@ private fun EngineState.patchDueSquares(
 }
 
 /**
- * Copies one cell from the current frame into the reference.
- *
- * The region uses `inset = 0.0, extendUp = overhang` — **the same pixels the diff looks at,
- * including the overhang**. Patching only the base cell leaves the extended strip above it hot
- * forever and the healing never converges.
+ * Copies one cell from the current frame into the reference over **the same pixels the diff looks at,
+ * including the overhang** — patching only the base cell leaves the strip above it hot forever and the
+ * healing never converges.
  */
 private fun EngineState.patchSquare(
     square: Int,
@@ -130,7 +111,7 @@ private fun EngineState.patchSquare(
     }
 }
 
-/** `dst[y0:y1, x0:x1] = src[y0:y1, x0:x1]`, clipped like NumPy's slicing. */
+/** Copies the region, clipped to the plane. */
 private fun copyRegion(
     dst: ByteArray,
     src: ByteArray,

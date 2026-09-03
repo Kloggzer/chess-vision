@@ -5,7 +5,7 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerEvent
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** `_DECIDER_REASON` keys — the vocabulary is FIXED. */
+/** Decider keys — the vocabulary is FIXED. */
 internal const val DECIDER_DIFF = "diff"
 
 internal const val DECIDER_DIFF_PAIR = "diff_pair"
@@ -22,12 +22,12 @@ internal const val DECIDER_CNN_RECOVERY = "cnn_recovery"
 
 internal const val DECIDER_CNN_RESYNC = "cnn_resync"
 
-/** The user-correction row of the decision log (`_clear_alarm`). */
+/** The user-correction row of the decision log. */
 internal const val DECIDER_USER = "user"
 
 /**
- * `_DECIDER_REASON` verbatim. Phase 07's debug screen and the `track-feedback` ingest read these
- * strings, so they are part of the contract, not prose.
+ * Read verbatim by the debug screen and the `track-feedback` ingest, so these strings are part of
+ * the contract, not prose.
  */
 internal val DECIDER_REASON: Map<String, String> =
     mapOf(
@@ -42,21 +42,16 @@ internal val DECIDER_REASON: Map<String, String> =
         DECIDER_CNN_RESYNC to "manual resync by the user",
     )
 
-/** `" + prior tie-break"`. */
 private const val PRIOR_REASON_SUFFIX = " + prior tie-break"
 
-/** `_verify_state` after a commit. */
+/** The verify state after a commit. */
 internal const val VERIFY_STATE_CONFIRMED = "confirmed"
 
-/** `_verify_state` while a candidate is pending. */
+/** The verify state while a candidate is pending. */
 internal const val VERIFY_STATE_VERIFYING = "verifying"
 
-/** `_expire_stalled_verify` — the observer stopped answering, so the candidate was dropped. */
+/** The observer stopped answering, so the candidate was dropped. */
 internal const val VERIFY_STATE_STALLED = "stalled"
-
-private const val ROUND_2 = 100.0
-
-private const val ROUND_3 = 1000.0
 
 private const val BGR_CHANNELS = 3
 
@@ -71,13 +66,9 @@ internal class GamutScratch {
 }
 
 /**
- * `_set_ref` — base truth is the `(image, FEN)` PAIR, never one half.
- *
- * **entry.md invariant 6:** `fromCommit = true` marks a reference taken at commit time. That frame
- * may still carry hand residue (a slow hand under the motion gate), and a colour gamut built from
- * it would bake the hand's colours in and blind the occlusion veto for good. The gamut is therefore
- * rebuilt **only** on the quiet re-anchor, where the board is verifiably clean — this function is
- * the only place in `:core-engine` that calls [boardColorGamut] at all.
+ * Base truth is the `(image, FEN)` PAIR, never one half. **entry.md invariant 6:** a reference taken
+ * at commit time may still carry hand residue, and a gamut built from it would blind the occlusion
+ * veto for good — so the gamut is rebuilt ONLY on the quiet re-anchor, where the board is clean.
  */
 internal fun EngineState.setRef(
     cur: GrayImage,
@@ -96,7 +87,7 @@ internal fun EngineState.setRef(
     motionSinceRef = false
 }
 
-/** `board_color_gamut(cur_bgr, self._det_size, white_pov)`; driven by [EngineState.refGamut]. */
+/** Driven by [EngineState.refGamut]. */
 internal fun EngineState.buildGamut(curBgr: BgrImage): ColorGamut? {
     val scratch = gamutScratch
     val need = curBgr.width * curBgr.height * BGR_CHANNELS
@@ -109,8 +100,8 @@ internal fun EngineState.buildGamut(curBgr: BgrImage): ColorGamut? {
 }
 
 /**
- * `_commit_move` — apply the move and set base truth to `(image, FEN after the move)`. Used by the
- * direct diff commit AND by every verified path; every default is Python's.
+ * Apply the move and set base truth to `(image, FEN after the move)`. Used by the direct diff commit
+ * AND by every verified path.
  */
 internal fun EngineState.commitMove(
     move: Move,
@@ -134,7 +125,7 @@ internal fun EngineState.commitMove(
     // Residue is healed by `maybePatchAnomaly` or the CNN recovery.
     finishCommit(cur, curBgr)
     recoveredLast = recovered
-    // Make prior decisions visible (Spec 10 part 2): the prior can guess on a genuine image tie.
+    // Make prior decisions visible: the prior can guess on a genuine image tie.
     priorLast = priorUsed
     note =
         "Move detected: $san" +
@@ -144,10 +135,7 @@ internal fun EngineState.commitMove(
     return TrackerEvent.MoveCommitted(uci, san, board.fen(), decider, priorUsed)
 }
 
-/**
- * `_commit_sequence` — atomically apply a confirmed move sequence (fast play: half-move + reply).
- * Provenance is recorded on the LAST move, never on both.
- */
+/** Atomically apply a confirmed move sequence (fast play: half-move + reply). */
 internal fun EngineState.commitSequence(
     moves: List<Move>,
     cur: GrayImage,
@@ -156,15 +144,9 @@ internal fun EngineState.commitSequence(
 ): TrackerEvent {
     val sans = ArrayList<String>(moves.size)
     // ONE row per move, exactly as `pushRecovery` does. Both call sites once wrote a single row on
-    // `moves.last()` with the `fenBefore` from before the FIRST move; that was repaired for the
-    // recovery bridge on 2026-08-02 and left standing here, so a pair kept costing its first move.
-    //
-    // Found by the user on 2026-08-09 in the confirm view of VID_20260802_222741: ply 25 read
-    // `Nxf3+` with Black not to move. Three of that candidate's 25 rows were pairs (plies 1, 16,
-    // 25), and in each the first half-move existed nowhere — the move list did not replay past
-    // ply 1, and the LCS against the reference counted three moves as MISSED that the tracker had
-    // in fact seen. The FEN timeline was right the whole time, which is why the export never
-    // noticed and the labels were never wrong.
+    // `moves.last()` with the `fenBefore` from before the FIRST move, so a pair kept costing its
+    // first move: ply 25 of VID_20260802_222741 read `Nxf3+` with Black not to move, and the LCS
+    // counted three moves as MISSED that the tracker had in fact seen (2026-08-09).
     val key = if (moves.size == 1) null else moves.joinToString(" ") { uciOf(it) }
     for ((i, move) in moves.withIndex()) {
         val fenBefore = board.fen()
@@ -196,11 +178,9 @@ private fun EngineState.finishCommit(
 ) {
     setRef(cur, curBgr, fromCommit = true)
     state = STATE_MOVE
-    // The take-back hold is NOT cleared here, and that is the fix for the evening it shipped.
-    // Clearing on commit meant a second, different CNN bridge disarmed the guard set by the first:
-    // bridge A undone, bridge B derived, B commits, the hold is gone, A is free again. The hold is
-    // keyed to a FEN, so a commit that genuinely advances the game leaves that position and the
-    // hold is inert on its own — it needs no clearing, and clearing it was the hole.
+    // The take-back hold is NOT cleared here. Clearing on commit meant a second, different CNN
+    // bridge disarmed the guard set by the first; the hold is keyed to a FEN, so a commit that
+    // genuinely advances the game leaves that position and the hold is inert on its own.
     confirmer.reset()
     // also resets the recovery confirmer
     clearStuck()
@@ -210,9 +190,8 @@ private fun EngineState.finishCommit(
 }
 
 /**
- * `_record_decision` — WHO decided this move plus the evidence it was decided on. The
- * image-carrying `_recent_decisions` ring stays in `:app` (`:core-engine` does no I/O and holds no
- * frame history); this is the log half.
+ * WHO decided this move plus the evidence it was decided on. The image-carrying decision ring stays
+ * in `:app` (`:core-engine` does no I/O and holds no frame history); this is the log half.
  */
 internal fun EngineState.recordDecision(
     move: Move,
@@ -221,62 +200,23 @@ internal fun EngineState.recordDecision(
     decider: String,
     priorUsed: Boolean,
     /**
-     * Appended verbatim to the canonical [DECIDER_REASON] text. It exists so a CNN recovery can say
-     * which move of which bridge a row is (`CnnTick.pushRecovery`) without widening
-     * `DebugDecision` — that type is a wire shape and a new column there is `specs/34`'s business.
+     * Appended verbatim to the canonical [DECIDER_REASON] text, so a CNN recovery can say which move
+     * of which bridge a row is without widening `DebugDecision` — that type is a wire shape.
      */
     reasonSuffix: String = "",
 ) {
     val reason =
         (DECIDER_REASON[decider] ?: decider) + (if (priorUsed) PRIOR_REASON_SUFFIX else "") + reasonSuffix
-    // Genau EINE Zeile erbt den Spruch der Leiter (`EngineState.verdictOutcome`) — die naechste
-    // waere schon eine andere Entscheidung.
+    // Exactly ONE row inherits the ladder's verdict; the next one is already another decision.
     val verdict = pending?.voteOutcome ?: verdictOutcome
     verdictOutcome = null
-    decisionLog.add(
-        DecisionRecord(
-            tsS = nowS,
-            ply = history.size,
-            move = uciOf(move),
-            san = san,
-            fenBefore = fenBefore,
-            fenAfter = board.fen(),
-            decider = decider,
-            reason = reason,
-            priorUsed = priorUsed,
-            bestScore = roundTo(bestScore, ROUND_2),
-            secondScore = roundTo(secondScore, ROUND_2),
-            margin = roundTo(bestScore - secondScore, ROUND_2),
-            changed = changed.sortedSquareNames(),
-            changedVals = changedVals.toList(),
-            shadowVetoed = shadowVetoed.sortedSquareNames(),
-            occludedVetoed = occludedVetoed.sortedSquareNames(),
-            gridCoverage = roundTo(gridCoverage, ROUND_2),
-            zThr = config.zThr,
-            motion = roundTo(motion, ROUND_2),
-            cnnRun = cnnRun,
-            cnnAgreement = roundTo(cnnAgreement, ROUND_3),
-            cnnReadsTaken = cnnReadsTaken,
-            cnnReadsStale = cnnReadsStale,
-            cnnSnaps = cnnSnapsSeen,
-            cnnSnapsToVerify = cnnSnapsToVerify,
-            cnnSnapsNoEvaluator = cnnSnapsNoEvaluator,
-            cnnSnapsNotDue = cnnSnapsNotDue,
-            cnnBestMove = cnnBestMove,
-            // Captured HERE, not read off the state when the debug screen renders: by then the
-            // commit has cleared both and every historic row would show the newest values.
-            stuckReason = stuckReason,
-            verifyOutcome = verdict,
-        ),
-    )
+    decisionLog.add(decisionRow(decider, reason, uciOf(move), verdict).copy(san = san, fenBefore = fenBefore, priorUsed = priorUsed))
 }
 
 /**
- * `_queue_session_capture` — defer the auto-labeled session photo for the move just committed, and
- * take it immediately when the board is already clean.
- *
- * `:core-engine` does no file I/O and owns no recorder, so this only maintains
- * [EngineState.pendingCapture]; `:app` turns it into a frame.
+ * Defer the auto-labeled session photo for the move just committed, and take it immediately when the
+ * board is already clean. `:core-engine` does no file I/O and owns no recorder, so this only
+ * maintains [EngineState.pendingCapture]; `:app` turns it into a frame.
  */
 internal fun EngineState.queueSessionCapture(san: String) {
     pendingCapture = PendingCapture(san, board.fen())
@@ -284,18 +224,12 @@ internal fun EngineState.queueSessionCapture(san: String) {
 }
 
 /**
- * `_flush_session_capture` — the deferred photo is due now that the board has a clean stable view.
- * Returns what was flushed (`null` = nothing pending) instead of writing a file; the seam has no
- * capture event and inventing a `Note` would put engine-internal text on the user's screen.
+ * The deferred photo is due now that the board has a clean stable view. Returns what was flushed
+ * (`null` = nothing pending) instead of writing a file; the seam has no capture event and inventing
+ * a `Note` would put engine-internal text on the user's screen.
  */
 internal fun EngineState.flushSessionCapture(): PendingCapture? {
     val due = pendingCapture
     pendingCapture = null
     return due
 }
-
-/** Python's `round(x, n)` — half-to-EVEN on the exact value, like every other rounding here. */
-private fun roundTo(
-    value: Double,
-    factor: Double,
-): Double = Math.rint(value * factor) / factor

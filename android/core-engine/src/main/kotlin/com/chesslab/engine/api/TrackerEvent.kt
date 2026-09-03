@@ -1,6 +1,5 @@
 package com.chesslab.engine.api
 
-// TrackerEvent.kt — everything the engine tells the outside world.
 sealed interface TrackerEvent {
     data class MoveCommitted(
         val uci: String,
@@ -26,7 +25,7 @@ sealed interface TrackerEvent {
         val conflicts: List<String>,
         val guess: String?,
         val guessSan: String?,
-        /** Default ist der Erkennungsfall: ein Latch ohne Zug hat nie einen Regelgrund. */
+        /** Ein Latch ohne Zug hat keinen Regelgrund und ist daher standardmaessig Erkennung. */
         val reason: AlarmReason = AlarmReason.BOARD_MISMATCH,
     ) : TrackerEvent
 

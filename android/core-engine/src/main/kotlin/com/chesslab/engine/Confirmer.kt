@@ -1,14 +1,9 @@
 package com.chesslab.engine
 
 /**
- * The `confirm_frames` streak voter. Port of `Confirmer`.
- *
- * The same key fed [confirmFrames] times in a row confirms. A DIFFERENT key restarts the streak
- * at 1 (not 0) and does not confirm unless `confirmFrames <= 1`; `feed(null)` clears the
- * candidate entirely, so [count] drops to 0.
- *
- * The key is an opaque `String` — the confirmer knows nothing about moves.
- * No atomics and no locking: `:core-engine` is single-threaded by construction (hard rule 2).
+ * The `confirm_frames` streak voter: the same key fed [confirmFrames] times in a row confirms, a
+ * DIFFERENT key restarts the streak at 1 (not 0), and `feed(null)` clears the candidate so [count]
+ * drops to 0. The key is opaque — the confirmer knows nothing about moves.
  */
 internal class Confirmer(
     private val confirmFrames: Int,

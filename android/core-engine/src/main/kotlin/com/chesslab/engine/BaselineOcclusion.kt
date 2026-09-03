@@ -7,11 +7,7 @@ private const val WEAK_DARKENING_DIVISOR = 2.0
 
 private const val BGR_CHANNELS = 3
 
-/**
- * Orthogonal (4-) neighbour MASK per square index, Python `_SQ_NEIGHBOURS`.
- *
- * Rank +/-1 and file +/-1 only — **never diagonals**.
- */
+/** Orthogonal rank/file neighbours only; never diagonals. */
 internal val SQ_NEIGHBOURS: LongArray =
     LongArray(Squares.COUNT) { i ->
         val file = i % Squares.N
@@ -24,15 +20,7 @@ internal val SQ_NEIGHBOURS: LongArray =
         mask
     }
 
-/**
- * The optional structural-mode inputs (Python's trailing keyword arguments).
- *
- * All absent (the default) is Python's **legacy mode**: a strong square is simply occluded, which
- * conflates hard cast shadows with hands.
- *
- * [curBgr] is the current BGR warp; the Lab/HSV conversion happens inside [chromaOutliers], which
- * is the only place that knows WHICH squares are strong enough to be worth converting.
- */
+/** Without structural inputs, every strong square is conservatively treated as occluded. */
 internal class BaselineEvidence(
     val refCodes: ByteArray? = null,
     val occlCensusThr: Double = 0.0,
@@ -42,11 +30,9 @@ internal class BaselineEvidence(
 )
 
 /**
- * Outcome of [baselineOcclusionAndShadow]. Never collapse this to two sets.
- *
- * @property occluded DILATED occluded squares — what the z-taint uses.
- * @property shadow DILATED shadow squares MINUS the dilated occluded set.
- * @property core the **RAW UNDILATED** occluded core (entry.md invariant 3).
+ * @property occluded dilated squares used for z-taint.
+ * @property shadow dilated shadows minus dilated occlusion.
+ * @property core raw undilated occlusion (entry.md invariant 3).
  */
 internal class BaselineResult(
     val occluded: Long,
@@ -54,15 +40,7 @@ internal class BaselineResult(
     val core: Long,
 )
 
-/**
- * The baseline-occlusion scratch, owned by the [EngineState] whose reference is being compared —
- * see [ShadowVetoScratch] for why file scope was the wrong owner.
- *
- * It is the RECEIVER of [baselineOcclusionAndShadow] rather than a parameter because the function
- * already carries seven, and an eighth would trip detekt's `LongParameterList` into demanding a
- * parameter object that means nothing. Everything here is fully consumed inside one call; the
- * per-square arrays are read by the classification loop and by [isOccluder], nowhere else.
- */
+/** Scratch belongs to the [EngineState] whose reference is being compared. */
 internal class BaselineScratch {
     var lab = ByteArray(0)
     var hsv = ByteArray(0)
@@ -73,18 +51,9 @@ internal class BaselineScratch {
 }
 
 /**
- * Python `_baseline_occlusion_and_shadow` — classifies strong-absdiff squares as occluder vs. cast
- * shadow against the baseline reference.
- *
- * [boxes] is the caller's `_det_boxes`, built with **`extendUp = 0.0`**; [absThr] is passed in as
- * `motionPxThr * 4` and never derived here.
- *
- * Structural mode classifies a strong square by WHAT changed: census change above
- * `occlCensusThr` (structured occluder) **or** a chroma outlier vs. the reference gamut (flat hand
- * interior) **or** brighter than the reference (an unknown flat brightener must not pass as
- * evidence) -> occluded; otherwise flat + darker + chroma-consistent -> cast shadow. Weak darkening
- * (`refMean - curMean > absThr / 2`) is shadow as well. Both sets are dilated by their orthogonal
- * neighbours; the raw core is returned undilated.
+ * Base boxes use `extendUp=0.0`; strong structure, chroma outliers, or brightening mean occlusion.
+ * Flat chroma-consistent darkening is shadow; weak darkening starts above [absThr]/2.
+ * Both results dilate orthogonally, while core stays raw (entry.md invariant 3).
  */
 internal fun BaselineScratch.baselineOcclusionAndShadow(
     curGray: GrayImage,
@@ -116,11 +85,8 @@ internal fun BaselineScratch.baselineOcclusionAndShadow(
         }
     }
     val dilatedOcc = dilate(occluded)
-    // Third return: the RAW (undilated) occluded core. The ">2 squares -> occluded state" gate must
-    // count THIS, not the dilated set — one genuinely strong square (a dark knight arriving on a
-    // light square) dilates to 5 and locked the tracker in the occluded state, where `_try_detect`
-    // (and with it the CNN move-vs-hand arbitration) never runs. Dilation still protects the
-    // z-taint (entry.md invariant 3).
+    // Count raw core for the occluded-state gate; dilation can turn one square into five.
+    // Dilation still protects z-taint (entry.md invariant 3).
     return BaselineResult(dilatedOcc, dilate(shadow).without(dilatedOcc), occluded)
 }
 
@@ -135,10 +101,6 @@ private fun BaselineScratch.computeMeans(
     planeMeans(refGray.data, width, boxes, refMeans)
 }
 
-/**
- * The census channel over the band of strong squares (the same fast path as the veto), or `null`
- * for Python's legacy mode.
- */
 private fun BaselineScratch.censusChannel(
     curGray: GrayImage,
     boxes: SquareBoxes,
@@ -153,19 +115,11 @@ private fun BaselineScratch.censusChannel(
         if (boxes.y0[i] < bandLo) bandLo = boxes.y0[i]
         if (boxes.y1[i] > bandHi) bandHi = boxes.y1[i]
     }
-    // bandLo > bandHi means there is no strong square at all.
     if (bandLo > bandHi) return null
     return perSquareCensusChange(refCodes, curGray, boxes, censValues, intArrayOf(bandLo - 1, bandHi + 1))
 }
 
-/**
- * Skin/fabric chroma outliers among the strong squares.
- *
- * The Lab and HSV conversions are done here, per strong square, and not by the caller: they are
- * needed only for squares that already cleared the absdiff gate, which on a real frame is a
- * handful — converting the whole plane up front cost 50 ms per moving frame on the phone to feed
- * a test that reads a few thousand pixels.
- */
+/** Converts only strong squares; a full-plane conversion cost 50 ms per moving frame on-phone. */
 private fun BaselineScratch.chromaOutliers(
     curGray: GrayImage,
     boardSize: Int,
@@ -176,8 +130,7 @@ private fun BaselineScratch.chromaOutliers(
     val gamut = evidence.gamut
     val bgr = evidence.curBgr ?: return 0L
     if (gamut == null) return 0L
-    // Python calls `occlusion_color_squares` with the DEFAULT `extend_up = 0.0` here — the base
-    // box only, never the overhang box. A non-positive `colorThr` is handled in there.
+    // Chroma occlusion uses the base box only, never overhang.
     val geom = PlaneGeometry(curGray.width, curGray.height, boardSize, whitePov, extendUp = 0.0)
     val need = bgr.width * bgr.height * BGR_CHANNELS
     if (lab.size != need) lab = ByteArray(need)
@@ -198,13 +151,11 @@ private fun BaselineScratch.isOccluder(
     occlCensusThr: Double,
 ): Boolean {
     if (cens == null) return true // legacy: brightness only
-    // structured occluder, or a skin/fabric chroma outlier
     val structured = cens[i] > occlCensusThr || chroma.has(i)
-    // otherwise a flat BRIGHTENER is still occlusion — conservative
+    // A flat brightener remains occlusion conservatively.
     return structured || curMeans[i] >= refMeans[i]
 }
 
-/** [mask] grown by the orthogonal neighbours of every set square. */
 private fun dilate(mask: Long): Long {
     var out = mask
     mask.forEachSquare { out = out or SQ_NEIGHBOURS[it] }

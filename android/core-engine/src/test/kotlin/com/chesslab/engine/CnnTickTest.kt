@@ -37,45 +37,11 @@ class CnnTickTest {
     }
 
     @Test
-    fun observerIntervalThrottles() {
-        // `test_observer_interval_throttles`: the interval throttles observation STARTS.
-        val state = recoveryState()
-        state.config = state.config.copy(observerIntervalS = 10.0)
-        assertTrue(state.observerDue(now = 100.0), "the first observation starts immediately")
-        state.observationStarted(now = 100.0)
-        state.observationFinished()
-        assertFalse(state.observerDue(now = 101.0))
-        assertTrue(state.observerDue(now = 111.0))
-    }
-
-    @Test
-    fun singleFlightNeverOverlapsObservations() {
-        // `_observer_due`: `cnnBusy` IS the concurrency model — one observation at a time, no queue.
-        val state = recoveryState()
-        state.observationStarted(now = 100.0)
-        assertFalse(state.observerDue(now = 200.0), "a second worker must never spawn")
-        state.observationFinished()
-        assertTrue(state.observerDue(now = 200.0))
-        state.cnnFailed = true
-        assertFalse(state.observerDue(now = 200.0))
-    }
-
-    @Test
-    fun observationFailureBacksOffOneSecond() {
-        // With the default free-running interval a persistent failure would retry at loop rate.
-        val state = recoveryState()
-        state.observationFailed(now = 100.0)
-        assertFalse(state.observerDue(now = 100.5))
-        assertTrue(state.observerDue(now = 101.0))
-    }
-
-    @Test
     fun observerRunsWhileEvaluationIsNotDue() {
-        // `test_observer_snapshots_on_quiet_board`: observation is unconditional, evaluation is not.
+        // Observation is unconditional, evaluation is not.
         val state = recoveryState()
         state.clearStuck()
         state.lastCnnTs = state.nowS
-        assertTrue(state.observerDue(state.nowS))
         val cnn = RecoveryEvaluator(conflicts = listOf("e1"))
         assertTrue(state.cnnTick(cnn, recoverySnap(state, obsForBoard(state.board), seq = 7)).isEmpty())
         assertEquals(0, state.desyncObs, "no evaluation side effects")

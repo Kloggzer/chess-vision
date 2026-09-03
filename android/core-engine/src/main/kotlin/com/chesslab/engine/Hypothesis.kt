@@ -5,17 +5,9 @@ import com.chesslab.engine.api.GrayImage
 import com.github.bhlangonijr.chesslib.move.Move
 
 /**
- * Step 6 of `_try_detect` — the ONE place where evidence becomes a candidate.
- *
- * Python reference: `_generate_hypothesis`, plus the step-5 scoring and viability filter it
- * consumes.
- *
- * Everything that can fabricate a move happens here, which is why the ORDER is load-bearing and
- * counterintuitive: **pair before single with CNN, single before pair without**. Without a CNN a
- * garbage pair covering four residue squares always outscores the true single (clip01 replay), so
- * the conservative order is required there; with a CNN the pair goes pending and must match the
- * post-pair position, so trying it first is what stops a reply landing in the same settle window
- * from being silently swallowed by a net-positive single.
+ * Step 6 — the ONE place where evidence becomes a candidate, so the ORDER is load-bearing: **pair
+ * before single with CNN, single before pair without**. Without a CNN a garbage pair over four residue
+ * squares outscores the true single (clip01); with one it must match the post-pair position instead.
  */
 internal data class Candidate(
     /** 1 = single / endpoint / promotion, 2 = pair. */
@@ -27,11 +19,9 @@ internal data class Candidate(
 )
 
 /**
- * The result of step 5's scoring + viability filter, handed to [generateHypothesis].
- *
- * @property scored the full `loglikScores` ranking, sorted descending.
- * @property viableRaw moves whose EVERY touched square carries at least soft evidence.
- * @property viable [viableRaw] minus the moves whose DESTINATION squares are shadow-vetoed.
+ * The result of step 5's scoring + viability filter, handed to [generateHypothesis]. [viable] is
+ * [viableRaw] (every touched square carries at least soft evidence) minus the moves whose DESTINATION
+ * squares are shadow-vetoed.
  */
 internal class ViableMoves(
     val scored: List<Pair<Move, Double>>,
@@ -43,19 +33,9 @@ internal class ViableMoves(
 )
 
 /**
- * Step 5 — LL-scoring plus the two-stage viability filter.
- *
- * A move is viable only when **every physically touched square** carries at least weak evidence
- * (`z >= zThr * 0.5`); otherwise a single hot square (a nudge!) scores moves with completely cold
- * target squares net-positive. `moveTouchedMask` is the right set here — castling adds both rook
- * squares, en passant the captured pawn's square.
- *
- * The shadow filter then drops moves whose **destination** squares are shadow-vetoed — destinations
- * ONLY, never the full touched set (`specs/09`): a shadow on the FROM square is vacate evidence and
- * must not block the move, which is exactly why `moveDestinationMask` is kept separate.
- *
- * Writes [EngineState.bestScore] / [EngineState.secondScore] / [EngineState.candidateUci] and
- * appends the blocked UCIs to [EngineState.shadowBlocked] (cleared here, once per detection).
+ * Step 5 — LL-scoring plus the two-stage viability filter. Every touched square must carry at least
+ * weak evidence, else a single hot square (a nudge) scores moves with cold targets net-positive. The
+ * shadow filter drops DESTINATION vetoes only — a shadow on FROM is vacate evidence, not a block.
  */
 internal fun EngineState.scoreViableMoves(z: DoubleArray): ViableMoves {
     val scored = loglikScores(board, z, config.zThr, LL_K)
@@ -84,11 +64,9 @@ internal fun EngineState.scoreViableMoves(z: DoubleArray): ViableMoves {
 }
 
 /**
- * Wie [allAbove], aber ein stummes ZIELFELD darf ein vom Modell bestaetigter Schlag sein.
- *
- * Ein Schlag auf besetztem Feld laesst dort eine Figur stehen: der Diff sieht nichts, das Feld
- * faellt unter `soft`, und der richtige Zug ist nicht mehr viabel. Gemessen 2026-08-30 an
- * `Nxe5 Nxe5 dxe5`: 205 Entscheidungen, `e5` kein einziges Mal in `changed`, `no_legal_move`.
+ * Wie [allAbove], aber ein stummes ZIELFELD darf ein vom Modell bestaetigter Schlag sein: ein Schlag
+ * auf besetztem Feld laesst dort eine Figur stehen, der Diff sieht nichts, und der richtige Zug ist
+ * nicht mehr viabel (2026-08-30, `Nxe5 Nxe5 dxe5`: 205 Entscheidungen, `e5` nie in `changed`).
  */
 internal fun EngineState.touchedReadable(
     mv: Move,
@@ -106,21 +84,18 @@ internal fun EngineState.touchedReadable(
 }
 
 /**
- * Ein Schlag, der die FARBE des Zielfelds wechselt und den das Modell dort sicher bestaetigt.
- *
- * Farbe, nicht Identitaet: die bleibt die schwaechste Achse, und hier haengt ein Zug daran. Als
- * Unterscheider zwischen zwei Schlaegen auf DASSELBE Feld waere sie das naechste, was sich lohnt
- * (`TODO.md`, Doppelschlag).
+ * Ein Schlag, der die FARBE des Zielfelds wechselt und den das Modell dort sicher bestaetigt. Farbe,
+ * nicht Identitaet: die bleibt die schwaechste Achse, und hier haengt ein Zug daran.
  */
 private fun EngineState.capturesConfirmedColour(mv: Move): Boolean {
-    val taken = board.pieceCharAt(mv.to.ordinal) ?: return false
-    val moving = board.pieceCharAt(mv.from.ordinal) ?: return false
-    if (taken.isUpperCase() == moving.isUpperCase()) return false
-    val obs = cnnSnap?.obs ?: return false
+    val taken = board.pieceCharAt(mv.to.ordinal)
+    val moving = board.pieceCharAt(mv.from.ordinal)
+    val obs = cnnSnap?.obs
+    val capture = taken != null && moving != null && taken.isUpperCase() != moving.isUpperCase()
+    if (!capture || obs == null) return false
     val name = Squares.ALL[mv.to.ordinal]
-    val label = obs.label(name) ?: return false
-    if (label == "empty") return false
-    return label.startsWith(if (moving.isUpperCase()) "w" else "b") && obs.conf(name) >= CAPTURE_SURE
+    val colour = if (moving!!.isUpperCase()) "w" else "b"
+    return obs.label(name)?.startsWith(colour) == true && obs.conf(name) >= CAPTURE_SURE
 }
 
 /** Wie sicher das Modell die neue Farbe lesen muss, damit ein stummes Zielfeld durchgeht. */
@@ -138,11 +113,8 @@ internal fun allAbove(
 
 /**
  * Step 6 — turn the evidence into exactly one [Candidate], or handle the frame (stuck + anomaly
- * patcher, ambiguous note, promotion pending) and return `null`.
- *
- * `changed`, `shadowVetoed` and `tainted` are read off the state, exactly like Python's
- * `self._changed` / `self._tainted`; [cur] / [curBgr] are the averaged pair the anomaly patcher
- * heals the reference from.
+ * patcher, ambiguous note, promotion pending) and return `null`. [cur] / [curBgr] are the averaged
+ * pair the anomaly patcher heals the reference from.
  */
 internal fun EngineState.generateHypothesis(
     z: DoubleArray,
@@ -164,11 +136,9 @@ private class Outcome(
 )
 
 /**
- * Too much change is occlusion/instability and the base truth stays, **unless a move PAIR explains
- * it** (fast play: two half-moves touch up to ~8 squares).
- *
- * Occluded/latched squares count as changed here (invariant 4) and a pair is NEVER trusted while a
- * hand is detected (the `blockedN == 0` precondition).
+ * Too much change is occlusion/instability and the base truth stays, **unless a move PAIR explains it**
+ * (fast play: two half-moves touch up to ~8 squares). Occluded/latched squares count as changed here
+ * (invariant 4) and a pair is NEVER trusted while a hand is detected (`blockedN == 0`).
  */
 private fun EngineState.tooMuchChangeGate(
     z: DoubleArray,
@@ -179,16 +149,12 @@ private fun EngineState.tooMuchChangeGate(
     val changedN = changed.countOneBits()
     val blockedN = tainted.countOneBits()
     // Squares a fresh, position-matched, confident observation reads as UNCHANGED stop counting
-    // toward the ceiling — the gate was refusing on evidence the CNN had already contradicted
-    // (Qxe2: one true move plus a bleed cloud of 7 read as 8 changed while the observer read the
-    // cloud `empty 1.000`). Counting only: z and `changed` are untouched, and the hand rule below
-    // stays on the RAW tainted count — `cnnConfirmedUnchanged` refuses occluded-reading squares,
-    // so a resting hand cannot talk itself out of the ceiling.
+    // toward the ceiling (Qxe2: one true move plus a bleed cloud of 7 read `empty 1.000`). Counting
+    // only — z and `changed` are untouched, and the hand rule below stays on the RAW tainted count.
     val confirmed = cnnConfirmedUnchanged(changed or tainted)
-    // EXPERIMENT (`handTolerantCells`): a hand covers about eight squares and the ceiling is six,
-    // so invariant 4 — latched squares COUNT — refuses every hypothesis formed while a hand is on
-    // the board. Under the knob the LOCATED hand's own squares stop counting; everything else,
-    // including the pair path's `blockedN == 0` precondition below, is untouched.
+    // EXPERIMENT (`handTolerantCells`): a hand covers about eight squares and the ceiling is six, so
+    // invariant 4 refuses every hypothesis formed while a hand is on the board. Under the knob the
+    // LOCATED hand's own squares stop counting; the pair path's `blockedN == 0` below is untouched.
     val excused = if (config.handTolerantCells > 0) locatedHand() else 0L
     val changedEff = changed.without(confirmed).without(excused).countOneBits()
     val blockedEff = tainted.without(confirmed).without(excused).countOneBits()
@@ -210,12 +176,12 @@ private fun EngineState.refuseTooMuchChange(
     curBgr: BgrImage?,
 ) {
     confirmer.reset()
-    // Spec 09: the stuck marker is the recovery trigger via `_cnn_tick`.
+    // The stuck marker is what triggers recovery.
     markStuck(STUCK_TOO_MANY_CHANGED)
     maybePatchAnomaly(moves.best, cur, curBgr)
     if (stuckReason != null) {
         // The suffix appears ONLY when the discount was live: the base string is asserted
-        // byte-for-byte against Python by the parity replay, which never has a snapshot.
+        // byte-for-byte by the parity replay.
         note =
             "Much change ($changedN squares + $blockedN occluded) — " +
             "occluded/unstable, no move committed (base truth unchanged)" +
@@ -275,11 +241,8 @@ private fun EngineState.noSingleFitsGate(
 }
 
 /**
- * The ambiguity arm — the ONE exit of [generateHypothesis] that used to leave nothing behind. The
- * other two ([refuseTooMuchChange], [noSingleFitsGate]) `markStuck` first and its transition writes
- * a row; this one only set a `note`, which the next frame overwrote.
- *
- * Promotion is excluded on purpose: it sets [EngineState.promoPending], which raises
+ * The ambiguity arm — the one exit of [generateHypothesis] that leaves no stuck marker, so it records
+ * its own row. Promotion is excluded on purpose: it sets [EngineState.promoPending], which raises
  * `TrackerEvent.PromotionPending` and blocks detection until the user answers.
  */
 private fun EngineState.ambiguityOutcome(
@@ -297,15 +260,12 @@ private fun EngineState.ambiguityOutcome(
     return Outcome(if (move == null) null else Candidate(listOf(move), res.priorUsed, vote = true))
 }
 
-/** `_mark_stuck("too_many_changed")` — Spec 09's recovery trigger. */
 internal const val STUCK_TOO_MANY_CHANGED = "too_many_changed"
 
-/** `_mark_stuck("no_legal_move")`. */
 internal const val STUCK_NO_LEGAL_MOVE = "no_legal_move"
 
 /**
- * The quiet edge's reason string. Deliberately unlike `STUCK no_legal_move`: that one means the
- * evidence fitted no legal move, this one means the evidence fitted too MANY and the engine refused
- * to choose — same silence on the board, opposite cause on the log.
+ * The quiet edge's reason string, deliberately unlike `STUCK no_legal_move`: that one means the
+ * evidence fitted no legal move, this one that it fitted too MANY and the engine refused to choose.
  */
 internal const val REASON_QUIET_EDGE = "QUIET ambiguous — evidence, but no candidate formed"

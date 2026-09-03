@@ -2,24 +2,15 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.GrayImage
 
-/**
- * Popcount of the 8-bit census codes. Python `_POPCOUNT8`.
- *
- * `IntArray`, not `ByteArray`: it is used as an addend in the per-square sum.
- */
+/** Int values avoid signed-byte widening when census popcounts are summed. */
 internal val POPCOUNT8: IntArray = IntArray(CENSUS_CODES) { Integer.bitCount(it) }
 
 /**
- * Comparison deadband of the census comparison. Python's `eps` parameter.
- *
- * **It stays 0, there is no config knob for it and it is not even a function parameter here**
- * (entry.md invariant 7): any `eps > 0` breaks
- * the monotone-brightness invariance — pixels in the `[eps, eps/ratio)` contrast band flip under
- * multiplicative darkening, and the whole shadow behaviour collapses.
+ * Must stay 0 (entry.md invariant 7): any deadband breaks monotone-brightness invariance because
+ * pixels in `[eps, eps/ratio)` flip under multiplicative darkening.
  */
 internal const val CENSUS_EPS: Int = 0
 
-/** A caller-owned census-code buffer for [width] x [height], reusing [reuse] when it fits. */
 internal fun censusBuffer(
     width: Int,
     height: Int,
@@ -30,19 +21,8 @@ internal fun censusBuffer(
 }
 
 /**
- * 3x3 census transform. Python `census_transform`.
- *
- * Each pixel gets an 8-bit code "centre brighter than neighbour?", bit `b` set iff
- * `centre > neighbour + eps`, compared as signed ints on unsigned byte values (Python widens to
- * `int16` for exactly that reason). Bit order is the row-major 3x3 scan skipping the centre:
- * `(-1,-1), (-1,0), (-1,1), (0,-1), (0,1), (1,-1), (1,0), (1,1)`.
- *
- * Padding is **BORDER_REPLICATE**, never a wrap/roll — a roll compares row 0 against the last row
- * and poisons the edge squares' census scores (see `census_transform`'s own comment).
- *
- * [yLo]/[yHi] transform only that row band, and the replication then happens at the **band** edges
- * — precisely what Python's `census_transform(cur_gray[y_lo:y_hi])` does. Rows outside the band are
- * never read. [out] receives `(yHi - yLo) * width` bytes starting at index 0 and is returned.
+ * 3x3 census, row-major around the centre, using unsigned bytes and strict `centre > neighbour`.
+ * Padding is `BORDER_REPLICATE`; band transforms replicate at [yLo]/[yHi], matching NumPy slicing.
  */
 internal fun censusTransform(
     gray: GrayImage,
@@ -72,15 +52,8 @@ internal fun censusTransform(
 }
 
 /**
- * Census codes of [gray] inside the [boxes] only, written into [out] at their plane offsets.
- *
- * **The only region a reference-code plane is ever read from is a square box** — every consumer
- * goes through [perSquareCensusChange], which sums per box. Transforming the ~37 % of the 800x800
- * plane that lies between the boxes was pure waste, and the reference is re-derived on every quiet
- * frame. Values outside the boxes are left untouched, i.e. undefined.
- *
- * Inside a box the codes are bit-identical to [censusTransform]'s: the boxes are inset from the
- * left and right plane edges, so only the top-row replication can apply and it is the same here.
+ * Writes only square boxes at plane offsets; values outside are undefined.
+ * Inset boxes make their codes bit-identical to [censusTransform] while avoiding ~37% unused work.
  */
 internal fun censusCodesInBoxes(
     gray: GrayImage,
@@ -97,25 +70,9 @@ internal fun censusCodesInBoxes(
 }
 
 /**
- * Mean Hamming distance of the census codes per square, scaled to 0..255.
- * Python `per_square_census_change`.
- *
- * [refCodes] are the reference plane's codes (the caller caches them — the reference changes only
- * on commit / re-anchor). Python's `board_size` argument is [curGray]'s edge: the board warp is
- * always square and always the plane this runs on (see `STATUS.md` D01b-2).
- *
- * With [rows] `= intArrayOf(yLo, yHi)` only squares whose box lies inside that band are scored;
- * the caller passes the candidate squares' rows with a +/-1 px halo. **Squares outside the band
- * read 0.0 and callers must only consult squares inside it** — that is the caller's contract. The
- * halo guard is Python's: a square touching a replicated band edge would carry codes that differ
- * from the full transform, so it is excluded rather than approximated.
- *
- * [codesOut] optionally receives the current frame's codes at their plane offsets, so a caller
- * whose `cur` becomes the next reference does not transform the same plane a second time.
- *
- * The `* 255/8` scaling makes the channel comparable to the gray diff and to `censusThr`. The
- * result is RAW: `censusThr` (40.0) compares against it, median normalization is the caller's
- * business (`_cens_raw`, entry.md invariant 8).
+ * Mean Hamming distance scaled by 255/8; the raw result feeds `censusThr` (entry.md invariant 8).
+ * Band edges use a +/-1 px halo; squares outside the safe band score 0.0 and must not be consulted.
+ * [codesOut] preserves current codes when the frame becomes the next reference.
  */
 internal fun perSquareCensusChange(
     refCodes: ByteArray,
@@ -135,7 +92,7 @@ internal fun perSquareCensusChange(
     if (rows != null) {
         val yLo = rows[0].coerceIn(0, height)
         val yHi = rows[1].coerceIn(yLo, height)
-        // Python slices `cur_gray[y_lo:y_hi]`; an empty slice scores nothing at all.
+        // NumPy slicing semantics: an empty band scores nothing.
         if (yHi == yLo) {
             out.fill(0.0, 0, Squares.COUNT)
             return out
@@ -155,11 +112,6 @@ internal fun perSquareCensusChange(
     return out
 }
 
-/**
- * Codes of square [i]'s box: accumulates the Hamming distance against [refCodes] when given one
- * and writes the codes to [codesOut] when given one. Returns the Hamming sum (0 without
- * [refCodes]).
- */
 private fun boxCodes(
     gray: GrayImage,
     boxes: SquareBoxes,
@@ -187,14 +139,8 @@ private fun boxCodes(
 }
 
 /**
- * Census codes of one row segment, handed to [emit] as `(planeIndex, code)`.
- *
- * [rows] holds the plane offsets of the top, centre and bottom neighbour rows — the CALLER owns
- * the replication rule, because a band transform replicates at the band edge and a box transform
- * at the plane edge, and conflating those poisons the edge squares' scores.
- *
- * The three neighbour columns slide along in registers, so a pixel costs 3 plane reads instead of
- * 9. This is the engine's single hottest loop.
+ * The caller owns edge replication because bands replicate at band edges and boxes at plane edges.
+ * Sliding three neighbour columns costs 3 plane reads per pixel rather than 9.
  */
 private inline fun rowCodes(
     data: ByteArray,

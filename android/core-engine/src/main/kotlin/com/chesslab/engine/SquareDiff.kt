@@ -3,12 +3,6 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.abs
 
-/**
- * Python per_square_diff. Mean |ref - cur| per square.
- *
- * `boxes` are precomputed by the caller (the tracker holds one [SquareBoxes] for
- * `extendUp = overhang` and one for `extendUp = 0.0`; Python rebuilds them per call, we must not).
- */
 internal fun perSquareDiff(
     grayA: GrayImage,
     grayB: GrayImage,
@@ -22,16 +16,8 @@ internal fun perSquareDiff(
 }
 
 /**
- * Python `_region_means` over `cv2.absdiff(a, b)`, summed **per box** instead of through an
- * integral image.
- *
- * Python builds the integral because NumPy/OpenCV make it free; here it cost a full pass over the
- * plane plus a `(w+1)*(h+1)` `LongArray` — 5.1 MB of writes at 800x800 — to answer 64 queries.
- * With the default `overhang = 0.25` the boxes are disjoint and cover ~63 % of the plane, so
- * summing them directly is strictly less work and holds no large buffer at all. (An `overhang`
- * beyond 0.32 makes the boxes overlap; the sums stay correct, they just re-read those rows.)
- *
- * Zero-area boxes yield `0.0`, never NaN. [out] is caller-owned and returned for chaining.
+ * Direct box sums avoid a 5.1 MB integral-plane write at 800x800; default boxes cover ~63%.
+ * Overhang above 0.32 may overlap but remains correct. Zero-area boxes yield 0.0, never NaN.
  */
 internal fun absDiffMeans(
     a: ByteArray,
@@ -59,7 +45,6 @@ internal fun absDiffMeans(
     return out
 }
 
-/** [absDiffMeans] over a single plane — Python `_region_means` on the plane itself. */
 internal fun planeMeans(
     data: ByteArray,
     width: Int,

@@ -5,7 +5,6 @@ import com.github.bhlangonijr.chesslib.PieceType
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveList
 
-/** `e2e4`, `e7e8q` — what the seam speaks. */
 fun uci(move: Move): String {
     val promotion =
         when (move.promotion.pieceType) {
@@ -18,7 +17,7 @@ fun uci(move: Move): String {
     return move.from.name.lowercase() + move.to.name.lowercase() + promotion
 }
 
-/** The same moves as SAN, from the position they start in. Falls back to UCI rather than throwing. */
+/** Falls back to UCI because display formatting must not abort tracking. */
 fun sansOf(
     from: Board,
     moves: List<Move>,
@@ -28,10 +27,7 @@ fun sansOf(
     return runCatching { list.toSanArray().toList() }.getOrDefault(moves.map(::uci))
 }
 
-/**
- * Frames per second, smoothed. Zero would show as "no detection" on the phone over a game that is
- * being tracked perfectly well, so this is not decoration.
- */
+/** Smoothed FPS distinguishes active tracking from “no detection” on the phone. */
 class FrameRate {
     var fps = 0.0
         private set

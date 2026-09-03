@@ -1,6 +1,6 @@
 package com.chesslab.engine.api
 
-// Images.kt — no Android, no OpenCV types cross the seam.
+// Android and OpenCV types must not cross this seam.
 class GrayImage(
     val width: Int,
     val height: Int,

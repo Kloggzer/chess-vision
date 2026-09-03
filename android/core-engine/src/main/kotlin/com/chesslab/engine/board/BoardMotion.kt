@@ -8,21 +8,14 @@ private const val CELL = BOARD_PX / GRID
 private const val MASK = 0xFF
 private const val CHANNELS = 3
 
-// Luma weights (BT.601), the same mix `cvtColor(BGR2GRAY)` uses — the thresholds below were
-// measured on its output.
+// BT.601 luma weights match OpenCV `BGR2GRAY`, whose output set the thresholds below.
 private const val B_WEIGHT = 0.114
 private const val G_WEIGHT = 0.587
 private const val R_WEIGHT = 0.299
 
 /**
- * The rectified board as 160x160 gray bytes, from the RAW warp.
- *
- * Deliberately not `FrameInput.grayDet`: that one is CLAHE'd and blurred, and CLAHE is local
- * contrast stretching — the three thresholds this file's callers use are grey levels measured on
- * an untouched picture, and the same numbers mean something else after it.
- *
- * The board arrives at `detSize` (half of a measured `boardSize`, so 160..640) and is box-averaged
- * down, area-weighted so the noise floor does not travel with the board size.
+ * Uses the raw warp because CLAHE/blur changes the gray-level meaning of tuned thresholds.
+ * Area-weighted downsampling to 160x160 keeps the noise floor independent of source board size.
  */
 fun grayBoard(bgr: BgrImage): ByteArray? {
     if (bgr.width <= 0 || bgr.height <= 0) return null
@@ -64,12 +57,7 @@ private fun boxLuma(
     return if (n == 0) 0 else (sum / n).toInt().coerceIn(0, MASK).toByte()
 }
 
-/**
- * Mean |delta| per board cell between two gray boards, with the median of the 64 subtracted.
- *
- * Auto-exposure and daylight move every cell together, a hand or a piece moves a few — the median
- * is the light, what stays is the scene.
- */
+/** Median subtraction removes global exposure/daylight shifts while retaining local scene motion. */
 fun cellDeltas(
     a: ByteArray,
     b: ByteArray,
@@ -90,13 +78,7 @@ fun cellDeltas(
 
 fun peak(deltas: DoubleArray): Double = deltas.max()
 
-/**
- * The board's quiet level: the upper quartile of [cellDeltas].
- *
- * A move touches two to four cells of 64, so what stands at the quartile is never a move — it is
- * the floor every change threshold has to clear. `ChangeEvidence` sets its bar on it; the perf
- * line reports it so the floor can be watched on an engine that never computes one.
- */
+/** The upper quartile estimates noise because a move touches only two to four of 64 cells. */
 fun busyLevel(deltas: DoubleArray): Double = deltas.sorted()[deltas.size * UPPER_QUARTILE_NUM / UPPER_QUARTILE_DEN]
 
 private const val UPPER_QUARTILE_NUM = 3

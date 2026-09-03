@@ -12,7 +12,7 @@ private const val PROMO_CNN_VOTES = 2
 
 private const val PROMO_CNN_MAX_OCCLUDED = 0.10
 
-/** Let two distinct, decisive identity reads answer the same Q/R/B/N prompt as the user. */
+/** Two distinct decisive identity reads provide the same Q/R/B/N choice as the user. */
 internal fun confirmPromotionFromCnn(
     state: EngineState,
     snap: CnnSnapshot,

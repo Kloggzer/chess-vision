@@ -7,6 +7,7 @@ import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.EngineOps
 import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.FrameReads
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
 import com.chesslab.engine.api.TrackerEvent
@@ -72,7 +73,7 @@ class TrackerEngineOps(
     override fun apply(action: EngineAction): List<TrackerEvent> =
         when (action) {
             is EngineAction.Undo -> engine.undo()
-            is EngineAction.ResetToStart -> engine.resetToStart()
+            is EngineAction.ResetToStart -> engine.setFen(STARTPOS)
             is EngineAction.SetFen -> engine.setFen(action.fen)
             is EngineAction.CaptureBaseline -> engine.captureBaseline()
             is EngineAction.RectificationChanged -> engine.rectificationChanged()

@@ -264,7 +264,6 @@ internal fun trackerConfigOf(cfg: JsonObject): TrackerConfig =
         motionPxThr = cfg.d("motionPxThr"),
         zThr = cfg.d("zThr"),
         ambiguityMarginLl = cfg.d("ambiguityMarginLl"),
-        reanchorLlFloor = cfg.d("reanchorLlFloor"),
         nudgeTimeoutS = cfg.d("nudgeTimeoutS"),
         driftWindowS = cfg.d("driftWindowS"),
         maxChanged = cfg.i("maxChanged"),

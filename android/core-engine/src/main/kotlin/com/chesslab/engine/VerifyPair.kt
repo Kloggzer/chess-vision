@@ -7,38 +7,29 @@ import com.chesslab.engine.api.ResyncResult
 import com.chesslab.engine.api.TrackerEvent
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** `_verify_state` / `cnn_status` after a pair was read as "nothing actually moved". */
+/** Verify state / `cnn_status` after a pair was read as "nothing actually moved". */
 private const val VERIFY_STATE_SHADOW = "shadow"
 
-/** `_verify_state` / `cnn_status` after a pair was discarded unverified. */
+/** Verify state / `cnn_status` after a pair was discarded unverified. */
 private const val VERIFY_STATE_GHOST = "ghost"
 
 private const val CNN_STATUS_OK = "ok"
 
-/** Vote keys of the two vote-gated terminals (`_pending_voted`). */
+/** Vote keys of the two vote-gated terminals. */
 private const val OUTCOME_SHADOW = "shadow"
 
 private const val OUTCOME_COMMIT = "commit"
 
 /**
- * The fast-accept needs a real local majority: below this many confident touched squares the
- * agreement is 0.0, never "the fraction of what we have" — two lucky squares must not reach
- * `cnnMinAgreement`.
+ * A real local majority: below this many confident touched squares the agreement is 0.0, never "the
+ * fraction of what we have" — two lucky squares must not reach `cnnMinAgreement`.
  */
 private const val MIN_CHECKED_FOR_AGREEMENT = 3
 
 /**
- * `_verify_pair_tick` — occupancy verify of a PAIR candidate (fast play: half-move + reply).
- *
- * The all-or-nothing whole-board match this replaces had a livelock: ONE chronically misread
- * confident square anywhere (the dark-square bB false positive) makes `before` AND `after`
- * unmatchable, so the candidate burned the window, was discarded, and the unchanged diff evidence
- * re-fired an identical candidate — forever. The governing insight of the fix: **a conflict that
- * already existed against the CURRENT position cannot discriminate between "move happened" and
- * "move did not happen"**, so it must not veto.
- *
- * Every upstream guard (fen identity, alarm discard, stale `snap.seq`, CNN-unavailable fallback)
- * has already run in `VerifySingle`; this is only the pair ladder.
+ * Occupancy verify of a PAIR candidate (fast play: half-move + reply); upstream guards ran in
+ * `VerifySingle`. A conflict that already existed against the CURRENT position cannot discriminate
+ * "moved" from "did not move" and must not veto — the all-or-nothing match before it livelocked.
  */
 internal object VerifyPair {
     fun tick(
@@ -63,8 +54,7 @@ internal object VerifyPair {
 
         state.cnnAgreement = after.agreement
         val pend = state.pending
-        // Python re-reads the pending identity here because it dropped the lock across the CNN
-        // calls; single-threaded, only the base-truth FEN can still have moved on.
+        // Only the base-truth FEN can still have moved on while the CNN calls ran.
         if (pend == null || state.board.fen() != pend.fen) return emptyList()
         pend.frames++
         pend.lastTickS = state.nowS
@@ -95,10 +85,9 @@ internal object VerifyPair {
 }
 
 /**
- * Rung 1 — the board still matches the CURRENT position on plenty of confident squares, so
- * nothing moved. The `minConfidentBoard` guard in the caller is the blind-glance protection: with
- * a hand over the board `resyncCheck` matches VACUOUSLY, and without the guard a near-blind glance
- * would reject a real pair and re-anchor the reference onto the covered image.
+ * Rung 1 — the board still matches the CURRENT position on plenty of confident squares, so nothing
+ * moved. `minConfidentBoard` in the caller is the blind-glance guard: under a hand `resyncCheck`
+ * matches VACUOUSLY and a near-blind glance would re-anchor the reference onto the covered image.
  */
 private fun EngineState.acceptShadow(pend: PendingVerify): List<TrackerEvent> {
     if (!pendingVoted(OUTCOME_SHADOW, config.verifyObsVotes)) return emptyList()
@@ -115,7 +104,7 @@ private fun EngineState.acceptShadow(pend: PendingVerify): List<TrackerEvent> {
     return emptyList()
 }
 
-/** Rung 2 / the window-end accept — `_commit_pair`. `commitSequence` sets `verifyState`. */
+/** Rung 2 / the window-end accept; `commitSequence` sets `verifyState`. */
 private fun EngineState.commitPair(
     moves: List<Move>,
     pend: PendingVerify,
@@ -127,13 +116,9 @@ private fun EngineState.commitPair(
 }
 
 /**
- * Rung 3 — the window is up. NOT vote-gated: the window itself is the damping.
- *
- * - clear view and every post-move conflict already present against the current position: the
- *   misread is chronic and cannot discriminate, so the diff evidence stands and the pair commits;
- * - no touched square was EVER readable: occlusion timeout, discard — never auto-accept under a
- *   covering hand;
- * - otherwise a NEW conflict appeared: the pair as believed did not happen.
+ * Rung 3 — the window is up, NOT vote-gated: the window itself is the damping. Post-move conflicts
+ * that all pre-existed are chronic misreads and cannot discriminate, so the diff evidence stands; a
+ * touched square that was never readable is an occlusion timeout — never auto-accept under a hand.
  */
 private fun EngineState.pairWindowEnd(
     moves: List<Move>,
@@ -161,7 +146,7 @@ private fun EngineState.pairWindowEnd(
     }
 }
 
-/** `_reject_pair` — drop the candidate; base truth stays where it is. */
+/** Drop the candidate; base truth stays where it is. */
 private fun EngineState.rejectPair(
     noteText: String,
     conflicts: List<String>,
@@ -200,10 +185,8 @@ private fun confidentMask(
 }
 
 /**
- * Was das Modell auf den beruehrten Feldern liest, gegen das, was das Paar dort behauptet.
- *
- * `~` markiert ein Feld, das die Konfidenzschwelle NICHT nimmt und damit aus [checked] faellt —
- * dort schweigt die Farbachse, ohne dass man es ihr ansieht.
+ * Was das Modell auf den beruehrten Feldern liest, gegen das, was das Paar dort behauptet. `~` markiert
+ * ein Feld unter der Konfidenzschwelle, das aus [checked] faellt — dort schweigt die Farbachse.
  */
 private fun colourTrace(
     obs: CnnObservation,
@@ -222,11 +205,9 @@ private fun colourTrace(
 }
 
 /**
- * Beruehrte Felder, deren GRUPPE der Stellung nach beiden Halbzuegen widerspricht.
- *
- * Die zweite Achse neben [pairAgreement]: `f3e5 c6e5` und `f3e5 c6d4` lassen dieselben Felder
- * besetzt und sind ueber Belegtheit ununterscheidbar — getrennt werden sie allein durch die
- * Farbe auf e5. Live committet am 2026-08-30 das falsche der beiden (`TODO.md`, Doppelschlag).
+ * Beruehrte Felder, deren GRUPPE der Stellung nach beiden Halbzuegen widerspricht — die zweite Achse
+ * neben [pairAgreement]: `f3e5 c6e5` und `f3e5 c6d4` sind ueber Belegtheit ununterscheidbar, getrennt
+ * allein durch die Farbe auf e5 (2026-08-30 live das falsche committet, `TODO.md` Doppelschlag).
  */
 private fun pairColourConflicts(
     obs: CnnObservation,

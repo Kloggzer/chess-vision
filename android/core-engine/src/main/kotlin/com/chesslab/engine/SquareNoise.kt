@@ -3,10 +3,9 @@ package com.chesslab.engine
 import kotlin.math.abs
 import kotlin.math.max
 
-/** Gray lane EMA rate — Python `SquareNoise.__init__`. */
+/** Gray-lane EMA rate. */
 internal const val NOISE_ALPHA_DEFAULT: Double = 0.05
 
-/** Gray lane initial std. */
 internal const val NOISE_INIT_STD_DEFAULT: Double = 6.0
 
 /** Gray lane std floor — mandatory, or the EMA collapses against a fresh reference. */
@@ -18,25 +17,12 @@ internal const val CENSUS_NOISE_INIT_STD: Double = 8.0
 /** Census lane std floor — tighter than gray; census is illumination-invariant. */
 internal const val CENSUS_NOISE_STD_FLOOR: Double = 2.5
 
-/**
- * The census lane's SLOW LANE exclusion rate.
- *
- * Full exclusion deadlocks the census channel: a flat square whose tie-flip noise fires from frame
- * one would be excluded from learning forever and stay hot (observed live on empty b1/b8).
- */
+/** A 1/8-rate slow lane prevents excluded flat squares from staying hot forever. */
 internal const val CENSUS_NOISE_EXCLUDE_ALPHA_SCALE: Double = 0.125
 
 /**
- * Python `SquareNoise`. Per-square EMA of the mean and the mean absolute
- * deviation, run on the **median-normalized** channel (never normalize in here).
- *
- * Two instances with DIFFERENT constants exist and must not be unified:
- * - gray: `SquareNoise()` — [NOISE_ALPHA_DEFAULT] / [NOISE_INIT_STD_DEFAULT] /
- *   [NOISE_STD_FLOOR_DEFAULT], excluded squares learn NOTHING (`excludeAlphaScale = 0.0`);
- * - census: `SquareNoise(initStd = 8.0, stdFloor = 2.5)`, excluded squares learn
- *   at [CENSUS_NOISE_EXCLUDE_ALPHA_SCALE].
- *
- * There is no `reset()`: Python constructs a fresh instance when it needs one.
+ * Per-square EMA runs on median-normalized values. Gray exclusions learn nothing; census
+ * exclusions use [CENSUS_NOISE_EXCLUDE_ALPHA_SCALE] so tie-flip noise can cool down.
  */
 internal class SquareNoise(
     private val alpha: Double = NOISE_ALPHA_DEFAULT,
@@ -47,12 +33,8 @@ internal class SquareNoise(
     val std = DoubleArray(Squares.COUNT) { initStd }
 
     /**
-     * One EMA step over all 64 squares. An empty [exclude] bitboard excludes nothing.
-     *
-     * The deviation is measured against the **pre-update** mean, and the `a == 0.0` skip is an
-     * exact `Double` comparison exactly as Python's: at scale `0.0` an excluded square learns
-     * nothing at all, so a shadow or a hand can never inflate its std and desensitize a later real
-     * move there.
+     * Deviation uses the pre-update mean. Exact `a == 0.0` prevents a hand or shadow from inflating
+     * an excluded square's deviation and desensitizing a later move.
      */
     fun update(
         diffs: DoubleArray,
@@ -70,7 +52,6 @@ internal class SquareNoise(
         }
     }
 
-    /** `z = (d - mean) / std`. [std] can never be 0 thanks to the floor. Returns [out]. */
     fun z(
         diffs: DoubleArray,
         out: DoubleArray,

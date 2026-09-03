@@ -7,15 +7,7 @@ import com.chesslab.engine.pyFixed
 import com.chesslab.engine.recordRejection
 import com.chesslab.engine.uciOf
 
-/**
- * Steps 6b, 7 and 8 — the gates between a candidate and dispatch. `true` = commit it.
- *
- * Each gate refuses the same way: reset the confirmer (a refused candidate must not keep its
- * streak), say why in the note, and record the rejection so the decision log carries refusals,
- * not only commits. The confirmer itself is the last gate: the same candidate over N stable
- * frames, where an endpoint candidate (`vote = false`) skips the vote — its CNN verify IS the
- * multi-frame confirmation.
- */
+/** A refusal resets confirmation so rejected evidence cannot contribute to a later commit. */
 internal fun EngineState.commitGates(cand: Candidate): Boolean {
     val sans = board.sanSequence(cand.moves).joinToString(" + ")
     val key = cand.moves.joinToString(" ") { uciOf(it) }
@@ -28,10 +20,7 @@ internal fun EngineState.commitGates(cand: Candidate): Boolean {
     return true
 }
 
-/**
- * The `cleanCommitsOnly` EXPERIMENT: no candidate advances while anything reads as a hand. Sits
- * before the confirmer so a hand does not burn votes.
- */
+/** This gate precedes confirmation so a hand cannot burn votes. */
 private fun EngineState.cleanHandGate(
     sans: String,
     key: String,
@@ -43,11 +32,7 @@ private fun EngineState.cleanHandGate(
     return false
 }
 
-/**
- * Step 6b, the absolute LL floor: a sole-viable candidate has an infinite margin, so a weak
- * phantom (`f6h5 @ 0.44` swallowed a live castle) sails through every margin check. Endpoint
- * candidates (`vote = false`) stay exempt — they are CNN-verified by design.
- */
+/** The absolute floor blocks sole-candidate phantoms; `f6h5 @ 0.44` swallowed a live castle. */
 private fun EngineState.llFloorGate(
     cand: Candidate,
     sans: String,
@@ -55,9 +40,7 @@ private fun EngineState.llFloorGate(
 ): Boolean {
     if (!cand.vote || config.commitLlFloor <= 0 || bestScore >= config.commitLlFloor) return true
     confirmer.reset()
-    // Derselbe Kandidat zum wiederholten Mal: das Tor hier laesst die Referenz stehen, also misst
-    // der naechste Frame denselben Diff und schlaegt denselben Zug vor. `evaluationDue` liest die
-    // Serie und holt die CNN dazu (`docs/refused-streak.md`).
+    // Wiederholte Ablehnungen holen die CNN dazu; siehe `docs/refused-streak.md`.
     refusedStreak = if (key == refusedKey) refusedStreak + 1 else 1
     refusedKey = key
     note =
@@ -67,24 +50,14 @@ private fun EngineState.llFloorGate(
     return false
 }
 
-/**
- * Step 7, the motion gate: a real move is always preceded by a hand, and it becomes visible
- * within seconds of the hand leaving. BOTH conditions are needed — `motionSinceRef` alone was
- * armed forever by a single wobble spike.
- */
+/** Motion must be recent because one wobble spike otherwise arms the gate forever. */
 private fun EngineState.motionGate(
     sans: String,
     key: String,
 ): Boolean {
     if (!config.requireMotionForMove) return true
     val age = nowS - lastMotionTs
-    // `motionRecencyS <= 0` is OFF — no recency limit — the way 0 means off for every other
-    // knob in the catalog (`censusZWeight`, `minGridLineCoverage`, `occlusionColorThr`,
-    // `commitLlFloor`, `observerIntervalS`). Read literally it meant `age > 0`, i.e. reject
-    // EVERY candidate: by the time one exists the hand is long gone (settle frames plus
-    // `motionHoldS`), so the age is never zero. Found live on 2026-08-01 — the device had it at
-    // 0.0 and the deterministic channel had not committed a single move in the whole session,
-    // every one of them waiting out the 10 s CNN recovery poll instead.
+    // `motionRecencyS <= 0` means no limit; treating 0 literally blocked every move on 2026-08-01.
     val stale = config.motionRecencyS > 0.0 && age > config.motionRecencyS
     if (motionSinceRef && !stale) return true
     confirmer.reset()

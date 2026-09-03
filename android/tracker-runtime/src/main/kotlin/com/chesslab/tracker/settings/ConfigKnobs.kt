@@ -69,7 +69,6 @@ val KNOBS: List<Knob> =
         Knob("motionPxThr", DOUBLE, { it.motionPxThr }, { c, v -> c.copy(motionPxThr = v) }),
         Knob("zThr", DOUBLE, { it.zThr }, { c, v -> c.copy(zThr = v) }),
         Knob("ambiguityMarginLl", DOUBLE, { it.ambiguityMarginLl }, { c, v -> c.copy(ambiguityMarginLl = v) }),
-        Knob("reanchorLlFloor", DOUBLE, { it.reanchorLlFloor }, { c, v -> c.copy(reanchorLlFloor = v) }),
         Knob("nudgeTimeoutS", DOUBLE, { it.nudgeTimeoutS }, { c, v -> c.copy(nudgeTimeoutS = v) }),
         Knob("driftWindowS", DOUBLE, { it.driftWindowS }, { c, v -> c.copy(driftWindowS = v) }),
         Knob("maxChanged", INT, { it.maxChanged.toDouble() }, { c, v -> c.copy(maxChanged = v.toInt()) }),

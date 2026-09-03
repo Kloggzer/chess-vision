@@ -3,13 +3,8 @@ package com.chesslab.engine
 import kotlin.math.max
 
 /**
- * Python normalize_diffs.
- *
- * Removes global brightness/exposure drift: every value minus the robust baseline, the UPPER
- * median `sorted[n / 2]` of all values (index 32 for 64 squares — NOT the average of 31 and 32),
- * clamped at 0. Empty input yields a baseline of 0.0.
- *
- * [values] is never mutated: the raw channel feeds noise learning afterwards.
+ * Removes exposure drift with the upper median (`sorted[n/2]`, index 32 of 64), clamped at zero.
+ * [values] stays raw because noise learning consumes it afterward; empty input uses baseline 0.0.
  */
 internal fun normalizeDiffs(
     values: DoubleArray,

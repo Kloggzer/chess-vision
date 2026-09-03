@@ -3,7 +3,7 @@ package com.chesslab.engine
 import kotlin.math.abs
 import kotlin.math.floor
 
-/** `config.TRACK_DEFAULTS["motion_px_thr"]` — the per-pixel brightness threshold (`config.py:596`). */
+/** Per-pixel brightness threshold in 8-bit gray levels. */
 internal const val MOTION_PX_THR_DEFAULT: Double = 20.0
 
 private const val PERCENT: Double = 100.0
@@ -13,16 +13,9 @@ private const val MOTION_U8_MASK: Int = 0xFF
 private const val MOTION_U8_MAX: Int = 255
 
 /**
- * Python `motion_score`. **PERCENT** (0..100) of pixels whose brightness changed
- * by more than [pxThr].
- *
- * A hand entering produces a compact region of STRONG diffs (high score); desk wobble / marker
- * jitter shifts the whole image by ~a pixel and produces many TINY diffs everywhere (all below
- * [pxThr] -> score ~0). The earlier plain mean-abs-diff could not tell those apart and parked the
- * tracker permanently in `moving`.
- *
- * The result is compared against `motionThr = 0.25` **percent** — never return a fraction.
- * Comparison is strict `>`, exactly as NumPy's `d > px_thr` on the unsigned absdiff.
+ * Percent (0..100) of unsigned-byte diffs strictly above [pxThr], matching NumPy `d > px_thr`.
+ * Strong compact hand motion survives; widespread tiny warp jitter stays below threshold.
+ * The 0.25 motion threshold is percent, not a fraction.
  */
 internal fun motionScore(
     prev: ByteArray,
@@ -41,13 +34,7 @@ internal fun motionScore(
     return hits.toDouble() / n * PERCENT
 }
 
-/**
- * The smallest absdiff that still satisfies `d > pxThr`, or null when no diff can — so the loop
- * compares two ints instead of widening every one of 640 000 pixels to a double.
- *
- * For an integer `d` in `0..255` the strict `d > pxThr` is exactly `d >= floor(pxThr) + 1`. A
- * threshold of 255+ is unreachable and NaN counts nothing — both as the double comparison did.
- */
+/** For integer d in 0..255, strict `d > pxThr` is `d >= floor(pxThr)+1`; NaN counts nothing. */
 private fun leastCountingDiff(pxThr: Double): Int? =
     when {
         pxThr.isNaN() || pxThr >= MOTION_U8_MAX -> null

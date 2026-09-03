@@ -1,6 +1,5 @@
 package com.chesslab.engine
 
-import com.chesslab.engine.api.cnnAdoptedFen
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull

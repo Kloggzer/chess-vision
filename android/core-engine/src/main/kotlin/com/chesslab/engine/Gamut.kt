@@ -3,13 +3,8 @@ package com.chesslab.engine
 import kotlin.math.abs
 
 /**
- * Colour "gamut" of the reference board and the opaque-occlusion veto built on it.
- * Python `board_color_gamut` and `occlusion_color_squares`.
- *
- * Invariant 2: an occlusion square is removed from `changed` **and its z is ZEROED** (unlike the
- * shadow veto, which preserves z). Invariant 6: the gamut is rebuilt only on a *quiet* re-anchor,
- * never on a commit re-anchor — this file has no opinion about when [boardColorGamut] is called,
- * and deliberately offers no "refresh" helper that would make the wrong call convenient.
+ * Invariant 2: occlusion removes `changed` and zeroes z; shadow preserves z.
+ * Invariant 6: rebuild the reference gamut only on a quiet re-anchor, never after a commit.
  */
 
 private const val BYTE_MASK = 0xFF
@@ -17,7 +12,7 @@ private const val CHANNELS = 3
 private const val DIM = 3
 private const val DIM_SQ = 9
 
-/** Python needs >= 8 usable squares before the covariance means anything. */
+/** At least 8 usable squares are required for a meaningful covariance. */
 private const val MIN_USABLE_SQUARES = 8
 
 /**
@@ -26,25 +21,18 @@ private const val MIN_USABLE_SQUARES = 8
  */
 private const val COV_REGULARIZER = 4.0
 
-/** Below this the 3x3 is singular — mirrors Python's `LinAlgError` branch. */
+/** Determinants below this are treated as singular. */
 private const val DET_EPS = 1e-12
 
-/** Default of Python's `occlusion_color_squares`; the engine passes `TrackerConfig.occlusionColorThr`. */
 private const val DEFAULT_OCCLUSION_THR = 4.0
 
-// Feature layout: [Lab a*, Lab b*, HSV S]. L* is DELIBERATELY DROPPED — that is what makes the
-// model robust to exposure and shadow. a*/b* stay in their 8-bit +128 encoding; the covariance
-// absorbs the offset and every threshold was tuned on these numbers.
+// Dropping L* makes [Lab a*, Lab b*, HSV S] robust to exposure and shadow.
+// a*/b* remain in OpenCV's 8-bit +128 encoding because thresholds use those values.
 private const val LAB_A = 1
 private const val LAB_B = 2
 private const val HSV_S = 1
 
-/**
- * Reference-board colour model.
- *
- * [mu] exists only because Python returns it — **nothing consumes it**. The veto is a
- * nearest-neighbour test over [feats], never a distance to the mean.
- */
+/** The veto compares against [feats], never against [mu]. */
 internal class ColorGamut(
     val mu: DoubleArray,
     val invCov: DoubleArray,
@@ -52,12 +40,7 @@ internal class ColorGamut(
     val n: Int,
 )
 
-/**
- * Builds the gamut from the reference frame's Lab + HSV planes over the **base** boxes
- * (`extendUp = 0.0`, default inset), exactly like Python.
- *
- * Returns `null` when fewer than 8 squares are usable or the regularized covariance is singular.
- */
+/** Uses base boxes (`extendUp = 0.0`); null with fewer than 8 samples or singular covariance. */
 internal fun boardColorGamut(
     ref: ColorPlanes,
     geom: PlaneGeometry,
@@ -74,13 +57,7 @@ internal fun boardColorGamut(
     return colorGamutFromFeatures(feats, n)
 }
 
-/**
- * The statistics half of [boardColorGamut]: mean, regularized sample covariance and its inverse
- * over `n` features of `[a*, b*, S]` packed row-major into [feats].
- *
- * Split out so a parity test can feed Python's own features in and isolate the colour-conversion
- * error from the covariance math (STATUS D01c-3).
- */
+/** Regularized sample covariance and inverse over row-major `[a*, b*, S]` features. */
 internal fun colorGamutFromFeatures(
     feats: DoubleArray,
     n: Int,
@@ -97,7 +74,7 @@ internal fun colorGamutFromFeatures(
         mu[j] /= n
     }
 
-    // np.cov default: sample covariance with the (n - 1) denominator.
+    // NumPy `cov` uses sample covariance with denominator n - 1.
     val cov = DoubleArray(DIM_SQ)
     for (k in 0 until n) {
         for (i in 0 until DIM) {
@@ -119,11 +96,8 @@ internal fun colorGamutFromFeatures(
 }
 
 /**
- * Squares whose colour lies farther than `thr` sigma (Mahalanobis) from **every** reference
- * square — a hand, arm or sleeve matches none, while a piece arriving on a new square matches
- * some square that already carries a similar piece.
- *
- * Checked on the base box and, only when `geom.extendUp > 0`, additionally on the extended box.
+ * Flags colours farther than [thr] Mahalanobis sigma from every reference square.
+ * A piece can match an existing piece; a hand or sleeve usually cannot. Checks base and overhang.
  */
 internal fun occlusionColorSquares(
     cur: ColorPlanes,
@@ -147,7 +121,7 @@ internal fun occlusionColorSquares(
     return out
 }
 
-/** Squared Mahalanobis distance to the CLOSEST reference square — never to [ColorGamut.mu]. */
+/** Squared Mahalanobis distance to the closest reference square, never [ColorGamut.mu]. */
 private fun nearestMahalanobis(
     cur: ColorPlanes,
     geom: PlaneGeometry,
@@ -171,7 +145,6 @@ private fun nearestMahalanobis(
     return best
 }
 
-/** `[mean(Lab a*), mean(Lab b*), mean(HSV S)]` over [box]. */
 private fun squareFeature(
     planes: ColorPlanes,
     geom: PlaneGeometry,
@@ -202,7 +175,6 @@ private fun squareFeature(
     out[2] = sumS.toDouble() / pixels
 }
 
-/** Analytic 3x3 inverse (adjugate / determinant); `null` when effectively singular. */
 private fun invert3x3(m: DoubleArray): DoubleArray? {
     val a = m[0]
     val b = m[1]

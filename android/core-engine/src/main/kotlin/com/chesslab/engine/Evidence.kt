@@ -3,29 +3,18 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/** `_struct_vals` keeps the strongest 8 census-z squares. */
+/** The debug list keeps the strongest 8 census-z squares. */
 private const val STRUCT_VALS_LIMIT = 8
 
-/** The `z_thr * 0.5` soft gate of the `_struct_vals` debug list. */
 private const val STRUCT_VALS_SOFT_FACTOR = 0.5
 
-/** Python's `round(v, 1)` — one decimal, half-to-EVEN (`Math.rint`), not half-up. */
+/** One decimal, HALF_EVEN (`Math.rint`), not half-up. */
 private const val ROUND_ONE_DECIMAL = 10.0
 
 /**
- * Step 2 of `_try_detect` — Python `_compute_evidence`. Fills [EngineState.lastDiffs],
- * [EngineState.lastCens], [EngineState.lastZ] and [EngineState.censRaw].
- *
- * - brightness: `absdiff` vs base truth -> **median normalization** (kills a global exposure jump)
- *   -> z against the per-square noise model;
- * - structure: census change vs base truth -> its own normalization and noise model. Census is
- *   illumination-invariant, which is exactly why it sees the dark-on-dark moves the gray mean
- *   dilutes away.
- *
- * Fused as `z = max(zGray, censusZWeight * zCensus)`. Weight 0 is the legacy gray-only mode.
- *
- * The vetoes, the taint filter and the noise UPDATE are steps 3 and 4 and deliberately do not
- * happen here.
+ * Step 2 — brightness (`absdiff` vs base truth, median-normalized so a global exposure jump dies) and
+ * structure (census, illumination-invariant, which is why it sees the dark-on-dark moves the gray mean
+ * dilutes away), fused as `z = max(zGray, censusZWeight * zCensus)`. Vetoes and noise update come later.
  */
 internal fun EngineState.computeEvidence(cur: GrayImage) {
     val ref = requireNotNull(refGray) { "computeEvidence without a reference image" }
@@ -52,15 +41,9 @@ internal fun EngineState.computeEvidence(cur: GrayImage) {
 }
 
 /**
- * The structural channel, including the **channel-local guard**. Returns the census z-array, or
- * `null` when the channel is dropped for this frame.
- *
- * Census is illumination-invariant but NOT translation-invariant: table wobble or one pixel of
- * jitter shifts every piece edge and fires all textured squares at once. When more squares are
- * structurally hot than any legal move — not even a pair — could explain, the channel is dropped
- * for this frame and the disturbance is LEARNED into its noise model so it adapts away. The
- * learning step is skipped only while the illegal-move alarm is latched (entry.md invariant 9);
- * skipping it otherwise diverges from the very next frame on (STATUS D01d-4).
+ * The structural channel including the **channel-local guard**: census is illumination-invariant but NOT
+ * translation-invariant, so a pixel of jitter fires every textured square at once. More hot squares than
+ * a legal move could explain drops the channel and LEARNS the disturbance — never while the alarm is up.
  */
 private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
     val ref = requireNotNull(refGray) { "censusEvidence without a reference image" }
@@ -93,14 +76,9 @@ private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
 }
 
 /**
- * Python `_ref_census_codes`: the reference's census codes, cached.
- *
- * The cache key is **identity**, never equality — `_maybe_patch_anomaly` mutates `refGray` in place
- * and invalidates by setting [EngineState.refCensusFor] to `null`.
- *
- * The quiet re-anchor fires on every stable frame, so the "cached" reference is a *new* plane on
- * almost every frame — but it is the plane [computeEvidence] just transformed, so its codes are
- * adopted by swapping the two buffers rather than transformed a second time.
+ * The reference's census codes, cached on **identity**, never equality — the anomaly patcher mutates
+ * `refGray` in place and invalidates by nulling [EngineState.refCensusFor]. The quiet re-anchor makes the
+ * cached plane a new one almost every frame, so its codes are adopted by swapping buffers, not redone.
  */
 internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
     val cached = refCensus
@@ -123,7 +101,6 @@ internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
 internal fun EngineState.refCensusCodes(): ByteArray =
     refCensusCodes(requireNotNull(refGray) { "refCensusCodes without a reference image" })
 
-/** `sorted(((s, round(v, 1)) …), key=lambda kv: -kv[1])[:8]`. */
 private fun topStructVals(
     zs: DoubleArray,
     weight: Double,

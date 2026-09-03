@@ -3,16 +3,9 @@ package com.chesslab.engine
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.math.abs
 
-// Move classification and the two square sets the detection pipeline scores against.
-//
-// Python reference: `move_touched_squares` and `move_destination_squares`. The two are deliberately
-// DIFFERENT — a move whose *destination* is shadow-vetoed must be blocked, while its other touched
-// squares must not block it (`specs/09`). Never unify them.
-//
-// A chesslib `Move` alone does not say "castling" or "en passant", so the classification is
-// derived from the position. That derivation is exact for LEGAL moves only.
+// Touched and destination sets must differ: only a shadow-vetoed destination blocks the move.
+// Chesslib moves require the position to classify castling and en passant; inputs must be legal.
 
-/** Python `board.is_castling(move)` — king moving two files. */
 internal fun isCastling(
     g: Game,
     mv: Move,
@@ -30,7 +23,6 @@ internal fun isQueensideCastling(
     mv: Move,
 ): Boolean = isCastling(g, mv) && mv.to.file.ordinal < mv.from.file.ordinal
 
-/** Python `board.is_en_passant(move)` — a pawn changing file onto an empty square. */
 internal fun isEnPassant(
     g: Game,
     mv: Move,
@@ -39,17 +31,12 @@ internal fun isEnPassant(
         mv.to.file.ordinal != mv.from.file.ordinal &&
         g.pieceCharAt(mv.to.ordinal) == null
 
-/** Python `board.is_capture(move)`. */
 internal fun isCapture(
     g: Game,
     mv: Move,
 ): Boolean = g.pieceCharAt(mv.to.ordinal) != null || isEnPassant(g, mv)
 
-/**
- * Python `board.gives_check(move)`. Uses push/pop on [g] rather than a FEN copy — the move
- * stack does not influence `isKingAttacked`, and re-parsing a FEN per legal move is the
- * hot-loop cost this avoids.
- */
+/** Push/pop avoids reparsing a FEN; the move stack does not affect `isKingAttacked`. */
 internal fun givesCheck(
     g: Game,
     mv: Move,
@@ -60,10 +47,6 @@ internal fun givesCheck(
     return check
 }
 
-/**
- * Allocation-free [moveTouchedSquares]: fills [out] with [Squares.ALL] indices and returns how
- * many were written. [out] must have room for [TOUCHED_MAX] entries.
- */
 internal fun moveTouchedIndices(
     g: Game,
     mv: Move,
@@ -76,23 +59,17 @@ internal fun moveTouchedIndices(
     if (isCastling(g, mv)) {
         val rank = mv.from.rank.ordinal
         val kingside = mv.to.file.ordinal > mv.from.file.ordinal
-        // The rook's from AND to square: h1/f1 resp. a1/d1 (and the 8th-rank mirror).
         val rookFrom = if (kingside) ROOK_FILE_KINGSIDE else ROOK_FILE_QUEENSIDE
         val rookTo = if (kingside) ROOK_TARGET_KINGSIDE else ROOK_TARGET_QUEENSIDE
         n = append(out, n, rank * Squares.N + rookFrom)
         n = append(out, n, rank * Squares.N + rookTo)
     }
     if (isEnPassant(g, mv)) {
-        // The captured pawn stands on the mover's own rank, on the destination file.
         n = append(out, n, mv.from.rank.ordinal * Squares.N + mv.to.file.ordinal)
     }
     return n
 }
 
-/**
- * Squares a move physically CHANGES: from, to, both rook squares on castling, and the captured
- * pawn's square on en passant. Port of `move_touched_squares`.
- */
 internal fun moveTouchedMask(
     g: Game,
     mv: Move,
@@ -104,13 +81,7 @@ internal fun moveTouchedMask(
     return mask
 }
 
-/**
- * Squares a move GAINS a piece on: the to-square, plus the rook's TO-square on castling
- * (f1/f8 kingside, d1/d8 queenside). Port of `move_destination_squares`.
- *
- * The rook's from-square and the en-passant captured square are vacated, not gained, so they
- * are absent here — that asymmetry against [moveTouchedMask] is load-bearing.
- */
+/** Rook origins and en-passant captures are absent because destinations contain gained pieces only. */
 internal fun moveDestinationMask(
     g: Game,
     mv: Move,
@@ -125,7 +96,6 @@ internal fun moveDestinationMask(
     return mask
 }
 
-/** Appends [index] unless it is already present — Python builds a `set`. */
 private fun append(
     out: IntArray,
     size: Int,
@@ -138,7 +108,6 @@ private fun append(
     return size + 1
 }
 
-/** Upper bound of [moveTouchedIndices]: from, to and the two rook squares. */
 internal const val TOUCHED_MAX = 4
 
 private const val CASTLING_FILE_SPAN = 2

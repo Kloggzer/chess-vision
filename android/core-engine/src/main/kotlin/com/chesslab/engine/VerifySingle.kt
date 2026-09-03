@@ -6,7 +6,7 @@ import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.TrackerEvent
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** `_verify_state` values this ladder produces (`"confirmed"` comes from the commit path). */
+/** Verify states this ladder produces (`"confirmed"` comes from the commit path). */
 private const val VERIFY_SHADOW = "shadow"
 
 private const val VERIFY_GHOST = "ghost"
@@ -20,30 +20,18 @@ private const val OUTCOME_COMMIT = "commit"
 
 private const val OUTCOME_GHOST = "ghost"
 
-/** `verify_move` counts FROM and TO; below two readable touched squares it says nothing. */
+/** `verifyMove` counts FROM and TO; below two readable touched squares it says nothing. */
 private const val MIN_VERIFIED_SQUARES = 2
 
-/** `", ".join(after["conflicts"][:4])`. */
 private const val CONFLICT_NOTE_LIMIT = 4
 
-/** `uci[:2]` / `uci[2:4]` — the two squares of a uci, promotion suffix excluded. */
+/** The two squares of a uci, promotion suffix excluded. */
 private const val UCI_SQUARES = 4
 
 /**
- * `_verify_tick` — pre-commit verification of a diff candidate through the CNN, autonomously over
- * several frames.
- *
- * Verification is by OCCUPANCY, never by piece identity: the model is ~99.99% on `empty` and ~88%
- * per square. A *confidently empty* reading is therefore evidence, a *confidently occupied* one
- * only withholds confirmation.
- *
- * This KDoc used to justify that asymmetry with "only ~40% on piece type", and that number is
- * stale by a factor of two. Measured on `occ-v10bn35-13c-hn` over the 7 217 occupied crops of
- * `occ-warm-13c-hn`'s test split: **0.882 overall**, 0.818 across the Q/R/N/B set a capture tie is
- * between, and the confusions are B<->R, B<->P, R<->P — never a queen. Whether the ladder below
- * should now USE identity is an open measurement question, not a settled one: nothing here has been
- * re-measured against the identity axis, and the rungs are tuned on incidents (g8h6, b1c4, d4b3)
- * whose evidence is occupancy. Do not read the corrected number as a licence to change the rungs.
+ * Pre-commit verification of a diff candidate through the CNN, by OCCUPANCY never identity: `empty`
+ * reads ~99.99 %, piece type only 0.882, so a confidently empty square is evidence and a confidently
+ * occupied one only withholds confirmation. Rungs tuned on occupancy incidents (g8h6, b1c4, d4b3).
  */
 internal object VerifySingle {
     /** [snap] is `null` when the CNN is unavailable or the observation failed. */
@@ -60,38 +48,23 @@ internal object VerifySingle {
             // No model → the tracker must not stall; commit the candidate as the diff saw it.
             cnn == null -> state.fallbackCommit(pend)
             snap == null -> emptyList()
-            // Spec-11 seq contract: an observation of a frame OLDER than the frame the candidate
-            // was decided on may neither confirm nor reject it. Not a rejection, not a vote — an
-            // ignore, and the VOTE counter stays put.
-            //
-            // The liveness clock is a different thing and must advance. `expireStalledVerify` calls
-            // itself "a watchdog for an observer that STOPPED, not one that is merely slow", and
-            // says the slow case belongs to `verifyExpired` inside the ladder — but the ladder is
-            // only reached PAST this gate, so the two were swapped: an observer that answered about
-            // an older frame looked identical to one that had died, and its candidate was dropped
-            // as stalled. Bounded by construction: the next crop frame is cut after dispatch, so at
-            // most ONE observation per pending can be too old, and this can buy at most one period.
+            // An observation of a frame OLDER than the one the candidate was decided on may neither
+            // confirm nor reject it: no vote, no verdict. The liveness clock must still advance, or a
+            // merely slow observer looks like a dead one and its candidate is dropped as stalled.
             snap.seq < pend.seq -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
-            // The `cleanCommitsOnly` experiment: a glance with a hand in it may neither confirm
-            // nor reject — no vote, no verdict, for the single AND the pair ladder (the pair is
-            // only reached through `evaluate`). Alive though: the liveness clock advances exactly
-            // like the too-old case above, so a covered board does not read as a dead observer.
+            // `cleanCommitsOnly`: a glance with a hand in it may neither confirm nor reject — no
+            // vote, no verdict; the liveness clock advances like the too-old case above.
             state.config.cleanCommitsOnly && state.modelHandSquares(snap) != 0L -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
-            // The model-free arm of the same guard, and ON by default: the observed frame's own
-            // grid grooves read a HAND-SHAPED cluster (`gridHandSquares` — a lone flagged square
-            // is a leaning piece and stands for minutes; see the threshold's KDoc). It exists
-            // because `pOccluded` is identically 0.0 under every 13-class model — 003957's
-            // fabricated `g4` committed at rung 2 through a resting hand whose pixels read
-            // "confidently occupied" on the destination square. Same contract as the arm above:
-            // no vote, no verdict, liveness advances.
-            // EXPERIMENT (`handTolerantCells`): board-wide at 0, otherwise only a hand within the
-            // clearance of the candidate's own squares withholds the verdict.
+            // Model-free arm of the same guard, ON by default: `pOccluded` is identically 0.0 under
+            // every 13-class model, and 003957's fabricated `g4` committed at rung 2 through a
+            // resting hand. The groove read must be HAND-SHAPED — a lone flag is a leaning piece.
+            // `handTolerantCells`: board-wide at 0, else only a hand near the candidate's squares.
             state.handHoldsVerdict(snap, pend) -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
@@ -102,19 +75,9 @@ internal object VerifySingle {
 }
 
 /**
- * Does the hand in [snap] withhold a verdict about [pend]?
- *
- * BOTH hand arms, summed like the recovery clean gate: the groove read and the model's occluded
- * head through its plausibility filter (`modelHandSquares`). The head joined on 2026-08-14, the
- * day the filter made it trustworthy — and the same day showed why it must sit here: the h7h5
- * incident (session 20260814-203552). An ARRIVING hand reached over the kingside, the grid map
- * lagged it by one observation (`grid=0x0` at the two confirming glances, `0x7000…` 50 ms after
- * the commit), occupancy read the covered file as "h7 left, h5 arrived", and `cnn_pair` committed
- * a move that was never played. The head had already flagged 2–5 squares on those very glances —
- * it was the only witness awake, and nothing consulted it.
- *
- * Board-wide unless `handTolerantCells` is set, which is the shipped behaviour and the one every
- * measurement on record was taken under.
+ * BOTH hand arms — the groove read and the model's occluded head: in the h7h5 incident (session
+ * 20260814-203552) the grid map lagged an arriving hand by one observation and `cnn_pair` committed
+ * a move that was never played, while the head had flagged 2–5 squares on those very glances.
  */
 private fun EngineState.handHoldsVerdict(
     snap: CnnSnapshot,
@@ -153,8 +116,7 @@ private fun EngineState.evaluate(
     return when {
         moves.isEmpty() -> emptyList()
         moves.size > 1 -> VerifyPair.tick(this, cnn, moves, board.copy(), snap)
-        // Python `self.board.copy(stack=False)` — the ladder must not see a commit that lands while
-        // it evaluates.
+        // The ladder must not see a commit that lands while it evaluates.
         else -> singleTick(cnn, pend, board.copy(), moves[0], snap.obs)
     }
 }
@@ -170,8 +132,7 @@ private fun EngineState.singleTick(
     // The status surface shows the LOCAL agreement, not the whole-board one.
     cnnAgreement = sig.occAgree
     cnnBestMove = sig.cnnUci
-    // Python re-validates under the lock after the evaluation; single-threaded this is a plain
-    // identity check, and it still guards against a commit that landed while we computed.
+    // Identity check, never equality: guards against a commit that landed while we computed.
     if (pending !== pend || board.fen() != pend.fen) return emptyList()
     pend.frames += 1
     pend.lastTickS = nowS
@@ -192,10 +153,9 @@ private fun EngineState.ladder(
 ): List<TrackerEvent> {
     val votes = config.verifyObsVotes
     return when {
-        // 1) Occupancy says the believed board is unchanged → shadow, not a move. The
-        //    `minConfidentBoard` guard is the blind-glance protection: with a hand over the board
-        //    `resyncCheck` matches VACUOUSLY, and without the guard a near-blind glance would
-        //    reject a real move and re-anchor the reference on the covered image.
+        // 1) Occupancy says the believed board is unchanged → shadow. `minConfidentBoard` is the
+        //    blind-glance guard: under a hand `resyncCheck` matches VACUOUSLY, and a near-blind
+        //    glance would reject a real move and re-anchor the reference on the covered image.
         sig.match && sig.confidentCount >= cnn.minConfidentBoard ->
             if (pendingVoted(OUTCOME_SHADOW, votes)) shadowTerminal(pend) else emptyList()
 
@@ -215,8 +175,7 @@ private fun EngineState.ladder(
             }
 
         // 4) cnn_overrule — the CNN sees a DIFFERENT move whose occupancy is unambiguous. The
-        //    verdict carries the replacement move, so the real move lands in THIS cycle
-        //    (invariant 10; the legacy port could only drop the candidate and re-detect).
+        //    verdict carries the replacement, so the real move lands in THIS cycle (invariant 10).
         sig.overrules(cnn, cnn.minAgreement, pend.uci) ->
             if (pendingVoted("overrule:${sig.cnnUci}", votes)) overruleTerminal(pend, sig, move) else emptyList()
 
@@ -302,13 +261,9 @@ private fun EngineState.overruleTerminal(
 }
 
 /**
- * `_reject` — discard the candidate; base truth stays where it was.
- *
- * Recorded, not just noted. This ladder is where a legitimate move most plausibly dies — the
- * whole-board contradiction test below has ZERO tolerance for a wrongly-read square while the
- * recovery path tolerates 1-2 of them — and until 2026-08-01 it wrote nothing but a `note` that the
- * next frame overwrote. A rejection that leaves no trace is indistinguishable from a move the
- * tracker never saw, which is exactly the ambiguity that cost two rounds of debugging.
+ * Discard the candidate; base truth stays where it was. Recorded, not merely noted: this ladder is
+ * where a legitimate move most plausibly dies, and a rejection that leaves no trace is
+ * indistinguishable from a move the tracker never saw.
  */
 private fun EngineState.reject(
     verify: String,
@@ -318,12 +273,9 @@ private fun EngineState.reject(
     recordRejection(pending?.ucis?.firstOrNull() ?: "", "$verify — $reason")
     pending = null
     confirmer.reset()
-    // Verification and recovery answer different questions. This rejection only says that the
-    // diff candidate failed its local check; it says nothing about a clean whole-board recovery
-    // vote collected between verify windows. Resetting that independent vote here let the same
-    // bad diff candidate repeatedly consume all eight verify observations and erase recovery's
-    // progress each time. On the live Nf6 incident this starved two-vote recovery for 22 seconds,
-    // until the motion-recency gate finally stopped opening another verify window.
+    // Recovery's independent whole-board vote is NOT reset here: this rejection only says the diff
+    // candidate failed its local check. Resetting it let one bad candidate starve two-vote recovery
+    // for 22 seconds (live Nf6 incident).
     verifyState = verify
     cnnStatus = verify
     cnnConflicts = conflicts
@@ -332,16 +284,9 @@ private fun EngineState.reject(
 }
 
 /**
- * The five occupancy signals of one glance, plus the whole-board resync result.
- *
- * Deliberately asymmetric:
- * - `toEmptyConf` — destination confidently EMPTY: the piece never arrived, reliable AGAINST.
- * - `fromLeftConf` — origin confidently EMPTY: the piece left, reliable FOR.
- * - `toArrivedConf` — non-capture destination confidently OCCUPIED: decent FOR.
- * - `fromOccConf` — origin confidently OCCUPIED: UNRELIABLE, never a hard reject before the window
- *   end (a false positive would kill a real d2d4).
- * - `occAgree`/`occN` — `verify_move`, LOCAL to the touched squares and therefore immune to a
- *   stale misread anywhere else on the board.
+ * The occupancy signals of one glance plus the whole-board resync, deliberately asymmetric:
+ * confidently EMPTY is reliable evidence, confidently OCCUPIED is not — `fromOccConf` may never reject
+ * before the window end (a false positive kills a real d2d4). `occAgree` is LOCAL to the touched squares.
  */
 private class Signals(
     cnn: CnnEvaluator,
@@ -377,15 +322,9 @@ private class Signals(
     val confidentCount: Int = Squares.ALL.count { obs.confident(it, cnn.confThr) }
 
     /**
-     * Rung 2. "Piece left FROM" is NEVER commit evidence on its own — the b1c4 / h2h4-nudge
-     * incidents (2026-07-09): b1 confidently emptied while the knight sat illegally on c4, and
-     * from-left alone committed the best LEGAL move Na3. A non-castling commit needs positive
-     * DESTINATION evidence; castling is the exception the clause exists for, because the king on
-     * g1 is routinely misread as empty.
-     *
-     * `toArrivedOk` additionally requires `!fromOccConf` — the d4b3 rook incident: a foreign piece
-     * landed on b3, b2b3 was proposed, b3 read occupied and committed while the b2 pawn
-     * demonstrably never moved. Both signals contradicting → HOLD and let the window end decide.
+     * Rung 2. "Piece left FROM" is never commit evidence alone (b1c4 / h2h4-nudge, 2026-07-09: it
+     * committed Na3 while the knight sat illegally on c4); castling is the exception, as the king on
+     * g1 is routinely misread as empty. `toArrivedOk` needs `!fromOccConf` — d4b3 rook incident.
      */
     fun commits(
         minAgreement: Double,
@@ -398,16 +337,9 @@ private class Signals(
     }
 
     /**
-     * Rung 4 — the aggressive one: it DISCARDS a move the deterministic evidence supports, so it
-     * must clear a higher bar than a confirmation. The whole-board score is not that bar.
-     * `scoreMoves` accepts on a margin of `cnnMarginSquares = 1`, which cannot be raised (a capture
-     * differs from its non-capture sibling by exactly one square), and ONE missed piece on the true
-     * destination is exactly one square. Measured over 1366 clip observations the model's errors are
-     * 8826 misses (piece→empty) against 226 phantoms (empty→piece), and they are systematic per
-     * square (S17-SIM-3: f4 misread in 90 of 186 observations), so neither the margin nor more
-     * votes outrun them. So the overruling move must be READ, not inferred from an absence: origin
-     * confidently EMPTY, destination confidently OCCUPIED — the 39×-rarer error direction.
-     * blender-queenside's phantom Bg5 never had g5 read confidently at all.
+     * Rung 4 discards a move the deterministic evidence supports, so the overruling move must be READ,
+     * not inferred from an absence: origin confidently EMPTY, destination confidently OCCUPIED — the
+     * 39×-rarer direction. 8826 misses against 226 phantoms, systematic per square, so no margin helps.
      */
     fun overrules(
         cnn: CnnEvaluator,

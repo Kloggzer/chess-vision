@@ -16,18 +16,15 @@ internal const val ALARM_MOVE_REFUSED = "illegal_move_refused"
 /** [TrackerEvent.AlarmCleared] reason of a VERIFIED restore (no user correction, no log row). */
 internal const val ALARM_BOARD_RESTORED = "board_restored"
 
-/** `", ".join(conflicts[:4])` — the notes list at most four squares. */
+/** The notes list at most four squares. */
 private const val CONFLICTS_SHOWN = 4
 
 private const val UCI_SQUARES_LEN = 4
 
 /**
- * The illegal-move latch (`_cnn_tick`'s desync streak + `_clear_alarm`).
- *
- * An undetected desync is silent and permanent: once the game state and the physical board
- * disagree, every diff-vs-reference reading afterwards is fiction. The latch is therefore
- * deliberately hard to trip — three DISTINCT observations with a stable conflict set, and only when
- * OCCUPANCY disagrees — and impossible to release except through `clearAlarm`.
+ * The illegal-move latch. An undetected desync is silent and permanent — once game state and physical
+ * board disagree, every diff-vs-reference reading is fiction — so it is deliberately hard to trip
+ * (three DISTINCT observations, stable conflict set, OCCUPANCY only) and released only by `clearAlarm`.
  */
 internal fun EngineState.onStableMismatch(
     cnn: CnnEvaluator,
@@ -35,10 +32,9 @@ internal fun EngineState.onStableMismatch(
     snap: CnnSnapshot,
     conflicts: List<String>,
 ): List<TrackerEvent> {
-    // One path for every run. The discipline lives in the two predicates below — a stable conflict
-    // set of exactly one vacated and one received square — and both now read whichever axis the
-    // observation carries. An occupancy-only run used to zero the streak here and never alarm,
-    // which silently disarmed the whole desync response on every model this app ships.
+    // The discipline lives in the two predicates below, and both read whichever axis the observation
+    // carries: an occupancy-only run used to zero the streak here and never alarm, silently disarming
+    // the whole desync response on every model this app ships.
     advanceDesyncStreak(snap.seq, conflicts)
     val events = raiseAlarmIfDue(cnn, obs, conflicts)
     val latched = alarm
@@ -52,19 +48,16 @@ internal fun EngineState.onStableMismatch(
 }
 
 /**
- * May the board be declared lost at all? Not before the first commit: until a ply is on the record
- * the engine established no reference, only the position it was handed, and disagreeing with THAT
- * is a board being set up. The latch has no automatic way out ([clearAlarm]), so raising it there
- * costs the run — `2026-08-15-22-48-04` alarmed at video t=0.8 s and replayed 0 of 19 plies.
+ * May the board be declared lost at all? Not before the first commit: until a ply is on the record the
+ * engine has no reference of its own, only the position it was handed. The latch has no automatic way
+ * out — `2026-08-15-22-48-04` alarmed at video t=0.8 s and replayed 0 of 19 plies.
  */
 private val EngineState.alarmable: Boolean get() = alarm == null && history.isNotEmpty()
 
 /**
- * Haelt das Einrasten an, solange eine Hand im Bild ist.
- *
- * Die Serie laeuft weiter — Blitz braucht das —, nur der Latch wartet. `handInFrame` ist die
- * Vereinigung aller Occlusion-Signale, und der Alarmpfad war die einzige Stelle, die sie nie
- * gefragt hat: eine Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
+ * Haelt das Einrasten an, solange eine Hand im Bild ist; die Serie laeuft weiter (Blitz braucht das),
+ * nur der Latch wartet. Der Alarmpfad war die einzige Stelle, die `handInFrame` nie gefragt hat: eine
+ * Hand ueberm Brett loeste den Alarm aus, den sie erklaert (User, 2026-08-24).
  */
 private fun EngineState.alarmDeferred(): Boolean =
     handInFrame() ||
@@ -72,23 +65,9 @@ private fun EngineState.alarmDeferred(): Boolean =
         nowS - desyncSince < config.alarmMinS
 
 /**
- * The quiet-re-anchor veto fired (`quietOutcome`'s Bxc3 guard) — bound it.
- *
- * The veto hands the standoff to CNN recovery, but recovery can only end it when a LEGAL move
- * explains the observation. When the CNN is simply WRONG (S17-SIM-2: the white king on g1 read
- * empty in every observation) no move does, so `deriveMovesDeep` returns nothing forever — and
- * [cnnTick]'s escalation is throttled by the very `cnnCooldownS` that also throttles recovery.
- * The veto therefore counts as desync evidence in its own right, on the occupancy axis it just
- * fired on, and escalates to the illegal-move alarm. The escape is the USER (undo / reset /
- * baseline / accept-CNN), never an auto re-anchor — that is the hole the veto exists to close.
- *
- * Escalation additionally needs the observation to show a MOVE-SHAPED contradiction
- * (`guessIllegalMove`: exactly one vacated and one received square — the Bxc3 shape). That test is
- * occupancy, so it holds for a 2-class run as well; what a label-less run cannot do is NAME
- * the piece, and the alarm card already falls back to the conflict list. Measured on the 18 clips, nothing weaker
- * holds: the streak alone raised a false alarm on blender-promocapture (one chronically missed king
- * on g1) and cost it its real exd8=Q+, and any two-directional conflict set still alarmed on
- * blender-shadowsweep (two phantom-occupied squares under a moving shadow plus one missed pawn).
+ * The quiet-re-anchor veto fired — bound it: recovery only ends the standoff when a LEGAL move explains
+ * the observation, and when the CNN is simply WRONG (S17-SIM-2: the king on g1 read empty every time)
+ * none does. Escalation still needs a MOVE-SHAPED contradiction, and the only escape is the USER.
  */
 internal fun EngineState.desyncEvidence(
     cnn: CnnEvaluator?,
@@ -103,12 +82,9 @@ internal fun EngineState.desyncEvidence(
         note = alarmNote(raised)
         return listOf(raised)
     }
-    // The standoff bound (specs/39 phase 01). A conflict set that has survived
-    // `desyncStandoffObsN` distinct observations is not a transient: that is a board the engine
-    // cannot reconcile and cannot escalate, because `guessIllegalMove` only names a MOVE-shaped
-    // contradiction — exactly one vacated and one received square — and a castling (2-and-2, the
-    // rec-20260807 ending) or a single disagreeing square (1-and-0, S17-SIM-2) never has that
-    // shape. It latches the same alarm with no guess; `alarmNote` falls back to the conflict list.
+    // The standoff bound: a conflict set surviving `desyncStandoffObsN` distinct observations is a
+    // board the engine can neither reconcile nor escalate, because castling (2-and-2) or a single
+    // disagreeing square (1-and-0) never has the move shape `guessIllegalMove` needs.
     val standoffDue =
         alarmable &&
             config.desyncStandoffObsN > 0 &&
@@ -127,13 +103,9 @@ internal fun EngineState.desyncEvidence(
 }
 
 /**
- * The line the player reads while a game is running, so the REASON comes first and short.
- *
- * It used to lead with the squares and hide the reason in brackets behind them — "ILLEGAL MOVE?
- * K e1->f1 (you are in check) — take it back, or resync to accept". Everything a player needs is
- * in the last three words of the middle, and by then the eye has left (User, 2026-08-26). Where
- * the engine knows why, it says only why; where it does not, the conflict list and what to do
- * about it are still the most useful thing it has.
+ * The line the player reads while a game is running, so the REASON comes first and short — leading
+ * with the squares hid it in brackets the eye never reached (User, 2026-08-26). Where the engine does
+ * not know why, the conflict list and what to do about it are the most useful thing it has.
  */
 private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
     board.alarmReason(latched.guess)?.let { return "Illegal move — ${it.text()}" }
@@ -142,13 +114,9 @@ private fun EngineState.alarmNote(latched: TrackerEvent.Alarm): String {
 }
 
 /**
- * Drop the streak whole — the count, the set it was counted over, and the seq dedup.
- *
- * The three are one fact ("the observations so far disagreed about THESE squares"), so a caller
- * that zeroes the count alone leaves the set behind for the next observation to be compared
- * against. It also has exactly one meaning, which is why it is one function: the disagreement is
- * over. Only two things can say that — a matching observation and [clearAlarm] — and until
- * 2026-08-02 only the second one did.
+ * Drop the streak whole — count, conflict set and seq dedup are one fact ("the observations so far
+ * disagreed about THESE squares"), so zeroing the count alone leaves the set behind for the next
+ * observation to be compared against.
  */
 internal fun EngineState.clearDesyncStreak() {
     desyncObs = 0
@@ -160,9 +128,9 @@ internal fun EngineState.clearDesyncStreak() {
 }
 
 /**
- * Spec 11 seq contract: count DISTINCT observations, not evaluations — `desyncObsN` means
- * "persistent over seconds", not "evaluated three times". An unstable conflict set restarts the
- * streak at ONE, never at zero: this observation is itself evidence.
+ * Count DISTINCT observations, not evaluations — `desyncObsN` means "persistent over seconds", not
+ * "evaluated three times". An unstable conflict set restarts the streak at ONE, never at zero: this
+ * observation is itself evidence.
  */
 private fun EngineState.advanceDesyncStreak(
     seq: Long,
@@ -179,14 +147,8 @@ private fun EngineState.advanceDesyncStreak(
 
 /**
  * **Identity-only conflicts never alarm.** An illegal move virtually always changes OCCUPANCY
- * somewhere; a stable wrong-piece-type reading is the known N/B/R gap, and counting it rang the
- * alarm on perfectly regular boards.
- *
- * That gap used to be quoted here as "~40% identity precision" and it is not: measured on
- * `occ-v10bn35-13c-hn` over 7 217 occupied crops it is **0.882** overall and **0.818** across the
- * Q/R/N/B set. The rule survives the correction for its own reason rather than that one — a false
- * alarm declares the board lost, so the bar has to be occupancy whatever identity scores — but
- * whether 0.882 is now good enough to alarm on is an open measurement question, not a closed one.
+ * somewhere; a stable wrong-piece-type reading is the known N/B/R gap (0.818 across Q/R/N/B) and rang
+ * the alarm on regular boards. A false alarm declares the board lost, so the bar stays occupancy.
  */
 private fun EngineState.raiseAlarmIfDue(
     cnn: CnnEvaluator,
@@ -199,11 +161,9 @@ private fun EngineState.raiseAlarmIfDue(
 }
 
 /**
- * [IllegalMoveException] came back out of a tick: report it, do not drop it.
- *
- * Same latch as a desync, and for the same reason — a move source that produced an impossible move
- * has no claim on the position any more, so commits stop until a human undoes or resyncs. The
- * offending UCI rides in `guess`, so the alarm card, the speech and the timeline row all name it.
+ * [IllegalMoveException] came back out of a tick: report it, do not drop it. Same latch as a desync —
+ * a move source that produced an impossible move has no claim on the position — and the offending UCI
+ * rides in `guess`, so card, speech and timeline row all name it.
  */
 internal fun EngineState.refuseIllegalMove(cause: IllegalMoveException): List<TrackerEvent> {
     val squares = listOf(cause.uci.take(2), cause.uci.drop(2).take(2)).filter { Squares.index(it) >= 0 }
@@ -230,15 +190,14 @@ private fun EngineState.latchAlarm(
     val raised = TrackerEvent.Alarm(ALARM_ILLEGAL_MOVE, conflicts, guess, board.alarmGuessSan(guess), reason)
     alarm = raised
     alarmSince = nowS
-    // Only `clearAlarm` used to write a row, so the moment the board was declared lost — the single
-    // most consequential thing this engine does — left no provenance at all.
+    // Provenance for the moment the board is declared lost — the most consequential thing here.
     recordRejection(guess ?: "", "ALARM latched on ${conflicts.joinToString(",")}")
     return raised
 }
 
 /**
- * `_build_alarm_guess_san` — the human-readable suspicion the alarm card renders. Re-derived here
- * because `:core-engine` may not depend on `:core-cnn` (module cycle), same as `expectedOccupancy`.
+ * The human-readable suspicion the alarm card renders; re-derived here because `:core-engine` may not
+ * depend on `:core-cnn` (module cycle).
  */
 internal fun Game.alarmGuessSan(guess: String?): String? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null
@@ -256,10 +215,9 @@ internal fun Game.alarmGuessSan(guess: String?): String? {
 }
 
 /**
- * Why the suspected move cannot be legal, or null when the engine only knows THAT it is not.
- *
- * Order by what the player has to do about it: who is to move outranks being in check, because
- * otherwise the wrong person starts looking for their king (User, 2026-08-24).
+ * Why the suspected move cannot be legal, or null when the engine only knows THAT it is not. Ordered
+ * by what the player must do: who is to move outranks being in check, else the wrong person starts
+ * looking for their king (User, 2026-08-24).
  */
 internal fun Game.alarmReason(guess: String?): AlarmReason? {
     if (guess == null || guess.length < UCI_SQUARES_LEN) return null

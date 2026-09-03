@@ -1,23 +1,14 @@
 package com.chesslab.engine
 
-/**
- * The single canonical square order and square/pixel index mapping of the engine.
- *
- * Python reference: `_FILES`/`_ALL` and `calibration.py::_square_to_col_row`.
- *
- * Engine internals pass per-square scalars as `DoubleArray(64)` indexed by [ALL] and per-square
- * SETS as `Long` bitboards (`Bitboard.kt`); square NAMES are produced once, at the `api` seam.
- */
+/** Canonical square order for scalar arrays and bitboards; names cross only the `api` seam. */
 internal object Squares {
     const val FILES = "abcdefgh"
 
-    /** Board edge length in squares. */
     const val N = 8
 
-    /** Number of squares on the board. */
     const val COUNT = 64
 
-    /** 64 names, rank-major from rank 1: a1,b1,…,h1,a2,…,h8. Python `_ALL`. */
+    /** Rank-major from rank 1: a1,b1,…,h1,a2,…,h8. */
     val ALL: List<String> =
         buildList(COUNT) {
             for (rank in 1..N) {
@@ -29,15 +20,9 @@ internal object Squares {
 
     private val INDEX: Map<String, Int> = ALL.withIndex().associate { (i, s) -> s to i }
 
-    /** Position of [square] in [ALL], or -1 if it is not a known square name. */
     fun index(square: String): Int = INDEX[square] ?: -1
 
-    /**
-     * Packed `(col shl 3) or row` — calibration.py `_square_to_col_row`. No Pair, no boxing.
-     *
-     * Throws [IllegalArgumentException] on a malformed square or a rank outside 1..8, matching
-     * Python's `ValueError`.
-     */
+    /** Packed `(col shl 3) or row`; malformed names or ranks outside 1..8 are rejected. */
     fun colRow(
         square: String,
         whitePov: Boolean,
@@ -49,7 +34,7 @@ internal object Squares {
         return colRow(index("${sq[0]}$rank"), whitePov)
     }
 
-    /** `col = file`, `row = 8 - rank`; rotated 180° when [whitePov] is false. */
+    /** `col=file`, `row=8-rank`; rotated 180° when [whitePov] is false. */
     fun colRow(
         index: Int,
         whitePov: Boolean,

@@ -1,10 +1,6 @@
 package com.chesslab.engine
 
-/**
- * Square SETS inside the engine are `Long` bitboards: bit `i` is `Squares.ALL[i]`, which is also
- * chesslib's `Square.ordinal` (engine invariant 11). Union is `or`, intersection `and`, difference
- * [without], size `countOneBits()`. Square NAMES exist only at the `api` seam.
- */
+/** Bit i is `Squares.ALL[i]` and chesslib `Square.ordinal` (engine invariant 11). */
 
 internal fun bit(index: Int): Long = 1L shl index
 
@@ -22,18 +18,13 @@ internal inline fun Long.forEachSquare(action: (Int) -> Unit) {
     }
 }
 
-/** Square names in [Squares.ALL] order (a1,b1,…,h1,a2,…). */
 internal fun Long.squareNames(): List<String> {
     val out = ArrayList<String>(countOneBits())
     forEachSquare { out.add(Squares.ALL[it]) }
     return out
 }
 
-/**
- * Square indices in LEXICOGRAPHIC name order (a1,a2,…,a8,b1,…) — what Python's
- * `sorted(set_of_squares)` produces, and what every provenance/status field carries. Iterating
- * file-major yields it directly, with no string sort.
- */
+/** Provenance fields require lexicographic a1,a2,… order; file-major iteration avoids sorting. */
 internal inline fun Long.forEachSquareSorted(action: (Int) -> Unit) {
     for (file in 0 until Squares.N) {
         for (rank in 0 until Squares.N) {
@@ -49,7 +40,7 @@ internal fun Long.sortedSquareNames(): List<String> {
     return out
 }
 
-/** Unknown names are ignored, like Python's set intersection with `_ALL`. */
+/** Unknown names are ignored. */
 internal fun ofSquares(names: Collection<String>): Long {
     var mask = 0L
     for (name in names) {

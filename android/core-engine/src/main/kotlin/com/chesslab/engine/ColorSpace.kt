@@ -5,17 +5,8 @@ import kotlin.math.min
 import kotlin.math.pow
 
 /**
- * Hand-written BGR -> HSV / Lab, reproducing OpenCV's **8-bit** conversions.
- *
- * OpenCV is off `:core-engine`'s classpath (entry.md hard rule 1, `ClasspathPurityTest`), but every
- * colour threshold in the tracker was tuned against `cv2.cvtColor`'s numbers, so the conversions
- * have to agree with it. OpenCV's 8-bit paths (`RGB2HSV_b`, `RGB2Lab_b` in `color_hsv.cpp` /
- * `color_lab.cpp`) are fixed-point pipelines over integer lookup tables, not the textbook float
- * formulas — so this file reproduces *those*, which makes HSV bit-exact and keeps Lab within
- * 1 LSB (the float formula from `01c-shadow-gamut.md` reaches 2 LSB on a*; see STATUS D01c-1).
- *
- * Conventions: H in 0..179, S and V in 0..255; L = L* * 255/100, a = a* + 128, b = b* + 128, all
- * saturated to 0..255. Input and output are interleaved 3-channel, stride `width * 3`.
+ * OpenCV's fixed-point 8-bit BGR->HSV/Lab conversions; tuned thresholds require its numbers.
+ * HSV: H 0..179, S/V 0..255. Lab: L=L*255/100, a/b offset by 128, saturated to 0..255.
  */
 
 private const val BYTE_MASK = 0xFF
@@ -26,17 +17,12 @@ private const val U16_MAX = 65535
 private const val DIM = 3
 private const val DIM_SQ = 9
 
-// Indices into the `intArrayOf(x0, y0, x1, y1)` of [squareRegion].
 private const val R_X0 = 0
 private const val R_Y0 = 1
 private const val R_X1 = 2
 private const val R_Y1 = 3
 
-/**
- * Geometry of one interleaved colour plane: its pixel size plus the `square_region` parameters
- * the per-square means are taken over. [extendUp] is the *overhang* of the pack's evidence boxes;
- * the gamut and the base occlusion box always use `extendUp = 0.0`, exactly like Python.
- */
+/** [extendUp] is evidence-box overhang; gamut and base occlusion always use 0.0. */
 internal class PlaneGeometry(
     val width: Int,
     val height: Int,
@@ -44,10 +30,7 @@ internal class PlaneGeometry(
     val whitePov: Boolean,
     val extendUp: Double = 0.0,
 ) {
-    /**
-     * [squareRegion] clipped to the plane, the way NumPy's `img[y0:y1, x0:x1]` clips.
-     * `null` means an empty region — Python's `reg.size == 0`, which is *skipped*, never flagged.
-     */
+    /** NumPy slicing clips to the plane; an empty region is skipped rather than flagged. */
     fun region(
         square: Int,
         extendUp: Double,
@@ -61,15 +44,10 @@ internal class PlaneGeometry(
     }
 }
 
-/** The two converted planes of one frame, both interleaved and of the same [PlaneGeometry]. */
 internal class ColorPlanes(
     val lab: ByteArray,
     val hsv: ByteArray,
 )
-
-// ---------------------------------------------------------------------------------------
-// HSV — OpenCV `RGB2HSV_b`
-// ---------------------------------------------------------------------------------------
 
 private const val HSV_SHIFT = 12
 private const val HSV_ROUND = 1 shl (HSV_SHIFT - 1)
@@ -93,10 +71,7 @@ private val hsvHDiv: IntArray =
         }
     }
 
-/**
- * Interleaved BGR -> interleaved HSV (`cv2.COLOR_BGR2HSV`, 8-bit): H 0..179, S/V 0..255.
- * Writes into the caller-owned [out] and returns it.
- */
+/** OpenCV `COLOR_BGR2HSV`, 8-bit: H 0..179, S/V 0..255. */
 internal fun bgrToHsv(
     bgr: ByteArray,
     width: Int,
@@ -108,14 +83,7 @@ internal fun bgrToHsv(
     return out
 }
 
-/**
- * [bgrToHsv] over one `[x0, y0, x1, y1]` box only, written at its plane offsets.
- *
- * Every consumer of an HSV plane in this engine — the shadow veto, the gamut, the occlusion
- * colour test — reads square boxes and nothing between them. Converting the whole 800x800 plane
- * to answer a six-square question was the dominant cost of the veto and the occlusion pass.
- * The conversion is per-pixel, so a box is bit-identical to the same box of a full conversion.
- */
+/** Converts one box at plane offsets; per-pixel conversion is bit-identical to a full pass. */
 internal fun bgrToHsvBox(
     bgr: ByteArray,
     width: Int,
@@ -168,10 +136,6 @@ private fun hsvRange(
         out[p + 2] = v.toByte()
     }
 }
-
-// ---------------------------------------------------------------------------------------
-// Lab — OpenCV `RGB2Lab_b`
-// ---------------------------------------------------------------------------------------
 
 private const val LAB_SHIFT = 12
 private const val GAMMA_SHIFT = 3
@@ -239,10 +203,7 @@ private val labCbrtTab: IntArray =
         }
     }
 
-/**
- * `coeffs[row * 3 + c] = round(M[row][c] * (1 << 12) / whitepoint[row])`, with `c` in **BGR**
- * source-channel order (OpenCV permutes by `blueIdx`, which is 0 for a BGR input).
- */
+/** OpenCV coefficients use BGR source-channel order (`blueIdx = 0`) and 12-bit fixed point. */
 private val labCoeffs: IntArray =
     IntArray(DIM_SQ).also { c ->
         for (row in 0 until DIM) {
@@ -253,10 +214,7 @@ private val labCoeffs: IntArray =
         }
     }
 
-/**
- * Interleaved BGR -> interleaved Lab (`cv2.COLOR_BGR2LAB`, 8-bit, sRGB input, D65).
- * Writes into the caller-owned [out] and returns it.
- */
+/** OpenCV `COLOR_BGR2LAB`, 8-bit sRGB with D65 white point. */
 internal fun bgrToLab(
     bgr: ByteArray,
     width: Int,

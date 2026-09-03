@@ -14,15 +14,12 @@ internal const val NOTE_PROMOTION_PENDING = "Promotion detected — please choos
 /** Ambiguous without the prior. */
 internal const val NOTE_AMBIGUOUS_PLAIN = "ambiguous change — please move cleanly / wait briefly"
 
-/** `near[:3]` — the ambiguity note lists at most three candidates. */
+/** The ambiguity note lists at most three candidates. */
 private const val NEAR_NOTE_LIMIT = 3
 
 /**
- * Outcome of the ambiguity gate.
- *
- * [move] `null` means the FRAME IS HANDLED (promotion pending, or an ambiguous note was set) and
- * `generateHypothesis` returns `null`. Otherwise [move] is the resolved candidate — either the
- * unchanged `obsMove` or the prior's rerank winner.
+ * Outcome of the ambiguity gate. [move] `null` means the FRAME IS HANDLED (promotion pending, or an
+ * ambiguous note was set) and `generateHypothesis` returns `null`.
  */
 internal class Resolution(
     val move: Move?,
@@ -30,18 +27,9 @@ internal class Resolution(
 )
 
 /**
- * The ambiguity gate, the promotion special case and the prior rerank.
- *
- * The margin is in LL units and therefore light-independent. Three mutually exclusive branches:
- *
- * 1. **Promotion** — all near candidates are promo variants of the same from/to. The diff channel
- *    fundamentally cannot tell a queen from a knight, so the UI is always asked
- *    ([EngineState.promoPending]). Identity-capable CNN snapshots may answer that same prompt,
- *    but never bypass it. This branch NEVER runs the prior rerank.
- * 2. **Prior rerank** (`usePrior`) — the near set is rescored with `movePrior` and accepted only
- *    when the reranked top beats #2 by the FULL margin. A single near candidate can never pass:
- *    the guard is `size > 1`, so the margin check cannot be skipped.
- * 3. **Plain** — a note, no candidate.
+ * The ambiguity gate, the promotion special case and the prior rerank; the margin is in LL units and so
+ * light-independent. The diff channel cannot tell a queen from a knight, so a promotion tie always asks
+ * the UI and never reranks. The rerank accepts only when its top beats #2 by the FULL margin.
  */
 internal fun EngineState.resolveAmbiguity(
     moves: ViableMoves,
@@ -61,7 +49,6 @@ internal fun EngineState.resolveAmbiguity(
     }
 }
 
-/** `all(mv.promotion …)` **and** exactly one `(from, to)` pair. */
 private fun isPromotionTie(near: List<Pair<Move, Double>>): Boolean =
     near.all { it.first.promotion != null && it.first.promotion != Piece.NONE } &&
         near.map { it.first.from to it.first.to }.toSet().size == 1
@@ -100,7 +87,6 @@ private fun EngineState.rerankWithPrior(near: List<Pair<Move, Double>>): Resolut
     return Resolution(null, priorUsed = false)
 }
 
-/** `"ambiguous: Nbd2 (+3.1) / Nfd2 (+2.4) — please move cleanly / wait briefly"`. */
 private fun EngineState.ambiguousNote(near: List<Pair<Move, Double>>): String {
     val listed =
         near.take(NEAR_NOTE_LIMIT).joinToString(" / ") { (mv, s) ->
@@ -110,12 +96,8 @@ private fun EngineState.ambiguousNote(near: List<Pair<Move, Double>>): String {
 }
 
 /**
- * Python's `f"{s:+.1f}"`.
- *
- * `String.format("%+.1f", …)` would round HALF_UP on the exact decimal value of the double while
- * Python rounds HALF_EVEN, and it would print `+0.0` for a small negative value where Python
- * prints `-0.0`. Both are reproduced here: the sign comes from the raw value, the magnitude from
- * an exact `BigDecimal` with `HALF_EVEN`.
+ * `String.format("%+.1f", …)` rounds HALF_UP and prints `+0.0` for a small negative; this keeps the
+ * parity format — HALF_EVEN on an exact `BigDecimal`, sign taken from the raw value.
  */
 private fun signedOneDecimal(value: Double): String {
     val negative = value < 0.0 || (value == 0.0 && 1.0 / value < 0.0)

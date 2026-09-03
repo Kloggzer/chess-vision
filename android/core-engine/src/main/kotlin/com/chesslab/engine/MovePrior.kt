@@ -3,26 +3,19 @@ package com.chesslab.engine
 import com.github.bhlangonijr.chesslib.move.Move
 import kotlin.math.min
 
-/** Capture bonus of `move_prior`. */
 internal const val PRIOR_CAPTURE = 0.5
 
-/** Check bonus. */
 internal const val PRIOR_CHECK = 0.3
 
-/** Forward-move bonus. */
 internal const val PRIOR_FORWARD = 0.2
 
-/** `min(p, 1.0)` — the prior decides near-ties only, never against clear image evidence. */
+/** The prior decides near-ties only, never against clear image evidence. */
 internal const val PRIOR_CAP = 1.0
 
 /**
- * Small plausibility prior in LL units (level A, without an engine). Port of
- * `move_prior`: capture `+0.5`, check `+0.3`, forward `+0.2`, capped at 1.0.
- *
- * "Forward" is relative to the side to move: `fwd = rank(to) - rank(from)` must be non-zero and
- * its sign must match the mover's direction. Never negative.
- *
- * Phase 03c decides WHEN the prior is added — it is never folded into [loglikScores].
+ * Small plausibility prior in LL units, without an engine: capture, check and forward bonuses capped at
+ * 1.0. "Forward" is relative to the side to move and never negative. The caller decides WHEN it is
+ * added — it is never folded into [loglikScores].
  */
 internal fun movePrior(
     g: Game,

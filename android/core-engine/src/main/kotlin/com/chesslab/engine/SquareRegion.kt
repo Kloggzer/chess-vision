@@ -2,16 +2,14 @@ package com.chesslab.engine
 
 import kotlin.math.max
 
-/** Default inset of a square region, as a fraction of the cell (Python `square_region`). */
+/** Default inset as a fraction of one cell. */
 internal const val SQUARE_REGION_INSET: Double = 0.16
 
-// Indices into the `intArrayOf(x0, y0, x1, y1)` returned by [squareRegion].
 private const val X0 = 0
 private const val Y0 = 1
 private const val X1 = 2
 private const val Y1 = 3
 
-/** Parallel arrays for all 64 boxes, in Squares.ALL order. area == 0 for degenerate boxes. */
 internal class SquareBoxes(
     val x0: IntArray,
     val y0: IntArray,
@@ -20,12 +18,7 @@ internal class SquareBoxes(
     val area: IntArray,
 )
 
-/**
- * Pre-computes all 64 square-region boxes. Python `_square_boxes`.
- *
- * Extended boxes may overlap their neighbours — that is intended (3D pieces protrude toward the
- * back rank; the soft LL scoring tolerates it). Never de-overlap, never clamp `y1`.
- */
+/** 3D pieces protrude toward the back rank, so extended boxes may overlap; never clamp `y1`. */
 internal fun squareBoxes(
     boardSize: Int,
     whitePov: Boolean,
@@ -48,7 +41,6 @@ internal fun squareBoxes(
     return SquareBoxes(x0, y0, x1, y1, area)
 }
 
-/** Returns intArrayOf(x0, y0, x1, y1). Python `square_region`. */
 internal fun squareRegion(
     index: Int,
     boardSize: Int,
@@ -70,7 +62,6 @@ internal fun squareRegion(
     )
 }
 
-/** intArrayOf(cx, cy). Python `square_center`. */
 internal fun squareCenter(
     square: String,
     boardSize: Int,
