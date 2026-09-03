@@ -40,6 +40,18 @@ class GridOcclusionTest {
         assertEquals(bits("b6", "a6", "b7", "a7"), gridOccludedSquares(erased(), flipped, PAD))
     }
 
+    /**
+     * The mask is read as a bitboard in `Squares.ALL` order (rank-major, a1=0, b1=1, .. h8), so it
+     * must be written in that order too. Spelled as raw indices because a helper that shares the
+     * production packing cannot catch a transposition: only the a1-h8 diagonal survives one.
+     */
+    @Test
+    fun `the mask is packed rank major`() {
+        assertEquals((1L shl E4) or (1L shl E5), gridOccludedSquares(erasedFile(), geom, PAD))
+        val flipped = geom.copy(whitePov = false)
+        assertEquals((1L shl D4) or (1L shl D5), gridOccludedSquares(erasedFile(), flipped, PAD))
+    }
+
     @Test
     fun `a pad too small for the outer window never accuses the outer lines`() {
         // Interior lines only, no pad: the outer lines are unmeasurable and must read FOUND,
@@ -79,12 +91,24 @@ class GridOcclusionTest {
         return img
     }
 
+    /** [grid] with one FILE of two cells wiped — warp cells (col 4, rows 3-4), i.e. e5 and e4. */
+    private fun erasedFile(): Mat {
+        val img = grid()
+        val cell = SIDE / 8.0
+        val x0 = PAD + pyRound(4 * cell) - RUB
+        val y0 = PAD + pyRound(3 * cell) - RUB
+        val x1 = PAD + pyRound(5 * cell) + RUB
+        val y1 = PAD + pyRound(5 * cell) + RUB
+        Imgproc.rectangle(img, Point(x0.toDouble(), y0.toDouble()), Point(x1.toDouble(), y1.toDouble()), Scalar(WHITE), -1)
+        return img
+    }
+
     private fun bits(vararg squares: String): Long {
         var out = 0L
         for (sq in squares) {
             val file = sq[0] - 'a'
             val rank = sq[1] - '0'
-            out = out or (1L shl (file * 8 + rank - 1))
+            out = out or (1L shl ((rank - 1) * 8 + file))
         }
         return out
     }
@@ -99,5 +123,10 @@ class GridOcclusionTest {
 
         /** Erase a little past the boundary lines so the rectangle's own edge leaves no groove. */
         const val RUB = 4
+
+        const val E4 = 28
+        const val E5 = 36
+        const val D4 = 27
+        const val D5 = 35
     }
 }

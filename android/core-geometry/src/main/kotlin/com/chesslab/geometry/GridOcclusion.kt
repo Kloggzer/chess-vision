@@ -24,7 +24,7 @@ private const val MIN_MISSING_EDGES = 2
 
 /**
  * Squares whose bordering grooves are locally erased — a model-free hand map, as a bitboard in
- * the engine's square order: bit `i` is square `Squares.ALL[i]`, lexicographic (a1=0, a2=1, .. h8).
+ * the engine's square order: bit `i` is square `Squares.ALL[i]`, rank-major (a1=0, b1=1, .. h8).
  *
  * [pad] is where nominal line 0 sits in [warped] (`cropBorderPx` for the crop warp). The two
  * OUTER lines per axis are read only when the pad fits their search window; otherwise they are
@@ -110,5 +110,5 @@ private fun squareBit(
 ): Long {
     val file = if (whitePov) col else BOARD_SIDE - 1 - col
     val rank = if (whitePov) BOARD_SIDE - row else row + 1
-    return 1L shl (file * BOARD_SIDE + rank - 1)
+    return 1L shl ((rank - 1) * BOARD_SIDE + file)
 }

@@ -317,7 +317,7 @@ internal fun isHandShape(bits: Long): Boolean =
         val file = square[0] - 'a'
         val rank = square[1] - '1'
         listOf(file - 1 to rank, file + 1 to rank, file to rank - 1, file to rank + 1).any { (f, r) ->
-            f in 0..7 && r in 0..7 && (bits and (1L shl (f * 8 + r))) != 0L
+            f in 0..7 && r in 0..7 && (bits and (1L shl (r * 8 + f))) != 0L
         }
     }
 
