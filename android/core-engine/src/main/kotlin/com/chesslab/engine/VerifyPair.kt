@@ -161,16 +161,24 @@ private fun EngineState.rejectPair(
 }
 
 /**
- * The squares BOTH half-moves touch. The reply is evaluated on the MID board (after the first
- * half-move only) — its capture / castling / en-passant squares depend on that position.
+ * The squares EVERY half-move touches, each on the board its predecessors created — capture /
+ * castling / en-passant squares depend on that position.
+ *
+ * Ueber alle Plies, nicht nur die ersten zwei: eine Dreier-Folge (`FAST_PLIES`) liess das
+ * Ursprungsfeld des dritten Zuges aus `checked` fallen, und der lokale Arm committete sie, waehrend
+ * das Modell dort sicher eine Figur las.
  */
 private fun touchedMask(
     boardSnap: Game,
     moves: List<Move>,
 ): Long {
-    val mid = boardSnap.copy()
-    mid.push(moves[0])
-    return moveTouchedMask(boardSnap, moves[0]) or moveTouchedMask(mid, moves[1])
+    val board = boardSnap.copy()
+    var mask = 0L
+    for (mv in moves) {
+        mask = mask or moveTouchedMask(board, mv)
+        board.push(mv)
+    }
+    return mask
 }
 
 private fun confidentMask(
