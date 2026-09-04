@@ -55,6 +55,11 @@ das Kern-Tor (> 2 → OCCLUDED) sind unter Default-Timing tot; nur `restingHandV
 taintet. Der Keep-alive sollte laut eigenem Kommentar bis zum Ablauf des Holds bruecken — Fix waere
 `expiry = max(nowS + 0,1, holdUntil + ein Frame)`. Das macht den Arm ERSTMALS scharf und kann
 Zuege kosten (die Hand-Schleppe taintet das Zielfeld fuer `occluderHoldS`): Regressionssatz A/B.
+**Probiert 2026-09-04 (Detektor laeuft auch waehrend des Settle-Fensters, Test rot -> gruen):**
+`ClipReplayParityTest` weicht auf 7 von 18 Clips ab, `blender-capture` verliert `d5` und `exd5` —
+ohne CNN haelt die ">2 Felder = Hand"-Heuristik einen Schlag fuer Verdeckung und nullt sein z.
+Zurueckgenommen. Wer den Arm scharf macht, braucht zuerst einen Occlusion-Filter, der bewegte
+Figuren von Haenden trennt (mit CNN: `cnnOcclusionFilter`, aber die Beobachtung darf 3 s alt sein).
 
 **11. CNN-Seite, erst messen.** (a) `identityRead` bricht bei `inconclusive` (< 32 label-sichere
 Felder) ab, bevor die Belegungsachse gefragt wird — im Dunkeln gibt es damit weder Match noch
@@ -260,7 +265,30 @@ Was WIRKT, ist echtes Licht am Sensor: `docs/board-exposure.md`.
 Code bleibt (`imgops.cell_illumination`, `slice --flat-field`), die Datensaetze
 `real13-mix-v4-ff*` auch — wer die Idee wieder aufgreift, soll die Messung nicht zweimal machen.
 
-## Der native Crop-Warp verkleinert auch das Hand-Gate (2026-08-29, ungemessen)
+## ERLEDIGT: der native Crop-Warp hatte das Hand-Gate blind gemacht (gemessen 2026-09-04)
+
+Gemessen, wie unten gefordert: bei `p4a-80-clahe` (outW 80, Crop-Warp 576 px) flaggte
+`gridOccludedSquares` auf ruhigem Rig-Brett 13 Felder (`grid=0x6080c00040024664`), jede Lesung
+wurde als Hand gehalten, und die vier Rig-Aufnahmen des Regressionssatzes lieferten **0/25, 0/67,
+0/15, 0/73**. Das Handy war nie betroffen (Arm bei Coverage-Modellen aus), der Desktop-Replay seit
+2026-08-29 durchgehend — jede Replay-Zahl der Rig-Aufnahmen aus dieser Zeit ist damit ungueltig.
+Fix `a37e95fa`: der Sensor liest einen eigenen Warp in Kalibriergroesse, die Crops bleiben nativ.
+Danach Rillen-Arm AN = Rillen-Arm AUS auf allen zehn Aufnahmen (25/0/0, 67/0/0, 15/0/3, 66/7/171,
+19/2/2, 8/2/1, 3/0/0, 27/1/6, 35/0/0, 117/0/0; die 171 liegen bis auf 7 hinter dem Referenzende).
+Offen bleibt die Frage von damals nur noch fuer die Figurenachse.
+
+## Engine-Review 2026-09-03/04: was der Regressionssatz zu den 18 Fixes sagt
+
+Basis `37e6fc77` gegen `bf56d611`, beide mit `set:gridHandGate=false` (= Handy-Semantik, weil der
+Desktop-Sensor bis `a37e95fa` blind war): **zeilengleich auf allen zehn Aufnahmen**, null neue
+Phantome. Dazwischen lag ein echter Rueckschritt, den erst der Replay zeigte: `210ffccc`
+(Recovery -> `STATE_WAITING`) deckte auf `2026-08-08-00-39-57` einen Phantom-Promotion-Prompt auf
+(Restrauschen nach der Recovery, seq 6436), der `promoPending` setzt und damit jede Detektion
+blockiert — im Replay antwortet niemand, 67/0/0 -> 45/22/0. Der Prompt zieht sich seit `bf56d611`
+zurueck, wenn das CNN das Zielfeld zweimal sicher leer liest; der Kanal `chesslabNote` macht
+solche Stillstaende sichtbar (Notiz-/Stuck-Wechsel als Zeile, `adb logcat -s chesslabNote`).
+
+## Der native Crop-Warp verkleinert auch das Hand-Gate (2026-08-29, ungemessen) — Original
 
 `BoardGeometry.forNativeCrops()` zieht den bordierten Crop-Warp von der kalibrierten `boardSize`
 (real 1008-1248) auf die aus dem Modell abgeleitete: **576 bei `outW` 80**, 928 bei 128. Gemessen
