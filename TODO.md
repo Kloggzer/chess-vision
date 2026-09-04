@@ -326,12 +326,12 @@ Spieler spielt: die Kandidaten gleicher Endstellung mit der Stockfish-Instanz de
 nehmen. Bruecken sind selten, das ist bezahlbar. Braucht eine Naht in `core-engine` (bleibt rein,
 kein Android, keine Uhr) nach dem Muster `CnnEvaluator`, z. B. `SequencePlausibility.rank(fen,
 candidates)`, Desktop und Handy reichen die Engine hinein; Replay-Determinismus: feste Tiefe/Nodes,
-nicht Zeit. **Aufs Handy, mit Budget (User: „das muss schnell gehen"):** nur bei einer Bruecke mit
-mehreren Wegen zur selben Endstellung (wenige je Partie, der Tracker ist dann ohnehin verloren);
-erst ein statischer Tauschcheck (SEE: haengt nach dem Zug eine Figur ohne Rueckschlag — Mikrosekunden,
-entscheidet die meisten Knoten), Stockfish nur als Tie-Break mit festem Node-Limit (~20 000 Nodes,
-~5-15 ms je Stellung auf dem SM8650), harter Deckel 50-100 ms je Bruecke, darueber die heutige
-Reihenfolge. Messgroesse: 11-59-12 muss die beiden Knoten in Referenz-Reihenfolge liefern, ohne dass
+nicht Zeit. **Aufs Handy, mit Budget (User: „das muss schnell gehen", „muss ja net Stockfish
+sein"):** nur bei einer Bruecke mit mehreren Wegen zur selben Endstellung (wenige je Partie). Erste
+Wahl ist eine WINZIGE eingebaute Bewertung in `core-engine` selbst — rein, deterministisch, keine
+Naht: Material + statischer Tausch (SEE: haengt nach dem Zug eine Figur ohne Rueckschlag?) plus
+hoechstens zwei Halbzuege chesslib-Tiefe; Mikrosekunden je Kandidat, identisch auf Desktop und
+Handy. Stockfish (`UciEngine`, Node-Limit statt Zeit) nur, wenn sich zeigt, dass das nicht trennt. Messgroesse: 11-59-12 muss die beiden Knoten in Referenz-Reihenfolge liefern, ohne dass
 eine andere Aufnahme ein Phantom gewinnt. Vorher der Scorer mit `reordered` (gleiche Endstellung =
 Treffer), sonst ist der Gewinn nicht sichtbar.
 
