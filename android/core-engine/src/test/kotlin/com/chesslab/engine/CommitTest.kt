@@ -412,6 +412,35 @@ class CommitTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
+    /**
+     * Zwei Stimmen heissen zwei HINTEREINANDER: ein sicher leeres Ziel dazwischen ist Gegenbeweis,
+     * nicht Pause. Sonst committen `wQ` — leer — `wQ` eine Dame auf zwei Lesungen, die nie
+     * gleichzeitig galten.
+     */
+    @Test
+    fun anEmptyReadRestartsThePromotionVote() {
+        val engine = TrackerEngine(detectConfig(), PROMOTION_FEN)
+        val state = engine.state
+        engine.attachCnn(RecoveryEvaluator())
+        state.refGray = grayFrame(listOf("a7"))
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+        assertNotNull(state.promoPending)
+        val queen = RecoveryObs(Squares.ALL.associateWith { if (it == "a8") "wQ" else LABEL_EMPTY })
+        val stillAPawn = RecoveryObs(Squares.ALL.associateWith { if (it == "a7") "wP" else LABEL_EMPTY })
+
+        engine.onCnnSnapshot(recoverySnap(state, queen, seq = 2))
+        engine.onCnnSnapshot(recoverySnap(state, stillAPawn, seq = 3))
+        val interrupted = engine.onCnnSnapshot(recoverySnap(state, queen, seq = 4))
+
+        assertTrue(interrupted.none { it is TrackerEvent.MoveCommitted }, "events were $interrupted")
+        assertEquals(emptyList<String>(), state.history)
+        assertNotNull(state.promoPending, "the vote restarted at 1")
+        val events = engine.onCnnSnapshot(recoverySnap(state, queen, seq = 5))
+        assertEquals(1, events.filterIsInstance<TrackerEvent.MoveCommitted>().size)
+        assertTrue(state.history.single().startsWith("a8=Q"), "history was ${state.history}")
+    }
+
     /** A covered or unreadable target says nothing either way — the prompt stays open. */
     @Test
     fun cnnKeepsThePromptWhileTheTargetIsUnreadable() {

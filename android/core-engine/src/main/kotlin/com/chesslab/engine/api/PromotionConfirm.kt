@@ -58,6 +58,9 @@ private fun decisivePiece(
 
 private fun EngineState.withdrawVote(pending: PromoPending): List<TrackerEvent> {
     pending.emptyVotes += 1
+    // Gegenbeweis, nicht Pause: sonst zaehlen `wQ` — leer — `wQ` als zwei Stimmen fuer eine Dame.
+    pending.cnnPiece = null
+    pending.cnnVotes = 0
     if (pending.emptyVotes < PROMO_CNN_VOTES) return emptyList()
     promoPending = null
     note = "promotion prompt withdrawn (CNN: ${pending.to} empty)"
