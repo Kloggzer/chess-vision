@@ -309,30 +309,42 @@ class OpenCvStages<T>(
         val source = if (cached == null) frame else null
         val warp = source?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
         if (cached == null && warp == null) return
-        val gridGeom = geometry.takeIf { gridArm && it.boardSize != cropGeom.boardSize }
-        val gridPlane =
-            gridGeom?.let { g ->
-                source?.let {
-                    CropFrameStore.GridPlane(
-                        warpBoardForCrops(it, g, cornersFromFlat(corners), homographyCache = gridHomographies),
-                        g,
-                    )
+        var gridPlane: CropFrameStore.GridPlane? = null
+        var handed = false
+        try {
+            gridPlane = gridPlaneFor(corners, cropGeom, source)
+            // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
+            // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
+            // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
+            // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
+            val copies =
+                WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, seq) {
+                    val bgrCopy = bgr.copyPlane()
+                    val grayCopy = gray.copyPlane()
+                    WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
+                    bgrCopy to grayCopy
                 }
+            cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached, gridPlane))
+            handed = true
+        } finally {
+            // Bricht eine Stufe nach dem Warp ab, gehoert er niemandem: der Store hat ihn nie gesehen.
+            if (!handed) {
+                warp?.release()
+                gridPlane?.warp?.release()
             }
-        // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
-        // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
-        // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
-        // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
-        // It costs one 2.5 MB copy on the frames the observer asked for, next to the full-resolution
-        // bordered warp on the line above; on every other frame nothing is copied at all.
-        val copies =
-            WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, seq) {
-                val bgrCopy = bgr.copyPlane()
-                val grayCopy = gray.copyPlane()
-                WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
-                bgrCopy to grayCopy
-            }
-        cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached, gridPlane))
+        }
+    }
+
+    /** Der Rillen-Warp in KALIBRIERgroesse, wenn sie von der Crop-Groesse abweicht. */
+    private fun gridPlaneFor(
+        corners: FloatArray,
+        cropGeom: BoardGeometry,
+        source: Mat?,
+    ): CropFrameStore.GridPlane? {
+        val gridGeom = geometry.takeIf { gridArm && it.boardSize != cropGeom.boardSize } ?: return null
+        val frame = source ?: return null
+        val warp = warpBoardForCrops(frame, gridGeom, cornersFromFlat(corners), homographyCache = gridHomographies)
+        return CropFrameStore.GridPlane(warp, gridGeom)
     }
 
     override fun onConfigChanged(newConfig: TrackerConfig) {
