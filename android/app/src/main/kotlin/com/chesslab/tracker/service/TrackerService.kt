@@ -166,6 +166,7 @@ class TrackerService :
                     // Read here, once, like every other AppSettings value: a change restarts the
                     // stack, which is what `StackSwitch` exists for.
                     engine = settings.appSettings.value.engine,
+                    nowMs = phoneEngineClock,
                     // Die Belichtungskorrektur nach dem BRETT. Der Startpunkt ist, was auf dem
                     // Schieber steht — die Regelung uebersteuert eine Einstellung des Nutzers
                     // nicht, sie fuehrt sie weiter.
