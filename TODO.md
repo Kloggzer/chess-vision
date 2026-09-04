@@ -37,6 +37,24 @@ einfach, bestraft aber dunkle Ecken, die den Zug gar nicht betreffen. (c) Window
 halten, Recovery/Periodik entscheidet — sicherste, aber die meisten verpassten Zuege im Dunkeln.
 Messung: Emissionen nach `occN` 0/1/2 aufteilen, Phantome, spaetere Recovery-Latenz.
 
+**12. Aus den Codex-Runden 4-6 (Laufzeit, Geometrie, Zweitpruefung; 2026-09-04), geparkt:**
+(a) `MarkerTracker` haelt Ecken nach `maxHeldFrames` als STALE, `boardCornersFromMarkers` nutzt sie
+trotzdem ewig — fuer die feste Kamera gewollt (Hand ueber Marker), aber eine Kamerabewegung waehrend
+des Verlusts sieht `cornerJumpPx` nie. (b) `SessionTimeline`: `seq` wird atomar vergeben, die
+Reihenfolge in der Datei ist die Sendereihenfolge des Channels; `DROP_OLDEST` verliert still, und
+`close()` wartet den Writer nicht ab — der Schwanz kann beim Teardown fehlen. (c) `TrackerService`:
+Modell-Spec beim Restart gelesen, `attachCnn` liest die Einstellung erneut — ein Modellwechsel
+dazwischen haengt Modell B an einen A-Stack (TOCTOU). (d) `OrtSessionRunner`: QNN-Zweig ohne AAR,
+unerreichbar. (e) Train/Serve-Resampling: live nativer 576er-Warp (INTER_LINEAR), Export 800er-Warp
+-> 110-px-Crop -> INTER_AREA auf 80; die 2026-08-29-Messung (+0,25 %) verglich nur die Live-Seite.
+`ParallelVisualPrepass` schneidet aus `geometry` statt `forNativeCrops()` und kennt kein CLAHE.
+(f) `LensFit.ok` verlangt 20 % Bogenabbau — ein verzerrungsfreies Handy (k1 ~ 0) gilt als
+Fehlschlag statt als "keine Korrektur noetig". (g) Der Motor auf dem Handy laeuft auf
+`System.currentTimeMillis` (Zeitsync/Uhrwechsel springen in jede Alters-/Deadline-Rechnung); der
+Frame traegt `sensorTsNs`, `elapsedRealtime` waere die monotone Wahl. (h) `identityRead` fragt
+bei `inconclusive` die Belegung nicht (11a, gemessen neutral) und resettet dabei Recovery-Vote und
+Desync-Serie — ein starker Belegungswiderspruch im Dunkeln gilt als Blindblick.
+
 **9. Kleinere.** (i) `advanceDesyncStreak` zaehlt Teil-/Obermengen als stabil — der Staffellauf
 `{a}→{a,b}→{b}→{b,c}→{c}` haelt die Serie, ohne dass ein Feld sie durchgehend traegt; schaerfere
 Regel: laufender Kern `core = core ∩ conflicts`, leer = Neustart. (ii) `handTolerantCells`
