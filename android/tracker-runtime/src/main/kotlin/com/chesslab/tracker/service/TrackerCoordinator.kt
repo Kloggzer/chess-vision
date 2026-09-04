@@ -281,6 +281,16 @@ class LiveAlign(
     @Volatile
     private var inFlight = false
 
+    /**
+     * Which calibration the in-flight job belongs to; [reset] moves it on.
+     *
+     * The worker holds an OLD frame and the smoother from before, and it reads [geometry] inside
+     * itself — so a job landing after a recalibration mixed a pre-calibration quad with the new
+     * geometry and overwrote the corners the user had just measured.
+     */
+    @Volatile
+    private var generation = 0
+
     /** Last bus image actually submitted to the alignment worker. */
     private var lastFrameVersion: Long? = null
 
@@ -322,13 +332,15 @@ class LiveAlign(
         }
         inFlight = true
         val current = tracker
+        val startedAt = generation
         scope.launch(dispatcher) {
             val result =
                 runCatching {
                     boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
                 }
             result.onSuccess { corners ->
-                corners?.let {
+                // Before `onGrid`, which would measure a correction against the pose that is gone.
+                corners?.takeIf { startedAt == generation }?.let {
                     val corrected = cornersToFlat(onGrid(frame, it))
                     onCorners(corrected)
                     cornerSink?.invoke(alignedAfterFrame, corrected)
@@ -419,6 +431,7 @@ class LiveAlign(
      * saying that changed.
      */
     fun reset(delivered: DeliveredSize) {
+        generation += 1
         tracker = MarkerTracker()
         size = delivered
         correction = null

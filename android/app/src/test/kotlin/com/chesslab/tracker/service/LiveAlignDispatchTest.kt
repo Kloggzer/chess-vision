@@ -15,14 +15,20 @@ import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.Scalar
+import org.opencv.imgproc.Imgproc
+import org.opencv.objdetect.Objdetect
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
@@ -123,6 +129,55 @@ class LiveAlignDispatchTest {
             3 to doubleArrayOf(MARKER_LOW + shiftPx, MARKER_HIGH),
         )
 
+    /**
+     * An align in flight has an OLD frame and an old smoother; `applyCalibration` resets the tracker
+     * and installs fresh corners under it. Landing afterwards, its quad — measured before the user
+     * recalibrated — replaced the calibration that had just been made, silently.
+     */
+    @Test
+    fun anAlignFromBeforeTheRecalibrationIsDropped() {
+        assertNull(alignAcross(resetMidFlight = true), "a job launched before the reset must not install its corners")
+        assertNotNull(alignAcross(resetMidFlight = false), "without a reset the align must still apply — else this proves nothing")
+    }
+
+    /** One align held inside `geometry()`; [resetMidFlight] recalibrates while it waits. */
+    private fun alignAcross(resetMidFlight: Boolean): FloatArray? {
+        val pool = Executors.newSingleThreadExecutor { Thread(it, NAMED_THREAD) }
+        val applied = AtomicReference<FloatArray?>(null)
+        val sunk = AtomicReference<FloatArray?>(null)
+        val inside = CountDownLatch(1)
+        val go = CountDownLatch(1)
+        val held = AtomicBoolean(false)
+        val delivered = DeliveredSize(MARKER_CANVAS, MARKER_CANVAS, 0)
+        val align =
+            LiveAlign(
+                CoroutineScope(Dispatchers.Unconfined),
+                {
+                    if (held.compareAndSet(false, true)) {
+                        inside.countDown()
+                        go.await()
+                    }
+                    BoardGeometry(boardSize = BOARD_SIZE)
+                },
+                { CONFIG },
+                { applied.set(it) },
+                dispatcher = pool.asCoroutineDispatcher(),
+                cornerSink = { _, corners -> sunk.set(corners) },
+            )
+        try {
+            align.maybeAlign(MarkerFrames, delivered)
+            assertTrue(inside.await(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the align never started")
+            if (resetMidFlight) align.reset(delivered)
+            go.countDown()
+            pool.shutdown()
+            assertTrue(pool.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS), "the align never finished")
+        } finally {
+            pool.shutdownNow()
+        }
+        assertEquals(applied.get()?.toList(), sunk.get()?.toList(), "the sink and the pipeline must see the same decision")
+        return applied.get()
+    }
+
     @Test
     fun alignRunsOffTheScopesOwnThread() {
         val ran = runAlignOn(dispatcher = null)
@@ -211,9 +266,46 @@ class LiveAlignDispatchTest {
         }
     }
 
+    /** The four board markers really rendered, so the async path produces corners to apply. */
+    private object MarkerFrames : CalibrationFrames<Unit> by OneBlankFrame {
+        override fun latestCalibrationFrame(): Mat {
+            val img = Mat(MARKER_CANVAS, MARKER_CANVAS, CvType.CV_8UC3, Scalar(WHITE, WHITE, WHITE))
+            val dict = Objdetect.getPredefinedDictionary(Objdetect.DICT_4X4_50)
+            for (id in 0..3) {
+                val marker = Mat()
+                Objdetect.generateImageMarker(dict, id, MARKER_PX, marker)
+                val bgr = Mat()
+                Imgproc.cvtColor(marker, bgr, Imgproc.COLOR_GRAY2BGR)
+                val (x, y) = markerOrigin(id)
+                bgr.copyTo(img.submat(y, y + MARKER_PX, x, x + MARKER_PX))
+            }
+            return img
+        }
+
+        override fun latestCalibrationSample(): CalibrationFrame = CalibrationFrame(null, latestCalibrationFrame())
+
+        override fun latestCalibrationSample(afterVersion: Long?): CalibrationFrame = latestCalibrationSample()
+
+        /** Ids in `[a8, h8, h1, a1]` order, inset from the canvas edges. */
+        private fun markerOrigin(id: Int): Pair<Int, Int> {
+            val far = MARKER_CANVAS - MARKER_INSET - MARKER_PX
+            return when (id) {
+                0 -> MARKER_INSET to MARKER_INSET
+                1 -> far to MARKER_INSET
+                2 -> far to far
+                else -> MARKER_INSET to far
+            }
+        }
+    }
+
     private companion object {
         /** Stands in for the phone's UI thread: what `lifecycleScope` gave `LiveAlign` for months. */
         const val SCOPE_THREAD = "pretend-main"
+
+        const val MARKER_CANVAS = 800
+        const val MARKER_PX = 120
+        const val MARKER_INSET = 120
+        const val WHITE = 255.0
         val CACHED_CORNERS = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
 
         /** Belongs to neither the scope nor `Dispatchers.Default` — only the parameter reaches it. */
