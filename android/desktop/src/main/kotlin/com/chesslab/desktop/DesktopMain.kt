@@ -4,6 +4,7 @@ import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
+import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.LensFit
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.alignmentOf
@@ -11,6 +12,7 @@ import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.toModel
 import com.chesslab.tracker.camera.CameraHealth
 import com.chesslab.tracker.cnn.Attached
+import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.calibrateFromBoard
 import com.chesslab.tracker.geometry.cropLine
@@ -524,6 +526,7 @@ internal fun replayRun(
                 motionDump = options.motionDump,
                 engine = options.engine,
                 startFen = recordedStartFen(options, video),
+                cropClahe = cropClaheOf(spec),
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
@@ -635,6 +638,7 @@ private fun buildStack(
     engine: EngineKind = EngineKind.CLASSIC,
     // Die Stellung der Aufnahme beim ersten Frame — eine Aufnahme beginnt mitten im Spiel.
     startFen: String = STARTPOS,
+    cropClahe: CropClahe? = null,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -673,6 +677,7 @@ private fun buildStack(
             alignmentSink = visualCache?.alignmentSink,
             cachedMarkerDetections = markerPrepass?.lookup,
             engine = engine,
+            cropClahe = cropClahe,
         ),
         settings,
         publisher,
@@ -912,3 +917,10 @@ private fun recordedFrameGate(
     if (options.fps != null) println("  fps=${options.fps} ignored — the recording's own measurement wins")
     return RecordedFrameGate(times)
 }
+
+/**
+ * Wie `TrackerService`: die Vorverarbeitung kommt aus der `config.json` des Modells. Der Desktop
+ * baute sie nie — jeder Replay mit `p4a-80-clahe` servierte dem CLAHE-trainierten Modell rohe Crops.
+ */
+private fun cropClaheOf(spec: ModelSpec?): CropClahe? =
+    spec?.takeIf { it.claheClip > 0.0 }?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
