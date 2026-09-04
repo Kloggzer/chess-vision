@@ -386,7 +386,8 @@ internal fun replayRun(
         // `cnn=run`. Read whether or not the CNN is on, so `nocnn` isolates the classifier and not
         // the geometry — two runs differing in one flag have to differ in one thing.
         val spec = desktopModelSpec(options.model)
-        val geometry = boardGeometryFor(quad).withCropOf(spec)
+        val geometry =
+            replayBoardGeometry(quad, sessionDirOf(options, video), options.configFile?.let(::File)).withCropOf(spec)
         // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`), and
         // `:app` has applied it on attach since it was measured. The replay did not — so every
         // measurement here ran at the 0.5 default while the phone ran the model's own 0.15, and a
@@ -871,8 +872,7 @@ private fun recordedQuad(
     options: ReplayOptions,
     video: File?,
 ): FloatArray? {
-    val name = options.name ?: video?.nameWithoutExtension ?: return null
-    val log = File(File(RECORDINGS_DIR, name), "log.jsonl")
+    val log = File(sessionDirOf(options, video) ?: return null, "log.jsonl")
     if (!log.isFile) return null
     val first = log.useLines { lines -> lines.firstOrNull { it.isNotBlank() } } ?: return null
     return runCatching {
@@ -890,13 +890,19 @@ private fun recordedQuad(
 /** Vier Ecken zu je x und y. */
 private const val QUAD_FLOATS = 8
 
+/** Das Verzeichnis der Aufnahme — dieselbe Namensregel wie ueberall: `name=`, sonst der Videostamm. */
+private fun sessionDirOf(
+    options: ReplayOptions,
+    video: File?,
+): File? = (options.name ?: video?.nameWithoutExtension)?.let { File(RECORDINGS_DIR, it) }
+
 /** Die Stellung, auf der die Aufnahme beginnt — sonst die Grundstellung. */
 private fun recordedStartFen(
     options: ReplayOptions,
     video: File?,
 ): String {
-    val name = options.name ?: video?.nameWithoutExtension ?: return STARTPOS
-    val fen = RecordedFrames.startFen(File(File(RECORDINGS_DIR, name), "timeline.jsonl")) ?: return STARTPOS
+    val dir = sessionDirOf(options, video) ?: return STARTPOS
+    val fen = RecordedFrames.startFen(File(dir, "timeline.jsonl")) ?: return STARTPOS
     if (fen != STARTPOS) println("start: $fen — where the recording begins, not the initial position")
     return fen
 }
@@ -911,8 +917,8 @@ private fun recordedFrameGate(
     options: ReplayOptions,
     video: File?,
 ): RecordedFrameGate? {
-    val name = options.name ?: video?.nameWithoutExtension ?: return null
-    val times = RecordedFrames.times(File(File(RECORDINGS_DIR, name), "timeline.jsonl")) ?: return null
+    val dir = sessionDirOf(options, video) ?: return null
+    val times = RecordedFrames.times(File(dir, "timeline.jsonl")) ?: return null
     println("frames: replaying the ${times.size} the phone processed, from its timeline.jsonl")
     if (options.fps != null) println("  fps=${options.fps} ignored — the recording's own measurement wins")
     return RecordedFrameGate(times)
