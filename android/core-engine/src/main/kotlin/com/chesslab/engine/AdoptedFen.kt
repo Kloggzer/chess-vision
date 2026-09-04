@@ -47,22 +47,20 @@ internal fun EngineState.cnnAdoptedFen(
     val fields = board.fen().split(' ')
     val clocks = "${fields[FEN_HALFMOVE]} ${fields[FEN_FULLMOVE]}"
     val fen = "${placementOf(pieces)} ${fields[1]} ${castlingOf(pieces, fields[2])} - $clocks"
+    // A mate is a legitimate thing to resync onto — the game ends there, the app should show it.
     return fen.takeIf { reachable(it) }
 }
 
 /**
  * Two kings are not enough: the side that just moved must not be in check, or the deep search captures
- * the exposed king and the next `legalMoves()` dies at `Index 64` (replay crash, 2026-08-09). Doubles as
- * the parse check for a user FEN, which may legitimately be a mate — hence [needsMoves] only to adopt.
+ * the exposed king and the next `legalMoves()` dies at `Index 64` (replay crash, 2026-08-09). Asked by
+ * flipping the side to move; doubles as the parse check. A mate passes — the game ends there.
  */
-internal fun reachable(
-    fen: String,
-    needsMoves: Boolean = true,
-): Boolean =
+internal fun reachable(fen: String): Boolean =
     runCatching {
         val fields = fen.split(' ')
         val flipped = fields.toMutableList().also { it[1] = if (it[1] == "w") "b" else "w" }
-        !Game(flipped.joinToString(" ")).result().inCheck && (!needsMoves || Game(fen).legalMoves().isNotEmpty())
+        !Game(flipped.joinToString(" ")).result().inCheck
     }.getOrDefault(false)
 
 /** `"empty"` and `"occluded"` are not pieces. */

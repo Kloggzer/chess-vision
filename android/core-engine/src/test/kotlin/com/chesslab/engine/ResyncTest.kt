@@ -110,6 +110,14 @@ class ResyncTest {
         )
     }
 
+    /** A finished game is still a position the board shows; refusing it stranded the app one ply early. */
+    @Test
+    fun aMateCanBeAdopted() {
+        val state = recoveryState("R5k1/5ppp/8/8/8/8/5PPP/6K1 b - - 1 1")
+        val fen = state.cnnAdoptedFen(obsForBoard(state.board), state.config.cnnConfThr)
+        assertEquals(state.board.fen(), fen)
+    }
+
     @Test
     fun whateverIsAdoptedCanBePlayed() {
         // The 2026-08-09 crash: a minimal edit produced a placement chesslib ACCEPTS as a FEN

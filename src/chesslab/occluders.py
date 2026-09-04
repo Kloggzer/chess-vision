@@ -56,7 +56,7 @@ def drop_specks(mask: np.ndarray, min_area: int) -> np.ndarray:
     out = mask.copy()
     for invert in (False, True):
         m = cv2.bitwise_not(out) if invert else out
-        n, lab, stats, _ = cv2.connectedComponentsWithStats(m, 8)
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
         small = [i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] < min_area]
         if small:
             out = np.where(np.isin(lab, small), 255 if invert else 0, out).astype(np.uint8)
@@ -120,7 +120,7 @@ def stage_of(median: np.ndarray, erode: int = 61) -> np.ndarray:
     ref = np.median(chroma[h // 3:2 * h // 3, w // 3:2 * w // 3].reshape(-1, 3), axis=0)
     m = (np.abs(chroma - ref).sum(2) < 0.05).astype(np.uint8) * 255
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (61, 61)))
-    n, lab, stats, _ = cv2.connectedComponentsWithStats(m, 8)
+    n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     m = np.where(lab == big, 255, 0).astype(np.uint8)
     return cv2.erode(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode, erode)))

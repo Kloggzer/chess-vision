@@ -217,7 +217,7 @@ class TrackerEngine(
      * (2026-08-09). Refused positions REPORT.
      */
     fun setFen(fen: String): List<TrackerEvent> {
-        if (!reachable(fen, needsMoves = false)) {
+        if (!reachable(fen)) {
             val why = "position refused: '$fen' is unreadable or leaves the side not to move in check"
             state.note = why
             return listOf(TrackerEvent.Note(why))
