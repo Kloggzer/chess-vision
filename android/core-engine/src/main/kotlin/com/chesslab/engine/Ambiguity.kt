@@ -65,12 +65,19 @@ private fun EngineState.resolvePromotion(
 /**
  * Every promotion waits for `choosePromotion`. An identity-capable CNN may call the same public
  * path after stable high-confidence observations; otherwise the Q/R/B/N dialog remains open.
+ * Invariante 9 gilt schon hier: beide Aufrufer sitzen vor dem Alarm-Gate in `dispatch`, und ein
+ * offener Prompt leitet jeden Snapshot an Erholung und Resync vorbei.
  */
 internal fun EngineState.raisePromotionPrompt(
     move: Move,
     cur: GrayImage,
     curBgr: BgrImage?,
 ) {
+    if (alarm != null) {
+        confirmer.reset()
+        note = NOTE_ALARM_BLOCKED
+        return
+    }
     promoPending =
         PromoPending(
             from = Squares.ALL[move.from.ordinal],

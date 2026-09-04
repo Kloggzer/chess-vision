@@ -328,6 +328,24 @@ class CommitTest {
         assertTrue(events.none { it is TrackerEvent.MoveCommitted }, "events were $events")
     }
 
+    /**
+     * Invariante 9 gilt schon fuer die FRAGE: `raisePromotionPrompt` sitzt in `generateHypothesis`,
+     * also vor dem Alarm-Gate in `dispatch`, und ein offener Prompt leitet jeden Snapshot am
+     * Wiederanlauf vorbei — der Latch verhungert an seiner eigenen Erholung.
+     */
+    @Test
+    fun anAlarmBlocksTheRaisedPromotionPrompt() {
+        val state = detectState(fen = PROMOTION_FEN, ref = grayFrame(listOf("a7")))
+        state.history.add("x")
+        state.alarm = TrackerEvent.Alarm("illegal_move", listOf("b1"), null, null)
+
+        val events = state.tryDetect(grayFrame(listOf("a8")), null, seq = 1)
+
+        assertNull(state.promoPending, "the latch must block the prompt too")
+        assertTrue(events.none { it is TrackerEvent.PromotionPending }, "events were $events")
+        assertTrue(state.note.orEmpty().contains("desynced"), "note was '${state.note}'")
+    }
+
     /** Derselbe Riegel fuer die CNN-getriebene Antwort — sie geht durch dieselbe Tuer. */
     @Test
     fun anAlarmBlocksTheCnnConfirmedPromotion() {
