@@ -283,6 +283,16 @@ class OnnxSquareClassifier internal constructor(
     }
 }
 
+/**
+ * [OnnxSquareClassifier.verify], but a warm-up that throws takes its own session with it — the
+ * chain falls through to the next EP, and nobody holds the half-built classifier afterwards.
+ */
+internal fun verifiedOrClosed(cnn: OnnxSquareClassifier): EpVerdict =
+    cnn.runCatching { verify() }.getOrElse {
+        runCatching { cnn.close() }
+        throw it
+    }
+
 /** One pass over the EP chain, keeping the last failure so a total loss can name a cause. */
 private class EpAttempts(
     private val spec: ModelSpec,
@@ -310,7 +320,7 @@ private class EpAttempts(
                 // nothing else in the app does.
                 val runner = OrtSessionRunner(env, model, choice, staged.dir, compileTo, profile = true, intraOpThreads = intraOpThreads)
                 val cnn = OnnxSquareClassifier(spec, runner)
-                cnn to cnn.verify()
+                cnn to verifiedOrClosed(cnn)
             }.onFailure {
                 last = it
                 // A cached context that will not load would fail the same way on every launch.

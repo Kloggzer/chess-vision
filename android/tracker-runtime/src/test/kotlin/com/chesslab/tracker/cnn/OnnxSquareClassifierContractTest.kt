@@ -58,6 +58,24 @@ private class FakeRunner(
     override fun close() = Unit
 }
 
+private class ExplodingRunner : SessionRunner {
+    override val requested = Ep.CPU
+    override val model = MODEL_FP32_FILE
+    var closes = 0
+        private set
+
+    override fun run(
+        input: FloatBuffer,
+        shape: LongArray,
+    ): FloatArray = error("warm-up exploded")
+
+    override fun profiledProvider(): String? = null
+
+    override fun close() {
+        closes++
+    }
+}
+
 class OnnxSquareClassifierContractTest {
     private val spec =
         ModelSpec(
@@ -132,6 +150,14 @@ class OnnxSquareClassifierContractTest {
             error.message!!.contains("expected ${ALL_SQUARES.size * (PIECES13_CLASSES.size + 1)}"),
             error.message,
         )
+    }
+
+    /** Die Kette geht beim naechsten EP weiter — ohne Close bleibt je Versuch eine Session offen. */
+    @Test
+    fun aWarmUpThatThrowsClosesItsSession() {
+        val runner = ExplodingRunner()
+        assertThrows<IllegalStateException> { verifiedOrClosed(OnnxSquareClassifier(spec, runner)) }
+        assertEquals(1, runner.closes)
     }
 
     @Test
