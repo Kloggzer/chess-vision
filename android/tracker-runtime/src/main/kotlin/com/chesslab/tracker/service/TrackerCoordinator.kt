@@ -82,6 +82,8 @@ class TrackerCoordinator<T>(
 ) {
     private var sourceSeq = 0L
 
+    private val notes = NoteThrottle(nowMs)
+
     /** Das Grundrauschen im Zellmittel fuer die Perf-Zeile — misst zwei Frames je Sekunde. */
     private val noise = NoiseFloor()
 
@@ -106,6 +108,7 @@ class TrackerCoordinator<T>(
         val result = pipeline.onFrame(image, delivered.width, delivered.height, nowMs())
         val events = host.tick((result as? FrameResult.Ready)?.input)
         for (event in events) {
+            if (!notes.accept(event)) continue
             when (event) {
                 is TrackerEvent.Note -> onNote("seq=$sourceSeq note: ${event.text}")
                 is TrackerEvent.Stuck -> onNote("seq=$sourceSeq stuck: ${event.reason}")
@@ -178,6 +181,33 @@ class TrackerCoordinator<T>(
         val delivered: DeliveredSize,
     )
 }
+
+/**
+ * Die Drossel vor dem Notiz-Log.
+ *
+ * Notizen tragen Zaehlerstaende ("Much change (7 squares + 1 occluded)…", "holding reference for
+ * 3s"), also wechselt der Text waehrend eines Stillstands auf fast jedem Frame und das Handy
+ * schreibt eine Zeile je Detektionsframe. Ein Stuck ist ein Zustandswechsel und geht immer durch.
+ */
+internal class NoteThrottle(
+    private val nowMs: () -> Long,
+) {
+    private var lastText: String? = null
+    private var lastMs: Long? = null
+
+    fun accept(event: TrackerEvent): Boolean {
+        val text = (event as? TrackerEvent.Note)?.text ?: return true
+        val now = nowMs()
+        val last = lastMs
+        if (text == lastText || (last != null && now - last < MIN_NOTE_GAP_MS)) return false
+        lastText = text
+        lastMs = now
+        return true
+    }
+}
+
+/** Wie dicht zwei VERSCHIEDENE Notizen aufeinander folgen duerfen — auf der Uhr der Engine. */
+internal const val MIN_NOTE_GAP_MS = 250L
 
 /**
  * ArUco re-detection, off the frame thread.
