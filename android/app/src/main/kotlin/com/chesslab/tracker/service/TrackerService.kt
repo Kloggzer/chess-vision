@@ -325,10 +325,11 @@ class TrackerService :
         // The service IS the session: stopping it ends the game rather than losing it. A game with
         // no moves saves nothing, so a start/stop cycle still leaves the library alone.
         games.endAndSave()
-        // Reverse construction order: nothing may deliver a frame into a closed pipeline.
+        // The PRODUCER first, and `close` waits for the analyzer to leave: everything below releases
+        // memory the callback reads — the pipeline's Mats, the recording's timeline.
         speech.close()
-        recording.close()
         camera.close()
+        recording.close()
         stacks.close()
         frames.close()
         // After the stack, so the last rows of the session it just tore down are still accepted.

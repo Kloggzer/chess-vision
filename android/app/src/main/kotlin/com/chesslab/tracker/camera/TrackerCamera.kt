@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * The ONLY class in the app that binds a camera — constructed exactly once, by `TrackerService`.
@@ -209,6 +210,13 @@ class TrackerCamera(
             .onFailure { Log.w(TAG, "analyzer thread is gone, skipped a queued task", it) }
     }
 
+    /**
+     * Waits for the analyzer to leave the pipeline, because the caller closes it next.
+     *
+     * `shutdownNow` only interrupts, and an in-progress `warpPerspective` ignores that — so without
+     * the wait `TrackerService.onDestroy` released the pipeline's Mats and the recording out from
+     * under a frame that was still being processed.
+     */
     override fun close() {
         stopped = true
         mainHandler.removeCallbacksAndMessages(null)
@@ -220,6 +228,9 @@ class TrackerCamera(
         owner = null
         video.close()
         analyzerExecutor.shutdownNow()
+        if (!analyzerExecutor.awaitTermination(ANALYZER_DRAIN_MS, TimeUnit.MILLISECONDS)) {
+            Log.w(TAG, "the analyzer did not finish within $ANALYZER_DRAIN_MS ms — closing anyway")
+        }
     }
 
     @OptIn(ExperimentalCamera2Interop::class)
@@ -459,6 +470,9 @@ class TrackerCamera(
         const val MS_PER_S = 1000.0
         const val NANOS_PER_MS = 1_000_000.0
         const val SENSOR_LOG_INTERVAL_MS = 1000L
+
+        /** One frame's work is tens of milliseconds; 2 s is a hang, and a teardown may not block on one. */
+        const val ANALYZER_DRAIN_MS = 2000L
 
         /** `CameraRate`'s weights, so every rate in the app settles the same way. */
         const val EMA_OLD = 0.9
