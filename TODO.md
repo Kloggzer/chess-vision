@@ -315,7 +315,10 @@ Stand des Satzes danach (19 Fixes, CLAHE serviert = ohne CLAHE zeilengleich): fu
 fehlerfrei (13-52-38, 00-39-57, 11-55-19, 153751, 154327), 222203 mit drei Referenz-Plies nicht
 aussagekraeftig, 222741 und 233432 nach Korrektur fehlerfrei bzw. nur noch Ordnungsfrage. Echte
 Restfehler: **11-59-12** (Ordnungsknoten `Rfc8/Nxb8/Rxb8` und `Rb1/a3/h5/Ra4`, beide Referenzstellen
-sind Buendel auf EINEM Frame, also selbst geraten — Endstellung stimmt) und **233929** (ein Phantom
+sind Buendel auf EINEM Frame, also selbst geraten — Endstellung stimmt; Bild 5300: Turm schon auf b8,
+f8/c8 leer, der Abtausch war da durch wie der Tracker sagt (5160/5262), das Label fuehrt ihn 20 s
+spaeter und dazu ein `Rfc8`, das der Tracker nie sah — bei der Hand um 5100 nicht entscheidbar,
+Label unveraendert) und **233929** (ein Phantom
 `a5@2397` plus Alarm am abgeschnittenen Videoende, dazu zwei Zuege ohne Ruhefenster).
 
 **Auftrag (User, 2026-09-04): unbeweisbare Reihenfolgen nach Spielplausibilitaet waehlen.** Wo eine

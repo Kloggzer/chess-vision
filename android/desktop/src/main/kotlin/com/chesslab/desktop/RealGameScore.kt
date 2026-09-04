@@ -157,7 +157,9 @@ private fun fensAfter(
 /** Placement plus side to move — castling and clocks are not what the camera sees. */
 private fun position(fen: String): String = fen.split(' ').take(2).joinToString(" ")
 
-private const val REORDER_LOOKAHEAD = 6
+// 12, not 6: on 2026-08-08-11-59-12 the tracker took the b8 exchange 27 s before the label's
+// bundle and the boards met again only ten plies later, at Raxd4.
+private const val REORDER_LOOKAHEAD = 12
 
 /**
  * The label's plies: the `reference.pgn` where one exists, with the candidate's frames alongside.
