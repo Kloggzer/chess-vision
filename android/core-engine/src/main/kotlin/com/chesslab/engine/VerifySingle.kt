@@ -64,8 +64,7 @@ internal object VerifySingle {
             // Model-free arm of the same guard, ON by default: `pOccluded` is identically 0.0 under
             // every 13-class model, and 003957's fabricated `g4` committed at rung 2 through a
             // resting hand. The groove read must be HAND-SHAPED — a lone flag is a leaning piece.
-            // `handTolerantCells`: board-wide at 0, else only a hand near the candidate's squares.
-            state.handHoldsVerdict(snap, pend) -> {
+            state.handHoldsVerdict(snap) -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }
@@ -79,16 +78,7 @@ internal object VerifySingle {
  * 20260814-203552) the grid map lagged an arriving hand by one observation and `cnn_pair` committed
  * a move that was never played, while the head had flagged 2–5 squares on those very glances.
  */
-private fun EngineState.handHoldsVerdict(
-    snap: CnnSnapshot,
-    pend: PendingVerify,
-): Boolean {
-    val hand = gridHandSquares(snap) or modelHandSquares(snap)
-    if (hand == 0L) return false
-    if (config.handTolerantCells <= 0) return true
-    val touched = ofSquares(pend.ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, UCI_SQUARES)) })
-    return handNear(hand, touched)
-}
+private fun EngineState.handHoldsVerdict(snap: CnnSnapshot): Boolean = (gridHandSquares(snap) or modelHandSquares(snap)) != 0L
 
 private fun EngineState.discardOnAlarm(): List<TrackerEvent> {
     pending = null

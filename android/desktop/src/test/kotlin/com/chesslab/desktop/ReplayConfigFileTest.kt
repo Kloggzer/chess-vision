@@ -28,12 +28,12 @@ class ReplayConfigFileTest {
 
     @Test
     fun `a recorded knob survives, the recorded boardSize does not`() {
-        val recorded = TrackerConfig().copy(handTolerantCells = 2, cleanCommitsOnly = true, boardSize = 1600)
+        val recorded = TrackerConfig().copy(maxChanged = 7, cleanCommitsOnly = true, boardSize = 1600)
         val file = File(dir, "settings.json")
         // The wrapper the phone writes: the envelope sits under `config`, history beside it.
         file.writeText("""{"recorded_at":"t","config":${envelope(recorded)},"history":[]}""")
         val config = ReplayOptions(configFile = file.path).trackerConfig(geometry, live = false)
-        assertEquals(2, config.handTolerantCells)
+        assertEquals(7, config.maxChanged)
         assertTrue(config.cleanCommitsOnly)
         assertEquals(1104, config.boardSize)
         assertEquals(552, config.detSize)
@@ -145,11 +145,11 @@ class ReplayConfigFileTest {
     @Test
     fun `set overrides beat the file — the file is the base, not the last word`() {
         val file = File(dir, "settings.json")
-        file.writeText(envelope(TrackerConfig().copy(handTolerantCells = 2)))
+        file.writeText(envelope(TrackerConfig().copy(maxChanged = 7)))
         val config =
-            ReplayOptions(configFile = file.path, overrides = mapOf("handTolerantCells" to 0.0))
+            ReplayOptions(configFile = file.path, overrides = mapOf("maxChanged" to 6.0))
                 .trackerConfig(geometry, live = false)
-        assertEquals(0, config.handTolerantCells)
+        assertEquals(6, config.maxChanged)
     }
 
     @Test

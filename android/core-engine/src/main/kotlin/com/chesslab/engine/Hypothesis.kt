@@ -152,12 +152,8 @@ private fun EngineState.tooMuchChangeGate(
     // toward the ceiling (Qxe2: one true move plus a bleed cloud of 7 read `empty 1.000`). Counting
     // only — z and `changed` are untouched, and the hand rule below stays on the RAW tainted count.
     val confirmed = cnnConfirmedUnchanged(changed or tainted)
-    // EXPERIMENT (`handTolerantCells`): a hand covers about eight squares and the ceiling is six, so
-    // invariant 4 refuses every hypothesis formed while a hand is on the board. Under the knob the
-    // LOCATED hand's own squares stop counting; the pair path's `blockedN == 0` below is untouched.
-    val excused = if (config.handTolerantCells > 0) locatedHand() else 0L
-    val changedEff = changed.without(confirmed).without(excused).countOneBits()
-    val blockedEff = tainted.without(confirmed).without(excused).countOneBits()
+    val changedEff = changed.without(confirmed).countOneBits()
+    val blockedEff = tainted.without(confirmed).countOneBits()
     if (changedEff + blockedEff <= config.maxChanged) return null
     if (blockedN == 0 && changedEff <= config.maxChanged + 2) {
         pairCandidate(z, moves.best)?.let { return Outcome(it) }

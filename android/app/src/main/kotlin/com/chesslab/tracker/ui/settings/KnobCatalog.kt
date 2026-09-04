@@ -160,21 +160,6 @@ val KNOB_CATALOG: List<KnobUi> =
                 " At 0 the move is read as soon as the board is still — the cover below keeps working.",
         ),
         row(
-            "handTolerantCells",
-            MOTION,
-            0.0,
-            3.0,
-            // Step 3, so the slider offers 0 and 3 and nothing between: 2 and 1 are not cautious
-            // middles, they are a cliff. On rec-20260808-003957 they collapse the game to 27 of 67
-            // plies and invent two moves that exist in no baseline, while 3 reproduces the baseline
-            // exactly. A slider that let a user stop at 2 would be offering a measured failure.
-            3.0,
-            "EXPERIMENT: read the move while the hand is still in frame, as long as it stays 3 squares clear of it." +
-                " Measured on three recordings: no move invented that was not invented without it, two moves found" +
-                " that were missed, and about a second earlier per game. Off is the shipped behaviour. Takes effect" +
-                " when tracking restarts.",
-        ),
-        row(
             "occluderHoldS",
             MOTION,
             0.0,

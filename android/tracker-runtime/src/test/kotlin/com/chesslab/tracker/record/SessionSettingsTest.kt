@@ -36,7 +36,7 @@ class SessionSettingsTest {
 
     @Test
     fun `opening a session writes the envelope, the app settings and the build`() {
-        val config = TrackerConfig().copy(handTolerantCells = 2, boardSize = 1104)
+        val config = TrackerConfig().copy(maxChanged = 7, boardSize = 1104)
         writer(config, AppSettings(modelDir = "real14-80"))
         val root = file()
         // The config block IS the ConfigCodec envelope — same wire form as the phone's DataStore

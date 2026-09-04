@@ -27,10 +27,10 @@ class EffectiveConfigJsonTest {
 
     @Test
     fun `each knob keeps its native JSON type`() {
-        val config = TrackerConfig().copy(confirmFramesOverride = 3, handTolerantCells = 2, cleanCommitsOnly = true)
+        val config = TrackerConfig().copy(confirmFramesOverride = 3, maxChanged = 7, cleanCommitsOnly = true)
         val dump = effectiveConfigJson(config, cnnOn = true)
         assertEquals(0.25, dump.getValue("motionThr").jsonPrimitive.double)
-        assertEquals(2, dump.getValue("handTolerantCells").jsonPrimitive.int)
+        assertEquals(7, dump.getValue("maxChanged").jsonPrimitive.int)
         assertTrue(dump.getValue("cleanCommitsOnly").jsonPrimitive.boolean)
         // OPTIONAL_INT: a set override is an int, an unset one is stated as null, never dropped.
         assertEquals(3, dump.getValue("confirmFramesOverride").jsonPrimitive.int)

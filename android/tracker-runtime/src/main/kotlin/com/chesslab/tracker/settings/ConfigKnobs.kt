@@ -108,7 +108,6 @@ val KNOBS: List<Knob> =
         Knob("cleanCommitsOnly", BOOL, { bool(it.cleanCommitsOnly) }, { c, v -> c.copy(cleanCommitsOnly = v != 0.0) }),
         Knob("gridHandGate", BOOL, { bool(it.gridHandGate) }, { c, v -> c.copy(gridHandGate = v != 0.0) }),
         Knob("modelHandGate", BOOL, { bool(it.modelHandGate) }, { c, v -> c.copy(modelHandGate = v != 0.0) }),
-        Knob("handTolerantCells", INT, { it.handTolerantCells.toDouble() }, { c, v -> c.copy(handTolerantCells = v.toInt()) }),
         Knob("motionRecencyS", DOUBLE, { it.motionRecencyS }, { c, v -> c.copy(motionRecencyS = v) }),
         Knob("commitLlFloor", DOUBLE, { it.commitLlFloor }, { c, v -> c.copy(commitLlFloor = v) }),
         Knob("detectScale", DOUBLE, { it.detectScale }, { c, v -> c.copy(detectScale = v) }),

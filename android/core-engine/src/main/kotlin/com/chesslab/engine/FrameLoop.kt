@@ -101,13 +101,7 @@ internal class FrameLoop(
         updateFps()
         updateMotion(input)
         updateBaselineOcclusion(input)
-        return when {
-            state.motion <= cfg.motionThr -> stableBranch(input)
-            // EXPERIMENT (`handTolerantCells`): motion the grid map can LOCATE as a hand no longer
-            // stops detection — the per-square vetoes downstream decide what that hand costs.
-            state.locatedHand() != 0L -> throughLocatedHand(input)
-            else -> motionBranch(input)
-        }
+        return if (state.motion <= cfg.motionThr) stableBranch(input) else motionBranch(input)
     }
 
     /** Display only, but it is state and it is part of the loop's order. */
@@ -178,18 +172,6 @@ internal class FrameLoop(
         state.motionOccluded = live
         state.occludedVetoed = live
         state.expireStalledVerify()
-    }
-
-    /**
-     * The experiment's branch: [motionBranch]'s bookkeeping without the two lines that END the frame
-     * — the buffers survive (there is nothing to diff without them) and no `Skip` is returned.
-     * `requireMotionForMove` still has to see this frame as motion, or the commit is refused as drift.
-     */
-    private fun throughLocatedHand(input: FrameInput): FrameOutcome {
-        state.motionSinceRef = true
-        state.lastMotionTs = state.nowS
-        state.holdUntil = state.nowS + state.config.motionHoldS
-        return stableBranch(input)
     }
 
     /** Hand or camera moving: discard the buffers, hold detection off. */

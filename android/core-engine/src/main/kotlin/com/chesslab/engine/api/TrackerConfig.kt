@@ -65,9 +65,6 @@ data class TrackerConfig(
     val gridHandGate: Boolean = true,
     // Hand-shape and motion/grid evidence filter the phantom queenside from 20260814-142947 (2026-08-14).
     val modelHandGate: Boolean = true,
-    // 0 = off. Clearance could save 0.60 s median in rec-20260808-003957 but risks its fabricated `g4`.
-    // One knob covers all three gates because relaxing verify alone yielded 65 → 38 plies, 0 ms earlier.
-    val handTolerantCells: Int = 0,
     // 0 = off. Castling caused a silent standoff in rec-20260807 (2026-08-08).
     // 12 is an unmeasured placeholder: at a 3 s check interval it bounds standoff below one minute.
     val desyncStandoffObsN: Int = 12,

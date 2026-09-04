@@ -2,7 +2,6 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
-import kotlin.math.abs
 
 /**
  * Maximum age of a CNN snapshot that may still arbitrate an occlusion; older says nothing about THIS
@@ -124,37 +123,6 @@ internal fun EngineState.modelHandSquares(snap: CnnSnapshot): Long {
     if (!paired) return 0L
     val quiet = nowS - lastMotionTs > OBS_MAX_AGE_S
     return if (quiet && gridHandSquares(snap) == 0L) 0L else flagged
-}
-
-/**
- * Where the hand is, if a fresh observation can say so — the experiment's precondition:
- * `handTolerantCells` may only continue through motion that can be LOCATED. A stale snapshot or flags
- * that are not hand-shaped mean the engine does not know what is moving, and the old rule stands.
- */
-internal fun EngineState.locatedHand(): Long {
-    if (config.handTolerantCells <= 0) return 0L
-    val snap = freshSnapshot() ?: return 0L
-    return gridHandSquares(snap)
-}
-
-/**
- * Is the located hand within `handTolerantCells` of [squares], in king-move distance? An empty hand map
- * is not near anything: the caller has already decided what an unlocatable hand means, and it is never
- * "carry on".
- */
-internal fun EngineState.handNear(
-    hand: Long,
-    squares: Long,
-): Boolean {
-    val clear = config.handTolerantCells
-    if (hand == 0L || squares == 0L || clear <= 0) return false
-    var near = false
-    squares.forEachSquare { s ->
-        hand.forEachSquare { h ->
-            if (maxOf(abs(s % Squares.N - h % Squares.N), abs(s / Squares.N - h / Squares.N)) < clear) near = true
-        }
-    }
-    return near
 }
 
 /**
