@@ -298,6 +298,43 @@ Danach Rillen-Arm AN = Rillen-Arm AUS auf allen zehn Aufnahmen (25/0/0, 67/0/0, 
 19/2/2, 8/2/1, 3/0/0, 27/1/6, 35/0/0, 117/0/0; die 171 liegen bis auf 7 hinter dem Referenzende).
 Offen bleibt die Frage von damals nur noch fuer die Figurenachse.
 
+## Referenzen korrigiert, und was der Satz jetzt wirklich sagt (2026-09-04)
+
+Aus dem Video nachgesehen (Frames als JPG, `data/` ist gitignored, Backups liegen daneben):
+- `VID_20260726_233432`: Referenz sagte `1.Nf3 e5 2.e4 Nf6` (Nf3+e5 als Buendel auf Frame 335).
+  Bild 240: e4 steht, e5 nicht; 320: e5 steht, Hand am g1-Springer; 400: Springer auf f3. Richtig
+  ist `1.e4 e5 2.Nf3 Nf6` — `candidate.json` korrigiert (`.bak.order-20260904`), Labels sind nicht
+  betroffen (der Frame-Log beginnt bei 456). Der Tracker hatte recht.
+- `VID_20260802_222741`: Ply 28 `Nxf3+@7425` entfernt (`.bak.tail-20260904`) — der d4-Springer steht
+  bei 7600 und noch bei 9540 auf d4. Das Spiel laeuft ~6 Plies weiter bis zum Matt (weisse Dame d7,
+  Koenig d8 bei 9540); der Tracker liest `c6 Qxe5 cxd5 Qd6+ Bd7 Qxd7#` (8038-9468). Aus den Bildern
+  nicht sicher genug lesbar, deshalb NICHT als Referenz eingetragen: `tail_note` in der Datei, die
+  Plies zaehlen als `beyond`. Wer sie bestaetigt, traegt sie nach.
+
+Stand des Satzes danach (19 Fixes, CLAHE serviert = ohne CLAHE zeilengleich): fuenf Aufnahmen
+fehlerfrei (13-52-38, 00-39-57, 11-55-19, 153751, 154327), 222203 mit drei Referenz-Plies nicht
+aussagekraeftig, 222741 und 233432 nach Korrektur fehlerfrei bzw. nur noch Ordnungsfrage. Echte
+Restfehler: **11-59-12** (Ordnungsknoten `Rfc8/Nxb8/Rxb8` und `Rb1/a3/h5/Ra4`, beide Referenzstellen
+sind Buendel auf EINEM Frame, also selbst geraten — Endstellung stimmt) und **233929** (ein Phantom
+`a5@2397` plus Alarm am abgeschnittenen Videoende, dazu zwei Zuege ohne Ruhefenster).
+
+**Auftrag (User, 2026-09-04): unbeweisbare Reihenfolgen nach Spielplausibilitaet waehlen.** Wo eine
+Recovery-Bruecke mehrere Wege zur selben Stellung hat, nimmt `deriveMovesDeepFull` heute „kuerzeste,
+zuerst gefunden" (`note`, Schluessel = Placement). Statt dessen die Reihenfolge, die ein erfahrener
+Spieler spielt: die Kandidaten gleicher Endstellung mit der Stockfish-Instanz der App bewerten
+(`UciEngine`/`GameReviewer` existieren fuers Review) und den Weg mit dem besten Minimum je Ply
+nehmen. Bruecken sind selten, das ist bezahlbar. Braucht eine Naht in `core-engine` (bleibt rein,
+kein Android, keine Uhr) nach dem Muster `CnnEvaluator`, z. B. `SequencePlausibility.rank(fen,
+candidates)`, Desktop und Handy reichen die Engine hinein; Replay-Determinismus: feste Tiefe/Nodes,
+nicht Zeit. Messgroesse: 11-59-12 muss die beiden Knoten in Referenz-Reihenfolge liefern, ohne dass
+eine andere Aufnahme ein Phantom gewinnt. Vorher der Scorer mit `reordered` (gleiche Endstellung =
+Treffer), sonst ist der Gewinn nicht sichtbar.
+
+**Neue Aufnahmen, gezielt:** schwarze Seite (`BLACK_BOTTOM`; der Replay liest die Orientierung seit
+heute aus `settings.json`), dunkles Buero (2026-08-29-Fall fehlt im Satz), Promotion / Rochade /
+en passant / Doppelschlag auf einem Feld (je null- bis einmal im Satz), Blitz mit Hand-Nachschleppe,
+und zwei Sekunden Stillstand am Ende jeder Aufnahme.
+
 ## Engine-Review 2026-09-03/04: was der Regressionssatz zu den 18 Fixes sagt
 
 Basis `37e6fc77` gegen `bf56d611`, beide mit `set:gridHandGate=false` (= Handy-Semantik, weil der
