@@ -52,6 +52,26 @@ class RealGameScoreTest {
     }
 
     @Test
+    fun aRunThatKeepsPlayingPastTheReferenceIsBeyondAndNotInvented() {
+        // The video runs on after the labeled game: those plies are unjudged, not phantoms.
+        val label = plies("e4", "e5", "Nf3")
+        val run = plies("e4", "e5", "Nf3", "Nc6", "Bb5")
+        val score = scoreMoves(label, run)
+        assertEquals(3, score.found.size)
+        assertTrue(score.invented.isEmpty())
+        assertEquals(listOf("Nc6", "Bb5"), score.beyond.map { it.san })
+    }
+
+    @Test
+    fun aPhantomInsideTheReferenceStaysInvented() {
+        val label = plies("e4", "e5", "Nf3")
+        val run = plies("e4", "Bd6", "e5", "Nf3")
+        val score = scoreMoves(label, run)
+        assertEquals(listOf("Bd6"), score.invented.map { it.san })
+        assertTrue(score.beyond.isEmpty())
+    }
+
+    @Test
     fun theRealPythonLabelRoundTripsThroughTheReader() {
         // The committed 2026-08-02 candidate is the schema contract; when it is present on this
         // machine the reader must reproduce its 22 plies. Data is gitignored, so absent = skipped,

@@ -9,7 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
-// One run against one label: found / missed / invented, each with frame indices.
+// One run against one label: found / missed / invented / beyond, each with frame indices.
 //
 // Deliberately NEVER folded into a single accuracy. The project rule (2026-07-30) is that
 // phantoms disqualify while misses are negotiable, so a number that averages the two directions
@@ -28,13 +28,19 @@ internal class MoveScore(
     val found: List<Pair<ScoredPly, ScoredPly>>,
     /** Label plies the run never committed. */
     val missed: List<ScoredPly>,
-    /** Run commits that are not in the label — the phantoms. */
+    /** Run commits inside the reference that are not in it — the phantoms. */
     val invented: List<ScoredPly>,
+    /** Run commits past the reference's end — unjudged, because the label stops before them. */
+    val beyond: List<ScoredPly>,
 )
 
 /**
  * Longest common subsequence over the SAN sequences — order-preserving, so a move the run commits
  * out of order counts as invented rather than silently matching a later identical SAN backwards.
+ *
+ * A run commit is only a phantom where the reference can contradict it: past the last found ply
+ * AND past the last label frame the video simply keeps playing, and counting that as invented
+ * reported 164 of 171 phantoms on `2026-08-08-11-59-12` that no label ever disputed.
  */
 internal fun scoreMoves(
     label: List<ScoredPly>,
@@ -53,23 +59,27 @@ internal fun scoreMoves(
     }
     val found = mutableListOf<Pair<ScoredPly, ScoredPly>>()
     val missed = mutableListOf<ScoredPly>()
-    val invented = mutableListOf<ScoredPly>()
+    val unmatched = mutableListOf<IndexedValue<ScoredPly>>()
+    var lastFound = -1
     var i = 0
     var j = 0
     while (i < label.size && j < run.size) {
         when {
             label[i].san == run[j].san -> {
                 found += label[i] to run[j]
+                lastFound = j
                 i += 1
                 j += 1
             }
             lcs[i + 1][j] >= lcs[i][j + 1] -> missed += label[i++]
-            else -> invented += run[j++]
+            else -> unmatched += IndexedValue(j, run[j++])
         }
     }
     while (i < label.size) missed += label[i++]
-    while (j < run.size) invented += run[j++]
-    return MoveScore(found, missed, invented)
+    while (j < run.size) unmatched += IndexedValue(j, run[j++])
+    val referenceEnd = label.maxOfOrNull { it.frame } ?: -1
+    val (beyond, invented) = unmatched.partition { it.index > lastFound && it.value.frame > referenceEnd }
+    return MoveScore(found, missed, invented.map { it.value }, beyond.map { it.value })
 }
 
 /**
@@ -154,4 +164,6 @@ internal fun printScore(
     for (ply in score.missed) println("    %-8s label frame %6d".format(ply.san, ply.frame))
     println("  invented ${score.invented.size} (phantoms — the veto):")
     for (ply in score.invented) println("    %-8s run frame %6d  (%s)".format(ply.san, ply.frame, ply.decider))
+    println("  beyond ${score.beyond.size} (after the reference end):")
+    for (ply in score.beyond) println("    %-8s run frame %6d  (%s)".format(ply.san, ply.frame, ply.decider))
 }

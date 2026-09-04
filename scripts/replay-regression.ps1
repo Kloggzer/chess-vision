@@ -6,8 +6,9 @@
 #
 # Builds `:desktop:installDist` first unless -Binary points elsewhere (an A/B base lives in a
 # worktree with `data` and `tmp` junctioned in — see TODO.md, 2026-09-04). Logs land under
-# tmp/batch/<Tag>/; the summary is found/missed/invented per recording — phantoms are the veto,
-# misses negotiable. Two JVMs at once is ~12 GB (see replay-batch.ps1 for why not more).
+# tmp/batch/<Tag>/; the summary is found/missed/invented/beyond per recording — phantoms are the
+# veto, misses negotiable, `beyond` is what the video played after the label stopped.
+# Two JVMs at once is ~12 GB (see replay-batch.ps1 for why not more).
 param(
     [Parameter(Mandatory)][string]$Tag,
     [string]$Binary = "",
@@ -54,14 +55,17 @@ while ($pending.Count -gt 0 -or $running.Count -gt 0) {
     }
     $running = $still
 }
-Write-Output ("{0,-22} {1,4} {2,5}  {3}" -f "recording", "exit", "s", "found/missed/invented · alarms")
+Write-Output ("{0,-22} {1,4} {2,5}  {3}" -f "recording", "exit", "s", "found/missed/invented/beyond · alarms")
 foreach ($x in ($results | Sort-Object { $_.Run.Name })) {
     $log = Get-Content $x.Run.Log -ErrorAction SilentlyContinue
     $f = ($log | Select-String "found (\d+):" | Select-Object -First 1)
     $m = ($log | Select-String "missed (\d+):" | Select-Object -First 1)
     $i = ($log | Select-String "invented (\d+)" | Select-Object -First 1)
+    $b = ($log | Select-String "beyond (\d+)" | Select-Object -First 1)
     $a = ($log | Select-String "ALARM latched" | Measure-Object).Count
-    $s = if ($f) { "$($f.Matches[0].Groups[1].Value)/$($m.Matches[0].Groups[1].Value)/$($i.Matches[0].Groups[1].Value)" } else { "no score" }
+    # `beyond` fehlt in Logs, die ein aelterer Binary geschrieben hat — dann steht dort ein Strich.
+    $bv = if ($b) { $b.Matches[0].Groups[1].Value } else { "-" }
+    $s = if ($f) { "$($f.Matches[0].Groups[1].Value)/$($m.Matches[0].Groups[1].Value)/$($i.Matches[0].Groups[1].Value)/$bv" } else { "no score" }
     Write-Output ("{0,-22} {1,4} {2,5}  {3} · {4} alarm" -f $x.Run.Name, $x.Exit, $x.Sec, $s, $a)
 }
 Write-Output ("total {0}s · {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)
