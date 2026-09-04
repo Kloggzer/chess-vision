@@ -39,6 +39,28 @@ class ConfigCodecTest {
         assertNotNull(ConfigCodec.decode("not json at all").note)
     }
 
+    /**
+     * Version 4 stored `reanchorLlFloor` and `handTolerantCells`; both are gone from the seam, so an
+     * envelope from 4 is not the config this build runs. `ignoreUnknownKeys` would take it silently.
+     */
+    @Test
+    fun theEnvelopeOfTheTwoRemovedKnobsIsRejected() {
+        val stored = """{"version":4,"values":{"censusThr":11.0,"reanchorLlFloor":2.0,"handTolerantCells":1.0}}"""
+        val decoded = ConfigCodec.decode(stored)
+        assertEquals(TrackerConfig(), decoded.config)
+        assertEquals("settings schema 4 is unknown — reset to defaults", decoded.note)
+        assertEquals(5, CONFIG_SCHEMA_VERSION)
+    }
+
+    @Test
+    fun theCurrentSchemaRoundTripsLossless() {
+        val tuned = TrackerConfig(censusThr = 41.0, verifyWindow = 9)
+        val encoded = ConfigCodec.encode(tuned)
+        assertTrue(encoded.startsWith("""{"version":5,"""), "the envelope must name the schema it was written under: $encoded")
+        assertEquals(tuned, ConfigCodec.decode(encoded).config)
+        assertNull(ConfigCodec.decode(encoded).note)
+    }
+
     @Test
     fun liveTunableTableContainsExactlyTheTwelveAppPyKnobs() {
         val expected =

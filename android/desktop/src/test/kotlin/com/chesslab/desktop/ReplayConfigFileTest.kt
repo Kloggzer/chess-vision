@@ -3,6 +3,7 @@ package com.chesslab.desktop
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.settings.CONFIG_SCHEMA_VERSION
 import com.chesslab.tracker.settings.ConfigCodec
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -72,7 +73,7 @@ class ReplayConfigFileTest {
         file.writeText(
             """
             {
-             "version": 4,
+             "version": $CONFIG_SCHEMA_VERSION,
              "values": {
               "alignEvery": 2.0,
               "settleFramesOverride": NaN,

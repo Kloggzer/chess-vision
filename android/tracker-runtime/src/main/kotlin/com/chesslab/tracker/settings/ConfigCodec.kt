@@ -32,11 +32,15 @@ import kotlinx.serialization.json.Json
  * narrowed is exactly the case this counter exists for. Checked before bumping: every value stored
  * on the device was the default anyway, `boardSize` excepted, and that one is re-measured.
  *
+ * **5 removes two more**: `reanchorLlFloor` and `handTolerantCells` went with their experiments
+ * after 4 shipped, without the bump 3 made the rule — both were inert at 0, so the reset costs only
+ * hand-tuned knobs, and `boardSize` is re-measured by `onMeasuredBoard`.
+ *
  * Note what a bump costs, because it is not free: it resets every knob to the defaults, and
  * `boardSize` is a measurement the calibration profile owns rather than a default anyone chose.
  * `TrackerService`'s `onMeasuredBoard` is what keeps that reset from silently stopping detection.
  */
-const val CONFIG_SCHEMA_VERSION = 4
+const val CONFIG_SCHEMA_VERSION = 5
 
 @Serializable
 private data class ConfigEnvelope(
