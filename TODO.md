@@ -311,14 +311,18 @@ Aus dem Video nachgesehen (Frames als JPG, `data/` ist gitignored, Backups liege
   nicht sicher genug lesbar, deshalb NICHT als Referenz eingetragen: `tail_note` in der Datei, die
   Plies zaehlen als `beyond`. Wer sie bestaetigt, traegt sie nach.
 
+- `2026-08-08-11-59-12`: beide Knoten aus entzerrten Frames geprueft — der TRACKER hatte recht.
+  5150 Springer auf b8, 5250 Turm von f8 direkt auf b8 (kein `Rfc8`); 6100 `Rb1+` bei Koenig g1,
+  dann `Kh2`, `Ra1`, 6450 Bauer **a4** und Turm **a3** (Label sagte a3/Ra4 — vertauscht), `h5`.
+  Plies 53-68 durch die Tracker-Folge ersetzt (`candidate.json.bak.knots-20260904`), die
+  Frame-FENs im `log.jsonl` ab Ply 65 waren dadurch falsch (a3/a4) — 10 Zeilen neu gesetzt
+  (`log.jsonl.bak.knots-20260904`). **Wer diese Session schon exportiert hat, muss neu slicen und
+  packen** (CLAUDE.md: nach jedem Re-Slice neu packen). Ergebnis danach: **73/0/0**, 164 beyond.
+
 Stand des Satzes danach (19 Fixes, CLAHE serviert = ohne CLAHE zeilengleich): fuenf Aufnahmen
 fehlerfrei (13-52-38, 00-39-57, 11-55-19, 153751, 154327), 222203 mit drei Referenz-Plies nicht
-aussagekraeftig, 222741 und 233432 nach Korrektur fehlerfrei bzw. nur noch Ordnungsfrage. Echte
-Restfehler: **11-59-12** (Ordnungsknoten `Rfc8/Nxb8/Rxb8` und `Rb1/a3/h5/Ra4`, beide Referenzstellen
-sind Buendel auf EINEM Frame, also selbst geraten — Endstellung stimmt; Bild 5300: Turm schon auf b8,
-f8/c8 leer, der Abtausch war da durch wie der Tracker sagt (5160/5262), das Label fuehrt ihn 20 s
-spaeter und dazu ein `Rfc8`, das der Tracker nie sah — bei der Hand um 5100 nicht entscheidbar,
-Label unveraendert) und **233929** (ein Phantom
+aussagekraeftig, 222741 und 233432 nach Korrektur fehlerfrei bzw. nur noch Ordnungsfrage. Echter
+Restfehler: **233929** (ein Phantom
 `a5@2397` plus Alarm am abgeschnittenen Videoende, dazu zwei Zuege ohne Ruhefenster).
 
 **Auftrag (User, 2026-09-04): unbeweisbare Reihenfolgen nach Spielplausibilitaet waehlen.** Wo eine
