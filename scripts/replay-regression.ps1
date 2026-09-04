@@ -7,7 +7,8 @@
 # Builds `:desktop:installDist` first unless -Binary points elsewhere (an A/B base lives in a
 # worktree with `data` and `tmp` junctioned in — see TODO.md, 2026-09-04). Logs land under
 # tmp/batch/<Tag>/; the summary is found/missed/invented/beyond per recording — phantoms are the
-# veto, misses negotiable, `beyond` is what the video played after the label stopped.
+# veto, misses negotiable, `beyond` is what the video played after the label stopped, `reordered`
+# how many found plies the run explained in another order onto the same position.
 # Two JVMs at once is ~12 GB (see replay-batch.ps1 for why not more).
 param(
     [Parameter(Mandatory)][string]$Tag,
@@ -62,10 +63,14 @@ foreach ($x in ($results | Sort-Object { $_.Run.Name })) {
     $m = ($log | Select-String "missed (\d+):" | Select-Object -First 1)
     $i = ($log | Select-String "invented (\d+)" | Select-Object -First 1)
     $b = ($log | Select-String "beyond (\d+)" | Select-Object -First 1)
+    $r = ($log | Select-String "reordered (\d+)" | Select-Object -First 1)
     $a = ($log | Select-String "ALARM latched" | Measure-Object).Count
     # `beyond` fehlt in Logs, die ein aelterer Binary geschrieben hat — dann steht dort ein Strich.
     $bv = if ($b) { $b.Matches[0].Groups[1].Value } else { "-" }
+    $rv = if ($r) { [int]$r.Matches[0].Groups[1].Value } else { 0 }
     $s = if ($f) { "$($f.Matches[0].Groups[1].Value)/$($m.Matches[0].Groups[1].Value)/$($i.Matches[0].Groups[1].Value)/$bv" } else { "no score" }
+    # Die Plies liegen schon in `found`; die Zahl sagt nur, wie viele davon der Lauf anders sortiert hat.
+    if ($rv -gt 0) { $s = "$s · $rv reordered" }
     Write-Output ("{0,-22} {1,4} {2,5}  {3} · {4} alarm" -f $x.Run.Name, $x.Exit, $x.Sec, $s, $a)
 }
 Write-Output ("total {0}s · {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)
