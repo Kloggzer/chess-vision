@@ -100,6 +100,9 @@ class CnnObserver(
     @Volatile
     private var enabled = true
 
+    @Volatile
+    private var closed = false
+
     /** Observer thread only — [logObservation] is the sole reader and writer. */
     private var lastObservationLogMs = 0L
 
@@ -209,6 +212,7 @@ class CnnObserver(
      */
     override fun close() {
         scope.cancel()
+        closed = true
         val cnn = classifier
         classifier = null
         enabled = false
@@ -229,6 +233,13 @@ class CnnObserver(
     private fun load(open: () -> Attached) {
         runCatching(open)
             .onSuccess {
+                // [close] ran while the model was still opening and warming up: it saw no
+                // classifier to close, so this one is nobody's but ours — and Ready after a
+                // disable would re-arm an observer whose thread is already gone.
+                if (closed) {
+                    runCatching { it.classifier.close() }
+                    return
+                }
                 classifier = it.classifier
                 holder.ready(it.backend, it.model, it.classifier.classes.size)
             }.onFailure { holder.failed(it.message.orEmpty(), it) }

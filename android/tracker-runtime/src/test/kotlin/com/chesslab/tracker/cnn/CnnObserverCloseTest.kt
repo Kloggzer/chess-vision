@@ -101,6 +101,35 @@ class CnnObserverCloseTest {
     }
 
     @Test
+    fun closeDuringAttachClosesTheSessionThatArrivesLate() {
+        val opening = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val observer =
+            CnnObserver(
+                source = { cnnFrame(1) },
+                fen = { "start" },
+                onSnapshot = { },
+                log = RecordingLog(),
+                nowMs = { 0L },
+            )
+        observer.attach {
+            opening.countDown()
+            release.await()
+            Attached(classifier, "CPU", MODEL_FP32_FILE)
+        }
+        assertTrue(opening.await(2, TimeUnit.SECONDS), "precondition: the model must be opening")
+
+        val closer = Thread { observer.close() }
+        closer.start()
+        Thread.sleep(SETTLE_MS)
+        release.countDown()
+        closer.join(JOIN_MS)
+
+        assertEquals(1, classifier.closes.get(), "a session that finishes opening after close is still ours to close")
+        assertFalse(observer.state.value is CnnState.Ready, "a disabled observer must not publish Ready")
+    }
+
+    @Test
     fun aClosedObserverNeverAsksForAnotherFrame() {
         val observer = observer()
         observer.close()
