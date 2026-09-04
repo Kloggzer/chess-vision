@@ -110,7 +110,7 @@ class ReplayConfigFileTest {
 
     /** The signature's non-config inputs are fixed here; only the config under test varies. */
     private fun signatureOf(config: TrackerConfig): String =
-        visualCacheSignature(config, geometry, FloatArray(8) { it.toFloat() }, StillSource, stride = 1, lens = false)
+        visualCacheSignature(config, geometry, FloatArray(8) { it.toFloat() }, StillSource, stride = 1, lens = false, model = "m")
 
     private object StillSource : FrameSource {
         override fun next(): Mat? = null

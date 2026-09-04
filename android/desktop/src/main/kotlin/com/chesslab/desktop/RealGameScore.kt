@@ -37,10 +37,8 @@ internal class MoveScore(
 /**
  * Longest common subsequence over the SAN sequences — order-preserving, so a move the run commits
  * out of order counts as invented rather than silently matching a later identical SAN backwards.
- *
- * A run commit is only a phantom where the reference can contradict it: past the last found ply
- * AND past the last label frame the video simply keeps playing, and counting that as invented
- * reported 164 of 171 phantoms on `2026-08-08-11-59-12` that no label ever disputed.
+ * Only where the reference can contradict a commit is it a phantom: past the last found ply AND
+ * past the last label frame the video just keeps playing — 164 of 171 "phantoms" on 11-59-12.
  */
 internal fun scoreMoves(
     label: List<ScoredPly>,

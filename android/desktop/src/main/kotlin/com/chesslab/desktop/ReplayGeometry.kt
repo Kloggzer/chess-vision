@@ -12,13 +12,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
 /**
- * The board as the RECORDING describes it, not as four corners alone can.
- *
- * `boardGeometryFor` knows only the quad and stamps `margins4(0.045)` and white POV over
- * everything else: a game recorded from Black's side is then cut 180 degrees around, and a
- * candidate with another marker outset has every square boundary shifted. Both are on disk —
- * `candidate.json` carries the margin, the session's `settings.json` the orientation, and where
- * it does not the assumption is printed rather than made silently.
+ * The board as the RECORDING describes it: `boardGeometryFor` knows only the quad and stamps
+ * white POV and `margins4(0.045)` over the rest, so a black-side game was cut 180 degrees around.
+ * `candidate.json` carries the margin, `settings.json` the orientation; where neither is stored
+ * the printed line says the POV is assumed rather than measured.
  */
 internal fun replayBoardGeometry(
     quad: FloatArray,

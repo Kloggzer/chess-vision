@@ -5,8 +5,10 @@ import com.chesslab.cnn.OccupancyObservation
 import com.chesslab.engine.api.CnnSnapshot
 import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
@@ -45,6 +47,28 @@ class VisualObservationCacheTest {
         assertThrows(IllegalStateException::class.java) { VisualObservationCache.open(file, video, "model", "different") }
     }
 
+    @Test
+    fun `a model swapped under its own name is a different signature and a refused cache`() {
+        val graph = temp.resolve("model.onnx").toFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val before = modelSignature("real14-80", """{"infer_size": 80}""", graph)
+        val after = modelSignature("real14-80", """{"infer_size": 96}""", graph)
+        assertNotEquals(before, after)
+
+        val video = temp.resolve("swap.mp4").toFile().apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val file = temp.resolve("swap.cvo").toFile()
+        VisualObservationCache.open(file, video, "real14-80", before).use { }
+        val refused = assertThrows(IllegalStateException::class.java) { VisualObservationCache.open(file, video, "real14-80", after) }
+        assertTrue(refused.message.orEmpty().contains("built for another replay configuration"))
+    }
+
+    @Test
+    fun `a recopied graph of the same length is still a new signature`() {
+        val graph = temp.resolve("graph.onnx").toFile().apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val before = modelSignature("m", "{}", graph)
+        graph.setLastModified(graph.lastModified() + MINUTE_MS)
+        assertNotEquals(before, modelSignature("m", "{}", graph))
+    }
+
     private fun observation(): OccupancyObservation {
         val pOcc = ALL_SQUARES.associateWith { 0.75 }
         val pEmpty = ALL_SQUARES.associateWith { 0.20 }
@@ -60,6 +84,7 @@ class VisualObservationCacheTest {
     private companion object {
         const val GRID = 0x1234L
         const val SIGNATURE = "same replay"
+        const val MINUTE_MS = 60_000L
         val CORNERS = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f)
     }
 }

@@ -443,7 +443,7 @@ internal fun replayRun(
                     File(path.replace('~', ' ')),
                     video,
                     options.model,
-                    visualCacheSignature(config, geometry, quad, source, stride, options.lens),
+                    visualCacheSignature(config, geometry, quad, source, stride, options.lens, desktopModelSignature(options.model)),
                 )
             }
         val parallelVisual =
