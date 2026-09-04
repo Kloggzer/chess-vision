@@ -18,10 +18,15 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /** Python's 1 s guard after a failed observation (`_observe_snapshot`), so interval 0 cannot spin. */
 private const val BACKOFF_MS = 1000L
+
+/** Long enough for a running inference, short enough that a stuck thread cannot hang the restart. */
+private const val CLOSE_TIMEOUT_MS = 5000L
 private const val MS_PER_S = 1000.0
 
 /**
@@ -194,22 +199,30 @@ class CnnObserver(
     }
 
     /**
-     * Closes the session and gives the observer thread back.
+     * Closes the session, gives the observer thread back — and BLOCKS until both happened.
      *
-     * Both halves matter for a tracker restart, which closes an observer while the app keeps
-     * running: the session is freed ON the observer thread (closing an ORT session under a live
-     * `classify` is a native use-after-free, and `scope.cancel` cannot interrupt one that is
-     * already inside the runtime), and the executor is shut down afterwards, or every restart
-     * would leak a thread and a few hundred MB of arena.
+     * The session is freed ON the observer thread (closing an ORT session under a live `classify`
+     * is a native use-after-free, and `scope.cancel` cannot interrupt one already inside the
+     * runtime), so the wait is what makes the caller's next step safe: `TrackerStack.close`
+     * releases the pipeline and the crop CLAHE right after this, and the restart opens the next
+     * ONNX session. Bounded, because a close that never returns is worse than a leaked arena.
      */
     override fun close() {
         scope.cancel()
         val cnn = classifier
         classifier = null
         enabled = false
+        val done = CountDownLatch(1)
         CoroutineScope(dispatcher).launch {
-            cnn?.close()
-            (dispatcher as? ExecutorCoroutineDispatcher)?.close()
+            try {
+                cnn?.close()
+            } finally {
+                done.countDown()
+                (dispatcher as? ExecutorCoroutineDispatcher)?.close()
+            }
+        }
+        if (!done.await(CLOSE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            log.warn("CNN close timed out after $CLOSE_TIMEOUT_MS ms — the observer thread is still busy", null)
         }
     }
 
