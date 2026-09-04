@@ -64,6 +64,9 @@ Figuren von Haenden trennt (mit CNN: `cnnOcclusionFilter`, aber die Beobachtung 
 **11. CNN-Seite, erst messen.** (a) `identityRead` bricht bei `inconclusive` (< 32 label-sichere
 Felder) ab, bevor die Belegungsachse gefragt wird — im Dunkeln gibt es damit weder Match noch
 Recovery, obwohl `deriveMovesDeep` ab `minConfidentRecovery` = 8 Feldern arbeiten koennte.
+*Gemessen 2026-09-04* (Fallback auf die Belegungsachse, wenn >= `minConfidentBoard` Felder
+belegungssicher sind): auf allen zehn Aufnahmen zeilengleich — kein Nachweis, nicht eingebaut. Der
+Fall braucht eine Aufnahme aus dem dunklen Buero (2026-08-29), die es im Satz nicht gibt.
 (b) `pOcc = 1 − pEmpty − pOccluded` behandelt die unabhaengige Coverage-Spalte wie eine
 Softmax-Klasse; bei Coverage 0,14 (unter dem 0,15-Tor) faellt ein sicher besetztes Feld auf 0,81
 und aus jedem Nenner. (c) `guessIllegalMove`/`hasOccupancyConflict` gaten mit `labelConfident`,
