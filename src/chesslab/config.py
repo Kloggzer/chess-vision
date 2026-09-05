@@ -396,6 +396,11 @@ class Paths:
         return self.root / "datasets"
 
     @property
+    def packs(self) -> Path:
+        """One memmap per session (`packs/<pack>/`), shared by every dataset that cites it."""
+        return self.root / "packs"
+
+    @property
     def models(self) -> Path:
         return self.root / "models"
 
