@@ -1,6 +1,7 @@
 /**
- * A stored UTC instant in the clock the user reads off their phone: slicing `toISOString()` showed
- * CEST recordings two hours in the past, on the one number the page is checked against.
+ * A stored UTC instant in the phone's clock (`toISOString()` slices showed CEST two hours early).
+ * The server renders in ITS zone (UTC on `next dev`), so every element showing this carries
+ * `suppressHydrationWarning` — the browser's value is the one that counts.
  */
 export function when(iso?: string | null): string {
   if (!iso) return "";

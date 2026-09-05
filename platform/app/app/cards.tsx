@@ -5,7 +5,11 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/progress";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { ChainActions } from "@/app/chain-actions";
 import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
@@ -56,9 +60,13 @@ function UselessCard({ game }: { game: GameInfo }) {
   return (
     <li className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm opacity-60">
       <span className="font-medium">{game.title ?? game.name}</span>
-      {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
+      {game.title ? (
+        <span className="text-muted-foreground font-mono text-xs">
+          {game.name}
+        </span>
+      ) : null}
       <Badge variant="secondary">nutzlos</Badge>
-      <span className="text-muted-foreground text-xs">
+      <span className="text-muted-foreground text-xs" suppressHydrationWarning>
         {when(flag?.at ?? null) ?? "?"}
         {flag?.reason ? ` · ${flag.reason}` : ""}
       </span>
@@ -78,7 +86,8 @@ function BoardProgress({ game }: { game: GameInfo }) {
           <span className="text-muted-foreground text-xs">Lesarten —</span>
         </TooltipTrigger>
         <TooltipContent>
-          keine model-reads.jsonl für diese Aufnahme — nicht gemessen, nicht null
+          keine model-reads.jsonl für diese Aufnahme — nicht gemessen, nicht
+          null
         </TooltipContent>
       </Tooltip>
     );
@@ -104,10 +113,13 @@ export function GameCard({ game }: { game: GameInfo }) {
   }
 
   const act = (work: () => Promise<void>) => () =>
-    void work().then(() => {
-      setNote("");
-      router.refresh();
-    }, (e) => setNote(String(e)));
+    void work().then(
+      () => {
+        setNote("");
+        router.refresh();
+      },
+      (e) => setNote(String(e)),
+    );
 
   const saveTitle = (title: string) =>
     act(() => post(`/api/meta/${game.name}`, JSON.stringify({ title })))();
@@ -138,7 +150,8 @@ export function GameCard({ game }: { game: GameInfo }) {
               className="hover:border-border focus:border-border w-52 border-b border-transparent bg-transparent font-medium outline-none"
               defaultValue={game.title ?? ""}
               onBlur={(e) => {
-                if ((game.title ?? "") !== e.target.value.trim()) saveTitle(e.target.value);
+                if ((game.title ?? "") !== e.target.value.trim())
+                  saveTitle(e.target.value);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") e.currentTarget.blur();
@@ -146,10 +159,20 @@ export function GameCard({ game }: { game: GameInfo }) {
               placeholder={game.name}
             />
           </TooltipTrigger>
-          <TooltipContent>Anzeigename — leer lassen für den Verzeichnisnamen</TooltipContent>
+          <TooltipContent>
+            Anzeigename — leer lassen für den Verzeichnisnamen
+          </TooltipContent>
         </Tooltip>
-        {game.title ? <span className="text-muted-foreground font-mono text-xs">{game.name}</span> : null}
-        <ChainActions name={game.name} state={game.chain} lastJob={game.lastJob} />
+        {game.title ? (
+          <span className="text-muted-foreground font-mono text-xs">
+            {game.name}
+          </span>
+        ) : null}
+        <ChainActions
+          name={game.name}
+          state={game.chain}
+          lastJob={game.lastJob}
+        />
         <span className="ml-auto flex items-center gap-3">
           <BoardProgress game={game} />
         </span>
@@ -157,17 +180,23 @@ export function GameCard({ game }: { game: GameInfo }) {
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="tabular-nums">
-              {when(game.createdAt) ?? "?"} · {game.plies} Halbzüge{game.confirmed ? " ✓" : ""} ·{" "}
+            <span className="tabular-nums" suppressHydrationWarning>
+              {when(game.createdAt) ?? "?"} · {game.plies} Halbzüge
+              {game.confirmed ? " ✓" : ""} ·{" "}
               {game.pgnPlies !== null ? `PGN ${game.pgnPlies}` : "kein PGN"}
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {game.confirmed ? `bestätigt · ${game.reviewed} von ${game.plies} Halbzügen geprüft` : "unbestätigt"}
+            {game.confirmed
+              ? `bestätigt · ${game.reviewed} von ${game.plies} Halbzügen geprüft`
+              : "unbestätigt"}
           </TooltipContent>
         </Tooltip>
         {game.chain.step !== "confirm" && game.chain.hasCandidate ? (
-          <Link className="hover:text-foreground" href={`/confirm/${game.name}`}>
+          <Link
+            className="hover:text-foreground"
+            href={`/confirm/${game.name}`}
+          >
             Sichtprüfung
           </Link>
         ) : null}
@@ -181,19 +210,29 @@ export function GameCard({ game }: { game: GameInfo }) {
         <span className="ml-auto flex items-center gap-3 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
           <label className="hover:text-foreground cursor-pointer">
             {game.pgnPlies !== null ? "PGN ersetzen…" : "PGN hochladen…"}
-            <input accept=".pgn,.txt" className="hidden" onChange={uploadPgn} type="file" />
+            <input
+              accept=".pgn,.txt"
+              className="hidden"
+              onChange={uploadPgn}
+              type="file"
+            />
           </label>
           <UselessButton flagged={false} name={game.name} />
           <button
             className="hover:text-foreground cursor-pointer"
             onClick={act(() =>
-              post(`/api/meta/${game.name}`, JSON.stringify({ archived: !game.archived })),
+              post(
+                `/api/meta/${game.name}`,
+                JSON.stringify({ archived: !game.archived }),
+              ),
             )}
             type="button"
           >
             {game.archived ? "wiederherstellen" : "archivieren"}
           </button>
-          {game.chain.hasSession ? <SessionDelete sessionId={game.sessionId} /> : null}
+          {game.chain.hasSession ? (
+            <SessionDelete sessionId={game.sessionId} />
+          ) : null}
         </span>
       </div>
     </li>
