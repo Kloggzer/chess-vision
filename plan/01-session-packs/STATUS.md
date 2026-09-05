@@ -2,7 +2,7 @@
 
 | Phase | File | State | Note |
 |---|---|---|---|
-| 00 | 00-contract.md | in-progress | steps 1–2 done 2026-09-05 on `feat/sp-00` (`0731df2c`, `ba4c9bd7`, `c502c356`, `1f93efa2`), 7 tests; step 3 (reconcile with the reviewed contract) open |
+| 00 | 00-contract.md | done 2026-09-05 | `feat/sp-00`: `0731df2c`, `ba4c9bd7`, `c502c356`, `1f93efa2`, merge `410a3990`, `4e2016df` (step 3) — 9 tests |
 | 01 | 01-writer.md | todo | |
 | 02 | 02-loader.md | todo | |
 | 03 | 03-builder.md | todo | |
@@ -45,3 +45,11 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
   (`0731df2c` contract types, `ba4c9bd7` resolver + tests, `c502c356` docstring inside the comment
   budget, `1f93efa2` status). `tests/test_packs.py` 7 passed, `ruff check` clean, `vulture` silent.
   Step 3 (reconcile with the reviewed contract) open.
+- 2026-09-05, Phase 00 step 3 (`4e2016df`, after merging `main` at `c219bdb6` as `410a3990`):
+  `read_pack`/`dir_`, five-key `write_meta`, no `__iter__`, plus `DEFAULT_PACK_SIDE`, `PACKS_KEY`,
+  `packed_shape`, `list_packs`. `packs.py` is 139 lines, `tests/test_packs.py` 9 passed,
+  `tests/test_comment_budget.py` 1 passed (no `comment_budget.txt` entry needed), `ruff check` on
+  the three files clean, `vulture src tests --min-confidence 80` silent. Acceptance greps all hit:
+  `def packs` once, `self.packs` 0, 9 `def test_`, `__iter__`/`memmap`/`crop_fingerprint` 0.
+  **Exact next step:** the orchestrator merges `feat/sp-00` into `feat/session-packs`, then 01, 02
+  and 03 start in parallel off it.
