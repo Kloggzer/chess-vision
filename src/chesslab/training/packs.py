@@ -90,6 +90,30 @@ def load_pack(name: str, paths: config.Paths = config.DATA, *, dir: Path | None 
     return PackRef(name=name, image=img_path, shape=(n, h, w), paths=pack_paths)
 
 
+def resolve_packs(rows: list[dict], paths: config.Paths = config.DATA) -> MultiPack:
+    """Map manifest rows onto `(pack_no, row_no)`, packs numbered in first-seen order."""
+    order: list[PackRef] = []
+    number: dict[str, int] = {}
+    lookup: list[dict[str, int]] = []
+    idx = np.empty((len(rows), 2), dtype=np.int64)
+    for i, row in enumerate(rows):
+        name = pack_name_of(row["path"])
+        if name not in number:
+            ref = load_pack(name, paths)
+            if order and ref.shape[1:] != order[0].shape[1:]:
+                raise ValueError(f"pack {name} holds {ref.shape[1:]} crops, "
+                                 f"pack {order[0].name} holds {order[0].shape[1:]}")
+            number[name] = len(order)
+            order.append(ref)
+            lookup.append({p: j for j, p in enumerate(ref.paths)})
+        no = number[name]
+        where = lookup[no].get(row["path"])
+        if where is None:
+            raise KeyError(f"{row['path']} is not in pack {name}")
+        idx[i] = (no, where)
+    return MultiPack(files=[(str(r.image), r.shape) for r in order], idx=idx)
+
+
 def write_meta(dir: Path, rows: list[dict], h: int, w: int) -> None:
     """`crop_fingerprint` stays empty so `pack._rewritten_since_pack` treats it as fingerprinted."""
     (dir / _META).write_text(json.dumps({"n": len(rows), "h": h, "w": w,
