@@ -53,7 +53,7 @@ what `nextStep` would therefore return after a confirm. Do not change `chain.ts`
 
 1. `feat(scripts): phone_candidate_offset.py — phone clock against the replay, per ply` — the script,
    `uv run ruff check scripts/phone_candidate_offset.py` clean.
-2. `docs(status): phase 00 measured` — the three tables verbatim in `STATUS.md` → Session log, and
+2. `docs(status): phase 00 measured` — one table per measured bundle verbatim in `STATUS.md` → Session log, and
    under Notes the decided `PHONE_FRAME_OFFSET` (the median `delta_phone` rounded to an integer, or 0
    when the median lies within ±1) plus the chain-state audit. State plainly if the replay disagrees
    with the record on any ply (missed/invented) — that is a finding, not a failure.

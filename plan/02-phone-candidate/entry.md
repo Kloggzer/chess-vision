@@ -76,7 +76,7 @@ line stated under "Artifact authority" — 02 never imports Kotlin, 01 never tou
   [force=1]`, run from `desktopWorkDir()` (`jobs.ts:370`) like every other verb. `<recordingDir>` is
   the absolute `gameDir(name)` (`data.ts:50`). Exit 0 and `candidate.json` written; exit 1 and one
   line starting with `refused:` on stdout for every refusal (no record, more than one record naming
-  the session, more than one `GameSegment`, an illegal move, a ply outside the video, an existing
+  the session, an empty first segment, an illegal move, a ply outside the video, an existing
   candidate without `force=1`). 02 codes against this text; it invents no other signal.
 - **`candidate.json` keys** are exactly `RealGameCandidate.kt:157 candidateJson` — the verb calls
   it and `writeCandidate` (`:259`, which hardcodes `confirmed: false`). New content only inside
