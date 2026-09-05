@@ -128,6 +128,16 @@ def _pixel_pack(paths: config.Paths, name: str, n: int, base: int) -> list[dict]
     return rows
 
 
+def _pack_built_dataset(paths: config.Paths, name: str, rows: list[dict], packs: str = "[A]"):
+    from chesslab.dataset_build import dataset_dir
+
+    dd = dataset_dir(name, paths)
+    dd.mkdir(parents=True)
+    (dd / "manifest.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (dd / "dataset.yaml").write_text(f"{packs_mod.PACKS_KEY}: {packs}\n", encoding="utf-8")
+    return dd
+
+
 def test_square_dataset_serves_pixels_from_the_right_pack(paths):
     from chesslab.training.torch_data import PackedSquareDataset
 
@@ -188,3 +198,27 @@ def test_dataset_pickles_without_memmaps(paths):
 
     assert clone.__getstate__()["_mm"] is None and clone.rows is None
     assert torch.equal(clone[1][0], first)
+
+
+def test_resolve_dataset_packs_reads_the_yaml_key(paths):
+    from chesslab.training.pack import resolve_dataset_packs
+
+    rows = _pixel_pack(paths, "A", 3, base=5)
+    dd = _pack_built_dataset(paths, "ds", rows)
+
+    mp = resolve_dataset_packs("ds", paths, manifest_rows=rows)
+
+    assert mp is not None and mp.n == 3
+    assert [r["_pack_at"] for r in rows] == [(0, 0), (0, 1), (0, 2)]
+    (dd / "dataset.yaml").write_text("classes: pieces13\n", encoding="utf-8")
+    assert resolve_dataset_packs("ds", paths) is None
+
+
+def test_load_packed_refuses_a_pack_built_dataset(paths):
+    from chesslab.training.pack import load_packed
+
+    rows = _pixel_pack(paths, "A", 2, base=1)
+    _pack_built_dataset(paths, "ds", rows)
+
+    with pytest.raises(ValueError, match="data/packs"):
+        load_packed("ds", paths)
