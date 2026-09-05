@@ -24,11 +24,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   niemand: eine Hand > 3 s in Ruhe ist unsichtbar. Bevorzugt: bewegungsqualifizierter Latch (Flags,
   die während Bewegung handförmig waren, bleiben, solange dieselben Felder flaggen; keine neuen in
   Ruhe). Messen: Ruhehand-Clips 3/10/30 s, 20260814-142947 muss 0 Phantome bleiben.
-- **Window-End-Accept ohne Blind-Guard.** `VerifySingle.windowEnd` nimmt den Diff, wenn die
-  Konfliktmenge leer ist — auf dunklem Brett vakuum-leer; `pairWindowEnd`: ein sicheres Feld reicht.
-  Bevorzugt: `occN >= 2` (beide Endfelder lesbar) sonst halten; Paare volle Maske. Messen nach `occN`.
-- **Desync-Serie: laufender Kern statt Teilmengen.** `{a}→{a,b}→{b}→{b,c}→{c}` hält die Serie, ohne
-  dass ein Feld sie trägt. Regel: `core = core ∩ conflicts`, leer = Neustart.
 - **Zugfolge nach Plausibilität** (User 2026-09-04). Bei einer Brücke mit mehreren Wegen zur selben
   Endstellung nimmt der Beam „kürzeste, zuerst gefunden". Stattdessen eine winzige Bewertung in
   `core-engine` (Material + SEE + max. 2 Halbzüge, Mikrosekunden), Stockfish nur falls das nicht
@@ -151,6 +146,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Desync-Kern und Window-End (2026-09-05):** die Serie trägt den Schnitt aller Blicke; das
+  Window-End verlangt beide Endfelder (Paare: volle Maske, Knob `windowEndBothEnds`, an). Beide
+  zeilengleich zur Basis — `diff_after_verify` feuert im Satz nie, der Knob braucht die Dunkel-Aufnahme.
 - **Billiges vom 2026-09-05:** Mattstellung per CNN adoptierbar (`reachable` prüft nur noch den
   Gegner im Schach); ein Modell-Snapshot je Neustart statt zweier Lesungen; `SessionTimeline.close()`
   wartet den Writer bis 2 s ab; `occluders` nennt `connectivity`.
