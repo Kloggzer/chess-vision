@@ -45,7 +45,9 @@ fun observationFromProbs(
                 }
             pEmpty[square] = pe
             pOccluded[square] = po
-            pOcc[square] = maxOf(0.0, 1.0 - pe - po)
+            // The coverage column is an independent sigmoid, no softmax class: it gates `confident`,
+            // it does not share the denominator (only a real `occluded` class does).
+            pOcc[square] = if (iOccluded >= 0) maxOf(0.0, 1.0 - pe - po) else 1.0 - pe
             val top = argmaxFirst(probs, classes.size)
             label[square] = classes[top]
             conf[square] = probs[top]

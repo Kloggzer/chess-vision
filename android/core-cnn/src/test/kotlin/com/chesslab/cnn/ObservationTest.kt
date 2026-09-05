@@ -101,6 +101,23 @@ class ObservationTest {
         assertFalse(fourteen.labelConfident("e4", THR), "the 14-class softmax stays false as before")
     }
 
+    /**
+     * The coverage column is an independent sigmoid, not a softmax class: a square the classes call
+     * 99 % occupied does not lose 14 points of occupancy because a hand's edge is 14 % likely.
+     * Only a run with a real `occluded` CLASS shares one denominator.
+     */
+    @Test
+    fun `coverage mass does not leave the occupancy denominator`() {
+        assertClose(1.0, covered(0.14).pOcc.getValue("e4"), "13 classes + coverage: 1 − pEmpty")
+        assertTrue(covered(0.14).confident("e4", THR), "a surely occupied square stays confident")
+
+        val softmax = DoubleArray(EXPECTED_CLASSES.size)
+        softmax[EXPECTED_CLASSES.indexOf("wQ")] = 0.86
+        softmax[EXPECTED_CLASSES.indexOf("occluded")] = 0.14
+        val fourteen = observationFromProbs(mapOf("e4" to softmax), EXPECTED_CLASSES)
+        assertClose(0.86, fourteen.pOcc.getValue("e4"), "an occluded CLASS still shares the denominator")
+    }
+
     /** One coverage-model square: `wQ` at 0.99 with the coverage column set to [coverage]. */
     private fun covered(coverage: Double): OccupancyObservation {
         val row = DoubleArray(PIECES13_CLASSES.size + 1)

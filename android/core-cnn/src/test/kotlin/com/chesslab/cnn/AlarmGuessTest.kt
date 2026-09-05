@@ -4,6 +4,7 @@ import com.github.bhlangonijr.chesslib.Board
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AlarmGuessTest {
@@ -24,6 +25,30 @@ class AlarmGuessTest {
         assertNull(guessIllegalMove(twoSources.board(), twoSources.observation(), twoSources.num("confThr")))
         val clean = CnnFixtures.rows(CnnFixtures.GUESS).first { it.str("name") == "no_conflict" }
         assertNull(guessIllegalMove(clean.board(), clean.observation(), clean.num("confThr")))
+    }
+
+    /**
+     * The shape is occupancy, so the confidence must be too: a destination the classes call 90 %
+     * occupied but split between knight and bishop is a destination. Read off the identity axis it
+     * was invisible, and the alarm lost its move shape on exactly the squares that matter.
+     */
+    @Test
+    fun `a destination sure in occupancy but split in identity still counts`() {
+        val board = Board()
+        val rows = LinkedHashMap<String, DoubleArray>()
+        for ((sq, label) in expectedLabels(board)) {
+            rows[sq] = DoubleArray(PIECES13_CLASSES.size).also { it[PIECES13_CLASSES.indexOf(label)] = 0.99 }
+        }
+        rows["e2"] = DoubleArray(PIECES13_CLASSES.size).also { it[PIECES13_CLASSES.indexOf("empty")] = 0.99 }
+        rows["e4"] =
+            DoubleArray(PIECES13_CLASSES.size).also {
+                it[PIECES13_CLASSES.indexOf("wN")] = 0.45
+                it[PIECES13_CLASSES.indexOf("wB")] = 0.45
+                it[PIECES13_CLASSES.indexOf("empty")] = 0.1
+            }
+        val obs = observationFromProbs(rows, PIECES13_CLASSES)
+        assertEquals("e2e4", guessIllegalMove(board, obs, 0.85))
+        assertTrue(hasOccupancyConflict(board, obs, 0.85, listOf("e4")))
     }
 
     @Test

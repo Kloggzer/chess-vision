@@ -41,10 +41,7 @@ fun hasOccupancyConflict(
     conflicts: Collection<String>,
 ): Boolean {
     val expected = expectedLabels(board)
-    val identity = obs.label != null
     return conflicts.any { sq ->
-        obs.pOcc.containsKey(sq) &&
-            (if (identity) obs.labelConfident(sq, confThr) else obs.confident(sq, confThr)) &&
-            (expected.getValue(sq) == "empty") != (if (identity) obs.label(sq) == "empty" else !obs.occupied(sq))
+        obs.pOcc.containsKey(sq) && obs.confident(sq, confThr) && (expected.getValue(sq) == "empty") != !obs.occupied(sq)
     }
 }
