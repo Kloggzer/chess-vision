@@ -106,6 +106,19 @@ class VerifyPairTest {
         assertTrue(state.note!!.contains("pre-existed"), state.note!!)
     }
 
+    /** One sure square of the four the pair touches: under the full-mask rule that is an occlusion timeout. */
+    @Test
+    fun pairWindowEndNeedsEveryTouchedSquareWhenBothEndsAreRequired() {
+        val state = pairState(verifyWindow = 3, bothEnds = true)
+        val moves = pairMoves(state, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(conflicts = listOf("c6"))
+        val obs = PairObs(occupancy = mapOf("e4" to true), sure = setOf("e4"))
+        repeat(3) { pairTick(state, cnn, moves, obs) }
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.pending)
+        assertTrue(state.note!!.contains("occlusion"), state.note!!)
+    }
+
     @Test
     fun pairWindowEndOccludedDiscards() {
         val state = pairState(verifyWindow = 3)

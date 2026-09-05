@@ -72,6 +72,9 @@ data class TrackerConfig(
     // Legal recovery always wins when both paths are available.
     val autoResyncObsN: Int = 0,
     val verifyObsVotes: Int = 2,
+    // Window end accepts the diff only with BOTH endpoints readable (pairs: every touched square);
+    // one readable square on a dark board is an empty conflict set, not a clear view. Measured 2026-09-05.
+    val windowEndBothEnds: Boolean = false,
     val observerIntervalS: Double = 0.0,
     val darkLumaThr: Double = 18.0,
     val cnnVerify: Boolean = true,

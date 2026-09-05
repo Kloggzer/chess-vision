@@ -255,6 +255,13 @@ val KNOB_CATALOG: List<KnobUi> =
                 " see (13-class models report no occlusion at all).",
         ),
         flag(
+            "windowEndBothEnds",
+            VETOES,
+            "At the end of an undecided verify window the diff is accepted only when BOTH endpoints (pairs:" +
+                " every touched square) were readable. Off = one readable square suffices, so a dark board's" +
+                " empty conflict set passes as a clear view.",
+        ),
+        flag(
             "modelHandGate",
             VETOES,
             "Plausibility filter on the model's occluded reads: they count as a hand only when hand-shaped" +

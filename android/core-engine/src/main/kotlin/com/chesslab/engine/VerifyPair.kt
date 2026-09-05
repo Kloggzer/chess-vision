@@ -49,7 +49,8 @@ internal object VerifyPair {
         val conf = confidentMask(obs, cnn.confThr)
         // The LOCAL axis: only the squares the pair physically changes, so a stale misread
         // elsewhere is irrelevant. `nConf` is the WHOLE board — the two are not interchangeable.
-        val checked = touchedMask(boardSnap, moves) and conf
+        val touched = touchedMask(boardSnap, moves)
+        val checked = touched and conf
         val pairAgree = pairAgreement(obs, afterBoard, checked)
         val wrongColour = pairColourConflicts(obs, afterBoard, checked, cnn.confThr)
         val nConf = conf.countOneBits()
@@ -72,14 +73,14 @@ internal object VerifyPair {
                     emptyList()
                 }
             pend.frames >= state.config.verifyWindow || state.verifyExpired(pend) ->
-                state.pairWindowEnd(moves, pend, checked, before, after)
+                state.pairWindowEnd(moves, pend, state.pairReadable(checked, touched), before, after)
             else -> {
                 // Siehe `VerifySingle`: die Serie muss aufeinanderfolgend sein.
                 pend.voteOutcome = null
                 pend.voteCount = 0
                 state.note =
                     "checking double move ${pairKey(moves)} via CNN… (${pend.frames}/${state.config.verifyWindow}) " +
-                    colourTrace(obs, afterBoard, touchedMask(boardSnap, moves), checked)
+                    colourTrace(obs, afterBoard, touched, checked)
                 emptyList()
             }
         }
@@ -121,6 +122,11 @@ private fun EngineState.commitPair(
     return applyVerdict(VerifyVerdict.For(decider), pend)
 }
 
+private fun EngineState.pairReadable(
+    checked: Long,
+    touched: Long,
+): Boolean = if (config.windowEndBothEnds) checked == touched else checked != 0L
+
 /**
  * Rung 3 — the window is up, NOT vote-gated: the window itself is the damping. Post-move conflicts
  * that all pre-existed are chronic misreads and cannot discriminate, so the diff evidence stands; a
@@ -129,19 +135,19 @@ private fun EngineState.commitPair(
 private fun EngineState.pairWindowEnd(
     moves: List<Move>,
     pend: PendingVerify,
-    checked: Long,
+    readable: Boolean,
     before: ResyncResult,
     after: ResyncResult,
 ): List<TrackerEvent> {
     val key = pairKey(moves)
     val preexisting = ofSquares(after.conflicts).without(ofSquares(before.conflicts)) == 0L
     return when {
-        checked != 0L && preexisting -> {
+        readable && preexisting -> {
             val events = commitPair(pend, DECIDER_DIFF_AFTER_VERIFY)
             note = "Double move $key accepted (CNN conflicts pre-existed the candidate)"
             events
         }
-        checked == 0L -> {
+        !readable -> {
             rejectPair(key, "Verification timed out under occlusion — no move committed", emptyList())
             emptyList()
         }

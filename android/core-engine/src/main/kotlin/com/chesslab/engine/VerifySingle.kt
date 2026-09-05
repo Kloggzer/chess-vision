@@ -199,7 +199,7 @@ private fun EngineState.windowEnd(
 
         // Both endpoints stayed occluded the whole window. NEVER auto-accept under a hand — that
         // was the old hole where a covering hand committed fiction.
-        !(sig.toConf || sig.fromConf) ->
+        if (config.windowEndBothEnds) !(sig.toConf && sig.fromConf) else !(sig.toConf || sig.fromConf) ->
             reject(VERIFY_GHOST, "Verification timed out under occlusion — no move committed")
 
         else -> {

@@ -104,8 +104,9 @@ internal fun pendingState(
     uci: String = "e2e4",
     fen: String = STARTPOS,
     verifyWindow: Int = 8,
+    bothEnds: Boolean = false,
 ): EngineState {
-    val state = EngineState(testConfig().copy(verifyWindow = verifyWindow), fen)
+    val state = EngineState(testConfig().copy(verifyWindow = verifyWindow, windowEndBothEnds = bothEnds), fen)
     state.cnnRun = true
     state.refGray = grayFrame(listOf("e2"))
     state.refFen = state.board.fen()

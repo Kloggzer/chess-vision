@@ -118,6 +118,7 @@ val KNOBS: List<Knob> =
         Knob("observerIntervalS", DOUBLE, { it.observerIntervalS }, { c, v -> c.copy(observerIntervalS = v) }),
         Knob("darkLumaThr", DOUBLE, { it.darkLumaThr }, { c, v -> c.copy(darkLumaThr = v) }),
         Knob("cnnVerify", BOOL, { bool(it.cnnVerify) }, { c, v -> c.copy(cnnVerify = v != 0.0) }),
+        Knob("windowEndBothEnds", BOOL, { bool(it.windowEndBothEnds) }, { c, v -> c.copy(windowEndBothEnds = v != 0.0) }),
         Knob("liveAlign", BOOL, { bool(it.liveAlign) }, { c, v -> c.copy(liveAlign = v != 0.0) }),
         Knob("usePrior", BOOL, { bool(it.usePrior) }, { c, v -> c.copy(usePrior = v != 0.0) }),
         Knob("boardSize", INT, { it.boardSize.toDouble() }, { c, v -> c.copy(boardSize = v.toInt()) }),

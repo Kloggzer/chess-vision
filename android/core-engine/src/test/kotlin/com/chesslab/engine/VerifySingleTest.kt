@@ -374,6 +374,18 @@ class VerifySingleTest {
         assertEquals("ghost", state.verifyState)
     }
 
+    /** The origin left but the target never became readable: under the both-ends rule that is a hand, not a clear view. */
+    @Test
+    fun oneReadableEndpointIsAnOcclusionTimeoutWhenBothAreRequired() {
+        val state = pendingState(verifyWindow = 3, bothEnds = true)
+        val obs = VerifyObs(mapOf("e4" to false, "e2" to false), mapOf("e4" to false, "e2" to true))
+        repeat(3) { state.glance(VerifyEvaluator(occN = 1), obs) }
+
+        assertEquals(emptyList<String>(), state.history)
+        assertNull(state.pending)
+        assertTrue(state.note!!.contains("timed out under occlusion"))
+    }
+
     @Test
     fun clearviewBorderlineAcceptsAfterWindow() {
         val state = pendingState(verifyWindow = 3)

@@ -105,8 +105,9 @@ internal fun pairState(
     ucis: List<String> = listOf("e2e4", "e7e5"),
     verifyWindow: Int = 8,
     cur: GrayImage = grayFrame(listOf("e4", "e5")),
+    bothEnds: Boolean = false,
 ): EngineState {
-    val state = EngineState(TrackerConfig(verifyWindow = verifyWindow), fen, whitePov = true)
+    val state = EngineState(TrackerConfig(verifyWindow = verifyWindow, windowEndBothEnds = bothEnds), fen, whitePov = true)
     state.refGray = grayFrame(listOf("e2", "e7"))
     state.refFen = state.board.fen()
     state.pending =
