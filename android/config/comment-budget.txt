@@ -121,7 +121,6 @@ arena/src/main/kotlin/com/chesslab/arena/Arena.kt 1
 arena/src/main/kotlin/com/chesslab/arena/ArenaMain.kt 1
 arena/src/main/kotlin/com/chesslab/arena/Score.kt 1
 arena/src/main/kotlin/com/chesslab/arena/Truth.kt 1
-core-cnn/src/main/kotlin/com/chesslab/cnn/AlarmGuess.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/CnnConfig.kt 2
 core-cnn/src/main/kotlin/com/chesslab/cnn/DeepSearch.kt 1
 core-cnn/src/main/kotlin/com/chesslab/cnn/Observations.kt 1
