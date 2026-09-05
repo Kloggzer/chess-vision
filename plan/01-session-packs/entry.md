@@ -22,7 +22,8 @@ labeling UI) is untouched.
 | 04 | 04-parity.md | end-to-end on one real session, docs, README | 01, 02, 03 | last, alone |
 
 Phase 00 is the contract provider: it lands and is merged before 01–03 start. 01–03 import
-`training/packs.py` and never edit each other's files. 04 is the only phase that trains.
+`training/packs.py` and never edit the same FUNCTION; where two phases touch one file the
+registry names the function each owns and the orchestrator merges. 04 is the only phase that trains.
 
 ## Protocol
 
@@ -52,25 +53,31 @@ Phase 00 is the contract provider: it lands and is merged before 01–03 start. 
 
 | File | Created by | May be extended by | Notes |
 |---|---|---|---|
-| `src/chesslab/training/packs.py` | 00 | 01 (writer section), 02 (open helpers) | contract types frozen after 00 |
+| `src/chesslab/training/packs.py` | 00 | nobody | contract types frozen after 00 |
+| `src/chesslab/training/pack_writer.py` | 01 | — | `write_session_pack`, `import_pack` |
 | `src/chesslab/config.py` | exists | 00 only (`Paths.packs`) | |
-| `src/chesslab/labeling.py` | exists | 01 only | crop generator seam |
-| `src/chesslab/cli.py` | exists | 01 (`session pack`, `pack import`), 03 (`dataset build --from-packs`) | disjoint hunks |
-| `src/chesslab/training/pack.py` | exists | 02 (`load_packed`), 03 (`pack_dataset` refusal) | disjoint functions |
+| `src/chesslab/labeling.py` | exists | 01 only | `_slice_session` seam |
+| `src/chesslab/cli.py` | exists | 01 (`session pack`, new `pack_app`), 03 (`dataset build` options only) | different functions |
+| `src/chesslab/training/pack.py` | exists | 02 (`_load_packed`), 03 (`pack_dataset`) | different functions |
 | `src/chesslab/training/torch_data.py` | exists | 02 only | |
-| `src/chesslab/training/train.py`, `evaluate.py` | exist | 02 only | |
+| `src/chesslab/training/train.py`, `evaluate.py`, `gradcam.py` | exist | 02 only | every `load_packed` consumer in `src/` |
+| `scripts/*.py` (11 `load_packed` callers) | exist | nobody | legacy datasets only; a pack-built dataset raises the `MultiPack.__iter__` message |
 | `src/chesslab/dataset_build.py` | exists | 03 only | |
-| `docs/data-pipeline.md`, `README.md` | exist | 04 only | durable facts land here |
-| `tests/test_packs.py` | 00 | 02 | |
+| `scripts/pack_parity.py` | 04 | — | |
+| `docs/data-pipeline.md`, `README.md`, `TODO.md` | exist | 04 only | durable facts land here |
+| `tests/test_packs.py` | 00 | 02 (append) | |
 | `tests/test_session_pack.py` | 01 | — | |
 | `tests/test_dataset_build.py`, `tests/test_pack.py` | exist | 03 (append) | |
 
 ## Artifact and schema authority
 
-- The pack directory layout and `packed_meta.json` keys are owned by Phase 00 and are exactly
-  what `LabeledVideoPack.kt` emits today (`android/desktop/.../LabeledVideoPack.kt`, `manifestRow`,
-  `packed_meta.json` writer). A consumer needing a key the meta does not carry records a gap in
-  `STATUS.md`; it never invents one.
+- The pack directory layout and the REQUIRED `packed_meta.json` keys are owned by Phase 00.
+  `LabeledVideoPack.kt` (`manifestRow` :530, meta writer :219-225) emits a superset with extra
+  keys and no `crop_fingerprint`; Phase 00 lists what is required, everything else is optional.
+  A consumer needing a key the meta does not carry records a gap in `STATUS.md`; never invents one.
+- **Invariant:** the pack directory name equals the first `mm://` segment of every row it holds
+  (`pack_name_of(row["path"]) == dir.name`). Kotlin writes `mm://$id/…` with its `id=` option, so
+  a Kotlin pack is imported under that id; Python names its packs `<session_id>-<W>`.
 - The ONE digest: `training.pack._manifest_digest` (path, label, out_size per row). The Kotlin
   writer reproduces its byte stream; the Python writer calls it.
 - Pixel order in every memmap: `(N, H, W, 3)` uint8 **RGB** (the loader does
@@ -83,7 +90,9 @@ Phase 00 is the contract provider: it lands and is merged before 01–03 start. 
 - The shared branch will not compile mid-phase. Gate in your own worktree; never touch another
   phase's file to go green; report which files you gated.
 - Per-agent green lights come from partial trees. The orchestrator re-runs the gate.
-- No untyped seam: 01–03 pass `PackRef`/`MultiPack`/`np.ndarray`, never dicts of unknown shape.
+- No untyped seam for NEW types: 01–03 pass `PackRef`/`MultiPack`/`np.ndarray`. Manifest rows
+  stay the repo-wide `dict` with the slice keys (`labeling.py:541-563`); CLI result dicts are
+  consumed inside the phase that returns them.
 - Every module boundary has one test against the real implementation, named in the phase.
 
 ## Definition of done (per phase)

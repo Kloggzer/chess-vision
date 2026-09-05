@@ -19,11 +19,13 @@ pack size, default `(80, 80)` when `from_packs`):
   `stats.json` runs unchanged — packs are just another source manifest.
 - No `pack_dataset` call. `dataset.yaml` gets `packs: [<pack names in first-seen order>]`
   (this is the key Phase 02's `load_packed` reads) and `source_manifest` lists the pack manifests.
-- `--like` (`:317`) inherits it: a donor built from packs makes a twin from packs.
+- `--like`: `_donor_policy` (`dataset_build.py:269-293`, the whitelist of keys a twin copies)
+  gains `from_packs`; `_split_from` (`:296`) is untouched.
 
 `pack.py:pack_dataset`: refuse a pack-built dataset (`dataset.yaml["packs"]` present) with
 `ValueError("dataset '<name>' is built from session packs — it has no crop files; its pixels live
-in data/packs/…")`, next to the existing fused-synth refusal (`:166-170`). `link_pack` unchanged.
+in data/packs/…")` placed BEFORE the existing `mm://` fused-synth refusal (`:166-170`), which
+otherwise fires first with the wrong message. `link_pack` unchanged.
 
 CLI (`cli.py`, `@dataset_app.command("build")` at `:1268`): `--from-packs` flag; the existing
 `--pack-size` option selects the pack size.

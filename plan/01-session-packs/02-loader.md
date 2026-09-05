@@ -27,19 +27,24 @@ Same for `PackedBoardDataset` (`idx` becomes `(boards, 64, 2)`). `__getstate__` 
 `_mm` and `rows`. The donor pool (`donors`) stores `(pack_no, row_no)` pairs. One helper
 `_pack_index(rows, packed) -> (files, idx)` serves both classes.
 
-`pack.py:load_packed(name, paths, manifest_rows)`:
+`pack.py:_load_packed` (`:354`, the function that does the `packed_meta` lookup; `load_packed`
+`:332` only wraps it in `measure`):
 
 ```python
-# before the packed_meta lookup:
-cfg = dataset_dir(name, paths) / "dataset.yaml"
+# first statement after `dd = dataset_dir(name, paths)`:
+cfg = dd / "dataset.yaml"
 if cfg.exists() and yaml.safe_load(cfg.read_text(encoding="utf-8")).get("packs"):   # key written by Phase 03
     rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
     return resolve_packs(rows, paths)          # MultiPack; KeyError/ValueError propagate — never None
 ```
 
-Legacy path unchanged. `train.py:_require_pack` accepts a `MultiPack` (it only sees
-`packed is None`); `evaluate.py:149-168` needs no change beyond the union type — verify by test.
+Legacy path unchanged. Consumers in `src/` that unpack the tuple are this phase's to fix:
+`train.py:510` (`n, h, w = packed[1]`) → new helper `torch_data.packed_nhw(packed) -> tuple[int, int, int]`
+for both shapes; `gradcam.py:40` (`path, shape, p2i = packed`) stays — a `MultiPack` raises the
+`__iter__` message there (grad-cam on pack-built datasets is out of scope; note it in `STATUS.md`).
+`train.py:_require_pack` only tests `packed is None`; `evaluate.py:149-168` passes `packed` through.
 `open_packed_memmap` (`pack.py:514`) is reused per file, so `_PreadRows` keeps working per pack.
+`scripts/*.py` are not adapted (registry).
 
 ## Steps
 
@@ -57,6 +62,7 @@ Fixture: two fake packs with REAL pixels (write small `(n,4,4,3)` arrays), rows 
 - `test_dataset_pickles_without_memmaps` — `pickle.dumps(ds)` after one `__getitem__`; the
   unpickled copy serves the same item (Windows spawn contract).
 - `test_load_packed_returns_a_multipack_for_a_pack_built_dataset` — `dataset.yaml` with `packs:`.
+- `test_packed_nhw_reads_a_multipack_and_the_legacy_tuple` — both shapes give `(n, h, w)`.
 
 Commands: `uv run pytest -q tests/test_packs.py`; also `uv run pytest -q tests/test_pack.py`
 (legacy contract, must stay green with its count unchanged).
@@ -65,7 +71,7 @@ Commands: `uv run pytest -q tests/test_packs.py`; also `uv run pytest -q tests/t
 
 - Both commands green; `tests/test_pack.py` count unchanged.
 - `grep -n 'path2idx\[r\["path"\]\]' src/chesslab/training/torch_data.py` hits 0 (index
-  resolution lives in `_pack_index`, used by both datasets).
+  resolution lives in `_pack_index`, used by both datasets); `grep -c "packed\[1\]" src/chesslab/training/train.py` → 0.
 - `uv run ruff check src/chesslab/training/torch_data.py src/chesslab/training/pack.py` clean.
 
 ## Do NOT
