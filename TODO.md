@@ -145,6 +145,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **137 GB Memmaps gelöscht (2026-09-05):** 14 gemessene Experiment-Datensätze (`real13-mix-v4-128/-96/-pad0/-ff/-ffbase`
+  85 GB, `real13-straight-80-v1/-v2`, `real13-c8d1-r96`, `abA/abB/ab-files-80`, `comp13-v3/-v4-80`,
+  `sp-parity-pool`); Rezepte (`manifest.jsonl`, `split.json`, `dataset.yaml`) bleiben, Neubau per
+  `dataset build --like <name> --from-packs`. Liste in `scripts/drop_measured_memmaps.py`.
 - **Sessions direkt in eine Memmap (2026-09-05):** `session pack` / `pack import` /
   `dataset build --from-packs`; auf 11-59-12 zeilengleich (50 310/50 310, Differenz 0), 1,684/255
   mittlere Pixelabweichung — der Pool-Datensatz 944 MB, der Pack-Datensatz 18 MB.
