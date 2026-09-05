@@ -142,6 +142,25 @@ class SyncRunTest {
     }
 
     @Test
+    fun `sent recordings leave the phone after the retention window, held and fresh ones stay`() {
+        val old = session("20260801-100000")
+        writeMark(old, TransferMark("http://host:3000", nowMs - 8 * DAY_MS, 9, 3, "landed"))
+        val fresh = session("20260901-100000")
+        writeMark(fresh, TransferMark("http://host:3000", nowMs - 2 * DAY_MS, 9, 3, "landed"))
+        // `held` means the PC already had a copy and parked this one: not this janitor's call.
+        val held = session("20260802-100000")
+        writeMark(held, TransferMark("http://host:3000", nowMs - 8 * DAY_MS, 9, 3, "held"))
+        val unsent = session("20260803-100000")
+
+        assertEquals(emptyList<String>(), sweepSentRecordings(sessionsDir(), nowMs, 0L), "0 = keep everything")
+        assertEquals(listOf("20260801-100000"), sweepSentRecordings(sessionsDir(), nowMs, 7 * DAY_MS))
+        assertFalse(old.exists())
+        assertTrue(fresh.exists())
+        assertTrue(held.exists())
+        assertTrue(unsent.exists())
+    }
+
+    @Test
     fun `the janitor never races a directory that is still being written`() {
         val young = File(sessionsDir(), "20260814-100000").apply { mkdirs() }
         File(young, "timeline.jsonl").writeText("{}")

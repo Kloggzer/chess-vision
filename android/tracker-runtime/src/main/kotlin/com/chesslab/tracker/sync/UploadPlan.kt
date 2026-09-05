@@ -111,6 +111,26 @@ fun sweepEmptyRecordings(
         .filter { it.deleteRecursively() }
         .map { it.name }
 
+const val DAY_MS = 24 * 60 * 60 * 1000L
+
+/**
+ * The retention janitor: a recording the server sealed (`landed`) is on the PC, so after
+ * [retentionMs] it leaves the phone. `held` stays — the PC parked a duplicate, and which copy is
+ * right is a human's call. 0 keeps everything. Returns the names, like [sweepEmptyRecordings].
+ */
+fun sweepSentRecordings(
+    sessionsDir: File,
+    now: Long,
+    retentionMs: Long,
+): List<String> {
+    if (retentionMs <= 0L) return emptyList()
+    return (sessionsDir.listFiles { f: File -> f.isDirectory }?.toList() ?: emptyList())
+        .filter { dir -> readMark(dir)?.let { it.status == "landed" && now - it.at >= retentionMs } == true }
+        .filter { it.deleteRecursively() }
+        .map { it.name }
+        .sorted()
+}
+
 /** Every session without a transfer marker, settled or not — what "still being written" counts. */
 fun unsentSessions(sessionsDir: File): List<File> =
     (sessionsDir.listFiles { f: File -> f.isDirectory }?.toList() ?: emptyList())

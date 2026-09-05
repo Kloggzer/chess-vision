@@ -34,6 +34,8 @@ data class SyncPrefs(
     val host: String = "",
     val port: Int = DEFAULT_INGEST_PORT,
     val lastHost: String = "",
+    /** Days a `landed` recording stays on the phone after the server sealed it; 0 keeps it. */
+    val retentionDays: Int = 7,
 ) {
     val paired: Boolean get() = token.isNotBlank()
 }

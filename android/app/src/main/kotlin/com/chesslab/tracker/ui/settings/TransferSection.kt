@@ -68,6 +68,7 @@ fun TransferSection() {
         )
         TokenField(prefs.token) { save(prefs.copy(token = it)) }
         HostField(prefs.host) { save(prefs.copy(host = it)) }
+        RetentionField(prefs.retentionDays) { save(prefs.copy(retentionDays = it)) }
         PreferenceRow(
             title = "Server",
             summary = serverSummary(prefs),
@@ -120,6 +121,24 @@ private fun HostField(
         },
         label = { Text("Server address (optional)") },
         placeholder = { Text("192.168.178.20:3000") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
+    )
+}
+
+@Composable
+private fun RetentionField(
+    days: Int,
+    onSave: (Int) -> Unit,
+) {
+    var text by remember(days) { mutableStateOf(days.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = { raw ->
+            text = raw.filter(Char::isDigit).take(3)
+            text.toIntOrNull()?.let(onSave)
+        },
+        label = { Text("Delete sent recordings after (days, 0 = keep)") },
         singleLine = true,
         modifier = Modifier.fillMaxWidth().padding(vertical = Space.sm),
     )

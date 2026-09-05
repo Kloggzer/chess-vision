@@ -2,6 +2,7 @@ package com.chesslab.tracker.sync
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -72,6 +73,10 @@ class SyncWorker(
             }
         SyncHost.publish(report)
         report.base?.let { settings.rememberHost(it) }
+        // After the send, not at app start: the mark's own clock decides, and a run that just
+        // sealed a recording is the moment the phone provably holds nothing the PC lacks.
+        val gone = sweepSentRecordings(sessionsDirOf(applicationContext), System.currentTimeMillis(), prefs.retentionDays * DAY_MS)
+        if (gone.isNotEmpty()) Log.i(TAG, "removed ${gone.size} sent recording(s) after ${prefs.retentionDays} d: ${gone.joinToString()}")
         // A failure RETRIES rather than disappearing: the usual cause is the Wi-Fi going away
         // mid-transfer, and the resume costs only what is still missing.
         return if (report.failed.isEmpty()) Result.success() else Result.retry()
@@ -82,6 +87,8 @@ class SyncWorker(
         total: Long,
     ): Int = if (total <= 0) 0 else ((sent * PERCENT) / total).toInt()
 }
+
+private const val TAG = "chesslabSync"
 
 private fun constraints() =
     Constraints
