@@ -471,7 +471,7 @@ def test_an_already_loaded_manifest_uses_compact_direct_indices(tmp_path, paths)
 
     ds = PackedSquareDataset(rows[2:6], ["empty"], build_transform((CROP, CROP), train=False),
                              packed)
-    assert ds.idx.tolist() == [2, 3, 4, 5]
+    assert ds.idx.tolist() == [[0, 2], [0, 3], [0, 4], [0, 5]]   # (pack_no, row_no), legacy = pack 0
 
 
 def test_manifest_digest_keeps_the_existing_byte_contract():
