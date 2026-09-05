@@ -1,7 +1,7 @@
 """Tests for training/packs.py — the pack layout contract and the mm:// resolver.
 
 Everything here is fake pixels: a pack is a meta file plus a zero-filled image of the size the
-meta claims, which is all `load_pack`/`resolve_packs` ever look at.
+meta claims, which is all `read_pack`/`resolve_packs` ever look at.
 """
 
 from __future__ import annotations
@@ -46,9 +46,15 @@ def test_pack_name_of_rejects_file_paths():
 
 
 def test_load_pack_refuses_a_short_image(paths):
-    _make_pack(paths, "a", 4, size_delta=-1)
+    _make_pack(paths, "a-80", 4, size_delta=-1)
     with pytest.raises(ValueError, match="bytes"):
-        packs_mod.load_pack("a", paths)
+        packs_mod.read_pack("a-80", paths)
+
+
+def test_load_pack_refuses_a_name_the_rows_disagree_with(paths):
+    _make_pack(paths, "a-80", 2, row_paths=[_mm("b", 0), _mm("b", 1)])
+    with pytest.raises(ValueError, match="a-80.*b"):
+        packs_mod.read_pack("a-80", paths)
 
 
 def test_resolve_packs_orders_packs_by_first_sight(paths):
@@ -68,7 +74,7 @@ def test_resolve_packs_refuses_mixed_crop_sizes(paths):
     _make_pack(paths, "small", 2, crop=80)
     _make_pack(paths, "big", 2, crop=96)
     rows = [{"path": _mm("small", 0)}, {"path": _mm("big", 0)}]
-    with pytest.raises(ValueError, match="big"):
+    with pytest.raises(ValueError, match="big.*small"):
         packs_mod.resolve_packs(rows, paths)
 
 
@@ -79,17 +85,23 @@ def test_resolve_packs_names_the_missing_row(paths):
         packs_mod.resolve_packs([{"path": missing}], paths)
 
 
-def test_load_pack_refuses_a_row_from_another_pack(paths):
+def test_packed_shape_reads_both_forms(paths):
+    _make_pack(paths, "a", 3)
+    mp = packs_mod.resolve_packs([{"path": _mm("a", i)} for i in range(3)], paths)
+    legacy = ("packed_images.u8", (3, CROP, CROP), {})
+    assert packs_mod.packed_shape(mp) == packs_mod.packed_shape(legacy) == (3, CROP, CROP)
+
+
+def test_list_packs_skips_a_broken_dir_and_keeps_the_rest(paths):
+    _make_pack(paths, "b-80", 2)
+    _make_pack(paths, "a-80", 2)
+    _make_pack(paths, "broken", 2, size_delta=-3)
+    assert [p.name for p in packs_mod.list_packs(paths)] == ["a-80", "b-80"]
+
+
+def test_write_meta_writes_exactly_the_five_keys(paths):
     d, _ = _make_pack(paths, "a", 2)
     meta = json.loads((d / "packed_meta.json").read_text(encoding="utf-8"))
-    meta["paths"][1] = _mm("other", 1)
-    (d / "packed_meta.json").write_text(json.dumps(meta), encoding="utf-8")
-    with pytest.raises(ValueError, match="another pack"):
-        packs_mod.load_pack("a", paths)
-
-
-def test_multipack_refuses_tuple_unpacking(paths):
-    _make_pack(paths, "a", 2)
-    mp = packs_mod.resolve_packs([{"path": _mm("a", 0)}], paths)
-    with pytest.raises(TypeError, match="packs"):
-        a, b, c = mp
+    assert set(meta) == {"n", "h", "w", "digest", "paths"}
+    assert (meta["n"], meta["h"], meta["w"]) == (2, CROP, CROP)
+    assert meta["paths"] == [_mm("a", 0), _mm("a", 1)]

@@ -397,7 +397,7 @@ class Paths:
 
     @property
     def packs(self) -> Path:
-        """One memmap per session (`packs/<pack>/`), shared by every dataset that cites it."""
+        """One pack per session, cited by every dataset — out of `all()`, nobody needs it empty."""
         return self.root / "packs"
 
     @property

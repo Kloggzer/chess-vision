@@ -7,6 +7,7 @@ One session's crops once: `packed_images.u8` (N, H, W, 3) uint8 RGB, a slice `ma
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,7 +16,11 @@ import numpy as np
 from .. import config
 from .pack import _manifest_digest
 
+log = logging.getLogger("chesslab.packs")
+
 MM_PREFIX = "mm://"
+DEFAULT_PACK_SIDE = 80
+PACKS_KEY = "packs"
 
 _IMAGE = "packed_images.u8"
 _META = "packed_meta.json"
@@ -46,11 +51,6 @@ class MultiPack:
         _, h, w = self.files[0][1]
         return h, w
 
-    def __iter__(self):
-        # 11 scripts/*.py and gradcam.py unpack load_packed's legacy 3-tuple positionally.
-        raise TypeError("dataset is built from session packs — read MultiPack.files/idx, "
-                        "not a (path, shape, path2idx) tuple")
-
 
 def pack_dir(name: str, paths: config.Paths = config.DATA) -> Path:
     return paths.packs / name
@@ -66,9 +66,9 @@ def pack_name_of(mm_path: str) -> str:
     return name
 
 
-def load_pack(name: str, paths: config.Paths = config.DATA, *, dir: Path | None = None) -> PackRef:
-    """Read a pack's meta and check it against the image file. `dir` overrides `pack_dir(name)`."""
-    d = pack_dir(name, paths) if dir is None else dir
+def read_pack(name: str, paths: config.Paths = config.DATA, *, dir_: Path | None = None) -> PackRef:
+    """Read a pack's meta and check it against the image file. `dir_` overrides `pack_dir(name)`."""
+    d = pack_dir(name, paths) if dir_ is None else dir_
     meta_path, img_path = d / _META, d / _IMAGE
     if not meta_path.exists():
         raise FileNotFoundError(f"pack {name}: no {_META} in {d}")
@@ -83,10 +83,21 @@ def load_pack(name: str, paths: config.Paths = config.DATA, *, dir: Path | None 
     pack_paths = list(meta["paths"])
     if len(pack_paths) != n:
         raise ValueError(f"pack {name}: meta lists {len(pack_paths)} paths for n={n}")
-    for p in pack_paths:
-        if pack_name_of(p) != name:
-            raise ValueError(f"pack {name}: row {p!r} belongs to another pack")
+    if pack_paths and pack_name_of(pack_paths[0]) != name:
+        raise ValueError(f"pack {name}: its rows say {pack_name_of(pack_paths[0])} "
+                         f"({pack_paths[0]}) — the directory name IS the pack name")
     return PackRef(name=name, image=img_path, shape=(n, h, w), paths=pack_paths)
+
+
+def list_packs(paths: config.Paths = config.DATA) -> list[PackRef]:
+    """Every readable pack under `paths.packs`. A broken one is named and skipped, never raised."""
+    out = []
+    for d in sorted(p for p in paths.packs.glob("*") if p.is_dir()):
+        try:
+            out.append(read_pack(d.name, paths))
+        except (OSError, ValueError, KeyError) as exc:
+            log.warning("skipping pack %s: %s", d.name, exc)
+    return out
 
 
 def resolve_packs(rows: list[dict], paths: config.Paths = config.DATA) -> MultiPack:
@@ -98,7 +109,7 @@ def resolve_packs(rows: list[dict], paths: config.Paths = config.DATA) -> MultiP
     for i, row in enumerate(rows):
         name = pack_name_of(row["path"])
         if name not in number:
-            ref = load_pack(name, paths)
+            ref = read_pack(name, paths)
             if order and ref.shape[1:] != order[0].shape[1:]:
                 raise ValueError(f"pack {name} holds {ref.shape[1:]} crops, "
                                  f"pack {order[0].name} holds {order[0].shape[1:]}")
@@ -113,9 +124,16 @@ def resolve_packs(rows: list[dict], paths: config.Paths = config.DATA) -> MultiP
     return MultiPack(files=[(str(r.image), r.shape) for r in order], idx=idx)
 
 
-def write_meta(dir: Path, rows: list[dict], h: int, w: int) -> None:
-    """`crop_fingerprint` stays empty so `pack._rewritten_since_pack` treats it as fingerprinted."""
-    (dir / _META).write_text(json.dumps({"n": len(rows), "h": h, "w": w,
-                                         "digest": _manifest_digest(rows),
-                                         "crop_fingerprint": {},
-                                         "paths": [r["path"] for r in rows]}), encoding="utf-8")
+def write_meta(dir_: Path, rows: list[dict], h: int, w: int) -> None:
+    (dir_ / _META).write_text(json.dumps({"n": len(rows), "h": h, "w": w,
+                                          "digest": _manifest_digest(rows),
+                                          "paths": [r["path"] for r in rows]}), encoding="utf-8")
+
+
+def packed_shape(packed) -> tuple[int, int, int]:
+    """`(n, h, w)` of a MultiPack or of `load_packed`'s legacy `(path, shape, path2idx)` tuple."""
+    if isinstance(packed, MultiPack):
+        h, w = packed.hw()
+        return packed.n, h, w
+    _, shape, _ = packed
+    return tuple(shape)
