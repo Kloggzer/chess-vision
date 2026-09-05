@@ -46,7 +46,7 @@ internal object RecordedFrames {
      * `rg-2026-08-30-14-33-02`). Aus zwei BENACHBARTEN Punkten geschaetzt las sie 2,36 — reiner
      * Callback-Jitter —, und die Vorlauf-Zeilen vor dem ersten Sync landeten damit bei -8,5 s.
      */
-    private fun videoNsAt(
+    internal fun videoNsAt(
         elapsedNs: Long,
         syncs: List<Pair<Long, Long>>,
     ): Double {

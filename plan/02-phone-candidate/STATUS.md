@@ -5,6 +5,8 @@
 | 00 | 00-measure.md | done 2026-09-06 | `ea18f45b` script, `docs(status)` below; rule order and offset in Notes |
 | 01 | 01-verb.md | todo | |
 | 02 | 02-platform.md | done 2026-09-06 | `951316c8`, `ff9daceb`, `2795f763` on `feat/pc-02`; chain 22, jobs 23, chain-run 3 (+6) |
+| 01 | 01-verb.md | done 2026-09-06 | `17b1b549` clocks, `47cc0e82` verb, on `feat/pc-01`; `PhoneCandidateTest` 8/8, `RecordedFramesTest` 2/2 |
+| 02 | 02-platform.md | todo | |
 | 03 | 03-parity.md | todo | |
 
 ## Dependencies
@@ -136,6 +138,27 @@
   carry a record, 16 of those have no video (the pre-2026-08-13 transfers), and `2026-08-13-01-01-25`
   has a timeline but no video.
 
+## Notes — Phase 01 discrepancies
+
+- **`FrameClock` was already taken.** `DesktopMain.kt:785` carries a private `class FrameClock` —
+  the ENGINE's clock (wall time live, else the frame's PTS). Two same-named classes in one package
+  are a redeclaration error, and the registry lets 01 touch `DesktopMain.kt` only for the
+  `FILE_TOOLS` entry and the usage line, so the Design's class is named `PhoneFrameClock` here.
+  Same API (`indexAt`), same role; nothing outside `PhoneCandidate.kt` and its test names it.
+- **`spec` is `ModelSpec?`, not `ModelSpec`.** `desktopModelSpec(model)` returns null when a model
+  has no readable `config.json` (it prints and carries on), and `withCropOf` takes a nullable spec.
+  A non-null parameter would have forced the verb to refuse a model the replay tolerates.
+- **`PhoneFrameClock` gained `size`.** `LabelOutcome.frames` is "how many frames this run saw", and
+  the only witness of that in the five-argument overload is the number of collected timestamps.
+- **`PhoneClock.order` has a default** — the Phase 00 order — so the verb builds it with one
+  argument and only the tests state an order.
+- **The five-argument overload resolves the video too** and can therefore refuse `no video.mp4`:
+  step 7 needs `relativeVideo(video, File(DATA_DIR))`, which the Design puts in that overload.
+- **The fixture bundle lives under `data/`, not in a `@TempDir`.** `relativeVideo` refuses any video
+  outside `data/` (`RealGameCandidate.kt:239`, and 01 may not touch that file), so a temp directory
+  elsewhere fails before anything is written. `PhoneCandidateTest` builds under
+  `data/tmp/phone-candidate-test` and deletes it per test; an empty `data/tmp/` is left behind.
+
 ## Session log
 
 ### 2026-09-06 — Phase 02, worktree `.claude/worktrees/pc-02`, branch `feat/pc-02`
@@ -156,6 +179,21 @@ runs the verb of Phase 01 against `2026-08-16-20-41-33` in the ROOT checkout aft
 `:desktop:installDist`, and decides the `JOB_STEPS`/`queues.ts` question in the discrepancies
 above. Nothing on the platform side waits on 01 — the card offers `Züge vom Handy übernehmen`
 today, and the job fails with the missing-binary reason until `phone-candidate` exists.
+### 2026-09-06 — Phase 01, worktree `.claude/worktrees/pc-01`, branch `feat/pc-01`
+
+`17b1b549` the clocks, `47cc0e82` the verb. Gate from `android/`:
+`:desktop:ktlintFormat`, then `:desktop:ktlintCheck :desktop:test --tests '*PhoneCandidateTest*'
+--tests '*RecordedFramesTest*' --rerun-tasks -q` (exit 0, 8 + 2 tests), once
+`:app:testDebugUnitTest --tests '*CommentBudget*' -q` (exit 0, no budget entry added).
+
+Acceptance greps all as specified: `"phone-candidate" to ::phoneCandidate` 1, `internal fun
+videoNsAt` 1, `internal fun gameRecordFor` 1, the three `LabelVerb` symbols 3, `.release()` 0,
+`"phone_log"` 0.
+
+**Next step:** merge `feat/pc-01` into `feat/phone-candidate` (02 is independent and shares no
+file), then Phase 03 in the root checkout after `:desktop:installDist`. The verb has NOT been run
+on a real bundle — Phase 03 is the first time it meets `2026-08-16-20-41-33`, and Phase 00 predicts
+it will refuse `2026-08-30-14-33-02` with `refused: no sampled frame aligned to the board's grid`.
 
 ### 2026-09-06 — Phase 00, root checkout, branch `feat/pc-00`
 

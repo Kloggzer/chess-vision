@@ -84,7 +84,7 @@ internal fun sessionTimeline(
  * The game record this recording produced: `files/games/<id>.json` beside `files/sessions/<id>/`,
  * the one whose `sessionId` names this session.
  */
-private fun gameRecordFor(
+internal fun gameRecordFor(
     sessionDir: File,
     options: List<String>,
 ): File? {
