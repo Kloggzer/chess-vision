@@ -1,9 +1,8 @@
-"""Writing side of a session pack: cut a session once at model size, or adopt a Kotlin pack.
+"""Writing side of a session pack — `packs.py` reads and stays frozen.
 
-`packs.py` is the reader and stays frozen. Here a session goes through
-`labeling.iter_session_crops` straight into `data/packs/<session_id>-<size>/`, which saves the
-128 px pool detour and its second resample (`docs/data-pipeline.md` 3.1).
-"""
+A session goes through `labeling.iter_session_crops` straight into
+`data/packs/<session_id>-<size>/`, which saves the 128 px pool detour and its second resample
+(`docs/data-pipeline.md` 3.1); `import_pack` adopts what the Kotlin writers already produce."""
 
 from __future__ import annotations
 
@@ -63,10 +62,8 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
 def import_pack(src: Path, *, paths: config.Paths = config.DATA) -> dict:
     """Move a pack the Kotlin writers produced (`labeled-video-pack`) under `data/packs/`.
 
-    Its rows name the pack, and the directory has to answer to that name — a Kotlin pack says
-    `mm://<session_id>/…` and keeps the plain id here. Validated at the SOURCE, so a truncated
-    image is refused before anything moves.
-    """
+    Its rows name the pack — a Kotlin one says `mm://<session_id>/…` and keeps the plain id here.
+    Validated at the SOURCE, so a truncated image is refused before anything moves."""
     src = Path(src)
     text = (src / "manifest.jsonl").read_text(encoding="utf-8")
     rows = [json.loads(line) for line in text.splitlines() if line.strip()]
