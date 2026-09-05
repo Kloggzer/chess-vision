@@ -38,11 +38,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 - **`identityRead` bei `inconclusive`** fragt die Belegung nicht und resettet Recovery-Vote und
   Desync-Serie — ein starker Belegungswiderspruch im Dunkeln gilt als Blindblick. Belegungs-Fallback
   gemessen 2026-09-04: zeilengleich auf dem Satz (kein Nachweis) → braucht die Dunkel-Aufnahme.
-- **`pOcc = 1 − pEmpty − pOccluded`** behandelt die unabhängige Coverage-Spalte wie eine Softmax-Klasse;
-  bei Coverage 0,14 fällt ein sicher besetztes Feld aus jedem Nenner. Erst messen.
-- **Alarm-Gate auf der Label-Achse.** `guessIllegalMove`/`hasOccupancyConflict` gaten mit
-  `labelConfident`, obwohl das Prädikat Belegung ist — ein Ziel mit pOcc 0,99 auf mehrere Figuren
-  verteilt ist kein Ziel, der Alarm verliert seine Zug-Form.
 - **Baseline-Occlusion erreicht die Detektion nie** (Keep-alive 0,1 s < Hold 0,2 s; Probe 2026-09-04).
   Scharf gemacht kostet es 7/18 Parity-Clips und `blender-capture` zwei Züge: ohne CNN hält die
   „>2 Felder = Hand"-Regel einen Schlag für Verdeckung. Braucht vorher einen Filter, der Figur von
@@ -146,6 +141,8 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **`pOcc` ohne Coverage im Nenner, Alarm-Gate auf der Belegungsachse (2026-09-05):** beide
+  zeilengleich zur Basis (pocc-cold, Replay-Cache v6, damit die Messung nicht den alten `pOcc` liest).
 - **Desync-Kern und Window-End (2026-09-05):** die Serie trägt den Schnitt aller Blicke; das
   Window-End verlangt beide Endfelder (Paare: volle Maske, Knob `windowEndBothEnds`, an). Beide
   zeilengleich zur Basis — `diff_after_verify` feuert im Satz nie, der Knob braucht die Dunkel-Aufnahme.
