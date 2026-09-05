@@ -41,12 +41,13 @@ def _train_lock_path() -> Path:
 
 
 def _load_training_pack(dataset: str | None, manifest_rows: list[dict]):
-    """Resolve a dataset's pack once, reusing the manifest already held by training."""
+    """Resolve a dataset's pack(s) once, reusing the manifest already held by training."""
     if dataset is None:
         return None
-    from .pack import load_packed
+    from .pack import load_packed, resolve_dataset_packs
 
-    return load_packed(dataset, manifest_rows=manifest_rows)
+    multi = resolve_dataset_packs(dataset, manifest_rows=manifest_rows)
+    return multi if multi is not None else load_packed(dataset, manifest_rows=manifest_rows)
 
 
 def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> None:
@@ -365,10 +366,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # loader will actually serve — reading the manifest instead would scale 80 px pixels back up
     # to the 128 px the FILES are, which is worse than either.
     src = "--input-size"
+    from .packs import packed_shape
+
     packed = _load_training_pack(dataset, manifest)
     if out_size is None:
         if packed is not None:
-            out_size, src = (packed[1][2], packed[1][1]), "the pack"
+            _, ph, pw = packed_shape(packed)
+            out_size, src = (pw, ph), "the pack"
     for r in manifest:
         out_size, src = (out_size, src) if out_size else (tuple(r["out_size"]), "the manifest")
         print(f"[size] training at {out_size[0]}x{out_size[1]} from {r['out_size'][0]}x"
@@ -478,8 +482,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # mm:// keys into the memmap. The per-PNG loader would crash on the first batch there.
     fused = bool(train_rows) and str(train_rows[0].get("path", "")).startswith("mm://")
     if fused and packed is None:
-        print(f"[FAIL] dataset '{dataset}' is a fused synth build (mm:// paths) but its "
-              "packed memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+        print(f"[FAIL] dataset '{dataset}' has mm:// paths — a fused synth build or a pack-built "
+              "dataset — but no usable memmap: re-run `chesslab dataset build-synth`, or check "
+              "that dataset.yaml still names its packs under data/packs/.")
         return 1
     # Rotation aug runs on-the-fly (torch_data._RandomRot90) when the dataset was built with
     # non-trivial `rotations` — the build no longer materializes rotated copies (4x disk/memmap).
@@ -507,7 +512,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     train_tf = build_transform(out_size, train=True, rot90=rot90, **tf_kw)
     val_tf = build_transform(out_size, train=False, **tf_kw)
     if packed is not None:
-        n, h, w = packed[1]
+        n, h, w = packed_shape(packed)
         print(f"[pack] fast memmap loader: {n} crops, {n * h * w * 3 / 1e9:.1f} GB")
         if board_mode:
             train_ds = PackedBoardDataset(train_rows, classes, train_tf, packed)
