@@ -1,8 +1,7 @@
 """Session packs: where a pack lives, what its meta says, and how an `mm://` row resolves.
 
-A pack holds one session's crops once — `packed_images.u8` (N, H, W, 3) uint8 RGB, a slice
-`manifest.jsonl` whose rows carry `mm://<pack>/<frame>/<square>` paths, and `packed_meta.json`.
-The Kotlin `labeled-video-pack` output is a valid pack when its `id=` equals the directory name.
+One session's crops once: `packed_images.u8` (N, H, W, 3) uint8 RGB, a slice `manifest.jsonl` of
+`mm://<pack>/…` rows, `packed_meta.json`. Kotlin's `labeled-video-pack` is a pack when `id=` == dir.
 """
 
 from __future__ import annotations
