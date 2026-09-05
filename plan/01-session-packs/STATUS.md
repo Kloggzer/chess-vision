@@ -3,7 +3,7 @@
 | Phase | File | State | Note |
 |---|---|---|---|
 | 00 | 00-contract.md | done 2026-09-05 | `feat/sp-00`: `0731df2c`, `ba4c9bd7`, `c502c356`, `1f93efa2`, merge `410a3990`, `4e2016df` (step 3) — 9 tests |
-| 01 | 01-writer.md | todo | |
+| 01 | 01-writer.md | done | 2026-09-05 on `feat/sp-01` (`ffdc45b5`, `b80ca090`, `7fccebe5`, `e7d8148c`); `tests/test_session_pack.py` 5 passed, the five labeling files 35 passed unchanged, `test_comment_budget` green |
 | 02 | 02-loader.md | todo | |
 | 03 | 03-builder.md | done 2026-09-05 | `feat/sp-03`: `ce94b864`, `7a7f0c8e` — `tests/test_dataset_build.py` 11, `tests/test_pack.py` 27 (38 passed together) |
 | 04 | 04-parity.md | todo | |
@@ -16,7 +16,11 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
 ## Manual steps
 
 - Phase 04 trains on real data: one session, `--num-workers 1`, one epoch, on the user's machine.
-- Phase 01 step 1 needs baseline hashes measured on `main` BEFORE the seam — record them here.
+- Phase 01 step 1 baseline, measured in the `sp-01` worktree at `1121000c` BEFORE the seam
+  (cv2 4.13.0, Python 3.12.7), pinned in `tests/test_session_pack.py`:
+  crops `fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418`,
+  manifest rows minus `ts` `04d762c22fac139458dac626c47f0bbc4b14a9510cfec974eaca9c0af0b94351`.
+  Both unchanged after the seam.
 
 ## Notes / discrepancies
 
@@ -52,6 +56,23 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
   relation rather than a hardcoded order.
 - Phase 03 touched no `tests/comment_budget.txt` entry: `dataset_build.py`, `pack.py` and
   `cli.py` keep their worst blocks (21 / 15 / 10); the new comments are 2–4 lines.
+- Phase 01, spec deviations (all four small, none redesigns anything):
+  - `iter_session_crops` gained one optional keyword, `stats: dict | None`. The slice's run
+    counters (`skipped`, `dirty_dropped`, `mesh_frames`, …) are the CUT's knowledge, not the
+    writer's, and a generator cannot return them through a `for` loop. The dict never leaves
+    `labeling.py`; `pack_session` does not pass it.
+  - `_slice_session` needed a per-frame flush of the WebP futures, which the old inline loop got
+    for free. It is `_write_crop_batch`, a second private helper in `labeling.py`; the frame
+    boundary is read off `row["frame"]`.
+  - Telemetry only, measured nowhere: a frame whose cells are ALL dropped used to record an empty
+    `WebP crop batches` entry and no longer does, and the batch's clock now starts at its first
+    crop instead of before the cell loop. Crops and manifest rows are byte-identical (the pinned
+    hashes above).
+  - `packs.py` exposes no public name for `packed_images.u8`; `pack_session` writes
+    `packs._IMAGE` rather than retyping the literal. A public constant in Phase 00 would be
+    cleaner — recorded, not fixed, because `packs.py` is frozen.
+- Phase 01 ran `tests/test_ingest.py` once beyond the spec's list: it asserts the two WebP audit
+  operations that the seam moved into `_write_crop_batch`. 6 passed.
 
 ## Session log
 
@@ -78,3 +99,14 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
   **Exact next step:** the orchestrator merges `feat/sp-03` into `feat/session-packs` (after or
   before 01/02 — `cli.py` and `pack.py` hunks are disjoint), then Phase 04 runs the end-to-end
   parity on one real session from the root checkout.
+- 2026-09-05, Phase 01 (`feat/sp-01` off `feat/session-packs` at `1121000c`, worktree
+  `.claude/worktrees/sp-01`): `ffdc45b5` the `iter_session_crops` seam + parity test, `b80ca090`
+  `write_session_pack`, `7fccebe5` `import_pack`, `e7d8148c` the two CLI commands.
+  `tests/test_session_pack.py` 5 passed; `test_labeling`, `test_matte`, `test_corrections`,
+  `test_labeling_dirty`, `test_labeling_settle` 35 passed, unchanged; `test_comment_budget` and
+  `test_ingest` (6, it asserts the WebP audit counters this touched) green. `ruff check` on
+  `labeling.py`, `training/pack_session.py`, `cli.py`, `tests/test_session_pack.py` clean,
+  `vulture src tests --min-confidence 80` silent, `comment_budget.txt` untouched. Acceptance
+  greps: `def iter_session_crops` 1, `write_pool.submit` 1; both `--help` screens render.
+  **Exact next step:** the orchestrator merges `feat/sp-01` into `feat/session-packs` and re-runs
+  the full gate — nothing in Phase 01 is left open.

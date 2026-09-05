@@ -41,6 +41,10 @@ app.add_typer(realgames_app, name="realgames")
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
+pack_app = typer.Typer(help="Session packs: one memmap per session under data/packs/.",
+                       no_args_is_help=True)
+app.add_typer(pack_app, name="pack")
+
 occluders_app = typer.Typer(help="Occluders — hands and arms cut free for 2.5D compositing.",
                             no_args_is_help=True)
 app.add_typer(occluders_app, name="occluders")
@@ -277,6 +281,46 @@ def session_boards(
               f"geradegezogen — backup {r['backup']}", flush=True)
     if failed:
         raise typer.Exit(1)
+
+
+@session_app.command("pack")
+def session_pack_cmd(
+    session: str = typer.Option(..., "--session", help="Session ID."),
+    size: int = typer.Option(None, "--size", help="Crop side in px. Default: the pack default."),
+    pad_side: float = typer.Option(None, "--pad-side", help="Override the profile's side pad."),
+    pad_up: float = typer.Option(None, "--pad-up", help="Override the profile's upward pad."),
+) -> None:
+    """Cut this session ONCE at model size into `data/packs/<session>-<size>/`.
+
+    The 128 px crop pool is the labeling artefact; a dataset built from packs cites this memmap
+    instead of copying its pixels. An existing pack is refused — packs are immutable.
+    """
+    from .training import pack_session, packs
+
+    try:
+        res = pack_session.write_session_pack(session, size or packs.DEFAULT_PACK_SIDE,
+                                              pad_side=pad_side, pad_up=pad_up)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+    print(f"[OK] pack {res['pack']}: {res['n']} crops, {res['h']}x{res['w']}, {res['gb']} GB")
+
+
+@pack_app.command("import")
+def pack_import_cmd(
+    src: Annotated[
+        Path, typer.Argument(help="Directory a Kotlin `labeled-video-pack` wrote."),
+    ],
+) -> None:
+    """Move a pack the desktop tool wrote under `data/packs/`, keeping the name its rows say."""
+    from .training import pack_session
+
+    try:
+        res = pack_session.import_pack(src)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
+    print(f"[OK] pack {res['pack']}: {res['n']} crops, {res['h']}x{res['w']}, {res['gb']} GB")
 
 
 @session_app.command("rewarp")
