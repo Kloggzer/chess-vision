@@ -9,48 +9,59 @@ ONCE from the board store at the model size. Kotlin already writes the target fo
 
 ## Design (decided — do not redesign)
 
-**Seam in `labeling.py`.** `slice_session` (`labeling.py:589-621`) is the pool wrapper; the loop
-that builds every crop and its row is `_slice_session` (`labeling.py:380-587`; row dict at
-541-563; `_write_crop` defined at :299, submitted at :538). Split `_slice_session`:
+**Seam in `labeling.py`.** The crop loop is in `_slice_session` (`labeling.py:380-587`), NOT in
+the public `slice_session` (`:589-621`, a pool wrapper that delegates). The loop builds the crop
+(`:531`), submits `_write_crop` (`:538`, defined `:299`) and builds the row (`:541-559`, plus the
+optional `coverage` key `:560-563`). Split it:
 
 ```python
 def iter_session_crops(session_dir: Path, *, profile, pad_up=None, pad_side=None,
                        out_size=None, flat_field=False) -> Iterator[tuple[np.ndarray, dict]]
-    # yields (crop BGR HxWx3 uint8, row) — the SAME selection and rows slice_session produces,
-    # with row["path"] = "" (the consumer sets it). Frame/cell gating, matte coverage, pads: unchanged.
+    # yields (crop BGR HxWx3 uint8, row) — the SAME selection and rows _slice_session produces,
+    # with row["path"] = "" (the consumer sets it). Frame/cell gating, corrections, matte
+    # coverage, mesh/straighten handling and pads: unchanged, moved verbatim.
 ```
 
-`_slice_session` becomes the file-writing consumer of `iter_session_crops` (sets `path` to the
-webp path, keeps `write_pool`, `manifest_batch`). Byte-identical output is a test below.
+`_slice_session` becomes the file-writing consumer of `iter_session_crops`: it sets `path` to the
+webp path, keeps `write_pool`/`_write_crop`, the audit block (`:569-576`) and
+`manifest_batch`/`_replace_session_in_manifest` (`:579-581`). `slice_session` is untouched.
+Byte-identical output is a test below.
 
-**Writer in a NEW file `src/chesslab/training/pack_writer.py`** (imports `packs.write_meta`,
-`packs.load_pack`, `packs.pack_dir`, `packs.pack_name_of`; `packs.py` itself is frozen):
+**Writer — new module `src/chesslab/training/pack_session.py`** (`packs.py` is frozen after 00):
 
 ```python
-def write_session_pack(session_id: str, size: int, *, paths=config.DATA, profile=None,
+def write_session_pack(session_id: str, size: int, *, paths=config.DATA, profile: str | None = None,
                        pad_side: float | None = None, pad_up: float | None = None) -> dict
-    # pack name f"{session_id}-{size}"; refuses an existing dir (ValueError) — a pack is immutable;
-    # writes packed_images.u8.partial first (Kotlin does the same), converts BGR→RGB, then
-    # manifest.jsonl (path = f"mm://{pack}/{frame}/{square}"), then write_meta, then renames.
-    # returns {"pack", "n", "h", "w", "gb"}
+    # pack name f"{session_id}-{size}"; refuses an existing dir (ValueError) — a pack is immutable.
+    # Writes packed_images.u8.partial first (Kotlin does the same, LabeledVideoPack.kt:147),
+    # converts BGR->RGB, then manifest.jsonl (path = f"mm://{pack}/{frame}/{square}"), then
+    # packs.write_meta, then renames. Returns {"pack", "n", "h", "w", "gb"}.
 def import_pack(src: Path, *, paths=config.DATA) -> dict
-    # name = pack_name_of(first manifest row path) (entry.md invariant); load_pack(name, dir=src)
-    # validates the SOURCE, then shutil.move to pack_dir(name); refuses an existing target.
-    # Kotlin `labeled-video-pack`/`turntable-pack` output — their `id=` option is the pack name.
+    # Target name = packs.pack_name_of(first manifest row) — the naming invariant (entry.md),
+    # so a Kotlin pack keeps its plain <session_id>. Validates the SOURCE dir with
+    # packs.load_pack semantics, then shutil.move under paths.packs; refuses an existing target.
+    # Returns {"pack", "n", "h", "w", "gb"}.
 ```
 
-Session lookup: `chesslab.sessions.session_dir`, imported in `labeling.py:675` as `_resolve` — use
-the same import. Profile: the same default as `slice` (`labeling.py:54-65`, `ingestion_profile`).
+Session lookup and profile, exactly as `run_slice` does it (`labeling.py:675`, `:686-688`):
 
-**CLI (`cli.py`, `session_app`, next to `@session_app.command("boards")` at line 253):**
+```python
+from ..sessions import session_dir            # -> (Path, archived: bool), sessions.py:464
+session_path, _ = session_dir(session_id, paths)
+meta = read_session_meta(session_path)
+prof = _profile_for_session(meta, profile)    # labeling.py:48
+```
+
+**CLI (`cli.py`, next to `@session_app.command("boards")` at `:253`):**
 
 ```
 chesslab session pack --session <id> --size 80 [--pad-side x] [--pad-up y]
-chesslab pack import <dir>                        # new top-level group `pack_app`
+chesslab pack import <dir>                       # new top-level group `pack_app`
 ```
 
-Both print `[OK] pack <name>: N crops, HxW, G GB` or `[FAIL] <reason>` + exit 1 like
-`dataset pack` (`cli.py:1414-1450`).
+Register `pack_app` beside the existing `app.add_typer(...)` calls. Both commands print
+`[OK] pack <name>: N crops, HxW, G GB` or `[FAIL] <reason>` + `raise typer.Exit(1)`, exactly the
+shape `dataset_pack_cmd` uses (`cli.py:1444-1449`).
 
 Heavy-compute: the writer runs single-process (crops are cheap; the board store is already
 warped). No `multiprocessing.Pool`.
@@ -64,33 +75,34 @@ warped). No `multiprocessing.Pool`.
 
 ## Tests — `tests/test_session_pack.py` (new)
 
-Session fixture: run `grep -ln "slice_session" tests/*.py`; take the FIRST file in that list that
-builds a session directory under `tmp_path` and import its builder. If none builds one, write
-`_tiny_session(tmp_path)` in the new test file: one straightened board webp and one `log.jsonl`
-row with `fen`, `corners`, `board`, `board_size`, `board_border`, `board_straightened: true`
-(the keys `labeling.py:440-470` reads).
+Fixture: copy `_make_session` / `_identity_profile` / `_frame_with_markers` from
+`tests/test_labeling.py` (`:145`, `:159`, `:171`) into the new file. Copy, do not import —
+`tests/test_labeling.py` belongs to no phase and stays untouched.
 
-- `test_slice_output_is_byte_identical_after_the_seam` — measure sha256 of every webp and of
-  `manifest.jsonl` on the fixture BEFORE step 1 (on `main`), pin them in the test, record the
-  hashes in `STATUS.md`; after the seam they must match.
-- `test_session_pack_rows_match_slice_rows` — same session: row keys/labels/frames/squares equal,
-  only `path` and `out_size` differ.
+- `test_slice_output_is_byte_identical_after_the_seam` — on `main`, BEFORE step 1, run the fixture
+  and record sha256 of every webp and of `manifest.jsonl` minus the `ts` field (it is
+  `datetime.now`, `labeling.py:558`); pin those hashes in the test and in `STATUS.md` → Notes.
+  After the seam they must match.
+- `test_session_pack_rows_match_slice_rows` — same session: the `(frame, square, label)` set and
+  the `pad_side`/`pad_up` values are equal; only `path` and `out_size` differ.
 - `test_session_pack_is_rgb` — a crop with a known BGR pixel lands as RGB in the memmap.
 - `test_session_pack_refuses_to_overwrite`.
-- `test_import_pack_moves_a_valid_dir_and_refuses_a_short_one`.
+- `test_import_pack_keeps_the_kotlin_name_and_refuses_a_short_one` — a source dir whose rows say
+  `mm://sid/…` lands at `data/packs/sid`; a truncated image raises ValueError.
 
 Command: `uv run pytest -q tests/test_session_pack.py`.
 
 ## Acceptance
 
-- `uv run pytest -q tests/test_session_pack.py` → 5 passed; the slice tests found by the grep
-  above still pass (`uv run pytest -q <those files>`).
-- `chesslab session pack --help` and `chesslab pack import --help` render.
-- `grep -c "_write_crop(" src/chesslab/labeling.py` → 2 (the definition and the one submit in `_slice_session`).
-- `grep -c "def write_session_pack\|def import_pack" src/chesslab/training/pack_writer.py` → 2;
-  `git diff --stat main -- src/chesslab/training/packs.py` prints nothing.
+- `uv run pytest -q tests/test_session_pack.py` → 5 passed.
+- `uv run pytest -q tests/test_labeling.py tests/test_matte.py tests/test_corrections.py
+  tests/test_labeling_dirty.py tests/test_labeling_settle.py` still green, counts unchanged.
+- `uv run chesslab session pack --help` and `uv run chesslab pack import --help` render.
+- `grep -n "_write_crop" src/chesslab/labeling.py` hits exactly twice: the definition (`:299`)
+  and the one submit inside `_slice_session` — none inside `iter_session_crops`.
 
 ## Do NOT
 
 - Do not change the selection rules, pads, matte handling or the pool format.
-- Do not read packs into a Dataset (02) or build datasets from them (03).
+- Do not edit `training/packs.py`, do not read packs into a Dataset (02) or build datasets
+  from them (03).

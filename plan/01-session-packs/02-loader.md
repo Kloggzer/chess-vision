@@ -3,57 +3,85 @@
 ## Why
 
 `PackedSquareDataset`/`PackedBoardDataset` (`torch_data.py:560`, `:642`) hold exactly one
-`(path, shape, path2idx)`. `load_packed` (`pack.py:332`) resolves one dataset directory. A dataset
-whose rows point into several packs needs one memmap per pack, opened lazily per worker.
+`(path, shape, path2idx)`. A dataset whose rows point into several packs needs one memmap per
+pack, opened lazily per worker.
+
+`load_packed` (`pack.py:332`) returns that bare 3-tuple, and **ten call sites unpack it
+positionally** — `train.py:510`, `gradcam.py:40`, and `scripts/{audit_montage:45,
+audit_sessions:42, fix_ply_offset:70, fold_per_session:32, mine_hard_coverage:40,
+mine_hard_empty:92, scan_ply_offset:60, session_colour:28}`. Widening its return type in place
+would break all ten silently. So `load_packed` keeps its contract and gains a refusal; the pack
+path gets its own entry point.
 
 ## Design (decided — do not redesign)
 
-`packed` argument becomes a union; the legacy tuple stays for every existing dataset:
+**1. `pack.py` — a second entry point, and one honest refusal.**
 
 ```python
-# torch_data.py
-PackedArg = tuple[str, tuple[int, int, int], dict | None] | MultiPack   # MultiPack from training.packs
+def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
+                          manifest_rows: list[dict] | None = None) -> MultiPack | None:
+    """None for a classic dataset; a MultiPack when dataset.yaml carries `packs:` (Phase 03)."""
+    dd = dataset_dir(name, paths)
+    cfg = dd / "dataset.yaml"
+    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get("packs")):
+        return None
+    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
+    return resolve_packs(rows, paths)        # KeyError/ValueError propagate — never None
+```
+
+In `load_packed` (`:332`), before the `measure(...)` block: if `resolve_dataset_packs` would
+return a MultiPack, raise
+`ValueError("dataset '<name>' is built from session packs — its pixels live in data/packs/…; "
+"use training.pack.resolve_dataset_packs (train/eval do)")`.
+That turns the ten positional unpackers into one clear error instead of a `TypeError` or a
+wrong "fused synth build" message. `_load_packed` and the legacy path are unchanged.
+
+**2. `torch_data.py` — the `packed` argument becomes a union.**
+
+```python
+PackedArg = tuple[str, tuple[int, int, int], dict | None] | MultiPack   # MultiPack from .packs
+
+def _pack_index(rows, packed: PackedArg) -> tuple[list[tuple[str, tuple[int, int, int]]], np.ndarray]:
+    """(files, idx) for both forms. Legacy: files=[(path, shape)], idx (N,2) with pack_no 0,
+    row_no from r["_packed_idx"] or path2idx[r["path"]] — the ONE place that resolution lives."""
 
 class PackedSquareDataset(Dataset):
     def __init__(self, rows, classes, transform, packed: PackedArg, ...):
-        # legacy: self._files = [(path, shape)], idx (N,) → stored as (N,2) with pack_no 0
-        # MultiPack: self._files = packed.files, self.idx = packed.idx  (already (N,2))
+        self._files, self.idx = _pack_index(rows, packed)
         self._mm: list | None = None
-    def _memmap(self, pack_no: int):      # opens self._files[pack_no] lazily, caches per worker
+    def _memmap(self, pack_no: int):   # opens self._files[pack_no] via open_packed_memmap
+                                       # (pack.py:514), caches per worker in self._mm
     def __getitem__(self, i): p, j = self.idx[i]; arr = np.array(self._memmap(p)[j]); ...
 ```
 
-Same for `PackedBoardDataset` (`idx` becomes `(boards, 64, 2)`). `__getstate__` keeps dropping
-`_mm` and `rows`. The donor pool (`donors`) stores `(pack_no, row_no)` pairs. One helper
-`_pack_index(rows, packed) -> (files, idx)` serves both classes.
+Same for `PackedBoardDataset` (`idx` becomes `(boards, 64, 2)`; it calls the same `_pack_index`
+then groups). `__getstate__` (`:597`, `:681`) keeps dropping `_mm` and `rows`. The donor pool
+(`self.donors`, `:593`) stores `(pack_no, row_no)` pairs. `_PreadRows` (`:456`) and
+`open_packed_memmap` are reused per file, so the pread heuristic keeps working per pack.
 
-`pack.py:_load_packed` (`:354`, the function that does the `packed_meta` lookup; `load_packed`
-`:332` only wraps it in `measure`):
+**3. `train.py`** — `_load_training_pack` (`:43-49`) tries `resolve_dataset_packs(dataset,
+manifest_rows=...)` first and falls back to `load_packed`. The print at `:510-511`
+(`n, h, w = packed[1]`) becomes `n, h, w = packs.packed_shape(packed)` (Phase 00). The
+`fused` branch (`:479-483`) keeps its logic but its message must name both causes ("a fused
+synth build or a pack-built dataset"). `_require_pack` (`:52`) is untouched — it only runs on
+the `packed is None` arm.
 
-```python
-# first statement after `dd = dataset_dir(name, paths)`:
-cfg = dd / "dataset.yaml"
-if cfg.exists() and yaml.safe_load(cfg.read_text(encoding="utf-8")).get("packs"):   # key written by Phase 03
-    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
-    return resolve_packs(rows, paths)          # MultiPack; KeyError/ValueError propagate — never None
-```
+**4. `evaluate.py`** — `:149-150` calls `resolve_dataset_packs` first, then `load_packed`; the
+message at `:169-172` gets the same both-causes wording. Nothing else changes; `:165`/`:168`
+pass `packed` straight into the datasets.
 
-Legacy path unchanged. Consumers in `src/` that unpack the tuple are this phase's to fix:
-`train.py:510` (`n, h, w = packed[1]`) → new helper `torch_data.packed_nhw(packed) -> tuple[int, int, int]`
-for both shapes; `gradcam.py:40` (`path, shape, p2i = packed`) stays — a `MultiPack` raises the
-`__iter__` message there (grad-cam on pack-built datasets is out of scope; note it in `STATUS.md`).
-`train.py:_require_pack` only tests `packed is None`; `evaluate.py:149-168` passes `packed` through.
-`open_packed_memmap` (`pack.py:514`) is reused per file, so `_PreadRows` keeps working per pack.
-`scripts/*.py` are not adapted (registry).
+Out of scope, by `entry.md` → Known non-goal: `gradcam.py` and the eight scripts stay unchanged
+and now fail with the message from step 1.
 
 ## Steps
 
 1. `feat(loader): PackedSquareDataset and PackedBoardDataset read from a MultiPack`.
-2. `feat(loader): load_packed resolves a pack-built dataset to its packs`.
+2. `feat(pack): resolve_dataset_packs, and load_packed refuses a pack-built dataset`.
+3. `feat(train): train and eval resolve a pack-built dataset to its packs`.
 
 ## Tests — append to `tests/test_packs.py` (Phase 00 owns the file; append below its tests)
 
-Fixture: two fake packs with REAL pixels (write small `(n,4,4,3)` arrays), rows across both.
+Fixture: two fake packs with REAL pixels (small `(n,4,4,3)` arrays), rows across both.
 
 - `test_square_dataset_serves_pixels_from_the_right_pack` — a row from pack B returns B's bytes.
 - `test_board_dataset_groups_64_cells_across_packs` — 64 rows of one frame split over two packs
@@ -61,20 +89,26 @@ Fixture: two fake packs with REAL pixels (write small `(n,4,4,3)` arrays), rows 
 - `test_legacy_tuple_still_works` — the existing `(path, shape, None)` + `_packed_idx` path.
 - `test_dataset_pickles_without_memmaps` — `pickle.dumps(ds)` after one `__getitem__`; the
   unpickled copy serves the same item (Windows spawn contract).
-- `test_load_packed_returns_a_multipack_for_a_pack_built_dataset` — `dataset.yaml` with `packs:`.
-- `test_packed_nhw_reads_a_multipack_and_the_legacy_tuple` — both shapes give `(n, h, w)`.
+- `test_resolve_dataset_packs_reads_the_yaml_key` — `dataset.yaml` with `packs:` → MultiPack;
+  without it → None.
+- `test_load_packed_refuses_a_pack_built_dataset` — ValueError whose message contains
+  `data/packs`, so the ten positional callers get a readable failure.
 
 Commands: `uv run pytest -q tests/test_packs.py`; also `uv run pytest -q tests/test_pack.py`
-(legacy contract, must stay green with its count unchanged).
+and `uv run pytest -q tests/test_synth_build.py` (legacy contract, counts unchanged).
 
 ## Acceptance
 
-- Both commands green; `tests/test_pack.py` count unchanged.
-- `grep -n 'path2idx\[r\["path"\]\]' src/chesslab/training/torch_data.py` hits 0 (index
-  resolution lives in `_pack_index`, used by both datasets); `grep -c "packed\[1\]" src/chesslab/training/train.py` → 0.
-- `uv run ruff check src/chesslab/training/torch_data.py src/chesslab/training/pack.py` clean.
+- All three commands green; `tests/test_pack.py` and `tests/test_synth_build.py` counts unchanged.
+- `grep -n 'path2idx\[r\["path"\]\]' src/chesslab/training/torch_data.py` hits exactly once
+  (inside `_pack_index`) — it hits twice today (`:580`, `:671`).
+- `grep -n "packed\[1\]" src/chesslab/training/train.py` hits 0.
+- `uv run ruff check src/chesslab/training/torch_data.py src/chesslab/training/pack.py
+  src/chesslab/training/train.py src/chesslab/training/evaluate.py` clean.
 
 ## Do NOT
 
-- Do not write packs (01), do not touch `dataset_build.py` or `cli.py` (03).
+- Do not write packs (01), do not touch `dataset_build.py` or `cli.py` (03), do not edit
+  `training/packs.py` (frozen after 00) or the `pack_dataset` head (03 owns `pack.py:160-170`).
 - Do not change transforms, augmentation, `board_collate` or the `_PreadRows` heuristic.
+- Do not "fix" `gradcam.py` or `scripts/*.py`.
