@@ -32,6 +32,15 @@
   rules plus the replay's own, the contradictory segment refusal removed, `videoNsAt`'s real type
   (`Double`, `List<Pair<Long, Long>>`) stated.
 
+- Review 3 (2026-09-06, fresh Opus agent): 02 implementable as is; folded in for 00/01/03:
+  `DATA_DIR` made internal (registry), `RecordedFrames.videoNsAt` qualified, `replayBoardGeometry`
+  positional with the RECORDING dir and `.withCropOf(spec)` (verb gains `model=`, default real14-80),
+  Phase 00 opens its own `cv2.VideoCapture` per segment with the `ConcatFrameSource` offset rule,
+  monotone time rule with an `afterNs` bound (transpositions), the `Mat` is never released, the
+  refusal set is one closed list in entry.md, anchors `decodeStoredGame :33`, `position :156`,
+  `chain.ts:34`, `chain-run.ts :14/:30/:36`, `gameMarks :106-133`, `committed :270-283`,
+  `ScannedGeometry` 15 parameters.
+
 ## Session log
 
 (empty)

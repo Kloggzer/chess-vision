@@ -62,7 +62,7 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 | `android/desktop/src/main/kotlin/com/chesslab/desktop/PhoneCandidate.kt` | 01 | 01 only | verb, `PhoneClock`, `FrameClock` |
 | `…/desktop/RecordedFrames.kt` | exists | 01 only: `videoNsAt` → `internal` | |
 | `…/desktop/PhoneLog.kt` | exists | 01 only: `gameRecordFor` → `internal` | |
-| `…/desktop/LabelVerb.kt` | exists | 01 only: `PlyMark.committed` → `internal`; extract `cropJson(geometry)` from `sourceJson` | no behaviour change |
+| `…/desktop/LabelVerb.kt` | exists | 01 only: `PlyMark.committed` and `DATA_DIR` (`:359`) → `internal`; extract `cropJson(geometry)` from `sourceJson` | no behaviour change |
 | `…/desktop/DesktopMain.kt` | exists | 01 only: `FILE_TOOLS` entry `:847-862` + usage line `:283` | |
 | `android/desktop/src/test/kotlin/com/chesslab/desktop/PhoneCandidateTest.kt` | 01 | — | |
 | `platform/app/lib/jobs.ts`, `chain.ts`, `chain-run.ts`, `app/chain-actions.tsx` | exist | 02 only | |
@@ -72,22 +72,29 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 
 ## Artifact and schema authority
 
-- **Command line (01↔02 contract):** `desktop.bat phone-candidate <recordingDir> [force=1]` from
-  `desktopWorkDir()` (`jobs.ts:370`), `<recordingDir>` = absolute `gameDir(name)` (`data.ts:50`).
-  Exit 0 and `candidate.json` written. Exit 1 and exactly one stdout line starting `refused: ` for:
-  no session dir / several; no record naming the session / several; empty first segment; an illegal
-  move; a ply outside the video; an existing candidate without `force=1`. Nothing else is parsed.
+- **Command line (01↔02 contract):** `desktop.bat phone-candidate <recordingDir> [force=1]
+  [model=<name>]` from `desktopWorkDir()` (`jobs.ts:370`), `<recordingDir>` = absolute `gameDir(name)`
+  (`data.ts:50`); `model` defaults to `real14-80`, the platform never passes it (`labelArgs`,
+  `jobs.ts:346-349`, uses the same default). Exit 0 and `candidate.json` written. Exit 1 and exactly
+  one stdout line starting `refused: ` — the complete set: no session dir / several; no record naming
+  the session; empty first segment; no `timeline.jsonl`; no `video_sync` rows; no `video.mp4`; no
+  frame aligned to the grid; an illegal move; a ply with no time; a ply out of order; a ply outside
+  the video; an existing candidate without `force=1`. The platform parses only the prefix.
 - **`candidate.json`** is `RealGameCandidate.kt:157 candidateJson` + `writeCandidate` (`:259`,
   `confirmed:false` hardcoded). Plies are `PlyMark.committed(frame, timeMs)` — `decider = "phone_log"`,
   the vocabulary the replay already uses; no second name. `source` = `{"kind":"phone","game":<id>,
   "session":<sid>,"rule":"frame|decision|wall","offset_frames":N}` PLUS the `crop` block
   `sourceJson` writes (`LabelVerb.kt:339-352`) — `realgames.py:546` and `session.ts:175` read
   `source.crop`. `reviewed_plies` is never written here.
-- **The time rule** (`PhoneClock`, 01), per ply, first that applies, then `videoNsAt(elapsedNs, syncs)`
-  (`RecordedFrames.kt:49-61`, returns `Double` ns, takes `List<Pair<Long, Long>>` of (elapsedNs,
-  durationNs) — made `internal`, called as is):
-  1. `frame`: the first `frame` row whose `fen` has the ply's `fenAfter` placement and side to move
-     (compare the first two FEN fields, `RealGameScore.kt:158 position`) → its `elapsedNs`;
+- **The time rule** (`PhoneClock`, 01), per ply, first that applies, then
+  `RecordedFrames.videoNsAt(elapsedNs, syncs)` (a member of `internal object RecordedFrames`,
+  `RecordedFrames.kt:15/:49-61`; returns `Double` ns, takes `List<Pair<Long, Long>>` of (elapsedNs,
+  durationNs) — made `internal`, called qualified). **Monotone:** every rule only considers rows
+  with `elapsedNs` strictly after the previous ply's chosen `elapsedNs` (transpositions repeat a
+  placement, `RealGameScore.kt:156 position`, `REORDER_LOOKAHEAD`); a rule that finds nothing after
+  it yields null and the next rule is tried; when all three fail the ply refuses [`ply n is out of order`].
+  1. `frame`: the first `frame` row (after the bound) whose `fen` has the ply's `fenAfter` placement
+     and side to move (first two FEN fields) → its `elapsedNs`;
   2. `decision`: else the accepted `decision` row with this `ply` → `elapsedNs` (a `cnn_pair` writes
      one row for the second ply of the pair — the first ply then shares it);
   3. `wall`: else the `frame`/`event` row nearest in `wallTsMs` to `tsEpochMs`, `elapsedNs +
@@ -101,9 +108,13 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
   `round(t·fps)` (`ConcatFrameSource.fps` is the first segment's nominal rate, `RecordingSource.kt:45-48`;
   the replay's `frame` is a decoded index and `realgames.decode_frames :632-690` walks forward by it).
 - **Geometry**: `GeometryScan(src.fps) { println("  $it") }`, `offer(mat, src.timestampMs)` per
-  decoded frame, `result()` — the ten lines of `LabelVerb.kt:125-135`, without lens. `BoardGeometry`
-  for the crop block: `replayBoardGeometry(quad, sessionDir, configFile = null)` (`ReplayGeometry.kt:20`)
-  with `quad = cornersToFlat(scan.corners)`, as `DesktopMain.kt:390` does.
+  decoded frame, `result()` — the ten lines of `LabelVerb.kt:125-135`, without lens. The `Mat` from
+  `next()` is OWNED AND REUSED by the source (`FrameSource.kt:25-29`): never release it. `BoardGeometry`
+  for the crop block exactly as `DesktopMain.kt:390`: `replayBoardGeometry(cornersToFlat(scan.corners),
+  recordingDir, null).withCropOf(spec)` — positional (`ReplayGeometry.kt:20-24` is `(quad, dir, settings)`),
+  the RECORDING dir (that is what `sessionDirOf` returns, `:894-897`, and where `candidate.json`/
+  `settings.json` are read from), and the `ModelSpec` of `model` resolved the way the replay resolves
+  its `model=` option (find via `grep -n "withCropOf\|ModelSpec" DesktopMain.kt`).
 - **Segments**: `game.segmentsOrOne()` (`GameRecord.kt:201`); the candidate is `segments[0]` only
   (`startFen`, `moves`), `note` = "<n> plies after a seam omitted" when more exist.
   `2026-08-30-16-20-19` is `[24, 100]` → 24 plies. `test_candidate_move_chains` wants one legal line.
@@ -114,7 +125,7 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 ## Parallel hazards
 
 - 01 and 02 share no file; each gates in its worktree; the orchestrator re-runs the full gate.
-- No untyped seam: Kotlin reads the record through `GameRecord.kt`'s `decodeStoredGame` (`:41`);
+- No untyped seam: Kotlin reads the record through `GameRecord.kt`'s `decodeStoredGame` (`:33`);
   TypeScript reads `candidate.json` as today; the only cross-language contract is the command line.
 - `"phone"` already names a `ReferenceOrigin` in `chain.ts:173`; the step and job kind are
   `"phone-record"`, so greps stay meaningful.

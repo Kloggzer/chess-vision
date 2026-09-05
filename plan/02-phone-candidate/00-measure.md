@@ -9,10 +9,13 @@ constant offset remains, is unknown — and a wrong frame shifts every exported 
 ## Design (decided — do not redesign)
 
 Script `scripts/phone_candidate_offset.py` (new; argparse `name`, `--list`, `--replay/--no-replay`
-default replay). Use `chesslab.recording.Recording` (`src/chesslab/recording.py:31`, `frames()` yields
-`(whole-recording index, frame)` over every `video*.mp4` segment, `recording_segments :22`) for the
-decode walk; `cv2.CAP_PROP_POS_MSEC` per decoded frame plus the running offset per segment gives the
-timestamp table `index → ms`.
+default replay). Decode walk: `chesslab.recording.recording_segments(video)` (`src/chesslab/recording.py:22`)
+lists the segment files in order (`video.mp4`, `video-001.mp4`, …); open each with your OWN
+`cv2.VideoCapture` (the `Recording` class, `:31`, keeps its capture private) and, per decoded frame,
+append `offset + CAP_PROP_POS_MSEC` to the timestamp table; after a segment, `offset += the last
+decoded POS_MSEC of that segment` — the rule `ConcatFrameSource` applies (`RecordingSource.kt:79-80`,
+`current.decodedTimestampMs`). The table index is the whole-recording decoded index, i.e. the
+replay's `frame`.
 
 `--list`: for every `data/recordings/*/` with `files/sessions/<sid>/`: record present (a
 `files/games/*.json` whose `sessionId == sid`), `moves`, `segments` sizes, distinct `tsEpochMs`
@@ -27,9 +30,10 @@ Per bundle `name` (session dir first, then top level, for every file):
    `segments[0].startFen`; print the `provenance.decider` histogram.
 2. Timeline rows by kind; the sync list `(elapsedNs, durationNs)`; `frame` rows `(elapsedNs, wallTsMs,
    fen)`; accepted `decision` rows `(ply, elapsedNs)`; `event` rows `(elapsedNs, wallTsMs)`.
-3. Per ply, `elapsedNs` by each rule that applies — `frame` (first frame row whose first two FEN
-   fields equal the ply's), `decision` (accepted row with that `ply`), `wall` (nearest frame/event
-   row by `wallTsMs`, slope 1) — then `videoNs` by the `RecordedFrames.videoNsAt` rule (nearest sync
+3. Per ply, `elapsedNs` by each rule that applies — `frame` (first frame row AFTER the previous ply's
+   chosen row whose first two FEN fields equal the ply's), `decision` (accepted row with that `ply`,
+   after the bound), `wall` (nearest frame/event row by `wallTsMs`, slope 1) — print `-` for a rule
+   that finds nothing after the bound; then `videoNs` by the `RecordedFrames.videoNsAt` rule (nearest sync
    by `elapsedNs`, slope 1), then the frame index from the timestamp table (first index with
    `ms ≥ videoNs/1e6`). Also the replay's own rule for the same ply: `preRollMs + (tsEpochMs −
    firstTs)` with `preRollMs` from `session.yaml` as `PhoneLog.kt:183 preRollMs` reads it

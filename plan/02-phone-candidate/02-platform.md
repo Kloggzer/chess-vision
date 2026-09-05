@@ -4,7 +4,7 @@
 
 `nextStep` (`chain.ts:118-129`) offers `label` (the replay) for every bundle without a candidate. A
 bundle with a record naming its session can be answered in seconds by `phone-candidate`; the replay
-becomes the fallback when that step refused. `hasSession` (field `:33`, check `:87`) takes any
+becomes the fallback when that step refused. `hasSession` (field `:34`, check `:87`) takes any
 `log.jsonl` in `gameDir(name)` for an export, but `2026-08-30-14-33-02` carries the phone's own commit
 log there. And `videoOf` (`:52-64`) never looks at a mirrored top-level `video.mp4`.
 
@@ -32,10 +32,13 @@ mirrors `enqueueLabel` (`:325-334`, same queue, same `guard`); `runPhoneRecord(j
 with log `<name>.phone-record.log`; exit ≠ 0 → `failed`, `reason = refusalOf(logText) ?? "exit <code>"`;
 exit 0 → `done`, `candidate: name`.
 
-`lib/chain-run.ts`: the admit list (`:16`) gains `"phone-record"`; the 409 (`:13`, `step !== state.step`)
-also passes when `step === "label" && !state.hasCandidate`; the heavy lock (`:31`,
-`claimHeavyLock(state.step, name)`) is claimed with the REQUESTED step; the dispatch (`:37`) branches on
-the requested step: `"label"` → `enqueueLabel`, `"phone-record"` → `enqueuePhoneRecord`, else `enqueueChain`.
+`lib/chain-run.ts`: the admit list (`:14`) gains `"phone-record"`; the 409 (`:13`, `step !== state.step`)
+also passes when `step === "label" && !state.hasCandidate`; the heavy lock (`:30`,
+`claimHeavyLock(state.step, name)`) is claimed with the REQUESTED step; the dispatch (`:36`) branches on
+the requested step: `"label"` → `enqueueLabel`, `"phone-record"` → `enqueuePhoneRecord`, else
+`enqueueChain(name, step)` with `step` narrowed to the kinds `enqueueChain` accepts. `jobs.ts` imports
+`gameDir` from `@/lib/data` (it does not today); `runPhoneRecord` sets `running.command` like `runLabel`
+(`jobs.ts:605`); `chain-run.test.ts:14-17` mocks `@/lib/jobs` with a literal that gains `enqueuePhoneRecord`.
 
 `app/chain-actions.tsx`: `STEP["phone-record"]` with entry.md's wording; when
 `job?.kind === "phone-record" && job.state === "failed"`, a second button "Züge am PC neu erkennen" posts
@@ -49,7 +52,8 @@ the requested step: `"label"` → `enqueueLabel`, `"phone-record"` → `enqueueP
 
 ## Tests
 
-Append to `lib/chain.test.ts` (helpers `:16-25`; the games fixture `:85-87` shows how `files/games` is written):
+Append to `lib/chain.test.ts` (helpers `:16-25`; `:85-87` writes a `.pgn` under `files/games` — the new
+test writes a `.json` there with `{"sessionId": "<the fixture's session dir name>"}`):
 
 - `reads a bundle with a record naming its session as 'phone-record', without one as 'label'`.
 - `the phone's own log.jsonl is not an exported session` — a row with `frame` and no `board` → false; with `board` → true.
