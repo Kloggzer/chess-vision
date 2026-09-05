@@ -30,8 +30,9 @@ Byte-identical output is a test below.
 **Writer — new module `src/chesslab/training/pack_session.py`** (`packs.py` is frozen after 00):
 
 ```python
-def write_session_pack(session_id: str, size: int, *, paths=config.DATA, profile: str | None = None,
-                       pad_side: float | None = None, pad_up: float | None = None) -> dict
+def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *, paths=config.DATA,
+                       profile: str | None = None, pad_side: float | None = None,
+                       pad_up: float | None = None) -> dict
     # pack name f"{session_id}-{size}"; refuses an existing dir (ValueError) — a pack is immutable.
     # Writes packed_images.u8.partial first (Kotlin does the same, LabeledVideoPack.kt:147),
     # converts BGR->RGB, then manifest.jsonl (path = f"mm://{pack}/{frame}/{square}"), then
@@ -39,23 +40,24 @@ def write_session_pack(session_id: str, size: int, *, paths=config.DATA, profile
 def import_pack(src: Path, *, paths=config.DATA) -> dict
     # Target name = packs.pack_name_of(first manifest row) — the naming invariant (entry.md),
     # so a Kotlin pack keeps its plain <session_id>. Validates the SOURCE dir with
-    # packs.load_pack semantics, then shutil.move under paths.packs; refuses an existing target.
+    # packs.read_pack(name, paths, dir_=src), then shutil.move to packs.pack_dir(name); refuses an
+    # existing target.
     # Returns {"pack", "n", "h", "w", "gb"}.
 ```
 
 Session lookup and profile, exactly as `run_slice` does it (`labeling.py:675`, `:686-688`):
 
 ```python
-from ..sessions import session_dir            # -> (Path, archived: bool), sessions.py:464
+from ..labeling import _profile_for_session, read_session_meta   # labeling.py:48, :213
+from ..sessions import session_dir                                # -> (Path, archived: bool), sessions.py:464
 session_path, _ = session_dir(session_id, paths)
-meta = read_session_meta(session_path)
-prof = _profile_for_session(meta, profile)    # labeling.py:48
+prof = _profile_for_session(read_session_meta(session_path), profile)
 ```
 
 **CLI (`cli.py`, next to `@session_app.command("boards")` at `:253`):**
 
 ```
-chesslab session pack --session <id> --size 80 [--pad-side x] [--pad-up y]
+chesslab session pack --session <id> [--size N, default packs.DEFAULT_PACK_SIDE] [--pad-side x] [--pad-up y]
 chesslab pack import <dir>                       # new top-level group `pack_app`
 ```
 
@@ -75,8 +77,8 @@ warped). No `multiprocessing.Pool`.
 
 ## Tests — `tests/test_session_pack.py` (new)
 
-Fixture: copy `_make_session` / `_identity_profile` / `_frame_with_markers` from
-`tests/test_labeling.py` (`:145`, `:159`, `:171`) into the new file. Copy, do not import —
+Fixture: copy `_identity_profile` (`:145`), `_frame_with_markers` (`:159`) and `_make_session`
+(`:171`) from `tests/test_labeling.py` into the new file. Copy, do not import —
 `tests/test_labeling.py` belongs to no phase and stays untouched.
 
 - `test_slice_output_is_byte_identical_after_the_seam` — on `main`, BEFORE step 1, run the fixture
@@ -90,16 +92,20 @@ Fixture: copy `_make_session` / `_identity_profile` / `_frame_with_markers` from
 - `test_import_pack_keeps_the_kotlin_name_and_refuses_a_short_one` — a source dir whose rows say
   `mm://sid/…` lands at `data/packs/sid`; a truncated image raises ValueError.
 
-Command: `uv run pytest -q tests/test_session_pack.py`.
+Command (from the worktree): `PYTHONPATH=src <root>/.venv/Scripts/python.exe -m pytest -q tests/test_session_pack.py`.
+`labeling.py`'s worst comment block (11 lines, `:470`) sits inside `_slice_session`; if the move
+changes the file's worst block, lower `tests/comment_budget.txt` and note it in `STATUS.md`.
 
 ## Acceptance
 
-- `uv run pytest -q tests/test_session_pack.py` → 5 passed.
-- `uv run pytest -q tests/test_labeling.py tests/test_matte.py tests/test_corrections.py
-  tests/test_labeling_dirty.py tests/test_labeling_settle.py` still green, counts unchanged.
-- `uv run chesslab session pack --help` and `uv run chesslab pack import --help` render.
-- `grep -n "_write_crop" src/chesslab/labeling.py` hits exactly twice: the definition (`:299`)
-  and the one submit inside `_slice_session` — none inside `iter_session_crops`.
+- `tests/test_session_pack.py` → 5 passed.
+- `tests/test_labeling.py tests/test_matte.py tests/test_corrections.py tests/test_labeling_dirty.py
+  tests/test_labeling_settle.py` still green, counts unchanged.
+- `PYTHONPATH=src <root>/.venv/Scripts/python.exe -m chesslab.cli session pack --help` and
+  `… pack import --help` render (or `uv run chesslab …` from the root checkout after merge).
+- `grep -c "def iter_session_crops" src/chesslab/labeling.py` → 1 and
+  `grep -c "write_pool.submit" src/chesslab/labeling.py` → 1 (it is 1 today; the seam must not
+  add a second writer or move the one into the generator).
 
 ## Do NOT
 

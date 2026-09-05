@@ -8,13 +8,15 @@ already carry `mm://` paths, and its "pack" is the list of packs they come from.
 
 ## Design (decided — do not redesign)
 
-`build_dataset(..., from_packs: bool = False)`. The existing `pack_size` argument selects the
-pack size and defaults to `(80, 80)` when `from_packs` and the caller passed `None` (the CLI
-passes `_out_size(None)` → `None`).
+`build_dataset(..., from_packs: bool = False)`. The existing `pack_size` argument (`(W, H)`,
+the `--pack-size` order) selects the pack size and defaults to
+`(packs.DEFAULT_PACK_SIDE, packs.DEFAULT_PACK_SIDE)` when `from_packs` and the caller passed
+`None` (the CLI passes `_out_size(None)` → `None`).
 
-- `from_packs=True`: sources are `paths.packs/<pack>/manifest.jsonl` for every pack directory
-  whose first manifest row's `session_id` is in `session_ids` AND whose `packed_meta.json`
-  `(h, w)` equals `pack_size`. Read the meta through `packs.load_pack` — do not parse it here.
+- `from_packs=True`: candidates are `packs.list_packs(paths)`; keep a `PackRef` whose
+  `manifest.jsonl` first row's `session_id` is in `session_ids` AND whose
+  `(shape[2], shape[1]) == pack_size` (meta stores `h, w`; compare as `(w, h)`). Never parse
+  `packed_meta.json` or `paths.packs.iterdir()` here — `list_packs` owns the layout.
   A session with no pack of that size → `ValueError` naming the session and the command
   `chesslab session pack --session <id> --size <W>`.
 - The pool lock check (`:450-455`) is skipped for packs — a pack is immutable, and
@@ -22,16 +24,17 @@ passes `_out_size(None)` → `None`).
 - Everything from "Assign whole sessions" onward runs unchanged: packs are just another source
   manifest. No `pack_dataset` call, so `res["packed"]` stays `None` (the `dataset build` CLI
   never prints it — `cli.py:1356-1357`).
-- `dataset.yaml` gets `packs: [<pack names in first-seen order>]` — the key Phase 02's
-  `resolve_dataset_packs` reads — and `source_manifest` (`:546`) lists the pack manifests.
+- `dataset.yaml` gets `packs.PACKS_KEY: [<pack names in first-seen order>]` — the key Phase
+  02's `resolve_dataset_packs` reads (import `PACKS_KEY`, never the literal) — and
+  `source_manifest` (`:546`) lists the pack manifests.
 - `--like`: add `from_packs` to `_donor_policy`'s returned dict (`:269-293`, it is a fixed
-  whitelist) sourced from the donor's `dataset.yaml["packs"]` being non-empty, and apply it at
+  whitelist) sourced from the donor's `dataset.yaml[PACKS_KEY]` being non-empty, and apply it at
   the call site (`:413`, `pol = _donor_policy(like, paths)`) the way the other keys are applied.
 
 `pack.py:pack_dataset`: refuse a pack-built dataset. **Placement matters** — the existing check
 at `:166-170` fires on `rows[0]["path"].startswith("mm://")` and would claim "fused synth build"
 for a pack-built one. Put the new check IMMEDIATELY BEFORE it (after `rows` is loaded at `:163`),
-keyed on `dataset.yaml["packs"]` being present:
+keyed on `dataset.yaml[PACKS_KEY]` being present (local import of `packs`, entry.md):
 `ValueError("dataset '<name>' is built from session packs — it has no crop files; its pixels
 live in data/packs/…")`. `link_pack` unchanged.
 
@@ -64,7 +67,8 @@ Append to `tests/test_pack.py`:
 - `test_pack_dataset_refuses_a_pack_built_dataset` — the message says `data/packs`, NOT
   "fused synth build".
 
-Command: `uv run pytest -q tests/test_dataset_build.py tests/test_pack.py`.
+Command (from the worktree, entry.md): `PYTHONPATH=src <root>/.venv/Scripts/python.exe -m pytest -q
+tests/test_dataset_build.py tests/test_pack.py`.
 
 ## Acceptance
 

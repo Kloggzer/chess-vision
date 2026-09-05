@@ -7,7 +7,7 @@
 pack, opened lazily per worker.
 
 `load_packed` (`pack.py:332`) returns that bare 3-tuple, and **ten call sites unpack it
-positionally** — `train.py:510`, `gradcam.py:40`, and `scripts/{audit_montage:45,
+positionally** — `train.py:510`, `gradcam.py:39`, and `scripts/{audit_montage:45,
 audit_sessions:42, fix_ply_offset:70, fold_per_session:32, mine_hard_coverage:40,
 mine_hard_empty:92, scan_ply_offset:60, session_colour:28}`. Widening its return type in place
 would break all ten silently. So `load_packed` keeps its contract and gains a refusal; the pack
@@ -21,9 +21,10 @@ path gets its own entry point.
 def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
                           manifest_rows: list[dict] | None = None) -> MultiPack | None:
     """None for a classic dataset; a MultiPack when dataset.yaml carries `packs:` (Phase 03)."""
+    from .packs import PACKS_KEY, resolve_packs   # local import: packs.py imports pack.py at module level
     dd = dataset_dir(name, paths)
     cfg = dd / "dataset.yaml"
-    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get("packs")):
+    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get(PACKS_KEY)):
         return None
     rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
     return resolve_packs(rows, paths)        # KeyError/ValueError propagate — never None
@@ -94,8 +95,11 @@ Fixture: two fake packs with REAL pixels (small `(n,4,4,3)` arrays), rows across
 - `test_load_packed_refuses_a_pack_built_dataset` — ValueError whose message contains
   `data/packs`, so the ten positional callers get a readable failure.
 
-Commands: `uv run pytest -q tests/test_packs.py`; also `uv run pytest -q tests/test_pack.py`
-and `uv run pytest -q tests/test_synth_build.py` (legacy contract, counts unchanged).
+Commands (from the worktree, entry.md): `PYTHONPATH=src <root>/.venv/Scripts/python.exe -m pytest -q
+tests/test_packs.py`, then the same for `tests/test_pack.py` and `tests/test_synth_build.py`
+(legacy contract, counts unchanged). The 02↔03 seam (`PACKS_KEY` written by a real
+`build_dataset`, read by `resolve_dataset_packs`) is tested by Phase 04's
+`tests/test_packs_integration.py`, not here.
 
 ## Acceptance
 

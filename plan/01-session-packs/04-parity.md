@@ -13,7 +13,17 @@ first session `uv run chesslab session list` shows with one. ONE session, ONE wo
 the DEFAULT backbone (`config.DEFAULT_BACKBONE`; never `--backbone smallcnn` — it hard-crashes
 ROCm-Windows, `cli.py:1507`). Never fan out.
 
-Script `scripts/pack_parity.py` (new, argparse: `--session`, `--size` default 80):
+Runs from the ROOT checkout after 01–03 are merged into `feat/session-packs` (`uv run` works
+there; it does not in a worktree, entry.md).
+
+**Seam test first — `tests/test_packs_integration.py` (new):** two fake packs (`packs.write_meta`
++ real small pixels), `build_dataset(..., from_packs=True)` on them, then
+`resolve_dataset_packs(name)` → a `MultiPack` whose `idx` covers every manifest row, and a
+`PackedSquareDataset` over the train split serves the pixels the packs hold. This is the ONE test
+that crosses Phase 02 and Phase 03 through `PACKS_KEY`.
+
+Script `scripts/pack_parity.py` (new, argparse: `--session`, `--size` default
+`packs.DEFAULT_PACK_SIDE`):
 
 1. `uv run chesslab session pack --session S --size 80` (skip if the pack exists).
 2. `uv run chesslab dataset build sp-parity-pool --sessions S --classes pieces13
@@ -39,24 +49,30 @@ Docs (durable facts — this phase's deliverable):
 - `README.md`: add the two commands to the `### Datasets` block (`:281-287`) and the session
   block (`:368-372`) — those are fenced command lists, there is no CLI table.
 - `TODO.md`: move "Sessions direkt in eine Memmap" (`:82`) into `## Erledigt` (`:140`) as ONE
-  line with the numbers.
+  line with the numbers, and add the four deferred-debt items from `entry.md` → "Debt this pack
+  pays down — and what it defers" as ONE line each under `## Daten / Training / Labeling`
+  (`load_packed` bare tuple; eight scripts copying the index expression; two `mm://` builders;
+  `packed_meta.json` hand-written at four Python sites).
 
 ## Steps
 
-1. `feat(scripts): pack_parity.py measures pool vs packs on one session`.
-2. `docs(data-pipeline): session packs — layout, commands, parity numbers`.
+1. `test(packs): build --from-packs and resolve_dataset_packs meet on PACKS_KEY`.
+2. `feat(scripts): pack_parity.py measures pool vs packs on one session`.
+3. `docs(data-pipeline): session packs — layout, commands, parity numbers, deferred debt`.
 
 ## Tests
 
-`uv run pytest -q tests/test_packs.py tests/test_session_pack.py tests/test_dataset_build.py
-tests/test_pack.py` once. The integration seam is the script's run, recorded in `STATUS.md`.
+`uv run pytest -q tests/test_packs_integration.py tests/test_packs.py tests/test_session_pack.py
+tests/test_dataset_build.py tests/test_pack.py` once. The real-data seam is the script's run,
+recorded in `STATUS.md`.
 
 ## Acceptance
 
 - `uv run python scripts/pack_parity.py --session <S>` exits 0; its printed table (row counts,
   mean/p99 pixel diff, both accuracies) is pasted into `STATUS.md` → Session log.
 - `grep -n "from-packs" README.md docs/data-pipeline.md` hits in both.
-- `grep -n "Memmap" TODO.md` shows the item only below the `## Erledigt` heading.
+- `grep -n "Memmap" TODO.md` shows the item only below the `## Erledigt` heading;
+  `grep -c "load_packed\|_virtual_path\|packed_meta.json\|_packed_idx" TODO.md` ≥ 4.
 
 ## Do NOT
 

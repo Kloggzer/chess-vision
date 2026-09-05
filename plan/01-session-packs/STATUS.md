@@ -2,7 +2,7 @@
 
 | Phase | File | State | Note |
 |---|---|---|---|
-| 00 | 00-contract.md | todo | |
+| 00 | 00-contract.md | in-progress | steps 1–2 done 2026-09-05 on `feat/sp-00` (`0731df2c`, `ba4c9bd7`, `c502c356`, `1f93efa2`), 7 tests; step 3 (reconcile with the reviewed contract) open |
 | 01 | 01-writer.md | todo | |
 | 02 | 02-loader.md | todo | |
 | 03 | 03-builder.md | todo | |
@@ -28,6 +28,16 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
   takes `--backbone`; `README.md` has no CLI table.
 - `load_packed` is read positionally at ten sites; only `train.py` and `evaluate.py` are in
   scope. `gradcam.py` and eight `scripts/*.py` will refuse pack-built datasets by design.
+- Second review 2026-09-05 (fresh agent, pack + `feat/sp-00`): six blockers, all folded in —
+  `uv run` fails in worktrees (gate now uses the root venv with `PYTHONPATH=src`); one branch
+  per phase (`feat/sp-0N`), orchestrator merges; `packed_shape` was specced but not implemented
+  (Phase 00 step 3 reconciles: `read_pack` with `dir_`, no `__iter__`, no `crop_fingerprint`,
+  `DEFAULT_PACK_SIDE`, `PACKS_KEY`, `list_packs`, `packed_shape`); circular import `pack.py`
+  ↔ `packs.py` (local imports mandated); `pack_size` axis order fixed as `(W, H)`; the deferred
+  debt lines are now Phase 04's deliverable; Kotlin-side debt cut from the pack; the 02↔03 seam
+  gets `tests/test_packs_integration.py` (04); vacuous `_write_crop` grep replaced.
+- Phase 00 worktree ran the gate with the root `.venv` and `PYTHONPATH` (not `uv run`), and did
+  not run `ruff format` (would rewrite ~150 unrelated lines of `config.py`) — both now the rule.
 
 ## Session log
 
