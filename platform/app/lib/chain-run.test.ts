@@ -6,17 +6,19 @@ import { beforeEach, expect, test, vi } from "vitest";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
 
-const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), state: {} as ChainState }));
+const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), phone: vi.fn(), state: {} as ChainState }));
 
 vi.mock("@/lib/chain", () => ({ chainState: async () => fake.state }));
 vi.mock("@/lib/jobs", () => ({
   runningJob: fake.running,
   enqueueChain: fake.enqueue,
   enqueueLabel: fake.enqueue,
+  enqueuePhoneRecord: fake.phone,
   modelReadRun: () => "data/runs/other",
 }));
 
 const { refused, startStep } = await import("@/lib/chain-run");
+const { readHeavyLock } = await import("@/lib/heavy-lock");
 
 const MATTE: ChainState = {
   step: "matte",
@@ -24,6 +26,7 @@ const MATTE: ChainState = {
   videoBroken: null,
   offeredPgn: null,
   hasReference: true,
+  hasPhoneRecord: false,
   hasCandidate: true,
   confirmed: true,
   hasSession: true,
@@ -39,6 +42,7 @@ beforeEach(async () => {
   fake.state = MATTE;
   fake.running.mockReset().mockReturnValue(null);
   fake.enqueue.mockReset().mockResolvedValue({ name: "x", kind: "matte", state: "queued", queuedAt: "" });
+  fake.phone.mockReset().mockResolvedValue({ name: "x", kind: "phone-record", state: "queued", queuedAt: "" });
 });
 
 test("a second press is refused while a job runs — never queued behind it", async () => {
@@ -55,4 +59,15 @@ test("with the slot free the step is enqueued as before", async () => {
   await startStep("VID_20260726_233432", "matte");
 
   expect(fake.enqueue).toHaveBeenCalledWith("VID_20260726_233432", "matte");
+});
+
+test("label is admitted while the disk says phone-record, and claims the lock as label", async () => {
+  fake.state = { ...MATTE, step: "phone-record", hasPhoneRecord: true, hasCandidate: false, confirmed: false, hasSession: false };
+
+  const result = await startStep("VID_20260726_233432", "label");
+
+  expect(refused(result)).toBe(false);
+  expect(fake.enqueue).toHaveBeenCalledWith("VID_20260726_233432", undefined);
+  expect(fake.phone).not.toHaveBeenCalled();
+  expect((await readHeavyLock())?.job).toBe("label");
 });

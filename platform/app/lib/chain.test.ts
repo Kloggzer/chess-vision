@@ -30,6 +30,7 @@ describe("nextStep", () => {
     videoBroken: null,
     offeredPgn: null,
     hasReference: false,
+    hasPhoneRecord: false,
     hasCandidate: false,
     confirmed: false,
     hasSession: false,
@@ -122,6 +123,19 @@ describe("chainState", () => {
     await candidate(true);
     await mkdir(path.join(data, "recordings", NAME, "frames"), { recursive: true });
     expect((await chainState(NAME)).step).toBe("export");
+  });
+
+  it("reads a bundle with a record naming its session as 'phone-record', without one as 'label'", async () => {
+    await video();
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "index.json"), JSON.stringify([{ id: "2026-08-13_1941" }]));
+    await writeFile(game("files", "games", "2026-08-13_1200.json"), JSON.stringify({ sessionId: "20260812-120000" }));
+    expect((await chainState(NAME)).step).toBe("label");
+
+    await writeFile(game("files", "games", "2026-08-13_1941.json"), JSON.stringify({ sessionId: "20260813-121055" }));
+    const state = await chainState(NAME);
+    expect(state.hasPhoneRecord).toBe(true);
+    expect(state.step).toBe("phone-record");
   });
 
   it("the phone's own log.jsonl is not an exported session", async () => {
