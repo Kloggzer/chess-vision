@@ -36,8 +36,15 @@ Docs (durable facts — this phase's deliverable):
 - `TODO.md`: "Züge vom Handy übernehmen statt am PC neu erkennen" (`:68`) moves to `## Erledigt`
   (`:153`) as one line with the numbers (median delta, seconds vs minutes).
 
+**Lanes (Phase 02's discrepancy 2):** `lib/queues.ts:73` (`blocked`) and `isBare` (`:46`) split on
+`step === "label"`; `lib/backlog.ts:12-13` lists `JOB_STEPS`. A `phone-record` bundle must count wherever
+`label` counts: `blocked`/`isBare` accept both steps, `JOB_STEPS` gains `"phone-record"`. One test
+each in `lib/queues.test.ts` and `lib/backlog.test.ts` (`a phone-record bundle is blocked like a label one`,
+`phone-record is a job step`).
+
 ## Steps
 
+0. `feat(platform): the lanes and the backlog count a phone-record bundle like a label one`.
 1. `feat(scripts): phone_candidate_offset.py compares against a kept replay candidate`.
 2. `docs(phone-transfer): the phone-record step — time rule, offset, measured deltas, fallback`.
 

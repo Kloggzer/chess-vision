@@ -68,6 +68,7 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 | `platform/app/lib/jobs.ts`, `chain.ts`, `chain-run.ts`, `app/chain-actions.tsx` | exist | 02 only | |
 | `platform/app/lib/chain.test.ts`, `jobs.test.ts`, `chain-run.test.ts` | exist | 02 (append) | |
 | `docs/phone-transfer.md`, `platform/app/README.md`, `TODO.md` | exist | 03 only | durable facts |
+| `platform/app/lib/queues.ts`, `lib/backlog.ts` (+ their tests) | exist | 03 only | lanes see `phone-record` |
 | `plan/02-phone-candidate/STATUS.md` | exists | every phase: own row, Notes, Session log | |
 
 ## Artifact and schema authority
