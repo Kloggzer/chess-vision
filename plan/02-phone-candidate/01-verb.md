@@ -27,7 +27,7 @@ internal enum class TimeRule { FRAME, DECISION, WALL }
 
 /** The pack's time rule in the ORDER STATUS.md fixes; each rule yields elapsedNs or null. */
 internal class PhoneClock(private val rows: TimelineRows, private val order: List<TimeRule>) {
-    /** Only rows with elapsedNs > afterNs count (monotone plies, entry.md); null when every rule fails. */
+    /** Only rows with elapsedNs >= afterNs count (monotone, non-strict — entry.md); null when every rule fails. */
     fun elapsedNs(ply: Int, fenAfter: String, tsEpochMs: Long, afterNs: Long): Pair<Long, TimeRule>?
     fun videoMs(elapsedNs: Long): Double = RecordedFrames.videoNsAt(elapsedNs, rows.syncs) / 1e6
 }
@@ -57,9 +57,9 @@ internal fun buildPhoneCandidate(recordingDir: File, force: Boolean, spec: Model
    `MoveGenerator.generateLegalMoves`) [`ply n <san> is not legal from <fen>`]; `fenAfter = board.fen`.
    `(elapsedNs, rule) = clock.elapsedNs(ply, fenAfter, tsEpochMs, afterNs = previous ply's elapsedNs,
    Long.MIN_VALUE for the first)`; null refuses [`ply n is out of order`] when an earlier row would have
-   matched and [`ply n has no time in the timeline`] otherwise (the clock says which). Plies sharing a
-   `tsEpochMs` share the previous ply's `elapsedNs` when their own rules find nothing new — that is the
-   pair case, not an ordering error. `videoMs = clock.videoMs(elapsedNs)`;
+   matched and [`ply n has no time in the timeline`] otherwise (the clock says which). Plies of one
+   batch commit share an instant; with the non-strict bound the same `frame`/`decision` row serves
+   each of them, which is the pair case, not an ordering error. `videoMs = clock.videoMs(elapsedNs)`;
    `frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET)`, `null` or `< 0` refuses
    [`ply n lands outside the video`]. `PlyMark(ply, san, uci, fen = fenAfter, videoMs).committed(frame, videoMs)`
    (`LabelVerb.kt:270-283`, made `internal`) — `decider` stays `phone_log`.
