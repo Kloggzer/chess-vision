@@ -146,8 +146,10 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     # a free speedup for any packed one. Falls back to per-PNG for classic file-backed datasets.
     packed = None
     if ds_name:
-        from .pack import load_packed
-        packed = load_packed(ds_name)
+        from .pack import load_packed, resolve_dataset_packs
+        packed = resolve_dataset_packs(ds_name, manifest_rows=rows)
+        if packed is None:
+            packed = load_packed(ds_name)
     tf = eval_transform_for(cfg)
     batch = 256
     # An occlusion run's last logit is the coverage sigmoid, not a class. `evaluate_dataset` only
@@ -167,8 +169,9 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         else:
             ds = PackedSquareDataset(rows, classes, tf, packed, with_coverage=with_coverage)
     elif rows and str(rows[0].get("path", "")).startswith("mm://"):
-        print(f"[FAIL] dataset '{ds_name}' is a fused synth build but its packed memmap is "
-              "missing/stale — re-run `chesslab dataset build-synth`.")
+        print(f"[FAIL] dataset '{ds_name}' has mm:// paths — a fused synth build or a pack-built "
+              "dataset — but no usable memmap: re-run `chesslab dataset build-synth`, or check "
+              "that dataset.yaml still names its packs under data/packs/.")
         return 1
     else:
         ds = SquareDataset(rows, classes, tf, with_coverage=with_coverage)

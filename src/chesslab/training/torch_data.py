@@ -15,6 +15,10 @@ from torch.utils.data import Dataset
 
 from .. import config
 from .data import class_to_idx
+from .packs import MultiPack
+
+#: What the packed datasets accept: `load_packed`'s legacy `(path, shape, path2idx)` or a MultiPack.
+PackedArg = tuple[str, tuple[int, int, int], dict | None] | MultiPack
 
 
 class _Clahe:
@@ -557,13 +561,42 @@ class SquareDataset(Dataset):
         return (x, _target(y, r)) if self.with_coverage else (x, y)
 
 
+def _pack_index(rows, packed: PackedArg) -> tuple[list[tuple[str, tuple[int, int, int]]],
+                                                  np.ndarray]:
+    """`(files, idx)` for both packed forms — the ONE place a row's memmap position is resolved.
+
+    `idx[i]` is `(pack_no, row_no)`, a legacy pack being pack 0. Resolution is per ROW, never by
+    position: split rows are a subset of the manifest and the board dataset re-sorts its own.
+    """
+    if isinstance(packed, MultiPack):
+        return packed.files, _multi_index(rows, packed)
+    path, shape, path2idx = packed
+    idx = np.zeros((len(rows), 2), dtype=np.int64)
+    idx[:, 1] = [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in rows]
+    return [(path, shape)], idx
+
+
+def _multi_index(rows, packed: MultiPack) -> np.ndarray:
+    """`_pack_at` when `resolve_dataset_packs` marked the rows, else the packs' own path lists."""
+    if rows and "_pack_at" in rows[0]:
+        return np.array([r["_pack_at"] for r in rows], dtype=np.int64).reshape(len(rows), 2)
+    from pathlib import Path
+
+    from .packs import read_pack
+
+    lookup: dict[str, tuple[int, int]] = {}
+    for no, (file, _) in enumerate(packed.files):
+        d = Path(file).parent
+        lookup.update({p: (no, j) for j, p in enumerate(read_pack(d.name, dir_=d).paths)})
+    return np.array([lookup[r["path"]] for r in rows], dtype=np.int64).reshape(len(rows), 2)
+
+
 class PackedSquareDataset(Dataset):
-    """Same contract as SquareDataset, but crops come from a single memmap (see training.pack)
+    """Same contract as SquareDataset, but crops come from packed memmaps (see training.pack)
     instead of one ``Image.open`` per item — the fix for the 1M-PNG I/O bottleneck."""
 
-    def __init__(self, rows, classes, transform, packed, with_coverage: bool = False,
+    def __init__(self, rows, classes, transform, packed: PackedArg, with_coverage: bool = False,
                  neighbour_p: float = 0.0, policy=config.AUGMENT) -> None:
-        path, shape, path2idx = packed
         self.with_coverage = with_coverage
         # Die Nachbar-Paste lag bis 2026-08-27 NUR im Datei-Loader, und seit `_require_pack`
         # laeuft alles gepackt — sie hat nie gefeuert. Default 0,0 haelt jeden Altlauf gleich.
@@ -572,25 +605,21 @@ class PackedSquareDataset(Dataset):
         c2i = class_to_idx(classes)
         self.rows = rows            # kept for board-accuracy grouping in evaluate (picklable)
         self.transform = transform
-        # Only small, picklable state survives to spawn workers: a per-row memmap index + label
-        # index (both int arrays), plus the packed file path/shape. When training supplied its
-        # already-parsed manifest, load_packed annotated the rows directly and did not build the
-        # large path dictionary. Linked/general packs retain the lookup fallback.
-        self.idx = np.array(
-            [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in rows],
-            dtype=np.int64,
-        )
+        # Only small, picklable state survives to spawn workers: the `(pack_no, row_no)` index and
+        # the label index (both int arrays), plus one path/shape per pack. Nothing here opens a
+        # file — the memmaps are mapped lazily inside the worker that reads them.
+        self._files, self.idx = _pack_index(rows, packed)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
         self._empty = c2i.get("empty", -1)
-        self._path = path
-        self._shape = shape
-        self._mm = None
+        self._mm: list | None = None
         # Spender sind BESETZTE Zellen: ihre zentrierte Figur ist das, was in den leeren Crop
         # blutet. `empty` und `occluded` koennen nicht spenden.
-        pool = [i for i, r in zip(self.idx, rows, strict=True) if r["label"] not in _NOT_A_PIECE]
+        pool = [tuple(a) for a, r in zip(self.idx, rows, strict=True)
+                if r["label"] not in _NOT_A_PIECE]
         n = min(getattr(policy, "neighbour_pool_size", 512), len(pool))
-        self.donors = np.array(random.sample(pool, n) if n else [], dtype=np.int64)
+        self.donors = np.array(random.sample(pool, n) if n else [],
+                               dtype=np.int64).reshape(n, 2)
         if not len(self.donors):
             self.neighbour_p = 0.0
 
@@ -603,21 +632,25 @@ class PackedSquareDataset(Dataset):
         state["_mm"] = None
         return state
 
-    def _memmap(self):
+    def _memmap(self, pack_no: int):
         if self._mm is None:                                   # opened lazily, once per worker
+            self._mm = [None] * len(self._files)
+        if self._mm[pack_no] is None:
             from .pack import open_packed_memmap
-            self._mm = open_packed_memmap(self._path, self._shape)
-        return self._mm
+            self._mm[pack_no] = open_packed_memmap(*self._files[pack_no])
+        return self._mm[pack_no]
 
     def __len__(self) -> int:
         return len(self.idx)
 
     def __getitem__(self, i):
-        arr = np.array(self._memmap()[self.idx[i]])            # copy out of the read-only memmap
+        p, j = self.idx[i]
+        arr = np.array(self._memmap(p)[j])                     # copy out of the read-only memmap
         paste = (self.neighbour_p > 0 and self.labels[i] == self._empty
                  and random.random() < self.neighbour_p)
         if paste:
-            donor = Image.fromarray(np.array(self._memmap()[random.choice(self.donors)]))
+            dp, dj = random.choice(self.donors)
+            donor = Image.fromarray(np.array(self._memmap(dp)[dj]))
             x = self.transform(paste_neighbour_strip(Image.fromarray(arr), donor,
                                                      self.policy.neighbour_frac))
         elif isinstance(self.transform, _EvalRgbTransform):
@@ -651,10 +684,10 @@ class PackedBoardDataset(Dataset):
     #: Von `evaluate_dataset` und dem Trainings-Loader gelesen, damit beide gleich zusammenlegen.
     collate_fn = staticmethod(board_collate)
 
-    def __init__(self, rows, classes, transform, packed, with_coverage: bool = True) -> None:
+    def __init__(self, rows, classes, transform, packed: PackedArg,
+                 with_coverage: bool = True) -> None:
         from .boardnet import CELLS, square_index
 
-        path, shape, path2idx = packed
         c2i = class_to_idx(classes)
         boards: dict[tuple[str, str], list] = {}
         for r in rows:
@@ -667,16 +700,12 @@ class PackedBoardDataset(Dataset):
         self.with_coverage = with_coverage
         self.transform = transform
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
-        self.idx = np.array(
-            [r["_packed_idx"] if path2idx is None else path2idx[r["path"]] for r in self.rows],
-            dtype=np.int64,
-        ).reshape(-1, CELLS)
+        self._files, idx = _pack_index(self.rows, packed)
+        self.idx = idx.reshape(-1, CELLS, 2)
         self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in self.rows],
                               dtype=np.float32).reshape(-1, CELLS)
-        self._path = path
-        self._shape = shape
-        self._mm = None
+        self._mm: list | None = None
 
     def __getstate__(self):
         state = dict(self.__dict__)
@@ -684,20 +713,21 @@ class PackedBoardDataset(Dataset):
         state["_mm"] = None
         return state
 
-    def _memmap(self):
+    def _memmap(self, pack_no: int):
         if self._mm is None:
+            self._mm = [None] * len(self._files)
+        if self._mm[pack_no] is None:
             from .pack import open_packed_memmap
-            self._mm = open_packed_memmap(self._path, self._shape)
-        return self._mm
+            self._mm[pack_no] = open_packed_memmap(*self._files[pack_no])
+        return self._mm[pack_no]
 
     def __len__(self) -> int:
         return len(self.idx)
 
     def __getitem__(self, b):
-        mm = self._memmap()
         crops = []
-        for i in self.idx[b]:
-            arr = np.array(mm[i])
+        for p, i in self.idx[b]:
+            arr = np.array(self._memmap(p)[i])
             if isinstance(self.transform, _EvalRgbTransform):
                 crops.append(self.transform.from_uint8_hwc(arr))
             else:

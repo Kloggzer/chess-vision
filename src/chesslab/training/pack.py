@@ -335,6 +335,30 @@ def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
     return False
 
 
+def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
+                          manifest_rows: list[dict] | None = None):
+    """None for a classic dataset; a MultiPack when its dataset.yaml carries `packs:`.
+
+    Every resolved row keeps its `(pack_no, row_no)` on `_pack_at`, the way `_load_packed` marks
+    `_packed_idx`: train and eval resolve the whole manifest but build datasets from SPLIT rows,
+    and only the row itself carries the pair into that subset.
+    """
+    import yaml  # local, like the imports below: `packs.py` imports this module at module level
+
+    from ..dataset_build import dataset_dir
+    from .packs import PACKS_KEY, resolve_packs
+
+    dd = dataset_dir(name, paths)
+    cfg = dd / "dataset.yaml"
+    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get(PACKS_KEY)):
+        return None
+    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
+    mp = resolve_packs(rows, paths)                # KeyError/ValueError propagate — never None
+    for row, at in zip(rows, mp.idx, strict=True):
+        row["_pack_at"] = (int(at[0]), int(at[1]))
+    return mp
+
+
 def load_packed(name: str, paths: config.Paths = config.DATA,
                 manifest_rows: list[dict] | None = None):
     """Audit-aware entry point for loading and validating one packed dataset index.
@@ -344,6 +368,12 @@ def load_packed(name: str, paths: config.Paths = config.DATA,
     a second time used to dominate startup and building a path dictionary duplicated its strings.
     """
     from ..dataset_build import dataset_dir
+
+    # The legacy 3-tuple is unpacked positionally at ten sites (train, gradcam, eight scripts);
+    # several memmaps cannot be squeezed into it, so a pack-built dataset is refused by name.
+    if resolve_dataset_packs(name, paths, manifest_rows) is not None:
+        raise ValueError(f"dataset '{name}' is built from session packs — its pixels live in "
+                         "data/packs/…; use training.pack.resolve_dataset_packs (train/eval do)")
 
     dd = dataset_dir(name, paths)
     manifest = dd / "manifest.jsonl"
