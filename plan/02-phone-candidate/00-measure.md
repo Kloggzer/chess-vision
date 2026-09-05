@@ -8,31 +8,43 @@ exported board. This phase measures it on three real bundles and records it. **I
 
 ## Design (decided — do not redesign)
 
-Bundles: `data/recordings/2026-08-24-22-43-46`, `2026-08-30-14-33-02`, `2026-08-30-16-20-19` (each has
-`video.mp4`, `timeline.jsonl`, `files/games/<id>.json`; none has `candidate.json` on 2026-09-06 — check).
+Bundles: first list them. Script mode `--list` prints, for every `data/recordings/*/` that has
+`files/sessions/<sid>/`: whether a `files/games/*.json` names `sid`, its `moves`/`segments`, where
+`video.mp4` and `timeline.jsonl` live (top level or `files/sessions/<sid>/`), and whether
+`candidate.json` exists. Known on 2026-09-06: `2026-08-30-14-33-02` (record, 8 moves, 1 segment, top
+level), `2026-08-30-16-20-19` (record, 124 moves, 2 segments, files under the session dir),
+`2026-08-24-22-43-46` (NO record — only the chain audit applies). Measure on every bundle with a
+record, the three most recent at most.
 
-Script `scripts/phone_candidate_offset.py` (new; argparse `name`, `--replay/--no-replay` default replay):
+Script `scripts/phone_candidate_offset.py` (new; argparse `name`, `--replay/--no-replay` default
+replay, `--list`):
 
-1. Read `files/games/*.json`; keep the record whose `sessionId` equals the one directory under
-   `files/sessions/`. Print `moves`, `segments` count, and the `decider` histogram of `provenance`.
-2. Read `timeline.jsonl`: rows with `"kind":"video_sync"` carry `elapsedNs`, `wallTsMs`, `durationNs`
-   (`SessionTimeline.kt:79-85`); `"kind":"event"` rows carry `event` ∈ `move|sequence|…`, `san`,
-   `elapsedNs` (`:66-74`). Print counts per kind and per event.
-3. Phone frame per ply, the pack's ONE rule (entry.md → Time bridge): nearest sync by `wallTsMs`
-   to `tsEpochMs`, `videoS = (durationNs + (tsEpochMs − wallTsMs)·1e6) / 1e9`, `frame = round(videoS·fps)`.
-   `fps` via `cv2.VideoCapture(video).get(cv2.CAP_PROP_FPS)`. Also compute the frame from the
-   timeline's own `sequence`/`move` event `elapsedNs` (nearest sync by `elapsedNs`, the
-   `RecordedFrames.kt:49` rule) for the plies those events name — a second reading of the same clock.
+1. Read the record as above. Print `moves`, `segments`, the `decider` histogram of `provenance`, and
+   how many DISTINCT `tsEpochMs` the moves carry (paired plies share one).
+2. Read `timeline.jsonl` (top level, else session dir): `video_sync` rows carry `elapsedNs`,
+   `durationNs` (`SessionTimeline.kt:77-86`, NO wall clock); `frame` rows (`:38`) and `event` rows
+   (`:65-75`) carry `elapsedNs` AND `wallTsMs`; `event` rows also `event` ∈ `move|sequence|…`, `san`.
+   Print counts per kind and per event.
+3. Phone frame per ply, the pack's ONE rule (entry.md → Time bridge), hops 1 and 2 in Python:
+   nearest `frame`/`event` row by `wallTsMs` → `elapsedNs` + wall delta·1e6 → nearest sync by
+   `elapsedNs` → `videoNs = durationNs + (elapsedNs − sync.elapsedNs)`. Hop 3 in Python: walk the
+   video once with `cv2.VideoCapture` (`CAP_PROP_POS_MSEC` per decoded frame; for a session dir with
+   several segment files, concatenate their timestamps with each segment's duration added — the
+   replay's `ConcatFrameSource` does the same, `RecordingSource.kt:45-48`) and take the first index
+   whose timestamp ≥ `videoNs/1e6`. Also the naive `round(videoNs/1e9 · fps)` as a second column, to
+   show what the nominal rate would have cost.
 4. Replay frame per ply: if `candidate.json` is absent and `--replay`, run ONE
    `android\desktop\build\install\desktop\bin\desktop.bat replay <video> label name=<name> model=real14-80`
-   with cwd `android/desktop` (the platform's `labelArgs`, `jobs.ts:347`, without `lens` — the phone
-   has none to remove); then read `candidate.json` `moves[].frame` / `san`.
-5. Print one table per bundle: `ply san phone_frame event_frame replay_frame delta_phone delta_event`,
-   then median and max |delta| per column, then the fps. Plies the replay missed or invented are
-   listed, not averaged.
+   with cwd `android/desktop`, `<video>` = the top-level `video.mp4` or else
+   `files/sessions/<sid>/video.mp4` (what `jobs.ts videoInput` resolves — find via
+   `grep -n "async function videoInput" platform/app/lib/jobs.ts`); no `lens`. Then read
+   `candidate.json` `moves[].frame` / `san`.
+5. Print one table per bundle: `ply san phone_frame naive_frame replay_frame delta delta_naive`,
+   then median and max |delta| per column, the decode walk's wall time, and the replay's wall time
+   from its log. Plies the replay missed or invented are listed, not averaged.
 
-Also audit the chain's view of these bundles, read-only: `platform/app/lib/chain.ts:28` counts a
-`log.jsonl` in `gameDir(name)` as "session exported", but a phone bundle arrives WITH a top-level
+Also audit the chain's view of these bundles, read-only: `platform/app/lib/chain.ts:87` (field
+`hasSession`, `:34`) counts a `log.jsonl` in `gameDir(name)` as "session exported", but a phone bundle arrives WITH a top-level
 `log.jsonl` whose rows are the phone's commit frames (`{"frame":"frames/0000.jpg","ply":…,"corners":…}`,
 no `board` key). Record for each bundle: does `log.jsonl` exist, does its first row carry `board`, and
 what `nextStep` would therefore return after a confirm. Do not change `chain.ts` (Phase 02 owns it).
@@ -52,11 +64,12 @@ None beyond `ruff`. The deliverable is the measurement.
 
 ## Acceptance
 
-- `uv run python scripts/phone_candidate_offset.py 2026-08-30-14-33-02 --no-replay` exits 0 and
-  prints the table (columns as named) even without a replay candidate (replay columns `-`).
-- `STATUS.md` → Notes contains a line matching `PHONE_FRAME_OFFSET = <integer>` and one line per
-  bundle for the `log.jsonl` audit.
-- At most three replays were run, one at a time, none on a bundle that already had a candidate.
+- `uv run python scripts/phone_candidate_offset.py --list` exits 0 and names every bundle with its
+  record/segment/layout facts; `… 2026-08-30-14-33-02 --no-replay` prints the table (columns as
+  named) even without a replay candidate (replay columns `-`).
+- `STATUS.md` → Notes contains a line matching `PHONE_FRAME_OFFSET = <integer>`, the list of
+  bundles measured, and one line per bundle for the `log.jsonl` audit.
+- At most three replays were run, one at a time, only on bundles with a record and no candidate.
 
 ## Do NOT
 

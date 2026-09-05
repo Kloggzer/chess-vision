@@ -11,11 +11,12 @@ Runs in the ROOT checkout on `feat/phone-candidate` after 01 and 02 are merged, 
 `cd android && .\gradlew.bat :desktop:installDist` (the orchestrator has built it; verify the binary
 date is after the merge, else build once).
 
-For each of the three Phase 00 bundles, in order, one at a time:
+For each bundle Phase 00 measured (those with a game record — two on 2026-09-06, up to three), in
+order, one at a time:
 
 1. Keep the replay's candidate aside: `copy candidate.json candidate.json.replay-<date>` (it exists
    from Phase 00). Run `desktop.bat phone-candidate <abs recordingDir> force=1` from `android/desktop`;
-   note wall time (seconds).
+   note wall time (seconds). On the two-segment bundle the note and the ply count are part of the table.
 2. `uv run python scripts/phone_candidate_offset.py <name> --no-replay` now compares the phone
    candidate's frames against `candidate.json.replay-<date>` — extend the script by one option
    `--replay-candidate <file>` (Phase 00 owns the script; you may add the option, nothing else).
@@ -25,8 +26,8 @@ For each of the three Phase 00 bundles, in order, one at a time:
 4. Open nothing in a browser; instead `curl -s http://localhost:3000/` is NOT required — the chain
    state is asserted by `npx vitest run lib/chain.test.ts` (02) and by reading `nextStep` for a real
    bundle via a 10-line `node -e` using `lib/chain.ts`'s `chainState(name)` (find the export via
-   `grep -n "export async function" platform/app/lib/chain.ts`): the three bundles must now report
-   `confirm` (candidate exists, unconfirmed).
+   `grep -n "export async function" platform/app/lib/chain.ts`): every measured bundle must now
+   report `confirm` (candidate exists, unconfirmed); the bundle without a record reports `label`.
 
 Docs (durable facts — this phase's deliverable):
 
@@ -48,10 +49,11 @@ Docs (durable facts — this phase's deliverable):
 
 ## Acceptance
 
-- Three tables in `STATUS.md` → Session log with median |delta| and the two wall times each.
+- One table per measured bundle in `STATUS.md` → Session log with median |delta| and the two wall
+  times each; the bundle without a record is listed with `nextStep = label`.
 - `grep -n "phone-candidate" docs/phone-transfer.md platform/app/README.md` hits in both.
 - `grep -n "Züge vom Handy" TODO.md` hits only below `## Erledigt`.
-- The three bundles carry a `candidate.json` with `"decider": "phone"` and `"confirmed": false`.
+- Every measured bundle carries a `candidate.json` with `"decider": "phone"` and `"confirmed": false`.
 
 ## Do NOT
 

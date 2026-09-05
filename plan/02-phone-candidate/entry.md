@@ -4,9 +4,16 @@
 
 A transferred bundle (`data/recordings/<name>/`, `docs/phone-transfer.md` "Where things land") already
 carries the game the phone tracked and the user watched: `files/games/<id>.json` (`StoredGame`,
-`GameRecord.kt:46`) with a `tsEpochMs` per ply, and `timeline.jsonl` with `video_sync` rows that tie the
-phone clock to the video clock (`RecordedFrames.kt:22`). Today the chain ignores both and replays the
-whole video on the PC (`jobs.ts:347 labelArgs`) — minutes at real time — only to obtain a frame per ply.
+`GameRecord.kt:46`) with a `tsEpochMs` per ply (`System.currentTimeMillis()`, `LiveGame.kt:86,144`),
+and `timeline.jsonl` whose `frame`/`event` rows carry BOTH clocks (`wallTsMs` and `elapsedNs`,
+`SessionTimeline.kt:38,65-75`) and whose `video_sync` rows tie `elapsedNs` to the video duration
+(`:77-86`, `RecordedFrames.kt:22`). Today the chain ignores all of it and replays the whole video on
+the PC (`jobs.ts:347 labelArgs`) — minutes at real time — only to obtain a frame per ply.
+
+**Bundle layout varies.** `2026-08-30-14-33-02` has `video.mp4`, `timeline.jsonl`, `settings.json`
+at the top level; `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`;
+`2026-08-24-22-43-46` has no `files/games/` at all. Every reader in this pack looks at the top level
+first, then `files/sessions/<sid>/` (the rule `chain.ts:52-64 videoOf` already follows).
 
 After this pack: a `:desktop phone-candidate <recordingDir>` verb writes `candidate.json` from record +
 timeline + a geometry scan in seconds; the platform offers it as **Züge vom Handy übernehmen** wherever a
@@ -14,7 +21,7 @@ matching record exists and keeps the replay as the fallback; "Züge prüfen" sta
 
 | Phase | File | Concern | Depends on | Runs |
 |---|---|---|---|---|
-| 00 | 00-measure.md | frame offset phone-clock vs replay on three real bundles; chain-state audit | — | **alone, first** |
+| 00 | 00-measure.md | which bundles carry a record; frame offset phone-clock vs replay on them; chain-state audit | — | **alone, first** |
 | 01 | 01-verb.md | `PhoneCandidate.kt`: the verb, `PhoneClock`, tests | 00 (the offset) | parallel with 02 |
 | 02 | 02-platform.md | job kind `phone`, chain step, card wording, `hasSession` fix | 00 | parallel with 01 |
 | 03 | 03-parity.md | verb on the three bundles vs replay, docs, TODO | 01, 02 | last, alone |
@@ -45,8 +52,9 @@ line stated under "Artifact authority" — 02 never imports Kotlin, 01 never tou
 - TypeScript gate (from `platform/app`): `npx prettier --write <files>`, `npx eslint <files>`,
   `npx vitest run lib/<file>.test.ts`, `npx tsc --noEmit -p .`. Never `npm run build`.
 - Python (00, 03 only): `uv run pytest -q tests/test_candidate_move_chains.py`, `uv run ruff check`.
-- Replays are heavy: ONE `replay … label` at a time (a JVM holds ~6 GB), only in Phase 00 and only
-  for a bundle that has no `candidate.json`. Never fan out, never touch the emulator or the phone.
+- Replays are heavy: ONE `replay … label` at a time (a JVM holds ~6 GB), only in Phase 00, only
+  for a bundle that has a game record and no `candidate.json`, at most three. Never fan out, never
+  touch the emulator or the phone.
 
 ## Ownership registry — overrides any phase file that disagrees
 
@@ -54,7 +62,7 @@ line stated under "Artifact authority" — 02 never imports Kotlin, 01 never tou
 |---|---|---|---|
 | `scripts/phone_candidate_offset.py` | 00 | 03 (reuse, not rewrite) | the measurement |
 | `android/desktop/src/main/kotlin/com/chesslab/desktop/PhoneCandidate.kt` | 01 | 01 only | verb + `PhoneClock` |
-| `android/desktop/src/main/kotlin/com/chesslab/desktop/LabelVerb.kt` | exists | 01 only (`scanGeometry` visibility) | |
+| `android/desktop/src/main/kotlin/com/chesslab/desktop/RecordedFrames.kt` | exists | 01 only (`videoNsAt` → `internal`) | |
 | `android/desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt` | exists | 01 only (`FILE_TOOLS` entry + usage line) | |
 | `android/desktop/src/test/kotlin/com/chesslab/desktop/PhoneCandidateTest.kt` | 01 | — | |
 | `platform/app/lib/jobs.ts`, `chain.ts`, `chain-run.ts`, `app/chain-actions.tsx` | exist | 02 only | |
@@ -74,15 +82,29 @@ line stated under "Artifact authority" — 02 never imports Kotlin, 01 never tou
   it and `writeCandidate` (`:259`, which hardcodes `confirmed: false`). New content only inside
   existing keys: `moves[].decider = "phone"`, `source = {"kind":"phone","game":<id>,"session":<sid>,
   "syncs":<n>,"offset_frames":<PHONE_FRAME_OFFSET>}`. `reviewed_plies` is never written here.
-- **Time bridge, the ONE rule** (`PhoneClock`, 01): a ply's video time is the `video_sync` row
-  nearest in `wallTsMs` to the move's `tsEpochMs`, plus the wall-clock difference (slope 1, the
-  reasoning of `RecordedFrames.kt:49 videoNsAt`). `frame = round(videoS * fps) + PHONE_FRAME_OFFSET`,
-  `fps` from the geometry scan (`ScannedGeometry.fps`, `GeometryScan.kt:52`). `PHONE_FRAME_OFFSET`
-  is a `const val` in `PhoneCandidate.kt` whose value Phase 00 measured — 01 reads it from
-  `STATUS.md`, never guesses.
-- **Geometry** comes from the video, not the phone: the same scan `prepareLabel` runs
-  (`LabelVerb.kt:102-124`, `scanGeometry` at `:125`, made `internal`), without lens. The phone's
-  `log.jsonl` corners are in its analysis frame, not the video's.
+- **Time bridge, the ONE rule** (`PhoneClock`, 01), two hops because `tsEpochMs` is the wall clock
+  and `video_sync` rows carry only `elapsedNs` (`SystemClock.elapsedRealtimeNanos`,
+  `RecordingBundleHost.kt:147,151,195`):
+  1. wall → elapsed: the `frame` or `event` row nearest in `wallTsMs` to `tsEpochMs`;
+     `elapsedNs = row.elapsedNs + (tsEpochMs − row.wallTsMs) · 1e6` (slope 1).
+  2. elapsed → video: `RecordedFrames.videoNsAt(elapsedNs, syncs)` (`RecordedFrames.kt:48-62`,
+     made `internal`), nearest sync by `elapsedNs`, slope 1.
+  3. video time → frame INDEX: the index of the first decoded frame whose `timestampMs ≥ videoNs/1e6`
+     in the same decode pass the geometry scan makes (`FrameSource.timestampMs`,
+     `currentDecodedIndex`, `FrameSource.kt:23-43`) — never `round(t·fps)`: `ConcatFrameSource.fps`
+     is the FIRST segment's nominal rate (`RecordingSource.kt:45-48`), and the replay's `frame` is
+     a decoded index. Then `+ PHONE_FRAME_OFFSET`, a `const val` in `PhoneCandidate.kt` whose value
+     Phase 00 measured — 01 reads it from `STATUS.md`, never guesses.
+  Plies that share a `tsEpochMs` (a `cnn_pair` commit writes one instant for two plies —
+  `2026-08-30_1433.json` has 8 moves on 4 instants) share the frame; that is what the replay does
+  too, and the scorer calls it `reordered`, not an error.
+- **Geometry** comes from the video, not the phone: the same `GeometryScan` `prepareLabel` runs
+  (`LabelVerb.kt:101-122`; `scanGeometry` at `:125` stays private — the verb owns its own decode
+  loop because it also collects the frame clock), without lens. The phone's `log.jsonl` corners are
+  in its analysis frame, not the video's.
+- **Segments:** a record with more than one `GameSegment` (a seam: re-anchor/set-FEN mid-game) gives
+  a candidate from `segments[0]` only, `note` = "n plies after a seam omitted"; `test_candidate_move_chains`
+  demands one legal line from `start_fen`. `2026-08-30-16-20-19` has 2 segments, 124 moves.
 - **Wording** of the step lives in `chain-actions.tsx` `STEP` (02): label "Züge vom Handy übernehmen",
   what "Die am Handy erkannte Zugfolge wird mit ihren Video-Zeiten übernommen — Sekunden statt Minuten.",
   hint "schreibt candidate.json aus files/games + timeline.jsonl". The replay button keeps its text.

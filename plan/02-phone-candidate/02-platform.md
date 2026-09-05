@@ -2,10 +2,10 @@
 
 ## Why
 
-`nextStep` (`chain.ts:117-128`) offers `label` (the replay) for every bundle without a candidate. A
+`nextStep` (`chain.ts:118-129`) offers `label` (the replay) for every bundle without a candidate. A
 bundle with a game record naming its session can be answered in seconds by `phone-candidate`; the
-replay should be the fallback, offered when the phone step refused. And `hasSession` (`chain.ts:28`)
-mistakes the phone's own `log.jsonl` for an export (Phase 00 audited it).
+replay should be the fallback, offered when the phone step refused. And `hasSession` (field `:34`,
+check `:87`) mistakes the phone's own `log.jsonl` for an export (Phase 00 audited it).
 
 ## Design (decided — do not redesign)
 
@@ -34,9 +34,10 @@ log `<name>.phone.log`; exit 1 → state `failed`, `reason` = the stdout line st
 `app/chain-actions.tsx`: `STEP.phone` with the wording from entry.md (Artifact authority); when
 `job?.kind === "phone" && job.state === "failed"`, render a second button "Züge am PC neu erkennen"
 that posts `{ step: "label" }` — the same pattern as `lensRefused` (`chain-actions.tsx`, `lensRefused`).
-`chain-run.ts` must then accept `label` while the disk's next step is `phone`: extend the 409 check
-(`:14-30`, find via `grep -n "409" lib/chain-run.ts`) so `label` is allowed whenever `hasCandidate`
-is false. Nothing else on the card changes.
+`chain-run.ts` must then accept `label` while the disk's next step is `phone`: the 409 at `:13`
+(`step !== state.step`) also passes when `step === "label" && !state.hasCandidate`; the heavy lock
+at `:30` (`claimHeavyLock(state.step, name)`) is claimed as the step actually run, i.e. `label`.
+Nothing else on the card changes.
 
 ## Steps
 
@@ -46,7 +47,7 @@ is false. Nothing else on the card changes.
 
 ## Tests
 
-Append to `lib/chain.test.ts` (fixture helpers at `:13-24`, `:86-90`):
+Append to `lib/chain.test.ts` (fixture helpers at `:16-25`, games fixture `:86-88`):
 
 - `reads a bundle with a game record as 'phone', without one as 'label'` — write
   `files/games/<id>.json` with `{"sessionId":"20260813-121055", …}` (only `sessionId` matters here).
@@ -58,8 +59,8 @@ Append to `lib/jobs.test.ts` (find via `ls platform/app/lib/*.test.ts`; if none 
 create `lib/jobs-phone.test.ts`):
 
 - `phoneArgs names the verb and the recording dir` — `["phone-candidate", "<abs>"]`.
-- `a refused: line becomes the job's reason` — feed a fake log text to the parser you extract for
-  it (`export function refusalOf(log: string): string | null`).
+- `a refused: line becomes the job's reason` — `export function refusalOf(log: string): string | null`
+  returns the LAST line starting with `refused:` (stdout and stderr are interleaved in the log), else null.
 
 Commands (from `platform/app`): `npx prettier --write <files>`; `npx eslint <files>`;
 `npx vitest run lib/chain.test.ts lib/jobs-phone.test.ts` (or `lib/jobs.test.ts`); `npx tsc --noEmit -p .`;
