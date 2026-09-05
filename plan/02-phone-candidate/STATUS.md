@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 00 | 00-measure.md | done 2026-09-06 | `ea18f45b` script, `docs(status)` below; rule order and offset in Notes |
 | 01 | 01-verb.md | todo | |
-| 02 | 02-platform.md | todo | |
+| 02 | 02-platform.md | done 2026-09-06 | `951316c8`, `ff9daceb`, `2795f763` on `feat/pc-02`; chain 22, jobs 23, chain-run 3 (+6) |
 | 03 | 03-parity.md | todo | |
 
 ## Dependencies
@@ -40,6 +40,31 @@
   refusal set is one closed list in entry.md, anchors `decodeStoredGame :33`, `position :156`,
   `chain.ts:34`, `chain-run.ts :14/:30/:36`, `gameMarks :106-133`, `committed :270-283`,
   `ScannedGeometry` 15 parameters.
+
+## Notes — Phase 02 discrepancies
+
+- **`hasPhoneRecord` is a REQUIRED field, so three fixtures outside the registry had to gain a
+  line.** `lib/drain.test.ts`, `lib/queues.test.ts` and `lib/backlog.test.ts` each build a
+  `const CHAIN: ChainState = {…}` literal; without `hasPhoneRecord: false` `tsc --noEmit` fails.
+  One line each, no behaviour, no assertion touched. The alternative (an optional field) would
+  have contradicted the Design.
+- **A `phone-record` bundle falls out of `/`'s queues and out of the backlog.** `queues.ts:73`
+  splits `blocked` on `step === "label"`, `isBare` (`:46`) likewise, and `backlog.ts:12-13`
+  lists `JobStep`/`JOB_STEPS` as the four old job steps. Those files belong to no phase of this
+  pack, so nothing was changed there — but a bundle with a record now shows on its card only,
+  not in the `blocked` lane, and `/reparatur`'s drain will never pick it up. Phase 03 or the
+  orchestrator should decide whether `phone-record` joins `JOB_STEPS`.
+- **Existing chain.test.ts fixtures had to become real export rows.** Two tests wrote `log.jsonl`
+  as `{}` and as `frame`/`dirty` rows; under the new `hasSession` neither is an export any more,
+  so both now carry a `board` key. Test COUNT unchanged (19 → 22, the three new ones).
+- The `refused: ` prefix is matched on the whole log, not on `lastRunOf(text)` — as the Design
+  states ("the LAST line starting with `refused: `"). A retry appends to the same file, so the
+  last line is this run's; a run that prints nothing falls back to `exit <code>`.
+- No prettier in the repo (`package.json` has no dependency and no script), so the Design's
+  `npx prettier --write` step was skipped and the surrounding style matched by hand.
+- `npx next typegen` was run once in the worktree: without `.next/types` `tsc --noEmit -p .`
+  reports pre-existing `RouteContext`/`PageProps`/`LayoutProps` errors in files this phase never
+  touched. It generates route types only — no build, nothing committed (`.next` is ignored).
 
 ## Phase 00 — decisions for Phase 01
 
@@ -112,6 +137,25 @@
   has a timeline but no video.
 
 ## Session log
+
+### 2026-09-06 — Phase 02, worktree `.claude/worktrees/pc-02`, branch `feat/pc-02`
+
+Three commits, one per Step: `951316c8` (`hasSession`/`videoOf`), `ff9daceb` (job kind
+`phone-record`), `2795f763` (the step, the fallback button, the wording).
+
+Gate from `platform/app`, all exit 0: `npx eslint lib/chain.ts lib/jobs.ts lib/chain-run.ts
+app/chain-actions.tsx lib/chain.test.ts lib/jobs.test.ts lib/chain-run.test.ts`;
+`npx vitest run` (45 files, 318 tests — the four named files hold 49: chain 22, jobs 23,
+chain-run 3, comment-budget 1); `npx tsc --noEmit -p .`.
+
+Acceptance greps: `"phone-record"` is 2 in each of `chain.ts`, `jobs.ts`, `chain-run.ts`,
+`chain-actions.tsx`; `"board"` is 1 in `chain.ts`.
+
+**Next step:** the orchestrator merges `feat/pc-02` into `feat/phone-candidate`. Phase 03 then
+runs the verb of Phase 01 against `2026-08-16-20-41-33` in the ROOT checkout after
+`:desktop:installDist`, and decides the `JOB_STEPS`/`queues.ts` question in the discrepancies
+above. Nothing on the platform side waits on 01 — the card offers `Züge vom Handy übernehmen`
+today, and the job fails with the missing-binary reason until `phone-candidate` exists.
 
 ### 2026-09-06 — Phase 00, root checkout, branch `feat/pc-00`
 
