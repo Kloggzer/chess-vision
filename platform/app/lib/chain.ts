@@ -48,20 +48,46 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
-/** The transferred bundle's own recording: the newest session directory that has a video. */
+/**
+ * The bundle's own recording: the newest session directory that has a video, else the mirrored copy.
+ *
+ * Some transfers carry `video.mp4` beside `files/` as well, some ONLY there (`2026-08-30-14-33-02`).
+ */
 async function videoOf(name: string): Promise<string | null> {
-  const sessions = path.join(gameDir(name), "files", "sessions");
+  const dir = gameDir(name);
+  const sessions = path.join(dir, "files", "sessions");
   let ids: string[] = [];
   try {
     ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    return null;
+    /* no sessions/ — the mirrored copy may still be there */
   }
   for (const id of ids.sort().reverse()) {
     const video = path.join(sessions, id, "video.mp4");
     if (await exists(video)) return video;
   }
-  return null;
+  const mirrored = path.join(dir, "video.mp4");
+  return (await exists(mirrored)) ? mirrored : null;
+}
+
+/**
+ * An exported session, not merely a `log.jsonl`.
+ *
+ * The export writes frames first and log.jsonl LAST, so the directory alone proves nothing: a
+ * killed export left one, the chain offered the next step, and Python refused (2026-08-15). And a
+ * mirrored bundle keeps the PHONE's own commit log under that very name — `frame` rows, no `board`
+ * — which read as an export and skipped the export rung outright (Phase 00, `2026-08-30-14-33-02`).
+ */
+async function exportedSession(name: string): Promise<boolean> {
+  const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(() => null);
+  const first = text?.split("\n").find((line) => line.trim());
+  if (!first) return false;
+  try {
+    const row: unknown = JSON.parse(first);
+    return typeof row === "object" && row !== null && "board" in row;
+  } catch {
+    return false;
+  }
 }
 
 /** A `.pgn` the phone wrote beside its game record — the only truth these recordings ever carry. */
@@ -82,9 +108,7 @@ export async function chainState(name: string): Promise<ChainState> {
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
-    // The export writes frames first and log.jsonl LAST, so the directory alone proves nothing:
-    // a killed export left one, the chain offered the next step, and Python refused (2026-08-15).
-    exists(path.join(sessionDir(name), "log.jsonl")),
+    exportedSession(name),
     matteCensus(name),
     exists(path.join(dir, "model-reads.jsonl")),
     uselessFlag(name),
