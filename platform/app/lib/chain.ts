@@ -16,8 +16,8 @@ import { checkMp4 } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
-/** `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
-export type ChainStep = "label" | "confirm" | "export" | "matte" | "model-read" | "labeln";
+/** `phone-record`, `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
+export type ChainStep = "phone-record" | "label" | "confirm" | "export" | "matte" | "model-read" | "labeln";
 
 export type ChainState = {
   /** Null = nothing to do here: the game is flagged useless, and no step is offered at all. */
@@ -29,6 +29,8 @@ export type ChainState = {
   /** A PGN the phone recorded is truth the confirm screen can compare against. One click adopts it. */
   offeredPgn: string | null;
   hasReference: boolean;
+  /** The phone tracked this game and its record names the session: `phone-candidate` can run. */
+  hasPhoneRecord: boolean;
   hasCandidate: boolean;
   confirmed: boolean;
   hasSession: boolean;
@@ -48,20 +50,70 @@ async function exists(file: string): Promise<boolean> {
   }
 }
 
-/** The transferred bundle's own recording: the newest session directory that has a video. */
+/**
+ * The bundle's own recording: the newest session directory that has a video, else the mirrored copy.
+ *
+ * Some transfers carry `video.mp4` beside `files/` as well, some ONLY there (`2026-08-30-14-33-02`).
+ */
 async function videoOf(name: string): Promise<string | null> {
-  const sessions = path.join(gameDir(name), "files", "sessions");
+  const dir = gameDir(name);
+  const sessions = path.join(dir, "files", "sessions");
   let ids: string[] = [];
   try {
     ids = (await readdir(sessions, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    return null;
+    /* no sessions/ — the mirrored copy may still be there */
   }
   for (const id of ids.sort().reverse()) {
     const video = path.join(sessions, id, "video.mp4");
     if (await exists(video)) return video;
   }
-  return null;
+  const mirrored = path.join(dir, "video.mp4");
+  return (await exists(mirrored)) ? mirrored : null;
+}
+
+/**
+ * An exported session, not merely a `log.jsonl`.
+ *
+ * The export writes frames first and log.jsonl LAST, so the directory alone proves nothing: a
+ * killed export left one, the chain offered the next step, and Python refused (2026-08-15). And a
+ * mirrored bundle keeps the PHONE's own commit log under that very name — `frame` rows, no `board`
+ * — which read as an export and skipped the export rung outright (Phase 00, `2026-08-30-14-33-02`).
+ */
+async function exportedSession(name: string): Promise<boolean> {
+  const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(() => null);
+  const first = text?.split("\n").find((line) => line.trim());
+  if (!first) return false;
+  try {
+    const row: unknown = JSON.parse(first);
+    return typeof row === "object" && row !== null && "board" in row;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A game record naming this bundle's session — what `phone-candidate` reads instead of the video.
+ *
+ * Exactly one session directory, because the verb refuses several: with two, the record names one
+ * of them and the video is the other's. `index.json` is the phone's list of records, not a record.
+ */
+async function phoneRecord(name: string): Promise<boolean> {
+  const dir = gameDir(name);
+  const entries = await readdir(path.join(dir, "files", "sessions"), { withFileTypes: true }).catch(() => []);
+  const ids = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+  if (ids.length !== 1) return false;
+  const games = path.join(dir, "files", "games");
+  const records = (await readdir(games).catch(() => [])).filter((f) => f.endsWith(".json") && f !== "index.json");
+  for (const file of records.sort()) {
+    const text = await readFile(path.join(games, file), "utf8").catch(() => "");
+    try {
+      if ((JSON.parse(text) as { sessionId?: string }).sessionId === ids[0]) return true;
+    } catch {
+      /* a half-written record names nothing */
+    }
+  }
+  return false;
 }
 
 /** A `.pgn` the phone wrote beside its game record — the only truth these recordings ever carry. */
@@ -77,14 +129,13 @@ async function phonePgn(name: string): Promise<string | null> {
 
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
-  const [video, offeredPgn, hasReference, candidateText, hasSession, mattes, hasModelReads, useless] = await Promise.all([
+  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, hasSession, mattes, hasModelReads, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
+    phoneRecord(name),
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
-    // The export writes frames first and log.jsonl LAST, so the directory alone proves nothing:
-    // a killed export left one, the chain offered the next step, and Python refused (2026-08-15).
-    exists(path.join(sessionDir(name), "log.jsonl")),
+    exportedSession(name),
     matteCensus(name),
     exists(path.join(dir, "model-reads.jsonl")),
     uselessFlag(name),
@@ -97,6 +148,7 @@ export async function chainState(name: string): Promise<ChainState> {
     videoBroken: broken ? "the recording has no MP4 index (moov) — it was interrupted before the recorder could close it" : null,
     offeredPgn: hasReference ? null : offeredPgn,
     hasReference,
+    hasPhoneRecord,
     hasCandidate: candidateText !== null,
     confirmed,
     hasSession,
@@ -114,10 +166,11 @@ export async function chainState(name: string): Promise<ChainState> {
  * `reviewed_plies`, so an unconfirmed candidate has nothing for it to export, and offering the
  * button anyway would produce an empty session and a puzzled user. A game the human called
  * useless has no step at all — that is the whole point of the flag, and it is one click undone.
+ * With a record on disk the phone already knows the moves; the replay is then the fallback button.
  */
 export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   if (state.useless) return null;
-  if (!state.hasCandidate) return "label";
+  if (!state.hasCandidate) return state.hasPhoneRecord ? "phone-record" : "label";
   if (!state.confirmed) return "confirm";
   if (!state.hasSession) return "export";
   // Before `model-read`, which needs a model picked by hand: the alphas need nothing but the

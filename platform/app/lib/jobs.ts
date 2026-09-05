@@ -16,12 +16,12 @@ import { createWriteStream } from "node:fs";
 import { appendFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
-import { checkName, dataDir } from "@/lib/data";
+import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
-type JobKind = "pack" | "label" | "export" | "adopt-dirty" | "matte" | "model-read";
+type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "matte" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -333,6 +333,17 @@ export async function enqueueLabel(name: string, lens?: boolean): Promise<Job> {
   return job;
 }
 
+/** Same queue and same guard as the replay: it is the same machine, only far cheaper. */
+export async function enqueuePhoneRecord(name: string): Promise<Job> {
+  checkName(name, "transfer name");
+  const known = queue.jobs.get(name);
+  if (known && (known.state === "queued" || known.state === "running")) return known;
+  const job: Job = { name, kind: "phone-record", state: "queued", queuedAt: new Date().toISOString() };
+  queue.jobs.set(name, job);
+  queue.running = queue.running.then(() => guard(job, () => runPhoneRecord(job))).then(releaseWhenIdle);
+  return job;
+}
+
 /**
  * The UI fallback is always visually reviewable: fit and remove this recording's barrel first.
  *
@@ -346,6 +357,22 @@ export async function enqueueLabel(name: string, lens?: boolean): Promise<Job> {
 export function labelArgs(video: string, name: string, lens = true): string[] {
   const args = ["replay", video, "label", `name=${checkName(name, "transfer name")}`, "model=real14-80"];
   return lens ? [args[0], args[1], args[2], "lens", ...args.slice(3)] : args;
+}
+
+/**
+ * The phone's own record instead of the replay: seconds, and the whole bundle is the argument.
+ *
+ * No `model=`, no `force=1` — the verb defaults to `real14-80` like `labelArgs`, and an existing
+ * candidate is a refusal a human answers, never something a press overwrites.
+ */
+export function phoneArgs(recordingDir: string): string[] {
+  return ["phone-candidate", recordingDir];
+}
+
+/** The verb's one refusal line, LAST wins — a retry appends to the same log. */
+export function refusalOf(log: string): string | null {
+  const line = log.split(/\r?\n/).findLast((l) => l.startsWith("refused: "));
+  return line === undefined ? null : line.slice("refused: ".length);
 }
 
 /**
@@ -617,6 +644,50 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
     // The tool's own last words, not just a path: "see the log" is what a user reads instead of
     // the sentence that would have told them what to do.
     reason: madeCandidate ? undefined : `${await lastWords(log)} (exit ${code}, ${log})`,
+    finishedAt: new Date().toISOString(),
+  });
+}
+
+/**
+ * `phone-candidate` over the whole bundle: the record's plies, timed against the video.
+ *
+ * The verb states its own refusal on one line, so `lastWords` heuristics are not needed here —
+ * a refusal is the sentence the user acts on, and everything else is an exit code.
+ */
+async function runPhoneRecord(job: Job): Promise<void> {
+  const binary = desktopBinary();
+  if (!(await exists(binary))) {
+    await record({
+      ...job,
+      state: "failed",
+      reason: `no desktop distribution at ${binary} — run "gradlew.bat :desktop:installDist" in android/`,
+      finishedAt: new Date().toISOString(),
+    });
+    return;
+  }
+  const args = phoneArgs(gameDir(job.name));
+  const log = path.join(jobsDir(), `${job.name}.phone-record.log`);
+  await mkdir(jobsDir(), { recursive: true });
+  const running: Job = {
+    ...job,
+    state: "running",
+    startedAt: new Date().toISOString(),
+    command: `${binary} ${args.join(" ")}`,
+    log,
+  };
+  await record(running);
+  const code = await runDesktop(binary, args, running, log);
+  const end = endState(job.name, code);
+  await record({
+    ...running,
+    state: end.state,
+    code,
+    candidate: code === 0 ? job.name : undefined,
+    reason: end.stopped
+      ? STOPPED
+      : code === 0
+        ? undefined
+        : (refusalOf(await readFile(log, "utf8").catch(() => "")) ?? `exit ${code}`),
     finishedAt: new Date().toISOString(),
   });
 }

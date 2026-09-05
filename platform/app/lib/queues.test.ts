@@ -12,6 +12,7 @@ const CHAIN: ChainState = {
   videoBroken: null,
   offeredPgn: null,
   hasReference: false,
+  hasPhoneRecord: false,
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
