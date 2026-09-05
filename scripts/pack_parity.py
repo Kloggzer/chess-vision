@@ -6,6 +6,10 @@ and proves the row sets and labels are identical — the part that must not diff
 
     uv run python scripts/pack_parity.py --session rg-2026-08-08-11-59-12 [--size 80]
 
+The pool arm is sliced into its OWN tag first. `data/crops/default/` is a cut from whenever the
+session was last sliced, and this one moved since: 53 frames and 8 labels apart from today's log
+(2026-09-05). Against that pool the row comparison measures the pool's age, not the pack path.
+
 One session means the session-based split assigner leaves val and test empty (it never splits a
 session), so both builds are `--allow-degenerate` and both trainings run against a
 `split-parity.json` whose val IS the train session. That measures the two pixel paths against each
@@ -36,6 +40,9 @@ from chesslab.training.pack import (  # noqa: E402
 
 POOL = "sp-parity-pool"
 PACKS = "sp-parity-packs"
+POOL_TAG = "sp-parity"
+#: The pool's own crop side — `board_size` 928 with `pad_side` 0.05 gives 127.6 px (§3.1).
+POOL_SIDE = 128
 SPLIT_FILE = "split-parity.json"
 #: Mean absolute channel difference the two cutting paths may drift apart, in grey levels.
 MAX_MEAN_DIFF = 6.0
@@ -102,8 +109,10 @@ def pixel_parity(common: set, pool_at: dict, pack_at: dict) -> dict:
 def train_and_eval(name: str, paths: config.Paths) -> float | None:
     """One epoch, one worker, the default backbone; then eval BOTH arms against the pool corpus."""
     run = str(paths.models / f"sp-parity-{name.rsplit('-', 1)[-1]}")
+    # `--no-empty-cap`: the cap protects the mined hard empties by CROP PATH, which no `mm://`
+    # row can match — with it on, the two arms would train on different rows.
     _cli("train", "--dataset", name, "--epochs", "1", "--num-workers", "1", "--seed", "42",
-         "--split", SPLIT_FILE, "--out", run)
+         "--split", SPLIT_FILE, "--no-empty-cap", "--out", run)
     _cli("eval", "--run", run, "--dataset", POOL, "--split", "train", "--split-file", SPLIT_FILE)
     trained_on = json.loads(Path(run, "config.json").read_text(encoding="utf-8")).get("dataset")
     stem = "train" if trained_on == POOL else f"train__{POOL}"
@@ -125,7 +134,15 @@ def main() -> int:
     else:
         _cli("session", "pack", "--session", args.session, "--size", str(size))
 
+    pool_manifest = paths.crops / POOL_TAG / "manifest.jsonl"
+    if pool_manifest.exists():
+        print(f"[skip] crop pool {pool_manifest} already exists")
+    else:
+        _cli("slice", "--session", args.session, "--variant-tag", POOL_TAG,
+             "--out-size", f"{POOL_SIDE}x{POOL_SIDE}")
+
     _cli("dataset", "build", POOL, "--sessions", args.session, "--classes", "pieces13",
+         "--source-manifest", pool_manifest.as_posix(),
          "--pack-size", f"{size}x{size}", "--allow-degenerate")
     _cli("dataset", "build", PACKS, "--sessions", args.session, "--classes", "pieces13",
          "--from-packs", "--pack-size", f"{size}x{size}", "--allow-degenerate")

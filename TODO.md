@@ -79,8 +79,14 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   ungemessene Grenzen; `val_conf_auroc` ist als Entscheider unbrauchbar.
 - **Stored-Sessions v2:** 6 Packs mit Grid-Fit-Quad neu gepackt, 637 Hard-Empties geparkt. Offen:
   Dataset `real14-all-80-v2` bauen (Resolver muss die `-80-v2`-Verzeichnisse ziehen) und Retrain.
-- **Sessions direkt in eine Memmap, mehrere Memmaps im Training** (~98 GB → ~9 GB; Kotlin-Packs
-  wieder nutzbar). Preis: Crop-Größe/pad/Mesh eingefroren.
+- **`load_packed` gibt ein nacktes 3-Tupel zurück**, das an zehn Stellen positional ausgepackt wird
+  — mehrere Packs passen da nicht hinein, darum verweigert es Pack-Datensätze statt sie zu lesen.
+- **Acht `scripts/*.py` kopieren `index = p2i or {r["path"]: r["_packed_idx"] …}` wörtlich** — eine
+  Auflösung je Skript, keine davon mehrpack-fähig; `torch_data._pack_index` ist die eine Stelle.
+- **Zwei `mm://`-Formate ohne gemeinsamen Bauer:** `synth_build._virtual_path` gegen die
+  Kotlin-Schreiber; nur `packs.pack_name_of` liest beide.
+- **`packed_meta.json` wird an vier Python-Stellen von Hand geschrieben** (`pack.py:208` und `:274`,
+  `synth_build.py:278`, `packs.write_meta`) — kein Leser/Schreiber-Paar, die Schlüssel driften.
 - **Composite:** Pool 128 → 80 ist ein Resampling zu viel (1,54× Laplace direkt); Überblendung
   variieren (hart/Gauss/Poisson, ICCV 2017); Median-Mesh dreht mit dem Brett (r 0,87 zum Winkel).
   Alles Bildmessungen — Val-Wert gegen `comp13-occ-bn-lr1e2-bs512` ist der Gegentest.
@@ -139,6 +145,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Sessions direkt in eine Memmap (2026-09-05):** `session pack` / `pack import` /
+  `dataset build --from-packs`; auf 11-59-12 zeilengleich (50 310/50 310, Differenz 0), 1,684/255
+  mittlere Pixelabweichung — der Pool-Datensatz 944 MB, der Pack-Datensatz 18 MB.
 - **`pOcc` ohne Coverage im Nenner, Alarm-Gate auf der Belegungsachse (2026-09-05):** beide
   zeilengleich zur Basis (pocc-cold, Replay-Cache v6, damit die Messung nicht den alten `pOcc` liest).
 - **Desync-Kern und Window-End (2026-09-05):** die Serie trägt den Schnitt aller Blicke; das
