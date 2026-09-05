@@ -67,8 +67,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 - **11-59-12 neu slicen und packen** — Frame-FENs ab Ply 65 waren falsch (a3/a4 vertauscht), am
   2026-09-04 korrigiert; ein bereits exportierter Pack trägt die alten Labels.
-- **222741-Schwanz bestätigen:** `c6 Qxe5 cxd5 Qd6+ Bd7 Qxd7#` (8038–9468) liest der Tracker, aus
-  den Bildern nicht sicher genug; steht als `tail_note` in der `candidate.json`.
 - **4K gehört in `--scales`** oder der 4K-Crop auf die trainierte Zellgröße (116 px), statt auf 80
   hochskaliert. Vorher messen, welcher Weg die Identität hebt.
 - **Train/Serve-Resampling:** live nativer 576-px-Warp (INTER_LINEAR), Export 800er Warp → 110-px-Crop
@@ -158,6 +156,7 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   auf ruhigem Rig-Brett, vier Aufnahmen 0 Plies; eigener Warp in Kalibriergröße, AN = AUS.
 - **Referenzen (2026-09-04):** `233432` `1.e4 e5 2.Nf3 Nf6` statt `Nf3 e5 e4 Nf6`; `222741` `Nxf3+`
   nie gespielt; `11-59-12` beide Knoten nach dem Tracker (Label hatte a3/a4 vertauscht) → 73/0/0.
+  `222741`-Schwanz `c6 Qxe5 cxd5 Qd6+ Bd7 Qxd7#` am 2026-09-05 aus der Montage bestätigt → 33/0/0/0.
 - **Belegungs-Fallback bei `inconclusive` (2026-09-04):** zeilengleich, nicht eingebaut.
 - **CLAHE im Replay (2026-09-04):** nie gebaut, jetzt wie das Handy; zeilengleich zu ohne.
 - **Scorer (2026-09-04):** `beyond` (164 von 171 „Phantomen" auf 11-59-12 lagen hinter dem Label)
