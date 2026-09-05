@@ -343,6 +343,64 @@ crop the variant needs, and the digest still comes from the variant's own manife
 Rotation augmentation is a **train-time transform** (`torch_data._RandomRot90`), never
 materialized — `dataset.yaml`'s `rotations` field only switches it on.
 
+### 4.1 Session packs — the pixels once per session, not once per recipe
+
+`dataset pack --from` only helps when one manifest is a SUBSET of another, so every recipe
+experiment still decoded the corpus into its own memmap. A **session pack** holds one session's
+crops once; a dataset built from packs is manifest + split, and cites them.
+
+```
+data/packs/<pack>/
+  packed_images.u8   # (N, H, W, 3) uint8 RGB, one crop per row — the same layout a dataset packs
+  packed_meta.json   # n, h, w, digest, paths: the five keys `training/packs.py` requires
+  manifest.jsonl     # the slice's rows, each `path` an `mm://<pack>/<frame>/<square>`
+```
+
+```bash
+uv run chesslab session pack --session <sid> --size 80    # cut the session ONCE, at model size
+uv run chesslab pack import <dir>                         # adopt a Kotlin labeled-video-pack
+uv run chesslab dataset build <name> --sessions s1,s2 --from-packs --pack-size 80x80
+```
+
+**The directory name IS the pack name** — it equals the first `mm://` segment of the pack's rows.
+Python writes `mm://<sid>-<W>/…` into `data/packs/<sid>-<W>/`, the Kotlin writers say
+`mm://<sid>/…`, so an imported Kotlin pack keeps the plain id. `packs.read_pack` refuses a
+directory whose rows disagree, and nothing renames a pack.
+
+**A pack's geometry is frozen.** `out_size`, `pad_side` and `pad_up` sit on every row and a pack
+is immutable — `session pack` refuses to overwrite one. All packs in one dataset must agree on
+`(h, w)`; `--from-packs --pack-size 80x80` SELECTS which pack per session is taken, it never
+resizes. `dataset.yaml` then carries `packs: [<name>, …]`, which is the only thing that tells a
+pack-built dataset apart from a fused synth build — both are `mm://` rows.
+
+**One resample instead of two.** The pool path cuts the board into 128 px WebP files for the
+labeling view and `pack_dataset` scales those down to the model size; `session pack` cuts from the
+same board store straight at model size. The two therefore differ in pixels by design.
+
+Measured 2026-09-05 by `scripts/pack_parity.py` on `rg-2026-08-08-11-59-12` at 80 px, both arms
+built from the SAME slice of that session: **50,310 rows on each side, symmetric difference 0** on
+`(session, frame, square, label)`, **mean absolute channel difference 1.684/255**, p99 of the
+per-crop mean 2.299, worst crop 2.435 (all five worst are the same knight on g1). The pool dataset
+carries 944 MB of copied pixels, the pack-built one 18 MB of manifest and split.
+
+One epoch each, one worker, seed 42, both evaluated against `sp-parity-pool`:
+`visible_piece_acc` 0.1875 (pool) against 0.2068 (packs). Both models are one warm-up epoch old
+and nowhere near converged, so the 1.9-point gap says nothing about the recipe — it is recorded
+because the spec's threshold is 1 point, not because it means anything yet. Compare the paths on
+a converged run before quoting either number.
+
+Do NOT read a parity number off a stale crop pool. `data/crops/default/` holds whatever cut of a
+session was last sliced: for this one it was 53 frames and 8 labels behind the log
+(a3/a4 were swapped from ply 65 until 2026-09-04), which alone produced a symmetric difference of
+5,357 rows. `pack_parity.py` therefore slices its own pool into `data/crops/sp-parity/` first.
+
+**`gradcam` and the `scripts/*.py` readers do NOT read a pack-built dataset.** They unpack
+`load_packed`'s legacy `(path, shape, path2idx)` tuple positionally and index by crop path, which
+cannot address several memmaps at once. `load_packed` therefore refuses such a dataset by name —
+`ValueError: dataset '<name>' is built from session packs — its pixels live in data/packs/…` —
+instead of serving them the wrong pixels. `train` and `eval` go through
+`training.pack.resolve_dataset_packs` and are unaffected.
+
 ---
 
 ## 5. Behaviours that have cost people hours

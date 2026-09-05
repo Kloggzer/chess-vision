@@ -396,6 +396,11 @@ class Paths:
         return self.root / "datasets"
 
     @property
+    def packs(self) -> Path:
+        """One pack per session, cited by every dataset — out of `all()`, nobody needs it empty."""
+        return self.root / "packs"
+
+    @property
     def models(self) -> Path:
         return self.root / "models"
 

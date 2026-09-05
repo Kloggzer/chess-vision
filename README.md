@@ -282,6 +282,7 @@ the one piece worth keeping, lives on in `src/chesslab/session_writer.py`.
 uv run chesslab stats                                     # class distribution, light/dark coverage
 uv run chesslab dataset build <name> --sessions s1,s2     # filter -> dedup -> split -> pack
 uv run chesslab dataset build <name> --sessions s1,s2 --like <donor>   # --sessions is still required
+uv run chesslab dataset build <name> --sessions s1,s2 --from-packs --pack-size 80x80  # cite data/packs/
 uv run chesslab dataset list | verify | delete
 uv run chesslab split --max-empty-ratio 1.5 --max-class-ratio 3        # the global, unnamed split
 ```
@@ -298,6 +299,11 @@ no crop is ever re-labeled (`docs/class-scheme.md`). Perceptual-hash dedup and r
 verbatim. Use it for any build meant to be compared against a model trained on that donor: a
 split is **not** reproducible from its own recorded parameters, and a near-twin is worse than
 no twin. `CLAUDE.md` has the measurement behind that.
+
+`--from-packs` builds from the session packs in `data/packs/` instead of a crop pool: the rows keep
+their `mm://` paths, nothing is decoded, and the dataset is manifest + split only — no second copy
+of the pixels. `--pack-size` then selects WHICH pack per session is taken; it never resizes one.
+`docs/data-pipeline.md` §4.1 has the layout and the measured pool-vs-pack difference.
 
 Synthetic renders have their own fused path that packs straight into the training memmap,
 skipping crop PNGs entirely:
@@ -370,7 +376,13 @@ uv run chesslab session scan 20260731-102458      # worst square offset per fram
 uv run chesslab session autofix 20260731-102458   # re-fit the frames that are off
 uv run chesslab session adopt <sid>               # copy a detected quad into rows without one
 uv run chesslab session flag <sid> 42             # exclude one frame from slicing
+uv run chesslab session pack --session <sid> --size 80   # cut it ONCE into data/packs/<sid>-80/
+uv run chesslab pack import <dir>                 # adopt a Kotlin labeled-video-pack
 ```
+
+`session pack` is the alternative to slicing into the crop pool: one memmap per session, cut at
+model size, immutable, and read by `dataset build --from-packs`. The 128 px pool stays the
+labeling artefact (`docs/data-pipeline.md` §3.1 and §4.1).
 
 `scan` measures, `autofix` repairs. Both refuse to touch a frame that is already within
 tolerance — inside the noise band the fit chases its own noise — and `autofix` discards any

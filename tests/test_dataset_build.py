@@ -8,6 +8,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab import dataset_build as DB
+from chesslab.training import packs
 
 
 def _write_crop(paths, label, sid, frame, square, img):
@@ -194,3 +195,81 @@ def test_list_get_delete_dataset(tmp_path):
     assert got["config"]["session_ids"] == ["s1"]
     DB.delete_dataset("d1", paths)
     assert DB.list_datasets(paths) == []
+
+
+# --- Building from session packs ------------------------------------------------------
+
+_PACK_CELLS = (("wP", "0000", "e2"), ("wK", "0001", "e1"), ("empty", "0002", "c4"))
+
+
+def _pack(paths, name, sid, side=80, cells=_PACK_CELLS):
+    """A session pack on disk: `mm://` manifest, `packed_meta.json`, an image of the right size."""
+    d = paths.packs / name
+    d.mkdir(parents=True, exist_ok=True)
+    rows = [{"path": f"mm://{name}/{sid}_{frame}_{square}.png", "label": label,
+             "session_id": sid, "frame": frame, "ply": int(frame), "square": square,
+             "square_color": "light", "fen": "x", "out_size": [side, side]}
+            for label, frame, square in cells]
+    (d / "manifest.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n",
+                                      encoding="utf-8")
+    packs.write_meta(d, rows, side, side)
+    (d / "packed_images.u8").write_bytes(bytes(len(rows) * side * side * 3))
+    return rows
+
+
+def _build_from_packs(paths, name, sids, **kw):
+    return DB.build_dataset(name, sids, rotations=(0,), val_frac=0.0, test_frac=0.0, paths=paths,
+                            phash_enabled=False, allow_degenerate=True, from_packs=True, **kw)
+
+
+def test_build_from_packs_writes_packs_into_dataset_yaml(tmp_path):
+    import yaml
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1-80", "s1")
+    _pack(paths, "s2-80", "s2")
+    res = _build_from_packs(paths, "packed", ["s1", "s2"])
+    ds = paths.datasets / "packed"
+    built = [json.loads(ln) for ln in (ds / "manifest.jsonl").read_text().splitlines() if ln.strip()]
+    assert len(built) == 6 and all(r["path"].startswith("mm://") for r in built)
+    cfg = yaml.safe_load((ds / "dataset.yaml").read_text(encoding="utf-8"))
+    seen = list(dict.fromkeys(packs.pack_name_of(r["path"]) for r in built))
+    assert sorted(seen) == ["s1-80", "s2-80"]
+    assert cfg[packs.PACKS_KEY] == seen, "the key must list the packs in first-seen row order"
+    assert cfg["source_manifest"] == [(paths.packs / p / "manifest.jsonl").as_posix()
+                                      for p in ("s1-80", "s2-80")]
+    assert res["packed"] is None
+    for f in ("packed_images.u8", "packed_meta.json", "packed_progress.json"):
+        assert not (ds / f).exists(), f"{f} was written into a pack-built dataset"
+
+
+def test_build_from_packs_refuses_a_session_without_a_pack_of_that_size(tmp_path):
+    import pytest
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1-80", "s1")
+    with pytest.raises(ValueError, match=r"s2.*session pack"):
+        _build_from_packs(paths, "packed", ["s1", "s2"])
+
+
+def test_build_from_packs_ignores_a_pack_of_another_size(tmp_path):
+    import yaml
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1-96", "s1", side=96)
+    _pack(paths, "s1-80", "s1", side=80)
+    _build_from_packs(paths, "packed", ["s1"], pack_size=(80, 80))
+    cfg = yaml.safe_load((paths.datasets / "packed" / "dataset.yaml").read_text(encoding="utf-8"))
+    assert cfg[packs.PACKS_KEY] == ["s1-80"]
+
+
+def test_like_inherits_from_packs(tmp_path):
+    import yaml
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1-80", "s1")
+    _build_from_packs(paths, "donor", ["s1"])
+    DB.build_dataset("twin", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True,
+                     like="donor")
+    cfg = yaml.safe_load((paths.datasets / "twin" / "dataset.yaml").read_text(encoding="utf-8"))
+    assert cfg[packs.PACKS_KEY] == ["s1-80"], "--like did not carry from_packs over"

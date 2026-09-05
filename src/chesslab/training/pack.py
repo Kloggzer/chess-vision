@@ -157,12 +157,18 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     """
     from multiprocessing import Pool
 
-    from ..dataset_build import dataset_dir
+    from ..dataset_build import _read_yaml, dataset_dir
+    from . import packs
 
     dd = dataset_dir(name, paths)
     rows = _manifest_rows(dd)
     if not rows:
         raise ValueError(f"dataset '{name}' has an empty manifest")
+    # Before the fused-synth check below: both kinds carry `mm://` rows, and only dataset.yaml
+    # tells them apart.
+    if _read_yaml(dd / "dataset.yaml").get(packs.PACKS_KEY):
+        raise ValueError(f"dataset '{name}' is built from session packs — it has no crop files; "
+                         f"its pixels live in data/packs/…")
     if str(rows[0].get("path", "")).startswith("mm://"):
         # Fused build (dataset build-synth): the memmap IS the source of truth, there are no crop
         # files to decode — re-packing would overwrite the pixels with garbage.
@@ -329,6 +335,30 @@ def _rewritten_since_pack(crop_paths: list[str], img_path: Path,
     return False
 
 
+def resolve_dataset_packs(name: str, paths: config.Paths = config.DATA,
+                          manifest_rows: list[dict] | None = None):
+    """None for a classic dataset; a MultiPack when its dataset.yaml carries `packs:`.
+
+    Every resolved row keeps its `(pack_no, row_no)` on `_pack_at`, the way `_load_packed` marks
+    `_packed_idx`: train and eval resolve the whole manifest but build datasets from SPLIT rows,
+    and only the row itself carries the pair into that subset.
+    """
+    import yaml  # local, like the imports below: `packs.py` imports this module at module level
+
+    from ..dataset_build import dataset_dir
+    from .packs import PACKS_KEY, resolve_packs
+
+    dd = dataset_dir(name, paths)
+    cfg = dd / "dataset.yaml"
+    if not (cfg.exists() and (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get(PACKS_KEY)):
+        return None
+    rows = manifest_rows if manifest_rows is not None else _manifest_rows(dd)
+    mp = resolve_packs(rows, paths)                # KeyError/ValueError propagate — never None
+    for row, at in zip(rows, mp.idx, strict=True):
+        row["_pack_at"] = (int(at[0]), int(at[1]))
+    return mp
+
+
 def load_packed(name: str, paths: config.Paths = config.DATA,
                 manifest_rows: list[dict] | None = None):
     """Audit-aware entry point for loading and validating one packed dataset index.
@@ -338,6 +368,12 @@ def load_packed(name: str, paths: config.Paths = config.DATA,
     a second time used to dominate startup and building a path dictionary duplicated its strings.
     """
     from ..dataset_build import dataset_dir
+
+    # The legacy 3-tuple is unpacked positionally at ten sites (train, gradcam, eight scripts);
+    # several memmaps cannot be squeezed into it, so a pack-built dataset is refused by name.
+    if resolve_dataset_packs(name, paths, manifest_rows) is not None:
+        raise ValueError(f"dataset '{name}' is built from session packs — its pixels live in "
+                         "data/packs/…; use training.pack.resolve_dataset_packs (train/eval do)")
 
     dd = dataset_dir(name, paths)
     manifest = dd / "manifest.jsonl"

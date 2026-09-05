@@ -14,9 +14,11 @@ import copy
 import json
 import os
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import cv2
 
@@ -377,24 +379,22 @@ def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationPro
     return np.median(np.stack(maps), axis=0) if maps else None
 
 
-def _slice_session(
+def iter_session_crops(
     session_dir: Path,
     *,
     profile: CalibrationProfile,
-    manifest_path: Path,
-    squares_root: Path,
-    write_pool: ThreadPoolExecutor,
     pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
     flat_field: bool = False,
-    manifest_batch: dict[str, list[str]] | None = None,
-) -> dict:
-    """Slice one session: 64 crops per logged position + manifest lines. Pure I/O.
+    stats: dict | None = None,
+) -> Iterator[tuple[Any, dict]]:
+    """Every crop a slice of this session holds, as `(crop BGR HxWx3 uint8, manifest row)`.
 
-    The recording's own `corrections.jsonl` replaces the FEN-derived label per square. Returns the
-    number applied. A correction is also the only way a cell of a `dirty` frame reaches the pool
-    at all — see the loop below.
+    `row["path"]` is empty — the consumer names the artefact: `_slice_session` a webp in the crop
+    pool, `training.pack_session` a row of a memmap. `stats` carries the run counters back once
+    the iterator is exhausted. The recording's own `corrections.jsonl` replaces the FEN-derived
+    label per square, and is the only way a cell of a `dirty` frame is yielded at all.
     """
     session_dir = Path(session_dir)
     meta = read_session_meta(session_dir)
@@ -406,7 +406,6 @@ def _slice_session(
     prof = effective_profile(profile, pad_up, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
 
-    new_lines: list[str] = []
     n_crops = 0
     n_overrides = 0
     n_skipped = 0
@@ -422,7 +421,6 @@ def _slice_session(
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
     squares = tuple(all_squares())
     fen_cache: dict[str, tuple[str, ...]] = {}
-    out_dirs: dict[str, Path] = {}
     flat_cells = _session_flat_cells(session_dir, log, prof) if flat_field else None
     for entry in log:
         if entry.get("unusable"):
@@ -504,9 +502,6 @@ def _slice_session(
             dirty = False
         elif any(v > MATTE_DIRTY for v in cover.values()):
             dirty = True
-        write_started = time.perf_counter()
-        write_jobs = []
-        write_bytes = 0
         for i, square in enumerate(squares):
             if square in ambiguous_set:
                 continue
@@ -528,18 +523,8 @@ def _slice_session(
             if corrected is not None and corrected != label:
                 label = corrected
                 n_overrides += 1
-            crop = crops[i]
-            out_dir = out_dirs.get(label)
-            if out_dir is None:
-                out_dir = out_dirs[label] = squares_root / label
-                out_dir.mkdir(parents=True, exist_ok=True)
-            fname = f"{session_id}_{frame_stem}_{square}{CROP_SUFFIX}"
-            crop_path = out_dir / fname
-            future = write_pool.submit(_write_crop, crop_path, crop)
-            write_jobs.append((future, crop_path, crop.nbytes))
-            write_bytes += crop.nbytes
             row = {
-                "path": str(crop_path.as_posix()),
+                "path": "",
                 "label": label,
                 "session_id": session_id,
                 "frame": frame_stem,
@@ -561,29 +546,81 @@ def _slice_session(
                 # The second training target, from a real hand instead of a composited one. Only
                 # written where mattes exist, so no manifest changes shape behind anyone's back.
                 row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
-            new_lines.append(json.dumps(row, ensure_ascii=False))
             n_crops += 1
-        results = [(future.result(), path, size) for future, path, size in write_jobs]
-        if not all(result[0] for result, _path, _size in results):
-            raise OSError(f"OpenCV failed to write one or more crops for {session_id}/{frame_stem}")
-        audit = current_work_audit()
-        if audit is not None:
-            key = (session_id, frame_stem)
-            audit.record_work("WebP crop batches", key,
-                              seconds=time.perf_counter() - write_started,
-                              processed_bytes=write_bytes)
-            audit.record_work("WebP encoding CPU", key,
-                              seconds=sum(result[1] for result, _path, _size in results),
-                              processed_bytes=write_bytes)
+            yield crops[i], row
+
+    if stats is not None:
+        stats.update({"session_id": session_id, "frames": len(log), "crops": n_crops,
+                      "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
+                      "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
+                      "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh,
+                      "bowed_boards": n_bowed})
+
+
+def _write_crop_batch(session_id: str, frame_stem: str, jobs: list[tuple], started: float) -> None:
+    """Await one frame's WebP writes and book them; a failed write names the frame it came from."""
+    results = [(future.result(), size) for future, size in jobs]
+    if not all(ok for (ok, _seconds), _size in results):
+        raise OSError(f"OpenCV failed to write one or more crops for {session_id}/{frame_stem}")
+    audit = current_work_audit()
+    if audit is None:
+        return
+    key = (session_id, frame_stem)
+    write_bytes = sum(size for _result, size in results)
+    audit.record_work("WebP crop batches", key, seconds=time.perf_counter() - started,
+                      processed_bytes=write_bytes)
+    audit.record_work("WebP encoding CPU", key,
+                      seconds=sum(seconds for (_ok, seconds), _size in results),
+                      processed_bytes=write_bytes)
+
+
+def _slice_session(
+    session_dir: Path,
+    *,
+    profile: CalibrationProfile,
+    manifest_path: Path,
+    squares_root: Path,
+    write_pool: ThreadPoolExecutor,
+    pad_up: float | None = None,
+    pad_side: float | None = None,
+    out_size: tuple[int, int] | None = None,
+    flat_field: bool = False,
+    manifest_batch: dict[str, list[str]] | None = None,
+) -> dict:
+    """Write `iter_session_crops` into the crop pool: one webp per row, one manifest line per crop.
+
+    The writes are submitted and awaited per frame, so the pool never holds more than one frame's
+    encodes and a failure names the frame that caused it.
+    """
+    stats: dict = {}
+    new_lines: list[str] = []
+    out_dirs: dict[str, Path] = {}
+    session_id, frame_stem, started = "", "", 0.0
+    jobs: list[tuple] = []
+    for crop, row in iter_session_crops(session_dir, profile=profile, pad_up=pad_up,
+                                        pad_side=pad_side, out_size=out_size,
+                                        flat_field=flat_field, stats=stats):
+        if row["frame"] != frame_stem:
+            if jobs:
+                _write_crop_batch(session_id, frame_stem, jobs, started)
+            frame_stem, jobs, started = row["frame"], [], time.perf_counter()
+        session_id = row["session_id"]
+        out_dir = out_dirs.get(row["label"])
+        if out_dir is None:
+            out_dir = out_dirs[row["label"]] = squares_root / row["label"]
+            out_dir.mkdir(parents=True, exist_ok=True)
+        crop_path = out_dir / f"{session_id}_{frame_stem}_{row['square']}{CROP_SUFFIX}"
+        row["path"] = str(crop_path.as_posix())
+        jobs.append((write_pool.submit(_write_crop, crop_path, crop), crop.nbytes))
+        new_lines.append(json.dumps(row, ensure_ascii=False))
+    if jobs:
+        _write_crop_batch(session_id, frame_stem, jobs, started)
 
     if manifest_batch is None:
-        _replace_session_in_manifest(manifest_path, session_id, new_lines)
+        _replace_session_in_manifest(manifest_path, stats["session_id"], new_lines)
     else:
-        manifest_batch[session_id] = new_lines
-    return {"session_id": session_id, "frames": len(log), "crops": n_crops,
-            "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
-            "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
-            "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh, "bowed_boards": n_bowed}
+        manifest_batch[stats["session_id"]] = new_lines
+    return stats
 
 
 def slice_session(
