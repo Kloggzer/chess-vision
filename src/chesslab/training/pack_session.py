@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from pathlib import Path
 
 import numpy as np
 
@@ -57,3 +58,26 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
     packs.write_meta(out_dir, rows, h, w)
     partial.rename(out_dir / packs._IMAGE)
     return {"pack": name, "n": len(rows), "h": h, "w": w, "gb": _gb(len(rows), h, w)}
+
+
+def import_pack(src: Path, *, paths: config.Paths = config.DATA) -> dict:
+    """Move a pack the Kotlin writers produced (`labeled-video-pack`) under `data/packs/`.
+
+    Its rows name the pack, and the directory has to answer to that name — a Kotlin pack says
+    `mm://<session_id>/…` and keeps the plain id here. Validated at the SOURCE, so a truncated
+    image is refused before anything moves.
+    """
+    src = Path(src)
+    text = (src / "manifest.jsonl").read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    if not rows:
+        raise ValueError(f"{src} has no manifest rows — not a pack")
+    name = packs.pack_name_of(rows[0]["path"])
+    n, h, w = packs.read_pack(name, paths, dir_=src).shape
+    dst = packs.pack_dir(name, paths)
+    if dst.exists():
+        raise ValueError(f"pack {name} already exists at {dst} — a pack is immutable, "
+                         f"delete it to import this one")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dst))
+    return {"pack": name, "n": n, "h": h, "w": w, "gb": _gb(n, h, w)}

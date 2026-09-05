@@ -150,3 +150,32 @@ def test_session_pack_refuses_to_overwrite(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="already exists"):
         pack_session.write_session_pack("sess1", paths=paths)
+
+
+def _kotlin_pack(dir_: Path, name: str = "sid", side: int = 4, short: bool = False) -> None:
+    """A `labeled-video-pack` as the desktop tool leaves it: rows without the `-<size>` suffix."""
+    dir_.mkdir(parents=True)
+    rows = [{"path": f"{packs.MM_PREFIX}{name}/0000/{sq}", "label": "empty",
+             "out_size": [side, side]} for sq in ("a1", "a2", "a3")]
+    (dir_ / "manifest.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    packs.write_meta(dir_, rows, side, side)
+    raw = np.arange(len(rows) * side * side * 3, dtype=np.uint8).tobytes()
+    (dir_ / packs._IMAGE).write_bytes(raw[:-1] if short else raw)
+
+
+def test_import_pack_keeps_the_kotlin_name_and_refuses_a_short_one(tmp_path):
+    paths = config.Paths(root=tmp_path)
+    src = tmp_path / "incoming" / "sid"
+    _kotlin_pack(src)
+
+    assert pack_session.import_pack(src, paths=paths) == {
+        "pack": "sid", "n": 3, "h": 4, "w": 4, "gb": 0.0}
+    assert not src.exists()
+    assert packs.read_pack("sid", paths).paths[0] == "mm://sid/0000/a1"
+
+    truncated = tmp_path / "incoming" / "sid2"
+    _kotlin_pack(truncated, name="sid2", short=True)
+    with pytest.raises(ValueError, match="bytes"):
+        pack_session.import_pack(truncated, paths=paths)
+    assert truncated.exists()
