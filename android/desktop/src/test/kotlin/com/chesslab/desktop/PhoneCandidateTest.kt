@@ -1,12 +1,27 @@
 package com.chesslab.desktop
 
+import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.geometry.Distribution
+import com.chesslab.tracker.geometry.ScannedGeometry
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.io.File
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 private const val AFTER_E4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 private const val AFTER_E4E5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq e6 0 2"
+private const val E4E5_PLACEMENT = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR"
 
 /** The sync anchor: video time zero sits at one second of system time, so videoMs = elapsedMs - 1000. */
 private const val SYNC_NS = 1_000_000_000L
@@ -68,5 +83,139 @@ class PhoneCandidateTest {
 
         assertEquals(2, clock.indexAt(40.0))
         assertNull(clock.indexAt(100.0))
+    }
+
+    @Test
+    fun `the verb refuses a bundle without a record naming its session`() {
+        val dir = bundle("no-record", games = emptyMap())
+
+        val refusal = assertThrows(PhoneRefusal::class.java) { buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES) }
+
+        assertTrue(refusal.message!!.contains("no game record"), refusal.message)
+    }
+
+    @Test
+    fun `a two-segment record yields the first segment and a note`() {
+        val dir = bundle("two-segments", games = mapOf("g.json" to twoSegmentRecord()))
+
+        val candidate = Json.parseToJsonElement(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES).readText()).jsonObject
+
+        assertEquals(2, candidate.getValue("moves").jsonArray.size)
+        assertEquals("2 plies after a seam omitted", candidate.getValue("note").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `the verb writes an unconfirmed candidate whose plies replay to the record's last position`() {
+        val dir = bundle("one-game", games = mapOf("g.json" to oneSegmentRecord()))
+
+        val candidate = Json.parseToJsonElement(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES).readText()).jsonObject
+        val moves = candidate.getValue("moves").jsonArray.map { it.jsonObject }
+
+        assertEquals(2, moves.size)
+        assertTrue(moves[0].int("frame") != moves[1].int("frame"), "both plies landed on one frame")
+        assertEquals(
+            E4E5_PLACEMENT,
+            moves[1]
+                .getValue("fen_after")
+                .jsonPrimitive.content
+                .substringBefore(' '),
+        )
+        assertFalse(
+            candidate
+                .getValue("confirmed")
+                .jsonPrimitive.content
+                .toBoolean(),
+        )
+        assertEquals("phone_log", moves[1].getValue("decider").jsonPrimitive.content)
+        val source = candidate.getValue("source").jsonObject
+        assertEquals("phone", source.getValue("kind").jsonPrimitive.content)
+        assertNotNull(source.getValue("crop").jsonObject["pad_side"])
+    }
+
+    @AfterEach
+    fun clean() {
+        ROOT.deleteRecursively()
+    }
+
+    /**
+     * The fixture lives under `data/` because a candidate stores its video relative to it
+     * (`relativeVideo`) — a temp directory outside the tree is refused before anything is written.
+     */
+    private fun bundle(
+        name: String,
+        games: Map<String, String>,
+    ): File {
+        val dir = File(ROOT, name)
+        val session = File(dir, "files/sessions/x")
+        session.mkdirs()
+        File(session, "video.mp4").writeText("")
+        File(session, "timeline.jsonl").writeText(TIMELINE)
+        File(dir, "files/games").mkdirs()
+        games.forEach { (file, text) -> File(dir, "files/games/$file").writeText(text) }
+        return dir
+    }
+
+    private companion object {
+        val ROOT = File(DATA_DIR, "tmp/phone-candidate-test")
+
+        val SPEC =
+            ModelSpec(
+                classes = listOf("empty"),
+                outWidth = 80,
+                outHeight = 80,
+                mean = listOf(0.485f, 0.456f, 0.406f),
+                std = listOf(0.229f, 0.224f, 0.225f),
+            )
+
+        val SCAN =
+            ScannedGeometry(
+                corners =
+                    listOf(
+                        doubleArrayOf(0.0, 0.0),
+                        doubleArrayOf(800.0, 0.0),
+                        doubleArrayOf(800.0, 800.0),
+                        doubleArrayOf(0.0, 800.0),
+                    ),
+                boardSize = 800,
+                margin = 0.045,
+                frameWidth = 1920,
+                frameHeight = 1080,
+                fps = 30.0,
+                alignPassRate = 1.0,
+                aligned = 100,
+                sampled = 100,
+                frames = 5,
+                sampleEvery = 1,
+                markersSeen = mapOf(4 to 100),
+                worstOffsetPx = Distribution(1.0, 1.0, 1.0),
+                quadSpreadPx = Distribution(1.0, 1.0, 1.0),
+                clockErrorMs = Distribution(0.0, 0.0, 0.0),
+            )
+
+        val FRAMES = PhoneFrameClock(listOf(0.0, 33.3, 66.7, 100.0, 133.3))
+
+        /** e4 at video ms 30 (decoded frame 1), e5 at 90 (frame 3) — both found by the frame rule. */
+        val TIMELINE =
+            listOf(
+                """{"kind":"video_sync","elapsedNs":$SYNC_NS,"durationNs":0}""",
+                """{"kind":"frame","elapsedNs":1030000000,"wallTsMs":1030,"fen":"$AFTER_E4"}""",
+                """{"kind":"frame","elapsedNs":1090000000,"wallTsMs":1090,"fen":"$AFTER_E4E5"}""",
+            ).joinToString("\n") + "\n"
+
+        const val E4 = """{"ply":1,"san":"e4","uci":"e2e4","tsEpochMs":1030}"""
+        const val E5 = """{"ply":2,"san":"e5","uci":"e7e5","tsEpochMs":1090}"""
+
+        fun oneSegmentRecord(): String =
+            """{"id":"g","startFen":"$START","startedAtEpochMs":0,"finishedAtEpochMs":0,"profileName":"p",""" +
+                """"result":"*","sessionId":"x","moves":[$E4,$E5]}"""
+
+        fun twoSegmentRecord(): String {
+            val tail = """{"ply":3,"san":"Nf3","uci":"g1f3","tsEpochMs":1200},{"ply":4,"san":"Nc6","uci":"b8c6","tsEpochMs":1300}"""
+            return """{"id":"g","startFen":"$START","startedAtEpochMs":0,"finishedAtEpochMs":0,"profileName":"p",""" +
+                """"result":"*","sessionId":"x","moves":[$E4,$E5,$tail],""" +
+                """"segments":[{"startFen":"$START","moves":[$E4,$E5]},{"startFen":"$AFTER_E4E5","moves":[$tail]}]}"""
+        }
+
+        fun JsonObject.int(key: String): Int = getValue(key).jsonPrimitive.content.toInt()
     }
 }
