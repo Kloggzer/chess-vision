@@ -4,26 +4,51 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { ChainState, ChainStep } from "@/lib/chain";
 import { failureParts, logName } from "@/lib/failure";
 import type { Job } from "@/lib/jobs";
 import type { Progress } from "@/lib/progress";
 
-/** What each button does, in the words of the thing it produces rather than the command it runs. */
-const STEP: Record<ChainStep, { label: string; hint: string }> = {
-  label: { label: "Label", hint: "Aufnahme durch den Tracker abspielen → candidate.json (dauert Minuten)" },
-  confirm: { label: "Bestätigen", hint: "die Züge des Trackers beurteilen — der eine Schritt, den nur ein Mensch kann" },
-  export: { label: "Session exportieren", hint: "bestätigte Intervalle → data/recordings/<name>/" },
+/**
+ * Every step in the words of what it does to the recording (`what`, shown beside the control) and
+ * what it leaves on disk (`hint`, the tooltip). The user reads the page, not the CLI.
+ */
+const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
+  label: {
+    label: "Züge erkennen",
+    what: "Der Tracker spielt das Video ab und schlägt die Zugfolge vor (dauert Minuten).",
+    hint: "schreibt candidate.json",
+  },
+  confirm: {
+    label: "Züge prüfen",
+    what: "Du siehst jeden vorgeschlagenen Zug mit Bild und bestätigst oder korrigierst ihn.",
+    hint: "setzt reviewed_plies in candidate.json — der eine Schritt, den nur ein Mensch kann",
+  },
+  export: {
+    label: "Bretter ausschneiden",
+    what: "Aus den bestätigten Zügen wird je Stellung das Brettbild geschnitten — die Grundlage für alles Weitere.",
+    hint: "schreibt data/recordings/<name>/boards/ + log.jsonl",
+  },
   matte: {
-    label: "Matten",
-    hint: "SAM 3 schneidet die Hand aus verdeckten Frames → mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
+    label: "Hände matten",
+    what: "SAM schneidet die Hand aus den verdeckten Bildern, damit die Zellen darunter nicht als Figur gelernt werden.",
+    hint: "schreibt mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
   },
   "model-read": {
-    label: "Modell-Lesarten",
-    hint: "jede Zelle der Session von einem Modell lesen lassen → model-reads.jsonl (braucht ein Modell, das NICHT auf ihr trainiert hat)",
+    label: "Modell prüfen lassen",
+    what: "Ein Modell, das diese Aufnahme nie gesehen hat, liest jede Zelle — so zeigt sich, wo es sich irrt.",
+    hint: "schreibt model-reads.jsonl",
   },
-  labeln: { label: "Labeln", hint: "Brett-Pinsel und Zellraster im Strom" },
+  labeln: {
+    label: "Zellen labeln",
+    what: "Du korrigierst von Hand, was das Modell falsch gelesen hat — Brett für Brett im Strom.",
+    hint: "schreibt corrections.jsonl",
+  },
 };
 
 const BUSY = new Set(["queued", "running"]);
@@ -45,7 +70,10 @@ function stepHint(step: ChainStep, state: ChainState): string {
   if (reported > 0) {
     return `${STEP.matte.hint}. Ein Druck rechnet die ${reported} von Hand gemeldeten Frames — die stehen nicht im Stapel und kämen sonst nie dran. Danach die ${Math.max(0, target - done)} des Stapels.`;
   }
-  const rest = total > target ? ` — die restlichen ${total - target} holt "occluders alpha-worker" im Terminal` : "";
+  const rest =
+    total > target
+      ? ` — die restlichen ${total - target} holt "occluders alpha-worker" im Terminal`
+      : "";
   return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.`;
 }
 
@@ -53,7 +81,15 @@ function stepHint(step: ChainStep, state: ChainState): string {
  * The chain's next step as ONE control.
  * Disk knows what's missing; confirm/labeln are links, machine steps are buttons.
  */
-export function ChainActions({ name, state, lastJob = null }: { name: string; state: ChainState; lastJob?: Job | null }) {
+export function ChainActions({
+  name,
+  state,
+  lastJob = null,
+}: {
+  name: string;
+  state: ChainState;
+  lastJob?: Job | null;
+}) {
   const router = useRouter();
   // Seeded from the server: a reload used to forget the failure, which took the one control that
   // ANSWERS it (the raw run after a lens refusal) off the card until the same job failed again.
@@ -64,6 +100,7 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
   const busy = job !== null && BUSY.has(job.state);
   const label = step ? stepLabel(step, state) : "";
   const hint = step ? stepHint(step, state) : "";
+  const what = step ? STEP[step].what : "";
 
   // Every two seconds while a job runs: a replay decodes a whole video and the only honest sign of
   // life is what it has printed. Idle cards poll nothing.
@@ -71,7 +108,9 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
     if (!busy) return;
     const timer = setInterval(() => {
       void fetch(`/api/chain/${name}/progress`)
-        .then((r) => r.json() as Promise<{ job: Job | null; progress: Progress }>)
+        .then(
+          (r) => r.json() as Promise<{ job: Job | null; progress: Progress }>,
+        )
         .then((d) => {
           setJob(d.job);
           setProgress(d.progress);
@@ -85,8 +124,14 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
 
   async function post(body: Record<string, string | boolean>) {
     setNote(null);
-    const res = await fetch(`/api/chain/${name}`, { method: "POST", body: JSON.stringify(body) });
-    const answer = (await res.json()) as Job & { error?: string; reason?: string };
+    const res = await fetch(`/api/chain/${name}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const answer = (await res.json()) as Job & {
+      error?: string;
+      reason?: string;
+    };
     if (!res.ok) return setNote(answer.error ?? res.statusText);
     if (answer.reason && !answer.state) return setNote(answer.reason);
     setJob(answer);
@@ -94,15 +139,25 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
 
   // Flagged useless: there is no next step by definition, and the undo lives on the card.
   if (step === null) {
-    return <span className="text-muted-foreground text-xs">als nutzlos markiert — kein Schritt offen</span>;
+    return (
+      <span className="text-muted-foreground text-xs">
+        als nutzlos markiert — kein Schritt offen
+      </span>
+    );
   }
   if (step === "label" && !state.video) {
-    return <span className="text-muted-foreground text-xs">kein Video im Bundle — nichts zu labeln</span>;
+    return (
+      <span className="text-muted-foreground text-xs">
+        kein Video im Bundle — nichts zu labeln
+      </span>
+    );
   }
   // A replay of an unfinalized MP4 fails after minutes of decoding; the atom chain says so in
   // milliseconds, so the card states it instead of offering the button.
   if (step === "label" && state.videoBroken) {
-    return <span className="text-destructive text-xs">{state.videoBroken}</span>;
+    return (
+      <span className="text-destructive text-xs">{state.videoBroken}</span>
+    );
   }
 
   return (
@@ -136,6 +191,7 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
           <TooltipContent>{hint}</TooltipContent>
         </Tooltip>
       )}
+      <span className="text-muted-foreground max-w-xl">{what}</span>
       {lensRefused(job) ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -147,12 +203,18 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
               Label ohne Linsen-Korrektur
             </button>
           </TooltipTrigger>
-          <TooltipContent>the verb refused because it could not fit this camera&apos;s barrel — the phone camera has none to remove (TODO.md, 2026-08-10). Labels then rest on the raw image.</TooltipContent>
+          <TooltipContent>
+            the verb refused because it could not fit this camera&apos;s barrel
+            — the phone camera has none to remove (TODO.md, 2026-08-10). Labels
+            then rest on the raw image.
+          </TooltipContent>
         </Tooltip>
       ) : null}
       {/* Permanent, not a warning: those crops differ from corrected ones (specs/52). */}
       {job?.kind === "label" && job.lens === false ? (
-        <span className="text-muted-foreground">gelabelt OHNE Linsen-Korrektur</span>
+        <span className="text-muted-foreground">
+          gelabelt OHNE Linsen-Korrektur
+        </span>
       ) : null}
       {/* Nur ein Scheitern, das den AKTUELLEN Schritt blockiert — eine überholte Ledger-Zeile
           (die Kette ist weiter, z.B. nach einem CLI-Lauf) ist Geschichte, keine Warnung. */}
@@ -160,7 +222,9 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
         <Badge variant="destructive">{job.kind} gescheitert</Badge>
       ) : null}
       {busy ? <Working progress={progress} /> : null}
-      {job?.state === "failed" && job.kind === step && job.reason ? <FailureLine reason={job.reason} /> : null}
+      {job?.state === "failed" && job.kind === step && job.reason ? (
+        <FailureLine reason={job.reason} />
+      ) : null}
       {note ? <span className="text-destructive">{note}</span> : null}
     </span>
   );
@@ -174,29 +238,40 @@ export function ChainActions({ name, state, lastJob = null }: { name: string; st
  * a spinner is not.
  */
 function Working({ progress }: { progress: Progress | null }) {
-  if (!progress) return <span className="text-muted-foreground">starting…</span>;
+  if (!progress)
+    return <span className="text-muted-foreground">starting…</span>;
   const { atSeconds, totalSeconds, plies, frames, tail, bytes } = progress;
   // Seconds of video where the replay reports them, frames where a chesslab step counts its own.
-  const pct = atSeconds !== null && totalSeconds
-    ? Math.min(100, Math.round((atSeconds / totalSeconds) * 100))
-    : frames ? Math.min(100, Math.round((frames.at / frames.total) * 100))
-    : null;
-  const unit = atSeconds !== null && totalSeconds
-    ? `${Math.round(atSeconds)}/${Math.round(totalSeconds)} s`
-    : frames ? `${frames.at}/${frames.total} Frames` : "";
+  const pct =
+    atSeconds !== null && totalSeconds
+      ? Math.min(100, Math.round((atSeconds / totalSeconds) * 100))
+      : frames
+        ? Math.min(100, Math.round((frames.at / frames.total) * 100))
+        : null;
+  const unit =
+    atSeconds !== null && totalSeconds
+      ? `${Math.round(atSeconds)}/${Math.round(totalSeconds)} s`
+      : frames
+        ? `${frames.at}/${frames.total} Frames`
+        : "";
   return (
     <span className="flex flex-wrap items-center gap-2">
       {pct !== null ? (
         <>
           <span className="bg-muted h-1.5 w-24 overflow-hidden rounded">
-            <span className="bg-primary block h-full transition-all" style={{ width: `${pct}%` }} />
+            <span
+              className="bg-primary block h-full transition-all"
+              style={{ width: `${pct}%` }}
+            />
           </span>
           <span className="text-muted-foreground tabular-nums">
             {pct} % · {unit}
           </span>
         </>
       ) : null}
-      {plies > 0 ? <span className="text-muted-foreground">{plies} plies</span> : null}
+      {plies > 0 ? (
+        <span className="text-muted-foreground">{plies} plies</span>
+      ) : null}
       <span className="text-muted-foreground max-w-md truncate font-mono">
         {tail.at(-1) ?? (bytes > 0 ? "" : "no output yet")}
       </span>
@@ -212,11 +287,11 @@ function FailureLine({ reason }: { reason: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="text-destructive max-w-sm truncate">
-          {text}
-        </span>
+        <span className="text-destructive max-w-sm truncate">{text}</span>
       </TooltipTrigger>
-      <TooltipContent>{text} · {logName(log)}</TooltipContent>
+      <TooltipContent>
+        {text} · {logName(log)}
+      </TooltipContent>
     </Tooltip>
   );
 }

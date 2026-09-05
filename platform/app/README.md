@@ -67,15 +67,17 @@ binary is looked for; without it the job fails **with the `installDist` command 
 
 ## The chain, as buttons
 
-Every card on `/` shows the ONE step that can run now, read off the disk rather than remembered:
+Every card on `/` shows the ONE step that can run now, read off the disk rather than remembered,
+with one sentence beside it saying what the step does (`app/chain-actions.tsx`, `STEP`):
 
 | state on disk | control |
 |---|---|
-| no `candidate.json` | **Label** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
-| candidate, not confirmed | **Confirm →** `/confirm/<name>`, the human step |
-| confirmed, no `log.jsonl` in the recording | **Export session** — `uv run chesslab realgames export-session` (it cuts into `data/recordings/<name>/`, writing `log.jsonl` LAST) |
-| session, no `model-reads.jsonl` | **Modell-Lesarten** — `uv run chesslab realgames model-read <name> --model <run dir>` |
-| everything there | **Labeln →** `/strom/labeln` |
+| no `candidate.json` | **Züge erkennen** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
+| candidate, not confirmed | **Züge prüfen →** `/confirm/<name>`, the human step |
+| confirmed, no `log.jsonl` in the recording | **Bretter ausschneiden** — `uv run chesslab realgames export-session` (it cuts into `data/recordings/<name>/`, writing `log.jsonl` LAST) |
+| session, mattes below target | **Hände matten** — SAM cuts the hand out of the occluded frames |
+| session, no `model-reads.jsonl` | **Modell prüfen lassen** — `uv run chesslab realgames model-read <name> --model <run dir>` |
+| everything there | **Zellen labeln →** `/strom/labeln` |
 | `useless.json` set | nothing — the step is `null` until "doch brauchbar" |
 
 `POST /api/chain/<name>` takes `{step}` and REFUSES a step that is not the disk's next one (409 with

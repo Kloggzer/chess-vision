@@ -63,13 +63,17 @@ const rowOf = (game: GameInfo): QueueRow => ({
 export default async function Home() {
   // One read of the job ledger for the whole list, not one per card.
   const recent = new Map((await jobs(200)).map((job) => [job.name, job]));
-  const games = await Promise.all((await listGames()).map((name) => gameInfo(name, recent.get(name) ?? null)));
+  const games = await Promise.all(
+    (await listGames()).map((name) => gameInfo(name, recent.get(name) ?? null)),
+  );
   const rows = games.map(rowOf);
   const queues = splitQueues(rows);
   const bare = new Set(queues.bare.map((r) => r.name));
   // A bare bundle offers nothing and every one of them looks the same — they belong in the one
   // collapsed row below, not in the list a human scans for work.
-  const active = games.filter((g) => !g.archived && !bare.has(g.name) && g.chain.useless === null);
+  const active = games.filter(
+    (g) => !g.archived && !bare.has(g.name) && g.chain.useless === null,
+  );
   const archived = games.filter((g) => g.archived);
   // Flagged-but-bare games stay in the useless list: the undo has to be findable.
   const useless = games.filter((g) => !g.archived && g.chain.useless !== null);
@@ -82,9 +86,16 @@ export default async function Home() {
       <PageTitle
         count={active.length}
         title="Partien"
-        why="Jede Aufnahme mit ihrem nächsten Schritt. Die tägliche Arbeit läuft über die Ströme links — diese Liste ist Ablage und Drilldown: Titel, PGN, nutzlos, Archiv."
+        why="Jede Aufnahme durchläuft dieselbe Kette: Züge erkennen → Züge prüfen → Bretter ausschneiden → Hände matten → Modell prüfen lassen → Zellen labeln. Jede Karte zeigt nur den Schritt, der jetzt dran ist, und sagt, was er tut. Die tägliche Arbeit läuft über die Ströme links — diese Liste ist Ablage und Drilldown: Titel, PGN, nutzlos, Archiv."
       >
-        {boards > 0 ? <Progress bar="w-32" done={boardsDone} total={boards} unit="Bretter" /> : null}
+        {boards > 0 ? (
+          <Progress
+            bar="w-32"
+            done={boardsDone}
+            total={boards}
+            unit="Bretter"
+          />
+        ) : null}
       </PageTitle>
       <ul className="space-y-1.5">
         {active.map((game) => (
@@ -118,7 +129,8 @@ export default async function Home() {
       ) : null}
       {games.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          Nichts unter <code>$CHESSLAB_DATA_DIR/recordings</code> — <code>.env.local</code> prüfen.
+          Nichts unter <code>$CHESSLAB_DATA_DIR/recordings</code> —{" "}
+          <code>.env.local</code> prüfen.
         </p>
       )}
     </main>

@@ -83,11 +83,14 @@ function BoardProgress({ game }: { game: GameInfo }) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="text-muted-foreground text-xs">Lesarten —</span>
+          <span className="text-muted-foreground text-xs">
+            noch nicht vom Modell gelesen
+          </span>
         </TooltipTrigger>
         <TooltipContent>
-          keine model-reads.jsonl für diese Aufnahme — nicht gemessen, nicht
-          null
+          Der Fortschritt zählt Bretter, in denen das Modell falsch lag. Ohne
+          „Modell prüfen lassen“ gibt es nichts zu zählen — nicht gemessen,
+          nicht null.
         </TooltipContent>
       </Tooltip>
     );
@@ -95,7 +98,7 @@ function BoardProgress({ game }: { game: GameInfo }) {
   return (
     <Progress
       done={game.boardsDone}
-      title={`${game.cellsDone}/${game.cells} Zellen · aus model-reads.jsonl`}
+      title={`${game.cellsDone}/${game.cells} Zellen, die das Modell falsch las und ein Mensch prüft`}
       total={game.boards}
       unit="Bretter"
     />
@@ -197,12 +200,12 @@ export function GameCard({ game }: { game: GameInfo }) {
             className="hover:text-foreground"
             href={`/confirm/${game.name}`}
           >
-            Sichtprüfung
+            Züge prüfen
           </Link>
         ) : null}
         {game.cells > 0 && game.chain.step !== "labeln" ? (
           <Link className="hover:text-foreground" href="/strom/labeln">
-            Bretter
+            Zellen labeln
           </Link>
         ) : null}
         {note ? <Badge variant="destructive">{note}</Badge> : null}
