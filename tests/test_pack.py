@@ -16,6 +16,7 @@ from PIL import Image
 
 from chesslab import config
 from chesslab.training import pack as pack_mod
+from chesslab.training import packs
 
 CROP = 8  # tiny crops keep the tests fast; the code only cares about h/w consistency
 
@@ -589,3 +590,11 @@ def test_a_resume_from_a_sidecar_without_a_fingerprint_falls_back(tmp_path, path
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert "crop_fingerprint" not in meta
     assert pack_mod.load_packed("ds", paths=paths) is not None
+
+
+def test_pack_dataset_refuses_a_pack_built_dataset(tmp_path, paths):
+    """A pack-built dataset also carries `mm://` rows, so the fused-synth message would mislead."""
+    dd, _rows = _make_dataset(tmp_path, 4)
+    (dd / "dataset.yaml").write_text(f"name: ds\n{packs.PACKS_KEY}: [s1-80]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="data/packs"):
+        pack_mod.pack_dataset("ds", paths=paths, workers=1)

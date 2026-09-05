@@ -274,12 +274,15 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
     with the same sessions and the same split still produced a third of the training rows and
     almost inverted class weights. Both halves have to come from the donor or neither does.
     """
+    from .training import packs
+
     p = paths.datasets / _safe_name(donor) / "dataset.yaml"
     if not p.exists():
         raise ValueError(f"--like: dataset '{donor}' has no dataset.yaml at {p}")
     cfg = _read_yaml(p)
     d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
     return {
+        "from_packs": bool(cfg.get(packs.PACKS_KEY)),
         "per_cell_cap": d.get("per_cell_cap"),
         "phash_enabled": d.get("phash_enabled"),
         "phash_hamming": d.get("phash_hamming"),
@@ -361,6 +364,33 @@ def keep_per_position(rows: list[dict], per_position: int) -> list[dict]:
     return [r for r in rows if str(r["frame"]) in keep[r["session_id"]]]
 
 
+def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
+                    paths: config.Paths) -> list[Path]:
+    """One pack manifest per requested session, at `pack_size` (W, H).
+
+    `list_packs` owns the layout, so a pack's session comes from its manifest's first row rather
+    than from the directory name — a Kotlin-written pack is named `<session_id>`, a Python-written
+    one `<session_id>-<W>`, and nothing renames either.
+    """
+    from .training import packs
+
+    found: dict[str, Path] = {}
+    for ref in packs.list_packs(paths):
+        if (ref.shape[2], ref.shape[1]) != tuple(pack_size):
+            continue
+        mp = packs.pack_dir(ref.name, paths) / "manifest.jsonl"
+        rows = dataset_mod.load_manifest(mp) if mp.exists() else []
+        if rows:
+            found.setdefault(str(rows[0]["session_id"]), mp)
+    w, h = pack_size
+    missing = [s for s in session_ids if s not in found]
+    if missing:
+        raise ValueError(
+            f"no {w}x{h} pack for session(s) {', '.join(missing)} — write one with "
+            f"`chesslab session pack --session {missing[0]} --size {w}`.")
+    return [found[s] for s in session_ids]
+
+
 def build_dataset(
     name: str,
     session_ids: list[str],
@@ -385,10 +415,14 @@ def build_dataset(
     add_train: Sequence[str] = (),
     pack: bool = True,
     pack_size: tuple[int, int] | None = None,
+    from_packs: bool = False,
     #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
     class_mode: str | None = None,
 ) -> dict:
     """Build dataset <name> from `session_ids`: filter -> dedup -> rotation -> manifest+split+stats.
+
+    `from_packs`: take the sessions from `data/packs/` instead of a crop pool. The rows keep their
+    `mm://` paths, nothing is decoded, and `dataset.yaml` names the packs the loader must open.
 
     `source_manifest`: crop pool(s) to filter — one path, or several when the sessions were
     ingested under different tags (`ingest --tag X --no-build` writes `crops/X/manifest.jsonl`).
@@ -420,6 +454,7 @@ def build_dataset(
         phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
         val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
+        from_packs = pol["from_packs"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
     # 13 + coverage since 2026-08-18: `occluded` is a regression target now, not a class, and the
@@ -435,7 +470,11 @@ def build_dataset(
     # One or several crop pools. Several matter when sessions were ingested under different tags
     # (each `ingest --no-build` writes its own crops/<tag>/manifest.jsonl) — without this the caller had
     # to concatenate them into one file by hand first.
-    if not source_manifest:
+    if from_packs:
+        from .training import packs
+        pack_size = pack_size or (packs.DEFAULT_PACK_SIDE, packs.DEFAULT_PACK_SIDE)
+        srcs = _pack_manifests(session_ids, pack_size, paths)
+    elif not source_manifest:
         srcs = [paths.crop_pool / "manifest.jsonl"]
     elif isinstance(source_manifest, (str, Path)):
         srcs = [Path(source_manifest)]
@@ -447,7 +486,8 @@ def build_dataset(
     # Reading a pool that a slice is still filling is how 2026-08-21 went: the build took a
     # half-written manifest, packed for 19 minutes against crops that kept changing, and the pack
     # was correctly thrown away afterwards. The writer already announces itself — ask it.
-    for src in srcs:
+    # A pack is immutable and has no crop pool, so there is nothing to wait for.
+    for src in ([] if from_packs else srcs):
         busy = locks.held_by(locks.pool_lock_path(src.parent))
         if busy:
             raise ValueError(f"crop pool {src.parent} is being written by {locks.describe(busy)} "
@@ -554,6 +594,9 @@ def build_dataset(
                   "max_class_ratio": max_class_ratio, "seed": seed},
         "counts": {"raw": n_raw, "after_dedup": n_dedup, "final": n_final},
     }
+    if from_packs:
+        from .training import packs
+        cfg[packs.PACKS_KEY] = list(dict.fromkeys(packs.pack_name_of(r["path"]) for r in rows))
     import yaml
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")
@@ -561,7 +604,7 @@ def build_dataset(
     # I/O bottleneck). Best-effort: a pack failure just means training falls back to the per-PNG
     # loader (load_packed returns None). The memmap is disk-backed — it does NOT load into RAM.
     packed_info = None
-    if pack and n_final >= _PACK_MIN_CROPS:            # only big sets — small ones load fine per-PNG
+    if pack and not from_packs and n_final >= _PACK_MIN_CROPS:   # small sets load fine per-PNG
         try:
             from .training.pack import pack_dataset
             packed_info = pack_dataset(name, paths, out_size=pack_size)

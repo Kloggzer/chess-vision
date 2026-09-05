@@ -1291,7 +1291,12 @@ def dataset_build_cmd(
     no_pack: bool = typer.Option(False, "--no-pack", help="Skip packing crops into a memmap (default: pack for fast training)."),
     pack_size: str = typer.Option(
         None, "--pack-size",
-        help="Pack at the MODEL's size (e.g. 80x80) instead of the crop file's. Scales once."),
+        help="Pack at the MODEL's size (e.g. 80x80) instead of the crop file's. Scales once. "
+             "With --from-packs it selects WHICH pack per session is taken (default 80x80)."),
+    from_packs: bool = typer.Option(
+        False, "--from-packs",
+        help="Build from session packs in data/packs/ instead of a crop pool: the rows keep "
+             "their mm:// paths, nothing is decoded and no memmap is written into the dataset."),
     source_manifest: str | None = typer.Option(None, "--source-manifest",
                                                help="Crop pool(s) to filter, comma-separated. Default: "
                                                     "crops/default/manifest.jsonl. Needed after `ingest "
@@ -1344,7 +1349,7 @@ def dataset_build_cmd(
                                phash_hamming=hamming, per_position=per_position,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
                                allow_degenerate=allow_degenerate, pack=not no_pack,
-                               pack_size=_out_size(pack_size),
+                               pack_size=_out_size(pack_size), from_packs=from_packs,
                                class_mode=classes, like=like,
                                force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],
                                add_test=[s.strip() for s in (add_test or '').split(',') if s.strip()],

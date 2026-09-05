@@ -157,12 +157,18 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     """
     from multiprocessing import Pool
 
-    from ..dataset_build import dataset_dir
+    from ..dataset_build import _read_yaml, dataset_dir
+    from . import packs
 
     dd = dataset_dir(name, paths)
     rows = _manifest_rows(dd)
     if not rows:
         raise ValueError(f"dataset '{name}' has an empty manifest")
+    # Before the fused-synth check below: both kinds carry `mm://` rows, and only dataset.yaml
+    # tells them apart.
+    if _read_yaml(dd / "dataset.yaml").get(packs.PACKS_KEY):
+        raise ValueError(f"dataset '{name}' is built from session packs — it has no crop files; "
+                         f"its pixels live in data/packs/…")
     if str(rows[0].get("path", "")).startswith("mm://"):
         # Fused build (dataset build-synth): the memmap IS the source of truth, there are no crop
         # files to decode — re-packing would overwrite the pixels with garbage.
