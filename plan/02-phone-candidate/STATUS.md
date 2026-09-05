@@ -9,26 +9,28 @@
 
 ## Dependencies
 
-00 first, alone (it decides `PHONE_FRAME_OFFSET`). 01 ∥ 02 after 00 is merged into
-`feat/phone-candidate`. 03 after both, in the root checkout.
+00 first, alone (it fixes the rule order and `PHONE_FRAME_OFFSET`). 01 ∥ 02 after 00 is merged into
+`feat/phone-candidate`. 03 after both, in the root checkout, after `:desktop:installDist`.
 
 ## Manual steps
 
 - Phase 00 runs up to three `replay … label` jobs, one at a time, minutes each, on the user's machine.
-- Phase 03 needs a fresh `:desktop:installDist` after the 01 merge.
+- Phase 03 needs `:desktop:installDist` after the 01 merge.
 
 ## Notes / discrepancies
 
-- Pack review 2026-09-06 (fresh Opus agent, pack only): 17 findings, all phases "not alone
-  implementable". Folded in: the time bridge is TWO hops (`tsEpochMs` is wall time, `video_sync`
-  rows carry only `elapsedNs`; the `frame`/`event` rows carry both clocks) plus a decoded-index
-  frame clock instead of `round(t·fps)` (`ConcatFrameSource.fps` is nominal); bundle layouts differ
-  (top level vs `files/sessions/<sid>/`) and one bundle has no record — Phase 00 lists instead of
-  asserting; a two-segment record yields segment 0 plus a note instead of a refusal; paired plies
-  share one instant and therefore one frame; `LabelVerb.kt` untouched (the verb owns its decode
-  loop), `RecordedFrames.videoNsAt` goes `internal`; anchors `chain.ts:34/:87`, `nextStep :118-129`,
-  `chain-run.ts:13/:30`, `chain.test.ts:16-25/:86-88`, `DesktopMain.kt:283`; `refusalOf` takes the
-  last `refused:` line; the heavy lock is claimed as `label` under the fallback.
+- Review 1 (2026-09-06, fresh Opus agent): 17 findings — `video_sync` rows carry no wall clock,
+  bundle layouts differ, one bundle has no record, a two-segment record, paired plies share one
+  instant, `round(t·fps)` unsafe across segments. Folded in.
+- Review 2 (2026-09-06, fresh Opus agent, on the revised pack): the replay ALREADY labels phone
+  bundles from the record (`PhoneLog.kt`, `decider phone_log`, pre-roll time rule) — the pack was
+  re-based on that: same writer, same decider, `source.crop` kept (read by `realgames.py:546`),
+  `gameRecordFor`/`PlyMark.committed`/`videoNsAt` made internal instead of copied, step and job
+  kind renamed `phone-record` (`"phone"` is a `ReferenceOrigin`), `chain-run.ts` dispatch and lock
+  on the requested step, `videoOf` gains the mirrored top-level video, `chain-run.test.ts` in the
+  registry, Phase 00 uses `chesslab.recording.Recording` for the segment walk and measures three
+  rules plus the replay's own, the contradictory segment refusal removed, `videoNsAt`'s real type
+  (`Double`, `List<Pair<Long, Long>>`) stated.
 
 ## Session log
 

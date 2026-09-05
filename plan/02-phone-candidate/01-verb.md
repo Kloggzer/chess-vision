@@ -2,8 +2,10 @@
 
 ## Why
 
-`candidate.json` is only ever written by a replay (`LabelVerb.kt`, `RealGameCandidate.kt:259`). The
-phone's record and timeline carry the same plies with times; nothing turns them into a candidate.
+`candidate.json` is only ever written by a replay, which runs the tracker over every frame. For a
+bundle with a record the replay's plies are the record's anyway (`phone_log`); only the scan and the
+frame index per ply are needed. Read `STATUS.md` → Notes first: it holds the rule order and
+`PHONE_FRAME_OFFSET` Phase 00 measured.
 
 ## Design (decided — do not redesign)
 
@@ -13,108 +15,109 @@ New file `android/desktop/src/main/kotlin/com/chesslab/desktop/PhoneCandidate.kt
 /** Measured by plan/02-phone-candidate Phase 00 (STATUS.md → Notes); frames, may be negative. */
 internal const val PHONE_FRAME_OFFSET: Int = <value from STATUS.md>
 
-/** A `frame`/`event` row's two clocks, and a `video_sync` row's elapsed→duration pair. */
-internal data class WallPoint(val wallTsMs: Long, val elapsedNs: Long)
-internal data class SyncPoint(val elapsedNs: Long, val durationNs: Long)
+internal data class TimelineRows(          // read once from timeline.jsonl
+    val syncs: List<Pair<Long, Long>>,     // (elapsedNs, durationNs) — the shape videoNsAt takes
+    val frames: List<FrameRow>,            // FrameRow(elapsedNs, wallTsMs, fen: String?)
+    val decisions: List<DecisionRow>,      // accepted only: DecisionRow(ply, elapsedNs)
+    val events: List<Pair<Long, Long>>,    // (elapsedNs, wallTsMs)
+) { companion object { fun read(timeline: File): TimelineRows } }
 
-/** The pack's one time rule, hops 1 and 2 (entry.md → Time bridge). */
-internal class PhoneClock(walls: List<WallPoint>, syncs: List<SyncPoint>) {
-    fun elapsedNs(tsEpochMs: Long): Long          // nearest wall point, slope 1
-    fun videoNs(tsEpochMs: Long): Long            // RecordedFrames.videoNsAt(elapsedNs(ts), syncs)
-    companion object { fun fromTimeline(timeline: File): PhoneClock?   // null: no sync or no wall rows
-    }
+/** Which rule placed a ply — goes into source.rule and the log line. */
+internal enum class TimeRule { FRAME, DECISION, WALL }
+
+/** The pack's time rule in the ORDER STATUS.md fixes; each rule yields elapsedNs or null. */
+internal class PhoneClock(private val rows: TimelineRows, private val order: List<TimeRule>) {
+    fun elapsedNs(ply: Int, fenAfter: String, tsEpochMs: Long): Pair<Long, TimeRule>?
+    fun videoMs(elapsedNs: Long): Double = videoNsAt(elapsedNs, rows.syncs) / 1e6   // RecordedFrames, internal
 }
 
-/** Hop 3: decoded frame index per video time, collected during the scan's own decode pass. */
+/** Decoded frame index per video time, collected during the scan's own decode pass. */
 internal class FrameClock(private val timestampsMs: List<Double>) {
-    fun indexAt(videoNs: Long): Int?              // first index with timestampMs >= videoNs / 1e6; null past the end
+    fun indexAt(videoMs: Double): Int?     // first index with timestampMs >= videoMs; null past the end
 }
 
-/** Refusals are one line on stdout, `refused: …`, exit 1 (the platform parses the prefix). */
 internal class PhoneRefusal(message: String) : RuntimeException(message)
-
-internal fun phoneCandidate(args: List<String>)          // the FILE_TOOLS entry; catches PhoneRefusal
-internal fun buildPhoneCandidate(recordingDir: File, force: Boolean): File   // returns candidate.json
+internal fun phoneCandidate(args: List<String>)                  // FILE_TOOLS entry; prints "refused: $msg", exit 1
+internal fun buildPhoneCandidate(recordingDir: File, force: Boolean): File
+internal fun buildPhoneCandidate(recordingDir: File, force: Boolean, scan: ScannedGeometry, frames: FrameClock): File
 ```
 
-`buildPhoneCandidate`, in this order, each failure a `PhoneRefusal` with the words in brackets:
+`buildPhoneCandidate(recordingDir, force, scan, frames)`, in order (`PhoneRefusal` text in brackets):
 
-1. `files/sessions/` has exactly one directory → `sid` [`no session directory` / `n session directories`].
-2. `files/games/*.json` decoded with `GameRecord.kt`'s reader (find via
-   `grep -n "decodeFromJsonElement(StoredGame" android/tracker-runtime/src/main/kotlin/com/chesslab/tracker/games/GameRecord.kt`);
-   exactly one with `sessionId == sid` [`no game record names session <sid>` / `n game records name …`];
-   `segments.size <= 1` [`game has n segments — a seam cannot become one candidate`]; `moves` non-empty.
-3. `timeline.jsonl`: the top-level file, else `files/sessions/<sid>/timeline.jsonl`;
-   `PhoneClock.fromTimeline` [`timeline carries no video_sync rows` / `… no frame or event rows`].
-   `RecordedFrames.videoNsAt` (`RecordedFrames.kt:48`) becomes `internal` and is called, not copied.
-4. `video.mp4`: top level, else `files/sessions/<sid>/video.mp4` (the `chain.ts:52-64 videoOf`
-   rule) [`no video.mp4`]. One decode pass of the verb's own: `openRecording(video).use { src ->
-   val scan = GeometryScan(src.fps) { println("  $it") }; while (src.next()) { scan.offer(frame,
-   src.timestampMs); stamps += src.timestampMs } }` — the ten lines of `LabelVerb.kt:125-135`
-   `scanGeometry` plus the timestamp list; `scan.result()` [`no sampled frame aligned to the board's
-   grid`], `FrameClock(stamps)`. (`FrameSource.kt:23-43`: `next()`, `timestampMs`, `fps`.)
-5. Plies: `segments[0].moves` when `segments` is non-empty, else `moves`; `startFen` =
-   `segments[0].startFen` / `game.startFen`; a second segment sets `note` =
-   "<n> plies after a seam omitted". Walk them on a chesslib `Board`; `MoveList(board.fen)` +
-   `loadFromSan`/`doMove` as `RealGameScore.kt:147` does; an unplayable SAN refuses
-   [`ply n <san> is not legal from <fen>`]. `fenAfter = board.fen`.
-   `videoNs = clock.videoNs(tsEpochMs)`; `frame = frameClock.indexAt(videoNs)?.plus(PHONE_FRAME_OFFSET)`;
-   `null` or `< 0` refuses [`ply n lands outside the video`]. Plies sharing a `tsEpochMs` share the
-   frame (entry.md). `CommittedPly(ply, san, uci, frame, t = videoNs / 1e9, decider = "phone",
-   alarm = null, fenAfter)`.
-6. `candidate.json` exists and `!force` → [`candidate.json exists — pass force=1 to replace`].
-7. `candidateJson(name = recordingDir.name, videoRelative = relativeVideo(video, dataRoot),
-   scan, source, effectiveConfig, startFen, LabelOutcome(plies, note, observations = 0,
-   frames = stamps.size, framesWritten = 0, drops = ""))` with `source` as entry.md states and
-   `effectiveConfig` = the parsed `settings.json` (top level, else session dir) when present, else
-   an empty object; `writeCandidate(recordingDir, json)`. Print
-   `wrote <path>: <n> plies, offset <PHONE_FRAME_OFFSET>`.
+1. `files/sessions/` holds exactly one directory → `sid`, `sessionDir` [`no session directory` / `n session directories`].
+2. Record: `gameRecordFor(sessionDir, emptyList())` (`PhoneLog.kt:87`, made `internal`)
+   [`no game record names session <sid>`]; decode with `decodeStoredGame` (`GameRecord.kt:41`);
+   `segments = game.segmentsOrOne()` (`:201`); `segments[0].moves` non-empty [`first segment has no moves`];
+   `note` = "<n> plies after a seam omitted" when `segments.size > 1` (n = the rest), else null.
+3. `TimelineRows.read(timeline)` with `timeline` = `sessionDir/timeline.jsonl`, else the top-level
+   file [`no timeline.jsonl`]; `syncs` non-empty [`timeline carries no video_sync rows`].
+4. Plies: walk `segments[0].moves` on a chesslib `Board` from `segments[0].startFen` exactly as
+   `gameMarks` does (`PhoneLog.kt:106-136`: `Move(uci, sideToMove)`, legality via
+   `MoveGenerator.generateLegalMoves`) [`ply n <san> is not legal from <fen>`]; `fenAfter = board.fen`.
+   `(elapsedNs, rule) = clock.elapsedNs(ply, fenAfter, tsEpochMs)` [`ply n has no time in the timeline`];
+   `videoMs = clock.videoMs(elapsedNs)`; `frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET)`,
+   `null` or `< 0` refuses [`ply n lands outside the video`]. `PlyMark(ply, san, uci, fenAfter, videoMs)
+   .committed(frame, videoMs)` (`LabelVerb.kt:270`, made `internal`) — `decider` stays `phone_log`.
+5. `candidate.json` exists and `!force` → [`candidate.json exists — pass force=1 to replace`].
+6. `geometry = replayBoardGeometry(cornersToFlat(scan.corners), sessionDir, null)` (`ReplayGeometry.kt:20`,
+   `DesktopMain.kt:390`); `source = buildJsonObject { put("kind","phone"); put("game", game.id);
+   put("session", sid); put("rule", <rules used, joined by "|" in first-seen order>);
+   put("offset_frames", PHONE_FRAME_OFFSET); put("crop", cropJson(geometry)) }` where `cropJson` is the
+   `"crop"` block of `sourceJson` (`LabelVerb.kt:339-352`) extracted into an `internal fun
+   cropJson(geometry: BoardGeometry): JsonObject` that `sourceJson` now calls — no other change there.
+7. `candidateJson(name = recordingDir.name, videoRelative = relativeVideo(video, File(DATA_DIR)),
+   scan, source, effectiveConfig = <parsed settings.json (session dir, else top level) or empty object>,
+   startFen = segments[0].startFen, LabelOutcome(plies, note, observations = 0, frames = timestamps.size,
+   framesWritten = 0, drops = ""))`; `writeCandidate(recordingDir, json)`. Print
+   `wrote <path>: <n> plies (rules <…>), offset <PHONE_FRAME_OFFSET>`.
 
-`dataRoot` for `relativeVideo`: `File(RECORDINGS_DIR).parentFile` (`LabelVerb.kt:357`).
-Register in `DesktopMain.kt` `FILE_TOOLS` (`:847-862`) as `"phone-candidate" to ::phoneCandidate` and add
-one usage line beside the other file tools (`DesktopMain.kt:283`, the `labeled-session-pack` line).
+The two-argument overload resolves `video` (`sessionDir/video.mp4`, else top level [`no video.mp4`]),
+then one decode pass: `openRecording(video).use { src -> val scan = GeometryScan(src.fps) { println("  $it") };
+val stamps = ArrayList<Double>(); while (true) { val mat = src.next() ?: break; scan.offer(mat, src.timestampMs);
+stamps += src.timestampMs }; scan.result() ?: throw PhoneRefusal("no sampled frame aligned to the board's grid") }`
+(`LabelVerb.kt:125-135` shape; release the `Mat` as that loop does), then calls the four-argument one.
+`videoNsAt` (`RecordedFrames.kt:49`) becomes `internal`, unchanged otherwise.
+Register `"phone-candidate" to ::phoneCandidate` in `FILE_TOOLS` (`DesktopMain.kt:847-862`) and a
+usage line beside `DesktopMain.kt:283`.
 
 ## Steps
 
-1. `feat(desktop): PhoneClock maps a phone wall time onto the video` — `WallPoint`, `SyncPoint`,
-   `PhoneClock`, `FrameClock`, `videoNsAt` internal, tests.
-2. `feat(desktop): phone-candidate writes candidate.json from record and timeline` — the verb,
-   the `FILE_TOOLS` entry, tests.
+1. `feat(desktop): PhoneClock and FrameClock place a recorded ply on the video` — `TimelineRows`,
+   `TimeRule`, `PhoneClock`, `FrameClock`, `videoNsAt` internal, tests.
+2. `feat(desktop): phone-candidate writes candidate.json from the record and the timeline` — the verb,
+   `gameRecordFor`/`committed` internal, `cropJson`, the `FILE_TOOLS` entry, tests.
 
-## Tests — `PhoneCandidateTest.kt` (new, beside `RecordedFramesTest.kt`; copy its timeline helper)
+## Tests — `PhoneCandidateTest.kt` (new, beside `RecordedFramesTest.kt`; reuse its timeline helper style)
 
-- `a wall time between two frame rows takes the nearer one and slope one` — wall points
-  (1000 ms, 0 ns) and (2000 ms, 1e9 ns), one sync (0 ns → 0 ns duration): `videoNs(1400)` =
-  400 000 000, `videoNs(1600)` = 600 000 000.
-- `a wall time before the first row is negative, not clamped`.
-- `the frame clock takes the first frame at or after the video time` — stamps 0, 33.3, 66.7 ms:
-  `indexAt(40_000_000)` = 2, `indexAt(100_000_000)` = null.
-- `the verb refuses a bundle without a record naming its session` — fixture dir with
-  `files/sessions/x/` and an empty `files/games/`; message contains `no game record`.
-- `a game with two segments yields the first segment and a note` — `moves.size` equals segment 0's, `note` names the omitted count.
+- `the frame rule takes the first frame row showing the position` — three frame rows, the second
+  carries the ply's placement+side; `elapsedNs` is the second row's, rule `FRAME`.
+- `the decision rule is used when no frame row shows the position`, `the wall rule is the last resort`
+  (nearest row by wall time, slope 1: rows at wall 1000/2000 ms → `tsEpochMs 1400` lands 400 ms after the first).
+- `the frame clock takes the first decoded frame at or after the video time` — stamps 0, 33.3, 66.7:
+  `indexAt(40.0)` = 2, `indexAt(100.0)` = null.
+- `the verb refuses a bundle without a record naming its session` (message contains `no game record`).
+- `a two-segment record yields the first segment and a note`.
 - `the verb writes an unconfirmed candidate whose plies replay to the record's last position` —
-  fixture with a two-ply record (`e2e4`, `e7e5`, distinct `tsEpochMs` inside the frame rows), a
-  timeline with three syncs and five frame rows, and no video: factor the decode-independent part
-  as `buildPhoneCandidate(recordingDir, force, scan: ScannedGeometry, frames: FrameClock)` and test
-  THAT with a hand-built `ScannedGeometry(...)` (`GeometryScan.kt:44`) and `FrameClock(listOf(0.0,
-  33.3, …))`; the outer function supplies the real pass. Assert `moves.size == 2`, distinct frames,
-  `moves[1].fen_after` is the position after `1. e4 e5`, `confirmed == false`, `decider == "phone"`,
-  `source.kind == "phone"`.
+  fixture bundle (`files/sessions/x/timeline.jsonl` with syncs and frame rows carrying the FENs after
+  `e2e4`/`e7e5`, `files/games/g.json` with `sessionId: "x"`, two moves, distinct `tsEpochMs`), the
+  four-argument overload with a hand-built `ScannedGeometry(...)` (16 arguments, `GeometryScan.kt:44-63`)
+  and `FrameClock(listOf(0.0, 33.3, 66.7, 100.0, 133.3))`. Assert `moves.size == 2`, distinct frames,
+  `moves[1].fen_after` = position after `1. e4 e5`, `confirmed == false`, `decider == "phone_log"`,
+  `source.kind == "phone"`, `source.crop.pad_side` present.
 
-Command (from `android/`): `.\gradlew.bat :desktop:ktlintFormat -q` then
-`.\gradlew.bat :desktop:ktlintCheck :desktop:test --tests '*PhoneCandidateTest*' --rerun-tasks -q`;
-once at the end `.\gradlew.bat :app:testDebugUnitTest --tests '*CommentBudget*' -q`.
+Commands (from `android/`): `.\gradlew.bat :desktop:ktlintFormat -q`, then
+`.\gradlew.bat :desktop:ktlintCheck :desktop:test --tests '*PhoneCandidateTest*' --tests '*RecordedFramesTest*' --rerun-tasks -q`,
+once `.\gradlew.bat :app:testDebugUnitTest --tests '*CommentBudget*' -q`.
 
 ## Acceptance
 
-- Both gradle commands exit 0; `PhoneCandidateTest` 6 passed.
-- `grep -n '"phone-candidate" to ::phoneCandidate' android/desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt` → 1.
-- `grep -c "internal fun videoNsAt" android/desktop/src/main/kotlin/com/chesslab/desktop/RecordedFrames.kt` → 1;
-  `git diff --stat feat/phone-candidate -- android/desktop/src/main/kotlin/com/chesslab/desktop/LabelVerb.kt` prints nothing.
-- `grep -c "PHONE_FRAME_OFFSET" android/desktop/src/main/kotlin/com/chesslab/desktop/PhoneCandidate.kt` ≥ 2.
+- Gradle commands exit 0; `PhoneCandidateTest` 7 passed; `RecordedFramesTest` count unchanged.
+- `grep -c '"phone-candidate" to ::phoneCandidate' android/desktop/src/main/kotlin/com/chesslab/desktop/DesktopMain.kt` → 1.
+- `grep -c "internal fun videoNsAt" …/RecordedFrames.kt` → 1; `grep -c "internal fun gameRecordFor" …/PhoneLog.kt` → 1;
+  `grep -c "internal fun PlyMark.committed\|internal fun cropJson" …/LabelVerb.kt` → 2.
+- `grep -c '"phone_log"' …/PhoneCandidate.kt` → 0 (the decider comes from `committed`, not a second literal).
 
 ## Do NOT
 
-- Do not change `candidateJson`/`writeCandidate`, `LabelVerb.kt`, the replay, or any TypeScript;
-  in `RecordedFrames.kt` only the visibility of `videoNsAt` changes.
-- Do not read the phone's `log.jsonl` corners as geometry; do not run `installDist` in the worktree.
+- Do not change `candidateJson`/`writeCandidate`, `gameMarks`, `sessionTimeline`, the replay, or any TypeScript.
+- Do not compute frames from `fps`; do not read the phone's `log.jsonl` corners as geometry.
