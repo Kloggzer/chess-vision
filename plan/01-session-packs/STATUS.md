@@ -9,7 +9,7 @@
 | 01 | 01-writer.md | todo | |
 | 02 | 02-loader.md | done 2026-09-05 | `feat/sp-02`: `47fa87ec`, `0c738036`, `60d31f12` — `test_packs.py` 15 (9 + 6 new), `test_pack.py` 26, `test_synth_build.py` 2 |
 | 03 | 03-builder.md | todo | |
-| 04 | 04-parity.md | todo | |
+| 04 | 04-parity.md | done 2026-09-05 | `feat/sp-04`: `7ae5cd45`, `3d0b1e01`, `d67cd3b4` — `test_packs_integration` 2, the five-file list 60 passed; rows 50310/50310 diff 0, mean 1.684/255, p99 2.299, `visible_piece_acc` 0.1875 (pool) / 0.2068 (packs) |
 
 ## Dependencies
 
@@ -92,6 +92,40 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
     cleaner — recorded, not fixed, because `packs.py` is frozen.
 - Phase 01 ran `tests/test_ingest.py` once beyond the spec's list: it asserts the two WebP audit
   operations that the seam moved into `_write_crop_batch`. 6 passed.
+- Phase 04, five deviations from the Design, all forced by the code and all in the script:
+  1. **The Design's pool arm cannot be compared.** `data/crops/default/` is a cut from whenever the
+     session was last sliced; for `11-59-12` that is 2026-08-22, and the log moved on 2026-09-04
+     (a3/a4 swapped from ply 65 — `TODO.md` names it). Measured against that pool: 45,567 pool rows
+     against 50,310 pack rows, 53 frames missing, 8 labels disagreeing, symmetric difference 5,357.
+     The script therefore slices the ONE session into its own tag (`data/crops/sp-parity/`, 128 px,
+     427 MB) and builds `sp-parity-pool` with `--source-manifest` from it. Then both arms read the
+     same log at the same moment and only the resampling differs, which is what §4 wanted measured.
+  2. **`pack.row_window` cannot read.** The Design names it for the pool side, but it opens `r+`
+     and yields a `put(row, rgb)` setter — a WRITE window. The script reads through
+     `pack.open_packed_memmap`, which is what the loader itself uses.
+  3. **One session leaves val and test empty.** `assign_sessions_to_splits` never splits a session
+     and its "never emit an empty holdout" pass needs two sessions in train, so both builds need
+     `--allow-degenerate` and `train` would build an empty val loader. Both arms therefore train
+     against a `split-parity.json` the script writes, whose `val` IS the train session. The
+     accuracies compare the two pixel paths against each other and nothing else.
+  4. **`--no-empty-cap` on both trainings.** The empty cap protects the mined hard empties by CROP
+     PATH (`data/reports/hard_empty.jsonl`, 5,653 rows here) — no `mm://` row can match one, so
+     with the cap on the two arms would train on different rows. It does not touch the manifests:
+     `subsample_classes` runs inside `make_split` and at train time, never on the written rows.
+  5. `chesslab eval` takes `--run` and needs `--split-file`; the Design's `eval --dataset <each>`
+     is `eval --run <arm> --dataset sp-parity-pool --split train --split-file split-parity.json`.
+     The metric key in `eval_*.json` is `visible_piece_acc` (train's `metrics.jsonl` calls the same
+     number `val_visible_piece_acc`).
+- Phase 04 finding, per the Design's "> 1 point is a finding": the two arms are 1.9 points apart
+  (0.1875 pool, 0.2068 packs). Both models are ONE warm-up epoch old and nowhere near converged —
+  `val_acc` 0.45, board accuracy 0.0 on both — so the gap is not attributable to the pixel path.
+  The packs arm is also evaluated cross-domain (trained on direct 80 px cuts, measured on the
+  pool's 128→80 pixels) and still comes out higher. Re-measure on a converged run.
+- Phase 04 left `data/crops/sp-parity/` (427 MB), `data/packs/rg-2026-08-08-11-59-12-80/` (942 MB),
+  `sp-parity-pool` (944 MB), `sp-parity-packs` (18 MB) and two `data/models/sp-parity-*` runs on
+  disk. Nothing else was deleted. The 944 MB against 18 MB IS the feature's point.
+- Phase 04 touched no `tests/comment_budget.txt` entry — both new files are new-file-limit clean
+  (worst block 2 lines) and no existing file's comments changed.
 
 ## Session log
 
@@ -142,3 +176,38 @@ Shared files: `cli.py` (01 + 03) and `pack.py` (02 + 03), disjoint regions named
   alongside 01 and 03); Phase 04 then measures the 02↔03 seam with
   `tests/test_packs_integration.py` — no `dataset build --from-packs` exists yet, so no end-to-end
   run has ever fed `resolve_dataset_packs` a real `packs:` key.
+- 2026-09-05, Phase 04 on `feat/sp-04` (off `feat/session-packs` at `d3354af7`, ROOT checkout —
+  no worktree, `uv run` works there): `7ae5cd45` `tests/test_packs_integration.py` (the 02↔03 seam:
+  two packs with real pixels through `build_dataset(..., from_packs=True)`, `resolve_dataset_packs`
+  and `PackedSquareDataset`), `3d0b1e01` `scripts/pack_parity.py`, `d67cd3b4` the docs.
+  `uv run pytest -q tests/test_packs_integration.py tests/test_packs.py tests/test_session_pack.py
+  tests/test_dataset_build.py tests/test_pack.py` → **60 passed** (2 + 15 + 5 + 11 + 27);
+  `tests/test_comment_budget.py` 1 passed; `uv run ruff check` on the two new files clean;
+  `uv run vulture src tests synth --min-confidence 80` silent.
+  The script ran end to end once, exit 0 (`chesslab session pack` was skipped — the pack already
+  existed from the same script's first, mis-logged launch; the slice, both builds, both trainings
+  and both evals ran fresh). Its printed table, verbatim:
+
+  ```
+  === pack parity: rg-2026-08-08-11-59-12 @ 80 px ===
+  rows (pool / packs)          50310 / 50310
+  symmetric difference         0 (pool-only 0, packs-only 0)
+  common rows compared         50310
+  mean abs diff                1.684 / 255
+  p99 per-crop mean diff       2.299 / 255   (max 2.435)
+    worst                      rg-2026-08-08-11-59-12/000768/g1/wN  2.435
+    worst                      rg-2026-08-08-11-59-12/000771/g1/wN  2.427
+    worst                      rg-2026-08-08-11-59-12/000759/g1/wN  2.421
+    worst                      rg-2026-08-08-11-59-12/000765/g1/wN  2.420
+    worst                      rg-2026-08-08-11-59-12/000747/g1/wN  2.413
+  visible_piece_acc pool       0.1875
+  visible_piece_acc packs      0.2068
+  ```
+
+  Acceptance greps all hit: `from-packs` in `README.md` (3) and `docs/data-pipeline.md` (2);
+  `Memmap` in `TODO.md` only at :148, below `## Erledigt` (:146); the four deferred-debt lines
+  under `## Daten / Training / Labeling`.
+  **Exact next step:** the orchestrator merges `feat/sp-04` into `feat/session-packs` and runs the
+  full gate (`uv run pytest -q`, ruff, vulture, `test_comment_budget`). Nothing in the pack is
+  left open; the one thing worth doing next is re-measuring the two accuracies on a converged run,
+  and the user decides whether any existing dataset memmap goes.
