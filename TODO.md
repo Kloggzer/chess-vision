@@ -65,6 +65,13 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Daten / Training / Labeling
 
+- **Züge vom Handy übernehmen statt am PC neu erkennen (User 2026-09-06).** Die Kette lässt jede
+  Aufnahme mit Partie-Record trotzdem durch den Replay (Minuten, Echtzeit), nur um Frames je Ply zu
+  bekommen. Die `timeline.jsonl` trägt die `move`-Events mit `elapsedNs` und die `video_sync`-Brücke
+  zur Videozeit (`RecordedFrames.kt` liest sie schon); aus Record + Timeline wird eine
+  `candidate.json` in Sekunden, `decider: phone`, und die am Handy als gut markierten Plies sind
+  vorab `reviewed_plies`. Replay nur noch für Aufnahmen ohne Record. Messen: Frame-Offset gegen den
+  Replay auf drei Aufnahmen (±1 Frame ist das Ziel, `docs/phone-transfer.md` Pre-roll-Offset).
 - **11-59-12 neu slicen und packen** — Frame-FENs ab Ply 65 waren falsch (a3/a4 vertauscht), am
   2026-09-04 korrigiert; ein bereits exportierter Pack trägt die alten Labels.
 - **4K gehört in `--scales`** oder der 4K-Crop auf die trainierte Zellgröße (116 px), statt auf 80
