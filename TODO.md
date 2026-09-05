@@ -59,7 +59,7 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Wiederholungslimit von `due()`; Prior (`possibleLabels`) ungenutzt; Coverage-Gate 0,15 geerbt.
 - **Laufzeit, geparkt:** `MarkerTracker` hält STALE-Ecken ewig (fürs feste Rig gewollt, eine
   Kamerabewegung im Verlust sieht `cornerJumpPx` nie); `SessionTimeline` schreibt in Sendereihenfolge,
-  `DROP_OLDEST` verliert still; QNN-Zweig ohne AAR.
+  QNN-Zweig ohne AAR.
 - **Vorlauf-Gegenprobe:** 45 s × 12,9 Mbit/s = 72 MB gegen `PRE_ROLL_MAX_BYTES` 80 MB — gerechnet,
   nicht gemessen (`adb logcat -s chesslabVideo`).
 
@@ -148,7 +148,8 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   zeilengleich zur Basis — `diff_after_verify` feuert im Satz nie, der Knob braucht die Dunkel-Aufnahme.
 - **Billiges vom 2026-09-05:** Mattstellung per CNN adoptierbar (`reachable` prüft nur noch den
   Gegner im Schach); ein Modell-Snapshot je Neustart statt zweier Lesungen; `SessionTimeline.close()`
-  wartet den Writer bis 2 s ab; `occluders` nennt `connectivity`.
+  wartet den Writer bis 2 s ab und schreibt verdrängte Zeilen als Zahl in die letzte Zeile;
+  `occluders` nennt `connectivity`.
 - **Engine-Review 2026-09-03/04:** 34 Fix-Commits (Livelock im Dunkeln, Desync-Serie über Commit,
   Recovery-State, 3-Ply-Verify, Promotion-Prompt ohne Ausgang, Alarm-Bypass, Warps/Sessions-Leaks,
   monotone Uhr, LiveAlign-Generation, Teardown-Reihenfolge …), core-engine 9 743 → 7 724 Zeilen,

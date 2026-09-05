@@ -2,6 +2,7 @@ package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.TrackerEvent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -35,5 +36,21 @@ class SessionTimelineTest {
             assertEquals("11", rows[0].getValue("sensorTsNs").jsonPrimitive.content)
             assertEquals("e2e4", rows[1].getValue("uci").jsonPrimitive.content)
             assertEquals("1000000", rows[2].getValue("durationNs").jsonPrimitive.content)
+        }
+
+    /** `DROP_OLDEST` evicts silently; the file must say that it did, and how much is missing. */
+    @Test
+    fun evictedRowsLeaveACountInTheFile() =
+        runTest {
+            val timeline = SessionTimeline(dir, this, StandardTestDispatcher(testScheduler), queueSize = 2, closeDrainMs = 0)
+            repeat(3) { timeline.frame(TimelineFrame(it.toLong(), 21L, 31L, 2560, 1440, 0, TIMELINE_FEN, null, CORNERS)) }
+            timeline.close()
+            advanceUntilIdle()
+
+            val rows = File(dir, "timeline.jsonl").readLines().map { Json.parseToJsonElement(it).jsonObject }
+            assertEquals(listOf("frame", "frame", "event"), rows.map { it.getValue("kind").jsonPrimitive.content })
+            assertEquals("1", rows[0].getValue("sensorTsNs").jsonPrimitive.content)
+            assertEquals("timeline_dropped", rows[2].getValue("event").jsonPrimitive.content)
+            assertEquals("1 rows evicted", rows[2].getValue("reason").jsonPrimitive.content)
         }
 }

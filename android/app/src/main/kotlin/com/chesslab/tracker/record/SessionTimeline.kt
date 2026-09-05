@@ -124,10 +124,14 @@ class SessionTimeline(
     dir: File,
     scope: CoroutineScope,
     context: CoroutineContext = Dispatchers.IO,
+    queueSize: Int = TIMELINE_QUEUE,
+    private val closeDrainMs: Long = CLOSE_DRAIN_MS,
 ) : AutoCloseable {
     private val file = File(dir, "timeline.jsonl").also { it.writeText("") }
     private val seq = AtomicLong()
-    private val queue = Channel<TimelineEntry>(TIMELINE_QUEUE, BufferOverflow.DROP_OLDEST)
+    private val evicted = AtomicLong()
+    private val queue =
+        Channel<TimelineEntry>(queueSize, BufferOverflow.DROP_OLDEST, onUndeliveredElement = { evicted.incrementAndGet() })
 
     private val writer =
         scope.launch(context) {
@@ -143,6 +147,12 @@ class SessionTimeline(
                 WorkProfiler.span(WorkOperation.TIMELINE_WRITE, entry.seq) {
                     file.appendText(text + "\n")
                 }
+            }
+            // A loss the reader can see: the queue evicts its oldest rows silently, so the last row says how many.
+            val lost = evicted.get()
+            if (lost > 0) {
+                val row = EventRow(seq.getAndIncrement(), -1L, -1L, "timeline_dropped", null, reason = "$lost rows evicted")
+                file.appendText(TIMELINE_JSON.encodeToString(EventRow.serializer(), row) + "\n")
             }
         }
 
@@ -223,7 +233,7 @@ class SessionTimeline(
     override fun close() {
         queue.close()
         if (writer.isCompleted) return
-        runBlocking { withTimeoutOrNull(CLOSE_DRAIN_MS) { writer.join() } }
+        runBlocking { withTimeoutOrNull(closeDrainMs) { writer.join() } }
     }
 }
 
