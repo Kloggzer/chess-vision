@@ -45,12 +45,10 @@ internal class MoveScore(
 }
 
 /**
- * Both sides are walked in parallel first, because a still frame cannot prove an ORDER: where the
- * two disagree but stand on the same board again within [REORDER_LOOKAHEAD] plies, the stretch is
- * found and only reported as reordered — 11-59-12 commits `Rfc8 Nxb8 Rxb8` on ONE frame. Where the
- * boards never meet again the rest falls to a longest common subsequence, so a run that left the
- * line keeps its phantoms. Only past the last found ply AND past the last label frame is a commit
- * beyond rather than invented — the video keeps playing, 164 of 171 "phantoms" on 11-59-12.
+ * A still frame cannot prove an ORDER: where the two sides disagree but meet on the same board again
+ * within [REORDER_LOOKAHEAD] plies, the stretch counts as found and is reported as reordered. Where
+ * they never meet, the rest falls to a longest common subsequence and a run off the line keeps its
+ * phantoms. Only past the last found ply AND the last label frame is a commit beyond, not invented.
  */
 internal fun scoreMoves(
     label: List<ScoredPly>,
@@ -163,13 +161,9 @@ private const val REORDER_LOOKAHEAD = 12
 
 /**
  * The label's plies: the `reference.pgn` where one exists, with the candidate's frames alongside.
- *
- * The PGN is the checked source and the candidate is a tracker artefact — and the two can disagree
- * about ORDER. A run that commits a backlog puts several plies on one frame and guesses their
- * sequence; 51 of 606 label plies across the corpus sit in such a bundle, and on
- * `VID_20260726_233432` the guess is demonstrably wrong (the pictures show e4 at frame 240, the
- * label calls it ply 3). Scoring against the guess makes a tracker that reads the video correctly
- * look worse than the one that wrote the label.
+ * The PGN is the checked source; the candidate is a tracker artefact that guesses the order of a
+ * bundle it committed on one frame — demonstrably wrong on `VID_20260726_233432` (e4 sits at frame
+ * 240, the label calls it ply 3). Scoring against the guess punishes the tracker that read it right.
  */
 internal fun labelPlies(candidate: File): List<ScoredPly> {
     val fromCandidate = candidatePlies(candidate)

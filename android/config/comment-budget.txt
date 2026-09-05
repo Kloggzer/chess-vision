@@ -197,7 +197,6 @@ desktop/src/main/kotlin/com/chesslab/desktop/Mp4Index.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/NativeCv.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/ParallelVisualPrepass.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RealGameCandidate.kt 2
-desktop/src/main/kotlin/com/chesslab/desktop/RealGameScore.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RecordingSource.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/Rectify.kt 1
 desktop/src/main/kotlin/com/chesslab/desktop/RepairRecording.kt 2

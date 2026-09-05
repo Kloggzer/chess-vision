@@ -9,6 +9,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -23,6 +25,7 @@ import kotlin.coroutines.CoroutineContext
  * evicted its own head and the decision row behind it, `DROP_OLDEST` making the loss invisible.
  */
 private const val TIMELINE_QUEUE = 4096
+private const val CLOSE_DRAIN_MS = 2_000L
 private val TIMELINE_JSON = Json { encodeDefaults = true }
 
 private sealed interface TimelineEntry {
@@ -126,7 +129,7 @@ class SessionTimeline(
     private val seq = AtomicLong()
     private val queue = Channel<TimelineEntry>(TIMELINE_QUEUE, BufferOverflow.DROP_OLDEST)
 
-    init {
+    private val writer =
         scope.launch(context) {
             for (entry in queue) {
                 val text =
@@ -142,7 +145,6 @@ class SessionTimeline(
                 }
             }
         }
-    }
 
     fun frame(frame: TimelineFrame) {
         queue.trySend(
@@ -217,8 +219,11 @@ class SessionTimeline(
         queue.trySend(StateRow(seq.getAndIncrement(), elapsedNs, engineTsS, from, to))
     }
 
+    /** Closing the queue lets the writer drain; waiting for it keeps the tail rows off a dying scope. */
     override fun close() {
         queue.close()
+        if (writer.isCompleted) return
+        runBlocking { withTimeoutOrNull(CLOSE_DRAIN_MS) { writer.join() } }
     }
 }
 

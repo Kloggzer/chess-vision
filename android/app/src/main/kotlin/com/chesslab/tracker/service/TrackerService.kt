@@ -125,12 +125,9 @@ class TrackerService :
     private val timings = StageTimings(logLine = AndroidTrackerLog(PERF_TAG)::debug)
     private val cnnProbe = CnnRuntimeProbe()
 
-    /** Re-read on every attach, so a changed model or EP lands on the next stack (D07a-3). */
-
+    /** The classifier opens the model [chooseModel] read the spec from — never a newer setting. */
     private val attachCnn: () -> Attached = {
-        // The app's binding: assets come out of the APK, and everything downstream takes
-        // them as given rather than reaching for a Context of its own.
-        val app = settings.appSettings.value
+        val app = modelChoice ?: settings.appSettings.value
         openClassifier(cnnAssetsFrom(this, app.modelDir, app.modelAsset), app, cnnProbe)
     }
 
@@ -225,6 +222,14 @@ class TrackerService :
      */
     @Volatile
     private var modelSpec: ModelSpec? = null
+    private var modelChoice: AppSettings? = null
+
+    /** Spec and classifier are two reads of the same file; one snapshot keeps them the same model. */
+    private suspend fun chooseModel() {
+        val app = settings.appSettings.value
+        modelChoice = app
+        modelSpec = declaredModelSpec(this, app)
+    }
 
     @Volatile
     private var corners: FloatArray? = null
@@ -475,7 +480,7 @@ class TrackerService :
         // value has to be handed over.
         camera.look.setLook(settings.appSettings.value.cameraLook())
         // Before the geometry, because the geometry follows it.
-        modelSpec = declaredModelSpec(this, settings.appSettings.value)
+        chooseModel()
         geometry = adoptStoredOrientation(calibration, settings)
         swapStack()
         // Before the bind, so the FIRST binding already asks for the persisted mode instead of
@@ -508,7 +513,7 @@ class TrackerService :
             // re-read here for the same reason the camera request is: the next stack must crop for
             // the next model. Switching from the 96 px model to the 80 px one and keeping 96 px
             // crops would kill the first observation of the new stack.
-            modelSpec = declaredModelSpec(this@TrackerService, settings.appSettings.value)
+            chooseModel()
             geometry = calibration.applyOrientation(settings.appSettings.value.orientation.whitePov)
             swapStack()
             camera.retarget(cameraRequestFor(settings.appSettings.value.resolutionMode, settings.appSettings.value.frameRate))
