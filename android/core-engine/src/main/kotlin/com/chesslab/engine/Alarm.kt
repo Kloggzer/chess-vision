@@ -129,8 +129,9 @@ internal fun EngineState.clearDesyncStreak() {
 
 /**
  * Count DISTINCT observations, not evaluations — `desyncObsN` means "persistent over seconds", not
- * "evaluated three times". An unstable conflict set restarts the streak at ONE, never at zero: this
- * observation is itself evidence.
+ * "evaluated three times". The streak carries a running CORE, the squares every look so far disagreed
+ * on: subset-or-superset let `{a}→{a,b}→{b}` count three without one square holding. An empty core
+ * restarts at ONE, never at zero — this observation is itself evidence.
  */
 private fun EngineState.advanceDesyncStreak(
     seq: Long,
@@ -138,10 +139,10 @@ private fun EngineState.advanceDesyncStreak(
 ) {
     if (seq == desyncLastSeq) return
     val current = ofSquares(conflicts)
-    val stable = current == desyncConflicts || current.without(desyncConflicts) == 0L || desyncConflicts.without(current) == 0L
-    desyncObs = if (stable) desyncObs + 1 else 1
+    val core = current and desyncConflicts
+    desyncObs = if (desyncObs > 0 && core != 0L) desyncObs + 1 else 1
     if (desyncObs == 1) desyncSince = nowS
-    desyncConflicts = current
+    desyncConflicts = if (desyncObs == 1) current else core
     desyncLastSeq = seq
 }
 

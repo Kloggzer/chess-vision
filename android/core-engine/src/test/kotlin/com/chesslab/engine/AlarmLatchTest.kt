@@ -288,6 +288,25 @@ class AlarmLatchTest {
         assertNull(state.alarm, "one read after an undo may not latch the alarm")
     }
 
+    /**
+     * `{e1}` → `{e1,g1}` → `{g1}` never has ONE square disagreeing throughout: the subset rule
+     * carried the streak across a set that had drifted whole. The running core `{e1}∩{g1}` is empty.
+     */
+    @Test
+    fun aStreakNeedsARunningCoreOfConflicts() {
+        val state = recoveryState(NF3_NO_CASTLING).underWay()
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1"), guess = "e1g1")
+        val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1))
+        cnn.conflicts = listOf("e1", "g1")
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2))
+        assertEquals(2, state.desyncObs, "e1 still disagrees — the streak holds")
+        cnn.conflicts = listOf("g1")
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 3))
+        assertEquals(1, state.desyncObs, "no square disagreed on all three looks — a new streak")
+        assertNull(state.alarm)
+    }
+
     /** A streak of two against the current position, with the latch's duration gate live. */
     private fun streakedState(): Pair<EngineState, RecoveryEvaluator> {
         val config = recoveryConfig().copy(alarmMinS = STREAK_ALARM_MIN_S)
