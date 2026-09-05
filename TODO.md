@@ -61,7 +61,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   (Desktop-Schalter für `runGridOcclusion` als Knob).
 - **`minGridLineCoverage` entlastet `motionThr`.** Die obere Wand hängt an der Puffer-Hygiene, nicht
   am Commit-Gate (67→4 Plies bei `motionThr` 1,0, auch mit `nomotion`). Wer Luft will, dreht dort.
-- **`cnnAdoptedFen` verlangt Züge** — eine Mattstellung ist per CNN nicht adoptierbar, per `setFen` schon.
 - **Modell-/Engine-Wechsel ohne Neustart.** `StackSwitch` kann tauschen; der Weg Einstellung → Tausch
   fehlt. Klären, was ein Wechsel mitten in der Partie mit Historie und Pixel-Referenz macht
   (`CaptureBaseline` wie bei der Belichtung).
@@ -70,8 +69,7 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Wiederholungslimit von `due()`; Prior (`possibleLabels`) ungenutzt; Coverage-Gate 0,15 geerbt.
 - **Laufzeit, geparkt:** `MarkerTracker` hält STALE-Ecken ewig (fürs feste Rig gewollt, eine
   Kamerabewegung im Verlust sieht `cornerJumpPx` nie); `SessionTimeline` schreibt in Sendereihenfolge,
-  `DROP_OLDEST` verliert still, `close()` wartet den Writer nicht ab; `TrackerService` liest die
-  Modell-Spec beim Restart und `attachCnn` die Einstellung erneut (TOCTOU); QNN-Zweig ohne AAR.
+  `DROP_OLDEST` verliert still; QNN-Zweig ohne AAR.
 - **Vorlauf-Gegenprobe:** 45 s × 12,9 Mbit/s = 72 MB gegen `PRE_ROLL_MAX_BYTES` 80 MB — gerechnet,
   nicht gemessen (`adb logcat -s chesslabVideo`).
 
@@ -100,8 +98,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Alles Bildmessungen — Val-Wert gegen `comp13-occ-bn-lr1e2-bs512` ist der Gegentest.
 - **per-position:** 8→2 kostet (3/3 Seeds); offen, welche Hälfte trägt (`c8d2` gegen `c2d8`).
 - **`SETTLE_CELL_PX` 32 sweepen** (16/32/48/80) mit `SETTLE_LIMIT` als Mitläufer.
-- **`occluders.py`:** `connectedComponentsWithStats(m, 8)` — die 8 landet auf `labels`, nicht
-  `connectivity`; beim nächsten Anfassen heben.
 - **`OPENBLAS_NUM_THREADS=1` für `serving.py`** — 3,2 GB Commit, vorher Latenz messen.
 - **Hände in „sauberen" Frames:** ~ein Drittel von 40 Stichproben zeigt Haut; die Trefferquote des
   Sensors wurde nie gemessen. Der Occlusion-Kopf über die nicht-`dirty` Frames ist die Antwort.
@@ -155,6 +151,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Billiges vom 2026-09-05:** Mattstellung per CNN adoptierbar (`reachable` prüft nur noch den
+  Gegner im Schach); ein Modell-Snapshot je Neustart statt zweier Lesungen; `SessionTimeline.close()`
+  wartet den Writer bis 2 s ab; `occluders` nennt `connectivity`.
 - **Engine-Review 2026-09-03/04:** 34 Fix-Commits (Livelock im Dunkeln, Desync-Serie über Commit,
   Recovery-State, 3-Ply-Verify, Promotion-Prompt ohne Ausgang, Alarm-Bypass, Warps/Sessions-Leaks,
   monotone Uhr, LiveAlign-Generation, Teardown-Reihenfolge …), core-engine 9 743 → 7 724 Zeilen,
