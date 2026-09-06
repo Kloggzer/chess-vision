@@ -19,12 +19,13 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Bewegtes Brett als Regressionsfall.** 2026-08-30-16-20-19: Brett nach Zug 12 um ein Siebtel
-  Feld verschoben, das Handy verlor die Stellung und baute sie per cnn_pair neu auf, der PC-Scan
-  mittelte über beide Lagen. Der Handy-Kandidat misst seit 2026-09-06 nur das erste Segment und
-  prüft gegen die Rillen (`grooveOffset`); der Label-Replay (`prepareLabel`) mittelt weiter über
-  das ganze Video. Fehlt: ein Replay-Test mit synthetischem Versatz ab Frame N (Video umkodieren,
-  20 px Shift), der misst, ob LiveAlign das Quad nachführt und wie viele Plies der Sprung kostet.
+- **Bewegtes Brett: gemessen, Rest offen.** `scripts/bump_replay.py` (2026-09-06) schiebt eine
+  Aufnahme ab Frame N um dx/dy und spielt Kontroll- und Sprunglauf durch: 11-55-19 mit 20/8 px ab
+  700 → 15/0/0 in beiden, ein Zug 68 Frames später, das Brett des Trackers danach 0,017–0,034
+  Zellen (2–3 px) neben dem Kontrolllauf. Seitdem trägt jeder Halbzug `corners` (Engine bzw.
+  Handy-Quad am Commit), Export und Review-Bretter schneiden je Ply. Offen: der Label-Replay
+  (`prepareLabel`) mittelt sein Fallback-Quad weiter über das ganze Video; ein Sprung ohne
+  Ply-Quad (Kamera-Roll-Video) bleibt dort ein statischer Median.
 
 - **`phone-candidate` dekodiert noch jedes Bild — seit 2026-09-06 zweimal** (440 s gegen 1 325 s
   Replay auf 20-41-33, plus der Review-Pass bis zum letzten Ply): der Geometrie-Scan braucht nur

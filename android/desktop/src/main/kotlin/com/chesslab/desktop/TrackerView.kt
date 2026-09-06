@@ -374,6 +374,8 @@ fun dumpBoard(
     val img = board ?: return
     val dir = File(DUMP_DIR).apply { mkdirs() }
     ImageIO.write(renderBoardShot(img, status), "png", File(dir, "board-%06d.png".format(frame)))
+    // The unpainted board too: `scripts/bump_replay.py` compares two runs pixel by pixel.
+    ImageIO.write(img, "png", File(dir, "raw-%06d.png".format(frame)))
     File(dir, "board-%06d.txt".format(frame)).writeText(
         buildString {
             appendLine("frame=$frame")
