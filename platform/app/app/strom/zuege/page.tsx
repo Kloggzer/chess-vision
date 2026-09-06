@@ -1,4 +1,4 @@
-import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
+import { listFrameStems, loadCandidate, readReference } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { queueRows, splitQueues, type QueueRow } from "@/lib/queues";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
  */
 async function streamGame(row: QueueRow): Promise<StreamGame> {
   const candidate = await loadCandidate(row.name);
-  const truth = await truthSans(row.name);
+  const reference = await readReference(row.name);
+  const truth = reference?.sans ?? null;
   const moves = candidate.moves;
   const { matched, invented, missed } = truth
     ? lcsReport(truth, moves.map((m) => m.san))
@@ -34,6 +35,7 @@ async function streamGame(row: QueueRow): Promise<StreamGame> {
     gallery: buildGalleryCards({ moves, matched, stems, startFen: candidate.start_fen }),
     noted: [...(await badIntervals(sessionId(row.name)))],
     reference: await referenceOrigin(row.name),
+    referenceProblem: reference?.problem ?? null,
   };
 }
 

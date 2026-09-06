@@ -28,6 +28,8 @@ export type StreamGame = {
   gallery: ReviewCard[];
   /** Plies already called `bad-interval` in `review-notes.jsonl` — the verdict is reload-proof. */
   noted: number[];
+  /** `reference.pgn` exists but cannot be read — every ply is then the human's, and the header says why. */
+  referenceProblem: string | null;
   /** Where `reference.pgn` came from: `phone` makes every match below a self-check, not a check. */
   reference: ReferenceOrigin;
 };

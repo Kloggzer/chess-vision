@@ -5,9 +5,9 @@
  */
 import { readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { Chess } from "chess.js";
 import sharp from "sharp";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
+import { parseReference, type Reference } from "@/lib/pgn";
 
 type Move = {
   ply: number;
@@ -73,15 +73,16 @@ export async function loadCandidate(name: string): Promise<Candidate> {
  * ones — which is the same review, just without the machine narrowing it down first.
  */
 export async function truthSans(name: string): Promise<string[] | null> {
-  let pgn: string;
+  return (await readReference(name))?.sans ?? null;
+}
+
+/** `reference.pgn` as read — null without the file; with one, `problem` says why `sans` can be null. */
+export async function readReference(name: string): Promise<Reference | null> {
   try {
-    pgn = await readFile(path.join(gameDir(name), "reference.pgn"), "utf8");
+    return parseReference(await readFile(path.join(gameDir(name), "reference.pgn"), "utf8"));
   } catch {
     return null;
   }
-  const chess = new Chess();
-  chess.loadPgn(pgn);
-  return chess.history();
 }
 
 /**
@@ -105,10 +106,13 @@ async function frameSize(file: string): Promise<{ width: number; height: number 
   }
 }
 
+/** The label verb writes `frames/` (`LabelSession.review`), runs before 2026-08-17 left `review/`. */
+const LABELED_DIRS = ["frames", "review"];
+
 /** Where a review frame actually is — a run writes WebP, everything older left PNG behind. */
 export async function reviewFramePath(name: string, stem: string): Promise<string | null> {
   const safe = checkName(stem, "frame");
-  for (const dir of ["review", "review-extra"]) {
+  for (const dir of [...LABELED_DIRS, "review-extra"]) {
     for (const ext of REVIEW_EXTS) {
       const file = path.join(gameDir(name), dir, `${safe}${ext}`);
       if (await stat(file).then(() => true, () => false)) return file;
@@ -127,15 +131,13 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
       return [];
     }
   };
-  const labeled = await stemsOf("review");
-  const seen = new Set(labeled);
-  const found: { stem: string; kind: FrameStem["kind"]; dir: string }[] = labeled.map((stem) => ({
-    stem,
-    kind: "labeled",
-    dir: "review",
-  }));
-  for (const stem of await stemsOf("review-extra")) {
-    if (!seen.has(stem)) found.push({ stem, kind: "plain", dir: "review-extra" });
+  const seen = new Set<string>();
+  const found: { stem: string; kind: FrameStem["kind"] }[] = [];
+  for (const [dir, kind] of [...LABELED_DIRS.map((d) => [d, "labeled"] as const), ["review-extra", "plain"] as const]) {
+    for (const stem of await stemsOf(dir)) {
+      if (!seen.has(stem)) found.push({ stem, kind });
+      seen.add(stem);
+    }
   }
   const out: FrameStem[] = await Promise.all(
     found.map(async ({ stem, kind }) => ({

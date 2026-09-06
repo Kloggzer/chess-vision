@@ -4,7 +4,7 @@ import { PageTitle } from "@/app/page-title";
 import { chainState, referenceOrigin } from "@/lib/chain";
 import { Badge } from "@/components/ui/badge";
 import { ReferenceChip } from "@/components/reference-chip";
-import { listFrameStems, loadCandidate, truthSans } from "@/lib/data";
+import { listFrameStems, loadCandidate, readReference } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
 import { buildGalleryCards, buildReviewCards } from "@/lib/review-cards";
 import { ConfirmReview } from "./cards";
@@ -37,7 +37,8 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
   // is nothing to confirm yet, and the page that says so is also the page that offers the step.
   const candidate = await loadCandidate(name).catch(() => null);
   if (!candidate) return <NoCandidate name={name} />;
-  const [truth, origin] = await Promise.all([truthSans(name), referenceOrigin(name)]);
+  const [reference, origin] = await Promise.all([readReference(name), referenceOrigin(name)]);
+  const truth = reference?.sans ?? null;
   const moves = candidate.moves;
   // Without a `reference.pgn` there is nothing to match against, so EVERY ply is the human's to
   // judge — the same review, minus the machine narrowing it down first.
@@ -84,9 +85,15 @@ export default async function ConfirmPage({ params }: PageProps<"/confirm/[name]
           </>
         ) : (
           <span title={`ohne data/recordings/${name}/reference.pgn gibt es nichts zu vergleichen — jeder Halbzug ist deiner`}>
-            {moves.length} Halbzüge · keine reference.pgn
+            {moves.length} Halbzüge · {reference ? "reference.pgn unlesbar" : "keine reference.pgn"}
           </span>
         )}
+        {reference?.problem ? <span className="text-destructive"> · {reference.problem}</span> : null}
+        {reference && reference.more > 0 ? (
+          <span title="das Handy schreibt nach jeder Naht (Resync) eine Fortsetzung als eigene Partie; der Kandidat deckt nur das erste Segment">
+            {" "}· {reference.more} Fortsetzung{reference.more > 1 ? "en" : ""} in der Datei, nicht verglichen
+          </span>
+        ) : null}
       </p>
 
       <ConfirmReview cards={cards} gallery={gallery} name={name} />

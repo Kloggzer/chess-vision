@@ -260,6 +260,9 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
               {item?.card ? ` · @${String(item.card.frame).padStart(6, "0")}` : ""}
             </span>
             <ReferenceChip origin={game.reference} />
+            {game.referenceProblem ? (
+              <span className="text-destructive">reference.pgn unlesbar: {game.referenceProblem}</span>
+            ) : null}
           </>
         ) : null}
         <Tooltip>

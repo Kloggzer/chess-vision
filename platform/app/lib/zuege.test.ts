@@ -26,6 +26,7 @@ const game = (name: string, cards: number): StreamGame => ({
   gallery: [],
   reference: "phone",
   noted: [],
+  referenceProblem: null,
 });
 
 describe("streamItems", () => {
