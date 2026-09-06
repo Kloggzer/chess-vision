@@ -19,9 +19,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **`phone-candidate` dekodiert noch jedes Bild** (440 s gegen 1 325 s Replay auf 20-41-33): der
-  Geometrie-Scan braucht nur jeden 10. Frame — `grab()` statt `retrieve()` dazwischen, dann sind es
-  Sekunden. Und: die 100-Samples-Schwelle des Replays (`geometryRefusals`) gilt im Verb nicht; auf dem
+- **`phone-candidate` dekodiert noch jedes Bild — seit 2026-09-06 zweimal** (440 s gegen 1 325 s
+  Replay auf 20-41-33, plus der Review-Pass bis zum letzten Ply): der Geometrie-Scan braucht nur
+  jeden 10. Frame — `grab()` statt `retrieve()` dazwischen, dann sind es Sekunden; der Review-Pass
+  könnte per Seek nur die Ply-Fenster holen. Und: die 100-Samples-Schwelle des Replays (`geometryRefusals`) gilt im Verb nicht; auf dem
   31-s-Bündel schrieb es 8 Plies mit 39 von 48 ausgerichteten Samples — entscheiden, ob das reicht.
 - **Ruhehand ohne Rillen-Arm.** `modelHandSquares` verwirft die Coverage-Flags nach 3 s Ruhe, wenn
   das Gitter nicht bürgt — auf dem Handy ist der Rillen-Arm bei Coverage-Modellen aus, also bürgt

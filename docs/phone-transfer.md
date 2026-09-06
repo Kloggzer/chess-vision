@@ -224,7 +224,9 @@ preserved.
   button queues `phone-candidate <recordingDir>`, which writes the same `candidate.json` a replay
   would (`decider: "phone_log"`, `source.kind: "phone"`, `confirmed: false`) without running the
   tracker or the CNN: the phone already decided the moves, so all that is missing is the geometry
-  scan and a frame index per ply.
+  scan and a frame index per ply. A second, decode-only pass then writes the rectified board at
+  every ply's frame ±2 to `frames/` (the label verb's directory; `/confirm` and the Züge stream
+  read it) — the scan pass cannot, its quad is a median it only has at the end (2026-09-06).
   - **The time rule**, per ply and monotone (a batch commit may put several plies on one instant):
     the first `frame` row after the previous ply that shows the ply's placement and side to move,
     else the accepted `decision` row for this ply, else the `frame`/`event` row nearest in
