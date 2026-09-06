@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.engine.api.STARTPOS
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
@@ -13,7 +14,9 @@ import com.chesslab.tracker.settings.ConfigCodec
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
+import com.github.bhlangonijr.chesslib.move.MoveList
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
@@ -46,10 +49,14 @@ internal data class FrameRow(
     val fen: String?,
 )
 
-/** One ACCEPTED `decision` row: the ply it committed and when. */
+/** One ACCEPTED `decision` row: the ply it committed, when, and the move itself. */
 internal data class DecisionRow(
     val ply: Int,
     val elapsedNs: Long,
+    val san: String? = null,
+    val uci: String? = null,
+    val fenBefore: String? = null,
+    val fenAfter: String? = null,
 )
 
 /** The `timeline.jsonl` rows the three time rules stand on, read in one pass. */
@@ -75,7 +82,11 @@ internal data class TimelineRows(
                     "video_sync" -> row.long("durationNs")?.let { syncs += elapsed to it }
                     "frame" -> frames += FrameRow(elapsed, row.long("wallTsMs") ?: 0L, row.text("fen"))
                     "event" -> row.long("wallTsMs")?.let { events += elapsed to it }
-                    "decision" -> row.acceptedPly()?.let { decisions += DecisionRow(it, elapsed) }
+                    "decision" ->
+                        row.acceptedPly()?.let {
+                            decisions +=
+                                DecisionRow(it, elapsed, row.text("san"), row.text("uci"), row.text("fenBefore"), row.text("fenAfter"))
+                        }
                     else -> Unit
                 }
             }
@@ -132,7 +143,8 @@ internal class PhoneClock(
                     .firstOrNull { it.elapsedNs >= afterNs && it.fen != null && placementAndSide(it.fen) == placementAndSide(fenAfter) }
                     ?.elapsedNs
             TimeRule.DECISION -> rows.decisions.firstOrNull { it.elapsedNs >= afterNs && it.ply == ply }?.elapsedNs
-            TimeRule.WALL -> wallAt(tsEpochMs, afterNs)
+            // A move synthesised from the timeline carries no wall clock (0): the rule cannot apply.
+            TimeRule.WALL -> if (tsEpochMs == 0L) null else wallAt(tsEpochMs, afterNs)
         }
 
     /** Both clocks are `System.currentTimeMillis()`, so the slope is 1 and only the offset is read. */
@@ -154,6 +166,64 @@ internal class PhoneFrameClock(
 
     /** First index at or after [videoMs]; null past the end. */
     fun indexAt(videoMs: Double): Int? = timestampsMs.indexOfFirst { it >= videoMs }.takeIf { it >= 0 }
+}
+
+/**
+ * The move list the phone's accepted `decision` rows describe — the record when the game was never
+ * saved. A pair commit writes one row for the second ply only, so a missing ply is the one legal
+ * move onto the next row's `fenBefore`; the time is then the next row's. Null without decisions.
+ */
+internal fun decisionMoves(
+    rows: TimelineRows,
+    startFen: String,
+): List<Pair<StoredMove, Long>>? {
+    val byPly = rows.decisions.groupBy { it.ply }.mapValues { (_, v) -> v.minBy { it.elapsedNs } }
+    if (byPly.isEmpty()) return null
+    val board = Board().apply { loadFromFen(startFen) }
+    val out = ArrayList<Pair<StoredMove, Long>>()
+    for (ply in 1..byPly.keys.max()) {
+        val own = byPly[ply]
+        val next =
+            byPly.keys
+                .filter { it > ply }
+                .minOrNull()
+                ?.let { byPly.getValue(it) }
+        val uci =
+            when {
+                !own?.uci.isNullOrBlank() -> own.uci
+                next?.fenBefore != null ->
+                    runCatching {
+                        board
+                            .moveTo(
+                                next.fenBefore.substringBefore(' '),
+                            ).also { board.undoMove() }
+                    }.getOrNull()
+                else -> null
+            } ?: return null
+        val move = Move(uci, board.sideToMove)
+        if (MoveGenerator.generateLegalMoves(board).none { it.toString() == move.toString() }) return null
+        val san = own?.san ?: MoveList(board.fen).apply { add(move) }.toSanArray().first()
+        board.doMove(move)
+        out += StoredMove(ply, san, uci, tsEpochMs = 0L) to (own?.elapsedNs ?: next!!.elapsedNs)
+    }
+    return out
+}
+
+/** Ply 1's own `fenBefore` — the frame rows may begin after the first move (a short pre-roll). */
+private fun decisionStartFen(rows: TimelineRows): String? = rows.decisions.firstOrNull { it.ply == 1 }?.fenBefore
+
+/** [PlyMark]s from the decisions, on the video clock — the replay's second source before `log.jsonl`. */
+internal fun decisionMarks(timeline: File): List<PlyMark>? {
+    if (!timeline.isFile) return null
+    val rows = TimelineRows.read(timeline)
+    if (rows.syncs.isEmpty()) return null
+    val startFen = decisionStartFen(rows) ?: RecordedFrames.startFen(timeline) ?: STARTPOS
+    val moves = decisionMoves(rows, startFen) ?: return null
+    val board = Board().apply { loadFromFen(startFen) }
+    return moves.map { (move, elapsedNs) ->
+        board.doMove(Move(move.uci, board.sideToMove))
+        PlyMark(move.ply, move.san, move.uci, board.fen, RecordedFrames.videoNsAt(elapsedNs, rows.syncs) / NS_PER_MS)
+    }
 }
 
 /** What this verb refuses, in the words entry.md fixes — one stdout line, exit 1. */
@@ -205,23 +275,29 @@ internal fun buildPhoneCandidate(
 ): File {
     val sessionDir = sessionDirIn(recordingDir)
     val sid = sessionDir.name
-    val record = gameRecordFor(sessionDir, emptyList()) ?: throw PhoneRefusal("no game record names session $sid")
-    val game = decodeStoredGame(record.readText())
-    val segments = game.segmentsOrOne()
-    val segment = segments.first()
-    if (segment.moves.isEmpty()) throw PhoneRefusal("first segment has no moves")
+    val timeline = bundleFile(sessionDir, recordingDir, "timeline.jsonl") ?: throw PhoneRefusal("no timeline.jsonl")
+    val rows = TimelineRows.read(timeline)
+    if (rows.syncs.isEmpty()) throw PhoneRefusal("timeline carries no video_sync rows")
+    val record = gameRecordFor(sessionDir, emptyList())
+    val game = record?.let { decodeStoredGame(it.readText()) }
+    val segments = game?.segmentsOrOne().orEmpty()
+    val startFen = segments.firstOrNull()?.startFen ?: decisionStartFen(rows) ?: RecordedFrames.startFen(timeline) ?: STARTPOS
+    // No saved game: the accepted decisions ARE the record (2026-08-24-22-43-46 has 79 of them and
+    // a photo log that skips six plies).
+    val moves =
+        segments.firstOrNull()?.moves
+            ?: decisionMoves(rows, startFen)?.map { it.first }
+            ?: throw PhoneRefusal("no game record names session $sid and the timeline has no accepted decisions")
+    if (moves.isEmpty()) throw PhoneRefusal("first segment has no moves")
     val note =
         segments
             .drop(1)
             .sumOf { it.moves.size }
             .takeIf { it > 0 }
             ?.let { "$it plies after a seam omitted" }
-    val timeline = bundleFile(sessionDir, recordingDir, "timeline.jsonl") ?: throw PhoneRefusal("no timeline.jsonl")
-    val rows = TimelineRows.read(timeline)
-    if (rows.syncs.isEmpty()) throw PhoneRefusal("timeline carries no video_sync rows")
 
     val rulesUsed = LinkedHashSet<TimeRule>()
-    val plies = placeSegment(segment.startFen, segment.moves, PhoneClock(rows), frames, rulesUsed)
+    val plies = placeSegment(startFen, moves, PhoneClock(rows), frames, rulesUsed)
     val candidate = File(recordingDir, "candidate.json")
     if (candidate.isFile && !force) throw PhoneRefusal("candidate.json exists — pass force=1 to replace")
 
@@ -230,7 +306,8 @@ internal fun buildPhoneCandidate(
     val source =
         buildJsonObject {
             put("kind", "phone")
-            put("game", game.id)
+            if (game == null) put("game", JsonNull) else put("game", game.id)
+            put("record", if (game == null) "timeline" else "game")
             put("session", sid)
             put("rule", rule)
             put("offset_frames", PHONE_FRAME_OFFSET)
@@ -247,7 +324,7 @@ internal fun buildPhoneCandidate(
             scan = scan,
             source = source,
             effectiveConfig = settingsJson(sessionDir, recordingDir),
-            startFen = segment.startFen,
+            startFen = startFen,
             outcome = LabelOutcome(plies, note, observations = 0, frames = frames.size, framesWritten = 0, drops = ""),
         )
     val path = writeCandidate(recordingDir, json)

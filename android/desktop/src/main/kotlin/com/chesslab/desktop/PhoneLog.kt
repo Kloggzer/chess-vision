@@ -71,7 +71,12 @@ internal fun sessionTimeline(
 ): PlyTimeline? {
     val dir = video.parentFile ?: return null
     val preRoll = options.doubleOption("preroll") ?: preRollMs(File(dir, "session.yaml")) ?: return null
-    val marks = gameMarks(gameRecordFor(dir, options), preRoll) ?: logMarks(File(dir, "log.jsonl"), preRoll)
+    // Decisions before the photo log: the log drops a ply whose photo was still pending when the next
+    // move committed (six of 79 on 2026-08-24-22-43-46), the decisions never do.
+    val marks =
+        gameMarks(gameRecordFor(dir, options), preRoll)
+            ?: decisionMarks(File(dir, "timeline.jsonl"))
+            ?: logMarks(File(dir, "log.jsonl"), preRoll)
     if (marks.isNullOrEmpty()) return null
     return PlyTimeline(
         marks,
@@ -166,7 +171,7 @@ internal fun logMarks(
  * UCI a candidate needs, and one legal move produces a given placement — no move at all means the
  * log does not describe a legal game, which is worth stopping for.
  */
-private fun Board.moveTo(placement: String): String {
+internal fun Board.moveTo(placement: String): String {
     val move =
         legalMoves().firstOrNull { candidate ->
             doMove(candidate)

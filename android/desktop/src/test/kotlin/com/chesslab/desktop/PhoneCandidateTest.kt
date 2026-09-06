@@ -94,6 +94,28 @@ class PhoneCandidateTest {
         assertTrue(refusal.message!!.contains("no game record"), refusal.message)
     }
 
+    /** 2026-08-24-22-43-46: no record, and the photo log skips six plies — the decisions have all 79. */
+    @Test
+    fun `without a record the timeline's decisions are the record, a skipped ply is derived`() {
+        val dir = bundle("decisions", games = emptyMap())
+        File(dir, "files/sessions/x/timeline.jsonl").writeText(TIMELINE + DECISIONS)
+
+        val candidate = Json.parseToJsonElement(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES).readText()).jsonObject
+        val moves = candidate.getValue("moves").jsonArray.map { it.jsonObject }
+
+        assertEquals(listOf("e4", "e5", "Nf3"), moves.map { it.getValue("san").jsonPrimitive.content })
+        assertEquals(listOf(1, 3, 4), moves.map { it.int("frame") }, "the derived ply lands on the frame that first shows it")
+        assertEquals(
+            "timeline",
+            candidate
+                .getValue("source")
+                .jsonObject
+                .getValue("record")
+                .jsonPrimitive.content,
+        )
+        assertEquals("phone_log", moves[1].getValue("decider").jsonPrimitive.content)
+    }
+
     @Test
     fun `a two-segment record yields the first segment and a note`() {
         val dir = bundle("two-segments", games = mapOf("g.json" to twoSegmentRecord()))
@@ -200,6 +222,16 @@ class PhoneCandidateTest {
                 """{"kind":"video_sync","elapsedNs":$SYNC_NS,"durationNs":0}""",
                 """{"kind":"frame","elapsedNs":1030000000,"wallTsMs":1030,"fen":"$AFTER_E4"}""",
                 """{"kind":"frame","elapsedNs":1090000000,"wallTsMs":1090,"fen":"$AFTER_E4E5"}""",
+            ).joinToString("\n") + "\n"
+
+        const val AFTER_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+
+        /** Ply 2 has no decision row (a pair commit writes one for the second ply only). */
+        val DECISIONS =
+            listOf(
+                """{"kind":"frame","elapsedNs":1120000000,"wallTsMs":1120,"fen":"$AFTER_NF3"}""",
+                """{"kind":"decision","elapsedNs":1030000000,"ply":1,"uci":"e2e4","san":"e4","fenBefore":"$START","fenAfter":"$AFTER_E4","accepted":true}""",
+                """{"kind":"decision","elapsedNs":1120000000,"ply":3,"uci":"g1f3","san":"Nf3","fenBefore":"$AFTER_E4E5","fenAfter":"$AFTER_NF3","accepted":true}""",
             ).joinToString("\n") + "\n"
 
         const val E4 = """{"ply":1,"san":"e4","uci":"e2e4","tsEpochMs":1030}"""
