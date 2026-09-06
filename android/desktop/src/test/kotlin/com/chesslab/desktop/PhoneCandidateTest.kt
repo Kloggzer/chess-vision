@@ -117,6 +117,23 @@ class PhoneCandidateTest {
     }
 
     @Test
+    fun `the review writer sees the placed plies and its count lands in the candidate`() {
+        val dir = bundle("review", games = emptyMap())
+        File(dir, "files/sessions/x/timeline.jsonl").writeText(TIMELINE + DECISIONS)
+        var seen = emptyList<Int>()
+
+        val written =
+            buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES) { plies ->
+                seen = plies.map { it.frame }
+                plies.size * 3
+            }
+        val candidate = Json.parseToJsonElement(written.readText()).jsonObject
+
+        assertEquals(listOf(1, 3, 4), seen)
+        assertEquals(9, candidate.int("frames_written"))
+    }
+
+    @Test
     fun `a two-segment record yields the first segment and a note`() {
         val dir = bundle("two-segments", games = mapOf("g.json" to twoSegmentRecord()))
 

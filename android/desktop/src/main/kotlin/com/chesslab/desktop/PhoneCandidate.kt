@@ -262,7 +262,36 @@ internal fun buildPhoneCandidate(
             }
             scan.result() ?: throw PhoneRefusal("no sampled frame aligned to the board's grid")
         }
-    return buildPhoneCandidate(recordingDir, force, desktopModelSpec(model), scan, PhoneFrameClock(stamps))
+    return buildPhoneCandidate(recordingDir, force, desktopModelSpec(model), scan, PhoneFrameClock(stamps)) { plies ->
+        writeReviewFrames(video, recordingDir, scan, plies)
+    }
+}
+
+/**
+ * A second decode pass for what `/confirm` shows: the rectified board at every ply's frame and
+ * REVIEW_CONTEXT around it. The scan pass cannot write them — its quad is a median it does not have
+ * until the end — and without them the confirm page showed "Kein Bild" for every phone candidate.
+ */
+private fun writeReviewFrames(
+    video: File,
+    recordingDir: File,
+    scan: ScannedGeometry,
+    plies: List<CommittedPly>,
+): Int {
+    val wanted = plies.mapTo(HashSet()) { it.frame }
+    val last = (wanted.maxOrNull() ?: return 0) + REVIEW_CONTEXT
+    val review = AnnotatedFrames(File(recordingDir, "frames"), cornersToFlat(scan.corners), scan.boardSize, annotate = false)
+    openRecording(video).use { src ->
+        var index = 0
+        while (index <= last) {
+            val mat = src.next() ?: break
+            review.onFrame(index, mat, status = null, decisive = index in wanted)
+            index += 1
+        }
+    }
+    review.close()
+    println("review frames written: ${review.count} (rectified board, second decode pass)")
+    return review.count
 }
 
 /** The record's first segment on the video's clock, written where a replay would have written it. */
@@ -272,6 +301,7 @@ internal fun buildPhoneCandidate(
     spec: ModelSpec?,
     scan: ScannedGeometry,
     frames: PhoneFrameClock,
+    reviewFrames: (List<CommittedPly>) -> Int = { 0 },
 ): File {
     val sessionDir = sessionDirIn(recordingDir)
     val sid = sessionDir.name
@@ -300,6 +330,7 @@ internal fun buildPhoneCandidate(
     val plies = placeSegment(startFen, moves, PhoneClock(rows), frames, rulesUsed)
     val candidate = File(recordingDir, "candidate.json")
     if (candidate.isFile && !force) throw PhoneRefusal("candidate.json exists — pass force=1 to replace")
+    val framesWritten = reviewFrames(plies)
 
     val geometry = replayBoardGeometry(cornersToFlat(scan.corners), recordingDir, null).withCropOf(spec)
     val rule = rulesUsed.joinToString("|") { it.name.lowercase() }
@@ -325,10 +356,10 @@ internal fun buildPhoneCandidate(
             source = source,
             effectiveConfig = settingsJson(sessionDir, recordingDir),
             startFen = startFen,
-            outcome = LabelOutcome(plies, note, observations = 0, frames = frames.size, framesWritten = 0, drops = ""),
+            outcome = LabelOutcome(plies, note, observations = 0, frames = frames.size, framesWritten = framesWritten, drops = ""),
         )
     val path = writeCandidate(recordingDir, json)
-    println("wrote ${path.path}: ${plies.size} plies (rules $rule), offset $PHONE_FRAME_OFFSET")
+    println("wrote ${path.path}: ${plies.size} plies (rules $rule), offset $PHONE_FRAME_OFFSET, $framesWritten review frames")
     return path
 }
 
