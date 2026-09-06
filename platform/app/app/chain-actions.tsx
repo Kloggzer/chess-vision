@@ -21,7 +21,7 @@ import type { Progress } from "@/lib/progress";
 const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
   "phone-record": {
     label: "Züge vom Handy übernehmen",
-    what: "Die am Handy erkannte Zugfolge wird mit ihren Video-Zeiten übernommen — Sekunden statt Minuten.",
+    what: "Die am Handy erkannte Zugfolge wird übernommen; nur die Brettgeometrie wird noch aus dem Video gemessen (etwa ein Drittel der Replay-Zeit).",
     hint: "schreibt candidate.json aus files/games + timeline.jsonl",
   },
   label: {
