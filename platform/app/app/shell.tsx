@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -104,13 +104,12 @@ function StepButton({ drain, entry, wide }: { drain: Drain; entry: (typeof STEPS
   );
 }
 
+const subscribeNever = () => () => undefined;
+
 /** The app's primary control: one press per step, and the one line that says what is running. */
 function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Server and first client paint agree on the placeholder; the live panel comes with hydration.
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false);
 
   if (!mounted) {
     return (

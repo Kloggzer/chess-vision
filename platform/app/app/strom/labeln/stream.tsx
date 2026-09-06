@@ -3,7 +3,9 @@
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Why } from "@/app/page-title";
+import { Notice } from "@/components/notice";
 import { Progress } from "@/components/progress";
+import { SEGMENTS, segment } from "@/components/segmented";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Correction, Ledger } from "@/lib/corrections";
@@ -152,7 +154,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   /** Was `z` zurücknehmen kann, mit dem Zeitpunkt — die jüngste Tat gewinnt gegen den Flush. */
   const [dirtyTrail, setDirtyTrail] = useState<{ session: number; stem: string; at: number }[]>([]);
   const [history, setHistory] = useState<Batch[]>([]);
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<{ tone: "error" | "info"; text: string } | null>(null);
+  const say = useCallback((text: string) => setNote({ tone: "info", text }), []);
+  const fail = useCallback((error: unknown) => setNote({ tone: "error", text: String(error) }), []);
   const [gaps, setGaps] = useState<number[]>([]);
   const [phone, setPhone] = useState(false);
   const actions = useRef<LaneActions>({});
@@ -183,11 +187,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       setAt(0);
       window.history.replaceState(null, "", `${window.location.pathname}?${search}`);
     } catch (error) {
-      setNote(String(error));
+      fail(error);
     } finally {
       setAsking(false);
     }
-  }, []);
+  }, [fail]);
 
   // A shared link carries a query the server's default answer is not. Scheduled, not called: the
   // fetch is the external system this effect talks to, and the render must not wait on it.
@@ -313,10 +317,10 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         setHistory((h) => [...h, { pos: pos_, revert }]);
         ticked();
       } catch (error) {
-        setNote(String(error));
+        fail(error);
       }
     },
-    [overlay],
+    [fail, overlay],
   );
 
   /** `z` once the rows have left: the tombstone, and the board it reopens. */
@@ -330,11 +334,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         overlay(rows, () => null);
       }
       setAt(keepPosition(positions, batch.pos));
-      setNote(`zurückgenommen — ${batch.revert.reduce((n, v) => n + v.rows.length, 0)} Zellen wieder offen`);
+      say(`zurückgenommen — ${batch.revert.reduce((n, v) => n + v.rows.length, 0)} Zellen wieder offen`);
     } catch (error) {
-      setNote(String(error));
+      fail(error);
     }
-  }, [history, overlay, positions]);
+  }, [fail, history, overlay, positions, say]);
 
   /** The frame under the cursor, whichever renderer is up — a cell lane throws ITS board out too. */
   const here = board ?? cells[Math.min(at, cells.length - 1)];
@@ -347,13 +351,13 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     if (!here) return;
     const session = stream.sessions[here.session];
     setThrown((t) => new Set(t).add(`${here.session}|${here.stem}`));
-    setNote(`${here.stem} raus — kein Label geschrieben, bleibt raus (review-notes.jsonl)`);
+    say(`${here.stem} raus — kein Label geschrieben, bleibt raus (review-notes.jsonl)`);
     try {
       await post("/api/review-notes", {
         rows: [{ session_id: session.sessionId, frame: here.stem, verdict: "unusable-board", reason: "Labeln-Strom: x" }],
       });
     } catch (error) {
-      setNote(String(error));
+      fail(error);
     }
   }
 
@@ -371,7 +375,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       // Erst die Marke, dann der POST: der Crop muss beim Klick umspringen, nicht nach der Antwort.
       setReported((r) => flip(r, on));
       setDirtyTrail((t) => (on ? [...t, { session: index, stem, at: Date.now() }] : t.filter((d) => `${d.session}|${d.stem}` !== key)));
-      setNote(
+      say(
         on
           ? `${stem}: ganzes Frame als dirty gemeldet — FEN bleibt, alle 64 Felder gehen auf den Stapel`
           : `${stem}: dirty-Meldung zurückgenommen — das Frame zählt wieder als sauber`,
@@ -381,10 +385,10 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         await post("/api/review-notes", on ? { rows } : { rows, retract: true });
       } catch (error) {
         setReported((r) => flip(r, !on));
-        setNote(`dirty-Meldung fehlgeschlagen, Marke zurückgesetzt: ${String(error)}`);
+        fail(`dirty-Meldung fehlgeschlagen, Marke zurückgesetzt: ${String(error)}`);
       }
     },
-    [stream.sessions],
+    [fail, say, stream.sessions],
   );
 
   /** Der Dirty-Pinsel: gemalte Zellen melden ihr FRAME — derselbe Weg wie die Crop-Ecke. */
@@ -413,11 +417,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     if (index === undefined) return;
     const session = stream.sessions[index];
     setDropped((d) => new Set(d).add(index));
-    setNote(`${session.name} ist nutzlos — Corrections bleiben (append-only, /corpus zählt sie als Pool ohne Snapshot)`);
+    say(`${session.name} ist nutzlos — Corrections bleiben (append-only, /corpus zählt sie als Pool ohne Snapshot)`);
     try {
       await post(`/api/useless/${session.name}`, { useless: true, reason: "Labeln-Strom: X" });
     } catch (error) {
-      setNote(String(error));
+      fail(error);
     }
   }
 
@@ -506,7 +510,8 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-1">
+      <div className="flex flex-wrap items-center gap-3">
+        <nav className={SEGMENTS}>
         {LANES.map((l, i) => {
           const chip = laneChip(l, counts[i]);
           const on = lane === l.id;
@@ -517,9 +522,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               <TooltipTrigger asChild>
                 <span>
                   <button
-                    className={`cursor-pointer rounded-md border px-2 py-1 text-xs disabled:opacity-40 max-sm:h-11 max-sm:px-3 ${
-                      on ? "border-primary bg-primary text-primary-foreground" : "border-border hover:bg-accent/50"
-                    }`}
+                    className={`${segment(on, counts[i].n !== null && counts[i].n !== 0, i === 0)} h-full disabled:cursor-default disabled:opacity-40`}
                     disabled={counts[i].n === null}
                     // Blurred: the stream listens on `window`, and a focused button eats the Enter.
                     onClick={(event) => {
@@ -539,6 +542,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
             </Tooltip>
           );
         })}
+        </nav>
         {lane === "all" ? (
           <label className="text-muted-foreground ml-1 flex cursor-pointer items-center gap-1 text-xs max-sm:h-11">
             <input checked={showDone} onChange={(e) => setShowDone(e.target.checked)} type="checkbox" />
@@ -548,12 +552,10 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       </div>
 
       {lane === "audit" && stream.auditStaleSince ? (
-        <p className="text-destructive mb-3 text-xs">
-          Veraltet: seit {new Date(stream.auditStaleSince).toLocaleString("de-DE")} gibt es neuere
-          Matten oder Modell-Lesarten. Diese Lane zeigt Zellen, die der Coverage-Filter heute
-          wegwerfen wuerde — meist Haende. Neu bauen mit{" "}
-          <code>chesslab realgames audit-flags --occupancy --visible</code>.
-        </p>
+        <Notice tone="warn">
+          Veraltet seit {new Date(stream.auditStaleSince).toLocaleString("de-DE")}: es gibt neuere Matten oder
+          Modell-Lesarten. Neu bauen mit <code>chesslab realgames audit-flags --occupancy --visible</code>.
+        </Notice>
       ) : null}
 
       {lane === "classwall" ? (
@@ -643,7 +645,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         </Tooltip>
       </header>
 
-      {note ? <p className="text-muted-foreground text-sm">{note}</p> : null}
+      {note ? note.tone === "error" ? <Notice tone="error">{note.text}</Notice> : <p className="text-muted-foreground text-sm">{note.text}</p> : null}
 
       <div className="gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_212px]">
         <div>

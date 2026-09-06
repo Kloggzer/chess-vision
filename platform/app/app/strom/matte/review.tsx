@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { AlphaPenControls, AlphaPenLayer, useAlphaPen } from "@/components/alpha-pen";
 import { BoardLegend, BoardSurface, useBoardPaint } from "@/components/board-paint";
+import { Notice } from "@/components/notice";
 import { PaletteRow } from "@/components/palette-row";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -394,8 +395,8 @@ carryNotice.ply === frame.ply ? (
         tool={<AlphaPenLayer pen={pen} />}
       />
 
-      {notice ? <p className="text-xs text-amber-300">{notice}</p> : null}
-      {error ? <p className="text-destructive text-xs">{error}</p> : null}
+      {notice ? <Notice tone="warn">{notice}</Notice> : null}
+      {error ? <Notice tone="error">{error}</Notice> : null}
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 text-xs">
         <BoardLegend showPrefilled />

@@ -145,5 +145,8 @@
     }
   html {
     @apply font-sans;
+    /* The bar's width is reserved even when nothing scrolls: a page that grows past the fold must
+       not shove every centred column 15 px to the left. */
+    scrollbar-gutter: stable;
     }
 }

@@ -1,9 +1,12 @@
-import { chainState } from "@/lib/chain";
-import { failureParts } from "@/lib/failure";
-import { repairs } from "@/lib/drain";
-import { jobs } from "@/lib/jobs";
+import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import { PageTitle } from "@/app/page-title";
+import { ListRow } from "@/components/list-row";
+import { chainState } from "@/lib/chain";
+import { STEP } from "@/lib/chain-steps";
+import { repairs } from "@/lib/drain";
+import { failureParts, logName } from "@/lib/failure";
+import { jobs } from "@/lib/jobs";
 
 export const dynamic = "force-dynamic";
 
@@ -23,21 +26,31 @@ export default async function RepairPage() {
         why="Schritte, die kein Knopf mehr anfasst: ein gescheiterter Schritt wird nie wiederholt. Hier steht, woran er gescheitert ist, und der Knopf daneben ist der Mensch."
       />
       <ul className="space-y-1.5">
-        {rows.map((row) => (
-          <li className="border-border space-y-1 rounded-lg border px-3 py-2 text-sm" key={row.name}>
-            <div className="flex flex-wrap items-center gap-x-3">
-              <span className="font-medium">{row.name}</span>
-              <span className="text-muted-foreground font-mono text-xs">{row.step}</span>
-              {row.lastJob?.lens === false ? (
-                <span className="text-muted-foreground text-xs">gelabelt OHNE Linsen-Korrektur</span>
+        {rows.map((row) => {
+          // The card's own control prints the ledger's reason; only a reason the ledger lacks is printed here.
+          const failure = row.reason !== row.lastJob?.reason ? failureParts(row.reason) : null;
+          return (
+            <ListRow key={row.name}>
+              <span className="flex min-w-52 flex-col gap-0.5">
+                <span className="font-medium">{row.name}</span>
+                <span className="text-muted-foreground text-xs">
+                  {STEP[row.step].label}
+                  {row.lastJob?.lens === false ? " · ohne Linsen-Korrektur" : ""}
+                </span>
+              </span>
+              <ChainActions lastJob={row.lastJob} name={row.name} showWhat={false} state={row.state} />
+              <Link className="text-muted-foreground ml-auto shrink-0 text-xs hover:underline hover:underline-offset-4" href={`/game/${row.name}`}>
+                Job-Log →
+              </Link>
+              {failure ? (
+                <span className="text-destructive w-full text-xs break-words">
+                  {failure.text}
+                  {failure.log ? ` — ${logName(failure.log)}` : ""}
+                </span>
               ) : null}
-            </div>
-            {row.reason !== row.lastJob?.reason ? (
-              <p className="text-destructive text-xs">{failureParts(row.reason).text}</p>
-            ) : null}
-            <ChainActions lastJob={row.lastJob} name={row.name} state={row.state} />
-          </li>
-        ))}
+            </ListRow>
+          );
+        })}
       </ul>
       {rows.length === 0 ? <p className="text-muted-foreground text-sm">Nichts kaputt.</p> : null}
     </main>

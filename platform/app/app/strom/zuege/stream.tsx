@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FrameSeries, sequenceLabel, ZoomOverlay, type Zoom } from "@/app/confirm/board-frames";
 import { Why } from "@/app/page-title";
+import { Notice } from "@/components/notice";
 import { ReferenceChip } from "@/components/reference-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -75,8 +76,9 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
   /** The boundary IS the write (§4.1.1) — plus the export it owns, held for 90 s. */
   async function commit(index: number, verdicts: Record<string, Verdict>) {
     const target = games[index];
-    // An empty candidate has nothing to confirm: `Space` skips it, only `x` is a verdict.
-    if (target.cards.length === 0) return;
+    // An empty candidate has nothing to confirm: `Space` skips it, only `x` is a verdict. A game
+    // whose every ply the reference vouched for HAS: the boundary writes the matched set.
+    if (target.plies === 0) return;
     const kept = target.cards.filter((c) => verdicts[`${index}:${c.id}`] === "keep").flatMap((c) => c.keep);
     try {
       const answer = await post<{ reviewed_plies: number[] }>(`/api/zuege/${target.name}`, { action: "commit", kept });
@@ -289,7 +291,7 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
           verdict={verdict}
         />
       ) : game ? (
-        <EmptyCandidate name={game.name} />
+        <EmptyCandidate name={game.name} plies={game.plies} />
       ) : null}
 
       {!done ? (
@@ -302,10 +304,10 @@ export function ZuegeStream({ games }: { games: StreamGame[] }) {
             onClick={() => (item?.card ? decide("drop") : advance())}
             variant="outline"
           >
-            ⎵ {item?.card ? "verwerfen" : "überspringen"}
+            ⎵ {item?.card ? "verwerfen" : (game?.plies ?? 0) > 0 ? "bestätigen" : "überspringen"}
           </Button>
           <Button className="max-sm:h-11" onClick={() => void throwOut()} variant="destructive">
-            x Partie raus{item?.card ? "" : " (empfohlen)"}
+            x Partie raus{item?.card || (game?.plies ?? 0) > 0 ? "" : " (empfohlen)"}
           </Button>
           <Button className="max-sm:h-11" onClick={() => void back()} variant="outline">
             z zurück
@@ -439,15 +441,22 @@ function CardBody({
   );
 }
 
-/** The current backlog: four games whose replay read nothing at all (§4.1). */
-function EmptyCandidate({ name }: { name: string }) {
+/** No card to judge: the replay read nothing (§4.1), or an independent reference vouched for every ply. */
+function EmptyCandidate({ name, plies }: { name: string; plies: number }) {
   return (
     <article className="border-border space-y-2 rounded-lg border p-4">
       <p className="font-mono text-sm">{name}</p>
-      <p className="text-sm">
-        0 Halbzüge gelesen. Nichts zu bestätigen — <strong>x</strong> raus (empfohlen),{" "}
-        <strong>Space</strong> überspringen, <strong>.</strong> Job-Log ansehen.
-      </p>
+      {plies === 0 ? (
+        <p className="text-sm">
+          0 Halbzüge gelesen. Nichts zu bestätigen — <strong>x</strong> raus (empfohlen),{" "}
+          <strong>Space</strong> überspringen, <strong>.</strong> Job-Log ansehen.
+        </p>
+      ) : (
+        <p className="text-sm">
+          Alle {plies} Halbzüge decken sich mit reference.pgn — nichts offen. <strong>Space</strong> bestätigt die Partie,{" "}
+          <strong>g</strong> zeigt die Bilder trotzdem.
+        </p>
+      )}
     </article>
   );
 }
@@ -462,7 +471,7 @@ function Toast({
   now: number;
   onReexport: (name: string) => void;
 }) {
-  if (note.kind === "error") return <p className="text-destructive text-sm">{note.text}</p>;
+  if (note.kind === "error") return <Notice tone="error">{note.text}</Notice>;
   const name = note.name;
   if (note.kind === "committed") {
     const left = Math.max(0, Math.ceil((note.until - now) / 1000));

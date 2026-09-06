@@ -18,8 +18,10 @@ export const dynamic = "force-dynamic";
  */
 async function streamGame(row: QueueRow): Promise<StreamGame> {
   const candidate = await loadCandidate(row.name);
-  const reference = await readReference(row.name);
-  const truth = reference?.sans ?? null;
+  const [reference, origin] = await Promise.all([readReference(row.name), referenceOrigin(row.name)]);
+  // The phone's own PGN is the candidate's own record: matching against it proves nothing, so
+  // every ply is the human's (the confirm page's chip says the same in words).
+  const truth = origin === "phone" ? null : (reference?.sans ?? null);
   const moves = candidate.moves;
   const { matched, invented, missed } = truth
     ? lcsReport(truth, moves.map((m) => m.san))
@@ -34,7 +36,7 @@ async function streamGame(row: QueueRow): Promise<StreamGame> {
     cards: buildReviewCards({ moves, indices: invented, stems, startFen: candidate.start_fen, missedSans }),
     gallery: buildGalleryCards({ moves, matched, stems, startFen: candidate.start_fen }),
     noted: [...(await badIntervals(sessionId(row.name)))],
-    reference: await referenceOrigin(row.name),
+    reference: origin,
     referenceProblem: reference?.problem ?? null,
   };
 }

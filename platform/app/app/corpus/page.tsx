@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import Link from "next/link";
 import { PageTitle } from "@/app/page-title";
+import { SEGMENTS, segment } from "@/components/segmented";
 import { LEGACY_LABEL } from "@/lib/classes";
 import { classScheme, corpusIndex, datasetDir, listDatasets, loadDatasetMeta, trainShares, type DatasetEntry } from "@/lib/corpus";
 import { listPacks, sessionDirty } from "@/lib/packs";
@@ -45,13 +46,11 @@ async function newest(entries: DatasetEntry[]): Promise<string | null> {
 
 function Chips({ names, current }: { names: string[]; current: string | null }) {
   return (
-    <nav className="flex flex-wrap gap-1.5">
-      {names.map((name) => (
+    <nav className={SEGMENTS}>
+      {names.map((name, i) => (
         <Link
           aria-current={name === current ? "true" : undefined}
-          className={`rounded-md border px-2 py-1 font-mono text-xs max-sm:min-h-11 max-sm:px-3 max-sm:leading-8 ${
-            name === current ? "border-foreground text-foreground" : "border-border text-muted-foreground hover:text-foreground"
-          }`}
+          className={`${segment(name === current, true, i === 0)} flex shrink-0 items-center font-mono`}
           href={`/corpus?d=${encodeURIComponent(name)}`}
           key={name}
         >

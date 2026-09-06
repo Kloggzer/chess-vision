@@ -5,6 +5,7 @@ import { PageTitle } from "@/app/page-title";
 import { Badge } from "@/components/ui/badge";
 import { SessionDelete } from "@/components/session-delete";
 import { chainState } from "@/lib/chain";
+import { failureParts } from "@/lib/failure";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
 import { jobHistory, jobLogTail, type Job } from "@/lib/jobs";
@@ -146,7 +147,7 @@ async function JobRow({ job }: { job: Job }) {
         {job.notBefore ? (
           <span className="text-muted-foreground text-xs">gehalten bis {job.notBefore.slice(11, 19)}</span>
         ) : null}
-        {job.reason ? <span className="text-destructive text-xs">{job.reason}</span> : null}
+        {job.reason ? <span className="text-destructive text-xs">{failureParts(job.reason).text}</span> : null}
       </summary>
       {job.command ? <p className="text-muted-foreground mt-2 font-mono text-xs break-all">$ {job.command}</p> : null}
       {tail.length > 0 ? (

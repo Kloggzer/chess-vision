@@ -11,6 +11,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ChainActions } from "@/app/chain-actions";
+import { ListRow } from "@/components/list-row";
+import { Notice } from "@/components/notice";
 import { SessionDelete } from "@/components/session-delete";
 import { UselessButton } from "@/app/useless-button";
 import type { ChainState } from "@/lib/chain";
@@ -58,7 +60,7 @@ const when = (iso: string | null) => localWhen(iso) || null;
 function UselessCard({ game }: { game: GameInfo }) {
   const flag = game.chain.useless;
   return (
-    <li className="border-border flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm opacity-60">
+    <ListRow dim>
       <span className="font-medium">{game.title ?? game.name}</span>
       {game.title ? (
         <span className="text-muted-foreground font-mono text-xs">
@@ -73,7 +75,7 @@ function UselessCard({ game }: { game: GameInfo }) {
       <span className="text-muted-foreground ml-auto text-xs">
         <UselessButton flagged name={game.name} />
       </span>
-    </li>
+    </ListRow>
   );
 }
 
@@ -141,13 +143,8 @@ export function GameCard({ game }: { game: GameInfo }) {
   if (game.chain.useless) return <UselessCard game={game} />;
 
   return (
-    <li
-      className={`border-border group hover:bg-muted/20 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
-        game.archived ? "opacity-60" : ""
-      }`}
-      id={game.name}
-    >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+    <ListRow dim={game.archived} id={game.name}>
+      <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-1">
         <Tooltip>
           <TooltipTrigger asChild>
             <input
@@ -176,12 +173,13 @@ export function GameCard({ game }: { game: GameInfo }) {
           name={game.name}
           state={game.chain}
           lastJob={game.lastJob}
+          showWhat={false}
         />
         <span className="ml-auto flex items-center gap-3">
           <BoardProgress game={game} />
         </span>
       </div>
-      <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <div className="text-muted-foreground flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs">
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="tabular-nums" suppressHydrationWarning>
@@ -209,7 +207,6 @@ export function GameCard({ game }: { game: GameInfo }) {
             Zellen labeln
           </Link>
         ) : null}
-        {note ? <Badge variant="destructive">{note}</Badge> : null}
         {/* Ruhig, bis die Karte gebraucht wird: drei Textlinks je Zeile sind auf zwölf Karten eine Wand. */}
         <span className="ml-auto flex items-center gap-3 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
           <label className="hover:text-foreground cursor-pointer">
@@ -239,6 +236,7 @@ export function GameCard({ game }: { game: GameInfo }) {
           ) : null}
         </span>
       </div>
-    </li>
+      {note ? <Notice tone="error">{note}</Notice> : null}
+    </ListRow>
   );
 }

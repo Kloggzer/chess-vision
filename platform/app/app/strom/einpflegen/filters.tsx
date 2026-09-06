@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SEGMENTS, segment } from "@/components/segmented";
 import { INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/intake";
 
 /** The filter lives in the URL and nowhere else: every step is a plain link, so a filtered view is
@@ -36,7 +37,7 @@ export function IntakeStepper({
   const all = only.length === INTAKE_GROUPS.length;
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <nav className="border-border flex min-w-0 flex-1 overflow-x-auto rounded-lg border" aria-label="Kette">
+      <nav className={`${SEGMENTS} flex-1`} aria-label="Kette">
         {groups.map((group, i) => {
           const active = !all && only.includes(group.key);
           const occupied = group.rows.length > 0;
@@ -44,9 +45,7 @@ export function IntakeStepper({
           return (
             <Link
               aria-current={active ? "page" : undefined}
-              className={`flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2 no-underline hover:bg-accent/60 ${
-                i > 0 ? "border-border border-l" : ""
-              } ${active ? "bg-accent" : ""} ${occupied ? "text-foreground" : "text-muted-foreground"}`}
+              className={`${segment(active, occupied, i === 0)} flex flex-1 flex-col gap-0.5`}
               href={href(toggle(only, group.key), failedOnly)}
               key={group.key}
               title={group.what}

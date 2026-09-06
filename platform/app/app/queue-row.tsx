@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Hint } from "@/app/page-title";
+import { ListRow } from "@/components/list-row";
 import { Badge } from "@/components/ui/badge";
 import type { QueueRow } from "@/lib/queues";
 import { UselessButton } from "./useless-button";
@@ -20,7 +21,7 @@ export function QueueRowItem({
   stats?: { text: string; title?: string };
 }) {
   return (
-    <li className="border-border group hover:bg-muted/20 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm transition-colors">
+    <ListRow>
       <Link className="font-medium hover:underline hover:underline-offset-4" href={href}>
         {row.title ?? row.name}
       </Link>
@@ -41,6 +42,6 @@ export function QueueRowItem({
       <span className="text-muted-foreground ml-auto text-xs opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 max-sm:opacity-100">
         <UselessButton flagged={row.chain.useless !== null} name={row.name} />
       </span>
-    </li>
+    </ListRow>
   );
 }
