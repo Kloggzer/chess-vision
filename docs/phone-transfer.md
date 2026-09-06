@@ -205,7 +205,7 @@ the first per-frame pack of a transferred recording.
 ## Reading the state
 
 The pack job is fail-closed: it is only marked `done` after the server has verified
-`model=real14-80`, all manifest and binary counts, valid FEN labels exclusively in `accepted/`,
+`model=p4a-80-clahe` (the bundled default, `DESKTOP_MODEL` in `lib/jobs.ts`), all manifest and binary counts, valid FEN labels exclusively in `accepted/`,
 and `label=unreviewed` in both review streams. A legacy, partial, or mixed pack is
 shown as `failed`.
 

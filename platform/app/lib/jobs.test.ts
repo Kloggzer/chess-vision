@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  DESKTOP_MODEL,
   holdExport,
   jobHistory,
   jobLogTail,
@@ -79,7 +80,7 @@ describe("labelArgs", () => {
       "label",
       "lens",
       "name=2026-08-13-12-10-55",
-      "model=real14-80",
+      `model=${DESKTOP_MODEL}`,
     ]);
   });
 });
@@ -123,7 +124,7 @@ async function sink(
   await writeFile(path.join(dir, "packed_images.u8"), Buffer.alloc(PACK_BYTES));
 }
 
-async function safePack(model = "real14-80"): Promise<string> {
+async function safePack(model = DESKTOP_MODEL): Promise<string> {
   const out = path.join(data, "training-pack");
   await mkdir(out, { recursive: true });
   await writeFile(
@@ -177,7 +178,7 @@ describe("verifyPack", () => {
 
   it("rejects a pack made by the stale standard model", async () => {
     const out = await safePack("id35-98");
-    await expect(verifyPack(out)).rejects.toThrow("expected real14-80");
+    await expect(verifyPack(out)).rejects.toThrow(`expected ${DESKTOP_MODEL}`);
   });
 });
 

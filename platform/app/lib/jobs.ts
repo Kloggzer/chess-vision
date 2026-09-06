@@ -199,7 +199,7 @@ async function verifySink(
 /** A zero exit code is not enough: reject legacy or partially written packs fail-closed. */
 export async function verifyPack(out: string): Promise<PackResult> {
   const summary = object(JSON.parse(await readFile(path.join(out, "summary.json"), "utf8")) as unknown, "summary.json");
-  if (summary.model !== "real14-80") throw new Error(`summary model is ${String(summary.model)}, expected real14-80`);
+  if (summary.model !== DESKTOP_MODEL) throw new Error(`summary model is ${String(summary.model)}, expected ${DESKTOP_MODEL}`);
   const result: PackResult = {
     output: out,
     acceptedFrames: count(summary, "accepted_frames", "summary.json"),
@@ -354,15 +354,18 @@ export async function enqueuePhoneRecord(name: string): Promise<Job> {
  * fail-closed makes the step impossible for exactly the recordings the LAN transfer delivers.
  * The UI therefore asks with the refusal in hand instead of choosing for the user.
  */
+/** The one model name the chain speaks — the bundled default; `real14-80` left the APK on 292838ec. */
+export const DESKTOP_MODEL = "p4a-80-clahe";
+
 export function labelArgs(video: string, name: string, lens = true): string[] {
-  const args = ["replay", video, "label", `name=${checkName(name, "transfer name")}`, "model=real14-80"];
+  const args = ["replay", video, "label", `name=${checkName(name, "transfer name")}`, `model=${DESKTOP_MODEL}`];
   return lens ? [args[0], args[1], args[2], "lens", ...args.slice(3)] : args;
 }
 
 /**
  * The phone's own record instead of the replay: seconds, and the whole bundle is the argument.
  *
- * No `model=`, no `force=1` — the verb defaults to `real14-80` like `labelArgs`, and an existing
+ * No `model=`, no `force=1` — the verb defaults to the bundled model like `labelArgs`, and an existing
  * candidate is a refusal a human answers, never something a press overwrites.
  */
 export function phoneArgs(recordingDir: string): string[] {

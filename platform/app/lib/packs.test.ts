@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { DESKTOP_MODEL } from "@/lib/jobs";
 import { decidedRatio, readSummary } from "@/lib/packs";
 
 /** A pack from 2026-08-14 on. */
@@ -10,7 +11,7 @@ const NEW_SCHEMA = {
   quarantine_crops: 192,
   occluded_proposal_frames: 63,
   occluded_proposal_crops: 925,
-  model: "real14-80",
+  model: DESKTOP_MODEL,
 };
 
 /** A pack written before it — no quarantine column exists at all. */

@@ -85,7 +85,7 @@ with one sentence beside it saying what the step does (`app/chain-actions.tsx`, 
 | state on disk | control |
 |---|---|
 | no `candidate.json`, a game record naming the session | **Züge vom Handy übernehmen** — queues `:desktop phone-candidate <recordingDir>` (step and job kind `phone-record`): the record's plies on the video's clock, no tracker, no CNN. A refusal offers **Züge am PC neu erkennen**, the replay below |
-| no `candidate.json` | **Züge erkennen** — queues `:desktop replay <video> label lens name=<name> model=real14-80` |
+| no `candidate.json` | **Züge erkennen** — queues `:desktop replay <video> label lens name=<name> model=p4a-80-clahe` |
 | candidate, not confirmed | **Züge prüfen →** `/confirm/<name>`, the human step |
 | confirmed, no `log.jsonl` in the recording | **Bretter ausschneiden** — `uv run chesslab realgames export-session` (it cuts into `data/recordings/<name>/`, writing `log.jsonl` LAST) |
 | session, mattes below target | **Hände matten** — SAM cuts the hand out of the occluded frames |

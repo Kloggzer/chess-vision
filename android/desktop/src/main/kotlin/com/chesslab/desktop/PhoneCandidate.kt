@@ -1,6 +1,7 @@
 package com.chesslab.desktop
 
 import com.chesslab.geometry.cornersToFlat
+import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.games.StoredMove
 import com.chesslab.tracker.games.decodeStoredGame
@@ -36,7 +37,7 @@ import kotlin.system.exitProcess
 internal const val PHONE_FRAME_OFFSET: Int = 0
 
 /** The default the platform never passes — the same one `labelArgs` uses. */
-internal const val PHONE_DEFAULT_MODEL = "real14-80"
+internal const val PHONE_DEFAULT_MODEL = DEFAULT_MODEL
 
 /** One `frame` row, reduced to what the rules read: when it was, and which position it showed. */
 internal data class FrameRow(
