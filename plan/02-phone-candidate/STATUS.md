@@ -7,7 +7,7 @@
 | 02 | 02-platform.md | done 2026-09-06 | `951316c8`, `ff9daceb`, `2795f763` on `feat/pc-02`; chain 22, jobs 23, chain-run 3 (+6) |
 | 01 | 01-verb.md | done 2026-09-06 | `17b1b549` clocks, `47cc0e82` verb, on `feat/pc-01`; `PhoneCandidateTest` 8/8, `RecordedFramesTest` 2/2 |
 | 02 | 02-platform.md | todo | |
-| 03 | 03-parity.md | todo | |
+| 03 | 03-parity.md | done 2026-09-06 | `2e9bd627` lanes, `341ec0f2` NaN fix, `27091abe` script, `e2afd205` docs, on `feat/pc-03`; 20-41-33 66 plies median 0 max 4 in 440 s vs replay 1 325 s, 14-33-02 8 plies in 19 s (replay refused), 16-20-19 24 plies in 400 s (replay crashed) |
 
 ## Dependencies
 
@@ -159,7 +159,119 @@
   elsewhere fails before anything is written. `PhoneCandidateTest` builds under
   `data/tmp/phone-candidate-test` and deletes it per test; an empty `data/tmp/` is left behind.
 
+## Notes — Phase 03 discrepancies
+
+- **The verb could not write a candidate at all: the phone spells an unset override `NaN`.**
+  `settingsJson` (01) copied `settings.json` verbatim into `effective_config`, and
+  `writeCandidate` died on it — `JsonEncodingException: Unexpected special floating-point value
+  NaN`, after the whole 440 s geometry scan. All three measured bundles carry one. Fixed in
+  `PhoneCandidate.kt` (registry says "01 only", but 01 is merged and the parity numbers are this
+  phase's deliverable): the envelope goes through `ConfigCodec.decode` and `effectiveConfigJson`,
+  which is what the replay writes and what maps the three optional Int knobs to null. Own commit
+  `341ec0f2`, named `fix(desktop)`, not one of the three Steps.
+- **`ConfigCodec` reports schema 4 against the current 5, so `effective_config` is DEFAULTS.** The
+  2026-08-16 recording predates the current envelope; the note is printed rather than swallowed.
+  The replay records defaults there too (it never loads `settings.json` without `config=`), so the
+  two candidates still agree — but the block is not the phone's true knobs on old bundles.
+- **Phase 00's prediction that `2026-08-30-14-33-02` refuses is FALSIFIED.** The ≥ 100-aligned-
+  samples gate is not in `GeometryScan` but in the replay's `reportGeometry`/`geometryRefusals`
+  (`LabelVerb.kt:142-155`), which the verb's ten lines do not include. `scan.result()` is non-null
+  at 39 of 48 aligned samples, so the verb wrote 8 plies in 19 s on the footage the replay refuses.
+  Whether that is a feature (short recordings become labelable) or a missing gate is a decision
+  nobody has taken — the quad stands on 39 samples.
+- **`real14-80` is not among the desktop's bundled models any more** (`android/app/src/main/assets/
+  cnn_model/` holds `p4*` only), so `desktopModelSpec` returns null and the crop block keeps the
+  geometry default: `out_size [128,128]` where the 2026-08-16 replay wrote `[80,80]`. A replay run
+  today would do the same — it is the checkout's assets, not the verb.
+- **`2026-08-16-20-41-33`'s live candidate is now UNCONFIRMED.** The Design's `force=1` replaced a
+  CONFIRMED candidate carrying 66 `reviewed_plies`; the chain moved `labeln` → `confirm`. Nothing
+  is lost — `candidate.json.replay-2026-09-06` is the kept copy, and `copy candidate.json.replay-
+  2026-09-06 candidate.json` puts the human's review back. The session, its mattes and its
+  model-reads are untouched.
+- **Step 0 needed more than the three named edits.** `blocked`/`isBare`/`JOB_STEPS` alone would
+  have contradicted themselves: `backlog.ts` skips a `label` bundle with no video and sends a
+  broken one to Reparatur, and without the same two rules for `phone-record` the 16 record-carrying
+  bundles WITHOUT a video (Phase 00, `--list`) would be bare on `/` and queued in the drain at the
+  same time. Both guards now go through `proposesCandidate`. `drain.test.ts` and two `toEqual`
+  literals gained the new key (no assertion changed).
+- **No `phone-record` button in the left panel.** `app/shell.tsx`'s `STEPS` belongs to no phase of
+  this pack, so the drain counts `phone-record` but only the card can start it. One row in that
+  list would close it.
+- **"Sekunden statt Minuten" (02's wording, `chain-actions.tsx`) is wrong by measurement.** 440 s
+  against the replay's 1 325 s on the same bundle — a third, because the geometry scan still
+  decodes every frame. `chain-actions.tsx` is 02's file; the docs say the measured thing.
+- `tests/test_candidate_move_chains.py` has ONE failure, reported not fixed:
+  `test_log_rows_agree_with_the_move_they_name[2026-08-30-14-33-02]`. The phone's own commit log
+  writes the en-passant field as `-` where the candidate (chesslib) writes `e6`/`d6` — 2 rows,
+  plies 2 and 4, same position. A replay candidate would fail it identically: the verb's `san` and
+  `fen_after` match the kept replay's on all 66 plies of 20-41-33.
+
 ## Session log
+
+### 2026-09-06 — Phase 03, root checkout, branch `feat/pc-03`
+
+Four commits: `2e9bd627` (lanes and backlog), `341ec0f2` (the NaN fix, unplanned), `27091abe`
+(`--replay-candidate`), `e2afd205` (docs, README row, TODO line). The verb ran once per bundle,
+one at a time; no replay was run in this phase.
+
+**2026-08-16-20-41-33** — the only bundle with a replay reference. Kept as
+`candidate.json.replay-2026-09-06` before the run. Verb `exit 0` in **440 s**, 66 plies, rules
+`frame` (the record's positions are all on `frame` rows). The replay that wrote the kept candidate
+took **1 325 s** (`data/inbox/jobs.jsonl`: label queued 19:54:53.679Z, done 20:16:58.709Z, and the
+candidate's `created_at` is that second) — the verb is **3.0×** faster, both dominated by the same
+full decode.
+
+```
+   verb vs kept replay: 66/66 plies, median +0.0, median |d| 0, max |d| 4, 31 of 66 differ by 1-4
+   san and fen_after identical on all 66 plies; deciders phone_log on both sides
+ ply san       f_frame  f_decision   f_wall  f_preroll   f_verb  f_replay
+   1 d4            931         924      924        929      931       929
+   2 Nf6          1107        1107     1107       1106     1107      1106
+  ...
+  64 Qb6         12366       12366    12366      12370    12366     12370
+  66 Kb8         12848       12848    12848      12849    12848     12849
+   frame     covered 66/66  median +0.0  max -4
+   verb      covered 66/66  median +0.0  max -4
+   chain: log.jsonl=yes board=yes step_after_confirm=labeln
+```
+
+**2026-08-30-14-33-02** — Phase 00 predicted `refused: no sampled frame aligned to the board's
+grid`. It did NOT refuse: `exit 0` in **19 s**, 8 plies, rules `wall|frame|decision` (see the
+discrepancy above — the sample gate lives in the replay, not in the scan). The replay refused this
+footage in 20 s, so there is no reference column; the verb's frames are the script's own cascade on
+all 8 plies (92, 94, 193, 193, 276, 276, 441, 441 — `f_replay` below IS the verb's candidate).
+
+```
+   frame     covered 4/8  median +0.0  max +0
+   decision  covered 7/8  median +0.0  max +0
+   wall      covered 8/8  median +0.0  max -2
+   chain: log.jsonl=yes board=no step_after_confirm=model-read
+```
+
+**2026-08-30-16-20-19** — `exit 0` in **400 s**, 24 plies of segment 0, `note` "100 plies after a
+seam omitted". The replay CRASHED on the seam after 402 s (Phase 00), so again no reference; the
+verb's 24 frames equal the cascade exactly, batch commits shared (plies 1-4 on frame 102, 21-24 on
+2412).
+
+```
+   frame     covered 16/24  median +0.0  max +0
+   decision  covered 21/24  median +0.0  max +0
+   wall      covered 24/24  median +0.0  max +0
+   chain: log.jsonl=no board=no step_after_confirm=export
+```
+
+Gates: `uv run pytest -q tests/test_candidate_move_chains.py` → 48 passed, 7 skipped, **1 failed**
+(the en-passant spelling of 14-33-02's phone log, see Notes). `npx vitest run` 45 files / 320 tests,
+`lib/chain.test.ts` 22, `npx eslint` and `npx tsc --noEmit -p .` clean, `uv run ruff check
+scripts/phone_candidate_offset.py` clean. Kotlin: `:desktop:ktlintFormat`, `:desktop:ktlintCheck
+:desktop:test --tests '*PhoneCandidate*' --tests '*RecordedFrames*' --rerun-tasks` exit 0,
+`:app:testDebugUnitTest --tests '*CommentBudget*'` exit 0, `:desktop:installDist` after the fix.
+`chainState` without a browser (`npx tsx`, `CHESSLAB_DATA_DIR` set): all three measured bundles
+`confirm`, `2026-08-24-22-43-46` `label`.
+
+**Next step:** the orchestrator merges `feat/pc-03` into `feat/phone-candidate`. Two decisions are
+left to a human: whether `2026-08-16-20-41-33`'s confirmed candidate goes back (the kept copy is on
+disk), and whether the verb should carry the replay's ≥ 100-sample geometry gate.
 
 ### 2026-09-06 — Phase 02, worktree `.claude/worktrees/pc-02`, branch `feat/pc-02`
 
