@@ -230,7 +230,8 @@ preserved.
   whole-video median stood on the moved board while every sample passed the absolute gate. The
   median is then checked against the quad the phone logged at the session's start, both measured
   on a dozen sampled frames against the board's own grooves (`grooveOffset`, in cells); the closer
-  one is the candidate's, and `source.quad` records which and by how much. Beyond that median every
+  one is the candidate's, and `source.quad` records which and by how much. The plies' FRAMES are then re-timed off the video
+  by `realgames retime` (`docs/retime.md`), because the phone's commits lag fast hands. Beyond that median every
   ply carries `corners`: the phone's own quad from the timeline's frame row at the commit (the
   replay writes the engine's `TrackerStatus.corners` the same way), and both the export
   (`known_segments` → row `corners`) and the review boards (`AnnotatedFrames.quadFor`) cut each

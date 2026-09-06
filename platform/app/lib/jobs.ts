@@ -679,7 +679,10 @@ async function runPhoneRecord(job: Job): Promise<void> {
     log,
   };
   await record(running);
-  const code = await runDesktop(binary, args, running, log);
+  let code = await runDesktop(binary, args, running, log);
+  // The phone's commits lag fast hands; the board itself times the plies (`docs/retime.md`).
+  // Same job, same log: a refusal there fails the step with its own sentence.
+  if (code === 0) code = await runRetime(job.name, running, log);
   const end = endState(job.name, code);
   await record({
     ...running,
@@ -692,6 +695,28 @@ async function runPhoneRecord(job: Job): Promise<void> {
         ? undefined
         : (refusalOf(await readFile(log, "utf8").catch(() => "")) ?? `exit ${code}`),
     finishedAt: new Date().toISOString(),
+  });
+}
+
+/** `chesslab realgames retime <name>` appended to a running job's log; its exit code is the step's. */
+async function runRetime(name: string, running: Job, log: string): Promise<number> {
+  const args = ["run", "chesslab", "realgames", "retime", name];
+  return new Promise<number>((resolve) => {
+    const sink = createWriteStream(log, { flags: "a" });
+    sink.write(`$ ${uvBinary()} ${args.join(" ")}
+`);
+    const child = spawnTool(uvBinary(), args, repoDir());
+    if (child.pid !== undefined) {
+      running.childPid = child.pid;
+      queue.live = { name: running.name, child };
+      void record(running);
+    }
+    child.stdout?.pipe(sink, { end: false });
+    child.stderr?.pipe(sink, { end: false });
+    child.on("close", (exit) => {
+      sink.end();
+      resolve(exit ?? 1);
+    });
   });
 }
 

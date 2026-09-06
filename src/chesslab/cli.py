@@ -735,6 +735,38 @@ def realgames_model_read(
           f"({_Path(res['model']).name}) -> {res['path']}")
 
 
+@realgames_app.command("retime")
+def realgames_retime(
+    name: str = typer.Argument(..., help="Recording name under data/recordings/."),
+    model: str = typer.Option("data/models/p4a-80-clahe", "--model",
+                              help="Run dir whose reads place the plies on the video."),
+    device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
+    stride: int = typer.Option(3, "--stride", help="Read every n-th frame."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report, write nothing."),
+) -> None:
+    """Move every ply to the frame its position first stood on — read off the video, not the phone.
+
+    The phone commits late when hands are fast (16-20-19: ply 7 timed onto a board that already
+    showed ply 9). A position no frame ever showed keeps zero frames and collapses into the next.
+    """
+    from pathlib import Path as _Path
+
+    from . import retime as rt
+
+    try:
+        res = rt.retime(name, _Path(model), device=device, stride=stride, write=not dry_run)
+    except (FileNotFoundError, ValueError, KeyError) as e:
+        print(f"[ERR] {e}")
+        raise typer.Exit(1) from e
+    if res.get("refused"):
+        print(f"refused: {res['refused']}")
+        raise typer.Exit(1)
+    moved = ", ".join(f"{p['ply']}:{p['frame_phone']}->{p['frame']}" for p in res["plies"] if p["frame"] != p["frame_phone"])
+    print(f"[OK] {res['frames_read']} Frames gelesen, Übereinstimmung {res['agreement']:.2f}, "
+          f"{res['moved']} Plies verschoben ({moved or '-'}), ohne Frames: {res['collapsed'] or '-'}"
+          + (f", {res.get('boards', 0)} Review-Bretter" if res['written'] else " (dry run)"))
+
+
 @realgames_app.command("adopt-dirty")
 def realgames_adopt_dirty(
     name: str = typer.Argument(None, help="Recording name under data/recordings/."),

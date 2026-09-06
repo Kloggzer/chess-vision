@@ -26,6 +26,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Handy-Quad am Commit), Export und Review-Bretter schneiden je Ply. Offen: der Label-Replay
   (`prepareLabel`) mittelt sein Fallback-Quad weiter über das ganze Video; ein Sprung ohne
   Ply-Quad (Kamera-Roll-Video) bleibt dort ein statischer Median.
+- **Retime auch für den PC-Label-Replay.** `realgames retime` (`docs/retime.md`) legt die Plies
+  eines Handy-Kandidaten dorthin, wo das Video die Stellung zeigt (16-20-19: 24 von 24
+  verschoben, 8 nie gesehen). Der Replay-Label (`label`) committet mit derselben Engine und
+  hinkt bei schnellen Händen genauso; der Job `label` ruft das Verb noch nicht.
 
 - **`phone-candidate` dekodiert noch jedes Bild — seit 2026-09-06 zweimal** (440 s gegen 1 325 s
   Replay auf 20-41-33, plus der Review-Pass bis zum letzten Ply): der Geometrie-Scan braucht nur
