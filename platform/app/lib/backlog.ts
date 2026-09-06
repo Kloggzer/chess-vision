@@ -1,16 +1,16 @@
 // Pure on purpose: testable without disk or server, driven by queue state and clock.
 import type { ChainStep } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
-import { recordedAt, type QueueRow } from "@/lib/queues";
+import { proposesCandidate, recordedAt, type QueueRow } from "@/lib/queues";
 import { EXPORT_HOLD_MS } from "@/lib/zuege";
 
 /**
  * The chain steps that are JOBS — one button each. `confirm` and `labeln` are the human's pages.
- * Nothing here ever starts by itself: every one of the four is a press (2026-08-18, "ich will die
+ * Nothing here ever starts by itself: every one of them is a press (2026-08-18, "ich will die
  * immer selbst starten"), which is also the interlock `matte` and `model-read` always needed.
  */
-export type JobStep = "label" | "export" | "matte" | "model-read";
-export const JOB_STEPS = ["label", "export", "matte", "model-read"] as const satisfies readonly JobStep[];
+export type JobStep = "phone-record" | "label" | "export" | "matte" | "model-read";
+export const JOB_STEPS = ["phone-record", "label", "export", "matte", "model-read"] as const satisfies readonly JobStep[];
 
 const JOBS: ReadonlySet<ChainStep> = new Set<ChainStep>(JOB_STEPS);
 
@@ -60,7 +60,7 @@ function freshlyConfirmed(row: QueueRow, now: number): boolean {
 /** Oldest first: the backlog drains in the order it was recorded, never newest-first like the queues. */
 const byRecording = (a: string, b: string) => recordedAt(a).localeCompare(recordedAt(b)) || a.localeCompare(b);
 
-const noneWaiting = (): Waiting => ({ label: [], export: [], matte: [], "model-read": [] });
+const noneWaiting = (): Waiting => ({ "phone-record": [], label: [], export: [], matte: [], "model-read": [] });
 
 /**
  * What waits on which step, in one pass over the disk state the cards already read. `useless` and
@@ -78,8 +78,8 @@ export function backlog({ rows, lastJobs, lastSteps, now = Date.now() }: Backlog
     if (!isJobStep(step)) continue;
     // A bundle with no recording has nothing to replay; a broken one costs ten minutes of decoding
     // to learn what the atom chain already said. Neither is a job, and only the second is a defect.
-    if (step === "label" && chain.video === null) continue;
-    if (step === "label" && chain.videoBroken) {
+    if (proposesCandidate(step) && chain.video === null) continue;
+    if (proposesCandidate(step) && chain.videoBroken) {
       repair.push({ name: row.name, step, reason: chain.videoBroken });
       continue;
     }

@@ -14,6 +14,7 @@ import com.chesslab.tracker.geometry.geometryReport
 import com.chesslab.tracker.geometry.geometryWarnings
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -267,7 +268,7 @@ internal class LabelSession(
 }
 
 /** A phone-logged move as a candidate row: the tracker never decided it, the recorder did. */
-private fun PlyMark.committed(
+internal fun PlyMark.committed(
     frame: Int,
     timeMs: Double,
 ): CommittedPly =
@@ -336,26 +337,27 @@ private fun sourceJson(
     )
     put("context", REVIEW_CONTEXT)
     put("start_frame", 0)
-    put(
-        "crop",
-        buildJsonObject {
-            put("cell", geometry.boardSize / SQUARES_PER_SIDE)
-            put("pad_up", geometry.padUp)
-            put("pad_side", geometry.padSide)
-            put(
-                "out_size",
-                buildJsonArray {
-                    add(JsonPrimitive(geometry.outW))
-                    add(JsonPrimitive(geometry.outH))
-                },
-            )
-        },
-    )
+    put("crop", cropJson(geometry))
 }
+
+/** How the squares were cut — `realgames.py` and the labeling UI read this out of every candidate. */
+internal fun cropJson(geometry: BoardGeometry): JsonObject =
+    buildJsonObject {
+        put("cell", geometry.boardSize / SQUARES_PER_SIDE)
+        put("pad_up", geometry.padUp)
+        put("pad_side", geometry.padSide)
+        put(
+            "out_size",
+            buildJsonArray {
+                add(JsonPrimitive(geometry.outW))
+                add(JsonPrimitive(geometry.outH))
+            },
+        )
+    }
 
 /** Candidates live under `data/` (gitignored), where the Python labeler put them. */
 internal const val RECORDINGS_DIR = "../../data/recordings"
 
-private const val DATA_DIR = "../../data"
+internal const val DATA_DIR = "../../data"
 
 private const val SQUARES_PER_SIDE = 8.0

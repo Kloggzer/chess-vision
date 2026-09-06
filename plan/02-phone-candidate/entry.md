@@ -68,6 +68,7 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 | `platform/app/lib/jobs.ts`, `chain.ts`, `chain-run.ts`, `app/chain-actions.tsx` | exist | 02 only | |
 | `platform/app/lib/chain.test.ts`, `jobs.test.ts`, `chain-run.test.ts` | exist | 02 (append) | |
 | `docs/phone-transfer.md`, `platform/app/README.md`, `TODO.md` | exist | 03 only | durable facts |
+| `platform/app/lib/queues.ts`, `lib/backlog.ts` (+ their tests) | exist | 03 only | lanes see `phone-record` |
 | `plan/02-phone-candidate/STATUS.md` | exists | every phase: own row, Notes, Session log | |
 
 ## Artifact and schema authority
@@ -89,10 +90,12 @@ the top level, `2026-08-30-16-20-19` has them only under `files/sessions/<sid>/`
 - **The time rule** (`PhoneClock`, 01), per ply, first that applies, then
   `RecordedFrames.videoNsAt(elapsedNs, syncs)` (a member of `internal object RecordedFrames`,
   `RecordedFrames.kt:15/:49-61`; returns `Double` ns, takes `List<Pair<Long, Long>>` of (elapsedNs,
-  durationNs) — made `internal`, called qualified). **Monotone:** every rule only considers rows
-  with `elapsedNs` strictly after the previous ply's chosen `elapsedNs` (transpositions repeat a
-  placement, `RealGameScore.kt:156 position`, `REORDER_LOOKAHEAD`); a rule that finds nothing after
-  it yields null and the next rule is tried; when all three fail the ply refuses [`ply n is out of order`].
+  durationNs) — made `internal`, called qualified). **Monotone, non-strict:** every rule only
+  considers rows with `elapsedNs >= ` the previous ply's chosen `elapsedNs` (transpositions repeat a
+  placement, `RealGameScore.kt:156 position`, `REORDER_LOOKAHEAD`; batch commits put several plies
+  on ONE instant — Phase 00: 8 plies on 4, 124 on 102 — so equality must pass); a rule that finds
+  nothing at or after the bound yields null and the next rule is tried; when all three fail the ply
+  refuses [`ply n is out of order`].
   1. `frame`: the first `frame` row (after the bound) whose `fen` has the ply's `fenAfter` placement
      and side to move (first two FEN fields) → its `elapsedNs`;
   2. `decision`: else the accepted `decision` row with this `ply` → `elapsedNs` (a `cnn_pair` writes

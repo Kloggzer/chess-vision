@@ -11,6 +11,8 @@ import {
   lensFor,
   packArgs,
   packInputs,
+  phoneArgs,
+  refusalOf,
   releaseExportHold,
   verifyPack,
   videoInput,
@@ -79,6 +81,30 @@ describe("labelArgs", () => {
       "name=2026-08-13-12-10-55",
       "model=real14-80",
     ]);
+  });
+});
+
+describe("phoneArgs", () => {
+  it("names the verb and the recording dir", () => {
+    expect(phoneArgs(path.join("C:/data/recordings", "2026-08-30-16-20-19"))).toEqual([
+      "phone-candidate",
+      path.join("C:/data/recordings", "2026-08-30-16-20-19"),
+    ]);
+  });
+});
+
+describe("refusalOf", () => {
+  it("takes the last refused line and ignores everything else", () => {
+    const log = [
+      "$ desktop.bat phone-candidate C:/data/recordings/2026-08-30-16-20-19",
+      "geometry: 10571 frames, sampled every 10 -> 1058",
+      "refused: no video_sync rows",
+      "Exception in thread \"main\" java.lang.IllegalStateException: nope",
+      "refused: ply 25 is out of order",
+      "exit 1",
+    ].join("\r\n");
+    expect(refusalOf(log)).toBe("ply 25 is out of order");
+    expect(refusalOf("geometry: 471 frames\nexit 0\n")).toBeNull();
   });
 });
 

@@ -5,7 +5,7 @@
  * appears in exactly the queue whose step it is on and disappears the moment the step is done.
  * The split is pure so it can be tested without a data dir; only `queueRows` touches the disk.
  */
-import type { ChainState } from "@/lib/chain";
+import type { ChainState, ChainStep } from "@/lib/chain";
 import { adoptOffered, chainState } from "@/lib/chain";
 import { listFrameStems, listGames, loadCandidate } from "@/lib/data";
 import { loadMeta } from "@/lib/meta";
@@ -43,8 +43,11 @@ export type Queues = {
  * countable, never hidden and never removed.
  */
 export function isBare(row: Pick<QueueRow, "chain">): boolean {
-  return row.chain.video === null && row.chain.step === "label";
+  return row.chain.video === null && proposesCandidate(row.chain.step);
 }
+
+/** The two steps that write `candidate.json`: a bundle with a phone record waits like a replay one. */
+export const proposesCandidate = (step: ChainStep | null): boolean => step === "label" || step === "phone-record";
 
 /**
  * The second a bundle was recorded, read off its name.
@@ -70,7 +73,7 @@ export function splitQueues(rows: QueueRow[]): Queues {
   return {
     confirm: live.filter((r) => r.chain.step === "confirm"),
     labeln: live.filter((r) => r.chain.step === "labeln"),
-    blocked: live.filter((r) => r.chain.step === "label" && r.chain.video !== null),
+    blocked: live.filter((r) => proposesCandidate(r.chain.step) && r.chain.video !== null),
     bare: live.filter(isBare),
   };
 }

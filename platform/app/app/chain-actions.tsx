@@ -19,6 +19,11 @@ import type { Progress } from "@/lib/progress";
  * what it leaves on disk (`hint`, the tooltip). The user reads the page, not the CLI.
  */
 const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
+  "phone-record": {
+    label: "Züge vom Handy übernehmen",
+    what: "Die am Handy erkannte Zugfolge wird übernommen; nur die Brettgeometrie wird noch aus dem Video gemessen (etwa ein Drittel der Replay-Zeit).",
+    hint: "schreibt candidate.json aus files/games + timeline.jsonl",
+  },
   label: {
     label: "Züge erkennen",
     what: "Der Tracker spielt das Video ab und schlägt die Zugfolge vor (dauert Minuten).",
@@ -210,6 +215,23 @@ export function ChainActions({
           </TooltipContent>
         </Tooltip>
       ) : null}
+      {phoneRefused(job) ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="border-destructive text-destructive cursor-pointer rounded border px-2 py-0.5 max-sm:h-11 max-sm:px-3"
+              onClick={() => void post({ step: "label" })}
+              type="button"
+            >
+              Züge am PC neu erkennen
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            der Datensatz vom Handy reicht für diese Aufnahme nicht — der Tracker
+            spielt das Video ab und schlägt die Zugfolge selbst vor (Minuten).
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
       {/* Permanent, not a warning: those crops differ from corrected ones (specs/52). */}
       {job?.kind === "label" && job.lens === false ? (
         <span className="text-muted-foreground">
@@ -304,4 +326,9 @@ function FailureLine({ reason }: { reason: string }) {
  */
 function lensRefused(job: Job | null): boolean {
   return job?.state === "failed" && /lens/i.test(job.reason ?? "");
+}
+
+/** Every refusal of the record step has the same answer: let the replay read the video instead. */
+function phoneRefused(job: Job | null): boolean {
+  return job?.kind === "phone-record" && job.state === "failed";
 }

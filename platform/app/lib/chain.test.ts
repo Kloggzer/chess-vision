@@ -30,6 +30,7 @@ describe("nextStep", () => {
     videoBroken: null,
     offeredPgn: null,
     hasReference: false,
+    hasPhoneRecord: false,
     hasCandidate: false,
     confirmed: false,
     hasSession: false,
@@ -95,7 +96,7 @@ describe("chainState", () => {
     await video();
     await candidate(true);
     await mkdir(path.join(data, "recordings", NAME), { recursive: true });
-    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), "{}\n");
+    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), JSON.stringify({ board: "boards/1.webp" }) + "\n");
     await writeFile(game("model-reads.jsonl"), "{}\n");
     expect((await chainState(NAME)).step).toBe("labeln");
   });
@@ -106,10 +107,10 @@ describe("chainState", () => {
     const dir = path.join(data, "recordings", NAME);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "log.jsonl"), [
-      JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
-      JSON.stringify({ frame: "2.png", dirty: true, dirty_reason: "occluded" }),
-      JSON.stringify({ frame: "3.png", dirty: true, dirty_reason: "grid-late" }),
-      JSON.stringify({ frame: "4.png" }),
+      JSON.stringify({ frame: "1.png", board: "boards/1.webp", dirty: true, dirty_reason: "occluded" }),
+      JSON.stringify({ frame: "2.png", board: "boards/2.webp", dirty: true, dirty_reason: "occluded" }),
+      JSON.stringify({ frame: "3.png", board: "boards/3.webp", dirty: true, dirty_reason: "grid-late" }),
+      JSON.stringify({ frame: "4.png", board: "boards/4.webp" }),
     ].join("\n") + "\n");
     await writeFile(path.join(dir, "matte.jsonl"), JSON.stringify({ frame: "1", coverage: {} }) + "\n");
     const state = await chainState(NAME);
@@ -122,6 +123,38 @@ describe("chainState", () => {
     await candidate(true);
     await mkdir(path.join(data, "recordings", NAME, "frames"), { recursive: true });
     expect((await chainState(NAME)).step).toBe("export");
+  });
+
+  it("reads a bundle with a record naming its session as 'phone-record', without one as 'label'", async () => {
+    await video();
+    await mkdir(game("files", "games"), { recursive: true });
+    await writeFile(game("files", "games", "index.json"), JSON.stringify([{ id: "2026-08-13_1941" }]));
+    await writeFile(game("files", "games", "2026-08-13_1200.json"), JSON.stringify({ sessionId: "20260812-120000" }));
+    expect((await chainState(NAME)).step).toBe("label");
+
+    await writeFile(game("files", "games", "2026-08-13_1941.json"), JSON.stringify({ sessionId: "20260813-121055" }));
+    const state = await chainState(NAME);
+    expect(state.hasPhoneRecord).toBe(true);
+    expect(state.step).toBe("phone-record");
+  });
+
+  it("the phone's own log.jsonl is not an exported session", async () => {
+    await video();
+    await candidate(true);
+    const log = game("log.jsonl");
+    await writeFile(log, JSON.stringify({ frame: 931, ply: 1, fen: "8/8/8/8/8/8/8/8 w - - 0 1", move_san: "d4" }) + "\n");
+    expect((await chainState(NAME)).hasSession).toBe(false);
+
+    await writeFile(log, JSON.stringify({ frame: "1.png", board: "boards/1.webp" }) + "\n");
+    expect((await chainState(NAME)).hasSession).toBe(true);
+  });
+
+  it("a mirrored top-level video.mp4 counts when no session dir has one", async () => {
+    await writeFile(game("video.mp4"), "x");
+    expect((await chainState(NAME)).video).toBe(game("video.mp4"));
+
+    await video();
+    expect((await chainState(NAME)).video).toContain(path.join("sessions", "20260813-121055"));
   });
 });
 

@@ -11,6 +11,7 @@ const CHAIN: ChainState = {
   videoBroken: null,
   offeredPgn: null,
   hasReference: true,
+  hasPhoneRecord: false,
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
@@ -47,7 +48,7 @@ const run = (rows: QueueRow[], input: Partial<BacklogInput> = {}) =>
   backlog({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
 
 /** Nothing waits anywhere — the shape every "not my work" case has to have. */
-const NONE = { label: [], export: [], matte: [], "model-read": [] };
+const NONE = { "phone-record": [], label: [], export: [], matte: [], "model-read": [] };
 
 describe("backlog — what waits on which step", () => {
   it("takes the OLDEST recording, across both naming schemes", () => {
@@ -76,6 +77,7 @@ describe("backlog — what waits on which step", () => {
       row("2026-08-13-00-00-04", { step: "export", hasCandidate: true, confirmed: true }),
     ];
     expect(run(rows).waiting).toEqual({
+      "phone-record": [],
       label: [],
       export: ["2026-08-13-00-00-04"],
       matte: ["2026-08-13-00-00-05"],
@@ -96,6 +98,15 @@ describe("backlog — what waits on which step", () => {
     const { waiting, repair } = run(rows);
     expect(waiting).toEqual(NONE);
     expect(repair).toEqual([{ name: "2026-08-13-12-12-18", step: "label", reason: "no moov" }]);
+  });
+
+  it("phone-record is a job step — it waits, and the same two video rules apply to it", () => {
+    const record = { step: "phone-record" as const, hasPhoneRecord: true };
+    expect(run([row("2026-08-30-16-20-19", record)]).waiting["phone-record"]).toEqual(["2026-08-30-16-20-19"]);
+    expect(run([row("2026-08-13-01-01-25", { ...record, video: null })]).waiting).toEqual(NONE);
+    expect(run([row("2026-08-30-16-20-19", { ...record, videoBroken: "no moov" })]).repair).toEqual([
+      { name: "2026-08-30-16-20-19", step: "phone-record", reason: "no moov" },
+    ]);
   });
 
   it("says nothing about a bundle with no recording at all", () => {

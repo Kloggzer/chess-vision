@@ -12,6 +12,7 @@ const CHAIN: ChainState = {
   videoBroken: null,
   offeredPgn: null,
   hasReference: false,
+  hasPhoneRecord: false,
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
@@ -78,6 +79,13 @@ describe("splitQueues", () => {
       row("2026-08-08-11-55-19", { step: null, useless: FLAG }),
     ];
     expect(splitQueues(flagged)).toEqual({ confirm: [], labeln: [], blocked: [], bare: [] });
+  });
+
+  it("a phone-record bundle is blocked like a label one", () => {
+    const record = { step: "phone-record" as const, hasPhoneRecord: true };
+    expect(splitQueues([row("2026-08-30-16-20-19", { ...record, video: "v.mp4" })]).blocked).toHaveLength(1);
+    // No video: the verb has nothing to place the plies on, so the bundle is bare, not blocked.
+    expect(isBare(row("2026-08-13-01-01-25", record))).toBe(true);
   });
 
   it("counts a broken recording as blocked, not as bare — the bundle still holds a video", () => {

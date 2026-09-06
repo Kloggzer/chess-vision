@@ -283,6 +283,7 @@ private fun usage(): Nothing {
         "  labeled-session-pack <sessionDir> <outDir> [corrections=file] [id=name]  stored frames -> memmap",
         "  legacy-synth-dataset <root> <manifest> <outDir> [prefix=x]  parked crops -> 80px memmap",
         "  repair-recording <broken.mp4> <reference.mp4> <out.mp4>  rebuild an index a kill never wrote",
+        "  phone-candidate <recordingDir> [force=1] [model=name]  the phone's own plies as candidate.json",
         "  replay <video.mp4> [options]  drive a recorded clip through the shipping tracker",
         "  track <camera-index> [options]  the same, live",
         "",
@@ -859,6 +860,7 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
         "repair-recording" to ::repairRecording,
         "labeled-session-pack" to ::packLabeledSession,
         "legacy-synth-dataset" to ::buildLegacySynthDataset,
+        "phone-candidate" to ::phoneCandidate,
     )
 
 /**
