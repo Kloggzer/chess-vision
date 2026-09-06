@@ -237,8 +237,8 @@ def pre_roll_ms(session_yaml: Path | None) -> float | None:
     return None
 
 
-def replay_frames(bundle: Bundle) -> dict[int, tuple[int, str, str]]:
-    candidate = bundle.dir / "candidate.json"
+def replay_frames(bundle: Bundle, kept: Path | None = None) -> dict[int, tuple[int, str, str]]:
+    candidate = kept or bundle.dir / "candidate.json"
     if not candidate.is_file():
         return {}
     moves = json.loads(candidate.read_text(encoding="utf-8"))["moves"]
@@ -327,7 +327,7 @@ def deltas(rule: list[int | None], replay: list[int | None]) -> str:
     return f"covered {covered}/{len(rule)}  median {statistics.median(both):+.1f}  max {worst:+d}"
 
 
-def measure(name: str, replay: bool) -> None:
+def measure(name: str, replay: bool, kept: Path | None) -> None:
     bundle = bundle_of(name)
     found = record_of(bundle)
     if found is None:
@@ -361,12 +361,21 @@ def measure(name: str, replay: bool) -> None:
     if pre_roll is None:
         sys.exit(f"{name}: no video_pre_roll_ns in session.yaml")
     first_ts = plies[0].ts_epoch_ms
-    replayed = replay_frames(bundle)
-    print(f"   candidate deciders: {histogram(d for _f, _s, d in replayed.values()) or '-'}")
+    # With a kept replay candidate the live candidate.json is the VERB's, so it gets a column of
+    # its own and the reference column reads the copy Phase 03 put aside before running the verb.
+    replayed = replay_frames(bundle, kept)
+    verb = replay_frames(bundle) if kept else {}
+    print(f"   candidate deciders: {histogram(d for _f, _s, d in (verb or replayed).values()) or '-'}")
+    if kept:
+        print(f"   kept replay: {kept.name}, {len(replayed)} plies")
 
-    columns: dict[str, list[int | None]] = {rule: [] for rule in ("frame", "decision", "wall", "preroll", "replay")}
+    widths = [("frame", 8), ("decision", 11), ("wall", 8), ("preroll", 10)]
+    widths += [("verb", 8)] if kept else []
+    widths += [("replay", 9)]
+    columns: dict[str, list[int | None]] = {rule: [] for rule, _w in widths}
     bounds = {"frame": -1, "decision": -1, "wall": -1}
-    print(f"{'ply':>4} {'san':<8} {'f_frame':>8} {'f_decision':>11} {'f_wall':>8} {'f_preroll':>10} {'f_replay':>9}")
+    header = " ".join(f"{'f_' + rule:>{width}}" for rule, width in widths)
+    print(f"{'ply':>4} {'san':<8} {header}")
     for ply in plies:
         elapsed = {
             "frame": by_frame(ply, rows, bounds["frame"]),
@@ -378,14 +387,15 @@ def measure(name: str, replay: bool) -> None:
                 bounds[rule] = value
             columns[rule].append(frame_at(times, None if value is None else video_ns_at(value, rows.syncs) / NS_PER_MS))
         columns["preroll"].append(frame_at(times, pre_roll + (ply.ts_epoch_ms - first_ts)))
+        if kept:
+            columns["verb"].append(verb.get(ply.ply, (None, "", ""))[0])
         columns["replay"].append(replayed.get(ply.ply, (None, "", ""))[0])
         cells = " ".join(
-            f"{'-' if columns[rule][-1] is None else columns[rule][-1]:>{width}}"
-            for rule, width in (("frame", 8), ("decision", 11), ("wall", 8), ("preroll", 10), ("replay", 9))
+            f"{'-' if columns[rule][-1] is None else columns[rule][-1]:>{width}}" for rule, width in widths
         )
         print(f"{ply.ply:>4} {ply.san:<8} {cells}")
 
-    for rule in ("frame", "decision", "wall", "preroll"):
+    for rule, _width in widths[:-1]:
         print(f"   {rule:<9} {deltas(columns[rule], columns['replay'])}")
     print(f"   chain: {chain_audit(bundle)}")
 
@@ -403,13 +413,22 @@ def main() -> None:
     parser.add_argument("--list", action="store_true", help="every bundle with a session directory")
     parser.add_argument("--replay", action=argparse.BooleanOptionalAction, default=True,
                         help="run one replay when the bundle has no candidate.json")
+    parser.add_argument("--replay-candidate",
+                        help="a kept replay candidate (name inside the bundle or a path) as the "
+                             "reference column; the live candidate.json is then the verb's")
     args = parser.parse_args()
     if args.list:
         list_bundles()
         return
     if not args.name:
         parser.error("give a recording name or --list")
-    measure(args.name, args.replay)
+    kept = None
+    if args.replay_candidate:
+        kept = Path(args.replay_candidate)
+        kept = kept if kept.is_file() else bundle_of(args.name).dir / args.replay_candidate
+        if not kept.is_file():
+            sys.exit(f"no kept replay candidate at {kept}")
+    measure(args.name, args.replay, kept)
 
 
 if __name__ == "__main__":
