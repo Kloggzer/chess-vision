@@ -3,7 +3,7 @@
  * A card shows ONE recording and a stream ONE step; neither answers "what is stuck before the
  * export". Nothing here is a second truth: step, order and words all come from where they live.
  */
-import { STEP } from "@/app/chain-actions";
+import { STEP } from "@/lib/chain-steps";
 import type { Job } from "@/lib/jobs";
 import { newestFirst, recordedAt, type QueueRow } from "@/lib/queues";
 
