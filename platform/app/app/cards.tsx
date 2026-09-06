@@ -145,6 +145,7 @@ export function GameCard({ game }: { game: GameInfo }) {
       className={`border-border group hover:bg-muted/20 flex flex-col gap-0.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
         game.archived ? "opacity-60" : ""
       }`}
+      id={game.name}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <Tooltip>

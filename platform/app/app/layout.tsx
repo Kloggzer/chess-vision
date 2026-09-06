@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { intakeCount } from "@/lib/intake";
 import { queueRows, splitQueues } from "@/lib/queues";
 import { Shell } from "./shell";
 
@@ -11,11 +12,12 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  const queues = splitQueues(await queueRows());
+  const rows = await queueRows();
+  const queues = splitQueues(rows);
   return (
     <html className="dark font-sans" lang="de">
       <body>
-        <Shell counts={{ zuege: queues.confirm.length, labeln: queues.labeln.length }}>{children}</Shell>
+        <Shell counts={{ zuege: queues.confirm.length, labeln: queues.labeln.length, einpflegen: intakeCount(rows) }}>{children}</Shell>
       </body>
     </html>
   );

@@ -8,11 +8,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import type { JobStep } from "@/lib/backlog";
 import { runDot, runState, useDrain, type Drain } from "./drain-status";
 
-export type NavCounts = { zuege: number; labeln: number };
+export type NavCounts = { zuege: number; labeln: number; einpflegen: number };
 
 type Item = { href: string; label: string; also?: readonly string[] };
 
 const STROM: readonly Item[] = [
+  { href: "/strom/einpflegen", label: "Einpflegen" },
   { href: "/strom/zuege", label: "Züge", also: ["/confirm"] },
   { href: "/strom/labeln", label: "Labeln" },
   { href: "/strom/matte", label: "Matte", also: [] },
@@ -29,6 +30,7 @@ const REPARATUR: Item = { href: "/reparatur", label: "Reparatur" };
 //: Which nav entries carry a badge. `/strom/matte` has none — its work only exists once the alpha
 //: worker has run, and a 0 there would read as "nothing to check" rather than "not measured yet".
 const COUNT_OF: Record<string, ((c: NavCounts) => number) | undefined> = {
+  "/strom/einpflegen": (c) => c.einpflegen,
   "/strom/zuege": (c) => c.zuege,
   "/strom/labeln": (c) => c.labeln,
 };
@@ -58,8 +60,13 @@ const HEADING = "text-muted-foreground/70 px-2 pt-2 text-[10px] font-medium trac
 
 const ORDER = "älteste Aufnahme zuerst, eine nach der anderen; Stopp beendet nach der laufenden.";
 
-/** The four steps of the Kette that are jobs — `chain-actions.tsx` names them the same way. */
+/** The five steps of the Kette that are jobs — `chain-actions.tsx` names them the same way. */
 const STEPS: readonly { step: JobStep; label: string; hint: string }[] = [
+  {
+    step: "phone-record",
+    label: "Handy-Züge",
+    hint: `die am Handy erkannte Zugfolge übernehmen, nur die Geometrie kommt aus dem Video (ein Drittel der Replay-Zeit); ${ORDER}`,
+  },
   { step: "label", label: "Label", hint: `Aufnahme durch den Tracker abspielen → candidate.json (Minuten je Aufnahme); ${ORDER}` },
   { step: "export", label: "Export", hint: `bestätigte Intervalle → data/recordings/<name>/; ${ORDER}` },
   { step: "matte", label: "Matten", hint: `SAM 3 schneidet die Hand aus verdeckten Frames (GPU, ~12 s pro Frame); ${ORDER}` },
