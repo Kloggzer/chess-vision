@@ -225,3 +225,14 @@ test("a card shows the burst its own commit was decided from, not the next one's
   expect(nf3.stems[nf3.start].stem).toBe("000220");
   expect(nf3.stems.map((s) => Number(s.stem))).toEqual([216, 220, 296, 300]);
 });
+
+/** 16-20-19: ply 7 committed at 291, plies 8+9 at 295 — the position after 7 never stood still. */
+test("a card says how long its position stood, and the last one does not know", () => {
+  const moves: ReviewMove[] = [
+    { ply: 7, san: "Nxe5", frame: 291, fen_after: BRIDGE[3].fen_after },
+    { ply: 8, san: "Nxe5", frame: 295 },
+    { ply: 9, san: "dxe5", frame: 295 },
+  ];
+  const cards = buildReviewCards({ moves, indices: [0, 1, 2], stems: stems(289, 291, 295, 300) });
+  expect(cards.map((c) => c.held)).toEqual([4, null]);
+});

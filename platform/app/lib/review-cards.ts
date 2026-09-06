@@ -49,7 +49,13 @@ export type ReviewCard = {
   decider: string | null;
   /** At least one of the plies also appears as missing from the reference. */
   duplicate: boolean;
+  /** Frames from this commit to the next one; null for the last. Under [SHORT_HOLD] the position
+   *  never stood still — the phone committed late and the picture shows a later move (16-20-19, ply 7). */
+  held: number | null;
 };
+
+/** A hand needs about a second to make a move; a shorter hold is a commit that lagged reality. */
+export const SHORT_HOLD = 15;
 
 function moveSquares(fenBefore: string | undefined, san: string): MoveSquares | null {
   if (!fenBefore) return null;
@@ -128,7 +134,8 @@ export function buildReviewCards({
     settledAt = frame;
     let last = members[members.length - 1];
     while (moves[last + 1]?.frame === frame) last++;
-    const until = moves[last + 1]?.frame ?? frame + 90;
+    const next = moves[last + 1]?.frame ?? null;
+    const until = next ?? frame + 90;
     // Open at the PREVIOUS commit, not at this one: the phone writes its review frames just
     // BEFORE a commit — they are the evidence it decided from. Cutting at `frame - 2` dropped
     // them and left the next commit's cluster, so every card showed the position one half-move
@@ -166,6 +173,7 @@ export function buildReviewCards({
         ["cnn_pair", "cnn_recovery"].includes(moves[members[0]].decider ?? ""),
       decider: deciders.size === 1 ? (moves[members[0]].decider ?? null) : null,
       duplicate: members.some((i) => missedSans.has(moves[i].san)),
+      held: next === null ? null : next - frame,
     };
   });
 }

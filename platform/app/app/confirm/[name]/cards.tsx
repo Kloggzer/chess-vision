@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import { SHORT_HOLD } from "@/lib/review-cards";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -111,6 +112,14 @@ export function ConfirmReview({
                       variant="secondary"
                     >
                       spät committet (recovery)
+                    </Badge>
+                  ) : null}
+                  {card.held !== null && card.held < SHORT_HOLD ? (
+                    <Badge
+                      title={`Der nächste Commit kam ${card.held} Frames später — schneller, als eine Hand zieht. Das Handy hat spät committet, das Bild zeigt meist schon den nächsten Zug: drop.`}
+                      variant="destructive"
+                    >
+                      Stellung stand nur {card.held} Frames
                     </Badge>
                   ) : null}
                   {multi ? (

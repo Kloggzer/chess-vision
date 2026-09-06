@@ -15,6 +15,7 @@ const card = (id: number): ReviewCard => ({
   collapsed: false,
   decider: null,
   duplicate: false,
+  held: null,
 });
 
 const game = (name: string, cards: number): StreamGame => ({

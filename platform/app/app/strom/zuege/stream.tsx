@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { ReviewCard } from "@/lib/review-cards";
 import { EXPORT_HOLD_MS, median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/zuege";
+import { SHORT_HOLD } from "@/lib/review-cards";
 
 /**
  * ZÜGE — every pending game's cards back to back, the game boundary a caption and a commit
@@ -411,6 +412,18 @@ function CardBody({
           </Tooltip>
         ) : null}
         {!card.carriesFrames ? <Badge variant="secondary">trägt 0 Frames bei</Badge> : null}
+        {card.held !== null && card.held < SHORT_HOLD ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div>
+                <Badge variant="destructive">Stellung stand nur {card.held} Frames</Badge>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>
+              Der nächste Commit kam {card.held} Frames später — schneller, als eine Hand zieht. Das Handy hat spät committet, das Bild zeigt meist schon den nächsten Zug: verwerfen.
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
         {card.duplicate ? <Badge variant="secondary">fehlt auch im PGN</Badge> : null}
         {verdict ? <Badge variant={verdict === "keep" ? "default" : "outline"}>zuletzt: {verdict}</Badge> : null}
       </div>
