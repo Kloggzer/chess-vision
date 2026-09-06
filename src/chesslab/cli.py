@@ -743,6 +743,7 @@ def realgames_retime(
     device: str = typer.Option("cpu", "--device", help="cpu | cuda."),
     stride: int = typer.Option(3, "--stride", help="Read every n-th frame."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Report, write nothing."),
+    json_out: str | None = typer.Option(None, "--json", help="Also dump the result (plies, agreement) as JSON here."),
 ) -> None:
     """Move every ply to the frame its position first stood on — read off the video, not the phone.
 
@@ -758,6 +759,11 @@ def realgames_retime(
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
+    if json_out:
+        import json as _json
+
+        _Path(json_out).parent.mkdir(parents=True, exist_ok=True)
+        _Path(json_out).write_text(_json.dumps(res, indent=2), encoding="utf-8")
     if res.get("refused"):
         print(f"refused: {res['refused']}")
         raise typer.Exit(1)
