@@ -8,6 +8,7 @@ import com.chesslab.tracker.games.segmentsOrOne
 import com.chesslab.tracker.geometry.GeometryScan
 import com.chesslab.tracker.geometry.ScannedGeometry
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.settings.ConfigCodec
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
@@ -309,13 +310,25 @@ private fun bundleFile(
     name: String,
 ): File? = listOf(File(sessionDir, name), File(recordingDir, name)).firstOrNull { it.isFile }
 
+/**
+ * The phone's own knobs in the REPLAY's shape, not the settings file verbatim.
+ *
+ * `settings.json` is the ConfigCodec envelope the device wrote, and it spells an unset override
+ * `NaN` — which `writeCandidate` cannot encode (Phase 03: every measured bundle carries one).
+ * `effectiveConfigJson` writes those as null, exactly as a replayed candidate does.
+ */
 private fun settingsJson(
     sessionDir: File,
     recordingDir: File,
-): JsonObject =
-    bundleFile(sessionDir, recordingDir, "settings.json")
-        ?.let { runCatching { Json.parseToJsonElement(it.readText()).jsonObject }.getOrNull() }
-        ?: JsonObject(emptyMap())
+): JsonObject {
+    val file = bundleFile(sessionDir, recordingDir, "settings.json") ?: return JsonObject(emptyMap())
+    val json = Json { allowSpecialFloatingPointValues = true }
+    val root = runCatching { json.parseToJsonElement(file.readText()).jsonObject }.getOrNull() ?: return JsonObject(emptyMap())
+    val envelope = root["config"] as? JsonObject ?: root
+    val decoded = ConfigCodec.decode(json.encodeToString(JsonObject.serializer(), envelope))
+    decoded.note?.let { println("  settings.json: $it") }
+    return effectiveConfigJson(decoded.config, cnnOn = true)
+}
 
 /** Placement and side to move — the first two FEN fields, the only ones a frame row can witness. */
 private fun placementAndSide(fen: String): String = fen.split(' ').take(2).joinToString(" ")

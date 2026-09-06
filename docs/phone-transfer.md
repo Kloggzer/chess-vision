@@ -220,7 +220,33 @@ preserved.
 - The phone's browser reads the same UI: `next dev` blocks cross-origin dev assets, so the LAN
   ranges are listed in `allowedDevOrigins` (`platform/app/next.config.ts`) — without it the page
   loads and none of its JavaScript does, which looks exactly like a broken app.
-- A video without a matching game record shows **Aufnahme labeln**. The button queues
+- A bundle whose `files/games/*.json` names its session shows **Züge vom Handy übernehmen**. The
+  button queues `phone-candidate <recordingDir>`, which writes the same `candidate.json` a replay
+  would (`decider: "phone_log"`, `source.kind: "phone"`, `confirmed: false`) without running the
+  tracker or the CNN: the phone already decided the moves, so all that is missing is the geometry
+  scan and a frame index per ply.
+  - **The time rule**, per ply and monotone (a batch commit may put several plies on one instant):
+    the first `frame` row after the previous ply that shows the ply's placement and side to move,
+    else the accepted `decision` row for this ply, else the `frame`/`event` row nearest in
+    `wallTsMs` to the record's `tsEpochMs`; the chosen `elapsedNs` goes through
+    `RecordedFrames.videoNsAt` and lands on the first decoded frame at or after it.
+    `PHONE_FRAME_OFFSET` is **0** — measured, no constant shift is warranted.
+  - **Measured against a replay of the same bundle** (`2026-08-16-20-41-33`, 66 plies, 2026-09-06):
+    the same 66 plies with identical SAN and `fen_after`, median frame delta **0**, max 4 frames
+    (0.13 s at 30 fps), 31 of 66 plies off by 1–4. Cost: **440 s against the replay's 1 325 s** —
+    a third, not "seconds", because the whole video is still decoded once for the geometry.
+  - **A refusal falls back to the replay**: the card then offers **Züge am PC neu erkennen**, and
+    `/api/chain` lets that press through even though the disk still says `phone-record`. The verb
+    prints exactly one `refused: ` line — no session dir or several, no record naming the session,
+    no timeline, no `video_sync` rows, no video, no frame aligned to the grid, an illegal move, a
+    ply with no time, out of order, outside the video, an existing candidate without `force=1`.
+  - **Only the first segment** of a record becomes the candidate; the rest is a `note` ("<n> plies
+    after a seam omitted"). A seam restarts the position, and the flat `moves` list is illegal
+    across it — that is what crashes the replay's own `gameMarks` (`2026-08-30-16-20-19`).
+  - **`hasSession` needs a `board` key**, not merely a `log.jsonl`: a mirrored bundle keeps the
+    phone's own commit log under that name (`frame`, `ply`, `fen`, `ts`, `move_san`), which used to
+    read as an export and skipped the export rung outright (`2026-08-30-14-33-02`).
+- A video without a matching game record shows **Züge erkennen**. The button queues
   `replay <video> label lens name=<transfer> model=real14-80` on the same single worker. Geometry
   measurement, replay and review frames all use the same accepted per-recording lens fit; a refused
   fit writes no candidate. After it writes `candidate.json`, **zur Label-Seite** opens the normal

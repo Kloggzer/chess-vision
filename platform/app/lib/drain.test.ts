@@ -80,7 +80,7 @@ test("nothing starts without a press: reading the status starts no job", async (
   const status = await drainStatus();
 
   expect(fake.start).not.toHaveBeenCalled();
-  expect(status.waiting).toEqual({ label: 0, export: 0, matte: 1, "model-read": 0 });
+  expect(status.waiting).toEqual({ "phone-record": 0, label: 0, export: 0, matte: 1, "model-read": 0 });
   expect(status.drain).toBeNull();
 });
 
