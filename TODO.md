@@ -19,6 +19,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
+- **`phone-candidate` dekodiert noch jedes Bild** (440 s gegen 1 325 s Replay auf 20-41-33): der
+  Geometrie-Scan braucht nur jeden 10. Frame — `grab()` statt `retrieve()` dazwischen, dann sind es
+  Sekunden. Und: die 100-Samples-Schwelle des Replays (`geometryRefusals`) gilt im Verb nicht; auf dem
+  31-s-Bündel schrieb es 8 Plies mit 39 von 48 ausgerichteten Samples — entscheiden, ob das reicht.
 - **Ruhehand ohne Rillen-Arm.** `modelHandSquares` verwirft die Coverage-Flags nach 3 s Ruhe, wenn
   das Gitter nicht bürgt — auf dem Handy ist der Rillen-Arm bei Coverage-Modellen aus, also bürgt
   niemand: eine Hand > 3 s in Ruhe ist unsichtbar. Bevorzugt: bewegungsqualifizierter Latch (Flags,
@@ -145,6 +149,8 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Einpflege-Ansicht `/strom/einpflegen` (2026-09-06):** alle Aufnahmen nach Kettenschritt gruppiert,
+  Filter in der URL (`?nur=confirm,export`, `?gescheitert=1`), derselbe Knopf wie auf der Karte, Nav-Zähler.
 - **Züge vom Handy übernehmen statt am PC neu erkennen (2026-09-06):** `:desktop phone-candidate`
   schreibt `candidate.json` aus Record + `timeline.jsonl`, Median-Abweichung 0 Frames gegen den
   Replay (max 4 von 66 Plies, 20-41-33), 440 s statt 1 325 s — Minuten statt einer knappen halben
