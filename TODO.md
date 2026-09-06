@@ -69,6 +69,12 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Daten / Training / Labeling
 
+- **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
+  Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von
+  ~500 Plies tragen so „saubere" Frames mit alter Stellung; die Zellprüfung (`settle_left`,
+  `unknown_squares`) hält sie aus dem Training, seit die Blockregel die Zugfelder durchlässt. Offen:
+  Finger am unteren Bildrand sieht der Hand-Sensor nicht (153751 Frame 1334, 154327 Frame 1633) —
+  die Zellen unter der Hand auf „sauberen" Frames bleiben ungesperrt, bis der Rand mit gemattet wird.
 - **11-59-12 neu slicen und packen** — Frame-FENs ab Ply 65 waren falsch (a3/a4 vertauscht), am
   2026-09-04 korrigiert; ein bereits exportierter Pack trägt die alten Labels.
 - **4K gehört in `--scales`** oder der 4K-Crop auf die trainierte Zellgröße (116 px), statt auf 80
@@ -149,6 +155,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Audit 0824 + Blockregel (2026-09-06):** beide Partien exportiert und gelesen (Identität 15,6/19,2 %
+  wie sonst); Rochade mit Hand war ein Sechser-Block und galt als Schatten — Zugfelder überleben die
+  Blockregel jetzt, 153751 Ply 12 sperrt e1/f1/g1 ab Frame 1334.
 - **Einpflege-Ansicht `/strom/einpflegen` (2026-09-06):** alle Aufnahmen nach Kettenschritt gruppiert,
   Filter in der URL (`?nur=confirm,export`, `?gescheitert=1`), derselbe Knopf wie auf der Karte, Nav-Zähler.
 - **Züge vom Handy übernehmen statt am PC neu erkennen (2026-09-06):** `:desktop phone-candidate`
