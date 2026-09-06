@@ -139,6 +139,24 @@ def test_a_shadow_passes_and_a_move_stays():
     assert left[2:, c + 1].all(), "und was bleibt, ist der Zug"
 
 
+def test_the_next_moves_squares_survive_the_block_rule():
+    """Castling with the hand still on it is a block of six — the block rule read it as a shadow
+    and let e1/f1/g1 into training with the king still on e1 (VID_20260824_153751, ply 12)."""
+    dev, seen, cover, _c = _states(6)
+    block = [3, 4, 5, 6, 12, 13]                  # d1 e1 f1 g1 e2 f2
+    for c in block:
+        dev[2:, c] = SETTLE_LIMIT + 10
+
+    plain = _left(dev, seen, cover)
+    kept = departures(dev, seen, cover, limit=SETTLE_LIMIT, seen_min=0.5, covered_max=0.15,
+                      keep=[4, 5, 6, 7])          # e1 f1 g1 h1: what O-O touches
+
+    assert not plain[2:].any(), "six in a row is a shadow to the plain rule"
+    assert kept[2:, [4, 5, 6]].all(), "the move's own squares are never a shadow"
+    assert not kept[2:, [3, 12, 13]].any(), "the rest of the block still is"
+    assert not kept[:, 7].any(), "h1 never deviated, keep does not invent a departure"
+
+
 def test_a_hand_at_the_end_does_not_break_the_run():
     """Die Falle: verdeckt heisst nicht "stimmt wieder". Sonst rutscht genau der Fall durch, bei
     dem die Hand nach dem Zug liegen bleibt."""

@@ -836,7 +836,7 @@ MAX_DEPART_BLOCK = 2
 
 
 def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: float,
-               max_block: int = MAX_DEPART_BLOCK) -> Any:
+               max_block: int = MAX_DEPART_BLOCK, keep=()) -> Any:
     """`(frames, 64) -> (frames, 64) bool`: hat dieses Feld die gesetzte Stellung VERLASSEN?
 
     Drei Zustände je Zelle, denn eine verdeckte Zelle passt nicht zur Referenz — sie ist ungesehen,
@@ -860,6 +860,9 @@ def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: 
     left &= ~covered
     # Form statt Menge: ein Schatten deckt einen zusammenhängenden Block, ein Zug zwei Felder.
     # `all_squares()` läuft reihenweise ab a1, also ist die 8x8-Sicht das Brett selbst.
+    # `keep` sind die Felder des NAECHSTEN Zugs: eine Rochade mit Hand ist ein Block von sechs,
+    # und als Schatten gelesen liess sie den Koenig auf e1 ins Training (153751, Ply 12).
+    kept = left[:, list(keep)].copy() if len(keep) else None
     for f in range(left.shape[0]):
         block = left[f].reshape(8, 8)
         n, lab, stats, _c = cv2.connectedComponentsWithStats(block.astype(np.uint8),
@@ -867,6 +870,8 @@ def departures(dev, seen, cover, *, limit: float, seen_min: float, covered_max: 
         big = [c for c in range(1, n) if stats[c, cv2.CC_STAT_AREA] > max_block]
         if big:
             block[np.isin(lab, big)] = False
+    if kept is not None:
+        left[:, list(keep)] = kept
     # Verdeckte Zellen sind das Occlusion-Ziel: ihre Coverage nimmt sie schon aus dem
     # Klassifikations-Loss, als "verlassen" gemeldet würden sie stattdessen weggeworfen.
     return left
@@ -884,7 +889,8 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
 
     from .labeling import MATTE_DIRTY, SETTLE_LIMIT, SETTLE_SEEN_MIN, all_squares, crop_square
 
-    session_dir, rows, profile, mattes = job
+    session_dir, rows, profile, mattes, *rest = job
+    touches = rest[0] if rest else ()
     rows = sorted(rows, key=lambda r: r["frame"])
     squares = all_squares()
     out = (SETTLE_CELL_PX, SETTLE_CELL_PX)
@@ -920,7 +926,8 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
         covers.append([cover.get(sq, 0.0) for sq in squares])
 
     left = departures(np.array(devs), np.array(seens), np.array(covers),
-                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=MATTE_DIRTY)
+                      limit=SETTLE_LIMIT, seen_min=SETTLE_SEEN_MIN, covered_max=MATTE_DIRTY,
+                      keep=[squares.index(sq) for sq in touches if sq in squares])
     scores = {stem: {"dev": [round(float(v), 2) for v in devs[i]],
                      "seen": [round(float(v), 3) for v in seens[i]],
                      "left": [squares[c] for c in np.flatnonzero(left[i])]}

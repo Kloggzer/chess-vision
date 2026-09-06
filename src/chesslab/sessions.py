@@ -838,6 +838,18 @@ def park_frames_session(session_id: str) -> dict:
             "freed_mb": round(freed / 1024**2, 1), "parked_to": str(dest)}
 
 
+def next_touches_of(ply: object, by_ply: dict) -> list[str]:
+    """The squares the NEXT ply moves — from the intervals' own FENs, so castling needs no case."""
+    from .realgames import changed_squares
+
+    if not isinstance(ply, int):
+        return []
+    later = [p for p in by_ply if isinstance(p, int) and p > ply]
+    if not later:
+        return []
+    return changed_squares(by_ply[ply][0].get("fen"), by_ply[min(later)][0].get("fen"))
+
+
 def settle_scan_session(session_id: str) -> dict:
     """Score every cell against its own ply interval's settled board — measure only, drop nothing.
 
@@ -874,7 +886,8 @@ def settle_scan_session(session_id: str) -> dict:
     matte = read_matte(sdir)
     plies = [ply for ply, rs in by_ply.items() if len(rs) >= SETTLE_MIN_FRAMES]
     jobs = [(sdir, by_ply[ply], prof,
-             {Path(r["frame"]).stem: matte.get(Path(r["frame"]).stem, {}) for r in by_ply[ply]})
+             {Path(r["frame"]).stem: matte.get(Path(r["frame"]).stem, {}) for r in by_ply[ply]},
+             next_touches_of(ply, by_ply))
             for ply in plies]
     short = sum(len(rs) for rs in by_ply.values() if len(rs) < SETTLE_MIN_FRAMES)
 
