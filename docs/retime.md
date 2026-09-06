@@ -22,7 +22,7 @@ phone's COMMITTED FEN, so the timeline has no earlier truth; the video has.
 | window | position k may stand from 12 s before its own commit to 4 s after the next one — the phone lags, it rarely runs ahead |
 | path | monotone Viterbi over the chain; advancing by one position costs `ADVANCE_COST = 6`, so one misread frame cannot open a position and three agreeing ones can; skips are allowed at the same price per position |
 | result | `moves[i].frame` = first frame on the path with that position, `frame_phone` keeps the old one, `held` = frames the position stood (× stride); a position never entered gets `held 0` and the frame of the next one entered — a multi-commit, `carriesFrames` false in the review |
-| gate | median over entered plies of `(emission[k] − emission[k−1]) / ADVANCE_COST` at the entry frame, clipped to [0, 1]; below `MIN_AGREEMENT = 0.85` nothing is written and the verb exits 1 with the reason |
+| gate | per entered ply the margin `(emission[k] − emission[k−1]) / ADVANCE_COST` at its entry frame, clipped to [0, 1], kept as `moves[i].margin`; a ply under `WEAK_MARGIN = 0.5` is weak and listed in `source.retime.weak`; when more than `WEAK_SHARE = 20 %` of the plies are weak nothing is written and the verb exits 1 with the reason (a median gate at 0.85 refused 21-29-35 with 3 weak plies of 99) |
 | boards | `frames/` is cleared and rewritten at every ply's new frame ±2 (rectified through the ply's corners), so `/confirm` shows the timed picture |
 
 `source.retime` in the candidate records model, stride, frames read, agreement, how many plies

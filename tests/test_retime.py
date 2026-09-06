@@ -1,6 +1,6 @@
 import numpy as np
 
-from chesslab.retime import ADVANCE_COST, retime_plies, viterbi, windows
+from chesslab.retime import ADVANCE_COST, refused, retime_plies, viterbi, windows
 
 
 def _emissions(truth: list[int], K: int, strength: float = 10.0) -> np.ndarray:
@@ -41,3 +41,9 @@ def test_windows_let_a_position_start_before_its_commit_and_end_after_the_next()
     assert win[0] == (-1, 120)
     assert win[1] == (50, 420)
     assert win[2][0] == 350 and win[2][1] > 10**8
+
+
+def test_a_few_weak_plies_do_not_refuse_a_game_but_many_do():
+    assert not refused(weak=[39, 62, 64], entered=99)
+    assert refused(weak=list(range(25)), entered=99)
+    assert refused(weak=[], entered=0)

@@ -17,9 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import cv2
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[1]
 FOUND = re.compile(r"^\s+(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)")
-STATE = re.compile(r"^state: (\w+) -> (\w+) at ([\d,.]+)s")
+STATE = re.compile(r"^state: (\w+) -> (\w+) at ([\d,.]+)s(?: frame=(\d+))?")
 
 
 def fps_of(session: Path, frames: int) -> float:
@@ -31,14 +34,43 @@ def fps_of(session: Path, frames: int) -> float:
     return frames / total if total else 30.0
 
 
-def pc_side(log: Path, fps: float) -> tuple[dict[int, int], list[int]]:
-    """{label frame: run frame} of the found plies, and every moving->waiting frame."""
+def pts_table(name: str, session: Path) -> np.ndarray:
+    """Every decoded frame's PTS in ms, continuous across the segments — the replay's own clock.
+    Cached under tmp/retime/<name>.pts.npy: a phone recording is VFR, one rate does not map it."""
+    cache = ROOT / "tmp" / "retime" / f"{name}.pts.npy"
+    if cache.is_file():
+        return np.load(cache)
+    pts, since = [], 0.0
+    for video in sorted(session.glob("video*.mp4")):
+        cap = cv2.VideoCapture(str(video))
+        cap.set(cv2.CAP_PROP_ORIENTATION_AUTO, 0)
+        last, prev = 0.0, 0.0
+        while cap.grab():
+            prev, last = last, cap.get(cv2.CAP_PROP_POS_MSEC)
+            pts.append(since + last)
+        # What the decoder WALKED, like `ConcatFrameSource`: the next segment continues one
+        # interval after the last delivered frame, not after the container's declared duration.
+        since += last + (last - prev)
+        cap.release()
+    table = np.array(pts)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    np.save(cache, table)
+    return table
+
+
+def pc_side(log: Path, pts: np.ndarray, nominal: float) -> tuple[dict[int, int], list[int]]:
+    """{label frame: run frame} of the found plies, and every moving->waiting frame — both as VIDEO
+    frame indices: the replay's clock is the frame's PTS, its `run frame` is `PTS × nominal fps − 1`."""
+    at = lambda seconds: int(np.searchsorted(pts, seconds * 1000.0))  # noqa: E731
+    text = log.read_text(encoding="utf-8", errors="replace")
+    # A binary from 2026-09-07 on prints the decoded index itself; then nothing is converted.
+    indexed = " frame=" in text
     commits, settles = {}, []
-    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         if m := FOUND.match(line):
-            commits[int(m.group(2))] = int(m.group(3))
+            commits[int(m.group(2))] = int(m.group(3)) if indexed else at((int(m.group(3)) + 1) / nominal)
         elif (m := STATE.match(line)) and m.group(2) == "waiting":
-            settles.append(int(round(float(m.group(3).replace(",", ".")) * fps)))
+            settles.append(int(m.group(4)) if m.group(4) else at(float(m.group(3).replace(",", "."))))
     return commits, sorted(settles)
 
 
@@ -77,7 +109,7 @@ def main(name: str, log: str) -> int:
     cand = json.loads((rec / "candidate.json").read_text(encoding="utf-8"))
     moves = [m for m in cand["moves"] if m.get("held", 0) > 0]
     fps = fps_of(session, int(cand["frames"]))
-    pc_commit, pc_settles = pc_side(Path(log), fps)
+    pc_commit, pc_settles = pc_side(Path(log), pts_table(name, session), float(cand["clock"]["fps"]))
     ph_commit, ph_quiet = phone_side(session, moves, fps)
     pc_lag, pc_quiet_lag, ph_lag, ph_quiet_lag = [], [], [], []
     for move in moves:

@@ -30,9 +30,11 @@ LOG_FLOOR = -4.0
 ADVANCE_COST = 6.0
 #: A frame whose reads back no position at all (a hand over the board) says nothing about either.
 COVERED_MAX = 12
-#: Below this median agreement of visible cells at the entry frames the reads do not match the
-#: record, and the candidate is left alone rather than retimed by noise.
-MIN_AGREEMENT = 0.85
+#: A ply whose entry frame prefers its position by less than this share of ADVANCE_COST is weak;
+#: when more than WEAK_SHARE of the plies are weak the reads do not match the record and nothing
+#: is written (21-29-35: 3 of 99 weak, median 0.77 — a median gate at 0.85 refused a good game).
+WEAK_MARGIN = 0.5
+WEAK_SHARE = 0.2
 #: Review boards around a ply's frame, `AnnotatedFrames.REVIEW_CONTEXT`.
 REVIEW_CONTEXT = 2
 
@@ -43,6 +45,7 @@ class Retimed:
     frame_phone: int
     frame: int
     held: int
+    margin: float | None = None
 
 
 def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = ADVANCE_COST) -> np.ndarray:
@@ -210,8 +213,11 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         "plies": [p.__dict__ for p in plies],
         "written": False,
     }
-    if agreement < MIN_AGREEMENT:
-        result["refused"] = (f"median agreement {agreement:.2f} < {MIN_AGREEMENT}: the reads do not match "
+    weak = [p.ply for p in plies if p.held > 0 and (p.margin or 0.0) < WEAK_MARGIN]
+    entered = sum(1 for p in plies if p.held > 0)
+    result["weak"] = weak
+    if refused(weak, entered):
+        result["refused"] = (f"{len(weak)} of {entered} plies read weakly (< {WEAK_MARGIN}): the reads do not match "
                              f"the record — candidate left as the phone timed it")
         return result
     if write:
@@ -222,18 +228,22 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     return result
 
 
+def refused(weak: list[int], entered: int) -> bool:
+    """More than WEAK_SHARE weak plies, or nothing entered at all — the record and the board disagree."""
+    return entered == 0 or len(weak) > WEAK_SHARE * entered
+
+
 def _agreement(emissions: np.ndarray, sampled: list[int], plies: list[Retimed]) -> float:
-    """How clearly the entry frames prefer their position over the one before — the refusal gate."""
+    """How clearly the entry frames prefer their position over the one before — the refusal gate.
+    Each entered ply keeps its own margin (`Retimed.margin`), so a refusal names the plies that failed."""
     margins = []
     for p in plies:
         if p.held == 0:
             continue
         t = sampled.index(p.frame)
-        margins.append(float(emissions[t, p.ply] - emissions[t, p.ply - 1]))
-    if not margins:
-        return 0.0
-    # A margin of ADVANCE_COST or more is one clean frame of evidence; scale to [0, 1].
-    return float(np.median(np.clip(np.array(margins) / ADVANCE_COST, 0.0, 1.0)))
+        p.margin = round(float(np.clip((emissions[t, p.ply] - emissions[t, p.ply - 1]) / ADVANCE_COST, 0.0, 1.0)), 3)
+        margins.append(p.margin)
+    return float(np.median(margins)) if margins else 0.0
 
 
 def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: dict, fps: float) -> None:
@@ -244,9 +254,12 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         move["frame"] = p.frame
         move["t"] = round(p.frame / fps, 3)
         move["held"] = p.held
+        if p.margin is not None:
+            move["margin"] = p.margin
     candidate.setdefault("source", {})["retime"] = {
         "model": Path(result["model"]).name, "stride": result["stride"], "frames_read": result["frames_read"],
         "agreement": round(result["agreement"], 3), "moved": result["moved"], "collapsed": result["collapsed"],
+        "weak": result["weak"],
     }
     path = game_dir(name) / "candidate.json"
     tmp = path.with_suffix(".json.tmp")
