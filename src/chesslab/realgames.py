@@ -284,6 +284,9 @@ def known_segments(candidate: dict) -> list[dict]:
                 "fen": move["fen_after"],
                 "start": start,
                 "end": end,
+                # The quad the decider stood on at THIS commit (Kotlin `CommittedPly.corners`); a board
+                # moved mid-game is cut right from here on, `geometry.corners` only when a ply has none.
+                "corners": move.get("corners"),
                 # Against the LAST move sharing the next commit's frame, not the first: a pair
                 # commit lands two plies on one frame, and the hand window before it contains
                 # BOTH moves' physical motion. Computed against only the first, the second pair
@@ -357,7 +360,7 @@ def _export_row(seg: dict, idx: int, corners: list, base, fps: float,
     """One log row for one source index: the interval's FEN, and what is in doubt on it."""
     row = {"frame": f"frames/{idx:06d}.png", "ply": seg["ply"], "fen": seg["fen"],
            "ts": (base + timedelta(seconds=idx / fps)).isoformat(),
-           "corners": corners, "corners_source": "realgame-export"}
+           "corners": seg.get("corners") or corners, "corners_source": "realgame-export"}
     if unknown := unknown_for(seg, idx, margin_frames, settle):
         row["unknown_squares"] = unknown
     return row
@@ -510,7 +513,7 @@ def plan_rows(candidate: dict, *, margin_frames: int, every: int, dirty: bool,
                     "ply": seg["ply"],
                     "fen": seg["fen"],
                     "ts": (base + timedelta(seconds=idx / fps)).isoformat(),
-                    "corners": corners,
+                    "corners": seg.get("corners") or corners,
                     "corners_source": "realgame-export",
                 }
                 if is_dirty:

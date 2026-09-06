@@ -194,11 +194,12 @@ internal class LabelSession(
     private val status: () -> TrackerStatus?,
     private val timeline: PlyTimeline?,
 ) {
-    val collector = DecisionCollector(fps) { status()?.alarm?.kind }
+    val collector = DecisionCollector(fps, { status()?.alarm?.kind }) { status()?.corners }
 
     // Plain board, no verdict tints: these are what a human judges the move on, and the engine's
     // opinion painted over the picture is the one thing that must not steer that judgement.
-    private val review = labelRun?.let { AnnotatedFrames(File(it.dir, "frames"), quad, boardSize, annotate = false) }
+    private val review =
+        labelRun?.let { AnnotatedFrames(File(it.dir, "frames"), quad, boardSize, annotate = false) { status()?.corners } }
     private val decisive = framesDir?.let { AnnotatedFrames(it, quad, boardSize) }
     private val phonePlies = mutableListOf<CommittedPly>()
     private var lastMs = -1.0
@@ -248,6 +249,7 @@ internal class LabelSession(
                 )
             writeLabel(labelRun, options, requireNotNull(video) { "label needs a video file" }, config, geometry, outcome)
             review.close()
+            review.trouble()?.let { println("WARNING: $it") }
         }
         decisive?.let {
             println("decisive frames written: ${it.count} (annotated rectified board, not raw camera frames)")
@@ -281,6 +283,7 @@ internal fun PlyMark.committed(
         decider = "phone_log",
         alarm = null,
         fenAfter = fen,
+        corners = corners,
     )
 
 /** What one finished run measured about itself — the four values travel together into the label. */

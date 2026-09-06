@@ -230,7 +230,11 @@ preserved.
   whole-video median stood on the moved board while every sample passed the absolute gate. The
   median is then checked against the quad the phone logged at the session's start, both measured
   on a dozen sampled frames against the board's own grooves (`grooveOffset`, in cells); the closer
-  one is the candidate's, and `source.quad` records which and by how much. A second, decode-only
+  one is the candidate's, and `source.quad` records which and by how much. Beyond that median every
+  ply carries `corners`: the phone's own quad from the timeline's frame row at the commit (the
+  replay writes the engine's `TrackerStatus.corners` the same way), and both the export
+  (`known_segments` → row `corners`) and the review boards (`AnnotatedFrames.quadFor`) cut each
+  ply through its own quad — a board moved mid-game moves the geometry with it. A second, decode-only
   pass then writes the rectified board at every ply's frame ±2 to `frames/` (the label verb's
   directory; `/confirm` and the Züge stream read it) — the scan pass cannot, its quad is a median
   it only has at the end (2026-09-06).

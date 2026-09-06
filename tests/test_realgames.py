@@ -1005,3 +1005,28 @@ def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
     by_stem = {int(Path(r["frame"]).stem): r for r in rows}
     assert by_stem[103]["dirty_reason"] == "stale", "a measured stale survives the report"
     assert by_stem[106]["dirty_reason"] == "occluded", "a clean frame is still promoted"
+
+
+def test_an_interval_is_cut_through_its_own_plys_quad():
+    """2026-08-30-16-20-19: the board moved mid-recording. A ply that carries the quad its decider
+    stood on is exported through that quad; one without it falls back to the recording's median."""
+    start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+    after_e4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    after_e5 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    moved = [[10, 0], [11, 0], [11, 1], [10, 1]]
+    candidate = {
+        "geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
+        "clock": {"fps": 30.0},
+        "created_at": "2026-09-06T00:00:00Z",
+        "start_fen": start,
+        "reviewed_plies": [1, 2],
+        "frames": 400,
+        "moves": [
+            {"ply": 1, "san": "e4", "frame": 100, "fen_after": after_e4},
+            {"ply": 2, "san": "e5", "frame": 200, "fen_after": after_e5, "corners": moved},
+        ],
+    }
+    rows = plan_rows(candidate, margin_frames=10, every=10, dirty=False)
+    by_ply = {ply: {tuple(map(tuple, r["corners"])) for r in rows if r["ply"] == ply} for ply in (1, 2)}
+    assert by_ply[1] == {((0, 0), (1, 0), (1, 1), (0, 1))}
+    assert by_ply[2] == {((10, 0), (11, 0), (11, 1), (10, 1))}

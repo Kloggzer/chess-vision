@@ -16,6 +16,8 @@ type Move = {
   t?: number;
   decider?: string;
   fen_after?: string;
+  /** The quad the decider stood on at this commit — the export cuts the ply's interval through it. */
+  corners?: number[][];
 };
 export type Candidate = {
   name: string;
@@ -96,10 +98,11 @@ export type FrameStem = { stem: string; kind: "labeled" | "plain"; width: number
 /** `AnnotatedFrames.REVIEW_SUFFIX` first, then what every run before 2026-08-17 wrote. */
 const REVIEW_EXTS = [".webp", ".png"];
 
-/** Width and height without decoding the pixels — sharp reads either container's header. */
+/** Width and height off the header. From a BUFFER: sharp given a path keeps the file mapped, and a
+ *  mapped file cannot be replaced on Windows — 13 review boards a rebuild wrote went nowhere (2026-09-06). */
 async function frameSize(file: string): Promise<{ width: number; height: number }> {
   try {
-    const meta = await sharp(file).metadata();
+    const meta = await sharp(await readFile(file)).metadata();
     return { width: meta.width ?? 720, height: meta.height ?? 816 };
   } catch {
     return { width: 720, height: 816 };

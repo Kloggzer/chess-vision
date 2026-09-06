@@ -51,6 +51,7 @@ internal data class FrameRow(
     val elapsedNs: Long,
     val wallTsMs: Long,
     val fen: String?,
+    val corners: FloatArray? = null,
 )
 
 /** One ACCEPTED `decision` row: the ply it committed, when, and the move itself. */
@@ -72,6 +73,11 @@ internal data class TimelineRows(
     /** (elapsedNs, wallTsMs) — an `event` row carries no FEN but does carry both clocks. */
     val events: List<Pair<Long, Long>>,
 ) {
+    /** The phone's quad at [elapsedNs]: the first frame row from there that carries one, else the last before. */
+    fun cornersAt(elapsedNs: Long): FloatArray? =
+        frames.firstOrNull { it.elapsedNs >= elapsedNs && it.corners != null }?.corners
+            ?: frames.lastOrNull { it.elapsedNs < elapsedNs && it.corners != null }?.corners
+
     companion object {
         fun read(timeline: File): TimelineRows {
             val syncs = ArrayList<Pair<Long, Long>>()
@@ -84,7 +90,7 @@ internal data class TimelineRows(
                 val elapsed = row.long("elapsedNs") ?: return@forEachLine
                 when (row["kind"]?.jsonPrimitive?.contentOrNull) {
                     "video_sync" -> row.long("durationNs")?.let { syncs += elapsed to it }
-                    "frame" -> frames += FrameRow(elapsed, row.long("wallTsMs") ?: 0L, row.text("fen"))
+                    "frame" -> frames += FrameRow(elapsed, row.long("wallTsMs") ?: 0L, row.text("fen"), cornersOf(row["corners"]))
                     "event" -> row.long("wallTsMs")?.let { events += elapsed to it }
                     "decision" ->
                         row.acceptedPly()?.let {
@@ -121,6 +127,8 @@ internal class PhoneClock(
     private val rows: TimelineRows,
     private val order: List<TimeRule> = listOf(TimeRule.FRAME, TimeRule.DECISION, TimeRule.WALL),
 ) {
+    fun cornersAt(elapsedNs: Long): FloatArray? = rows.cornersAt(elapsedNs)
+
     /** Only rows with `elapsedNs >= afterNs` count; null when every rule fails. */
     fun elapsedNs(
         ply: Int,
@@ -226,7 +234,14 @@ internal fun decisionMarks(timeline: File): List<PlyMark>? {
     val board = Board().apply { loadFromFen(startFen) }
     return moves.map { (move, elapsedNs) ->
         board.doMove(Move(move.uci, board.sideToMove))
-        PlyMark(move.ply, move.san, move.uci, board.fen, RecordedFrames.videoNsAt(elapsedNs, rows.syncs) / NS_PER_MS)
+        PlyMark(
+            move.ply,
+            move.san,
+            move.uci,
+            board.fen,
+            RecordedFrames.videoNsAt(elapsedNs, rows.syncs) / NS_PER_MS,
+            rows.cornersAt(elapsedNs),
+        )
     }
 }
 
@@ -371,7 +386,10 @@ private fun writeReviewFrames(
 ): Int {
     val wanted = plies.mapTo(HashSet()) { it.frame }
     val last = (wanted.maxOrNull() ?: return 0) + REVIEW_CONTEXT
-    val review = AnnotatedFrames(File(recordingDir, "frames"), cornersToFlat(scan.corners), scan.boardSize, annotate = false)
+    val review =
+        AnnotatedFrames(File(recordingDir, "frames"), cornersToFlat(scan.corners), scan.boardSize, annotate = false) { index ->
+            plies.lastOrNull { it.frame <= index }?.corners
+        }
     openRecording(video).use { src ->
         var index = 0
         while (index <= last) {
@@ -382,6 +400,7 @@ private fun writeReviewFrames(
     }
     review.close()
     println("review frames written: ${review.count} (rectified board, second decode pass)")
+    review.trouble()?.let { println("WARNING: $it") }
     return review.count
 }
 
@@ -519,7 +538,7 @@ private fun placeSegment(
         val videoMs = clock.videoMs(hit.first)
         val frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET)
         if (frame == null || frame < 0) throw PhoneRefusal("ply ${row.ply} lands outside the video")
-        plies += PlyMark(row.ply, row.san, row.uci, fenAfter, videoMs).committed(frame, videoMs)
+        plies += PlyMark(row.ply, row.san, row.uci, fenAfter, videoMs, clock.cornersAt(hit.first)).committed(frame, videoMs)
     }
     return plies
 }

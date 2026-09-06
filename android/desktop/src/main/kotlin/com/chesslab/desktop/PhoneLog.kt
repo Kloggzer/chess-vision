@@ -4,8 +4,11 @@ import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.float
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -23,8 +26,17 @@ internal data class PlyMark(
     val uci: String,
     val fen: String,
     val videoMs: Double,
+    /** The phone's quad when it wrote the row, source pixels `[a8, h8, h1, a1]`; null when the row has none. */
+    val corners: FloatArray? = null,
 ) {
     val placement: String get() = fen.substringBefore(' ')
+}
+
+/** `[[x, y], …]` or flat `[x, y, …]` — the photo log writes pairs, the timeline writes eight numbers. */
+internal fun cornersOf(element: JsonElement?): FloatArray? {
+    val array = (element as? JsonArray) ?: return null
+    val flat = array.flatMap { item -> (item as? JsonArray)?.map { it.jsonPrimitive.float } ?: listOf(item.jsonPrimitive.float) }
+    return flat.takeIf { it.size == 8 }?.toFloatArray()
 }
 
 /**
@@ -162,6 +174,7 @@ internal fun logMarks(
             uci = board.moveTo(fen.substringBefore(' ')),
             fen = fen,
             videoMs = preRollMs + (Instant.parse(row.text("ts")).toEpochMilli() - first.toEpochMilli()).toDouble(),
+            corners = cornersOf(row["corners"]),
         )
     }
 }

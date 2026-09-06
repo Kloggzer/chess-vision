@@ -37,13 +37,24 @@ internal class AnnotatedFrames(
     private val boardSize: Int,
     private val context: Int = REVIEW_CONTEXT,
     private val annotate: Boolean = true,
+    /** The quad for a frame index — the engine's live one, or a ply's; null falls back to [quad]. */
+    private val quadFor: (Int) -> FloatArray? = { null },
 ) {
-    private val homography = computeHomography(cornersFromFlat(quad), boardSize, margins4(DEFAULT_MARKER_MARGIN))
+    private val fallback = quad
+    private var current = quad
+    private var homography = computeHomography(cornersFromFlat(quad), boardSize, margins4(DEFAULT_MARKER_MARGIN))
     private val ring = ArrayDeque<Buffered>()
     private val wanted = mutableSetOf<Int>()
     private val written = mutableSetOf<Int>()
 
-    val count: Int get() = written.size
+    /** Indices whose board could not be written — a reader holding the old file, most likely. */
+    val failed = mutableListOf<Int>()
+
+    /** Boards of an earlier run that could not be removed; they would pass for this run's. */
+    val stale: List<File> = reset(dir)
+
+    /** Boards on disk from THIS run. */
+    val count: Int get() = written.size - failed.size
 
     fun onFrame(
         index: Int,
@@ -70,17 +81,39 @@ internal class AnnotatedFrames(
     private fun write(buffered: Buffered) {
         if (!written.add(buffered.index)) return
         dir.mkdirs()
+        val quad = quadFor(buffered.index) ?: fallback
+        if (!quad.contentEquals(current)) {
+            homography.release()
+            homography = computeHomography(cornersFromFlat(quad), boardSize, margins4(DEFAULT_MARKER_MARGIN))
+            current = quad.copyOf()
+        }
         val warped = Mat()
         Imgproc.warpPerspective(buffered.raw, warped, homography, Size(boardSize.toDouble(), boardSize.toDouble()))
         // The plain board is already a Mat; only the annotated one takes the Swing detour.
         val out = if (annotate) matToImage(warped)?.let { imageToMat(renderBoardShot(it, buffered.status)) } else warped
         // WebP, not PNG: 1.3 MB per board and 3.1 GB across the corpus, for a picture a human
         // looks at once. Same q95 the session's board store uses (`realgames.BOARD_ENCODE`).
-        if (out != null && !out.empty()) {
-            Imgcodecs.imwrite(File(dir, "%06d$REVIEW_SUFFIX".format(buffered.index)).path, out, REVIEW_ENCODE)
-        }
+        // `imwrite` says false and nothing else when the file cannot be opened: 13 boards of
+        // 2026-08-30-16-20-19 stayed a run old because the web server held them mapped (2026-09-06).
+        val file = File(dir, "%06d$REVIEW_SUFFIX".format(buffered.index))
+        val ok = out != null && !out.empty() && Imgcodecs.imwrite(file.path, out, REVIEW_ENCODE) && file.isFile
+        if (!ok) failed += buffered.index
         if (out !== warped) out?.release()
         warped.release()
+    }
+
+    /** One line for the run's log, or null when every board landed. */
+    fun trouble(): String? {
+        if (failed.isEmpty() && stale.isEmpty()) return null
+        val parts = mutableListOf<String>()
+        if (failed.isNotEmpty()) {
+            parts += "${failed.size} boards could not be written (${failed.take(6).joinToString()}…)"
+        }
+        if (stale.isNotEmpty()) {
+            parts +=
+                "${stale.size} boards of an earlier run could not be removed (${stale.take(3).joinToString { it.name }}…)"
+        }
+        return parts.joinToString("; ") + " — is a web server or viewer holding them open?"
     }
 
     private class Buffered(
@@ -105,6 +138,11 @@ private fun imageToMat(image: BufferedImage): Mat {
     mat.put(0, 0, (bgr.raster.dataBuffer as DataBufferByte).data)
     return mat
 }
+
+/** Empties [dir] of an earlier run's boards, so a partial write cannot pass off old boards as new. */
+private fun reset(dir: File): List<File> = dir.listFiles { f: File -> REVIEW_NAME.matches(f.name) }.orEmpty().filterNot { it.delete() }
+
+private val REVIEW_NAME = Regex("\\d{6}\\.(webp|png)")
 
 /** Review neighbourhood on each side of a trigger frame, the Python writer's default. */
 internal const val REVIEW_CONTEXT = 2

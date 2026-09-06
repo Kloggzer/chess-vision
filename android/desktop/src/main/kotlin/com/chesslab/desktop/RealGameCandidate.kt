@@ -6,6 +6,7 @@ import com.chesslab.tracker.settings.KNOBS
 import com.chesslab.tracker.settings.KnobKind
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -34,6 +35,8 @@ internal data class CommittedPly(
     /** The alarm's `kind` when one was standing at the commit — polled, not engine-recorded. */
     val alarm: String?,
     val fenAfter: String,
+    /** The quad the decider stood on at this commit, source pixels `[a8, h8, h1, a1]`; null = the recording's median. */
+    val corners: FloatArray? = null,
 )
 
 /**
@@ -47,6 +50,7 @@ internal data class CommittedPly(
 internal class DecisionCollector(
     private val fps: Double,
     private val alarmKind: () -> String?,
+    private val cornersNow: () -> FloatArray? = { null },
 ) {
     val plies = mutableListOf<CommittedPly>()
 
@@ -69,6 +73,7 @@ internal class DecisionCollector(
                 decider = row.decider,
                 alarm = alarmKind(),
                 fenAfter = row.fenAfter,
+                corners = cornersNow()?.copyOf(),
             )
     }
 }
@@ -121,6 +126,22 @@ internal fun movesJson(plies: List<CommittedPly>) =
                     put("decider", p.decider)
                     if (p.alarm == null) put("alarm", JsonNull) else put("alarm", p.alarm)
                     put("fen_after", p.fenAfter)
+                    // A board that moves mid-game moves the label's geometry with it: the export cuts
+                    // every interval through ITS ply's quad, `geometry.corners` is only the fallback.
+                    p.corners?.let { put("corners", cornersJson(it)) }
+                },
+            )
+        }
+    }
+
+/** Flat `[x0, y0, …]` as the file's `[[x, y], …]` — the same spelling `geometry.corners` uses. */
+internal fun cornersJson(flat: FloatArray) =
+    buildJsonArray {
+        for (i in 0 until 4) {
+            add(
+                buildJsonArray {
+                    add(JsonPrimitive(flat[2 * i]))
+                    add(JsonPrimitive(flat[2 * i + 1]))
                 },
             )
         }

@@ -3,7 +3,7 @@
  * The board is shown STRAIGHTENED, the file has to be the raw raster SAM cut — so a stroke goes
  * back through the mesh and homography `mattePng` used. No coverage here: `occluders recut` cuts it.
  */
-import { rename, writeFile } from "node:fs/promises";
+import { readFile, rename, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 import { forgetRaster } from "@/lib/crops";
 import { checkName } from "@/lib/data";
@@ -58,7 +58,8 @@ export function applyAlphaMask({ alpha, mask, h, boardSize, mesh }: MaskInput): 
 }
 
 async function grey(file: string): Promise<Grey> {
-  const { data, info } = await sharp(file).greyscale().raw().toBuffer({ resolveWithObject: true });
+  // A buffer, not the path: sharp keeps a path mapped, and the alpha worker must be able to replace it.
+  const { data, info } = await sharp(await readFile(file)).greyscale().raw().toBuffer({ resolveWithObject: true });
   return { data, width: info.width, height: info.height };
 }
 

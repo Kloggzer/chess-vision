@@ -163,6 +163,22 @@ class PhoneCandidateTest {
         assertEquals(cornersFromFlat(onGrooves).map { it.toList() }, kept.corners.map { it.toList() }, "no sample: the scan stands")
     }
 
+    /** The board moved between two plies: each one carries the quad the phone stood on when it committed. */
+    @Test
+    fun `every ply carries the phone's quad at its commit`() {
+        val dir = bundle("ply-corners", games = emptyMap())
+        File(dir, "files/sessions/x/timeline.jsonl").writeText(TIMELINE + DECISIONS)
+
+        val candidate = Json.parseToJsonElement(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES).readText()).jsonObject
+        val corners =
+            candidate.getValue("moves").jsonArray.map { m ->
+                m.jsonObject["corners"]?.jsonArray?.map { p -> p.jsonArray.map { it.jsonPrimitive.content.toFloat() } }
+            }
+
+        assertEquals(listOf(listOf(1f, 2f), listOf(3f, 4f), listOf(5f, 6f), listOf(7f, 8f)), corners[0])
+        assertEquals(listOf(listOf(11f, 12f), listOf(13f, 14f), listOf(15f, 16f), listOf(17f, 18f)), corners[1])
+    }
+
     @Test
     fun `a two-segment record yields the first segment and a note`() {
         val dir = bundle("two-segments", games = mapOf("g.json" to twoSegmentRecord()))
@@ -272,8 +288,8 @@ class PhoneCandidateTest {
         private val TIMELINE =
             listOf(
                 """{"kind":"video_sync","elapsedNs":$SYNC_NS,"durationNs":0}""",
-                """{"kind":"frame","elapsedNs":1030000000,"wallTsMs":1030,"fen":"$AFTER_E4"}""",
-                """{"kind":"frame","elapsedNs":1090000000,"wallTsMs":1090,"fen":"$AFTER_E4E5"}""",
+                """{"kind":"frame","elapsedNs":1030000000,"wallTsMs":1030,"fen":"$AFTER_E4","corners":[1,2,3,4,5,6,7,8]}""",
+                """{"kind":"frame","elapsedNs":1090000000,"wallTsMs":1090,"fen":"$AFTER_E4E5","corners":[11,12,13,14,15,16,17,18]}""",
             ).joinToString("\n") + "\n"
 
         const val AFTER_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
