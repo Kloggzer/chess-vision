@@ -65,13 +65,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Daten / Training / Labeling
 
-- **Züge vom Handy übernehmen statt am PC neu erkennen (User 2026-09-06).** Die Kette lässt jede
-  Aufnahme mit Partie-Record trotzdem durch den Replay (Minuten, Echtzeit), nur um Frames je Ply zu
-  bekommen. Die `timeline.jsonl` trägt die `move`-Events mit `elapsedNs` und die `video_sync`-Brücke
-  zur Videozeit (`RecordedFrames.kt` liest sie schon); aus Record + Timeline wird eine
-  `candidate.json` in Sekunden, `decider: phone`, und die am Handy als gut markierten Plies sind
-  vorab `reviewed_plies`. Replay nur noch für Aufnahmen ohne Record. Messen: Frame-Offset gegen den
-  Replay auf drei Aufnahmen (±1 Frame ist das Ziel, `docs/phone-transfer.md` Pre-roll-Offset).
 - **11-59-12 neu slicen und packen** — Frame-FENs ab Ply 65 waren falsch (a3/a4 vertauscht), am
   2026-09-04 korrigiert; ein bereits exportierter Pack trägt die alten Labels.
 - **4K gehört in `--scales`** oder der 4K-Crop auf die trainierte Zellgröße (116 px), statt auf 80
@@ -152,6 +145,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Züge vom Handy übernehmen statt am PC neu erkennen (2026-09-06):** `:desktop phone-candidate`
+  schreibt `candidate.json` aus Record + `timeline.jsonl`, Median-Abweichung 0 Frames gegen den
+  Replay (max 4 von 66 Plies, 20-41-33), 440 s statt 1 325 s — Minuten statt einer knappen halben
+  Stunde, nicht Sekunden: der Geometrie-Scan dekodiert das Video weiterhin einmal ganz.
 - **137 GB Memmaps gelöscht (2026-09-05):** 14 gemessene Experiment-Datensätze (`real13-mix-v4-128/-96/-pad0/-ff/-ffbase`
   85 GB, `real13-straight-80-v1/-v2`, `real13-c8d1-r96`, `abA/abB/ab-files-80`, `comp13-v3/-v4-80`,
   `sp-parity-pool`); Rezepte (`manifest.jsonl`, `split.json`, `dataset.yaml`) bleiben, Neubau per
