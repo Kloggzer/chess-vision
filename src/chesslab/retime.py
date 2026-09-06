@@ -167,6 +167,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     sampled: list[int] = []
     rows: list[np.ndarray] = []
     pending: list[tuple[int, list[np.ndarray]]] = []
+    told = 0
 
     def flush() -> None:
         # One frame per call: the exported graph takes a batch of exactly 64 (`model.onnx`).
@@ -187,7 +188,8 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         pending.append((idx, crops_for_frame(frame, corners_of[ply_at], prof, out_size=out_size)))
         if len(pending) >= 8:
             flush()
-        if progress and len(sampled) and len(sampled) % 300 == 0:
+        if progress and len(sampled) >= told + 300:
+            told = len(sampled)
             print(f"  retime {idx}/{hi} frames read", flush=True)
     flush()
     if not sampled:
