@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/intake";
 
-/** The filter lives in the URL and nowhere else: every chip is a plain link, so a filtered view is
+/** The filter lives in the URL and nowhere else: every step is a plain link, so a filtered view is
  *  shareable, survives a reload, and costs neither client state nor a `Suspense` boundary. */
 function href(keys: readonly IntakeGroupKey[], failed: boolean): string {
   const params = new URLSearchParams();
@@ -11,55 +11,64 @@ function href(keys: readonly IntakeGroupKey[], failed: boolean): string {
   return query ? `/strom/einpflegen?${query}` : "/strom/einpflegen";
 }
 
-/** Unfiltered counts as "no key chosen", so the first press picks one instead of dropping one. */
+/** One press on a step shows that step alone; pressing the shown step again shows everything. */
 function toggle(only: readonly IntakeGroupKey[], key: IntakeGroupKey): IntakeGroupKey[] {
-  if (only.length === INTAKE_GROUPS.length) return [key];
-  if (only.includes(key)) return only.filter((other) => other !== key);
-  return INTAKE_GROUPS.filter((other) => only.includes(other) || other === key);
+  const alone = only.length === 1 && only[0] === key;
+  return alone ? [...INTAKE_GROUPS] : [key];
 }
 
-const CHIP = "border-border rounded-full border px-2.5 py-1 text-xs max-sm:h-11 max-sm:px-3 inline-flex items-center gap-1.5";
-
-export function IntakeFilters({
-  counts,
+/**
+ * The chain as a stepper: every step visible in order with its count, the occupied ones dark, the
+ * empty ones quiet — and each one is the filter. Chosen over per-step columns (design 2026-09-06):
+ * seven columns on 1024 px leave a card 130 px, and a failure then needs a second click to be read.
+ */
+export function IntakeStepper({
+  groups,
   only,
   failedOnly,
+  failed,
 }: {
-  counts: readonly IntakeGroup[];
+  groups: readonly IntakeGroup[];
   only: readonly IntakeGroupKey[];
   failedOnly: boolean;
+  failed: number;
 }) {
   const all = only.length === INTAKE_GROUPS.length;
   return (
-    <nav className="flex flex-wrap items-center gap-1.5">
-      <Link
-        aria-current={all && !failedOnly ? "page" : undefined}
-        className={`${CHIP} ${all && !failedOnly ? "bg-accent text-foreground font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
-        href="/strom/einpflegen"
-      >
-        Alle
-      </Link>
-      {counts.map((group) => {
-        const active = !all && only.includes(group.key);
-        return (
-          <Link
-            aria-current={active ? "page" : undefined}
-            className={`${CHIP} ${active ? "bg-accent text-foreground font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
-            href={href(toggle(only, group.key), failedOnly)}
-            key={group.key}
-          >
-            <span>{group.label}</span>
-            <span className="tabular-nums">{group.rows.length}</span>
-          </Link>
-        );
-      })}
+    <div className="flex flex-wrap items-center gap-3">
+      <nav className="border-border flex min-w-0 flex-1 overflow-x-auto rounded-lg border" aria-label="Kette">
+        {groups.map((group, i) => {
+          const active = !all && only.includes(group.key);
+          const occupied = group.rows.length > 0;
+          const failedHere = group.rows.filter((row) => row.failed !== null).length;
+          return (
+            <Link
+              aria-current={active ? "page" : undefined}
+              className={`flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-2 no-underline hover:bg-accent/60 ${
+                i > 0 ? "border-border border-l" : ""
+              } ${active ? "bg-accent" : ""} ${occupied ? "text-foreground" : "text-muted-foreground"}`}
+              href={href(toggle(only, group.key), failedOnly)}
+              key={group.key}
+              title={group.what}
+            >
+              <span className={`truncate text-xs ${occupied ? "font-medium" : ""}`}>{group.label}</span>
+              <span className="flex items-baseline gap-1.5">
+                <span className={`text-lg font-semibold tabular-nums ${occupied ? "" : "text-muted-foreground/60"}`}>{group.rows.length}</span>
+                {failedHere > 0 ? <span className="text-destructive text-xs tabular-nums">{failedHere} gescheitert</span> : null}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
       <Link
         aria-current={failedOnly ? "page" : undefined}
-        className={`${CHIP} ${failedOnly ? "border-destructive text-destructive font-medium" : "text-muted-foreground hover:bg-accent/50"}`}
+        className={`border-border inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs no-underline max-sm:h-11 ${
+          failedOnly ? "border-destructive text-destructive font-medium" : "text-muted-foreground hover:bg-accent/50"
+        }`}
         href={href(only, !failedOnly)}
       >
-        Gescheitert
+        nur Gescheiterte <span className="tabular-nums">{failed}</span>
       </Link>
-    </nav>
+    </div>
   );
 }

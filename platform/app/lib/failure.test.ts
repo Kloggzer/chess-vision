@@ -34,3 +34,7 @@ test("trimPaths leaves file names, not directories", () => {
 test("trimPaths survives a path the ledger cut in half", () => {
   expect(trimPaths('Could not open input "C:\\chess\\data\\recordings\\2026-0')).toBe("Could not open input 2026-0");
 });
+
+test("trimPaths drops the JVM's thread banner in front of the reason", () => {
+  expect(trimPaths('Exception in thread "main" java.lang.IllegalStateException: no legal move at ply 7')).toBe("no legal move at ply 7");
+});

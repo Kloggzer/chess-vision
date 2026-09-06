@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChainState } from "@/lib/chain";
-import { groupIntake, intakeCount, parseOnly, INTAKE_GROUPS } from "@/lib/intake";
+import { failedCount, finishedCount, groupIntake, intakeCount, parseOnly, visibleGroups, INTAKE_GROUPS } from "@/lib/intake";
 import type { Job } from "@/lib/jobs";
 import type { QueueRow } from "@/lib/queues";
 
@@ -93,4 +93,24 @@ it("parseOnly keeps known keys in chain order and drops the rest", () => {
   expect(parseOnly("export,foo,confirm")).toEqual(["confirm", "export"]);
   expect(parseOnly("")).toEqual([...INTAKE_GROUPS]);
   expect(parseOnly(null)).toEqual([...INTAKE_GROUPS]);
+});
+
+describe("visibleGroups", () => {
+  const failed = job("2026-08-12-01-18-44", "export");
+  const groups = groupIntake(
+    [row("2026-08-12-01-18-44", { step: "export" }), row("2026-08-13-01-31-43", { step: "export" }), row("2026-08-14-09-23-19", { step: "labeln" })],
+    ledger(failed),
+  );
+
+  it("shows only occupied groups among the asked-for ones", () => {
+    expect(visibleGroups(groups, [...INTAKE_GROUPS], false).map((g) => g.key)).toEqual(["export", "labeln"]);
+    expect(visibleGroups(groups, ["matte", "labeln"], false).map((g) => g.key)).toEqual(["labeln"]);
+  });
+
+  it("failed-only keeps the failed rows and drops a group left empty", () => {
+    const shown = visibleGroups(groups, [...INTAKE_GROUPS], true);
+    expect(shown.map((g) => [g.key, g.rows.length])).toEqual([["export", 1]]);
+    expect(failedCount(groups)).toBe(1);
+    expect(finishedCount(groups)).toBe(1);
+  });
 });

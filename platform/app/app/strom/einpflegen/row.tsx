@@ -4,16 +4,19 @@ import Link from "next/link";
 import { ChainActions } from "@/app/chain-actions";
 import type { IntakeRow } from "@/lib/intake";
 
-/** Hand-rolled, not `QueueRowItem`: that component IS the `<li>` and takes no children, and the
- *  point of this row is the card's own control — same button, same words, same fallback. */
+/** Name, when, one fact, one control — the step's sentence lives once in the section, not here. */
 export function IntakeRowItem({ row }: { row: IntakeRow }) {
   return (
-    <li className="border-border hover:bg-muted/20 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-sm transition-colors">
-      <span className="font-medium">{row.title ?? row.name}</span>
-      {row.title ? <span className="text-muted-foreground font-mono text-xs">{row.name}</span> : null}
-      <span className="text-muted-foreground text-xs tabular-nums">{row.recorded}</span>
-      <span className="text-muted-foreground text-xs tabular-nums">{row.plies > 0 ? `${row.plies} Halbzüge` : "—"}</span>
-      <ChainActions lastJob={row.failed} name={row.name} state={row.chain} />
+    <li className="border-border hover:bg-muted/20 flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border px-3.5 py-2.5 text-sm transition-colors">
+      <span className="flex min-w-52 flex-col gap-0.5">
+        <span className="font-medium">{row.title ?? row.name}</span>
+        <span className="text-muted-foreground text-xs tabular-nums">
+          {row.recorded}
+          {row.title ? <span className="font-mono"> · {row.name}</span> : null}
+          {row.plies > 0 ? ` · ${row.plies} Halbzüge` : ""}
+        </span>
+      </span>
+      <ChainActions lastJob={row.failed} name={row.name} showWhat={false} state={row.chain} />
       <Link className="text-muted-foreground ml-auto shrink-0 text-xs hover:underline hover:underline-offset-4" href={`/#${row.name}`}>
         Karte →
       </Link>

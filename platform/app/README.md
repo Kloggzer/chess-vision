@@ -20,15 +20,19 @@ this app touches only `data/labels/review-notes.jsonl` and its own `data/inbox/`
 
 ## `/strom/einpflegen` — every recording by the step it waits for
 
-The one view across the whole chain: seven headings in the chain's own order (`phone-record`,
-`label`, `confirm`, `export`, `matte`, `model-read`, `labeln`), each with the recordings sitting on
-that step and the SAME control the card carries — so "what is stuck before the export" is one
-glance instead of forty cards. Useless, archived and video-less bundles are out, as everywhere.
-The filter lives in the URL and nowhere else: `?nur=confirm,export` keeps those groups (`Alle`
-clears it), `?gescheitert=1` keeps only rows whose last job failed on the step the disk still asks
-for. Both are plain links, so a filtered view is shareable and survives a reload. The step's words
-come from `lib/chain-steps.ts`, the same table `chain-actions.tsx` prints on the card; `Karte →`
-jumps to `/#<name>`, the card's own anchor. Model and grouping: `lib/intake.ts`.
+The one view across the whole chain: the seven steps as a stepper in the chain's own order
+(`phone-record`, `label`, `confirm`, `export`, `matte`, `model-read`, `labeln`), each with its count
+and its failures, and below it ONE section per step that actually holds a recording — an empty step
+gets no heading, and the finished pile (`labeln`, the largest group) is one line linking to
+`/strom/labeln` unless asked for by name. A row is name, date, ply count and the SAME control the
+card carries, so "what is stuck before the export" is one glance instead of forty cards; the step's
+sentence stands once per section, not per row. Useless, archived and video-less bundles are out,
+as everywhere. The filter lives in the URL and nowhere else: pressing a step is `?nur=<step>`
+(pressing it again shows all), `?gescheitert=1` keeps only rows whose last job failed on the step
+the disk still asks for. Both are plain links, so a filtered view is shareable and survives a
+reload. The step's words come from `lib/chain-steps.ts`, the same table `chain-actions.tsx` prints
+on the card; `Karte →` jumps to `/#<name>`, the card's own anchor. Model and grouping:
+`lib/intake.ts` (`visibleGroups` decides what gets a section).
 
 ## `/strom/labeln` — the streams (phase 03b)
 

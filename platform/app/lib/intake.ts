@@ -53,6 +53,19 @@ export function intakeCount(rows: QueueRow[]): number {
   return groupIntake(rows, new Map()).reduce((n, g) => (g.key === "labeln" ? n : n + g.rows.length), 0);
 }
 
+/** The groups the page lays out: the asked-for ones, failed rows only when asked, empty ones never. */
+export function visibleGroups(groups: readonly IntakeGroup[], only: readonly IntakeGroupKey[], failedOnly: boolean): IntakeGroup[] {
+  return groups
+    .filter((g) => only.includes(g.key))
+    .map((g) => (failedOnly ? { ...g, rows: g.rows.filter((r) => r.failed !== null) } : g))
+    .filter((g) => g.rows.length > 0);
+}
+
+export const failedCount = (groups: readonly IntakeGroup[]) =>
+  groups.reduce((n, g) => n + g.rows.filter((r) => r.failed !== null).length, 0);
+
+export const finishedCount = (groups: readonly IntakeGroup[]) => groups.find((g) => g.key === "labeln")?.rows.length ?? 0;
+
 /** `?nur=confirm,export` → the keys to show in chain order; unknown keys dropped; empty → all. */
 export function parseOnly(param: string | null | undefined): IntakeGroupKey[] {
   const asked = new Set((param ?? "").split(",").map((part) => part.trim()));

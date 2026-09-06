@@ -49,10 +49,12 @@ export function ChainActions({
   name,
   state,
   lastJob = null,
+  showWhat = true,
 }: {
   name: string;
   state: ChainState;
   lastJob?: Job | null;
+  showWhat?: boolean;
 }) {
   const router = useRouter();
   // Seeded from the server: a reload used to forget the failure, which took the one control that
@@ -155,7 +157,7 @@ export function ChainActions({
           <TooltipContent>{hint}</TooltipContent>
         </Tooltip>
       )}
-      <span className="text-muted-foreground max-w-xl">{what}</span>
+      {showWhat ? <span className="text-muted-foreground max-w-xl">{what}</span> : null}
       {lensRefused(job) ? (
         <Tooltip>
           <TooltipTrigger asChild>

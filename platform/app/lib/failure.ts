@@ -2,6 +2,7 @@ export type Failure = { text: string; log: string | null; code: number | null };
 
 const SEE = " — see ";
 const EXIT = /\s*\(exit (-?\d+), ([^)]+)\)\s*$/;
+const JVM = /^Exception in thread "[^"]*" [\w.$]+: /;
 const ABSOLUTE = /"[A-Za-z]:[\\/][^"]*"|"?[A-Za-z]:[\\/]\S+/g;
 
 export function logName(log: string): string {
@@ -9,7 +10,7 @@ export function logName(log: string): string {
 }
 
 /** A path in the sentence drowns the sentence; the file name is the part a human acts on. */
-export const trimPaths = (text: string) => text.replace(ABSOLUTE, logName);
+export const trimPaths = (text: string) => text.replace(JVM, "").replace(ABSOLUTE, logName);
 
 /** Two shapes on disk: `<what> — see <log>` from the job runner, `(exit n, <log>)` from the tools. */
 export function failureParts(reason: string): Failure {
