@@ -19,6 +19,13 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
+- **Bewegtes Brett als Regressionsfall.** 2026-08-30-16-20-19: Brett nach Zug 12 um ein Siebtel
+  Feld verschoben, das Handy verlor die Stellung und baute sie per cnn_pair neu auf, der PC-Scan
+  mittelte über beide Lagen. Der Handy-Kandidat misst seit 2026-09-06 nur das erste Segment und
+  prüft gegen die Rillen (`grooveOffset`); der Label-Replay (`prepareLabel`) mittelt weiter über
+  das ganze Video. Fehlt: ein Replay-Test mit synthetischem Versatz ab Frame N (Video umkodieren,
+  20 px Shift), der misst, ob LiveAlign das Quad nachführt und wie viele Plies der Sprung kostet.
+
 - **`phone-candidate` dekodiert noch jedes Bild — seit 2026-09-06 zweimal** (440 s gegen 1 325 s
   Replay auf 20-41-33, plus der Review-Pass bis zum letzten Ply): der Geometrie-Scan braucht nur
   jeden 10. Frame — `grab()` statt `retrieve()` dazwischen, dann sind es Sekunden; der Review-Pass

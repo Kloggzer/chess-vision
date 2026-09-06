@@ -1,6 +1,8 @@
 package com.chesslab.desktop
 
+import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.geometry.DEFAULT_MARKER_MARGIN
 import com.chesslab.tracker.geometry.Distribution
 import com.chesslab.tracker.geometry.ScannedGeometry
 import kotlinx.serialization.json.Json
@@ -15,7 +17,13 @@ import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.Point
+import org.opencv.core.Scalar
+import org.opencv.imgproc.Imgproc
 import java.io.File
 
 private const val START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -133,6 +141,28 @@ class PhoneCandidateTest {
         assertEquals(9, candidate.int("frames_written"))
     }
 
+    /** The board moved after the candidate's segment (16-20-19): the median then sits beside the grooves. */
+    @Test
+    fun `the quad on the grooves wins, whichever measured it`() {
+        val board = Mat(SIDE, SIDE, CvType.CV_8UC3, Scalar(200.0, 200.0, 200.0))
+        for (k in 0..8) {
+            val p = (k * SIDE / 8).toDouble()
+            Imgproc.line(board, Point(p, 0.0), Point(p, SIDE - 1.0), Scalar(20.0, 20.0, 20.0), 1)
+            Imgproc.line(board, Point(0.0, p), Point(SIDE - 1.0, p), Scalar(20.0, 20.0, 20.0), 1)
+        }
+        val m = (DEFAULT_MARKER_MARGIN * SIDE).toFloat()
+        val onGrooves = floatArrayOf(-m, -m, SIDE + m, -m, SIDE + m, SIDE + m, -m, SIDE + m)
+        val nudged = FloatArray(8) { onGrooves[it] + if (it % 2 == 0) 14f else 0f }
+
+        val (chosen, note) = chooseQuad(SCAN.copy(corners = cornersFromFlat(nudged), boardSize = SIDE), onGrooves, listOf(board))
+        board.release()
+
+        assertEquals("phone-log", note.getValue("chosen").jsonPrimitive.content)
+        assertEquals(cornersFromFlat(onGrooves).map { it.toList() }, chosen.corners.map { it.toList() })
+        val (kept, _) = chooseQuad(SCAN.copy(corners = cornersFromFlat(onGrooves), boardSize = SIDE), nudged, emptyList())
+        assertEquals(cornersFromFlat(onGrooves).map { it.toList() }, kept.corners.map { it.toList() }, "no sample: the scan stands")
+    }
+
     @Test
     fun `a two-segment record yields the first segment and a note`() {
         val dir = bundle("two-segments", games = mapOf("g.json" to twoSegmentRecord()))
@@ -194,10 +224,15 @@ class PhoneCandidateTest {
         return dir
     }
 
-    private companion object {
-        val ROOT = File(DATA_DIR, "tmp/phone-candidate-test")
+    companion object {
+        private val ROOT = File(DATA_DIR, "tmp/phone-candidate-test")
+        const val SIDE = 800
 
-        val SPEC =
+        @JvmStatic
+        @BeforeAll
+        fun natives() = NativeCv.require()
+
+        private val SPEC =
             ModelSpec(
                 classes = listOf("empty"),
                 outWidth = 80,
@@ -206,7 +241,7 @@ class PhoneCandidateTest {
                 std = listOf(0.229f, 0.224f, 0.225f),
             )
 
-        val SCAN =
+        private val SCAN =
             ScannedGeometry(
                 corners =
                     listOf(
@@ -231,10 +266,10 @@ class PhoneCandidateTest {
                 clockErrorMs = Distribution(0.0, 0.0, 0.0),
             )
 
-        val FRAMES = PhoneFrameClock(listOf(0.0, 33.3, 66.7, 100.0, 133.3))
+        private val FRAMES = PhoneFrameClock(listOf(0.0, 33.3, 66.7, 100.0, 133.3))
 
         /** e4 at video ms 30 (decoded frame 1), e5 at 90 (frame 3) — both found by the frame rule. */
-        val TIMELINE =
+        private val TIMELINE =
             listOf(
                 """{"kind":"video_sync","elapsedNs":$SYNC_NS,"durationNs":0}""",
                 """{"kind":"frame","elapsedNs":1030000000,"wallTsMs":1030,"fen":"$AFTER_E4"}""",
@@ -244,7 +279,7 @@ class PhoneCandidateTest {
         const val AFTER_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
 
         /** Ply 2 has no decision row (a pair commit writes one for the second ply only). */
-        val DECISIONS =
+        private val DECISIONS =
             listOf(
                 """{"kind":"frame","elapsedNs":1120000000,"wallTsMs":1120,"fen":"$AFTER_NF3"}""",
                 """{"kind":"decision","elapsedNs":1030000000,"ply":1,"uci":"e2e4","san":"e4","fenBefore":"$START","fenAfter":"$AFTER_E4","accepted":true}""",

@@ -1,6 +1,7 @@
 package com.chesslab.desktop
 
 import com.chesslab.engine.api.STARTPOS
+import com.chesslab.geometry.cornersFromFlat
 import com.chesslab.geometry.cornersToFlat
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.cnn.ModelSpec
@@ -22,11 +23,14 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import org.opencv.core.Mat
 import java.io.File
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.system.exitProcess
 
@@ -251,6 +255,7 @@ internal fun buildPhoneCandidate(
     val sessionDir = sessionDirIn(recordingDir)
     val video = bundleFile(sessionDir, recordingDir, "video.mp4") ?: throw PhoneRefusal("no video.mp4")
     val stamps = ArrayList<Double>()
+    val samples = QuadSamples()
     val scan =
         openRecording(video).use { src ->
             val scan = GeometryScan(src.fps) { println("  $it") }
@@ -258,14 +263,100 @@ internal fun buildPhoneCandidate(
                 // Owned and reused by the source (`FrameSource.next`) — releasing it kills the run.
                 val mat = src.next() ?: break
                 scan.offer(mat, src.timestampMs)
+                samples.offer(mat, stamps.size)
                 stamps += src.timestampMs
             }
-            scan.result() ?: throw PhoneRefusal("no sampled frame aligned to the board's grid")
+            scan
         }
-    return buildPhoneCandidate(recordingDir, force, desktopModelSpec(model), scan, PhoneFrameClock(stamps)) { plies ->
-        writeReviewFrames(video, recordingDir, scan, plies)
+    val clock = PhoneFrameClock(stamps)
+    // The candidate covers the record's FIRST segment, and the board may move at the seam after it
+    // (2026-08-30-16-20-19: nudged a seventh of a cell near frame 5400, 55 % of the video after it —
+    // the whole-video median stood on the moved board). The segment's own frames measure its quad.
+    val last = phonePlan(recordingDir, clock).plies.maxOf { it.frame } + REVIEW_CONTEXT
+    val scanned = scan.result(upToFrame = last) ?: throw PhoneRefusal("no sampled frame up to $last aligned to the board's grid")
+    println("geometry measured on frames 0..$last of ${stamps.size}: the candidate's segment, not the whole recording")
+    val (chosen, quadNote) = chooseQuad(scanned, loggedQuad(sessionDir), samples.upTo(last))
+    samples.release()
+    return buildPhoneCandidate(recordingDir, force, desktopModelSpec(model), chosen, clock, quadNote) { plies ->
+        writeReviewFrames(video, recordingDir, chosen, plies)
     }
 }
+
+/** A dozen frames spread over the whole recording, kept from the scan's own decode for the quad check. */
+private class QuadSamples(
+    private val keep: Int = QUAD_SAMPLES,
+) {
+    private val frames = ArrayList<Pair<Int, Mat>>()
+    private var stride = QUAD_SAMPLE_STRIDE
+
+    fun offer(
+        frame: Mat,
+        index: Int,
+    ) {
+        if (index % stride != 0) return
+        frames += index to frame.clone()
+        if (frames.size > keep) {
+            frames.filterIndexed { i, _ -> i % 2 == 1 }.forEach { it.second.release() }
+            val kept = frames.filterIndexed { i, _ -> i % 2 == 0 }
+            frames.clear()
+            frames += kept
+            stride *= 2
+        }
+    }
+
+    /** The samples inside the candidate's segment — frame 0 is always one of them. */
+    fun upTo(lastFrame: Int): List<Mat> = frames.filter { it.first <= lastFrame }.map { it.second }
+
+    fun release() = frames.forEach { it.second.release() }
+}
+
+/**
+ * The scan's median against the quad the phone stood on when the game began, both measured on
+ * the sampled frames against the board's own grooves; the closer one is the candidate's. The
+ * scan gates every sample and never its median, and the phone's live quad drifted with it.
+ */
+internal fun chooseQuad(
+    scan: ScannedGeometry,
+    logged: FloatArray?,
+    samples: List<Mat>,
+): Pair<ScannedGeometry, JsonObject> {
+    val scanQuad = cornersToFlat(scan.corners)
+    val offsets = LinkedHashMap<String, Double>()
+    if (samples.isNotEmpty()) {
+        offsets["scan"] = medianOffset(samples.map { grooveOffset(it, scanQuad, scan.boardSize) })
+        if (logged != null) offsets["phone-log"] = medianOffset(samples.map { grooveOffset(it, logged, scan.boardSize) })
+    }
+    val chosen = offsets.minByOrNull { it.value }?.key ?: "scan"
+    println(
+        "quad check on ${samples.size} frames: " +
+            offsets.entries.joinToString(", ") { "${it.key} ${"%.3f".format(Locale.ROOT, it.value)} cells" } + " -> $chosen",
+    )
+    val note =
+        buildJsonObject {
+            put("chosen", chosen)
+            offsets.forEach { (k, v) -> put("offset_cells_$k", v) }
+        }
+    val corners = if (chosen == "phone-log" && logged != null) cornersFromFlat(logged) else scan.corners
+    return scan.copy(corners = corners) to note
+}
+
+/** The phone's own quad at the session's start — `log.jsonl`'s first photo row carries it. */
+private fun loggedQuad(sessionDir: File): FloatArray? {
+    val log = File(sessionDir, "log.jsonl").takeIf { it.isFile } ?: return null
+    val first = log.useLines { lines -> lines.firstOrNull { it.isNotBlank() } } ?: return null
+    return runCatching {
+        Json
+            .parseToJsonElement(first)
+            .jsonObject
+            .getValue("corners")
+            .jsonArray
+            .flatMap { point -> point.jsonArray.map { it.jsonPrimitive.content.toFloat() } }
+            .toFloatArray()
+    }.getOrNull()?.takeIf { it.size == 8 }
+}
+
+private const val QUAD_SAMPLES = 24
+private const val QUAD_SAMPLE_STRIDE = 400
 
 /**
  * A second decode pass for what `/confirm` shows: the rectified board at every ply's frame and
@@ -294,15 +385,20 @@ private fun writeReviewFrames(
     return review.count
 }
 
-/** The record's first segment on the video's clock, written where a replay would have written it. */
-internal fun buildPhoneCandidate(
+/** What the record and the timeline say before any picture is needed: the first segment, placed on the clock. */
+internal class PhonePlan(
+    val sid: String,
+    val gameId: String?,
+    val startFen: String,
+    val note: String?,
+    val rule: String,
+    val plies: List<CommittedPly>,
+)
+
+internal fun phonePlan(
     recordingDir: File,
-    force: Boolean,
-    spec: ModelSpec?,
-    scan: ScannedGeometry,
     frames: PhoneFrameClock,
-    reviewFrames: (List<CommittedPly>) -> Int = { 0 },
-): File {
+): PhonePlan {
     val sessionDir = sessionDirIn(recordingDir)
     val sid = sessionDir.name
     val timeline = bundleFile(sessionDir, recordingDir, "timeline.jsonl") ?: throw PhoneRefusal("no timeline.jsonl")
@@ -328,20 +424,42 @@ internal fun buildPhoneCandidate(
 
     val rulesUsed = LinkedHashSet<TimeRule>()
     val plies = placeSegment(startFen, moves, PhoneClock(rows), frames, rulesUsed)
+    return PhonePlan(
+        sid = sid,
+        gameId = game?.id,
+        startFen = startFen,
+        note = note,
+        rule = rulesUsed.joinToString("|") { it.name.lowercase() },
+        plies = plies,
+    )
+}
+
+/** The record's first segment on the video's clock, written where a replay would have written it. */
+internal fun buildPhoneCandidate(
+    recordingDir: File,
+    force: Boolean,
+    spec: ModelSpec?,
+    scan: ScannedGeometry,
+    frames: PhoneFrameClock,
+    quadNote: JsonObject? = null,
+    reviewFrames: (List<CommittedPly>) -> Int = { 0 },
+): File {
+    val sessionDir = sessionDirIn(recordingDir)
+    val plan = phonePlan(recordingDir, frames)
     val candidate = File(recordingDir, "candidate.json")
     if (candidate.isFile && !force) throw PhoneRefusal("candidate.json exists — pass force=1 to replace")
-    val framesWritten = reviewFrames(plies)
+    val framesWritten = reviewFrames(plan.plies)
 
     val geometry = replayBoardGeometry(cornersToFlat(scan.corners), recordingDir, null).withCropOf(spec)
-    val rule = rulesUsed.joinToString("|") { it.name.lowercase() }
     val source =
         buildJsonObject {
             put("kind", "phone")
-            if (game == null) put("game", JsonNull) else put("game", game.id)
-            put("record", if (game == null) "timeline" else "game")
-            put("session", sid)
-            put("rule", rule)
+            if (plan.gameId == null) put("game", JsonNull) else put("game", plan.gameId)
+            put("record", if (plan.gameId == null) "timeline" else "game")
+            put("session", plan.sid)
+            put("rule", plan.rule)
             put("offset_frames", PHONE_FRAME_OFFSET)
+            if (quadNote != null) put("quad", quadNote)
             put("crop", cropJson(geometry))
         }
     val json =
@@ -355,11 +473,19 @@ internal fun buildPhoneCandidate(
             scan = scan,
             source = source,
             effectiveConfig = settingsJson(sessionDir, recordingDir),
-            startFen = startFen,
-            outcome = LabelOutcome(plies, note, observations = 0, frames = frames.size, framesWritten = framesWritten, drops = ""),
+            startFen = plan.startFen,
+            outcome =
+                LabelOutcome(
+                    plan.plies,
+                    plan.note,
+                    observations = 0,
+                    frames = frames.size,
+                    framesWritten = framesWritten,
+                    drops = "",
+                ),
         )
     val path = writeCandidate(recordingDir, json)
-    println("wrote ${path.path}: ${plies.size} plies (rules $rule), offset $PHONE_FRAME_OFFSET, $framesWritten review frames")
+    println("wrote ${path.path}: ${plan.plies.size} plies (rules ${plan.rule}), offset $PHONE_FRAME_OFFSET, $framesWritten review frames")
     return path
 }
 

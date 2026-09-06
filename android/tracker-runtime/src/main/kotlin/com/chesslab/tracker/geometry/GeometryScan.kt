@@ -93,8 +93,10 @@ class GeometryScan(
         frames += 1
     }
 
-    fun result(): ScannedGeometry? {
-        val passing = quads.filterNotNull()
+    /** The median over the samples up to [upToFrame] — a board moved AFTER a candidate's last ply must not pull it. */
+    fun result(upToFrame: Int = Int.MAX_VALUE): ScannedGeometry? {
+        val window = windowOf(quads, sampleEvery, upToFrame)
+        val passing = window.filterNotNull()
         if (passing.isEmpty()) return null
         val median = medianQuadOf(passing)
         val geometry = boardGeometryFor(median)
@@ -105,9 +107,9 @@ class GeometryScan(
             frameWidth = width,
             frameHeight = height,
             fps = fps,
-            alignPassRate = passing.size.toDouble() / quads.size,
+            alignPassRate = passing.size.toDouble() / window.size,
             aligned = passing.size,
-            sampled = quads.size,
+            sampled = window.size,
             frames = frames,
             sampleEvery = sampleEvery,
             markersSeen = markersSeen.toMap(),
@@ -160,6 +162,13 @@ internal fun medianQuadOf(passing: List<FloatArray>): FloatArray {
     }
     return out
 }
+
+/** The samples taken up to [upToFrame]: sample i was frame i × [sampleEvery]. */
+internal fun windowOf(
+    quads: List<FloatArray?>,
+    sampleEvery: Int,
+    upToFrame: Int,
+): List<FloatArray?> = if (upToFrame == Int.MAX_VALUE) quads else quads.take(upToFrame / sampleEvery + 1)
 
 /**
  * Worst-corner error of each passing quad against [median], in RECTIFIED pixels — map the

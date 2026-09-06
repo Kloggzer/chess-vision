@@ -38,6 +38,14 @@ class GeometryScanTest {
     }
 
     @Test
+    fun aWindowKeepsTheSamplesUpToTheFrameTheCandidateEndsAt() {
+        val quads = List(10) { floatArrayOf(it.toFloat()) }
+        assertEquals(3, windowOf(quads, sampleEvery = 10, upToFrame = 25).size)
+        assertEquals(10, windowOf(quads, sampleEvery = 10, upToFrame = 5000).size)
+        assertEquals(10, windowOf(quads, sampleEvery = 10, upToFrame = Int.MAX_VALUE).size)
+    }
+
+    @Test
     fun aMovedBoardShowsUpAsSpread() {
         val before = floatArrayOf(0f, 0f, 800f, 0f, 800f, 800f, 0f, 800f)
         val after = FloatArray(8) { before[it] + 40f }
