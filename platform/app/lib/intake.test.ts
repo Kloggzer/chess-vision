@@ -1,0 +1,96 @@
+import { describe, expect, it } from "vitest";
+import type { ChainState } from "@/lib/chain";
+import { groupIntake, intakeCount, parseOnly, INTAKE_GROUPS } from "@/lib/intake";
+import type { Job } from "@/lib/jobs";
+import type { QueueRow } from "@/lib/queues";
+
+const CHAIN: ChainState = {
+  step: "label",
+  video: "v.mp4",
+  videoBroken: null,
+  offeredPgn: null,
+  hasReference: false,
+  hasPhoneRecord: false,
+  hasCandidate: false,
+  confirmed: false,
+  hasSession: false,
+  mattes: { done: 0, total: 0, target: 0, reported: 0 },
+  hasModelReads: false,
+  useless: null,
+};
+
+const row = (name: string, chain: Partial<ChainState> = {}, patch: Partial<QueueRow> = {}): QueueRow => ({
+  name,
+  title: null,
+  plies: 0,
+  frames: 0,
+  archived: false,
+  chain: { ...CHAIN, ...chain },
+  ...patch,
+});
+
+const job = (name: string, kind: Job["kind"], state: Job["state"] = "failed"): Job => ({
+  name,
+  kind,
+  state,
+  queuedAt: "2026-09-06T10:00:00Z",
+});
+
+const ledger = (...jobs: Job[]) => new Map(jobs.map((j) => [j.name, j]));
+
+describe("groupIntake", () => {
+  it("there are always seven groups in chain order", () => {
+    const groups = groupIntake(
+      [row("2026-08-12-01-18-44", { step: "confirm" }), row("2026-08-13-01-31-43"), row("2026-08-14-09-23-19", { step: "export" })],
+      new Map(),
+    );
+    expect(groups.map((g) => g.key)).toEqual([...INTAKE_GROUPS]);
+    expect(groups.filter((g) => g.rows.length === 0)).toHaveLength(4);
+    expect(groups.find((g) => g.key === "label")?.label).toBe("Züge erkennen");
+  });
+
+  it("useless, archived and video-less rows are in no group", () => {
+    const groups = groupIntake(
+      [
+        row("2026-08-12-01-18-44", { useless: { at: "2026-08-14T20:00:00Z" } }),
+        row("2026-08-13-01-31-43", {}, { archived: true }),
+        row("2026-08-14-09-23-19", { video: null }),
+      ],
+      new Map(),
+    );
+    expect(groups.reduce((n, g) => n + g.rows.length, 0)).toBe(0);
+  });
+
+  it("a failed job counts only against the step the disk still asks for", () => {
+    const failed = job("2026-08-12-01-18-44", "export");
+    const asking = groupIntake([row("2026-08-12-01-18-44", { step: "export" })], ledger(failed));
+    expect(asking.find((g) => g.key === "export")?.rows[0].failed).toBe(failed);
+
+    const moved = groupIntake([row("2026-08-12-01-18-44", { step: "matte" })], ledger(failed));
+    expect(moved.find((g) => g.key === "matte")?.rows[0].failed).toBeNull();
+
+    const page = groupIntake([row("2026-08-12-01-18-44", { step: "confirm" })], ledger(job("2026-08-12-01-18-44", "label")));
+    expect(page.find((g) => g.key === "confirm")?.rows[0].failed).toBeNull();
+  });
+
+  it("rows are newest first within a group", () => {
+    const groups = groupIntake(
+      [row("2026-08-08-11-55-19"), row("VID_20260813_193423"), row("2026-08-11-23-55-04")],
+      new Map(),
+    );
+    const label = groups.find((g) => g.key === "label");
+    expect(label?.rows.map((r) => r.name)).toEqual(["VID_20260813_193423", "2026-08-11-23-55-04", "2026-08-08-11-55-19"]);
+    expect(label?.rows[0].recorded).toBe("2026-08-13 19:34");
+  });
+});
+
+it("intakeCount leaves out labeln", () => {
+  const rows = [row("2026-08-12-01-18-44", { step: "labeln" }), row("2026-08-13-01-31-43"), row("2026-08-14-09-23-19", { step: "matte" })];
+  expect(intakeCount(rows)).toBe(2);
+});
+
+it("parseOnly keeps known keys in chain order and drops the rest", () => {
+  expect(parseOnly("export,foo,confirm")).toEqual(["confirm", "export"]);
+  expect(parseOnly("")).toEqual([...INTAKE_GROUPS]);
+  expect(parseOnly(null)).toEqual([...INTAKE_GROUPS]);
+});

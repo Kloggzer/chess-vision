@@ -59,7 +59,7 @@ export const proposesCandidate = (step: ChainStep | null): boolean => step === "
 export const recordedAt = (name: string) => name.replace(/\D/g, "").padEnd(14, "0").slice(0, 14);
 
 /** Newest first, ties broken by the name so the order never depends on the readdir. */
-const newestFirst = (rows: QueueRow[]) =>
+export const newestFirst = (rows: QueueRow[]) =>
   [...rows].sort((a, b) => recordedAt(b.name).localeCompare(recordedAt(a.name)) || b.name.localeCompare(a.name));
 
 /**

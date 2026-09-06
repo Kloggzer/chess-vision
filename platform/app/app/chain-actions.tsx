@@ -18,7 +18,7 @@ import type { Progress } from "@/lib/progress";
  * Every step in the words of what it does to the recording (`what`, shown beside the control) and
  * what it leaves on disk (`hint`, the tooltip). The user reads the page, not the CLI.
  */
-const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
+export const STEP: Record<ChainStep, { label: string; what: string; hint: string }> = {
   "phone-record": {
     label: "Züge vom Handy übernehmen",
     what: "Die am Handy erkannte Zugfolge wird übernommen; nur die Brettgeometrie wird noch aus dem Video gemessen (etwa ein Drittel der Replay-Zeit).",
