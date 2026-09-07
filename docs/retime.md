@@ -54,6 +54,14 @@ den Frame kurz vor der nächsten Hand: auf 21-29-35 Ply 76 liegen 116 der 124 ge
 darauf (`review-cards.ts`), und `frame` bleibt unangetastet der Label-Frame. Ein Ply ohne eigene
 Haltezeit (Mehrfach-Commit) erbt das Bild des nächsten, das eine hat.
 
+Ein Halt kann Frames eines ANDEREN Bretts enthalten: auf 21-12-56 schlug Schwarz auf e5 mit dem
+Turm, nahm zurück und schlug mit dem Läufer — rund 100 Frames des Halts zeigen die zurückgenommene
+Stellung, und eines davon war das Kartenbild. Frames, deren Übereinstimmung mehr als
+`PICTURE_SLACK` (4,0, ein falsch gelesenes Feld) unter der besten des Halts liegt, kommen als Bild
+nicht in Frage; ihre Zahl steht als `disputed` am Ply und das Verb nennt die betroffenen Plies.
+**Das Label-Intervall bleibt davon unberührt** — es bürgt weiter für die ganze Haltezeit, also auch
+für die zurückgenommenen Frames. Was dort je Zelle passiert, entscheidet `docs/position-check.md`.
+
 `review_covered` sagt, wie viele Zellen auf dem gewählten Bild noch verdeckt sind. Über 0 heißt:
 der ganze Halt trug eine Hand, das Bild ist das beste vorhandene — die Karte sagt es dann („Hand
 auf N Feldern"), statt es zu verschweigen. Kurze Halte (Blitzfolgen) und der letzte Ply vor

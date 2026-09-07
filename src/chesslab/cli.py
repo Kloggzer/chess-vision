@@ -771,6 +771,7 @@ def realgames_retime(
     print(f"[OK] {res['frames_read']} Frames gelesen, Übereinstimmung {res['agreement']:.2f}, "
           f"{res['moved']} Plies verschoben ({moved or '-'}), ohne Frames: {res['collapsed'] or '-'}"
           f", Bild mit Hand: {res['covered_pictures'] or '-'}"
+          f", Rücknahme im Intervall: {res['disputed'] or '-'}"
           + (f", {res.get('boards', 0)} Review-Bretter" if res['written'] else " (dry run)"))
 
 
@@ -1704,6 +1705,15 @@ def train_cmd(
     brightness: float | None = typer.Option(None, "--brightness",
                                             help="ColorJitter-Helligkeit als Bruchteil (Default 0.35). "
                                                  "0 schaltet sie ab."),
+    contrast: float | None = typer.Option(None, "--contrast",
+                                          help="ColorJitter-Kontrast (Default 0.35). Erst wenn "
+                                               "brightness, contrast UND color-jitter 0 sind, faellt "
+                                               "die Op ganz aus der Kette."),
+    color_jitter: float | None = typer.Option(None, "--color-jitter",
+                                              help="ColorJitter-Saettigung (Default 0.1)."),
+    blur_sigma_max: float | None = typer.Option(None, "--blur-sigma-max",
+                                                help="Obergrenze des Gaussian Blur (Default 1.5). "
+                                                     "<= 0.1 laesst die Op ganz weg."),
     gamma: str | None = typer.Option(None, "--gamma",
                                      help="Gamma-Spanne LO,HI (Default 0.6,1.8). '1,1' schaltet sie ab. "
                                           "Gemessen 2026-08-29: mit den Defaults liegen 9,8 % der "
@@ -1860,7 +1870,9 @@ def train_cmd(
                                clahe_min_mean=clahe_min_mean, clahe_max_mean=clahe_max_mean,
                                clahe_denoise=clahe_denoise,
                                erase_p=erase_p, erase_scale=_erase_scale,
-                               brightness=brightness, gamma=_gamma,
+                               brightness=brightness, contrast=contrast,
+                               color_jitter=color_jitter, blur_sigma_max=blur_sigma_max,
+                               gamma=_gamma,
                                  loss=loss, focal_gamma=focal_gamma, class_weight=cw or None,
                                  sched=sched, jitter_translate=jitter_translate,
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,

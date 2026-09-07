@@ -30,6 +30,9 @@ LOG_FLOOR = -4.0
 ADVANCE_COST = 6.0
 #: A frame whose reads back no position at all (a hand over the board) says nothing about either.
 COVERED_MAX = 12
+#: How far a frame's agreement may fall behind the hold's best and still be shown as its picture.
+#: One cell read wrong costs up to -LOG_FLOOR; a take-back moves two and must never be the picture.
+PICTURE_SLACK = 4.0
 #: A ply whose entry frame prefers its position by less than this share of ADVANCE_COST is weak;
 #: when more than WEAK_SHARE of the plies are weak the reads do not match the record and nothing
 #: is written (21-29-35: 3 of 99 weak, median 0.77 — a median gate at 0.85 refused a good game).
@@ -50,6 +53,8 @@ class Retimed:
     frame_review: int | None = None
     #: Cells still covered on that picture; over 0 there was no hand-free frame in the whole hold.
     review_covered: int | None = None
+    #: Frames of the hold that show a DIFFERENT board — a take-back, or a label window gone bad.
+    disputed: int | None = None
 
 
 def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = ADVANCE_COST) -> np.ndarray:
@@ -87,26 +92,32 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
     return path
 
 
-def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> dict[int, tuple[int, int]]:
-    """Per position, the MIDDLE frame among those with the fewest covered cells.
+def review_frames(frames: list[int], path: np.ndarray, covered: list[int],
+                  emissions: np.ndarray) -> dict[int, tuple[int, int, int]]:
+    """Per position, the MIDDLE frame among those that are clean AND actually show it.
 
     A hold begins with the hand that just placed the piece and ends with the hand reaching for the
-    next move, so both edges are dirty and the middle is not. Taking the last clean frame put a
-    hand back into nearly every card (21-29-35 ply 76: 116 frames tie at 0 covered, the last one is
-    3 frames before the next hand)."""
-    runs: dict[int, list[tuple[int, int]]] = {}
-    for t, k, c in zip(frames, path, covered, strict=True):
-        runs.setdefault(int(k), []).append((c, t))
+    next move, so both edges are dirty and the middle is not (21-29-35 ply 76: 116 frames tie at 0
+    covered, the last one is 3 frames before the next hand). And a hold can contain frames of a
+    DIFFERENT board: on 21-12-56 black recaptured on e5, took it back, and captured with the other
+    piece — 100 frames of the hold show the retracted board, one of them was the card's picture.
+    Those frames sit `PICTURE_SLACK` below the hold's best agreement and are dropped; how many
+    there are is the third number, the take-back signal."""
+    runs: dict[int, list[tuple[int, int, float]]] = {}
+    for i, (t, k, c) in enumerate(zip(frames, path, covered, strict=True)):
+        runs.setdefault(int(k), []).append((c, t, float(emissions[i, int(k)])))
     out = {}
     for k, seen in runs.items():
-        fewest = min(c for c, _ in seen)
-        cleanest = [t for c, t in seen if c == fewest]
-        out[k] = (cleanest[len(cleanest) // 2], fewest)
+        best = max(e for _, _, e in seen)
+        shows = [(c, t) for c, t, e in seen if e >= best - PICTURE_SLACK] or [(c, t) for c, t, _ in seen]
+        fewest = min(c for c, _ in shows)
+        cleanest = [t for c, t in shows if c == fewest]
+        out[k] = (cleanest[len(cleanest) // 2], fewest, len(seen) - len(shows))
     return out
 
 
 def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: int = STRIDE,
-                 review: dict[int, tuple[int, int]] | None = None) -> list[Retimed]:
+                 review: dict[int, tuple[int, int, int]] | None = None) -> list[Retimed]:
     """Entry frame and hold per ply from the path; a ply never entered collapses into the next held one."""
     out = []
     entries: dict[int, int] = {}
@@ -120,7 +131,8 @@ def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: 
         picture = (review or {}).get(entered) if entered is not None else None
         out.append(Retimed(ply=k, frame_phone=phone[k - 1], frame=frame, held=held.get(k, 0),
                            frame_review=picture[0] if picture else frame,
-                           review_covered=picture[1] if picture else None))
+                           review_covered=picture[1] if picture else None,
+                           disputed=picture[2] if picture else None))
     return out
 
 
@@ -229,7 +241,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     emissions = np.stack(rows)
     allowed = np.array([[w[0] <= t <= w[1] for w in win] for t in sampled])
     path = viterbi(emissions, allowed)
-    plies = retime_plies(sampled, path, phone, stride, review_frames(sampled, path, covered))
+    plies = retime_plies(sampled, path, phone, stride, review_frames(sampled, path, covered, emissions))
     agreement = _agreement(emissions, sampled, plies)
     result = {
         "name": name,
@@ -240,6 +252,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         "moved": sum(p.frame != p.frame_phone for p in plies),
         "collapsed": [p.ply for p in plies if p.held == 0],
         "covered_pictures": [p.ply for p in plies if (p.review_covered or 0) > 0],
+        "disputed": [p.ply for p in plies if (p.disputed or 0) > 0],
         "plies": [p.__dict__ for p in plies],
         "written": False,
     }
@@ -286,6 +299,7 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         move["held"] = p.held
         move["frame_review"] = p.frame_review
         move["review_covered"] = p.review_covered
+        move["disputed"] = p.disputed
         if p.margin is not None:
             move["margin"] = p.margin
     candidate.setdefault("source", {})["retime"] = {
