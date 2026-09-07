@@ -91,3 +91,23 @@ Zustand aus drei Blickwinkeln: die Referenz ist gegen den aktuellen Warp nicht m
 gebaute Ausweg ist `CnnTick.onMatchOk` (Referenz nachziehen, wenn das CNN das Brett bestaetigt) —
 und der haengt an `cnnAgree`, nicht am Pixelproblem. Bei 0,918 sagt das CNN nicht „unveraendert",
 also bleibt die Tuer zu.
+
+## 4. Der abgelehnte Kandidat kommt im naechsten Bild wieder (2026-09-06)
+
+Gemessen an den Handy-Aufnahmen vom 2026-09-06 (Commit-Ausreisser bis 35 s): nach „Schatten" oder
+„Geist" blieb die alte Referenz stehen, das naechste Bild schlug denselben Kandidaten erneut vor,
+die Leiter lehnte ihn erneut ab — im Log unsichtbar, weil `recordRejection` gleiche Ablehnungen
+faltete. Die Recovery, die die Stellung unabhaengig vom Kandidaten liest, kam nie dran, weil
+`evaluationDue` sie erst nach dem Intervall zuliess.
+
+**Geaendert:** nach einem terminalen Urteil (`VERIFY_STATE_GHOST`/`VERIFY_STATE_SHADOW`) reicht
+`TrackerEngine` dieselbe Beobachtung an `cnnTick(afterRejectedVerify = true)` weiter. Legalitaet,
+Hand-Sperren und die Zwei-Beobachtungen-Stimme der Recovery gelten weiter; ein Treffer verankert
+nicht neu (Invariante 5). Ablehnungen der Leiter werden nicht mehr gefaltet.
+
+**Gemessen** (`fix-verify3-20260907` gegen `pocc-cold-20260905`, Regressionssatz plus vier
+Handy-Videos): Phantome ueberall 0 (233929: 1 → 0, dafuer 8/2 → 7/3 am abgeschnittenen Ende);
+Commit-Latenz Median 0,47 → 0,53 s, p90 1,37 → 1,30 s, max 35,2 → 4,7 s. Die Variante, die
+Schatten-Urteile bei unlesbaren Zugfeldern nicht verankerte, brachte 5 Phantome auf 00-39-57 und
+ist verworfen. Was bleibt, sind Ausreisser von 12–18 s, die in Handy UND PC im Warten auf Ruhe
+sitzen, nicht in der Verifikation.

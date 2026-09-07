@@ -99,8 +99,9 @@ internal fun EngineState.recordRejection(
     key: String,
     why: String,
     foldOnChanged: Boolean = false,
+    foldConsecutive: Boolean = true,
 ) {
-    if (decisionLog.lastOrNull()?.foldsInto(key, why, changed, foldOnChanged) == true) return
+    if (foldConsecutive && decisionLog.lastOrNull()?.foldsInto(key, why, changed, foldOnChanged) == true) return
     decisionLog.add(decisionRow(DECIDER_REJECTED, why, move = key, verifyOutcome = pending?.voteOutcome, accepted = false))
 }
 

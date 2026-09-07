@@ -9,8 +9,6 @@ import com.github.bhlangonijr.chesslib.move.Move
 /** Verify states this ladder produces (`"confirmed"` comes from the commit path). */
 private const val VERIFY_SHADOW = "shadow"
 
-private const val VERIFY_GHOST = "ghost"
-
 private const val VERIFY_OVERRULED = "overruled"
 
 /** Vote keys — see [pendingVoted]. The overrule key additionally carries the CNN's uci. */
@@ -159,7 +157,7 @@ private fun EngineState.ladder(
         //    from-square DOES empty — that case already committed at rung 2.
         sig.toEmptyConf && !sig.fromLeftConf ->
             if (pendingVoted(OUTCOME_GHOST, votes)) {
-                reject(VERIFY_GHOST, "Ghost move rejected (CNN: ${sig.toSq} still empty)", listOf(sig.toSq))
+                reject(VERIFY_STATE_GHOST, "Ghost move rejected (CNN: ${sig.toSq} still empty)", listOf(sig.toSq))
             } else {
                 emptyList()
             }
@@ -195,12 +193,12 @@ private fun EngineState.windowEnd(
         // the ONE place `fromOccConf` may reject; anywhere earlier a false "still occupied" would
         // kill a real move.
         sig.fromOccConf && !sig.toArrivedConf ->
-            reject(VERIFY_GHOST, "Move not confirmed (CNN: ${sig.fromSq} still occupied) — discarded", listOf(sig.fromSq))
+            reject(VERIFY_STATE_GHOST, "Move not confirmed (CNN: ${sig.fromSq} still occupied) — discarded", listOf(sig.fromSq))
 
         // Both endpoints stayed occluded the whole window. NEVER auto-accept under a hand — that
         // was the old hole where a covering hand committed fiction.
         if (config.windowEndBothEnds) !(sig.toConf && sig.fromConf) else !(sig.toConf || sig.fromConf) ->
-            reject(VERIFY_GHOST, "Verification timed out under occlusion — no move committed")
+            reject(VERIFY_STATE_GHOST, "Verification timed out under occlusion — no move committed")
 
         else -> {
             // Clear view but no strong endpoint signal. Before trusting the diff, check the WHOLE
@@ -210,7 +208,7 @@ private fun EngineState.windowEnd(
             if (after.conflicts.isNotEmpty()) {
                 val shown = after.conflicts.take(CONFLICT_NOTE_LIMIT).joinToString(", ")
                 reject(
-                    VERIFY_GHOST,
+                    VERIFY_STATE_GHOST,
                     "Move not confirmed (board contradicts post-move position: $shown) — discarded",
                     after.conflicts,
                 )
@@ -264,7 +262,7 @@ private fun EngineState.reject(
     reason: String,
     conflicts: List<String> = emptyList(),
 ): List<TrackerEvent> {
-    recordRejection(pending?.ucis?.firstOrNull() ?: "", "$verify — $reason")
+    recordRejection(pending?.ucis?.firstOrNull() ?: "", "$verify — $reason", foldConsecutive = false)
     pending = null
     confirmer.reset()
     // Recovery's independent whole-board vote is NOT reset here: this rejection only says the diff

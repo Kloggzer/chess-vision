@@ -7,6 +7,10 @@ package com.chesslab.engine
  */
 internal const val COMMIT_VOTES = 1
 
+/** Terminal verdicts against the diff candidate — each hands its reading to an independent recovery vote. */
+internal const val VERIFY_STATE_GHOST = "ghost"
+internal const val VERIFY_STATE_SHADOW = "shadow"
+
 /**
  * The pre-commit verify's wall-clock bound, which `verifyWindow` cannot express because it counts
  * observations. Measured over 66 pending candidates: every one that ever commits is decided on its FIRST

@@ -7,12 +7,6 @@ import com.chesslab.engine.api.ResyncResult
 import com.chesslab.engine.api.TrackerEvent
 import com.github.bhlangonijr.chesslib.move.Move
 
-/** Verify state / `cnn_status` after a pair was read as "nothing actually moved". */
-private const val VERIFY_STATE_SHADOW = "shadow"
-
-/** Verify state / `cnn_status` after a pair was discarded unverified. */
-private const val VERIFY_STATE_GHOST = "ghost"
-
 private const val CNN_STATUS_OK = "ok"
 
 /** Vote keys of the two vote-gated terminals. */
@@ -94,7 +88,7 @@ internal object VerifyPair {
  */
 private fun EngineState.acceptShadow(pend: PendingVerify): List<TrackerEvent> {
     if (!pendingVoted(OUTCOME_SHADOW, config.verifyObsVotes)) return emptyList()
-    recordRejection(pend.ucis.joinToString(" "), "$VERIFY_STATE_SHADOW — Shadow/no move (CNN: board unchanged)")
+    recordRejection(pend.ucis.joinToString(" "), "$VERIFY_STATE_SHADOW — Shadow/no move (CNN: board unchanged)", foldConsecutive = false)
     pending = null
     confirmer.reset()
     // also resets the recovery confirmer
@@ -179,7 +173,7 @@ private fun EngineState.rejectPair(
     noteText: String,
     conflicts: List<String>,
 ) {
-    recordRejection(key, "$VERIFY_STATE_GHOST — $noteText")
+    recordRejection(key, "$VERIFY_STATE_GHOST — $noteText", foldConsecutive = false)
     pending = null
     confirmer.reset()
     // NICHT `recoveryConfirmer.reset()`, wie in `VerifySingle.reject`: diese Ablehnung sagt nur,

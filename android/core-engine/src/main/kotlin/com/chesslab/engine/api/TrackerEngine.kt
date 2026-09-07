@@ -10,6 +10,8 @@ import com.chesslab.engine.NOTE_GEOMETRY_SHIFTED
 import com.chesslab.engine.STATE_WAITING
 import com.chesslab.engine.STUCK_NO_LEGAL_MOVE
 import com.chesslab.engine.Squares
+import com.chesslab.engine.VERIFY_STATE_GHOST
+import com.chesslab.engine.VERIFY_STATE_SHADOW
 import com.chesslab.engine.VerifySingle
 import com.chesslab.engine.ViableMoves
 import com.chesslab.engine.adoptPosition
@@ -154,7 +156,17 @@ class TrackerEngine(
                 state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
                 state.pending != null -> {
                     state.cnnSnapsToVerify += 1
-                    VerifySingle.tick(state, cnn, snap)
+                    val pendingFen = state.pending?.fen
+                    val events = VerifySingle.tick(state, cnn, snap)
+                    // The next frame can immediately re-propose the rejected candidate. Give
+                    // independent, unconditioned recovery this reading before that happens;
+                    // its legality, hand guards and distinct-observation vote still apply.
+                    val terminal = state.verifyState == VERIFY_STATE_GHOST || state.verifyState == VERIFY_STATE_SHADOW
+                    if (state.pending == null && state.board.fen() == pendingFen && terminal) {
+                        events + state.cnnTick(cnn, rawSnap, afterRejectedVerify = true)
+                    } else {
+                        events
+                    }
                 }
                 else -> state.cnnTick(cnn, rawSnap)
             }

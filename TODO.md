@@ -19,6 +19,10 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
+- **Handy 2–3× langsamer als der PC auf demselben Video** (2026-09-06: Commit-Median 1,2–1,7 s
+  gegen 0,5–0,7 s; 16-20-19 gleichauf). Die Audits (`tmp/reports/phone-vs-pc-code-audit-*`) nennen
+  `motionThr` gegen die gewünschte statt die gemessene Bildrate, KEEP_ONLY_LATEST-Drops unter
+  Analyzer-Last und den asynchronen Observer; `settle_lag.py` mit Debug-Status noch nicht gefahren.
 - **Bewegtes Brett: gemessen, Rest offen.** `scripts/bump_replay.py` (2026-09-06) schiebt eine
   Aufnahme ab Frame N um dx/dy und spielt Kontroll- und Sprunglauf durch: 11-55-19 mit 20/8 px ab
   700 → 15/0/0 in beiden, ein Zug 68 Frames später, das Brett des Trackers danach 0,017–0,034
@@ -168,6 +172,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Verify-Schleifen (2026-09-07):** ein abgelehnter Kandidat geht sofort an die Recovery statt im
+  nächsten Bild wiederzukommen; Regressionssatz 0 Phantome, Commit-Latenz max 35,2 → 4,7 s bei
+  Median 0,47 → 0,53 s (`docs/verifier-stall.md` §4).
 - **Audit 0824 + Blockregel (2026-09-06):** beide Partien exportiert und gelesen (Identität 15,6/19,2 %
   wie sonst); Rochade mit Hand war ein Sechser-Block und galt als Schatten — Zugfelder überleben die
   Blockregel jetzt, 153751 Ply 12 sperrt e1/f1/g1 ab Frame 1334.

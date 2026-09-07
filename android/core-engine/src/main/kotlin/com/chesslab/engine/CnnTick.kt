@@ -34,6 +34,7 @@ private class CnnRead(
 internal fun EngineState.cnnTick(
     cnn: CnnEvaluator?,
     snap: CnnSnapshot,
+    afterRejectedVerify: Boolean = false,
 ): List<TrackerEvent> {
     // One exit, two reasons, and the evaluator carried OUT of the check so it stays non-null:
     // which gate closed is the whole point of the counters, and `evaluationDue` must be asked
@@ -44,7 +45,7 @@ internal fun EngineState.cnnTick(
                 cnnSnapsNoEvaluator += 1
                 null
             }
-            !evaluationDue() -> {
+            !afterRejectedVerify && !evaluationDue() -> {
                 cnnSnapsNotDue += 1
                 null
             }
@@ -62,7 +63,14 @@ internal fun EngineState.cnnTick(
     }
     cnnAgreement = read.agreement
     cnnBestMove = read.moves.takeIf { it.isNotEmpty() }?.joinToString(" ")
-    return applyRead(model, snap, read)
+    // The terminal verdict already anchored on the candidate's averaged frame; a match here has
+    // nothing to add and must not re-anchor on the frame the CNN looked at (invariant 5).
+    return if (afterRejectedVerify && read.matchOk) {
+        recoveryConfirmer.reset()
+        emptyList()
+    } else {
+        applyRead(model, snap, read)
+    }
 }
 
 /**
