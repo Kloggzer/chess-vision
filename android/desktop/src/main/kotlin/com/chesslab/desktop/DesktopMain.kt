@@ -1,7 +1,6 @@
 package com.chesslab.desktop
 
 import com.chesslab.engine.api.DebugDecision
-import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -532,8 +531,6 @@ internal fun replayRun(
                 startFen = recordedStartFen(options, video),
                 cropClahe = cropClaheOf(spec),
             )
-        // The status dump beside `motiondump=` reads the engine's debug payload, which is off by default.
-        if (options.motionDump != null) stack.host.submit(EngineAction.SetDebugEnabled(true))
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
             if (session == null && training == null) {
@@ -761,7 +758,7 @@ private fun drive(
         frames += 1
         statusDump?.let { out ->
             val st = publisher.status.value
-            out.write("$frames,${source.currentDecodedIndex},${st?.state},${st?.debug?.motion},${st?.stuckReason ?: ""}\n")
+            out.write("$frames,${source.currentDecodedIndex},${st?.state},${st?.motion},${st?.stuckReason ?: ""}\n")
         }
         view?.show(bus.boardPreview.value, publisher.status.value)
         if (dumpEvery > 0 && frames % dumpEvery == 0) {

@@ -44,6 +44,8 @@ data class TimelineFrame(
      * `PRE_ROLL_SECONDS`, and a status carries three 64-entry maps per frame. */
     val state: String?,
     val corners: FloatArray?,
+    /** The engine's motion score for the frame; the settle lag on the phone is read off this. */
+    val motion: Double? = null,
 )
 
 @Serializable
@@ -58,6 +60,7 @@ private data class FrameRow(
     val fen: String?,
     val state: String?,
     val corners: List<Double>?,
+    val motion: Double? = null,
     val kind: String = "frame",
 ) : TimelineEntry
 
@@ -169,6 +172,7 @@ class SessionTimeline(
                 frame.fen,
                 frame.state,
                 frame.corners?.map(Float::toDouble),
+                frame.motion,
             ),
         )
     }

@@ -495,6 +495,7 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
         pendingFrames = pending?.frames ?: 0,
         stageTimingsMs = stageTimingsMs.toMap(),
         fps = fps,
+        motion = motion,
         note = note,
         debug = if (debugEnabled) debugPayload() else null,
     )

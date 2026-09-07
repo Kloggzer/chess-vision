@@ -387,6 +387,7 @@ class TrackerService :
                             publisher.lastFen,
                             publisher.status.value?.state,
                             publisher.corners,
+                            publisher.status.value?.motion,
                         ),
                     )
                 },

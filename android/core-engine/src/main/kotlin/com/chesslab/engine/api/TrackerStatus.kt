@@ -26,6 +26,8 @@ data class TrackerStatus(
     val pendingFrames: Int,
     val stageTimingsMs: Map<String, Double>,
     val fps: Double,
+    /** The frame's motion score against `motionThr` — the settle gate's input, cheap enough to always carry. */
+    val motion: Double = 0.0,
     // Camera-delivered FPS distinguishes a dead camera from frames rejected before reaching the engine.
     val cameraFps: Double = 0.0,
     val note: String?,
