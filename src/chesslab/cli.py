@@ -771,7 +771,7 @@ def realgames_retime(
     print(f"[OK] {res['frames_read']} Frames gelesen, Übereinstimmung {res['agreement']:.2f}, "
           f"{res['moved']} Plies verschoben ({moved or '-'}), ohne Frames: {res['collapsed'] or '-'}"
           f", Bild mit Hand: {res['covered_pictures'] or '-'}"
-          f", Rücknahme im Intervall: {res['disputed'] or '-'}"
+          f", Intervall widerspricht: {res['disputed'] or '-'}"
           + (f", {res.get('boards', 0)} Review-Bretter" if res['written'] else " (dry run)"))
 
 
@@ -1711,6 +1711,11 @@ def train_cmd(
                                                "die Op ganz aus der Kette."),
     color_jitter: float | None = typer.Option(None, "--color-jitter",
                                               help="ColorJitter-Saettigung (Default 0.1)."),
+    batch_aug: bool = typer.Option(
+        False, "--batch-aug",
+        help="ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf der GPU statt "
+             "je Crop in PIL. Gleiche Verteilungen, aber float statt uint8 — statistisch "
+             "dasselbe Rezept, nicht bitgleich (docs/batch-aug.md)."),
     blur_sigma_max: float | None = typer.Option(None, "--blur-sigma-max",
                                                 help="Obergrenze des Gaussian Blur (Default 1.5). "
                                                      "<= 0.1 laesst die Op ganz weg."),
@@ -1870,6 +1875,7 @@ def train_cmd(
                                clahe_min_mean=clahe_min_mean, clahe_max_mean=clahe_max_mean,
                                clahe_denoise=clahe_denoise,
                                erase_p=erase_p, erase_scale=_erase_scale,
+                               batch_aug=batch_aug,
                                brightness=brightness, contrast=contrast,
                                color_jitter=color_jitter, blur_sigma_max=blur_sigma_max,
                                gamma=_gamma,

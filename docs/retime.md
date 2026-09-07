@@ -56,9 +56,16 @@ Haltezeit (Mehrfach-Commit) erbt das Bild des nächsten, das eine hat.
 
 Ein Halt kann Frames eines ANDEREN Bretts enthalten: auf 21-12-56 schlug Schwarz auf e5 mit dem
 Turm, nahm zurück und schlug mit dem Läufer — rund 100 Frames des Halts zeigen die zurückgenommene
-Stellung, und eines davon war das Kartenbild. Frames, deren Übereinstimmung mehr als
-`PICTURE_SLACK` (4,0, ein falsch gelesenes Feld) unter der besten des Halts liegt, kommen als Bild
-nicht in Frage; ihre Zahl steht als `disputed` am Ply und das Verb nennt die betroffenen Plies.
+Stellung, und eines davon war das Kartenbild. Das Bild wird deshalb ohne Schwellenwert gewählt: die am wenigsten verdeckten Frames des Halts,
+davon die mit den wenigsten Widersprüchen zur behaupteten Stellung (Lesungen ab `PICTURE_CONF` 0,5,
+gezählt je sichtbarer Zelle), davon die Mitte. Nur gleich offene Frames werden verglichen — ein
+Frame unter einer Hand widerspricht wenig, weil er wenig zeigt, und würde sonst die Latte setzen.
+Gemessen an diesem Halt: die richtigen Frames widersprechen auf keiner oder einer Zelle (h2 liest
+das Modell die ganze Partie falsch), die zurückgenommenen zusätzlich auf e5, e6 und h6.
+
+`disputed` zählt die Frames des Halts, die um `DISPUTED_CELLS` (2) je 64 Zellen mehr widersprechen
+als das Bild. Eine Rücknahme ist eine Ursache, eine halb sichtbare Hand die andere; die Zahl sagt,
+wie sehr das Label-Intervall über seine Stellung hinausreicht — sie ist ein Hinweis, kein Urteil.
 **Das Label-Intervall bleibt davon unberührt** — es bürgt weiter für die ganze Haltezeit, also auch
 für die zurückgenommenen Frames. Was dort je Zelle passiert, entscheidet `docs/position-check.md`.
 

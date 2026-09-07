@@ -30,9 +30,12 @@ LOG_FLOOR = -4.0
 ADVANCE_COST = 6.0
 #: A frame whose reads back no position at all (a hand over the board) says nothing about either.
 COVERED_MAX = 12
-#: How far a frame's agreement may fall behind the hold's best and still be shown as its picture.
-#: One cell read wrong costs up to -LOG_FLOOR; a take-back moves two and must never be the picture.
-PICTURE_SLACK = 4.0
+#: How many cells MORE than the hold's cleanest frame make a frame a different board. Measured on
+#: 21-12-56 ply 49: every frame of that hold misreads h2, the retracted ones add e5, e6 and h6.
+DISPUTED_CELLS = 2
+#: The probability a read needs before it may contradict a position. 0.85 (the engine's
+#: `cnnConfThr`) let the retraction through — a black rook where a white one belongs reads 0.56.
+PICTURE_CONF = 0.5
 #: A ply whose entry frame prefers its position by less than this share of ADVANCE_COST is weak;
 #: when more than WEAK_SHARE of the plies are weak the reads do not match the record and nothing
 #: is written (21-29-35: 3 of 99 weak, median 0.77 — a median gate at 0.85 refused a good game).
@@ -93,7 +96,7 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
 
 
 def review_frames(frames: list[int], path: np.ndarray, covered: list[int],
-                  emissions: np.ndarray) -> dict[int, tuple[int, int, int]]:
+                  disputes: np.ndarray) -> dict[int, tuple[int, int, int]]:
     """Per position, the MIDDLE frame among those that are clean AND actually show it.
 
     A hold begins with the hand that just placed the piece and ends with the hand reaching for the
@@ -101,18 +104,20 @@ def review_frames(frames: list[int], path: np.ndarray, covered: list[int],
     covered, the last one is 3 frames before the next hand). And a hold can contain frames of a
     DIFFERENT board: on 21-12-56 black recaptured on e5, took it back, and captured with the other
     piece — 100 frames of the hold show the retracted board, one of them was the card's picture.
-    Those frames sit `PICTURE_SLACK` below the hold's best agreement and are dropped; how many
-    there are is the third number, the take-back signal."""
+    The choice needs no threshold: take the least covered frames of the hold, of those the ones
+    contradicting fewest cells, and of those the middle. Comparing contradictions only among
+    equally open frames is what makes it fair — a frame under a hand contradicts little because it
+    shows little. `disputed` counts the frames that contradict `DISPUTED_CELLS` per 64 more than
+    the picture does: a take-back, or a label window that outlived its position."""
     runs: dict[int, list[tuple[int, int, float]]] = {}
     for i, (t, k, c) in enumerate(zip(frames, path, covered, strict=True)):
-        runs.setdefault(int(k), []).append((c, t, float(emissions[i, int(k)])))
+        runs.setdefault(int(k), []).append((c, t, int(disputes[i, int(k)]) / max(1, 64 - c)))
     out = {}
     for k, seen in runs.items():
-        best = max(e for _, _, e in seen)
-        shows = [(c, t) for c, t, e in seen if e >= best - PICTURE_SLACK] or [(c, t) for c, t, _ in seen]
-        fewest = min(c for c, _ in shows)
-        cleanest = [t for c, t in shows if c == fewest]
-        out[k] = (cleanest[len(cleanest) // 2], fewest, len(seen) - len(shows))
+        openest = min(c for c, _, _ in seen)
+        floor = min(w for c, _, w in seen if c == openest)
+        pool = [t for c, t, w in seen if c == openest and w <= floor]
+        out[k] = (pool[len(pool) // 2], openest, sum(1 for _, _, w in seen if w >= floor + DISPUTED_CELLS / 64))
     return out
 
 
@@ -154,16 +159,21 @@ def _labels(fen: str, squares: list[str]) -> list[str]:
     return [lab[s] for s in squares]
 
 
-def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> np.ndarray:
-    """Agreement of one frame's 64 reads with every position: the summed floored log-probability
-    of each position's label, visible cells only; a frame mostly under a hand says nothing."""
+def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> tuple[np.ndarray, np.ndarray]:
+    """Agreement of one frame's 64 reads with every position, twice over: the summed floored
+    log-probability of each position's label (what the path is found with) and the number of cells
+    that CONTRADICT it confidently (what a picture is chosen with). Visible cells only; a frame
+    mostly under a hand says nothing and contradicts nothing."""
     probs = np.array([r["probs"] for r in reads], dtype=np.float64)
     logs = np.maximum(np.log(np.clip(probs, 1e-9, 1.0)), LOG_FLOOR)
     visible = np.array([r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX for r in reads])
     if visible.sum() < 64 - covered_max:
-        return np.zeros(len(targets))
+        return np.zeros(len(targets)), np.zeros(len(targets), dtype=np.int32)
     idx = np.arange(64)
-    return np.array([float(logs[idx, np.array(t)][visible].sum()) for t in targets])
+    read = visible & (probs.max(axis=1) >= PICTURE_CONF)
+    pred = probs.argmax(axis=1)
+    return (np.array([float(logs[idx, np.array(t)][visible].sum()) for t in targets]),
+            np.array([int((read & (pred != np.array(t))).sum()) for t in targets], dtype=np.int32))
 
 
 def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STRIDE,
@@ -208,6 +218,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     sampled: list[int] = []
     rows: list[np.ndarray] = []
     covered: list[int] = []
+    disputed: list[np.ndarray] = []
     pending: list[tuple[int, list[np.ndarray]]] = []
     told = 0
 
@@ -216,7 +227,9 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         for idx, cells in pending:
             sampled.append(idx)
             reads = all_reads(model_dir, cells, device=device)
-            rows.append(_emission(reads, targets, COVERED_MAX))
+            row, dispute = _emission(reads, targets, COVERED_MAX)
+            rows.append(row)
+            disputed.append(dispute)
             covered.append(sum(r.get("coverage", 0.0) > PIECE_VISIBLE_MAX for r in reads))
         pending.clear()
 
@@ -241,7 +254,8 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     emissions = np.stack(rows)
     allowed = np.array([[w[0] <= t <= w[1] for w in win] for t in sampled])
     path = viterbi(emissions, allowed)
-    plies = retime_plies(sampled, path, phone, stride, review_frames(sampled, path, covered, emissions))
+    plies = retime_plies(sampled, path, phone, stride,
+                         review_frames(sampled, path, covered, np.stack(disputed)))
     agreement = _agreement(emissions, sampled, plies)
     result = {
         "name": name,

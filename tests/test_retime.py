@@ -2,7 +2,7 @@ import numpy as np
 
 from chesslab.retime import (
     ADVANCE_COST,
-    PICTURE_SLACK,
+    DISPUTED_CELLS,
     refused,
     retime_plies,
     review_frames,
@@ -57,16 +57,16 @@ def test_a_few_weak_plies_do_not_refuse_a_game_but_many_do():
     assert refused(weak=[], entered=0)
 
 
-def _flat(path, value=0.0):
-    """Emissions that say every frame agrees equally — the picture then rests on coverage alone."""
-    return np.full((len(path), int(max(path)) + 1), value)
+def _fits(path):
+    """No frame contradicts its position — the picture then rests on coverage alone."""
+    return np.zeros((len(path), int(max(path)) + 1), dtype=int)
 
 
 def test_the_review_picture_is_the_cleanest_frame_of_the_hold_and_the_entry_frame_stays():
     frames = [0, 3, 6, 9, 12]
     path = np.array([0, 1, 1, 1, 2])
     covered = [0, 8, 2, 2, 5]
-    review = review_frames(frames, path, covered, _flat(path))
+    review = review_frames(frames, path, covered, _fits(path))
     assert review == {0: (0, 0, 0), 1: (9, 2, 0), 2: (12, 5, 0)}
     plies = retime_plies(frames, path, phone=[3, 12], review=review)
     assert (plies[0].frame, plies[0].frame_review, plies[0].review_covered) == (3, 9, 2)
@@ -76,11 +76,19 @@ def test_the_review_picture_is_the_cleanest_frame_of_the_hold_and_the_entry_fram
 def test_a_take_back_inside_a_hold_is_never_the_picture_and_is_counted():
     frames = list(range(0, 21, 3))
     path = np.zeros(len(frames), dtype=int)
-    # The middle of the hold shows a different board (the pieces were put back and moved again).
-    emissions = np.array([[0.0]] * 2 + [[-PICTURE_SLACK - 1]] * 3 + [[0.0]] * 2)
-    frame, covered, disputed = review_frames(frames, path, [0] * len(frames), emissions)[0]
+    # Every frame misreads one square; the middle of the hold contradicts two more: a take-back.
+    disputes = np.array([[1]] * 2 + [[1 + DISPUTED_CELLS]] * 3 + [[1]] * 2)
+    frame, covered, disputed = review_frames(frames, path, [0] * len(frames), disputes)[0]
     assert frame in (3, 15) and covered == 0
     assert disputed == 3
+
+
+def test_a_frame_under_a_hand_never_sets_the_bar_for_the_open_ones():
+    frames = [0, 3, 6, 9]
+    path = np.zeros(4, dtype=int)
+    # The hand frame contradicts nothing because it shows nothing; the open frames misread h2 and h6.
+    covered, disputes = [0, 0, 16, 0], np.array([[2], [2], [0], [2]])
+    assert review_frames(frames, path, covered, disputes)[0] == (3, 0, 0)
 
 
 def test_both_ends_of_a_hold_carry_a_hand_so_the_middle_of_the_clean_run_is_the_picture():
@@ -88,11 +96,11 @@ def test_both_ends_of_a_hold_carry_a_hand_so_the_middle_of_the_clean_run_is_the_
     # The placing hand leaves after two frames, the next move's hand arrives before the last.
     covered = [6, 4, 0, 0, 0, 0, 0, 0, 3, 7]
     path = np.zeros(len(frames), dtype=int)
-    assert review_frames(frames, path, covered, _flat(path)) == {0: (15, 0, 0)}
+    assert review_frames(frames, path, covered, _fits(path)) == {0: (15, 0, 0)}
 
 
 def test_a_collapsed_ply_borrows_the_next_entered_ply_s_picture():
     frames = [0, 3, 6]
     path = np.array([0, 2, 2])
-    plies = retime_plies(frames, path, phone=[2, 5], review=review_frames(frames, path, [0, 3, 1], _flat(path)))
+    plies = retime_plies(frames, path, phone=[2, 5], review=review_frames(frames, path, [0, 3, 1], _fits(path)))
     assert (plies[0].held, plies[0].frame, plies[0].frame_review) == (0, 3, 6)
