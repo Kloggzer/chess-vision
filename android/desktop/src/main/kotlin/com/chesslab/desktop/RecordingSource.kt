@@ -44,7 +44,10 @@ private const val EXCERPT = 120
  *
  * `fps` and the delivered size come from the FIRST segment and are not re-read; they are NOMINAL,
  * and the segments of one recording do differ (26.35 then 23.47 on session 143233). Nothing times
- * anything by them: every frame carries its own PTS, and [timestampMs] adds what came before it.
+ * anything by them: every frame carries its own PTS, and [timestampMs] adds what came before it —
+ * the previous segments' last PTS plus one interval each, because a segment's first frame is
+ * stamped 0 one frame AFTER the previous segment's last (2026-09-07: without it, 30 segments of
+ * 2026-09-06-20-27-33 lost 2,1 s, and every phone ply landed later the longer the game ran).
  */
 private class ConcatFrameSource(
     private val segments: List<File>,
@@ -78,7 +81,7 @@ private class ConcatFrameSource(
             val frame = current.next()
             if (frame != null) return frame
             if (index + 1 >= segments.size) return null
-            elapsedMs += current.decodedTimestampMs
+            elapsedMs += current.decodedTimestampMs + current.decodedIntervalMs
             decodedBefore += current.decodedFrames
             current.close()
             index++

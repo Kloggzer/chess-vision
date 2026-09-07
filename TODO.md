@@ -19,10 +19,11 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Handy 2–3× langsamer als der PC auf demselben Video** (2026-09-06: Commit-Median 1,2–1,7 s
-  gegen 0,5–0,7 s; 16-20-19 gleichauf). Die Audits (`tmp/reports/phone-vs-pc-code-audit-*`) nennen
-  `motionThr` gegen die gewünschte statt die gemessene Bildrate, KEEP_ONLY_LATEST-Drops unter
-  Analyzer-Last und den asynchronen Observer; `settle_lag.py` mit Debug-Status noch nicht gefahren.
+- **Handy gegen PC auf demselben Video: 0,1–0,3 s Rückstand, nicht 2–3×** (2026-09-07). Der Decoder
+  verlor je Segmentnaht ein Frame-Intervall, `frame_phone` wanderte über die Partie um bis zu 19
+  Frames; korrigiert liegt 21-29-35 bei 0,73 gegen 0,67 s, 20-27-33 bei 0,80 gegen 0,51 s. Der
+  Rest sitzt in der Rundreise des Observers (erster Blick unbrauchbar, `VerifySingle` seq-Gate);
+  die Timeline trägt jetzt den Motion-Score je Frame, die nächste Partie misst den Settle-Anteil.
 - **Bewegtes Brett: gemessen, Rest offen.** `scripts/bump_replay.py` (2026-09-06) schiebt eine
   Aufnahme ab Frame N um dx/dy und spielt Kontroll- und Sprunglauf durch: 11-55-19 mit 20/8 px ab
   700 → 15/0/0 in beiden, ein Zug 68 Frames später, das Brett des Trackers danach 0,017–0,034

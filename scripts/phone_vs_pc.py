@@ -74,25 +74,32 @@ def pc_side(log: Path, pts: np.ndarray, nominal: float) -> tuple[dict[int, int],
     return commits, sorted(settles)
 
 
-def phone_side(session: Path, moves: list[dict], fps: float) -> tuple[dict[int, int], dict[int, int]]:
-    """{label frame: phone commit frame} and {label frame: phone settle frame}, off the timeline."""
-    settles, decisions = [], {}
+def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[int, int], dict[int, int]]:
+    """{label frame: phone commit frame} and {label frame: phone settle frame}, off the timeline.
+    The frame is found on the video's own clock — real time since the encoder's base (the median of
+    `video_sync` elapsed − duration), looked up in the PTS table — not `frame_phone`: the candidate
+    placed that with a decoder clock that lost one frame interval per segment seam (2026-09-07)."""
+    settles, decisions, bases = [], {}, []
     for line in (session / "timeline.jsonl").read_text(encoding="utf-8").splitlines():
         row = json.loads(line)
         if row.get("kind") == "state" and row.get("to") == "waiting":
             settles.append(row["elapsedNs"])
         elif row.get("kind") == "decision" and row.get("accepted"):
             decisions[row["ply"]] = row["elapsedNs"]
+        elif row.get("kind") == "video_sync" and not row.get("final"):
+            bases.append(row["elapsedNs"] - row["durationNs"])
     settles.sort()
+    base = float(np.median(bases)) if bases else 0.0
+    frame_at = lambda ns: int(np.searchsorted(pts, (ns - base) / 1e6))  # noqa: E731
     commits, quiet = {}, {}
     for move in moves:
         t = decisions.get(move["ply"])
-        if t is None or "frame_phone" not in move:
+        if t is None:
             continue
-        commits[move["frame"]] = move["frame_phone"]
+        commits[move["frame"]] = frame_at(t)
         i = bisect.bisect_right(settles, t) - 1
         if i >= 0:
-            quiet[move["frame"]] = move["frame_phone"] - int(round((t - settles[i]) / 1e9 * fps))
+            quiet[move["frame"]] = frame_at(settles[i])
     return commits, quiet
 
 
@@ -109,8 +116,9 @@ def main(name: str, log: str) -> int:
     cand = json.loads((rec / "candidate.json").read_text(encoding="utf-8"))
     moves = [m for m in cand["moves"] if m.get("held", 0) > 0]
     fps = fps_of(session, int(cand["frames"]))
-    pc_commit, pc_settles = pc_side(Path(log), pts_table(name, session), float(cand["clock"]["fps"]))
-    ph_commit, ph_quiet = phone_side(session, moves, fps)
+    pts = pts_table(name, session)
+    pc_commit, pc_settles = pc_side(Path(log), pts, float(cand["clock"]["fps"]))
+    ph_commit, ph_quiet = phone_side(session, moves, pts)
     pc_lag, pc_quiet_lag, ph_lag, ph_quiet_lag = [], [], [], []
     for move in moves:
         truth = move["frame"]

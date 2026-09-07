@@ -110,6 +110,20 @@ class AlignmentMarkerPrepassTest {
         assertTrue(gaps.max() - gaps.min() > VFR_GAP_SPREAD_MS, "the fixture must be variable-rate or it proves nothing")
     }
 
+    /** A segment's first frame is stamped 0 one interval AFTER the previous segment's last frame. */
+    @Test
+    fun `the clock carries one frame interval across the seam`() {
+        val video = twoSegmentRecording()
+        val stamps = ArrayList<Double>()
+        openRecording(video).use { source ->
+            while (source.next() != null) stamps.add(source.timestampMs)
+        }
+
+        val seam = FIRST_SEGMENT_FRAMES
+        val lastInterval = stamps[seam - 1] - stamps[seam - 2]
+        assertEquals(lastInterval, stamps[seam] - stamps[seam - 1], SEAM_TOLERANCE_MS, "seam gap at $seam: $stamps")
+    }
+
     /** A filtering selector is answered with the whole recording's numbers, not the segment's. */
     @Test
     fun `a filtering selector sees the recording's own index and clock`() {
@@ -265,6 +279,7 @@ private const val NOMINAL_FPS = 30.0
 private const val MICROS_PER_SLOT = 33_334L
 private val SLOT_GAPS = listOf(1, 1, 2)
 private const val VFR_GAP_SPREAD_MS = 20.0
+private const val SEAM_TOLERANCE_MS = 1.0
 private const val CANVAS_PX = 240
 private const val MARKER_PX = 96
 private const val MARKER_INSET = 72

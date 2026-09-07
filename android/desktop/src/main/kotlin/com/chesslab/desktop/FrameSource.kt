@@ -123,6 +123,10 @@ class VideoFileSource(
     var decodedTimestampMs: Double = 0.0
         private set
 
+    /** The last decoded frame's interval — what the frame AFTER it would have been stamped, had one followed. */
+    var decodedIntervalMs: Double = 0.0
+        private set
+
     override val timestampMs: Double get() = currentTimestampMs
 
     override fun next(): Mat? {
@@ -139,6 +143,7 @@ class VideoFileSource(
             is DecodedVideoFrame.End -> {
                 decodedFrames = decoded.decodedFrames
                 decodedTimestampMs = decoded.timestampMs
+                decodedIntervalMs = decoded.intervalMs
                 null
             }
             is DecodedVideoFrame.Failed -> throw IllegalStateException("video decode failed", decoded.cause)
@@ -164,15 +169,18 @@ class VideoFileSource(
     private fun decodeFrames() {
         var decodedIndex = 0L
         var timestampMs = 0.0
+        var intervalMs = MS_PER_SECOND / fps
         while (!closed.get()) {
             val frame = generateSequence { grabber.grabImage() }.firstOrNull()
             if (frame == null) {
-                ready.put(DecodedVideoFrame.End(decodedIndex, timestampMs))
+                ready.put(DecodedVideoFrame.End(decodedIndex, timestampMs, intervalMs))
                 return
             }
             val index = decodedIndex
             decodedIndex += 1
+            val previousMs = timestampMs
             timestampMs = grabber.timestamp / MICROS_PER_MS
+            if (index > 0 && timestampMs > previousMs) intervalMs = timestampMs - previousMs
             if (!select(index, timestampMs)) continue
             val out = free.take().also { decoderHeld = it }
             copyInto(frame.image[0] as ByteBuffer, frame.imageStride, out)
@@ -226,6 +234,7 @@ private sealed interface DecodedVideoFrame {
     data class End(
         val decodedFrames: Long,
         val timestampMs: Double,
+        val intervalMs: Double,
     ) : DecodedVideoFrame
 
     data class Failed(
@@ -236,6 +245,7 @@ private sealed interface DecodedVideoFrame {
 private const val BGR_CHANNELS = 3
 
 private const val MICROS_PER_MS = 1000.0
+private const val MS_PER_SECOND = 1000.0
 
 /** Decoder plus three frames ahead; bounded to keep QHD memory predictable. */
 private const val VIDEO_PREFETCH_DEPTH = 3
