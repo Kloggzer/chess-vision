@@ -54,9 +54,9 @@ def test_the_review_picture_is_the_cleanest_frame_of_the_hold_and_the_entry_fram
     path = np.array([0, 1, 1, 1, 2])
     covered = [0, 8, 2, 2, 5]
     review = review_frames(frames, path, covered)
-    assert review == {0: 0, 1: 9, 2: 12}
+    assert review == {0: (0, 0), 1: (9, 2), 2: (12, 5)}
     plies = retime_plies(frames, path, phone=[3, 12], review=review)
-    assert (plies[0].frame, plies[0].frame_review) == (3, 9)
+    assert (plies[0].frame, plies[0].frame_review, plies[0].review_covered) == (3, 9, 2)
     assert (plies[1].frame, plies[1].frame_review) == (12, 12)
 
 
@@ -65,7 +65,7 @@ def test_both_ends_of_a_hold_carry_a_hand_so_the_middle_of_the_clean_run_is_the_
     # The placing hand leaves after two frames, the next move's hand arrives before the last.
     covered = [6, 4, 0, 0, 0, 0, 0, 0, 3, 7]
     path = np.zeros(len(frames), dtype=int)
-    assert review_frames(frames, path, covered) == {0: 15}
+    assert review_frames(frames, path, covered) == {0: (15, 0)}
 
 
 def test_a_collapsed_ply_borrows_the_next_entered_ply_s_picture():

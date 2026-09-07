@@ -48,6 +48,8 @@ class Retimed:
     margin: float | None = None
     #: The cleanest frame the position was held on — the review picture, never the label frame.
     frame_review: int | None = None
+    #: Cells still covered on that picture; over 0 there was no hand-free frame in the whole hold.
+    review_covered: int | None = None
 
 
 def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = ADVANCE_COST) -> np.ndarray:
@@ -85,7 +87,7 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
     return path
 
 
-def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> dict[int, int]:
+def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> dict[int, tuple[int, int]]:
     """Per position, the MIDDLE frame among those with the fewest covered cells.
 
     A hold begins with the hand that just placed the piece and ends with the hand reaching for the
@@ -97,13 +99,14 @@ def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> di
         runs.setdefault(int(k), []).append((c, t))
     out = {}
     for k, seen in runs.items():
-        cleanest = [t for c, t in seen if c == min(c for c, _ in seen)]
-        out[k] = cleanest[len(cleanest) // 2]
+        fewest = min(c for c, _ in seen)
+        cleanest = [t for c, t in seen if c == fewest]
+        out[k] = (cleanest[len(cleanest) // 2], fewest)
     return out
 
 
 def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: int = STRIDE,
-                 review: dict[int, int] | None = None) -> list[Retimed]:
+                 review: dict[int, tuple[int, int]] | None = None) -> list[Retimed]:
     """Entry frame and hold per ply from the path; a ply never entered collapses into the next held one."""
     out = []
     entries: dict[int, int] = {}
@@ -116,7 +119,8 @@ def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: 
         frame = entries[entered] if entered is not None else phone[k - 1]
         picture = (review or {}).get(entered) if entered is not None else None
         out.append(Retimed(ply=k, frame_phone=phone[k - 1], frame=frame, held=held.get(k, 0),
-                           frame_review=picture if picture is not None else frame))
+                           frame_review=picture[0] if picture else frame,
+                           review_covered=picture[1] if picture else None))
     return out
 
 
@@ -235,6 +239,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         "agreement": agreement,
         "moved": sum(p.frame != p.frame_phone for p in plies),
         "collapsed": [p.ply for p in plies if p.held == 0],
+        "covered_pictures": [p.ply for p in plies if (p.review_covered or 0) > 0],
         "plies": [p.__dict__ for p in plies],
         "written": False,
     }
@@ -280,6 +285,7 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         move["t"] = round(p.frame / fps, 3)
         move["held"] = p.held
         move["frame_review"] = p.frame_review
+        move["review_covered"] = p.review_covered
         if p.margin is not None:
             move["margin"] = p.margin
     candidate.setdefault("source", {})["retime"] = {

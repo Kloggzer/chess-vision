@@ -54,6 +54,11 @@ den Frame kurz vor der nächsten Hand: auf 21-29-35 Ply 76 liegen 116 der 124 ge
 darauf (`review-cards.ts`), und `frame` bleibt unangetastet der Label-Frame. Ein Ply ohne eigene
 Haltezeit (Mehrfach-Commit) erbt das Bild des nächsten, das eine hat.
 
+`review_covered` sagt, wie viele Zellen auf dem gewählten Bild noch verdeckt sind. Über 0 heißt:
+der ganze Halt trug eine Hand, das Bild ist das beste vorhandene — die Karte sagt es dann („Hand
+auf N Feldern"), statt es zu verschweigen. Kurze Halte (Blitzfolgen) und der letzte Ply vor
+Videoende sind die Fälle, in denen das vorkommt.
+
 Die Karten der Sichtprüfung zeigen zu einem retimeten Ply nur noch dessen EIGENE Frames
 (`review-cards.ts`): das alte Fenster reichte bis zum nächsten Commit zurück und trug damit den
 Schwanz der vorigen Stellung mit — ein Schritt zurück zeigte einen anderen Zug.

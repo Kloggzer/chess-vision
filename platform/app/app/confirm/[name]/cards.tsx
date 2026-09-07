@@ -143,6 +143,14 @@ export function ConfirmReview({
                       spät committet (recovery)
                     </Badge>
                   ) : null}
+                  {card.covered ? (
+                    <Badge
+                      title="Der ganze Halt trug eine Hand — dieses Bild ist das beste, das es gibt, und zeigt sie noch."
+                      variant="secondary"
+                    >
+                      Hand auf {card.covered} Feldern
+                    </Badge>
+                  ) : null}
                   {card.held !== null && card.held < SHORT_HOLD ? (
                     <Badge
                       title={`Der nächste Commit kam ${card.held} Frames später — schneller, als eine Hand zieht. Das Handy hat spät committet, das Bild zeigt meist schon den nächsten Zug: drop.`}
@@ -264,6 +272,14 @@ export function ConfirmReview({
                     <span className="text-muted-foreground">
                       @frame {card.frame}
                     </span>
+                    {card.covered ? (
+                      <Badge
+                        title="Der ganze Halt trug eine Hand — dieses Bild ist das beste, das es gibt, und zeigt sie noch."
+                        variant="secondary"
+                      >
+                        Hand auf {card.covered} Feldern
+                      </Badge>
+                    ) : null}
                     <Button
                       aria-pressed={!!dropped[card.id]}
                       className="ml-auto"

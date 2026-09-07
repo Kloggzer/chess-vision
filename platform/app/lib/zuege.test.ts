@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewCard } from "@/lib/review-cards";
-import { median, nextItem, prevItem, streamItems, type StreamGame } from "@/lib/zuege";
+import {
+  median,
+  nextItem,
+  prevItem,
+  streamItems,
+  type StreamGame,
+} from "@/lib/zuege";
 
 const card = (id: number): ReviewCard => ({
   id,
@@ -15,6 +21,7 @@ const card = (id: number): ReviewCard => ({
   collapsed: false,
   decider: null,
   duplicate: false,
+  covered: null,
   held: null,
 });
 

@@ -11,6 +11,8 @@ export type ReviewMove = {
   frame: number;
   /** Retime's cleanest held frame — the picture; `frame` stays the label frame the position entered on. */
   frame_review?: number;
+  /** Cells still covered on that picture: over 0 the whole hold carried a hand. */
+  review_covered?: number;
   decider?: string;
   fen_after?: string;
 };
@@ -51,6 +53,8 @@ export type ReviewCard = {
   decider: string | null;
   /** At least one of the plies also appears as missing from the reference. */
   duplicate: boolean;
+  /** Cells covered on the card's own picture — the best the hold had, 0 when the hand was gone. */
+  covered: number | null;
   /** Frames from this commit to the next one; null for the last. Under [SHORT_HOLD] the position
    *  never stood still — the phone committed late and the picture shows a later move (16-20-19, ply 7). */
   held: number | null;
@@ -151,14 +155,9 @@ export function buildReviewCards({
     while (moves[last + 1]?.frame === frame) last++;
     const next = moves[last + 1]?.frame ?? null;
     const until = next ?? frame + 90;
-    // Open at the PREVIOUS commit, not at this one: the phone writes its review frames just
-    // BEFORE a commit — they are the evidence it decided from. Cutting at `frame - 2` dropped
-    // them and left the next commit's cluster, so every card showed the position one half-move
-    // too far along (14-32-33: commit 238 rendered frame 296, black had already replied).
-    // A retimed ply owns exactly the frames written around its picture. The window below was
-    // built for phone-timed sets, where a card had to reach back to find anything at all; with a
-    // picture in the middle of the hold it drags in the PREVIOUS position's tail — stepping back
-    // then shows another move (User, 2026-09-07).
+    // A retimed ply owns exactly the frames written around its picture; the phone-timed branch
+    // reaches back to the previous commit because that is where its evidence lies, and dragging
+    // that reach into a retimed set showed the PREVIOUS position (docs/retime.md).
     const window = moves[members[0]].frame_review
       ? stems.filter((s) => Math.abs(Number(s.stem) - picture) <= REVIEW_SPREAD)
       : stems.filter((s) => {
@@ -200,6 +199,7 @@ export function buildReviewCards({
         ["cnn_pair", "cnn_recovery"].includes(moves[members[0]].decider ?? ""),
       decider: deciders.size === 1 ? (moves[members[0]].decider ?? null) : null,
       duplicate: members.some((i) => missedSans.has(moves[i].san)),
+      covered: moves[members[0]].review_covered ?? null,
       held: next === null ? null : next - frame,
     };
   });

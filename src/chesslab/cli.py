@@ -770,6 +770,7 @@ def realgames_retime(
     moved = ", ".join(f"{p['ply']}:{p['frame_phone']}->{p['frame']}" for p in res["plies"] if p["frame"] != p["frame_phone"])
     print(f"[OK] {res['frames_read']} Frames gelesen, Übereinstimmung {res['agreement']:.2f}, "
           f"{res['moved']} Plies verschoben ({moved or '-'}), ohne Frames: {res['collapsed'] or '-'}"
+          f", Bild mit Hand: {res['covered_pictures'] or '-'}"
           + (f", {res.get('boards', 0)} Review-Bretter" if res['written'] else " (dry run)"))
 
 
@@ -1534,6 +1535,41 @@ def dataset_pack_cmd(
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None
     print(f"[OK] packed '{name}': {res['n']} crops, {res['gb']} GB -> {res['path']}")
+
+
+@dataset_app.command("bake")
+def dataset_bake_cmd(
+    name: str = typer.Argument(..., help="Gepackter Datensatz, dessen Pixel gebacken werden."),
+    out: str = typer.Argument(..., help="Neuer Datensatzname fuer den gebackenen Pack."),
+    model: str | None = typer.Option(None, "--model",
+                                     help="Lauf, dessen config.json die CLAHE-Werte liefert."),
+    clahe_clip: float = typer.Option(0.0, "--clahe-clip", help="Ohne --model: der clip."),
+    clahe_tile: int = typer.Option(8, "--clahe-tile"),
+    clahe_min_mean: float = typer.Option(0.0, "--clahe-min-mean"),
+    clahe_max_mean: float = typer.Option(255.0, "--clahe-max-mean"),
+    clahe_denoise: str = typer.Option("off", "--clahe-denoise"),
+    force: bool = typer.Option(False, "--force", help="Vorhandenen Pack ueberschreiben."),
+) -> None:
+    """CLAHE einmal in die Memmap backen, statt es je Epoche je Crop zu rechnen.
+
+    Nur der FESTE Teil der Kette geht hier hinein; Augmentation bleibt im Loader, sonst saehe das
+    Modell 60 Epochen lang dieselbe Verzerrung. Der Lauf braucht danach kein Flag: `train` liest
+    `packed_meta.json` und laesst den Operator selbst aus (`training/pack_bake.py`)."""
+    import json as _json
+
+    from .training.pack_bake import bake_pack, clahe_params
+
+    if model:
+        cfg = _json.loads((Path(model) / "config.json").read_text(encoding="utf-8"))
+        params = clahe_params(cfg)
+    else:
+        params = {"clip": clahe_clip, "tile": clahe_tile, "min_mean": clahe_min_mean,
+                  "max_mean": clahe_max_mean, "denoise": clahe_denoise}
+    try:
+        bake_pack(name, out, params, force=force)
+    except (ValueError, FileNotFoundError, FileExistsError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from None
 
 
 @dataset_app.command("folds")
