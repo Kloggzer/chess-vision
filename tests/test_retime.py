@@ -60,6 +60,14 @@ def test_the_review_picture_is_the_cleanest_frame_of_the_hold_and_the_entry_fram
     assert (plies[1].frame, plies[1].frame_review) == (12, 12)
 
 
+def test_both_ends_of_a_hold_carry_a_hand_so_the_middle_of_the_clean_run_is_the_picture():
+    frames = list(range(0, 30, 3))
+    # The placing hand leaves after two frames, the next move's hand arrives before the last.
+    covered = [6, 4, 0, 0, 0, 0, 0, 0, 3, 7]
+    path = np.zeros(len(frames), dtype=int)
+    assert review_frames(frames, path, covered) == {0: 15}
+
+
 def test_a_collapsed_ply_borrows_the_next_entered_ply_s_picture():
     frames = [0, 3, 6]
     path = np.array([0, 2, 2])

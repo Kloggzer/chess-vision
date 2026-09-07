@@ -46,7 +46,14 @@ noch im Bild, weil sie die Figur gerade losgelassen hat. Als Label ist das richt
 einen Menschen das schlechteste der ganzen Haltezeit.
 
 `moves[i].frame_review` trennt die beiden: von allen Frames, die der Pfad auf derselben Stellung
-hält, der mit den WENIGSTEN verdeckten Zellen (Coverage über `PIECE_VISIBLE_MAX`), bei Gleichstand
-der späteste. `frames/` wird um diesen Frame ±2 geschrieben, die Karten der Sichtprüfung öffnen
+hält, der MITTLERE unter denen mit den wenigsten verdeckten Zellen (Coverage über
+`PIECE_VISIBLE_MAX`). Beide Enden eines Halts sind schmutzig — vorn die Hand, die gesetzt hat,
+hinten die, die zum nächsten Zug greift. „Der späteste bei Gleichstand" traf deshalb systematisch
+den Frame kurz vor der nächsten Hand: auf 21-29-35 Ply 76 liegen 116 der 124 gelesenen Frames bei
+0 verdeckten Zellen, und der letzte davon ist 3 Frames vor dem Zugriff. `frames/` wird um diesen Frame ±2 geschrieben, die Karten der Sichtprüfung öffnen
 darauf (`review-cards.ts`), und `frame` bleibt unangetastet der Label-Frame. Ein Ply ohne eigene
 Haltezeit (Mehrfach-Commit) erbt das Bild des nächsten, das eine hat.
+
+Die Karten der Sichtprüfung zeigen zu einem retimeten Ply nur noch dessen EIGENE Frames
+(`review-cards.ts`): das alte Fenster reichte bis zum nächsten Commit zurück und trug damit den
+Schwanz der vorigen Stellung mit — ein Schritt zurück zeigte einen anderen Zug.

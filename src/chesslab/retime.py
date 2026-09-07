@@ -86,13 +86,20 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
 
 
 def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> dict[int, int]:
-    """Per position, the frame on the path with the fewest covered cells, the LATEST on a tie: the
-    entry frame is where the piece leaves the hand, the picture for a human is where the hand is gone."""
-    best: dict[int, tuple[int, int]] = {}
+    """Per position, the MIDDLE frame among those with the fewest covered cells.
+
+    A hold begins with the hand that just placed the piece and ends with the hand reaching for the
+    next move, so both edges are dirty and the middle is not. Taking the last clean frame put a
+    hand back into nearly every card (21-29-35 ply 76: 116 frames tie at 0 covered, the last one is
+    3 frames before the next hand)."""
+    runs: dict[int, list[tuple[int, int]]] = {}
     for t, k, c in zip(frames, path, covered, strict=True):
-        if int(k) not in best or c <= best[int(k)][0]:
-            best[int(k)] = (c, t)
-    return {k: t for k, (_, t) in best.items()}
+        runs.setdefault(int(k), []).append((c, t))
+    out = {}
+    for k, seen in runs.items():
+        cleanest = [t for c, t in seen if c == min(c for c, _ in seen)]
+        out[k] = cleanest[len(cleanest) // 2]
+    return out
 
 
 def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: int = STRIDE,

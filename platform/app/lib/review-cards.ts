@@ -59,7 +59,13 @@ export type ReviewCard = {
 /** A hand needs about a second to make a move; a shorter hold is a commit that lagged reality. */
 export const SHORT_HOLD = 15;
 
-function moveSquares(fenBefore: string | undefined, san: string): MoveSquares | null {
+/** How far a retimed card's own frames reach around its picture — `retime.REVIEW_CONTEXT` plus one. */
+const REVIEW_SPREAD = 3;
+
+function moveSquares(
+  fenBefore: string | undefined,
+  san: string,
+): MoveSquares | null {
   if (!fenBefore) return null;
   try {
     const chess = new Chess(fenBefore);
@@ -97,7 +103,8 @@ function groupByFrame(moves: ReviewMove[], indices: number[]): number[][] {
   for (const index of indices) {
     const run = out.at(-1);
     const prev = run?.at(-1);
-    if (run && prev === index - 1 && moves[prev].frame === moves[index].frame) run.push(index);
+    if (run && prev === index - 1 && moves[prev].frame === moves[index].frame)
+      run.push(index);
     else out.push([index]);
   }
   return out;
@@ -107,11 +114,13 @@ function groupByFrame(moves: ReviewMove[], indices: number[]): number[][] {
 function nearestStem(stems: FrameStem[], at: number): FrameStem | null {
   return stems.reduce<FrameStem | null>(
     (best, s) =>
-      best === null || Math.abs(Number(s.stem) - at) < Math.abs(Number(best.stem) - at) ? s : best,
+      best === null ||
+      Math.abs(Number(s.stem) - at) < Math.abs(Number(best.stem) - at)
+        ? s
+        : best,
     null,
   );
 }
-
 
 export function buildReviewCards({
   moves,
@@ -132,7 +141,10 @@ export function buildReviewCards({
   return groupByFrame(moves, indices).map((members) => {
     const frame = moves[members[0]].frame;
     const picture = moves[members[0]].frame_review ?? frame;
-    const before = nearestStem(stems, settledAt ?? Number(stems[0]?.stem ?? frame));
+    const before = nearestStem(
+      stems,
+      settledAt ?? Number(stems[0]?.stem ?? frame),
+    );
     const previous = settledAt;
     settledAt = picture;
     let last = members[members.length - 1];
@@ -143,20 +155,32 @@ export function buildReviewCards({
     // BEFORE a commit — they are the evidence it decided from. Cutting at `frame - 2` dropped
     // them and left the next commit's cluster, so every card showed the position one half-move
     // too far along (14-32-33: commit 238 rendered frame 296, black had already replied).
-    const window = stems.filter((s) => {
-      const n = Number(s.stem);
-      return n > (previous ?? -1) && n < Math.max(until, picture + 3);
-    });
+    // A retimed ply owns exactly the frames written around its picture. The window below was
+    // built for phone-timed sets, where a card had to reach back to find anything at all; with a
+    // picture in the middle of the hold it drags in the PREVIOUS position's tail — stepping back
+    // then shows another move (User, 2026-09-07).
+    const window = moves[members[0]].frame_review
+      ? stems.filter((s) => Math.abs(Number(s.stem) - picture) <= REVIEW_SPREAD)
+      : stems.filter((s) => {
+          const n = Number(s.stem);
+          return n > (previous ?? -1) && n < Math.max(until, picture + 3);
+        });
     const start = window.reduce(
       (best, s, i) =>
-        Math.abs(Number(s.stem) - picture) < Math.abs(Number(window[best].stem) - picture) ? i : best,
+        Math.abs(Number(s.stem) - picture) <
+        Math.abs(Number(window[best].stem) - picture)
+          ? i
+          : best,
       0,
     );
     const plies: ReviewPly[] = members.map((index) => ({
       index,
       ply: moves[index].ply,
       san: moves[index].san,
-      squares: moveSquares(index === 0 ? startFen : moves[index - 1].fen_after, moves[index].san),
+      squares: moveSquares(
+        index === 0 ? startFen : moves[index - 1].fen_after,
+        moves[index].san,
+      ),
     }));
     const owning = members.filter((i) => ownsFrames(moves, i));
     const deciders = new Set(members.map((i) => moves[i].decider ?? null));
