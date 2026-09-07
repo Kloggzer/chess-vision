@@ -171,6 +171,8 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Matt-Zug wieder da (2026-09-07):** die Segmentnaht-Uhr ließ den letzten Zug von 21-12-56 und
+  20-57-45 „hinter dem Video" landen; nach dem Nahtfix neu eingelesen, 54 bzw. 55 Halbzüge.
 - **Sichtprüfung zeigt saubere Bilder (2026-09-07):** `frame_review` je Ply — der am wenigsten
   verdeckte Frame der Haltezeit statt des Eintrittsframes, auf dem die Hand noch liegt; dazu
   „stimmt nicht" je Karte und ein Editor für `reference.pgn` im Confirm.

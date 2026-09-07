@@ -77,3 +77,12 @@ Videoende sind die Fälle, in denen das vorkommt.
 Die Karten der Sichtprüfung zeigen zu einem retimeten Ply nur noch dessen EIGENE Frames
 (`review-cards.ts`): das alte Fenster reichte bis zum nächsten Commit zurück und trug damit den
 Schwanz der vorigen Stellung mit — ein Schritt zurück zeigte einen anderen Zug.
+
+## Der letzte Zug lag hinter der Uhr, nicht hinter dem Video (2026-09-07)
+
+`2026-09-06-21-12-56` und `-20-57-45` verloren ihren Matt-Zug: `phone-candidate` schrieb „1 plies
+after the video's end omitted". Das Matt lag bei Sekunde 969,96 von 970,07 — im Video. Der
+Concat-Decoder addierte an jeder Segmentnaht nur die letzte PTS und verlor je Naht ein
+Frame-Intervall; über 17 Segmente ist das gut eine Sekunde, und damit fiel der letzte Zug hinten
+heraus. Seit dem Nahtfix (`ConcatFrameSource`) sind beide Partien vollständig. **Wer einen
+Kandidaten mit dieser Notiz findet, liest ihn mit dem neuen Binary neu ein.**
