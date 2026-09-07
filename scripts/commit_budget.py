@@ -1,9 +1,9 @@
 """Where a ply's commit latency goes on the PC replay: settle, dispatch, or verify.
 
 Reads the retimed `candidate.json` (truth frame per ply), the `<motiondump>.status.csv` a replay
-writes beside `motiondump=` (engine state per decoded frame) and the replay log (the
-`checking … via CNN` note with its seq, the `state: move -> moving … frame=N` line after each
-commit), and prints per ply: truth → first `waiting` → first dispatch → commit.
+writes beside `motiondump=` (engine state per decoded frame: the first `waiting` after the truth
+frame is the settle) and the replay log (the `checking … via CNN` note with its seq, the score
+table's `run frame` per found ply), and prints per ply: truth → quiet → dispatch → commit.
 
     uv run python scripts/commit_budget.py 2026-09-06-20-27-33 tmp/batch/budget/20-27-33.csv tmp/batch/budget/20-27-33.log
 """
@@ -19,8 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTE = re.compile(r"seq=(\d+) note: checking .* via CNN")
-COMMIT = re.compile(r"chesslabDecision: ply=(\d+) COMMIT")
-STATE = re.compile(r"^state: move -> moving at [\d,.]+s frame=(\d+)")
+FOUND = re.compile(r"^\s+(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)")
 
 
 def main(name: str, dump: str, log: str) -> int:
@@ -30,15 +29,11 @@ def main(name: str, dump: str, log: str) -> int:
     rows = list(csv.DictReader(open(f"{dump}.status.csv", encoding="utf-8")))
     waiting = sorted(int(r["index"]) for r in rows if r["state"] == "waiting")
     dispatches, commits = [], {}
-    pending_ply = None
     for line in open(log, encoding="utf-8", errors="replace"):
         if m := NOTE.search(line):
             dispatches.append(int(m.group(1)))
-        elif m := COMMIT.search(line):
-            pending_ply = int(m.group(1))
-        elif pending_ply is not None and (m := STATE.match(line)):
-            commits[pending_ply] = int(m.group(1))
-            pending_ply = None
+        elif m := FOUND.match(line):
+            commits[int(m.group(2))] = int(m.group(3))
     dispatches.sort()
 
     def first_at_or_after(seq: list[int], frame: int) -> int | None:
@@ -49,14 +44,12 @@ def main(name: str, dump: str, log: str) -> int:
     parts: dict[str, list[float]] = {"settle": [], "dispatch": [], "verify": [], "total": []}
     for m in plies:
         t = m["frame"]
-        c = commits.get(m["ply"])
-        if c is None or c < t:
-            continue
+        c = commits.get(t)
         q = first_at_or_after(waiting, t)
         d = first_at_or_after(dispatches, t)
-        if q is None or d is None or q > c:
+        if c is None or q is None or d is None or q > c:
             continue
-        d = min(d, c)
+        d = min(max(d, q), c)
         s, dd, v, tot = (q - t) / fps, (d - q) / fps, (c - d) / fps, (c - t) / fps
         for k, val in zip(parts, (s, dd, v, tot), strict=True):
             parts[k].append(val)
