@@ -9,6 +9,8 @@ export type ReviewMove = {
   ply: number;
   san: string;
   frame: number;
+  /** Retime's cleanest held frame — the picture; `frame` stays the label frame the position entered on. */
+  frame_review?: number;
   decider?: string;
   fen_after?: string;
 };
@@ -129,9 +131,10 @@ export function buildReviewCards({
   let settledAt: number | null = null;
   return groupByFrame(moves, indices).map((members) => {
     const frame = moves[members[0]].frame;
+    const picture = moves[members[0]].frame_review ?? frame;
     const before = nearestStem(stems, settledAt ?? Number(stems[0]?.stem ?? frame));
     const previous = settledAt;
-    settledAt = frame;
+    settledAt = picture;
     let last = members[members.length - 1];
     while (moves[last + 1]?.frame === frame) last++;
     const next = moves[last + 1]?.frame ?? null;
@@ -142,11 +145,11 @@ export function buildReviewCards({
     // too far along (14-32-33: commit 238 rendered frame 296, black had already replied).
     const window = stems.filter((s) => {
       const n = Number(s.stem);
-      return n > (previous ?? -1) && n < Math.max(until, frame + 3);
+      return n > (previous ?? -1) && n < Math.max(until, picture + 3);
     });
     const start = window.reduce(
       (best, s, i) =>
-        Math.abs(Number(s.stem) - frame) < Math.abs(Number(window[best].stem) - frame) ? i : best,
+        Math.abs(Number(s.stem) - picture) < Math.abs(Number(window[best].stem) - picture) ? i : best,
       0,
     );
     const plies: ReviewPly[] = members.map((index) => ({

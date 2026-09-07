@@ -236,3 +236,16 @@ test("a card says how long its position stood, and the last one does not know", 
   const cards = buildReviewCards({ moves, indices: [0, 1, 2], stems: stems(289, 291, 295, 300) });
   expect(cards.map((c) => c.held)).toEqual([4, null]);
 });
+
+test("a retimed move opens on its review picture, not on the frame the position entered", () => {
+  const moves: ReviewMove[] = [
+    { ply: 1, san: "e4", frame: 100, frame_review: 130 },
+    { ply: 2, san: "e5", frame: 200, frame_review: 240 },
+  ];
+  const cards = buildReviewCards({ moves, indices: [0, 1], stems: stems(98, 99, 100, 129, 130, 131, 199, 200, 239, 240, 241) });
+  expect(cards[0].frame).toBe(100);
+  expect(cards[0].stems[cards[0].start].stem).toBe("000130");
+  expect(cards[1].stems[cards[1].start].stem).toBe("000240");
+  // The previous card's picture is where this move started from.
+  expect(cards[1].before?.stem).toBe("000130");
+});

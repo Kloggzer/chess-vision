@@ -171,6 +171,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Sichtprüfung zeigt saubere Bilder (2026-09-07):** `frame_review` je Ply — der am wenigsten
+  verdeckte Frame der Haltezeit statt des Eintrittsframes, auf dem die Hand noch liegt; dazu
+  „stimmt nicht" je Karte und ein Editor für `reference.pgn` im Confirm.
 - **Commit-Latenz (2026-09-07):** die halbe Sekunde am PC ist Hand-Nachlauf plus 0,2 s Hold; weniger
   Hold macht Phantome bei 30 fps, weniger Settle-Frames ändern nichts. Das Handy liegt auf der
   Video-Uhr 0,06–0,3 s hinter dem PC, nicht 2–3× (Decoder-Nahtfehler, `docs/commit-latency.md`).

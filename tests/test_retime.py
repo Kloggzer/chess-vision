@@ -1,6 +1,6 @@
 import numpy as np
 
-from chesslab.retime import ADVANCE_COST, refused, retime_plies, viterbi, windows
+from chesslab.retime import ADVANCE_COST, refused, retime_plies, review_frames, viterbi, windows
 
 
 def _emissions(truth: list[int], K: int, strength: float = 10.0) -> np.ndarray:
@@ -47,3 +47,21 @@ def test_a_few_weak_plies_do_not_refuse_a_game_but_many_do():
     assert not refused(weak=[39, 62, 64], entered=99)
     assert refused(weak=list(range(25)), entered=99)
     assert refused(weak=[], entered=0)
+
+
+def test_the_review_picture_is_the_cleanest_frame_of_the_hold_and_the_entry_frame_stays():
+    frames = [0, 3, 6, 9, 12]
+    path = np.array([0, 1, 1, 1, 2])
+    covered = [0, 8, 2, 2, 5]
+    review = review_frames(frames, path, covered)
+    assert review == {0: 0, 1: 9, 2: 12}
+    plies = retime_plies(frames, path, phone=[3, 12], review=review)
+    assert (plies[0].frame, plies[0].frame_review) == (3, 9)
+    assert (plies[1].frame, plies[1].frame_review) == (12, 12)
+
+
+def test_a_collapsed_ply_borrows_the_next_entered_ply_s_picture():
+    frames = [0, 3, 6]
+    path = np.array([0, 2, 2])
+    plies = retime_plies(frames, path, phone=[2, 5], review=review_frames(frames, path, [0, 3, 1]))
+    assert (plies[0].held, plies[0].frame, plies[0].frame_review) == (0, 3, 6)

@@ -46,6 +46,8 @@ class Retimed:
     frame: int
     held: int
     margin: float | None = None
+    #: The cleanest frame the position was held on — the review picture, never the label frame.
+    frame_review: int | None = None
 
 
 def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = ADVANCE_COST) -> np.ndarray:
@@ -83,7 +85,18 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
     return path
 
 
-def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: int = STRIDE) -> list[Retimed]:
+def review_frames(frames: list[int], path: np.ndarray, covered: list[int]) -> dict[int, int]:
+    """Per position, the frame on the path with the fewest covered cells, the LATEST on a tie: the
+    entry frame is where the piece leaves the hand, the picture for a human is where the hand is gone."""
+    best: dict[int, tuple[int, int]] = {}
+    for t, k, c in zip(frames, path, covered, strict=True):
+        if int(k) not in best or c <= best[int(k)][0]:
+            best[int(k)] = (c, t)
+    return {k: t for k, (_, t) in best.items()}
+
+
+def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: int = STRIDE,
+                 review: dict[int, int] | None = None) -> list[Retimed]:
     """Entry frame and hold per ply from the path; a ply never entered collapses into the next held one."""
     out = []
     entries: dict[int, int] = {}
@@ -92,9 +105,11 @@ def retime_plies(frames: list[int], path: np.ndarray, phone: list[int], stride: 
         entries.setdefault(int(k), t)
         held[int(k)] = held.get(int(k), 0) + stride
     for k in range(1, len(phone) + 1):
-        later = next((entries[j] for j in range(k, len(phone) + 1) if j in entries), None)
-        frame = later if later is not None else phone[k - 1]
-        out.append(Retimed(ply=k, frame_phone=phone[k - 1], frame=frame, held=held.get(k, 0)))
+        entered = next((j for j in range(k, len(phone) + 1) if j in entries), None)
+        frame = entries[entered] if entered is not None else phone[k - 1]
+        picture = (review or {}).get(entered) if entered is not None else None
+        out.append(Retimed(ply=k, frame_phone=phone[k - 1], frame=frame, held=held.get(k, 0),
+                           frame_review=picture if picture is not None else frame))
     return out
 
 
@@ -169,6 +184,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     hi = max(hi, phone[-1] + int(FWD_S * fps))
     sampled: list[int] = []
     rows: list[np.ndarray] = []
+    covered: list[int] = []
     pending: list[tuple[int, list[np.ndarray]]] = []
     told = 0
 
@@ -176,7 +192,9 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         # One frame per call: the exported graph takes a batch of exactly 64 (`model.onnx`).
         for idx, cells in pending:
             sampled.append(idx)
-            rows.append(_emission(all_reads(model_dir, cells, device=device), targets, COVERED_MAX))
+            reads = all_reads(model_dir, cells, device=device)
+            rows.append(_emission(reads, targets, COVERED_MAX))
+            covered.append(sum(r.get("coverage", 0.0) > PIECE_VISIBLE_MAX for r in reads))
         pending.clear()
 
     for idx, frame in Recording(video).frames(start=lo):
@@ -200,7 +218,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     emissions = np.stack(rows)
     allowed = np.array([[w[0] <= t <= w[1] for w in win] for t in sampled])
     path = viterbi(emissions, allowed)
-    plies = retime_plies(sampled, path, phone, stride)
+    plies = retime_plies(sampled, path, phone, stride, review_frames(sampled, path, covered))
     agreement = _agreement(emissions, sampled, plies)
     result = {
         "name": name,
@@ -254,6 +272,7 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         move["frame"] = p.frame
         move["t"] = round(p.frame / fps, 3)
         move["held"] = p.held
+        move["frame_review"] = p.frame_review
         if p.margin is not None:
             move["margin"] = p.margin
     candidate.setdefault("source", {})["retime"] = {
@@ -272,7 +291,7 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
 
 def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_of: list, profile,
                   pad: int, encode: list) -> int:
-    """The rectified board at every ply's frame ±REVIEW_CONTEXT, replacing the phone-timed set."""
+    """The rectified board at every ply's review frame ±REVIEW_CONTEXT, replacing the phone-timed set."""
     from .calibration import warp_padded
     from .recording import Recording
 
@@ -282,7 +301,7 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     wanted: dict[int, int] = {}
     for i, p in enumerate(plies):
         for k in range(-REVIEW_CONTEXT, REVIEW_CONTEXT + 1):
-            wanted.setdefault(p.frame + k, i)
+            wanted.setdefault((p.frame_review if p.frame_review is not None else p.frame) + k, i)
     size = profile.board_size
     written = 0
     last = max(wanted)
