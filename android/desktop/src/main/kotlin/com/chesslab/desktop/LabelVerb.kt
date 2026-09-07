@@ -53,8 +53,9 @@ internal class ReplayPlan(
         quad: FloatArray,
         boardSize: Int,
         fps: Double,
+        indexNow: () -> Int,
         status: () -> TrackerStatus?,
-    ): LabelSession = LabelSession(labelRun, scoreCandidate, framesDir, quad, boardSize, fps, status, timeline)
+    ): LabelSession = LabelSession(labelRun, scoreCandidate, framesDir, quad, boardSize, fps, status, timeline, indexNow)
 }
 
 internal fun replayPlanFor(
@@ -193,8 +194,9 @@ internal class LabelSession(
     fps: Double,
     private val status: () -> TrackerStatus?,
     private val timeline: PlyTimeline?,
+    indexNow: () -> Int = { -1 },
 ) {
-    val collector = DecisionCollector(fps, { status()?.alarm?.kind }) { status()?.corners }
+    val collector = DecisionCollector(fps, { status()?.alarm?.kind }, { status()?.corners }, indexNow)
 
     // Plain board, no verdict tints: these are what a human judges the move on, and the engine's
     // opinion painted over the picture is the one thing that must not steer that judgement.

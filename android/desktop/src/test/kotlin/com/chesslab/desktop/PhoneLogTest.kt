@@ -69,6 +69,28 @@ class PhoneLogTest {
         assertEquals(listOf("e4", "e5"), marks.map { it.san })
     }
 
+    /** 16-20-19: the record restarts after a seam; the marks must follow the second segment's start. */
+    @Test
+    fun `a record with a seam is walked segment by segment`(
+        @TempDir dir: File,
+    ) {
+        val start = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        val rebuilt = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+        val file = File(dir, "g.json")
+        file.writeText(
+            """{"id":"g","startFen":"$start","startedAtEpochMs":0,"finishedAtEpochMs":0,"profileName":"p","result":"*","sessionId":"x",""" +
+                """"moves":[{"ply":1,"san":"e4","uci":"e2e4","tsEpochMs":1000},{"ply":3,"san":"Nf3","uci":"g1f3","tsEpochMs":3000}],""" +
+                """"segments":[{"startFen":"$start","moves":[{"ply":1,"san":"e4","uci":"e2e4","tsEpochMs":1000}]},""" +
+                """{"startFen":"$rebuilt","moves":[{"ply":3,"san":"Nf3","uci":"g1f3","tsEpochMs":3000}]}]}""",
+        )
+
+        val marks = gameMarks(file, preRollMs = 500.0)!!
+
+        assertEquals(listOf(1, 3), marks.map { it.ply })
+        assertEquals(listOf(500.0, 2500.0), marks.map { it.videoMs })
+        assertEquals("rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2", marks[1].fen)
+    }
+
     @Test
     fun `prefers the game record, which keeps the ply whose photo was superseded`(
         @TempDir dir: File,

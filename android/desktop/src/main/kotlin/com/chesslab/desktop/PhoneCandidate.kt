@@ -176,8 +176,15 @@ internal class PhoneFrameClock(
 ) {
     val size: Int get() = timestampsMs.size
 
-    /** First index at or after [videoMs]; null past the end. */
-    fun indexAt(videoMs: Double): Int? = timestampsMs.indexOfFirst { it >= videoMs }.takeIf { it >= 0 }
+    /** First index at or after [videoMs]; the last one within a frame interval past the end (a mate
+     *  0.3 s before the recorder stopped, 2026-09-06-20-57-45); null further out. */
+    fun indexAt(videoMs: Double): Int? {
+        val hit = timestampsMs.indexOfFirst { it >= videoMs }
+        if (hit >= 0) return hit
+        val last = timestampsMs.lastOrNull() ?: return null
+        val interval = if (timestampsMs.size > 1) last - timestampsMs[timestampsMs.size - 2] else 0.0
+        return if (videoMs <= last + interval) timestampsMs.size - 1 else null
+    }
 }
 
 /**
@@ -443,11 +450,13 @@ internal fun phonePlan(
 
     val rulesUsed = LinkedHashSet<TimeRule>()
     val plies = placeSegment(startFen, moves, PhoneClock(rows), frames, rulesUsed)
+    val afterEnd = moves.size - plies.size
+    val notes = listOfNotNull(note, afterEnd.takeIf { it > 0 }?.let { "$it plies after the video's end omitted" })
     return PhonePlan(
         sid = sid,
         gameId = game?.id,
         startFen = startFen,
-        note = note,
+        note = notes.joinToString("; ").ifEmpty { null },
         rule = rulesUsed.joinToString("|") { it.name.lowercase() },
         plies = plies,
     )
@@ -536,10 +545,13 @@ private fun placeSegment(
         afterNs = hit.first
         rulesUsed += hit.second
         val videoMs = clock.videoMs(hit.first)
-        val frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET)
-        if (frame == null || frame < 0) throw PhoneRefusal("ply ${row.ply} lands outside the video")
+        // Past the end the recorder stopped before the game did: the plies from here on have no
+        // frame to be labeled with, and the ones before them are still worth every frame they have.
+        val frame = frames.indexAt(videoMs)?.plus(PHONE_FRAME_OFFSET) ?: break
+        if (frame < 0) throw PhoneRefusal("ply ${row.ply} lands before the video")
         plies += PlyMark(row.ply, row.san, row.uci, fenAfter, videoMs, clock.cornersAt(hit.first)).committed(frame, videoMs)
     }
+    if (plies.isEmpty()) throw PhoneRefusal("every ply lands outside the video")
     return plies
 }
 

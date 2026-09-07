@@ -51,6 +51,8 @@ internal class DecisionCollector(
     private val fps: Double,
     private val alarmKind: () -> String?,
     private val cornersNow: () -> FloatArray? = { null },
+    /** The decoded frame index at the commit; -1 falls back to the clock (`t × fps`), which drifts on VFR footage. */
+    private val indexNow: () -> Int = { -1 },
 ) {
     val plies = mutableListOf<CommittedPly>()
 
@@ -68,7 +70,7 @@ internal class DecisionCollector(
                 ply = plies.size + 1,
                 san = row.san!!,
                 uci = row.uci!!,
-                frame = (row.tsS * fps).roundToInt() - 1,
+                frame = indexNow().takeIf { it >= 0 } ?: ((row.tsS * fps).roundToInt() - 1),
                 t = row.tsS,
                 decider = row.decider,
                 alarm = alarmKind(),

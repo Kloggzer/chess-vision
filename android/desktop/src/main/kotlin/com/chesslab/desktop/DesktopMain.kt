@@ -1,6 +1,7 @@
 package com.chesslab.desktop
 
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
@@ -408,7 +409,7 @@ internal fun replayRun(
         val frameClock = FrameClock(source, live = camera != null)
         // The label's plies and the score's run come off the decision sink — streaming, one row
         // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
-        val session = plan?.session(quad, geometry.boardSize, source.fps) { publisher.status.value }
+        val session = plan?.session(quad, geometry.boardSize, source.fps, { source.currentDecodedIndex.toInt() }) { publisher.status.value }
         training?.configure(geometry, quad, source.fps)
         // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
         // constructor argument and does not expose it, and widening a shared seam for one host's
@@ -519,6 +520,7 @@ internal fun replayRun(
                 scope,
                 settings,
                 session?.collector,
+                indexNow = { source.currentDecodedIndex },
                 live = camera != null,
                 visualCache = visualCache,
                 markerPrepass = markerPrepass,
@@ -530,6 +532,8 @@ internal fun replayRun(
                 startFen = recordedStartFen(options, video),
                 cropClahe = cropClaheOf(spec),
             )
+        // The status dump beside `motiondump=` reads the engine's debug payload, which is off by default.
+        if (options.motionDump != null) stack.host.submit(EngineAction.SetDebugEnabled(true))
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
         val frameHook: ((Int, Mat, Double) -> Unit)? =
             if (session == null && training == null) {
@@ -540,7 +544,15 @@ internal fun replayRun(
                     training?.frame(index, frame, publisher.status.value, timeMs)
                 }
             }
-        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride, recorded)
+        // Beside the ROI dump: the engine's own verdict per frame, so a settle delay can be read off.
+        val statusDump =
+            options.motionDump?.let {
+                File(
+                    "$it.status.csv",
+                ).bufferedWriter().apply { write("frame,index,state,motion,stuck\n") }
+            }
+        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride, recorded, statusDump)
+        statusDump?.close()
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
         // the engine's own `cnnSnaps` counts what arrived. Two numbers, one seam between them.
@@ -629,6 +641,8 @@ private fun buildStack(
     scope: CoroutineScope,
     settings: SettingsRepository,
     collector: DecisionCollector? = null,
+    /** The decoded frame under the engine right now (-1 live) — printed beside every state change. */
+    indexNow: () -> Long = { -1L },
     live: Boolean = false,
     visualCache: VisualObservationCache? = null,
     markerPrepass: AlignmentMarkerPrepass? = null,
@@ -659,7 +673,10 @@ private fun buildStack(
             // The frame loop's own account of where a move's latency went, on the video clock. The
             // phone writes the same transitions into its diagnostics file; here they go to stdout
             // beside the decisions, which is what makes a replay's timeline readable end to end.
-            onState = { from, to, tsS -> println("state: %s -> %s at %.2fs".format(from, to, tsS)) },
+            onState = { from, to, tsS ->
+                val index = indexNow()
+                println("state: %s -> %s at %.2fs".format(from, to, tsS) + if (index >= 0) " frame=$index" else "")
+            },
             logs = logs,
             stages = { geo, cfg, store, frameBus, boardBus ->
                 motionDumped(OpenCvStages({ it }, {}, geo, cfg, store, frameBus, boardBus, optics), motionDump)
@@ -717,6 +734,7 @@ private fun drive(
     // Die Frames, die das TELEFON sah. Ist sie da, gilt sie und [stride] ruht — ein Replay, der
     // andere Bilder waehlt als die Messung, ist keine Reproduktion (`TODO.md`).
     recorded: RecordedFrameGate? = null,
+    statusDump: java.io.Writer? = null,
 ): Int {
     var frames = 0
     var strideDropped = 0
@@ -741,6 +759,10 @@ private fun drive(
         stack.coordinator.onFrame(frame, source.delivered)
         frameHook?.invoke(hookIndex(source.currentDecodedIndex, frames), frame, source.timestampMs)
         frames += 1
+        statusDump?.let { out ->
+            val st = publisher.status.value
+            out.write("$frames,${source.currentDecodedIndex},${st?.state},${st?.debug?.motion},${st?.stuckReason ?: ""}\n")
+        }
         view?.show(bus.boardPreview.value, publisher.status.value)
         if (dumpEvery > 0 && frames % dumpEvery == 0) {
             dumpBoard(frames, bus.boardPreview.value, publisher.status.value)

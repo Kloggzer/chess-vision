@@ -126,26 +126,40 @@ internal fun gameMarks(
 ): List<PlyMark>? {
     if (game == null || !game.isFile) return null
     val root = Json.parseToJsonElement(game.readText()) as JsonObject
-    val moves = root["moves"]?.jsonArray?.map { it.jsonObject }?.takeIf { it.isNotEmpty() } ?: return null
-    val board = Board().apply { loadFromFen(root.getValue("startFen").jsonPrimitive.content) }
-    val first = moves.first().text("tsEpochMs").toDouble()
-    return moves.map { row ->
-        val uci = row.text("uci")
-        // See TrainingVideoPack: `doMove`'s return value is not a legality check at any
-        // validation level, so the generator has to be asked.
-        val move = Move(uci, board.sideToMove)
-        val before = board.fen
-        require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
-            "game record has an illegal move $uci at ply ${row.text("ply")} in $before"
+    // Segment by segment: after a seam the record restarts from a rebuilt position, and walking
+    // its moves onto the previous board refused every phone recording with a seam (16-20-19).
+    val segments =
+        (root["segments"] as? JsonArray)?.map { it.jsonObject }?.takeIf { it.isNotEmpty() }
+            ?: listOf(root)
+    val first =
+        segments
+            .firstOrNull()
+            ?.get("moves")
+            ?.jsonArray
+            ?.firstOrNull()
+            ?.jsonObject
+            ?.text("tsEpochMs")
+            ?.toDouble() ?: return null
+    return segments.flatMap { segment ->
+        val board = Board().apply { loadFromFen(segment.getValue("startFen").jsonPrimitive.content) }
+        segment.getValue("moves").jsonArray.map { it.jsonObject }.map { row ->
+            val uci = row.text("uci")
+            // See TrainingVideoPack: `doMove`'s return value is not a legality check at any
+            // validation level, so the generator has to be asked.
+            val move = Move(uci, board.sideToMove)
+            val before = board.fen
+            require(MoveGenerator.generateLegalMoves(board).any { it.toString() == move.toString() }) {
+                "game record has an illegal move $uci at ply ${row.text("ply")} in $before"
+            }
+            board.doMove(move)
+            PlyMark(
+                ply = row.text("ply").toInt(),
+                san = row.text("san"),
+                uci = uci,
+                fen = board.fen,
+                videoMs = preRollMs + (row.text("tsEpochMs").toDouble() - first),
+            )
         }
-        board.doMove(move)
-        PlyMark(
-            ply = row.text("ply").toInt(),
-            san = row.text("san"),
-            uci = uci,
-            fen = board.fen,
-            videoMs = preRollMs + (row.text("tsEpochMs").toDouble() - first),
-        )
     }
 }
 

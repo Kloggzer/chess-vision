@@ -90,7 +90,25 @@ class PhoneCandidateTest {
         val clock = PhoneFrameClock(listOf(0.0, 33.3, 66.7))
 
         assertEquals(2, clock.indexAt(40.0))
-        assertNull(clock.indexAt(100.0))
+        assertNull(clock.indexAt(120.0))
+    }
+
+    @Test
+    fun `the last frame stands for a ply within one interval past the end, further plies are omitted`() {
+        val clock = PhoneFrameClock(listOf(0.0, 33.3, 66.7))
+        assertEquals(2, clock.indexAt(90.0), "one interval past the last frame is still that frame")
+        assertNull(clock.indexAt(120.0), "further out there is no frame")
+
+        val dir = bundle("after-end", games = emptyMap())
+        File(dir, "files/sessions/x/timeline.jsonl").writeText(TIMELINE + DECISIONS + LATE_DECISION)
+        val candidate = Json.parseToJsonElement(buildPhoneCandidate(dir, false, SPEC, SCAN, FRAMES).readText()).jsonObject
+        assertEquals(3, candidate.getValue("moves").jsonArray.size, "the ply after the video's end is not a frame")
+        assertTrue(
+            candidate
+                .getValue("note")
+                .jsonPrimitive.content
+                .contains("1 plies after the video's end omitted"),
+        )
     }
 
     @Test
@@ -293,6 +311,11 @@ class PhoneCandidateTest {
             ).joinToString("\n") + "\n"
 
         const val AFTER_NF3 = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"
+
+        /** Ply 4, accepted 20 s after the last frame row — the recorder had stopped. */
+        private val LATE_DECISION =
+            """{"kind":"decision","elapsedNs":21000000000,"ply":4,"accepted":true,"san":"Nc6","uci":"b8c6","fenBefore":"$AFTER_NF3"}""" +
+                "\n"
 
         /** Ply 2 has no decision row (a pair commit writes one for the second ply only). */
         private val DECISIONS =
