@@ -19,11 +19,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Handy gegen PC auf demselben Video: 0,1–0,3 s Rückstand, nicht 2–3×** (2026-09-07). Der Decoder
-  verlor je Segmentnaht ein Frame-Intervall, `frame_phone` wanderte über die Partie um bis zu 19
-  Frames; korrigiert liegt 21-29-35 bei 0,73 gegen 0,67 s, 20-27-33 bei 0,80 gegen 0,51 s. Der
-  Rest sitzt in der Rundreise des Observers (erster Blick unbrauchbar, `VerifySingle` seq-Gate);
-  die Timeline trägt jetzt den Motion-Score je Frame, die nächste Partie misst den Settle-Anteil.
+- **Observer-Rundreise am Handy (0,1–0,3 s je Zug):** eine Beobachtung aus der Ruhephase vor dem
+  Kandidaten annehmen statt eine nach `pend.seq` zu verlangen; nur am Gerät messbar, Veto-Risiko
+  ist die Hand unter der Bewegungsschwelle (`docs/commit-latency.md`).
 - **Bewegtes Brett: gemessen, Rest offen.** `scripts/bump_replay.py` (2026-09-06) schiebt eine
   Aufnahme ab Frame N um dx/dy und spielt Kontroll- und Sprunglauf durch: 11-55-19 mit 20/8 px ab
   700 → 15/0/0 in beiden, ein Zug 68 Frames später, das Brett des Trackers danach 0,017–0,034
@@ -173,6 +171,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- **Commit-Latenz (2026-09-07):** die halbe Sekunde am PC ist Hand-Nachlauf plus 0,2 s Hold; weniger
+  Hold macht Phantome bei 30 fps, weniger Settle-Frames ändern nichts. Das Handy liegt auf der
+  Video-Uhr 0,06–0,3 s hinter dem PC, nicht 2–3× (Decoder-Nahtfehler, `docs/commit-latency.md`).
 - **Verify-Schleifen (2026-09-07):** ein abgelehnter Kandidat geht sofort an die Recovery statt im
   nächsten Bild wiederzukommen; Regressionssatz 0 Phantome, Commit-Latenz max 35,2 → 4,7 s bei
   Median 0,47 → 0,53 s (`docs/verifier-stall.md` §4).
