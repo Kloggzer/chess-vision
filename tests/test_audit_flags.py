@@ -202,3 +202,75 @@ def test_a_later_ledger_retracts_an_earlier_one(tmp_path):
     corrections.write_text(json.dumps({**row, "retract": True}) + "\n", encoding="utf-8")
     assert mod.ledger_labels(reviewed) == {("rg-g", "001", "a1"): "occluded"}
     assert mod.ledger_labels(reviewed, corrections) == {}
+
+
+# --- Klassen, die das Modell gar nicht ausgibt (gefunden 2026-09-08) --------------------------
+
+def test_a_class_the_model_cannot_output_never_wins():
+    """Ein Label aus dem Ledger, fuer das das Modell keine Einheit hat — `occluded` aus der Zeit,
+    als Verdeckung von Hand gemalt wurde — bekommt aus Gleichung 2 die Schwelle 0, weil seine
+    mittlere Selbstsicherheit null IST. Danach besteht es auf JEDER Zelle, ohne je eine Aussage
+    gewesen zu sein: 3 548 von 9 807 Flags, alle mit prob 0.0."""
+    thresholds = {"wP": 0.9, "empty": 0.9, "occluded": 0.0}
+    probs = {"wP": 0.2, "empty": 0.3}
+    # Ohne die Klassenliste gewinnt `occluded` mit Wahrscheinlichkeit 0.0.
+    assert confident_class(probs, thresholds) == "occluded"
+    # Mit ihr faellt es raus und nichts besteht die Schwelle.
+    known = {"empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK"}
+    assert confident_class(probs, thresholds, known) is None
+
+
+def test_a_known_class_still_wins_normally():
+    """Der Filter darf nur die unbekannte Klasse kosten, nicht die Aussage."""
+    thresholds = {"wP": 0.5, "empty": 0.5, "occluded": 0.0}
+    probs = {"wP": 0.95, "empty": 0.1}
+    known = {"wP", "empty"}
+    assert confident_class(probs, thresholds, known) == "wP"
+    assert confident_class(probs, thresholds) == "wP"
+
+
+def test_session_flags_drops_the_unknown_class():
+    """Der echte Fall: das Label hat eine HOHE Schwelle (Gleichung 2 mittelt ueber alle wP-Zellen)
+    und faellt auf DIESER Zelle durch. Dann besteht nur noch `occluded` mit 0.0 — eine Klasse,
+    fuer die das Modell keine Einheit hat, deren Schwelle deshalb 0 ist."""
+    rows = [
+        # Beurteilt und `occluded` gelabelt: bringt die Klasse mit Schwelle 0 herein.
+        {"session_id": "rg-x", "frame": "000003", "square": "c3", "fen_label": "empty",
+         "probs": {"empty": 0.9}},
+        # Zwei wP-Zellen: die sichere hebt die Schwelle, die unsichere faellt durch.
+        {"session_id": "rg-x", "frame": "000001", "square": "a1", "fen_label": "wP",
+         "probs": {"wP": 0.9}},
+        {"session_id": "rg-x", "frame": "000002", "square": "b2", "fen_label": "wP",
+         "probs": {"bN": 0.4}},
+    ]
+    judged = {("rg-x", "000003", "c3"): "occluded"}
+    with_all = session_flags(rows, judged, model="m", ts="t")
+    with_known = session_flags(rows, judged, model="m", ts="t",
+                               classes=["empty", "wP", "wN", "wB", "wR", "wQ", "wK",
+                                        "bP", "bN", "bB", "bR", "bQ", "bK"])
+    bad = [f for f in with_all if f["predicted"] == "occluded"]
+    assert bad, "Vorbedingung: der Defekt tritt auf"
+    assert all(f["prob"] == 0.0 for f in bad), "und zwar mit Wahrscheinlichkeit null"
+    assert not any(f["predicted"] == "occluded" for f in with_known)
+
+
+def test_the_models_coverage_rides_along_as_a_second_opinion():
+    """Die 14. Spalte ist ein eigener Sigmoid, keine Klasse. Das Mass bleibt die Matte
+    (`--visible`); dies ist die zweite Meinung, wo SAM eine Hand uebersehen hat."""
+    rows = [
+        # Eine bQ-gelabelte Zelle, damit bQ ueberhaupt eine Schwelle bekommt.
+        {"session_id": "rg-x", "frame": "000002", "square": "b2", "fen_label": "bQ",
+         "probs": {"bQ": 0.9}, "cov": 0.01},
+        # Die Zelle, die auffliegt: FEN sagt wP, das Modell sagt sicher bQ.
+        {"session_id": "rg-x", "frame": "000001", "square": "a1", "fen_label": "wP",
+         "probs": {"bQ": 0.99}, "cov": 0.87},
+    ]
+    got = [f for f in session_flags(rows, {}, model="m", ts="t", classes=["wP", "bQ"])
+           if f["square"] == "a1"]
+    assert got and got[0]["model_cov"] == 0.87
+    # Ohne `cov` in der Lesart taucht das Feld gar nicht erst auf.
+    for r in rows:
+        r.pop("cov")
+    bare = [f for f in session_flags(rows, {}, model="m", ts="t", classes=["wP", "bQ"])
+            if f["square"] == "a1"]
+    assert bare and "model_cov" not in bare[0]

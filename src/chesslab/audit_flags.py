@@ -28,8 +28,8 @@ def ledger_labels(*paths: Path) -> dict[Cell, str]:
     return out
 
 
-def read_proposals(path: Path) -> tuple[str | None, list[dict]]:
-    """The model that wrote `model-reads.jsonl`, and every row that carries `probs`.
+def read_proposals(path: Path) -> tuple[str | None, list[dict], list[str]]:
+    """The model that wrote `model-reads.jsonl`, every row carrying `probs`, and its CLASSES.
 
     Reads the old `_thresholds` header too: a session whose reads predate `realgames model-read`
     still audits, it just came from a producer that also guessed at occlusion.
@@ -38,11 +38,12 @@ def read_proposals(path: Path) -> tuple[str | None, list[dict]]:
     with Path(path).open(encoding="utf-8") as fh:
         head = json.loads(fh.readline() or "{}")
         model = head.get("_model") or head.get("_thresholds", {}).get("model")
+        classes = list(head.get("_classes") or [])
         for line in fh:
             row = json.loads(line)
             if "probs" in row:
                 rows.append(row)
-    return model, rows
+    return model, rows, classes
 
 
 def class_thresholds(cells: list[tuple[str, dict[str, float]]]) -> dict[str, float]:
@@ -59,17 +60,20 @@ def class_thresholds(cells: list[tuple[str, dict[str, float]]]) -> dict[str, flo
     return {label: total[label] / count[label] for label in count}
 
 
-def confident_class(probs: dict[str, float], thresholds: dict[str, float]) -> str | None:
+def confident_class(probs: dict[str, float], thresholds: dict[str, float],
+                    known: set[str] | None = None) -> str | None:
     """Eqn. 1: the argmax over the classes that reach their own threshold, `None` if none does.
 
     The given label competes in that argmax — dropping it would flag every cell where any other
-    class passes, which is the argmax baseline the thresholds exist to beat.
+    class passes. `known` bounds it to what the MODEL outputs (`docs/audit-classes.md`).
     """
-    passing = [(probs.get(c, 0.0), c) for c, t in thresholds.items() if probs.get(c, 0.0) >= t]
+    items = thresholds.items() if known is None else [(c, t) for c, t in thresholds.items() if c in known]
+    passing = [(probs.get(c, 0.0), c) for c, t in items if probs.get(c, 0.0) >= t]
     return max(passing)[1] if passing else None
 
 
-def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: str) -> list[dict]:
+def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: str,
+                  classes: list[str] | None = None) -> list[dict]:
     """Every undecided cell of one session whose confident class differs from its label of record.
 
     A decided cell still carries the thresholds — Eqn. 2 is estimated over all labels, and the
@@ -78,8 +82,9 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
     labels = [judged.get((r["session_id"], r["frame"], r["square"]), r["fen_label"]) for r in rows]
     thresholds = class_thresholds(list(zip(labels, (r["probs"] for r in rows), strict=True)))
     flags = []
+    known = set(classes) if classes else None
     for row, label in zip(rows, labels, strict=True):
-        predicted = confident_class(row["probs"], thresholds)
+        predicted = confident_class(row["probs"], thresholds, known)
         if predicted is None or predicted == label:
             continue
         if (row["session_id"], row["frame"], row["square"]) in judged:
@@ -92,6 +97,9 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
             "fen_label": row["fen_label"],
             "predicted": predicted,
             "prob": round(prob, 4),
+            # Die 14. Spalte des Modells — ein EIGENER Sigmoid, keine Klasse. Die Matte bleibt
+            # das Mass (`--visible`); dies ist die zweite Meinung, wo SAM eine Hand uebersah.
+            **({"model_cov": row["cov"]} if row.get("cov") is not None else {}),
             "margin": round(prob - row["probs"].get(label, 0.0), 4),
             "fold": INTERIM_FOLD,
             "model": model,
@@ -189,7 +197,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
     scanned = 0
     dropped_covered = 0
     for path in sorted(rec.glob("*/model-reads.jsonl")):
-        model, rows = read_proposals(path)
+        model, rows, classes = read_proposals(path)
         reason = None
         if not rows:
             reason = "no row carries `probs` — nothing to audit"
@@ -202,7 +210,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
             continue
         scanned += len(rows)
         sessions.append(rows[0]["session_id"])
-        found = session_flags(rows, judged, model=model, ts=ts)
+        found = session_flags(rows, judged, model=model, ts=ts, classes=classes)
         if visible_only:
             covered = visible_cells(path.parent)
             kept = [f for f in found if (f["frame"], f["square"]) not in covered]
