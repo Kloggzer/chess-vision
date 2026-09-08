@@ -650,6 +650,9 @@ def realgames_export_session(
                              help="Fit every written frame's quad to the board's own grid."),
     report_only: bool = typer.Option(False, "--report-only",
                                      help="Compute the yield table, write nothing."),
+    workers: int = typer.Option(4, "--workers",
+                                help="Processes for the frame phases. 1 runs everything in this "
+                                     "one — the path the equivalence tests measure against."),
 ) -> None:
     """Cut a CONFIRMED candidate into its own folder `data/recordings/<name>/` for `chesslab slice`.
 
@@ -667,7 +670,8 @@ def realgames_export_session(
         r = realgames_mod.export_session(name, quiet_margin_s=quiet_margin_s, every=every,
                                          per_position=per_position or None,
                                          dirty_per_position=dirty_per_position,
-                                         dirty=dirty, fit=fit, report_only=report_only)
+                                         dirty=dirty, fit=fit, report_only=report_only,
+                                         workers=workers)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e

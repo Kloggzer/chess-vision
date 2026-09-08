@@ -955,6 +955,23 @@ def _board_to_image(u, v, h_inv, board_size: int):
             (h_inv[1, 0] * bx + h_inv[1, 1] * by + h_inv[1, 2]) / d)
 
 
+@lru_cache(maxsize=2)
+def _crop_mesh_coordinates(board_size: int, pad: int, key: tuple | None):
+    """Reuse the session mesh; camera homography and lens remain specific to each frame.
+
+    Keep float64 and the original operation order so remap coordinates do not change.
+    Two entries bound retained memory to about 30 MB at the export's 952-pixel size.
+    """
+    side = board_size + 2 * pad
+    ys, xs = np.mgrid[0:side, 0:side].astype(np.float64)
+    u, v = (xs - pad) / board_size, (ys - pad) / board_size
+    if key is not None:
+        mesh = GridMesh(*(list(values) if values is not None else None for values in key))
+        u, v = mesh_point(u, v, mesh)
+    u.flags.writeable = v.flags.writeable = False
+    return u, v
+
+
 def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
                          mesh: GridMesh | None = None, lens: LensModel | None = None):
     """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
@@ -987,11 +1004,7 @@ def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
     if mesh is None and lens is None:
         t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]], dtype=np.float64)
         return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
-    side = bs + 2 * pad
-    ys, xs = np.mgrid[0:side, 0:side].astype(np.float64)
-    u, v = (xs - pad) / bs, (ys - pad) / bs
-    if mesh is not None:
-        u, v = mesh_point(u, v, mesh)
+    u, v = _crop_mesh_coordinates(bs, pad, None if mesh is None else _mesh_key(mesh))
     ix, iy = _board_to_image(u, v, np.linalg.inv(h), bs)
     if lens is not None:
         ix, iy = distort_points(ix, iy, lens)

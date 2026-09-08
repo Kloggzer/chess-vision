@@ -623,15 +623,27 @@ def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
         def __init__(self, _video):
             pass
 
-        def frames(self, start):
+        def segment_base(self, _index):
+            """This fake is one segment, so every start bases at zero — and nothing may seek."""
+            return 0
+
+        def take(self, wanted, rotate=None):
+            """Composed exactly as the real one does, so the test still pins the composition."""
+            return self.frames(self.segment_base(min(wanted)), wanted=wanted, rotate=rotate)
+
+        def frames(self, start, wanted=None, **_kwargs):
             starts.append(start)
             for index in range(start, 400):
+                # `decoded` counts what the caller PAID for — the real decoder skips the rest
+                # without ever building a picture, so a skipped index must not land here.
+                if wanted is not None and index not in wanted:
+                    continue
                 decoded.append(index)
                 yield index, index
 
     def crops(frame, *_args, **_kwargs):
         value = min(255, int(frame))
-        return [np.full((2, 2, 3), value, np.uint8) for _ in range(64)]
+        return [np.full((2, 2, 3), value, np.uint8) for _ in _kwargs.get("squares", range(64))]
 
     monkeypatch.setattr(rg, "Recording", Recording)
     monkeypatch.setattr(rg, "crops_for_frame", crops)
@@ -651,7 +663,9 @@ def test_settle_merges_overlapping_decode_windows(tmp_path, monkeypatch):
     finally:
         deactivate(token)
 
-    assert starts == [20], "the overlapping 20..240 and 80..300 windows share one decoder"
+    # The walk begins at the SEGMENT boundary, never at `cluster_lo`: a seek is not exact here.
+    assert starts == [0], "the overlapping 20..240 and 80..300 windows share one decoder"
+    # Only the window is paid for; the run-up from the boundary is grabbed past, not decoded.
     assert decoded == list(range(20, 301))
     assert set(result) == {1, 2}
     intervals = audit.report()["intervals"]
@@ -1030,3 +1044,83 @@ def test_an_interval_is_cut_through_its_own_plys_quad():
     by_ply = {ply: {tuple(map(tuple, r["corners"])) for r in rows if r["ply"] == ply} for ply in (1, 2)}
     assert by_ply[1] == {((0, 0), (1, 0), (1, 1), (0, 1))}
     assert by_ply[2] == {((10, 0), (11, 0), (11, 1), (10, 1))}
+
+
+def test_threaded_board_writes_match_the_serial_ones(tmp_path, monkeypatch):
+    """Four encoder threads must produce the same bytes, and the same row keys, as one.
+
+    `imwrite` is 73 % of this phase and drops the GIL, so the boards are encoded while the decoder
+    walks on (`docs/export-decode.md`). Threads finish out of order; if a future's keys ever landed
+    on another future's row, the store would name a board that holds a different frame's pixels.
+    """
+    import hashlib
+
+    from chesslab import realgames as rg
+
+    median = [[0.0, 0.0], [8.0, 0.0], [8.0, 8.0], [0.0, 8.0]]
+    profile = rg._field_profile(median, (8, 8), 8)
+    plan = [{"frame": f"frames/{i:06d}.png", "corners": median} for i in range(12)]
+    pictures = {i: np.full((8, 8, 3), 10 + 7 * i, np.uint8) for i in range(12)}
+
+    def run(workers):
+        monkeypatch.setattr(rg, "BOARD_WRITERS", workers)
+        out = tmp_path / f"w{workers}"
+        rows = [dict(r) for r in plan]
+        frames = ((row, pictures[i]) for i, row in enumerate(rows))
+        rg.rewarp_boards(out, rows, profile, frames=frames)
+        return (
+            {p.relative_to(out).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+             for p in sorted(out.rglob("*.webp"))},
+            [(r["frame"], r.get("board")) for r in rows],
+        )
+
+    serial_files, serial_keys = run(1)
+    threaded_files, threaded_keys = run(4)
+    assert len(serial_files) == 12
+    assert serial_files == threaded_files, "the same board must encode to the same bytes"
+    assert serial_keys == threaded_keys, "a row must carry the keys of ITS OWN board"
+
+
+def test_plan_chunks_cuts_contiguous_stretches_and_keeps_index_order():
+    """Round-robin would make every worker walk the whole recording; stretches do not.
+
+    The order matters as much as the split: `arrived` is what the export writes as its row list,
+    and it must come out in frame order however many workers produced it.
+    """
+    from chesslab.realgames import MIN_CHUNK, plan_chunks
+
+    rows = [{"frame": f"frames/{i:06d}.png"} for i in range(0, 400, 2)]
+    chunks = plan_chunks(rows, 4)
+    assert len(chunks) == 4
+    assert [row for chunk in chunks for row in chunk] == rows, "index order across the chunks"
+    for chunk in chunks:
+        stems = [int(r["frame"][7:13]) for r in chunk]
+        assert stems == sorted(stems) and stems[-1] - stems[0] == 2 * (len(stems) - 1)
+
+    # Too few rows to be worth a process: one chunk, which `run_chunked` runs in this process.
+    assert len(plan_chunks(rows[: 2 * MIN_CHUNK - 1], 4)) == 1
+    assert len(plan_chunks(rows, 1)) == 1
+
+
+def test_merge_fit_stats_matches_one_serial_pass():
+    """The spread must be recomputed from the rows, never averaged from the parts.
+
+    A median of medians is not a median: two chunks reporting 3.0 and 5.0 do not make 4.0 unless
+    they happen to be the same size and symmetric, and this number is what an export reports as
+    the quality of its geometry.
+    """
+    from chesslab.realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE, merge_fit_stats
+
+    def part(worsts, **counts):
+        rows = [{"frame": f"f{w}", "align_worst_px": w} for w in worsts]
+        base = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0, "mesh": 0, "hands": 0, "late": 0}
+        return {**base, **counts, "arrived": rows, "median": None, "max": None}
+
+    merged = merge_fit_stats([part([1.0, 2.0, 9.0], **{FIT_SOURCE: 3, "hands": 1}),
+                              part([3.0, 4.0], **{FIT_KEPT: 2, "mesh": 2})])
+    assert merged[FIT_SOURCE] == 3 and merged[FIT_KEPT] == 2 and merged["hands"] == 1
+    assert merged["mesh"] == 2
+    assert [r["frame"] for r in merged["arrived"]] == ["f1.0", "f2.0", "f9.0", "f3.0", "f4.0"]
+    # sorted: 1, 2, 3, 4, 9 -> the middle one, and the real maximum
+    assert merged["median"] == 3.0
+    assert merged["max"] == 9.0

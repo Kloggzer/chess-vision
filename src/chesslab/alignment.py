@@ -38,9 +38,23 @@ its error is projective by construction and no affine correction can remove it. 
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 import numpy as np
+
+_measurements: ContextVar[dict | None] = ContextVar("grid_measurements", default=None)
+
+
+@contextmanager
+def reuse_grid_measurements():
+    """Reuse identical geometry reads within one frame; release all arrays on exit."""
+    token = _measurements.set({})
+    try:
+        yield
+    finally:
+        _measurements.reset(token)
 
 #: How far either side of an expected INTERIOR line to look for the real one, as a fraction of a
 #: cell. A quarter cell: beyond that the search locks onto the NEIGHBOURING groove and reports a
@@ -149,10 +163,17 @@ def _notch_centre(win: np.ndarray, csp: int, min_depth: float = MIN_DEPTH):
     n = len(win)
     if n < 7:
         return None
+    win = np.asarray(win, dtype=np.float64)
     t = np.arange(n, dtype=np.float64)
     k = max(2, n // 4)
-    a, b = np.polyfit(np.r_[t[:k], t[-k:]], np.r_[win[:k], win[-k:]], 1)
-    resid = (a * t + b) - win
+    # The shoulders are symmetric around the window centre. Solve the same linear
+    # least squares analytically instead of constructing and factoring a Vandermonde
+    # matrix for every groove. Centring also avoids subtracting a large intercept.
+    centre = (n - 1) / 2.0
+    left = t[:k] - centre
+    slope = float(left @ (win[:k] - win[-k:][::-1])) / (2.0 * float(left @ left))
+    mean = float(win[:k].sum() + win[-k:].sum()) / (2 * k)
+    resid = (slope * (t - centre) + mean) - win
     j = int(np.argmax(resid))
     depth = float(resid[j])
     if depth < min_depth:
@@ -241,12 +262,28 @@ def grid_lines(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
 def line_band_samples(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
                       search_frac: float = SEARCH_FRAC, outer: bool | None = None,
                       outer_search_frac: float = OUTER_SEARCH_FRAC):
+    """Read bands once when the export asks twice about the same rectified frame."""
+    cache = _measurements.get()
+    key = ("samples", id(warped), board_size, pad, bands, search_frac, outer, outer_search_frac)
+    if cache is not None and key in cache:
+        return cache[key][1]
+    result = _line_band_samples(warped, board_size, pad=pad, bands=bands,
+                                search_frac=search_frac, outer=outer,
+                                outer_search_frac=outer_search_frac)
+    if cache is not None:
+        cache[key] = (warped, result)
+    return result
+
+
+def _line_band_samples(warped, board_size: int, *, pad: int = 0, bands: int = BANDS,
+                       search_frac: float = SEARCH_FRAC, outer: bool | None = None,
+                       outer_search_frac: float = OUTER_SEARCH_FRAC):
     """The raw band measurements `[axis][k] = [(mid, pos), ...]` that `grid_lines` fits over."""
     import cv2
 
     if outer is None:
         outer = pad > 0
-    g = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    g = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
     cell = board_size / 8.0
     csp = max(2, int(round(cell * CENTROID_FRAC)))
     n_side = g.shape[0]
@@ -355,7 +392,14 @@ def warp_for_grid(frame, profile, quad, lens=None):
     from .calibration import warp_padded
 
     pad = grid_pad_px(profile)
-    return warp_padded(frame, profile, quad, pad, lens=lens), pad
+    cache = _measurements.get()
+    key = ("warp", id(frame), id(profile), tuple(float(v) for p in quad for v in p), id(lens))
+    if cache is not None and key in cache:
+        return cache[key]
+    result = warp_padded(frame, profile, quad, pad, lens=lens), pad
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def square_offsets(warped, board_size: int, pad: int = 0,
@@ -496,7 +540,7 @@ def _fit_projective(src, dst):
         a[0::2, 6:9] = np.stack([-u * x, -u * y, -u], 1)
         a[1::2, 3:6] = np.stack([x, y, np.ones(n)], 1)
         a[1::2, 6:9] = np.stack([-v * x, -v * y, -v], 1)
-        _u, _s, vt = np.linalg.svd(a * sw[:, None])
+        _u, _s, vt = np.linalg.svd(a * sw[:, None], full_matrices=False)
         h = vt[-1].reshape(3, 3)
         if abs(h[2, 2]) < 1e-12:
             return None

@@ -7,8 +7,10 @@ import json
 import math
 import os
 from collections.abc import Callable, Iterator
-from contextlib import closing
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait
+from contextlib import closing, nullcontext
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -204,6 +206,23 @@ def confirm(name: str, *, yes: bool, ask: Callable[[dict], bool] | None = None) 
 EXPORT_PROFILE = "desktop"
 #: Frames between progress lines. The log IS the progress channel (`platform/app/lib/progress.ts`).
 PROGRESS_EVERY = 100
+
+
+#: Wie oft ein Worker seinen Stand meldet. Feiner als `PROGRESS_EVERY`, weil ein Abschnitt oft
+#: kürzer als 100 Zeilen ist — der Balken stünde sonst bis zum Ende der Phase auf null.
+WORKER_PROGRESS_EVERY = 10
+
+
+def say_progress(progress, done: int, line: str) -> None:
+    """A serial run prints its own line; a worker only counts, because the bar belongs to one log.
+
+    Four workers each printing `N/M` would make `lib/progress.ts` (last number wins) jump about.
+    """
+    if progress is None:
+        if done % PROGRESS_EVERY == 0:
+            print(line, flush=True)
+    elif done % WORKER_PROGRESS_EVERY == 0:
+        progress(WORKER_PROGRESS_EVERY)
 YIELD_HEADER = f"{'population':10} {'rows':>6} {'crops':>8} {'cells':>6} {'cap4':>7} {'cap16':>7}"
 
 
@@ -605,7 +624,7 @@ def detect_rotation(video: Path, candidate: dict, wanted: set[int]) -> int | Non
     """
     want_w, want_h = (int(v) for v in candidate["geometry"]["frame_size"])
     probes = sorted(wanted)[:ROTATION_PROBES]
-    with closing(Recording(video).frames()) as stream:
+    with closing(Recording(video).frames(wanted=set(probes))) as stream:
         best: tuple[int, int | None] | None = None
         for target in probes:
             frame = next((f for i, f in stream if i >= target), None)
@@ -673,19 +692,16 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
     if len(recording.segments) > 1:
         print(f"  recording is {len(recording.segments)} segments: "
               f"{', '.join(p.name for p in recording.segments)}")
-    with closing(recording.frames()) as stream:
+    with closing(recording.frames(wanted=todo, rotate=rotate)) as stream:
         for idx, frame in stream:
-            if idx in todo:
-                cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame if rotate is None else cv2.rotate(frame, rotate))
-                decoded.add(idx)
-                # The card reads this out of the log (`lib/progress.ts`): a step that prints
-                # nothing for half an hour is indistinguishable from a hung one.
-                if len(decoded) % PROGRESS_EVERY == 0:
-                    print(f"  decode {len(decoded)}/{len(todo)} frames", flush=True)
+            cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame)
+            decoded.add(idx)
+            # The card reads this out of the log (`lib/progress.ts`): a step that prints
+            # nothing for half an hour is indistinguishable from a hung one.
+            if len(decoded) % PROGRESS_EVERY == 0:
+                print(f"  decode {len(decoded)}/{len(todo)} frames", flush=True)
             if idx >= last:
                 break
-            if (idx + 1) % 1000 == 0:
-                print(f"  decoded {idx + 1}/{last + 1} frames, {len(decoded)} written")
     arrived = have | decoded
     if len(arrived) < len(wanted):
         print(f"[WARN] {len(wanted) - len(arrived)} planned frames never arrived from {video}")
@@ -756,6 +772,11 @@ BOARD_SUFFIX = ".webp"
 #: warp is bowed again, and a row that still claimed otherwise would never be straightened.
 BOARD_KEYS = ("board", "board_size", "board_border", "board_straightened")
 BOARD_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
+#: Threads encoding boards while the decoder walks on. Measured 2026-09-08: the webp encode is
+#: 73 % of this phase (50 ms per 928px board at quality 95) and `cv2.imwrite` drops the GIL, so
+#: it overlaps the next decode. Four, not more — a frame in flight is 11 MB and this machine's
+#: crashes are memory (`docs/export-decode.md`).
+BOARD_WRITERS = 4
 #: Lossless (OpenCV switches over at > 100) — a matte carries hand-drawn edges, and `matte-fix.ts`
 #: writes them lossless for that reason. Re-encoding them at 95 would smear what a human drew.
 MATTE_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 101]
@@ -1029,27 +1050,162 @@ STRAIGHTEN_CHECKPOINT = 50
 
 
 def rewarp_boards(session_dir: Path, rows: list[dict], profile, *,
-                  frames: Iterator[tuple[dict, Any]], lens=None) -> dict:
+                  frames: Iterator[tuple[dict, Any]], lens=None, meshes=None, progress=None) -> dict:
     """Write every board FROM ITS FRAME, straight, in one resample.
 
     The export's second pass and the retrofit for a store whose video still exists. `straighten_boards`
     exists for the other case — a store with no frames left — and pays a second resample for it
     (+57 % Laplacian energy in the finished crop separates the two, measured 2026-08-21).
     """
-    meshes = meshes_for_boards(rows)
+    # A chunk must never pool its OWN mesh: `meshes_for_boards` averages over every clean frame
+    # of the recording, so four workers would straighten four different boards with four meshes.
+    meshes = meshes_for_boards(rows) if meshes is None else meshes
     done = {"rewarped": 0, "no_mesh": 0, "no_frame": 0}
-    for row, frame in frames:
-        if frame is None:
-            done["no_frame"] += 1
-            continue
-        mesh = meshes.get(int(Path(row["frame"]).stem))
-        done["no_mesh"] += mesh is None
-        for key in BOARD_KEYS:
-            row.pop(key, None)
-        row.update(write_board(session_dir, Path(row["frame"]).stem, frame, row["corners"],
-                               profile, bool(row.get("dirty")), mesh, lens))
-        done["rewarped"] += 1
+    with ThreadPoolExecutor(max_workers=BOARD_WRITERS) as pool:
+        pending: dict[Any, dict] = {}
+
+        def collect(keep: int) -> None:
+            """Fold finished writes back into their rows, never more than `keep` still in flight."""
+            while len(pending) > keep:
+                for future in as_completed(list(pending)):
+                    pending.pop(future).update(future.result())
+                    break
+
+        for seen, (row, frame) in enumerate(frames, 1):
+            # Die Karte liest das aus dem Log (`lib/progress.ts`), im selben `N/M frames`-Muster
+            # wie Dekodieren und Grid-Fit. Ohne die Zeile steht der Schritt minutenlang stumm da.
+            say_progress(progress, seen, f"  board cut {seen}/{len(rows)} frames")
+            if frame is None:
+                done["no_frame"] += 1
+                continue
+            mesh = meshes.get(int(Path(row["frame"]).stem))
+            done["no_mesh"] += mesh is None
+            for key in BOARD_KEYS:
+                row.pop(key, None)
+            pending[pool.submit(write_board, session_dir, Path(row["frame"]).stem, frame,
+                                row["corners"], profile, bool(row.get("dirty")), mesh, lens)] = row
+            done["rewarped"] += 1
+            collect(BOARD_WRITERS)
+        collect(0)
     return done
+
+
+#: Prozesse für die beiden Frame-Phasen. Vier, nicht mehr: jeder Worker hält Frames von 11 MB und
+#: importiert cv2/numpy für sich, und die Abstürze dieser Maschine sind Speicher. 1 nimmt den
+#: seriellen Weg — der ist der Referenzpfad, gegen den `test_parallel_export_matches_serial` prüft.
+EXPORT_WORKERS = 4
+#: Unter so vielen Zeilen je Worker zahlt sich ein Prozess nicht: er kostet Start (~3 s auf
+#: Windows) und den Vorlauf ab seiner Segmentgrenze.
+MIN_CHUNK = 40
+
+
+def plan_chunks(rows: list[dict], workers: int) -> list[list[dict]]:
+    """Contiguous stretches of the recording, one per worker — never interleaved.
+
+    Each chunk pays its own walk from the segment holding its first frame, so cutting by index
+    keeps that at one partial segment per worker; a round-robin split would make every one of them
+    walk the whole recording.
+    """
+    ordered = sorted(rows, key=lambda r: int(Path(r["frame"]).stem))
+    if workers <= 1 or len(ordered) < 2 * MIN_CHUNK:
+        return [ordered]
+    n = min(workers, len(ordered) // MIN_CHUNK)
+    size = -(-len(ordered) // n)
+    return [ordered[i:i + size] for i in range(0, len(ordered), size)]
+
+
+class ChunkProgress:
+    """A worker's only way to say how far it is; the parent owns the single progress line.
+
+    A closure cannot be handed to a process — this carries the manager's proxies, which can.
+    """
+
+    def __init__(self, counter, lock):
+        self.counter, self.lock = counter, lock
+
+    def __call__(self, n: int) -> None:
+        with self.lock:
+            self.counter.value += n
+
+
+def _fit_chunk(rows: list[dict], progress, *, video: Path, profile_name: str, rotate) -> dict:
+    """Worker: the very same `fit_rows_to_grid`, on one stretch, with its own decoder."""
+    return fit_rows_to_grid(rows, load_profile(profile_name),
+                            frames=stream_frames(video, rows, rotate), progress=progress)
+
+
+def _warp_chunk(rows: list[dict], progress, *, session_dir: Path, video: Path, profile_name: str,
+                rotate, meshes, lens) -> tuple[dict, list[dict]]:
+    """Worker: `rewarp_boards` on one stretch, with the SESSION's mesh handed in from the parent."""
+    made = rewarp_boards(session_dir, rows, load_profile(profile_name),
+                         frames=stream_frames(video, rows, rotate), lens=lens, meshes=meshes,
+                         progress=progress)
+    return made, rows
+
+
+def run_chunked(fn, chunks: list[list[dict]], total: int, label: str, *, executor=None) -> list:
+    """Run one phase over its chunks and print ONE bar for all of them.
+
+    Returns the workers' results in chunk order. A single chunk runs in THIS process — no pool, no
+    pickling — which is both the small-session path and the reference the equivalence test uses.
+    """
+    import multiprocessing as mp
+
+    if len(chunks) == 1:
+        return [fn(chunks[0], None)]
+    with mp.Manager() as manager:
+        progress = ChunkProgress(manager.Value("i", 0), manager.Lock())
+        with (nullcontext(executor) if executor is not None
+              else ProcessPoolExecutor(max_workers=len(chunks))) as pool:
+            futures = [pool.submit(fn, chunk, progress) for chunk in chunks]
+            while True:
+                done, _ = wait(futures, timeout=2.0)
+                over = len(done) == len(futures)
+                seen = total if over else min(progress.counter.value, total)
+                print(f"  {label} {seen}/{total} frames "
+                      f"({len(done)}/{len(chunks)} Abschnitte)", flush=True)
+                if over:
+                    break
+            return [f.result() for f in futures]
+
+
+def merge_fit_stats(parts: list[dict]) -> dict:
+    """One phase's numbers out of the chunks', identical to what one serial pass would report.
+
+    The spread (`median`, `max`) is recomputed from the rows, not averaged from the parts: every
+    fitted row carries its own `align_worst_px`, so the merge is the same sorted list the serial
+    run built — an average of medians would not be.
+    """
+    rows = [row for part in parts for row in part["arrived"]]
+    worsts = sorted(row["align_worst_px"] for row in rows if "align_worst_px" in row)
+    merged = {key: sum(part[key] for part in parts)
+              for key in (FIT_SOURCE, FIT_KEPT, FIT_FAILED, "mesh", "hands", "late")}
+    return {**merged, "arrived": rows,
+            "median": worsts[len(worsts) // 2] if worsts else None,
+            "max": worsts[-1] if worsts else None}
+
+
+def fit_rows_parallel(rows: list[dict], profile_name: str, *, video: Path, rotate,
+                      workers: int, executor=None) -> dict:
+    """`fit_rows_to_grid` over the recording in stretches. Same numbers, same row order."""
+    chunks = plan_chunks(rows, workers)
+    fn = partial(_fit_chunk, video=video, profile_name=profile_name, rotate=rotate)
+    return merge_fit_stats(run_chunked(fn, chunks, len(rows), "grid fit", executor=executor))
+
+
+def rewarp_parallel(session_dir: Path, rows: list[dict], profile_name: str, *, video: Path,
+                    rotate, lens, workers: int, executor=None) -> tuple[dict, list[dict]]:
+    """`rewarp_boards` in stretches, all of them straightened with the SESSION's one mesh.
+
+    The mesh is pooled here and handed down: a chunk pooling its own would straighten its boards
+    against a different measurement than its neighbour's, and the seam would be invisible.
+    """
+    chunks = plan_chunks(rows, workers)
+    fn = partial(_warp_chunk, session_dir=session_dir, video=video, profile_name=profile_name,
+                 rotate=rotate, meshes=meshes_for_boards(rows), lens=lens)
+    parts = run_chunked(fn, chunks, len(rows), "board cut", executor=executor)
+    made = {key: sum(part[key] for part, _ in parts) for key in ("rewarped", "no_mesh", "no_frame")}
+    return made, [row for _, chunk in parts for row in chunk]
 
 
 def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> dict:
@@ -1067,7 +1223,9 @@ def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> d
 
     meshes = meshes_for_boards(rows)
     done = {"straightened": 0, "already": 0, "no_mesh": 0, "no_board": 0, "mattes": 0}
-    for row in rows:
+    for seen, row in enumerate(rows, 1):
+        if seen % PROGRESS_EVERY == 0:
+            print(f"  straighten {seen}/{len(rows)} frames", flush=True)
         if row.get("board_straightened"):
             done["already"] += 1
             continue
@@ -1110,10 +1268,12 @@ def stream_frames(video: Path, rows: list[dict], rotate: int | None) -> Iterator
     if not wanted:
         return
     last = max(wanted)
-    with closing(Recording(video).frames()) as stream:
+    # `take` and not a filter here: the export asks for 11 % of the frames and paid the full
+    # colour conversion for the other 89 %, twice over (this streams once for the fit and once
+    # for the warp). The decoder now only builds the pictures that are asked for.
+    with closing(Recording(video).take(set(wanted), rotate)) as stream:
         for idx, frame in stream:
-            if (row := wanted.get(idx)) is not None:
-                yield row, frame if rotate is None else cv2.rotate(frame, rotate)
+            yield wanted[idx], frame
             if idx >= last:
                 break
 
@@ -1129,8 +1289,19 @@ def disk_frames(session_dir: Path, rows: list[dict]) -> Iterator[tuple[dict, Any
         yield row, cv2.imread(str(session_dir / row["frame"]))
 
 
+def _fit_frame_geometry(frame, corners, profile):
+    from .alignment import improve_quad, reuse_grid_measurements
+
+    if frame is None:
+        return None, float("nan"), float("nan"), None
+    with reuse_grid_measurements():
+        quad, before, after = improve_quad(frame, corners, profile)
+        mesh = grid_line_fracs(frame, corners if quad is None else quad, profile.board_size, profile)
+    return quad, before, after, mesh
+
+
 def fit_rows_to_grid(rows: list[dict], profile, *,
-                     frames: Iterator[tuple[dict, Any]]) -> dict:
+                     frames: Iterator[tuple[dict, Any]], progress=None) -> dict:
     """Fit every written frame's quad to the board's OWN grid, per frame, at export time.
 
     `frames`: (row, picture) pairs — `stream_frames` or `disk_frames`. Required: which pictures
@@ -1148,7 +1319,6 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
     Every row also gets its `grid_lines` mesh where all 18 lines were readable, so `slice` cuts at
     the board's own boundaries instead of the nominal eighth (docs/data-pipeline.md §2).
     """
-    from .alignment import improve_quad
     from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
     from .imgops import skin_patch
 
@@ -1159,17 +1329,10 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
     seen = []
     for done, (row, frame) in enumerate(pairs, 1):
         seen.append(row)
-        if done % PROGRESS_EVERY == 0:
-            print(f"  grid fit {done}/{len(rows)} frames, hands on {hands}", flush=True)
-        quad, before, after = (
-            (None, float("nan"), float("nan"))
-            if frame is None
-            else improve_quad(frame, row["corners"], profile)
-        )
+        say_progress(progress, done, f"  grid fit {done}/{len(rows)} frames, hands on {hands}")
+        quad, before, after, mesh = _fit_frame_geometry(frame, row["corners"], profile)
         if quad is not None:
             row["corners"] = [[float(x), float(y)] for x, y in quad]
-        mesh = None if frame is None else grid_line_fracs(
-            frame, row["corners"], profile.board_size, profile)
         row.pop("grid_lines", None)
         if mesh is not None:
             row["grid_lines"] = mesh
@@ -1290,8 +1453,21 @@ def export_session(
     measure: bool = True,
     fit: bool = True,
     report_only: bool = False,
+    workers: int = EXPORT_WORKERS,
 ) -> dict:
     """A confirmed candidate is cut into its own `data/recordings/<name>/`, and reports its worth."""
+    with (ProcessPoolExecutor(max_workers=workers) if workers > 1 and not report_only
+          else nullcontext(None)) as executor:
+        return _export_session(name, quiet_margin_s=quiet_margin_s, every=every,
+                               per_position=per_position, dirty_per_position=dirty_per_position,
+                               dirty=dirty, measure=measure, fit=fit, report_only=report_only,
+                               workers=workers, executor=executor)
+
+
+def _export_session(name: str, *, quiet_margin_s: float, every: int, per_position: int | None,
+                    dirty_per_position: int, dirty: bool, measure: bool, fit: bool,
+                    report_only: bool, workers: int, executor) -> dict:
+    """One export, sharing its worker processes across settle, grid fit and board encoding."""
     from . import framescan
 
     if is_archived(name):
@@ -1315,7 +1491,8 @@ def export_session(
             names = {cv2.ROTATE_90_CLOCKWISE: "90° cw", cv2.ROTATE_90_COUNTERCLOCKWISE: "90° ccw", cv2.ROTATE_180: "180°"}
             print(f"  decode rotation: {names[rotation]} (cv2 and the candidate geometry disagree on orientation)")
     if measure and not report_only:
-        settle = measure_settle(video_path(name), candidate, load_profile(EXPORT_PROFILE), rotate=rotation)
+        settle = measure_settle(video_path(name), candidate, load_profile(EXPORT_PROFILE),
+                                rotate=rotation, workers=workers, executor=executor)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
     scan = framescan.read_scan(name)
@@ -1373,10 +1550,14 @@ def export_session(
         if fit:
             # Last, so the fit starts from the best quad this export knows — a carried repair or
             # the undistorted re-measure — and refines THAT rather than the candidate's median.
-            stats = fit_rows_to_grid(
-                rows, load_profile(EXPORT_PROFILE),
-                frames=(disk_frames(session_dir, rows) if on_disk
-                        else stream_frames(video_path(name), rows, rotation)))
+            # An undistorted set reads PNGs off the disk, which no walk can be split by; only the
+            # video path goes to workers.
+            if on_disk:
+                stats = fit_rows_to_grid(rows, load_profile(EXPORT_PROFILE),
+                                         frames=disk_frames(session_dir, rows))
+            else:
+                stats = fit_rows_parallel(rows, EXPORT_PROFILE, video=video_path(name),
+                                          rotate=rotation, workers=workers, executor=executor)
             # What the decoder actually handed over — a row past the end of a truncated recording
             # has no picture, and carrying it would name a board that was never written.
             rows = stats["arrived"]
@@ -1387,10 +1568,13 @@ def export_session(
             # A SECOND pass over the video, because a board can only be warped straight once the
             # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
             # minute; warping first and correcting after costs 57 % of the crop's detail.
-            made = rewarp_boards(
-                session_dir, rows, load_profile(EXPORT_PROFILE),
-                frames=(disk_frames(session_dir, rows) if on_disk
-                        else stream_frames(video_path(name), rows, rotation)))
+            if on_disk:
+                made = rewarp_boards(session_dir, rows, load_profile(EXPORT_PROFILE),
+                                     frames=disk_frames(session_dir, rows))
+            else:
+                made, rows = rewarp_parallel(session_dir, rows, EXPORT_PROFILE,
+                                             video=video_path(name), rotate=rotation, lens=None,
+                                             workers=workers, executor=executor)
             print(f"  boards warped straight: {made['rewarped']}, "
                   f"{made['no_mesh']} left bowed for want of any mesh")
         write_session(session_dir, name, candidate, rows)
@@ -1440,7 +1624,8 @@ SETTLE_MIN_DELTA = 8.0
 
 
 def measure_settle(video: Path, candidate: dict, profile,
-                   rotate: int | None = None) -> dict[int, dict[str, int]]:
+                   rotate: int | None = None,
+                   workers: int = 1, executor=None) -> dict[int, dict[str, int]]:
     """`ply -> {square: the frame from which the image already shows the move}`.
 
     [rotate] is `detect_rotation`'s verdict, applied before cropping — the quad lives in the
@@ -1457,13 +1642,8 @@ def measure_settle(video: Path, candidate: dict, profile,
     threshold: one of the two is always closer. A square whose anchors look alike is reported NOT AT
     ALL rather than guessed, and the caller falls back to the fixed window for it.
     """
-    import numpy as np
-
     quad = candidate["geometry"]["corners"]
-    squares = all_squares()
-    square_index = {square: i for i, square in enumerate(squares)}
     moves = candidate["moves"]
-    recording = Recording(video)
     out: dict[int, dict[str, int]] = {}
     jobs = []
     for i, move in enumerate(moves):
@@ -1484,41 +1664,141 @@ def measure_settle(video: Path, candidate: dict, profile,
             clusters[-1].append(job)
 
     for cluster in clusters:
-        cluster_lo = min(job["lo"] for job in cluster)
-        cluster_hi = max(job["hi"] for job in cluster)
-        record_interval("video frames", video.resolve(), cluster_lo, cluster_hi)
-        cells: dict[int, dict[str, Any]] = {}
-        with closing(recording.frames(cluster_lo)) as stream:
-            for idx, frame in stream:
-                if rotate is not None:
-                    frame = cv2.rotate(frame, rotate)
-                active = set().union(*(job["touched"] for job in cluster
-                                       if job["lo"] <= idx <= job["hi"]))
-                if not active:
-                    if idx >= cluster_hi:
-                        break
-                    continue
-                crops = crops_for_frame(frame, quad, profile, out_size=(48, 48))
-                cells[idx] = {sq: crops[square_index[sq]].astype(np.int16) for sq in active}
-                if idx >= cluster_hi:
-                    break
+        record_interval("video frames", video.resolve(),
+                        min(job["lo"] for job in cluster), max(job["hi"] for job in cluster))
+    if workers > 1 and len(jobs) > 1:
+        return _settle_parallel(jobs, video=video, quad=quad, profile=profile,
+                                rotate=rotate, workers=workers, executor=executor)
+    # Disjoint windows in one segment share their forward decode, including the run-up.
+    recording = Recording(video)
+    grouped: dict[int, list[dict]] = {}
+    for cluster in clusters:
+        base = recording.segment_base(min(job["lo"] for job in cluster))
+        grouped.setdefault(base, []).extend(cluster)
+    clusters = list(grouped.values())
+    fn = partial(settle_cluster, video=video, quad=quad, profile=profile, rotate=rotate)
+    parts = [fn(c) for c in clusters]
+    for part in parts:
+        for ply, squares_seen in part.items():
+            out.setdefault(ply, {}).update(squares_seen)
+    return out
 
-        for job in cluster:
-            move, touched = job["move"], job["touched"]
-            commit, lo, hi = job["commit"], job["lo"], job["hi"]
-            if lo not in cells or hi not in cells:
+
+def _settle_requests(jobs, *, anchors=False):
+    requested: dict[int, set[str]] = {}
+    for job in jobs:
+        indices = (job["lo"], job["hi"]) if anchors else range(job["lo"], job["hi"] + 1)
+        for idx in indices:
+            requested.setdefault(idx, set()).update(job["touched"])
+    return [(idx, tuple(sorted(squares))) for idx, squares in sorted(requested.items())]
+
+
+def _settle_frames(requests, *, video, quad, profile, rotate):
+    """Decode only requested small crops, walking forward from an exact segment boundary."""
+    import numpy as np
+
+    if not requests:
+        return
+    wanted = dict(requests)
+    last = max(wanted)
+    with closing(Recording(video).take(wanted, rotate)) as stream:
+        for idx, frame in stream:
+            squares = wanted[idx]
+            crops = crops_for_frame(frame, quad, profile, out_size=(48, 48), squares=squares)
+            yield idx, {sq: crop.astype(np.int16) for sq, crop in zip(squares, crops, strict=True)}
+            if idx >= last:
+                break
+
+
+def _settle_compare(requests, *, jobs, video, quad, profile, rotate):
+    """Return the latest pre-position match per job/square; no images cross the boundary."""
+    import numpy as np
+
+    latest: dict[int, dict[str, int]] = {}
+    for idx, cells in _settle_frames(requests, video=video, quad=quad, profile=profile, rotate=rotate):
+        for number, job in enumerate(jobs):
+            if not job["lo"] <= idx <= job["hi"]:
                 continue
-            for sq in touched:
-                pre, post = cells[lo][sq], cells[hi][sq]
-                if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+            for sq, (pre, post) in job["anchors"].items():
+                if float(np.abs(cells[sq] - pre).mean()) < float(np.abs(cells[sq] - post).mean()):
+                    latest.setdefault(number, {})[sq] = idx
+    return latest
+
+
+def _settle_anchors(requests, *, video, quad, profile, rotate):
+    """Only the small reference crops are returned, never decoded source frames."""
+    return dict(_settle_frames(requests, video=video, quad=quad, profile=profile, rotate=rotate))
+
+
+def _settle_parallel(jobs, *, video, quad, profile, rotate, workers, executor=None):
+    """Read anchors once, then balance the comparison frames independently of cluster lengths."""
+    import numpy as np
+
+    recording = Recording(video)
+    anchor_chunks: dict[int, list] = {}
+    for request in _settle_requests(jobs, anchors=True):
+        anchor_chunks.setdefault(recording.segment_base(request[0]), []).append(request)
+    if not anchor_chunks:
+        return {}
+    with (nullcontext(executor) if executor is not None
+          else ProcessPoolExecutor(max_workers=workers)) as pool:
+        anchor_fn = partial(_settle_anchors, video=video, quad=quad, profile=profile, rotate=rotate)
+        anchors = {idx: cells for part in pool.map(anchor_fn, anchor_chunks.values())
+                   for idx, cells in part.items()}
+        valid = []
+        for job in sorted(jobs, key=lambda j: j["lo"]):
+            lo, hi = job["lo"], job["hi"]
+            if lo not in anchors or hi not in anchors:
+                continue
+            pairs = {sq: (anchors[lo][sq], anchors[hi][sq]) for sq in job["touched"]
+                     if float(np.abs(anchors[lo][sq] - anchors[hi][sq]).mean()) >= SETTLE_MIN_DELTA}
+            if pairs:
+                valid.append({**job, "anchors": pairs, "touched": tuple(pairs)})
+        requests = _settle_requests(valid)
+        if not requests:
+            return {}
+        size = -(-len(requests) // workers)
+        chunks = [requests[i:i + size] for i in range(0, len(requests), size)]
+        fn = partial(_settle_compare, jobs=valid, video=video, quad=quad, profile=profile, rotate=rotate)
+        parts = list(pool.map(fn, chunks))
+    latest: dict[int, dict[str, int]] = {}
+    for part in parts:
+        for number, squares in part.items():
+            combined = latest.setdefault(number, {})
+            for sq, idx in squares.items():
+                combined[sq] = max(combined.get(sq, -1), idx)
+    out: dict[int, dict[str, int]] = {}
+    for number, job in enumerate(valid):
+        for sq, idx in latest.get(number, {}).items():
+            out.setdefault(int(job["move"]["ply"]), {})[sq] = min(idx + 1, job["commit"])
+    return out
+
+
+def settle_cluster(cluster: list[dict], *, video: Path, quad, profile,
+                   rotate) -> dict[int, dict[str, int]]:
+    """Serial reference: decode a group once, then scan each job backwards from its anchor."""
+    import numpy as np
+
+    out: dict[int, dict[str, int]] = {}
+    cells = dict(_settle_frames(_settle_requests(cluster), video=video, quad=quad,
+                                profile=profile, rotate=rotate))
+
+    for job in cluster:
+        move, touched = job["move"], job["touched"]
+        commit, lo, hi = job["commit"], job["lo"], job["hi"]
+        if lo not in cells or hi not in cells:
+            continue
+        for sq in touched:
+            pre, post = cells[lo][sq], cells[hi][sq]
+            if float(np.abs(pre - post).mean()) < SETTLE_MIN_DELTA:
+                continue
+            for f in range(hi, lo - 1, -1):
+                cell = cells.get(f)
+                if cell is None:
                     continue
-                for f in range(hi, lo - 1, -1):
-                    cell = cells.get(f)
-                    if cell is None:
-                        continue
-                    if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
-                        out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
-                        break
+                if float(np.abs(cell[sq] - pre).mean()) < float(np.abs(cell[sq] - post).mean()):
+                    out.setdefault(int(move["ply"]), {})[sq] = min(f + 1, commit)
+                    break
     return out
 
 

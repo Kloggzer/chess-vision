@@ -63,7 +63,7 @@
 - **The CELL decides now, not the frame (2026-08-22).** With `settle_dev` on the row and a matte
   beside it, `dirty_reason` only steers what SAM mattes first: a cell over `PIECE_VISIBLE_MAX` keeps
   its FEN label (coverage takes it out of the loss), a visible one is checked against the interval's
-  settled board, and one that departs becomes a card on the `Stellung?` lane. That is what rescues
+  settled board, and one that departs becomes a card on the `Strittig` lane. That is what rescues
   `stale`/`changed` frames cell by cell (`docs/position-check.md`).
 
 ### 0.1 Crop sizes: 128 belongs to `board_size` 928, not to the pool (2026-08-23)
@@ -149,6 +149,62 @@
   undisputed, it is unmeasured, and the lane says `—` rather than `0`.
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
+
+## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
+- **`--num-workers 2`, nicht 8.** `config.DEFAULT_NUM_WORKERS` steht weiter auf 8; das ist seit
+  dem Loader-Umbau Verschwendung. Gemessen gegen das GPU-Budget von 127 µs/Crop: 1 Worker reicht
+  warm (104 µs), ist kalt aber zu langsam (129 µs); **2 sind cold-safe** (79 µs). 3 und 4 halten
+  nur Speicher. Zwei parallele Läufe brauchen damit 4 statt 16 Prozesse — die Stellschraube, an
+  der die Speicher-Abstürze hingen (`docs/batch-aug.md`).
+- **Immer mit `--batch-aug`.** ColorJitter, Gamma, Blur, Rauschen und Cutout laufen dann als EINE
+  Batch-Operation auf der GPU statt je Crop in PIL: 66× billiger, weil sie overhead- und nicht
+  rechengebunden sind (der 3×3-Blur kostet je Crop 846 µs, ToTensor für denselben vollen
+  Durchgang 37). Gleiche Verteilungen, aber float statt uint8 — **statistisch dasselbe Rezept,
+  nicht bitgleich**, und die Photometrie läuft jetzt NACH der Geometrie.
+- **Eine Op mit Stärke 0 ist nicht weg.** `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen und
+  wendet die Identität an; `--aug-scale 0` holte deshalb nur 25 % statt 73 %. `build_transform`
+  lässt sie seitdem weg statt sie leer mitlaufen zu lassen.
+- **CLAHE gehört in den Pack, nicht in den Loader** (`chesslab dataset bake`, `docs/pack-bake.md`).
+  Der gebackene Pack trägt seine Parameter in `packed_meta.json["baked"]`; `train` lässt den
+  Operator dann aus dem Loader, schreibt ihn aber weiter in `config.json` — **das Serving sieht
+  rohe Kamerabilder und muss ihn selbst rechnen.**
+- **Der Feed ist gemessen, nicht geschätzt:** 985 → 76 µs/Crop. Weitere Loader-Arbeit kauft null
+  Wanduhrzeit, die GPU ist der Boden. Der Trainings-Batch auf 8 Bretter zu heben brächte 17 %,
+  ändert aber BatchNorm-Statistik und Gradientenrauschen — für die Folds also nein.
+
+## Export: der Decoder holt nur noch, was gewollt ist (2026-09-08)
+- **`Recording.frames(wanted=…)` statt selbst filtern.** `cap.read()` ist `grab()` + `retrieve()`;
+  der Export will 11 % der Frames und bezahlte die Farbkonvertierung für alle — zweimal, einmal
+  für den Fit und einmal für den Warp. `read` 10,4 ms je Frame gegen `grab` 1,96 ms, am echten
+  Zeilensatz 25,5 s → 4,7 s je Durchlauf. Bitgleich, und so getestet.
+  **`measure_settle` ist ausgenommen**: seine Cluster sind per Konstruktion lückenlos.
+- **Bretter kodieren nebenläufig, `BOARD_WRITERS = 4`.** `imwrite` ist 73 % der Schneide-Phase
+  (50 ms je 928-px-Brett bei Qualität 95, die eine Datenentscheidung ist und bleibt) und gibt das
+  GIL frei: 66,3 s → 22,8 s. Vier, nicht mehr — ein Frame in Flug ist 11 MB.
+- **Die drei Frame-Phasen laufen in Prozessen** (`--workers`, Vorgabe 4). Erlaubt ist das, weil die
+  Segment-Zählung exakt stimmt; **ein Seek ist es NICHT** (2 von 7 Sonden lieferten andere Pixel,
+  während `POS_FRAMES` den gefragten Index meldete), also startet ein Worker an der Segmentgrenze
+  (`Recording.segment_base`) und läuft mit `grab` vor. Aufgeteilt wird in zusammenhängende
+  Strecken, nie reihum. Nachgewiesen: gleiche Statistiken, Zeile für Zeile identisch, Bretter
+  bytegleich. **Ein Abschnitt darf nie sein eigenes Mesh poolen** — der Elternteil rechnet es.
+- **Ein Export: ~223 s → 27,8 s** auf 20-19 (262 Zeilen), Bretter bytegleich nachgewiesen. Der
+  Brett-Schnitt skaliert über Prozesse NICHT (33 → 23 s, dann Sättigung, weil `grab` bei vier
+  Prozessen 3,4 statt 1,4 ms kostet) — was ihn wirklich löste, war die zwischengespeicherte
+  Mesh-Koordinatenkarte (23 → 7 s, `docs/export-geometry-performance.md`).
+- **Die Drehung war doppelt**: OpenCV dreht nach Container-Metadaten automatisch, der Export drehte
+  zurück. `_combined_rotation` fasst beide zusammen. Die Winkel ADDIEREN — gemessen 2026-09-08 auf
+  drei Aufnahmen, `ROTATE_90_CLOCKWISE` aufs rohe Bild ergibt das auto-gedrehte, das `META` 90
+  nennt. Unsere Aufnahmen heben sich alle auf (90 + 270), und eine Aufhebung beweist die
+  Konvention NICHT — deshalb die direkte Messung.
+- **GPU bringt hier nichts, gemessen**: OpenCL kostet mit Transfer 10,6 statt 2,1 ms je Remap. Und
+  Hardware-Dekodierung ist auf diesem Rechner zu (kein D3D11 im pip-Wheel, `rocDecode` ist
+  Linux/Instinct, unter Windows nur AMF ohne Python-Bindung).
+- **`measure_settle` seekte** und lief damit auf teils falschen Bildern — behoben. Was übrig ist,
+  steht gemessen in `docs/export-decode.md`; der nächste Batching-Kandidat ist
+  `line_band_samples` (38 848 winzige `polyfit` auf 40 Frames), nicht die Farbkonvertierung.
+- **Ein zweiter Export-Lauf ist schneller, ohne dass etwas besser wurde**: er startet auf den
+  gefitteten Ecken des ersten und fittet 13 statt 125 Frames nach. Nie zwei Läufe derselben
+  Session als A/B gegeneinander stellen.
 
 ## Model Guidelines (2026-08-14)
 - **BatchNorm Only:** We only use BatchNorm-trained models. Others are too slow.

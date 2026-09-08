@@ -97,18 +97,11 @@ def viterbi(emissions: np.ndarray, allowed: np.ndarray, advance_cost: float = AD
 
 def review_frames(frames: list[int], path: np.ndarray, covered: list[int],
                   disputes: np.ndarray) -> dict[int, tuple[int, int, int]]:
-    """Per position, the MIDDLE frame among those that are clean AND actually show it.
-
-    A hold begins with the hand that just placed the piece and ends with the hand reaching for the
-    next move, so both edges are dirty and the middle is not (21-29-35 ply 76: 116 frames tie at 0
-    covered, the last one is 3 frames before the next hand). And a hold can contain frames of a
-    DIFFERENT board: on 21-12-56 black recaptured on e5, took it back, and captured with the other
-    piece — 100 frames of the hold show the retracted board, one of them was the card's picture.
-    The choice needs no threshold: take the least covered frames of the hold, of those the ones
-    contradicting fewest cells, and of those the middle. Comparing contradictions only among
-    equally open frames is what makes it fair — a frame under a hand contradicts little because it
-    shows little. `disputed` counts the frames that contradict `DISPUTED_CELLS` per 64 more than
-    the picture does: a take-back, or a label window that outlived its position."""
+    """Choose the middle frame among the least covered, then least contradicting frames.
+    Equal coverage makes contradictions comparable; the middle avoids hands at either edge.
+    A hold may include a retracted position (21-12-56), so coverage alone is insufficient.
+    `disputed` counts frames with DISPUTED_CELLS/64 more contradictions than the chosen picture.
+    """
     runs: dict[int, list[tuple[int, int, float]]] = {}
     for i, (t, k, c) in enumerate(zip(frames, path, covered, strict=True)):
         runs.setdefault(int(k), []).append((c, t, int(disputes[i, int(k)]) / max(1, 64 - c)))
@@ -233,13 +226,10 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
             covered.append(sum(r.get("coverage", 0.0) > PIECE_VISIBLE_MAX for r in reads))
         pending.clear()
 
-    for idx, frame in Recording(video).frames(start=lo):
-        if idx > hi:
-            break
-        if idx % stride:
-            continue
-        if rotate is not None:
-            frame = cv2.rotate(frame, rotate)
+    # Nur die Vielfachen von `stride` in [lo, hi]: der Decoder baut die uebrigen gar nicht erst
+    # und faltet die Drehung mit der aus den Metadaten zusammen.
+    read = range(-(-lo // stride) * stride, hi + 1, stride)
+    for idx, frame in Recording(video).take(read, rotate):
         # The quad of the ply the phone stood on around here — the board may have moved since.
         ply_at = max(0, int(np.searchsorted(np.array(phone), idx, side="right")) - 1)
         pending.append((idx, crops_for_frame(frame, corners_of[ply_at], prof, out_size=out_size)))
@@ -346,13 +336,9 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     size = profile.board_size
     written = 0
     last = max(wanted)
-    for idx, frame in Recording(video).frames(start=max(0, min(wanted))):
+    for idx, frame in Recording(video).take(wanted, rotate):
         if idx > last:
             break
-        if idx not in wanted:
-            continue
-        if rotate is not None:
-            frame = cv2.rotate(frame, rotate)
         padded = warp_padded(frame, profile, corners_of[wanted[idx]], pad)
         if cv2.imwrite(str(out / f"{idx:06d}.webp"), padded[pad:pad + size, pad:pad + size], encode):
             written += 1

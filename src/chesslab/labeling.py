@@ -189,10 +189,10 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
                     out_size: tuple[int, int] | None = None,
                     mesh: GridMesh | None = None,
                     board=None,
-                    flat_cells=None):
-    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice.
-    Single Source for live inference so the model sees exactly the same crop live as during
-    training.
+                    flat_cells=None,
+                    squares=None):
+    """64 Crops (order `all_squares()`) for ONE frame — IDENTICAL to the training slice, so the
+    model sees live exactly the crop it was trained on.
 
     `mesh`: the frame's measured grid lines. The warp is pulled straight through them ONCE, as a
     whole raster — the cut itself stays a plain rectangle. A stored board arrives straight already
@@ -200,6 +200,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
     `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
     then be None.
     `flat_cells`: Beleuchtungskarte der Session, herausgerechnet VOR dem Zuschnitt (`docs/flat-field.md`).
+    `squares`: optional square names, returned in that order; default remains all 64 squares.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
     warped = board if board is not None else warp_board_for_crops(frame, profile, corners)
@@ -209,7 +210,8 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
         from .imgops import flat_field
 
         warped = flat_field(warped, int(profile.board_size), crop_border_px(profile), flat_cells)
-    return [crop_square(warped, square, profile, out) for square in all_squares()]
+    return [crop_square(warped, square, profile, out)
+            for square in (all_squares() if squares is None else squares)]
 
 
 def read_session_meta(session_dir: Path) -> dict:

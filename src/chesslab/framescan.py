@@ -16,6 +16,9 @@ from .work_audit import measure, span
 #: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
 #: the picks come out of the scanned indices, so a finer stride only buys candidates nobody needs.
 SCAN_STRIDE = 3
+#: A stop for the stride `range` handed to the decoder as `wanted`. `range.__contains__` is O(1),
+#: so this only has to lie past the end of any recording — it is a bound, not a count.
+BEYOND_ANY_RECORDING = 1 << 31
 #: A hand on the board. Clean boards sit flat at 0.11–0.13, hands at 0.30–0.95; measured over 800
 #: boards from 20 sessions. At 0.10 every clean board flags (`docs/frame-scan.md`). Only read on
 #: scans that predate the gate — nothing writes it any more.
@@ -116,12 +119,10 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
             row["gate"] = round(float(got[0]), 4)
         pending.clear()
 
-    with closing(Recording(video).frames()) as stream:
+    # `range` als `wanted`: sein `in` ist O(1) und exakt, und der Decoder baut die zwei von drei
+    # Bildern gar nicht erst, die diese Schleife bisher nur verworfen hat.
+    with closing(Recording(video).take(range(0, BEYOND_ANY_RECORDING, stride), rotate)) as stream:
         for idx, frame in stream:
-            if idx % stride:
-                continue
-            if rotate is not None:
-                frame = cv2.rotate(frame, rotate)
             with span("FramePipeline.onFrame"):
                 padded = warp_padded(frame, corners, profile, pad)
                 board = padded[pad:pad + size, pad:pad + size]
