@@ -351,6 +351,28 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   );
 }
 
+/**
+ * Was schon beurteilt ist, juengste zuerst — was „Fertige zeigen" einer Zell-Lane VORANSTELLT.
+ *
+ * Nicht die Lane selbst: die Stichprobe zieht per Bauart nur aus den UNBEURTEILTEN Zellen, ein
+ * bestaetigtes Feld waere dort also fuer immer weg. Der Rueckweg haengt deshalb am Ledger, nicht
+ * an der Frage, und ist in jeder Lane derselbe.
+ */
+export function recentCells(stream: LabelStream): LaneCell[] {
+  return stream.recent.map((c) => ({
+    session: c.session,
+    pos: c.pos,
+    stem: c.stem,
+    square: c.square,
+    fen_label: c.fen_label,
+    label: c.label,
+    ledger: c.ledger,
+    exception: null,
+    caption: `${c.square} · FEN ${c.fen_label}`,
+    note: `beurteilt ${new Date(c.ts).toLocaleString("de-DE")}`,
+  }));
+}
+
 /** The boards of a board lane, in stream order. Empty for a cell lane. */
 export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   return id === "all" ? stream.boards : [];

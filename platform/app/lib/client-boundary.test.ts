@@ -38,9 +38,23 @@ test("no client component imports a value from a filesystem-touching lib module"
   const files = (await Promise.all(ROOTS.map((r) => walk(path.join(root, r))))).flat();
   const text = new Map(await Promise.all(files.map(async (f) => [f, await readFile(f, "utf8")] as const)));
 
-  const touchesFs = new Set(
-    [...text].filter(([f, t]) => f.includes(`${path.sep}lib${path.sep}`) && NODE_IMPORT.test(t)).map(([f]) => path.basename(f, ".ts")),
-  );
+  const libs = [...text].filter(([f]) => f.includes(`${path.sep}lib${path.sep}`));
+  const touchesFs = new Set(libs.filter(([, t]) => NODE_IMPORT.test(t)).map(([f]) => path.basename(f, ".ts")));
+  // TRANSITIV, seit `lib/history.ts` (2026-09-08): ein Modul ohne eigenes `node:` reicht die Platte
+  // trotzdem weiter, und der Bundle-Fehler nennt dann ein Modul, das sauber aussieht.
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const [file, body] of libs) {
+      const mine = path.basename(file, ".ts");
+      if (touchesFs.has(mine)) continue;
+      for (const [, mod] of body.matchAll(VALUE_IMPORT)) {
+        if (!touchesFs.has(mod)) continue;
+        touchesFs.add(mine);
+        grew = true;
+        break;
+      }
+    }
+  }
   // If this is empty the test proves nothing — the loader must still be a filesystem module.
   expect(touchesFs).toContain("model-reads");
 

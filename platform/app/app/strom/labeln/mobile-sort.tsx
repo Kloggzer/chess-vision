@@ -15,6 +15,8 @@ export type MobileSortProps = {
   cells: LaneCell[];
   sessions: StreamSession[];
   decided: Record<string, string>[];
+  /** Auch die schon beurteilten Zellen zeigen — die Nachkorrektur des Stroms. */
+  showDone: boolean;
   tally: Tally;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
@@ -40,7 +42,7 @@ const BUCKETS: Bucket[] = [
  * EVENT COLLAPSE. A resting hand produces forty identical cards otherwise, and the answer to forty
  * identical cards is one long press, not forty taps.
  */
-export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
+export function MobileSort({ cells, sessions, decided, showDone, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
   const [done, setDone] = useState<ReadonlySet<string>>(new Set<string>());
   const [palette, setPalette] = useState(false);
   // Same as the grid's: a card whose crop 404s must not be judged as a dark square (2026-09-07).
@@ -55,11 +57,13 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
   const groups = useMemo(() => {
     const open = groupBySquare(
       cells.filter(
-        (c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined && !done.has(keyOf(c)),
+        (c) =>
+          (showDone || (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined) &&
+          !done.has(keyOf(c)),
       ),
     );
     return collapseEvents(open);
-  }, [cells, decided, done]);
+  }, [cells, decided, done, showDone]);
 
   const group = groups[0];
   const head = group?.head;
@@ -134,12 +138,14 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
   }
 
   const session = sessions[head.session];
+  const standing = (decided[head.session] ?? {})[`${head.stem}|${head.square}`];
   return (
     <div className="space-y-3">
       <div className="text-muted-foreground flex items-baseline gap-2 font-mono text-[11px]">
         <span>{head.stem}</span>
         <span>{head.square}</span>
         <span>FEN: {head.fen_label}</span>
+        {standing ? <span className="text-fuchsia-300">✓ {standing}</span> : null}
         <span className="ml-auto">{session.sessionId}</span>
       </div>
       {group.members.length > 1 ? (

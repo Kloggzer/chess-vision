@@ -75,49 +75,111 @@ export async function appendCorrections(rows: Correction[], ledger: Ledger = "co
   return rows.length;
 }
 
+/** Was auf einer Zelle steht, mit dem Zeitpunkt — ohne ihn ist „zuletzt beurteilt" nicht zu ordnen. */
+export type Standing = { label: string; ts: string };
 /** One session's verdicts, keyed `frame|square` — the whole ledger, split by session once. */
-type BySession = Map<string, Map<string, string>>;
-type LedgerCache = Map<string, { key: string; value: BySession }>;
-/**
- * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadModelReads`.
- *
- * `/` asked for this file once per game and split all of it every time — 36 full parses of a
- * monotonically growing ledger for one page (REVIEW.md S12). The parse is the same; only how often
- * it runs changed.
- */
-const ledgers: LedgerCache = ((globalThis as { __chesslabLedgers?: LedgerCache }).__chesslabLedgers ??= new Map());
+type BySession = Map<string, Map<string, Standing>>;
 
-async function ledgerRows(name: string, ledger: Ledger): Promise<BySession> {
+/**
+ * Eine geschriebene Zeile MIT dem Wert, der vor ihr stand. Die Historie liest daraus ihr „alt →
+ * neu"; aus der Last-wins-Karte allein ist das nicht zu holen, die hat den Vorgänger weggeworfen.
+ */
+export type LedgerChange = {
+  session_id: string;
+  frame: string;
+  square: string;
+  label: string;
+  before: string | null;
+  retract: boolean;
+  ledger: Ledger;
+  ts: string;
+  /** Zeilennummer im Ledger — gleiche `ts` trägt ein ganzer Stapel, die Reihenfolge steht nur hier. */
+  seq: number;
+};
+
+type Parsed = { bySession: BySession; changes: LedgerChange[] };
+type LedgerCache = Map<string, { key: string; value: Parsed }>;
+/**
+ * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadModelReads`. `/` asked for this file once per
+ * game and split all of it every time — 36 full parses of a growing ledger for one page (REVIEW.md
+ * S12). Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
+ * Funktion sonst die alten Zeilen als halb leere Objekte.
+ */
+const ledgers: LedgerCache = ((globalThis as { __chesslabLedgersV2?: LedgerCache }).__chesslabLedgersV2 ??= new Map());
+
+async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
   const file = ledgerPath(name, ledger);
   const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
   const hit = ledgers.get(file);
   if (hit?.key === key) return hit.value;
 
   const bySession: BySession = new Map();
+  const changes: LedgerChange[] = [];
+  let seq = 0;
   const text = await readFile(file, "utf8").catch(() => "");
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const row = JSON.parse(line) as CorrectionRow;
-      const session = bySession.get(row.session_id) ?? new Map<string, string>();
+      const session = bySession.get(row.session_id) ?? new Map<string, Standing>();
+      const cell = `${row.frame}|${row.square}`;
+      changes.push({
+        session_id: row.session_id,
+        frame: row.frame,
+        square: row.square,
+        label: row.label,
+        before: session.get(cell)?.label ?? null,
+        retract: row.retract === true,
+        ledger,
+        ts: row.ts ?? "",
+        seq: seq++,
+      });
       // The tombstone of CONCEPT.md 4.2.2: the cell leaves the judged map, so the board reopens.
       // Python still sees a normal last-wins row and takes `label`.
-      if (row.retract === true) session.delete(`${row.frame}|${row.square}`);
-      else session.set(`${row.frame}|${row.square}`, row.label);
+      if (row.retract === true) session.delete(cell);
+      else session.set(cell, { label: row.label, ts: row.ts ?? "" });
       bySession.set(row.session_id, session);
     } catch {
       /* a half-written line is not a verdict */
     }
   }
-  ledgers.set(file, { key, value: bySession });
-  return bySession;
+  ledgers.set(file, { key, value: { bySession, changes } });
+  return { bySession, changes };
+}
+
+/** Jede Zeile dieser Aufnahme in Dateireihenfolge — die Historie ordnet selbst. */
+export async function ledgerChanges(name: string, ledger: Ledger): Promise<LedgerChange[]> {
+  const id = sessionId(name);
+  return (await ledgerRows(name, ledger)).changes.filter((c) => c.session_id === id);
 }
 
 /** `frame|square` of every square this session already has a verdict for — the progress bar. */
 export async function decidedKeys(name: string, ledger: Ledger = "corrections"): Promise<Map<string, string>> {
   // A copy: the cached map outlives the request, and a caller that merges into it would edit the
   // ledger for every later reader.
-  return new Map((await ledgerRows(name, ledger)).get(sessionId(name)) ?? []);
+  const mine = (await ledgerRows(name, ledger)).bySession.get(sessionId(name)) ?? new Map();
+  return new Map([...mine].map(([key, v]) => [key, v.label]));
+}
+
+export type Recent = { frame: string; square: string; label: string; ledger: Ledger; ts: string };
+
+/**
+ * Die zuletzt beurteilten Zellen dieser Aufnahme, jüngste zuerst — der Rückweg zu dem, was man
+ * eben bestätigt hat. Beide Ledger in EINER Liste, denn wer nachkorrigiert, weiß nicht, welches
+ * die Zeile geschrieben hat; bei gleichem Schlüssel gewinnt die spätere Zeile.
+ */
+export async function recentVerdicts(name: string, limit: number): Promise<Recent[]> {
+  const id = sessionId(name);
+  const out = new Map<string, Recent>();
+  for (const ledger of ["reviewed", "corrections"] as const) {
+    for (const [key, v] of (await ledgerRows(name, ledger)).bySession.get(id) ?? []) {
+      const older = out.get(key);
+      if (older && older.ts >= v.ts) continue;
+      const [frame, square] = key.split("|");
+      out.set(key, { frame, square, label: v.label, ledger, ts: v.ts });
+    }
+  }
+  return [...out.values()].sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, limit);
 }
 
 /**

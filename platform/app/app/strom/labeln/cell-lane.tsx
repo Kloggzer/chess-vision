@@ -24,6 +24,8 @@ export type CellLaneProps = {
   onDirty: (cell: LaneCell, on: boolean) => void;
   /** Der Dirty-Pinsel: die Zellen, deren FRAME als dirty gemeldet werden soll. */
   onDirtyCells: (cells: LaneCell[]) => void;
+  /** Auch die schon beurteilten Zellen zeigen — die Nachkorrektur des Stroms. */
+  showDone: boolean;
   actionsRef: RefObject<LaneActions>;
   onFlush: Flush;
 };
@@ -43,6 +45,12 @@ const MATTE = DIRTY_BRUSH;
 const isClass = (v: string | undefined): v is string =>
   v !== undefined && v !== UNSURE && v !== MODEL && v !== MATTE;
 
+/** Das stehende Urteil gehoert auf die Karte, sonst malt man im Nachlauf gegen ein unsichtbares. */
+function noteOf(cell: LaneCell, verdict: string | undefined): { note?: string } {
+  const text = [cell.note, verdict === undefined ? null : `✓ ${verdict}`].filter(Boolean).join(" · ");
+  return text ? { note: text } : {};
+}
+
 /** What one cell of the page carries before it is written: a class, or one of the two non-classes. */
 type Picks = Record<number, string>;
 
@@ -53,7 +61,7 @@ type Picks = Record<number, string>;
  * class, and one Enter writes the page.
  */
 export function CellLane(props: CellLaneProps) {
-  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, onDirtyCells, actionsRef, onFlush } =
+  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, onDirtyCells, showDone, actionsRef, onFlush } =
     props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
@@ -71,14 +79,19 @@ export function CellLane(props: CellLaneProps) {
   const [revived, setRevived] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
 
+  /** Das Urteil, das auf der Platte steht — `undefined` heisst offen. */
+  const verdictOf = useCallback(
+    (c: LaneCell) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`],
+    [decided],
+  );
   const open = useMemo(
     () =>
       cells.filter((c) => {
         const key = keyOf(c);
         if (skipped.has(key)) return false;
-        return revived.has(key) || (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined;
+        return showDone || revived.has(key) || verdictOf(c) === undefined;
       }),
-    [cells, decided, revived, skipped],
+    [cells, revived, showDone, skipped, verdictOf],
   );
   const pages = Math.max(1, Math.ceil(open.length / PAGE));
   const safePage = Math.min(page, pages - 1);
@@ -133,9 +146,9 @@ export function CellLane(props: CellLaneProps) {
       painted: values.filter(isClass).length,
       model: values.filter((v) => v === MODEL).length,
       unsure: values.filter((v) => v === UNSURE).length,
-      taken: values.filter((v) => v === undefined).length,
+      taken: slice.filter((c, i) => values[i] === undefined && verdictOf(c) === undefined).length,
     };
-  }, [pick, slice]);
+  }, [pick, slice, verdictOf]);
 
   /**
    * Enter writes the page: what the brush painted, the exceptions the model won, and for every
@@ -144,7 +157,10 @@ export function CellLane(props: CellLaneProps) {
    */
   const accept = useCallback(async () => {
     if (slice.length === 0 || shifted) return;
-    const taken = slice.filter((_, i) => pick[i] === undefined);
+    // Eine schon beurteilte Zelle, die niemand angefasst hat, schreibt NICHTS: die Vorbelegung
+    // wuerde sonst eine frueher gemalte Korrektur mit dem FEN-Wort ueberschreiben, sobald man die
+    // Seite nur noch einmal ansieht.
+    const taken = slice.filter((c, i) => pick[i] === undefined && verdictOf(c) === undefined);
     const writes: Verdict[] = [
       {
         rows: rows([
@@ -168,7 +184,7 @@ export function CellLane(props: CellLaneProps) {
     setRemeasure((r) => new Set([...r].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setTrail((t) => [...t, slice.map(keyOf)]);
     clear();
-  }, [onDirtyCells, onFlush, pick, priorOf, remeasure, rows, shifted, slice]);
+  }, [onDirtyCells, onFlush, pick, priorOf, remeasure, rows, shifted, slice, verdictOf]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
@@ -291,7 +307,7 @@ export function CellLane(props: CellLaneProps) {
         ) : null}
         <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
         <span className="text-muted-foreground">
-          {open.length} Zellen offen · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
+          {open.length} Zellen {showDone ? "(mit fertigen)" : "offen"} · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
           Rechtsklick = Modell hat recht · Pinsel 🖐 setzt die Hand auf die ZELLE ·
           🖐 in der Crop-Ecke meldet das GANZE Frame
         </span>
@@ -381,8 +397,8 @@ export function CellLane(props: CellLaneProps) {
           src: `/api/cell/${sessions[cell.session].name}/${cell.stem}/${cell.square}?size=${CROP}`,
           alt: `${cell.square} @ ${cell.stem}`,
           caption: cell.caption,
-          note: cell.note,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
+          ...noteOf(cell, verdictOf(cell)),
           ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),
         }))}

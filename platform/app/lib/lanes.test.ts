@@ -24,6 +24,7 @@ import {
   laneOpen,
   lanePath,
   openCells,
+  recentCells,
   wallCells,
   cellCoverage,
 } from "@/lib/lanes";
@@ -105,7 +106,7 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [] }],
-  boards: [], cells: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
+  boards: [], cells: [], recent: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
   reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], ...over,
 });
 
@@ -325,3 +326,18 @@ test("eine Zelle ohne Matte-Eintrag sagt das, statt 0 % zu behaupten", () => {
   expect(laneCells(streamOf({ hands }), "audit")[0].note).toBe("Hand? Matte kennt dieses Frame nicht");
 });
 
+test("recentCells hands the ledger back as cells, newest first and with its own label", () => {
+  const stream = streamOf({
+    recent: [
+      { session: 0, pos: 3, stem: "000300", square: "c3", fen_label: "empty", label: "bB", ledger: "corrections", ts: "2026-09-08T09:00:00+00:00" },
+      { session: 0, pos: 1, stem: "000100", square: "e5", fen_label: "bP", label: "bP", ledger: "reviewed", ts: "2026-09-08T08:00:00+00:00" },
+    ],
+  });
+  const cells = recentCells(stream);
+  // The label is what STANDS, not the FEN word — repainting a correction must start from it.
+  expect(cells.map((c) => [c.square, c.label, c.ledger])).toEqual([
+    ["c3", "bB", "corrections"],
+    ["e5", "bP", "reviewed"],
+  ]);
+  expect(cells[0].note).toContain("beurteilt");
+});

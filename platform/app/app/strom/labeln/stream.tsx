@@ -29,6 +29,7 @@ import {
   lanePath,
   laneReads,
   keepPosition,
+  recentCells,
   openBoards,
   openCells,
   wallCells,
@@ -230,19 +231,26 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     (b: StreamBoard) => !dropped.has(b.session) && !thrown.has(`${b.session}|${b.stem}`),
     [dropped, thrown],
   );
-  // Only OPEN work is in the stream; `Alle Bretter` is the free-hand exception and says so.
-  const withDone = showDone && lane === "all";
+  // Jede Lane laesst sich auf FERTIG stellen: was bestaetigt ist, verschwand sonst fuer immer aus
+  // dem Strom, und ein Fehler, der einem erst danach auffaellt, war nicht mehr erreichbar.
+  const withDone = showDone;
   const boards = useMemo(
     () => (withDone ? laneBoards(stream, lane) : openBoards(stream, lane)).filter(live),
     [live, lane, stream, withDone],
   );
   const cells = useMemo(() => {
-    const raw =
+    const own =
       laneById(lane).renderer === "cells"
         ? withDone
           ? laneCells(stream, lane, wallLane)
           : openCells(stream, lane, wallLane)
         : boardCells(boards, lane);
+    // Das zuletzt Beurteilte VORAN: wem der Fehler erst nach dem ⏎ auffaellt, der sucht ihn nicht
+    // durch die Lane, sondern findet ihn auf Seite 1.
+    const seenKey = new Set(own.map((c) => `${c.session}|${c.stem}|${c.square}`));
+    const raw = withDone
+      ? [...recentCells(stream).filter((c) => !seenKey.has(`${c.session}|${c.stem}|${c.square}`)), ...own]
+      : own;
     return raw.filter((c) => !dropped.has(c.session) && !thrown.has(`${c.session}|${c.stem}`));
   }, [boards, dropped, lane, stream, thrown, wallLane, withDone]);
 
@@ -543,12 +551,18 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
           );
         })}
         </nav>
-        {lane === "all" ? (
-          <label className="text-muted-foreground ml-1 flex cursor-pointer items-center gap-1 text-xs max-sm:h-11">
-            <input checked={showDone} onChange={(e) => setShowDone(e.target.checked)} type="checkbox" />
-            Fertige zeigen
-          </label>
-        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <label className="text-muted-foreground ml-1 flex cursor-pointer items-center gap-1 text-xs max-sm:h-11">
+              <input checked={showDone} onChange={(e) => setShowDone(e.target.checked)} type="checkbox" />
+              Fertige zeigen
+            </label>
+          </TooltipTrigger>
+          <TooltipContent>
+            Zeigt auch die schon bestaetigten Zellen, mit ihrem Urteil auf der Karte. Malen schreibt
+            eine neue Zeile, die die alte ueberholt; wer nichts anfasst, schreibt nichts.
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {lane === "audit" && stream.auditStaleSince ? (
@@ -656,6 +670,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               actionsRef={actions}
               cells={cells}
               decided={decided}
+              showDone={showDone}
               key={laneKey}
               onFlush={flush}
               onThrow={() => void throwBoard()}
@@ -690,6 +705,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               onFlush={flush}
               onDirtyCells={markPaintedDirty}
               reported={reported}
+              showDone={showDone}
               sessions={stream.sessions}
             />
           )}

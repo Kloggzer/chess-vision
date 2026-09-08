@@ -152,3 +152,35 @@ test("a correction outranks an older review of the same cell", async () => {
 
   expect((await judgedKeys("g")).get("000030|e4")).toBe("occluded");
 });
+
+test("recentVerdicts returns both ledgers newest first, and a retracted cell is gone", async () => {
+  const { recentVerdicts } = await import("@/lib/corrections");
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000002", square: "b2", label: "wP" }], "reviewed");
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000003", square: "c3", label: "bB" }]);
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000002", square: "b2", label: "wP", retract: true }], "reviewed");
+
+  const rows = await recentVerdicts("rec-1", 10);
+  expect(rows.map((r) => `${r.frame}|${r.square}|${r.label}|${r.ledger}`)).toEqual([
+    "000003|c3|bB|corrections",
+    "000001|a1|occluded|corrections",
+  ]);
+});
+
+test("recentVerdicts caps at the limit, keeping the newest", async () => {
+  const { recentVerdicts } = await import("@/lib/corrections");
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000009", square: "d4", label: "wN" }]);
+  expect((await recentVerdicts("rec-1", 1)).map((r) => r.square)).toEqual(["d4"]);
+});
+
+test("ledgerChanges keeps file order and the value each row replaced", async () => {
+  const { ledgerChanges } = await import("@/lib/corrections");
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000001", square: "a1", label: "wR" }]);
+  await appendCorrections([{ session_id: "rg-rec-1", frame: "000001", square: "a1", label: "wB" }]);
+
+  const rows = await ledgerChanges("rec-1", "corrections");
+  expect(rows.map((r) => [r.label, r.before, r.seq])).toEqual([
+    ["occluded", null, 0],
+    ["wR", "occluded", 1],
+    ["wB", "wR", 2],
+  ]);
+});

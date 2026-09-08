@@ -16,6 +16,7 @@ const STROM: readonly Item[] = [
   { href: "/strom/einpflegen", label: "Einpflegen" },
   { href: "/strom/zuege", label: "Züge", also: ["/confirm"] },
   { href: "/strom/labeln", label: "Labeln" },
+  { href: "/strom/historie", label: "Historie" },
   { href: "/strom/matte", label: "Matte", also: [] },
 ];
 

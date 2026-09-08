@@ -8,7 +8,7 @@
  * Every item carries the same ordinal `pos`, which is what makes a lane a FILTER: switching one
  * searches this order instead of resetting it (`lib/lanes.ts` `keepPosition`).
  */
-import { judgedKeys } from "@/lib/corrections";
+import { judgedKeys, recentVerdicts, type Ledger } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import { listGames } from "@/lib/data";
 import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
@@ -106,10 +106,24 @@ type StreamAuditCell = {
   margin: number;
 };
 
+/** Eine schon beurteilte Zelle, wie „Fertige zeigen" sie zurueckholt. */
+export type StreamRecent = {
+  session: number;
+  pos: number;
+  stem: string;
+  square: string;
+  fen_label: string;
+  label: string;
+  ledger: Ledger;
+  ts: string;
+};
+
 export type LabelStream = {
   sessions: StreamSession[];
   boards: StreamBoard[];
   cells: StreamCell[];
+  /** Zuletzt beurteilt, juengste zuerst — der Rueckweg zu dem, was man eben bestaetigt hat. */
+  recent: StreamRecent[];
   /** `null` = `audit-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   audit: StreamAuditCell[] | null;
   /** Set when a matte or model read is newer than the flags — the lane then shows stale work. */
@@ -172,6 +186,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const sessions: StreamSession[] = [];
   const boards: StreamBoard[] = [];
   const cells: StreamCell[] = [];
+  const recent: StreamRecent[] = [];
   const decided: Record<string, string>[] = [];
   const coverage: Record<string, Record<string, number>>[] = [];
   const auditRows = await loadAuditFlags();
@@ -276,6 +291,12 @@ export async function loadLabelStream(): Promise<LabelStream> {
       Object.fromEntries(Object.entries(frame.coverage).filter(([, v]) => v > 0)),
     ])));
     cells.push(...controlCells(index, stems, byStem, judged));
+    for (const row of await recentVerdicts(name, RECENT_MAX)) {
+      const board = byStem.get(row.frame);
+      if (!board) continue;
+      const { frame, ...rest } = row;
+      recent.push({ session: index, pos: board.pos, stem: frame, fen_label: fenLabels(board.fen)[row.square] ?? "empty", ...rest });
+    }
     bySession.set(id, { index, byStem });
   }
 
@@ -284,6 +305,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     sessions,
     boards,
     cells,
+    recent: recent.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, RECENT_MAX),
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
     auditStaleSince: auditRows.staleSince,
     rules: ruleRows.present,
@@ -298,6 +320,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
 
 /** Cells the control takes per recording — enough to estimate a rate, few enough for one sitting. */
 const CONTROL_MAX = 180;
+/** Wie weit „Fertige zeigen" zurueckreicht — ein paar Seiten, nicht das ganze Ledger. */
+const RECENT_MAX = 300;
 const SQUARES = 64;
 
 /**

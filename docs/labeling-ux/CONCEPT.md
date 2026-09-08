@@ -608,6 +608,49 @@ them as pool-without-snapshot.
 > orthogonally adjacent pair"). A grid of crops destroys adjacency, and the measured cost of getting
 > hand shape wrong is a blanked replay or a fabricated ply.
 
+#### 4.2.3 `Fertige zeigen` — der Rückweg, wenn der Fehler erst nach dem ⏎ auffällt
+
+`z` reicht nur bis zum Anfang der Sitzung; wer einen Bishop erst auf der nächsten Seite bemerkt, hatte
+bis 2026-09-08 keinen Weg zurück. Die Checkbox gilt seitdem in JEDER Lane und stellt einer Zell-Lane
+die **zuletzt beurteilten** Zellen voran, jüngste zuerst (`recentVerdicts`, 300 Zeilen über beide
+Ledger). Nicht die Lane selbst liefert sie: die Stichprobe zieht per Bauart nur aus den
+*unbeurteilten* Zellen (`controlCells`), ein bestätigtes Feld wäre dort für immer weg. Der Rückweg
+hängt deshalb am Ledger und ist überall derselbe.
+
+Zwei Regeln machen das Wiedersehen ungefährlich:
+
+- Jede Karte trägt ihr **stehendes Urteil** (`✓ bP`) und den Zeitpunkt — man malt nicht gegen etwas
+  Unsichtbares.
+- Eine schon beurteilte Zelle, die niemand anfasst, schreibt beim ⏎ **nichts**. Sonst überschriebe die
+  Vorbelegung („FEN stimmt") beim bloßen Ansehen eine frühere Korrektur mit dem FEN-Wort. Der Knopf
+  zählt sie deshalb nicht mit: `⏎ 0 bestätigen · 1 gemalt`.
+
+Ein Übermalen ist eine gewöhnliche `corrections`-Zeile — last-wins in `load_corrections`, und
+`judgedKeys` lässt Korrekturen gegen ältere `reviewed`-Zeilen gewinnen. Kein Tombstone nötig: die
+Zelle soll ja beurteilt bleiben, nur anders.
+
+#### 4.2.4 Historie — `/strom/historie`
+
+„Fertige zeigen" (4.2.3) bringt beurteilte Zellen zurück, aber in der Ordnung der Lane; wer wissen
+will, **was er zuletzt geändert hat**, braucht die Ordnung des Ledgers. Die Historie ist genau das:
+jede geschriebene Zeile beider Ledger, jüngste zuerst, seitenweise rückwärts.
+
+Jede Karte sagt `alt → neu`. Den Vorgänger kann die Last-wins-Karte nicht liefern — die hat ihn
+gerade weggeworfen —, also parst `ledgerRows` die Datei in Reihenfolge mit und legt zu jeder Zeile
+den Wert daneben, den sie ablöste (`LedgerChange.before`). Gleiche `ts` trägt ein ganzer Stapel, die
+Reihenfolge steht deshalb in `seq` und nicht im Zeitstempel.
+
+Zwei Antworten, beide auf der Seite geschrieben mit ⏎:
+
+- **Übermalen** (Pinsel + Klick) — eine gewöhnliche `corrections`-Zeile, last-wins.
+- **Zurücknehmen** (Rechtsklick) — der Grabstein aus 4.2.2, mit dem **Vorgänger** als `label` und im
+  Ledger der Zeile. Ohne Vorgänger fällt er auf das Wort des FEN zurück, denn das ist der Wert, den
+  `load_corrections` ohne jede Zeile ohnehin nähme — `null` zu schreiben gibt es nicht.
+
+Die Liste ist ein Schnappschuss: was diese Sitzung schreibt, steht erst nach `↻` darin. Bis dahin
+trägt die Karte die Marke `✓ …`, und die hängt an der ZEILE, nicht an der Zelle — dieselbe Zelle
+steht mehrfach in der Historie, und eine Marke auf der Zelle klebte auf jedem ihrer Auftritte.
+
 ### 4.3 The volume path — mobile bucket sort (`TODO.md:90`)
 
 *"eine Seite die EIN Crop groß zeigt und ein paar große Buckets darunter … Tap oder Swipe wirft das
