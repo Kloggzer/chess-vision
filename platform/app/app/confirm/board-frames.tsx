@@ -1,10 +1,22 @@
 "use client";
 
 import Image from "next/image";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
+import {
+  boostFilter,
+  COMPARE_OFF,
+  SquareLoupe,
+  useBlink,
+  type CompareView,
+} from "@/app/confirm/compare";
+import type { FrameStem } from "@/lib/data";
 import type { MoveSquares, ReviewCard } from "@/lib/review-cards";
 
 /**
@@ -15,7 +27,76 @@ import type { MoveSquares, ReviewCard } from "@/lib/review-cards";
  */
 
 /** What a click on a picture opens full-screen. */
-export type Zoom = { stem: string; width: number; height: number; squares: MoveSquares[] };
+export type Zoom = {
+  stem: string;
+  width: number;
+  height: number;
+  squares: MoveSquares[];
+  /** Das Bild VOR dem Zug — auch gross bleibt der Vergleich die einzige Art zu pruefen. */
+  before: FrameStem | null;
+};
+
+/**
+ * Die beiden Frames uebereinander: nachher liegt unten, vorher darueber. Was die Deckschicht
+ * tut, entscheidet das Fenster — ueberblenden bei Mausberuehrung, blinken, oder als Differenz
+ * stehen bleiben, wo nur die geaenderten Felder leuchten.
+ */
+function ComparePair({
+  name,
+  after,
+  before,
+  view,
+  hover,
+  priority = false,
+}: {
+  name: string;
+  after: FrameStem;
+  before: FrameStem | null;
+  view: CompareView;
+  hover: boolean;
+  priority?: boolean;
+}) {
+  const armed = before !== null && view.mode !== "off";
+  const blinkOn = useBlink(armed && view.mode === "blink" && hover);
+  const diffing = armed && view.mode === "diff" && !hover;
+  const shown =
+    view.mode === "fade"
+      ? hover
+      : view.mode === "blink"
+        ? blinkOn && hover
+        : diffing;
+  return (
+    <span
+      className="absolute inset-0 block transition-[filter] duration-150"
+      style={{ filter: boostFilter(view, diffing) }}
+    >
+      <Image
+        alt={`frame ${after.stem}`}
+        className="object-contain"
+        fill
+        priority={priority}
+        sizes="(min-width: 768px) 45vw, 90vw"
+        src={`/api/frame/${name}/${after.stem}`}
+        unoptimized
+      />
+      {armed && before ? (
+        <Image
+          alt=""
+          className="object-contain transition-opacity duration-150"
+          fill
+          sizes="(min-width: 768px) 45vw, 90vw"
+          src={`/api/frame/${name}/${before.stem}`}
+          style={{
+            mixBlendMode: diffing ? "difference" : "normal",
+            opacity: armed && shown ? 1 : 0,
+            transitionDuration: view.mode === "blink" ? "0ms" : undefined,
+          }}
+          unoptimized
+        />
+      ) : null}
+    </span>
+  );
+}
 
 /**
  * The claimed move(s), drawn ONTO the rectified board so the human answers yes/no by looking.
@@ -99,6 +180,13 @@ function MoveOverlay({
   );
 }
 
+/** Was gerade zu sehen ist — im Blinken wechselt es zu schnell, um es zu benennen. */
+function label(mode: CompareView["mode"], hover: boolean): string {
+  if (mode === "diff") return hover ? "nachher" : "differenz";
+  if (mode === "blink") return hover ? "vorher / nachher" : "nachher";
+  return hover ? "vorher" : "nachher";
+}
+
 /** `ply 4 Nf6`, or the whole sequence when several halves landed on one frame. */
 export function sequenceLabel(card: ReviewCard): string {
   const sans = card.plies.map((p) => p.san);
@@ -117,6 +205,7 @@ export function FrameSeries({
   at,
   step,
   onZoom,
+  view = COMPARE_OFF,
   priority = false,
 }: {
   name: string;
@@ -124,39 +213,82 @@ export function FrameSeries({
   at: number;
   step: (delta: number) => void;
   onZoom: (zoom: Zoom) => void;
+  /** Wie das Bild vor dem Zug daruebergelegt wird — ohne Angabe gar nicht. */
+  view?: CompareView;
   /** The stream shows ONE card at a time — its picture is the page's largest paint. */
   priority?: boolean;
 }) {
+  const [hover, setHover] = useState(false);
   const entry = card.stems[at] ?? null;
   const width = entry?.width ?? 720;
   const height = entry?.height ?? 816;
   const squares = card.plies.flatMap((p) => (p.squares ? [p.squares] : []));
-  if (!entry) return <p className="text-muted-foreground text-sm">Kein Bild auf der Platte für dieses Fenster.</p>;
+  if (!entry)
+    return (
+      <p className="text-muted-foreground text-sm">
+        Kein Bild auf der Platte für dieses Fenster.
+      </p>
+    );
   const offset = Number(entry.stem) - card.frame;
+  const compared = card.before !== null && view.mode !== "off";
+  const picture = (
+    <button
+      className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
+      onBlur={() => setHover(false)}
+      onClick={() =>
+        onZoom({
+          stem: entry.stem,
+          width,
+          height,
+          squares,
+          before: card.before,
+        })
+      }
+      onFocus={() => setHover(true)}
+      onPointerDown={() => setHover(true)}
+      onPointerLeave={() => setHover(false)}
+      onPointerMove={() => (hover ? null : setHover(true))}
+      onPointerUp={() => setHover(false)}
+      style={{ aspectRatio: `${width} / ${height}` }}
+      type="button"
+    >
+      <ComparePair
+        after={entry}
+        before={card.before}
+        hover={hover}
+        name={name}
+        priority={priority}
+        view={view}
+      />
+      <MoveOverlay height={height} squares={squares} width={width} />
+      {compared ? (
+        <span className="bg-background/70 text-muted-foreground absolute top-1 left-1 rounded px-1 font-mono text-[10px]">
+          {label(view.mode, hover)}
+        </span>
+      ) : null}
+    </button>
+  );
   return (
     <>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            className="border-border relative block w-full cursor-zoom-in overflow-hidden rounded border"
-            onClick={() => onZoom({ stem: entry.stem, width, height, squares })}
-            style={{ aspectRatio: `${width} / ${height}` }}
-            type="button"
-          >
-        <Image
-          alt={`frame ${entry.stem}`}
-          className="object-contain"
-          fill
-          priority={priority}
-          sizes="(min-width: 768px) 45vw, 90vw"
-          src={`/api/frame/${name}/${entry.stem}`}
-          unoptimized
+      {/* Beim Vergleichen ist die Maus auf dem Bild die Bedienung — ein Tooltip legt sich dann
+          ueber die Nachbarkarte und verdeckt genau das, was der Auditor liest. */}
+      {compared ? (
+        picture
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>{picture}</TooltipTrigger>
+          <TooltipContent>klicken zum Vergrößern</TooltipContent>
+        </Tooltip>
+      )}
+      {view.loupe && card.before ? (
+        <SquareLoupe
+          after={entry}
+          before={card.before}
+          name={name}
+          squares={squares}
+          view={view}
         />
-        <MoveOverlay height={height} squares={squares} width={width} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent>klicken zum Vergrößern</TooltipContent>
-      </Tooltip>
+      ) : null}
       {card.stems.length > 1 ? (
         <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
           <Tooltip>
@@ -202,20 +334,58 @@ export function FrameSeries({
 }
 
 /** The full-screen picture. Click anywhere closes it — the same gesture that opened it. */
-export function ZoomOverlay({ name, zoom, onClose }: { name: string; zoom: Zoom; onClose: () => void }) {
+export function ZoomOverlay({
+  name,
+  zoom,
+  view = COMPARE_OFF,
+  onClose,
+}: {
+  name: string;
+  zoom: Zoom;
+  view?: CompareView;
+  onClose: () => void;
+}) {
+  const [hover, setHover] = useState(false);
   return (
-    <button className="fixed inset-0 z-50 cursor-zoom-out bg-black/90" onClick={onClose} type="button">
-      <span className="relative mx-auto block h-full" style={{ aspectRatio: `${zoom.width} / ${zoom.height}` }}>
-        <Image
-          alt={`frame ${zoom.stem} enlarged`}
-          className="object-contain"
-          fill
-          sizes="100vw"
-          src={`/api/frame/${name}/${zoom.stem}`}
-          unoptimized
+    <button
+      className="fixed inset-0 z-50 cursor-zoom-out bg-black/90"
+      onClick={onClose}
+      type="button"
+    >
+      <span
+        className="relative mx-auto block h-full"
+        style={{ aspectRatio: `${zoom.width} / ${zoom.height}` }}
+      >
+        <ComparePair
+          after={{
+            stem: zoom.stem,
+            kind: "plain",
+            width: zoom.width,
+            height: zoom.height,
+          }}
+          before={zoom.before}
+          hover={hover}
+          name={name}
+          view={view}
         />
-        <MoveOverlay height={zoom.height} squares={zoom.squares} width={zoom.width} />
+        <MoveOverlay
+          height={zoom.height}
+          squares={zoom.squares}
+          width={zoom.width}
+        />
       </span>
+      {zoom.before && view.mode !== "off" ? (
+        <span
+          className="bg-background/80 absolute bottom-4 left-1/2 -translate-x-1/2 rounded px-3 py-1 text-sm"
+          onClick={(e) => e.stopPropagation()}
+          onPointerEnter={() => setHover(true)}
+          onPointerLeave={() => setHover(false)}
+        >
+          {hover
+            ? "vorher — frame " + zoom.before.stem
+            : "hier halten für die Stellung davor"}
+        </span>
+      ) : null}
     </button>
   );
 }

@@ -234,7 +234,8 @@ export type BoardSurfaceProps = {
   /** `/api/board/<name>/<stem>?size=720`. */
   src: string;
   alt: string;
-  state: PaintState;
+  /** Absent = look, do not paint: the matte review asks about the alpha, not about labels. */
+  state?: PaintState;
   accept: Labels;
   /** Squares the active lane hit — outlined, so the eye starts where the work is. */
   hits?: string[];
@@ -256,26 +257,25 @@ export type BoardSurfaceProps = {
  * A click without a drag cycles. Pointer bookkeeping over plain divs — no canvas.
  */
 export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay, tool, hideEmpty, onHover }: BoardSurfaceProps) {
-  const { labels, fen, kept, judged, suggested, paint, cycle, eraser } = state;
   const painting = useRef<{ start: string; erase: boolean; dragged: boolean } | null>(null);
   const flagged = useMemo(() => new Set(hits ?? []), [hits]);
 
   function enter(square: string) {
     onHover?.(square);
     const at = painting.current;
-    if (!at) return;
+    if (!at || !state) return;
     if (!at.dragged) {
       if (at.start === square) return; // still inside the cell the press started in
       at.dragged = true;
-      paint(at.start, at.erase);
+      state.paint(at.start, at.erase);
     }
-    paint(square, at.erase);
+    state.paint(square, at.erase);
   }
 
   function up() {
     const at = painting.current;
     painting.current = null;
-    if (at && !at.dragged) cycle(at.start);
+    if (at && !at.dragged) state?.cycle(at.start);
   }
 
   return (
@@ -301,27 +301,28 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
       {overlay}
       <div className="absolute inset-0 grid grid-cols-8">
         {SQUARES.map((sq) => {
-          const label = labels[sq];
+          const label = state?.labels[sq];
           // What the lane flagged, before you touch anything — an outline, never a label: the
           // model asks the question, the brush answers it. 4 px and a fill on untouched cells,
           // because 2 px next to the cell borders was invisible ("ich sehe nicht was da markiert
           // ist", 2026-08-10). A flag ON is solid, one taken off keeps a dashed ghost.
           const isFlagged = flagged.has(sq) || accept[sq] !== undefined;
-          const on = kept.has(sq);
+          const on = state !== undefined && state.kept.has(sq);
           const outline = !isFlagged
             ? ""
             : on
               ? "outline outline-4 -outline-offset-4 outline-fuchsia-500"
               : "outline outline-2 -outline-offset-2 outline-dashed outline-white/40";
           const cov = coverage?.[sq];
-          const chip = hideEmpty && label === "empty" ? null : label === LEGACY_LABEL ? "▨ alt" : label;
+          const chip = label === undefined || (hideEmpty && label === "empty") ? null : label === LEGACY_LABEL ? "▨ alt" : label;
           // Nothing tints a covered cell: the alpha overlay says it in its real shape and can be
           // toggled off, while a solid square hid the very pixels the human came to judge ("ich
           // kann nicht gut gucken", 2026-08-19). The measured number stays — the alpha has none.
-          const tint =
-            label === LEGACY_LABEL
+          const tint = !state
+            ? ""
+            : label === LEGACY_LABEL
               ? "bg-amber-500/20"
-              : label !== fen[sq]
+              : label !== state.fen[sq]
                 ? "bg-sky-500/40"
                 : on
                   ? "bg-fuchsia-500/15"
@@ -333,9 +334,12 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
             <div
               className={`relative border border-white/10 ${tint} ${outline}`}
               key={sq}
-              onPointerDown={(event) => {
-                painting.current = { start: sq, erase: eraser || event.button === 2, dragged: false };
-              }}
+              onPointerDown={
+                state &&
+                ((event) => {
+                  painting.current = { start: sq, erase: state.eraser || event.button === 2, dragged: false };
+                })
+              }
               onPointerEnter={() => enter(sq)}
             >
               {cov === undefined || coveragePct(cov) === null ? null : (
@@ -349,9 +353,9 @@ export function BoardSurface({ src, alt, state, accept, hits, coverage, overlay,
                 <span className="pointer-events-none absolute inset-x-0 bottom-0 select-none text-center font-mono text-[10px] leading-tight">
                   <span
                     className={`bg-background/75 rounded px-0.5 ${
-                      judged.has(sq)
+                      state?.judged.has(sq)
                         ? "font-bold text-white"
-                        : suggested.has(sq)
+                        : state?.suggested.has(sq)
                           ? "font-bold text-cyan-200"
                           : on
                             ? "font-bold text-fuchsia-200"

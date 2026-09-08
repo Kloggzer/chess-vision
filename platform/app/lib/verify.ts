@@ -1,13 +1,12 @@
 /**
- * The matte review's read model: every frame that HAS an alpha, with the one thing a human still
- * answers about it — is the interval's FEN what the board shows. The alpha itself stopped being a
- * question on 2026-08-22; the pen on that page is what remains for the rare bad cut.
+ * The matte review's read model: every frame that HAS an alpha, with the ONE thing that page asks
+ * about it — does SAM's mask cut the hand right. Whether the board still shows the interval's
+ * position is a CELL question and lives in the Strittig lane (`position-flags.jsonl`), 2026-09-07.
  */
-import { judgedKeys } from "@/lib/corrections";
 import { liveGames } from "@/lib/label-stream";
 import { coveredSquares } from "@/lib/classes";
 import { type AlphaState, alphaState, fixedAlphas, loadMatte, matteStamp } from "@/lib/matte";
-import { badIntervals, frameReviews, unusableBoards, type FrameReview } from "@/lib/review-notes";
+import { frameReviews, unusableBoards, type FrameReview } from "@/lib/review-notes";
 import { loadSession, sessionId } from "@/lib/session";
 
 /** Behauptet die Maske ein FELD? Dieselbe Schwelle, die die Karte als "n Felder > 0.15" zeigt —
@@ -18,9 +17,9 @@ export const claimsAnything = (coverage: Record<string, number>): boolean =>
 /** One page of work. The alpha is a full board raster per frame, so the list stays bounded. */
 const VERIFY_PAGE = 200;
 
-type VerifySession = { name: string; sessionId: string };
+export type VerifySession = { name: string; sessionId: string };
 
-type VerifyFrame = {
+export type VerifyFrame = {
   session: number;
   stem: string;
   ply: number;
@@ -37,8 +36,6 @@ type VerifyFrame = {
   covered: string[];
   concepts: Record<string, number>;
   review: FrameReview;
-  /** The human already called this interval's FEN uncertain (`bad-interval`). */
-  intervalFlagged: boolean;
   /** Whose alpha `coverage` came from — `pending` means a correction the recut has not read. */
   alpha: AlphaState;
 };
@@ -46,8 +43,6 @@ type VerifyFrame = {
 export type VerifyStream = {
   sessions: VerifySession[];
   frames: VerifyFrame[];
-  /** Per session, `stem|square -> label` from both ledgers — what the board must not re-ask. */
-  decided: Record<string, string>[];
   /** Corpus-wide, never page-bounded: alphas, those already judged, and those still open. */
   progress: { frames: number; done: number; open: number };
 };
@@ -60,7 +55,6 @@ const move = (moves: Map<number, { san: string; fen: string }>, ply: number) => 
 export async function loadVerifyStream(): Promise<VerifyStream> {
   const sessions: VerifySession[] = [];
   const frames: VerifyFrame[] = [];
-  const decided: Record<string, string>[] = [];
   let total = 0;
   let done = 0;
   let open = 0;
@@ -75,11 +69,9 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
       continue; // no exported log — nothing to put the alpha against
     }
     const id = sessionId(name);
-    const [judged, unusable, reviews, bad, fixed, recutAt] = await Promise.all([
-      judgedKeys(name),
+    const [unusable, reviews, fixed, recutAt] = await Promise.all([
       unusableBoards(id),
       frameReviews(id),
-      badIntervals(id),
       fixedAlphas(name),
       matteStamp(name),
     ]);
@@ -95,7 +87,9 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
       if (!claimsAnything(alpha.coverage)) continue;
       total += 1;
       const review = reviews.get(row.stem) ?? {};
-      if (review.position !== undefined) {
+      // `matte`, nicht mehr `position`: die Stellungsfrage ist 2026-09-07 in die Strittig-Lane
+      // gezogen, also schliesst nur noch ein Urteil ueber die MASKE einen Frame ab.
+      if (review.matte !== undefined) {
         done += 1;
         continue;
       }
@@ -111,7 +105,6 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
         covered: coveredSquares(alpha.coverage),
         concepts: alpha.concepts,
         review,
-        intervalFlagged: bad.has(row.ply),
         alpha: alphaState(alpha, fixed.get(row.stem), recutAt),
       });
     }
@@ -126,9 +119,7 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
     if (mine.length === 0 || frames.length >= VERIFY_PAGE) continue;
     sessions.push({ name, sessionId: id });
     frames.push(...mine.slice(0, Math.max(0, VERIFY_PAGE - frames.length)));
-    const stems = new Set(mine.map((f) => f.stem));
-    decided.push(Object.fromEntries([...judged].filter(([key]) => stems.has(key.slice(0, key.indexOf("|"))))));
   }
 
-  return { sessions, frames, decided, progress: { frames: total, done, open } };
+  return { sessions, frames, progress: { frames: total, done, open } };
 }

@@ -3,7 +3,7 @@ import { chainState } from "@/lib/chain";
 import { jobs, type Job } from "@/lib/jobs";
 import { judgedKeys } from "@/lib/corrections";
 import { listGames, loadCandidate, truthSans } from "@/lib/data";
-import { loadMeta } from "@/lib/meta";
+import { isArchived, loadMeta } from "@/lib/meta";
 import { boardProgressOf, loadModelReads, readKey } from "@/lib/model-reads";
 import { bareFrames, splitQueues, type QueueRow } from "@/lib/queues";
 import { sessionId } from "@/lib/session";
@@ -36,7 +36,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<GameInfo> {
     name,
     sessionId: sessionId(name),
     title: meta.title ?? null,
-    archived: meta.archived ?? false,
+    archived: await isArchived(name),
     frames: await bareFrames(name, chain),
     createdAt: candidate?.created_at ?? null,
     confirmed: candidate?.confirmed ?? false,

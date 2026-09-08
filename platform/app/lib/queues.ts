@@ -8,7 +8,7 @@
 import type { ChainState, ChainStep } from "@/lib/chain";
 import { adoptOffered, chainState } from "@/lib/chain";
 import { listFrameStems, listGames, loadCandidate } from "@/lib/data";
-import { loadMeta } from "@/lib/meta";
+import { isArchived, loadMeta } from "@/lib/meta";
 
 export type QueueRow = {
   name: string;
@@ -102,9 +102,10 @@ export async function queueRows(): Promise<QueueRow[]> {
   const names = await listGames();
   const rows = await Promise.all(
     names.map(async (name) => {
-      const [chain, meta, candidate] = await Promise.all([
+      const [chain, meta, archived, candidate] = await Promise.all([
         chainState(name),
         loadMeta(name),
+        isArchived(name),
         loadCandidate(name).catch(() => null),
       ]);
       return {
@@ -112,7 +113,7 @@ export async function queueRows(): Promise<QueueRow[]> {
         title: meta.title ?? null,
         plies: candidate?.moves.length ?? 0,
         frames: await bareFrames(name, chain),
-        archived: meta.archived ?? false,
+        archived,
         confirmedAt: candidate?.confirmed_at ?? null,
         chain,
       };

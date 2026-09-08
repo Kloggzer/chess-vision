@@ -15,6 +15,7 @@ export type UiMeta = { title?: string; archived?: boolean };
 
 const FILE = "ui-meta.json";
 const TITLE_MAX = 120;
+const ARCHIVED_AT = /^archived_at:\s*(\S.*)$/m;
 
 export async function loadMeta(name: string): Promise<UiMeta> {
   try {
@@ -40,4 +41,27 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
   }
   await writeFile(path.join(gameDir(name), FILE), JSON.stringify(next, null, 2) + "\n", "utf8");
   return next;
+}
+
+/**
+ * The PIPELINE's own archive stamp — `session.yaml`'s `archived_at`, written by Python when a
+ * recording is retired (2026-08-30-14-33-02: wrong FENs from ply 8). Read as text: the file is
+ * YAML, this is one top-level scalar, and the app carries no YAML parser for it.
+ */
+export async function archivedAt(name: string): Promise<string | null> {
+  try {
+    const yaml = await readFile(path.join(gameDir(name), "session.yaml"), "utf8");
+    return ARCHIVED_AT.exec(yaml)?.[1]?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Archived at all: two files, two owners, and EITHER retires a game. The UI only ever read its
+ * own flag, so a Python-archived recording kept feeding the Stichprobe its 404 crops (2026-09-07).
+ */
+export async function isArchived(name: string): Promise<boolean> {
+  const [meta, at] = await Promise.all([loadMeta(name), archivedAt(name)]);
+  return meta.archived === true || at !== null;
 }

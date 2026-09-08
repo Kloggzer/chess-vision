@@ -12,6 +12,7 @@ import {
   ZoomOverlay,
   type Zoom,
 } from "@/app/confirm/board-frames";
+import { CompareBar, useCompareView } from "@/app/confirm/compare";
 import type { ReviewCard } from "@/lib/review-cards";
 
 export function ConfirmReview({
@@ -32,6 +33,7 @@ export function ConfirmReview({
   const [state, setState] = useState<"idle" | "writing" | string>("idle");
   /** Which of a card's stems is showing, keyed by card id — judged and viewed ids never collide. */
   const [frameAt, setFrameAt] = useState<Record<number, number>>({});
+  const [view, setView] = useCompareView();
 
   async function confirm() {
     setState("writing");
@@ -68,6 +70,7 @@ export function ConfirmReview({
 
   return (
     <section className="space-y-4">
+      <CompareBar onChange={setView} view={view} />
       {cards.length > 0 ? (
         <details className="border-border bg-muted/20 rounded-lg border px-3 py-2 text-sm">
           <summary className="cursor-pointer max-sm:min-h-11">
@@ -214,6 +217,7 @@ export function ConfirmReview({
                   name={name}
                   onZoom={setZoom}
                   step={stepper(card.id, card.stems.length, at)}
+                  view={view}
                 />
                 {card.stems.length > 1 ? (
                   <p className="text-muted-foreground text-xs">
@@ -299,6 +303,7 @@ export function ConfirmReview({
                     name={name}
                     onZoom={setZoom}
                     step={stepper(card.id, card.stems.length, at)}
+                    view={view}
                   />
                 </div>
               );
@@ -324,7 +329,12 @@ export function ConfirmReview({
       </div>
 
       {zoom ? (
-        <ZoomOverlay name={name} onClose={() => setZoom(null)} zoom={zoom} />
+        <ZoomOverlay
+          name={name}
+          onClose={() => setZoom(null)}
+          view={view}
+          zoom={zoom}
+        />
       ) : null}
     </section>
   );

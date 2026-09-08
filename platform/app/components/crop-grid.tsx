@@ -80,6 +80,9 @@ export function CropGrid(props: CropGridProps) {
   const painting = useRef<{ mode: "left" | "right"; start: number; dragged: boolean; erase: boolean } | null>(null);
   const grid = useRef<HTMLDivElement>(null);
   const [cols, setCols] = useState(10);
+  // A 404 crop rendered as an empty box on the dark card, indistinguishable from a genuinely dark
+  // square (2026-09-07). Keyed by URL, so a re-export retries instead of staying broken forever.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
   // The column count is the BROWSER's answer, not ours: `auto-fill` decides it from the width.
   useEffect(() => {
     const element = grid.current;
@@ -174,15 +177,25 @@ export function CropGrid(props: CropGridProps) {
           role="button"
           tabIndex={-1}
         >
-          <Image
-            alt={cell.alt}
-            className="pointer-events-none h-auto w-full"
-            draggable={false}
-            height={CROP}
-            src={cell.src}
-            unoptimized
-            width={CROP}
-          />
+          {broken.has(cell.src) ? (
+            <div
+              className="border-destructive/60 bg-destructive/10 text-destructive pointer-events-none flex aspect-square w-full items-center justify-center border-b px-1 text-center font-mono text-[11px] leading-tight"
+              title={`${cell.src} antwortet nicht — Server-Log oder die URL direkt aufrufen`}
+            >
+              Crop fehlt
+            </div>
+          ) : (
+            <Image
+              alt={cell.alt}
+              className="pointer-events-none h-auto w-full"
+              draggable={false}
+              height={CROP}
+              onError={() => setBroken((was) => new Set(was).add(cell.src))}
+              src={cell.src}
+              unoptimized
+              width={CROP}
+            />
+          )}
           {onDirty ? (
             // Ein eigener Knopf, kein Klick aufs Bild: links malt der Pinsel, rechts gewinnt das
             // Modell, und beide dürfen von der Hand-Marke nicht getroffen werden.
