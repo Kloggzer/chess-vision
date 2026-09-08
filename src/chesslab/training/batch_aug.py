@@ -1,0 +1,139 @@
+"""ColorJitter, Gamma, Blur und Cutout als EINE Batch-Operation auf dem Geraet.
+
+Overhead- statt rechengebunden: gebatcht 66x billiger, aber float statt PILs uint8 — statistisch
+dasselbe Rezept, nicht bitgleich (`docs/batch-aug.md`)."""
+
+from __future__ import annotations
+
+import torch
+import torch.nn.functional as F
+
+#: Wie `build_transform` den Blur einhaengt: `T.RandomApply([...], p=0.3)`.
+BLUR_P = 0.3
+#: Seitenverhaeltnis-Spanne von `torchvision.transforms.RandomErasing`.
+ERASE_RATIO = (0.3, 3.3)
+#: Luminanz nach ITU-R BT.601, dieselbe Gewichtung, die `torchvision` fuer Kontrast und
+#: Saettigung nimmt.
+GREY = (0.299, 0.587, 0.114)
+
+
+def _grey(v: torch.Tensor) -> torch.Tensor:
+    w = torch.tensor(GREY, dtype=v.dtype, device=v.device).view(1, 3, 1, 1)
+    return (v * w).sum(dim=1, keepdim=True)
+
+
+def _factors(n: int, lo: float, hi: float, device, dtype) -> torch.Tensor:
+    return torch.empty(n, 1, 1, 1, device=device, dtype=dtype).uniform_(lo, hi)
+
+
+def _blur(v: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    """3x3-Gauss mit EIGENEM Sigma je Bild — als gruppierte Faltung, ein Aufruf fuer den Batch."""
+    n, c, h, w = v.shape
+    off = torch.tensor([-1.0, 0.0, 1.0], device=v.device, dtype=v.dtype).view(1, 3)
+    k = torch.exp(-(off**2) / (2 * sigma.view(n, 1) ** 2))
+    k = (k / k.sum(dim=1, keepdim=True)).repeat_interleave(c, dim=0)
+    flat = v.reshape(1, n * c, h, w)
+    # Separabel: erst senkrecht, dann waagerecht. `reflect` ist die Randbehandlung von
+    # `torchvision.transforms.GaussianBlur`.
+    flat = F.conv2d(F.pad(flat, (0, 0, 1, 1), mode="reflect"),
+                    k.view(n * c, 1, 3, 1), groups=n * c)
+    flat = F.conv2d(F.pad(flat, (1, 1, 0, 0), mode="reflect"),
+                    k.view(n * c, 1, 1, 3), groups=n * c)
+    return flat.view(n, c, h, w)
+
+
+def _erase(v: torch.Tensor, p: float, scale: tuple[float, float]) -> torch.Tensor:
+    """Cutout je Bild, vektorisiert. Gefuellt wird mit 0 — im [0,1]-Raum der neutrale Wert, den
+    `build_transform` meint, wenn es das Erase VOR die Normalisierung haengt."""
+    n, _, h, w = v.shape
+    area = h * w * _factors(n, *scale, v.device, v.dtype).view(-1)
+    ratio = torch.exp(_factors(n, *(torch.tensor(ERASE_RATIO).log().tolist()),
+                               v.device, v.dtype)).view(-1)
+    eh = (area * ratio).sqrt().round().clamp(1, h - 1)
+    ew = (area / ratio).sqrt().round().clamp(1, w - 1)
+    y0 = (torch.rand(n, device=v.device) * (h - eh)).floor()
+    x0 = (torch.rand(n, device=v.device) * (w - ew)).floor()
+    rows = torch.arange(h, device=v.device).view(1, h, 1)
+    cols = torch.arange(w, device=v.device).view(1, 1, w)
+    box = ((rows >= y0.view(n, 1, 1)) & (rows < (y0 + eh).view(n, 1, 1))
+           & (cols >= x0.view(n, 1, 1)) & (cols < (x0 + ew).view(n, 1, 1)))
+    hit = (torch.rand(n, device=v.device) < p).view(n, 1, 1)
+    return v.masked_fill((box & hit).unsqueeze(1), 0.0)
+
+
+class BatchPhotometric:
+    """Die photometrische Haelfte der Kette, auf normalisierten Batches.
+
+    Je BILD eine eigene Ziehung, nicht je Batch — sonst waere es eine andere Augmentierung."""
+
+    def __init__(self, policy, mean, std, erase: bool = True, from_uint8: bool = False) -> None:
+        # Kommt der Batch als uint8, gibt es keine Normalisierung zurueckzurechnen — nur /255.
+        self.from_uint8 = from_uint8
+        self.noise_std = float(getattr(policy, "noise_std", 0.0)) if erase else 0.0
+        # Das Erase MUSS mitkommen: es fuellt mit 0, und wuerde die Photometrie danach laufen,
+        # faerbte Kontrast die geloeschte Flaeche und der Blur schmierte sie aus.
+        self.erase_p = float(policy.erase_p) if erase else 0.0
+        self.erase_scale = tuple(policy.erase_scale)
+        self.brightness = float(policy.brightness)
+        self.contrast = float(policy.contrast)
+        self.saturation = float(policy.color_jitter)
+        self.gamma = tuple(policy.gamma)
+        self.sigma_max = float(policy.blur_sigma_max)
+        self._mean = torch.tensor(mean).view(1, 3, 1, 1)
+        self._std = torch.tensor(std).view(1, 3, 1, 1)
+
+    @property
+    def active(self) -> bool:
+        return bool(self.brightness or self.contrast or self.saturation
+                    or self.gamma != (1.0, 1.0) or self.sigma_max > 0.1 or self.erase_p
+                    or self.noise_std or self.from_uint8)
+
+    def _jitter(self, v: torch.Tensor) -> torch.Tensor:
+        n, device, dtype = v.shape[0], v.device, v.dtype
+        ops = []
+        if self.brightness:
+            f = _factors(n, max(0.0, 1 - self.brightness), 1 + self.brightness, device, dtype)
+            ops.append(lambda x, f=f: x * f)
+        if self.contrast:
+            f = _factors(n, max(0.0, 1 - self.contrast), 1 + self.contrast, device, dtype)
+            ops.append(lambda x, f=f: (x - _grey(x).mean(dim=(-2, -1), keepdim=True)) * f
+                       + _grey(x).mean(dim=(-2, -1), keepdim=True))
+        if self.saturation:
+            f = _factors(n, max(0.0, 1 - self.saturation), 1 + self.saturation, device, dtype)
+            ops.append(lambda x, f=f: (x - _grey(x)) * f + _grey(x))
+        # `torchvision.ColorJitter` wuerfelt die Reihenfolge der drei; je Batch statt je Bild ist
+        # der einzige Unterschied, und er kostet nichts.
+        for i in torch.randperm(len(ops)).tolist():
+            v = ops[i](v).clamp_(0.0, 1.0)
+        return v
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.active:
+            return x
+        shape = x.shape
+        # Der Brettkopf liefert `(B, 64, C, H, W)`; gewuerfelt wird je CROP, wie im Loader.
+        v = x.flatten(0, 1) if x.dim() == 5 else x
+        # ERST nach float wandeln: mean/std im uint8-dtype des Eingangs zu bilden macht std zu 0.
+        if self.from_uint8:
+            v = v.float().div_(255.0)
+        mean = self._mean.to(v.device, v.dtype)
+        std = self._std.to(v.device, v.dtype)
+        if not self.from_uint8:
+            v = (v * std + mean).clamp_(0.0, 1.0)
+        v = self._jitter(v)
+        if self.gamma != (1.0, 1.0):
+            g = _factors(v.shape[0], self.gamma[0], self.gamma[1], v.device, v.dtype)
+            v = v.clamp_min(1e-6).pow(g)
+        if self.sigma_max > 0.1:
+            sigma = _factors(v.shape[0], 0.1, self.sigma_max, v.device, v.dtype).view(-1)
+            hit = torch.rand(v.shape[0], device=v.device) < BLUR_P
+            v = torch.where(hit.view(-1, 1, 1, 1), _blur(v, sigma), v)
+        # Reihenfolge wie in `build_transform`: erst das Rauschen, dann das Cutout — sonst
+        # traegt die geloeschte Flaeche Rauschen statt der neutralen 0.
+        if self.noise_std:
+            hit = (torch.rand(v.shape[0], device=v.device) < 0.5).view(-1, 1, 1, 1)
+            v = torch.where(hit, v + torch.randn_like(v) * self.noise_std, v).clamp_(0.0, 1.0)
+        if self.erase_p:
+            v = _erase(v, self.erase_p, self.erase_scale)
+        v = ((v.clamp_(0.0, 1.0) - mean) / std)
+        return v.view(shape)

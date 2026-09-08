@@ -21,6 +21,28 @@ from .data import (
     load_split,
 )
 
+#: Loader-Worker, wenn `--batch-aug` den Feed schlank macht. Gemessen 2026-09-07: 1 reicht warm
+#: (104 us gegen 127 Budget), ist kalt aber zu langsam (129); 2 sind cold-safe (79).
+BATCH_AUG_WORKERS = 2
+
+
+def _photometry_of(policy, photometric) -> dict:
+    """Die photometrischen Staerken, wie sie WIRKLICH gewuerfelt wurden.
+
+    Mit `--batch-aug` stehen sie im Loader auf 0 und leben in `BatchPhotometric` — `config.json`
+    muss den gerechneten Operator nennen, sonst inferiert das Geraet mit anderen Werten.
+    """
+    src = photometric or policy
+    gamma = src.gamma if photometric else policy.gamma
+    return {"aug_brightness": src.brightness,
+            "aug_contrast": src.contrast,
+            "aug_color_jitter": src.saturation if photometric else policy.color_jitter,
+            "aug_blur_sigma_max": src.sigma_max if photometric else policy.blur_sigma_max,
+            "aug_gamma": list(gamma),
+            "aug_erase_p": src.erase_p,
+            "aug_erase_scale": list(src.erase_scale),
+            "aug_noise_std": src.noise_std if photometric else getattr(policy, "noise_std", 0.0)}
+
 
 def _train_lock_path() -> Path:
     """The SAME file the web app's Autopilot serializes on (`platform/app/lib/autopilot-state.ts`).
@@ -243,10 +265,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               invert_p: float | None = None,
               grayscale_p: float | None = None,
               brightness: float | None = None,
+              contrast: float | None = None,
+              color_jitter: float | None = None,
+              blur_sigma_max: float | None = None,
               gamma: tuple[float, float] | None = None,
               balance: str = "none",
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
+              batch_aug: bool = False,
               aug_scale: float | None = None,
               pretrained: bool | None = None,
               no_empty_cap: bool = False,
@@ -456,7 +482,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             or hflip_p is not None or vflip_p is not None
             or rot180_p is not None or flip_xor_p is not None
             or invert_p is not None or grayscale_p is not None
-            or brightness is not None or gamma is not None):
+            or brightness is not None or gamma is not None
+            or contrast is not None or color_jitter is not None
+            or blur_sigma_max is not None):
         from dataclasses import replace
         policy = replace(policy, **({"erase_p": erase_p} if erase_p is not None else {}),
                          **({"erase_scale": erase_scale}
@@ -472,10 +500,16 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                          **({"grayscale_p": grayscale_p}
                             if grayscale_p is not None else {}),
                          **({"brightness": brightness} if brightness is not None else {}),
+                         **({"contrast": contrast} if contrast is not None else {}),
+                         **({"color_jitter": color_jitter} if color_jitter is not None else {}),
+                         **({"blur_sigma_max": blur_sigma_max}
+                            if blur_sigma_max is not None else {}),
                          **({"gamma": gamma} if gamma is not None else {}))
         print(f"[aug] override erase_p={policy.erase_p} "
               f"jitter_translate={policy.jitter_translate} "
-              f"brightness={policy.brightness} gamma={policy.gamma}")
+              f"brightness={policy.brightness} contrast={policy.contrast} "
+              f"color_jitter={policy.color_jitter} blur={policy.blur_sigma_max} "
+              f"gamma={policy.gamma}")
     # Packed memmap loader (training.pack): if the dataset was `chesslab dataset pack`ed, read
     # crops from ONE memmap instead of 1M per-item Image.open (the I/O bottleneck).
     # Fused datasets (dataset build-synth) have NO crop files at all — manifest paths are virtual
@@ -505,11 +539,47 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # Genau die Positionsabhaengigkeit, an der die Grundreihen scheitern.
         rot90 = want_rot
         print(f"[aug] 90-Grad-Drehungen per Flag {'AN' if rot90 else 'AUS'}")
+    # Photometrie und Cutout wandern als EIN Batch aufs Geraet (`training/batch_aug.py`); der
+    # Loader baut sie dann gar nicht erst, weil ihre Staerken auf 0 stehen.
+    photometric = None
+    if batch_aug:
+        from dataclasses import replace as _replace
+
+        from .batch_aug import BatchPhotometric
+
+        if per_crop:
+            print('[FAIL] --batch-aug und --crop-norm zusammen: die Normalisierung je Crop '
+                  'ist nicht umkehrbar, also kaeme die Photometrie auf den falschen Werten an.')
+            return 1
+        if input_repr != "rgb":
+            print(f"[FAIL] --batch-aug braucht --input-repr rgb, nicht {input_repr!r}: die "
+                  "Kanalableitung sitzt hinter der Normalisierung, die das Geraet uebernimmt.")
+            return 1
+        photometric = BatchPhotometric(policy, config.NORMALIZE_MEAN, config.NORMALIZE_STD,
+                                       from_uint8=True)
+        policy = _replace(policy, brightness=0.0, contrast=0.0, color_jitter=0.0,
+                          gamma=(1.0, 1.0), blur_sigma_max=0.1, erase_p=0.0, noise_std=0.0)
+        print('[batch-aug] ColorJitter, Gamma, Blur und Cutout laufen auf dem Geraet')
+
+    # Ein gebackener Pack traegt CLAHE schon in den Pixeln (`training/pack_bake.py`). Der LOADER
+    # laesst den Operator dann aus, `config.json` behaelt ihn trotzdem — das Serving bekommt rohe
+    # Kamerabilder und muss ihn selbst rechnen.
+    from .pack_bake import baked_of, skip_baked
+    loader_clip = clahe_clip
+    baked = baked_of(dataset) if dataset else None
+    if baked and packed is not None:
+        want = {"clip": clahe_clip, "tile": clahe_tile, "min_mean": clahe_min_mean,
+                "max_mean": clahe_max_mean, "denoise": clahe_denoise}
+        if skip_baked(baked, want, out_size, packed_shape(packed)[1:]):
+            loader_clip = 0.0
+            print(f"[bake] CLAHE steckt im Pack ({baked['from']}) — Loader rechnet ihn nicht, "
+                  "config.json behaelt ihn fuers Serving")
     tf_kw = {"policy": policy, "per_crop": per_crop, "input_repr": input_repr,
-             "clahe_clip": clahe_clip, "clahe_tile": clahe_tile,
+             "clahe_clip": loader_clip, "clahe_tile": clahe_tile,
              "clahe_min_mean": clahe_min_mean, "clahe_max_mean": clahe_max_mean,
              "clahe_denoise": clahe_denoise}
-    train_tf = build_transform(out_size, train=True, rot90=rot90, **tf_kw)
+    train_tf = build_transform(out_size, train=True, rot90=rot90,
+                               to_uint8=photometric is not None, **tf_kw)
     val_tf = build_transform(out_size, train=False, **tf_kw)
     if packed is not None:
         n, h, w = packed_shape(packed)
@@ -667,7 +737,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # sind der größte Hebel; auf Windows empirisch bis 8 stabil verifiziert (kein Deadlock) → Default
     # 8 statt 0. persistent_workers spart das Neu-Spawnen je Epoche (teuer bei Windows-spawn),
     # prefetch_factor hält Batches vor. Mit --num-workers 0 überschreibbar, falls doch Probleme.
-    nw = num_workers if num_workers is not None else config.DEFAULT_NUM_WORKERS
+    # Mit `--batch-aug` kostet der Feed 76 statt 985 us je Crop, und 2 Worker liegen damit unter
+    # dem GPU-Budget (kalt 79 us gegen 127). Die 8 des Defaults waeren dann reine Verschwendung —
+    # und Worker sind die Stellschraube, an der die Speicher-Abstuerze hingen (`docs/batch-aug.md`).
+    lean_default = BATCH_AUG_WORKERS if photometric is not None else config.DEFAULT_NUM_WORKERS
+    nw = num_workers if num_workers is not None else lean_default
+    if num_workers is None and photometric is not None:
+        print(f"[batch-aug] {nw} Loader-Worker statt {config.DEFAULT_NUM_WORKERS} "
+              "— der Feed liegt unter dem GPU-Budget (--num-workers ueberschreibt das)")
     loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
     eval_batch = batch_size
     if board_mode:
@@ -805,11 +882,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         # The augmentation the run actually used, not the config default it started from.
         "aug_jitter_translate": policy.jitter_translate,
-        "aug_erase_p": policy.erase_p,
-        "aug_erase_scale": list(policy.erase_scale),
         "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
-        "aug_brightness": policy.brightness,
-        "aug_gamma": list(policy.gamma),
+        "batch_aug": batch_aug,
+        # Was der LAUF gewuerfelt hat, nicht was im Loader stand: mit `--batch-aug` stehen die
+        # Staerken dort auf 0, gerechnet werden sie trotzdem — und `config.json` ist das, was
+        # Serving und jede spaetere Auswertung lesen.
+        **_photometry_of(policy, photometric),
         "aug_vflip_p": getattr(policy, "vflip_p", 0.0),
         "aug_rot180_p": getattr(policy, "rot180_p", 0.0),
         "aug_flip_xor_p": getattr(policy, "flip_xor_p", 0.0),
@@ -888,6 +966,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         for x, y in train_loader:
             x = x.to(device, non_blocking=True)
             y = y.to(device, non_blocking=True)
+            if photometric is not None:
+                x = photometric(x)
             if scales:
                 # Multi-Scale: gesamten Batch auf eine zufällige Eingabegröße bringen (uniform je
                 # Batch, damit stapelbar). Modell ist size-agnostisch → lernt alle Auflösungen.

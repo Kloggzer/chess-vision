@@ -188,13 +188,25 @@ class _RandomRot90:
         return img if t is None else img.transpose(t)
 
 
+class _ToUint8:
+    """CHW-uint8 statt normalisiertem float: `batch_aug` rechnet den Rest auf dem Geraet.
+
+    Spart ToTensor und Normalize je Crop (177 us von 208) und schickt ein Viertel der Bytes
+    ueber PCIe — 4,9 statt 19,7 MB je Schritt (`docs/batch-aug.md`)."""
+
+    def __call__(self, img):
+        # `np.array`, nicht `asarray`: PIL gibt einen schreibgeschuetzten Puffer, und
+        # `from_numpy` darauf ist laut Torch undefiniertes Verhalten.
+        return torch.from_numpy(np.array(img.convert("RGB"))).permute(2, 0, 1).contiguous()
+
+
 def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     mean=config.NORMALIZE_MEAN, std=config.NORMALIZE_STD,
                     rot90: bool = False, per_crop: bool = False,
                     input_repr: str = "rgb",
                     clahe_clip: float = 0.0, clahe_tile: int = 8,
                     clahe_min_mean: float = 0.0, clahe_max_mean: float = 255.0,
-                    clahe_denoise: str = "off"):
+                    clahe_denoise: str = "off", to_uint8: bool = False):
     from torchvision import transforms as T
 
     out_w, out_h = out_size
@@ -203,17 +215,23 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         ops += [_Clahe(clahe_clip, clahe_tile, clahe_min_mean, clahe_max_mean, clahe_denoise)]
     if train and rot90:
         ops += [_RandomRot90()]
+    # Auf Staerke 0 gestellt ist NICHT weg: `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen
+    # und wendet die Identitaet an. Gemessen 2026-09-07 kostet der Leerlauf 470 us je Crop, mehr
+    # als die Haelfte dessen, was die vier Ops ueberhaupt kosten (`docs/pack-bake.md`).
     if train:
-        ops += [
-            T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast, saturation=policy.color_jitter),
-            _RandomGamma(*policy.gamma),
-            T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3),
+        if policy.brightness or policy.contrast or policy.color_jitter:
+            ops += [T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast,
+                                  saturation=policy.color_jitter)]
+        if policy.gamma != (1.0, 1.0):
+            ops += [_RandomGamma(*policy.gamma)]
+        if policy.blur_sigma_max > 0.1:
+            ops += [T.RandomApply([T.GaussianBlur(3, sigma=(0.1, policy.blur_sigma_max))], p=0.3)]
+        if policy.jitter_translate or policy.jitter_scale:
             # degrees=0 -> KEINE Drehung. Flips waren hier pauschal verboten; waagerecht ist
             # auf einem Zellcrop zulaessig und faehrt ueber `hflip_p`.
-            T.RandomAffine(degrees=0,
-                           translate=(policy.jitter_translate, policy.jitter_translate),
-                           scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale)),
-        ]
+            ops += [T.RandomAffine(degrees=0,
+                                   translate=(policy.jitter_translate, policy.jitter_translate),
+                                   scale=(1.0 - policy.jitter_scale, 1.0 + policy.jitter_scale))]
     if train and getattr(policy, "hflip_p", 0.0) > 0:
         ops += [T.RandomHorizontalFlip(p=policy.hflip_p)]
     if train and getattr(policy, "vflip_p", 0.0) > 0:
@@ -229,6 +247,10 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         # allein tragen" und "Farbe gibt es nicht" (`--input-repr gray3`). Drei Kanaele bleiben,
         # also aendert sich weder Architektur noch Pretrain.
         ops += [T.RandomGrayscale(p=policy.grayscale_p)]
+    # Der uint8-Ausgang endet HIER: Rauschen, Cutout und Normalisierung leben dann in
+    # `batch_aug.BatchPhotometric`, in derselben Reihenfolge und auf demselben [0,1]-Raster.
+    if to_uint8:
+        return T.Compose([*ops, _ToUint8()])
     ops += [T.ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
@@ -702,6 +724,12 @@ class PackedBoardDataset(Dataset):
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
         self._files, idx = _pack_index(self.rows, packed)
         self.idx = idx.reshape(-1, CELLS, 2)
+        # Ein Brett liegt im Pack am Stueck: `a1..h8` eines Frames sind 64 aufeinanderfolgende
+        # Zeilen (gemessen auf real13-mix-v4: 9218 von 9218). Dann ist EIN Schnitt 2,8x schneller
+        # als 64 Griffe — und kalt ist es ein Seek statt 64 (`docs/batch-aug.md`).
+        same = (self.idx[:, :, 0] == self.idx[:, :1, 0]).all(axis=1)
+        step = self.idx[:, :, 1] - self.idx[:, :1, 1]
+        self._run = same & (step == np.arange(CELLS)).all(axis=1)
         self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in self.rows],
                               dtype=np.float32).reshape(-1, CELLS)
@@ -724,10 +752,16 @@ class PackedBoardDataset(Dataset):
     def __len__(self) -> int:
         return len(self.idx)
 
+    def _board(self, b) -> np.ndarray:
+        """Die 64 Crops als `(64, H, W, 3)` — als Schnitt, wo der Pack sie am Stueck hat."""
+        if self._run[b]:
+            p, j = self.idx[b][0]
+            return np.array(self._memmap(p)[j:j + self.idx.shape[1]])
+        return np.stack([np.array(self._memmap(p)[i]) for p, i in self.idx[b]])
+
     def __getitem__(self, b):
         crops = []
-        for p, i in self.idx[b]:
-            arr = np.array(self._memmap(p)[i])
+        for arr in self._board(b):
             if isinstance(self.transform, _EvalRgbTransform):
                 crops.append(self.transform.from_uint8_hwc(arr))
             else:

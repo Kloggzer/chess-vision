@@ -503,6 +503,15 @@ class _PreadRows:
         self._f = open(path, "rb", buffering=0)
 
     def __getitem__(self, i):
+        # Ein Schnitt ist EIN Lesevorgang statt 64 Suchlaeufen — und dieser Reader wird gerade
+        # dann gewaehlt, wenn der Pack nicht in den RAM passt, also jeder Seek die Platte trifft.
+        if isinstance(i, slice):
+            start, stop, step = i.indices(self._n)
+            if step != 1:
+                raise ValueError(f"nur zusammenhaengende Schnitte, nicht step={step}")
+            self._f.seek(start * self._row)
+            buf = self._f.read(max(0, stop - start) * self._row)
+            return np.frombuffer(buf, np.uint8).reshape(-1, self._h, self._w, 3)
         self._f.seek(int(i) * self._row)
         return np.frombuffer(self._f.read(self._row), np.uint8).reshape(self._h, self._w, 3)
 
