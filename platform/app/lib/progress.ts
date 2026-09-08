@@ -93,7 +93,7 @@ export async function progressOf(name: string, log: string | undefined): Promise
     if (at) atSeconds = Math.max(atSeconds ?? 0, Number(at[1].replace(",", ".")));
     // A chesslab step counts FRAMES, not seconds of video (`realgames.PROGRESS_EVERY`): without
     // this the export shows a spinner for half an hour and reads exactly like a hung job.
-    const step = /(\d+)\/(\d+) frames/.exec(line);
+    const step = /\b(\d+)\/(\d+) frames\b/.exec(line);
     if (step && Number(step[2]) > 0) frames = { at: Number(step[1]), total: Number(step[2]) };
   }
   return { atSeconds, totalSeconds: await recordingSeconds(name), plies, frames, tail, bytes };

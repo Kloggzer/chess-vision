@@ -12,9 +12,9 @@ export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "mat
 export type IntakeGroupKey = (typeof INTAKE_GROUPS)[number];
 
 export type IntakeRow = QueueRow & {
-  /** The last job when it FAILED on the step the disk still asks for; else null. `confirm` and
-   *  `labeln` are pages, never jobs, so their rows always carry null. */
-  failed: Job | null;
+  /** The last job on the step the disk still asks for, in ANY state — a running one seeds the
+   *  row's progress bar, a failed one its badge. `confirm` and `labeln` are pages, never jobs. */
+  job: Job | null;
   /** `recordedAt(name)` as `YYYY-MM-DD HH:MM` — the sort key made readable. */
   recorded: string;
 };
@@ -26,10 +26,13 @@ const readable = (name: string) => {
 };
 
 /** The badge rule of `chain-actions.tsx`: an overtaken ledger row is history, not a warning. */
-function failedOn(row: QueueRow, lastJobs: ReadonlyMap<string, Job>): Job | null {
+function jobOn(row: QueueRow, lastJobs: ReadonlyMap<string, Job>): Job | null {
   const job = lastJobs.get(row.name);
-  return job && job.state === "failed" && job.kind === row.chain.step ? job : null;
+  return job && job.kind === row.chain.step ? job : null;
 }
+
+/** Only a failure of the step still open — what the filter counts and the badge shows. */
+export const failedOn = (row: IntakeRow): boolean => row.job?.state === "failed";
 
 /**
  * Always seven groups in chain order, rows newest first. Excluded: useless, archived, and rows
@@ -44,7 +47,7 @@ export function groupIntake(rows: QueueRow[], lastJobs: ReadonlyMap<string, Job>
     what: STEP[key].what,
     rows: live
       .filter((r) => r.chain.step === key)
-      .map((r) => ({ ...r, failed: failedOn(r, lastJobs), recorded: readable(r.name) })),
+      .map((r) => ({ ...r, job: jobOn(r, lastJobs), recorded: readable(r.name) })),
   }));
 }
 
@@ -57,12 +60,12 @@ export function intakeCount(rows: QueueRow[]): number {
 export function visibleGroups(groups: readonly IntakeGroup[], only: readonly IntakeGroupKey[], failedOnly: boolean): IntakeGroup[] {
   return groups
     .filter((g) => only.includes(g.key))
-    .map((g) => (failedOnly ? { ...g, rows: g.rows.filter((r) => r.failed !== null) } : g))
+    .map((g) => (failedOnly ? { ...g, rows: g.rows.filter(failedOn) } : g))
     .filter((g) => g.rows.length > 0);
 }
 
 export const failedCount = (groups: readonly IntakeGroup[]) =>
-  groups.reduce((n, g) => n + g.rows.filter((r) => r.failed !== null).length, 0);
+  groups.reduce((n, g) => n + g.rows.filter(failedOn).length, 0);
 
 export const finishedCount = (groups: readonly IntakeGroup[]) => groups.find((g) => g.key === "labeln")?.rows.length ?? 0;
 

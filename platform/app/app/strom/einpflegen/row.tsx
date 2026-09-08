@@ -17,7 +17,7 @@ export function IntakeRowItem({ row }: { row: IntakeRow }) {
           {row.plies > 0 ? ` · ${row.plies} Halbzüge` : ""}
         </span>
       </span>
-      <ChainActions lastJob={row.failed} name={row.name} showWhat={false} state={row.chain} />
+      <ChainActions lastJob={row.job} name={row.name} showWhat={false} state={row.chain} />
       <Link className="text-muted-foreground ml-auto shrink-0 text-xs hover:underline hover:underline-offset-4" href={`/#${row.name}`}>
         Karte →
       </Link>

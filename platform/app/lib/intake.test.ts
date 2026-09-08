@@ -61,16 +61,25 @@ describe("groupIntake", () => {
     expect(groups.reduce((n, g) => n + g.rows.length, 0)).toBe(0);
   });
 
-  it("a failed job counts only against the step the disk still asks for", () => {
+  it("a job counts only against the step the disk still asks for", () => {
     const failed = job("2026-08-12-01-18-44", "export");
     const asking = groupIntake([row("2026-08-12-01-18-44", { step: "export" })], ledger(failed));
-    expect(asking.find((g) => g.key === "export")?.rows[0].failed).toBe(failed);
+    expect(asking.find((g) => g.key === "export")?.rows[0].job).toBe(failed);
 
     const moved = groupIntake([row("2026-08-12-01-18-44", { step: "matte" })], ledger(failed));
-    expect(moved.find((g) => g.key === "matte")?.rows[0].failed).toBeNull();
+    expect(moved.find((g) => g.key === "matte")?.rows[0].job).toBeNull();
 
     const page = groupIntake([row("2026-08-12-01-18-44", { step: "confirm" })], ledger(job("2026-08-12-01-18-44", "label")));
-    expect(page.find((g) => g.key === "confirm")?.rows[0].failed).toBeNull();
+    expect(page.find((g) => g.key === "confirm")?.rows[0].job).toBeNull();
+  });
+
+  it("a RUNNING job reaches the row, so its bar can poll", () => {
+    const running = job("2026-08-12-01-18-44", "export", "running");
+    const groups = groupIntake([row("2026-08-12-01-18-44", { step: "export" })], ledger(running));
+    const found = groups.find((g) => g.key === "export")?.rows[0];
+    expect(found?.job).toBe(running);
+    expect(failedCount(groups)).toBe(0);
+    expect(visibleGroups(groups, ["export"], true)).toEqual([]);
   });
 
   it("rows are newest first within a group", () => {

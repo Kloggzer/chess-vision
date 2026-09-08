@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { SEGMENTS, segment } from "@/components/segmented";
-import { INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/intake";
+import { failedOn, INTAKE_GROUPS, type IntakeGroup, type IntakeGroupKey } from "@/lib/intake";
 
 /** The filter lives in the URL and nowhere else: every step is a plain link, so a filtered view is
  *  shareable, survives a reload, and costs neither client state nor a `Suspense` boundary. */
@@ -41,7 +41,7 @@ export function IntakeStepper({
         {groups.map((group, i) => {
           const active = !all && only.includes(group.key);
           const occupied = group.rows.length > 0;
-          const failedHere = group.rows.filter((row) => row.failed !== null).length;
+          const failedHere = group.rows.filter(failedOn).length;
           return (
             <Link
               aria-current={active ? "page" : undefined}

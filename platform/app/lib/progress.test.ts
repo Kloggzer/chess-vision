@@ -64,3 +64,31 @@ describe("progressOf", () => {
     expect(p.plies).toBe(1);
   });
 });
+
+/**
+ * Die Zeilen, die der Export selbst schreibt. `board cut` und `straighten` kamen 2026-09-08 dazu:
+ * `rewarp_boards` und `straighten_boards` liefen stumm, und "Bretter ausschneiden" sah minutenlang
+ * aus wie ein haengender Job — genau die Verwechslung, gegen die dieser Balken existiert.
+ */
+describe("progressOf liest die Schritte des Exports", () => {
+  const cases: [string, string, number, number][] = [
+    ["decode", "  decode 300/1200 frames", 300, 1200],
+    ["grid fit", "  grid fit 500/1200 frames, hands on 12", 500, 1200],
+    ["board cut", "  board cut 700/1200 frames", 700, 1200],
+    ["straighten", "  straighten 900/1200 frames", 900, 1200],
+  ];
+  for (const [name, line, at, total] of cases) {
+    it(`${name} landet als Balken, nicht als Spinner`, async () => {
+      await writeFile(log, `$ uv run chesslab realgames export-session x\n${line}\n`);
+      const p = await progressOf("2026-08-13-01-39-15", log);
+      expect(p.frames).toEqual({ at, total });
+    });
+  }
+
+  it("nimmt die LETZTE Zahl, damit der Balken nicht zurueckspringt", async () => {
+    await writeFile(log, ["$ uv run chesslab realgames export-session x",
+                          "  board cut 100/1200 frames",
+                          "  board cut 700/1200 frames"].join("\n"));
+    expect((await progressOf("2026-08-13-01-39-15", log)).frames).toEqual({ at: 700, total: 1200 });
+  });
+});
