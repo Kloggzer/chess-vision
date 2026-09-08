@@ -332,7 +332,8 @@ internal class EngineState(
     /**
      * How many CNN reads were taken, and how many were thrown away as stale. [cnnAgreement] alone
      * cannot be read: 0.0 means "disagreed everywhere", "never asked" and "asked, but the board moved
-     * on" alike — three faults, one number. Counted where the read EXISTS, before the freshness check.
+     * on" alike — three faults, one number. Taken counts actual evaluations; stale counts snapshots
+     * rejected before evaluation because their FEN no longer matches.
      */
     var cnnReadsTaken: Long = 0L
 

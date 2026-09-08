@@ -19,6 +19,26 @@ import org.junit.jupiter.api.Test
  */
 class CnnTickTest {
     @Test
+    fun obsoletePositionDoesNotEvaluateOrDelayTheNextFreshReading() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(match = true)
+        val snap = recoverySnap(state, obsForBoard(state.board), seq = 1)
+        val oldCooldown = state.lastCnnTs
+        val oldEpoch = state.lastEvalEpoch
+
+        assertTrue(state.cnnTick(cnn, snap.copy(fen = NF3_NO_CASTLING)).isEmpty())
+
+        assertTrue(cnn.observations.isEmpty(), "obsolete frames must not enter recovery evaluation")
+        assertEquals(1L, state.cnnReadsStale)
+        assertEquals(0L, state.cnnReadsTaken)
+        assertEquals(oldCooldown, state.lastCnnTs)
+        assertEquals(oldEpoch, state.lastEvalEpoch)
+        state.cnnTick(cnn, snap.copy(seq = 2))
+        assertEquals(1L, state.cnnReadsTaken, "fresh evidence must remain due at the same timestamp")
+        assertTrue(cnn.observations.isNotEmpty())
+    }
+
+    @Test
     fun recoveryReceivesTheRawViewOfAConditionedSnapshot() {
         val engine = TrackerEngine(recoveryConfig(), STARTPOS)
         val raw = obsForBoard(engine.state.board, mapOf("e5" to "wP"))

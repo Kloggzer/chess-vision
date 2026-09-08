@@ -51,16 +51,18 @@ internal fun EngineState.cnnTick(
             }
             else -> cnn
         } ?: return emptyList()
-    val read = identityRead(model, snap.obs)
-    lastCnnTs = nowS
-    lastEvalEpoch = motionEpoch
-    cnnReadsTaken += 1
     if (board.fen() != snap.fen) {
         // The state moved on while we looked — the reading describes a position we no longer hold.
         cnnReadsStale += 1
         recoveryConfirmer.reset()
         return emptyList()
     }
+    // Reject obsolete work before searching legal continuations or consuming the current
+    // position's evaluation slot. A fresh reading may arrive immediately after this one.
+    val read = identityRead(model, snap.obs)
+    lastCnnTs = nowS
+    lastEvalEpoch = motionEpoch
+    cnnReadsTaken += 1
     cnnAgreement = read.agreement
     cnnBestMove = read.moves.takeIf { it.isNotEmpty() }?.joinToString(" ")
     // The terminal verdict already anchored on the candidate's averaged frame; a match here has

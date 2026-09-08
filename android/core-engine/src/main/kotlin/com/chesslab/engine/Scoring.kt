@@ -101,26 +101,39 @@ internal fun loglikSequenceScores(
 
     fun walk(
         path: MutableList<Move>,
-        claimed: Set<Int>,
+        claimed: Long,
     ) {
         if (path.size >= maxPlies || nodes > SEQUENCE_NODE_CAP) return
         // From the third ply on ONLY the exchange on the same square: a free search invented
         // `Rg1` for `Bc4 Bc5 O-O` — more squares explained, still wrong.
         val sameSquare = if (path.size >= PAIR_PLIES) path.last().to else null
-        for (mv in g.legalMoves().filter { endpointsOk(z, it, cut) && (sameSquare == null || it.to == sameSquare) }) {
+        for (mv in g.legalMoves()) {
+            if (!endpointsOk(z, mv, cut) || (sameSquare != null && mv.to != sameSquare)) continue
             nodes += 1
             val n = moveTouchedIndices(g, mv, buffer)
             // A shared square counts once — the exchange on one square is exactly that case.
-            val union = claimed + (0 until n).map { buffer[it] }
+            var union = claimed
+            for (i in 0 until n) union = union.with(buffer[i])
             path.add(mv)
-            if (path.size >= PAIR_PLIES) scored.add(path.toList() to union.sumOf { logit[it] })
-            g.push(mv)
-            walk(path, union)
-            g.pop()
+            if (path.size >= PAIR_PLIES) {
+                var score = 0.0
+                union.forEachSquare { score += logit[it] }
+                scored.add(path.toList() to score)
+            }
+            // Leaves need only their touched squares, computed in the parent position.
+            // Avoid validating and mutating chesslib for a recursion that immediately returns.
+            if (path.size < maxPlies) {
+                g.push(mv)
+                try {
+                    walk(path, union)
+                } finally {
+                    g.pop()
+                }
+            }
             path.removeAt(path.size - 1)
         }
     }
-    walk(ArrayList(), emptySet())
+    walk(ArrayList(), 0L)
     sortByValueDescending(scored)
     return scored
 }
