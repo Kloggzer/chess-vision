@@ -308,6 +308,20 @@ def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
     return pred
 
 
+def board_cells(cfg: dict) -> int | None:
+    """`CELLS`, wenn der Lauf ein BRETT-Netz ist — sonst None.
+
+    Ein Brettkopf schaut ueber alle 64 Zellen zugleich und verlangt die Zellachse im Batch. Bis
+    2026-09-07 hat `predict_arrays` nur Zell-Modelle gesehen und den Batch flach gebaut; ein
+    Brett-Lauf starb an `BoardNet erwartet (B, 64, C, H, W)`.
+    """
+    if not str(cfg.get("backbone", "")).startswith(("board:", "boardattn:")):
+        return None
+    from .training.boardnet import CELLS
+
+    return CELLS
+
+
 def _is_plain_rgb(cfg: dict) -> bool:
     """Whether the run's preprocessing is the one `_CudaGraphPredictor` bakes in.
 
@@ -316,7 +330,11 @@ def _is_plain_rgb(cfg: dict) -> bool:
     feeding it the wrong preprocessing silently is worse than losing the fast path.
     """
     return (cfg.get("input_repr", "rgb") == "rgb"
-            and cfg.get("normalize", {}).get("mode", "fixed") != "per_crop")
+            and cfg.get("normalize", {}).get("mode", "fixed") != "per_crop"
+            # CLAHE sitzt in der PIL-Kette; der gefaltete mul+sub kennt es nicht und wuerde es
+            # STILL weglassen — dieselbe Regel, die `build_transform` fuer `_EvalRgbTransform` zieht.
+            and float(cfg.get("clahe_clip", 0.0)) <= 0
+            and board_cells(cfg) is None)
 
 
 def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
@@ -340,8 +358,11 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     infer_size = infer_size_of(cfg)
     out_h, out_w = infer_size[1], infer_size[0]
 
-    # Fast path: when all crops are already at the inference size, vectorize preprocessing
-    all_at_size = all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops)
+    # Fast path: when all crops are already at the inference size, vectorize preprocessing.
+    # NICHT mit CLAHE: der Pfad normalisiert von Hand und ruft die Kette nie auf, der Operator
+    # fiele still weg — und ein Modell ohne sein CLAHE ist ein anderes Modell (2026-09-07).
+    all_at_size = (float(cfg.get("clahe_clip", 0.0)) <= 0
+                   and all(c.shape[0] == out_h and c.shape[1] == out_w for c in crops))
 
     # CUDA-graph fast path (torch model on GPU, uniform crops, <= capture size):
     # replays a pre-captured fp16 forward — removes the eager per-kernel launch
@@ -382,6 +403,16 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
                 [tf(Image.fromarray(c[:, :, ::-1].copy())) for c in crops]
             ).to(device)  # BGR->RGB
 
+        # NUR der Torch-Pfad: der ONNX-Export eines Brett-Netzes traegt die Brettachse selbst
+        # (`_BoardExport` macht `unsqueeze(0)`, `training/evaluate.py`), sein Graph nimmt
+        # (64, C, H, W). Hier umzuformen hat am 2026-09-07 jeden `retime`-Lauf blockiert.
+        cells = None if isinstance(model, _ONNXModel) else board_cells(cfg)
+        if cells is not None:
+            if batch.shape[0] % cells:
+                raise ValueError(
+                    f"{Path(run_dir).name} ist ein Brett-Netz und braucht ganze Bretter: "
+                    f"{batch.shape[0]} Crops sind kein Vielfaches von {cells}.")
+            batch = batch.view(-1, cells, *batch.shape[1:])
         with torch.no_grad():
             if device.startswith("cuda"):
                 try:
