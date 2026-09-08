@@ -439,6 +439,13 @@ continuous gesture per hand rather than a shuffle (`app/relabel/[name]/page.tsx:
 
 **Lanes** are filters over the same stream, and switching one keeps you in place:
 
+> **Stand 2026-09-07: es sind DREI.** Die Tabelle unten ist der historische Schnitt nach
+> Produzenten. Gefaltet nach der FRAGE: `Strittig` (Zellen — Audit, Modell ≠ FEN samt
+> Klassenwand-Abfrage, Stellung, Hand; ueber `PIECE_VISIBLE_MAX` faellt raus, weil der Verlust
+> die Zelle ohnehin maskiert), `Stichprobe` (unveraendert) und `Bretter` (jedes Brett, mit
+> `unknown`, Regelbruch und Modell-Lesart als Vorwahl). Neun Herkuenfte waren dieselben drei
+> Fragen, und benutzt wurden zwei (User: „ich verstehe die schon gar nicht mehr“).
+
 **A lane declares its renderer and its own denominator.** Mixing the two units is the failure D1
 diagnoses, so a chip never says a bare number: it says `612 Bretter` or `5 230 Zellen`.
 

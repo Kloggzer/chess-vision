@@ -15,7 +15,7 @@ import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
 import { type PositionFlag, loadPositionFlags } from "@/lib/position-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
 import { type HandFlag, loadHandFlags } from "@/lib/hand-flags";
-import { loadMeta } from "@/lib/meta";
+import { isArchived } from "@/lib/meta";
 import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
 import { frameReviews, unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
@@ -157,8 +157,8 @@ export async function liveGames(): Promise<string[]> {
   const names = await listGames();
   const live = await Promise.all(
     names.map(async (name) => {
-      const [flag, meta] = await Promise.all([uselessFlag(name), loadMeta(name)]);
-      return flag === null && !meta.archived ? name : null;
+      const [flag, archived] = await Promise.all([uselessFlag(name), isArchived(name)]);
+      return flag === null && !archived ? name : null;
     }),
   );
   return newestFirst(live.filter((n): n is string => n !== null));

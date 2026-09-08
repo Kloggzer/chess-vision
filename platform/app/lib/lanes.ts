@@ -8,21 +8,12 @@
  * with its reason — `0` would claim there is no such work when nobody has been asked.
  */
 
-import { coveragePct, isIdentity } from "@/lib/classes";
+import { PIECE_VISIBLE_MAX, coveragePct, isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
-export type LaneId =
-  | "disagree"
-  | "classwall"
-  | "unknown"
-  | "control"
-  | "audit"
-  | "hand"
-  | "position"
-  | "rules"
-  | "all";
+export type LaneId = "audit" | "control" | "all";
 
 /** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10). */
 type LaneRenderer = "board" | "cells";
@@ -39,20 +30,19 @@ export type Lane = {
   denominator: string;
 };
 
+/**
+ * DREI Lanes, nach der FRAGE geschnitten, nicht nach dem Produzenten (2026-09-07). Neun Lanes
+ * waren neun Herkuenfte derselben drei Fragen, und benutzt wurden zwei („ich verstehe die schon
+ * gar nicht mehr"). Wer die Herkunft braucht, liest sie auf der Karte: jede traegt ihre Notiz.
+ */
 export const LANES: readonly Lane[] = [
-  { id: "disagree", slug: "modell-bretter", label: "Modell ≠ FEN · Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter mit Modell-Lesarten" },
-  // Named after its QUESTION, not after the wall metaphor: it is the same "Modell ≠ FEN" one cell
-  // at a time, and nobody looking for that found it under `Klassenwand` (User, 2026-08-17).
-  { id: "classwall", slug: "modell-zellen", label: "Modell ≠ FEN · Zellen", renderer: "cells", unit: "Zellen", denominator: "Zellen, auf die die Abfrage im Lane-Kopf passt" },
   {
-    id: "unknown",
-    slug: "fen-unklar",
-    label: "FEN unklar",
-    renderer: "board",
-    unit: "Bretter",
-    // Its own corpus on purpose: an unknown square is the exporter's own doubt, measured on every
-    // exported session whether or not a model has ever read it.
-    denominator: "Bretter mit unknown_squares über die exportierten Sessions",
+    id: "audit",
+    slug: "audit",
+    label: "Strittig",
+    renderer: "cells",
+    unit: "Zellen",
+    denominator: "Zellen, die ein Messer angezweifelt hat",
   },
   {
     id: "control",
@@ -64,24 +54,14 @@ export const LANES: readonly Lane[] = [
     // cells of every exported session, not a fixed list that retires once it is answered.
     denominator: "Kontroll-Stichprobe über die noch unbeurteilten ruhigen Zellen der exportierten Sessions",
   },
-  { id: "audit", slug: "audit", label: "Audit", renderer: "cells", unit: "Zellen", denominator: "geflaggte Zellen des k-fold-Audits" },
-  // Eigene Lane, weil die Frage eine andere ist: nicht WELCHE Figur, sondern ob eine Hand drauf
-  // liegt. Der Dirty-Pinsel (`d`) beantwortet sie, kein Klassenwort.
-  { id: "hand", slug: "hand", label: "Hand?", renderer: "cells", unit: "Zellen", denominator: "Zellen, die das Modell für verdeckt hält und die Matte für frei" },
-  // Wieder eine eigene Frage: nicht ob etwas draufliegt, sondern ob das Feld noch die Stellung
-  // zeigt, für die sein Intervall bürgt. Ein sichtbar ziehender Bauer ist hier zwei Karten.
-  { id: "position", slug: "stellung", label: "Stellung?", renderer: "cells", unit: "Zellen", denominator: "Zellen, deren Bild von der Stellung ihres Intervalls abweicht" },
   {
-    id: "rules",
-    slug: "regelbruch",
-    label: "Regelbruch",
+    id: "all",
+    slug: "alle",
+    label: "Bretter",
     renderer: "board",
     unit: "Bretter",
-    // Its own corpus: a violated frame is in the lane because its LEDGER says so, whether or not
-    // a model ever read it.
-    denominator: "Bretter, deren korrigierte Stellung eine Regel bricht",
+    denominator: "Bretter im Strom",
   },
-  { id: "all", slug: "alle", label: "Alle Bretter", renderer: "board", unit: "Bretter", denominator: "Bretter im Strom" },
 ];
 
 export const laneById = (id: LaneId): Lane => LANES.find((l) => l.id === id)!;
@@ -104,8 +84,21 @@ export const NO_POSITION =
   "data/reports/position-flags.jsonl fehlt — `chesslab session settle-scan` und danach " +
   "`chesslab realgames position-flags` liefen noch nicht. Ohne Messung ist eine Zelle nicht " +
   "unstrittig, sondern ungemessen.";
-export const NO_RULES =
-  "data/reports/correction-violations.jsonl fehlt — `chesslab realgames audit-corrections` lief noch nicht.";
+
+/**
+ * Was der Strittig-Lane gerade FEHLT. Eine schweigende Quelle darf nicht in der Summe verschwinden:
+ * die Zahl waere sonst „so viel ist strittig", wo sie „so viel ist strittig, gemessen an dem, was
+ * gelaufen ist" heisst. Leer heisst deshalb `—` mit Grund, teilweise heisst Zahl mit Fussnote.
+ */
+function missingSources(stream: LabelStream, wall?: WallQuery): string[] {
+  const out: string[] = [];
+  if (stream.audit === null) out.push(NO_AUDIT);
+  if (stream.positions === null) out.push(NO_POSITION);
+  if (stream.hands === null) out.push(NO_HAND);
+  if (!stream.sessions.some((s) => s.probs)) out.push(NO_READS);
+  else if (!wall) out.push(NO_QUERY);
+  return out;
+}
 
 /** What an empty lane says. Only the Stichprobe can run DRY — it redraws over the unjudged cells,
  *  so nothing left there means the corpus is through, not that no work has arrived yet. */
@@ -279,15 +272,11 @@ export function wallCells(hits: readonly QueryHit[], stream: LabelStream): LaneC
   return out;
 }
 
-/** The cells of a cell lane, one claim per page. Empty for a board lane. */
-export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
-  if (id === "audit") {
-    return (stream.audit ?? []).map(judgedCell);
-  }
-  // Kein Klassenwort und kein `exception`: die einzige Antwort ist der Dirty-Pinsel, und ⏎ sagt
-  // "keine Hand" — es bestätigt das FEN-Wort, das ohnehin auf der Platte steht.
-  if (id === "hand") {
-    return (stream.hands ?? []).map((c) => ({
+/** Die Zellen der Hand-Lane: kein Klassenwort und kein `exception` — die einzige Antwort ist der
+ *  Dirty-Pinsel, und ⏎ sagt "keine Hand", also bestaetigt es das FEN-Wort von der Platte. */
+function handCells(stream: LabelStream): LaneCell[] {
+  return groupBySquare(
+    (stream.hands ?? []).map((c) => ({
       session: c.session,
       pos: c.pos,
       stem: c.stem,
@@ -297,29 +286,53 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
       ledger: "reviewed" as const,
       exception: null,
       caption: `${c.square} · Modell ${(c.cov * 100).toFixed(0)} % verdeckt`,
-      note: c.measured === null ? "Matte kennt dieses Frame nicht" : `Matte ${(c.measured * 100).toFixed(0)} %`,
-    }));
-  }
-  // Die Antwort ist ein Klassenwort: ⏎ bestätigt den FEN (Schatten-Fehlalarm), die Palette schreibt
-  // die Figur, die wirklich dasteht. Deshalb `corrections` — der FEN ist hier der Verdächtige.
-  if (id === "position") {
-    return groupBySquare(
-      (stream.positions ?? []).map((c) => ({
-        session: c.session,
-        pos: c.pos,
-        stem: c.stem,
-        square: c.square,
-        fen_label: c.fen_label,
-        label: c.fen_label,
-        ledger: "corrections" as const,
-        exception: null,
-        caption: `${c.square} · FEN ${c.fen_label}`,
-        note: c.reason === "unreadable" ? "kaum Feld zu sehen" : `Δ ${c.dev.toFixed(0)}`,
-      })),
-    );
-  }
-  if (id === "classwall") {
-    return byClaim(groupBySquare(wall?.cells ?? []));
+      note: c.measured === null ? "Hand? Matte kennt dieses Frame nicht" : `Hand? Matte ${(c.measured * 100).toFixed(0)} %`,
+    })),
+  );
+}
+
+/** Die Stellungs-Zellen: ⏎ bestaetigt den FEN (Schatten-Fehlalarm), die Palette schreibt die Figur,
+ *  die wirklich dasteht. Deshalb `corrections` — hier ist der FEN der Verdaechtige. */
+function positionCells(stream: LabelStream): LaneCell[] {
+  return groupBySquare(
+    (stream.positions ?? []).map((c) => ({
+      session: c.session,
+      pos: c.pos,
+      stem: c.stem,
+      square: c.square,
+      fen_label: c.fen_label,
+      label: c.fen_label,
+      ledger: "corrections" as const,
+      exception: null,
+      caption: `${c.square} · FEN ${c.fen_label}`,
+      note: c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
+    })),
+  );
+}
+
+/**
+ * Ist die Zelle ueberhaupt eine FRAGE? Ueber `PIECE_VISIBLE_MAX` maskiert der Occlusion-Verlust sie
+ * aus der Klassifikation — was ein Mensch dort urteilt, lernt kein Kopf, und die Lane war voll
+ * davon (User, 2026-09-07). Ohne Messung bleibt sie drin: ungemessen heisst nicht verdeckt.
+ */
+function visible(stream: LabelStream, cell: { session: number; stem: string; square: string }): boolean {
+  return (stream.coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) <= PIECE_VISIBLE_MAX;
+}
+
+/**
+ * The cells of a cell lane, one claim per page. Empty for a board lane.
+ *
+ * `Strittig` is every measurer at once, BLOCK BY BLOCK and not interleaved: each source keeps its
+ * own claim order, so a page stays one question even though the lane holds four.
+ */
+export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
+  if (id === "audit") {
+    return [
+      ...(stream.audit ?? []).map(judgedCell),
+      ...byClaim(groupBySquare(wall?.cells ?? [])),
+      ...positionCells(stream),
+      ...handCells(stream),
+    ].filter((c) => visible(stream, c));
   }
   if (id !== "control") return [];
   // EIN ⏎ überall: „FEN stimmt" → reviewed. Ohne Modellwort, weil die Stichprobe blind sein muss.
@@ -340,35 +353,29 @@ export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
 
 /** The boards of a board lane, in stream order. Empty for a cell lane. */
 export function laneBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
-  if (id === "disagree") return stream.boards.filter((b) => Object.keys(b.disagree).length > 0);
-  if (id === "unknown") return stream.boards.filter((b) => b.unknown.length > 0);
-  if (id === "rules") return stream.boards.filter((b) => b.violations.length > 0);
-  if (id === "all") return stream.boards;
-  return [];
+  return id === "all" ? stream.boards : [];
 }
 
 /**
- * `{square: label}` the lane pre-selects on a board.
+ * `{square: label}` die Lane auf einem Brett vorwaehlt — alles, was jemand an DIESEM Brett
+ * angezweifelt hat, in einer Vorwahl. Reihenfolge = Schaerfe: der Regelbruch beweist einen
+ * Widerspruch, `unknown` ist nur die Zweifel des Exporters, und die Modell-Lesart ist eine Meinung.
  *
- * `FEN unklar` is the odd one: the exporter vouches for nothing there and `labeling.py` DROPS the
- * cell at slice time unless a correction exists, so confirming the FEN's own word is what rescues
- * it (CONCEPT.md D5). `Alle Bretter` pre-selects nothing — it is free-hand paint.
+ * `unknown` traegt das FEN-Wort, weil `labeling.py` die Zelle sonst beim Slice faellen laesst —
+ * das FEN zu bestaetigen ist hier die Rettung, nicht eine Tautologie (CONCEPT.md D5).
  */
 export function laneAccept(board: StreamBoard, id: LaneId): Record<string, string> {
-  if (id === "disagree") return board.disagree;
-  // Was auf der Platte steht, nicht was zu schreiben wäre: der Regelbruch beweist, dass Korrektur
-  // ODER FEN falsch ist, nie welche von beiden. Ein Klick zykelt Korrektur ⇄ FEN-Wort.
-  if (id === "rules") return board.violating;
-  if (id === "unknown") {
-    const fen = fenLabels(board.fen);
-    return Object.fromEntries(board.unknown.map((sq) => [sq, fen[sq] ?? "empty"]));
-  }
-  return {};
+  if (id !== "all") return {};
+  const fen = fenLabels(board.fen);
+  return {
+    ...board.disagree,
+    ...Object.fromEntries(board.unknown.map((sq) => [sq, fen[sq] ?? "empty"])),
+    ...board.violating,
+  };
 }
 
 export function laneReads(board: StreamBoard, id: LaneId): Record<string, string> {
-  if (id === "disagree") return board.disagreeReads;
-  return {};
+  return id === "all" ? board.disagreeReads : {};
 }
 
 /**
@@ -403,10 +410,12 @@ export function boardCells(boards: readonly StreamBoard[], id: LaneId): LaneCell
  * by construction — the board leaves the lane when the audit runs again and drops its row.
  */
 export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string, string>): boolean {
-  const undecided = (squares: string[]) => squares.some((sq) => decided[`${board.stem}|${sq}`] === undefined);
-  if (id === "rules") return true;
-  if (id === "all") return undecided(Object.keys(fenLabels(board.fen)));
-  return undecided(Object.keys(laneAccept(board, id)));
+  if (id !== "all") return false;
+  // Ein Brett mit Regelbruch bleibt IMMER offen: seine markierten Felder sind Korrekturen auf der
+  // Platte, das Ledger nennt sie also von Bauart her beurteilt. Es geht erst, wenn der Audit neu
+  // laeuft und die Zeile faellt. Sonst zaehlen die 64 Felder — Freihand schliesst nur ganz.
+  if (board.violations.length > 0) return true;
+  return Object.keys(fenLabels(board.fen)).some((sq) => decided[`${board.stem}|${sq}`] === undefined);
 }
 
 /**
@@ -447,22 +456,21 @@ export function openCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   );
 }
 
-/** Open and total, or `null` with the reason the producer still owes this lane its input. */
+/** Open and total, or `null` with the reason every producer still owes this lane its input. */
 export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCount {
-  if (id === "audit" && stream.audit === null) return { n: null, why: NO_AUDIT };
-  if (id === "hand" && stream.hands === null) return { n: null, why: NO_HAND };
-  if (id === "position" && stream.positions === null) return { n: null, why: NO_POSITION };
-  if (id === "rules" && !stream.rules) return { n: null, why: NO_RULES };
-  if ((id === "disagree" || id === "classwall") && !stream.sessions.some((s) => s.probs))
-    return { n: null, why: NO_READS };
-  if (id === "classwall" && !wall) return { n: null, why: NO_QUERY };
+  const missing = id === "audit" ? missingSources(stream, wall) : [];
+  if (missing.length === 4) return { n: null, why: missing.join(" ") };
   const board = laneById(id).renderer === "board";
   const total = board ? laneBoards(stream, id).length : laneCells(stream, id, wall).length;
   const n = board ? openBoards(stream, id).length : openCells(stream, id, wall).length;
-  if (id === "classwall") return { n, total, denominator: `Zellen, auf die »${wall!.text}« passt` };
-  // Ein Modell hat bisher EINE Session gelesen; der Rest des Korpus ist NICHT GEMESSEN, nicht einig.
-  if (id === "disagree")
-    return { n, total, denominator: `Bretter mit Modell-Lesarten — ${stream.reads.boards} von ${stream.boards.length}, der Rest ist nicht gemessen` };
+  if (id === "audit") {
+    // Ein Modell hat bisher EINE Session gelesen; der Rest des Korpus ist NICHT GEMESSEN, nicht
+    // einig — deshalb steht neben der Zahl, worueber sie ueberhaupt gemessen wurde.
+    const over =
+      `Zellen aus Audit, Modell ≠ FEN (»${wall?.text ?? "keine Abfrage"}«, ` +
+      `${stream.reads.boards} von ${stream.boards.length} Brettern gelesen), Stellung und Hand`;
+    return { n, total, denominator: missing.length === 0 ? over : `${over} · ES FEHLT: ${missing.join(" ")}` };
+  }
   return { n, total };
 }
 

@@ -10,14 +10,12 @@ import {
   NO_POSITION,
   NO_READS,
   NO_QUERY,
-  NO_RULES,
   boardCells,
   reachesPool,
   collapseEvents,
   groupBySquare,
   keepPosition,
   laneAccept,
-  laneBoards,
   laneById,
   laneBySlug,
   laneCells,
@@ -25,32 +23,31 @@ import {
   laneCount,
   laneOpen,
   lanePath,
-  openBoards,
   openCells,
   wallCells,
   cellCoverage,
 } from "@/lib/lanes";
 
 test("every lane declares a renderer, a unit and its own denominator", () => {
-  expect(LANES.map((l) => l.id)).toEqual([
-    "disagree", "classwall", "unknown", "control", "audit", "hand", "position", "rules", "all",
-  ]);
+  // DREI, nach der Frage geschnitten: strittige Zelle, blinde Stichprobe, ganzes Brett. Neun
+  // Lanes waren neun Herkuenfte derselben drei Fragen und wurden zu zweit benutzt (2026-09-07).
+  expect(LANES.map((l) => l.id)).toEqual(["audit", "control", "all"]);
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
     expect(lane.unit).toBe(lane.renderer === "board" ? "Bretter" : "Zellen");
   }
   // The one lane that must NOT be indexed against the 3 976 (CONCEPT.md 4.2, REVIEW S9).
-  expect(laneById("unknown").denominator).toContain("exportierten Sessions");
+  expect(laneById("control").denominator).toContain("exportierten Sessions");
 });
 
 test("a chip prints ONE number, and an unavailable lane says — with a reason", () => {
   // „nur wichtig ist ob da noch was zu tun ist" (User, 2026-08-18) — der Nenner lebt im Tooltip.
   expect(laneChip(laneById("all"), { n: 128, total: 612 })).toEqual({
-    text: "Alle Bretter 128",
+    text: "Bretter 128",
     title: "128 offen von 612 Bretter · Bretter im Strom",
   });
-  const empty = laneChip(laneById("disagree"), { n: null, why: NO_READS });
-  expect(empty.text).toBe("Modell ≠ FEN · Bretter —");
+  const empty = laneChip(laneById("audit"), { n: null, why: NO_READS });
+  expect(empty.text).toBe("Strittig —");
   expect(empty.text).not.toContain("0");
   expect(empty.title).toBe(NO_READS);
 });
@@ -112,47 +109,34 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], ...over,
 });
 
-test("a lane counts what is OPEN against what it holds, and null when nobody was asked", () => {
+test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
   const stream = streamOf({ boards: [board({ unknown: ["e5"] })], cells: [cell()] });
-  expect(laneCount(stream, "unknown")).toEqual({ n: 1, total: 1 });
+  expect(laneCount(stream, "all")).toEqual({ n: 1, total: 1 });
   expect(laneCount(stream, "control")).toEqual({ n: 1, total: 1 });
   // Judged in the ledger the page loaded with: still in the corpus, no longer in the stream.
-  const done = streamOf({
-    boards: [board({ unknown: ["e5"] })],
-    cells: [cell()],
-    decided: [{ "000100|e5": "empty" }],
-  });
-  expect(laneCount(done, "unknown")).toEqual({ n: 0, total: 1 });
-  expect(openBoards(done, "unknown")).toEqual([]);
+  const done = streamOf({ cells: [cell()], decided: [{ "000100|e5": "empty" }] });
   expect(openCells(done, "control")).toEqual([]);
   // `0` would claim there is no such work; the truth is that nobody has been asked (CONCEPT.md D2).
-  expect(laneCount(stream, "disagree").n).toBeNull();
-  expect(laneCount(stream, "classwall").n).toBeNull();
-  expect(laneCount(stream, "audit")).toEqual({ n: null, why: NO_AUDIT });
-  // Der Rest des Korpus ist NICHT GEMESSEN, nicht etwa einig — der Tooltip muss das sagen.
-  const read = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [] }],
-    boards: [board({ disagree: { e5: "bP" } })],
-    reads: { boards: 1, without: 0 },
-  });
-  expect(laneChip(laneById("disagree"), laneCount(read, "disagree")).title).toContain("nicht gemessen");
-  expect(laneCount(streamOf({ rules: false }), "rules")).toEqual({ n: null, why: NO_RULES });
-  expect(laneCount(streamOf({ audit: [] }), "audit")).toEqual({ n: 0, total: 0 });
+  expect(laneCount(stream, "audit").n).toBeNull();
+  expect(laneCount(stream, "audit").why).toContain(NO_AUDIT);
+  expect(laneCount(stream, "audit").why).toContain(NO_POSITION);
+  // EINE gelaufene Quelle macht die Lane zaehlbar — und der Tooltip nennt die schweigenden.
+  const partial = laneCount(streamOf({ audit: [] }), "audit");
+  expect(partial.n).toBe(0);
+  expect(partial.denominator).toContain("ES FEHLT");
+  expect(partial.denominator).toContain(NO_HAND);
 });
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
-  expect(LANES.map((l) => l.slug)).toEqual([
-    "modell-bretter", "modell-zellen", "fen-unklar", "stichprobe", "audit", "hand", "stellung",
-    "regelbruch", "alle",
-  ]);
+  expect(LANES.map((l) => l.slug)).toEqual(["audit", "stichprobe", "alle"]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
   // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen (User, 2026-08-18).
   expect(laneBySlug("abnicken")).toBeUndefined();
   expect(laneBySlug("nope")).toBeUndefined();
-  expect(lanePath("unknown")).toBe("/strom/labeln/fen-unklar");
+  expect(lanePath("audit")).toBe("/strom/labeln/audit");
 });
 
-test("Alle Bretter closes only when every square is judged — the free-hand lane's own rule", () => {
+test("die Bretter-Lane closes only when every square is judged — the free-hand lane's own rule", () => {
   const b = board();
   expect(laneOpen(b, "all", {})).toBe(true);
   expect(laneOpen(b, "all", { "000100|a1": "wR" })).toBe(true);
@@ -160,16 +144,16 @@ test("Alle Bretter closes only when every square is judged — the free-hand lan
   expect(laneOpen(b, "all", every)).toBe(false);
 });
 
-test("the FEN-unklar lane pre-selects the FEN's own word, which is what rescues the cell", () => {
+test("die Bretter-Lane waehlt alles vor, was jemand an diesem Brett angezweifelt hat", () => {
   // `labeling.py` DROPS an unknown cell unless a correction exists, so confirming the FEN there
   // is a real write and not a no-op (CONCEPT.md D5).
-  const b = board({ unknown: ["a1", "b1"] });
-  expect(laneAccept(b, "unknown")).toEqual({ a1: "wR", b1: "empty" });
-  expect(laneBoards(streamOf({ boards: [b] }), "unknown")).toHaveLength(1);
-  // And `Alle Bretter` pre-selects nothing at all — it is free-hand paint, never a queue.
-  expect(laneAccept(b, "all")).toEqual({});
+  const b = board({ unknown: ["a1", "b1"], disagree: { e5: "bP" }, violating: { h1: "wQ" } });
+  expect(laneAccept(b, "all")).toEqual({ a1: "wR", b1: "empty", e5: "bP", h1: "wQ" });
+  // Schaerfe schlaegt Meinung: wo ein Regelbruch und eine Modell-Lesart auf dasselbe Feld zeigen,
+  // gewinnt die Korrektur, die auf der Platte steht.
+  expect(laneAccept(board({ disagree: { h1: "bN" }, violating: { h1: "wQ" } }), "all")).toEqual({ h1: "wQ" });
+  expect(laneAccept(b, "control")).toEqual({});
   expect(laneOpen(b, "all", { "000100|a1": "wR" })).toBe(true);
-  expect(laneOpen(b, "unknown", { "000100|a1": "wR", "000100|b1": "empty" })).toBe(false);
 });
 
 test("a cell lane carries its own pre-label and ledger, and the identity lanes never write the model by default", () => {
@@ -179,7 +163,7 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   expect(control).toMatchObject({ label: "bP", ledger: "reviewed" });
 
   const walled = streamOf({ boards: [board()] });
-  const wall = laneCells(walled, "classwall", {
+  const wall = laneCells(walled, "audit", {
     cells: wallCells([hit()], walled),
     text: "bB ≥ 0.5",
   })[0];
@@ -195,27 +179,21 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   expect(audit.note).toBe("Modell bB");
 });
 
-test("Regelbruch outlines the corrections on file and never counts itself done", () => {
+test("ein Regelbruch haelt sein Brett offen und zaehlt sich nie fertig", () => {
   const broken = board({ violations: ["TOO_MANY_WHITE_PAWNS"], violating: { a1: "wP" } });
-  const stream = streamOf({ boards: [broken, board({ pos: 1, stem: "000200" })] });
-  expect(laneBoards(stream, "rules").map((b) => b.stem)).toEqual(["000100"]);
   // Highlighted, not proposed: the correction IS what is on file, so committing writes nothing and
   // a click cycles it against the FEN's word — which of the two fell is a look at the crop.
-  expect(laneAccept(broken, "rules")).toEqual({ a1: "wP" });
+  expect(laneAccept(broken, "all")).toMatchObject({ a1: "wP" });
   // Its squares are judged by construction, so the ledger can never close this board — only a
   // re-run of `audit-corrections` drops the row.
-  expect(laneOpen(broken, "rules", { "000100|a1": "wP" })).toBe(true);
-  expect(laneCount(stream, "rules")).toEqual({ n: 1, total: 1 });
-  expect(laneChip(laneById("rules"), laneCount(stream, "rules"))).toEqual({
-    text: "Regelbruch 1",
-    title: "1 offen von 1 Bretter · Bretter, deren korrigierte Stellung eine Regel bricht",
-  });
-  expect(boardCells([broken], "rules")).toMatchObject([{ square: "a1", label: "wP", ledger: "corrections" }]);
+  const every = Object.fromEntries(Object.keys(fenLabels(broken.fen)).map((sq) => [`000100|${sq}`, "empty"]));
+  expect(laneOpen(broken, "all", every)).toBe(true);
+  expect(boardCells([broken], "all")).toMatchObject([{ square: "a1", label: "wP", ledger: "corrections" }]);
 });
 
 test("a board lane is answerable crop by crop, which is what the phone renders", () => {
   const boards = [board({ disagree: { e5: "bP" }, disagreeReads: { e5: "bP 0.85" } })];
-  expect(boardCells(boards, "disagree")).toEqual([
+  expect(boardCells(boards, "all")).toEqual([
     {
       session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty",
       label: "bP", ledger: "corrections", exception: null, caption: "e5 bP 0.85",
@@ -240,21 +218,34 @@ test("the Klassenwand joins the server's answer to the stream, and never invents
   });
 });
 
-test("the Klassenwand counts its own query, and says — while the answer is missing", () => {
+test("die Strittig-Lane traegt die Abfrage der Klassenwand mit, und sagt — solange nichts antwortet", () => {
   const stream = streamOf({
     sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [] }],
     boards: [board()],
+    audit: [],
   });
   const wall = { cells: wallCells([hit({ squares: ["a1", "h1"], accept: { a1: "bB", h1: "bN" } })], stream), text: "bB ≥ 0.5" };
-  expect(laneCount(stream, "classwall", wall)).toEqual({
-    n: 2, total: 2, denominator: "Zellen, auf die »bB ≥ 0.5« passt",
-  });
-  // The denominator travels with the number: a bare 2 would not say which question was asked.
-  expect(laneChip(laneById("classwall"), laneCount(stream, "classwall", wall)).title).toContain("»bB ≥ 0.5«");
+  expect(laneCount(stream, "audit", wall)).toMatchObject({ n: 2, total: 2 });
+  // Der Nenner reist mit der Zahl: eine nackte 2 sagt nicht, welche Frage gestellt wurde.
+  expect(laneChip(laneById("audit"), laneCount(stream, "audit", wall)).title).toContain("»bB ≥ 0.5«");
   const done = { ...stream, decided: [{ "000100|a1": "wR" }] };
-  expect(laneCount(done, "classwall", wall)).toMatchObject({ n: 1, total: 2 });
+  expect(laneCount(done, "audit", wall)).toMatchObject({ n: 1, total: 2 });
   // No answer is not "no work": the query is server-side and may simply not have come back.
-  expect(laneCount(stream, "classwall")).toEqual({ n: null, why: NO_QUERY });
+  expect(laneCount(stream, "audit").denominator).toContain(NO_QUERY);
+});
+
+test("eine verdeckte Zelle ist keine Frage — der Verlust maskiert sie ohnehin", () => {
+  const audit = (square: string) =>
+    ({ session: 0, pos: 0, stem: "000100", square, fen_label: "bP", predicted: "bB", prob: 0.9, margin: 0.5 });
+  const stream = streamOf({
+    audit: [audit("e5"), audit("h1")],
+    // e5 liegt unter einer Hand (`PIECE_VISIBLE_MAX` 0.15), h1 ist frei, a1 wurde nie gemessen.
+    coverage: [{ "000100": { e5: 0.82, h1: 0.02 } }],
+  });
+  expect(laneCells(stream, "audit").map((c) => c.square)).toEqual(["h1"]);
+  // Ungemessen heisst NICHT verdeckt: ohne Zahl bleibt die Zelle eine Frage.
+  const unmeasured = streamOf({ audit: [audit("a1")], coverage: [{}] });
+  expect(laneCells(unmeasured, "audit")).toHaveLength(1);
 });
 
 test("a crop card prints SAM's number, and stays silent where nothing was measured", () => {
@@ -298,29 +289,29 @@ test("die Stellungs-Lane fragt nach der Figur, die wirklich dasteht", () => {
     { session: 0, pos: 0, stem: "000100", square: "a3", fen_label: "empty", dev: 41.2, reason: "changed" },
   ];
   // Kein Producer: `—`, nie 0 — ungemessen ist nicht unstrittig.
-  expect(laneCount(streamOf(), "position")).toEqual({ n: null, why: NO_POSITION });
-  const cells = laneCells(streamOf({ positions }), "position");
+  expect(laneCount(streamOf(), "audit").why).toContain(NO_POSITION);
+  const cells = laneCells(streamOf({ positions }), "audit");
   expect(cells).toHaveLength(1);
   // ⏎ bestaetigt den FEN (Schatten-Fehlalarm), die Palette schreibt die Figur — in `corrections`,
   // denn hier ist der FEN der Verdaechtige und nicht ein Modell.
   expect(cells[0].label).toBe("empty");
   expect(cells[0].ledger).toBe("corrections");
   expect(cells[0].exception).toBeNull();
-  expect(cells[0].note).toBe("Δ 41");
+  expect(cells[0].note).toBe("Stellung? Δ 41");
 });
 
 test("eine kaum sichtbare Zelle sagt das, statt eine Abweichung zu behaupten", () => {
   const positions = [
     { session: 0, pos: 0, stem: "000100", square: "a3", fen_label: "wP", dev: 0, reason: "unreadable" },
   ];
-  expect(laneCells(streamOf({ positions }), "position")[0].note).toBe("kaum Feld zu sehen");
+  expect(laneCells(streamOf({ positions }), "audit")[0].note).toBe("Stellung? kaum Feld zu sehen");
 });
 
 test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
   const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", cov: 0.82, measured: 0 }];
   // Kein Producer: `—`, nie 0 — sonst liest sich "nichts zu tun" wie "nichts gemessen".
-  expect(laneCount(streamOf(), "hand")).toEqual({ n: null, why: NO_HAND });
-  const cells = laneCells(streamOf({ hands }), "hand");
+  expect(laneCount(streamOf(), "audit").why).toContain(NO_HAND);
+  const cells = laneCells(streamOf({ hands }), "audit");
   expect(cells).toHaveLength(1);
   // ⏎ bestaetigt das FEN-Wort ("keine Hand"); ein Klassenwort darf die Lane nie anbieten.
   expect(cells[0].label).toBe("bP");
@@ -331,5 +322,6 @@ test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
 
 test("eine Zelle ohne Matte-Eintrag sagt das, statt 0 % zu behaupten", () => {
   const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty", cov: 0.5, measured: null }];
-  expect(laneCells(streamOf({ hands }), "hand")[0].note).toBe("Matte kennt dieses Frame nicht");
+  expect(laneCells(streamOf({ hands }), "audit")[0].note).toBe("Hand? Matte kennt dieses Frame nicht");
 });
+

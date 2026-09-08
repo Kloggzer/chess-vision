@@ -43,6 +43,8 @@ const BUCKETS: Bucket[] = [
 export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
   const [done, setDone] = useState<ReadonlySet<string>>(new Set<string>());
   const [palette, setPalette] = useState(false);
+  // Same as the grid's: a card whose crop 404s must not be judged as a dark square (2026-09-07).
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set<string>());
   const touch = useRef<{ x: number; y: number } | null>(null);
   const held = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -61,6 +63,7 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
 
   const group = groups[0];
   const head = group?.head;
+  const cropSrc = head ? `/api/cell/${sessions[head.session].name}/${head.stem}/${head.square}?size=512` : "";
 
   const answer = useCallback(
     async (label: string, ledger: Ledger, whole: boolean) => {
@@ -158,15 +161,22 @@ export function MobileSort({ cells, sessions, decided, tally, actionsRef, onFlus
           touch.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
         }}
       >
-        <Image
-          alt={`${head.square} @ ${head.stem}`}
-          className="h-full w-full object-cover"
-          height={CROP}
-          priority
-          src={`/api/cell/${session.name}/${head.stem}/${head.square}?size=512`}
-          unoptimized
-          width={CROP}
-        />
+        {broken.has(cropSrc) ? (
+          <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">
+            Crop fehlt — {head.square} @ {head.stem}
+          </div>
+        ) : (
+          <Image
+            alt={`${head.square} @ ${head.stem}`}
+            className="h-full w-full object-cover"
+            height={CROP}
+            onError={() => setBroken((was) => new Set(was).add(cropSrc))}
+            priority
+            src={cropSrc}
+            unoptimized
+            width={CROP}
+          />
+        )}
       </div>
       <p className="text-muted-foreground text-center text-[11px]">
         ← FEN stimmt · ↓ überspringen · lange drücken = ganzes Ereignis

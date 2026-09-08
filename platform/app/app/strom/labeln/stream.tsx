@@ -506,7 +506,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     : cells.filter((c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined).length;
   const pct = stream.progress.boards > 0 ? (stream.progress.done / stream.progress.boards) * 100 : 0;
   // A new query is a new corpus, not a new page of the old one — the renderer starts over.
-  const laneKey = lane === "classwall" ? `${lane}|${wallLane.text}|${answer.phase}` : lane;
+  const laneKey = lane === "audit" ? `${lane}|${wallLane.text}|${answer.phase}` : lane;
 
   return (
     <section className="space-y-3">
@@ -558,7 +558,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         </Notice>
       ) : null}
 
-      {lane === "classwall" ? (
+      {lane === "audit" ? (
         <WallQueryBar
           busy={asking}
           cells={answer.cells}
@@ -623,7 +623,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
             </Tooltip>
           </>
         ) : null}
-        {lane === "rules" && board && board.violations.length > 0 ? (
+        {board && board.violations.length > 0 ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="font-mono text-amber-500">{board.violations.join(" · ")}</span>
