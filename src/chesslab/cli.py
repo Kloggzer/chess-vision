@@ -241,7 +241,7 @@ def session_settle_scan(
     ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
-        r = _session_call(sessions_mod.settle_scan_session, sid)
+        r = _session_try(sessions_mod.settle_scan_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             failed += 1
@@ -271,7 +271,7 @@ def session_boards(
     ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
-        r = _session_call(sessions_mod.write_boards_session, sid)
+        r = _session_try(sessions_mod.write_boards_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             failed += 1
@@ -339,7 +339,7 @@ def session_rewarp(
     ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
-        r = _session_call(sessions_mod.rewarp_boards_session, sid)
+        r = _session_try(sessions_mod.rewarp_boards_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             failed += 1
@@ -368,7 +368,7 @@ def session_straighten(
     ids = _target_sessions(session, all_sessions)
     failed = 0
     for sid in ids:
-        r = _session_call(sessions_mod.straighten_boards_session, sid)
+        r = _session_try(sessions_mod.straighten_boards_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             failed += 1
@@ -428,7 +428,7 @@ def session_park_frames(
     ids = _target_sessions(session, all_sessions)
     total = 0.0
     for sid in ids:
-        r = _session_call(sessions_mod.park_frames_session, sid)
+        r = _session_try(sessions_mod.park_frames_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
             continue
@@ -650,6 +650,11 @@ def realgames_export_session(
                              help="Fit every written frame's quad to the board's own grid."),
     report_only: bool = typer.Option(False, "--report-only",
                                      help="Compute the yield table, write nothing."),
+    no_scan: bool = typer.Option(
+        False, "--no-scan",
+        help="Ausdruecklich nach Margin-Fenstern planen, ohne Frame-Scan. Der Notausgang, kein "
+             "Rueckfall: gemessen laesst dieser Weg 23 % Haende in den Korpus "
+             "(`docs/frame-scan.md`). Sonst zieht der Export den Scan selbst, bevor er waehlt."),
     workers: int = typer.Option(4, "--workers",
                                 help="Processes for the frame phases. 1 runs everything in this "
                                      "one — the path the equivalence tests measure against."),
@@ -671,7 +676,7 @@ def realgames_export_session(
                                          per_position=per_position or None,
                                          dirty_per_position=dirty_per_position,
                                          dirty=dirty, fit=fit, report_only=report_only,
-                                         workers=workers)
+                                         no_scan=no_scan, workers=workers)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
@@ -877,9 +882,21 @@ def realgames_audit_flags(
                                         "model that never saw this piece set reads shapes badly, "
                                         "and its type flags are its own gap, not your labels."),
     visible: bool = typer.Option(False, "--visible/--any-coverage",
-                                 help="Drop the cells the matte measured as covered. `OcclusionLoss` "
-                                      "masks those out of the class loss anyway, so a verdict on "
-                                      "them reaches no model."),
+                                 help="Drop the cells the loss would not learn from anyway: von "
+                                      "der Matte als verdeckt gemessen ODER unter "
+                                      "`CELL_DARK_MIN` (die Zelle traegt dann kein Signal, ein "
+                                      "Widerspruch misst das Licht). Ein Urteil dort erreicht "
+                                      "kein Modell."),
+    skip: str | None = typer.Option(
+        None, "--skip",
+        help="Sessions (kommagetrennt) ganz auslassen. Fuer Aufnahmen, deren Karten kein "
+             "Label-Problem sind: auf 21-01-04 und 20-48-55 sind die geflaggten Felder halb so "
+             "hell wie der Rest, das Modell raet dort auf 3-5 von 255 Graustufen."),
+    include_judged: bool = typer.Option(
+        False, "--include-judged",
+        help="Auch Zellen pruefen, ueber die schon ein Mensch geurteilt hat. Ohne das ist eine "
+             "FALSCHE Handkorrektur unfindbar: ihr Urteil nimmt sie aus dem Lauf. Solche Karten "
+             "tragen `judged` mit dem Wort des Menschen."),
 ) -> None:
     """Question every FEN label with the models the proposals already ran — confident learning.
 
@@ -890,7 +907,9 @@ def realgames_audit_flags(
     """
     from . import audit_flags as audit_mod
 
-    r = audit_mod.audit_flags(occupancy_only=occupancy, visible_only=visible)
+    r = audit_mod.audit_flags(occupancy_only=occupancy, visible_only=visible,
+                              include_judged=include_judged,
+                              skip=tuple(x.strip() for x in (skip or "").split(",") if x.strip()))
     rate = r["flags"] / r["cells_scanned"] if r["cells_scanned"] else 0.0
     for s in r["skipped"]:
         print(f"[SKIP] {s['session']}: {s['reason']}")
@@ -898,6 +917,9 @@ def realgames_audit_flags(
         print(f"[i] scope={r['scope']}: {r['dropped_by_scope']} type/colour flags left out")
     if r["dropped_as_covered"]:
         print(f"[i] coverage={r['coverage_scope']}: {r['dropped_as_covered']} covered cells left out")
+    if r["flags_on_judged"]:
+        print(f"[i] {r['flags_on_judged']} davon auf Zellen, die ein Mensch schon beurteilt hat "
+              "— dort widerspricht das Modell dem Urteil, nicht der FEN.")
     print(f"[OK] {r['flags']} flags over {r['cells_scanned']} cells ({rate:.1%}) "
           f"in {len(r['sessions'])} sessions -> {r['path']}")
 
@@ -986,6 +1008,22 @@ def _session_call(fn, *args):
     except (ValueError, FileNotFoundError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
+
+
+def _session_try(fn, *args) -> dict:
+    """Wie `_session_call`, aber der Fehler kommt als Wert zurueck statt als Ausstieg.
+
+    Fuer die `--all`-Schleifen: eine Session mit totem Profil hat den ganzen Lauf abgeraeumt und
+    der Exit-Code ging in der Pipeline unter — 11 von 24 Sessions blieben ungemessen (2026-09-09).
+    """
+    from .sessions import NothingToDo
+
+    try:
+        return fn(*args)
+    except NothingToDo as e:
+        return {"error": str(e)}
+    except (ValueError, FileNotFoundError) as e:
+        return {"error": str(e)}
 
 
 @app.command("slice")
@@ -1678,6 +1716,12 @@ def train_cmd(
     norm: str | None = typer.Option(None, "--norm", help="batchnorm (default) | groupnorm | none."),
     dataset: str | None = typer.Option(None, "--dataset", help="Named dataset (otherwise global manifest/split)."),
     resume: str | None = typer.Option(None, "--resume", help="Run name whose weights are loaded as warm-start (continue training)."),
+    continue_run: bool = typer.Option(
+        False, "--continue",
+        help="Denselben Lauf in --out an der Epochengrenze fortsetzen, an der er abbrach: "
+             "Optimizer, Cosine-Position, Sampler-Strom und Zufallsstaende kommen aus "
+             "`state.pt` mit. Anders als --resume, das nur Gewichte waermt und den Plan von "
+             "vorn beginnt. Weicht das Rezept vom gespeicherten ab, bricht es ab."),
     head: str = typer.Option("occlusion", "--head",
                              help="occlusion (default) | combined. `occlusion` adds a "
                                   "sigmoid coverage unit beside the classes and trains it from the "
@@ -1745,6 +1789,12 @@ def train_cmd(
     swa_lr: float = typer.Option(5e-4, "--swa-lr", help="Konstante Rate ab dem SWA-Start."),
     swa_start: float = typer.Option(0.75, "--swa-start",
                                     help="Anteil der Epochen, ab dem gemittelt wird."),
+    dark_min: float = typer.Option(
+        None, "--dark-min",
+        help="Zellen unter dieser mittleren Luma aus dem KLASSENverlust nehmen (Vorgabe "
+             "`occlusion.CELL_DARK_MIN`). Das Label stimmt dort, das Bild traegt nur kein "
+             "Signal mehr. Die Zeile BLEIBT im Batch, sonst verlieren Brettmodelle das ganze "
+             "Brett; der Coverage-Kopf lernt sie weiter, denn dunkel ist nicht verdeckt."),
     visible_max: float = typer.Option(None, "--visible-max",
                                       help="Coverage-Grenze der TRAININGS-Maske (Vorgabe "
                                            "PIECE_VISIBLE_MAX = 0.15). Die Metriken bleiben auf "
@@ -1874,6 +1924,7 @@ def train_cmd(
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
                                head=head, scales=scale_list, input_size=input_size,
+                               continue_run=continue_run,
                                board_width=board_width, board_layers=board_layers,
                                clahe_clip=clahe_clip, clahe_tile=clahe_tile,
                                clahe_min_mean=clahe_min_mean, clahe_max_mean=clahe_max_mean,
@@ -1888,6 +1939,7 @@ def train_cmd(
                                  hard_negative_multiplier=hard_negative_multiplier, split=split,
                                  swa=swa, swa_lr=swa_lr, swa_start=swa_start,
                                  allow_unpacked=allow_unpacked, visible_max=visible_max,
+                                 dark_min=dark_min,
                                  weight_cap=weight_cap, weight_decay=weight_decay,
                                  label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
                                  flip_xor_p=flip_xor_p,

@@ -80,9 +80,14 @@
 - **Normalization:** BatchNorm works well; the learning rate is the critical factor, not the norm choice. Never rank normalizers at one shared rate — sweep the rate per normalizer or do not compare.
 - **Metrics:** `val_acc` correlates inversely to the Veto Metric. Use `sweep_infer_size.py`.
 - **The settle gate is blind in the dark corner.** The board carries a light gradient (h3 at 156,
-  a7 at 20 on 20-41-33), so a black piece on a near-black square moves the score by ~1.5 against a
-  threshold of 15. `interval-check.jsonl` measures this per ply instead of hiding it; closing it
-  means normalising by the cell's own contrast, not lowering the threshold.
+  a7 at 20 on 20-41-33), so a black piece on a near-black square moves the score by ~1.5 against
+  `SETTLE_LIMIT`. `interval-check.jsonl` measures this per ply instead of hiding it; closing it
+  means normalising by the cell's own contrast, not moving the threshold.
+- **Die Schwelle steht seit 2026-09-09 auf 45, nicht 15.** 15 war gegen den Rillen-Sensor
+  geeicht, nicht gegen das Bild: es verwarf 2 999 Zellen, die die Coverage nicht ohnehin maskiert,
+  und vier Fünftel davon lagen unter 35 und waren gewöhnliches Material — der Nutzer hakte die
+  Karten der Reihe nach als unbedenklich ab. Über 45 waren 24 von 24 Stichproben Hände auf
+  Feldern, die der FEN als Figur führt. Wer die Zahl wieder senkt, flutet die Lane.
 - **Bewertet wird nur, was der Verlust auch lernt (2026-08-24):** der Occlusion-Verlust maskiert
   alles über `PIECE_VISIBLE_MAX`, also zählen `CHECKPOINT_WEIGHTS`, `auroc` und `conf_wrong` nur
   sichtbare Zellen. Über alle Zellen gerechnet sah das Modell 8 Punkte besser kalibriert aus, als
@@ -160,7 +165,8 @@
   Batch-Operation auf der GPU statt je Crop in PIL: 66× billiger, weil sie overhead- und nicht
   rechengebunden sind (der 3×3-Blur kostet je Crop 846 µs, ToTensor für denselben vollen
   Durchgang 37). Gleiche Verteilungen, aber float statt uint8 — **statistisch dasselbe Rezept,
-  nicht bitgleich**, und die Photometrie läuft jetzt NACH der Geometrie.
+  nicht bitgleich**. Die Reihenfolge stimmt seit 2026-09-08 wieder: `BatchGeometry` nimmt Affine
+  und Flips mit aufs Gerät, hinter die Photometrie, bitgleich zu `torchvision`s NEAREST-Affine.
 - **Eine Op mit Stärke 0 ist nicht weg.** `T.ColorJitter(0,0,0)` zieht weiter Zufallszahlen und
   wendet die Identität an; `--aug-scale 0` holte deshalb nur 25 % statt 73 %. `build_transform`
   lässt sie seitdem weg statt sie leer mitlaufen zu lassen.

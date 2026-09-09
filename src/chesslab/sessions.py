@@ -195,6 +195,10 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
                                + [(x, True) for x in archived_dirs]):
             meta = _read_meta(d)
             tag = _variant_tag(meta, sid)
+            # Archivieren stempelt die Meta; eine Session, die dabei nicht VERSCHOBEN wurde, ist
+            # trotzdem stillgelegt und gehoert aus den Sammel-Verben heraus (2026-08-30-14-33-02
+            # riss ueber sein totes Profil jeden `--all`-Lauf mit).
+            retired = archived or bool(meta.get("archived_at"))
             if archived:
                 n_crops = 0
             elif tag:
@@ -205,7 +209,7 @@ def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
                 n_crops = _crop_count_from_manifest(sid, paths)
             out.append({
                 "session_id": sid,
-                "archived": archived,
+                "archived": retired,
                 "mode": meta.get("mode"),
                 "profile": meta.get("profile"),
                 "created_at": meta.get("created_at"),

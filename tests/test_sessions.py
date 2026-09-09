@@ -224,3 +224,33 @@ def test_archiving_never_overwrites_an_existing_archive(tmp_path):
     with pytest.raises(FileExistsError):
         S.archive_session("s1", "second", paths)
     assert (paths.sessions / "s1").exists(), "the live session must survive a refused archive"
+
+
+def test_archived_at_in_meta_retires_a_session_that_was_never_moved(tmp_path):
+    """Ein Stempel in der Meta zaehlt, nicht nur der Ordner.
+
+    `2026-08-30-14-33-02` trug `archived_at` und lag weiter unter `recordings/`; sein ins Leere
+    zeigendes Profil riss dadurch jeden `--all`-Lauf mit (2026-09-09).
+    """
+    paths = config.Paths(tmp_path)
+    d = _mk_session(paths, "live-one")
+    stamped = _mk_session(paths, "stamped")
+    meta = yaml.safe_load((stamped / "session.yaml").read_text(encoding="utf-8"))
+    meta["archived_at"] = "2026-08-30T12:51:10Z"
+    (stamped / "session.yaml").write_text(yaml.safe_dump(meta), encoding="utf-8")
+
+    lst = {m["session_id"]: m for m in S.list_sessions(paths)}
+    assert lst["stamped"]["archived"] is True
+    assert lst["live-one"]["archived"] is False
+    assert d.exists() and stamped.exists(), "nichts wird dabei verschoben"
+
+
+def test_session_try_returns_the_error_instead_of_exiting():
+    """Die `--all`-Schleifen pruefen `r["error"]` — das war toter Code, solange der Helfer ausstieg."""
+    from chesslab.cli import _session_try
+
+    def boom(_sid):
+        raise FileNotFoundError("calibration profile 'default' not found")
+
+    r = _session_try(boom, "rg-x")
+    assert "default" in r["error"]

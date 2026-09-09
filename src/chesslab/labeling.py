@@ -108,13 +108,11 @@ CROP_ENCODE = [cv2.IMWRITE_WEBP_QUALITY, 95]
 SLICE_WRITE_WORKERS = 8
 
 #: How far a cell may sit from its ply interval's settled board and still be trusted
-#: (`realgames.settle_for_ply`). At 15 the montage above it holds fingers on squares labelled
-#: `empty`, PIECES on squares labelled `empty`, and hands closed around the piece they name; the
-#: band just below holds ordinary cells. Measured over the 858 363 cells that reach the corpus: 15
-#: costs 5.3 % of them and catches 96.4 % of what the groove sensor independently accuses, where 40
-#: costs 1.0 % and catches only 79 %. A human correction outranks it, exactly as with `dirty` — the
-#: gate is a doubt, not a verdict.
-SETTLE_LIMIT = 15.0
+#: (`realgames.settle_for_ply`). 15 was set against the groove sensor's recall; against the PICTURE
+#: (2026-09-09) it drops 2 999 cells the coverage does not mask, four fifths of them under 35 and
+#: ordinary material. Above 45 a 24-cell sample was 24/24 hands on squares the FEN calls a piece.
+#: A human correction outranks it either way — the gate is a doubt, not a verdict.
+SETTLE_LIMIT = 45.0
 
 #: How much of a cell the alpha must call BOARD before its deviation means anything. Under it the
 #: cell is not "unchanged", it is unseen — and an unseen cell that the coverage does not take out
@@ -333,6 +331,23 @@ def load_corrections(path: Path, into: Corrections | None = None) -> Corrections
 MATTE_DIRTY = 0.15
 
 
+def ledger_paths(name: str = "corrections.jsonl", paths=None) -> list[Path]:
+    """Jedes Ledger dieses Namens — auch das einer GEPARKTEN Aufnahme.
+
+    Eine archivierte Session verlaesst den Pool, ihre Zeilen bleiben aber in jedem Datensatz, der
+    schon gebaut ist. Wer nur unter `recordings/` sucht, verliert damit das Wort des Menschen zu
+    Zeilen, die weiter trainiert werden (2026-09-09: 21 Tests fielen genau darueber).
+    """
+    from . import config
+
+    paths = paths or config.DATA
+    out = []
+    for root in (paths.recordings, paths.sessions, paths.sessions_archive):
+        if root.exists():
+            out += sorted(root.glob(f"*/{name}"))
+    return out
+
+
 def read_corrections(session_dir: Path) -> dict[tuple[str, str, str], str]:
     """The recording's own hand corrections, empty when it has none.
 
@@ -543,6 +558,11 @@ def iter_session_crops(
                 "pad_side": float(prof.crop.pad_side),
                 "pad_up": float(prof.crop.pad_up),
                 "ts": datetime.now(UTC).isoformat(),
+                # Mittlere Luma der Zelle. Zweiter Grund, eine Zeile aus dem Klassifikationsteil
+                # zu nehmen — neben der Verdeckung: unter `config.CELL_DARK_MIN` traegt das Bild
+                # kein Signal mehr (gemessen 2026-09-09: a5 auf 20-41-33 liegt bei 20 von 255 und
+                # stellt 38 von 58 Val-Fehlern). Das LABEL bleibt richtig, das Pixel nicht lesbar.
+                "brightness": round(float(cv2.cvtColor(crops[i], cv2.COLOR_BGR2GRAY).mean()), 2),
             }
             if matte:
                 # The second training target, from a real hand instead of a composited one. Only
