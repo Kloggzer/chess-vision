@@ -129,3 +129,51 @@ def test_config_records_the_photometry_that_ran_not_the_zeroed_loader():
     assert got["aug_noise_std"] == config.AUGMENT.noise_std
     # Ohne --batch-aug bleibt es bei dem, was der Loader wirklich tat.
     assert _photometry_of(loader, None)["aug_blur_sigma_max"] == OFF["blur_sigma_max"]
+
+
+def test_the_batched_affine_is_torchvisions_affine():
+    """Bitgleich, nicht `ungefaehr`: sonst tauscht der Umbau einen bekannten Unterschied gegen
+    einen unbekannten. NEAREST und ganze Pixel sind das, was `RandomAffine` zieht."""
+    import torchvision.transforms.functional as TF
+    from torchvision.transforms import InterpolationMode
+
+    from chesslab.training.batch_aug import _affine
+
+    torch.manual_seed(0)
+    img = torch.randint(0, 255, (8, 3, 64, 64)).float()
+    tx = torch.randint(-7, 8, (8,)).float()
+    ty = torch.randint(-7, 8, (8,)).float()
+    s = 1.0 + (torch.rand(8) * 0.06 - 0.03)
+    ref = torch.stack([TF.affine(img[i], angle=0.0, translate=[int(tx[i]), int(ty[i])],
+                                 scale=float(s[i]), shear=[0.0, 0.0], fill=0,
+                                 interpolation=InterpolationMode.NEAREST) for i in range(8)])
+    assert torch.equal(_affine(img, tx, ty, s), ref)
+
+
+def test_the_geometry_runs_after_the_photometry():
+    """Der Grund fuer den ganzen Umbau: im Loader lief Photometrie VOR der Affine. Ein 0-Rand,
+    den die Affine hereinschiebt, darf danach nicht mehr aufgehellt werden."""
+    from chesslab.training.batch_aug import BatchGeometry
+
+    torch.manual_seed(0)
+    geo = BatchGeometry(replace(config.AUGMENT, jitter_translate=0.25, jitter_scale=0.0,
+                                hflip_p=0.0, vflip_p=0.0, rot180_p=0.0, flip_xor_p=0.0))
+    a = BatchPhotometric(replace(config.AUGMENT, **{**OFF, "brightness": 0.35}), MEAN, STD,
+                         geometry=geo)
+    out = a(batch(32))
+    mean = torch.tensor(MEAN).view(1, 3, 1, 1)
+    std = torch.tensor(STD).view(1, 3, 1, 1)
+    unit = (out * std + mean)
+    # Der eingeschobene Rand ist exakt 0 im [0,1]-Raum — die Helligkeit lief davor.
+    assert unit.min().item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_geometry_off_leaves_the_batch_alone():
+    from chesslab.training.batch_aug import BatchGeometry
+
+    geo = BatchGeometry(replace(config.AUGMENT, jitter_translate=0.0, jitter_scale=0.0,
+                                hflip_p=0.0, vflip_p=0.0, rot180_p=0.0, flip_xor_p=0.0))
+    assert not geo.active
+    x = batch(8)
+    assert torch.equal(BatchPhotometric(replace(config.AUGMENT, **OFF), MEAN, STD,
+                                        geometry=geo)(x), x)

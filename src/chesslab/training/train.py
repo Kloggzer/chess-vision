@@ -41,7 +41,70 @@ def _photometry_of(policy, photometric) -> dict:
             "aug_gamma": list(gamma),
             "aug_erase_p": src.erase_p,
             "aug_erase_scale": list(src.erase_scale),
-            "aug_noise_std": src.noise_std if photometric else getattr(policy, "noise_std", 0.0)}
+            "aug_noise_std": src.noise_std if photometric else getattr(policy, "noise_std", 0.0),
+            **_geometry_of(policy, photometric)}
+
+
+def _geometry_of(policy, photometric) -> dict:
+    """Dasselbe fuer die Geometrie: mit `--batch-aug` steht sie im Loader auf 0."""
+    g = getattr(photometric, "geometry", None)
+    src = g or policy
+    return {"aug_jitter_translate": src.translate if g else policy.jitter_translate,
+            "aug_jitter_scale": src.scale if g else policy.jitter_scale,
+            "aug_hflip_p": getattr(src, "hflip_p", 0.0),
+            "aug_vflip_p": getattr(src, "vflip_p", 0.0),
+            "aug_rot180_p": getattr(src, "rot180_p", 0.0),
+            "aug_flip_xor_p": getattr(src, "flip_xor_p", 0.0)}
+
+
+#: Alles, was eine Epochengrenze ueberlebt haben muss. `last.pt` traegt nur Gewichte — damit
+#: faengt ein Neustart die Cosine bei lr an und zaehlt `patience` von vorn.
+STATE_FILE = "state.pt"
+#: Ein Zustand gehoert zu SEINEM Rezept. Weicht eines dieser Felder ab, ist es ein anderer Lauf.
+STATE_KEYS = ("backbone", "epochs", "batch_size", "lr", "sched", "seed", "dataset", "split_file",
+              "head", "norm", "out_size", "batch_aug", "epoch_frac", "balance")
+
+
+def _save_state(path, epoch, model, optimizer, scheduler, scaler, sampler, swa_model, swa_sched,
+                best_score, best_piece, recent, epochs_no_improve, cfg) -> None:
+    """Nach JEDER Epoche, atomar ueber eine Nebendatei — ein Absturz mitten im Schreiben
+    duerfte sonst den einzigen Zustand zerreissen."""
+    import random as _random
+
+    import numpy as _np
+    import torch
+
+    gen = getattr(sampler, "generator", None)
+    blob = {
+        "epoch": epoch + 1, "config": {k: cfg.get(k) for k in STATE_KEYS},
+        "model": model.state_dict(), "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
+        "sampler_generator": gen.get_state() if gen is not None else None,
+        "swa_model": swa_model.state_dict() if swa_model is not None else None,
+        "swa_sched": swa_sched.state_dict() if swa_sched is not None else None,
+        "best_score": best_score, "best_piece": best_piece, "recent": list(recent),
+        "epochs_no_improve": epochs_no_improve,
+        "rng": {"torch": torch.get_rng_state(), "numpy": _np.random.get_state(),
+                "python": _random.getstate(),
+                "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None},
+    }
+    tmp = Path(path).with_suffix(".tmp")
+    torch.save(blob, tmp)
+    tmp.replace(path)
+
+
+def _load_state(path, cfg):
+    """Der Zustand oder None — und ein lauter Abbruch, wenn er zu einem anderen Rezept gehoert."""
+    import torch
+
+    blob = torch.load(path, map_location="cpu", weights_only=False)
+    want = {k: cfg.get(k) for k in STATE_KEYS}
+    have = blob.get("config", {})
+    diff = [k for k in STATE_KEYS if have.get(k) != want.get(k)]
+    if diff:
+        raise ValueError(f"{path} gehoert zu einem anderen Rezept ({', '.join(diff)}) — "
+                         f"neues --out waehlen statt fortsetzen.")
+    return blob
 
 
 def _train_lock_path() -> Path:
@@ -106,8 +169,13 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     cov_pred = val["coverage_probs"]
     true_cls = val["trues"]
     pred_cls = val["preds"]
+    from .occlusion import CELL_DARK_MIN
+
     want, hit = cov_true > 0.5, cov_pred > 0.5
-    visible = cov_true <= visible_max
+    # Zweiter Grund, dieselbe Zelle nicht zu benoten: zu dunkel zum Lesen. Die Metrik haengt an
+    # der KONSTANTE, nicht am Lauf-Flag — sonst waeren zwei Laeufe nicht mehr vergleichbar.
+    bright = np.array([r.get("brightness", 255.0) for r in val_rows], dtype=float)
+    visible = (cov_true <= visible_max) & (bright >= CELL_DARK_MIN)
     true_occ = true_cls != classes.index("empty")
     pred_occ = pred_cls != classes.index("empty")
     visible_boards: dict[tuple[str, str], bool] = {}
@@ -239,6 +307,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               num_workers: int | None = None, norm: str | None = None,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
+              continue_run: bool = False, dark_min: float | None = None,
               head: str = "occlusion", scales: list[int] | None = None,
               board_width: int = 128, board_layers: int = 2,
               clahe_clip: float = 0.0, clahe_tile: int = 8,
@@ -545,7 +614,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if batch_aug:
         from dataclasses import replace as _replace
 
-        from .batch_aug import BatchPhotometric
+        from .batch_aug import BatchGeometry, BatchPhotometric
 
         if per_crop:
             print('[FAIL] --batch-aug und --crop-norm zusammen: die Normalisierung je Crop '
@@ -556,10 +625,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   "Kanalableitung sitzt hinter der Normalisierung, die das Geraet uebernimmt.")
             return 1
         photometric = BatchPhotometric(policy, config.NORMALIZE_MEAN, config.NORMALIZE_STD,
-                                       from_uint8=True)
+                                       from_uint8=True, geometry=BatchGeometry(policy))
         policy = _replace(policy, brightness=0.0, contrast=0.0, color_jitter=0.0,
-                          gamma=(1.0, 1.0), blur_sigma_max=0.1, erase_p=0.0, noise_std=0.0)
-        print('[batch-aug] ColorJitter, Gamma, Blur und Cutout laufen auf dem Geraet')
+                          gamma=(1.0, 1.0), blur_sigma_max=0.1, erase_p=0.0, noise_std=0.0,
+                          jitter_translate=0.0, jitter_scale=0.0, hflip_p=0.0, vflip_p=0.0,
+                          rot180_p=0.0, flip_xor_p=0.0)
+        print('[batch-aug] Photometrie, Affine, Flips und Cutout laufen auf dem Geraet — in '
+              'derselben Reihenfolge wie im Loader')
 
     # Ein gebackener Pack traegt CLAHE schon in den Pixeln (`training/pack_bake.py`). Der LOADER
     # laesst den Operator dann aus, `config.json` behaelt ihn trotzdem — das Serving bekommt rohe
@@ -680,13 +752,19 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
     if occluding:
-        from .occlusion import PIECE_VISIBLE_MAX, OcclusionLoss
+        from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX, OcclusionLoss
 
         # Nur die TRAININGS-Maske. Die Metriken bleiben auf PIECE_VISIBLE_MAX, sonst wuerden
         # zwei Laeufe auf verschiedenen Zellmengen benotet und waeren nicht vergleichbar.
         vmax = PIECE_VISIBLE_MAX if visible_max is None else visible_max
-        criterion = OcclusionLoss(weights, visible_max=vmax,
+        dmin = CELL_DARK_MIN if dark_min is None else dark_min
+        criterion = OcclusionLoss(weights, visible_max=vmax, dark_min=dmin,
                                   label_smoothing=label_smoothing).to(device)
+        if dmin:
+            dark = sum(r.get("brightness", 255.0) < dmin for r in train_rows)
+            print(f"[occ] Trainingsmaske zusaetzlich bei Helligkeit < {dmin:g}: "
+                  f"{dark} von {len(train_rows)} Zellen ({dark/max(len(train_rows),1)*100:.1f} %) "
+                  f"zaehlen im KLASSENverlust nicht mehr — der Coverage-Kopf lernt sie weiter.")
         if visible_max is not None:
             print(f"[occ] Trainingsmaske bei coverage <= {vmax:g} "
                   f"(Bewertung weiterhin bei {PIECE_VISIBLE_MAX:g})")
@@ -874,23 +952,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     run_dir = Path(out) if out else config.DATA.models / f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "config.json").write_text(json.dumps({
+    cfg_written = {
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
         # The schedule, not just its peak. Without it a run's trajectory cannot be reconstructed
         # from its config: `lr` is where the cosine STARTS and `epochs` is its period, so two runs
         # with identical `lr` and different `epochs` never saw the same rate at the same step.
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
-        # The augmentation the run actually used, not the config default it started from.
-        "aug_jitter_translate": policy.jitter_translate,
-        "aug_hflip_p": getattr(policy, "hflip_p", 0.0),
         "batch_aug": batch_aug,
         # Was der LAUF gewuerfelt hat, nicht was im Loader stand: mit `--batch-aug` stehen die
         # Staerken dort auf 0, gerechnet werden sie trotzdem — und `config.json` ist das, was
         # Serving und jede spaetere Auswertung lesen.
         **_photometry_of(policy, photometric),
-        "aug_vflip_p": getattr(policy, "vflip_p", 0.0),
-        "aug_rot180_p": getattr(policy, "rot180_p", 0.0),
-        "aug_flip_xor_p": getattr(policy, "flip_xor_p", 0.0),
         "aug_invert_p": getattr(policy, "invert_p", 0.0),
         "aug_grayscale_p": getattr(policy, "grayscale_p", 0.0),
         "aug_rot90": rot90,
@@ -928,9 +1000,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "no_empty_cap": no_empty_cap,
         "epoch_frac": epoch_frac,
         "visible_max": vmax if occluding else None,
+        "dark_min": dmin if occluding else None,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
-    }, indent=2), encoding="utf-8")
+    }
+    (run_dir / "config.json").write_text(json.dumps(cfg_written, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
         # Checkpoint und Early Stopping am GEWICHTETEN Score (`data.CHECKPOINT_WEIGHTS`), nicht
@@ -957,8 +1031,37 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[OK] SWA ab Epoche {swa_from}, davor unveraenderter {sched}-Plan; "
               f"danach konstant {swa_lr}")
     epochs_no_improve = 0
+    start_epoch = 0
+    # Fortsetzen heisst: derselbe Plan an derselben Stelle. Gewichte allein reichen dafuer nicht —
+    # Optimizer-Momente, Cosine-Position, Sampler-Strom und die Zufallsstaende gehoeren dazu.
+    state_path = run_dir / STATE_FILE
+    if continue_run and state_path.exists():
+        blob = _load_state(state_path, cfg_written)
+        model.load_state_dict(blob["model"])
+        optimizer.load_state_dict(blob["optimizer"])
+        scheduler.load_state_dict(blob["scheduler"])
+        scaler.load_state_dict(blob["scaler"])
+        if blob.get("sampler_generator") is not None and getattr(sampler, "generator", None):
+            sampler.generator.set_state(blob["sampler_generator"])
+        if swa_model is not None and blob.get("swa_model") is not None:
+            swa_model.load_state_dict(blob["swa_model"])
+            swa_sched.load_state_dict(blob["swa_sched"])
+        best_score = tuple(blob["best_score"])
+        best_piece = tuple(blob["best_piece"])
+        recent = deque(blob["recent"], maxlen=3)
+        epochs_no_improve = blob["epochs_no_improve"]
+        start_epoch = blob["epoch"]
+        torch.set_rng_state(blob["rng"]["torch"].to(torch.uint8).cpu())
+        np.random.set_state(blob["rng"]["numpy"])
+        random.setstate(blob["rng"]["python"])
+        if blob["rng"]["cuda"] is not None and torch.cuda.is_available():
+            torch.cuda.set_rng_state_all([t.to(torch.uint8).cpu() for t in blob["rng"]["cuda"]])
+        print(f"[OK] fortgesetzt bei Epoche {start_epoch}/{epochs} "
+              f"(lr {scheduler.get_last_lr()[0]:.5f}, bester Score {best_score[0]:.4f})")
+    elif continue_run:
+        print(f"[continue] kein {STATE_FILE} in {run_dir} — Lauf beginnt bei Epoche 0.")
     print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         t_epoch = time.perf_counter()
         model.train()
         running = 0.0
@@ -1069,6 +1172,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             )
 
         torch.save(model.state_dict(), run_dir / "last.pt")
+        _save_state(state_path, epoch, model, optimizer, scheduler, scaler, sampler,
+                    swa_model, swa_sched, best_score, best_piece, recent, epochs_no_improve,
+                    cfg_written)
         # Ein ZWEITER Checkpoint auf die reine Figurengenauigkeit. Der gewichtete Score
         # sieht Kalibrierung nicht: ein spaeterer, ueberkonfidenter Lauf kann ihn gewinnen
         # und den frueheren verdraengen, der besser dekodiert. Beide bleiben messbar.

@@ -59,9 +59,13 @@ Blur schmierte sie aus. Deshalb wandert es mit auf die GPU statt im Loader zu bl
 und `grid_sample`-Arithmetik statt PIL. Statistisch dasselbe Rezept, numerisch ein anderes — ein
 A/B gegen `p4a-80-clahe` misst also nicht nur das Batchen.
 
-Auch die **Reihenfolge gegenüber der Geometrie** kippt: vorher Photometrie → Affine → Flip, jetzt
-Affine → Flip → Photometrie. Auf per-Pixel-Operationen ist das folgenlos, beim Blur nicht ganz
-(erst weichzeichnen, dann verschieben ist nicht dasselbe wie umgekehrt).
+**Die Reihenfolge stimmt wieder (2026-09-08).** Bis dahin kippte sie: vorher Photometrie → Affine
+→ Flip, danach Affine → Flip → Photometrie. Auf per-Pixel-Ops folgenlos, beim Blur nicht (erst
+weichzeichnen, dann verschieben ist nicht dasselbe). `BatchGeometry` nimmt Affine und Flips jetzt
+mit aufs Gerät und läuft dort NACH der Photometrie — die gebatchte Affine ist bitgleich zu
+`torchvision`s NEAREST-Affine (`test_the_batched_affine_is_torchvisions_affine`). Was bleibt, ist
+die Numerik: float gegen PILs uint8. Ein A/B gegen einen Lauf von vor dem Umbau misst also immer
+noch nicht NUR das Batchen — aber nicht mehr die Reihenfolge.
 
 **`--crop-norm` ist ausgeschlossen:** die Normalisierung je Crop ist nicht umkehrbar, die
 Photometrie käme auf den falschen Werten an. `train` bricht dann ab.

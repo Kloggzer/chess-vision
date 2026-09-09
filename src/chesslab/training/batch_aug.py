@@ -61,12 +61,79 @@ def _erase(v: torch.Tensor, p: float, scale: tuple[float, float]) -> torch.Tenso
     return v.masked_fill((box & hit).unsqueeze(1), 0.0)
 
 
+def _affine(v: torch.Tensor, tx: torch.Tensor, ty: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
+    """`torchvision`s NEAREST-Affine mit 0-Rand, ein Aufruf fuer den Batch — bitgleich geprueft."""
+    n, _, h, w = v.shape
+    ys = torch.arange(h, device=v.device, dtype=v.dtype).view(1, h, 1) + 0.5
+    xs = torch.arange(w, device=v.device, dtype=v.dtype).view(1, 1, w) + 0.5
+    cx, cy = w * 0.5, h * 0.5
+    xi = (xs - cx - tx.view(n, 1, 1)) / s.view(n, 1, 1) + cx
+    yi = (ys - cy - ty.view(n, 1, 1)) / s.view(n, 1, 1) + cy
+    grid = torch.stack(((2.0 * xi / w - 1.0).expand(n, h, w),
+                        (2.0 * yi / h - 1.0).expand(n, h, w)), dim=-1)
+    return F.grid_sample(v, grid, mode="nearest", padding_mode="zeros", align_corners=False)
+
+
+def _flip(v: torch.Tensor, p: float, dims: tuple[int, ...]) -> torch.Tensor:
+    hit = (torch.rand(v.shape[0], device=v.device) < p).view(-1, 1, 1, 1)
+    return torch.where(hit, v.flip(dims), v)
+
+
+class BatchGeometry:
+    """Affine und Spiegelungen je BILD, gebatcht — damit die Photometrie wieder DAVOR laeuft.
+
+    Bleibt die Geometrie im Loader, kippt `--batch-aug` die Reihenfolge von `build_transform`:
+    beim Blur ist das nicht folgenlos (`docs/batch-aug.md`).
+    """
+
+    def __init__(self, policy) -> None:
+        self.translate = float(policy.jitter_translate)
+        self.scale = float(policy.jitter_scale)
+        self.hflip_p = float(getattr(policy, "hflip_p", 0.0))
+        self.vflip_p = float(getattr(policy, "vflip_p", 0.0))
+        self.rot180_p = float(getattr(policy, "rot180_p", 0.0))
+        self.flip_xor_p = float(getattr(policy, "flip_xor_p", 0.0))
+
+    @property
+    def active(self) -> bool:
+        return bool(self.translate or self.scale or self.hflip_p or self.vflip_p
+                    or self.rot180_p or self.flip_xor_p)
+
+    def __call__(self, v: torch.Tensor) -> torch.Tensor:
+        n, _, h, w = v.shape
+        if self.translate or self.scale:
+            # `RandomAffine.get_params` zieht GANZE Pixel; ohne das Runden waere es eine andere
+            # Verteilung als die Kette, die hier ersetzt wird.
+            mx, my = self.translate * w, self.translate * h
+            tx = _factors(n, -mx, mx, v.device, v.dtype).view(-1).round()
+            ty = _factors(n, -my, my, v.device, v.dtype).view(-1).round()
+            s = _factors(n, 1.0 - self.scale, 1.0 + self.scale, v.device, v.dtype).view(-1)
+            v = _affine(v, tx, ty, s)
+        if self.hflip_p:
+            v = _flip(v, self.hflip_p, (-1,))
+        if self.vflip_p:
+            v = _flip(v, self.vflip_p, (-2,))
+        if self.rot180_p:
+            v = _flip(v, self.rot180_p, (-2, -1))
+        if self.flip_xor_p:
+            # Genau EINE Achse: die zweite Muenze waehlt welche, sie wirft nicht noch einmal ob.
+            hit = torch.rand(n, device=v.device) < self.flip_xor_p
+            pick = torch.rand(n, device=v.device) < 0.5
+            v = torch.where((hit & pick).view(-1, 1, 1, 1), v.flip(-1), v)
+            v = torch.where((hit & ~pick).view(-1, 1, 1, 1), v.flip(-2), v)
+        return v
+
+
 class BatchPhotometric:
     """Die photometrische Haelfte der Kette, auf normalisierten Batches.
 
     Je BILD eine eigene Ziehung, nicht je Batch — sonst waere es eine andere Augmentierung."""
 
-    def __init__(self, policy, mean, std, erase: bool = True, from_uint8: bool = False) -> None:
+    def __init__(self, policy, mean, std, erase: bool = True, from_uint8: bool = False,
+                 geometry: BatchGeometry | None = None) -> None:
+        # Die Geometrie haengt HIER und nicht beim Aufrufer, damit die Reihenfolge nicht zweimal
+        # gewusst werden muss: Photometrie, dann Affine/Flip, dann Rauschen und Cutout.
+        self.geometry = geometry
         # Kommt der Batch als uint8, gibt es keine Normalisierung zurueckzurechnen — nur /255.
         self.from_uint8 = from_uint8
         self.noise_std = float(getattr(policy, "noise_std", 0.0)) if erase else 0.0
@@ -86,7 +153,8 @@ class BatchPhotometric:
     def active(self) -> bool:
         return bool(self.brightness or self.contrast or self.saturation
                     or self.gamma != (1.0, 1.0) or self.sigma_max > 0.1 or self.erase_p
-                    or self.noise_std or self.from_uint8)
+                    or self.noise_std or self.from_uint8
+                    or (self.geometry is not None and self.geometry.active))
 
     def _jitter(self, v: torch.Tensor) -> torch.Tensor:
         n, device, dtype = v.shape[0], v.device, v.dtype
@@ -128,6 +196,8 @@ class BatchPhotometric:
             sigma = _factors(v.shape[0], 0.1, self.sigma_max, v.device, v.dtype).view(-1)
             hit = torch.rand(v.shape[0], device=v.device) < BLUR_P
             v = torch.where(hit.view(-1, 1, 1, 1), _blur(v, sigma), v)
+        if self.geometry is not None and self.geometry.active:
+            v = self.geometry(v)
         # Reihenfolge wie in `build_transform`: erst das Rauschen, dann das Cutout — sonst
         # traegt die geloeschte Flaeche Rauschen statt der neutralen 0.
         if self.noise_std:
