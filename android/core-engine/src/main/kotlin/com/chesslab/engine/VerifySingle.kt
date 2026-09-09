@@ -46,10 +46,12 @@ internal object VerifySingle {
             // No model → the tracker must not stall; commit the candidate as the diff saw it.
             cnn == null -> state.fallbackCommit(pend)
             snap == null -> emptyList()
-            // An observation of a frame OLDER than the one the candidate was decided on may neither
-            // confirm nor reject it: no vote, no verdict. The liveness clock must still advance, or a
+            // A reading must belong to the candidate's position AND be at least as recent as its
+            // frame. The observer captures FEN before asynchronous work: a newer frame sequence
+            // alone cannot make old-position (possibly prior-conditioned) evidence valid.
+            // Neither kind of stale reading may vote. The liveness clock still advances, or a
             // merely slow observer looks like a dead one and its candidate is dropped as stalled.
-            snap.seq < pend.seq -> {
+            snap.seq < pend.seq || snap.fen != pend.fen -> {
                 state.pending = pend.copy(lastTickS = state.nowS)
                 emptyList()
             }

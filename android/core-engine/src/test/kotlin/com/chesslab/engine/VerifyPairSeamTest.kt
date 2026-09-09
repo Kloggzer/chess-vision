@@ -28,6 +28,21 @@ import org.junit.jupiter.api.Test
  */
 class VerifyPairSeamTest {
     @Test
+    fun `a pending pair ignores evidence from a different position`() {
+        val state = pairState(ucis = listOf("e2e4", "e7e5"))
+        val after = afterFen(state, pairMoves(state, listOf("e2e4", "e7e5")))
+        val cnn = PairRecovery(matchFen = after)
+        val wrong = snapshotOf(state, PairObs(emptyMap())).copy(fen = after, seq = 10)
+        assertTrue(VerifySingle.tick(state, cnn, wrong).isEmpty())
+        assertEquals(STARTPOS, state.board.fen())
+        assertNotNull(state.pending)
+        assertEquals(0, state.pending!!.frames)
+        val fresh = wrong.copy(fen = STARTPOS, seq = 11)
+        assertTrue(VerifySingle.tick(state, cnn, fresh).any { it is TrackerEvent.SequenceCommitted })
+        assertEquals(after, state.board.fen())
+    }
+
+    @Test
     fun `a pending pair reaches the pair verifier and commits both half-moves`() {
         val state = pairState(ucis = listOf("e2e4", "e7e5"))
         val moves = pairMoves(state, listOf("e2e4", "e7e5"))

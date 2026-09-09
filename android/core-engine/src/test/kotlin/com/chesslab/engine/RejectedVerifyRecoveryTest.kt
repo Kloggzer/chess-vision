@@ -67,7 +67,7 @@ class RejectedVerifyRecoveryTest {
     }
 
     @Test
-    fun aStaleRejectedObservationCannotRecoverTheCurrentPosition() {
+    fun aStaleObservationCannotRejectAPairOrReachRecovery() {
         val engine = engine(E4Recovery())
         val state = engine.state
         dispatchPair(state, seq = 1)
@@ -77,7 +77,12 @@ class RejectedVerifyRecoveryTest {
             engine.onCnnSnapshot(snap.copy(fen = Game(STARTPOS).also { it.push(state.legalMoveFor("e2e4")!!) }.fen()))
         }
         assertTrue(state.history.isEmpty())
-        assertEquals(1L, state.cnnReadsStale)
+        // The verify seam now rejects the stale input before a terminal verdict can route it
+        // into periodic recovery. Neither the candidate nor either vote is consumed.
+        assertNotNull(state.pending)
+        assertEquals(0, state.pending!!.frames)
+        assertEquals(0L, state.cnnReadsStale)
+        assertEquals(0L, state.cnnReadsTaken)
         assertEquals(0, state.recoveryConfirmer.count)
     }
 

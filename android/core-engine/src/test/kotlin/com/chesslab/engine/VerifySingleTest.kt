@@ -407,6 +407,25 @@ class VerifySingleTest {
     }
 
     @Test
+    fun wrongPositionObservationCannotConfirmOrRejectACandidate() {
+        for (fen in listOf<String?>(null, NF3_NO_CASTLING)) {
+            for (cnn in listOf(VerifyEvaluator(occAgree = 1.0), VerifyEvaluator(match = true))) {
+                val state = pendingState()
+                state.nowS += 0.1
+                val snap = snapOf(state, VerifyObs(), seq = 10).copy(fen = fen)
+                repeat(2) { assertTrue(VerifySingle.tick(state, cnn, snap).isEmpty()) }
+                assertEquals(emptyList<String>(), state.history)
+                assertNotNull(state.pending)
+                assertEquals(0, state.pending!!.frames)
+                assertNull(state.pending!!.voteOutcome)
+                assertEquals(state.nowS, state.pending!!.lastTickS)
+                state.glance(VerifyEvaluator(occAgree = 1.0), VerifyObs(), seq = 11)
+                assertEquals(listOf("e4"), state.history)
+            }
+        }
+    }
+
+    @Test
     fun staleObservationNeitherConfirmsNorRejects() {
         val state = pendingState()
         state.pending = state.pending!!.copy(seq = 10)
