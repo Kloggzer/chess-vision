@@ -59,8 +59,10 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
     """
     paths = paths or config.DATA
     corrections = {}
-    for d in sorted(paths.recordings.glob("*")) if paths.recordings.exists() else ():
-        load_corrections(d / "corrections.jsonl", corrections)
+    from .labeling import ledger_paths
+
+    for ledger in ledger_paths("corrections.jsonl", paths):
+        load_corrections(ledger, corrections)
     squares = all_squares()
     rows: list[dict] = []
     for session_dir in sorted(paths.sessions.glob("*")):

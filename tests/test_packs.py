@@ -165,7 +165,8 @@ def test_board_dataset_groups_64_cells_across_packs(paths):
     ds = PackedBoardDataset(rows, ["empty"], _to_tensor, packs_mod.resolve_packs(rows, paths))
 
     x, y = ds[0]
-    assert len(ds) == 1 and x.shape == (CELLS, 3, SIDE, SIDE) and y.shape == (CELLS, 2)
+    # Drei Zielspalten seit 2026-09-09: Klasse, Coverage, Helligkeit.
+    assert len(ds) == 1 and x.shape == (CELLS, 3, SIDE, SIDE) and y.shape == (CELLS, 3)
     assert [int(c.max()) for c in x] == [1 + k if k < 32 else 69 + k for k in range(CELLS)]
 
 

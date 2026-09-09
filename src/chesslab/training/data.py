@@ -179,9 +179,11 @@ def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
     # Benotet wird, was der Verlust auch lernt: alles ueber PIECE_VISIBLE_MAX ist ausmaskiert,
     # es mitzuzaehlen waehlt Checkpoints nach Zellen, die das Modell nie treffen sollte. Ohne
     # Coverage-Spalte bleibt jede Zelle sichtbar und die Zahlen sind die alten.
-    from .occlusion import PIECE_VISIBLE_MAX
+    from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX
 
-    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
+    vis = [i for i, r in enumerate(rows)
+           if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX
+           and r.get("brightness", 255.0) >= CELL_DARK_MIN]
     bd_vis = occupancy_piece_breakdown(classes, [trues[i] for i in vis], [preds[i] for i in vis])         if 0 < len(vis) < len(rows) else bd
     bd["visible_piece_acc"] = bd_vis["piece_acc"]
     bd["visible_occupied_acc"] = bd_vis["occupied_acc"]

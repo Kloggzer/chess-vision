@@ -141,10 +141,11 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
                              **({"_weights": weights} if weights else {}),
                              "_written_at": datetime.now(UTC).isoformat()}) + "\n")
         for n, row in enumerate(rows, 1):
-            reads = all_reads(model_dir, frame_cells(session_dir, row, profile), device, weights)
+            cells = frame_cells(session_dir, row, profile)
+            reads = all_reads(model_dir, cells, device, weights)
             stem = Path(row["frame"]).stem
             labels = GameState(row["fen"]).labels()
-            for sq, read in zip(squares, reads, strict=True):
+            for sq, read, crop in zip(squares, reads, cells, strict=True):
                 # `cov` rides along only where the run carries an occlusion head: `hand_flags`
                 # needs the model's claim beside the matte's measurement, and a re-read is an hour.
                 cov = read.get("coverage")
@@ -152,6 +153,9 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
                     "session_id": meta["session_id"], "frame": stem, "square": sq,
                     "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
                     **({"cov": cov} if cov is not None else {}),
+                    # Die Helligkeit DIESER Zelle auf DIESEM Frame: ein Schatten zieht b4 von 32
+                    # auf 5, und ein Widerspruch dort misst das Licht statt das Label.
+                    "bright": round(float(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).mean()), 1),
                     "probs": sparse(read["probs"], classes)}) + "\n")
                 written += 1
             if progress and n % PROGRESS_EVERY == 0:

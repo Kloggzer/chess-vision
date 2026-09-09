@@ -78,19 +78,21 @@ test("the census counts DISTINCT frames — a recut leaves the same stem twice",
   await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
   // rg-2026-08-14-14-32-33 on disk: 93 lines, 66 stems, 27 of them twice. Counting lines says
   // 93/66 — "done" by accident, and on a half-matted session it hides the frames still missing.
+  // `skipped` zaehlt seit 2026-09-09 nicht mehr mit: SAM hat abgelehnt, es liegt kein Alpha da.
   await write([
-    JSON.stringify({ frame: "000001", coverage: { a1: 0.9 } }),
-    JSON.stringify({ frame: "000002", skipped: "zone too big" }),
-    JSON.stringify({ frame: "000001", coverage: { a1: 0.8 }, alpha: "fixed" }),
+    JSON.stringify({ frame: "f0", coverage: { a1: 0.9 } }),
+    JSON.stringify({ frame: "f1", skipped: "zone too big" }),
+    JSON.stringify({ frame: "f0", coverage: { a1: 0.8 }, alpha: "fixed" }),
   ]);
-  expect(await matteCensus("g")).toEqual({ done: 2, total: 3, target: 3 , reported: 0});
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3 , reported: 0});
 });
 
 test("a session at the run's target is done, with the untouched pile still on the record", async () => {
   const { matteCensus, matteTarget } = await import("@/lib/matte");
   const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
   await writeFile(path.join(dir, "log.jsonl"), pile(394), "utf8");
-  await write(Array.from({ length: matteTarget() }, (_, i) => JSON.stringify({ frame: `f${i}` })));
+  await write(Array.from({ length: matteTarget() },
+                         (_, i) => JSON.stringify({ frame: `f${i}`, coverage: { a1: 0.0 } })));
   // rg-2026-08-08-00-39-57: 80 of 394 by intent. The target caps the bar, the pile stays visible.
   expect(await matteCensus("g")).toEqual({ done: 80, total: 394, target: 80 , reported: 0});
 });
@@ -146,4 +148,28 @@ test("ein Alpha ohne jede Behauptung gehört nicht in die Review", () => {
   // Spuren unter PIECE_VISIBLE_MAX zaehlen nicht: die Karte zeigt dort "0 Felder > 0.15".
   expect(claimsAnything({ a1: 0, b2: 0.02 })).toBe(false);
   expect(claimsAnything({ a1: 0, b2: PIECE_VISIBLE_MAX + 0.01 })).toBe(true);
+});
+
+test("a matte for a frame the export no longer picks does not count as done", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  await writeFile(path.join(dir, "log.jsonl"), pile(3), "utf8");
+  // Genau der Zustand der sechs ungescannten Sessions nach einem Re-Export: die alten Zeilen
+  // zeigen auf Stems, die der neue Plan nicht mehr waehlt. Sie meldeten die Session als erledigt,
+  // waehrend der ganze Stapel unberuehrt dalag (2026-09-09).
+  await write([
+    JSON.stringify({ frame: "verwaist-1", coverage: { a1: 0.9 } }),
+    JSON.stringify({ frame: "verwaist-2", coverage: { a1: 0.9 } }),
+    JSON.stringify({ frame: "f0", coverage: { a1: 0.9 } }),
+  ]);
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3, reported: 0 });
+});
+
+test("the pile is read from the board path, extension and directory stripped", async () => {
+  const { matteCensus } = await import("@/lib/matte");
+  const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
+  const row = JSON.stringify({ board: "boards/000930.webp", dirty: true, dirty_reason: "occluded" });
+  await writeFile(path.join(dir, "log.jsonl"), `${row}\n`, "utf8");
+  await write([JSON.stringify({ frame: "000930", coverage: { a1: 0.9 } })]);
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 1, target: 1, reported: 0 });
 });

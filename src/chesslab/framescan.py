@@ -11,6 +11,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from . import config
 from .work_audit import measure, span
 
 #: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
@@ -35,6 +36,69 @@ CHANGE_THR = 12.0
 #: A move changes two squares, a piece falling over three at most. More cells drifting at once is
 #: the player leaning in: measured on 00-39-57, median 7 cells and all of them on rank 1 and 2.
 MAX_CHANGED_CELLS = 4
+#: Darunter zeigt das Brett keine Figur mehr. RELATIV, weil der absolute Median zwischen
+#: Aufnahmen um Faktor 28 schwankt (49 bis 1388) — fest sortierte nach Licht statt nach Fokus.
+#: Die Verteilung ist zweigipflig, zwischen 40 und 50 % liegen 43 von 11 888 Brettern.
+SHARP_MIN_FRACTION = 0.45
+#: Mehr dunkle Zellen als das, und das Brett geht ganz. Die Verteilung springt: 57 % der Bretter
+#: haben KEINE, danach ein flaches Plateau bis 23 — die Ecke ist stationaer, also trifft die Regel
+#: ganze Aufnahmen und nicht einzelne Bretter (Nutzer, 2026-09-09).
+DARK_CELLS_MAX = 4
+#: `None` ist bei `detect_rotation` eine ANTWORT ("keine Drehung noetig"), also kann es nicht
+#: zugleich "nicht gefragt" heissen — sonst laeuft der Probe-Decode doppelt.
+UNSET = object()
+
+
+class Wanted:
+    """Das Dreier-Raster plus einzelne Extra-Indizes, mit O(1)-Mitgliedschaft.
+
+    Der Decoder fragt `index in wanted` JE FRAME (`recording.py:64-72`); eine Liste machte daraus
+    einen linearen Durchlauf. `range` und `frozenset` antworten beide in konstanter Zeit.
+    """
+
+    def __init__(self, stride: int, extra=()) -> None:
+        self.rng = range(0, BEYOND_ANY_RECORDING, stride)
+        self.extra = frozenset(int(i) for i in extra)
+
+    def __contains__(self, index: int) -> bool:
+        return index in self.rng or index in self.extra
+
+
+def cell_sharpness(board_gray, size: int, hands=()) -> float:
+    """Laplace-Varianz je Feld, Median ueber die UNVERDECKTEN — die Schaerfe des Bretts.
+
+    Ueber das ganze Bild misst sie die Hand mit: Haut ist texturarm und zieht die Varianz wie
+    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500)."""
+    lap = cv2.Laplacian(board_gray, cv2.CV_64F)
+    step = size // 8
+    vals = []
+    for c in range(64):
+        if cell_square(c, True) in hands:
+            continue
+        ri, ci = divmod(c, 8)
+        vals.append(float(lap[ri * step:(ri + 1) * step, ci * step:(ci + 1) * step].var()))
+    return round(float(np.median(vals)), 1) if len(vals) >= 16 else -1.0
+
+
+def dark_indices(scan: list[dict], limit: int = DARK_CELLS_MAX) -> set[int]:
+    """Die Frame-Indizes mit mehr als `limit` zu dunklen Zellen — `cells` traegt sie schon."""
+    from .training.occlusion import CELL_DARK_MIN
+
+    return {r["idx"] for r in scan
+            if sum(1 for v in (r.get("cells") or ()) if v < CELL_DARK_MIN) > limit}
+
+
+def blurred_indices(scan: list[dict], fraction: float = SHARP_MIN_FRACTION) -> set[int]:
+    """Die Frame-Indizes, deren Brett unter `fraction` des Aufnahme-Medians liegt.
+
+    Ein Scan ohne `sharp` liefert die leere Menge — er hat nie gemessen, und Raten waere hier
+    schlimmer als Nichtstun.
+    """
+    vals = [r["sharp"] for r in scan if r.get("sharp", -1) >= 0]
+    if len(vals) < 8:
+        return set()
+    floor = float(np.median(vals)) * fraction
+    return {r["idx"] for r in scan if 0 <= r.get("sharp", -1) < floor}
 
 
 def scan_path(name: str) -> Path:
@@ -42,6 +106,66 @@ def scan_path(name: str) -> Path:
     from .realgames import game_dir
 
     return game_dir(name) / "scan.jsonl"
+
+
+def scan_meta_path(name: str) -> Path:
+    """Die Herkunft neben dem Scan, nicht darin: `read_scan` sortiert nach `idx`, eine Kopfzeile
+    ohne `idx` braeche das."""
+    return scan_path(name).with_name("scan.meta.json")
+
+
+def scan_provenance(name: str, *, stride: int, extra=(), tag: str = "") -> dict:
+    """Alles, was den Scan bestimmt — nicht nur das Video.
+
+    Geometrie, Kalibrierprofil und Hand-Gate gehen genauso ein: derselbe Film mit anderen Ecken
+    ergibt andere Zeilen. Eine reine Video-mtime wuerde das durchgehen lassen.
+    """
+    from .calibration import profile_path
+    from .hand_gate import CARD_FILE, DEFAULT_GATE, GATE_DIR, WEIGHTS_FILE
+    from .realgames import EXPORT_PROFILE, load_candidate, video_path
+
+    def stamp(path: Path) -> list:
+        st = path.stat() if path.exists() else None
+        return [st.st_mtime_ns, st.st_size] if st else None
+
+    gate_dir = config.DATA.models / f"{GATE_DIR}-{tag or DEFAULT_GATE}"
+    candidate = load_candidate(name)
+    return {
+        "video": stamp(video_path(name)),
+        "corners": [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]],
+        "profile": [EXPORT_PROFILE, stamp(profile_path(EXPORT_PROFILE))],
+        "gate": [tag or DEFAULT_GATE, stamp(gate_dir / CARD_FILE), stamp(gate_dir / WEIGHTS_FILE)],
+        "stride": stride,
+        "extra": sorted(int(i) for i in extra),
+    }
+
+
+def scan_is_stale(name: str, *, stride: int = SCAN_STRIDE, extra=(), tag: str = "") -> str | None:
+    """Warum der Scan neu muss, oder `None` wenn er gilt. Der Grund ist die halbe Meldung."""
+    import json as _json
+
+    if not scan_path(name).exists():
+        return "keine scan.jsonl"
+    meta_path = scan_meta_path(name)
+    if not meta_path.exists():
+        return "keine scan.meta.json — Herkunft unbekannt"
+    try:
+        have = _json.loads(meta_path.read_text(encoding="utf-8"))
+    except ValueError:
+        return "scan.meta.json unlesbar"
+    want = scan_provenance(name, stride=stride, extra=extra, tag=tag)
+    # Die Extras duerfen WACHSEN, ohne den Scan zu entwerten: gemessen ist gemessen. Fehlt einer,
+    # ist er nie gemessen worden, und genau dann taugt der Scan fuer diesen Lauf nicht.
+    missing = set(want.pop("extra")) - set(have.get("extra") or ())
+    if missing:
+        return f"{len(missing)} korrigierte/gemeldete Frames nicht gemessen"
+    have.pop("extra", None)
+    differing = [k for k, v in want.items() if have.get(k) != v]
+    if differing:
+        return f"geaendert: {', '.join(differing)}"
+    # Ein Scan von vor der Schaerfemessung kann nicht nach ihr auswaehlen.
+    first = next(iter(read_scan(name)), None)
+    return None if first is None or "sharp" in first else "ohne Schaerfemessung"
 
 
 def read_scan(name: str) -> list[dict]:
@@ -76,7 +200,7 @@ def occupied(row: dict, person_thr: float = PERSON_THR, gate_thr: float = GATE_T
 
 
 def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
-               progress: bool = True, tag: str = "") -> dict:
+               progress: bool = True, tag: str = "", rotate=UNSET, extra=()) -> dict:
     """One forward decode of the recording, every `stride`-th frame past the hand gate.
 
     Kein Quad-Fit und kein Brett geschrieben — die kosten 218 ms. Seit 2026-08-22 kommt die Hand
@@ -97,14 +221,16 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     from .recording import Recording
 
     path = scan_path(name)
-    if resume and path.exists():
-        return {"path": path, "frames": len(read_scan(name)), "resumed": True}
+    stale = scan_is_stale(name, stride=stride, extra=extra, tag=tag)
+    if resume and stale is None:
+        return {"path": path, "frames": len(read_scan(name)), "resumed": True, "stale": None}
     candidate = load_candidate(name)
     profile = load_profile(EXPORT_PROFILE)
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
     video = video_path(name)
-    rotate = detect_rotation(video, candidate,
-                             {int(m["frame"]) for m in candidate.get("moves") or []})
+    if rotate is UNSET:
+        rotate = detect_rotation(video, candidate,
+                                 {int(m["frame"]) for m in candidate.get("moves") or []})
     pad, size = crop_border_px(profile), profile.board_size
     total = int(candidate.get("frames") or 0)
     model, card, device = load_gate(tag)
@@ -119,9 +245,10 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
             row["gate"] = round(float(got[0]), 4)
         pending.clear()
 
-    # `range` als `wanted`: sein `in` ist O(1) und exakt, und der Decoder baut die zwei von drei
-    # Bildern gar nicht erst, die diese Schleife bisher nur verworfen hat.
-    with closing(Recording(video).take(range(0, BEYOND_ANY_RECORDING, stride), rotate)) as stream:
+    # `Wanted` statt `take`: sein `in` ist O(1), der Decoder baut die zwei von drei Bildern gar
+    # nicht erst — und die Obergrenze bleibt jenseits jeder Aufnahme. `candidate["frames"]` taugt
+    # dafuer NICHT: es zaehlt nur den Fortschritt, und eine zu kleine Zahl kuerzte den Scan still.
+    with closing(Recording(video).frames(0, wanted=Wanted(stride, extra), rotate=rotate)) as stream:
         for idx, frame in stream:
             with span("FramePipeline.onFrame"):
                 padded = warp_padded(frame, corners, profile, pad)
@@ -130,11 +257,16 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                 with measure("BGR to Gray conversions", gray_key,
                              processed_bytes=padded.nbytes):
                     padded_gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
+                hands = sorted(hand_squares(missing_edges(
+                    padded_gray, size, pad, white_pov=profile.white_pov)))
                 row = {
                     "idx": idx,
-                    "grid": sorted(hand_squares(missing_edges(
-                        padded_gray, size, pad, white_pov=profile.white_pov))),
+                    "grid": hands,
                     "cells": cell_means(padded, size, pad, gray=padded_gray),
+                    # Der Fokus, gemessen wie die Hand: erst messen, dann waehlen. Die Rillen
+                    # liefern die Maske gleich mit, eine Matte gibt es hier noch nicht.
+                    "sharp": cell_sharpness(padded_gray[pad:pad + size, pad:pad + size],
+                                            size, hands),
                 }
                 rows.append(row)
                 pending.append((row, board))
@@ -144,9 +276,20 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                 print(f"  scan {idx}/{total} frames, {sum(occupied(r) for r in rows)} with a hand",
                       flush=True)
     score()
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    # Erst nach dem letzten Batch, und ueber eine Nebendatei: ein Abbruch mittendrin liesse sonst
+    # eine halbe Datei zurueck, die `resume` fuer vollstaendig haelt.
+    _write_atomic(path, "".join(json.dumps(r) + "\n" for r in rows))
+    _write_atomic(scan_meta_path(name),
+                  json.dumps(scan_provenance(name, stride=stride, extra=extra, tag=tag), indent=2))
     return {"path": path, "frames": len(rows), "stride": stride, "gate": card["backbone"],
-            "hands": sum(occupied(r) for r in rows), "resumed": False}
+            "hands": sum(occupied(r) for r in rows), "resumed": False, "stale": stale}
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Schreiben heisst hier: entweder ganz da oder gar nicht."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
 
 
 #: Board files, for naming the square a deviating cell sits on.

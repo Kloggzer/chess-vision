@@ -73,12 +73,12 @@ def confident_class(probs: dict[str, float], thresholds: dict[str, float],
 
 
 def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: str,
-                  classes: list[str] | None = None) -> list[dict]:
+                  classes: list[str] | None = None, include_judged: bool = False) -> list[dict]:
     """Every undecided cell of one session whose confident class differs from its label of record.
 
-    A decided cell still carries the thresholds — Eqn. 2 is estimated over all labels, and the
-    human's `occluded` is the only support that class ever gets.
-    """
+    A decided cell still carries the thresholds — Eqn. 2 is estimated over all labels. Mit
+    `include_judged` wird es auch geflaggt (mit `judged`): eine falsche Handkorrektur ist sonst
+    unfindbar, weil ihr Urteil sie aus dem Lauf nimmt."""
     labels = [judged.get((r["session_id"], r["frame"], r["square"]), r["fen_label"]) for r in rows]
     thresholds = class_thresholds(list(zip(labels, (r["probs"] for r in rows), strict=True)))
     flags = []
@@ -87,7 +87,8 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
         predicted = confident_class(row["probs"], thresholds, known)
         if predicted is None or predicted == label:
             continue
-        if (row["session_id"], row["frame"], row["square"]) in judged:
+        cell = (row["session_id"], row["frame"], row["square"])
+        if cell in judged and not include_judged:
             continue
         prob = row["probs"].get(predicted, 0.0)
         flags.append({
@@ -100,6 +101,9 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
             # Die 14. Spalte des Modells — ein EIGENER Sigmoid, keine Klasse. Die Matte bleibt
             # das Mass (`--visible`); dies ist die zweite Meinung, wo SAM eine Hand uebersah.
             **({"model_cov": row["cov"]} if row.get("cov") is not None else {}),
+            # Das Wort des MENSCHEN, wo es eines gibt: die Lane zeigt sonst die FEN und
+            # verschweigt, dass hier schon jemand widersprochen hat.
+            **({"judged": label} if cell in judged else {}),
             "margin": round(prob - row["probs"].get(label, 0.0), 4),
             "fold": INTERIM_FOLD,
             "model": model,
@@ -177,7 +181,8 @@ def newest_input(rec: Path) -> str | None:
     return datetime.fromtimestamp(max(ts), UTC).isoformat() if ts else None
 
 
-def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dict:
+def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
+                include_judged: bool = False, skip: tuple[str, ...] = ()) -> dict:
     """Rewrite both audit files from every proposal file that names the model it was scored with.
 
     A file without one is skipped and said so — non-circularity would rest on nothing. What the
@@ -187,8 +192,9 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
     # BOTH ledgers: `reviewed.jsonl` is where the lane's "FEN stimmt" lands, and without it every
     # confirmation comes back as a flag on the next run — the lane could never be worked empty.
     # Corrections last, so a retraction there reopens what a confirmation closed.
-    ledgers = (sorted(rec.glob("*/reviewed.jsonl")) + sorted(rec.glob("*/corrections.jsonl"))
-               if rec.exists() else [])
+    from .labeling import ledger_paths
+
+    ledgers = ledger_paths("reviewed.jsonl") + ledger_paths("corrections.jsonl")
     judged = ledger_labels(*ledgers)
     ts = datetime.now(UTC).isoformat()
     flags: list[dict] = []
@@ -199,6 +205,12 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
     for path in sorted(rec.glob("*/model-reads.jsonl")):
         model, rows, classes = read_proposals(path)
         reason = None
+        if path.parent.name in skip:
+            # Gemessen 2026-09-09: auf 21-01-04 sind die geflaggten Felder halb so hell wie der
+            # Rest (35,6 gegen 64,3), die dunkelsten liegen bei 3-5 von 255. Dort liest das Modell
+            # nichts, es raet — und begraebt mit 2 500 Karten die 733 echten des Korpus.
+            skipped.append({"session": path.parent.name, "reason": "per --skip ausgeblendet"})
+            continue
         if not rows:
             reason = "no row carries `probs` — nothing to audit"
         elif not model:
@@ -210,10 +222,20 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
             continue
         scanned += len(rows)
         sessions.append(rows[0]["session_id"])
-        found = session_flags(rows, judged, model=model, ts=ts, classes=classes)
+        found = session_flags(rows, judged, model=model, ts=ts, classes=classes,
+                              include_judged=include_judged)
         if visible_only:
+            # Zwei Gruende, dieselbe Zelle nicht zu bewerten — verdeckt oder zu dunkel. Beide
+            # nimmt `OcclusionLoss` aus dem Klassenverlust, ein Urteil dort erreicht also kein
+            # Modell. Die Helligkeit kommt aus den Reads (`bright`), wo sie gemessen wurde.
+            from .training.occlusion import CELL_DARK_MIN
+
             covered = visible_cells(path.parent)
-            kept = [f for f in found if (f["frame"], f["square"]) not in covered]
+            dark = {(r["frame"], r["square"]) for r in rows
+                    if 0 <= r.get("bright", -1) < CELL_DARK_MIN}
+            kept = [f for f in found
+                    if (f["frame"], f["square"]) not in covered
+                    and (f["frame"], f["square"]) not in dark]
             dropped_covered += len(found) - len(kept)
             found = kept
         flags += found
@@ -228,6 +250,8 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False) -> dic
         per_class[flag["fen_label"]] = per_class.get(flag["fen_label"], 0) + 1
     summary = {
         "flags": len(flags),
+        "flags_on_judged": sum("judged" in f for f in flags),
+        "judged_scope": "included" if include_judged else "skipped",
         "cells_scanned": scanned,
         "scope": "occupancy" if occupancy_only else "all",
         "coverage_scope": "visible" if visible_only else "any",

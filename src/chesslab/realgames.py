@@ -469,9 +469,15 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
 
     corners = [[float(x), float(y)] for x, y in candidate["geometry"]["corners"]]
     base, fps = base_time(candidate), video_fps(candidate)
+    # Zu unscharf, um eine Figur zu zeigen — gemessen ueber die ganze AUFNAHME, nicht je Ply:
+    # der absolute Median schwankt zwischen Aufnahmen um Faktor 28, innerhalb einer kaum. Die
+    # Verteilung ist zweigipflig, die Schwelle liegt in der Luecke (`framescan.SHARP_MIN_FRACTION`).
+    # Zwei Gruende, ein Brett ganz zu verwerfen: unscharf oder zu dunkel. Beim Licht ist es eine
+    # Aufnahme-Entscheidung — die Ecke steht still, also trifft es alle Bretter oder keines.
+    blurred = framescan.blurred_indices(scan) | framescan.dark_indices(scan)
     rows = []
     for seg in known_segments(candidate):
-        reasons = framescan.classify(seg, scan)
+        reasons = {k: v for k, v in framescan.classify(seg, scan).items() if k not in blurred}
         # Only over a CLEAN verdict. `occluded` claims the FEN still holds, which contradicts a
         # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
         # carries the lagging FEN into training. The report answers "the scan missed a hand", the
@@ -481,6 +487,16 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                 reasons[idx] = "occluded"
         clean, dirty = framescan.select(reasons, per_position=per_position,
                                         dirty_per_position=dirty_per_position, prefer=prefer)
+        # Ein korrigiertes Bild ist Handarbeit und darf nicht an einem Slot scheitern: `prefer`
+        # gewinnt nur im Umkreis von `tol`, und nach einer neuen Abtastung liegt es eben daneben.
+        # Es kommt ZUSAETZLICH mit, das Acht-Frame-Ziel gilt dafuer nicht. Nur `clean` und
+        # `occluded` — bei `stale`/`changed` laeuft die FEN nach, und die Korrektur beschreibt
+        # dann ein anderes Brett als das Label (2026-09-09: 4 von 11 so gerettet, 7 blieben).
+        rescued = [idx for idx in sorted(prefer)
+                   if seg["start"] <= idx < seg["end"] and idx not in clean and idx not in dirty
+                   and reasons.get(idx) in ("clean", "occluded")]
+        clean = list(clean) + [i for i in rescued if reasons[i] == "clean"]
+        dirty = list(dirty) + [i for i in rescued if reasons[i] == "occluded"]
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
                     for idx in clean)
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
@@ -1454,6 +1470,7 @@ def export_session(
     fit: bool = True,
     report_only: bool = False,
     workers: int = EXPORT_WORKERS,
+    no_scan: bool = False,
 ) -> dict:
     """A confirmed candidate is cut into its own `data/recordings/<name>/`, and reports its worth."""
     with (ProcessPoolExecutor(max_workers=workers) if workers > 1 and not report_only
@@ -1461,14 +1478,79 @@ def export_session(
         return _export_session(name, quiet_margin_s=quiet_margin_s, every=every,
                                per_position=per_position, dirty_per_position=dirty_per_position,
                                dirty=dirty, measure=measure, fit=fit, report_only=report_only,
-                               workers=workers, executor=executor)
+                               no_scan=no_scan, workers=workers, executor=executor)
+
+
+def ensure_scan(name: str, *, rotate, extra=(), read_only: bool = False,
+                progress: bool = True) -> list[dict]:
+    """Der Frame-Scan, notfalls frisch gezogen — die Auswahl steht und faellt mit ihm.
+
+    Ohne ihn plant der Export nach Margin-Fenstern, und die lassen gemessene 23 % Haende durch
+    (`docs/frame-scan.md`). Deshalb kein stiller Rueckfall: was hier scheitert, bricht ab.
+    `read_only` ist fuer `--report-only` — es urteilt, schreibt aber nichts.
+    """
+    from . import framescan
+
+    stale = framescan.scan_is_stale(name, extra=extra)
+    if stale is None:
+        return framescan.read_scan(name)
+    if read_only:
+        raise ValueError(f"{name}: der Bericht braucht einen gueltigen Frame-Scan ({stale}). "
+                         f"`chesslab realgames scan-video {name}` — ein Bericht erzeugt keinen.")
+    print(f"  kein gueltiger Frame-Scan ({stale}) — wird jetzt gemessen, vor der Auswahl")
+    try:
+        res = framescan.scan_video(name, rotate=rotate, extra=extra, resume=False,
+                                   progress=progress)
+    except (OSError, ValueError, KeyError, RuntimeError) as e:
+        raise ValueError(
+            f"{name}: der Frame-Scan ist gescheitert ({type(e).__name__}: {e}). Der Export bricht "
+            f"ab, statt auf die Margin-Fenster zurueckzufallen — die lassen 23 % Haende durch. "
+            f"Mit `--no-scan` laesst sich der alte Weg ausdruecklich erzwingen."
+        ) from e
+    print(f"  {res['frames']} Frames gemessen, {res['hands']} mit einer Hand")
+    return framescan.read_scan(name)
+
+
+def correction_ledger(name: str, prefer: set[int], rows: list[dict],
+                      scan: list[dict], candidate: dict, rejected=()) -> dict:
+    """Welche korrigierten Bilder der Neuplan uebernimmt — und warum die anderen nicht.
+
+    `prefer` verspricht nichts: `pick_spread` bevorzugt nur im Umkreis von `tol`, und ein Slot
+    kann anders belegt sein. Gezaehlt wird deshalb gegen die ENDGUELTIGEN Zeilen; `occluded` ist
+    dabei kein Ausschluss, verdeckte Bretter werden ja mitgenommen.
+    """
+    kept = {int(Path(r["frame"]).stem): r for r in rows}
+    measured = {int(r["idx"]) for r in scan}
+    spans = [(s["start"], s["end"]) for s in known_segments(candidate)]
+    out = []
+    for idx in sorted(prefer):
+        row = kept.get(idx)
+        if row is not None:
+            out.append({"idx": idx, "kept": True, "dirty_reason": row.get("dirty_reason")})
+            continue
+        if idx in rejected:
+            why = "Brett verworfen (zu dunkel oder unscharf)"
+        elif idx not in measured:
+            why = "nicht gemessen"
+        elif not any(lo <= idx < hi for lo, hi in spans):
+            why = "ausserhalb jedes Ply-Intervalls"
+        else:
+            why = "von der Auswahl nicht gezogen"
+        out.append({"idx": idx, "kept": False, "why": why})
+    path = config.DATA.reports / f"export-corrections-{name}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + chr(10) for r in out), encoding="utf-8")
+    from collections import Counter
+
+    lost = [r for r in out if not r["kept"]]
+    return {"kept": len(out) - len(lost), "lost": len(lost), "path": path,
+            "why": Counter(r["why"] for r in lost)}
 
 
 def _export_session(name: str, *, quiet_margin_s: float, every: int, per_position: int | None,
                     dirty_per_position: int, dirty: bool, measure: bool, fit: bool,
-                    report_only: bool, workers: int, executor) -> dict:
+                    report_only: bool, no_scan: bool, workers: int, executor) -> dict:
     """One export, sharing its worker processes across settle, grid fit and board encoding."""
-    from . import framescan
 
     if is_archived(name):
         raise ValueError(
@@ -1495,19 +1577,31 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
                                 rotate=rotation, workers=workers, executor=executor)
         found = sum(len(v) for v in settle.values())
         print(f"  settle measured for {found} squares over {len(settle)} plies")
-    scan = framescan.read_scan(name)
+    # VOR dem Scan geholt, damit beide als `extra` mitgemessen werden: ein korrigierter Frame,
+    # dessen Index nicht auf dem Dreier-Raster liegt, stuende sonst gar nicht erst im Scan — und
+    # was nicht gemessen ist, kann keine Bevorzugung mehr retten.
+    prefer = corrected_frames(name)
+    reported = reported_dirty(f"rg-{name}")
+    scan = [] if no_scan else ensure_scan(name, rotate=rotation, extra=prefer | reported,
+                                          read_only=report_only)
     if scan:
-        prefer = corrected_frames(name)
-        reported = reported_dirty(f"rg-{name}")
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
                             per_position=per_position or 8, dirty_per_position=dirty_per_position,
                             prefer=prefer, reported=reported)
         print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected, "
               f"{len(reported)} reported dirty by hand — "
               f"picking on data instead of on a {quiet_margin_s}s margin")
+        if prefer:
+            from . import framescan as _fs
+
+            rejected = _fs.blurred_indices(scan) | _fs.dark_indices(scan)
+            book = correction_ledger(name, prefer, rows, scan, candidate, rejected=rejected)
+            why = ", ".join(f"{n}x {w}" for w, n in book["why"].most_common()) or "—"
+            print(f"  Korrekturen: {book['kept']} uebernommen, {book['lost']} nicht ({why}) "
+                  f"-> {book['path']}")
     else:
-        print(f"[WARN] {name}: no scan.jsonl, falling back to the margin windows. Run "
-              f"`chesslab realgames scan-video {name}` first — the margin admitted 23 % hands.")
+        print(f"[WARN] {name}: --no-scan — planning on the margin windows, which admitted "
+              f"23 % hands. This is the explicitly chosen path, not a fallback.")
         rows = plan_rows(candidate, margin_frames=margin_frames, every=every, dirty=dirty,
                          settle=settle, per_position=per_position)
     if not rows:

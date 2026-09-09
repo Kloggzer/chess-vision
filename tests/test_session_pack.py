@@ -21,7 +21,10 @@ START_FEN = chess.Board().fen()
 #: 3.12.7). The seam only moves the cut; the pool bytes and the manifest rows must not move with
 #: it. `ts` is `datetime.now` and is dropped before hashing.
 CROPS_SHA = "fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418"
-ROWS_SHA = "04d762c22fac139458dac626c47f0bbc4b14a9510cfec974eaca9c0af0b94351"
+#: Nachgezogen 2026-09-09, weil jede Zeile jetzt `brightness` traegt (`training/occlusion.py`,
+#: `CELL_DARK_MIN`). Die PIXEL blieben dabei bytegleich — `CROPS_SHA` ist unveraendert, und genau
+#: das ist der Nachweis, dass nur das Feld dazukam und nicht der Zuschnitt.
+ROWS_SHA = "921c42f21f21d74b770c2e9bc83bd09c570eb4ab51b4756bc3b3124beb0e83bb"
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:

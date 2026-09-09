@@ -53,11 +53,12 @@ def test_coverage_is_regressed_against_its_fraction_not_a_yes_no():
     assert float(exact) < float(binary), "0.9 beats a confident 'yes' — the output is a fraction"
 
 
-def test_the_two_targets_travel_in_one_tensor():
-    """The training loop stays `for x, y in loader` — that is why they share a tensor."""
-    y, cov = split_targets(_target(2, 0.25))
+def test_the_targets_travel_in_one_tensor():
+    """The training loop stays `for x, y in loader` — that is why they share a tensor. Seit
+    2026-09-09 faehrt die Helligkeit als dritte Spalte mit; zwei Spalten heissen "alles hell"."""
+    y, cov, bright = split_targets(_target(2, 0.25))
 
-    assert (int(y), float(cov)) == (2, 0.25)
+    assert (int(y), float(cov), float(bright)) == (2, 0.25, 255.0)
     assert y.dtype == torch.long
 
 

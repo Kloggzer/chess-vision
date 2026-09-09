@@ -121,26 +121,59 @@ export function matteTarget(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 80;
 }
 
-type Counts = Map<string, { key: string; value: number }>;
-const counts: Counts = ((globalThis as { __chesslabMatteCounts?: Counts }).__chesslabMatteCounts ??= new Map());
+type Sets = Map<string, { key: string; value: Set<string> }>;
+const sets: Sets = ((globalThis as { __chesslabMatteSets?: Sets }).__chesslabMatteSets ??= new Map());
 
 const FRAME = /"frame":\s*"([^"]+)"/g;
-const OCCLUDED = /"dirty_reason":\s*"occluded"/g;
+const FRAME_ONE = /"frame":\s*"([^"]+)"/;
+const BOARD_ONE = /"board":\s*"([^"]+)"/;
+const OCCLUDED_ONE = /"dirty_reason":\s*"occluded"/;
 
-/** Distinct, not lines: `recut_fixed` rewrites the file whole, and 27 stems came back twice on
- *  14-32-33 — line counts then read "done" while frames of the pile are still missing. */
-const frames = (text: string) => new Set([...text.matchAll(FRAME)].map((m) => m[1])).size;
-const occluded = (text: string) => (text.match(OCCLUDED) ?? []).length;
+/** Beide Seiten schreiben denselben Frame anders: das Log als Pfad mit Endung, `matte.jsonl` als
+ *  nackten Stem. Ohne diese Normalisierung trifft der Vergleich nie zu. */
+const stemOf = (value: string): string => {
+  const base = value.split("/").pop()!.split(String.fromCharCode(92)).pop()!;
+  const dot = base.lastIndexOf(".");
+  return dot > 0 ? base.slice(0, dot) : base;
+};
+
+/**
+ * Die Stems, die WIRKLICH eine Matte haben: kein `skipped` (SAM hat abgelehnt, es liegt kein
+ * Alpha da) und eine `coverage`. Distinct, not lines: `recut_fixed` rewrites the file whole, and
+ * 27 stems came back twice on 14-32-33 — line counts then read "done" while frames are missing.
+ */
+const usableStemsIn = (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    if (!line || line.includes('"skipped"') || !line.includes('"coverage"')) continue;
+    const m = FRAME_ONE.exec(line);
+    if (m) out.add(stemOf(m[1]));
+  }
+  return out;
+};
+
+/** Der aktuelle Stapel: die Stems der `occluded`-Zeilen, nicht ihre Anzahl. Eine Matte-Zeile zu
+ *  einem Stem, den der Export nicht mehr waehlt, ist verwaist und zaehlt nicht als erledigt. */
+const occludedStemsIn = (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    if (!line || !OCCLUDED_ONE.test(line)) continue;
+    const m = BOARD_ONE.exec(line) ?? FRAME_ONE.exec(line);
+    if (m) out.add(stemOf(m[1]));
+  }
+  return out;
+};
 
 /** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
-async function counted(file: string, tag: string, count: (text: string) => number): Promise<number> {
+async function cachedSet(file: string, tag: string,
+                         read: (text: string) => Set<string>): Promise<Set<string>> {
   const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
   const id = `${file}|${tag}`;
-  const hit = counts.get(id);
+  const hit = sets.get(id);
   if (hit?.key === key) return hit.value;
   const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
-  const value = count(text);
-  counts.set(id, { key, value });
+  const value = read(text);
+  sets.set(id, { key, value });
   return value;
 }
 
@@ -150,12 +183,18 @@ async function counted(file: string, tag: string, count: (text: string) => numbe
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [done, total, matted, reviews] = await Promise.all([
-    counted(path.join(dir, "matte.jsonl"), "frames", frames),
-    counted(path.join(dir, "log.jsonl"), "occluded", occluded),
+  const [usable, pile, matted, reviews] = await Promise.all([
+    cachedSet(path.join(dir, "matte.jsonl"), "usable", usableStemsIn),
+    cachedSet(path.join(dir, "log.jsonl"), "pile", occludedStemsIn),
     matteStems(path.join(dir, "matte.jsonl")),
     frameReviews(sessionId(name)),
   ]);
+  // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel. Ein Re-Export waehlt andere
+  // Frames, und die alten Zeilen meldeten die Session sonst als erledigt, waehrend der Stapel
+  // unberuehrt daliegt (gemessen an den sechs ungescannten Sessions, 2026-09-09).
+  let done = 0;
+  for (const stem of usable) if (pile.has(stem)) done += 1;
+  const total = pile.size;
   const reported = [...reviews].filter(([stem, r]) => r.dirty && !matted.has(stem)).length;
   return { done, total, target: Math.min(matteTarget(), total), reported };
 }

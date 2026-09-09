@@ -40,14 +40,12 @@ def _datasets():
 
 @pytest.mark.parametrize("path", _datasets(), ids=lambda p: p.parent.name)
 def test_every_fen_label_divergence_has_a_correction(path):
-    from chesslab.labeling import load_corrections
+    from chesslab.labeling import ledger_paths, load_corrections
 
+    # Auch die geparkten: ihre Zeilen stehen weiter in den gebauten Datensaetzen.
     human: dict = {}
-    rec = DATA.recordings
-    if rec.is_dir():
-        for d in rec.iterdir():
-            if (d / "corrections.jsonl").is_file():
-                load_corrections(d / "corrections.jsonl", human)
+    for ledger in ledger_paths("corrections.jsonl"):
+        load_corrections(ledger, human)
 
     cache: dict[str, dict[str, str]] = {}
     unexplained = []

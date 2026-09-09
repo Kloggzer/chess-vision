@@ -13,10 +13,22 @@ from torch import nn
 #: cells falls 0.62 -> 0.41 between 0.10 and 0.20. It still trains the occlusion output.
 PIECE_VISIBLE_MAX = 0.15
 
+#: Darunter traegt die Zelle kein Signal mehr — das LABEL bleibt richtig (es kommt aus dem
+#: Spielzustand), nur das Pixel ist nicht lesbar: a5 auf 20-41-33 liegt bei 20 von 255 und stellt
+#: 38 von 58 Val-Fehlern. Am Bild gewaehlt (2026-09-09), ab 30-40 zeigen die Zellen wieder Details.
+#: Wirksam erst mit einem Slice, der `brightness` schreibt — ohne die Spalte gilt jede Zelle als
+#: hell, alte Packs rechnen also unveraendert weiter.
+CELL_DARK_MIN = 25.0
 
-def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """`(B, 2)` float target -> (class index, coverage). One tensor, so the loop stays `(x, y)`."""
-    return target[:, 0].long(), target[:, 1]
+
+def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """`(B, 2|3)` float target -> (class index, coverage, Helligkeit).
+
+    Zwei Spalten sind ein Datensatz ohne `brightness`: jede Zelle gilt dann als hell, damit alte
+    Packs Zahl fuer Zahl dasselbe ergeben.
+    """
+    bright = target[:, 2] if target.shape[1] > 2 else torch.full_like(target[:, 1], 255.0)
+    return target[:, 0].long(), target[:, 1], bright
 
 
 class OcclusionLoss(nn.Module):
@@ -28,17 +40,21 @@ class OcclusionLoss(nn.Module):
 
     def __init__(self, class_weights: torch.Tensor, occ_weight: float = 1.0,
                  visible_max: float = PIECE_VISIBLE_MAX,
-                 label_smoothing: float = 0.0) -> None:
+                 label_smoothing: float = 0.0, dark_min: float = CELL_DARK_MIN) -> None:
         super().__init__()
         self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction="none",
                                       label_smoothing=label_smoothing)
         self.bce = nn.BCEWithLogitsLoss()
         self.occ_weight = occ_weight
         self.visible_max = visible_max
+        self.dark_min = dark_min
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        y, cov = split_targets(target)
-        visible = cov <= self.visible_max
+        y, cov, bright = split_targets(target)
+        # Zwei Gruende, dieselbe Zelle aus dem KLASSENteil zu nehmen — verdeckt oder zu dunkel.
+        # Der Coverage-Kopf lernt weiter auf allen: Dunkelheit ist keine Verdeckung, und die
+        # Hand-Sperre der App haengt an dieser Zahl.
+        visible = (cov <= self.visible_max) & (bright >= self.dark_min)
         piece = self.ce(logits[:, :-1], y)
         piece = (piece * visible).sum() / visible.sum().clamp(min=1)
         return piece + self.occ_weight * self.bce(logits[:, -1], cov)
@@ -47,7 +63,7 @@ class OcclusionLoss(nn.Module):
 def coverage_metrics(logits: torch.Tensor, target: torch.Tensor,
                      threshold: float = 0.5) -> dict[str, float]:
     """How well the coverage output tracks the truth: mean error, plus recall/precision at a cut."""
-    _, cov = split_targets(target)
+    _, cov, _ = split_targets(target)
     pred = torch.sigmoid(logits[:, -1])
     hit, want = pred > threshold, cov > threshold
     tp = float((hit & want).sum())

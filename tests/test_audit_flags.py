@@ -274,3 +274,36 @@ def test_the_models_coverage_rides_along_as_a_second_opinion():
     bare = [f for f in session_flags(rows, {}, model="m", ts="t", classes=["wP", "bQ"])
             if f["square"] == "a1"]
     assert bare and "model_cov" not in bare[0]
+
+
+def test_include_judged_finds_the_wrong_hand_correction():
+    """Die blinde Stelle, die am 09.09. vier falsche Korrekturen im Test-Split versteckte: das
+    Urteil selbst nimmt die Zelle aus dem Lauf, also ist eine falsche Korrektur unfindbar."""
+    rows = [
+        _row("001", "a7", "empty", {"empty": 0.0, "bB": 1.0}),
+        _row("002", "b7", "bB", {"bB": 0.9}),
+    ]
+    judged = {("rg-g", "001", "a7"): "bP"}
+    assert session_flags(rows, judged, model=MODEL, ts="t") == []
+    flags = session_flags(rows, judged, model=MODEL, ts="t", include_judged=True)
+    assert [(f["frame"], f["predicted"]) for f in flags] == [("001", "bB")]
+    # Die Karte muss sagen, WAS der Mensch geschrieben hat — sonst zeigt die Lane die FEN und
+    # verschweigt den Widerspruch, um den es geht.
+    assert flags[0]["judged"] == "bP"
+    assert flags[0]["fen_label"] == "empty"
+
+
+def test_an_unjudged_flag_carries_no_judged_field():
+    flags = session_flags(_GOOD, {}, model=MODEL, ts="t", include_judged=True)
+    assert flags and "judged" not in flags[0]
+
+
+@pytest.mark.usefixtures("data_root")
+def test_skip_leaves_the_session_out_and_says_so():
+    """Ausblenden muss laut sein: eine stille Session waere von einer fehlenden nicht zu
+    unterscheiden, und die Lane zaehlte sie als 0 statt als ungemessen."""
+    _write_proposals("g", _GOOD)
+    r = mod.audit_flags(skip=("g",))
+    assert r["flags"] == 0
+    assert [s["session"] for s in r["skipped"]] == ["g"]
+    assert "--skip" in r["skipped"][0]["reason"]

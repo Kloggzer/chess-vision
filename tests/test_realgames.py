@@ -919,7 +919,9 @@ def test_a_reported_frame_lands_in_the_dirty_pile(tmp_path, monkeypatch):
         "moves": [{"ply": 1, "san": "e4", "frame": 100, "t": 3.33,
                    "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"}],
     }
-    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [0.0] * 64}
+    # Helle Zellen: `dark_indices` wuerfe ein Brett mit mehr als vier dunklen sonst ganz weg,
+    # und dieser Test fragt nach der Handmeldung, nicht nach dem Licht.
+    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [200.0] * 64}
             for i in range(100, 200, 3)]
     plain = realgames.plan_scanned(candidate, scan, margin_frames=30)
     reported = {103, 106, 109}
@@ -1005,7 +1007,9 @@ def test_a_report_does_not_overrule_a_measured_stale(tmp_path, monkeypatch):
         "moves": [{"ply": 1, "san": "e4", "frame": 100, "t": 3.33,
                    "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"}],
     }
-    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [0.0] * 64}
+    # Helle Zellen: `dark_indices` wuerfe ein Brett mit mehr als vier dunklen sonst ganz weg,
+    # und dieser Test fragt nach der Handmeldung, nicht nach dem Licht.
+    scan = [{"idx": i, "person": 0.0, "skin_patch": 0.0, "cells": [200.0] * 64}
             for i in range(100, 200, 3)]
     verdicts = {}
 

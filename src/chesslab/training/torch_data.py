@@ -533,8 +533,12 @@ def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
 
 
 def _target(y: int, row: dict) -> torch.Tensor:
-    """Class and coverage in ONE tensor, so the loader contract stays `(x, y)`."""
-    return torch.tensor([float(y), float(row.get("coverage", 0.0))])
+    """Klasse, Coverage und Helligkeit in EINEM Tensor, damit der Loader-Vertrag `(x, y)` bleibt.
+
+    Ohne `brightness` gilt die Zelle als hell (255) — alte Packs ergeben Zahl fuer Zahl dasselbe.
+    """
+    return torch.tensor([float(y), float(row.get("coverage", 0.0)),
+                         float(row.get("brightness", 255.0))])
 
 
 class SquareDataset(Dataset):
@@ -633,6 +637,7 @@ class PackedSquareDataset(Dataset):
         self._files, self.idx = _pack_index(rows, packed)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
+        self.bright = np.array([float(r.get("brightness", 255.0)) for r in rows], dtype=np.float32)
         self._empty = c2i.get("empty", -1)
         self._mm: list | None = None
         # Spender sind BESETZTE Zellen: ihre zentrierte Figur ist das, was in den leeren Crop
@@ -681,7 +686,8 @@ class PackedSquareDataset(Dataset):
             x = self.transform(Image.fromarray(arr))
         if not self.with_coverage:
             return x, int(self.labels[i])
-        return x, torch.tensor([float(self.labels[i]), float(self.cover[i])])
+        return x, torch.tensor([float(self.labels[i]), float(self.cover[i]),
+                                float(self.bright[i])])
 
 
 def board_collate(batch):
@@ -731,6 +737,8 @@ class PackedBoardDataset(Dataset):
         step = self.idx[:, :, 1] - self.idx[:, :1, 1]
         self._run = same & (step == np.arange(CELLS)).all(axis=1)
         self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
+        self.bright = np.array([float(r.get("brightness", 255.0)) for r in self.rows],
+                               dtype=np.float32).reshape(-1, CELLS)
         self.cover = np.array([float(r.get("coverage", 0.0)) for r in self.rows],
                               dtype=np.float32).reshape(-1, CELLS)
         self._mm: list | None = None
@@ -768,7 +776,8 @@ class PackedBoardDataset(Dataset):
                 crops.append(self.transform(Image.fromarray(arr)))
         x = torch.stack(crops)
         y = torch.stack([torch.tensor(self.labels[b], dtype=torch.float32),
-                         torch.tensor(self.cover[b], dtype=torch.float32)], dim=1)
+                         torch.tensor(self.cover[b], dtype=torch.float32),
+                         torch.tensor(self.bright[b], dtype=torch.float32)], dim=1)
         return x, y
 
 

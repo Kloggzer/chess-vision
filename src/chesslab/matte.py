@@ -734,10 +734,15 @@ def alpha_worker(
         session_dir,
     )
 
+    # Der AKTUELLE Stapel, nicht jede Zeile mit einem Brett: eine Matte zu einem Stem, den der
+    # Export inzwischen anders einstuft, verbraucht sonst `--limit`-Budget fuer Arbeit, die gar
+    # nicht mehr ansteht (2026-09-09, nach dem Re-Export der ungescannten Sessions).
     live = {
         Path(entry["board"]).stem
         for entry in rows
         if entry.get("board")
+        and entry.get("dirty")
+        and (reason == "all" or entry.get("dirty_reason") == reason)
     }
 
     existing_rows = (
