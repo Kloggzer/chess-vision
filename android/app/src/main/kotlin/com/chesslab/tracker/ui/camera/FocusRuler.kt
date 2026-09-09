@@ -2,6 +2,7 @@ package com.chesslab.tracker.ui.camera
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,19 +51,28 @@ fun FocusRuler(
     val latestOnValue by rememberUpdatedState(onValue)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = selected)
 
+    val dragging by listState.interactionSource.collectIsDraggedAsState()
+
     // A focus setting can also change through Auto/Manual or saved-state restore. Re-centre only
     // while idle, so an immediate camera update never fights the user's drag.
-    LaunchedEffect(selected, listState.isScrollInProgress) {
-        if (!listState.isScrollInProgress) listState.scrollToItem(selected)
+    LaunchedEffect(selected, listState.isScrollInProgress, dragging) {
+        if (!listState.isScrollInProgress && !dragging) listState.scrollToItem(selected)
     }
-    LaunchedEffect(listState, itemCount) {
+    LaunchedEffect(listState, itemCount, range, step) {
+        // Only a touch gesture and its fling may write back. Recentring after a sweep update
+        // is display-only: rounding 0.083333 to 0.083 used to cancel the sweep as a user edit.
+        var userScroll = false
         snapshotFlow {
             val info = listState.layoutInfo
             val centre = (info.viewportStartOffset + info.viewportEndOffset) / 2
-            info.visibleItemsInfo.minByOrNull { abs((it.offset + it.size / 2) - centre) }?.index
-        }.distinctUntilChanged().collect { index ->
-            index ?: return@collect
-            latestOnValue(snapDialValue(range.start + index * step, range, step))
+            val index = info.visibleItemsInfo.minByOrNull { abs((it.offset + it.size / 2) - centre) }?.index
+            Triple(index, listState.isScrollInProgress, dragging)
+        }.distinctUntilChanged().collect { (index, scrolling, dragged) ->
+            if (dragged) userScroll = true
+            if (userScroll && index != null) {
+                latestOnValue(snapDialValue(range.start + index * step, range, step))
+            }
+            if (!scrolling && !dragged) userScroll = false
         }
     }
 

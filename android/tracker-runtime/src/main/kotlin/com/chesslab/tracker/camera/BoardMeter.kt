@@ -69,6 +69,6 @@ private const val BYTE = 0xFF
 private const val CLIP_TAIL = 0.02f
 
 // ITU-R BT.601, dieselben Gewichte wie `Preprocess.LUMA` und `cv2.COLOR_BGR2GRAY`.
-private const val B_WEIGHT = 0.114
-private const val G_WEIGHT = 0.587
-private const val R_WEIGHT = 0.299
+internal const val B_WEIGHT = 0.114
+internal const val G_WEIGHT = 0.587
+internal const val R_WEIGHT = 0.299

@@ -175,4 +175,26 @@ interface CameraLookPort {
     val abilities: StateFlow<CameraAbilities?>
 
     fun setLook(next: CameraLook)
+
+    /** Whether capture metadata confirms the requested manual distance and a stationary lens. */
+    fun focusReady(): Boolean = true
+
+    /**
+     * Point the DEVICE autofocus at [region] and let it converge. False when it cannot be steered.
+     *
+     * A seed, not an answer: the HAL maximises its own contrast measure over its own region, which
+     * is neither our per-cell Laplace nor the rectified board. What it converges to still has to
+     * survive the same confirmation a swept peak does.
+     */
+    fun focusOn(region: FocusRegion): Boolean = false
+
+    /** The distance the device autofocus settled on, in the 0..1 scale, or null while it hunts. */
+    fun autoFocus(): Float? = null
 }
+
+/** Where the board sits in the frame, normalised — what the autofocus should look at. */
+data class FocusRegion(
+    val cx: Float,
+    val cy: Float,
+    val size: Float,
+)

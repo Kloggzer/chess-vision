@@ -3,6 +3,7 @@ package com.chesslab.tracker.ui.tracking
 import android.graphics.Bitmap
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.camera.FocusTuner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -45,6 +46,8 @@ class FakeTrackerSession : TrackerSession {
         calls += "setTorchOn:$on"
         torchOn.value = on
     }
+
+    override val focus = FocusTuner.NONE
 
     override fun undo() {
         calls += "undo"

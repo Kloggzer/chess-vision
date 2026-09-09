@@ -16,8 +16,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +36,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.tracker.camera.CameraAbilities
 import com.chesslab.tracker.camera.CameraLook
+import com.chesslab.tracker.camera.FocusState
+import com.chesslab.tracker.camera.FocusTuner
 import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
@@ -97,6 +102,7 @@ fun CameraRoute(onBack: () -> Unit) {
         torchOn = torchOn,
         hasTorch = bound.hasTorch,
         onTorch = bound::setTorchOn,
+        focus = bound.focus,
         viewModel = viewModel,
         onBack = onBack,
         host = host ?: return,
@@ -137,6 +143,7 @@ private fun CameraScreen(
     torchOn: Boolean,
     hasTorch: Boolean,
     onTorch: (Boolean) -> Unit,
+    focus: FocusTuner,
     viewModel: CameraViewModel,
     onBack: () -> Unit,
     host: CalibrationHost,
@@ -187,7 +194,7 @@ private fun CameraScreen(
         AnimatedVisibility(chrome, Modifier.align(Alignment.BottomCenter), enter = fadeIn(), exit = fadeOut()) {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                 BoardDeck(boardState)
-                LookDeck(look, abilities, saved, fill || focusPreview, open, { open = it }, torchOn, hasTorch, onTorch, viewModel)
+                LookDeck(look, abilities, saved, fill || focusPreview, open, { open = it }, torchOn, hasTorch, onTorch, focus, viewModel)
             }
         }
     }
@@ -205,6 +212,7 @@ private fun LookDeck(
     torchOn: Boolean,
     hasTorch: Boolean,
     onTorch: (Boolean) -> Unit,
+    focus: FocusTuner,
     viewModel: CameraViewModel,
 ) {
     CameraDeck(
@@ -217,6 +225,7 @@ private fun LookDeck(
         torchOn = torchOn,
         hasTorch = hasTorch,
         onTorch = onTorch,
+        focus = focus,
         onLook = viewModel::set,
     )
 }
@@ -277,6 +286,7 @@ private fun CameraDeck(
     torchOn: Boolean,
     hasTorch: Boolean,
     onTorch: (Boolean) -> Unit,
+    focus: FocusTuner,
     onLook: (CameraLook) -> Unit,
 ) {
     Column(
@@ -292,7 +302,7 @@ private fun CameraDeck(
             // device reports them, and none of them is rendered dead in the meantime.
             CameraNote("Waiting for the camera…")
         } else {
-            open?.let { AxisPanel(it, look, abilities, onLook) }
+            open?.let { AxisPanel(it, look, abilities, focus, onLook) }
             TileRow(look, abilities, open, onOpen, torchOn, hasTorch, onTorch)
         }
     }
@@ -340,6 +350,7 @@ private fun AxisPanel(
     axis: CameraAxis,
     look: CameraLook,
     abilities: CameraAbilities,
+    focus: FocusTuner,
     onLook: (CameraLook) -> Unit,
 ) {
     Column(
@@ -351,7 +362,7 @@ private fun AxisPanel(
         verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
         when (axis) {
-            CameraAxis.FOCUS -> FocusPanel(look, abilities, onLook)
+            CameraAxis.FOCUS -> FocusPanel(look, abilities, focus, onLook)
             CameraAxis.ZOOM -> ZoomPanel(look, abilities, onLook)
             CameraAxis.EXPOSURE -> ExposurePanel(look, abilities, onLook)
             CameraAxis.WHITE_BALANCE -> WhiteBalancePanel(look, abilities, onLook)
@@ -360,35 +371,108 @@ private fun AxisPanel(
 }
 
 /**
- * Auto or a fixed distance, and the distance itself.
+ * "Auto" oder eine feste Distanz, und die Distanz selbst.
  *
- * "Auto" is the device's own autofocus and it hunts — a refocus between the reference frame and the
- * current one changes every edge on the board at once, and since the padlock went (2026-08-30)
- * Manual is the only answer to that. The far end reads as a percentage rather than a diopter
- * figure, because a number in diopters is not something anyone aims by.
+ * **Auto ist seit 2026-09-09 nicht mehr die Automatik des Geraets.** Die lief mitten in der
+ * Aufnahme los und hat Bretter unbrauchbar gemacht; ein Schalter, der sie anbietet, ist eine Falle.
+ * Auto misst jetzt einmal und HAELT: Geraete-AF als Startpunkt, Gegenprobe, sonst voller Sweep.
+ * Die Prozentzahl statt Dioptrien, weil danach niemand zielt.
  */
 @Composable
 private fun FocusPanel(
     look: CameraLook,
     abilities: CameraAbilities,
+    focus: FocusTuner,
     onLook: (CameraLook) -> Unit,
 ) {
+    val state by focus.state.collectAsStateWithLifecycle()
+    // Wer den Fokus fuehrt, sagt der Zustand — nicht `look.focus`: nach dem Messen steht dort eine
+    // feste Distanz, und die Auswahl waere sonst auf "Manual" gesprungen.
+    val measured = state !is FocusState.Idle && state !is FocusState.Failed
     CameraChoice(
         options = listOf("Auto" to false, "Manual" to true),
-        selected = look.focus != null,
-        onSelect = { manual -> onLook(look.copy(focus = if (manual) DEFAULT_FOCUS else null)) },
+        selected = !measured && look.focus != null,
+        onSelect = { manual ->
+            if (manual) {
+                focus.cancel()
+                onLook(look.copy(focus = look.focus ?: DEFAULT_FOCUS))
+            } else {
+                focus.start()
+            }
+        },
     )
-    look.focus?.let { focus ->
+    look.focus?.let { distance ->
         FocusRuler(
             caption = "Near ← → Far",
             reading = CameraAxis.FOCUS.reading(look, abilities),
-            value = 1f - focus,
+            value = 1f - distance,
             range = 0f..1f,
             step = 0.001f,
             onValue = { onLook(look.copy(focus = 1f - it)) },
         )
     }
+    FocusSweepRow(focus, state)
+    FocusReadingRow(focus)
 }
+
+/**
+ * Was das Brett gerade an Schaerfe hergibt — die Zahl, an der ein Mensch den Regler ausrichten kann.
+ *
+ * Nur solange dieser Schirm offen ist: die Messung kostet einen 1024er Warp, und ohne Zuschauer
+ * misst sie niemand.
+ */
+@Composable
+private fun FocusReadingRow(tuner: FocusTuner) {
+    DisposableEffect(tuner) {
+        tuner.watch(true)
+        onDispose { tuner.watch(false) }
+    }
+    val sharp by tuner.sharpness.collectAsStateWithLifecycle()
+    Text(
+        sharp?.let { "Sharpness %.0f".format(it) } ?: "Sharpness —",
+        style = MaterialTheme.typography.bodySmall,
+        color = Chrome.onSurfaceMuted,
+    )
+}
+
+/**
+ * Was die Messung gerade tut, und der Abbruch dazu.
+ *
+ * Ausgeloest wird sie ueber "Auto" — auf Tastendruck und nie von selbst: die automatische
+ * Konvergenz flog 2026-08-02, weil sie sich auf ein Brett einstellte, das noch nicht stand.
+ */
+@Composable
+private fun FocusSweepRow(
+    tuner: FocusTuner,
+    state: FocusState,
+) {
+    val running = state is FocusState.Sweeping || state is FocusState.Seeking
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Space.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // "Auto" ist der schnelle Weg; dieser Knopf ist die Zweifelsfrage — jede Stufe messen.
+        FilledTonalButton(onClick = { if (running) tuner.cancel() else tuner.sweep() }) {
+            Text(if (running) "Stop" else "Sweep")
+        }
+        Text(
+            focusStatus(state),
+            style = MaterialTheme.typography.bodySmall,
+            color = Chrome.onSurfaceMuted,
+        )
+    }
+}
+
+private fun focusStatus(state: FocusState): String =
+    when (state) {
+        FocusState.Idle -> "Set the board up, then tap Auto."
+        FocusState.Seeking -> "Letting the camera focus on the board…"
+        is FocusState.Sweeping -> "Measuring ${state.done}/${state.total}…"
+        is FocusState.Locked -> "Held at the sharpest reading (%.0f)".format(state.sharpness)
+        is FocusState.Soft -> "Soft — %.0f%% of the reading it was set to".format(PERCENT * state.sharpness / state.reference)
+        FocusState.Failed -> "Could not confirm a sharp focus — previous focus restored."
+    }
 
 /** Zoom, from the device's own advertised range. It moves the board, so it says so. */
 @Composable
@@ -446,6 +530,8 @@ private fun WhiteBalancePanel(
 private const val PANEL_CORNER = 14
 
 private const val FOCUS_PREVIEW_ZOOM = 2.5f
+
+private const val PERCENT = 100f
 
 /** Manual focus opens at the far end: a board is metres away, not centimetres. */
 private const val DEFAULT_FOCUS = 0f

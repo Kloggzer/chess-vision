@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.camera.FocusTuner
 import com.chesslab.tracker.service.TrackerBinder
 import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.service.TrackerService
@@ -53,6 +54,8 @@ private class BinderSession(
 
     /** Also not an `EngineAction`: the lamp, the optics and the baseline are one act in the service. */
     override fun setTorchOn(on: Boolean) = binder.setTorchOn(on)
+
+    override val focus: FocusTuner get() = binder.focusTuner
 
     override fun undo() {
         binder.submit(EngineAction.Undo)

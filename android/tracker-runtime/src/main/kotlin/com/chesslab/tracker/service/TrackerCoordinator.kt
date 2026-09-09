@@ -17,6 +17,8 @@ import com.chesslab.geometry.improveQuad
 import com.chesslab.geometry.quadDriftCells
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.ExposureGovernor
+import com.chesslab.tracker.camera.FocusGovernor
+import com.chesslab.tracker.camera.FocusRegion
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoopTrackerLog
 import com.chesslab.tracker.log.TrackerLog
@@ -77,6 +79,13 @@ class TrackerCoordinator<T>(
      * Datei steht.
      */
     private val exposure: ExposureGovernor = ExposureGovernor.NONE,
+    /**
+     * Der Fokus-Sweep beim Aufsetzen und die Schaerfe-Aufsicht danach.
+     *
+     * Vorgabe [FocusGovernor.NONE] aus demselben Grund wie bei der Belichtung: ein Replay stellt
+     * keine Linse.
+     */
+    private val focus: FocusGovernor = FocusGovernor.NONE,
     /** Jede Notiz-/Stuck-Aenderung der Engine, eine Zeile: der Replay hat sonst nur Entscheidungszeilen. */
     private val onNote: (String) -> Unit = {},
 ) {
@@ -133,11 +142,17 @@ class TrackerCoordinator<T>(
         // `quiet`: dieser Frame hat die Engine NICHT beschaeftigt. Ein Ereignis heisst Commit,
         // Alarm oder Re-Anchor — alles Momente, in denen die Pixel-Referenz gerade entsteht.
         val quiet = events.isEmpty()
-        if (ready != null &&
-            exposure.onBoard(ready.input.seq, quiet) { ready.input.board?.invoke(METER_BOARD_PX) }
-        ) {
-            host.submit(EngineAction.CaptureBaseline)
-            noise.disarm()
+        if (ready != null) {
+            // Waehrend eines Sweeps stellt die Belichtung nicht: sie verschoebe den Kontrast unter
+            // der laufenden Messreihe, und der Gipfel ist ein Vergleich von Reihe zu Reihe.
+            val sweeping = focus.sweeping
+            val where = focusRegion(ready.input.corners, ready.input.bgrDet.width, ready.input.bgrDet.height)
+            val moved = focus.onBoard(ready.input.seq, quiet, where) { ready.input.board?.invoke(FOCUS_BOARD_PX) }
+            val lit = !sweeping && exposure.onBoard(ready.input.seq, quiet) { ready.input.board?.invoke(METER_BOARD_PX) }
+            if (moved || lit) {
+                host.submit(EngineAction.CaptureBaseline)
+                noise.disarm()
+            }
         }
         align.maybeAlign(bus, delivered)
         timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma(), noise.busy)
@@ -457,3 +472,34 @@ private const val DRIFT_REFIT_CELLS = 0.25
  * Mittelwert, und die Groesse, die die Stillstands-Engine ohnehin schon warpt.
  */
 private const val METER_BOARD_PX = 160
+
+/**
+ * Das Brett-Quad als normalisierte Region fuer den Geraete-Autofokus.
+ *
+ * Der HAL misst seinen Kontrast ueber diesen Kasten; das Brett fuellt ihn nicht ganz, aber alles
+ * darin ist Brett. `size` ist die groessere der beiden Kanten, damit die Region nie kleiner ist
+ * als das, worauf scharfgestellt werden soll.
+ */
+internal fun focusRegion(
+    corners: FloatArray,
+    width: Int,
+    height: Int,
+): FocusRegion? {
+    if (corners.size < 8 || width <= 0 || height <= 0) return null
+    val xs = (0 until 4).map { corners[it * 2] }
+    val ys = (0 until 4).map { corners[it * 2 + 1] }
+    val cx = (xs.min() + xs.max()) / 2f / width
+    val cy = (ys.min() + ys.max()) / 2f / height
+    val size = maxOf((xs.max() - xs.min()) / width, (ys.max() - ys.min()) / height)
+    if (!cx.isFinite() || !cy.isFinite() || !size.isFinite() || size <= 0f) return null
+    return FocusRegion(cx.coerceIn(0f, 1f), cy.coerceIn(0f, 1f), size.coerceIn(0f, 1f))
+}
+
+/**
+ * Woraus die Schaerfe gemessen wird: 1024 px sind 128 px je Feld.
+ *
+ * Nicht die 160 der Belichtung — ein Figurenrand ist wenige Pixel breit, und der Warp auf 160
+ * rechnet genau die Frequenzen weg, an denen Unschaerfe sichtbar waere. Bezahlt wird der Warp
+ * nur, wenn ueberhaupt gemessen wird (Sweep, sonst alle 30 Frames).
+ */
+private const val FOCUS_BOARD_PX = 1024

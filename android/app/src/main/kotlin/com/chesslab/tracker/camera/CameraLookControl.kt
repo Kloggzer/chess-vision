@@ -6,6 +6,9 @@ import android.util.Log
 import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
+import androidx.camera.core.FocusMeteringAction
+import androidx.camera.core.SurfaceOrientedMeteringPointFactory
+import com.chesslab.tracker.camera.FocusRegion
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +41,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class CameraLookControl(
     /** Re-issue the repeating capture request — [OpticsLock] owns it; this class owns the values. */
     private val reissue: () -> Unit,
+    private val focusReady: () -> Boolean = { true },
+    private val settledAutoFocus: () -> Float? = { null },
 ) : CameraLookPort {
     private val want = MutableStateFlow(CameraLook())
     private val offers = MutableStateFlow<CameraAbilities?>(null)
@@ -58,6 +63,38 @@ class CameraLookControl(
 
     fun detach() {
         camera = null
+    }
+
+    override fun focusReady(): Boolean = focusReady.invoke()
+
+    /**
+     * Den Geraete-Autofokus auf das Brett richten und laufen lassen.
+     *
+     * `disableAutoCancel`, weil CameraX die Messung sonst nach fuenf Sekunden zurueckdreht — der
+     * Startpunkt waere dann schon wieder fort, bevor die Gegenprobe ihn bestaetigt hat.
+     */
+    override fun focusOn(region: FocusRegion): Boolean {
+        val control = camera?.cameraControl ?: return false
+        val point = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(region.cx, region.cy, region.size)
+        val action =
+            FocusMeteringAction
+                .Builder(point, FocusMeteringAction.FLAG_AF)
+                .disableAutoCancel()
+                .build()
+        return runCatching {
+            control.startFocusAndMetering(action)
+            true
+        }.getOrElse {
+            Log.w(OpticsLock.TAG, "autofocus region rejected by the device", it)
+            false
+        }
+    }
+
+    /** Dioptrien zurueck auf die 0..1-Skala — dieselbe Abbildung wie [focusDiopters], invers. */
+    override fun autoFocus(): Float? {
+        val min = offers.value?.minFocusDiopters ?: return null
+        if (min <= 0f) return null
+        return settledAutoFocus()?.let { (it / min).coerceIn(0f, 1f) }
     }
 
     override fun setLook(next: CameraLook) {

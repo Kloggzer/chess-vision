@@ -53,6 +53,35 @@ class OpticsLock(
     @Volatile
     private var observedFocus: Float? = null
 
+    @Volatile
+    private var focusResult: TotalCaptureResult? = null
+
+    private fun focusReady(): Boolean {
+        val target = looks.focusDiopters() ?: return true
+        val result = focusResult ?: return false
+        // The HAL quantizes/clamps lens positions (this phone reports 0.0946 dpt for a 0-dpt
+        // request). Match the applied REQUEST and lens state, not exact physical diopters.
+        return result.get(CaptureResult.CONTROL_AF_MODE) == CameraMetadata.CONTROL_AF_MODE_OFF &&
+            result.request.get(CaptureRequest.LENS_FOCUS_DISTANCE) == target &&
+            result.get(CaptureResult.LENS_STATE) != CameraMetadata.LENS_STATE_MOVING
+    }
+
+    /**
+     * Die Distanz, auf die der GERAETE-Autofokus konvergiert ist, oder null solange er sucht.
+     *
+     * `NOT_FOCUSED_LOCKED` gilt als null: die Kamera sagt damit selbst, dass sie nichts gefunden
+     * hat, und ein Startpunkt aus einem gescheiterten Suchlauf ist schlechter als keiner.
+     */
+    private fun settledAutoFocus(): Float? {
+        val result = focusResult ?: return null
+        val state = result.get(CaptureResult.CONTROL_AF_STATE) ?: return null
+        val done =
+            state == CameraMetadata.CONTROL_AF_STATE_FOCUSED_LOCKED ||
+                state == CameraMetadata.CONTROL_AF_STATE_PASSIVE_FOCUSED
+        if (!done || result.get(CaptureResult.LENS_STATE) == CameraMetadata.LENS_STATE_MOVING) return null
+        return result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+    }
+
     /** Der zuletzt protokollierte Belichtungszustand — gegen eine Zeile je Bild. */
     private var lastTraced: ExposureSetting? = null
 
@@ -68,7 +97,7 @@ class OpticsLock(
      * Brightness and illuminant. Its own owner ([CameraLookControl]) — the steering and the request
      * are different acts; this class only carries the values into the request it owns.
      */
-    val looks = CameraLookControl(::applyOptions)
+    val looks = CameraLookControl(::applyOptions, ::focusReady, ::settledAutoFocus)
 
     /**
      * Static request options, applied for every frame of the session.
@@ -102,6 +131,7 @@ class OpticsLock(
                 request: CaptureRequest,
                 result: TotalCaptureResult,
             ) {
+                focusResult = result
                 result.get(CaptureResult.LENS_FOCUS_DISTANCE)?.let { observedFocus = it }
                 val time = result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                 val iso = result.get(CaptureResult.SENSOR_SENSITIVITY)
@@ -137,6 +167,7 @@ class OpticsLock(
      * who never touched it). See [CameraLook].
      */
     fun attach(camera: Camera) {
+        focusResult = null
         this.camera = camera
         looks.attach(camera)
         applyOptions()
@@ -144,6 +175,7 @@ class OpticsLock(
 
     fun detach() {
         camera = null
+        focusResult = null
         looks.detach()
     }
 

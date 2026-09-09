@@ -10,6 +10,7 @@ import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
 import com.chesslab.geometry.allSquares
 import com.chesslab.tracker.camera.ExposureGovernor
+import com.chesslab.tracker.camera.FocusGovernor
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
 import com.chesslab.tracker.log.NoTrackerLogs
@@ -115,6 +116,8 @@ class TrackerSeed<T>(
      * im Replay waere eine Eingabe, die in der Datei nicht steht.
      */
     val exposure: ExposureGovernor = ExposureGovernor.NONE,
+    /** Der Fokus-Sweep und die Schaerfe-Aufsicht — wie [exposure] nur am Geraet gesetzt. */
+    val focus: FocusGovernor = FocusGovernor.NONE,
     /** Offline two-pass source; absence keeps the phone and ordinary replay path unchanged. */
     val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
     /** Records emitted observations during the visual-cache build pass. */
@@ -319,6 +322,7 @@ class TrackerStack<T>(
             timings,
             seed.nowMs,
             seed.exposure,
+            seed.focus,
             seed.logs("chesslabNote")::info,
         )
 

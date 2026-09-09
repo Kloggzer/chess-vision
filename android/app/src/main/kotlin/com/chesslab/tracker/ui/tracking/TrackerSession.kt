@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.engine.api.TrackerStatus
+import com.chesslab.tracker.camera.FocusTuner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +61,14 @@ interface TrackerSession {
      * read as changed. See `TorchControl`.
      */
     fun setTorchOn(on: Boolean)
+
+    /**
+     * Der Fokus-Sweep, den der Kameraschirm ausloest.
+     *
+     * Ueber die Sitzung und nicht ueber `CameraLookHost`: der Sweep braucht den laufenden
+     * Analysestrom, den nur der Kamerabesitzer hat — genau wie die Lampe.
+     */
+    val focus: FocusTuner
 
     fun undo()
 
@@ -134,6 +143,9 @@ object NoTrackerSession : TrackerSession {
     override val hasTorch: Boolean = false
 
     override fun setTorchOn(on: Boolean) = Unit
+
+    /** Unbound: kein Strom, also nichts zu messen. */
+    override val focus: FocusTuner = FocusTuner.NONE
 
     override fun undo() = Unit
 

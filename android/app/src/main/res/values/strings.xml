@@ -86,4 +86,6 @@
     <string name="games_result_unfinished">Unfinished</string>
     <!-- Toast when the board-metered exposure lifts a dark scene; %1$s is the offset in EV. -->
     <string name="tracking_exposure_brightening">Dark board detected — brightening by %1$s EV</string>
+    <!-- Toast when the board is measured softer than the locked focus; %1$d is the share left. -->
+    <string name="tracking_focus_soft">Board looks soft — %1$d%% of the focus it was set to</string>
 </resources>

@@ -2,6 +2,7 @@ package com.chesslab.tracker.service
 
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.camera.CameraLookPort
+import com.chesslab.tracker.camera.FocusTuner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -42,6 +43,14 @@ interface OpticsControl {
      * A handle a screen holds across a sequence of its own, so it never holds the service to do so.
      */
     val cameraLook: CameraLookPort
+
+    /**
+     * Der Fokus-Sweep beim Aufsetzen — ausgeloest, nie von selbst.
+     *
+     * Hier und nicht in [cameraLook], weil er nicht eine Achse STELLT, sondern misst: er faehrt
+     * den Bereich ab und laesst dabei den Analysestrom laufen, den nur der Kamerabesitzer hat.
+     */
+    val focusTuner: FocusTuner
 }
 
 /**

@@ -20,9 +20,12 @@ import com.chesslab.geometry.CropClahe
 import com.chesslab.tracker.BuildConfig
 import com.chesslab.tracker.R
 import com.chesslab.tracker.camera.BoardExposureGovernor
+import com.chesslab.tracker.camera.BoardFocusGovernor
 import com.chesslab.tracker.camera.CameraLookPort
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.ExposureNotice
+import com.chesslab.tracker.camera.FocusNotice
+import com.chesslab.tracker.camera.FocusTuner
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
 import com.chesslab.tracker.cnn.Attached
@@ -168,6 +171,7 @@ class TrackerService :
                     // Schieber steht — die Regelung uebersteuert eine Einstellung des Nutzers
                     // nicht, sie fuehrt sie weiter.
                     exposure = BoardExposureGovernor(camera.look, onBrighten = ::announceBrightening),
+                    focus = focus,
                 ),
                 settings,
                 publisher,
@@ -185,7 +189,21 @@ class TrackerService :
 
     override val cameraOn: StateFlow<Boolean> = cameraRunning.asStateFlow()
 
-    override val cameraLook: CameraLookPort get() = camera.look
+    override val cameraLook: CameraLookPort get() = focus
+
+    override val focusTuner: FocusTuner get() = focus
+
+    /**
+     * Ein Feld hier und nicht im Stapel: ein Tracker-Neustart baut den Stapel neu, das gemessene
+     * Optimum und seine Aufsicht ueberleben ihn.
+     */
+    private val focus by lazy {
+        BoardFocusGovernor(
+            camera.look,
+            onSoft = ::announceSoftFocus,
+            onSample = { Log.i("chesslabFocus", "sample focus=${it.focus} sharpness=${it.sharpness}") },
+        )
+    }
 
     /** The lamp and the baseline as one act — see [TorchSwitch]. */
     private val torch by lazy {
@@ -648,7 +666,19 @@ class TrackerService :
      * Tracker liest, und wer am Brett sitzt soll nicht raten, warum es heller geworden ist.
      */
     private fun announceBrightening(notice: ExposureNotice) {
-        val text = getString(R.string.tracking_exposure_brightening, "%+.1f".format(notice.evAboveBase))
+        say(getString(R.string.tracking_exposure_brightening, "%+.1f".format(notice.evAboveBase)))
+    }
+
+    /**
+     * Ein weich gewordenes Bild ist die Fehlerquelle, die diese Aufnahmen unbrauchbar gemacht hat —
+     * still weiterlaufen heisst, es hinterher am Datensatz zu merken.
+     */
+    private fun announceSoftFocus(notice: FocusNotice) {
+        val share = (100.0 * notice.sharpness / notice.reference.coerceAtLeast(1f)).toInt()
+        say(getString(R.string.tracking_focus_soft, share))
+    }
+
+    private fun say(text: String) {
         lifecycleScope.launch(Dispatchers.Main) {
             Toast.makeText(this@TrackerService, text, Toast.LENGTH_LONG).show()
         }
