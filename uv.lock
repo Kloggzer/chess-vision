@@ -16,6 +16,9 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 
+[manifest]
+overrides = [{ name = "triton", marker = "sys_platform == 'linux'" }]
+
 [[package]]
 name = "addict"
 version = "2.4.0"
@@ -23,6 +26,21 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/85/ef/fd7649da8af11d93979831e8f1f8097e85e82d5bfeabc8c68b39175d8e75/addict-2.4.0.tar.gz", hash = "sha256:b3b2210e0e067a281f5646c8c5db92e99b7231ea8b0eb5f74dbdf9e259d4e494", size = 9186, upload-time = "2020-11-21T16:21:31.416Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6a/00/b08f23b7d7e1e14ce01419a467b583edbb93c6cdb8654e54a9cc579cd61f/addict-2.4.0-py3-none-any.whl", hash = "sha256:249bb56bbfd3cdc2a004ea0ff4c2b6ddc84d53bc2194761636eb314d5cfa5dfc", size = 3832, upload-time = "2020-11-21T16:21:29.588Z" },
+]
+
+[[package]]
+name = "amd-torch-device-gfx1100"
+version = "2.13.0+rocm10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
+dependencies = [
+    { name = "rocm-sdk-device-gfx1100", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "torch", version = "2.13.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+]
+wheels = [
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.13.0%2Brocm10.0.0-cp311-cp311-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.13.0%2Brocm10.0.0-cp312-cp312-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.13.0%2Brocm10.0.0-cp313-cp313-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/amd-torch-device-gfx1100/amd_torch_device_gfx1100-2.13.0%2Brocm10.0.0-cp314-cp314-win_amd64.whl" },
 ]
 
 [[package]]
@@ -253,6 +271,7 @@ name = "chesslab"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "amd-torch-device-gfx1100", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "onnxruntime" },
@@ -267,13 +286,15 @@ dependencies = [
     { name = "rocm", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "rocm-sdk-core", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "rocm-sdk-devel", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "rocm-sdk-libraries-custom", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm-sdk-device-gfx1100", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm-sdk-libraries", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "simplejpeg" },
     { name = "timm" },
-    { name = "torch", version = "2.9.1+rocm7.2.1", source = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "torchvision", version = "0.24.1+rocm7.2.1", source = { path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "torch", version = "2.13.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "torchvision", version = "0.28.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "transformers" },
     { name = "trimesh" },
+    { name = "triton-windows", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "typer" },
 ]
 
@@ -287,6 +308,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "amd-torch-device-gfx1100", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==2.13.0+rocm10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "onnxruntime", specifier = ">=1.27.0" },
     { name = "onnxscript", specifier = ">=0.7.1" },
@@ -297,16 +319,18 @@ requires-dist = [
     { name = "python-chess", specifier = ">=1.10" },
     { name = "pyturbojpeg", specifier = ">=2.4.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rocm", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/rocm-7.2.1.tar.gz" },
-    { name = "rocm-sdk-core", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl" },
-    { name = "rocm-sdk-devel", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl" },
-    { name = "rocm-sdk-libraries-custom", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl" },
+    { name = "rocm", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
+    { name = "rocm-sdk-core", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
+    { name = "rocm-sdk-devel", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
+    { name = "rocm-sdk-device-gfx1100", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
+    { name = "rocm-sdk-libraries", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
     { name = "simplejpeg", specifier = ">=1.9.0" },
     { name = "timm", specifier = ">=1.0.27" },
-    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" },
-    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" },
+    { name = "torch", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==2.13.0+rocm10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
+    { name = "torchvision", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = "==0.28.0+rocm10.0.0", index = "https://stable.repo.amd.com/rocm/whl-next/" },
     { name = "transformers", specifier = ">=4.57.0" },
     { name = "trimesh", specifier = ">=4.12.2" },
+    { name = "triton-windows", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'", specifier = ">=3.7,<3.8" },
     { name = "typer", specifier = ">=0.12" },
 ]
 
@@ -2454,49 +2478,59 @@ wheels = [
 
 [[package]]
 name = "rocm"
-version = "7.2.1"
-source = { path = "wheels/rocm-7.2.1.tar.gz" }
+version = "10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
 dependencies = [
     { name = "rocm-sdk-core", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
 ]
-sdist = { hash = "sha256:9084902eaa69213a00a90784ad89e6e5fe73c702df0cc6cc3a70d777c7a6142b" }
+sdist = { url = "https://stable.repo.amd.com/rocm/core/whl-next/rocm/rocm-10.0.0.tar.gz" }
 
 [package.optional-dependencies]
 libraries = [
-    { name = "rocm-sdk-libraries-custom", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm-sdk-libraries", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
 ]
 
-[package.metadata]
-requires-dist = [
-    { name = "rocm", specifier = "==7.2.1" },
-    { name = "rocm-sdk-core", specifier = "==7.2.1" },
-    { name = "rocm-sdk-devel", marker = "extra == 'devel'", specifier = "==7.2.1" },
-    { name = "rocm-sdk-libraries-custom", marker = "extra == 'libraries'", specifier = "==7.2.1" },
+[[package]]
+name = "rocm-bootstrap"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/81/0d/1cbbe79ac672ccd84d61bf45c0e6a7a093436586a0c94b1070c760d75968/rocm_bootstrap-0.2.0-py3-none-any.whl", hash = "sha256:3e23c2621597a133f4d5074461b1678367042a8b8a001ef8cc89dd8785ff9292", size = 27806, upload-time = "2026-08-26T19:11:03.218Z" },
 ]
-provides-extras = ["libraries", "devel"]
 
 [[package]]
 name = "rocm-sdk-core"
-version = "7.2.1"
-source = { path = "wheels/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl" }
+version = "10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
 wheels = [
-    { filename = "rocm_sdk_core-7.2.1-py3-none-win_amd64.whl", hash = "sha256:f68989d48df71cbfc3cb68bf705dc37c0f56e9666feddb59a1a0f5ff7539fe1c" },
+    { url = "https://stable.repo.amd.com/rocm/core/whl-next/rocm-sdk-core/rocm_sdk_core-10.0.0-py3-none-win_amd64.whl" },
 ]
 
 [[package]]
 name = "rocm-sdk-devel"
-version = "7.2.1"
-source = { path = "wheels/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl" }
+version = "10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
 wheels = [
-    { filename = "rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl", hash = "sha256:19e6ee67e13432b7c1e8a4077df795dcb1239546ae314700c4b4d97e5b4b8f63" },
+    { url = "https://stable.repo.amd.com/rocm/core/whl-next/rocm-sdk-devel/rocm_sdk_devel-10.0.0-py3-none-win_amd64.whl" },
 ]
 
 [[package]]
-name = "rocm-sdk-libraries-custom"
-version = "7.2.1"
-source = { path = "wheels/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl" }
+name = "rocm-sdk-device-gfx1100"
+version = "10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
+dependencies = [
+    { name = "rocm-sdk-libraries", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+]
 wheels = [
-    { filename = "rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl", hash = "sha256:c7fe0b0731af8896093ff69e11496830d3cb6a4aed73e895c60b7cbdc200be92" },
+    { url = "https://stable.repo.amd.com/rocm/core/whl-next/rocm-sdk-device-gfx1100/rocm_sdk_device_gfx1100-10.0.0-py3-none-win_amd64.whl" },
+]
+
+[[package]]
+name = "rocm-sdk-libraries"
+version = "10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
+wheels = [
+    { url = "https://stable.repo.amd.com/rocm/core/whl-next/rocm-sdk-libraries/rocm_sdk_libraries-10.0.0-py3-none-win_amd64.whl" },
 ]
 
 [[package]]
@@ -2999,10 +3033,10 @@ dependencies = [
     { name = "huggingface-hub" },
     { name = "pyyaml" },
     { name = "safetensors" },
-    { name = "torch", version = "2.9.1+rocm7.2.1", source = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "torch", version = "2.12.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or sys_platform != 'win32'" },
-    { name = "torchvision", version = "0.24.1+rocm7.2.1", source = { path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "torch", version = "2.13.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
     { name = "torchvision", version = "0.27.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version != '3.12.*' or sys_platform != 'win32'" },
+    { name = "torchvision", version = "0.28.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/08/54/ece85b0eef3700c90db8271a43669b05a0ebbe2edb1962329c34374a297e/timm-1.0.27.tar.gz", hash = "sha256:315dfe63186ca9fb7ff941268941231fd5be259f2b4bb4afa28560ae1015cb9a", size = 2439861, upload-time = "2026-05-08T19:38:36.844Z" }
 wheels = [
@@ -3034,43 +3068,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/65/71/0670843133a43d43070abeb1949abfdef12a86d490bea9cd9e18e37c5ff7/tokenizers-0.22.2-cp39-abi3-win_amd64.whl", hash = "sha256:c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48", size = 2747786, upload-time = "2026-01-05T10:45:18.411Z" },
     { url = "https://files.pythonhosted.org/packages/72/f4/0de46cfa12cdcbcd464cc59fde36912af405696f687e53a091fb432f694c/tokenizers-0.22.2-cp39-abi3-win_arm64.whl", hash = "sha256:9ce725d22864a1e965217204946f830c37876eee3b2ba6fc6255e8e903d5fcbc", size = 2612133, upload-time = "2026-01-05T10:45:17.232Z" },
 ]
-
-[[package]]
-name = "torch"
-version = "2.9.1+rocm7.2.1"
-source = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
-resolution-markers = [
-    "python_full_version == '3.12.*' and sys_platform == 'win32'",
-]
-dependencies = [
-    { name = "filelock", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "fsspec", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "jinja2", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "networkx", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "rocm", extra = ["libraries"], marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "setuptools", version = "82.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "sympy", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "typing-extensions", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-]
-wheels = [
-    { filename = "torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:e88bf270163b48f7f27f7ea3db5ffb3be4ba107301933022bcb3c6ddedfeeabb" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "filelock" },
-    { name = "fsspec", specifier = ">=0.8.5" },
-    { name = "jinja2" },
-    { name = "networkx", specifier = ">=2.5.1" },
-    { name = "opt-einsum", marker = "extra == 'opt-einsum'", specifier = ">=3.3" },
-    { name = "optree", marker = "extra == 'optree'", specifier = ">=0.13.0" },
-    { name = "pyyaml", marker = "extra == 'pyyaml'" },
-    { name = "rocm", extras = ["libraries"], specifier = "==7.2.1" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "sympy", specifier = ">=1.13.3" },
-    { name = "typing-extensions", specifier = ">=4.10.0" },
-]
-provides-extras = ["optree", "opt-einsum", "pyyaml"]
 
 [[package]]
 name = "torch"
@@ -3130,30 +3127,29 @@ wheels = [
 ]
 
 [[package]]
-name = "torchvision"
-version = "0.24.1+rocm7.2.1"
-source = { path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
+name = "torch"
+version = "2.13.0+rocm10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
 resolution-markers = [
     "python_full_version == '3.12.*' and sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "pillow", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
-    { name = "torch", version = "2.9.1+rocm7.2.1", source = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "filelock", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "fsspec", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "jinja2", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "networkx", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm", extra = ["libraries"], marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm-bootstrap", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "setuptools", version = "82.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "sympy", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "typing-extensions", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
 ]
 wheels = [
-    { filename = "torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl", hash = "sha256:b5c34d76a2f01fb97e1e0f224bd97fc3a58ec1ee1ef2376af2d72086e9aca34c" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torch/torch-2.13.0%2Brocm10.0.0-cp311-cp311-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torch/torch-2.13.0%2Brocm10.0.0-cp312-cp312-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torch/torch-2.13.0%2Brocm10.0.0-cp313-cp313-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torch/torch-2.13.0%2Brocm10.0.0-cp314-cp314-win_amd64.whl" },
 ]
-
-[package.metadata]
-requires-dist = [
-    { name = "gdown", marker = "extra == 'gdown'", specifier = ">=4.7.3" },
-    { name = "numpy" },
-    { name = "pillow", specifier = ">=5.3.0,!=8.3.*" },
-    { name = "scipy", marker = "extra == 'scipy'" },
-    { name = "torch" },
-]
-provides-extras = ["gdown", "scipy"]
 
 [[package]]
 name = "torchvision"
@@ -3199,6 +3195,26 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/73/01/6c8f3158994a9e5bb0c7b1bacc361d60e015ad79487af88fa4d7ce72c2b6/torchvision-0.27.1-cp314-cp314t-manylinux_2_28_aarch64.whl", hash = "sha256:8abb6d5cacd56486ca2240e5580750e53ac559412e472ea6a3cee83231a77ca7", size = 7791242, upload-time = "2026-06-17T21:09:02.062Z" },
     { url = "https://files.pythonhosted.org/packages/1b/e6/f66733fc411a9ce070c0d899c1ae562ff11654a0bc708511e23efe9d6872/torchvision-0.27.1-cp314-cp314t-manylinux_2_28_x86_64.whl", hash = "sha256:d11da1ce8a5cc7fc527f2d5e0fe25efba93687897fe9339382b593910b1d1c6e", size = 7664934, upload-time = "2026-06-17T21:09:06.221Z" },
     { url = "https://files.pythonhosted.org/packages/90/aa/d6179812ec52b70a7a8f5e99fe7937895d28c535106df1ca0d03f5f51425/torchvision-0.27.1-cp314-cp314t-win_amd64.whl", hash = "sha256:12deaee20d0d9dec6302025d3f93354266befeb692f5c50bca0137b395598b9e", size = 4284412, upload-time = "2026-06-17T21:09:08.989Z" },
+]
+
+[[package]]
+name = "torchvision"
+version = "0.28.0+rocm10.0.0"
+source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }
+resolution-markers = [
+    "python_full_version == '3.12.*' and sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "pillow", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "rocm-bootstrap", marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+    { name = "torch", version = "2.13.0+rocm10.0.0", source = { registry = "https://stable.repo.amd.com/rocm/whl-next/" }, marker = "python_full_version == '3.12.*' and sys_platform == 'win32'" },
+]
+wheels = [
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torchvision/torchvision-0.28.0%2Brocm10.0.0-cp311-cp311-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torchvision/torchvision-0.28.0%2Brocm10.0.0-cp312-cp312-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torchvision/torchvision-0.28.0%2Brocm10.0.0-cp313-cp313-win_amd64.whl" },
+    { url = "https://stable.repo.amd.com/rocm/pytorch/whl-next/torchvision/torchvision-0.28.0%2Brocm10.0.0-cp314-cp314-win_amd64.whl" },
 ]
 
 [[package]]
@@ -3271,6 +3287,17 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/a4/09/5683146fda6a2b569deb78ccfd8fbfea8bfe55f726b081c0a6bb18dd6f28/triton-3.7.1-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:2020153b08280415ec0da6607834e79166442147e78e144df06b508c75b186d2", size = 197729537, upload-time = "2026-06-17T19:53:35.516Z" },
     { url = "https://files.pythonhosted.org/packages/e9/f8/448220c3092019f9fdfab39ec47985968181d67da34b44f6a7f6280a5cbb/triton-3.7.1-cp314-cp314t-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c58e4c61f0c73b5dba3b5d19b4a7093c32f90dc18b2a7f121a7c16ccd31107b7", size = 184814760, upload-time = "2026-06-17T20:04:04.984Z" },
     { url = "https://files.pythonhosted.org/packages/f0/ac/229b7d4589d2e5937310e72c6d46e89599d16a4a12b479ffa1499fee8eb8/triton-3.7.1-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:10ba85fa2cca4a2fbdeb36bf1cb082f2c252bda55bf9fccd74f65ec5bc647e68", size = 197824404, upload-time = "2026-06-17T19:53:42.772Z" },
+]
+
+[[package]]
+name = "triton-windows"
+version = "3.7.1.post27"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/f5/0f5eaf48abc0c9900f600dbdfa8139e678aa7d47dc1da51b0541979e96df/triton_windows-3.7.1.post27-cp311-cp311-win_amd64.whl", hash = "sha256:b739bd7d39f919280294d8af172a90aa2f17a4377bfbca2ea30a8afae61d5eaa", size = 49679173, upload-time = "2026-06-21T16:48:02.395Z" },
+    { url = "https://files.pythonhosted.org/packages/76/30/325b420efd0047e119679c646a9a410db216069800ec009fae3da26c69a3/triton_windows-3.7.1.post27-cp312-cp312-win_amd64.whl", hash = "sha256:f5406230d7dbf6965bc4051fcad27b81c39ba4a4bfde06f494dd7ff4eb325a9e", size = 49683004, upload-time = "2026-06-21T16:48:14.02Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/28/f0b2801c2cfd79be5878bf429e82b5da00fb78f046a9c21ba946681cc467/triton_windows-3.7.1.post27-cp313-cp313-win_amd64.whl", hash = "sha256:e8ed215c02afc85a81f0097196f8bebdf6f68085f1bc0fe8771b9a74783f15ab", size = 49684257, upload-time = "2026-06-21T16:48:24.901Z" },
+    { url = "https://files.pythonhosted.org/packages/94/f7/725aedb131e35ce5f94e6117154a6aca8b9e30cc058e19ec330072fc8990/triton_windows-3.7.1.post27-cp314-cp314-win_amd64.whl", hash = "sha256:b4b581bc56ea75321c404f0ef9f08aff0369cd05c4e5811a57c86bfe4e532938", size = 50903815, upload-time = "2026-06-21T16:48:36.618Z" },
 ]
 
 [[package]]

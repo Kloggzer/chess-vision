@@ -23,15 +23,22 @@ dependencies = [
     "pillow>=10.0",
     "python-chess>=1.10",
     "pyyaml>=6.0",
-    # Windows-ROCm-Trainingsstack: auf lokale Wheels (wheels/) gepinnt, damit `uv sync`
-    # sie NICHT entfernt, sondern aus den Wheels neu installiert. Auf Linux/macOS per
-    # Marker ausgeschlossen (Rig nutzt seine eigene ROCm-Umgebung).
-    "torch==2.9.1+rocm7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
-    "torchvision==0.24.1+rocm7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
-    "rocm-sdk-core==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
-    "rocm-sdk-devel==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
-    "rocm-sdk-libraries-custom==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
-    "rocm==7.2.1 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    # Windows-ROCm-Trainingsstack, aus AMDs whl-next-Index statt aus lokalen Wheels. Auf
+    # Linux/macOS per Marker ausgeschlossen (Rig nutzt seine eigene ROCm-Umgebung).
+    # Das `device-gfx1100`-Extra ist NICHT optional: die Kernel liegen im neuen Paketformat
+    # getrennt, und ohne sie stirbt jeder Kernelstart mit `hipErrorInvalidImage`.
+    # Jedes Unterpaket EINZELN: `[tool.uv.sources]` gilt nur fuer direkte Abhaengigkeiten,
+    # transitive sucht uv auf PyPI und findet dort keine davon.
+    "torch==2.13.0+rocm10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "torchvision==0.28.0+rocm10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "amd-torch-device-gfx1100==2.13.0+rocm10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm==10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-core==10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-devel==10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-libraries==10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    "rocm-sdk-device-gfx1100==10.0.0 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
+    # Triton traegt `--compile-model` und `--compile-batch-aug`; ohne es sterben die Schalter.
+    "triton-windows>=3.7,<3.8 ; sys_platform == 'win32' and python_full_version >= '3.12' and python_full_version < '3.13'",
     "open3d>=0.19.0",
     "pymeshlab>=2025.7.post1",
     "trimesh>=4.12.2",
@@ -49,13 +56,30 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/Kloggzer/chess-vision"
 
+[tool.uv]
+# torchs Windows-Metadaten fordern `triton==3.8.0+git4cff872c.rocm10.0.0`, ein Paket, das es
+# fuer Windows nicht gibt — das installierte Wheel selbst fuehrt die Anforderung nicht. Auf
+# Windows liefert `triton-windows` das Modul unter demselben Importnamen.
+override-dependencies = ["triton ; sys_platform == 'linux'"]
+
+[[tool.uv.index]]
+name = "amd-rocm"
+url = "https://stable.repo.amd.com/rocm/whl-next/"
+explicit = true
+
 [tool.uv.sources]
-torch = { path = "wheels/torch-2.9.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
-torchvision = { path = "wheels/torchvision-0.24.1+rocm7.2.1-cp312-cp312-win_amd64.whl" }
-"rocm-sdk-core" = { path = "wheels/rocm_sdk_core-7.2.1-py3-none-win_amd64.whl" }
-"rocm-sdk-devel" = { path = "wheels/rocm_sdk_devel-7.2.1-py3-none-win_amd64.whl" }
-"rocm-sdk-libraries-custom" = { path = "wheels/rocm_sdk_libraries_custom-7.2.1-py3-none-win_amd64.whl" }
-rocm = { path = "wheels/rocm-7.2.1.tar.gz" }
+torch = { index = "amd-rocm" }
+torchvision = { index = "amd-rocm" }
+rocm = { index = "amd-rocm" }
+# Die Unterpakete brauchen eigene Eintraege: der Index ist `explicit`, greift also nur fuer
+# das, was namentlich auf ihn zeigt — sonst sucht uv sie auf PyPI und findet nichts.
+"rocm-bootstrap" = { index = "amd-rocm" }
+"rocm-sdk-core" = { index = "amd-rocm" }
+"rocm-sdk-devel" = { index = "amd-rocm" }
+"rocm-sdk-libraries" = { index = "amd-rocm" }
+"rocm-sdk-device-gfx1100" = { index = "amd-rocm" }
+"amd-torch-device-gfx1100" = { index = "amd-rocm" }
+"amd-torch-device-gfx110x" = { index = "amd-rocm" }
 
 [project.scripts]
 chesslab = "chesslab.cli:main"
