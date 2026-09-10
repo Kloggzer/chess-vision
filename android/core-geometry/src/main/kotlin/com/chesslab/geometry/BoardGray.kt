@@ -51,12 +51,14 @@ internal class BoardGray(
      * Median down the rows of `[y0, y1)` — one value per column, the profile vertical lines sit in.
      *
      * MEDIAN and not mean: a piece occupying part of the band contributes an outlier to every
-     * column it covers, and a mean carries it into the profile the notch is looked for in. Measured
-     * within 0.1 px of the mean on clean frames and worth a line or two on cluttered ones.
+     * column it covers, and a mean carries it into the profile the notch is looked for in.
+     * [needed] picks the positions; the rest stay zero and must not be read.
      */
+    @JvmOverloads
     fun columnMedians(
         y0: Int,
         y1: Int,
+        needed: BooleanArray? = null,
     ): DoubleArray {
         val lo = max(0, y0)
         val hi = min(height, y1)
@@ -64,6 +66,7 @@ internal class BoardGray(
         if (hi <= lo) return out
         val median = ByteMedian()
         for (x in 0 until width) {
+            if (needed != null && !needed[x]) continue
             val column = x * height
             for (y in lo until hi) median.add(transposed[column + y])
             out[x] = median.take(hi - lo)
@@ -72,9 +75,11 @@ internal class BoardGray(
     }
 
     /** Median across the columns of `[x0, x1)` — one value per row. See [columnMedians]. */
+    @JvmOverloads
     fun rowMedians(
         x0: Int,
         x1: Int,
+        needed: BooleanArray? = null,
     ): DoubleArray {
         val lo = max(0, x0)
         val hi = min(width, x1)
@@ -82,6 +87,7 @@ internal class BoardGray(
         if (hi <= lo) return out
         val median = ByteMedian()
         for (y in 0 until height) {
+            if (needed != null && !needed[y]) continue
             val row = y * width
             for (x in lo until hi) median.add(data[row + x])
             out[y] = median.take(hi - lo)

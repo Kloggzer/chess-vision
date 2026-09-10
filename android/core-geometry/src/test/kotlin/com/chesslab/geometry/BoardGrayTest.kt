@@ -1,14 +1,57 @@
 package com.chesslab.geometry
 
 import org.junit.jupiter.api.Assertions.assertArrayEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import kotlin.random.Random
 
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class BoardGrayTest {
+    @ParameterizedTest
+    @CsvSource("0,4,0", "0,4,7", "0,16,0", "0,16,7", "8.5,4,0", "8.5,4,7", "8.5,16,0", "8.5,16,7", "-4,4,0", "-4,4,7", "-4,16,0", "-4,16,7")
+    fun `selected medians preserve every groove verdict`(
+        pad: Double,
+        span: Int,
+        outer: Int,
+    ) {
+        val width = 173
+        val height = 149
+        val bytes = ByteArray(width * height).also(Random(73)::nextBytes)
+        val mat = Mat(height, width, CvType.CV_8UC1)
+        mat.put(0, 0, bytes)
+        try {
+            val gray = BoardGray(mat)
+            for (axis in 0..1) {
+                val size = if (axis == 0) width else height
+                val needed = profileSamples(size, 19.25, span, pad, outer)
+                val full = if (axis == 0) gray.columnMedians(3, 28) else gray.rowMedians(2, 30)
+                val sparse = if (axis == 0) gray.columnMedians(3, 28, needed) else gray.rowMedians(2, 30, needed)
+                poisonUnused(full, sparse, needed)
+                assertArrayEquals(
+                    profileLines(full, 19.25, span, 2, pad, outer),
+                    profileLines(sparse, 19.25, span, 2, pad, outer),
+                )
+            }
+        } finally {
+            mat.release()
+        }
+    }
+
+    private fun poisonUnused(
+        full: DoubleArray,
+        sparse: DoubleArray,
+        needed: BooleanArray,
+    ) {
+        for (i in full.indices) {
+            if (needed[i]) assertTrue(full[i] == sparse[i]) else sparse[i] = Double.NaN
+        }
+    }
+
     @Test
     fun `histogram band medians equal sorted reference for odd and even spans`() {
         val width = 37

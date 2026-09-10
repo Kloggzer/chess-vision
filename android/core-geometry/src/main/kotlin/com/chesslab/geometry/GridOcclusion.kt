@@ -72,6 +72,10 @@ private fun gridSegments(
     parallel: Boolean,
 ): Array<Array<BooleanArray>> {
     val bh = boardSize.toDouble() / BOARD_SIDE
+    // Shared immutable masks retain every sample read by profileLines, including clipped outer
+    // windows. The phone uses the sequential band path; both paths skip the same unused medians.
+    val outerSpan = if (readOuter) p.outerSpan else 0
+    val samples = arrayOf(g.width, g.height).map { profileSamples(it, p.cell, p.span, pad.toDouble(), outerSpan) }
     val found =
         Array(2) {
             Array(LINES_PER_AXIS) { k ->
@@ -89,7 +93,7 @@ private fun gridSegments(
         if (s1 <= s0) return@forEach
         val prof =
             WorkProfiler.span(WorkOperation.GRID_OCCLUSION_PROFILE) {
-                if (axis == 0) g.columnMedians(s0, s1) else g.rowMedians(s0, s1)
+                if (axis == 0) g.columnMedians(s0, s1, samples[axis]) else g.rowMedians(s0, s1, samples[axis])
             }
         val pos =
             WorkProfiler.span(WorkOperation.GRID_OCCLUSION_LINES) {

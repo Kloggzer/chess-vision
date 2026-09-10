@@ -152,13 +152,40 @@ internal fun profileLines(
     for (k in first..last) {
         val w = if (k == 0 || k == BOARD_SIDE) outerSpan else span
         val centre = pad + k * cell
-        val c = pyRound(centre)
-        val lo = max(0, c - w)
-        val hi = min(prof.size, c + w + 1)
+        val window = profileWindow(prof.size, centre, w)
+        val lo = window.first
+        val hi = window.last + 1
         val found = if (hi - lo >= MIN_WINDOW) notchCentre(prof.copyOfRange(lo, hi), csp) else null
         // Beyond the search window the estimate has locked onto the NEIGHBOURING groove, which
         // would report a small offset for a board that is off by a whole square.
         if (found != null && abs(lo + found[0] - centre) <= w) pos[k] = lo + found[0]
     }
     return pos
+}
+
+/** Only these profile samples can affect a groove verdict. Unused medians need not be computed. */
+internal fun profileSamples(
+    size: Int,
+    cell: Double,
+    span: Int,
+    pad: Double,
+    outerSpan: Int,
+): BooleanArray {
+    val needed = BooleanArray(size)
+    val first = if (outerSpan > 0) 0 else 1
+    val last = if (outerSpan > 0) BOARD_SIDE else BOARD_SIDE - 1
+    for (k in first..last) {
+        val radius = if (k == 0 || k == BOARD_SIDE) outerSpan else span
+        for (i in profileWindow(size, pad + k * cell, radius)) needed[i] = true
+    }
+    return needed
+}
+
+private fun profileWindow(
+    size: Int,
+    centre: Double,
+    radius: Int,
+): IntRange {
+    val c = pyRound(centre)
+    return max(0, c - radius) until min(size, c + radius + 1)
 }

@@ -3,6 +3,7 @@ package com.chesslab.tracker.benchmark
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.providers.NNAPIFlags
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -40,6 +41,7 @@ import org.opencv.objdetect.Objdetect
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.FloatBuffer
+import java.util.EnumSet
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
@@ -58,13 +60,17 @@ class AndroidOptimizationBenchmarkActivity : Activity() {
         val only = intent?.getStringExtra("only")
         val soak = intent?.getIntExtra("soak", 0) ?: 0
         val secs = intent?.getIntExtra("secs", SOAK_SECONDS) ?: SOAK_SECONDS
-        Thread({ runBenchmark(only, soak, secs) }, "chesslab-android-benchmark").start()
+        val rounds = intent?.getIntExtra("rounds", ARCH_ROUNDS) ?: ARCH_ROUNDS
+        val threads = intent?.getIntExtra("threads", CNN_BENCH_THREADS) ?: CNN_BENCH_THREADS
+        Thread({ runBenchmark(only, soak, secs, rounds, threads) }, "chesslab-android-benchmark").start()
     }
 
     private fun runBenchmark(
         only: String?,
         soak: Int,
         secs: Int,
+        rounds: Int,
+        threads: Int,
     ) {
         val runner = AndroidOptimizationBenchmark(this)
         Log.i(TAG, "START device=${android.os.Build.MODEL} battery=${runner.batteryLine()}")
@@ -72,6 +78,7 @@ class AndroidOptimizationBenchmarkActivity : Activity() {
             when {
                 soak > 0 -> runner.cnnSoak(soak, secs)
                 only == "cnnsize" -> runner.cnnInputSize()
+                only == "arch" -> runner.archBench(rounds, threads)
                 else -> runner.run()
             }
         }
@@ -134,6 +141,93 @@ private class AndroidOptimizationBenchmark(
                 sessions.values.forEach(OrtSession::close)
             }
         }
+    }
+
+    /**
+     * Was eine ARCHITEKTUR je Brett kostet, ohne Training: jedes `*.onnx` aus `cnn_bench/` gegen
+     * dieselbe Batch von 64 Zufalls-Crops. Zwei Durchgaenge, weil der zweite die Drift-Probe ist —
+     * liegt er neben dem ersten, hat das Telefon waehrend der Messung nicht gedrosselt.
+     */
+    fun archBench(
+        rounds: Int,
+        threads: Int,
+    ) {
+        val directory = archModelDir() ?: return
+        val models = directory.listFiles { file: File -> file.name.endsWith(".onnx") }?.sortedBy { it.name }.orEmpty()
+        if (models.isEmpty()) {
+            Log.i(TAG, "arch bench skipped — kein *.onnx in $directory")
+            return
+        }
+        val environment = OrtEnvironment.getEnvironment()
+        Log.i(TAG, "arch bench: ${models.size} Graphen, $ARCH_PASSES Durchgaenge, $rounds Runden, $threads Threads")
+        for (pass in 1..ARCH_PASSES) {
+            for (model in models) {
+                for (ep in if (model.name.endsWith(INT8_SUFFIX)) INT8_EPS else FP32_EPS) {
+                    archOne(environment, model, ep, rounds, pass, threads)
+                }
+            }
+        }
+    }
+
+    private fun archOne(
+        environment: OrtEnvironment,
+        model: File,
+        ep: String,
+        rounds: Int,
+        pass: Int,
+        threads: Int,
+    ) {
+        val label = "arch ${model.name.removeSuffix(".onnx")} $ep pass$pass"
+        val session =
+            try {
+                archSession(environment, model, ep, threads)
+            } catch (e: Exception) {
+                Log.i(TAG, "$label: Sitzung nicht erstellt — ${e.javaClass.simpleName}: ${e.message}")
+                return
+            }
+        val input = cnnInput(environment, archSize(model))
+        try {
+            val name = session.inputNames.first()
+            repeat(CNN_WARMUP) { session.run(mapOf(name to input)).close() }
+            val samples = List(rounds) { elapsedMs { session.run(mapOf(name to input)).close() } }
+            report("$label batch=$CNN_BATCH threads=$threads [${batteryLine()}]", samples)
+        } catch (e: Exception) {
+            Log.i(TAG, "$label: Lauf gescheitert — ${e.javaClass.simpleName}: ${e.message}")
+        } finally {
+            input.close()
+            session.close()
+        }
+    }
+
+    private fun archSession(
+        environment: OrtEnvironment,
+        model: File,
+        ep: String,
+        threads: Int,
+    ): OrtSession {
+        val options = OrtSession.SessionOptions()
+        options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+        options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
+        options.setIntraOpNumThreads(threads)
+        when (ep) {
+            "nnapi" -> options.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+            "cpu" -> Unit
+            else -> options.addXnnpack(mapOf("intra_op_num_threads" to threads.toString()))
+        }
+        return environment.createSession(model.absolutePath, options)
+    }
+
+    /** Die Kantenlaenge steht im Dateinamen (`<arch>-80.onnx`), nicht in einer zweiten Liste. */
+    private fun archSize(model: File): Int {
+        val match = ARCH_SIZE_PATTERN.find(model.name) ?: return CNN_SIZE
+        return match.groupValues[1].toInt()
+    }
+
+    private fun archModelDir(): File? {
+        val places = listOf(File(context.getExternalFilesDir(null), BENCH_MODELS), File(context.filesDir, BENCH_MODELS))
+        val directory = places.firstOrNull { it.isDirectory && it.listFiles().orEmpty().isNotEmpty() }
+        if (directory == null) Log.i(TAG, "arch bench skipped — push *.onnx to ${places.joinToString(" or ")}")
+        return directory
     }
 
     private fun sessionAt(
@@ -475,11 +569,12 @@ private class AndroidOptimizationBenchmark(
         raw: List<Double>,
     ) {
         val values = raw.sorted()
+        val safe = label.replace("%", "%%")
 
         fun pct(p: Double) = values[(p * (values.size - 1)).toInt()]
         Log.i(
             TAG,
-            "$label: median %.2f ms p10 %.2f p90 %.2f min %.2f max %.2f n=%d".format(
+            "$safe: median %.2f ms p10 %.2f p90 %.2f min %.2f max %.2f n=%d".format(
                 Locale.US,
                 pct(0.5),
                 pct(0.1),
@@ -729,6 +824,12 @@ private const val CNN_CHANNELS = 3
 private const val CNN_SIZE = 80
 private const val CNN_SIZE_LARGE = 128
 private const val CNN_BENCH_THREADS = 4
+private const val ARCH_PASSES = 2
+private const val ARCH_ROUNDS = 20
+private const val INT8_SUFFIX = ".int8.onnx"
+private val FP32_EPS = listOf("xnnpack")
+private val INT8_EPS = listOf("cpu", "nnapi")
+private val ARCH_SIZE_PATTERN = Regex("""-(\d+)(?:\.int8)?\.onnx$""")
 private const val CNN_WARMUP = 5
 private const val CNN_ROUNDS = 40
 private const val SOAK_SECONDS = 120
