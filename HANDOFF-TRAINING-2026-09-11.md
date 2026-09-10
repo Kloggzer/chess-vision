@@ -126,3 +126,36 @@ Docs: `docs/training-stack-spike.md` (Stack, Startaufwand, Auslastung),
 `docs/compiled-batch-aug.md` (RNG-Parität, Seed-Validierung, warum `best` raus ist),
 `docs/training-tuning.md` (Worker, Layout, Metriken),
 `docs/val-choice-2026-09-10.md`, `docs/arch-bench-2026-09-10.md`.
+
+## 9. Export und Quantisierung (Stand 2026-09-11)
+
+**Export ist stackunabhängig.** `chesslab export --format onnx` liefert auf altem und neuem Stack
+denselben Graphen — 216 Knoten, Opset 17, gleiche Op-Folge, Eingang `[64,3,80,80]` — und auf
+gleicher Eingabe **bitgleiche Ausgaben**. Die Dateien unterscheiden sich in einem Byte, dem
+`producer_version`-String. Exportiere trotzdem in eine **Kopie** des Laufs, nicht in den Lauf
+hinein, solange du vergleichst.
+
+**Quantisierung war kaputt und ist repariert** (`ebeb1d11`). `quant_pre_process` lief mit voller
+symbolischer Formableitung und starb an zwei `Reshape`-Knoten, deren Zielform zur Laufzeit aus
+`Shape`/`Slice`/`Concat` entsteht — einer davon in PyTorchs `nn.MultiheadAttention`, also nicht in
+unserem Code. `auto_merge` und `guess_output_rank` helfen beide nicht, nur
+`skip_symbolic_shape=True`, und das ist hier richtig: der Graph hat keine dynamischen Dimensionen,
+die Charge ist auf 64 genagelt.
+
+Ergebnis auf `p4a-v6-s42`: `model.qnn.onnx`, 0,5 MB, **argmax parity 1.000** auf 64
+Kalibrierungs-Crops, auf beiden Stacks.
+
+**Zwei offene Punkte, wenn du INT8 ausliefern willst:**
+
+- `Quantized bias 'onnx::Conv_488' exceeds the range of a int32. The bias scale is too small.` —
+  echte Genauigkeitsfrage an einer Faltung, ungemessen.
+- Per-Kanal-Quantisierung auf den rangeins-Gewichten der LayerNorms (`Axis 1 is out-of-range …
+  with rank 1`, vier Warnungen) — vermutlich folgenlos, ungeprüft.
+
+**Die INT8-Modelle der beiden Stacks sind NICHT identisch**, obwohl der Float-Export es ist.
+Plausibelster Grund: die Kalibrierungs-Vorverarbeitung laeuft ueber `torchvision` (0.24.1 gegen
+0.28.0), andere Skalen, anderes INT8. Wer ein quantisiertes Modell vom neuen Stack ausliefert,
+sollte das vorher gegen `scripts/score_onnx.py` messen.
+
+**Praktisch drängt nichts davon:** `android/app/src/main/assets/cnn_model/` bündelt acht
+Float-Modelle und kein einziges quantisiertes.
