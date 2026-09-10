@@ -4,25 +4,24 @@
 > Der Auftrag selbst steht in **`docs/arch-training-candidates.md`** — Kandidaten A–F, Reihenfolge,
 > was für alle Arme gleich sein muss. Dieses Dokument ergänzt, was seitdem dazugekommen ist.
 
-## 1. Womit trainiert wird — NICHT `.venv`
+## 1. Womit trainiert wird — `.venv`, seit der Migration
 
-Zwei Umgebungen, und die schnelle ist nicht die vorgegebene:
+`pyproject.toml` ist auf den neuen Stack migriert (`cf4cba1b`): **torch 2.13.0+rocm10.0.0**,
+torchvision 0.28.0, triton-windows 3.7.1, opencv 4.13 (unter 5 gedeckelt, siehe unten).
+`tmp/compile-spike/` wird nicht mehr gebraucht und kann weg.
 
-| | `.venv` (gepinnt) | `tmp/compile-spike/.venv` |
-|---|---|---|
-| torch | 2.9.1+rocm7.2.1 | **2.13.0+rocm10.0.0** |
-| Triton | nein | 3.7.1.post27 |
-| timm | ja | ja (2026-09-11 nachinstalliert) |
-| ONNX-Kette | ja | onnx/onnxruntime/onnxscript da, **ungeprüft** |
-| Epoche (gleiches Rezept) | ~30 s | **~11,5 s** |
+Geprüft vor der Migration: volle Suite 926 passed, Export bitgleich, `quantize` mit argmax parity
+1.000, `doctor --gpu` 14 pass / 3 warn / 0 fail.
 
-**Trainiere im Spike-Env.** Starte es immer über `scripts/spike_training_stack.ps1` oder setze
-dieselben Variablen: `CC` auf Tritons mitgeliefertes `tcc.exe` (sonst wählt Triton `clang`, dem
-die Windows-Header fehlen), `MIOPEN_*`, und **je Arm eigene** `TORCHINDUCTOR_CACHE_DIR` /
-`TRITON_CACHE_DIR`. Ein geteilter Compiler-Cache färbt die Zeitmessung des nächsten Arms.
+**Für die Compiler-Schalter brauchst du eine gesetzte `CC`** — Triton wählt sonst `clang`, dem die
+Windows-Header fehlen. Zeige sie auf das mitgelieferte
+`.venv/Lib/site-packages/triton/runtime/tcc/tcc.exe`. Und gib **je Arm eigene**
+`TORCHINDUCTOR_CACHE_DIR` / `TRITON_CACHE_DIR`: ein geteilter Compiler-Cache färbt die
+Zeitmessung des nächsten Arms.
 
-`pyproject.toml` ist NICHT migriert und soll es vorerst nicht sein: der Stack-A/B hat nur n = 1
-(Seed 42), und die Export-/Quantisierungs-/ONNX-Kette ist auf dem neuen Stack nie gelaufen.
+Offen geblieben: der Stack-A/B hat nur n = 1 (Seed 42, `train_loss` im Median 0,0021 auseinander).
+`scripts/stack_ab_runs.ps1` würde 43 und 44 nachholen — gegen die jetzt gepinnte Umgebung müsste
+das Skript allerdings erst auf zwei Umgebungen umgestellt werden.
 
 ## 2. Das Rezept
 
