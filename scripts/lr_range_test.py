@@ -40,11 +40,13 @@ def main() -> int:
     from chesslab import config
     from chesslab.dataset import subsample_classes
     from chesslab.dataset_build import dataset_dir
+    from chesslab.training.boardnet import CELLS
     from chesslab.training.data import filter_rows_by_split, load_manifest, load_split
     from chesslab.training.engine import get_device
     from chesslab.training.model import build_model
     from chesslab.training.pack import load_packed
     from chesslab.training.torch_data import (
+        PackedBoardDataset,
         PackedSquareDataset,
         SquareDataset,
         build_transform,
@@ -82,6 +84,12 @@ def main() -> int:
     classes = split["classes"]
     out_size = tuple(next(iter(manifest))["out_size"])
     ts = split.get("train_subsample") or {}
+    board_mode = args.backbone.startswith(("board:", "boardattn:"))
+    if board_mode and ts.get("max_empty_ratio"):
+        # Wie `train`: aus einem Brett laesst sich keine Zelle wegwerfen, sonst ist keines mehr
+        # vollstaendig und der Brett-Datensatz findet gar nichts.
+        print("[range] --max-empty-ratio wird ignoriert: der Brettkopf braucht alle 64 Zellen.")
+        ts = {**ts, "max_empty_ratio": None}
     train_rows = subsample_classes(filter_rows_by_split(manifest, split, "train"),
                                    max_empty_ratio=ts.get("max_empty_ratio"),
                                    max_class_ratio=ts.get("max_class_ratio"),
@@ -91,14 +99,19 @@ def main() -> int:
     tf = build_transform(out_size, train=True, policy=policy, per_crop=False, input_repr="rgb")
     packed = load_packed(args.dataset)
     if packed is not None:
-        ds = PackedSquareDataset(train_rows, classes, tf, packed)
-        print(f"[range] packed memmap loader: {len(train_rows)} crops")
+        ds = (PackedBoardDataset(train_rows, classes, tf, packed) if board_mode
+              else PackedSquareDataset(train_rows, classes, tf, packed))
+        kind = f"{len(ds)} Bretter" if board_mode else f"{len(train_rows)} crops"
+        print(f"[range] packed memmap loader: {kind}")
     elif any(str(row["path"]).startswith("mm://") for row in train_rows):
         raise RuntimeError("fused dataset has no valid packed memmap")
     else:
         ds = SquareDataset(train_rows, classes, tf, augment=True, policy=policy)
-    dl = DataLoader(ds, batch_size=args.batch_size, shuffle=True, drop_last=True,
-                    num_workers=args.num_workers, persistent_workers=args.num_workers > 0)
+    # Ein Brett-Batch ist 64-mal so gross wie ein Zell-Batch — sonst sprengt er den Speicher.
+    batch = max(1, args.batch_size // CELLS) if board_mode else args.batch_size
+    dl = DataLoader(ds, batch_size=batch, shuffle=True, drop_last=True,
+                    num_workers=args.num_workers, persistent_workers=args.num_workers > 0,
+                    collate_fn=getattr(ds, "collate_fn", None))
 
     device = get_device(require_gpu=True)
     model = build_model(args.backbone, len(classes), pretrained=False, norm=args.norm,
@@ -141,9 +154,16 @@ def main() -> int:
             for g in opt.param_groups:
                 g["lr"] = lr
             s = int(rng.choice(scales))
-            xb = torch.nn.functional.interpolate(x.to(device, non_blocking=True), size=(s, s),
-                                                 mode="bilinear", align_corners=False)
-            loss = crit(model(xb), y.to(device, non_blocking=True))
+            xb = x.to(device, non_blocking=True)
+            # `interpolate` kann kein 5-D: die 64 Zellen kurz flachlegen und wieder falten.
+            shape = xb.shape
+            flat = xb.flatten(0, 1) if board_mode else xb
+            flat = torch.nn.functional.interpolate(flat, size=(s, s), mode="bilinear",
+                                                   align_corners=False)
+            xb = flat.view(shape[0], CELLS, shape[2], s, s) if board_mode else flat
+            yb = y.to(device, non_blocking=True)
+            # Das Ziel traegt seit dem Occlusion-Kopf mehrere Spalten; hier zaehlt nur die Klasse.
+            loss = crit(model(xb), (yb[:, 0] if yb.dim() > 1 else yb).long())
             opt.zero_grad(set_to_none=True)
             loss.backward()
             opt.step()
