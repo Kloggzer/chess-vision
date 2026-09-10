@@ -680,9 +680,22 @@ def slice_session(
 # --- CLI layer (resolves defaults from config) ---------------------------------------------
 
 def _session_ids_with_logs() -> list[str]:
+    """Aktive Sessions mit Log — ein `archived_at` in der Meta zaehlt wie ein Umzug ins Archiv.
+
+    `all_sessions` scannt Verzeichnisse; eine stillgelegte Session, die nie verschoben wurde, kaeme
+    sonst weiter in den Crop-Pool (2026-09-09).
+    """
     from .sessions import all_sessions
 
-    return [sid for sid, _ in all_sessions()]
+    out = []
+    for sid, d in all_sessions():
+        try:
+            retired = bool(read_session_meta(d).get("archived_at"))
+        except (FileNotFoundError, OSError):
+            retired = False
+        if not retired:
+            out.append(sid)
+    return out
 
 
 def variant_paths(variant_tag: str | None) -> tuple[Path, Path]:

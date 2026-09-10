@@ -254,3 +254,19 @@ def test_session_try_returns_the_error_instead_of_exiting():
 
     r = _session_try(boom, "rg-x")
     assert "default" in r["error"]
+
+
+def test_a_stamped_session_is_not_sliced(tmp_path, monkeypatch):
+    """Der Crop-Pool zaehlt Sessions ueber einen Verzeichnis-Scan, nicht ueber `list_sessions`."""
+    from chesslab import labeling
+
+    paths = config.Paths(tmp_path)
+    _mk_session(paths, "live-one")
+    stamped = _mk_session(paths, "stamped")
+    meta = yaml.safe_load((stamped / "session.yaml").read_text(encoding="utf-8"))
+    meta["archived_at"] = "2026-08-30T12:51:10Z"
+    (stamped / "session.yaml").write_text(yaml.safe_dump(meta), encoding="utf-8")
+
+    original = S.all_sessions
+    monkeypatch.setattr(S, "all_sessions", lambda *a, **k: list(original(paths)))
+    assert labeling._session_ids_with_logs() == ["live-one"]
