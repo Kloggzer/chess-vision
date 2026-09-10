@@ -221,3 +221,37 @@ Was fuer eine Migration von `pyproject.toml` noch fehlt: die Seeds 43 und 44 auf
 (Paar 42 steht), und fuer den Batch-Aug-Kandidaten drei Seeds gegen denselben Val.
 `scripts/batchaug_seeds.ps1` misst das; Seed 42 steht (0,9521 @50, letzte zehn Epochen
 0,9388).
+
+## Export und Quantisierung auf dem neuen Stack (2026-09-11)
+
+`chesslab export --format onnx` laeuft dort und liefert **dasselbe Modell**. Gegen `p4a-v6-s42`,
+beide Exporte in Kopien statt in den Lauf hinein:
+
+| | alt (2.9.1) | neu (2.13.0) |
+|---|---|---|
+| Knoten | 216 | 216 |
+| Opset | 17 | 17 |
+| Op-Folge | \<gleich\> | \<gleich\> |
+| Eingang | `[64,3,80,80]` | `[64,3,80,80]` |
+| Ausgabe auf gleicher Eingabe | **bitgleich, max \|diff\| = 0,0** | |
+
+Die Dateien unterscheiden sich in **einem Byte**: dem `producer_version`-String. `doctor --gpu`
+bleibt gruen, weil die Pruefung auf `"+rocm" in torch.__version__` sieht und `torch.version.hip`
+gesetzt ist; `model.py`s `_BN_KERNEL_OK` verhaelt sich unveraendert.
+
+`chesslab quantize` **scheitert auf BEIDEN Staecken identisch** — `symbolic_shape_infer.py:1677
+_infer_Reshape`, `assert is_literal(shape_rank)`, bei gleichem `onnx 1.22.0` und verschiedenem
+`onnxruntime` (1.27.0 gegen 1.30.0). Das ist ein bestehender Defekt am dynamischen `Reshape` der
+Brett-Huelle (`evaluate.py:401`, `boardnet.py:97`), **kein Migrationsschaden**.
+
+### Was eine Migration noch braucht
+
+- Der gepinnte Marker in `pyproject.toml:24-29` trifft Python 3.12/win32 **auch im Spike-Env**:
+  ein `uv sync` gegen die unveraenderte Datei ersetzt torch 2.13 wieder durch die 2.9.1-Wheels.
+- Im Spike-Env fehlt `chesslab` selbst (kein dist-info) — alles laeuft ueber `PYTHONPATH=src`.
+- Ebenfalls nicht dort: `transformers`, `open3d`, `pymeshlab`, `trimesh`. Keines davon liegt auf
+  dem Export- oder Quantisierungspfad (`transformers` haengt an `matte.py`, SAM-3).
+- Der Stack-A/B hat weiter n = 1 (Seed 42), `scripts/stack_ab_runs.ps1` holt 43 und 44 nach.
+- `torch.onnx.export(..., dynamo=False)` in `evaluate.py:418` ist auf 2.13 der Legacy-Pfad und
+  warnt; er funktioniert und liefert das oben verglichene Ergebnis. `dynamic_axes` gilt nur dort
+  — produktiv ist es bewusst nicht gesetzt.
