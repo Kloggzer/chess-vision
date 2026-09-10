@@ -241,7 +241,11 @@ def run_quantize(run: str, limit: int = 128, activation_type: str = "quint16",
 
     prep = run_dir / "model.prep.onnx"
     out = run_dir / "model.qnn.onnx"
-    quant_pre_process(str(fp32), str(prep))
+    # `skip_symbolic_shape`: die symbolische Ableitung ist fuer Graphen mit dynamischen
+    # Dimensionen da, und unserer hat keine — der Exporter nagelt die Charge auf 64.
+    # Ohne den Schalter stirbt sie an `nn.MultiheadAttention`s eigenem Reshape, dessen
+    # Zielform aus `Shape`/`Concat` kommt (`_infer_Reshape`, `assert is_literal`).
+    quant_pre_process(str(fp32), str(prep), skip_symbolic_shape=True)
     try:
         qnn_config = get_qnn_qdq_config(
             str(prep), reader,
