@@ -14,7 +14,11 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.12",
-    "opencv-python>=4.8",
+    # Obergrenze, weil OpenCV 5 die Pixel verschiebt: gegen die Kotlin-Referenz gemessen
+    # (2026-09-11) mittlere Abweichung 0,05-0,21 Graustufen, Maximum 4 — genau der
+    # Vertrag, den `test_crop_pixel_parity` haelt. Ohne Deckel zieht ein frisches
+    # `uv sync` die 5er und bricht ihn still.
+    "opencv-python>=4.8,<5",
     "numpy>=1.24",
     "pillow>=10.0",
     "python-chess>=1.10",
