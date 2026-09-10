@@ -5,6 +5,8 @@ dasselbe Rezept, nicht bitgleich (`docs/batch-aug.md`)."""
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import torch
 import torch.nn.functional as F
 
@@ -12,14 +14,33 @@ import torch.nn.functional as F
 BLUR_P = 0.3
 #: Seitenverhaeltnis-Spanne von `torchvision.transforms.RandomErasing`.
 ERASE_RATIO = (0.3, 3.3)
+#: Ihr Logarithmus, EINMAL: im Rumpf gerechnet ist es ein CPU-Tensor mitten im Graphen, und ohne
+#: Host-Compiler kann Inductor den nicht erzeugen. Werte bleiben Bit fuer Bit dieselben.
+ERASE_LOG_RATIO = tuple(torch.tensor(ERASE_RATIO).log().tolist())
 #: Luminanz nach ITU-R BT.601, dieselbe Gewichtung, die `torchvision` fuer Kontrast und
 #: Saettigung nimmt.
 GREY = (0.299, 0.587, 0.114)
 
 
+@lru_cache(maxsize=32)
+def _grey_weights(device, dtype):
+    """Reuse immutable device constants instead of uploading them every batch."""
+    return torch.tensor(GREY, dtype=dtype, device=device).view(1, 3, 1, 1)
+
+
 def _grey(v: torch.Tensor) -> torch.Tensor:
-    w = torch.tensor(GREY, dtype=v.dtype, device=v.device).view(1, 3, 1, 1)
+    w = _grey_weights(v.device, v.dtype)
     return (v * w).sum(dim=1, keepdim=True)
+
+
+def _contrast(v: torch.Tensor, factor: torch.Tensor) -> torch.Tensor:
+    grey = _grey(v).mean(dim=(-2, -1), keepdim=True)
+    return (v - grey) * factor + grey
+
+
+def _saturation(v: torch.Tensor, factor: torch.Tensor) -> torch.Tensor:
+    grey = _grey(v)
+    return (v - grey) * factor + grey
 
 
 def _factors(n: int, lo: float, hi: float, device, dtype) -> torch.Tensor:
@@ -47,8 +68,7 @@ def _erase(v: torch.Tensor, p: float, scale: tuple[float, float]) -> torch.Tenso
     `build_transform` meint, wenn es das Erase VOR die Normalisierung haengt."""
     n, _, h, w = v.shape
     area = h * w * _factors(n, *scale, v.device, v.dtype).view(-1)
-    ratio = torch.exp(_factors(n, *(torch.tensor(ERASE_RATIO).log().tolist()),
-                               v.device, v.dtype)).view(-1)
+    ratio = torch.exp(_factors(n, *ERASE_LOG_RATIO, v.device, v.dtype)).view(-1)
     eh = (area * ratio).sqrt().round().clamp(1, h - 1)
     ew = (area / ratio).sqrt().round().clamp(1, w - 1)
     y0 = (torch.rand(n, device=v.device) * (h - eh)).floor()
@@ -148,6 +168,9 @@ class BatchPhotometric:
         self.sigma_max = float(policy.blur_sigma_max)
         self._mean = torch.tensor(mean).view(1, 3, 1, 1)
         self._std = torch.tensor(std).view(1, 3, 1, 1)
+        self._n_jitter = sum(bool(v) for v in (self.brightness, self.contrast, self.saturation))
+        self._compiled = None
+        self._device_norm = {}
 
     @property
     def active(self) -> bool:
@@ -156,7 +179,7 @@ class BatchPhotometric:
                     or self.noise_std or self.from_uint8
                     or (self.geometry is not None and self.geometry.active))
 
-    def _jitter(self, v: torch.Tensor) -> torch.Tensor:
+    def _jitter(self, v: torch.Tensor, order: list[int] | None = None) -> torch.Tensor:
         n, device, dtype = v.shape[0], v.device, v.dtype
         ops = []
         if self.brightness:
@@ -164,31 +187,62 @@ class BatchPhotometric:
             ops.append(lambda x, f=f: x * f)
         if self.contrast:
             f = _factors(n, max(0.0, 1 - self.contrast), 1 + self.contrast, device, dtype)
-            ops.append(lambda x, f=f: (x - _grey(x).mean(dim=(-2, -1), keepdim=True)) * f
-                       + _grey(x).mean(dim=(-2, -1), keepdim=True))
+            ops.append(lambda x, f=f: _contrast(x, f))
         if self.saturation:
             f = _factors(n, max(0.0, 1 - self.saturation), 1 + self.saturation, device, dtype)
-            ops.append(lambda x, f=f: (x - _grey(x)) * f + _grey(x))
+            ops.append(lambda x, f=f: _saturation(x, f))
         # `torchvision.ColorJitter` wuerfelt die Reihenfolge der drei; je Batch statt je Bild ist
         # der einzige Unterschied, und er kostet nichts.
-        for i in torch.randperm(len(ops)).tolist():
+        for i in (self._order(len(ops)) if order is None else order):
             v = ops[i](v).clamp_(0.0, 1.0)
         return v
+
+    @staticmethod
+    def _order(n: int) -> list[int]:
+        """Die Reihenfolge der Jitter-Operationen — gezogen VOR dem Graphen, weil ein Index aus
+        einem Tensor `ops[i]` datenabhaengig macht und `fullgraph` daran bricht."""
+        return torch.randperm(n).tolist()
+
+    def compile(self, *, preserve_rng: bool = True) -> None:
+        """Experimental fusion: retain eager RNG draws, but arithmetic may round differently.
+
+        Static shapes avoid a host C++ compiler on Windows. Four board batch sizes and six
+        jitter orders require more than Dynamo's default eight specializations.
+        """
+        compiled = torch.compile(self._device, fullgraph=True, dynamic=False,
+                                 options={'fallback_random': preserve_rng})
+        # Scope the limit to this invocation; do not change the model compiler's settings.
+        self._compiled = torch._dynamo.config.patch(recompile_limit=32)(compiled)
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
         if not self.active:
             return x
+        # The CPU generator draws this, the augmentation's own factors come from the device one,
+        # so hoisting it out of the graph leaves both sequences untouched.
+        # CPU factors share the permutation's RNG: preserve their original draw order there.
+        order = self._order(self._n_jitter) if x.device.type != "cpu" else None
+        if self._compiled is not None:
+            # Compile over crops: even a one-board final batch then has a dynamic size >= 64.
+            # Otherwise Dynamo specializes the board dimension at 1 and duplicates every order.
+            flat = x.flatten(0, 1) if x.dim() == 5 else x
+            return self._compiled(flat, order).view_as(x)
+        return self._device(x, order)
+
+    def _device(self, x: torch.Tensor, order: list[int] | None) -> torch.Tensor:
         shape = x.shape
         # Der Brettkopf liefert `(B, 64, C, H, W)`; gewuerfelt wird je CROP, wie im Loader.
         v = x.flatten(0, 1) if x.dim() == 5 else x
         # ERST nach float wandeln: mean/std im uint8-dtype des Eingangs zu bilden macht std zu 0.
         if self.from_uint8:
             v = v.float().div_(255.0)
-        mean = self._mean.to(v.device, v.dtype)
-        std = self._std.to(v.device, v.dtype)
+        key = (v.device, v.dtype)
+        if key not in self._device_norm:
+            self._device_norm[key] = (self._mean.to(v.device, v.dtype),
+                                      self._std.to(v.device, v.dtype))
+        mean, std = self._device_norm[key]
         if not self.from_uint8:
             v = (v * std + mean).clamp_(0.0, 1.0)
-        v = self._jitter(v)
+        v = self._jitter(v, order)
         if self.gamma != (1.0, 1.0):
             g = _factors(v.shape[0], self.gamma[0], self.gamma[1], v.device, v.dtype)
             v = v.clamp_min(1e-6).pow(g)

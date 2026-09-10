@@ -62,7 +62,8 @@ def _geometry_of(policy, photometric) -> dict:
 STATE_FILE = "state.pt"
 #: Ein Zustand gehoert zu SEINEM Rezept. Weicht eines dieser Felder ab, ist es ein anderer Lauf.
 STATE_KEYS = ("backbone", "epochs", "batch_size", "lr", "sched", "seed", "dataset", "split_file",
-              "head", "norm", "out_size", "batch_aug", "epoch_frac", "balance")
+              "head", "norm", "out_size", "batch_aug", "epoch_frac", "balance",
+              "checkpoint_policy")
 
 
 def _save_state(path, epoch, model, optimizer, scheduler, scaler, sampler, swa_model, swa_sched,
@@ -149,6 +150,70 @@ def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> Non
         f"'{dataset}' hat keine nutzbare Memmap ({n_rows} Crops) - das Training bricht ab "
         f"statt still auf den Datei-Loader zu fallen. Grund steht in der WARNING darueber. "
         f"Repack: chesslab dataset pack {dataset} - absichtlich ohne Pack: --allow-unpacked.")
+
+
+def _checkpoint_rank(breakdown, auroc):
+    """Rank actual weights by visible identity, then occupancy and error confidence."""
+    return (breakdown["visible_piece_acc"], breakdown["visible_occupied_acc"],
+            auroc if auroc is not None else 0.0)
+
+
+def _compact_metrics(rec):
+    """Remove unmasked or redundant metrics from an occlusion epoch record."""
+    redundant = {"val_acc", "val_macro_recall", "val_board_acc", "val_board_acc_tol1",
+                 "val_occupied_acc", "val_occupied_board_acc", "val_piece_acc",
+                 "val_visible_acc", "val_visible_n", "val_visible_occupied_n",
+                 "val_checkpoint_score", "val_conf_right"}
+    return {k: v for k, v in rec.items() if k not in redundant}
+
+
+def _channels_last_batch(x):
+    """Change storage order, preserving the board/cell axes and every input value."""
+    import torch
+
+    if x.dim() == 5:
+        return x.flatten(0, 1).contiguous(memory_format=torch.channels_last).view_as(x)
+    return x.contiguous(memory_format=torch.channels_last)
+
+
+def _device_batches(loader, device, *, channels_last=False):
+    """Yield batches with the next host-to-device copy overlapped with model work.
+
+    The copy stream changes scheduling only: tensor values, random draws and batch order are
+    unchanged.  This matters for the small cell models, where a synchronous ``.to(device)``
+    between batches leaves the accelerator waiting on the pinned-memory thread.
+    """
+    if device.type != "cuda":
+        for x, y in loader:
+            yield (_channels_last_batch(x) if channels_last else x), y
+        return
+    import torch
+    iterator = iter(loader)
+    stream = torch.cuda.Stream(device=device)
+    pending = None
+
+    def preload():
+        nonlocal pending
+        try:
+            cpu_x, cpu_y = next(iterator)
+        except StopIteration:
+            pending = None
+            return
+        with torch.cuda.stream(stream):
+            x = cpu_x.to(device, non_blocking=True)
+            if channels_last:
+                x = _channels_last_batch(x)
+            pending = (x, cpu_y.to(device, non_blocking=True))
+
+    preload()
+    current = torch.cuda.current_stream(device)
+    while pending is not None:
+        current.wait_stream(stream)
+        x, y = pending
+        x.record_stream(current)
+        y.record_stream(current)
+        preload()
+        yield x, y
 
 
 def _conf_mean(vis_conf, wrong: bool) -> float | None:
@@ -305,6 +370,7 @@ def _release_train_lock() -> None:
 def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
+              eval_workers: int = 2, prefetch_factor: int = 2,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               continue_run: bool = False, dark_min: float | None = None,
@@ -342,6 +408,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               epoch_frac: float = 1.0,
               rot90: bool | None = None,
               batch_aug: bool = False,
+              channels_last: bool = False,
+              compile_model: bool = False,
+              compile_mode: str | None = None,
+              compile_batch_aug: bool = False,
+              fused_adamw: bool = False,
               aug_scale: float | None = None,
               pretrained: bool | None = None,
               no_empty_cap: bool = False,
@@ -359,6 +430,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
     # is torch-free safe and runs BEFORE any torch import, so a missing/broken
     # build is reported clearly here instead of as an ImportError stacktrace.
+    if compile_batch_aug and not batch_aug:
+        raise ValueError('--compile-batch-aug requires --batch-aug')
+    if compile_mode and not compile_model:
+        raise ValueError('--compile-mode requires --compile-model')
     ok, checks = doctor.validate_gpu()
     if not ok:
         print(doctor.render(checks))
@@ -626,6 +701,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             return 1
         photometric = BatchPhotometric(policy, config.NORMALIZE_MEAN, config.NORMALIZE_STD,
                                        from_uint8=True, geometry=BatchGeometry(policy))
+        if compile_batch_aug:
+            photometric.compile()
+            print('[batch-aug] compiled arithmetic; eager random draws preserved')
         policy = _replace(policy, brightness=0.0, contrast=0.0, color_jitter=0.0,
                           gamma=(1.0, 1.0), blur_sigma_max=0.1, erase_p=0.0, noise_std=0.0,
                           jitter_translate=0.0, jitter_scale=0.0, hflip_p=0.0, vflip_p=0.0,
@@ -685,6 +763,19 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     model = build_model(backbone, len(classes) + occluding, pretrained=want_pre,
                         norm=norm_eff, head="combined", in_chans=in_chans,
                         board_width=board_width, board_layers=board_layers).to(device)
+    if channels_last:
+        model.to(memory_format=torch.channels_last)
+        print("[layout] channels_last model weights and input batches")
+    if compile_model:
+        # Fuses PrimitiveBatchNorm2d's hand-derived arithmetic back into single kernels, which is
+        # where ROCm-Windows loses its throughput. Needs Triton — the pinned stack has none and
+        # fails loudly here rather than falling back (docs/training-stack-spike.md).
+        # `reduce-overhead` replays the whole step as ONE launch instead of 463 dispatches, which
+        # is what the remaining fixed cost per step is made of. It captures CUDA graphs, so the
+        # returned tensors are reused on the next replay — read the loss before stepping again.
+        model.forward = torch.compile(model.forward, fullgraph=True,
+                                      **({"mode": compile_mode} if compile_mode else {}))
+        print(f"[layout] torch.compile on the model forward, mode={compile_mode or 'default'}")
     print(f"[OK] Backbone {backbone}, norm={norm_eff}, head={head}, "
           f"input_repr={input_repr} ({in_chans}ch)")
 
@@ -786,7 +877,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # lief jeder Lauf auf PyTorchs Default 0,01 — bei train_loss 0,03 gegen val_loss 1,33
     # (`docs/measurement-floor.md`) ist das der erste Knopf, nicht der letzte.
     wd = 0.01 if weight_decay is None else weight_decay
-    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd)
+    # `fused` also takes the GradScaler off its per-step `found_inf.item()`, and THAT is the
+    # expensive half: without it every step drains the queue before the next can be filled
+    # (20,8 -> 11,9 ms on the spike stack, model arithmetic bit-identical).
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=wd,
+                                  **({"fused": True} if fused_adamw else {}))
     if weight_decay is not None or label_smoothing:
         print(f"[reg] weight_decay={wd} label_smoothing={label_smoothing}")
     # Cosine annealing without restarts; the schedule comes from SGDR
@@ -823,7 +918,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if num_workers is None and photometric is not None:
         print(f"[batch-aug] {nw} Loader-Worker statt {config.DEFAULT_NUM_WORKERS} "
               "— der Feed liegt unter dem GPU-Budget (--num-workers ueberschreibt das)")
-    loader_kw = {"batch_size": batch_size, **config.loader_kwargs(nw)}
+    if nw < 0 or eval_workers < 0 or prefetch_factor < 1:
+        raise ValueError("workers must be non-negative and prefetch_factor must be positive")
+    loader_kw = {"batch_size": batch_size,
+                 **config.loader_kwargs(nw, prefetch_factor=prefetch_factor)}
     eval_batch = batch_size
     if board_mode:
         # `--batch-size` zaehlt jetzt BRETTER, also 64x so viele Crops. 4 Bretter = 256 Crops.
@@ -951,6 +1049,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[crop] pad_side={crop[0]:g} pad_up={crop[1]:g} — declared by this run")
 
     run_dir = Path(out) if out else config.DATA.models / f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    if (run_dir / "metrics.jsonl").exists() and not continue_run:
+        raise ValueError(f"{run_dir} already contains metrics; choose a new --out or use --continue.")
     run_dir.mkdir(parents=True, exist_ok=True)
     cfg_written = {
         "backbone": backbone, "epochs": epochs, "batch_size": batch_size, "lr": lr,
@@ -959,6 +1059,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # with identical `lr` and different `epochs` never saw the same rate at the same step.
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
         "batch_aug": batch_aug,
+        "channels_last": channels_last,
+        "compile_model": compile_model, "compile_mode": compile_mode, "fused_adamw": fused_adamw,
+        "compile_batch_aug": compile_batch_aug,
+        "num_workers": nw, "eval_workers": eval_workers, "prefetch_factor": prefetch_factor,
+        "checkpoint_policy": "visible-piece-v2",
+        "metrics_schema": 2,
         # Was der LAUF gewuerfelt hat, nicht was im Loader stand: mit `--batch-aug` stehen die
         # Staerken dort auf 0, gerechnet werden sie trotzdem — und `config.json` ist das, was
         # Serving und jede spaetere Auswertung lesen.
@@ -1004,19 +1110,12 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
     }
-    (run_dir / "config.json").write_text(json.dumps(cfg_written, indent=2), encoding="utf-8")
     metrics_path = run_dir / "metrics.jsonl"
 
-        # Checkpoint und Early Stopping am GEWICHTETEN Score (`data.CHECKPOINT_WEIGHTS`), nicht
-    # mehr am Brett-Mass allein: das schwankt um 19,4 % und liess `patience` gegen einen
-    # fruehen Ausreisser zaehlen. Brett-Mass und macro_recall bleiben als Stichentscheid.
-    best_score = (-1.0, -1.0, -1.0)   # (gewichteter Score, occupied_board_acc, macro_recall)
-    best_piece = (-1.0, -1)           # (val_piece_acc, Epoche) — eigener Checkpoint
-    # Die Validierung schwankt hier um den Faktor 1,2-1,3 je Epoche, bei 57 000 Crops also
-    # nicht als Stichprobenrauschen erklaerbar. Ein Einzelwert waehlt darum den gluecklichsten
-    # Ausreisser und laesst `patience` gegen ihn zaehlen. Entschieden wird ueber das Mittel
-    # der letzten drei Epochen; gespeichert wird trotzdem der aktuelle Stand.
-    recent: deque = deque(maxlen=3)
+    # Compare actual epoch checkpoints, with visible identity accuracy first.
+    best_score = (-1.0, -1.0, -1.0)
+    best_piece = (-1.0, -1)
+    recent: deque = deque(maxlen=3)  # Retained in resume state for diagnostics.
     # SWA mittelt die Gewichte ueber die Epochen statt eine einzelne auszuwaehlen. Es findet
     # flache Minima, und die trennen die Konfidenz richtiger von falschen Vorhersagen besser
     # (FMFP, ECCV 2022 — `docs/references.md`). Nebeneffekt: das Springen der Validierung
@@ -1059,16 +1158,20 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[OK] fortgesetzt bei Epoche {start_epoch}/{epochs} "
               f"(lr {scheduler.get_last_lr()[0]:.5f}, bester Score {best_score[0]:.4f})")
     elif continue_run:
+        if metrics_path.exists():
+            raise ValueError(f"{run_dir} has metrics but no {STATE_FILE}; choose a new --out.")
         print(f"[continue] kein {STATE_FILE} in {run_dir} — Lauf beginnt bei Epoche 0.")
+    (run_dir / "config.json").write_text(json.dumps(cfg_written, indent=2), encoding="utf-8")
     print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
     for epoch in range(start_epoch, epochs):
         t_epoch = time.perf_counter()
         model.train()
-        running = 0.0
+        running_sum = torch.zeros((), dtype=torch.float64, device=device)
         seen = 0
-        for x, y in train_loader:
-            x = x.to(device, non_blocking=True)
-            y = y.to(device, non_blocking=True)
+        t_data = 0.0
+        t_fetch = time.perf_counter()
+        for x, y in _device_batches(train_loader, device, channels_last=channels_last):
+            t_data += time.perf_counter() - t_fetch
             if photometric is not None:
                 x = photometric(x)
             if scales:
@@ -1083,16 +1186,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
-            running += loss.item() * x.size(0)
+            running_sum.add_(loss.detach().double() * x.size(0))
             seen += x.size(0)
+            t_fetch = time.perf_counter()
         # Sobald SWA uebernimmt, haelt SWALR die Rate — der Cosine-Plan darf dann nicht
         # weiterlaufen, sonst treten zwei Scheduler gegen denselben Optimizer an.
         if swa_from < 0 or epoch < swa_from:
             scheduler.step()
+        # Synchronize once before stopping the timer. The epoch record divides this SUM by
+        # seen below; averaging here as well would silently divide the reported loss twice.
+        running = float(running_sum)
         t_train = time.perf_counter() - t_epoch
 
         t0 = time.perf_counter()
-        val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=eval_batch, num_workers=nw)
+        val = evaluate_dataset(model, val_ds, device, criterion=criterion, batch_size=eval_batch, num_workers=eval_workers,
+                               prefetch_factor=prefetch_factor)
         t_val = time.perf_counter() - t0
         work_audit = current_work_audit()
         validation_key = (id(model), id(val_ds), epoch)
@@ -1111,8 +1219,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # Mit `val_rows` indiziert, lief das in einen IndexError statt in falsche Zahlen.
         vis_conf = visible_confidence(score_rows, true_labels, pred_labels, val.get("conf") or [])
         auroc = confidence_auroc(*vis_conf)
-        score, bd = checkpoint_metrics(score_rows, classes, true_labels, pred_labels,
+        _, bd = checkpoint_metrics(score_rows, classes, true_labels, pred_labels,
                                        auroc=auroc)
+        # Select actual epoch weights by visible identity accuracy; calibration breaks ties.
+        score = _checkpoint_rank(bd, auroc)
         t_score = time.perf_counter() - t0
         # --- occlusion validation diagnostics ---
         # The regular class metrics intentionally still score every crop for backwards
@@ -1150,15 +1260,18 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "lr": scheduler.get_last_lr()[0],
             # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:
             # the eval loader, the metric block and the checkpoint are three different suspects.
-            "t_train_s": round(t_train, 2), "t_val_s": round(t_val, 2), "t_score_s": round(t_score, 2),
+            "t_train_s": round(t_train, 2), "t_data_s": round(t_data, 2),
+            "t_val_s": round(t_val, 2), "t_score_s": round(t_score, 2),
         }
         if occ_diag:
             rec.update(occ_diag)
+            rec = _compact_metrics(rec)
+        rec["metrics_schema"] = 2
 
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
-        print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_acc {rec['val_acc']:.4f} "
-              f"| macro_recall {rec['val_macro_recall']:.4f} | score {score[0]:.4f}")
+        print(f"epoch {epoch:>3} | train_loss {rec['train_loss']:.4f} | val_loss {rec['val_loss']:.4f} "
+              f"| visible_piece_acc {score[0]:.4f}")
 
         if occ_diag:
             print(
@@ -1172,14 +1285,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             )
 
         torch.save(model.state_dict(), run_dir / "last.pt")
-        _save_state(state_path, epoch, model, optimizer, scheduler, scaler, sampler,
-                    swa_model, swa_sched, best_score, best_piece, recent, epochs_no_improve,
-                    cfg_written)
-        # Ein ZWEITER Checkpoint auf die reine Figurengenauigkeit. Der gewichtete Score
-        # sieht Kalibrierung nicht: ein spaeterer, ueberkonfidenter Lauf kann ihn gewinnen
-        # und den frueheren verdraengen, der besser dekodiert. Beide bleiben messbar.
-        if bd["piece_acc"] > best_piece[0]:
-            best_piece = (bd["piece_acc"], epoch)
+        # Keep the first checkpoint attaining the best visible identity accuracy.
+        # best.pt may break accuracy ties using occupancy and confidence.
+        if bd["visible_piece_acc"] > best_piece[0]:
+            best_piece = (bd["visible_piece_acc"], epoch)
             torch.save(model.state_dict(), run_dir / "best_piece.pt")
         # Bis `swa_from` laeuft das Rezept unveraendert; erst danach wird gemittelt und die
         # Rate konstant gehalten. Sonst waere es ein anderes Rezept, kein A/B.
@@ -1187,21 +1296,22 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             swa_model.update_parameters(model)
             swa_sched.step()
         recent.append(score)
-        smooth = tuple(sum(v[i] for v in recent) / len(recent) for i in range(3))
-        if smooth > best_score:
-            best_score = smooth
+        if score > best_score:
+            best_score = score
             epochs_no_improve = 0
             torch.save(model.state_dict(), run_dir / "best.pt")
         else:
             epochs_no_improve += 1
-            if epochs_no_improve >= patience:
-                print(f"[OK] Early stopping (no improvement in the weighted score for {patience} epochs). "
-                      "Increase patience with `--patience N`.")
-                break
+        _save_state(state_path, epoch, model, optimizer, scheduler, scaler, sampler,
+                    swa_model, swa_sched, best_score, best_piece, recent, epochs_no_improve,
+                    cfg_written)
+        if epochs_no_improve >= patience:
+            print(f"[OK] Early stopping: no visible-piece improvement for {patience} epochs.")
+            break
 
-    print(f"[OK] done. best by score={best_score[0]:.4f} (occupied_board_acc={best_score[1]:.4f}, "
-          f"macro_recall={best_score[2]:.4f}); best.pt in {run_dir}")
-    print(f"[OK] best_piece.pt: piece_acc={best_piece[0]:.4f} bei Epoche {best_piece[1]} "
+    print(f"[OK] done. best visible_piece_acc={best_score[0]:.4f} (visible_occupied_acc={best_score[1]:.4f}, "
+          f"confidence_auroc={best_score[2]:.4f}); best.pt in {run_dir}")
+    print(f"[OK] best_piece.pt: visible_piece_acc={best_piece[0]:.4f} bei Epoche {best_piece[1]} "
           "— gegen best.pt messen, bevor eine Stufe darauf aufbaut.")
 
     # SWA abschliessen: die gemittelten Gewichte haben NIE einen Batch gesehen, ihre

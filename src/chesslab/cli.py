@@ -1699,6 +1699,26 @@ def train_cmd(
         "--num-workers",
         help=f"DataLoader workers (default: {config.DEFAULT_NUM_WORKERS}).",
     ),
+    eval_workers: int = typer.Option(2, "--eval-workers", min=0,
+                                    help="Persistent validation workers, separate from training."),
+    channels_last: bool = typer.Option(False, "--channels-last",
+                                       help="Use channels-last GPU storage without changing batch size."),
+    fused_adamw: bool = typer.Option(False, "--fused-adamw",
+                                     help="Fused AdamW. Keeps the model's arithmetic bit-identical "
+                                          "and moves the parameter update by ~2e-7; the win is the "
+                                          "per-step sync it removes (docs/training-stack-spike.md)."),
+    compile_mode: str | None = typer.Option(None, "--compile-mode",
+                                           help="torch.compile mode, e.g. reduce-overhead (CUDA "
+                                                "graphs). Needs --compile-model."),
+    compile_model: bool = typer.Option(False, "--compile-model",
+                                       help="torch.compile the model forward. Needs a Triton-capable "
+                                            "stack (docs/training-stack-spike.md); the pinned one "
+                                            "has none and the run dies here."),
+    compile_batch_aug: bool = typer.Option(False, "--compile-batch-aug",
+                                           help="Compile GPU augmentation, preserving RNG draws. Requires "
+                                                "--batch-aug and Triton; small rounding differences remain."),
+    prefetch_factor: int = typer.Option(2, "--prefetch-factor", min=1,
+                                       help="Queued batches per worker."),
     crop_norm: str = typer.Option("fixed", "--crop-norm",
                                  help="fixed | per-crop. per-crop standardises EACH crop by its own "
                                       "mean/std instead of the dataset's. It is the contrast stretch "
@@ -1895,7 +1915,7 @@ def train_cmd(
                                    "training helps, so the epoch count is the only variable."),
 ) -> None:
     """Train per-square CNN on the ROCm GPU (board accuracy = checkpoint metric)."""
-    from .training.train import run_train
+    from .training.train import _release_train_lock, run_train
 
     scale_list = [int(s) for s in scales.split(",") if s.strip()] if scales else None
     _erase_scale = None
@@ -1919,10 +1939,14 @@ def train_cmd(
             raise typer.Exit(1)
         k, v = item.split("=", 1)
         cw[k.strip()] = float(v)
-    raise typer.Exit(run_train(backbone=backbone, epochs=epochs, per_crop=(crop_norm == "per-crop"),
+    code = run_train(backbone=backbone, epochs=epochs, per_crop=(crop_norm == "per-crop"),
                                input_repr=input_repr, batch_size=batch_size, lr=lr,
                                no_amp=no_amp, seed=seed, out=out, patience=patience,
                                num_workers=num_workers, norm=norm, dataset=dataset, resume=resume,
+                               eval_workers=eval_workers, prefetch_factor=prefetch_factor,
+                               channels_last=channels_last, compile_model=compile_model,
+                               compile_batch_aug=compile_batch_aug,
+                               fused_adamw=fused_adamw, compile_mode=compile_mode,
                                head=head, scales=scale_list, input_size=input_size,
                                continue_run=continue_run,
                                board_width=board_width, board_layers=board_layers,
@@ -1947,7 +1971,14 @@ def train_cmd(
                                  grayscale_p=grayscale_p,
                                  balance=balance, epoch_frac=epoch_frac,
                                  rot90=rot90, aug_scale=aug_scale, pretrained=pretrained,
-                                 no_empty_cap=no_empty_cap, neighbour_p=neighbour_p))
+                                 no_empty_cap=no_empty_cap, neighbour_p=neighbour_p)
+    # ROCm-Windows wedges in teardown: a finished 60-epoch run spun one core for minutes with
+    # every checkpoint, metric and the fitted temperature already written. Leave without
+    # unwinding, like `matte` does for the same wedge — but hand the lock back by hand, atexit
+    # does not run.
+    _release_train_lock()
+    sys.stdout.flush()
+    os._exit(code)
 
 
 @app.command("eval")

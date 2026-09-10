@@ -115,6 +115,14 @@
   Material. `scripts/mine_hard_empty.py --dataset <name>` liest Trainings-Split und Memmap statt
   des splitlosen Crop-Pools; `--fresh` verhindert, dass Zeilen aus einem anderen Zuschnitt
   überleben.
+- **Der Val-Satz gehoert nach KLASSENABDECKUNG gewaehlt, nicht nach Bildqualitaet (2026-09-10):**
+  `2026-09-06-21-29-35` sah sauber aus (Schaerfe 0,90x seiner Klasse) und traegt **null weisse
+  Springer**, 12 schwarze Damen, 73 % `empty`. Damit ist `macro_recall` — und ueber ihn `score`,
+  das Checkpoint-Kriterium — auf vier von 13 Klassen Rauschen, und Laufvergleiche darunter sind
+  nicht belastbar. 13 der 22 Aufnahmen haben volle Abdeckung; `docs/val-choice-2026-09-10.md`
+  nennt die Kandidaten und warum der Dunkelfilter den alten Val unbrauchbar gemacht hat.
+- **Schaerfe nur je Auflösungsklasse vergleichen (2026-09-10):** die Laplace-Varianz haengt an der
+  Quelle — 4K 1359, 1440p 407, 1080p 521 im Median. Ein korpusweiter Median mischt drei Kameras.
 - **Reproducibility:** Splits are not deterministic from Params → **always use `split.json`**.
 - **Geometry Fix (2026-07-31):** Old dataset was mis-aligned (3-6px Offset). Crops must be re-sliced. Old Path-A numbers are void.
 - **Hard Empties:** `hard_empty.jsonl` is global training input. **Park** if not in use (`data/_parked/`).
@@ -177,6 +185,42 @@
 - **Der Feed ist gemessen, nicht geschätzt:** 985 → 76 µs/Crop. Weitere Loader-Arbeit kauft null
   Wanduhrzeit, die GPU ist der Boden. Der Trainings-Batch auf 8 Bretter zu heben brächte 17 %,
   ändert aber BatchNorm-Statistik und Gradientenrauschen — für die Folds also nein.
+
+## Der Trainingsschritt ist startgebunden, nicht rechengebunden (2026-09-10)
+- **Das Rezept, das gilt** — auf dem Spike-Stack (`tmp/compile-spike`, PyTorch 2.13/ROCm 10/Triton):
+  `--batch-aug --compile-batch-aug --compile-model --fused-adamw`, Worker bleiben bei 2
+  (`BATCH_AUG_WORKERS`). Gemessen 30,3 → ~11,5 s je Epoche gegen den alten Ausgang.
+  **Alle vier Schalter bleiben per Vorgabe AUS**: der gepinnte Stack hat kein Triton und stirbt
+  an den Compilern, und `--fused-adamw` verschiebt die Parameter um 2,4e-7 — eine stille
+  Umstellung machte neue Laeufe mit dem Archiv unvergleichbar.
+- **Gemessen ist die feste Startzeit, nicht die Rechnung.** Die Gerade ueber die Batch-Groessen:
+  eager 11,4 ms fest + 33,5 µs je Crop, kompiliert 3,9 ms fest. Bei 256 Crops sind also **59 %
+  des Schritts reiner Startaufwand** — 2 611 aten-Aufrufe zu 4,6 µs. `torch.compile` macht 860
+  daraus. Der Auslastungszaehler folgt genau dem Arbeitsanteil (43 % eager, 51–68 % kompiliert);
+  **er ist keine Effizienzzahl**, und 100 % sind mit 6,7 MMAC je Crop nicht erreichbar.
+- **`--fused-adamw` entfernt eine echte Synchronisation je Schritt**, nicht nur Aufrufe:
+  `GradScaler._maybe_opt_step` liest `found_inf.item()` von einem CUDA-Tensor und leert die
+  Warteschlange. Mit `fused=True` reicht `GradScaler.step` `grad_scale`/`found_inf` als
+  Geraete-Tensoren durch und geht daran vorbei. **Was es bringt, haengt am Engpass**: bei
+  CPU-Augmentierung 1,07x, mit kompilierter Augmentierung 1,55x. Die Modell-Mathematik bleibt
+  bitgleich.
+- **Qualitaet: kein messbarer Unterschied, drei Seeds, drei Arme** (eager / nur Augmentierung /
+  beide Compiler). Gepaart erreicht der beste Kandidat t = −1,90 bei df = 2. Nach zwei Seeds sah
+  eine Rangfolge sauber aus, Seed 44 kippte sie — `docs/compiled-batch-aug.md`.
+- **`best` taugt nicht zum Vergleich.** Es ist das Maximum ueber 60 verrauschte Ziehungen und
+  liegt konstruktionsbedingt 2,3–2,9 sd ueber dem Niveau des Laufs, gemessen im Schnitt 2,9 —
+  aber der Aufschlag streut selbst zwischen 1,4 und 6,1 sd und kuerzt sich deshalb NICHT heraus.
+  Ein Lauf hatte seinen Bestwert bei Epoche 4 von 60. Vergleiche laufen ueber das Mittel der
+  letzten 10–20 Epochen, gepaart je Seed. Das Rauschen kommt dabei zu 94 % aus dem Modell und
+  nur zu 6 % aus dem Val (11 684 sichtbare Figurenzellen, Stichproben-sd 0,0024) — ein groesserer
+  Val hilft nicht, Mitteln ueber Epochen schon.
+- **Ein fertiger Lauf blockierte im Teardown** (ROCm-Windows, dieselbe Stelle wie `matte`):
+  `cli.py` verlaesst den Trainingsprozess jetzt mit `os._exit`, nachdem alles geschrieben ist,
+  und gibt den Lock von Hand zurueck. Ein Sweep darf nicht am Exit-Code haengen, sondern an den
+  Epochen auf der Platte.
+- **Zeiten nur auf ruhigem Rechner.** Derselbe Arm mass 13,17 / 15,71 / 19,54 s je nachdem, was
+  daneben lief. Immer zwei warme Wiederholungen je Arm, Aufwaermepochen verwerfen — der
+  Lauf-zu-Lauf-Abstand war 0,8 s bei einem Effekt von 1,1 s.
 
 ## Export: der Decoder holt nur noch, was gewollt ist (2026-09-08)
 - **`Recording.frames(wanted=…)` statt selbst filtern.** `cap.read()` ist `grab()` + `retrieve()`;

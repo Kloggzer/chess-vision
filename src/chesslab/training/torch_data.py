@@ -77,6 +77,9 @@ class _Clahe:
         return Image.fromarray(out)
 
 
+_GAMMA_INPUTS = tuple(value / 255.0 for value in range(256))
+
+
 class _RandomGamma:
     def __init__(self, lo: float, hi: float) -> None:
         self.lo, self.hi = lo, hi
@@ -84,7 +87,12 @@ class _RandomGamma:
     def __call__(self, img):
         import torchvision.transforms.functional as TF
 
-        return TF.adjust_gamma(img, random.uniform(self.lo, self.hi))
+        gamma = random.uniform(self.lo, self.hi)
+        if img.mode != "RGB":
+            return TF.adjust_gamma(img, gamma)
+        # Same Python pow/int LUT as torchvision; RGB->RGB conversions only made copies.
+        table = [int((255 + 1 - 1e-3) * pow(value, gamma)) for value in _GAMMA_INPUTS] * 3
+        return img.point(table)
 
 
 class _GaussianNoise:
@@ -209,6 +217,8 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
                     clahe_denoise: str = "off", to_uint8: bool = False):
     from torchvision import transforms as T
 
+    from .cpu_aug import ColorJitter, Normalize, ToTensor
+
     out_w, out_h = out_size
     ops = [T.Resize((out_h, out_w))]
     if clahe_clip > 0:
@@ -220,7 +230,7 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     # als die Haelfte dessen, was die vier Ops ueberhaupt kosten (`docs/pack-bake.md`).
     if train:
         if policy.brightness or policy.contrast or policy.color_jitter:
-            ops += [T.ColorJitter(brightness=policy.brightness, contrast=policy.contrast,
+            ops += [ColorJitter(brightness=policy.brightness, contrast=policy.contrast,
                                   saturation=policy.color_jitter)]
         if policy.gamma != (1.0, 1.0):
             ops += [_RandomGamma(*policy.gamma)]
@@ -251,13 +261,13 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
     # `batch_aug.BatchPhotometric`, in derselben Reihenfolge und auf demselben [0,1]-Raster.
     if to_uint8:
         return T.Compose([*ops, _ToUint8()])
-    ops += [T.ToTensor()]
+    ops += [ToTensor()]
     if train and getattr(policy, "noise_std", 0.0) > 0:
         ops += [T.RandomApply([_GaussianNoise(policy.noise_std)], p=0.5)]
     if train and getattr(policy, "erase_p", 0.0) > 0:
         # Cutout on the [0,1] tensor (before Normalize) so erased pixels = 0, a neutral value.
         # Cutout / Random Erasing: docs/references.md#devries-2017, #zhong-2017.
-        ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0)]
+        ops += [T.RandomErasing(p=policy.erase_p, scale=policy.erase_scale, value=0, inplace=True)]
     # Per-crop standardisation instead of a fixed mean/std, when the run asks for it.
     #
     # It is the ONE thing GroupNorm was doing that a foldable BatchNorm cannot: normalising each
@@ -272,7 +282,7 @@ def build_transform(out_size, train: bool, policy=config.AUGMENT,
         # ToTensor created a private tensor immediately above; no caller can observe its
         # pre-normalized contents. In-place normalization therefore removes one full crop clone
         # and its memory traffic from every train/validation sample without changing values.
-        ops += [_PerCropStandardize()] if per_crop else [T.Normalize(mean, std, inplace=True)]
+        ops += [_PerCropStandardize()] if per_crop else [Normalize(mean, std, inplace=True)]
     transform = T.Compose(ops)
     # Der Schnellpfad ueberspringt die PIL-Kette ganz — mit CLAHE waere der Schritt still weg.
     if not train and not per_crop and input_repr == "rgb" and clahe_clip <= 0:

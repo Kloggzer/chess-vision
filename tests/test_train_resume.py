@@ -65,3 +65,9 @@ def test_the_random_streams_come_back(tmp_path):
     first = torch.rand(3)
     torch.set_rng_state(blob["rng"]["torch"].to(torch.uint8).cpu())
     assert torch.equal(first, torch.rand(3))
+
+
+def test_old_checkpoint_selection_policy_cannot_silently_resume(tmp_path):
+    path, _ = _write(tmp_path, epoch=10, cfg=_cfg(checkpoint_policy=None))
+    with pytest.raises(ValueError, match="checkpoint_policy"):
+        _load_state(path, _cfg(checkpoint_policy="visible-piece-v2"))

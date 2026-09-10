@@ -108,19 +108,90 @@ def _pack_chunk(task) -> tuple[int, int]:
     return start, len(items)
 
 
-def source_provenance(rows: list[dict]) -> dict | None:
-    """Traegt JEDE Zeile eine Composite-Herkunft? Nur dann kann aus der Quelle geschnitten werden."""
-    from ..composite import read_provenance
+def write_crops(img_path: Path, crop_bytes: int, items) -> int:
+    """`(index, BGR-Bild)` an ihren Platz im Memmap schreiben.
 
-    prov: dict = {}
-    for pool in {Path(r["path"]).parents[1] for r in rows}:
-        prov.update(read_provenance(pool))
-    if not prov or any(r.get("split_group") not in prov for r in rows):
-        return None
-    return prov
+    `seek` statt Memmap-Fenster: nach dem Split liegen die Zeilen einer Aufnahme verstreut, ein
+    Fenster ueber min..max waere fast die ganze Datei. Indizes sind disjunkt, also duerfen mehrere
+    Prozesse gleichzeitig in dieselbe Datei schreiben — dasselbe Argument wie in [_pack_chunk].
+    """
+    written = 0
+    with open(img_path, "r+b") as fh:
+        for idx, crop in items:
+            fh.seek(idx * crop_bytes)
+            fh.write(np.ascontiguousarray(crop[:, :, ::-1]).tobytes())          # BGR -> RGB
+            written += 1
+    return written
 
 
-def pack_from_source(rows: list[dict], prov: dict, img_path: Path, wh: tuple[int, int]) -> int:
+def _cut_session(task) -> int:
+    """Worker: eine Aufnahme aus ihren BRETTERN schneiden. Modulebene, damit sie sich picklen laesst."""
+    img_path, crop_bytes, wh, sid, frames = task
+    import cv2
+
+    from ..calibration import load_profile
+    from ..labeling import crop_square, read_log, read_session_meta
+    from ..realgames import game_dir
+
+    d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
+    profile = load_profile(read_session_meta(d)["profile"])
+    boards = {Path(x["frame"]).stem: x.get("board") for x in read_log(d)}
+
+    def cuts():
+        for stem, wanted in frames.items():
+            rel = boards.get(stem)
+            board = cv2.imread(str(d / rel)) if rel else None
+            if board is None:
+                continue
+            for square, idx in wanted:
+                yield idx, crop_square(board, square, profile, wh)
+
+    return write_crops(Path(img_path), crop_bytes, cuts())
+
+
+def _decode_chunk(task) -> int:
+    """Worker: Crops aus ihren Dateien lesen. Fuer alles, was keine schneidbare Quelle hat."""
+    img_path, crop_bytes, wh, items = task
+    w, h = wh
+
+    def imgs():
+        for idx, path in items:
+            im = Image.open(path).convert("RGB")
+            a = np.asarray(im, dtype=np.uint8)
+            if a.shape != (h, w, 3):                   # 128er Pool auf Modellgroesse
+                a = np.asarray(im.resize((w, h)), dtype=np.uint8)
+            yield idx, a[:, :, ::-1]                   # `write_crops` dreht wieder auf RGB
+
+    return write_crops(Path(img_path), crop_bytes, imgs())
+
+
+def cut_plan(rows: list[dict]) -> tuple[list[tuple[int, str]], dict]:
+    """Je Zeile die beste Quelle: `(aus Dateien, nach Aufnahme gruppiert)`.
+
+    Eine echte Aufnahme wird aus ihrem BRETT geschnitten — ein Resample statt zwei, und 8 000
+    Brett-Dateien statt 420 000 Crop-Dateien (`docs/data-pipeline.md` 3.1). Alles ohne Brett
+    (Kompositen, Synth) kommt weiter aus seiner Datei; neu zu rendern waere teurer als der Umweg.
+    """
+    from ..realgames import game_dir
+
+    files: list[tuple[int, str]] = []
+    at: dict[str, dict[str, list[tuple[str, int]]]] = {}
+    has_boards: dict[str, bool] = {}
+    for i, r in enumerate(rows):
+        sid, sq, frame = r.get("session_id"), r.get("square"), r.get("frame")
+        if sid and sq and frame is not None:
+            if sid not in has_boards:
+                d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
+                has_boards[sid] = (d / "log.jsonl").exists() and (d / "boards").is_dir()
+            if has_boards[sid]:
+                at.setdefault(sid, {}).setdefault(str(frame), []).append((sq, i))
+                continue
+        files.append((i, r["path"]))
+    return files, at
+
+
+def pack_from_source(indexed: list[tuple[int, dict]], prov: dict, img_path: Path,
+                     wh: tuple[int, int]) -> int:
     """Die Zeilen aus der QUELLE schneiden statt aus dem 128er Pool zu skalieren.
 
     Geschrieben wird mit `seek`, nicht ueber ein Memmap-Fenster: nach Split liegen die Zeilen
@@ -132,18 +203,16 @@ def pack_from_source(rows: list[dict], prov: dict, img_path: Path, wh: tuple[int
     crop_bytes = h * w * 3
     at: dict[str, dict[int, list[str]]] = {}
     where: dict[tuple[str, int, str], int] = {}
-    for i, r in enumerate(rows):
+    for i, r in indexed:
         clip, frame, sq = r["split_group"], int(r["frame"]), r["square"]
         at.setdefault(clip, {}).setdefault(frame, []).append(sq)
         where[(clip, frame, sq)] = i
-    written = 0
-    with open(img_path, "r+b") as fh:
+    def cuts():
         for clip, wanted in at.items():
             for frame, sq, crop in recut_frames(prov[clip], wanted, (w, h)):
-                fh.seek(where[(clip, frame, sq)] * crop_bytes)
-                fh.write(np.ascontiguousarray(crop[:, :, ::-1]).tobytes())   # BGR -> RGB
-                written += 1
-    return written
+                yield where[(clip, frame, sq)], crop
+
+    return write_crops(img_path, crop_bytes, cuts())
 
 
 def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | None = None,
@@ -200,9 +269,20 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     # (`docs/data-pipeline.md` 3.1).
     # Nur wenn die Zielgroesse von der Dateigroesse abweicht — sonst waeren die Dateien
     # schon exakt und das Dekodieren ist der kuerzere Weg.
-    prov = None if (w, h) == tuple(rows[0]["out_size"]) else source_provenance(rows)
-    if prov is not None:
-        got = pack_from_source(rows, prov, img_path, (w, h))
+    # Nur wenn die Zielgroesse von der Dateigroesse abweicht: sonst waeren die Crops schon exakt und
+    # das Dekodieren ist der kuerzere Weg. Kompositen tragen ihre Herkunft, echte Aufnahmen ihr
+    # Brett — erst wenn JEDE Zeile eine Quelle hat, faellt der Dateiweg weg.
+    files, at = cut_plan(rows)
+    if at:
+        per = max(1, _PACK_CHUNK_BYTES // crop_bytes)
+        tasks = [(str(img_path), crop_bytes, (w, h), sid, frames) for sid, frames in at.items()]
+        tasks += [(str(img_path), crop_bytes, (w, h), files[i:i + per])
+                  for i in range(0, len(files), per)]
+        kinds = len(at)
+        procs = min(workers or config.DEFAULT_NUM_WORKERS, len(tasks))
+        with Pool(procs) as pool:
+            got = sum(pool.imap_unordered(_cut_session, tasks[:kinds]))
+            got += sum(pool.imap_unordered(_decode_chunk, tasks[kinds:]))
         if got != n:
             raise RuntimeError(f"pixel pass incomplete: {got}/{n} crops")
         meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
@@ -212,7 +292,7 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
                               encoding="utf-8")
         progress_path.unlink(missing_ok=True)
         return {"n": n, "h": h, "w": w, "path": str(img_path),
-                "gb": round(total_bytes / 1e9, 2), "source": "composite"}
+                "gb": round(total_bytes / 1e9, 2), "source": f"boards+files ({n - len(files)}/{len(files)})"}
 
     # Many SMALL chunks instead of a few huge ones: each worker only maps its own chunk, so peak
     # commit stays flat regardless of dataset size, progress is fine-grained, and — with the

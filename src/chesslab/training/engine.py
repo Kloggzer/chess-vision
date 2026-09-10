@@ -25,7 +25,8 @@ _LOADERS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 
 @torch.no_grad()
 def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 256, num_workers: int = 4,
-                     input_size: int | None = None, keep_workers: bool = True) -> dict:
+                     input_size: int | None = None, keep_workers: bool = True,
+                     prefetch_factor: int = 2) -> dict:
     """Square accuracy, board accuracy, loss and raw (true, pred) arrays for a dataset.
 
     `input_size`: wenn gesetzt, wird jeder Batch auf diese Eingabegröße skaliert (size-agnostisches
@@ -37,7 +38,8 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     from .. import config
 
     kw = {"batch_size": batch_size, "shuffle": False,
-          **config.loader_kwargs(num_workers, persistent=keep_workers)}
+          **config.loader_kwargs(num_workers, persistent=keep_workers,
+                                 prefetch_factor=prefetch_factor)}
     # Der Brettdatensatz bringt sein eigenes Zusammenlegen mit — ohne das kaeme das Ziel als
     # `(B, 64, 2)` an und `occluding` unten laege still falsch.
     if getattr(dataset, "collate_fn", None) is not None:
@@ -47,9 +49,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # between epochs, and it grows with the worker count instead of shrinking.
     if keep_workers:
         per_ds = _LOADERS.setdefault(dataset, {})
-        loader = per_ds.get((batch_size, num_workers))
+        loader = per_ds.get((batch_size, num_workers, prefetch_factor))
         if loader is None:
-            loader = per_ds[(batch_size, num_workers)] = DataLoader(dataset, **kw)
+            loader = per_ds[(batch_size, num_workers, prefetch_factor)] = DataLoader(dataset, **kw)
     else:
         loader = DataLoader(dataset, **kw)
     model.eval()
@@ -59,7 +61,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     probs: list[float] = []
     conf: list[float] = []
     keep_logits: list = []
-    loss_sum = 0.0
+    loss_sum = torch.zeros((), device=device) if criterion is not None else None
     n = 0
     n_out = 0
     for x, y in loader:
@@ -73,7 +75,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         logits = model(x)
         n_out = int(logits.shape[1])
         if criterion is not None:
-            loss_sum += float(criterion(logits, y)) * logits.shape[0]
+            loss_sum.add_(criterion(logits, y).detach() * logits.shape[0])
         # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
         # coverage — the class metrics must look past both or they score a regression head.
         occluding = y.dim() == 2
@@ -89,7 +91,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
         keep_logits.append(logits.detach().cpu())
         trues.extend(y.cpu().tolist())
         preds.extend(p.cpu().tolist())
-        n += x.size(0)
+        n += logits.shape[0]
 
     trues_a = np.array(trues)
     preds_a = np.array(preds)
@@ -126,7 +128,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     visible_items = visible_board_items(dataset.rows, trues, preds)
 
     return {
-        "loss": loss_sum / n if (criterion is not None and n) else None,
+        "loss": float(loss_sum.cpu()) / n if (criterion is not None and n) else None,
         "square_acc": square_acc,
         "macro_recall": macro_recall,
         "board_acc": board_acc,
