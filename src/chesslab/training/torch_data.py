@@ -674,7 +674,8 @@ class PackedSquareDataset(Dataset):
             self._mm = [None] * len(self._files)
         if self._mm[pack_no] is None:
             from .pack import open_packed_memmap
-            self._mm[pack_no] = open_packed_memmap(*self._files[pack_no])
+            self._mm[pack_no] = open_packed_memmap(
+                *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
         return self._mm[pack_no]
 
     def __len__(self) -> int:
@@ -764,7 +765,8 @@ class PackedBoardDataset(Dataset):
             self._mm = [None] * len(self._files)
         if self._mm[pack_no] is None:
             from .pack import open_packed_memmap
-            self._mm[pack_no] = open_packed_memmap(*self._files[pack_no])
+            self._mm[pack_no] = open_packed_memmap(
+                *self._files[pack_no], low_memory=getattr(self, "low_memory", False))
         return self._mm[pack_no]
 
     def __len__(self) -> int:

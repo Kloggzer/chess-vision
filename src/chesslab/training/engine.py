@@ -37,8 +37,12 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
     from .. import config
 
+    low_memory = getattr(dataset, "low_memory", False)
+    if low_memory:
+        num_workers = 0
+        keep_workers = False
     kw = {"batch_size": batch_size, "shuffle": False,
-          **config.loader_kwargs(num_workers, persistent=keep_workers,
+          **config.loader_kwargs(num_workers, persistent=keep_workers, pin_memory=not low_memory,
                                  prefetch_factor=prefetch_factor)}
     # Der Brettdatensatz bringt sein eigenes Zusammenlegen mit — ohne das kaeme das Ziel als
     # `(B, 64, 2)` an und `occluding` unten laege still falsch.
@@ -64,9 +68,11 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     loss_sum = torch.zeros((), device=device) if criterion is not None else None
     n = 0
     n_out = 0
-    for x, y in loader:
-        x = x.to(device, non_blocking=True)
-        y = y.to(device, non_blocking=True)
+    from .memory import guarded_batches
+
+    for x, y in guarded_batches(loader):
+        x = x.to(device, non_blocking=not low_memory)
+        y = y.to(device, non_blocking=not low_memory)
         if input_size is not None and input_size != x.shape[-1]:
             flat = x.flatten(0, 1) if x.dim() == 5 else x
             flat = torch.nn.functional.interpolate(flat, size=(input_size, input_size),

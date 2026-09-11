@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 import os
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
+
+#: Die Bootzeit kommt aus der Laufzeit seit dem Start und wackelt um Sekundenbruchteile.
+_BOOT_TOLERANCE_S = 60
 
 
 def pool_lock_path(pool_root: Path) -> Path:
@@ -48,6 +51,32 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
+def _boot_time() -> datetime | None:
+    """Wann der Rechner zuletzt gestartet ist, ohne psutil. None, wenn unbekannt."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_uint64
+            up = ctypes.windll.kernel32.GetTickCount64() / 1000.0
+        else:
+            up = float(Path("/proc/uptime").read_text().split()[0])
+    except (OSError, ValueError, AttributeError):
+        return None
+    return datetime.now() - timedelta(seconds=up)
+
+
+def _same_boot(stamp: object) -> bool:
+    """Wurde `stamp` in derselben Sitzung geschrieben? Unbekanntes gilt als aktuell."""
+    boot = _boot_time()
+    if boot is None or not isinstance(stamp, str):
+        return True
+    try:
+        return abs((datetime.fromisoformat(stamp) - boot).total_seconds()) < _BOOT_TOLERANCE_S
+    except ValueError:
+        return True
+
+
 def held_by(lock: Path) -> dict | None:
     """The record of the LIVE process holding `lock`, or None. Corrupt or dead-PID counts as free.
 
@@ -60,6 +89,12 @@ def held_by(lock: Path) -> dict | None:
     except (OSError, ValueError, TypeError, AttributeError):
         return None
     if pid <= 0 or pid == os.getpid() or not pid_alive(pid):
+        return None
+    # Ein Lock aus einer FRUEHEREN Sitzung kann niemand mehr halten. Ohne das blockiert ein
+    # eingefrorener Lauf jedes weitere Training: Windows vergibt die PID nach dem Neustart neu
+    # (2026-09-11 gehoerte 20176 danach `taskhostw`), und `pid_alive` sagt brav ja. Verglichen wird
+    # der beim Setzen notierte Systemstart, nicht das Alter — ein Lock ohne das Feld bleibt gueltig.
+    if not _same_boot(info.get("boot")):
         return None
     return info
 
@@ -76,8 +111,10 @@ def acquire(lock: Path, job: str, name: str) -> dict | None:
     if info is not None:
         return info
     lock.parent.mkdir(parents=True, exist_ok=True)
+    boot = _boot_time()
     lock.write_text(json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": job,
-                                "name": name, "startedAt": datetime.now().isoformat()},
+                                "name": name, "startedAt": datetime.now().isoformat(),
+                                **({"boot": boot.isoformat()} if boot else {})},
                                indent=2), encoding="utf-8")
     return None
 

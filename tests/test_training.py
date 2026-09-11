@@ -594,3 +594,46 @@ def test_visible_board_items_drop_the_cells_the_loss_masks():
 
     assert board_accuracy([(("s", "1"), True), (("s", "1"), False)]) == 0.0
     assert board_accuracy(visible_board_items(rows, trues, preds)) == 1.0
+
+
+class TestLockSurvivesReboot:
+    """Ein Lock aus einer frueheren Sitzung darf niemanden aussperren.
+
+    Am 2026-09-11 fror der Rechner waehrend eines Laufs ein; nach dem Neustart gehoerte dessen PID
+    einem `taskhostw`, `pid_alive` meldete brav "lebt", und kein Training startete mehr.
+    """
+
+    @staticmethod
+    def _lock(tmp_path, **extra):
+        import json as _json
+
+        from chesslab import locks
+        path = tmp_path / "heavy.lock"
+        path.write_text(_json.dumps({"pid": 424242, "childPid": 424242, "job": "train",
+                                     "name": "vorige Sitzung",
+                                     "startedAt": "2020-01-01T00:00:30", **extra}), encoding="utf-8")
+        return locks, path
+
+    def test_lock_from_an_earlier_boot_is_free(self, monkeypatch, tmp_path):
+        from datetime import timedelta
+        locks, path = self._lock(tmp_path)
+        boot = locks._boot_time()
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: True)
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            '"startedAt"', f'"boot": "{(boot - timedelta(hours=3)).isoformat()}", "startedAt"'),
+            encoding="utf-8")
+        assert locks.held_by(path) is None
+
+    def test_lock_from_this_boot_still_holds(self, monkeypatch, tmp_path):
+        locks, path = self._lock(tmp_path, boot=None)
+        boot = locks._boot_time()
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: True)
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            '"boot": null', f'"boot": "{boot.isoformat()}"'), encoding="utf-8")
+        assert locks.held_by(path) is not None
+
+    def test_lock_without_boot_field_still_holds(self, monkeypatch, tmp_path):
+        """Altbestand ohne das Feld bleibt gueltig — die Pruefung darf nicht rueckwirkend freigeben."""
+        locks, path = self._lock(tmp_path)
+        monkeypatch.setattr(locks, "pid_alive", lambda pid: True)
+        assert locks.held_by(path) is not None

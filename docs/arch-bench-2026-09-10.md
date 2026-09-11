@@ -90,6 +90,22 @@ Deshalb steht hier das **Verhaeltnis zum Anker im selben Lauf**, nicht die Milli
   Modell am Stueck durch, statt die Modelle je Runde abzuwechseln. Wer Millisekunden ueber Laeufe
   hinweg vergleichen will, muss das erst umbauen.
 
+## Vierte Runde: was die 128-px-Kandidaten kosten (2026-09-11)
+
+Ein Lauf, 4 Threads, 60 Runden, beide Durchgaenge. Anker ist das ausgelieferte 80-px-Modell.
+
+| Graph | MMAC/Crop | ms/Brett (D1 / D2) | x Anker |
+|---|---:|---|---:|
+| `p4a-80-clahe` (ausgeliefert, 80 px) | 2,4 | 4,27 / 4,90 | 1,0 |
+| `boardattn:cellnet_p4` @ 128 | 5,6 | 7,96 / 7,49 | **1,7** |
+| `boardattn:mnv4_conv_small_035` @ 128 | 15,8 | 17,73 / 18,00 | **3,9** |
+| `boardattn:mnv4_conv_small_050` @ 128 | 21,5 | 22,31 / 23,93 | **5,0** |
+
+Der Sprung von 80 auf 128 px kostet beim CellNet also **1,7x**, und er bringt gemessen +4,4 Punkte
+(`docs/arch-training-2026-09-11.md`). MV4-035 bei derselben Auflaufloesung kostet **2,3x so viel
+wie das CellNet** — die alten v4-128-Zahlen gaben ihm +0,0065 Vorsprung bei einem Seed, also
+innerhalb der Streuung. Fuer 10 ms mehr je Brett muesste er deutlich mehr liefern.
+
 ## INT8, 20 Runden (weniger belastbar)
 
 Quantisiert wurden nur `Conv`/`Gemm`/`MatMul`, vorzeichenlos je Tensor: XNNPACK baut den

@@ -183,12 +183,19 @@ def _device_batches(loader, device, *, channels_last=False):
     unchanged.  This matters for the small cell models, where a synchronous ``.to(device)``
     between batches leaves the accelerator waiting on the pinned-memory thread.
     """
+    from .memory import guarded_batches
+
+    if getattr(getattr(loader, "dataset", None), "low_memory", False):
+        for x, y in guarded_batches(loader):
+            x = x.to(device, non_blocking=False)
+            yield (_channels_last_batch(x) if channels_last else x), y.to(device, non_blocking=False)
+        return
     if device.type != "cuda":
-        for x, y in loader:
+        for x, y in guarded_batches(loader):
             yield (_channels_last_batch(x) if channels_last else x), y
         return
     import torch
-    iterator = iter(loader)
+    iterator = iter(guarded_batches(loader))
     stream = torch.cuda.Stream(device=device)
     pending = None
 
@@ -371,6 +378,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
               eval_workers: int = 2, prefetch_factor: int = 2,
+              low_memory: bool = True, ram_reserve_gb: float = 4.0,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               continue_run: bool = False, dark_min: float | None = None,
@@ -443,6 +451,21 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
 
     # Single-training GPU guard: refuse to start if another training is live (prevents the
     # concurrent-run out-of-memory crash). Released on exit (normal, exception, or clean stop).
+    from .memory import check_ram
+
+    if ram_reserve_gb < 0:
+        raise ValueError("ram_reserve_gb must be non-negative")
+    check_ram(ram_reserve_gb)
+    if low_memory:
+        # Was den Speicher rettet, ist der Datei-Lesepfad statt der Memmap (109 statt 1 482 MB je
+        # Worker, gemessen) und das fehlende Pinning — NICHT das Abschalten der Worker. Die kosten
+        # hier 20,5 von 27,2 s je Epoche. Wer `--num-workers` nennt, bekommt sie also.
+        eval_workers = 0
+        prefetch_factor = 1
+        if num_workers is None:
+            num_workers = 0
+        print(f"[memory] low-memory mode: direct file reads, {num_workers or 0} loader workers, "
+              f"no pinned RAM; reserve {ram_reserve_gb:g} GiB")
     if not _acquire_train_lock(f"{backbone} bs={batch_size} ep={epochs} head={head}"):
         return 1
     if os.environ.get("CHESSLAB_TRAIN_SLOT"):
@@ -751,6 +774,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                                  augment=True, policy=policy)
         val_ds = SquareDataset(val_rows, classes, val_tf, with_coverage=occluding)
 
+    for ds in (train_ds, val_ds):
+        ds.low_memory = low_memory
+        ds.ram_reserve_gb = ram_reserve_gb
+    check_ram(ram_reserve_gb)
+
     # BatchNorm is broken on ROCm-Windows (MIOpen/HIPRTC) -> default GroupNorm there.
     # batchnorm everywhere, Windows included. The groupnorm-on-Windows default was a workaround
     # for a MIOpen crash on MobileNet batch-norm; all 10 shipped runs are MobileNet + batchnorm on
@@ -921,7 +949,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if nw < 0 or eval_workers < 0 or prefetch_factor < 1:
         raise ValueError("workers must be non-negative and prefetch_factor must be positive")
     loader_kw = {"batch_size": batch_size,
-                 **config.loader_kwargs(nw, prefetch_factor=prefetch_factor)}
+                 **config.loader_kwargs(nw, prefetch_factor=prefetch_factor, pin_memory=not low_memory)}
     eval_batch = batch_size
     if board_mode:
         # `--batch-size` zaehlt jetzt BRETTER, also 64x so viele Crops. 4 Bretter = 256 Crops.
@@ -1062,6 +1090,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "channels_last": channels_last,
         "compile_model": compile_model, "compile_mode": compile_mode, "fused_adamw": fused_adamw,
         "compile_batch_aug": compile_batch_aug,
+        "low_memory": low_memory, "ram_reserve_gb": ram_reserve_gb,
+        "pin_memory": not low_memory,
         "num_workers": nw, "eval_workers": eval_workers, "prefetch_factor": prefetch_factor,
         "checkpoint_policy": "visible-piece-v2",
         "metrics_schema": 2,

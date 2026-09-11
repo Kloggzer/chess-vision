@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from .model import batchnorm2d
 
@@ -70,12 +71,17 @@ class BoardAttentionHead(nn.Module):
         nn.init.zeros_(self.out.bias)
 
     def forward(self, tokens: torch.Tensor) -> torch.Tensor:
-        x = self.proj(tokens)
-        for b in self.blocks:
-            h = b["n1"](x)
-            x = x + b["attn"](h, h, h, need_weights=False)[0]
-            x = x + b["mlp"](b["n2"](x))
-        return self.out(x)
+        # MATH statt der schnellen SDPA-Kerne: auf torch 2.13.0+rocm10.0.0 vergiftet
+        # `nn.MultiheadAttention` sonst den HIP-Kontext, und der naechste Kernelstart stirbt mit
+        # `hipErrorInvalidValue` — asynchron, also irgendwo hinter der Aufmerksamkeit. 64 Token
+        # zu 128 Kanaelen sind zu klein, als dass der Referenzpfad hier etwas kosten wuerde.
+        with sdpa_kernel([SDPBackend.MATH]):
+            x = self.proj(tokens)
+            for b in self.blocks:
+                h = b["n1"](x)
+                x = x + b["attn"](h, h, h, need_weights=False)[0]
+                x = x + b["mlp"](b["n2"](x))
+            return self.out(x)
 
 
 class BoardNet(nn.Module):

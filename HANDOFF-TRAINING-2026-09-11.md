@@ -4,6 +4,16 @@
 > Der Auftrag selbst steht in **`docs/arch-training-candidates.md`** — Kandidaten A–F, Reihenfolge,
 > was für alle Arme gleich sein muss. Dieses Dokument ergänzt, was seitdem dazugekommen ist.
 
+## 0. Korrektur (2026-09-11, nach dem ersten Sweep)
+
+**`--compile-model` ist nur fuer Arme OHNE Brettkopf validiert.** Mit `boardattn:` stirbt jeder
+Lauf auf dem neuen Stack — nicht am Compiler, sondern an `nn.MultiheadAttention`, die den
+HIP-Kontext vergiftet. Behoben in `BoardAttentionHead.forward` (`sdpa_kernel([SDPBackend.MATH])`);
+Diagnose und Sonden in `docs/arch-training-2026-09-11.md`.
+
+**`--patience 999` gehoert ins Rezept.** Die Vorgabe 7 stoppte einen Lauf bei Epoche 14 von 60 —
+kein Schwanz zum Mitteln, Cosine nicht ausgelaufen, Arme nicht mehr gepaart vergleichbar.
+
 ## 1. Womit trainiert wird — `.venv`, seit der Migration
 
 `pyproject.toml` ist auf den neuen Stack migriert (`cf4cba1b`): **torch 2.13.0+rocm10.0.0**,

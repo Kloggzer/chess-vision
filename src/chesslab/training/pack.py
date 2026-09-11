@@ -636,9 +636,9 @@ def _total_ram() -> int:
         return 0
 
 
-def open_packed_memmap(path: str, shape):
+def open_packed_memmap(path: str, shape, *, low_memory: bool = False):
     """Read-only reader of the packed crops, shape (N, H, W, 3). Called lazily per worker."""
-    if _pread_wanted(path):
+    if low_memory or _pread_wanted(path):
         return _PreadRows(path, shape)
     n, h, w = shape
     return np.memmap(path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))

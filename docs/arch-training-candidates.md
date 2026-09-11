@@ -4,6 +4,16 @@ Der Benchmark (`docs/arch-bench-2026-09-10.md`) sagt nur, was etwas KOSTET. Ob e
 die Figuren besser trifft, sagt nur ein Training. Diese Liste hält fest, welche Arme das wert
 sind, in welcher Reihenfolge, und was vorher stimmen muss.
 
+## ERLEDIGT (2026-09-11): der Val-Blocker
+
+Nachgeprüft: `real13-mix-v6-80/split-pin.json` pinnt `rg-2026-09-06-20-27-33` als Val — genau die
+Session, die `docs/val-choice-2026-09-10.md` empfiehlt — und `rg-2026-08-08-00-39-57` +
+`11-55-19` als Test. 529 Bretter, seltenste Klasse 191 Beispiele, volle Abdeckung über alle 13
+Klassen. **Keinen neuen Val bauen.** Der Vorbehalt bleibt, dass Val und Alternative vom selben
+Aufnahmetag stammen.
+
+<details><summary>Was hier vorher als blockierend stand</summary>
+
 ## Blockierend: erst der Val-Satz, dann irgendein Vergleich
 
 `2026-09-06-21-29-35` trägt **null weisse Springer**, 12 schwarze Damen und 73 % `empty`.
@@ -16,6 +26,38 @@ Empfehlung aus dem Doc: `2026-09-06-20-27-33`, notfalls zusammen mit `20-57-45` 
 und ein Val aus einem Tag einen Aufbau misst, nicht die Bandbreite.
 
 **Ohne diesen Schritt keine Kandidaten starten.**
+
+</details>
+
+## Der Brettkopf: was gemessen ist, nachdem der Zeilenmengen-Fehler raus ist
+
+Die alten p4/p4a-Zahlen verglichen zwei Zeilenmengen — ein Brettmodell sieht nur vollständige
+64-Zell-Bretter, ein Zellmodell alle Zeilen. `docs/agent-briefs/aufloesung-96.md` erklärte die
+Kopf-Deltas deshalb für ungültig; die Neumessung mit `--boards-only` stand aus und ist am
+2026-09-11 nachgeholt (Val-Split, Seed 42, beide Seiten auf denselben 33 984 Zeilen):
+
+| | 80 px Δ alt | **80 px Δ korrigiert** | 128 px Δ alt | **128 px Δ korrigiert** |
+|---|---:|---:|---:|---:|
+| `visible_piece_acc` | +0,0153 | **+0,0140** | +0,0206 | **+0,0214** |
+| `piece_acc` | +0,0215 | +0,0141 | +0,0272 | +0,0222 |
+| `square_acc` | +0,0092 | +0,0053 | +0,0142 | +0,0098 |
+| `occupied_board_acc` | +0,0288 | **+0,0019** | +0,0230 | **−0,0056** |
+
+- **Der Gewinn auf `occupied_board_acc` war der Artefakt** — er verschwindet bei 80 px und dreht
+  bei 128 px ins Minus. Genau die Zahl, die am meisten nach „der Kopf sieht das Brett" aussah.
+- Was überlebt, ist `visible_piece_acc` mit +0,014 / +0,021. Über der Nachweisgrenze (~0,008),
+  aber **ein Seed** bei `sd = 0,0157`, und zwei andere Paare (`-full-bcls`, `vflip`) kamen negativ.
+- Der Kopf kostet **Coverage-Precision in jedem Paar** (0,9424 → 0,8868 bei p4/p4a 128).
+- Aus `pairs.log`: der Kopf hilft **schwachen Trunks am meisten** — `cellnet_p8w` +0,037,
+  `mnv4_035` +0,026, `cellnet_p4` +0,011, `cellnet_p4`-full +0,004. Der p8-Kandidat IST so ein
+  schwacher Trunk.
+- **Attention gegen Conv ist nirgends sauber gemessen.** Der einzige `board:`-Lauf im Repo ist
+  gegen einen Attention-Lauf anderer Kopfbreite gepaart. Auf dem Gerät gemessen (p8 @ 128):
+  Conv-Kopf **+0,1 ms**, Attention-Kopf **+1,4 ms** auf einen Trunk von 3,4 ms — obwohl Attention
+  nur halb so viele MACs hat. `MultiheadAttention` exportiert als Schwarm kleiner Ops, die
+  XNNPACK nicht verschmilzt. Die MMAC-Begründung in `boardnet.py:3` gilt auf dem Gerät nicht.
+- Die Behauptung in `boardnet.py:50`, Positionskodierung habe „bei 80 px 0,16 gekostet", hat im
+  Repo **keine Messung hinter sich**. Der angekündigte eigene Arm wurde nie gelaufen.
 
 ## Die Basislinie muss mitlaufen
 
@@ -41,16 +83,26 @@ selben Lauf gemessene Verhältnis zum ausgelieferten Modell.
 RepViT M1.5 (84x). Eine Sekunde je Brett ist keine Option, und keine dieser Zahlen hängt an einer
 Stellschraube, die man noch drehen könnte.
 
+## Ein Kopf-Arm kommt dazu
+
+| # | Arm | Größe | Was die Frage ist |
+|---|---|---:|---|
+| G | `board:cellnet_p8` (Conv-Kopf) | 128 | Auf dem Gerät zehnmal billiger als Attention. Reicht 5x5 Nachbarschaft statt aller 64 Felder? |
+| H | `cellnet_p8` (kein Kopf) | 128 | Schliesst das Kopf-A/B endlich sauber — eine Generation, gleiche Zeilen, drei Seeds. |
+
 ## Reihenfolge
 
-1. **Sieb, ein Seed je Arm:** A, B, D. Das ist die eigentliche Frage — Auflösung gegen Stride
-   gegen Kapazität, innerhalb einer Familie, deren Kosten alle im Budget liegen.
-2. **Bestätigung, drei Seeds, Median:** Basislinie + die zwei besten aus Schritt 1. Ein
-   Seed-Wechsel bewegt die Metrik um mehr als die erwarteten Effekte — ein Einzellauf entscheidet
-   hier nichts.
-3. **Nur bei Bedarf:** C, wenn A knapp verliert; E, wenn die ganze BoardNet-Familie festhängt.
+**Kein Ein-Seed-Sieb.** Die Übergabe vom 2026-09-11 hält fest, dass ein sauberes Zwei-Seed-Muster
+von Seed 44 gekippt wurde, stärker als die beiden vorherigen zusammen. Ein Ein-Seed-Sieb würde
+also genau den Fehler wiederholen, den es sparen soll. Statt dessen wenige Arme, drei Seeds,
+gepaart je Seed, bewertet auf dem Mittel der letzten 10–20 Epochen (`best` ist raus).
 
-18 Läufe für alles wäre Verschwendung; Schritt 1 sind drei.
+1. **80 px auf `real13-mix-v6-80`, das ist unblockiert:** Basislinie `boardattn:cellnet_p4`,
+   Kandidat B `boardattn:cellnet_p8`, plus das Kopf-Paar `board:cellnet_p8` / `cellnet_p8`.
+   Vier Arme x drei Seeds, bei 11,5 s/Epoche rund 2,5 h.
+2. **128 px erst, wenn die Datensatzfrage entschieden ist** (siehe Übergabe, Abschnitt 3): es gibt
+   keinen v6 in 128 px, und der einzige gepackte 128er ist v4 mit 30 GB Pack auf 31,8 GB RAM.
+3. **Nur bei Bedarf:** C, wenn A knapp verliert; E, wenn die ganze BoardNet-Familie festhängt.
 
 ## Was für alle Arme gleich sein muss
 

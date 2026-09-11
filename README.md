@@ -318,6 +318,19 @@ is the only adapter left in the tree (`src/chesslab/ingest_adapters/`).
 
 ### Train, evaluate, export
 
+Training defaults to `--low-memory`: packed images are read on demand with ordinary file I/O,
+both training and validation use zero worker subprocesses, and pinned host memory and transfer
+prefetching are disabled. This trades throughput for lower RAM pressure without reducing batch
+size or the sampled dataset. It overrides worker/prefetch options; `--no-low-memory` restores
+the throughput-oriented path. The effective settings are saved in the run's `config.json`.
+
+`--ram-reserve-gb 4` checks available physical RAM before training and around each batch. Below
+that reserve the run raises an error, preserving its last completed epoch's `state.pt`; free
+memory and use the same recipe and output directory with `--continue` to resume. An unfinished
+epoch is repeated. This is a sampled stop condition, not a hard OS memory limit or protection
+against driver failures. `--ram-reserve-gb 0` explicitly disables monitoring. Monitoring supports
+Windows and Linux; other systems require disabling it.
+
 ```bash
 uv run chesslab train --dataset <name> --backbone smallcnn --epochs 30 --batch-size 256
 uv run chesslab eval --run data/models/run-<ts> --split test
