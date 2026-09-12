@@ -90,12 +90,13 @@ foreach ($seed in $Seeds) {
       --patience 999 --num-workers 2 --epoch-frac 0.35 --weight-cap 3.0 `
       --board-width 128 --board-layers 2 @($arm.Extra) `
       --batch-aug --compile-batch-aug --compile-model --fused-adamw *> "$out.log"
-    $epochs = if (Test-Path $metrics) { (Get-Content $metrics | Measure-Object -Line).Lines } else { 0 }
-    Write-Output ("[done] {0}-s{1} epochen={2} {3:N1} min" -f $arm.Tag, $seed, $epochs, ((Get-Date) - $started).TotalMinutes)
-    # Nicht weiterlaufen: ein gescheiterter Lauf wiederholt sich in aller Regel, und 13 leere
-    # Slots sehen im Log aus wie eine gelaufene Kampagne.
-    if ($epochs -lt $Epochs) {
-      Write-Error "$($arm.Tag)-s$seed hat nur $epochs von $Epochs Epochen. Siehe $out.log"
+    # `$ran`, NICHT `$epochs`: PowerShell unterscheidet Variablennamen nicht nach Gross- und
+    # Kleinschreibung, also ueberschrieb der Zaehler den Parameter `$Epochs`. Der Abbruch verglich
+    # dann 22 mit 22 und schwieg, und der naechste Lauf startete mit `--epochs 22`.
+    $ran = if (Test-Path $metrics) { (Get-Content $metrics | Measure-Object -Line).Lines } else { 0 }
+    Write-Output ("[done] {0}-s{1} epochen={2} {3:N1} min" -f $arm.Tag, $seed, $ran, ((Get-Date) - $started).TotalMinutes)
+    if ($ran -lt $Epochs) {
+      Write-Error "$($arm.Tag)-s$seed hat nur $ran von $Epochs Epochen. Siehe $out.log"
       exit 1
     }
   }
