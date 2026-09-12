@@ -1,0 +1,36 @@
+{
+ "burned": {
+  "rg-2026-08-08-00-39-57": 33,
+  "rg-2026-08-08-11-55-19": 32,
+  "rg-2026-08-16-20-41-33": 3,
+  "rg-2026-08-07-13-52-38": 2,
+  "rg-2026-08-14-14-32-33": 2,
+  "rg-VID_20260726_233432": 2,
+  "rg-2026-08-15-22-51-38": 2,
+  "rg-2026-08-13-19-34-23": 1,
+  "rg-2026-08-14-20-35-52": 1,
+  "rg-2026-08-15-22-48-04": 1,
+  "rg-2026-08-15-23-01-43": 1,
+  "rg-VID_20260802_222203": 1,
+  "rg-2026-08-15-22-57-06": 1,
+  "rg-2026-08-13-12-46-24": 1,
+  "rg-2026-08-16-20-19-54": 1,
+  "rg-2026-08-08-11-59-12": 1,
+  "rg-2026-08-14-20-48-55": 1,
+  "rg-2026-08-14-21-01-04": 1,
+  "rg-VID_20260727_233929": 1,
+  "rg-VID_20260802_222741": 1,
+  "comp-2026-08-09 20-48-50-00": 1,
+  "comp-2026-08-09 20-48-50-01": 1,
+  "comp-2026-08-09 20-48-50-02": 1,
+  "comp-2026-08-09 20-48-50-03": 1,
+  "comp-2026-08-09 20-48-50-04": 1,
+  "comp-2026-08-09 20-48-50-05": 1
+ },
+ "frozen": [
+  "rg-2026-09-11-20-00-52"
+ ],
+ "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine eingefrorene Aufnahme beruehrt, ausser mit `--burn-frozen`; `chesslab dataset folds` nimmt sie aus dem Schnitt, ausser mit `--include-frozen`. Beide Ausnahmen sagen laut, was sie kosten.",
+ "evals_scanned": 42,
+ "frozen_at": "2026-09-13"
+}

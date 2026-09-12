@@ -2249,6 +2249,9 @@ def eval_cmd(
                                      help="Nur vollständige 64-Zell-Bretter — der Schnitt, den ein "
                                           "Brett-Modell erzwingt. Ohne ihn vergleicht ein Zell- "
                                           "gegen ein Brett-Modell zwei verschiedene Zeilenmengen."),
+    burn_frozen: bool = typer.Option(False, "--burn-frozen",
+                                     help="Eine eingefrorene Aufnahme verbrauchen. Genau EINMAL, "
+                                          "nach dem Einfrieren des Kandidaten."),
 ) -> None:
     """Board accuracy, per-class recall, per-session table and confusion matrix (text + PNG)."""
     from .training.evaluate import run_eval
@@ -2256,7 +2259,7 @@ def eval_cmd(
     raise typer.Exit(run_eval(run=run, split_name=split, input_size=input_size, dataset=dataset,
                               split_file=split_file, boards_only=boards_only,
                               sessions=[s.strip() for s in sessions.split(",") if s.strip()]
-                              if sessions else None))
+                              if sessions else None, burn_frozen=burn_frozen))
 
 
 @app.command("reliance")

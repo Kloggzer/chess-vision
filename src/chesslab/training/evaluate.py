@@ -52,9 +52,23 @@ def load_run(run_dir: Path, weights: str | None = None):
 _load_run = load_run
 
 
+def _frozen_hit(rows: list[dict]) -> set[str]:
+    """Eingefrorene Aufnahmen unter den Zeilen — `data/TEST-USED.json`, Schluessel `frozen`."""
+    import json
+
+    from .. import config
+
+    f = config.DATA.root / "TEST-USED.json"
+    if not f.is_file():
+        return set()
+    frozen = set(json.loads(f.read_text(encoding="utf-8")).get("frozen") or [])
+    return frozen & {r["session_id"] for r in rows}
+
+
 def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
              dataset: str | None = None, split_file: str | None = None,
-             sessions: list[str] | None = None, boards_only: bool = False) -> int:
+             sessions: list[str] | None = None, boards_only: bool = False,
+             burn_frozen: bool = False) -> int:
     """`dataset` points the run at a corpus it was not trained on — the "validate with the
     pretrain" step, which used to need a throwaway script. `split_name="all"` skips the split
     filter, `sessions` narrows it further, and both guards below only fire on that path.
@@ -141,6 +155,18 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     if not rows:
         print(f"[FAIL] {split_name} split is empty.")
         return 1
+    # Eine eingefrorene Aufnahme wird GENAU EINMAL ausgewertet, nach der Auswahl. Bis dahin ist
+    # jede Messung auf ihr ein Verlust: `data/TEST-USED.json` zaehlt 33 bzw. 32 Auswertungen auf
+    # den beiden anderen Testaufnahmen, und damit tragen sie nichts mehr.
+    frozen = _frozen_hit(rows)
+    if frozen and not burn_frozen:
+        print(f"[FAIL] {', '.join(sorted(frozen))} ist eingefroren (data/TEST-USED.json). "
+              f"Diese Aufnahme wird genau EINMAL gemessen, nach dem Einfrieren des Kandidaten. "
+              f"Wenn das jetzt der Fall ist: --burn-frozen.")
+        return 1
+    if frozen:
+        print(f"[!!] --burn-frozen: {', '.join(sorted(frozen))} wird verbraucht. "
+              f"Danach traegt die Aufnahme keine Entscheidung mehr.")
     if overridden:
         from ..occluded_model import trained_on
         seen = {s for s in trained_on(run_dir)
