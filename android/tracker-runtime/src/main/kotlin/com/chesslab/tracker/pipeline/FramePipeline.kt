@@ -8,6 +8,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
+import java.util.concurrent.CompletableFuture
 
 // One camera frame -> one `FrameInput`. Port of the per-frame order in `tracker.py::_loop`,
 // between `_note_frame_size` and the detection state machine. THE ORDER IS BEHAVIOUR:
@@ -160,6 +161,9 @@ class FramePipeline<T>(
     private var sourceSeq = 0L
     private var luma = 0.0
 
+    /** The frame [emit] last produced, for [cropFrameNow]; null once a frame was skipped. */
+    private var emitted: FrameInput? = null
+
     /** The dark gate's own input, for the perf line — the one number that decides a skip. */
     fun lastLuma(): Double = luma
 
@@ -204,10 +208,41 @@ class FramePipeline<T>(
             if (note != null) {
                 if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
             }
+            if (note != null) emitted = null
             val result = if (note != null) FrameResult.Skipped(note) else emit(requireNotNull(pts), timestampMs)
             timings.mark(Stage.TOTAL)
             result
         }
+
+    /**
+     * The crop warp for THIS frame, on demand after the engine step: a fresh candidate wants its
+     * verifying observation now, not on the next frame the request/serve handshake would reach.
+     * Nothing to do while the store still holds an untaken warp or the frame was skipped. The
+     * warp is EXTRA: it leaves a request standing so the regular cadence keeps its frames — a
+     * shifted cadence lost 45 plies of 20-57-45 to a parity-sensitive alarm recovery (2026-09-12).
+     */
+    fun cropFrameNow(): Boolean {
+        val input = emitted ?: return false
+        if (!config.verifyObserveNow || !cropStore.idle) return false
+        stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
+        cropStore.request()
+        return true
+    }
+
+    /**
+     * The bordered full-resolution warp, AFTER the engine tick: the engine never reads it, only the
+     * observer does, so the frame's decision no longer waits the warp's 7 ms on the phone. Same
+     * frame, same observation — only the order on the analyzer thread changed (2026-09-12).
+     */
+    fun cropWarpAfterTick(verifyWaiting: Boolean) {
+        val input = emitted ?: return
+        if (cropStore.wantsFrame()) {
+            stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
+            cropStore.served()
+        } else if (verifyWaiting) {
+            cropFrameNow()
+        }
+    }
 
     /** Frames that never reached the engine, by reason — until now only a note string per frame. */
     var skippedWaitingMarkers = 0L
@@ -258,22 +293,20 @@ class FramePipeline<T>(
         pts: FloatArray,
         timestampMs: Long,
     ): FrameResult {
+        // ROI motion reads the raw frame with its own scratch, so it runs beside gray, BGR and
+        // grid coverage, which share the detection chain; its mark then measures the join.
+        val motionTask = if (reads.roiMotion) CompletableFuture.supplyAsync { stages.roiMotion(pts) } else null
         val gray = stages.grayDet()
         val bgr = stages.bgrDet()
         timings.mark(Stage.GRAY)
-        val motion = if (reads.roiMotion) stages.roiMotion(pts) else MOTION_UNREAD
-        timings.mark(Stage.MOTION)
         val coverage = gridCoverage()
         timings.mark(Stage.GRID)
+        val motion = motionTask?.join() ?: MOTION_UNREAD
+        timings.mark(Stage.MOTION)
         seq += 1
-        // Last, and only on demand: the bordered full-resolution warp is the expensive one.
-        if (cropStore.wantsFrame()) {
-            stages.updateCropFrame(pts, seq, timestampMs, bgr, gray)
-            cropStore.served()
-        }
-        return FrameResult.Ready(
-            FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt),
-        )
+        val input = FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt)
+        emitted = input
+        return FrameResult.Ready(input)
     }
 
     /**

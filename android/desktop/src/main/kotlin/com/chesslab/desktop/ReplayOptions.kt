@@ -121,6 +121,10 @@ data class ReplayOptions(
     val visualWorkers: Int = 0,
     /** Exact source-work call graph, semantic repeats, copied bytes and cache hits. */
     val workProfile: Boolean = false,
+    /** Bounded diagnostic replay, counted in decoded frames after initialization. */
+    val limitFrames: Int? = null,
+    /** Exact unsampled engine state and operation durations per delivered frame. */
+    val trace: String? = null,
     /**
      * `engine=<name>` — which engine decides. The A/B this whole seam exists for: two runs that
      * differ in one word, scored the same way.
@@ -188,6 +192,8 @@ data class ReplayOptions(
                             word.removePrefix("start=").toDoubleOrNull()?.takeIf { it >= 0 }
                                 ?: error("start= wants seconds, got '$word'"),
                     )
+                word.startsWith("limit=") -> options.copy(limitFrames = word.removePrefix("limit=").toInt().also { require(it > 0) })
+                word.startsWith("trace=") -> options.copy(trace = word.removePrefix("trace=").also { require(it.isNotBlank()) })
                 word.startsWith("engine=") -> options.copy(engine = engineNamed(word.removePrefix("engine=")))
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("prior=") ->

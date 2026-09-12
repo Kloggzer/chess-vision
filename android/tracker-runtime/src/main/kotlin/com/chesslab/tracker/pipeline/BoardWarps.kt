@@ -106,6 +106,8 @@ class CropFrameStore(
 
     fun wantsFrame(): Boolean = wanted && pending == null
 
+    val idle: Boolean get() = pending == null
+
     /** The request is answered — set by the pipeline, so one request yields exactly one warp. */
     internal fun served() {
         wanted = false
@@ -307,7 +309,10 @@ class OpenCvStages<T>(
         val cropGeom = cropGeometry()
         val cached = cropStore.cached(seq)
         val source = if (cached == null) frame else null
-        val warp = source?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
+        val warp =
+            source?.let {
+                warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies)
+            }
         if (cached == null && warp == null) return
         var gridPlane: CropFrameStore.GridPlane? = null
         var handed = false

@@ -49,6 +49,17 @@ class VerifySingleTest {
         assertEquals(false, state.recoveredLast)
     }
 
+    /** gxh3 read 2/2 on its own squares while the CNN derived g3: local agreement is no confirmation. */
+    @Test
+    fun aConfidentDifferentDerivationBlocksTheOccupancyConfirm() {
+        val state = pendingState(uci = "g2h3", fen = "rnbqkbnr/pppppp2/8/6p1/8/7p/PPPPPPPP/RNBQKBNR w KQkq - 0 4")
+        val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2, deriveMove = "g2g3", deriveAgreement = 1.0)
+        repeat(2) { state.glance(cnn, VerifyObs()) }
+
+        assertEquals(emptyList<String>(), state.history)
+        assertNotNull(state.pending, "the window keeps looking instead of committing the capture")
+    }
+
     /**
      * `applyVerdict` raeumte `pending` weg, BEVOR die Zeile geschrieben wurde, also trug ausgerechnet
      * die Zeile der Leiter `verify=` leer — und leer hiess beides (`docs/verifier-stall.md`).

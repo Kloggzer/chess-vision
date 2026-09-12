@@ -326,6 +326,7 @@ internal fun replayRun(
     camera: String? = null,
     video: File? = null,
     training: ReplayTrainingSink? = null,
+    trace: ReplayTrace? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val console: TrackerLogs = { tag -> ConsoleLog(tag) }
@@ -488,7 +489,7 @@ internal fun replayRun(
         // Der Prepass schneidet nach `stride`; die aufgezeichnete Auswahl folgt Zeitstempeln. Zwei
         // Kadenzen, und der Docstring unten sagt, was das kostet — also rechnet LiveAlign dann
         // selbst. Langsamer, aber es ist dieselbe Rechnung.
-        val canPrecomputeMarkers = video != null && !options.lens && recorded == null
+        val canPrecomputeMarkers = video != null && !options.lens && recorded == null && options.limitFrames == null
         // The RUN's config, the same one `LiveAlign` obeys inside the stack: the prepass answers
         // the alignments LiveAlign will ask for, so a prepass cut on a different cadence than the
         // asker is a "marker prepass has no frame N" away from stopping the replay.
@@ -530,8 +531,15 @@ internal fun replayRun(
                 engine = options.engine,
                 startFen = recordedStartFen(options, video),
                 cropClahe = cropClaheOf(spec),
+                trace = trace,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
+        if (trace != null) {
+            stack.host.submit(
+                com.chesslab.engine.api.EngineAction
+                    .SetDebugEnabled(true),
+            )
+        }
         val frameHook: ((Int, Mat, Double) -> Unit)? =
             if (session == null && training == null) {
                 null
@@ -548,7 +556,21 @@ internal fun replayRun(
                     "$it.status.csv",
                 ).bufferedWriter().apply { write("frame,index,state,motion,stuck\n") }
             }
-        val frames = drive(source, stack, bus, publisher, view, options.dumpEvery, frameHook, stride, recorded, statusDump)
+        val frames =
+            drive(
+                source,
+                stack,
+                bus,
+                publisher,
+                view,
+                options.dumpEvery,
+                frameHook,
+                stride,
+                recorded,
+                statusDump,
+                options.limitFrames,
+                trace,
+            )
         statusDump?.close()
         println("tracked $frames frames of $name at ${"%.2f".format(source.fps)} fps")
         // Where the CNN chain stopped. `observations` counts snapshots the observer EMITTED;
@@ -652,6 +674,7 @@ private fun buildStack(
     // Die Stellung der Aufnahme beim ersten Frame — eine Aufnahme beginnt mitten im Spiel.
     startFen: String = STARTPOS,
     cropClahe: CropClahe? = null,
+    trace: ReplayTrace? = null,
 ): TrackerStack<Mat> =
     TrackerStack(
         TrackerSeed<Mat>(
@@ -666,6 +689,7 @@ private fun buildStack(
                 println("decision: ply=${it.ply} ${it.san ?: "-"} decider=${it.decider}")
                 println("decision-conf: " + it.confidenceLine())
                 collector?.offer(it)
+                trace?.decision(it, indexNow())
             },
             // The frame loop's own account of where a move's latency went, on the video clock. The
             // phone writes the same transitions into its diagnostics file; here they go to stdout
@@ -732,11 +756,13 @@ private fun drive(
     // andere Bilder waehlt als die Messung, ist keine Reproduktion (`TODO.md`).
     recorded: RecordedFrameGate? = null,
     statusDump: java.io.Writer? = null,
+    limitFrames: Int? = null,
+    trace: ReplayTrace? = null,
 ): Int {
     var frames = 0
     var strideDropped = 0
     while (true) {
-        val open = view?.awaitStep(publisher.status.value) ?: true
+        val open = (limitFrames == null || frames < limitFrames) && (view?.awaitStep(publisher.status.value) ?: true)
         val frame = if (open) source.next() else null
         if (frame == null) {
             if (strideDropped > 0) {
@@ -754,6 +780,7 @@ private fun drive(
             continue
         }
         stack.coordinator.onFrame(frame, source.delivered)
+        trace?.frame(source.currentDecodedIndex, source.timestampMs, stack.host.status())
         frameHook?.invoke(hookIndex(source.currentDecodedIndex, frames), frame, source.timestampMs)
         frames += 1
         statusDump?.let { out ->

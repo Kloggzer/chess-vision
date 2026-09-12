@@ -67,10 +67,32 @@ class FramePipelineOrderTest {
         repeat(30) { frame ->
             if (frame % 10 == 0) store.request()
             pipeline.onFrame(FakeImage(), 1280, 720, 1_000L + frame)
+            pipeline.cropWarpAfterTick(verifyWaiting = false)
         }
         assertEquals(3, stages.cropWarps)
         // The crop frame carries the seq of the frame it was warped from (Spec 11 pairing).
         assertEquals(listOf(1L, 11L, 21L), stages.cropSeqs)
+    }
+
+    @Test
+    fun `cropFrameNow warps the emitted frame once, and only when asked to`() {
+        assertTrue(!pipeline.cropFrameNow(), "nothing emitted yet")
+        pipeline.onConfigChanged(TrackerConfig(verifyObserveNow = false))
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
+        assertTrue(!pipeline.cropFrameNow(), "switched off: the handshake cadence stands alone")
+        pipeline.onConfigChanged(TrackerConfig())
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_100L)
+        assertTrue(pipeline.cropFrameNow(), "on by default")
+        assertEquals(listOf(2L), stages.cropSeqs)
+        // Extra, not instead: the next frame still serves the regular request.
+        store.take()
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_150L)
+        pipeline.cropWarpAfterTick(verifyWaiting = false)
+        assertEquals(listOf(2L, 3L), stages.cropSeqs)
+        stages.luma = 12.0
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_200L)
+        store.take()
+        assertTrue(!pipeline.cropFrameNow(), "a skipped frame has nothing to warp")
     }
 
     @Test

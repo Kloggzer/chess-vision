@@ -131,8 +131,10 @@ internal class FrameLoop(
     }
 
     /**
-     * Per-square occlusion against the baseline reference, during the motion and occlusion states.
-     * The expiry stamps are what bridge "the hand left" and "motion hold expired".
+     * Per-square occlusion against the baseline reference while the hand moves or the grid is
+     * covered; the expiry stamps bridge "the hand left" and "motion hold expired". NOT in the
+     * core-gated occluded state: refreshing there re-flags a quiet board that merely differs from
+     * the reference (a played move), and the state never exits without motion (2026-09-12).
      */
     private fun updateBaselineOcclusion(input: FrameInput) {
         val ref = state.refGray
@@ -145,7 +147,7 @@ internal class FrameLoop(
             state.note = NOTE_WAITING_CLEAR
             return
         }
-        if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
+        if (ref != null && (state.state == STATE_MOVING || state.occlGridActive)) {
             val result =
                 state.baselineScratch.baselineOcclusionAndShadow(
                     input.grayDet,
@@ -191,7 +193,8 @@ internal class FrameLoop(
         } else {
             state.state = STATE_MOVING
         }
-        state.holdUntil = state.nowS + cfg.motionHoldS
+        state.refHoldUntil = state.nowS + cfg.motionHoldS
+        state.holdUntil = state.nowS + (cfg.commitHoldS ?: cfg.motionHoldS)
         return FrameOutcome.Skip(SKIP_MOVING)
     }
 
@@ -221,6 +224,7 @@ internal class FrameLoop(
                     // periodic CNN check, whose stable arm needs WAITING or MOVE.
                     state.state = STATE_WAITING
                     state.holdUntil = max(state.holdUntil, state.nowS + state.config.occluderHoldS)
+                    state.refHoldUntil = max(state.refHoldUntil, state.nowS + state.config.occluderHoldS)
                     state.grayBuf.clear()
                     state.bgrBuf.clear()
                     ready = false
@@ -242,10 +246,17 @@ internal class FrameLoop(
         state.lastCurBgr = curBgr
         var outcome: FrameOutcome = FrameOutcome.Skip(SKIP_SETTLING)
         if (cur != null) {
+            // The reference always waits for the FULL motion hold, whatever `commitHoldS` opened.
+            val refReady = ready && state.nowS >= state.refHoldUntil
             if (state.refGray == null) {
                 // Initial / re-capture of base truth: wait for a clear, long enough stable view —
                 // never reference an obscured image.
-                if (ready) setRef(cur, curBgr) else state.note = NOTE_WAITING_CLEAR
+                if (refReady) setRef(cur, curBgr) else state.note = NOTE_WAITING_CLEAR
+            } else if (refReady && state.refProvisionalUntil > 0.0 && !state.motionSinceRef) {
+                // An early commit anchored on the hand's tail; this is the frame the full hold
+                // would have committed on, so it becomes the reference instead.
+                state.setRef(cur, curBgr, fromCommit = true)
+                state.refProvisionalUntil = 0.0
             } else if (ready && state.state != STATE_MOVE) {
                 if (!state.restSettled) {
                     state.restSettled = true

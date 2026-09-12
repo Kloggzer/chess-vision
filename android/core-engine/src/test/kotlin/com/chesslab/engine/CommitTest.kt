@@ -31,6 +31,23 @@ class CommitTest {
         assertEquals(VERIFY_STATE_CONFIRMED, state.verifyState)
     }
 
+    /** A commit inside the motion hold flags its reference for re-capture at the hold's end. */
+    @Test
+    fun commitInsideTheMotionHoldFlagsTheReferenceProvisional() {
+        val early = detectState(ref = grayFrame(listOf("e2")))
+        early.nowS = 10.0
+        early.refHoldUntil = 10.15
+        early.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(listOf("e4"), early.history)
+        assertEquals(10.15, early.refProvisionalUntil, 1e-9)
+
+        val settled = detectState(ref = grayFrame(listOf("e2")))
+        settled.nowS = 10.0
+        settled.refHoldUntil = 9.2
+        settled.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(0.0, settled.refProvisionalUntil)
+    }
+
     @Test
     fun commitSequenceAppliesBothMovesAtomically() {
         val state = detectState()

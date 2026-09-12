@@ -19,6 +19,12 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
+- **Schlagzuege brauchen die Ankunft, nicht die Belegung (2026-09-12):** mit `commitHoldS` unter dem
+  Hold committet 11-59-12 `Bxe4` 17 Frames vor der Label-Stellung — b7 leer, e4 war ohnehin belegt,
+  `verifyMove` sieht 2/2. Rung 2 sollte bei Schlagzuegen den Schlaeger per Identitaet auf dem
+  Zielfeld sehen (`labelConfident`), sonst Fenster. Messen: `splitobs15` gegen `base15g`, 11-59-12
+  52/21 → 73/0 waere der Beweis; `docs/commit-latency.md` §4.
+
 - **Observer-Rundreise am Handy (0,1–0,3 s je Zug):** eine Beobachtung aus der Ruhephase vor dem
   Kandidaten annehmen statt eine nach `pend.seq` zu verlangen; nur am Gerät messbar, Veto-Risiko
   ist die Hand unter der Bewegungsschwelle (`docs/commit-latency.md`).
@@ -84,6 +90,11 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   nicht gemessen (`adb logcat -s chesslabVideo`).
 
 ## Daten / Training / Labeling
+
+- **Fruehe Commits und die Referenz (2026-09-12):** `commitHoldS` unter `motionHoldS` committet auf
+  dem Hand-Schweif, die Referenz wird beim ersten ruhigen Frame nach dem vollen Hold nachgezogen.
+  Kommt die Hand vorher zurueck, bleibt `refProvisionalUntil` gesetzt — der Export/Labeler soll
+  diese Commits kennen, weil ihr Referenzfenster keinen handfreien Raum fand (Nutzer, 2026-09-12).
 
 - **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
   Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von

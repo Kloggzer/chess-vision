@@ -327,7 +327,11 @@ private class Signals(
         val fromLeftOk =
             fromLeftConf && (castling || (cnnUci == pendingUci && cnnAgreement >= minAgreement))
         val toArrivedOk = toArrivedConf && !fromOccConf
-        return fromLeftOk || toArrivedOk || (occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
+        // `verifyMove` is LOCAL to the candidate's squares, so g3 vs gxh3 with a pawn already on h3
+        // agrees 2/2 either way; the CNN's own derived move is the square it did look at
+        // (00-39-57 ply 15, 2026-09-12). A confident different derivation is not a confirmation.
+        val contradicted = cnnUci != null && cnnUci != pendingUci && cnnAgreement >= minAgreement
+        return fromLeftOk || toArrivedOk || (!contradicted && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
     }
 
     /**

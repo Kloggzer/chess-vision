@@ -18,6 +18,7 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -47,7 +48,11 @@ class CnnFrame(
     val gridOccluded: Long = 0L,
     /** Offline replay may supply the byte-identical result of an earlier visual pass. */
     val cachedObservation: CnnObservation? = null,
-)
+    /** The same map still being read beside the inference; joined only when the snapshot is built. */
+    val gridOccludedAsync: CompletableFuture<Long>? = null,
+) {
+    fun gridOccludedSquares(): Long = gridOccludedAsync?.join() ?: gridOccluded
+}
 
 fun interface CnnFrameSource {
     /** @return null when no crop frame is pending. Called on the observer thread only. */
@@ -318,7 +323,7 @@ class CnnObserver(
                     warped = frame.warped,
                     gray = frame.gray,
                     fen = startFen,
-                    gridOccluded = frame.gridOccluded,
+                    gridOccluded = frame.gridOccludedSquares(),
                 ),
             )
         }

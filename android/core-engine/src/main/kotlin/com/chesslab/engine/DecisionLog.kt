@@ -200,6 +200,12 @@ internal fun EngineState.debugPayload(): DebugPayload {
         cnnConfThr = config.cnnConfThr,
         minConfidentBoard = config.minConfidentBoard,
         minConfidentRecovery = config.minConfidentRecovery,
+        frameGate = lastFrameGate,
+        engineSeq = lastInputSeq,
+        stableFrames = stableCount,
+        requiredStableFrames = settleFrames,
+        bufferedFrames = grayBuf.size,
+        holdRemainingMs = ((holdUntil - nowS) * MS_PER_SECOND).coerceAtLeast(0.0),
     )
 }
 

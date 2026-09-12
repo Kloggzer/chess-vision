@@ -122,6 +122,7 @@ internal class EngineState(
     }
 
     var stableCount: Int = 0
+    var lastFrameGate: String? = null
     var holdUntil: Double = 0.0
     var lastCur: GrayImage? = null
     var lastCurBgr: BgrImage? = null
@@ -134,6 +135,12 @@ internal class EngineState(
     var restSettled: Boolean = false
     var motion: Double = 0.0
     var lastMotionTs: Double = 0.0
+
+    /** The full motion hold; `holdUntil` may open detection earlier (`commitHoldS`). */
+    var refHoldUntil: Double = 0.0
+
+    /** > 0: the reference came from an early commit and is re-captured at this time. */
+    var refProvisionalUntil: Double = 0.0
     var motionSinceRef: Boolean = false
     var occlGridActive: Boolean = false
     var gridCoverage: Double = 1.0

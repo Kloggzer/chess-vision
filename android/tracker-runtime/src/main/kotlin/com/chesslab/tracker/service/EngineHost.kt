@@ -70,6 +70,8 @@ class TrackerEngineOps(
     /** The diff engine takes every reading it can get; `evaluationDue` sorts them out afterwards. */
     override fun wantsCnnRead(): Boolean = true
 
+    override fun verifyWaiting(): Boolean = engine.verifyWaiting()
+
     override fun apply(action: EngineAction): List<TrackerEvent> =
         when (action) {
             is EngineAction.Undo -> engine.undo()
@@ -178,6 +180,8 @@ class EngineHost(
      * engine, and a wrong answer costs one skipped inference, never state.
      */
     fun wantsCnnRead(): Boolean = ops.wantsCnnRead()
+
+    fun verifyWaiting(): Boolean = ops.verifyWaiting()
 
     /** Constant for the life of this host — the engine is chosen at restart, like every seed value. */
     val reads: FrameReads get() = ops.reads
