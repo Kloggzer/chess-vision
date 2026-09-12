@@ -216,13 +216,15 @@ class FramePipeline<T>(
     /**
      * The crop warp for THIS frame, on demand after the engine step: a fresh candidate wants its
      * verifying observation now, not on the next frame the request/serve handshake would reach.
-     * Nothing to do while the store still holds an untaken warp or the frame was skipped.
+     * Nothing to do while the store still holds an untaken warp or the frame was skipped. The
+     * warp is EXTRA: it leaves a request standing so the regular cadence keeps its frames — a
+     * shifted cadence lost 45 plies of 20-57-45 to a parity-sensitive alarm recovery (2026-09-12).
      */
     fun cropFrameNow(): Boolean {
         val input = emitted ?: return false
         if (!config.verifyObserveNow || !cropStore.idle) return false
         stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
-        cropStore.served()
+        cropStore.request()
         return true
     }
 

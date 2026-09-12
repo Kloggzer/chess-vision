@@ -82,6 +82,10 @@ class FramePipelineOrderTest {
         pipeline.onFrame(FakeImage(), 1280, 720, 1_100L)
         assertTrue(pipeline.cropFrameNow())
         assertEquals(listOf(2L), stages.cropSeqs)
+        // Extra, not instead: the next frame still serves the regular request.
+        store.take()
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_150L)
+        assertEquals(listOf(2L, 3L), stages.cropSeqs)
         stages.luma = 12.0
         pipeline.onFrame(FakeImage(), 1280, 720, 1_200L)
         store.take()
