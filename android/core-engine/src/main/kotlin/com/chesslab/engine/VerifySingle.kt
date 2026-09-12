@@ -340,7 +340,9 @@ private class Signals(
         // agrees 2/2 either way; the CNN's own derived move is the square it did look at
         // (00-39-57 ply 15, 2026-09-12). A confident different derivation is not a confirmation.
         val contradicted = cnnUci != null && cnnUci != pendingUci && cnnAgreement >= minAgreement
-        return fromLeftOk || toArrivedOk || (!contradicted && captureArrived && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
+        // Before every rung-2 path: the lifted capturer also empties FROM, and the derived move
+        // agrees with a bishop still in the hand.
+        return captureArrived && (fromLeftOk || toArrivedOk || (!contradicted && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES))
     }
 
     /**

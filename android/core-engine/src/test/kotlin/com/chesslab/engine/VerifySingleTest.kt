@@ -57,6 +57,11 @@ class VerifySingleTest {
         val stillTheVictim = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "bP"))
         val waiting = pendingState(uci = "e4d5", fen = fen)
         repeat(2) { waiting.glance(cnn, stillTheVictim) }
+        // The lifted pawn also empties e4, and a derive that agrees must not commit either.
+        val derived = VerifyEvaluator(occAgree = 1.0, occN = 2, deriveMove = "e4d5", deriveAgreement = 1.0)
+        val lifted = pendingState(uci = "e4d5", fen = fen)
+        repeat(2) { lifted.glance(derived, stillTheVictim) }
+        assertEquals(emptyList<String>(), lifted.history)
         assertEquals(emptyList<String>(), waiting.history)
         assertNotNull(waiting.pending, "the pawn on d5 is still black: nothing has arrived")
 
