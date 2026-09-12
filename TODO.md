@@ -19,6 +19,12 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
+- **Schlagzuege brauchen die Ankunft, nicht die Belegung (2026-09-12):** mit `commitHoldS` unter dem
+  Hold committet 11-59-12 `Bxe4` 17 Frames vor der Label-Stellung — b7 leer, e4 war ohnehin belegt,
+  `verifyMove` sieht 2/2. Rung 2 sollte bei Schlagzuegen den Schlaeger per Identitaet auf dem
+  Zielfeld sehen (`labelConfident`), sonst Fenster. Messen: `splitobs15` gegen `base15g`, 11-59-12
+  52/21 → 73/0 waere der Beweis; `docs/commit-latency.md` §4.
+
 - **Observer-Rundreise am Handy (0,1–0,3 s je Zug):** eine Beobachtung aus der Ruhephase vor dem
   Kandidaten annehmen statt eine nach `pend.seq` zu verlangen; nur am Gerät messbar, Veto-Risiko
   ist die Hand unter der Bewegungsschwelle (`docs/commit-latency.md`).
