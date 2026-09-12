@@ -2,7 +2,7 @@
 
 | Phase | File | State | Note |
 |---|---|---|---|
-| 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 58 Auftraege, 58 eindeutige `id`. 19 pytest, 4 vitest gruen. **Auf der halben Karte gerechnet** — Vorbedingung offen |
+| 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 46 Auftraege auf der VOLLEN Karte, 46 eindeutige `id`. 18 pytest, 4 vitest gruen |
 | 01 | 01-import.md | todo | |
 | 02 | 02-erfassungs-modus.md | todo | |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
@@ -12,7 +12,8 @@
 00 und 01 teilen keine Datei und laufen parallel. 02 braucht 00. 01 und 03 lesen `capture.json`,
 deren Schreiber 02 ist — beide testen gegen eine von Hand geschriebene Datei.
 
-**Vorbedingung:** `uv run python scripts/backfill_brightness.py`, danach `coverage_gaps.py` neu.
+**Vorbedingung erfuellt (2026-09-12):** backfill gelaufen (376 640 Zeilen), Karte und Plan neu.
+Sie war kein Formalismus — 12 der 58 Luecken waren laengst gedeckt.
 
 ## Manual steps
 
@@ -71,10 +72,23 @@ Verkuerzung 0,955–1,025, Median 0,986 ueber 24 Aufnahmen mit `corners`; der Da
 | Kommentarbudget | zweimal zugeschlagen: Modul-Docstring 7 Zeilen, `lib/capture-plan.ts` 6. Beide gekuerzt, nicht ausgenommen |
 | Achsen-Tests | `coverage_gaps.py` ueber `importlib.util.spec_from_file_location` geladen, wie `tests/test_episode_eval.py` |
 
-**Die Vorbedingung ist NICHT erfuellt:** `scripts/backfill_brightness.py` ist geschrieben, aber
-nicht gelaufen. Die 58 Auftraege in `data/reports/capture-plan.json` stehen auf 602 723 von
-979 363 Zeilen. Vor der ersten echten Aufnahme: backfill, dann `coverage_gaps.py`, dann
-`chesslab capture plan` neu.
+**Die Vorbedingung ist erfuellt — und sie hat sich gelohnt.** Backfill ueber alle 376 640
+Komposit-Zeilen, danach Karte und Plan neu:
+
+| | halbe Karte | volle Karte |
+|---|---|---|
+| duenne Zellen | 58 | **46** |
+| bei null Belegen | 27 | **16** |
+| nur ueber Licht | 24 | **12** |
+
+**12 Luecken waren laengst gedeckt** (`bR`/hell/`hell` trug 194, `wR`/dunkel/`sehr dunkel` 179),
+und die gewaehlten Felder verschoben sich (`h3` → `g4`), weil die Kompositen jeden Feldmedian
+mitbestimmen. Keine Luecke kam neu hinzu.
+
+**Ein Rest bleibt offen:** der Backfill lief auf die Seitendatei
+`data/datasets/real13-mix-v7-128/manifest-bright.jsonl`, weil der Ablationslauf denselben
+Datensatz liest. Wenn er durch ist, ueber `manifest.jsonl` schieben — sonst rechnet der naechste
+Aufruf ohne `--manifest` wieder auf der halben Karte.
 
 **Offen:** Fassung 7 ist noch nicht geprueft. Budget 674 Zeilen gegen einen Richtwert von 500 —
 vier Phasen statt drei, jede unter 150.
@@ -88,6 +102,7 @@ plus `/api/capture/plan` und `/api/capture/coverage`. Tests: `tests/test_capture
 gruen, `lib/capture-plan.test.ts` 4 gruen (401-Zweig darunter), `ruff` und beide
 Kommentarbudgets sauber, `tsc --noEmit` sauber.
 
-**Naechster Schritt, exakt:** `uv run python scripts/backfill_brightness.py` laufen lassen,
-danach `uv run python scripts/coverage_gaps.py` und `uv run chesslab capture plan --limit 58`
-neu — erst dann ist der Plan belastbar. Danach Phase 01 (Import ohne Kandidaten-Maschinerie).
+Danach Backfill (376 640 Zeilen), Karte und Plan neu: 46 Auftraege statt 58.
+
+**Naechster Schritt, exakt:** nach dem Ablationslauf `manifest-bright.jsonl` ueber
+`manifest.jsonl` schieben. Dann Phase 01 (Import ohne Kandidaten-Maschinerie).

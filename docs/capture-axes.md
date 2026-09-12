@@ -47,17 +47,29 @@ verteilen sich auf nur 24 Paare aus Figur und Feldfarbe, **22 davon kollidieren*
 erscheint dort erst nach Slice, Export und Dataset-Bau. Wer nach einem Upload einen Balken wandern
 lässt, lügt. Deshalb trägt jede Abdeckungsanzeige ihren `generated_at` mit.
 
-## Vorbedingung: `brightness` fehlt in 38 % des Korpus
+## Die halbe Karte, und was sie falsch sagte
 
-376 640 von 979 363 Manifestzeilen tragen keine `brightness` — alle Kompositen. Die sind aber
+376 640 von 979 363 Manifestzeilen trugen keine `brightness` — alle Kompositen. Die sind aber
 **echtes Material**: 2.5D-Montage echter Bretter mit echten Handplatten, auf demselben Rig gedreht
 (`composite.py:1-4`, `RIG_SCALE = 0.60`). Ihre Helligkeit ist der Grauwert-Mittelwert des Crops
 (`labeling.py:565`) und aus den Pack-Pixeln nachrechenbar; sie wurde nur nie notiert.
 
-Solange sie fehlt, rechnet die Lückenkarte auf **62 % des Korpus**, und manche der 58 Lücken
-könnten längst gedeckt sein — ein Plan darauf schickt den Menschen nach Material, das schon
-daliegt. `scripts/backfill_brightness.py` trägt sie nach; **danach die Karte neu rechnen**, bevor
-ein Plan entsteht.
+`scripts/backfill_brightness.py` hat sie am 2026-09-12 nachgetragen, alle 376 640. Was das an der
+Lückenkarte bewegte:
+
+| | halbe Karte (62 %) | volle Karte |
+|---|---|---|
+| dünne Zellen | 58 | **46** |
+| davon bei null Belegen | 27 | **16** |
+| nur über Licht erreichbar | 24 | **12** |
+
+**12 der 58 Lücken waren längst gedeckt** — `bR` auf hellem Feld im Band `hell` trug 194 Belege,
+`wR` auf dunklem Feld in `sehr dunkel` 179. Ein Plan auf der halben Karte hätte den Menschen nach
+Material geschickt, das schon dalag. Auch die gewählten Felder verschoben sich (`h3` → `g4`), weil
+die Kompositen die Medianhelligkeit jedes Feldes mitbestimmen.
+
+Die Regel daraus: **nach jedem Re-Slice und jedem neuen Datensatz erst backfillen, dann die Karte,
+dann den Plan.** Die Reihenfolge ist keine Formalie, sie war hier ein Viertel der Aufträge.
 
 ## Wie die Pose gerechnet wird
 
