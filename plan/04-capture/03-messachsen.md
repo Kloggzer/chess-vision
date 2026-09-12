@@ -1,10 +1,10 @@
-# Phase 02 — Hoehe und Ausrichtung messbar machen
+# Phase 03 — Hoehe und Ausrichtung messbar machen
 
 ## Why
 
 Die App steuert nach Hoehe und Ausrichtung, aber **beide stehen in keinem Manifest**. Ohne
 Erfassung waere die naechste Aufnahme so blind wie die 24 bisherigen, die alle bei Verkuerzung
-0,955–1,025 liegen. Ohne diese Phase nimmt 01 auf, ohne dass es jemand messen kann.
+0,955–1,025 liegen. Ohne diese Phase nimmt 02 auf, ohne dass es jemand messen kann.
 
 ## Design (entschieden — nicht neu entwerfen)
 
@@ -25,7 +25,7 @@ Ort: `src/chesslab/capture_plan.py` (von 00 angelegt, hier erweitert).
 
 ### `capture.json` lesen
 
-Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 01. Diese Phase **liest nur** und
+Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 02. Diese Phase **liest nur** und
 spiegelt die Form als `TypedDict` (`CaptureSession`, `CaptureStep`), damit beide Seiten der Naht
 benannt sind. Fehlt die Datei, ist die Aufnahme `"unbekannt"` — nie `"normal"`.
 
@@ -103,7 +103,7 @@ sie zaehlen unter `"unbekannt"`, ohne Warnung — das ist kein Fehler, sondern i
 
 ## Do NOT
 
-- Keine Android-Datei — das ist 01. `capture.json` nicht schreiben, nur lesen.
+- Keine Android-Datei — das ist 02. `capture.json` nicht schreiben, nur lesen.
 - `log.jsonl` nicht um Spalten erweitern: die Pose wird gerechnet, nicht gespeichert, sonst
   veraltet eine Kopie nach einem Re-Slice still.
 - Keine Aufnahme nachtraeglich mit einer erfundenen Hoehe versehen.

@@ -1,4 +1,4 @@
-# Phase 01 — Android-Modul `:capture`
+# Phase 02 — Android-Modul `:capture`
 
 ## Why
 
@@ -18,28 +18,23 @@ Compose und die OpenCV-Runtime von `:app` uebernehmen — ohne Letztere fehlen 3
 | Session schreiben | `:tracker-runtime` | `record/SessionRecorder.kt`: `frames/%04d.jpg` (`:114`), `log.jsonl` (`:89`), `session.yaml` (`:176`), `corners` `[a8,h8,h1,a1]` (`:70-72`) |
 | Upload, Kopplung | `:tracker-runtime` | `sync/HttpIngestClient.kt`, `sync/SyncSettings.kt` |
 | Geometrie | `:core-geometry` | `Aruco`, `Corners`, `QuadRefine`, `GridCorrection`, `GridLines`, `ProjectiveFit`, `Warp`, `Crops` |
-| **Kamera** | **selbst** | siehe unten |
+| Kamerabindung, Kalibrierer | `:board-setup` (Phase 01) | `BoardCamera.kt`, `ArucoCalibrator.kt` |
+| Brett-FEN | `:core-engine` (Phase 01) | `board/ReadingFen.kt`, `fenOf(Map<String, String>)` |
 
-**Kamera: eigene, minimale Bindung** — alle neun CameraX-Dateien liegen in `:app`, das kein Modul
-einbinden kann. Preview plus Einzelbild, **genau ein** `bindToLifecycle`; „EIN Kamera-Besitzer"
-gilt je Prozess. Die Governors (`ExposureGovernor.kt`, `FocusGovernor.kt`) liegen in
-`:tracker-runtime` und waeren erreichbar, bleiben aber draussen: eine stehende Stellung braucht
-keine Nachfuehrung. Entscheidung, keine Unmoeglichkeit.
-
-**Kalibrier-Ablauf nachgebaut:** `ArucoCalibrator` liegt in `:app` und ist nicht erreichbar, also
-ruft `:capture` die `:core-geometry`-Bausteine selbst der Reihe nach auf — doppelte ABLAUFLOGIK,
-keine doppelte Mathematik. Als Schuld in `STATUS.md` notieren.
+**Nichts davon wird hier gebaut.** Phase 01 hat `BoardCamera` und `ArucoCalibrator` nach
+`:board-setup` gehoben; `:capture` haengt sich daran. Ein Standbild ist das zuletzt gelieferte
+Analysebild — wer einen `ImageCapture` einfuehrt, hat ein zweites Kameramuster gebaut. Die
+Governors (`ExposureGovernor.kt`, `FocusGovernor.kt`, in `:tracker-runtime`) bleiben draussen:
+eine stehende Stellung braucht keine Nachfuehrung. Entscheidung, keine Unmoeglichkeit.
 
 ### Der FEN je Schritt — der Kern dieser Phase
 
 `SessionRecorder.capture(writer, ply, fen, moveSan, corners)` will einen FEN. Ein gezielter Aufbau
 IST einer: leeres Brett plus die Figuren aus `place`.
 
-```kotlin
-/** `place` -> Brett-FEN. Nachgemessen: GameState("8/8/8/8/8/7Q/8/8 w - - 0 1").label_for("h3")
- *  gibt `wQ`, also labelt der bestehende Slice-Pfad die Aufnahme ohne Sonderweg. */
-fun fenOf(place: List<Placement>): String
-```
+`place` wird zu `Map<String, String>` und geht in **`fenOf` aus `:core-engine`** (Phase 01) —
+kein eigener FEN-Bauer. Nachgemessen: `GameState("8/8/8/8/8/7Q/8/8 w - - 0 1").label_for("h3")`
+gibt `wQ`, der bestehende Slice-Pfad labelt die Aufnahme also ohne Sonderweg.
 
 `ply` = Index des Drehschritts, **0-basiert und 0 Grad bei Schritt 0** (`orientation_deg = ply * 45`).
 `moveSan` = `null`.

@@ -27,9 +27,10 @@ Vorzeichentest 7/7, p = 0,0078** (`docs/plan-98/00-plan.md`, Abschnitt „Ergebn
 2. **Ein Auftrag verspricht kein Helligkeitsband.** Kein Feld hat „sehr hell" als haeufigstes
    Band; der Planer nennt ein FELD (das hellste bzw. dunkelste seiner Farbe), und was erreicht
    wurde, misst Phase 02 hinterher.
-3. **`:capture` baut seine eigene CameraX-Bindung.** `:tracker-runtime` ist `java-library`; alle
-   neun CameraX-Dateien liegen in `:app`, das kein Modul einbinden kann. „Ein Kamera-Besitzer"
-   gilt je Prozess. Wiederverwendet werden die reinen JVM-Teile.
+3. **Geteilt statt dupliziert.** Alle neun CameraX-Dateien liegen in `:app`, das kein Modul
+   einbinden kann — also wandern die 139 Zeilen Kalibrierung und rund 80 Zeilen Bindung in ein
+   neues `:board-setup`, aus dem BEIDE Apps ziehen (Phase 01). „Ein Kamera-Besitzer" gilt je
+   Prozess, ein zweites APK darf binden; eine zweite Implementierung braucht es dafuer nicht.
 4. **Abdeckung ist NICHT in Echtzeit.** `coverage-gaps.json` entsteht aus einem GEBAUTEN Datensatz.
    Die App zeigt Fortschritt gegen den PLAN und die Abdeckung mit ihrem Erzeugungszeitpunkt. Ein
    Balken, der sich nach dem Upload nicht bewegt, waere eine Luege.
@@ -41,12 +42,17 @@ Vorzeichentest 7/7, p = 0,0078** (`docs/plan-98/00-plan.md`, Abschnitt „Ergebn
 
 | # | Datei | Konzern | Abhaengig von |
 |---|---|---|---|
-| 00 | `00-planer-api.md` | Planer, Schema, zwei Routen | — (**landet ALLEIN, zuerst**) |
-| 01 | `01-capture-app.md` | Android-Modul `:capture` | 00 |
-| 02 | `02-messachsen.md` | Hoehe und Ausrichtung messbar | 00, und liest was 01 schreibt |
+| 00 | `00-planer-api.md` | Planer, Schema, zwei Routen | — (**landet ALLEIN**) |
+| 01 | `01-extraktion.md` | `fenOf` oeffnen, `:board-setup` aus `:app` | — (**landet ALLEIN**) |
+| 02 | `02-capture-app.md` | Android-Modul `:capture` | **00 und 01** |
+| 03 | `03-messachsen.md` | Hoehe und Ausrichtung messbar | 00 |
 
-01 und 02 laufen nach 00 parallel. 02 kann seine Tests gegen eine von Hand geschriebene
-`capture.json` fahren und braucht 01 nicht fertig.
+00 und 01 sind beide Vertragslieferanten und koennen **parallel** laufen — sie teilen keine Datei.
+02 braucht beide fertig. 03 haengt nur an 00.
+
+**01 ist die einzige Phase, die `:app` anfassen darf**, und sie aendert kein Verhalten. Ohne sie
+schriebe 02 drei zweite Implementierungen: Kamerabindung, Kalibrier-Ablauf und ein `fenOf`, das
+`core-engine/board/ReadingFen.kt` bereits rechnet.
 
 ## Protokoll
 
@@ -100,11 +106,16 @@ Baseline-Eintraege. `ktlintFormat` benutzen, nicht nachahmen.
 | `platform/app/lib/capture-plan.ts` | 00 | — | TS-Typen, aus dem Schema abgeschrieben |
 | `platform/app/lib/capture-plan.test.ts` | 00 | — | |
 | `docs/capture-axes.md` | 00 | 01, 02 | dauerhafte Fakten |
-| `android/capture/**` | 01 | — | neues Modul, eigener `applicationId` |
-| `android/settings.gradle.kts` | 01 | — | eine Zeile `include(":capture")` |
-| `android/config/comment-budget.txt` | 01 | — | nur falls der Ratchet es verlangt |
-| `capture.json` (Format) | **01** | 02 liest | Schreiber ist 01, Leser 02 |
-| `scripts/coverage_gaps.py` | — (existiert) | 02 | neue Achsen |
+| `android/core-engine/.../ReadingFen.kt` | — (existiert) | **01** | `fenOf(Map)` aufspalten |
+| `android/board-setup/**` | 01 | — | neues Android-Library-Modul |
+| `android/app/.../geometry/ArucoCalibrator.kt` | — (existiert) | **01** | wird verschoben |
+| `android/app/.../camera/TrackerCamera.kt` | — (existiert) | **01** | Bindung wandert |
+| `android/capture/**` | 02 | — | neues Modul, eigener `applicationId` |
+| `android/settings.gradle.kts` | 01 und 02 | — | je eine `include`-Zeile |
+| `android/config/comment-budget.txt` | 01, 02 | — | nur falls der Ratchet es verlangt |
+| `docs/capture-session.schema.json` | 02 | — | Form von `capture.json` |
+| `capture.json` (Inhalt) | **02** | 03 liest | Schreiber ist 02, Leser 03 |
+| `scripts/coverage_gaps.py` | — (existiert) | 03 | neue Achsen |
 
 ## Artefakt-Hoheit
 
@@ -119,7 +130,8 @@ Kotlin schreiben sie ab, keine Sprache ist Vorbild der anderen.
 | Phase | fertig, wenn |
 |---|---|
 | 00 | Planer erzeugt Auftraege mit eindeutiger `id`, Schema liegt, beide Routen antworten (401 ohne Kopplung), `docs/capture-axes.md` steht, Tests gruen |
-| 01 | APK baut, nimmt auf, schreibt `capture.json` und einen gueltigen FEN je Schritt, laedt ueber den BESTEHENDEN Ingest hoch |
-| 02 | Eine Session traegt Hoehe und Ausrichtung, `coverage_gaps.py` wertet beide als Achsen aus |
+| 01 | `fenOf(Map)` existiert einmal, `:board-setup` traegt Kalibrierer und Bindung, **`:app` unveraendert im Verhalten und vollstaendig gruen** |
+| 02 | APK baut, nimmt auf, schreibt `capture.json` und einen gueltigen FEN je Schritt, laedt ueber den BESTEHENDEN Ingest hoch |
+| 03 | Eine Session traegt Hoehe und Ausrichtung, `coverage_gaps.py` wertet beide als Achsen aus |
 
 Den vollen Gate-Lauf macht der Orchestrator.
