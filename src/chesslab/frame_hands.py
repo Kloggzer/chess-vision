@@ -1,11 +1,8 @@
-"""Welche EXPORTIERTEN Frames eine Hand am Brett tragen — `data/reports/frame-hands.jsonl`.
-DERIVED aus `scan.jsonl`, jeder Lauf schreibt sie ganz neu.
-
-Die Frage gilt dem BRETT, nicht der Zelle: `framescan.classify` benennt ein Frame nur `occluded`,
-wenn nicht schon `stale` oder `changed` gewonnen hat, und verliert die Hand-Aussage damit auf
-97 % der `changed`-Frames. Der Gate-Wert selbst ueberlebt das.
+"""Welche EXPORTIERTEN Frames eine Hand am Brett tragen — `data/reports/frame-hands.jsonl`,
+DERIVED aus `scan.jsonl`. `framescan.classify` benennt ein Frame nur dann `occluded`, wenn nicht
+schon `stale` oder `changed` gewonnen hat, und verliert die Hand-Aussage damit auf 97 % der
+`changed`-Frames — der Gate-Wert selbst ueberlebt das.
 """
-
 from __future__ import annotations
 
 from datetime import UTC, datetime
