@@ -119,8 +119,8 @@ def build_trunk(backbone: str, in_chans: int = 3, pretrained: bool = False) -> t
     )
 
     if backbone in CELLNET_PRESETS:
-        widths, patch = CELLNET_PRESETS[backbone]
-        return CellNet(widths, patch, 0, in_chans=in_chans), widths[-1]
+        widths, patch, pool = CELLNET_PRESETS[backbone]
+        return CellNet(widths, patch, 0, in_chans=in_chans, pool=pool), widths[-1]
     if backbone == "smallcnn":
         m = SmallCNN(1, in_channels=in_chans)
         feat = m.head.in_features

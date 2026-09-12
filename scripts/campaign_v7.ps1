@@ -32,7 +32,11 @@ $arms = @(
   # Die Ablation: `rot` aenderte ZWEI Parameter zusammen und testet damit das Paket, nicht den
   # Anteil. Diese beiden trennen es - gegen dieselben Seeds von `p4a` und `rot`.
   [pscustomobject]@{ Tag = "r90"; Backbone = "boardattn:cellnet_p4"; Extra = @("--rot90") },
-  [pscustomobject]@{ Tag = "hfl"; Backbone = "boardattn:cellnet_p4"; Extra = @("--hflip-p", "0.5") }
+  [pscustomobject]@{ Tag = "hfl"; Backbone = "boardattn:cellnet_p4"; Extra = @("--hflip-p", "0.5") },
+  # A1: die Zelle bleibt 2x2 aufgeloest, statt zu einem Vektor gemittelt zu werden. Auf dem
+  # GEWINNENDEN Rezept, nicht auf der Baseline - die Frage ist, ob es oben drauf noch etwas holt.
+  # +0,148 MMAC/Crop gegen `rot`, also rund 0,4 ms je Session auf dem SM8650.
+  [pscustomobject]@{ Tag = "g2"; Backbone = "boardattn:cellnet_p4g2"; Extra = @("--rot90", "--hflip-p", "0.5") }
 )
 
 $Arms = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })

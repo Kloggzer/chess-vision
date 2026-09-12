@@ -117,3 +117,39 @@ def test_cellnet_presets_build_and_stay_size_agnostic():
     x = torch.randn(1, CELLS, 3, 128, 128)
     with torch.no_grad():
         assert torch.equal(m(x), m.cell_head(m.trunk(x.flatten(0, 1))))
+
+
+def test_the_2x2_pool_keeps_every_contract_the_global_pool_held():
+    """A1: die Zelle bleibt raeumlich aufgeloest, aber Breite und Groessenfreiheit aendern sich nicht."""
+    from chesslab.training.model import CELLNET_PRESETS
+
+    widths, patch, pool = CELLNET_PRESETS["cellnet_p4g2"]
+    assert (widths, patch) == CELLNET_PRESETS["cellnet_p4"][:2] and pool == 2
+
+    m = build_model("cellnet_p4g2", 14).eval()
+    with torch.no_grad():
+        for size in (80, 128):
+            assert m(torch.randn(2, 3, size, size)).shape == (2, 14)
+
+
+def test_the_pooled_trunk_hands_the_board_head_the_same_width():
+    """Sonst waere der Vergleich mit `cellnet_p4` einer zweier Kopfgroessen, nicht zweier Trunks."""
+    from chesslab.training.boardnet import build_trunk
+
+    _, plain = build_trunk("cellnet_p4")
+    _, pooled = build_trunk("cellnet_p4g2")
+
+    assert plain == pooled
+
+
+def test_the_pool_is_what_makes_the_difference_not_the_weights():
+    """Auf einem Bild mit nur EINER hellen Ecke muss 2x2 etwas anderes sehen als der Mittelwert."""
+    from chesslab.training.model import CellNet
+
+    m = CellNet((8, 16), 4, 0, pool=2).eval()
+    x = torch.zeros(1, 3, 32, 32)
+    x[:, :, :16, :16] = 1.0
+    flipped = torch.flip(x, dims=(3,))
+
+    with torch.no_grad():
+        assert not torch.allclose(m(x), m(flipped))

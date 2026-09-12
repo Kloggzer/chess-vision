@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 _TIMM_BACKBONE_ALIASES = {
     # Common shorthand for the 0.35-width MobileNetV4 small variant in timm.
@@ -259,11 +260,15 @@ class SmallCNN(nn.Module):
 #: Trunk-Leiter fuer die Geschwindigkeitsfrage: (Breiten, Patch-Stride). Der Stem ist eine
 #: Patchify-Faltung statt zweier dichter 3x3 — die kosten in `mnv4_035` die Haelfte aller MACs,
 #: und ein entzerrter Zellcrop braucht keine ImageNet-Kantenbank. Messwerte: `docs/`-Bericht.
+#: Dritter Eintrag: auf wie viel die Zelle am Ende gepoolt wird. 1 ist der Global-Average-Pool,
+#: 2 haelt ein 2x2-Raster - der einzige Architekturkandidat mit Bezug zur gemessenen Fehlermechanik
+#: (Blickrichtung IN der Zelle, `docs/plan-98/00-plan.md`).
 CELLNET_PRESETS = {
-    "cellnet_p4":  ((32, 64, 64, 128, 128, 192), 4),
-    "cellnet_p4w": ((32, 64, 96, 160, 192, 256), 4),
-    "cellnet_p8":  ((24, 48, 64, 96, 128, 192), 8),
-    "cellnet_p8w": ((32, 64, 96, 160, 192, 256), 8),
+    "cellnet_p4":    ((32, 64, 64, 128, 128, 192), 4, 1),
+    "cellnet_p4g2":  ((32, 64, 64, 128, 128, 192), 4, 2),
+    "cellnet_p4w":   ((32, 64, 96, 160, 192, 256), 4, 1),
+    "cellnet_p8":    ((24, 48, 64, 96, 128, 192), 8, 1),
+    "cellnet_p8w":   ((32, 64, 96, 160, 192, 256), 8, 1),
 }
 
 
@@ -282,7 +287,7 @@ class CellNet(nn.Module):
     """
 
     def __init__(self, widths: tuple[int, ...], patch: int, num_classes: int,
-                 in_chans: int = 3) -> None:
+                 in_chans: int = 3, pool: int = 1) -> None:
         super().__init__()
         self.stem = nn.Sequential(nn.Conv2d(in_chans, widths[0], patch, patch, bias=False),
                                   batchnorm2d(widths[0]), nn.ReLU(inplace=True))
@@ -290,10 +295,19 @@ class CellNet(nn.Module):
         self.body = nn.Sequential(*[_dw_pw(a, b, s) for a, b, s
                                     in zip(widths[:-1], widths[1:], strides, strict=True)])
         self.num_features = widths[-1]
+        # `pool > 1` haelt die Zelle raeumlich aufgeloest, statt sie zu einem Vektor zu mitteln.
+        # Die Projektion zurueck auf `widths[-1]` ist Absicht: Kopf, Export und Metriken sehen
+        # dieselbe Breite, der Arm unterscheidet sich also nur in dieser einen Stelle.
+        self.pool = pool
+        self.proj = nn.Linear(widths[-1] * pool * pool, widths[-1]) if pool > 1 else nn.Identity()
         self.head = nn.Linear(widths[-1], num_classes) if num_classes else nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.body(self.stem(x)).mean((2, 3)))
+        feat = self.body(self.stem(x))
+        # Adaptiv, damit der Trunk groessenagnostisch bleibt - 80 px liefert 3x3, 128 px 4x4.
+        flat = (feat.mean((2, 3)) if self.pool == 1
+                else self.proj(F.adaptive_avg_pool2d(feat, self.pool).flatten(1)))
+        return self.head(flat)
 
 
 
@@ -341,8 +355,8 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
     if backbone == "smallcnn":
         return SmallCNN(num_classes, in_channels=in_chans, norm=norm)
     if backbone in CELLNET_PRESETS:
-        widths, patch = CELLNET_PRESETS[backbone]
-        return CellNet(widths, patch, num_classes, in_chans=in_chans)
+        widths, patch, pool = CELLNET_PRESETS[backbone]
+        return CellNet(widths, patch, num_classes, in_chans=in_chans, pool=pool)
     if backbone == "mobilenet_v3_small":
         from torchvision import models
 
