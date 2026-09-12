@@ -27,7 +27,12 @@ THIN = 200
 UNREACHABLE = 500
 
 
-def band_of(value: float) -> str:
+def band_of(value: float | None) -> str:
+    """`None` ist NICHT dunkel. Alle 376 640 Komposit-Zeilen tragen keine `brightness`, und ein
+    `or 0.0` warf sie geschlossen ins dunkelste Band - der Rest des Codes nimmt umgekehrt 255.0
+    an (`training/data.py:186`). Beides waere geraten, also bekommen sie ein eigenes Band."""
+    if value is None:
+        return "unbekannt"
     for lo, hi, name in BANDS:
         if lo <= value < hi:
             return name
@@ -44,8 +49,9 @@ def tally(dataset: str) -> Counter:
             r = json.loads(line)
             if r["label"] == "empty" or float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
                 continue
+            b = r.get("brightness")
             seen[(r["label"], str(r.get("square_color") or "?"),
-                  band_of(float(r.get("brightness") or 0.0)))] += 1
+                  band_of(None if b is None else float(b)))] += 1
     return seen
 
 
