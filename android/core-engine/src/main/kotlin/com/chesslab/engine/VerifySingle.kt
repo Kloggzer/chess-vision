@@ -142,6 +142,12 @@ private fun EngineState.ladder(
     move: Move,
 ): List<TrackerEvent> {
     val votes = config.verifyObsVotes
+    // Early = the motion hold has not run out (`commitHoldS`): no verdict until the move's
+    // squares have been SEEN settled, no vote either — the glance simply does not count.
+    if (nowS < refHoldUntil && !sightSettled(boardSnap, move)) {
+        note = "early: waiting to see ${board.san(move)} settled (${sights.size} sights)"
+        return emptyList()
+    }
     return when {
         // 1) Occupancy says the believed board is unchanged → shadow. `minConfidentBoard` is the
         //    blind-glance guard: under a hand `resyncCheck` matches VACUOUSLY, and a near-blind

@@ -2,6 +2,7 @@ package com.chesslab.engine
 
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
+import com.github.bhlangonijr.chesslib.move.Move
 
 /**
  * Maximum age of a CNN snapshot that may still arbitrate an occlusion; older says nothing about THIS
@@ -189,4 +190,46 @@ internal fun EngineState.liveExpiry(expiry: DoubleArray): Long {
         if (nowS < expiry[i]) live = live.with(i)
     }
     return live
+}
+
+/** Per square, not hand-shaped: a single covered square hides that square's evidence just as well. */
+internal fun EngineState.recordSight(snap: CnnSnapshot) {
+    var covered = snap.gridOccluded
+    var confident = 0L
+    var occupied = 0L
+    val thr = config.cnnConfThr
+    for (i in 0 until Squares.COUNT) {
+        val square = Squares.ALL[i]
+        if (snap.obs.pOccluded(square) > config.pOccludedThr) covered = covered.with(i)
+        if (snap.obs.confident(square, thr)) {
+            confident = confident.with(i)
+            if (snap.obs.occupied(square)) occupied = occupied.with(i)
+        }
+    }
+    sights.addLast(SquareSight(snap.seq, covered.inv(), confident, occupied))
+    while (sights.size > SIGHT_DEPTH) sights.removeFirst()
+}
+
+/**
+ * Inside the motion hold the physical settle is replaced by evidence: the move's squares were seen
+ * unoccluded in the last [TrackerConfig.earlyCommitObs] observations, every one of them already
+ * showing the post-move occupancy. A piece still in the hand covers its target; a half-done castling
+ * has the rook square under the hand; both fail here and wait for the hold.
+ */
+internal fun EngineState.sightSettled(
+    boardSnap: Game,
+    move: Move,
+): Boolean {
+    val need = config.earlyCommitObs
+    if (need <= 0) return true
+    if (sights.size < need) return false
+    val touched = moveTouchedMask(boardSnap, move)
+    val after = boardSnap.copy().also { it.push(move) }
+    var wanted = 0L
+    touched.forEachSquare { if (after.pieceCharAt(it) != null) wanted = wanted.with(it) }
+    return sights.toList().takeLast(need).all { sight ->
+        (sight.visible and touched) == touched &&
+            (sight.confident and touched) == touched &&
+            (sight.occupied and touched) == wanted
+    }
 }

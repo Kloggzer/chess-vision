@@ -49,6 +49,44 @@ class VerifySingleTest {
         assertEquals(false, state.recoveredLast)
     }
 
+    /** Inside the motion hold the commit needs the move's squares seen settled, not the clock. */
+    @Test
+    fun anEarlyCommitNeedsTheMoveSquaresSeenSettled() {
+        val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2)
+
+        fun early(): EngineState =
+            pendingState().also {
+                it.nowS = 10.0
+                it.refHoldUntil = 10.2
+            }
+        val e2 = Squares.index("e2")
+        val e4 = Squares.index("e4")
+        val all = -1L
+        val settled = SquareSight(1, visible = all, confident = all, occupied = 1L shl e4)
+
+        val blind = early()
+        repeat(3) { blind.glance(cnn, VerifyObs()) }
+        assertEquals(emptyList<String>(), blind.history, "no sights at all: the hold stands")
+
+        val covered = early()
+        covered.sights.addLast(settled)
+        covered.sights.addLast(SquareSight(2, visible = all and (1L shl e4).inv(), confident = all, occupied = 1L shl e4))
+        repeat(3) { covered.glance(cnn, VerifyObs()) }
+        assertEquals(emptyList<String>(), covered.history, "the target under the hand is not settled")
+
+        val lifted = early()
+        lifted.sights.addLast(settled)
+        lifted.sights.addLast(SquareSight(2, visible = all, confident = all, occupied = (1L shl e4) or (1L shl e2)))
+        repeat(3) { lifted.glance(cnn, VerifyObs()) }
+        assertEquals(emptyList<String>(), lifted.history, "e2 still occupied: not the post-move board")
+
+        val seen = early()
+        seen.sights.addLast(settled)
+        seen.sights.addLast(SquareSight(2, visible = all, confident = all, occupied = 1L shl e4))
+        repeat(2) { seen.glance(cnn, VerifyObs()) }
+        assertEquals(listOf("e4"), seen.history)
+    }
+
     /** A capture commits on occupancy only once the capturer is SEEN on the target. */
     @Test
     fun aCaptureWaitsUntilTheCapturerIsReadOnTheTarget() {

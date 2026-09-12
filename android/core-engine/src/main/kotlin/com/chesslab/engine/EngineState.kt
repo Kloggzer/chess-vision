@@ -331,6 +331,9 @@ internal class EngineState(
 
     var cnnSnap: CnnSnapshot? = null
 
+    /** The last few observations as bitboards: which squares were seen, and what they showed. */
+    val sights = ArrayDeque<SquareSight>()
+
     var lastCnnTs: Double = 0.0 // recovery-observation cooldown anchor
     var cnnStatus: String? = null // null | "ok" | "mismatch"
     var cnnConflicts: List<String> = emptyList()
@@ -501,3 +504,13 @@ internal data class PendingCapture(
     val san: String,
     val fen: String,
 )
+
+/** One observation reduced to bitboards: visible = neither hand arm flagged the square. */
+internal class SquareSight(
+    val seq: Long,
+    val visible: Long,
+    val confident: Long,
+    val occupied: Long,
+)
+
+internal const val SIGHT_DEPTH = 8

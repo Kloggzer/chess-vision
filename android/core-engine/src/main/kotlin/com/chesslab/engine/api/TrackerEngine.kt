@@ -37,6 +37,7 @@ import com.chesslab.engine.legalMoveFor
 import com.chesslab.engine.markStuck
 import com.chesslab.engine.performResync
 import com.chesslab.engine.reachable
+import com.chesslab.engine.recordSight
 import com.chesslab.engine.refuseIllegalMove
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
@@ -154,6 +155,7 @@ class TrackerEngine(
             // position-conditioned view.
             val rawSnap = snap.copy(obs = snap.obs.rawObservation())
             state.cnnSnap = rawSnap
+            state.recordSight(rawSnap)
             state.cnnSnapsSeen += 1
             when {
                 state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)

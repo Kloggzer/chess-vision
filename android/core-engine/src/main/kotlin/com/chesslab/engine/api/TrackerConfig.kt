@@ -52,6 +52,10 @@ data class TrackerConfig(
     // Detection may open before `motionHoldS`; the reference is then re-captured once the full hold
     // has passed (2026-09-12). null = the motion hold: commit and reference on the same frame.
     val commitHoldS: Double? = null,
+    // A commit INSIDE the motion hold (only with `commitHoldS`) needs this many consecutive
+    // observations in which the move's squares were unoccluded and already showed the post-move
+    // occupancy: evidence instead of the physical hold (2026-09-13). 0 = the hold alone.
+    val earlyCommitObs: Int = 2,
     // A pending verify warps and observes the CURRENT frame on top of the observer's request/serve
     // alternation (every 2nd frame). 333 → 267 ms median at 15 fps, no score change on 12 recordings.
     val verifyObserveNow: Boolean = true,
