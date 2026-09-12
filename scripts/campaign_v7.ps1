@@ -28,7 +28,11 @@ $env:CHESSLAB_TRAIN_SLOT = "A"
 # Der Arm IST das Rezept: Name, Backbone, und was ihn vom anderen unterscheidet.
 $arms = @(
   [pscustomobject]@{ Tag = "p4a"; Backbone = "boardattn:cellnet_p4"; Extra = @() },
-  [pscustomobject]@{ Tag = "rot"; Backbone = "boardattn:cellnet_p4"; Extra = @("--rot90", "--hflip-p", "0.5") }
+  [pscustomobject]@{ Tag = "rot"; Backbone = "boardattn:cellnet_p4"; Extra = @("--rot90", "--hflip-p", "0.5") },
+  # Die Ablation: `rot` aenderte ZWEI Parameter zusammen und testet damit das Paket, nicht den
+  # Anteil. Diese beiden trennen es - gegen dieselben Seeds von `p4a` und `rot`.
+  [pscustomobject]@{ Tag = "r90"; Backbone = "boardattn:cellnet_p4"; Extra = @("--rot90") },
+  [pscustomobject]@{ Tag = "hfl"; Backbone = "boardattn:cellnet_p4"; Extra = @("--hflip-p", "0.5") }
 )
 
 $Arms = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
