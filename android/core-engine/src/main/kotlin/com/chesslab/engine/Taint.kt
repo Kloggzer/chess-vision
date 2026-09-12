@@ -219,12 +219,22 @@ internal fun EngineState.recordSight(snap: CnnSnapshot) {
 internal fun EngineState.sightSettled(
     boardSnap: Game,
     move: Move,
+): Boolean = sightSettled(boardSnap, listOf(move))
+
+/** The pair form: every square either move touches, against the position after both. */
+internal fun EngineState.sightSettled(
+    boardSnap: Game,
+    moves: List<Move>,
 ): Boolean {
     val need = config.earlyCommitObs
     if (need <= 0) return true
     if (sights.size < need) return false
-    val touched = moveTouchedMask(boardSnap, move)
-    val after = boardSnap.copy().also { it.push(move) }
+    var touched = 0L
+    val after = boardSnap.copy()
+    for (mv in moves) {
+        touched = touched or moveTouchedMask(after, mv)
+        after.push(mv)
+    }
     var wanted = 0L
     touched.forEachSquare { if (after.pieceCharAt(it) != null) wanted = wanted.with(it) }
     return sights.toList().takeLast(need).all { sight ->

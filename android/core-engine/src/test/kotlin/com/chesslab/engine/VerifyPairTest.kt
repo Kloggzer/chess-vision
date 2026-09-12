@@ -27,6 +27,31 @@ class VerifyPairTest {
         assertEquals(DECIDER_CNN_PAIR, state.decisionLog.last().decider)
     }
 
+    /** Inside the motion hold a pair needs all four squares seen settled; without sights it waits. */
+    @Test
+    fun anEarlyPairWaitsForItsSquaresSeenSettled() {
+        val early =
+            pairState().also {
+                it.nowS = 10.0
+                it.refHoldUntil = 10.2
+            }
+        val moves = pairMoves(early, listOf("e2e4", "e7e5"))
+        val cnn = PairRecovery(matchFen = afterFen(early, moves))
+        pairTick(early, cnn, moves, PairObs())
+        assertEquals(emptyList<String>(), early.history)
+
+        val seen =
+            pairState().also {
+                it.nowS = 10.0
+                it.refHoldUntil = 10.2
+            }
+        val all = -1L
+        val occupied = (1L shl Squares.index("e4")) or (1L shl Squares.index("e5"))
+        repeat(2) { seen.sights.addLast(SquareSight(it.toLong(), visible = all, confident = all, occupied = occupied)) }
+        pairTick(seen, cnn, pairMoves(seen, listOf("e2e4", "e7e5")), PairObs())
+        assertEquals(listOf("e4", "e5"), seen.history)
+    }
+
     @Test
     fun pairVerifyRejectsShadow() {
         val state = pairState(cur = grayFrame())

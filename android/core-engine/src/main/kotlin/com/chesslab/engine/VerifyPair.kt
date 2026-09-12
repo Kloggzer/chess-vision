@@ -55,6 +55,12 @@ internal object VerifyPair {
         if (pend == null || state.board.fen() != pend.fen) return emptyList()
         pend.frames++
         pend.lastTickS = state.nowS
+        // Same rule as the single ladder: inside the motion hold no verdict until both moves'
+        // squares were SEEN settled — `a5` was a pair commit under the hand (233929, 2026-09-13).
+        if (state.nowS < state.refHoldUntil && !state.sightSettled(boardSnap, moves)) {
+            state.note = "early: waiting to see the pair settled (${state.sights.size} sights)"
+            return emptyList()
+        }
         return when {
             before.match && nConf >= cnn.minConfidentBoard -> state.acceptShadow(pend)
             // Vor jeder Annahme: ein Farbwiderspruch auf einem sicher gelesenen Feld heisst, dass
