@@ -29,12 +29,17 @@ FORESHORTEN_STEP = 0.05
 EDGE_STEP = 100
 
 
-def tally(dataset: str) -> Counter:
+def manifest_of(dataset: str, override: str = "") -> Path:
     from chesslab.dataset_build import dataset_dir
+
+    return Path(override) if override else dataset_dir(dataset) / "manifest.jsonl"
+
+
+def tally(dataset: str, manifest: str = "") -> Counter:
     from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
     seen: Counter = Counter()
-    with (dataset_dir(dataset) / "manifest.jsonl").open(encoding="utf-8") as fh:
+    with manifest_of(dataset, manifest).open(encoding="utf-8") as fh:
         for line in fh:
             r = json.loads(line)
             if r["label"] == "empty" or float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
@@ -101,22 +106,20 @@ def _bucket(value: float, step: float) -> str:
     return f"{lo:.2f}-{lo + step:.2f}" if step < 1 else f"{int(lo)}-{int(lo + step)}"
 
 
-def axes(dataset: str) -> dict:
+def axes(dataset: str, manifest: str = "") -> dict:
     """Hoehe je Aufnahme, Ausrichtung je PLY, Pose je FRAME — drei verschiedene Verbunde.
 
     Der Nenner ist ein anderer als bei `gaps`: dort zaehlen nur sichtbare Figurenzellen, hier
     ALLE Manifestzeilen, weil Hoehe und Winkel Eigenschaften der Aufnahme sind und nicht der
     Zelle. `rows_counted` macht das explizit, damit niemand die Bloecke gegeneinander rechnet.
     """
-    from chesslab.dataset_build import dataset_dir
-
     facts: dict[str, dict] = {}
     height: Counter = Counter()
     orient: Counter = Counter()
     fore: Counter = Counter()
     edge: Counter = Counter()
     rows = 0
-    with (dataset_dir(dataset) / "manifest.jsonl").open(encoding="utf-8") as fh:
+    with manifest_of(dataset, manifest).open(encoding="utf-8") as fh:
         for line in fh:
             r = json.loads(line)
             rows += 1
@@ -139,10 +142,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", default="real13-mix-v7-128")
     ap.add_argument("--json", default="data/reports/coverage-gaps.json")
+    ap.add_argument("--manifest", default="", help="Statt des Datensatz-Manifests lesen.")
     ap.add_argument("--no-axes", action="store_true", help="Nur die Luecken, ohne Achsenblock.")
     args = ap.parse_args()
 
-    seen = tally(args.dataset)
+    seen = tally(args.dataset, args.manifest)
     g = gaps(seen)
     by_fix = Counter(x["fix"] for x in g)
     print(f"{args.dataset}: {len(g)} duenne Zellen von {len(PIECES) * 2 * len(BANDS)} "
@@ -154,7 +158,7 @@ def main() -> int:
 
     payload = {"dataset": args.dataset, "thin_below": THIN, "gaps": g}
     if not args.no_axes:
-        payload["axes"] = axes(args.dataset)
+        payload["axes"] = axes(args.dataset, args.manifest)
         a = payload["axes"]
         print(f"\nAchsen ueber {a['rows_counted']} Zeilen:")
         for name in ("height", "orientation_deg", "foreshorten", "edge_px"):

@@ -451,6 +451,7 @@ def capture_plan_cmd(
     out: Annotated[
         Path, typer.Option("--out", help="Wohin der Plan geschrieben wird.")
     ] = Path("data/reports/capture-plan.json"),
+    manifest: str = typer.Option("", "--manifest", help="Statt des Datensatz-Manifests lesen."),
 ) -> None:
     """Aus `coverage-gaps.json` konkrete Aufnahmeauftraege machen.
 
@@ -466,7 +467,7 @@ def capture_plan_cmd(
         print(f"[FAIL] {gaps_file} fehlt — erst `uv run python scripts/coverage_gaps.py`.")
         raise typer.Exit(1)
     gaps = json.loads(gaps_file.read_text(encoding="utf-8")).get("gaps") or []
-    bright = square_brightness(dataset_dir(dataset) / "manifest.jsonl")
+    bright = square_brightness(manifest or dataset_dir(dataset) / "manifest.jsonl")
     if not bright:
         print(f"[FAIL] {dataset}: keine Zeile traegt `brightness` — erst "
               f"`uv run python scripts/backfill_brightness.py`.")

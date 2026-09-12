@@ -28,6 +28,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", default="real13-mix-v7-128")
     ap.add_argument("--size", type=int, default=80, help="Aus welchen Packs gelesen wird.")
+    ap.add_argument("--out", default="", help="Zieldatei; leer heisst: das Manifest selbst. "
+                                              "Waehrend ein Lauf den Datensatz liest, hier eine "
+                                              "Seitendatei angeben.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -64,7 +67,7 @@ def main() -> int:
         del mm
         print(f"  {name}: {len(group)} Zeilen", flush=True)
 
-    out = dd / "manifest.jsonl"
+    out = Path(args.out) if args.out else dd / "manifest.jsonl"
     with out.open("w", encoding="utf-8") as fh:
         for r in rows:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
