@@ -130,13 +130,30 @@ Matten und Label-Korrekturen, 979 363 Zeilen, `split-pin.json`).
 - Alle 14 Läufe mit lückenlosen Epochenindizes 0–59 geprüft.
 
 **Auflösung, sechs gepaarte Seeds** (`rot` auf `real13-mix-v7-80`, identische Zeilen und Split,
-nur ein anderer Pack): 128 px gewinnt **6/6**, gepaartes Minimum +0,0104, und **0 von 6** Seeds
-erreichen bei 80 px die 99 %. Die 80er-Streuung ist zudem doppelt so gross. Preis: 7,5–8,0 ms je
+nur ein anderer Pack): 128 px gewinnt **6/6**, gepaartes Minimum +0,0104. Kein Seed erreicht bei
+80 px im **Schwanzmittel** die 99 % (0,9694 bis 0,9884).
+
+> **Das ist eine Rangfolge-Aussage, kein Ergebnis** — 0.4 laesst Schwanzmittel nur zum Ordnen der
+> Arme zu. Nach der Checkpoint-Regel gemessen ueberschreiten einzelne 80-px-Laeufe die 99 % sehr
+> wohl (`_arch80v6/rot-s42` 0,9904 auf dem eigenen Val, 0,9912 auf dem v7-Val;
+> `_acc80v7/rot-s42` 0,9982) — der Aufschlag von `best` gegen das Niveau reicht in diesen Laeufen
+> von +0,0010 bis +0,0310, Faktor 31, und kuerzt sich deshalb nicht heraus. Beide Zahlen sind
+> Val-Zahlen: `best` wird auf demselben Val ausgewaehlt, auf dem es gemeldet wird. Ob 80 px die
+> 99 % traegt, ist damit **nicht gemessen**, sondern offen bis zur Testgruppe (3.4/3.5). Die
+> Aufloesungsentscheidung stuetzt sich auf das 6/6 der Rangfolge, nicht auf eine 99-%-Schwelle. Die 80er-Streuung ist zudem doppelt so gross. Preis: 7,5–8,0 ms je
 Brett gegen 4,3–4,9. Die Entscheidung dafür fällt aber erst im Kotlin-Replay, nicht hier.
 
 **Was damit NICHT gezeigt ist** — und das trennt das Ergebnis vom Ziel: es sind Val-Zahlen auf
 EINER Aufnahme (~876 unabhängige Platzierungen), es sind Schwanzmittel und kein auslieferbarer
 Checkpoint, und die eingefrorene Testgruppe ist unberührt.
+
+**Was aus dieser Abnahme NICHT zitiert werden darf.** Die Schranke gegen den Siegerfluch erlaubt
+**2 Kandidaten bei 1 Seed**, 4 bei 3, 13 bei 7. Auf Seed 42 allein laufen heute drei Arme: `r90`,
+`hfl` (Ablation) und `g2` (A1). Für eine **Zerlegung** ist das vertretbar — sie kürt keinen
+Sieger, und der Abstand ist gross (`r90` 0,9989 gegen `p4a` 0,9652, das 177-fache der Seed-sd von
+0,0019). Als **Auswahl** ist keiner der drei zitierfähig: sobald aus `g2` eine
+Architekturentscheidung werden soll, braucht sie ihre drei Seeds, und dasselbe gilt für jede
+Aussage der Form „Arm X ist besser als Y" aus diesen Läufen.
 
 ## Offene Punkte, die nach der Abnahme noch fehlen
 
@@ -206,8 +223,18 @@ einzeln (ein Seed — bei einem Seed entscheidbar nur, wenn der Abstand gross is
 
 Falls die Bedingung doch einträte, dann **A1** aus dem Architektur-Handoff und sonst nichts:
 jede Zelle auf 2×2 poolen statt global, flach projizieren, gegen eine parameterangeglichene
-Kontrolle. Begründung oben. R1/R2/R3 und die Distillation bleiben liegen, bis ein gemessener
-Grund für sie existiert — eine Fehlermechanik, die sie adressieren.
+Kontrolle. Begründung oben. **R1/R2/R3** bleiben liegen, bis ein gemessener Grund für sie
+existiert — eine Fehlermechanik, die sie adressieren.
+
+**Die Distillation gehört nicht in diesen Satz** (korrigiert 2026-09-12). Sie zielt auf keine
+Mechanik: sie überträgt die Ausgabeverteilung eines besseren Modells und wirkt als
+Regularisierung, kann also gerade dann tragen, wenn keine benennbare Mechanik übrig ist — unser
+heutiger Zustand. Mit dem Mechanik-Kriterium wäre sie per Konstruktion nie fällig. Ihre Bedingung
+ist eine andere und ist prüfbar: **es gibt einen Lehrer, der auf unserem Val nachweislich besser
+ist als der Schüler.** Den gibt es heute nicht — der beste Lauf steht bei 0,9988. Der offene
+Einwand gegen einen Foundation-Lehrer (DINOv3) ist ebenfalls kein Mechanik-Argument: unser Eingang
+ist ein 128-px-Zellcrop aus einem geradegezogenen Brett, kein natürliches Bild, und ob dichte
+Merkmale darauf etwas Übertragbares tragen, ist ungemessen.
 
 Kandidat 2 (relative Positions-Bias) ist billig und exportierbar, zielt aber auf Nachbarschaft,
 nicht auf Blickrichtung. Als Zweitarm zulässig, wenn das Budget es hergibt (4 bei 3 Seeds).
