@@ -49,6 +49,23 @@ class VerifySingleTest {
         assertEquals(false, state.recoveredLast)
     }
 
+    /** A capture commits on occupancy only once the capturer is SEEN on the target. */
+    @Test
+    fun aCaptureWaitsUntilTheCapturerIsReadOnTheTarget() {
+        val fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+        val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2)
+        val stillTheVictim = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "bP"))
+        val waiting = pendingState(uci = "e4d5", fen = fen)
+        repeat(2) { waiting.glance(cnn, stillTheVictim) }
+        assertEquals(emptyList<String>(), waiting.history)
+        assertNotNull(waiting.pending, "the pawn on d5 is still black: nothing has arrived")
+
+        val landed = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "wP"))
+        val done = pendingState(uci = "e4d5", fen = fen)
+        repeat(2) { done.glance(cnn, landed) }
+        assertEquals(listOf("exd5"), done.history)
+    }
+
     /** gxh3 read 2/2 on its own squares while the CNN derived g3: local agreement is no confirmation. */
     @Test
     fun aConfidentDifferentDerivationBlocksTheOccupancyConfirm() {

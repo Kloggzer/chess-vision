@@ -297,6 +297,15 @@ private class Signals(
     private val capture: Boolean = isCapture(boardSnap, move)
     private val castling: Boolean = isCastling(boardSnap, move)
 
+    /** The mover as the CNN names it (`wB`, `bP`): the piece a capture must show on its target. */
+    private val mover: String? =
+        boardSnap.pieceCharAt(move.from.ordinal)?.let { (if (it.isUpperCase()) "w" else "b") + it.uppercaseChar() }
+
+    // A capture's target is occupied before AND after, so occupancy cannot see the arrival —
+    // `Bxe4` committed 17 frames before the bishop landed (11-59-12, 2026-09-12). The identity
+    // read must show the capturer on the target; until then the window keeps looking.
+    val captureArrived: Boolean = !capture || (obs.labelConfident(toSq, cnn.confThr) && obs.label(toSq) == mover)
+
     val toEmptyConf: Boolean = toConf && !obs.occupied(toSq)
     val fromLeftConf: Boolean = fromConf && !obs.occupied(fromSq)
     val toArrivedConf: Boolean = toConf && obs.occupied(toSq) && !capture
@@ -331,7 +340,7 @@ private class Signals(
         // agrees 2/2 either way; the CNN's own derived move is the square it did look at
         // (00-39-57 ply 15, 2026-09-12). A confident different derivation is not a confirmation.
         val contradicted = cnnUci != null && cnnUci != pendingUci && cnnAgreement >= minAgreement
-        return fromLeftOk || toArrivedOk || (!contradicted && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
+        return fromLeftOk || toArrivedOk || (!contradicted && captureArrived && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES)
     }
 
     /**

@@ -16,6 +16,7 @@ internal class VerifyObs(
     private val confidence: Map<String, Boolean> = mapOf("e4" to true, "e2" to true),
     /** Squares whose `occluded` class dominates — the 14-class head's own hand report. */
     private val occluded: Set<String> = emptySet(),
+    private val labels: Map<String, String> = emptyMap(),
 ) : CnnObservation {
     override fun occupied(square: String): Boolean = occupancy[square] == true
 
@@ -29,7 +30,7 @@ internal class VerifyObs(
         thr: Double,
     ): Boolean = confidence[square] == true
 
-    override fun label(square: String): String? = null
+    override fun label(square: String): String? = labels[square]
 
     override fun conf(square: String): Double = if (confidence[square] == true) 1.0 else 0.0
 
