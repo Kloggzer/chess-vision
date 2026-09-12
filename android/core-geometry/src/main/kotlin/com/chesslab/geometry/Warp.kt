@@ -4,7 +4,6 @@ import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
-import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Size
@@ -94,7 +93,6 @@ fun warpBoardForCrops(
     corners: List<DoubleArray>,
     dst: Mat? = null,
     homographyCache: HomographyCache? = null,
-    remapCache: RemapCache? = null,
 ): Mat {
     val bs = geom.boardSize
     val b = cropBorderPx(geom).toDouble()
@@ -112,83 +110,10 @@ fun warpBoardForCrops(
     val side = (bs + 2 * cropBorderPx(geom)).toDouble()
     val out = dst ?: Mat()
     WorkProfiler.span(WorkOperation.CROP_WARP) {
-        if (remapCache != null) {
-            remapCache.remap(frame, out, m, side.toInt())
-        } else {
-            Imgproc.warpPerspective(frame, out, h, Size(side, side))
-        }
+        Imgproc.warpPerspective(frame, out, h, Size(side, side))
     }
     h.release()
     return out
-}
-
-private const val INTER_BITS = 5
-private const val INTER_TAB_SIZE = 1 shl INTER_BITS
-
-/**
- * `warpPerspective` rebuilds its fixed-point coordinate tables on every call; the corners change
- * only when LiveAlign moves them, so the tables are kept and the warp becomes one `remap`. Built
- * exactly as OpenCV builds them (LU inverse, `INTER_BITS` fixed point), so the output is byte-equal.
- */
-class RemapCache {
-    private var key = DoubleArray(0)
-    private var side = 0
-    private var xy: Mat? = null
-    private var alpha: Mat? = null
-
-    internal fun remap(
-        src: Mat,
-        dst: Mat,
-        h: DoubleArray,
-        side: Int,
-    ) {
-        if (this.side != side || !key.contentEquals(h)) build(h, side)
-        Imgproc.remap(src, dst, xy, alpha, Imgproc.INTER_LINEAR)
-    }
-
-    private fun build(
-        h: DoubleArray,
-        side: Int,
-    ) {
-        val forward = Mat(H_DIM, H_DIM, CvType.CV_64F).apply { put(0, 0, *h) }
-        val inverse = Mat()
-        Core.invert(forward, inverse, Core.DECOMP_LU)
-        val m = DoubleArray(H_DIM * H_DIM)
-        inverse.get(0, 0, m)
-        forward.release()
-        inverse.release()
-        val coords = ShortArray(side * side * 2)
-        val frac = ShortArray(side * side)
-        var i = 0
-        for (y in 0 until side) {
-            for (x in 0 until side) {
-                var w = m[6] * x + m[7] * y + m[8]
-                w = if (w != 0.0) INTER_TAB_SIZE / w else 0.0
-                val fx = ((m[0] * x + m[1] * y + m[2]) * w).coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble())
-                val fy = ((m[3] * x + m[4] * y + m[5]) * w).coerceIn(Int.MIN_VALUE.toDouble(), Int.MAX_VALUE.toDouble())
-                val ix = Math.round(fx).toInt()
-                val iy = Math.round(fy).toInt()
-                coords[2 * i] = (ix shr INTER_BITS).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-                coords[2 * i + 1] = (iy shr INTER_BITS).coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-                frac[i] = ((iy and (INTER_TAB_SIZE - 1)) * INTER_TAB_SIZE + (ix and (INTER_TAB_SIZE - 1))).toShort()
-                i += 1
-            }
-        }
-        xy?.release()
-        alpha?.release()
-        xy = Mat(side, side, CvType.CV_16SC2).apply { put(0, 0, coords) }
-        alpha = Mat(side, side, CvType.CV_16UC1).apply { put(0, 0, frac) }
-        key = h.copyOf()
-        this.side = side
-    }
-
-    fun release() {
-        xy?.release()
-        alpha?.release()
-        xy = null
-        alpha = null
-        side = 0
-    }
 }
 
 /**

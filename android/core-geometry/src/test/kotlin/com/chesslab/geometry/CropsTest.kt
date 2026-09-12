@@ -73,25 +73,4 @@ class CropsTest {
             bordered.release()
         }
     }
-
-    /** The cached remap must be byte-equal to `warpPerspective` — it feeds the CNN. */
-    @Test
-    fun cachedRemapEqualsWarpPerspective() {
-        val frame = SyntheticBoard.frame()
-        Core.randu(frame, 0.0, 255.0)
-        val geometry = BoardGeometry(boardSize = 576, margin = listOf(0.045, 0.045, 0.045, 0.045)).forNativeCrops()
-        val skewed =
-            listOf(doubleArrayOf(110.0, 95.0), doubleArrayOf(520.0, 120.0), doubleArrayOf(505.0, 530.0), doubleArrayOf(90.0, 490.0))
-        val cache = RemapCache()
-        val plain = warpBoardForCrops(frame, geometry, skewed)
-        val cached = warpBoardForCrops(frame, geometry, skewed, remapCache = cache)
-        val again = warpBoardForCrops(frame, geometry, skewed, remapCache = cache)
-        val diff = Mat()
-        Core.absdiff(plain, cached, diff)
-        assertEquals(0.0, Core.norm(diff, Core.NORM_INF), "remap must reproduce warpPerspective byte for byte")
-        Core.absdiff(plain, again, diff)
-        assertEquals(0.0, Core.norm(diff, Core.NORM_INF), "the second call reuses the tables")
-        listOf(plain, cached, again, diff, frame).forEach(Mat::release)
-        cache.release()
-    }
 }
