@@ -43,6 +43,11 @@ app.add_typer(realgames_app, name="realgames")
 dataset_app = typer.Typer(help="Stage 4 — Dataset consistency.", no_args_is_help=True)
 app.add_typer(dataset_app, name="dataset")
 
+capture_app = typer.Typer(
+    help="Gezielte Erfassung: aus gemessenen Korpusluecken werden Aufnahmeauftraege.",
+    no_args_is_help=True)
+app.add_typer(capture_app, name="capture")
+
 pack_app = typer.Typer(help="Session packs: one memmap per session under data/packs/.",
                        no_args_is_help=True)
 app.add_typer(pack_app, name="pack")
@@ -434,6 +439,49 @@ def session_pack_cmd(
         raise typer.Exit(1) from None
     again = " (ersetzt)" if res.get("replaced") else ""
     print(f"[OK] pack {res['pack']}: {res['n']} crops, {res['h']}x{res['w']}, {res['gb']} GB{again}")
+
+
+@capture_app.command("plan")
+def capture_plan_cmd(
+    dataset: str = typer.Option("real13-mix-v7-128", "--dataset", help="Woher die Luecken kommen."),
+    limit: int = typer.Option(10, "--limit", help="Wie viele Auftraege."),
+    gaps_file: Annotated[
+        Path, typer.Option("--gaps", help="Der Bericht von `scripts/coverage_gaps.py`.")
+    ] = Path("data/reports/coverage-gaps.json"),
+    out: Annotated[
+        Path, typer.Option("--out", help="Wohin der Plan geschrieben wird.")
+    ] = Path("data/reports/capture-plan.json"),
+) -> None:
+    """Aus `coverage-gaps.json` konkrete Aufnahmeauftraege machen.
+
+    Ein Auftrag nennt ein FELD und sagt kein Helligkeitsband zu — kein Feld traegt „sehr hell"
+    als haeufigstes Band, gemessen wird hinterher (`docs/capture-axes.md`).
+    """
+    from datetime import UTC, datetime
+
+    from .capture_plan import shots, square_brightness
+    from .dataset_build import dataset_dir
+
+    if not gaps_file.is_file():
+        print(f"[FAIL] {gaps_file} fehlt — erst `uv run python scripts/coverage_gaps.py`.")
+        raise typer.Exit(1)
+    gaps = json.loads(gaps_file.read_text(encoding="utf-8")).get("gaps") or []
+    bright = square_brightness(dataset_dir(dataset) / "manifest.jsonl")
+    if not bright:
+        print(f"[FAIL] {dataset}: keine Zeile traegt `brightness` — erst "
+              f"`uv run python scripts/backfill_brightness.py`.")
+        raise typer.Exit(1)
+    plan = shots(gaps, bright, limit=limit)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"generated_at": datetime.now(UTC).isoformat(), "dataset": dataset,
+                               "gaps_from": str(gaps_file), "shots": plan},
+                              indent=1, ensure_ascii=False), encoding="utf-8")
+    stellung = sum(1 for s in plan if s["fix"] == "Stellung")
+    print(f"[OK] {len(plan)} Auftraege ({stellung} ueber eine Stellung, "
+          f"{len(plan) - stellung} ueber Licht) -> {out}")
+    for s in plan[:5]:
+        wo = ", ".join(f"{p['piece']} auf {p['square']}" for p in s["place"]) or              f"Licht auf Band '{s['light']}' bei {s['reference_square']}"
+        print(f"   {s['id']:28s} {wo}, Hoehe {s['height']}, {s['orientations']} Drehschritte")
 
 
 @pack_app.command("import")
