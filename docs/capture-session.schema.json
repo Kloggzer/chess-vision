@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "capture.json — was eine gezielte Erfassung ueber sich selbst festhaelt",
+  "description": "Geschrieben vom Erfassungs-Modus (Phase 02), gelesen vom Import (01) und von der Achsen-Zaehlung (03). Liegt im Buendel neben log.jsonl, also unter files/sessions/<id>/capture.json.",
+  "type": "object",
+  "required": ["shot_id", "height", "steps"],
+  "additionalProperties": false,
+  "properties": {
+    "shot_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$",
+      "description": "Die id des Auftrags aus capture-plan.json, z. B. 'wq-light-sehr-hell'."
+    },
+    "height": {
+      "type": "string",
+      "enum": ["tief", "normal", "hoch", "unbekannt"],
+      "description": "Kamerahoehe, wie der Auftrag sie verlangt hat. Namen, keine Messlatte."
+    },
+    "reference_square": {
+      "type": "string",
+      "pattern": "^[a-h][1-8]$",
+      "description": "Das Feld, auf dem die Figur steht."
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["ply", "orientation_deg", "video_frame"],
+        "additionalProperties": false,
+        "properties": {
+          "ply": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Der Ply, unter dem das Buendel-Log die Frames dieses Schritts fuehrt."
+          },
+          "orientation_deg": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 359,
+            "description": "Ausrichtung der Figur in Grad, 0 = wie im Partieaufbau."
+          },
+          "video_frame": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Index des Frames im VIDEO, nicht im Buendel. Der Recorder kennt ihn im Moment der Aufnahme und schreibt ihn mit — dieselbe Zahl, die candidate.json fuer einen Zug unter 'frame' fuehrt. Ohne ihn gibt es keine Verbindung zwischen Buendel-Zeile und Video: das Buendel zaehlt frames/0000.jpg, das obere log.jsonl traegt den Video-Index."
+          },
+          "t": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Sekunden seit Videobeginn. Nur zur Kontrolle, nie als Ersatz fuer video_frame."
+          }
+        }
+      }
+    },
+    "note": { "type": "string", "description": "Freitext des Menschen." }
+  }
+}

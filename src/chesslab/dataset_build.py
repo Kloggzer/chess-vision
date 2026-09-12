@@ -672,9 +672,18 @@ def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
     return {"name": _safe_name(name), "deleted": True}
 
 
+def _frozen_sessions(paths: config.Paths = config.DATA) -> list[str]:
+    """Aufnahmen, die genau einmal ausgewertet werden — `data/TEST-USED.json`, Schluessel `frozen`."""
+    f = paths.root / "TEST-USED.json"
+    if not f.is_file():
+        return []
+    return list(json.loads(f.read_text(encoding="utf-8")).get("frozen") or [])
+
+
 def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: float | None = None,
                prefix: str = "split-f", dry_run: bool = False, force: bool = False,
-               allow_asymmetric: bool = False, paths: config.Paths = config.DATA) -> dict:
+               allow_asymmetric: bool = False, include_frozen: bool = False,
+               paths: config.Paths = config.DATA) -> dict:
     """Write k session-grouped `<prefix><i>.json` beside the dataset's own split.
 
     Out-of-fold prediction is what `docs/cross-labeling-literature.md` settles on for finding
@@ -691,6 +700,17 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
     rows = dataset_mod.load_manifest(dd / "manifest.jsonl")
     if k < 2:
         raise ValueError(f"-k must be at least 2, got {k}")
+
+    # Eine eingefrorene Aufnahme darf in KEINEN Fold: sie liegt in genau einem als Test und in
+    # allen anderen im Training, und damit ist sie verbrannt. `TEST-USED.json` ist die Sperre.
+    frozen = set(_frozen_sessions(paths)) & {r["session_id"] for r in rows}
+    if frozen and not include_frozen:
+        rows = [r for r in rows if r["session_id"] not in frozen]
+        print(f"[i] {len(frozen)} eingefrorene Aufnahme(n) aus dem Fold-Schnitt genommen: "
+              f"{', '.join(sorted(frozen))}")
+    elif frozen:
+        print(f"[WARN] --include-frozen: {', '.join(sorted(frozen))} landet im Training anderer "
+              f"Folds und ist danach als Test wertlos.")
 
     # `build_dataset` dedups TRAIN only, so a session the main split held out carries every crop
     # and one it trained on carries a thinned selection. A fold that moves such a session into

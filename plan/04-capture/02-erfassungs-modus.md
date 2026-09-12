@@ -61,15 +61,24 @@ fun fenOf(board: Map<String, String>, blank: String = "empty"): String
 
 ### `capture.json`, geschrieben von dieser Phase
 
-`docs/capture-session.schema.json` (neu, gehoert 02) ist die Autoritaet. Liegt im Buendel neben
-`log.jsonl`; Phase 01 bricht ohne sie ab, Phase 03 liest sie.
+`docs/capture-session.schema.json` ist die Autoritaet und **liegt bereits** (geschrieben
+2026-09-13, weil 01 und 03 dagegen bauen). Diese Phase implementiert sie, sie entwirft sie nicht.
+Die Datei liegt im Buendel neben `log.jsonl`; Phase 01 bricht ohne sie ab, Phase 03 liest sie.
 
 ```json
-{"id": "wq-light-sehr-hell", "height": "normal", "light": null,
- "steps": [{"ply": 0, "orientation_deg": 0, "place": [{"square": "h3", "piece": "wQ"}]}]}
+{"shot_id": "wq-light-sehr-hell", "height": "normal", "reference_square": "h3",
+ "steps": [{"ply": 0, "orientation_deg": 0, "video_frame": 117, "t": 3.933}]}
 ```
 
 Die Ausrichtung ist **deklariert**, nicht gemessen — die App hat zum Drehen aufgefordert.
+
+**`video_frame` ist Pflicht und der Grund, warum 01 ueberhaupt funktioniert.** Es ist der Index
+des Frames im VIDEO, nicht im Buendel: das Buendel zaehlt `frames/0000.jpg`, das obere `log.jsonl`
+traegt den Video-Index, und ohne diese Zahl gibt es keine Bruecke. Der Recorder kennt sie im
+Moment der Aufnahme — derselbe Wert, den `candidate.json` fuer einen Zug unter `moves[].frame`
+fuehrt (`{'ply': 1, 'san': 'e4', 'frame': 117, 't': 3.933}`). Eine Erfassung hat keine Zuege, also
+muss dieser Schritt sie schreiben. **Ohne sie ist die Aufnahme unbrauchbar** und der Import bricht
+ab; das faellt nicht auf, wenn man es nur „vergisst".
 
 ### Plan holen
 
@@ -119,6 +128,8 @@ deshalb steht ihr Erzeugungszeitpunkt daneben.
 - **Integrationstest gegen den ECHTEN `SessionRecorder`** (`app/build.gradle.kts:228` hat
   `testFixtures(project(":tracker-runtime"))`): danach liegen `log.jsonl` mit acht Zeilen und
   aufsteigendem `ply`, `session.yaml` mit `mode: capture`, und `capture.json` mit acht `steps`.
+- **Jeder `step` traegt ein `video_frame`**, und die acht sind streng aufsteigend — der Test
+  prueft das, sonst waere ein hartkodiertes 0 gruen.
 
 Dazu einmal `gradlew.bat :app:test --tests "*CommentBudgetTest*" --rerun-tasks`.
 

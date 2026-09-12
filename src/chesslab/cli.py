@@ -1835,6 +1835,9 @@ def dataset_folds_cmd(
     seed: int | None = typer.Option(None, "--seed", help="Default: the dataset's own split seed."),
     val_frac: float | None = typer.Option(None, "--val-frac", help="Default: the dataset's own."),
     prefix: str = typer.Option("split-f", "--prefix", help="File name prefix, e.g. split-f0.json."),
+    include_frozen: bool = typer.Option(False, "--include-frozen",
+                                        help="Eingefrorene Aufnahmen doch mitschneiden — sie sind "
+                                             "danach als Test wertlos."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Report only, write nothing."),
     force: bool = typer.Option(False, "--force", help="Overwrite existing fold files."),
     allow_asymmetric: bool = typer.Option(False, "--allow-asymmetric",
@@ -1848,7 +1851,8 @@ def dataset_folds_cmd(
 
     try:
         db.make_folds(name, k, seed=seed, val_frac=val_frac, prefix=prefix,
-                     dry_run=dry_run, force=force, allow_asymmetric=allow_asymmetric)
+                      dry_run=dry_run, force=force, allow_asymmetric=allow_asymmetric,
+                      include_frozen=include_frozen)
     except (ValueError, FileNotFoundError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None

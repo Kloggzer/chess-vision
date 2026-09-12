@@ -32,9 +32,10 @@ chesslab capture import <name> [--profile <name>]
 
 1. Buendel ueber `stored_session_dirs(name)`; genau eines erwartet, sonst Abbruch mit der Liste.
 2. `log.jsonl` des Buendels lesen: je Zeile `frame` (`frames/%04d.jpg`), `ply`, `fen`, `corners`.
-3. `capture.json` daneben lesen (Phase 02 schreibt sie). Fehlt sie: **Abbruch** — ohne sie ist
-   nicht belegt, dass die Aufnahme eine Erfassung ist, und ein Partie-Buendel darf hier nicht
-   durchrutschen.
+3. `capture.json` daneben lesen (Phase 02 schreibt sie, Form: `docs/capture-session.schema.json`).
+   Fehlt sie: **Abbruch** — ohne sie ist nicht belegt, dass die Aufnahme eine Erfassung ist, und
+   ein Partie-Buendel darf hier nicht durchrutschen. Fehlt einem Schritt `video_frame`: ebenfalls
+   **Abbruch**, siehe unten.
 4. Zeilen bauen, `rewarp_boards` rufen, das obere `log.jsonl` schreiben.
 
 Die Zeilen tragen dieselben Schluessel wie eine exportierte Aufnahme (`frame`, `ply`, `fen`,
@@ -42,12 +43,26 @@ Die Zeilen tragen dieselben Schluessel wie eine exportierte Aufnahme (`frame`, `
 danach sehen keinen Unterschied.** Welche das genau sind, sagt eine bestehende Aufnahme:
 `data/recordings/2026-09-06-21-29-35/log.jsonl`, erste Zeile lesen und gleichziehen.
 
-### Frame-Namen
+### Frame-Namen — der Video-Index wird GELESEN, nicht hergeleitet
 
 Das Buendel zaehlt `frames/0000.jpg`, der Video-Frame-Index ist ein anderer. Das obere `log.jsonl`
 traegt den **Video-Index**, wie der Export (`realgames.py:380`, `frames/{idx:06d}.png`) — sonst
-stimmen die Bretter nicht mit ihren Namen ueberein. Die Zuordnung Bundle-Zeile → Video-Index kommt
-aus der Reihenfolge: die n-te Zeile ist der n-te ANGEFORDERTE Frame.
+stimmen die Bretter nicht mit ihren Namen ueberein.
+
+**Die Zuordnung kommt aus `capture.json`, Feld `steps[].video_frame`** (Schema:
+`docs/capture-session.schema.json`, geschrieben von 02). Nicht aus der Reihenfolge: „die n-te
+Zeile ist der n-te angeforderte Frame" waere zirkulaer — um Frames anzufordern, muesste man ihre
+Indizes schon kennen, und das Buendel-Log traegt nur `frames/0000.jpg` und eine Wanduhrzeit.
+
+Der Recorder KENNT die Zahl im Moment der Aufnahme: derselbe Wert steht fuer einen Zug in
+`candidate.json` unter `moves[].frame` (gemessen: `{'ply': 1, 'san': 'e4', 'frame': 117,
+'t': 3.933, …}`), und `known_segments` liest genau den. Eine Erfassung hat keine Zuege, also
+schreibt 02 ihn je Schritt in `capture.json`.
+
+**Fehlt `video_frame`, bricht der Import ab.** Ein stiller Fehler waere hier teuer: die Bretter
+bekaemen Namen von Frames, die sie nicht zeigen, und alles danach saehe korrekt aus. Dieselbe
+Klasse traf uns schon einmal — bei der Seek-Messung lieferten 2 von 7 Sonden andere Pixel,
+waehrend `POS_FRAMES` den gefragten Index meldete (`docs/export-decode.md`).
 
 ## Steps
 
@@ -63,6 +78,11 @@ aus der Reihenfolge: die n-te Zeile ist der n-te ANGEFORDERTE Frame.
 - Die geschriebenen Zeilen tragen dieselben Schluessel wie die erste Zeile von
   `data/recordings/2026-09-06-21-29-35/log.jsonl` (der Test liest sie und vergleicht die Menge).
 - `ply` wird unveraendert uebernommen; `moveSan` taucht nirgends auf.
+- **Der Frame-Name der geschriebenen Zeile ist `frames/{video_frame:06d}.png`**, gelesen aus
+  `capture.json` — der Test setzt zwei Schritte mit `video_frame` 117 und 193 und erwartet genau
+  diese Namen, NICHT 0 und 1.
+- Ein `capture.json` ohne `video_frame` in einem Schritt fuehrt zum Abbruch, und nichts wird
+  geschrieben.
 - Zwei Aufrufe hintereinander erzeugen dasselbe Ergebnis (der zweite ueberschreibt sauber).
 
 ## Acceptance
@@ -72,6 +92,8 @@ aus der Reihenfolge: die n-te Zeile ist der n-te ANGEFORDERTE Frame.
   trifft **nichts**.
 - `grep -n "def rewarp_boards\|Recording(" src/chesslab/capture_import.py` trifft beide — die
   Schwerarbeit wird gerufen, nicht nachgebaut.
+- `grep -n "enumerate\|video_frame" src/chesslab/capture_import.py`: `video_frame` kommt vor, und
+  kein `enumerate` erzeugt einen Frame-Namen.
 - `uv run ruff check src/chesslab/capture_import.py` sauber.
 
 ## Do NOT

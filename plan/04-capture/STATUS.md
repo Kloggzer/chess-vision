@@ -93,6 +93,16 @@ Aufruf ohne `--manifest` wieder auf der halben Karte.
 **Offen:** Fassung 7 ist noch nicht geprueft. Budget 674 Zeilen gegen einen Richtwert von 500 —
 vier Phasen statt drei, jede unter 150.
 
+**Nachgezogen 2026-09-13, vor der Umsetzung von 01/02.** Phase 01 leitete den Video-Frame-Index
+aus der Reihenfolge her („die n-te Zeile ist der n-te angeforderte Frame") — das ist zirkulaer:
+um Frames anzufordern, muesste man ihre Indizes schon kennen, und das Buendel-Log traegt nur
+`frames/0000.jpg` und eine Wanduhrzeit. Der Recorder KENNT die Zahl (sie steht fuer einen Zug in
+`candidate.json` unter `moves[].frame`), sie wurde nur nie ins Buendel geschrieben.
+
+Behoben: `docs/capture-session.schema.json` liegt jetzt und fuehrt `steps[].video_frame` als
+Pflichtfeld. 02 schreibt es, 01 liest es und bricht ohne es ab. Das Schema ist damit die
+Autoritaet, gegen die beide Phasen parallel bauen koennen.
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
