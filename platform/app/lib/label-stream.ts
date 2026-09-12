@@ -15,6 +15,7 @@ import { type AuditFlag, loadAuditFlags } from "@/lib/audit-flags";
 import { type PositionFlag, loadPositionFlags } from "@/lib/position-flags";
 import { type CorrectionViolation, loadCorrectionViolations } from "@/lib/correction-violations";
 import { type HandFlag, loadHandFlags } from "@/lib/hand-flags";
+import { type FrameHand, handKey, loadFrameHands } from "@/lib/frame-hands";
 import { isArchived } from "@/lib/meta";
 import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
 import { frameReviews, unusableBoards } from "@/lib/review-notes";
@@ -150,6 +151,12 @@ export type LabelStream = {
    * different statement from "nothing is covered" and reads as `—`. Squares at 0 are dropped.
    */
   coverage: Record<string, Record<string, number>>[];
+  /**
+   * Per session, `stem -> Hand am BRETT` aus `frame-hands.jsonl`. Ein fehlender Stem heisst nur
+   * dann "keine Hand", wenn `handsMeasured` die Session traegt — sonst wurde nie gemessen.
+   */
+  frameHands: Record<string, FrameHand>[];
+  handsMeasured: boolean[];
 };
 
 /** Newest recording first, the same reading of the two naming schemes the queues use. */
@@ -190,6 +197,9 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const recent: StreamRecent[] = [];
   const decided: Record<string, string>[] = [];
   const coverage: Record<string, Record<string, number>>[] = [];
+  const frameHands: Record<string, FrameHand>[] = [];
+  const handsMeasured: boolean[] = [];
+  const gateRows = await loadFrameHands();
   const auditRows = await loadAuditFlags();
   const handRows = await loadHandFlags();
   const positionRows = await loadPositionFlags();
@@ -291,6 +301,13 @@ export async function loadLabelStream(): Promise<LabelStream> {
       stem,
       Object.fromEntries(Object.entries(frame.coverage).filter(([, v]) => v > 0)),
     ])));
+    frameHands.push(Object.fromEntries(
+      stems.flatMap((row) => {
+        const hand = gateRows.rows.get(handKey(id, row.stem));
+        return hand ? [[row.stem, hand] as const] : [];
+      }),
+    ));
+    handsMeasured.push(gateRows.measured.has(id));
     cells.push(...controlCells(index, stems, byStem, judged));
     for (const row of await recentVerdicts(name, RECENT_MAX)) {
       const board = byStem.get(row.frame);
@@ -316,6 +333,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
     reads: { boards: readBoards, without },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
     coverage,
+    frameHands,
+    handsMeasured,
   };
 }
 

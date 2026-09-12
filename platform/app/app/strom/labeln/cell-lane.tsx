@@ -6,9 +6,10 @@ import { CROP, CropGrid, PAGE } from "@/components/crop-grid";
 import { BoardPeek } from "@/components/board-peek";
 import { PaletteRow } from "@/components/palette-row";
 import type { Correction } from "@/lib/corrections";
+import type { FrameHand } from "@/lib/frame-hands";
 import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
-import { cellCoverage, type LaneCell } from "@/lib/lanes";
+import { cellCoverage, handBeside, type LaneCell } from "@/lib/lanes";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
@@ -17,6 +18,8 @@ export type CellLaneProps = {
   decided: Record<string, string>[];
   /** Per session, `stem -> {square: coverage}` — a page mixes frames, so the lookup is per cell. */
   coverage: Record<string, Record<string, number>>[];
+  /** Per session, `stem -> Hand am BRETT` — die Marke, die dem Crop nicht anzusehen ist. */
+  frameHands: Record<string, FrameHand>[];
   at: number;
   onAt: (at: number) => void;
   /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
@@ -51,6 +54,11 @@ function noteOf(cell: LaneCell, verdict: string | undefined): { note?: string } 
   return text ? { note: text } : {};
 }
 
+/** Die Brett-Hand, wie die Karte sie trägt — `here` heißt: die Rillen nennen dieses Feld mit. */
+function handMark(hand: FrameHand | null, square: string) {
+  return hand ? { boardHand: { gate: hand.gate, squares: hand.grid, here: hand.grid.includes(square) } } : {};
+}
+
 /** What one cell of the page carries before it is written: a class, or one of the two non-classes. */
 type Picks = Record<number, string>;
 
@@ -61,8 +69,8 @@ type Picks = Record<number, string>;
  * class, and one Enter writes the page.
  */
 export function CellLane(props: CellLaneProps) {
-  const { cells, sessions, decided, coverage, at, onAt, reported, onDirty, onDirtyCells, showDone, actionsRef, onFlush } =
-    props;
+  const { cells, sessions, decided, coverage, frameHands, at, onAt, reported, onDirty, onDirtyCells,
+    showDone, actionsRef, onFlush } = props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
   // sobald der Zeiger nur vorbeizieht. Ohne sie kostet der Hover nichts.
@@ -386,6 +394,7 @@ export function CellLane(props: CellLaneProps) {
       {peek && hover !== null && slice[hover] ? (
         <BoardPeek
           caption={`${slice[hover].square} · ${sessions[slice[hover].session].name} · ${slice[hover].stem}`}
+          hands={handBeside(frameHands, coverage, slice[hover])?.grid ?? []}
           square={slice[hover].square}
           src={`/api/board/${sessions[slice[hover].session].name}/${slice[hover].stem}?size=512`}
         />
@@ -398,6 +407,7 @@ export function CellLane(props: CellLaneProps) {
           alt: `${cell.square} @ ${cell.stem}`,
           caption: cell.caption,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
+          ...handMark(handBeside(frameHands, coverage, cell), cell.square),
           ...noteOf(cell, verdictOf(cell)),
           ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),

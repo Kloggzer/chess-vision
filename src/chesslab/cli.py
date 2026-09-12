@@ -987,6 +987,24 @@ def realgames_hand_flags(
               f"mit einem Lauf MIT Occlusion-Kopf")
 
 
+@realgames_app.command("frame-hands")
+def realgames_frame_hands() -> None:
+    """Welche exportierten Frames eine Hand am Brett tragen — die Marke auf jeder Karte.
+
+    Liest `scan.jsonl` (Hand-Gate, 97,7 % Uebereinstimmung mit SAMs Matte auf 9 049 Frames) und
+    dekodiert nichts neu. Eine Aufnahme ohne Scan wird uebersprungen statt handfrei geraten.
+    """
+    from . import frame_hands as frame_hands_mod
+
+    r = frame_hands_mod.frame_hands()
+    print(f"[OK] {r['frames']} Frames mit Hand aus {r['sessions']} Aufnahmen -> {r['path']}")
+    for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
+        print(f"  {sid:34} {n}")
+    if r["without_scan"]:
+        print(f"  ! ohne scan.jsonl uebersprungen ({len(r['without_scan'])}): "
+              f"{', '.join(r['without_scan'][:6])} — `chesslab realgames scan <name>`")
+
+
 @realgames_app.command("position-flags")
 def realgames_position_flags() -> None:
     """Zellen, deren Bild von der Stellung ihres Intervalls abweicht — die Vorlage der Lane.

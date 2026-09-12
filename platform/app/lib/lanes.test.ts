@@ -14,6 +14,7 @@ import {
   reachesPool,
   collapseEvents,
   groupBySquare,
+  handBeside,
   keepPosition,
   laneAccept,
   laneById,
@@ -107,7 +108,8 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [] }],
   boards: [], cells: [], recent: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
-  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], ...over,
+  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
+  frameHands: [{}], handsMeasured: [true], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
@@ -331,6 +333,17 @@ test("erst der Grund, dann die Klasse — eine Seite zeigt eine Frage an einer F
   expect(cells.map((c) => `${c.square}${c.fen_label}`)).toEqual([
     "a2wP", "a5wP", "a3wP", "a4wP", "a1wQ", "a6wQ",
   ]);
+});
+
+test("die Hand am Brett gilt der Karte nur, solange ihr eigenes Feld frei ist", () => {
+  const hands = [{ "000100": { gate: 0.97, grid: ["e4", "e5"] } }];
+  const at = (square: string) => ({ session: 0, stem: "000100", square });
+  // Der Crop sieht frei aus, das Frame traegt trotzdem eine Hand — genau die unsichtbare Marke.
+  expect(handBeside(hands, [{}], at("a1"))?.gate).toBe(0.97);
+  // Verdeckt sagt die Coverage schon; zwei Marken fuer dieselbe Aussage sind eine zu viel.
+  expect(handBeside(hands, [{ "000100": { a1: 0.8 } }], at("a1"))).toBeNull();
+  // Kein Eintrag heisst hier nichts: ob gemessen wurde, sagt `handsMeasured`, nicht diese Zeile.
+  expect(handBeside([{}], [{}], at("a1"))).toBeNull();
 });
 
 test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {

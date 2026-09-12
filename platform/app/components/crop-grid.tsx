@@ -29,6 +29,8 @@ type GridCell = {
   covered?: string;
   /** Das FRAME dieser Karte ist als dirty gemeldet — jede Geschwisterkarte trägt dieselbe Marke. */
   dirty?: boolean;
+  /** Eine Hand am BRETT, während dieses Feld frei ist: der Crop verrät es nicht, der Scan schon. */
+  boardHand?: { gate: number | null; squares: string[]; here: boolean };
 };
 
 export type CropGridProps = {
@@ -73,6 +75,31 @@ function swallowNextContextMenu(): void {
   window.setTimeout(() => document.removeEventListener("contextmenu", eat, true), 2000);
 }
 
+
+/** Eine Hand über einer Fläche — das Brett, nicht dieses Feld. Inline wie `board-frames.tsx`,
+ *  die App zieht für ein Zeichen keine Icon-Bibliothek. */
+function BoardHandMark() {
+  return (
+    <svg aria-hidden className="h-3 w-3 shrink-0" fill="none" viewBox="0 0 16 16">
+      <path
+        d="M4.7 8.6V4.3a.85.85 0 1 1 1.7 0V2.7a.85.85 0 1 1 1.7 0v.4a.85.85 0 1 1 1.7 0v1.3a.85.85 0 1 1 1.7 0v4.2c0 2.1-1.3 3.3-3.4 3.3-1.7 0-2.6-.7-3.3-2L3.1 8.2a.9.9 0 0 1 1.4-1z"
+        fill="currentColor"
+      />
+      <path d="M1 14.6h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+const handTitle = (hand: NonNullable<GridCell["boardHand"]>): string =>
+  [
+    `Hand am Brett (Gate ${hand.gate === null ? "alt, ohne Wert" : hand.gate.toFixed(2)})`,
+    hand.here
+      ? "Die Rillen nennen AUCH DIESES Feld — der Crop sieht trotzdem frei aus."
+      : hand.squares.length > 0
+        ? `Rillen: ${hand.squares.join(" ")}`
+        : "Welche Felder, sagt der Rillen-Sensor auf diesem Frame nicht.",
+    "Der FEN gilt hier nur, wenn die Stellung darunter schon steht.",
+  ].join(" · ");
 
 export function CropGrid(props: CropGridProps) {
   const { cells, cursor, marked, onPick, wrong, onContextPick, onSweep, erasing, paintable,
@@ -228,11 +255,24 @@ export function CropGrid(props: CropGridProps) {
               {cell.dirty ? "🖐 dirty" : "🖐"}
             </button>
           ) : null}
-          {cell.covered ? (
-            <span className="bg-background/70 pointer-events-none absolute top-0 right-0 rounded-bl px-1 font-mono text-[11px] leading-tight tabular-nums text-amber-200">
-              {cell.covered}
-            </span>
-          ) : null}
+          <div className="pointer-events-none absolute top-0 right-0 flex flex-col items-end">
+            {cell.covered ? (
+              <span className="bg-background/70 rounded-bl px-1 font-mono text-[11px] leading-tight tabular-nums text-amber-200">
+                {cell.covered}
+              </span>
+            ) : null}
+            {cell.boardHand ? (
+              <span
+                className={`mt-px flex items-center gap-0.5 rounded-l px-1 font-mono text-[11px] leading-tight tabular-nums ${
+                  cell.boardHand.here ? "bg-amber-500 font-bold text-black" : "bg-background/70 text-amber-300"
+                }`}
+                title={handTitle(cell.boardHand)}
+              >
+                <BoardHandMark />
+                {cell.boardHand.gate === null ? "?" : Math.round(cell.boardHand.gate * 100)}
+              </span>
+            ) : null}
+          </div>
           {/* Unter dem Bild, nie darauf: die Pixel SIND die Entscheidung („einfacher wäre es wenn
               ich das bild ganz sehe und unter der card dann die echten namen", 2026-08-15). */}
           <div className="px-1 py-0.5 font-mono text-[11px] leading-tight">

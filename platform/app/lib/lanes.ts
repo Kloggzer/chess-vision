@@ -10,6 +10,7 @@
 
 import { PIECE_VISIBLE_MAX, coveragePct, isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
+import type { FrameHand } from "@/lib/frame-hands";
 import type { LabelStream, StreamBoard, StreamPositionCell } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
@@ -170,6 +171,21 @@ export function cellCoverage(
 ): string | null {
   const value = coverage[cell.session]?.[cell.stem]?.[cell.square];
   return value === undefined ? null : coveragePct(value);
+}
+
+/**
+ * Die Hand liegt am BRETT, aber nicht auf diesem Feld — dem Crop sieht man das nicht an, und der
+ * FEN eines Frames mitten im Griff ist so belastbar wie die Stellung darunter (User, 2026-09-12).
+ * `null` heisst "keine Hand ODER nie gescannt"; welches von beiden, sagt `handsMeasured`.
+ */
+export function handBeside(
+  hands: Record<string, FrameHand>[],
+  coverage: Record<string, Record<string, number>>[],
+  cell: { session: number; stem: string; square: string },
+): FrameHand | null {
+  const hand = hands[cell.session]?.[cell.stem];
+  if (!hand) return null;
+  return (coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) > PIECE_VISIBLE_MAX ? null : hand;
 }
 
 export type LaneCell = {

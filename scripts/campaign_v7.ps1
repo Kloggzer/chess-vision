@@ -16,8 +16,11 @@ param(
   # aufgebaut werden. 8 GB haben gereicht, 3,67 nicht.
   # Welche Arme, nach Kurzname. Der Aufloesungsvergleich braucht nur den Gewinner.
   [string[]]$Arms = @("p4a", "rot"),
-  [double]$MinFreeGb = 8.0,
-  [int]$RamWaitMax = 3600
+  # Seit die Laeufe fortsetzbar sind, ist ein Speicherstopp billig - die Reserve darf eng sein.
+  [double]$ReserveGb = 1,
+  [double]$MinFreeGb = 4.0,
+  [int]$RamWaitMax = 3600,
+  [int]$MaxTries = 6
 )
 
 $ErrorActionPreference = 'Continue'
@@ -63,9 +66,16 @@ foreach ($seed in $Seeds) {
     if (Test-Path $metrics) {
       $done = (Get-Content $metrics | Measure-Object -Line).Lines
       if ($done -ge $Epochs) { Write-Output "[skip] $($arm.Tag)-s$seed ($done Epochen da)"; continue }
-      $parked = "$out.partial-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-      Write-Output "[redo] $($arm.Tag)-s$seed hat nur $done von $Epochs -> $parked"
-      Move-Item $out $parked
+      # Mit `state.pt` ist ein Teillauf kein Verlust: `--continue` nimmt Gewichte, Optimizer,
+      # Cosine-Position, Sampler-Strom und alle Zufallsstaende wieder auf. Ohne die Datei ist der
+      # Rest unbrauchbar und wird beiseitegelegt, nie geloescht.
+      if (Test-Path (Join-Path $out "state.pt")) {
+        Write-Output "[weiter] $($arm.Tag)-s$seed setzt bei $done von $Epochs fort"
+      } else {
+        $parked = "$out.partial-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Write-Output "[redo] $($arm.Tag)-s$seed hat nur $done von $Epochs und kein state.pt -> $parked"
+        Move-Item $out $parked
+      }
     }
     # Der Lauf stirbt an `--ram-reserve-gb`, wenn beim Start etwas anderes den Speicher haelt --
     # ein offenes WizTree kostete 4 GB und toetete das erste Paar in 2 Minuten. Warten ist billiger
@@ -83,22 +93,38 @@ foreach ($seed in $Seeds) {
     $env:TORCHINDUCTOR_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/inductor/$($arm.Tag)").FullName
     $env:TRITON_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/triton/$($arm.Tag)").FullName
     $started = Get-Date
-    Write-Output "[run ] $($arm.Tag)-s$seed  $(Get-Date -Format 'HH:mm:ss')"
-    uv run chesslab train --backbone $arm.Backbone --no-pretrained --dataset $Dataset --split $Split `
-      --out $out --epochs $Epochs --batch-size 256 --lr 0.01 --sched cosine `
-      --weight-decay 0.01 --head occlusion --seed $seed --low-memory --ram-reserve-gb 4 `
-      --patience 999 --num-workers 2 --epoch-frac 0.35 --weight-cap 3.0 `
-      --board-width 128 --board-layers 2 @($arm.Extra) `
-      --batch-aug --compile-batch-aug --compile-model --fused-adamw *> "$out.log"
-    # `$ran`, NICHT `$epochs`: PowerShell unterscheidet Variablennamen nicht nach Gross- und
-    # Kleinschreibung, also ueberschrieb der Zaehler den Parameter `$Epochs`. Der Abbruch verglich
-    # dann 22 mit 22 und schwieg, und der naechste Lauf startete mit `--epochs 22`.
-    $ran = if (Test-Path $metrics) { (Get-Content $metrics | Measure-Object -Line).Lines } else { 0 }
-    Write-Output ("[done] {0}-s{1} epochen={2} {3:N1} min" -f $arm.Tag, $seed, $ran, ((Get-Date) - $started).TotalMinutes)
-    if ($ran -lt $Epochs) {
-      Write-Error "$($arm.Tag)-s$seed hat nur $ran von $Epochs Epochen. Siehe $out.log"
-      exit 1
+    # Anhalten ist kein Scheitern mehr: ein Speicherstopp kostet die angefangene Epoche, nicht den
+    # Lauf. Abgebrochen wird erst, wenn ein Versuch KEINEN Fortschritt macht - das unterscheidet
+    # "war zu eng" von "kaputt und in der Schleife".
+    $before = -1
+    $attemptNo = 0
+    while ($true) {
+      $attemptNo++
+      $resumeArgs = if (Test-Path (Join-Path $out "state.pt")) { @("--continue") } else { @() }
+      Write-Output "[run ] $($arm.Tag)-s$seed  Versuch $attemptNo  $(Get-Date -Format 'HH:mm:ss')"
+      uv run chesslab train --backbone $arm.Backbone --no-pretrained --dataset $Dataset --split $Split `
+        --out $out --epochs $Epochs --batch-size 256 --lr 0.01 --sched cosine `
+        --weight-decay 0.01 --head occlusion --seed $seed --low-memory --ram-reserve-gb $ReserveGb `
+        --patience 999 --num-workers 2 --epoch-frac 0.35 --weight-cap 3.0 `
+        --board-width 128 --board-layers 2 @($arm.Extra) @($resumeArgs) `
+        --batch-aug --compile-batch-aug --compile-model --fused-adamw *>> "$out.log"
+      # `$ran`, NICHT `$epochs`: PowerShell unterscheidet Variablennamen nicht nach Gross- und
+      # Kleinschreibung, also ueberschrieb der Zaehler den Parameter `$Epochs` - der Abbruch
+      # verglich 22 mit 22 und schwieg, und der naechste Lauf startete mit `--epochs 22`.
+      $ran = if (Test-Path $metrics) { (Get-Content $metrics | Measure-Object -Line).Lines } else { 0 }
+      if ($ran -ge $Epochs) { break }
+      if ($ran -le $before) {
+        Write-Error "$($arm.Tag)-s$seed steht bei $ran von $Epochs und macht keinen Fortschritt. Siehe $out.log"
+        exit 1
+      }
+      if ($attemptNo -ge $MaxTries) {
+        Write-Error "$($arm.Tag)-s$seed nach $attemptNo Versuchen bei $ran von $Epochs. Siehe $out.log"
+        exit 1
+      }
+      $before = $ran
+      Write-Output "[weiter] $($arm.Tag)-s$seed bei $ran von $Epochs, naechster Versuch"
     }
+    Write-Output ("[done] {0}-s{1} epochen={2} {3:N1} min, {4} Versuche" -f $arm.Tag, $seed, $ran, ((Get-Date) - $started).TotalMinutes, $attemptNo)
   }
   Write-Output "=== Seed ${seed}: Paar vollstaendig ==="
 }
