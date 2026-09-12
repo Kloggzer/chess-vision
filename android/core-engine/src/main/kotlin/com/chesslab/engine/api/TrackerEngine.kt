@@ -111,6 +111,7 @@ class TrackerEngine(
             val stateBefore = state.state
             val events = mutableListOf<TrackerEvent>()
             val outcome = loop.step(input)
+            state.lastFrameGate = if (outcome is FrameOutcome.Skip) outcome.reason else "detect"
             if (outcome is FrameOutcome.Detect) {
                 events += state.tryDetect(outcome.cur, outcome.curBgr, outcome.seq, cnn)
             }

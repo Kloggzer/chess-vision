@@ -17,6 +17,12 @@ data class DebugPayload(
     val cnnConfThr: Double,
     val minConfidentBoard: Int,
     val minConfidentRecovery: Int,
+    val frameGate: String? = null,
+    val engineSeq: Long = -1L,
+    val stableFrames: Int = 0,
+    val requiredStableFrames: Int = 0,
+    val bufferedFrames: Int = 0,
+    val holdRemainingMs: Double = 0.0,
 )
 
 /** Text-only to avoid retaining warped BGR frames on the phone. */

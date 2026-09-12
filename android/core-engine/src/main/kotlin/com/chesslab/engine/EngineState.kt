@@ -122,6 +122,7 @@ internal class EngineState(
     }
 
     var stableCount: Int = 0
+    var lastFrameGate: String? = null
     var holdUntil: Double = 0.0
     var lastCur: GrayImage? = null
     var lastCurBgr: BgrImage? = null
