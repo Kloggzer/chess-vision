@@ -492,12 +492,16 @@ def capture_import_cmd(
 ) -> None:
     """Ein Buendel MIT `capture.json` wird zu Brettern — ohne Kandidat und ohne Zugerkennung."""
     from .capture_import import import_capture
+    from .realgames import FIT_FAILED, FIT_KEPT, FIT_SOURCE
 
     try:
         res = import_capture(name, profile)
     except (OSError, ValueError, KeyError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from e
+    fit = res["fit"]
+    print(f"  Grid-Fit: {fit[FIT_SOURCE]} nachgezogen, {fit[FIT_KEPT]} schon auf dem Raster, "
+          f"{fit[FIT_FAILED]} unlesbar — align_worst_px Median {fit['median']}, Mesh auf {fit['mesh']}")
     print(f"[OK] {len(res['rows'])} Bretter -> {res['session_dir']} "
           f"({res['no_mesh']} ohne Mesh, {res['no_frame']} ohne Bild)")
 

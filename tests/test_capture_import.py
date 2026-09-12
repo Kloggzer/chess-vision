@@ -9,7 +9,11 @@ from chesslab import config
 from chesslab.capture_import import import_capture
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-CORNERS = [[20, 20], [300, 20], [300, 220], [20, 220]]
+#: Die wahren Brettecken im Testbild, und das grobe Quad, das das Buendel-Log statt dessen fuehrt
+#: — der Grid-Fit muss es auf die Rillen zurueckziehen, sonst schneidet der Import daneben.
+CORNERS = [[40, 40], [600, 40], [600, 440], [40, 440]]
+COARSE = [[x + 4, y] for x, y in CORNERS]
+BOARD_SIZE = 256
 REFERENCE_LOG = Path("data/recordings/2026-09-06-21-29-35/log.jsonl")
 
 
@@ -22,19 +26,32 @@ def _profile(name="desktop"):
     )
 
     prof = CalibrationProfile(
-        profile=name, camera_index=-1, frame_size=(320, 240), board_size=128,
-        image_corners=CORNERS, homography=compute_homography(CORNERS, 128, 0.0),
-        white_pov=True, crop=CropParams.default(128), margin=0.0, source="test")
+        profile=name, camera_index=-1, frame_size=(640, 480), board_size=BOARD_SIZE,
+        image_corners=CORNERS, homography=compute_homography(CORNERS, BOARD_SIZE, 0.0),
+        white_pov=True, crop=CropParams.default(BOARD_SIZE), margin=0.0, source="test")
     prof.save(profile_path(name))
+
+
+def _board():
+    """Ein Brett mit lesbaren Rillen — der Grid-Fit misst genau die 18 Linien, nichts sonst."""
+    import numpy as np
+
+    img = np.full((480, 640, 3), 170, np.uint8)
+    (x0, y0), w, h = CORNERS[0], 560, 400
+    for k in range(9):
+        x, y = x0 + k * w // 8, y0 + k * h // 8
+        img[y0 - 10:y0 + h + 10, x - 3:x + 3] = 30
+        img[y - 3:y + 3, x0 - 10:x0 + w + 10] = 30
+    return img
 
 
 def _video(path, frames):
     import cv2
-    import numpy as np
 
-    w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (320, 240))
-    for i in range(frames):
-        w.write(np.full((240, 320, 3), 30 + (i % 8) * 20, np.uint8))
+    board = _board()
+    w = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), 10, (640, 480))
+    for _ in range(frames):
+        w.write(board)
     w.release()
 
 
@@ -129,3 +146,19 @@ def test_a_second_run_overwrites_cleanly(tmp_path, monkeypatch):
 
     assert (session / "log.jsonl").read_text(encoding="utf-8") == first
     assert len(list((session / "boards").iterdir())) == 3
+
+
+def test_the_grid_fit_runs_before_the_boards_are_cut(tmp_path, monkeypatch):
+    """Ohne ihn blieben die Ecken das grobe Quad, keine Zeile truege `grid_lines`, und ohne die
+    findet `meshes_for_boards` nichts — jedes Brett kaeme gebogen heraus."""
+    from chesslab.realgames import FIT_SOURCE
+
+    _bundle(tmp_path, monkeypatch)
+    res = import_capture("g")
+
+    assert res["fit"][FIT_SOURCE] == 3, "jeder Frame wurde auf seine eigenen Rillen gezogen"
+    assert res["no_mesh"] == 0
+    for row in res["rows"]:
+        assert row["grid_lines"]["x"] and row["grid_lines"]["y"]
+        assert row["board_straightened"] is True
+        assert row["corners"] != COARSE, "das ArUco-Quad darf nicht stehenbleiben"

@@ -76,12 +76,17 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     bundle = dirs[0]
     rows = capture_rows(bundle, capture_steps(bundle))
     session_dir = realgames.game_dir(name)
-    made = realgames.rewarp_boards(session_dir, rows, load_profile(profile),
-                                   frames=video_frames(realgames.video_path(name), rows))
+    prof, video = load_profile(profile), realgames.video_path(name)
+    # Das ArUco-Quad des Telefons ist grob (CLAUDE.md), und ohne die `grid_lines`, die erst der Fit
+    # schreibt, findet `meshes_for_boards` nichts und jedes Brett bleibt gebogen.
+    fit = realgames.fit_rows_to_grid(rows, prof, frames=video_frames(video, rows))
+    rows = fit["arrived"]
+    made = realgames.rewarp_boards(session_dir, rows, prof, frames=video_frames(video, rows))
     # Eine Zeile ohne Brett benennt eine Datei, die nie geschrieben wurde — hinter dem Ende einer
     # abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
     rows = [r for r in rows if r.get("board")]
     with (session_dir / "log.jsonl").open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    return {"session_dir": session_dir, "bundle": bundle, "rows": rows, **made}
+    return {"session_dir": session_dir, "bundle": bundle, "rows": rows,
+            "fit": fit, **made}
