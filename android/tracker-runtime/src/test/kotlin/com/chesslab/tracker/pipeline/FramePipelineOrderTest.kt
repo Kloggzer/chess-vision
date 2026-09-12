@@ -76,11 +76,12 @@ class FramePipelineOrderTest {
     @Test
     fun `cropFrameNow warps the emitted frame once, and only when asked to`() {
         assertTrue(!pipeline.cropFrameNow(), "nothing emitted yet")
+        pipeline.onConfigChanged(TrackerConfig(verifyObserveNow = false))
         pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
-        assertTrue(!pipeline.cropFrameNow(), "off by default: the handshake cadence stands")
-        pipeline.onConfigChanged(TrackerConfig(verifyObserveNow = true))
+        assertTrue(!pipeline.cropFrameNow(), "switched off: the handshake cadence stands alone")
+        pipeline.onConfigChanged(TrackerConfig())
         pipeline.onFrame(FakeImage(), 1280, 720, 1_100L)
-        assertTrue(pipeline.cropFrameNow())
+        assertTrue(pipeline.cropFrameNow(), "on by default")
         assertEquals(listOf(2L), stages.cropSeqs)
         // Extra, not instead: the next frame still serves the regular request.
         store.take()
