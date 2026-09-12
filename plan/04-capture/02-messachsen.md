@@ -1,10 +1,10 @@
-# Phase 03 — Hoehe und Ausrichtung messbar machen
+# Phase 02 — Hoehe und Ausrichtung messbar machen
 
 ## Why
 
 Die App steuert nach Hoehe und Ausrichtung, aber **beide stehen in keinem Manifest**. Ohne
 Erfassung waere die naechste Aufnahme so blind wie die 24 bisherigen, die alle bei Verkuerzung
-0,955–1,025 liegen. Ohne diese Phase nimmt 02 auf, ohne dass es jemand messen kann.
+0,955–1,025 liegen. Ohne diese Phase nimmt 01 auf, ohne dass es jemand messen kann.
 
 ## Design (entschieden — nicht neu entwerfen)
 
@@ -25,7 +25,7 @@ Ort: `src/chesslab/capture_plan.py` (von 00 angelegt, hier erweitert).
 
 ### `capture.json` lesen
 
-Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 02. Diese Phase **liest nur** und
+Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 01. Diese Phase **liest nur** und
 spiegelt die Form als `TypedDict` (`CaptureSession`, `CaptureStep`), damit beide Seiten der Naht
 benannt sind. Fehlt die Datei, ist die Aufnahme `"unbekannt"` — nie `"normal"`.
 
@@ -34,8 +34,12 @@ benannt sind. Fehlt die Datei, ist die Aufnahme `"unbekannt"` — nie `"normal"`
 | Achse | Schluessel | Verbund |
 |---|---|---|
 | `height` | je Aufnahme | `session_id` → Ordner, `removeprefix("rg-")` |
-| `orientation_deg` | je **Frame** | zusaetzlich `row["frame"]` gegen `Path(step["frame"]).stem` |
+| `orientation_deg` | je **Ply** | zusaetzlich `row["ply"]` gegen `step["ply"]` |
 | `foreshorten` | je **Frame** | aus `corners` derselben `log.jsonl`-Zeile, ueber `pose_of` |
+
+**Ueber Frame-Namen darf nichts verbunden werden.** Das Buendel traegt `frames/0000.jpg`, das
+exportierte Log `frames/000117.png` — der Export nummeriert um. `ply` ueberlebt ihn und steht in
+jeder Manifestzeile (nachgemessen: `{"frame": "003222", "ply": 12, "square": "a1"}`).
 
 Die Datei liegt im Bundle unter `files/sessions/<id>/capture.json`; gesucht wird mit
 `glob("files/sessions/*/capture.json")`, wie `realgames.stored_session_dirs` es tut.
@@ -85,8 +89,9 @@ sie zaehlen unter `"unbekannt"`, ohne Warnung — das ist kein Fehler, sondern i
 - `axes.rows_counted` ist groesser als die Summe aller `gaps[*].have` (verschiedene Nenner).
 - **Eine Aufnahme MIT `capture.json` landet unter ihrer Hoehe und ihrem Winkel, nicht unter
   „unbekannt"** — der Test legt eine Aufnahme mit zwei Frames und zwei Winkeln an und erwartet
-  `axes.orientation_deg == {"0": n, "45": n, "unbekannt": rest}`. Ohne diesen Fall bestuende auch
-  eine Implementierung, die `capture.json` nie oeffnet.
+  `axes.orientation_deg == {"0": n, "45": n, "unbekannt": rest}` — verbunden ueber `ply`, nicht
+  ueber den Frame-Namen. Ohne diesen Fall bestuende auch eine Implementierung, die `capture.json`
+  nie oeffnet.
 - Eine Zeile mit `corners` bekommt einen `foreshorten`-Eimer, eine ohne landet unter `"unbekannt"`.
 
 ## Acceptance
@@ -103,7 +108,7 @@ sie zaehlen unter `"unbekannt"`, ohne Warnung — das ist kein Fehler, sondern i
 
 ## Do NOT
 
-- Keine Android-Datei — das ist 02. `capture.json` nicht schreiben, nur lesen.
+- Keine Android-Datei — das ist 01. `capture.json` nicht schreiben, nur lesen.
 - `log.jsonl` nicht um Spalten erweitern: die Pose wird gerechnet, nicht gespeichert, sonst
   veraltet eine Kopie nach einem Re-Slice still.
 - Keine Aufnahme nachtraeglich mit einer erfundenen Hoehe versehen.

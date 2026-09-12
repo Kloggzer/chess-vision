@@ -24,7 +24,7 @@
 | `id` | `"{piece}-{square_color}-{band}"`, kleingeschrieben, Leerzeichen zu `-`. **Das Band MUSS hinein**: 58 Luecken verteilen sich auf nur 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender |
 | `fix` | `"Stellung"` oder `"Licht"`, unveraendert aus `coverage-gaps.json` |
 | `reason` | ein Satz, warum es diesen Auftrag gibt |
-| `place` | **immer** Liste von `{"square", "piece"}`; leer bei `fix="Licht"` |
+| `place` | **immer** Liste von `{"square", "piece"}`; leer bei `fix="Licht"`. Das Feld ist dasjenige der geforderten Farbe, dessen Median-Helligkeit der **Bandmitte am naechsten** liegt — dieselbe Regel wie fuer `reference_square`, und die einzige, die fuer alle fuenf Baender entscheidbar ist. „Das hellste bzw. dunkelste" waere es fuer `mittel`, `hell` und `dunkel` nicht, und das sind 18 der 34 Stellungs-Auftraege |
 | `light` | bei `fix="Licht"` das Zielband als Text, sonst `null` |
 | `reference_square` | bei `fix="Stellung"` das Feld aus `place[0]`; bei `fix="Licht"` das Feld der geforderten Farbe, dessen Median-Helligkeit der **Bandmitte am naechsten** liegt (`(lo+hi)/2` aus `BANDS`) — das ist fuer alle fuenf Baender entscheidbar, „hellstes oder dunkelstes" waere es fuer `mittel` nicht |
 | `height` | reihum aus `HEIGHTS`, damit ueber die Auftraege alle drei Hoehen vorkommen |
@@ -99,8 +99,10 @@ Kamerawinkel keine Achse ist, **und warum die Abdeckung nicht live sein kann**.
 
 - `square_brightness` ignoriert Zeilen ohne `brightness`.
 - `fix="Stellung"` ergibt nichtleeres `place`, `fix="Licht"` leeres `place` und gesetztes `light`.
-- Bei `square_color="light"` waehlt der Planer das HELLSTE helle Feld.
-- **Die `id` ist ueber alle 58 echten Luecken eindeutig** (Regressionsfall: ohne Band waeren es 24).
+- Fuer Band `sehr hell` und `square_color="light"` waehlt der Planer das hellste helle Feld,
+  fuer Band `mittel` dagegen das der Bandmitte naechste — dieselbe Regel, zwei Ausgaenge.
+- **Die `id` ist ueber alle 58 echten Luecken eindeutig**, und der Gegentest zeigt, dass ein Slug
+  OHNE Band nur 24 verschiedene ergaebe — sonst waere der Test tautologisch.
 - Ueber zehn Auftraege kommt jede der drei Hoehen mindestens einmal vor.
 - Bei `fix="Licht"` und Zielband `mittel` waehlt der Planer das Feld naeher an der Bandmitte,
   nicht das hellste.
@@ -116,6 +118,8 @@ uv run chesslab capture plan --dataset real13-mix-v7-128 --limit 58
 python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['shots'];assert len(s)>0;assert len({x['id'] for x in s})==len(s);assert all(x['place'] for x in s if x['fix']=='Stellung')"
 ```
 - `grep -c ': any' platform/app/lib/capture-plan.ts` gibt `0` (Exit 1 ist dabei normal).
+- `npm test -- capture-plan` deckt den 401-Zweig ab, weil die Routenlogik in `lib` liegt und die
+  Route duenn ist — so machen es die 50 vorhandenen `lib/*.test.ts`.
 - `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere enthaelt die
   Zeichenkette `Verkuerzung` **und** `0,986` (die Zahl allein waere schwach: 0,9860 ist auch eine
   `val_visible_piece_acc` in `docs/plan-98/00-plan.md`).
@@ -123,5 +127,6 @@ python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['
 ## Do NOT
 
 - Keine Android-Datei — das ist 01. `scripts/coverage_gaps.py` nicht aendern — das ist 02.
+- `data/reports/coverage-gaps.json` nur lesen; die Datei gehoert ihrem Erzeuger.
 - Keine Schreib-Route: der Rueckkanal ist der bestehende Ingest.
 - Kein Auftrag, der ein Helligkeitsband ZUSAGT. Kein `turntable` im Namen.
