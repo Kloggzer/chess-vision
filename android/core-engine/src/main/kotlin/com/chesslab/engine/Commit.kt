@@ -177,6 +177,7 @@ private fun EngineState.finishCommit(
     curBgr: BgrImage?,
 ) {
     setRef(cur, curBgr, fromCommit = true)
+    refProvisionalUntil = if (nowS < refHoldUntil) refHoldUntil else 0.0
     state = STATE_MOVE
     // The take-back hold is NOT cleared here. Clearing on commit meant a second, different CNN
     // bridge disarmed the guard set by the first; the hold is keyed to a FEN, so a commit that

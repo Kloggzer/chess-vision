@@ -49,6 +49,9 @@ data class TrackerConfig(
     val motionHoldS: Double = 0.20,
     // Separate 0.20 s occluder hold keeps hand-taint safety independent of motion settle (2026-08-12).
     val occluderHoldS: Double = 0.20,
+    // Detection may open before `motionHoldS`; the reference is then re-captured once the full hold
+    // has passed (2026-09-12). null = the motion hold: commit and reference on the same frame.
+    val commitHoldS: Double? = null,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
     val diffClaheClip: Double = 2.0,

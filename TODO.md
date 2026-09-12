@@ -85,6 +85,11 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Daten / Training / Labeling
 
+- **Fruehe Commits und die Referenz (2026-09-12):** `commitHoldS` unter `motionHoldS` committet auf
+  dem Hand-Schweif, die Referenz wird beim ersten ruhigen Frame nach dem vollen Hold nachgezogen.
+  Kommt die Hand vorher zurueck, bleibt `refProvisionalUntil` gesetzt — der Export/Labeler soll
+  diese Commits kennen, weil ihr Referenzfenster keinen handfreien Raum fand (Nutzer, 2026-09-12).
+
 - **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
   Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von
   ~500 Plies tragen so „saubere" Frames mit alter Stellung; die Zellprüfung (`settle_left`,
