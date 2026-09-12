@@ -232,8 +232,30 @@ Kein Überlapp: der schlechteste `rot`-Seed liegt 3,4 Punkte über dem besten `p
 Klumpung aus `02` bestätigt sich auf v7 — bei `rot-s42` trägt **eine einzige Episode die Hälfte
 aller Fehler**, zwölf tragen alle.
 
-**Bootstrap (`scripts/group_bootstrap.py`, 10 000 Ziehungen):** Abstand **+0,0612**, 95-%-Intervall
-**[+0,0360, +0,0894]**, **0 von 10 000** Ziehungen ≤ 0.
+**Bootstrap (`scripts/group_bootstrap.py`, 10 000 Ziehungen, Episoden UND Seeds gezogen):**
+Abstand **+0,0612**, 95-%-Intervall **[+0,0321, +0,0943]**, Anteil der Ziehungen ≤ 0 **< 0,0001**.
+Nicht „0 von 10 000" — ein Bootstrap löst unter 1/Ziehungen nicht auf.
+
+**Der Streit ist gesichtet, nicht nur gezählt** (`scripts/show_dispute.py`, Seed 42: 116 strittige
+Zellen in 29 Episoden, `rot` hat in 114 recht). Der Nutzer hat die 29 Episoden durchgesehen: **bis
+auf `f8` — ein dirty-Frame — sind alle Labels korrekt.** Der Abstand ist damit echte Erkennung und
+kein Label-Rauschen; ohne `f8` gerechnet bleibt er bei **+0,0604**.
+
+Was `p4a` verliert, ist immer dieselbe Ansicht — eine dunkle Figur senkrecht von oben, also ein
+runder Klotz, den es **Turm** nennt: `c6 bN → bR` 0,99, `b4 bB → bR` 1,00, `e4 bP → bR` 0,88,
+`f8 bR → empty` 0,58. Über sieben Seeds verteilen sich die 69 verlorenen Episoden auf `wN` 23,
+`bN` 13, `bB` 8, `bP` 7, Rest 18 — **52 % Springer, 67 % Springer und Läufer.** Das ist die
+Mechanik aus `02`, erstmals auf v7 und im Bild statt in der Tabelle.
+
+**Zwei Nebenbefunde, die kein Bericht bisher trägt:**
+
+- `g6 bP → wP` mit 0,91 — ein FARBfehler. `piece_acc` zählt Farb- und Typfehler gleich, im Tracker
+  ist der Farbfehler der teurere.
+- **55,1 % der sichtbaren Val-Zellen stammen aus `dirty`-Frames** (17 805 von 32 330; die Aufnahme
+  hat 630 dirty-Frames). Das ist nach der Zellen-Regel von 2026-08-22 zulässig — der Zellzustand
+  entscheidet, nicht der Frame — aber es heißt, dass über die Hälfte der Abnahme-Messung auf
+  Frames steht, die der Export selbst aussortiert hat. Vor der Testmessung prüfen, ob der
+  Testsatz dieselbe Mischung trägt.
 
 **Aber nicht der Bootstrap, den 3.2 verlangt.** Der angeheftete Split trägt `val: 1 Aufnahme`
 (`rg-2026-09-06-20-27-33`) — eine Ziehung über 14 Aufnahmegruppen ist darauf nicht definiert.

@@ -44,6 +44,7 @@ def main() -> int:
     ap.add_argument("--a", default="rot", help="Arm, der gewinnen soll.")
     ap.add_argument("--b", default="p4a", help="Kontrolle.")
     ap.add_argument("--seeds", default="42,43,44,45,46,47,48")
+    ap.add_argument("--drop-squares", default="", help="Diese Felder auslassen (kommagetrennt).")
     ap.add_argument("--draws", type=int, default=10000)
     ap.add_argument("--seed", type=int, default=0, help="Zufallsstartwert der Ziehung.")
     ap.add_argument("--json", default="data/reports/group-bootstrap.json")
@@ -60,6 +61,13 @@ def main() -> int:
             if got != keys:
                 raise SystemExit(f"Seed {s}: andere Episoden als die Referenz — nicht paarbar")
 
+    drop = {s.strip() for s in args.drop_squares.split(",") if s.strip()}
+    if drop:
+        live = [i for i, e in enumerate(a[seeds[0]]) if e["square"] not in drop]
+        keys = [keys[i] for i in live]
+        a = {s: [eps[i] for i in live] for s, eps in a.items()}
+        b = {s: [eps[i] for i in live] for s, eps in b.items()}
+        print(f"ohne {sorted(drop)}: {len(keys)} Episoden")
     groups = sorted({group_of(k[0]) for k in keys})
     by_unit: dict[str, list[int]] = {}
     unit = "Aufnahmegruppe" if len(groups) > 1 else "Episode"
@@ -80,12 +88,15 @@ def main() -> int:
         return hit / len(pick) if pick else 0.0
 
     obs = st.mean([episode_acc(a[s]) for s in seeds]) - st.mean([episode_acc(b[s]) for s in seeds])
+    # Die Seeds werden MITGEZOGEN, nicht innerhalb der Ziehung gemittelt: sonst stuende die
+    # Seed-Streuung ueberhaupt nicht im Intervall, und es waere zu schmal.
     rng = random.Random(args.seed)
     diffs = []
     for _ in range(args.draws):
         pick = [i for _ in units for i in rng.choice(units)]
-        diffs.append(st.mean([acc(a[s], pick) for s in seeds])
-                     - st.mean([acc(b[s], pick) for s in seeds]))
+        drawn = [rng.choice(seeds) for _ in seeds]
+        diffs.append(st.mean([acc(a[s], pick) for s in drawn])
+                     - st.mean([acc(b[s], pick) for s in drawn]))
     diffs.sort()
     lo, hi = diffs[int(0.025 * len(diffs))], diffs[int(0.975 * len(diffs)) - 1]
     worse = sum(1 for d in diffs if d <= 0) / len(diffs)
@@ -97,7 +108,9 @@ def main() -> int:
     print(f"\nbeobachteter Abstand {obs:+.4f}")
     print(f"95-%-Intervall ueber {len(units)} {unit}n, {args.draws} Ziehungen: "
           f"[{lo:+.4f}, {hi:+.4f}]")
-    print(f"Anteil der Ziehungen mit Abstand <= 0: {worse:.4f}")
+    # Ein Bootstrap loest unter 1/Ziehungen nicht auf — "0" waere eine Zahl, die er nicht hat.
+    print(f"Anteil der Ziehungen mit Abstand <= 0: "
+          f"{f'< {1 / args.draws:g}' if worse == 0 else f'{worse:.4f}'}")
 
     out = Path(args.json)
     out.parent.mkdir(parents=True, exist_ok=True)
