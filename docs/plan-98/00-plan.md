@@ -170,17 +170,32 @@ weniger, und einer, dessen spaeteres Umlegen Laeufe unvergleichbar machen wuerde
 
 ### A1 (`cellnet_p4g2`), zwei Regime, gelaufen 2026-09-12
 
-| | Kontrolle `cellnet_p4` | A1 | Abstand | in Seed-sd |
-|---|---:|---:|---:|---:|
-| 80 px | 0,9884 | 0,9689 | −0,0195 | 2,8 |
-| 128 px | 0,9988 | 0,9909 | −0,0079 | 4,1 |
+Alle drei vom Plan geforderten Regime, Seed 42, gepaart, je 60 lueckenlose Epochen:
 
-A1 verliert in beiden Regimen und **staerker dort, wo mehr Luft ist** — der Deckeneffekt, den der
-Plan bei 128 px befuerchtete, erklaert das Ergebnis also nicht. Es ist auch kein
-Kapazitaetsmangel: die Projektion traegt 147 648 Parameter MEHR als ihre Kontrolle, die dadurch
-nicht parameterangeglichen ist (der Plan fordert das; hier schadet es nicht, weil A1 trotz
-Mehrgewicht verliert). Offen bleibt `g2n` — A1 ohne Augmentierung gegen `p4a`, das letzte Regime
-mit echtem Spielraum.
+| Regime | Kontrolle | A1 | Abstand |
+|---|---:|---:|---:|
+| 128 px, ohne Augmentierung (`g2n` gegen `p4a`) | 0,9652 | 0,9534 | −0,0118 |
+| 128 px, Gewinner-Rezept (`g2` gegen `rot`) | 0,9988 | 0,9909 | −0,0079 |
+| 80 px, Gewinner-Rezept (`g2` gegen `rot`) | 0,9884 | 0,9689 | −0,0195 |
+
+**A1 verliert in jedem Regime.** Der Deckeneffekt, den der Plan bei 128 px befuerchtete, erklaert
+nichts: mit 3,4 Punkten Luft im Regime ohne Augmentierung verliert A1 immer noch 0,0118. Und es
+ist kein Kapazitaetsmangel — die Projektion traegt **147 648 Parameter MEHR** als ihre Kontrolle
+(die damit nicht parameterangeglichen ist, wie der Plan sie fordert; hier schadet es nicht, weil
+A1 trotz Mehrgewicht verliert).
+
+**Die plausibelste Lesart** steht im Muster: der Abstand waechst, je kleiner die Zelle wird
+(−0,0079 bei 128 px, −0,0195 bei 80 px). Der Global-Average-Pool ist groesseninvariant, die
+Projektion nimmt ein festes 2×2-Raster an — bei kleineren Zellen mittelt sie ueber weniger und
+verrauschtere Aktivierungen. Das raeumliche Detail geht also nicht verloren, weil gemittelt wird;
+es wird durch die gelernte Zusammenfassung schlechter erhalten als durch den Mittelwert.
+
+**Damit ist Kandidat 1 erledigt** — die einzige Architektur aus dem Handoff mit Bezug zur
+gemessenen Fehlermechanik. Der Hebel lag nicht in der Architektur, sondern in der Augmentierung
+(`--rot90`, +0,0337). Was A1 pruefen wollte, koennte A2 noch offen lassen (vier Tokens je Feld als
+Keys und Values statt einer Projektion auf einen Vektor) — das ist eine ANDERE Hypothese und hat
+keinen gemessenen Grund, solange Phase 1 die 99 % traegt. Einschraenkung: ein Seed je Regime;
+2,8 bis 4,1 Seed-sd sind eine klare Richtung, keine Abnahme.
 
 **Was aus dieser Abnahme NICHT zitiert werden darf.** Die Schranke gegen den Siegerfluch erlaubt
 **2 Kandidaten bei 1 Seed**, 4 bei 3, 13 bei 7. Auf Seed 42 allein laufen heute drei Arme: `r90`,
