@@ -145,6 +145,7 @@ data class DecisionRow(
     val verifyOutcome: String?,
     val accepted: Boolean,
     val kind: String = KIND_DECISION,
+    val refProvisional: Boolean = false,
 )
 
 internal fun DebugDecision.toRow(seq: Long): DecisionRow =
@@ -181,6 +182,7 @@ internal fun DebugDecision.toRow(seq: Long): DecisionRow =
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,
         accepted = accepted,
+        refProvisional = refProvisional,
     )
 
 /** The app build, so a file can be attributed to a binary. */

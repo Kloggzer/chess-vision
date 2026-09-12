@@ -61,6 +61,8 @@ data class DebugDecision(
     // Multi-glance vote outcome required by entry.md invariant 13.
     val verifyOutcome: String?,
     val accepted: Boolean,
+    /** The commit beat the motion hold (`commitHoldS`): its reference is re-captured later, and the labeler must know. */
+    val refProvisional: Boolean = false,
 )
 
 /** [believed] keeps conflict diagnosis independent of a second game-state lookup. */

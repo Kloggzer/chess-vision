@@ -45,6 +45,7 @@ internal class ReplayTrace(
                 put("accepted", value.accepted)
                 put("decider", value.decider)
                 put("reason", value.reason)
+                put("refProvisional", value.refProvisional)
             }.toString(),
         )
     }

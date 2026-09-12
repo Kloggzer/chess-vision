@@ -493,6 +493,7 @@ internal data class DecisionRecord(
     val stuckReason: String? = null,
     val verifyOutcome: String? = null,
     val accepted: Boolean = true,
+    val refProvisional: Boolean = false,
 )
 
 /** The deferred auto-labeled session photo. */

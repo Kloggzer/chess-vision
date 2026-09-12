@@ -37,6 +37,8 @@ internal data class CommittedPly(
     val fenAfter: String,
     /** The quad the decider stood on at this commit, source pixels `[a8, h8, h1, a1]`; null = the recording's median. */
     val corners: FloatArray? = null,
+    /** Committed inside the motion hold: the frames until the re-captured reference are not settled. */
+    val refProvisional: Boolean = false,
 )
 
 /**
@@ -76,6 +78,7 @@ internal class DecisionCollector(
                 alarm = alarmKind(),
                 fenAfter = row.fenAfter,
                 corners = cornersNow()?.copyOf(),
+                refProvisional = row.refProvisional,
             )
     }
 }
@@ -131,6 +134,7 @@ internal fun movesJson(plies: List<CommittedPly>) =
                     // A board that moves mid-game moves the label's geometry with it: the export cuts
                     // every interval through ITS ply's quad, `geometry.corners` is only the fallback.
                     p.corners?.let { put("corners", cornersJson(it)) }
+                    if (p.refProvisional) put("ref_provisional", true)
                 },
             )
         }

@@ -147,6 +147,7 @@ internal fun EngineState.decisionRow(
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,
         accepted = accepted,
+        refProvisional = nowS < refHoldUntil,
     )
 
 private const val ROUND_2 = 100.0
@@ -269,4 +270,5 @@ internal fun DecisionRecord.toDebugDecision(): DebugDecision =
         stuckReason = stuckReason,
         verifyOutcome = verifyOutcome,
         accepted = accepted,
+        refProvisional = refProvisional,
     )

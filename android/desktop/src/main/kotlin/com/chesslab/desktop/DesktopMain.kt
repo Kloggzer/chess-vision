@@ -628,7 +628,7 @@ private fun openView(
 private fun DebugDecision.confidenceLine(): String =
     (
         "ply=%d best=%.4f second=%.4f margin=%.4f agree=%.4f " +
-            "prior=%b cov=%.4f motion=%.4f changed=%d verify=%s accepted=%b"
+            "prior=%b cov=%.4f motion=%.4f changed=%d verify=%s accepted=%b refProvisional=%b"
     ).format(
         Locale.ROOT,
         ply,
@@ -642,6 +642,7 @@ private fun DebugDecision.confidenceLine(): String =
         changed.size,
         verifyOutcome ?: "-",
         accepted,
+        refProvisional,
     )
 
 /** The object graph the phone builds too, with this host's frame type and this run's optics. */
