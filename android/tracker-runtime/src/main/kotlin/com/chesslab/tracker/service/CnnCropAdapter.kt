@@ -36,13 +36,17 @@ fun cropFrameSource(
             store.request()
             null
         } else {
-            // Der Release gehoert ins finally: wirft eine der Stufen, faengt `CnnObserver.observe`
-            // sie und macht weiter — beide nativen Warps blieben je Fehlschlag liegen.
-            try {
-                cropFrame(pending, parallel, runGridOcclusion, clahe)
-            } finally {
-                pending.release()
-            }
+            // Release when the LAST reader is done: the grid read may still run on the warp
+            // after the cut returned; a failed cut releases at once (both warps are native).
+            val frame =
+                try {
+                    cropFrame(pending, parallel, runGridOcclusion, clahe)
+                } catch (e: Throwable) {
+                    pending.release()
+                    throw e
+                }
+            if (frame.gridOccludedAsync == null) pending.release()
+            frame
         }
     }
 
@@ -81,43 +85,35 @@ private fun cropFrame(
                 crop.release()
             }
         }
-        val visual =
-            // `clahe == null` ist die Bedingung und keine Vorsicht: [CropClahe] haelt
-            // Scratch-Mats und einen CLAHE-Handle, beides Ein-Besitzer. Der parallele Pfad
-            // ist ohnehin Desktop-only, also kostet der sequentielle Rueckfall dort Zeit
-            // und hier nichts.
-            if (parallel && clahe == null) {
-                val grid =
-                    if (runGridOcclusion) {
-                        CompletableFuture.supplyAsync {
-                            gridOccludedSquares(gridWarp, gridGeom, cropBorderPx(gridGeom), parallel = true)
-                        }
-                    } else {
-                        null
-                    }
-                // Each task reads the immutable board warp and owns its output Mat. The
-                // ordered stream collector keeps a1..h8 byte-for-byte aligned with the
-                // phone even though independent squares are resized on separate PC cores.
-                squares.parallelStream().map(cropOne).toList() to (grid?.join() ?: 0L)
+        // The grid read needs only the warp, never the crops: it runs beside the cut and the
+        // inference on both paths. Only the CUT stays sequential under CLAHE, whose scratch
+        // Mats and handle have one owner (2026-09-12).
+        val grid =
+            if (runGridOcclusion) {
+                CompletableFuture.supplyAsync {
+                    gridOccludedSquares(gridWarp, gridGeom, cropBorderPx(gridGeom), parallel = true)
+                }
             } else {
-                val crops =
-                    SquareCropper().use { cropper ->
-                        squares.map { square ->
-                            val crop = cropper.crop(cropWarp, square, geom)
-                            clahe?.applyTo(crop)
-                            toBgrImage(crop)
-                        }
-                    }
-                val grid =
-                    if (runGridOcclusion) {
-                        gridOccludedSquares(gridWarp, gridGeom, cropBorderPx(gridGeom), parallel = true)
-                    } else {
-                        0L
-                    }
-                crops to grid
+                null
             }
-        WorkProfiler.bytes(WorkOperation.CNN_CROP, visual.first.sumOf { it.data.size }.toLong(), pending.seq)
+        val crops =
+            if (parallel && clahe == null) {
+                // The ordered stream collector keeps a1..h8 byte-for-byte aligned with the
+                // phone even though independent squares are resized on separate PC cores.
+                squares.parallelStream().map(cropOne).toList()
+            } else {
+                SquareCropper().use { cropper ->
+                    squares.map { square ->
+                        val crop = cropper.crop(cropWarp, square, geom)
+                        clahe?.applyTo(crop)
+                        toBgrImage(crop)
+                    }
+                }
+            }
+        WorkProfiler.bytes(WorkOperation.CNN_CROP, crops.sumOf { it.data.size }.toLong(), pending.seq)
         // Models without a coverage output still receive the model-free hand read from
         // this full-resolution warp. Coverage models skip that complete second analysis.
-        CnnFrame(visual.first, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, visual.second)
+        // The release rides on the future itself, so whoever joins it sees the warps released.
+        val released = grid?.whenComplete { _, _ -> pending.release() }
+        CnnFrame(crops, pending.seq, pending.tsMs, pending.bgrDet, pending.grayDet, gridOccludedAsync = released)
     }

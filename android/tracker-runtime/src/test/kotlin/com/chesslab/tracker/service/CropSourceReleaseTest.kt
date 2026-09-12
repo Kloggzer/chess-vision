@@ -32,9 +32,14 @@ class CropSourceReleaseTest {
     @Test
     fun theCropWarpIsReleasedWhenTheGridReadThrows() {
         val cropWarp = Mat(720, 720, CvType.CV_8UC3)
-        // Zweikanalig: der Rillen-Sensor graut BGR ein und wirft darauf.
-        val thrown = takeFailing(cropWarp = cropWarp, gridWarp = Mat(600, 600, CvType.CV_8UC2))
+        // Zweikanalig: der Rillen-Sensor graut BGR ein und wirft darauf — jetzt neben dem Schnitt,
+        // also erst beim Join sichtbar, und der Release haengt an demselben Future.
+        val store = CropFrameStore()
+        store.update(pending(cropWarp, Mat(600, 600, CvType.CV_8UC2)))
+        val frame = cropFrameSource(store).take()
 
+        assertTrue(frame != null, "the cut itself succeeds")
+        val thrown = runCatching { frame!!.gridOccludedSquares() }.exceptionOrNull()
         assertTrue(thrown != null, "precondition: the groove read must fail")
         assertTrue(cropWarp.empty(), "the crop warp must be released even when the groove read throws")
     }
