@@ -106,6 +106,73 @@ Damit nichts davon im Nachhinein gewählt werden kann:
   Die Läufe in `_arch128v6/` bleiben gültig, sind aber auf dem alten Stand und **nicht** mit den
   neuen paarbar.
 
+## Ergebnis der Abnahme, 2026-09-12
+
+**Phase 1 ist gelaufen, Phase 3 Schritt 1 ist eingelöst.** Alle Zahlen sind Schwanzmittel über die
+letzten 20 Epochen von `val_visible_piece_acc`, gepaart je Seed, auf `real13-mix-v7-128` (frische
+Matten und Label-Korrekturen, 979 363 Zeilen, `split-pin.json`).
+
+| Seed | `p4a` (Baseline) | `rot` (`--rot90 --hflip-p 0.5`) | Diff |
+|---:|---:|---:|---:|
+| 42 | 0,9652 | 0,9988 | +0,0335 |
+| 43 | 0,9812 | 0,9980 | +0,0168 |
+| 44 | 0,9631 | 0,9945 | +0,0314 |
+| 45 | 0,9786 | 0,9974 | +0,0188 |
+| 46 | 0,9756 | 0,9937 | +0,0181 |
+| 47 | 0,9650 | 0,9964 | +0,0313 |
+| 48 | 0,9738 | 0,9951 | +0,0213 |
+
+- **Vorzeichentest 7/7, p = 0,0078** — die im Plan geforderte Schwelle, verteilungsfrei.
+- **Minimum über die Seeds +0,0168**, nicht das Mittel; 1,7× über der Relevanzschwelle 0,010.
+- `rot` liegt bei **7 von 7** Seeds über 99 %, `p4a` bei **0 von 7**.
+- Seed-sd 0,0019 gegen 0,0073 — der schlechteste `rot`-Seed schlägt den besten `p4a`-Seed um 1,25
+  Punkte. Das ist der eigentliche Punkt: nicht nur besser, sondern **reproduzierbar** besser.
+- Alle 14 Läufe mit lückenlosen Epochenindizes 0–59 geprüft.
+
+**Auflösung, sechs gepaarte Seeds** (`rot` auf `real13-mix-v7-80`, identische Zeilen und Split,
+nur ein anderer Pack): 128 px gewinnt **6/6**, gepaartes Minimum +0,0104, und **0 von 6** Seeds
+erreichen bei 80 px die 99 %. Die 80er-Streuung ist zudem doppelt so gross. Preis: 7,5–8,0 ms je
+Brett gegen 4,3–4,9. Die Entscheidung dafür fällt aber erst im Kotlin-Replay, nicht hier.
+
+**Was damit NICHT gezeigt ist** — und das trennt das Ergebnis vom Ziel: es sind Val-Zahlen auf
+EINER Aufnahme (~876 unabhängige Platzierungen), es sind Schwanzmittel und kein auslieferbarer
+Checkpoint, und die eingefrorene Testgruppe ist unberührt.
+
+## Offene Punkte, die nach der Abnahme noch fehlen
+
+| | Schritt | Stand |
+|---|---|---|
+| 3.2 | Unsicherheit je **Aufnahmegruppe** bootstrappen | Grundlage da: **14 unabhängige Gruppen** (10 Aufnahmetage + 4 VID-Tage), gezählt 2026-09-12 |
+| 3.3 | Bestätigung über **Sitzungs-Folds** | `real13-mix-v7-128` hat 0 `split-f*.json` |
+| — | **Episoden-Auswertung je Aufnahme** (`scripts/episode_eval.py`) | gebaut, nie ausgeführt |
+| 3.4/3.5 | Checkpoint einfrieren, Test **genau einmal** | offen, in dieser Reihenfolge |
+| 3.6 | ONNX gegen PyTorch, Telefon-Laufzeit, **Phantome im Replay** | offen — das ist das Veto, nicht `val_acc` |
+| 1.3 | Zeitliche Mehrheit auf dem Gerät | offen (Kotlin); `episode_eval` misst vorab, was sie brächte |
+| 1.4 | Komposit-Resample beheben | offen |
+
+## Werkzeuge, die dabei entstanden sind
+
+| Skript | Beantwortet |
+|---|---|
+| `scripts/episode_eval.py` | Genauigkeit je Verweil-Episode statt je Zelle, plus was zeitliche Mehrheit brächte |
+| `scripts/test_used.py` | welche Aufnahme schon als Test diente (`data/TEST-USED.json`) |
+| `scripts/move_timing_audit.py` | Zellen im Zugfenster, ungeprüft und unmaskiert |
+| `scripts/hand_audit.py` | Trainingsmaterial, das an einer ungeprüften Matte hängt |
+| `scripts/coverage_gaps.py` | wo der Korpus dünn ist, und ob Stellung oder Licht hilft |
+| `scripts/worker_probe.py` | ob mehr Loader-Worker etwas kaufen (Antwort: nein) |
+| `scripts/cross_eval.py` | alte Läufe am selben Massstab |
+
+## Drei Messungen, die nebenbei anfielen und Bestand haben
+
+1. **Der Korpus hat EINE Kamerapose.** Verkürzung der hinteren Brettkante 0,955–1,025 über alle 24
+   Aufnahmen, Median 0,986 (1,0 = senkrecht von oben). Die Springer-Fehlmechanik ist deshalb die
+   **Eigendrehung der Figur**, nicht der Kamerawinkel — was erklärt, warum `--rot90` so trägt.
+2. **Der Boden ist die Platte, nicht die GPU.** Auf dem 48-GB-Packsatz wartet der Schritt zu
+   68–77 % auf Daten. Mehr Worker helfen nicht (2 gegen 4: 10,7 gegen 10,6 s warm), und die
+   Worker-Zahl ist kein freier Schalter — der Verlust war nicht bitgleich.
+3. **`brightness` fehlt in 376 640 von 979 363 Zeilen** (allen Kompositen). Wer sie mit `or 0.0`
+   liest, wirft sie geschlossen ins dunkelste Band.
+
 ## Phase 1 — was ohne neue Architektur geht
 
 Nach erwartetem Ertrag je Aufwand. Alle drei Seeds, Hausrezept (`--epoch-frac 0.35 --weight-cap 3.0`),
@@ -113,8 +180,8 @@ Nach erwartetem Ertrag je Aufwand. Alle drei Seeds, Hausrezept (`--epoch-frac 0.
 
 | # | Arm | Hypothese | Kosten |
 |---|---|---|---|
-| 1.1 | **128 px unter dem Hausrezept**, 3 Seeds | Nie gelaufen. 0,9860 stammt von `frac 1.0`, einem Seed. Billigster Lauf im Plan. | ~24 min × 3 |
-| 1.2 | **Rotations-/Flip-Augmentierung** (`--rot90`, `--hflip-p`, `--vflip-p`) | Ahmt die 3D-Blickrichtung nach. Alle Läufe fahren heute `aug_rot90=False` und sämtliche Flips auf 0 — **nie getestet**, und es ist der einzige billige Hebel, der direkt auf die Springer-Mechanik zielt. | ~24 min × 3 |
+| 1.1 | ~~**128 px unter dem Hausrezept**~~ **GELAUFEN, 7 Seeds** | Nie gelaufen. 0,9860 stammt von `frac 1.0`, einem Seed. Billigster Lauf im Plan. | ~24 min × 3 |
+| 1.2 | ~~**Rotations-/Flip-Augmentierung**~~ **GELAUFEN: +0,0245 gepaart, 7/7** | Ahmt die 3D-Blickrichtung nach. Alle Läufe fahren heute `aug_rot90=False` und sämtliche Flips auf 0 — **nie getestet**, und es ist der einzige billige Hebel, der direkt auf die Springer-Mechanik zielt. | ~24 min × 3 |
 | 1.3 | **Zeitliche Mehrheit auf dem Gerät** | Die Streufehler sind unsicher (Konfidenz-Median 0,697 gegen 1,000 bei den Springern) und 9× mit Teilverdeckung angereichert. Kein Training nötig. | Kotlin |
 | 1.4 | **Komposit-Resample beheben** | 105 152 Zeilen (12,5 %) werden beim Packen 1,4× hochskaliert; `pack_from_source` hat keinen Aufrufer mehr. | Build |
 
@@ -123,7 +190,21 @@ Rechnung aus `02` über Val+Test: `e2` lösen → 0,9924, `d5` dazu → 0,9940, 
 
 ## Phase 2 — nur bei verbleibender Lücke: EIN Architekturarm
 
-Wenn Phase 1 die 99 % nicht trägt, dann **A1** aus dem Architektur-Handoff und sonst nichts:
+**Stand 2026-09-12: die Bedingung ist NICHT eingetreten** — Phase 1 trägt die 99 % auf allen
+sieben Seeds. A1 läuft trotzdem, aber ausdrücklich als **Erkundung**, nicht als Auswahl, und in
+drei Regimen, weil die Kontrolle bei 0,9937–0,9988 keinen Spielraum mehr lässt (ein Deckeneffekt
+würde einen echten Beitrag verstecken): auf dem Gewinner-Rezept, **ohne Augmentierung** gegen
+`p4a` (dort sind 2–4 Punkte Luft), und bei 80 px. Umgesetzt als Preset `cellnet_p4g2`
+(2×2-Pooling statt globalem Mittel, +0,148 MMAC/Crop = +2,7 %). Drei Seeds reichen für eine
+Richtung, nicht für eine Abnahme.
+
+Ebenfalls offen und ausdrücklich Erkundung: die **Ablation** `--rot90` gegen `--hflip-p 0.5`
+einzeln (ein Seed — bei einem Seed entscheidbar nur, wenn der Abstand gross ist), und das
+**Domänen-Experiment** `real13-mix-v7-80-real` (nur die 19 echten Aufnahmen, 206 587 statt
+427 391 Trainingszeilen). Letzteres ist offen in beide Richtungen: die Kompositen liefern rund
+63 % aller Springer-Beispiele, und der Springer ist die Klasse, die scheitert.
+
+Falls die Bedingung doch einträte, dann **A1** aus dem Architektur-Handoff und sonst nichts:
 jede Zelle auf 2×2 poolen statt global, flach projizieren, gegen eine parameterangeglichene
 Kontrolle. Begründung oben. R1/R2/R3 und die Distillation bleiben liegen, bis ein gemessener
 Grund für sie existiert — eine Fehlermechanik, die sie adressieren.
@@ -164,5 +245,12 @@ Repo **keine Messung hinter sich** — sie darf Kandidat 2 nicht ausschließen.
 - **`SETTLE_LIMIT`**: `04` misst, dass ein echter Zug im Median 43,2 bewegt, die Schwelle aber auf 45
   steht — das Tor fänge nur 46 % der echten Figurenwechsel. `CLAUDE.md` sagt ausdrücklich das
   Gegenteil. Ungeprüft von mir, nicht übernommen.
-- **Wie viele Aufnahmegruppen** es überhaupt gibt: ohne genug unabhängige Gruppen ist die
-  Unsicherheit nicht schätzbar, und dann ist 99 % nicht *nachweisbar*, egal was das Modell kann.
+- ~~**Wie viele Aufnahmegruppen** es überhaupt gibt~~ — **beantwortet 2026-09-12: 14** (10
+  Aufnahmetage plus 4 VID-Tage, 23 echte Aufnahmen). Genug für einen Bootstrap je Gruppe, aber
+  dünn: die grösste Gruppe trägt 4 Aufnahmen, sechs tragen genau eine.
+- **Was eine Erfassungs-Session semantisch ist.** `SessionRecorder.capture` verlangt
+  `(ply, fen, moveSan, corners)` — „das, was `chesslab slice` konsumiert". Ein gezielter Aufbau
+  mit drei Figuren hat weder Partie noch Zug noch Ply. Entweder muss jeder Erfassungs-Aufbau ein
+  vollständiges Brett mit gültigem FEN sein, oder die Erfassung ist ein eigener Artefakttyp neben
+  dem Slice-Pfad. Blockiert `plan/04-turntable-capture` (zweimal von einem fremden Agenten
+  geprüft, zweimal durchgefallen).
