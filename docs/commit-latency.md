@@ -150,3 +150,9 @@ Folge-Commit).** Der Bus klont alle 200 ms QHD nur fuer LiveAlign, das bei `alig
 liest; die INTER_AREA-Verkleinerung an seiner Stelle war bytegleich, kostete aber 1,14 statt
 1,08 ms — der Boxfilter liest dieselben 11 MB wie der Klon. Sparen liesse sich der Klon nur,
 wenn weder Vorschau noch LiveAlign ihn brauchen, und LiveAlign ist per Vorgabe an.
+
+**Crop-Warp am Frame-Kopf als Future: gemessen, verworfen (9ca7f79f, zurueck mit 5930520a).**
+Der Warp ueberlappte Grau, Gitter und Tick, aber auf dem einkernig gefahrenen Desktop-OpenCV
+kostete der Warp-Frame 23,8 statt 18,8 ms CPU-Summe — der Pool-Thread und der Analyzer-Thread
+stehen sich in OpenCV im Weg. Er bleibt hinter dem Engine-Tick (9e63622c): der Frame
+entscheidet, bevor er warpt, und niemand wartet auf niemanden.
