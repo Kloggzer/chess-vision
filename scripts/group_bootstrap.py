@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import argparse
 import json
-import random
 import re
 import statistics as st
 from pathlib import Path
+
+import numpy as np
 
 DUMPS = Path("data/reports/episodes")
 #: `rg-2026-09-06-20-27-33` und `rg-VID_20260906_202733` sind derselbe Aufnahmetag. Abgeleitete
@@ -45,7 +46,7 @@ def main() -> int:
     ap.add_argument("--b", default="p4a", help="Kontrolle.")
     ap.add_argument("--seeds", default="42,43,44,45,46,47,48")
     ap.add_argument("--drop-squares", default="", help="Diese Felder auslassen (kommagetrennt).")
-    ap.add_argument("--draws", type=int, default=10000)
+    ap.add_argument("--draws", type=int, default=1_000_000)
     ap.add_argument("--seed", type=int, default=0, help="Zufallsstartwert der Ziehung.")
     ap.add_argument("--json", default="data/reports/group-bootstrap.json")
     args = ap.parse_args()
@@ -83,41 +84,52 @@ def main() -> int:
               "   INNERHALB dieser Aufnahme, nicht die zwischen Aufnahmen — die braucht Folds\n"
               "   (3.3) oder die Testgruppe.")
 
-    def acc(eps: list[dict], pick: list[int]) -> float:
-        hit = sum(1 for i in pick if eps[i]["errors"] == 0)
-        return hit / len(pick) if pick else 0.0
+    # Vektorisiert: eine Ziehung ist ein Multinomialvektor ueber die Einheiten, die Genauigkeit je
+    # Seed danach ein Matrixprodukt. Erst das macht Millionen Ziehungen bezahlbar. Die Seeds werden
+    # MITGEZOGEN — sonst stuende ihre Streuung ueberhaupt nicht im Intervall.
+    ok_a = np.array([[e["errors"] == 0 for e in a[s]] for s in seeds], dtype=np.float64)
+    ok_b = np.array([[e["errors"] == 0 for e in b[s]] for s in seeds], dtype=np.float64)
+    weight = np.zeros((len(units), len(keys)))
+    for u, members in enumerate(units):
+        weight[u, members] = 1.0
+    size = weight.sum(axis=1)
 
     obs = st.mean([episode_acc(a[s]) for s in seeds]) - st.mean([episode_acc(b[s]) for s in seeds])
-    # Die Seeds werden MITGEZOGEN, nicht innerhalb der Ziehung gemittelt: sonst stuende die
-    # Seed-Streuung ueberhaupt nicht im Intervall, und es waere zu schmal.
-    rng = random.Random(args.seed)
-    diffs = []
-    for _ in range(args.draws):
-        pick = [i for _ in units for i in rng.choice(units)]
-        drawn = [rng.choice(seeds) for _ in seeds]
-        diffs.append(st.mean([acc(a[s], pick) for s in drawn])
-                     - st.mean([acc(b[s], pick) for s in drawn]))
-    diffs.sort()
-    lo, hi = diffs[int(0.025 * len(diffs))], diffs[int(0.975 * len(diffs)) - 1]
-    worse = sum(1 for d in diffs if d <= 0) / len(diffs)
+    rng = np.random.default_rng(args.seed)
+    parts, left = [], args.draws
+    while left > 0:
+        d = min(left, 50_000)
+        left -= d
+        mult = rng.multinomial(len(units), np.full(len(units), 1 / len(units)), size=d)
+        cells = mult @ weight                                      # (d, Episoden): Vielfachheit
+        n = mult @ size                                            # (d,): Episoden je Ziehung
+        da = ((ok_a - ok_b) @ cells.T) / n                         # (Seeds, d)
+        pick = rng.integers(0, len(seeds), size=(len(seeds), d))
+        parts.append(np.take_along_axis(da, pick, axis=0).mean(axis=0))
+    diffs = np.concatenate(parts)
+    lo, hi = float(np.quantile(diffs, 0.025)), float(np.quantile(diffs, 0.975))
+    worse = int((diffs <= 0).sum())
 
     print(f"\nEpisodengenauigkeit {args.a}: " +
           "  ".join(f"{episode_acc(a[s]):.4f}" for s in seeds))
     print(f"Episodengenauigkeit {args.b}: " +
           "  ".join(f"{episode_acc(b[s]):.4f}" for s in seeds))
     print(f"\nbeobachteter Abstand {obs:+.4f}")
-    print(f"95-%-Intervall ueber {len(units)} {unit}n, {args.draws} Ziehungen: "
+    print(f"95-%-Intervall ueber {len(units)} {unit}n, {args.draws:_} Ziehungen: "
           f"[{lo:+.4f}, {hi:+.4f}]")
-    # Ein Bootstrap loest unter 1/Ziehungen nicht auf — "0" waere eine Zahl, die er nicht hat.
-    print(f"Anteil der Ziehungen mit Abstand <= 0: "
-          f"{f'< {1 / args.draws:g}' if worse == 0 else f'{worse:.4f}'}")
+    # Die ANZAHL, nicht eine gerundete Quote: bei einer Million Ziehungen verschwinden zwei
+    # Treffer hinter "0,0000". Und unter 1/Ziehungen loest ein Bootstrap ohnehin nicht auf.
+    print(f"Ziehungen mit Abstand <= 0: {worse} von {args.draws:_}" +
+          (f"  (p < {1 / args.draws:g})" if worse == 0 else f"  (p = {worse / args.draws:.3g})"))
 
     out = Path(args.json)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"a": args.a, "b": args.b, "seeds": seeds, "unit": unit,
                                "units": len(units), "groups": len(groups),
                                "episodes": len(keys), "draws": args.draws,
-                               "observed": obs, "ci95": [lo, hi], "share_le_zero": worse},
+                               "observed": obs, "ci95": [lo, hi],
+                               "draws_le_zero": worse,
+                               "share_le_zero": worse / args.draws},
                               indent=1), encoding="utf-8")
     print(f"[OK] {out}")
     return 0

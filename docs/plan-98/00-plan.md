@@ -232,9 +232,19 @@ Kein Überlapp: der schlechteste `rot`-Seed liegt 3,4 Punkte über dem besten `p
 Klumpung aus `02` bestätigt sich auf v7 — bei `rot-s42` trägt **eine einzige Episode die Hälfte
 aller Fehler**, zwölf tragen alle.
 
-**Bootstrap (`scripts/group_bootstrap.py`, 10 000 Ziehungen, Episoden UND Seeds gezogen):**
-Abstand **+0,0612**, 95-%-Intervall **[+0,0321, +0,0943]**, Anteil der Ziehungen ≤ 0 **< 0,0001**.
-Nicht „0 von 10 000" — ein Bootstrap löst unter 1/Ziehungen nicht auf.
+**Bootstrap (`scripts/group_bootstrap.py`, Episoden UND Seeds gezogen):** Abstand **+0,0612**,
+95-%-Intervall **[+0,0321, +0,0943]**, bei 10 Mio. Ziehungen **18 ≤ 0, p = 1,8 · 10⁻⁶**.
+
+Das Intervall steht schon bei 10 000 Ziehungen auf vier Nachkommastellen fest — mehr Ziehungen
+fuegen **keine Information** hinzu, die steckt in den 147 Episoden und sieben Seeds. Sie
+aufloesen den RAND: unter 1/Ziehungen sagt ein Bootstrap nichts, und die erste Fassung meldete
+deshalb „0 von 10 000" — eine Zahl, die sie nicht hatte. Das Skript nennt jetzt die Anzahl statt
+einer gerundeten Quote (bei 1 Mio. verschwanden zwei Treffer hinter „0,0000") und rechnet
+vektorisiert, damit 10 Mio. 69 s kosten.
+
+**Was dieses p NICHT ist:** kein Test gegen „kein Effekt ueberhaupt". Es ist der Anteil der
+nachgezogenen Welten, in denen `rot` nicht vorn liegt — bedingt auf DIESE eine Aufnahme und diese
+sieben Seeds.
 
 **Der Streit ist gesichtet, nicht nur gezählt** (`scripts/show_dispute.py`, Seed 42: 116 strittige
 Zellen in 29 Episoden, `rot` hat in 114 recht). Der Nutzer hat die 29 Episoden durchgesehen: **bis
