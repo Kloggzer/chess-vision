@@ -5,14 +5,19 @@ Material fuer die gemessenen Korpusluecken aufnehmen. `data/reports/coverage-gap
 unter 200 sichtbaren Belegen, **27 davon null**: 34 ueber eine Stellung erreichbar, 24 nur ueber
 anderes Licht.
 
-**Warum kein eigenes APK.** Eine Aufnahme wird erst durch `realgames.export-session` zu Brettern,
-und der verlangt ein `video.mp4` (`realgames.py:254-257` wirft sonst `FileNotFoundError`). Video
-heisst auf diesem Geraet den ganzen Kamera-Stack: `CameraVideo.kt` ist ein handgeschriebener
-MediaCodec-Encoder (489 Zeilen, „this phone exposes no CameraX QHD Recorder profile"), dazu
-`PreRollRing`, `RecordingBundleHost` und die Verdrahtung in `TrackerCamera` — zusammen 1 737 Zeilen
-in `:app`. Ein zweites APK muesste das duplizieren oder aus der ausgelieferten App herausoperieren.
-**Ein Modus in `:app` dupliziert nichts:** Kamera, Video, Kalibrierung, Session-Schreiber und
-Upload sind dort schon, neu sind nur die Bildschirme und der Plan-Abruf.
+**Warum ein Modus in `:app` und kein eigenes Programm.** Die Aufnahme braucht Video — beim Drehen
+entsteht so ein durchgehender Schwenk statt acht Standbildern, und genau die Zwischenwinkel sind
+der Zweck. Video heisst auf diesem Geraet den ganzen Kamera-Stack: `CameraVideo.kt` ist ein
+handgeschriebener MediaCodec-Encoder (489 Zeilen, „this phone exposes no CameraX QHD Recorder
+profile"), dazu `PreRollRing` und die Verdrahtung in `TrackerCamera`. Ein zweites APK muesste das
+duplizieren oder aus der ausgelieferten App herausoperieren. **Ein Modus dupliziert nichts.**
+
+**Warum trotzdem eine Python-Phase.** `export-session` macht aus einer Aufnahme Bretter, verlangt
+aber eine BESTAETIGTE Zugfolge (`realgames.py:1559` ohne `confirmed`, `:1611` ohne
+`reviewed_plies`) und dafuer eine `reference.pgn`. Eine Erfassung hat keine Partie. Diese
+Maschinerie existiert nur, um je Frame zu bestimmen, WELCHES FEN gilt — bei einem gezielten Aufbau
+ist das per Konstruktion bekannt. Phase 01 ist deshalb ein eigener Einstieg, der `rewarp_boards`
+und `Recording.frames` benutzt und die Kandidaten-Maschinerie auslaesst.
 
 **Die Achse, auf die es ankommt.** Ueber alle 24 Aufnahmen mit `corners` liegt die Verkuerzung der
 hinteren Brettkante zwischen 0,955 und 1,025 (1,0 = senkrecht von oben), Median 0,986 — der Korpus
@@ -30,16 +35,23 @@ Brettkopf, anderer Datensatz.
 
 | # | Datei | Konzern | Abhaengig von |
 |---|---|---|---|
-| 00 | `00-planer-api.md` | Planer, Schema, zwei Routen | — (**landet ALLEIN, zuerst**) |
-| 01 | `01-erfassungs-modus.md` | Bildschirme in `:app`, `capture.json` | 00 |
-| 02 | `02-messachsen.md` | Hoehe und Ausrichtung messbar | 00 |
+| 00 | `00-planer-api.md` | Planer, Schema, zwei Routen | — (**landet ALLEIN**) |
+| 01 | `01-import.md` | `chesslab capture import`, Buendel zu Brettern | — (**landet ALLEIN**) |
+| 02 | `02-erfassungs-modus.md` | Bildschirme in `:app`, Video, `capture.json` | 00 |
+| 03 | `03-messachsen.md` | Hoehe, Ausrichtung und Pose messbar | 00 |
 
-01 und 02 laufen nach 00 parallel; 02 testet gegen eine von Hand geschriebene `capture.json`.
+00 und 01 teilen keine Datei und koennen parallel laufen. 02 braucht 00 (Plan-Schema) und liefert
+`capture.json`, worauf 01 und 03 lesen — beide testen gegen eine von Hand geschriebene Datei und
+brauchen 02 nicht fertig.
+
+**Vorbedingung fuer alles:** `uv run python scripts/backfill_brightness.py`, danach
+`scripts/coverage_gaps.py` neu. Sonst rechnet die Luecken-Karte auf 62 % des Korpus.
 
 ## Was NICHT gebaut wird
 
 Kein neues Gradle-Modul, kein zweites APK, keine zweite Kamerabindung, kein eigener
-Session-Schreiber, kein eigener Upload, kein eigener FEN-Bauer. Findet eine Phase, dass etwas
+Session-Schreiber, kein eigener Upload, kein eigener FEN-Bauer, keine eigene Warp- oder
+Mesh-Logik, keine Aenderung an `:tracker-runtime` und keine an `export-session`. Findet eine Phase, dass etwas
 davon noetig waere: **anhalten** und in `STATUS.md` schreiben.
 
 ## Protokoll
@@ -73,7 +85,6 @@ davon noetig waere: **anhalten** und in `STATUS.md` schreiben.
 | Datei | erstellt von | erweiterbar durch | Notiz |
 |---|---|---|---|
 | `docs/capture-plan.schema.json` | 00 | — | **einzige Autoritaet** der Auftragsform |
-| `docs/capture-session.schema.json` | **01** | 02 liest | Form von `capture.json` |
 | `src/chesslab/capture_plan.py` | 00 | 02 | Planer und Posenrechnung |
 | `tests/test_capture_plan.py` | 00 | 02 | |
 | `src/chesslab/cli.py` | 00 | — | neue Sub-App `capture` |
@@ -81,9 +92,13 @@ davon noetig waere: **anhalten** und in `STATUS.md` schreiben.
 | `platform/app/lib/capture-plan.ts` (+ `.test.ts`) | 00 | — | Typen und Routenlogik |
 | `docs/capture-axes.md` | 00 | 02 | dauerhafte Fakten |
 | `android/core-engine/.../board/ReadingFen.kt` | — (existiert) | **01** | `fenOf(Map)` oeffnen |
-| `android/app/src/main/kotlin/.../capture/**` | 01 | — | die neuen Bildschirme |
-| `android/config/comment-budget.txt` | 01 | — | nur falls der Ratchet es verlangt |
-| `scripts/coverage_gaps.py` | — (existiert) | 02 | neue Achsen |
+| `src/chesslab/capture_import.py` (+ Test) | 01 | — | Buendel zu Brettern |
+| `android/core-engine/.../board/ReadingFen.kt` (+ Test) | — (existiert) | **02** | `fenOf(Map)` oeffnen |
+| `android/app/src/main/kotlin/.../capture/**` | 02 | — | die neuen Bildschirme |
+| `android/app/.../ui/ChesslabNavHost.kt` | — (existiert) | **02** | drei Ziele registrieren |
+| `docs/capture-session.schema.json` | **02** | 01 und 03 lesen | Form von `capture.json` |
+| `android/config/comment-budget.txt` | 02 | — | nur falls der Ratchet es verlangt |
+| `scripts/coverage_gaps.py` | — (existiert) | 03 | neue Achsen |
 
 ## Artefakt-Hoheit
 
@@ -98,7 +113,8 @@ Coverage-Route kommt aus der **mtime** und ist damit gemessen, kein erfundenes F
 | Phase | fertig, wenn |
 |---|---|
 | 00 | Planer erzeugt Auftraege mit eindeutiger `id` und entschiedenem Feld, Schema liegt, beide Routen antworten (401 ohne Kopplung), Tests gruen |
-| 01 | `:app` nimmt einen Auftrag auf, schreibt `capture.json` und je Ply einen gueltigen FEN, das Buendel geht durch den bestehenden Upload — und `:app` bleibt vollstaendig gruen |
-| 02 | Eine Session traegt Hoehe, Ausrichtung und Pose; `coverage_gaps.py` wertet sie als Achsen aus |
+| 01 | `chesslab capture import` macht aus einem Buendel mit `capture.json` Bretter, ohne Kandidat und ohne eigene Warp-Logik |
+| 02 | `:app` nimmt einen Auftrag mit Video auf, schreibt `capture.json` und je Ply einen gueltigen FEN; `:app` bleibt vollstaendig gruen und `:tracker-runtime` unberuehrt |
+| 03 | Eine Session traegt Hoehe, Ausrichtung und Pose; `coverage_gaps.py` wertet sie als Achsen aus |
 
 Den vollen Gate-Lauf macht der Orchestrator.

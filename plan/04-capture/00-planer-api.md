@@ -2,6 +2,12 @@
 
 ## Why
 
+**Vorbedingung:** `uv run python scripts/backfill_brightness.py` muss gelaufen sein und
+`coverage_gaps.py` danach neu. Ohne das rechnet die Luecken-Karte auf 602 723 von 979 363 Zeilen
+— den 376 640 Komposit-Zeilen fehlt `brightness`, obwohl sie echtes Material sind (2.5D-Montage
+echter Bretter mit echten Handplatten, `composite.py:1-4`). Ein Plan auf der halben Karte schickt
+den Menschen nach Material, das schon daliegt.
+
 `coverage_gaps.py` nennt Luecken, aber keine Handlung: `{"piece":"wQ","square_color":"light",
 "band":"sehr hell","have":0}` sagt nicht, wohin die Dame gehoert.
 
@@ -61,7 +67,7 @@ def shots(gaps: list[Gap], bright: dict[str, float], limit: int = 10) -> list[Sh
 Neue Typer-Sub-App `capture` — Muster der acht vorhandenen bei `src/chesslab/cli.py:30-62`
 (`app.add_typer(...)`), der Unterbefehl wie `session_pack_cmd` (`cli.py:407`).
 `chesslab capture plan --dataset real13-mix-v7-128 --limit 10` schreibt
-`data/reports/capture-plan.json`: `{"generated_at", "dataset", "gaps_from", "shots": [...]}`.
+`data/reports/capture-plan.json`: `{"generated_at" (ISO-8601), "dataset" (Name), "gaps_from" (Pfad der gelesenen `coverage-gaps.json`), "shots": [...]}`.
 
 ### Zwei Routen
 
@@ -76,7 +82,7 @@ Muster `platform/app/app/api/ingest/session/route.ts:12` — **nicht** `hello`, 
 `platform/app/lib/capture-plan.ts` traegt `Shot`, `Gap`, `Placement` und die Huelle `CapturePlan`
 (`generated_at`, `dataset`, `gaps_from`, `shots`) aus dem Schema, keine `any`. **Die Logik beider
 Routen liegt dort**, die Route ist duenn — so testet `capture-plan.test.ts` auch den 401-Zweig,
-und so macht es jede der rund 40 vorhandenen `lib/*.test.ts`.
+und so macht es jede der 50 vorhandenen `lib/*.test.ts`.
 
 ### `docs/capture-axes.md` (Deliverable)
 

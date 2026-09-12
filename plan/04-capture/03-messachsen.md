@@ -1,10 +1,10 @@
-# Phase 02 — Hoehe und Ausrichtung messbar machen
+# Phase 03 — Hoehe und Ausrichtung messbar machen
 
 ## Why
 
 Die App steuert nach Hoehe und Ausrichtung, aber **beide stehen in keinem Manifest**. Ohne
 Erfassung waere die naechste Aufnahme so blind wie die 24 bisherigen, die alle bei Verkuerzung
-0,955–1,025 liegen. Ohne diese Phase nimmt 01 auf, ohne dass es jemand messen kann.
+0,955–1,025 liegen. Ohne diese Phase nimmt 02 auf, ohne dass es jemand messen kann.
 
 ## Design (entschieden — nicht neu entwerfen)
 
@@ -25,7 +25,7 @@ Ort: `src/chesslab/capture_plan.py` (von 00 angelegt, hier erweitert).
 
 ### `capture.json` lesen
 
-Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 01. Diese Phase **liest nur** und
+Autoritaet ist `docs/capture-session.schema.json`, Schreiber ist 02. Diese Phase **liest nur** und
 spiegelt die Form als `TypedDict` (`CaptureSession`, `CaptureStep`), damit beide Seiten der Naht
 benannt sind. Fehlt die Datei, ist die Aufnahme `"unbekannt"` — nie `"normal"`.
 
@@ -35,11 +35,20 @@ benannt sind. Fehlt die Datei, ist die Aufnahme `"unbekannt"` — nie `"normal"`
 |---|---|---|
 | `height` | je Aufnahme | `session_id` → Ordner, `removeprefix("rg-")` |
 | `orientation_deg` | je **Ply** | zusaetzlich `row["ply"]` gegen `step["ply"]` |
-| `foreshorten` | je **Frame** | aus `corners` derselben `log.jsonl`-Zeile, ueber `pose_of` |
+| `foreshorten` | je **Frame** | `corners` aus dem OBEREN `log.jsonl`, verbunden ueber `(session_id, frame)` |
 
-**Ueber Frame-Namen darf nichts verbunden werden.** Das Buendel traegt `frames/0000.jpg`, das
-exportierte Log `frames/000117.png` — der Export nummeriert um. `ply` ueberlebt ihn und steht in
-jeder Manifestzeile (nachgemessen: `{"frame": "003222", "ply": 12, "square": "a1"}`).
+**`ply` traegt nicht jede Zeile.** Gemessen: 602 723 Zeilen haben ihn (alle 23 `rg-`), 376 640
+nicht (alle 138 `comp-`). Eine Zeile ohne `ply` zaehlt unter `"unbekannt"`, ohne Warnung.
+
+**Ueber Frame-Namen darf beim ORIENTIERUNGS-Verbund nichts laufen:** das Buendel traegt
+`frames/0000.jpg`, das obere Log den Video-Index — `ply` ueberbrueckt das.
+
+**Beim POSEN-Verbund dagegen ist der Frame der Schluessel**, und zwar der des OBEREN
+`data/recordings/<name>/log.jsonl` (nicht des Buendels): dort stehen `corners` unter demselben
+Frame-Namen, den auch die Manifestzeile traegt. `(session_id, frame)` ist dort eindeutig.
+
+**Ein `ply` steht fuer VIELE Frames** — gemessen Median 16, Maximum 25 je `(session, ply)`. Der
+Verbund ist also 1:n, nicht 1:1; jeder Frame eines Plys erbt dessen Winkel.
 
 Die Datei liegt im Bundle unter `files/sessions/<id>/capture.json`; gesucht wird mit
 `glob("files/sessions/*/capture.json")`, wie `realgames.stored_session_dirs` es tut.
@@ -48,11 +57,16 @@ Die Datei liegt im Bundle unter `files/sessions/<id>/capture.json`; gesucht wird
 
 Ein Block `axes` neben `gaps`:
 
+`edge_px` wird mitgerechnet und mitgebuendelt (Stufen von 100 px) — sonst waere die Haelfte von
+`pose_of` geschrieben und nie aufgerufen, genau der Befund, den diese Phase bei sich selbst
+vermeiden soll.
+
 ```json
 {"axes": {"rows_counted": 979363,
           "height": {"unbekannt": 979363},
           "orientation_deg": {"unbekannt": 979363},
-          "foreshorten": {"0.95-1.00": 602723, "unbekannt": 376640}}}
+          "foreshorten": {"0.95-1.00": 602723, "unbekannt": 376640},
+          "edge_px": {"900-1000": 540000, "1700-1800": 62723, "unbekannt": 376640}}}
 ```
 
 `foreshorten` ist der Abnehmer von `pose_of`: je Manifestzeile die Pose ihres Frames, in Stufen
@@ -108,7 +122,7 @@ sie zaehlen unter `"unbekannt"`, ohne Warnung — das ist kein Fehler, sondern i
 
 ## Do NOT
 
-- Keine Android-Datei — das ist 01. `capture.json` nicht schreiben, nur lesen.
+- Keine Android-Datei — das ist 02. `capture.json` nicht schreiben, nur lesen.
 - `log.jsonl` nicht um Spalten erweitern: die Pose wird gerechnet, nicht gespeichert, sonst
   veraltet eine Kopie nach einem Re-Slice still.
 - Keine Aufnahme nachtraeglich mit einer erfundenen Hoehe versehen.
