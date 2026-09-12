@@ -35,6 +35,7 @@ describe("nextStep", () => {
     confirmed: false,
     hasSession: false,
     mattes: { done: 0, total: 0, target: 0 , reported: 0},
+    hasTemporalPass: false,
     hasModelReads: false,
     useless: null,
   };
@@ -50,12 +51,14 @@ describe("nextStep", () => {
     expect(nextStep({ ...base, hasCandidate: true })).toBe("confirm");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true })).toBe("export");
     expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0} })).toBe("matte");
-    expect(nextStep(exported)).toBe("model-read");
-    expect(nextStep({ ...exported, hasModelReads: true })).toBe("labeln");
+    // The temporal pass needs SAM's rows to know what SAM missed — so after matte, before the model.
+    expect(nextStep(exported)).toBe("temporal");
+    expect(nextStep({ ...exported, hasTemporalPass: true })).toBe("model-read");
+    expect(nextStep({ ...exported, hasTemporalPass: true, hasModelReads: true })).toBe("labeln");
   });
 
   it("mattes until the RUN'S TARGET is reached, not until the pile is empty", () => {
-    const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true };
+    const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true, hasTemporalPass: true };
     expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0} })).toBe("matte");
     expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0} })).toBe("model-read");
     // 80 of 394 is the instruction carried out (`--all --limit 80`): the biggest sessions must
@@ -98,6 +101,10 @@ describe("chainState", () => {
     await mkdir(path.join(data, "recordings", NAME), { recursive: true });
     await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), JSON.stringify({ board: "boards/1.webp" }) + "\n");
     await writeFile(game("model-reads.jsonl"), "{}\n");
+    // The temporal pass sits between SAM and the model: its `pass.json` is what moves the chain on.
+    expect((await chainState(NAME)).step).toBe("temporal");
+    await mkdir(path.join(data, "reports", "temporal-mattes", NAME), { recursive: true });
+    await writeFile(path.join(data, "reports", "temporal-mattes", NAME, "pass.json"), "{}\n");
     expect((await chainState(NAME)).step).toBe("labeln");
   });
 

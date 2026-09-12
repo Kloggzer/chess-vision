@@ -56,7 +56,9 @@ test("the matte review's two questions are answered per frame, last row winning"
     { session_id: "rg-a", frame: "000144", verdict: "matte-ok" },
     { session_id: "rg-a", frame: "000144", verdict: "position-ok" },
   ]);
-  expect(await frameReviews("rg-a")).toEqual(new Map([["000144", { matte: "ok", position: "ok" }]]));
+  const got = (await frameReviews("rg-a")).get("000144");
+  expect(got).toMatchObject({ matte: "ok", position: "ok" });
+  expect(got?.matteAt).toMatch(/^\d{4}-\d\d-\d\dT/);
   // A frame verdict is not a thrown-out board — the two must never bleed into each other.
   expect(await unusableBoards("rg-a")).toEqual(new Set());
 });
@@ -67,7 +69,7 @@ test("a reported hand is a frame verdict, never a thrown board — the FEN still
     { session_id: "rg-a", frame: "000447", verdict: "dirty-frame", reason: "Labeln-Strom: d" },
     { session_id: "rg-a", frame: "000447", verdict: "matte-ok" },
   ]);
-  expect(await frameReviews("rg-a")).toEqual(new Map([["000447", { dirty: true, matte: "ok" }]]));
+  expect((await frameReviews("rg-a")).get("000447")).toMatchObject({ dirty: true, matte: "ok" });
   expect(await unusableBoards("rg-a")).toEqual(new Set());
 });
 

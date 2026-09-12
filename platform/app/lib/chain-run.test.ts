@@ -31,6 +31,7 @@ const MATTE: ChainState = {
   confirmed: true,
   hasSession: true,
   mattes: { done: 0, total: 394, target: 80 , reported: 0},
+  hasTemporalPass: false,
   hasModelReads: false,
   useless: null,
 };

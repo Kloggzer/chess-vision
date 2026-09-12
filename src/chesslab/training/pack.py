@@ -149,18 +149,27 @@ def _cut_session(task) -> int:
     return write_crops(Path(img_path), crop_bytes, cuts())
 
 
+def decode_crop(path: str, wh: tuple[int, int]) -> np.ndarray:
+    """Eine Pool-Datei als RGB in Modellgroesse. Die EINE Definition dieses Wegs.
+
+    `training.pack_session.write_pool_pack` schneidet daraus den Pack einer Aufnahme ohne
+    Verzeichnis — bytegleich zum Monolithen, weil es dieselbe Funktion ist und nicht dieselbe Idee.
+    """
+    w, h = wh
+    im = Image.open(path).convert("RGB")
+    a = np.asarray(im, dtype=np.uint8)
+    if a.shape != (h, w, 3):                           # 128er Pool auf Modellgroesse
+        a = np.asarray(im.resize((w, h)), dtype=np.uint8)
+    return a
+
+
 def _decode_chunk(task) -> int:
     """Worker: Crops aus ihren Dateien lesen. Fuer alles, was keine schneidbare Quelle hat."""
     img_path, crop_bytes, wh, items = task
-    w, h = wh
 
     def imgs():
         for idx, path in items:
-            im = Image.open(path).convert("RGB")
-            a = np.asarray(im, dtype=np.uint8)
-            if a.shape != (h, w, 3):                   # 128er Pool auf Modellgroesse
-                a = np.asarray(im.resize((w, h)), dtype=np.uint8)
-            yield idx, a[:, :, ::-1]                   # `write_crops` dreht wieder auf RGB
+            yield idx, decode_crop(path, wh)[:, :, ::-1]   # `write_crops` dreht wieder auf RGB
 
     return write_crops(Path(img_path), crop_bytes, imgs())
 

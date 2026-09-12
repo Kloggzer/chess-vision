@@ -308,6 +308,16 @@ test("eine kaum sichtbare Zelle sagt das, statt eine Abweichung zu behaupten", (
   expect(laneCells(streamOf({ positions }), "audit")[0].note).toBe("Stellung? kaum Feld zu sehen");
 });
 
+test("temporal anomalies are review questions, not hand or coverage claims", () => {
+  const positions = [{ session: 0, pos: 0, stem: "000100", square: "a3", fen_label: "wP",
+    dev: 18, reason: "temporal", temporal_score: 0.432 }];
+  const cells = laneCells(streamOf({ positions }), "audit");
+  expect(cells).toHaveLength(1);
+  expect(cells[0].note).toBe("Bildabweichung 0.43 · Hand oder Stellung prüfen");
+  expect(cells[0].ledger).toBe("corrections");
+  expect(cells[0].exception).toBeNull();
+});
+
 test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
   const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", cov: 0.82, measured: 0 }];
   // Kein Producer: `—`, nie 0 — sonst liest sich "nichts zu tun" wie "nichts gemessen".

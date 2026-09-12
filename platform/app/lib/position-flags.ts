@@ -16,6 +16,8 @@ export type PositionFlag = {
   cov: number;
   /** `changed` = das Bild ist ein anderes; `unreadable` = zu wenig Feld war überhaupt zu sehen. */
   reason: string;
+  /** SAM-free residual relative to reference contrast; not a coverage fraction. */
+  temporal_score?: number;
 };
 
 export type PositionFlags = {
@@ -64,6 +66,8 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
         dev: o.dev,
         cov: typeof o.cov === "number" ? o.cov : 0,
         reason: String(o.reason ?? "changed"),
+        ...(typeof o.temporal_score === "number" && Number.isFinite(o.temporal_score)
+          ? { temporal_score: o.temporal_score } : {}),
       });
     } catch {
       /* eine halb geschriebene Zeile ist kein Flag */

@@ -233,23 +233,33 @@ danach `chesslab eval --dataset <gemeinsamer>` gegen die beiden anderen.
   (`docs/arch-training-2026-09-11.md`), ist das Modell robust; liegt er darüber, weiß man endlich
   wo.
 
-### D2 — `split.json` in `real13-mix-v6-80` entschärfen
+### D2 — Das Loch im Pin-Schutz: `eval --dataset <fremd>` schließen
 **Handarbeit: 5 min. Rechenaufwand: 0.**
 
 Die **Vorgabedatei** `split.json` des v6-Datensatzes hat als Val `rg-2026-09-06-21-29-35` — genau
-die Session, die `docs/val-choice-2026-09-10.md` als blind entlarvt hat (**0 weiße Springer**,
-im Manifest nachgezählt), zusammen mit `11-59-12` und `11-55-19`; Val-Anteil 28 % der Zellen. Die
-Architekturläufe umgehen sie über `--split-file split-pin.json`
-(`docs/arch-training-2026-09-11.md`), aber `train`, `eval`, `gradcam` und `quantize` greifen ohne
-das Flag zu `split.json` (`training/train.py:528`, `training/evaluate.py:94`).
-**`split-pin.json` wird von keiner Codestelle gelesen** — es ist reine Konvention.
+die Session, die `docs/val-choice-2026-09-10.md` als blind entlarvt hat (**0 weiße Springer**, im
+Manifest nachgezählt), zusammen mit `11-59-12` und `11-55-19`; Val-Anteil 28 % der Zellen.
 
-Ein Lauf, bei dem jemand das Flag vergisst, misst auf einem Val ohne weiße Springer und ist mit
-allem anderen unvergleichbar. Der Inhalt von `split-pin.json` gehört nach `split.json`, das alte
-unter anderem Namen daneben.
+`train` ist dagegen geschützt: es bricht ab, wenn ein `split-pin.json` existiert und `--split` es
+nicht nennt (`training/train.py:532-538`). `quantize` und `gradcam` erben den Schnitt aus
+`config.json` des Laufs (`quantize.py:68`, `gradcam.py:193`). **Ungeschützt ist genau ein Pfad,
+und es ist der wichtigste:**
+
+```python
+# training/evaluate.py:94
+default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
+```
+
+Bei `chesslab eval --dataset <anderer>` — dem Kommando, das CLAUDE.md für **jeden Quervergleich
+zwischen Datensätzen** vorschreibt — fällt der Schnitt auf `split.json` zurück, also auf den Val
+ohne weiße Springer. Der Quervergleich, der die Val-Unterschiede herausrechnen soll, misst dann
+selbst blind.
+
+Fix: dieselbe Pin-Prüfung wie in `train.py` auch in `evaluate.py`, bevor `foreign` auf
+`split.json` zurückfällt.
 
 - **Effekt:** verhindert stille Fehlmessungen; keine Punkte.
-- **Erfolgsmaß:** `split.json`-Val enthält jede der 13 Klassen mit ≥ 100 Beispielen.
+- **Erfolgsmaß:** `eval --dataset <fremd>` ohne `--split` bricht ab, statt still zu messen.
 
 ### D3 — Aufbau-Check: konstant falsche Labels automatisch suchen
 **Handarbeit: ~20 min Sichtung. Rechenaufwand: eine Inferenzrunde über den Pool, kein Training.**

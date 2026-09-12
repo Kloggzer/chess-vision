@@ -40,6 +40,18 @@ IDENTITY_CLASSES: list[str] = [c for c in CLASSES if c != "occluded"]
 # Global determinism seed for all random steps (split, sampling, training).
 SEED: int = 42
 
+# Review-candidate threshold, not an occlusion probability or training-loss gate.
+TEMPORAL_AUDIT_CUT: float = 0.4
+TEMPORAL_MATTE_LOW: float = 24.0
+TEMPORAL_MATTE_HIGH: float = 48.0
+TEMPORAL_MATTE_MAX_GAP_S: float = 5.0
+TEMPORAL_MATTE_PEERS: int = 5
+# Smallest blob kept, as a fraction of the raster: a fingertip over one cell is ~1.5 %, a
+# single piece under the hand's shadow ~0.3 % (00-39-57, 2026-09-11) — those were kept at 0.3.
+TEMPORAL_MATTE_MIN_AREA: float = 0.006
+# Outward margin in px on the 928-px raster; the blurred rim of a moving hand needs it.
+TEMPORAL_MATTE_GROW: int = 4
+
 # --- Calibration / crop defaults (Stage 1) --------------------------------------------
 # Fraction by which an ArUco marker's CENTRE sits outside the playing field — the markers are
 # printed/glued in the label border, so the quad they span is larger than the board. THE

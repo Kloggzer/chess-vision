@@ -8,7 +8,8 @@ import { checkName, dataDir } from "@/lib/data";
  * NOT one of them: that square sits under a hand and the loss drops it by itself. `dirty-frame` is
  * the hand the scan missed — `plan_scanned` moves that frame to the dirty pile as `occluded`.
  */
-export const FRAME_VERDICTS = ["unusable-board", "matte-ok", "matte-bad", "position-ok", "dirty-frame"] as const;
+export const FRAME_VERDICTS =
+  ["unusable-board", "matte-ok", "matte-bad", "matte-clean", "position-ok", "dirty-frame"] as const;
 export type FrameVerdict = (typeof FRAME_VERDICTS)[number];
 
 export type ReviewNote =
@@ -76,7 +77,18 @@ const noteKey = (r: ReviewNote): string =>
   `${r.session_id}|${"frame" in r ? r.frame : r.ply}|${r.verdict}`;
 
 /** Per frame, the last word on each question — `undefined` means nobody was asked yet. */
-export type FrameReview = { matte?: "ok" | "bad"; position?: "ok"; dirty?: true };
+export type FrameReview = {
+  matte?: "ok" | "bad" | "clean"; position?: "ok"; dirty?: true;
+  /** When the matte verdict was given — a merge that rewrote the mask later reopens the frame. */
+  matteAt?: string;
+};
+
+/** `matte-clean` heisst: SAM hat eine Hand gefunden, wo keine ist — das Alpha wird geleert. */
+const MATTE: Record<string, "ok" | "bad" | "clean"> = {
+  "matte-ok": "ok",
+  "matte-bad": "bad",
+  "matte-clean": "clean",
+};
 type BySession = Map<string, { boards: Set<string>; plies: Set<number>; frames: Map<string, FrameReview> }>;
 type Cache = Map<string, { key: string; value: BySession }>;
 const cache: Cache = ((globalThis as { __chesslabReviewNotes?: Cache }).__chesslabReviewNotes ??= new Map());
@@ -101,7 +113,7 @@ async function bySession(): Promise<BySession> {
         const seen = entry.frames.get(row.frame) ?? {};
         if (row.verdict === "position-ok") entry.frames.set(row.frame, { ...seen, position: "ok" });
         else if (row.verdict === "dirty-frame") entry.frames.set(row.frame, { ...seen, dirty: true });
-        else entry.frames.set(row.frame, { ...seen, matte: row.verdict === "matte-ok" ? "ok" : "bad" });
+        else entry.frames.set(row.frame, { ...seen, matte: MATTE[row.verdict], matteAt: row.ts });
       }
       value.set(row.session_id, entry);
     } catch {

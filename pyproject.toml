@@ -21,6 +21,7 @@ dependencies = [
     "opencv-python>=4.8,<5",
     "numpy>=1.24",
     "pillow>=10.0",
+    "pymatting>=1.1",
     "python-chess>=1.10",
     "pyyaml>=6.0",
     # Windows-ROCm-Trainingsstack, aus AMDs whl-next-Index statt aus lokalen Wheels. Auf

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -254,6 +256,124 @@ def session_settle_scan(
         raise typer.Exit(1)
 
 
+@session_app.command("temporal-scan")
+def session_temporal_scan(
+    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+    cut: float = typer.Option(config.TEMPORAL_AUDIT_CUT, min=0.0001,
+                             help="Normalized anomaly threshold for human review."),
+) -> None:
+    """Measure SAM-free image anomalies and refresh the Strittig audit cards."""
+    from . import position_flags, temporal_flags
+
+    result = temporal_flags.scan_session(session, cut=cut)
+    flags = position_flags.position_flags()
+    print(f"[OK] {result['cells']} cells measured; {result['flags']} temporal candidates -> {result['path']}")
+    print(f"[OK] {flags['flags']} combined audit cards -> {flags['path']}")
+    if flags["stale_temporal"]:
+        print(f"[WARN] Temporal scans need refreshing: {', '.join(flags['stale_temporal'])}")
+
+
+@session_app.command("temporal-mattes")
+def session_temporal_mattes(
+    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+    method: str = typer.Option("local", help="local or difference; both write review proposals."),
+    low: float = typer.Option(config.TEMPORAL_MATTE_LOW),
+    high: float = typer.Option(config.TEMPORAL_MATTE_HIGH),
+    max_gap_s: float = typer.Option(config.TEMPORAL_MATTE_MAX_GAP_S),
+    peers: int = typer.Option(config.TEMPORAL_MATTE_PEERS, min=1,
+                              help="Clean frames per side whose median is the plate."),
+    refine: bool = typer.Option(True, help="Closed-form matting pulls the rim onto the image edge."),
+    rgba: bool = typer.Option(False, help="Also write an RGBA view (lossy webp) per frame."),
+    workers: int = typer.Option(1, min=1, help="Processes over contiguous frame chunks."),
+    device: str = typer.Option("cpu", help="cuda runs the fit in torch; the rim stays closed-form."),
+) -> None:
+    """Automatically propose three-frame masks for temporal audit candidates."""
+    from .temporal_matte import propose_session
+
+    if device != "cpu" and workers > 1:
+        print("[ERR] --device cuda runs in one process; drop --workers.")
+        raise typer.Exit(1)
+    result = propose_session(session, method=method, low=low, high=high, max_gap_s=max_gap_s,
+                             peers=peers, refine=refine, rgba=rgba, workers=workers, device=device)
+    print(f"[OK] {result['proposed']} automatic mask proposals; {result['skipped']} without suitable references -> {result['path']}")
+    print("[INFO] SAM masks and training coverage were not overwritten.")
+
+
+@session_app.command("temporal-adopt")
+def session_temporal_adopt(
+    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+) -> None:
+    """Turn temporal mask proposals with a hand into matte rows for the matte lane."""
+    from .temporal_matte import adopt_proposals
+
+    r = adopt_proposals(session)
+    print(f"[OK] {r['adopted']} temporal mattes adopted, {r['empty']} empty, {r['replaced']} replaced, "
+          f"{r['kept_sam']} frames already had a SAM row -> {r['path']}")
+
+
+@session_app.command("temporal-upsert")
+def session_temporal_upsert(
+    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+) -> None:
+    """Where SAM found nothing on a frame, temporal's matte replaces it whole."""
+    from .temporal_matte import upsert_proposals
+
+    r = upsert_proposals(session)
+    print(f"[OK] {r['upserted']} frames upserted, {r['sam_found']} where SAM found a hand, "
+          f"{r['fixed']} hand-fixed left alone, {r['replaced']} earlier upserts redone -> {r['path']}")
+
+
+@session_app.command("temporal-pass")
+def session_temporal_pass(
+    name: str = typer.Argument(..., help="Recording name (or rg- id)."),
+    workers: int = typer.Option(4, min=1, help="Processes for the three-frame mattes."),
+) -> None:
+    """The temporal SOP in one press: scan, mattes, adopt, SAM over the adopted, upsert, flags."""
+    import subprocess
+
+    from . import position_flags, temporal_flags
+    from .temporal_matte import adopt_proposals, propose_session, prune_dead_rows, upsert_proposals
+
+    session = name if name.startswith("rg-") else f"rg-{name}"
+    started = datetime.now(UTC).isoformat()
+    scan = temporal_flags.scan_session(session)
+    print(f"[OK] scan: {scan['cells']} cells, {scan['flags']} candidates", flush=True)
+    mattes = propose_session(session, workers=workers)
+    print(f"[OK] mattes: {mattes['proposed']} proposals, {mattes['skipped']} skipped", flush=True)
+    adopted = adopt_proposals(session)
+    print(f"[OK] adopt: {adopted['adopted']} new, {adopted['kept_sam']} SAM kept", flush=True)
+    if adopted["adopted"]:
+        # Its own process: SAM's ROCm teardown wedges, and `alpha-worker` leaves via os._exit.
+        code = subprocess.call([sys.executable, "-m", "chesslab.cli", "occluders", "alpha-worker",
+                                session[3:], "--temporal"])
+        if code != 0:
+            print(f"[ERR] alpha-worker --temporal exited {code}")
+            raise typer.Exit(1)
+    upsert = upsert_proposals(session)
+    print(f"[OK] upsert: {upsert['upserted']} frames, {upsert['sam_found']} stay with SAM", flush=True)
+    pruned = prune_dead_rows(session)
+    print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)
+    flags = position_flags.position_flags()
+    print(f"[OK] {flags['flags']} audit cards -> {flags['path']}", flush=True)
+    report = mattes["path"].parent.parent / "pass.json"
+    report.write_text(json.dumps({"started": started, "finished": datetime.now(UTC).isoformat(),
+                                  "candidates": scan["flags"], "proposals": mattes["proposed"],
+                                  "adopted": adopted["adopted"], "upserted": upsert["upserted"],
+                                  "sam_found": upsert["sam_found"]}), encoding="utf-8")
+    print(f"[OK] pass -> {report}")
+
+
+@session_app.command("temporal-prune")
+def session_temporal_prune(
+    session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+) -> None:
+    """Drop temporal rows SAM has since re-cut — SAM's later row already wins in read_matte."""
+    from .temporal_matte import prune_dead_rows
+
+    r = prune_dead_rows(session)
+    print(f"[OK] {r['dropped']} superseded temporal rows dropped, {r['kept']} rows kept -> {r['path']}")
+
+
 @session_app.command("boards")
 def session_boards(
     session: str = typer.Argument(None, help="Session ID."),
@@ -289,21 +409,31 @@ def session_pack_cmd(
     size: int = typer.Option(None, "--size", help="Crop side in px. Default: the pack default."),
     pad_side: float = typer.Option(None, "--pad-side", help="Override the profile's side pad."),
     pad_up: float = typer.Option(None, "--pad-up", help="Override the profile's upward pad."),
+    pool: str = typer.Option(None, "--pool",
+                             help="Crop pool tag (data/crops/<tag>) for a session that has NO "
+                                  "directory — composites, turntable. Their pool file is their "
+                                  "source; name it, several pools carry the same session."),
+    replace: bool = typer.Option(False, "--replace",
+                                 help="Rewrite an existing pack. Needed after new mattes or label "
+                                      "fixes: a pack freezes `coverage` and `label` at cut time."),
 ) -> None:
     """Cut this session ONCE at model size into `data/packs/<session>-<size>/`.
 
     The 128 px crop pool is the labeling artefact; a dataset built from packs cites this memmap
-    instead of copying its pixels. An existing pack is refused — packs are immutable.
+    instead of copying its pixels. An existing pack is refused unless `--replace` says otherwise.
     """
     from .training import pack_session, packs
 
+    side = size or packs.DEFAULT_PACK_SIDE
     try:
-        res = pack_session.write_session_pack(session, size or packs.DEFAULT_PACK_SIDE,
-                                              pad_side=pad_side, pad_up=pad_up)
+        res = (pack_session.write_pool_pack(session, side, pool=pool, replace=replace) if pool else
+               pack_session.write_session_pack(session, side, pad_side=pad_side, pad_up=pad_up,
+                                               replace=replace))
     except (FileNotFoundError, ValueError) as e:
         print(f"[FAIL] {e}")
         raise typer.Exit(1) from None
-    print(f"[OK] pack {res['pack']}: {res['n']} crops, {res['h']}x{res['w']}, {res['gb']} GB")
+    again = " (ersetzt)" if res.get("replaced") else ""
+    print(f"[OK] pack {res['pack']}: {res['n']} crops, {res['h']}x{res['w']}, {res['gb']} GB{again}")
 
 
 @pack_app.command("import")
@@ -868,6 +998,8 @@ def realgames_position_flags() -> None:
 
     r = position_flags_mod.position_flags()
     print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
+    if r["stale_temporal"]:
+        print(f"[WARN] Temporal scans need refreshing: {', '.join(r['stale_temporal'])}")
     for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
         print(f"  {sid:34} {n}")
     i = position_flags_mod.interval_flags()
@@ -1300,6 +1432,9 @@ def occluders_alpha_worker(
                                   help="Re-measure exactly the frames a human reported dirty in "
                                        "the labeling stream. Overrides --limit and any matte "
                                        "already there — the report is a verdict on that matte."),
+    temporal: bool = typer.Option(False, "--temporal",
+                                  help="Exactly the frames `session temporal-adopt` wrote; SAM's "
+                                       "row then lands behind ours and wins in read_matte."),
 ) -> None:
     """Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.
 
@@ -1332,6 +1467,17 @@ def occluders_alpha_worker(
             print(f"[OK] {name}: nothing reported dirty by hand")
             raise typer.Exit(0)
         print(f"[i] {len(frames)} frames reported, re-measuring those")
+    if temporal:
+        import json
+
+        from .realgames import game_dir
+        path = game_dir(name) / "matte.jsonl"
+        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        frames = {json.loads(s)["frame"] for s in lines if s.strip() and '"source": "temporal"' in s}
+        if not frames:
+            print(f"[OK] {name}: no temporal mattes to re-measure")
+            raise typer.Exit(0)
+        print(f"[i] {len(frames)} temporal frames, measuring those with SAM")
     try:
         res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason, frames=frames)
     except (FileNotFoundError, ValueError, KeyError) as e:

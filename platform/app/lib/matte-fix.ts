@@ -98,6 +98,25 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
 }
 
 /**
+ * "Da ist gar nichts": ein leeres Alpha an der Stelle von SAMs Fund. Derselbe Weg wie ein Strich —
+ * Pixel jetzt, Coverage erst mit `occluders recut`, das daraus ueberall 0 schneidet.
+ */
+export async function clearAlpha(name: string, stem: string): Promise<string> {
+  checkName(name, "game name");
+  checkName(stem, "frame");
+  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
+
+  const { width, height } = await sharp(await readFile(mattePath(name, stem))).metadata();
+  if (!width || !height) throw new Error(`frame ${stem} carries no alpha`);
+
+  const file = fixedMattePath(name, stem);
+  await writeFile(`${file}.tmp`, await encodeAlpha(Buffer.alloc(width * height), width, height));
+  await rename(`${file}.tmp`, file);
+  forgetRaster(file);
+  return file;
+}
+
+/**
  * `alpha-worker` APPENDS to the file `recut` rewrites whole. A fresh mtime means one is mid-run,
  * and rewriting under it would drop the rows it wrote since — so this refuses instead.
  */

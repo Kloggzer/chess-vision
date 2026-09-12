@@ -16,13 +16,22 @@ METRICS = ("val_visible_piece_acc", "val_visible_occupied_board_acc",
            "val_coverage_precision", "val_loss")
 
 
-def tail_mean(run: Path, metric: str, tail: int) -> tuple[float | None, int]:
+def tail_mean(run: Path, metric: str, tail: int, epochs: int) -> float | None:
+    """Der Schwanzmittelwert — oder None, wenn der Lauf nicht rangfaehig ist.
+
+    Zeilen zaehlen reicht nicht: ein fortgesetzter oder doppelt geschriebener Verlauf kaeme sonst
+    als vollstaendig durch. Geprueft werden EINDEUTIGE, LUECKENLOSE Epochenindizes 0..epochs-1.
+    Unvollstaendige Laeufe fallen aus der Rangfolge, statt mit einem Sternchen mitzulaufen.
+    """
     p = run / "metrics.jsonl"
     if not p.exists():
-        return None, 0
+        return None
     rows = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+    seen = {r["epoch"] for r in rows if "epoch" in r}
+    if seen != set(range(epochs)):
+        return None
     vals = [r[metric] for r in rows[-tail:] if metric in r]
-    return (statistics.fmean(vals) if vals else None), len(rows)
+    return statistics.fmean(vals) if vals else None
 
 
 def main() -> int:
@@ -31,6 +40,8 @@ def main() -> int:
     ap.add_argument("--baseline", default="p4a")
     ap.add_argument("--tail", type=int, default=15)
     ap.add_argument("--seeds", default="42,43,44")
+    ap.add_argument("--epochs", type=int, default=60,
+                    help="Sollzahl der Epochen; wer sie nicht erreicht, wird nicht gerangt.")
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -46,11 +57,11 @@ def main() -> int:
         for arm in arms:
             cells, deltas = [], []
             for seed in seeds:
-                v, n = tail_mean(root / f"{arm}-s{seed}", metric, args.tail)
+                v = tail_mean(root / f"{arm}-s{seed}", metric, args.tail, args.epochs)
                 if v is None:
                     cells.append("   --   ")
                     continue
-                cells.append(f"{v:.4f}{'*' if n < 60 else ' '}")
+                cells.append(f"{v:.4f} ")
                 if arm == args.baseline:
                     base[seed] = v
                 elif seed in base:

@@ -52,7 +52,17 @@ const move = (moves: Map<number, { san: string; fen: string }>, ply: number) => 
   return m ? { ply, ...m } : undefined;
 };
 
-export async function loadVerifyStream(): Promise<VerifyStream> {
+/** A verdict on the mask is void once `temporal-merge` rewrote the mask after it. */
+export function reopened(review: FrameReview, mergedAt: string | undefined): boolean {
+  return mergedAt !== undefined && (review.matteAt === undefined || review.matteAt < mergedAt);
+}
+
+/**
+ * `skip` zaehlt OFFENE Frames, nicht Seiten: die Lane laedt nach, statt den Nutzer nach 20 Seiten
+ * neu laden zu lassen. Beurteiltes faellt hier ohnehin raus, also schiebt der Client nur den
+ * Rest weiter, den er schon haelt.
+ */
+export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
   const sessions: VerifySession[] = [];
   const frames: VerifyFrame[] = [];
   let total = 0;
@@ -76,7 +86,6 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
       matteStamp(name),
     ]);
 
-    const index = sessions.length;
     const mine: VerifyFrame[] = [];
     for (const row of session.rows) {
       const alpha = matte.get(row.stem);
@@ -89,12 +98,12 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
       const review = reviews.get(row.stem) ?? {};
       // `matte`, nicht mehr `position`: die Stellungsfrage ist 2026-09-07 in die Strittig-Lane
       // gezogen, also schliesst nur noch ein Urteil ueber die MASKE einen Frame ab.
-      if (review.matte !== undefined) {
+      if (review.matte !== undefined && !reopened(review, alpha.mergedAt)) {
         done += 1;
         continue;
       }
       mine.push({
-        session: index,
+        session: -1,
         stem: row.stem,
         ply: row.ply,
         fen: row.fen,
@@ -112,13 +121,17 @@ export async function loadVerifyStream(): Promise<VerifyStream> {
     // erwartet war — das ist der Fund. Auf dem dirty-Stapel ist die Hand ohnehin bekannt und nur
     // die Maske fraglich. Stabil, also bleibt innerhalb beider Gruppen die Frame-Reihenfolge.
     mine.sort((a, b) => Number(a.reason !== undefined) - Number(b.reason !== undefined));
+    const from = Math.max(0, skip - open);
     open += mine.length;
     // Counting runs over EVERY session, only the page stops at VERIFY_PAGE. The break used to sit
     // in this loop, so "357/560 · 64 %" was the progress of whatever fitted on page one — measured
     // 2026-08-19 the corpus held 1292 alphas, and the headline claimed 64 % where it was 28 %.
-    if (mine.length === 0 || frames.length >= VERIFY_PAGE) continue;
+    if (from >= mine.length || frames.length >= VERIFY_PAGE) continue;
+    const index = sessions.length;
     sessions.push({ name, sessionId: id });
-    frames.push(...mine.slice(0, Math.max(0, VERIFY_PAGE - frames.length)));
+    for (const frame of mine.slice(from, from + VERIFY_PAGE - frames.length)) {
+      frames.push({ ...frame, session: index });
+    }
   }
 
   return { sessions, frames, progress: { frames: total, done, open } };

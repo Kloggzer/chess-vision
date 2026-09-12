@@ -21,7 +21,7 @@ import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
-type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "matte" | "model-read";
+type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "matte" | "temporal" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -700,7 +700,22 @@ async function runPhoneRecord(job: Job): Promise<void> {
 
 /** `chesslab realgames retime <name>` appended to a running job's log; its exit code is the step's. */
 async function runRetime(name: string, running: Job, log: string): Promise<number> {
-  const args = ["run", "chesslab", "realgames", "retime", name];
+  return appended(["run", "chesslab", "realgames", "retime", name], running, log);
+}
+
+/**
+ * Die Karten der Strittig-Lane neu rechnen, angehaengt an das Log des Schritts davor.
+ *
+ * Der Producer ist korpusweit und DERIVED, kostet also Sekunden und ueberschreibt sich selbst.
+ * Er laeuft am Ende von `model-read`, weil der naechste Schritt `labeln` ist: dort muessen die
+ * Karten liegen, sonst labelt der Mensch an den zweifelhaften Zellen vorbei. Sein Exit-Code
+ * zaehlt NICHT als der des Schritts - eine fehlende Matte darf `model-read` nicht rot faerben.
+ */
+async function runPositionFlags(running: Job, log: string): Promise<void> {
+  await appended(["run", "chesslab", "realgames", "position-flags"], running, log);
+}
+
+function appended(args: string[], running: Job, log: string): Promise<number> {
   return new Promise<number>((resolve) => {
     const sink = createWriteStream(log, { flags: "a" });
     sink.write(`$ ${uvBinary()} ${args.join(" ")}
@@ -730,7 +745,7 @@ async function runRetime(name: string, running: Job, log: string): Promise<numbe
  */
 export async function enqueueChain(
   name: string,
-  step: "export" | "adopt-dirty" | "matte" | "model-read",
+  step: "export" | "adopt-dirty" | "matte" | "temporal" | "model-read",
 ): Promise<Job> {
   checkName(name, "game name");
   const known = queue.jobs.get(name);
@@ -864,11 +879,12 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
 
 async function runChesslab(
   job: Job,
-  step: "export" | "adopt-dirty" | "matte" | "model-read",
+  step: "export" | "adopt-dirty" | "matte" | "temporal" | "model-read",
 ): Promise<void> {
   const verb = step === "export" ? "realgames export-session"
     : step === "adopt-dirty" ? "realgames adopt-dirty"
-    : step === "matte" ? "occluders alpha-worker" : "realgames model-read";
+    : step === "matte" ? "occluders alpha-worker"
+    : step === "temporal" ? "session temporal-pass" : "realgames model-read";
   const binary = uvBinary();
   const args = ["run", "chesslab", ...verb.split(" "), job.name];
   const run = modelReadRun();
@@ -921,6 +937,8 @@ exit ${value}
       resolve(value ?? -1);
     });
   });
+
+  if (step === "model-read" && code === 0) await runPositionFlags(running, log);
 
   const end = endState(job.name, code);
   await record({

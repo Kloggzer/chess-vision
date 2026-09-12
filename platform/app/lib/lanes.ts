@@ -305,7 +305,11 @@ function positionCells(stream: LabelStream): LaneCell[] {
       ledger: "corrections" as const,
       exception: null,
       caption: `${c.square} · FEN ${c.fen_label}`,
-      note: c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
+      note: c.reason === "temporal"
+        ? `Bildabweichung ${c.temporal_score?.toFixed(2) ?? "?"} · Hand oder Stellung prüfen`
+        // `timing` fragt nicht "steht da etwas anderes", sondern "gilt der Zug hier schon".
+        : c.reason === "timing" ? `Zug-Zeitpunkt · schon gezogen oder noch nicht?`
+        : c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
     })),
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -12,12 +12,38 @@ import { MATTE_PAGE, MatteGrid } from "./grid";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
-export type MatteVerdict = "matte-ok" | "matte-bad";
+export type MatteVerdict = "matte-ok" | "matte-bad" | "matte-clean";
+
+/** Ab hier wird nachgeladen: drei Seiten Vorrat reichen, damit niemand auf den Nachschub wartet. */
+const REFILL_AT = MATTE_PAGE * 3;
+
+/**
+ * Der Nachschub kommt als eigener Schnitt vom Server, also mit EIGENEN Session-Indizes. Die
+ * bestehenden bleiben stehen — sonst zeigen `answered` und `marked` auf fremde Frames.
+ */
+function mergeStream(prev: VerifyStream, next: VerifyStream): VerifyStream {
+  const sessions = [...prev.sessions];
+  const index = new Map(sessions.map((s, i) => [s.name, i]));
+  const at = next.sessions.map((s) => {
+    const hit = index.get(s.name);
+    if (hit !== undefined) return hit;
+    index.set(s.name, sessions.length);
+    return sessions.push(s) - 1;
+  });
+  const have = new Set(prev.frames.map((f) => `${prev.sessions[f.session].name}|${f.stem}`));
+  const frames = [...prev.frames];
+  for (const frame of next.frames) {
+    if (have.has(`${next.sessions[frame.session].name}|${frame.stem}`)) continue;
+    frames.push({ ...frame, session: at[frame.session] });
+  }
+  return { sessions, frames, progress: next.progress };
+}
 
 const KEYS: [string, string][] = [
   ["1…0", "Bild markieren — markiert heißt „taugt nichts“"],
   ["⏎", "Seite schreiben → nächste zehn"],
   ["a", "alle markieren / keins"],
+  ["∅ / Rechtsklick", "als „keine Überlagerung“ vormerken — geschrieben wird mit ⏎"],
   ["m", "Alpha ein/aus"],
   ["← →", "Seite blättern"],
 ];
@@ -39,10 +65,14 @@ async function post<T>(url: string, body: unknown): Promise<T> {
  * wird hier nicht mehr gefragt: das ist eine Zellfrage und liegt in der Strittig-Lane.
  */
 export function MatteReview({ stream }: { stream: VerifyStream }) {
+  const [loaded, setLoaded] = useState(stream);
+  const [more, setMore] = useState(true);
+  const loading = useRef(false);
   const [page, setPage] = useState(0);
   const [alpha, setAlpha] = useState(true);
   const [answered, setAnswered] = useState<Record<string, MatteVerdict>>({});
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set<string>());
+  const [clean, setClean] = useState<ReadonlySet<string>>(new Set<string>());
   const [detail, setDetail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,40 +82,91 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
    * Liste darf sich nicht unter der Hand sortieren, waehrend jemand markiert.
    */
   const open = useMemo(
-    () => stream.frames.filter((f) => answered[verifyFrameKey(f)] === undefined),
-    [answered, stream.frames],
+    () => loaded.frames.filter((f) => answered[verifyFrameKey(f)] === undefined),
+    [answered, loaded.frames],
   );
+
+  /**
+   * Endlos statt F5: laeuft der Vorrat leer, holt der Client den naechsten Schnitt. `skip` sind
+   * die Frames, die er haelt und die der Server noch als offen fuehrt — Beurteiltes ist dort
+   * schon raus, also wuerde es sonst doppelt uebersprungen.
+   */
+  useEffect(() => {
+    if (!more || loading.current || open.length >= REFILL_AT) return;
+    loading.current = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/verify?skip=${open.length}`);
+        const next = (await res.json()) as VerifyStream;
+        if (!res.ok) throw new Error(String((next as { error?: string }).error ?? res.statusText));
+        setLoaded((was) => {
+          const merged = mergeStream(was, next);
+          if (merged.frames.length === was.frames.length) setMore(false);
+          return merged;
+        });
+      } catch (e) {
+        setError(String(e));
+        setMore(false);
+      } finally {
+        loading.current = false;
+      }
+    })();
+  }, [more, open.length]);
   const pages = Math.max(1, Math.ceil(open.length / MATTE_PAGE));
   const at = Math.min(page, pages - 1);
   const slice = useMemo(() => open.slice(at * MATTE_PAGE, at * MATTE_PAGE + MATTE_PAGE), [at, open]);
 
+const flip = (key: string) => (was: ReadonlySet<string>) => {
+  const next = new Set(was);
+  if (!next.delete(key)) next.add(key);
+  return next;
+};
+
+const drop = (key: string) => (was: ReadonlySet<string>) =>
+  was.has(key) ? new Set([...was].filter((k) => k !== key)) : was;
+
   const toggle = useCallback((key: string) => {
-    setMarked((was) => {
-      const next = new Set(was);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+    setMarked(flip(key));
+    setClean(drop(key));
   }, []);
 
-  /** Ein Schreibvorgang pro Seite: `matte-ok` fuer alles Unmarkierte, `matte-bad` fuer den Rest. */
+  /** Vormerken, nicht schreiben: das leere Alpha entsteht erst mit dem Commit der Seite. */
+  const markClean = useCallback((key: string) => {
+    setClean(flip(key));
+    setMarked(drop(key));
+  }, []);
+
+  /**
+   * Ein Schreibvorgang pro Seite: `matte-clean` fuer die vorgemerkten, `matte-bad` fuer die
+   * markierten, `matte-ok` fuer den Rest. Die leeren Alphas liegen VOR dem Ledger — ein Urteil
+   * ohne seine Pixel waere eine Zeile ueber eine Maske, die noch SAMs ist.
+   */
   const commit = useCallback(async () => {
     if (slice.length === 0) return;
     const rows: ReviewNote[] = [];
     const done: Record<string, MatteVerdict> = {};
     for (const frame of slice) {
       const key = verifyFrameKey(frame);
-      const verdict: MatteVerdict = marked.has(key) ? "matte-bad" : "matte-ok";
-      rows.push({ session_id: stream.sessions[frame.session].sessionId, frame: frame.stem, verdict });
+      const verdict: MatteVerdict = clean.has(key)
+        ? "matte-clean"
+        : marked.has(key)
+          ? "matte-bad"
+          : "matte-ok";
+      rows.push({ session_id: loaded.sessions[frame.session].sessionId, frame: frame.stem, verdict });
       done[key] = verdict;
     }
     try {
+      for (const frame of slice.filter((f) => clean.has(verifyFrameKey(f)))) {
+        await post(`/api/matte/${loaded.sessions[frame.session].name}/${frame.stem}`, { clear: true });
+      }
       await post("/api/review-notes", { rows });
       setAnswered((a) => ({ ...a, ...done }));
       setMarked(new Set<string>());
+      setClean(new Set<string>());
     } catch (e) {
       setError(String(e));
     }
-  }, [marked, slice, stream.sessions]);
+  }, [clean, loaded.sessions, marked, slice]);
 
   /** Ein Urteil aus der Einzelansicht — dasselbe Ledger, nur eine Zeile statt zehn. */
   const judgeOne = useCallback(
@@ -93,12 +174,36 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       const frame = open.find((f) => verifyFrameKey(f) === frameKey);
       if (!frame) return;
       await post("/api/review-notes", {
-        rows: [{ session_id: stream.sessions[frame.session].sessionId, frame: frame.stem, verdict }],
+        rows: [{ session_id: loaded.sessions[frame.session].sessionId, frame: frame.stem, verdict }],
       });
       setAnswered((a) => ({ ...a, [frameKey]: verdict }));
       setDetail(null);
     },
-    [open, stream.sessions],
+    [loaded.sessions, open],
+  );
+
+  /**
+   * "Da ist keine Hand": erst das leere Alpha schreiben, dann das Urteil — andersherum faellt der
+   * Frame aus der Liste, bevor die Pixel liegen. Die Coverage zieht `occluders recut` nach.
+   */
+  const clearOne = useCallback(
+    async (frameKey: string) => {
+      const frame = open.find((f) => verifyFrameKey(f) === frameKey);
+      if (!frame) return;
+      try {
+        await post(`/api/matte/${loaded.sessions[frame.session].name}/${frame.stem}`, { clear: true });
+        await judgeOne(frameKey, "matte-clean");
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [judgeOne, loaded.sessions, open],
+  );
+
+  /** "Alle" laesst die Vorgemerkten in Ruhe — sonst schriebe ein Tastendruck sie als `bad`. */
+  const allMarked = useCallback(
+    () => new Set(slice.map(verifyFrameKey).filter((k) => !clean.has(k))),
+    [clean, slice],
   );
 
   useEffect(() => {
@@ -110,10 +215,7 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       const hit: Record<string, () => void> = {
         Enter: () => void commit(),
         m: () => setAlpha((v) => !v),
-        a: () =>
-          setMarked((was) =>
-            was.size === slice.length ? new Set<string>() : new Set(slice.map(verifyFrameKey)),
-          ),
+        a: () => setMarked((was) => (was.size === slice.length ? new Set<string>() : allMarked())),
         ArrowLeft: () => setPage((p) => Math.max(0, p - 1)),
         ArrowRight: () => setPage((p) => p + 1),
       };
@@ -124,18 +226,23 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commit, detail, slice, toggle]);
+  }, [allMarked, commit, detail, slice, toggle]);
 
   const frame = detail === null ? undefined : open.find((f) => verifyFrameKey(f) === detail);
   if (frame) {
     return (
       <MatteFrame
         frame={frame}
+        onClean={() => clearOne(detail!)}
         onClose={() => setDetail(null)}
         onJudge={(verdict) => judgeOne(detail!, verdict)}
-        session={stream.sessions[frame.session]}
+        session={loaded.sessions[frame.session]}
       />
     );
+  }
+
+  if (open.length === 0 && more) {
+    return <p className="text-muted-foreground text-sm">Lädt die nächsten Frames …</p>;
   }
 
   if (open.length === 0) {
@@ -152,14 +259,11 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
         <span className="text-foreground text-sm font-medium tabular-nums">
           Seite {at + 1}/{pages}{" "}
-          <span className="text-muted-foreground text-xs font-normal">· noch {stream.progress.open} Frames</span>
+          <span className="text-muted-foreground text-xs font-normal">· noch {loaded.progress.open} Frames</span>
         </span>
-        {/* Die Liste endet bei VERIFY_PAGE, der Zaehler nicht — ohne den Hinweis sieht das Ende
-            der Seite wie ein Fehler aus, waehrend noch Hunderte offen sind. */}
-        {stream.frames.length < stream.progress.open ? (
-          <span className="text-muted-foreground">{stream.frames.length} geladen</span>
-        ) : null}
+        {more ? <span className="text-muted-foreground">{loaded.frames.length} geladen</span> : null}
         <span className="text-amber-400 tabular-nums">{marked.size} markiert</span>
+        {clean.size > 0 ? <span className="text-cyan-300 tabular-nums">{clean.size} leer</span> : null}
         <span className="text-muted-foreground ml-auto">
           Markiert heißt „die Maske taugt nichts“ — der Rest wird mit ⏎ bestätigt
         </span>
@@ -169,21 +273,18 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button className={TOUCH} onClick={() => void commit()} size="sm">
-              ⏎ {slice.length - marked.size} gut, {marked.size} raus
+              ⏎ {slice.length - marked.size - clean.size} gut, {marked.size} raus, {clean.size} leer
             </Button>
           </TooltipTrigger>
           <TooltipContent>
             Schreibt die ganze Seite: `matte-ok` für die unmarkierten, `matte-bad` für die
-            markierten. Wer eine Maske von Hand nachziehen will, öffnet sie mit „Pinsel“.
+            markierten, `matte-clean` plus leeres Alpha für die vorgemerkten. Wer eine Maske von
+            Hand nachziehen will, öffnet sie mit „Pinsel“.
           </TooltipContent>
         </Tooltip>
         <Button
           className={TOUCH}
-          onClick={() =>
-            setMarked((was) =>
-              was.size === slice.length ? new Set<string>() : new Set(slice.map(verifyFrameKey)),
-            )
-          }
+          onClick={() => setMarked((was) => (was.size === slice.length ? new Set<string>() : allMarked()))}
           size="sm"
           variant="outline"
         >
@@ -214,10 +315,12 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
       <MatteGrid
         alpha={alpha}
         frames={slice}
+        clean={clean}
         marked={marked}
+        onClean={markClean}
         onOpen={setDetail}
         onToggle={toggle}
-        sessions={stream.sessions}
+        sessions={loaded.sessions}
       />
 
       {error ? <Notice tone="error">{error}</Notice> : null}

@@ -21,6 +21,14 @@ const row = (square: string, dev: number) =>
   `{"session_id": "rg-g", "frame": "000100", "square": "${square}", "fen_label": "wP", ` +
   `"ply": 3, "dev": ${dev}, "cov": 0.02, "seen": 0.98, "reason": "changed"}`;
 
+test("the independent temporal score survives loading without becoming coverage", async () => {
+  const { loadPositionFlags } = await load();
+  await write(JSON.stringify({ ...JSON.parse(row("a2", 18)), reason: "temporal", temporal_score: 0.43 }));
+  expect((await loadPositionFlags()).rows[0]).toMatchObject({
+    reason: "temporal", temporal_score: 0.43, dev: 18, cov: 0.02,
+  });
+});
+
 test("die größte Abweichung zuerst — dort ist am ehesten wirklich etwas anderes im Bild", async () => {
   const { loadPositionFlags } = await load();
   await write(`${HEAD}\n${row("a2", 18.4)}\n${row("a3", 41.2)}\n`);

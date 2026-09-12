@@ -93,6 +93,7 @@ export type StreamPositionCell = {
   fen_label: string;
   dev: number;
   reason: string;
+  temporal_score?: number;
 };
 
 type StreamAuditCell = {
@@ -433,6 +434,7 @@ function positionCells(
       fen_label: row.fen_label,
       dev: row.dev,
       reason: row.reason,
+      ...(row.temporal_score !== undefined ? { temporal_score: row.temporal_score } : {}),
     });
   }
   return out;

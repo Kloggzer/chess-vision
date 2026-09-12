@@ -8,7 +8,7 @@ import type { Job } from "@/lib/jobs";
 import { newestFirst, recordedAt, type QueueRow } from "@/lib/queues";
 
 /** The chain's own order; a recording is in exactly one group, or in none (useless, archived, bare). */
-export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "matte", "model-read", "labeln"] as const;
+export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "matte", "temporal", "model-read", "labeln"] as const;
 export type IntakeGroupKey = (typeof INTAKE_GROUPS)[number];
 
 export type IntakeRow = QueueRow & {
@@ -35,7 +35,7 @@ function jobOn(row: QueueRow, lastJobs: ReadonlyMap<string, Job>): Job | null {
 export const failedOn = (row: IntakeRow): boolean => row.job?.state === "failed";
 
 /**
- * Always seven groups in chain order, rows newest first. Excluded: useless, archived, and rows
+ * Always eight groups in chain order, rows newest first. Excluded: useless, archived, and rows
  * without a video — nothing can be intaken without one, which covers a bare bundle and a
  * record-carrying one that never got its recording alike.
  */

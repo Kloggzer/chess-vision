@@ -1,4 +1,5 @@
 // Single door for every press; the lock is taken HERE, so no two heavy jobs can overlap.
+import { isJobStep } from "@/lib/backlog";
 import { chainState, type ChainState } from "@/lib/chain";
 import { claimHeavyLock, releaseHeavyLock } from "@/lib/heavy-lock";
 import { enqueueChain, enqueueLabel, enqueuePhoneRecord, modelReadRun, runningJob, type Job } from "@/lib/jobs";
@@ -14,7 +15,7 @@ export async function startStep(name: string, step: string, lens?: boolean): Pro
   // the card's fallback button would be the one press the door never lets through.
   const fallback = step === "label" && !state.hasCandidate;
   if (step !== state.step && !fallback) return { error: `next step is "${state.step}", not "${step}"`, state, status: 409 };
-  if (state.step !== "phone-record" && state.step !== "label" && state.step !== "export" && state.step !== "matte" && state.step !== "model-read") {
+  if (!isJobStep(state.step)) {
     return { error: `"${state.step}" is a page, not a job`, state, status: 400 };
   }
   // Refused here rather than after a spawn: the verb requires `--model` and rejects a run that

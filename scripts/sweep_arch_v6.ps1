@@ -24,9 +24,14 @@ param(
   # `--low-memory` nullte die Worker mit; gerettet hat den Speicher aber der Datei-Lesepfad,
   # nicht deren Abwesenheit. Ohne Worker kostete der Feed 20,5 von 27,2 s je Epoche.
   [int]$Workers = 2,
+  # Zwei Laeufe gleichzeitig sind vorgesehen (`_acquire_train_lock` deckelt bei 2). Der Slot
+  # trennt auch die Compiler-Caches — ein geteilter waere ein Schreibkonflikt.
+  [string]$Slot = "A",
   # Brettkopf-Groesse; laeuft EINMAL je Brett, kostet also 1/64 je Crop.
   [int]$BoardWidth = 128,
   [int]$BoardLayers = 2,
+  # Zusatzflaggen je Arm, z. B. "--rot90 --hflip-p 0.5".
+  [string]$Extra = "",
   # Kein Early Stopping: verglichen wird das Mittel der letzten Epochen, und dafuer muessen alle
   # Arme dieselbe Zahl laufen und den Cosine zu Ende gehen. Mit der Vorgabe 7 stoppte p4a-s42 bei
   # Epoche 14, waehrend der Referenzlauf 54 schaffte — das ist kein Vergleich, das ist Zufall.
@@ -48,16 +53,24 @@ $Arms = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Seeds = @($Seeds | ForEach-Object { "$_" -split ',' } | Where-Object { $_ } | ForEach-Object { [int]$_ })
 
 New-Item -ItemType Directory -Force $OutRoot | Out-Null
-$pairs = if ($BySeed) { foreach ($s in $Seeds) { foreach ($a in $Arms) { , @($a, $s) } } }
-         else { foreach ($a in $Arms) { foreach ($s in $Seeds) { , @($a, $s) } } }
+# Objekte statt verschachtelter Arrays: ein `, @($a, $s)` aus einer foreach-Ausgabe wird von der
+# Sammlung flachgezogen, und der Lauf hiess dann `p4a-s` ohne Seed.
+$pairs = New-Object System.Collections.ArrayList
+if ($BySeed) {
+  foreach ($s in $Seeds) { foreach ($a in $Arms) { $null = $pairs.Add([pscustomobject]@{ Arm = $a; Seed = $s }) } }
+} else {
+  foreach ($a in $Arms) { foreach ($s in $Seeds) { $null = $pairs.Add([pscustomobject]@{ Arm = $a; Seed = $s }) } }
+}
 Write-Output "sweep: $($pairs.Count) Laeufe auf $Dataset ($Epochs Epochen, patience $Patience)"
 
 foreach ($pair in $pairs) {
-  $arm, $seed = $pair
+  $arm = $pair.Arm
+  $seed = $pair.Seed
   $tag, $backbone = $arm.Split("=", 2)
   # Eigener Compiler-Cache je ARM: ein geteilter faerbt die Zeitmessung des naechsten Arms.
-  $env:TORCHINDUCTOR_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/inductor/$tag").FullName
-  $env:TRITON_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/triton/$tag").FullName
+  $env:CHESSLAB_TRAIN_SLOT = $Slot
+  $env:TORCHINDUCTOR_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/inductor/$tag-$Slot").FullName
+  $env:TRITON_CACHE_DIR = (New-Item -ItemType Directory -Force "data/tmp/triton/$tag-$Slot").FullName
 
   $out = Join-Path $OutRoot "$tag-s$seed"
   $metrics = Join-Path $out "metrics.jsonl"
@@ -77,6 +90,7 @@ foreach ($pair in $pairs) {
     --weight-decay 0.01 --head occlusion --seed $seed --low-memory --ram-reserve-gb 4 --patience $Patience `
     --num-workers $Workers `
     --epoch-frac $EpochFrac --weight-cap $WeightCap --board-width $BoardWidth --board-layers $BoardLayers `
+    @($Extra -split ' ' | Where-Object { $_ }) `
     --batch-aug --compile-batch-aug --compile-model --fused-adamw *> "$out.log"
   $code = $LASTEXITCODE
   $epochs = if (Test-Path $metrics) { (Get-Content $metrics | Measure-Object -Line).Lines } else { 0 }

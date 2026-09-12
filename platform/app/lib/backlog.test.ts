@@ -16,6 +16,7 @@ const CHAIN: ChainState = {
   confirmed: false,
   hasSession: false,
   mattes: { done: 0, total: 0, target: 0 , reported: 0},
+  hasTemporalPass: false,
   hasModelReads: false,
   useless: null,
 };
@@ -48,7 +49,7 @@ const run = (rows: QueueRow[], input: Partial<BacklogInput> = {}) =>
   backlog({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
 
 /** Nothing waits anywhere — the shape every "not my work" case has to have. */
-const NONE = { "phone-record": [], label: [], export: [], matte: [], "model-read": [] };
+const NONE = { "phone-record": [], label: [], export: [], matte: [], temporal: [], "model-read": [] };
 
 describe("backlog — what waits on which step", () => {
   it("takes the OLDEST recording, across both naming schemes", () => {
@@ -74,6 +75,8 @@ describe("backlog — what waits on which step", () => {
       // `occluders alpha-worker` holds the GPU for hours and the Python side takes no heavy lock:
       // a hand-started `--all` is invisible to us, so the press IS the interlock.
       row("2026-08-13-00-00-05", { step: "matte", hasCandidate: true, confirmed: true, hasSession: true }),
+      // `session temporal-pass` runs SAM again over what the sensor adopted — GPU, so a press too.
+      row("2026-08-13-00-00-06", { step: "temporal", hasCandidate: true, confirmed: true, hasSession: true }),
       row("2026-08-13-00-00-04", { step: "export", hasCandidate: true, confirmed: true }),
     ];
     expect(run(rows).waiting).toEqual({
@@ -81,6 +84,7 @@ describe("backlog — what waits on which step", () => {
       label: [],
       export: ["2026-08-13-00-00-04"],
       matte: ["2026-08-13-00-00-05"],
+      temporal: ["2026-08-13-00-00-06"],
       "model-read": ["2026-08-13-00-00-03"],
     });
   });
@@ -237,7 +241,7 @@ describe("waiting — what the step buttons's count and drain", () => {
 
   // The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out.
   it("a matte session at its target waits on nothing; one below it waits", () => {
-    const settled: ChainState = { ...CHAIN, ...exported, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 , reported: 0} };
+    const settled: ChainState = { ...CHAIN, ...exported, hasTemporalPass: true, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 , reported: 0} };
     const open: ChainState = { ...settled, mattes: { done: 12, total: 394, target: 80 , reported: 0} };
     expect(nextStep(settled)).toBe("labeln");
     expect(nextStep(open)).toBe("matte");

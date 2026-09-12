@@ -526,6 +526,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # 9 GB and packing it per fold copies the same crops four times. `occluded_model.
         # trained_on` reads the name back out of config.json, so the circularity guard follows.
         split_path = dd / (split_file or "split.json")
+        # Ein gepinnter Schnitt existiert genau dann, wenn der voreingestellte NICHT gemessen
+        # werden soll: `real13-mix-v6-80/split.json` traegt als Val `21-29-35` — die Aufnahme
+        # ohne einen einzigen weissen Springer. Wer `--split` vergisst, misst blind.
+        pinned = dd / "split-pin.json"
+        if split_file is None and pinned.exists():
+            print(f"[FAIL] '{dataset}' hat einen gepinnten Schnitt ({pinned.name}), aber --split "
+                  "nennt ihn nicht. Entweder `--split split-pin.json` mitgeben oder ausdruecklich "
+                  "`--split split.json` sagen.")
+            return 1
         if not manifest_path.exists() or not split_path.exists():
             print(f"[FAIL] Dataset '{dataset}' not built ({dd}). First build it in the Datasets tab "
                   "(`chesslab dataset build`), then train.")

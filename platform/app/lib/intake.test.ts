@@ -15,6 +15,7 @@ const CHAIN: ChainState = {
   confirmed: false,
   hasSession: false,
   mattes: { done: 0, total: 0, target: 0, reported: 0 },
+  hasTemporalPass: false,
   hasModelReads: false,
   useless: null,
 };
@@ -39,13 +40,13 @@ const job = (name: string, kind: Job["kind"], state: Job["state"] = "failed"): J
 const ledger = (...jobs: Job[]) => new Map(jobs.map((j) => [j.name, j]));
 
 describe("groupIntake", () => {
-  it("there are always seven groups in chain order", () => {
+  it("there are always eight groups in chain order", () => {
     const groups = groupIntake(
       [row("2026-08-12-01-18-44", { step: "confirm" }), row("2026-08-13-01-31-43"), row("2026-08-14-09-23-19", { step: "export" })],
       new Map(),
     );
     expect(groups.map((g) => g.key)).toEqual([...INTAKE_GROUPS]);
-    expect(groups.filter((g) => g.rows.length === 0)).toHaveLength(4);
+    expect(groups.filter((g) => g.rows.length === 0)).toHaveLength(5);
     expect(groups.find((g) => g.key === "label")?.label).toBe("Züge erkennen");
   });
 

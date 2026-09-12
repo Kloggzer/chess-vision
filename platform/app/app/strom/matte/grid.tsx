@@ -17,27 +17,31 @@ export type MatteGridProps = {
   frames: VerifyFrame[];
   sessions: VerifySession[];
   marked: ReadonlySet<string>;
+  /** Vorgemerkt als "keine Ueberlagerung" — das leere Alpha schreibt der Seiten-Commit. */
+  clean: ReadonlySet<string>;
   alpha: boolean;
   onToggle: (key: string) => void;
   onOpen: (key: string) => void;
+  onClean: (key: string) => void;
 };
 
 /**
  * Das Raster ist die Regel, die Einzelansicht die Ausnahme: SAMs Schnitt stimmt meistens, also
- * kostet er einen Blick und keinen Klick. Markiert wird, was NICHT passt — ⏎ schreibt dann die
- * ganze Seite, `matte-ok` fuer alles Unmarkierte und `matte-bad` fuer den Rest.
+ * kostet er einen Blick und keinen Klick. Markiert wird, was NICHT passt — ⏎ schreibt die Seite,
+ * `matte-ok` fuer Unmarkiertes, `matte-bad` fuer den Rest; Rechtsklick leert das Alpha ("∅ leer").
  */
-export function MatteGrid({ frames, sessions, marked, alpha, onToggle, onOpen }: MatteGridProps) {
+export function MatteGrid({ frames, sessions, marked, clean, alpha, onToggle, onOpen, onClean }: MatteGridProps) {
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {frames.map((frame, i) => {
         const key = verifyFrameKey(frame);
         const session = sessions[frame.session];
         const on = marked.has(key);
+        const empty = clean.has(key);
         return (
           <div
             className={`relative overflow-hidden rounded-lg border ${
-              on ? "border-amber-500 bg-amber-500/10" : "border-border"
+              empty ? "border-cyan-400 bg-cyan-400/10" : on ? "border-amber-500 bg-amber-500/10" : "border-border"
             }`}
             key={key}
           >
@@ -46,6 +50,12 @@ export function MatteGrid({ frames, sessions, marked, alpha, onToggle, onOpen }:
               aria-pressed={on}
               className="relative block aspect-square w-full cursor-pointer"
               onClick={() => onToggle(key)}
+              // Rechtsklick ist derselbe Griff wie "∅ leer": der haeufigste Fund im Raster ist die
+              // Maske, die gar nichts haette finden duerfen. In der Einzelansicht radiert er.
+              onContextMenu={(event) => {
+                event.preventDefault();
+                onClean(key);
+              }}
               type="button"
             >
               <Image
@@ -69,7 +79,9 @@ export function MatteGrid({ frames, sessions, marked, alpha, onToggle, onOpen }:
               <span className="bg-background/80 text-muted-foreground absolute top-1 left-1 rounded px-1 font-mono text-[10px] tabular-nums">
                 {(i + 1) % 10}
               </span>
-              {on ? (
+              {empty ? (
+                <span className="absolute inset-0 flex items-center justify-center text-4xl text-cyan-300">∅</span>
+              ) : on ? (
                 <span className="absolute inset-0 flex items-center justify-center text-3xl text-amber-400">✕</span>
               ) : null}
             </button>
@@ -89,12 +101,23 @@ export function MatteGrid({ frames, sessions, marked, alpha, onToggle, onOpen }:
               {frame.alpha === "sam" ? null : (
                 <span className={frame.alpha === "pending" ? "text-amber-400" : "text-green-400"}>✎</span>
               )}
-              <Button
-                className="ml-auto h-6 px-1.5 text-[10px]"
-                onClick={() => onOpen(key)}
-                size="sm"
-                variant="ghost"
-              >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    className="ml-auto h-6 px-1.5 text-[10px]"
+                    onClick={() => onClean(key)}
+                    size="sm"
+                    variant="ghost"
+                  >
+                    {empty ? "∅ doch nicht" : "∅ leer"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Merkt vor: keine Überlagerung. Mit ⏎ wird das Alpha geleert und der Frame als
+                  clean geschrieben; die Coverage zieht <code>occluders recut</code> auf 0 nach.
+                </TooltipContent>
+              </Tooltip>
+              <Button className="h-6 px-1.5 text-[10px]" onClick={() => onOpen(key)} size="sm" variant="ghost">
                 Pinsel
               </Button>
             </div>

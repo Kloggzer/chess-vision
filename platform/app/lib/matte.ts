@@ -19,6 +19,9 @@ export type MatteFrame = {
   skipped?: string;
   /** `"fixed"` once `occluders recut` has read a hand-corrected alpha into these numbers. */
   alpha?: string;
+  /** `session temporal-merge` added cells SAM called clear — when, and which. */
+  mergedAt?: string;
+  disputed?: string[];
 };
 
 /** Whose alpha the row's numbers came from: SAM's, a recut correction, or a correction not yet cut. */
@@ -85,6 +88,7 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
       const row = JSON.parse(line) as {
         frame: string; ply?: number; reason?: string; skipped?: string; alpha?: string;
         concepts?: Record<string, number>; coverage?: Record<string, number>;
+        merged_at?: string; disputed?: string[];
       };
       value.set(row.frame, {
         stem: row.frame,
@@ -94,6 +98,8 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
         coverage: row.coverage ?? {},
         ...(row.alpha ? { alpha: row.alpha } : {}),
         ...(row.skipped ? { skipped: row.skipped } : {}),
+        ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),
+        ...(Array.isArray(row.disputed) ? { disputed: row.disputed.map(String) } : {}),
       });
     } catch {
       /* a half-written line carries no alpha */

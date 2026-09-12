@@ -92,6 +92,15 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         # claim on the run, so there the default is that dataset's own split.
         manifest_path = dd / "manifest.jsonl"
         default_split = "split.json" if foreign else (cfg.get("split_file") or "split.json")
+        # Ein gepinnter Schnitt existiert genau dann, wenn der voreingestellte nicht gemessen
+        # werden soll. Ohne diese Pruefung misst ausgerechnet `eval --dataset <gemeinsamer>` —
+        # das Kommando FUER Quervergleiche — gegen den Val ohne weisse Springer.
+        pinned = dd / "split-pin.json"
+        if split_file is None and pinned.exists() and default_split != pinned.name:
+            print(f"[FAIL] '{ds_name}' hat einen gepinnten Schnitt ({pinned.name}), aber "
+                  "--split-file nennt ihn nicht. Entweder `--split-file split-pin.json` mitgeben "
+                  "oder ausdruecklich `--split-file split.json` sagen.")
+            return 1
         split_path = dd / (split_file or default_split)
     else:
         manifest_path = config.DATA.crop_pool / "manifest.jsonl"

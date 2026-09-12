@@ -19,6 +19,7 @@ const TOUCH = "max-sm:h-11 max-sm:px-3";
 const KEYS: [string, string][] = [
   ["⏎", "Alpha stimmt (speichert offene Striche) → zurück ins Raster"],
   ["x", "Matte taugt nichts → zurück ins Raster"],
+  ["c", "keine Überlagerung → Alpha leeren, Frame clean"],
   ["⎋", "zurück ins Raster, ohne Urteil"],
   ["m", "Alpha ein/aus"],
   ["e", "malen/radieren · [ ] Größe · z zurück · s speichern"],
@@ -39,6 +40,7 @@ export type MatteFrameProps = {
   frame: VerifyFrame;
   session: VerifySession;
   onJudge: (verdict: MatteVerdict) => Promise<void>;
+  onClean: () => Promise<void>;
   onClose: () => void;
 };
 
@@ -46,7 +48,7 @@ export type MatteFrameProps = {
  * EIN Frame, gross, mit dem Pinsel — die Ausnahme fuer die Maske, die das Raster nicht mit einem
  * Klick abtut. Der Stift ist hier immer scharf: wer diese Ansicht oeffnet, kommt zum Malen.
  */
-export function MatteFrame({ frame, session, onJudge, onClose }: MatteFrameProps) {
+export function MatteFrame({ frame, session, onJudge, onClean, onClose }: MatteFrameProps) {
   const router = useRouter();
   const [alpha, setAlpha] = useState(true);
   const [painted, setPainted] = useState(0);
@@ -104,6 +106,7 @@ export function MatteFrame({ frame, session, onJudge, onClose }: MatteFrameProps
       const hit: Record<string, () => void> = {
         Enter: () => void judge("matte-ok"),
         x: () => void judge("matte-bad"),
+        c: () => void onClean().catch((err) => setError(String(err))),
         Escape: () => onClose(),
         m: () => setAlpha((v) => !v),
         e: () => pen.setErase(!pen.erase),
@@ -119,7 +122,7 @@ export function MatteFrame({ frame, session, onJudge, onClose }: MatteFrameProps
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [judge, onClose, pen, saveAlpha]);
+  }, [judge, onClean, onClose, pen, saveAlpha]);
 
   return (
     <section className="space-y-3">
@@ -186,6 +189,22 @@ export function MatteFrame({ frame, session, onJudge, onClose }: MatteFrameProps
         <Button className={TOUCH} onClick={() => void judge("matte-bad")} size="sm" variant="outline">
           <span className="text-muted-foreground mr-1 font-mono">x</span> Matte taugt nichts
         </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              className={TOUCH}
+              onClick={() => void onClean().catch((e) => setError(String(e)))}
+              size="sm"
+              variant="outline"
+            >
+              <span className="text-muted-foreground mr-1 font-mono">c</span> keine Überlagerung
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Schreibt ein LEERES Alpha: SAMs Fund war keiner. Nach <code>occluders recut</code> steht
+            die Coverage des Frames auf 0, keine Zelle ist mehr maskiert.
+          </TooltipContent>
+        </Tooltip>
         <AlphaPenControls onSave={() => void saveAlpha().catch((e) => setError(String(e)))} pen={pen} />
         <Button
           className={`${TOUCH} ml-auto`}

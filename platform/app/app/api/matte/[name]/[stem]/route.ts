@@ -1,5 +1,5 @@
 import { CUT_MIME, mattePng } from "@/lib/crops";
-import { saveFixedAlpha } from "@/lib/matte-fix";
+import { clearAlpha, saveFixedAlpha } from "@/lib/matte-fix";
 
 /** The frame's alpha as a greyscale field, aligned with `/api/board/<name>/<stem>` of the same size. */
 export async function GET(
@@ -30,7 +30,9 @@ const MASK_MAX = 8 * 1024 * 1024;
 export async function POST(request: Request, ctx: { params: Promise<{ name: string; stem: string }> }) {
   const { name, stem } = await ctx.params;
   try {
-    const body = (await request.json()) as { mask?: unknown };
+    const body = (await request.json()) as { mask?: unknown; clear?: unknown };
+    // `clear` ist derselbe Schreibvorgang mit leerem Alpha: der Fund war keiner.
+    if (body.clear === true) return Response.json({ written: await clearAlpha(name, stem), recut: false });
     if (typeof body.mask !== "string") throw new Error("mask must be a base64 PNG");
     const mask = Buffer.from(body.mask.replace(/^data:[^,]*,/, ""), "base64");
     if (mask.length === 0 || mask.length > MASK_MAX) throw new Error(`mask is ${mask.length} bytes`);

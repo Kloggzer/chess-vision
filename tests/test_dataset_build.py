@@ -273,3 +273,27 @@ def test_like_inherits_from_packs(tmp_path):
                      like="donor")
     cfg = yaml.safe_load((paths.datasets / "twin" / "dataset.yaml").read_text(encoding="utf-8"))
     assert cfg[packs.PACKS_KEY] == ["s1-80"], "--like did not carry from_packs over"
+
+
+def test_from_packs_survives_a_like_on_a_classic_donor(tmp_path):
+    """The migration case: same rows and split as the memmap donor, but stored as packs."""
+    import yaml
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1-80", "s1")
+    classic = paths.datasets / "donor"
+    classic.mkdir(parents=True)
+    (classic / "dataset.yaml").write_text(yaml.safe_dump(
+        {"session_ids": ["s1"], "class_mode": "pieces13", "rotations": [0],
+         "dedup": {"per_cell_cap": 0, "phash_enabled": False, "phash_hamming": 6},
+         "split": {"val_frac": 0.0, "test_frac": 0.0, "max_empty_ratio": None,
+                   "max_class_ratio": None, "seed": 42}}), encoding="utf-8")
+    (classic / "split.json").write_text(json.dumps({"splits": {"train": ["s1"]}}),
+                                        encoding="utf-8")
+
+    DB.build_dataset("twin", ["s1"], rotations=(0,), paths=paths, allow_degenerate=True,
+                     like="donor", from_packs=True)
+
+    cfg = yaml.safe_load((paths.datasets / "twin" / "dataset.yaml").read_text(encoding="utf-8"))
+    assert cfg[packs.PACKS_KEY] == ["s1-80"], "--like overrode an explicit --from-packs"
+    assert not (paths.datasets / "twin" / "packed_images.u8").exists()

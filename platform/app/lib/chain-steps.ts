@@ -31,6 +31,11 @@ export const STEP: Record<ChainStep, { label: string; what: string; hint: string
     what: "SAM schneidet die Hand aus den verdeckten Bildern, damit die Zellen darunter nicht als Figur gelernt werden.",
     hint: "schreibt mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
   },
+  temporal: {
+    label: "Hände nachmatten",
+    what: "Der Drei-Bilder-Sensor findet Hände, die SAM übersehen hat (Bewegungsunschärfe, Bildrand), SAM schneidet die gefundenen nach, und wo SAM nichts sieht, bleibt die Sensor-Matte.",
+    hint: "schreibt reports/temporal/, temporal-mattes/<name>/ und Zeilen in matte.jsonl (~1 s pro Kandidat, SAM ~2 s pro Frame)",
+  },
   "model-read": {
     label: "Modell prüfen lassen",
     what: "Ein Modell, das diese Aufnahme nie gesehen hat, liest jede Zelle — so zeigt sich, wo es sich irrt.",

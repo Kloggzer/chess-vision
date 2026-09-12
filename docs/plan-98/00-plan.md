@@ -78,6 +78,34 @@ Ohne diesen Schritt ist alles Folgende nicht interpretierbar. Kein Training.
 | 0.5 | Eine Aufnahmegruppe als **wirklich unberührten** Test festschreiben und in `TEST-USED.json` mechanisch sperren. | — |
 | 0.6 | Lauf-Eignung reparieren: lückenlose Epochenindizes statt Zeilenzahl, unvollständige Läufe aus der Rangfolge ausschließen. | Skript |
 
+### Entschieden am 2026-09-12, vor dem ersten Lauf der Abnahme
+
+Damit nichts davon im Nachhinein gewählt werden kann:
+
+- **0.4 Checkpoint-Regel.** Der Finalist ist **`best.pt`**, ausgewählt vom bestehenden `score` des
+  Laufs auf dem VAL-Split: `0,45 · visible_piece_acc + 0,45 · visible_occupied_acc + 0,10 ·
+  calibration` (`training/data.py:169`), bei Gleichstand `occupied_board_acc`, dann `macro_recall`.
+  Der Test sieht genau diesen Checkpoint, **keinen Schwanzmittelwert**. Schwanzmittel (letzte 20
+  Epochen, gepaart je Seed, auf `val_visible_piece_acc`) dienen ausschließlich der **Rangfolge der
+  Arme**, nie der Meldung eines Ergebnisses.
+- **0.3 Auswertung je Episode.** `scripts/episode_eval.py` — eine *Verweil-Episode* ist ein
+  zusammenhängender Ply-Lauf einer Figur auf einem Feld, neu bei jedem Labelwechsel. Berichtet
+  werden Zell-, Episoden- und **Mehrheits**genauigkeit je Aufnahme, dazu wie stark die Fehler
+  klumpen (Anteil der größten Episode und der zwölf größten). Die Mehrheitsspalte misst direkt,
+  was Phase 1.3 auf dem Gerät holen würde. Segmentierung durch Tests festgehalten
+  (`tests/test_episode_eval.py`), Vorhersagen über dieselbe Maschinerie wie `chesslab eval`.
+- **0.5 Unberührter Test.** `rg-2026-09-11-20-00-52` — nachgewiesen in **keinem** der 42
+  `eval_test*.json` im Repo, während `rg-2026-08-08-00-39-57` dort 33-mal und
+  `rg-2026-08-08-11-55-19` 32-mal auftaucht. Der Stand ist mechanisch festgehalten in
+  `data/TEST-USED.json`, geschrieben von `scripts/test_used.py`; `--check <session>` beendet mit 1,
+  sobald eine Aufnahme verbrannt ist. Diese Gruppe wird **einmal** ausgewertet, nach der Auswahl.
+- **Rebuild vor der Abnahme.** In der Nacht auf den 2026-09-12 kamen neue Matten (23 Aufnahmen) und
+  Label-Korrekturen. Ein Pack friert `coverage` und `label` beim Schneiden ein, also waren alle
+  `rg`-Packs veraltet; `chesslab session pack --replace` gibt es seitdem. Die Abnahme läuft auf
+  **`real13-mix-v7-128`** — dieselben Aufnahmen, frische Labels, plus die eingefrorene Testgruppe.
+  Die Läufe in `_arch128v6/` bleiben gültig, sind aber auf dem alten Stand und **nicht** mit den
+  neuen paarbar.
+
 ## Phase 1 — was ohne neue Architektur geht
 
 Nach erwartetem Ertrag je Aufwand. Alle drei Seeds, Hausrezept (`--epoch-frac 0.35 --weight-cap 3.0`),

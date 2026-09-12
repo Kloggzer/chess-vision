@@ -11,13 +11,14 @@ import { createHash } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gameDir } from "@/lib/data";
+import { dataDir } from "@/lib/data";
 import { type MatteCensus, matteCensus } from "@/lib/matte";
 import { checkMp4 } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
 /** `phone-record`, `label`, `matte` and `model-read` are jobs; `confirm` and `labeln` are pages. */
-export type ChainStep = "phone-record" | "label" | "confirm" | "export" | "matte" | "model-read" | "labeln";
+export type ChainStep = "phone-record" | "label" | "confirm" | "export" | "matte" | "temporal" | "model-read" | "labeln";
 
 export type ChainState = {
   /** Null = nothing to do here: the game is flagged useless, and no step is offered at all. */
@@ -36,6 +37,8 @@ export type ChainState = {
   hasSession: boolean;
   /** Alphas on disk, the occluded pile, and what one run targets of it (`lib/matte.ts`). */
   mattes: MatteCensus;
+  /** `session temporal-pass` ran to its end: `data/reports/temporal-mattes/<name>/pass.json`. */
+  hasTemporalPass: boolean;
   hasModelReads: boolean;
   /** The human's "nutzlos" verdict, active only — see `lib/useless.ts`. */
   useless: UselessFlag | null;
@@ -129,7 +132,7 @@ async function phonePgn(name: string): Promise<string | null> {
 
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
-  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, hasSession, mattes, hasModelReads, useless] = await Promise.all([
+  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, hasSession, mattes, hasTemporalPass, hasModelReads, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
@@ -137,6 +140,7 @@ export async function chainState(name: string): Promise<ChainState> {
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
     exportedSession(name),
     matteCensus(name),
+    exists(path.join(dataDir(), "reports", "temporal-mattes", name, "pass.json")),
     exists(path.join(dir, "model-reads.jsonl")),
     uselessFlag(name),
   ]);
@@ -153,6 +157,7 @@ export async function chainState(name: string): Promise<ChainState> {
     confirmed,
     hasSession,
     mattes,
+    hasTemporalPass,
     hasModelReads,
     useless,
   };
@@ -177,6 +182,9 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   // export. The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out,
   // and a step waiting for the other 314 would strand the biggest sessions on this rung forever.
   if (state.mattes.done < state.mattes.target) return "matte";
+  // After SAM, never before: the pass adopts what SAM has not cut and upserts where SAM found
+  // nothing, so it needs SAM's rows on disk to know which is which.
+  if (!state.hasTemporalPass) return "temporal";
   if (!state.hasModelReads) return "model-read";
   return "labeln";
 }

@@ -71,6 +71,7 @@ const STEPS: readonly { step: JobStep; label: string; hint: string }[] = [
   { step: "label", label: "Label", hint: `Aufnahme durch den Tracker abspielen → candidate.json (Minuten je Aufnahme); ${ORDER}` },
   { step: "export", label: "Export", hint: `bestätigte Intervalle → data/recordings/<name>/; ${ORDER}` },
   { step: "matte", label: "Matten", hint: `SAM 3 schneidet die Hand aus verdeckten Frames (GPU, ~12 s pro Frame); ${ORDER}` },
+  { step: "temporal", label: "Nachmatten", hint: `Drei-Bilder-Sensor findet Hände, die SAM übersah; SAM schneidet nach, sonst Upsert; ${ORDER}` },
   {
     step: "model-read",
     label: "Modell-Lesarten",

@@ -219,6 +219,8 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     import cv2
 
     n_final = len(train_rows) + len(holdout)
+    if not pack:                 # a pack-built dataset has no memmap, and no crop file to sample
+        return
 
     # A seeded sample of rows, first readable one wins — all crops share one out_size, we only
     # need the decoded byte count (the compressed-png-size median of the old check died with the
@@ -454,7 +456,10 @@ def build_dataset(
         phash_hamming, rotations = pol["phash_hamming"], pol["rotations"]
         val_frac, test_frac, seed = pol["val_frac"], pol["test_frac"], pol["seed"]
         max_empty_ratio, max_class_ratio = pol["max_empty_ratio"], pol["max_class_ratio"]
-        from_packs = pol["from_packs"]
+        # The second exception after `class_mode`: where the pixels are stored is not part of the
+        # donor's policy, and the migration off the monolithic memmaps is exactly "same rows, same
+        # split, packs instead" (`docs/session-packs.md`). A pack donor still forces packs.
+        from_packs = from_packs or pol["from_packs"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
     # 13 + coverage since 2026-08-18: `occluded` is a regression target now, not a class, and the
@@ -539,7 +544,7 @@ def build_dataset(
 
     # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
     # new dataset nor the old one.
-    _preflight_disk_check(train_rows, holdout, pack, paths=paths, seed=seed)
+    _preflight_disk_check(train_rows, holdout, pack and not from_packs, paths=paths, seed=seed)
 
     ds = paths.datasets / name
     if ds.exists():

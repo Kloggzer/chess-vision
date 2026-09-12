@@ -9,6 +9,10 @@
 ## Architecture & Data Flow
 - **Path:** Camera -> Frame-Diff/Legacy Check -> Commit. The CNN path is asynchronous and sparse. `docs/tracker-flow.md` records a measured break ("no snapshot ever reached the engine"); specs/53 later measured `CnnSnapshot.gridOccluded` reaching the verify ladder in replay, so the break is unconfirmed for live — re-measure before quoting it.
 - **Data Pipeline (`docs/data-pipeline.md`):** Sessions → Slice → Crop Pool → Dataset. *Note:* `unusable` flag is not retroactive; Parking does not prune the pool.
+- **Temporal pass (2026-09-12):** the three-frame hand sensor is a chain step, `session
+  temporal-pass`, between `matte` and `model-read`. SAM is the base; the sensor only ADOPTS frames
+  SAM never cut (SAM then re-cuts them) and UPSERTS whole frames where SAM found nothing — never a
+  cell-level merge (user, 2026-09-11). `docs/sensor-audit.md`.
 - **Board store (2026-08-17):** a session keeps `boards/*.webp` (the rectified frame under its own quad), not source frames — 96 GB → 4.5 GB. It is the raster BOTH `crop_square` and `/api/cell` cut from. The row carries `board_size`/`board_border`; a reader that assumes its own scale cuts up to 59 px off. The board is written STRAIGHT (`realgames.straighten_boards`, 2026-08-21) and the row says so with `board_straightened`; every cut afterwards is a plain rectangle. A hand over the grooves makes a frame's own mesh worse than none (15.6 px against 16.1 raw), so a hand frame borrows the five nearest CLEAN frames' meshes — the camera does not move. Never straighten a second time.
 - **Calibration:**
     - optics: measured by `:desktop undistort` into `lens.json`, NOT in the pipeline — see below.
@@ -126,6 +130,20 @@
 - **Reproducibility:** Splits are not deterministic from Params → **always use `split.json`**.
 - **Geometry Fix (2026-07-31):** Old dataset was mis-aligned (3-6px Offset). Crops must be re-sliced. Old Path-A numbers are void.
 - **Hard Empties:** `hard_empty.jsonl` is global training input. **Park** if not in use (`data/_parked/`).
+- **Datensätze werden session-basiert gebaut (2026-09-11):** jede Aufnahme EINMAL je Größe nach
+  `data/packs/<session>-<size>/`, der Datensatz zitiert sie über `--from-packs` statt die Pixel zu
+  kopieren. Eine Aufnahme mit `boards/` wird aus dem Brett geschnitten, ein Komposit aus seinem
+  Pool (`--pool <tag>`, 54 liegen in zweien) — beides über dieselben Funktionen wie der Monolith,
+  **30 580 Zeilen bitgleich, 0 Abweichungen** gegen `real13-mix-v6-128`. **Die v6-Saetze sind seit
+  2026-09-11 umgehaengt**: `real13-mix-v6-128` und `-80` zitieren ihre Packs (617 bzw. 616 MB statt
+  41,4 und 16,2 GB), ihre Memmaps sind geloescht. Umgehaengt heisst: NUR die Spalte `path` wurde
+  gedreht, damit Zeilen, Splits und jede alte `config.json` gueltig bleiben — ein `--like`-Zwilling
+  trug 228 Zeilen mehr, weil der Brettweg live schneidet und der Pool ein Schnappschuss ist.
+  `-80-clahe` bleibt Monolith, `bake_pack` kennt keinen Session-Pack. **Ein Pack ist
+  unveränderlich, aber nicht automatisch aktuell**: ein Pack vom 2026-09-05 trug 3 333 Zeilen zu
+  viel und Pixel bis 68 Graustufen daneben, und nichts hütet das — nach einem Re-Slice die Packs
+  der Aufnahme wegwerfen. Migration, Platzrechnung und was `-clahe` blockiert:
+  `docs/session-packs.md`.
 
 ### 3. Android & Build
 - **Inference:** ~16ms per frame (small model). Execution provider AUTO is correct; leave it alone.

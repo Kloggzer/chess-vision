@@ -9,8 +9,8 @@ import { EXPORT_HOLD_MS } from "@/lib/zuege";
  * Nothing here ever starts by itself: every one of them is a press (2026-08-18, "ich will die
  * immer selbst starten"), which is also the interlock `matte` and `model-read` always needed.
  */
-export type JobStep = "phone-record" | "label" | "export" | "matte" | "model-read";
-export const JOB_STEPS = ["phone-record", "label", "export", "matte", "model-read"] as const satisfies readonly JobStep[];
+export type JobStep = "phone-record" | "label" | "export" | "matte" | "temporal" | "model-read";
+export const JOB_STEPS = ["phone-record", "label", "export", "matte", "temporal", "model-read"] as const satisfies readonly JobStep[];
 
 const JOBS: ReadonlySet<ChainStep> = new Set<ChainStep>(JOB_STEPS);
 
@@ -60,7 +60,7 @@ function freshlyConfirmed(row: QueueRow, now: number): boolean {
 /** Oldest first: the backlog drains in the order it was recorded, never newest-first like the queues. */
 const byRecording = (a: string, b: string) => recordedAt(a).localeCompare(recordedAt(b)) || a.localeCompare(b);
 
-const noneWaiting = (): Waiting => ({ "phone-record": [], label: [], export: [], matte: [], "model-read": [] });
+const noneWaiting = (): Waiting => ({ "phone-record": [], label: [], export: [], matte: [], temporal: [], "model-read": [] });
 
 /**
  * What waits on which step, in one pass over the disk state the cards already read. `useless` and

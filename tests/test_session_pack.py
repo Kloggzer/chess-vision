@@ -155,6 +155,35 @@ def test_session_pack_refuses_to_overwrite(tmp_path, monkeypatch):
         pack_session.write_session_pack("sess1", paths=paths)
 
 
+def test_replace_rewrites_the_pack_and_leaves_nothing_behind(tmp_path, monkeypatch):
+    _make_session(tmp_path)
+    paths = _pack_paths(tmp_path, monkeypatch)
+    first = pack_session.write_session_pack("sess1", paths=paths)
+
+    again = pack_session.write_session_pack("sess1", paths=paths, replace=True)
+
+    assert again["replaced"] and again["n"] == first["n"]
+    assert packs.read_pack("sess1-80", paths).shape == (first["n"], 80, 80)
+    assert [d.name for d in paths.packs.iterdir()] == ["sess1-80"]
+
+
+def test_a_failed_replace_puts_the_old_pack_back(tmp_path, monkeypatch):
+    _make_session(tmp_path)
+    paths = _pack_paths(tmp_path, monkeypatch)
+    pack_session.write_session_pack("sess1", paths=paths)
+    before = packs.read_pack("sess1-80", paths)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("cut died halfway")
+
+    monkeypatch.setattr(pack_session, "_write_rows", boom)
+    with pytest.raises(RuntimeError):
+        pack_session.write_session_pack("sess1", paths=paths, replace=True)
+
+    assert packs.read_pack("sess1-80", paths).shape == before.shape
+    assert [d.name for d in paths.packs.iterdir()] == ["sess1-80"]
+
+
 def _kotlin_pack(dir_: Path, name: str = "sid", side: int = 4, short: bool = False) -> None:
     """A `labeled-video-pack` as the desktop tool leaves it: rows without the `-<size>` suffix."""
     dir_.mkdir(parents=True)
@@ -182,3 +211,76 @@ def test_import_pack_keeps_the_kotlin_name_and_refuses_a_short_one(tmp_path):
     with pytest.raises(ValueError, match="bytes"):
         pack_session.import_pack(truncated, paths=paths)
     assert truncated.exists()
+
+
+# --- Packing a session that has no directory ------------------------------------------
+
+def _pool_session(paths: config.Paths, session_id: str, tag: str, frames=("0000",),
+                  squares=("a1", "b2"), side: int = 128) -> list[dict]:
+    """A crop pool as `slice` leaves it: one webp per cell plus the pool manifest."""
+    rows = []
+    for frame in frames:
+        for i, sq in enumerate(squares):
+            p = paths.crops / tag / "empty" / f"{session_id}_{frame}_{sq}.webp"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            img = np.full((side, side, 3), 0, dtype=np.uint8)
+            img[:, :, 0], img[:, :, 1] = 10 + i, int(frame) + 1      # BGR, readable per cell
+            cv2.imwrite(str(p), img, [cv2.IMWRITE_WEBP_QUALITY, 100])
+            rows.append({"path": p.as_posix(), "label": "empty", "session_id": session_id,
+                         "frame": frame, "square": sq, "square_color": "light", "fen": "x",
+                         "out_size": [side, side], "pad_side": 0.05, "pad_up": 0.0})
+    m = paths.crops / tag / "manifest.jsonl"
+    with m.open("a", encoding="utf-8") as fh:
+        fh.writelines(json.dumps(r) + "\n" for r in rows)
+    return rows
+
+
+def test_pool_pack_takes_only_its_session_and_keeps_the_pool_rows(tmp_path):
+    paths = config.Paths(root=tmp_path)
+    rows = _pool_session(paths, "comp-x-00", "comp13-v3", frames=("0000", "0001"))
+    _pool_session(paths, "comp-x-01", "comp13-v3", frames=("0000",))       # same pool, other id
+    # The second pool must not be read: the same session sits in both with different pixels.
+    _pool_session(paths, "comp-x-00", "comp13-v4", frames=("0000", "0001"))
+
+    res = pack_session.write_pool_pack("comp-x-00", 128, pool="comp13-v3", paths=paths)
+
+    assert res == {"pack": "comp-x-00-128", "n": 4, "h": 128, "w": 128,
+                   "gb": _gb_of(4, 128)}
+    packed = _pack_rows("comp-x-00-128", paths)
+    assert [r["path"] for r in packed] == [f"mm://comp-x-00-128/{r['frame']}/{r['square']}"
+                                           for r in rows]
+    assert [_cell(r) for r in packed] == [_cell(r) for r in rows]
+    ref = packs.read_pack("comp-x-00-128", paths)
+    assert ref.shape == (4, 128, 128)
+
+
+def test_pool_pack_pixels_are_the_decoder_the_monolithic_pack_used(tmp_path):
+    """Bit-equality by construction: both writers go through `training.pack.decode_crop`."""
+    from chesslab.training.pack import decode_crop
+
+    paths = config.Paths(root=tmp_path)
+    rows = _pool_session(paths, "comp-x-00", "comp13-v3", squares=("a1", "b2", "c3"))
+
+    pack_session.write_pool_pack("comp-x-00", 80, pool="comp13-v3", paths=paths)
+
+    ref = packs.read_pack("comp-x-00-80", paths)
+    mm = np.memmap(ref.image, dtype=np.uint8, mode="r", shape=ref.shape + (3,))
+    for i, row in enumerate(rows):
+        assert np.array_equal(mm[i], decode_crop(row["path"], (80, 80))), row["path"]
+
+
+def test_pool_pack_refuses_an_unknown_session_and_an_existing_pack(tmp_path):
+    paths = config.Paths(root=tmp_path)
+    _pool_session(paths, "comp-x-00", "comp13-v3")
+
+    with pytest.raises(ValueError, match="no crops"):
+        pack_session.write_pool_pack("comp-nobody", 80, pool="comp13-v3", paths=paths)
+    assert not (paths.packs / "comp-nobody-80").exists(), "an empty pack dir was left behind"
+
+    pack_session.write_pool_pack("comp-x-00", 80, pool="comp13-v3", paths=paths)
+    with pytest.raises(ValueError, match="already exists"):
+        pack_session.write_pool_pack("comp-x-00", 80, pool="comp13-v3", paths=paths)
+
+
+def _gb_of(n: int, side: int) -> float:
+    return round(n * side * side * 3 / 1e9, 2)

@@ -256,7 +256,12 @@ def alpha_sam3(
     # fp16 — numbers in `docs/session-mattes.md`.
     autocast = torch.autocast("cuda", dtype=torch.float16, enabled=device != "cpu")
 
-    with torch.inference_mode(), autocast:
+    # MATH statt der schnellen SDPA-Kerne: auf torch 2.13.0+rocm10.0.0 vergiftet die
+    # Aufmerksamkeit den HIP-Kontext, und der naechste Kernelstart stirbt mit
+    # `hipErrorInvalidValue` — dieselbe Wurzel wie in `BoardAttentionHead.forward`.
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+
+    with torch.inference_mode(), autocast, sdpa_kernel([SDPBackend.MATH]):
         vision_embeds = model.get_vision_features(
             pixel_values=image_inputs["pixel_values"],
         )
