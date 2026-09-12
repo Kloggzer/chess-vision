@@ -30,7 +30,7 @@
  "frozen": [
   "rg-2026-09-11-20-00-52"
  ],
- "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine eingefrorene Aufnahme beruehrt, ausser mit `--burn-frozen`; `chesslab dataset folds` nimmt sie aus dem Schnitt, ausser mit `--include-frozen`. Beide Ausnahmen sagen laut, was sie kosten.",
- "evals_scanned": 42,
- "frozen_at": "2026-09-13"
+ "frozen_at": "2026-09-13",
+ "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine eingefrorene Aufnahme beruehrt (ausser mit `--burn-frozen`), und `chesslab dataset folds` nimmt sie aus dem Schnitt (ausser mit `--include-frozen`). Beide Ausnahmen sagen laut, was sie kosten.",
+ "evals_scanned": 42
 }

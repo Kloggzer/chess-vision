@@ -20,6 +20,8 @@ OUT = Path("data/TEST-USED.json")
 #: Die Gruppe, die bis zur Abnahme niemand anfassen darf. Genau EINE Auswertung ist vorgesehen,
 #: nach festgelegtem Checkpoint — danach ist auch sie verbrannt.
 FROZEN = ["rg-2026-09-11-20-00-52"]
+#: Wann der Nutzer das Einfrieren angeordnet hat — damit eine spaetere Auswertung datierbar ist.
+FROZEN_AT = "2026-09-13"
 
 
 def burned(models: Path = Path("data/models")) -> dict[str, int]:
@@ -45,9 +47,13 @@ def main() -> int:
         print(f"{args.check}: {n}x als Test ausgewertet" if n else f"{args.check}: unberuehrt")
         return 1 if n else 0
 
-    payload = {"burned": used, "frozen": FROZEN,
+    payload = {"burned": used, "frozen": FROZEN, "frozen_at": FROZEN_AT,
                "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als "
-                       "Test wertlos. `frozen` wird genau einmal ausgewertet, nach Phase 3.",
+                       "Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die "
+                       "Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine "
+                       "eingefrorene Aufnahme beruehrt (ausser mit `--burn-frozen`), und "
+                       "`chesslab dataset folds` nimmt sie aus dem Schnitt (ausser mit "
+                       "`--include-frozen`). Beide Ausnahmen sagen laut, was sie kosten.",
                "evals_scanned": sum(1 for _ in Path("data/models").rglob("eval_test*.json"))}
     OUT.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
     still = [s for s in FROZEN if s in used]
