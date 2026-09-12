@@ -3,7 +3,11 @@
   "title": "capture.json — was eine gezielte Erfassung ueber sich selbst festhaelt",
   "description": "Geschrieben vom Erfassungs-Modus (Phase 02), gelesen vom Import (01) und von der Achsen-Zaehlung (03). Liegt im Buendel neben log.jsonl, also unter files/sessions/<id>/capture.json.",
   "type": "object",
-  "required": ["shot_id", "height", "steps"],
+  "required": [
+    "shot_id",
+    "height",
+    "steps"
+  ],
   "additionalProperties": false,
   "properties": {
     "shot_id": {
@@ -13,7 +17,12 @@
     },
     "height": {
       "type": "string",
-      "enum": ["tief", "normal", "hoch", "unbekannt"],
+      "enum": [
+        "tief",
+        "normal",
+        "hoch",
+        "unbekannt"
+      ],
       "description": "Kamerahoehe, wie der Auftrag sie verlangt hat. Namen, keine Messlatte."
     },
     "reference_square": {
@@ -26,7 +35,11 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["ply", "orientation_deg", "video_frame"],
+        "required": [
+          "ply",
+          "orientation_deg",
+          "elapsed_ns"
+        ],
         "additionalProperties": false,
         "properties": {
           "ply": {
@@ -40,19 +53,27 @@
             "maximum": 359,
             "description": "Ausrichtung der Figur in Grad, 0 = wie im Partieaufbau."
           },
-          "video_frame": {
+          "elapsed_ns": {
             "type": "integer",
             "minimum": 0,
-            "description": "Index des Frames im VIDEO, nicht im Buendel. Der Recorder kennt ihn im Moment der Aufnahme und schreibt ihn mit — dieselbe Zahl, die candidate.json fuer einen Zug unter 'frame' fuehrt. Ohne ihn gibt es keine Verbindung zwischen Buendel-Zeile und Video: das Buendel zaehlt frames/0000.jpg, das obere log.jsonl traegt den Video-Index."
+            "description": "Die monotone Geraeteuhr am Anfang dieses Schritts — dieselbe, die timeline.jsonl in jeder Zeile als elapsedNs fuehrt. Der Video-Frame wird daraus gerechnet, nicht gezaehlt: der Recorder kennt keinen Frame-Index (der entsteht erst beim Dekodieren auf dem PC, PhoneCandidate.kt:550). Ueber die video_sync-Zeilen der timeline wird elapsed_ns zu einer Videozeit und daraus zum Index — derselbe Weg, den der Partie-Import schon geht."
+          },
+          "elapsed_ns_end": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Ende des Schritts. Anders als ein Zug-Commit ist ein Drehschritt STATISCH: die Figur steht still, also sind alle Frames dazwischen brauchbar und ein Frame Ungenauigkeit kostet nichts. Fehlt es, gilt der Beginn des naechsten Schritts."
           },
           "t": {
             "type": "number",
             "minimum": 0,
-            "description": "Sekunden seit Videobeginn. Nur zur Kontrolle, nie als Ersatz fuer video_frame."
+            "description": "Sekunden seit Videobeginn, nur zur Sichtkontrolle. Nie als Rechengrundlage."
           }
         }
       }
     },
-    "note": { "type": "string", "description": "Freitext des Menschen." }
+    "note": {
+      "type": "string",
+      "description": "Freitext des Menschen."
+    }
   }
 }

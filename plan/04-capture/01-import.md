@@ -49,8 +49,8 @@ chesslab capture import <name> [--profile <name>]
 2. `log.jsonl` des Buendels lesen: je Zeile `frame` (`frames/%04d.jpg`), `ply`, `fen`, `corners`.
 3. `capture.json` daneben lesen (Phase 02 schreibt sie, Form: `docs/capture-session.schema.json`).
    Fehlt sie: **Abbruch** — ohne sie ist nicht belegt, dass die Aufnahme eine Erfassung ist, und
-   ein Partie-Buendel darf hier nicht durchrutschen. Fehlt einem Schritt `video_frame`: ebenfalls
-   **Abbruch**, siehe unten.
+   ein Partie-Buendel darf hier nicht durchrutschen. Fehlt einem Schritt `elapsed_ns`, fehlt
+   `timeline.jsonl` oder fehlen ihr die `video_sync`-Zeilen: ebenfalls **Abbruch**, siehe unten.
 4. Zeilen bauen, **`fit_rows_to_grid` rufen**, dann `rewarp_boards`, dann das obere `log.jsonl`
    schreiben — dieselbe Reihenfolge wie der Export.
 
@@ -59,26 +59,44 @@ Die Zeilen tragen dieselben Schluessel wie eine exportierte Aufnahme (`frame`, `
 danach sehen keinen Unterschied.** Welche das genau sind, sagt eine bestehende Aufnahme:
 `data/recordings/2026-09-06-21-29-35/log.jsonl`, erste Zeile lesen und gleichziehen.
 
-### Frame-Namen — der Video-Index wird GELESEN, nicht hergeleitet
+### Der Video-Index wird GERECHNET — aus der Geraeteuhr, wie beim Partie-Import
 
 Das Buendel zaehlt `frames/0000.jpg`, der Video-Frame-Index ist ein anderer. Das obere `log.jsonl`
-traegt den **Video-Index**, wie der Export (`realgames.py:380`, `frames/{idx:06d}.png`) — sonst
-stimmen die Bretter nicht mit ihren Namen ueberein.
+traegt den **Video-Index**, wie der Export (`realgames.py:380`, `frames/{idx:06d}.png`).
 
-**Die Zuordnung kommt aus `capture.json`, Feld `steps[].video_frame`** (Schema:
-`docs/capture-session.schema.json`, geschrieben von 02). Nicht aus der Reihenfolge: „die n-te
-Zeile ist der n-te angeforderte Frame" waere zirkulaer — um Frames anzufordern, muesste man ihre
-Indizes schon kennen, und das Buendel-Log traegt nur `frames/0000.jpg` und eine Wanduhrzeit.
+**Der Recorder kennt diesen Index nicht** (gemessen 2026-09-13): er entsteht erst beim Dekodieren
+auf dem PC — `PhoneCandidate.kt:550` rechnet `frames.indexAt(videoMs)`, und
+`RealGameCandidate.kt:31` nennt ihn ausdruecklich „derived from the virtual clock". Ueber
+`app/`, `core-engine/` und `tracker-runtime/` findet `grep` fuer `videoFrame|frameIndex|frameNumber`
+genau einen Treffer, und der ist ein Test-Fixture. Eine fruehere Fassung dieser Phase behauptete
+das Gegenteil; das war falsch.
 
-Der Recorder KENNT die Zahl im Moment der Aufnahme: derselbe Wert steht fuer einen Zug in
-`candidate.json` unter `moves[].frame` (gemessen: `{'ply': 1, 'san': 'e4', 'frame': 117,
-'t': 3.933, …}`), und `known_segments` liest genau den. Eine Erfassung hat keine Zuege, also
-schreibt 02 ihn je Schritt in `capture.json`.
+Was das Geraet ehrlich kennt, ist seine **monotone Uhr**, und die steht in jeder Zeile von
+`timeline.jsonl` als `elapsedNs`. Dieselbe Datei traegt `video_sync`-Zeilen mit
+`(elapsedNs, durationNs)` — gemessen 10 543 Stueck auf `2026-09-11-20-00-52`. Damit ist der Weg
+derselbe, den der Partie-Import schon geht:
 
-**Fehlt `video_frame`, bricht der Import ab.** Ein stiller Fehler waere hier teuer: die Bretter
-bekaemen Namen von Frames, die sie nicht zeigen, und alles danach saehe korrekt aus. Dieselbe
-Klasse traf uns schon einmal — bei der Seek-Messung lieferten 2 von 7 Sonden andere Pixel,
-waehrend `POS_FRAMES` den gefragten Index meldete (`docs/export-decode.md`).
+```
+elapsed_ns  --[video_sync interpolieren]-->  Videozeit  --[fps]-->  Frame-Index
+```
+
+`capture.json` traegt deshalb `steps[].elapsed_ns`, nicht `video_frame`
+(`docs/capture-session.schema.json`).
+
+**Und die Genauigkeit ist hier unkritisch**, anders als bei einem Zug-Commit: ein Drehschritt ist
+STATISCH, die Figur steht still. Ein Frame daneben zeigt dieselbe Stellung. Deshalb nimmt der
+Import das ganze Fenster `[elapsed_ns, elapsed_ns_end)` — fehlt das Ende, gilt der Beginn des
+naechsten Schritts — und schneidet jeden Frame darin.
+
+**Paritaet, nicht Nachbau.** Die Interpolation spiegelt `RecordedFrames.videoNsAt` (Kotlin ist die
+Referenz). Sie ist klein genug, um sie in Python zu halten, aber der Test muss sie gegen
+**gemessene Kotlin-Werte** stellen, nicht nur gegen sich selbst.
+
+Fehlt `timeline.jsonl`, fehlen die `video_sync`-Zeilen oder fehlt einem Schritt `elapsed_ns`:
+**Abbruch**. Ein stiller Fehler waere teuer — die Bretter bekaemen Namen von Frames, die sie nicht
+zeigen, und alles danach saehe korrekt aus. Dieselbe Klasse traf uns schon einmal: bei der
+Seek-Messung lieferten 2 von 7 Sonden andere Pixel, waehrend `POS_FRAMES` den gefragten Index
+meldete (`docs/export-decode.md`).
 
 ## Steps
 
@@ -94,11 +112,16 @@ waehrend `POS_FRAMES` den gefragten Index meldete (`docs/export-decode.md`).
 - Die geschriebenen Zeilen tragen dieselben Schluessel wie die erste Zeile von
   `data/recordings/2026-09-06-21-29-35/log.jsonl` (der Test liest sie und vergleicht die Menge).
 - `ply` wird unveraendert uebernommen; `moveSan` taucht nirgends auf.
-- **Der Frame-Name der geschriebenen Zeile ist `frames/{video_frame:06d}.png`**, gelesen aus
-  `capture.json` — der Test setzt zwei Schritte mit `video_frame` 117 und 193 und erwartet genau
-  diese Namen, NICHT 0 und 1.
-- Ein `capture.json` ohne `video_frame` in einem Schritt fuehrt zum Abbruch, und nichts wird
-  geschrieben.
+- **Der Frame-Name der geschriebenen Zeile kommt aus dem gerechneten Video-Index**, nicht aus der
+  Position: der Test setzt `video_sync`-Zeilen, die `elapsed_ns` auf Videozeit 3,9 s abbilden, und
+  erwartet bei 30 fps `frames/000117.png`, NICHT `frames/000000.png`.
+- Ein Schritt ueber ein Fenster liefert MEHRERE Zeilen — eine je Frame darin, alle mit demselben
+  `ply` und derselben Ausrichtung.
+- Fehlendes `elapsed_ns`, fehlende `timeline.jsonl` und eine `timeline.jsonl` ohne `video_sync`
+  fuehren je zum Abbruch, und nichts wird geschrieben.
+- **Paritaetstest gegen Kotlin**: mindestens drei `(elapsedNs, durationNs)`-Stuetzstellen und drei
+  Abfragen, deren Sollwerte aus `RecordedFrames.videoNsAt` stammen — nicht aus der eigenen
+  Implementierung.
 - Zwei Aufrufe hintereinander erzeugen dasselbe Ergebnis (der zweite ueberschreibt sauber).
 
 ## Acceptance
@@ -108,7 +131,7 @@ waehrend `POS_FRAMES` den gefragten Index meldete (`docs/export-decode.md`).
   trifft **nichts**.
 - `grep -n "def rewarp_boards\|Recording(" src/chesslab/capture_import.py` trifft beide — die
   Schwerarbeit wird gerufen, nicht nachgebaut.
-- `grep -n "enumerate\|video_frame" src/chesslab/capture_import.py`: `video_frame` kommt vor, und
+- `grep -n "enumerate\|elapsed_ns" src/chesslab/capture_import.py`: `elapsed_ns` kommt vor, und
   kein `enumerate` erzeugt einen Frame-Namen.
 - `grep -n "fit_rows_to_grid" src/chesslab/capture_import.py` trifft — und der Test weist nach,
   dass die geschriebenen Zeilen `grid_lines` und `board_straightened` tragen, nicht nur `corners`.

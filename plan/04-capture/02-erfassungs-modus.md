@@ -67,18 +67,26 @@ Die Datei liegt im Buendel neben `log.jsonl`; Phase 01 bricht ohne sie ab, Phase
 
 ```json
 {"shot_id": "wq-light-sehr-hell", "height": "normal", "reference_square": "h3",
- "steps": [{"ply": 0, "orientation_deg": 0, "video_frame": 117, "t": 3.933}]}
+ "steps": [{"ply": 0, "orientation_deg": 0,
+            "elapsed_ns": 187635697284584, "elapsed_ns_end": 187638697284584, "t": 3.933}]}
 ```
 
 Die Ausrichtung ist **deklariert**, nicht gemessen — die App hat zum Drehen aufgefordert.
 
-**`video_frame` ist Pflicht und der Grund, warum 01 ueberhaupt funktioniert.** Es ist der Index
-des Frames im VIDEO, nicht im Buendel: das Buendel zaehlt `frames/0000.jpg`, das obere `log.jsonl`
-traegt den Video-Index, und ohne diese Zahl gibt es keine Bruecke. Der Recorder kennt sie im
-Moment der Aufnahme — derselbe Wert, den `candidate.json` fuer einen Zug unter `moves[].frame`
-fuehrt (`{'ply': 1, 'san': 'e4', 'frame': 117, 't': 3.933}`). Eine Erfassung hat keine Zuege, also
-muss dieser Schritt sie schreiben. **Ohne sie ist die Aufnahme unbrauchbar** und der Import bricht
-ab; das faellt nicht auf, wenn man es nur „vergisst".
+**`elapsed_ns` ist Pflicht** — und es ist das, was das Geraet wirklich hat. Gemessen 2026-09-13:
+einen Video-Frame-INDEX kennt die App nicht, der entsteht erst beim Dekodieren auf dem PC
+(`PhoneCandidate.kt:550`, `RealGameCandidate.kt:31`). Ueber `app/`, `core-engine/` und
+`tracker-runtime/` findet `grep videoFrame|frameIndex|frameNumber` genau einen Treffer, ein
+Test-Fixture. Was die App fuehrt, ist ihre monotone Uhr, und `SessionTimeline` schreibt sie in
+jede Zeile als `elapsedNs` — dazu `video_sync`-Zeilen mit `(elapsedNs, durationNs)`, aus denen
+der Import die Videozeit interpoliert. Genau so laeuft der Partie-Import schon.
+
+Dieser Schritt schreibt also je Drehschritt die Uhr am Anfang (`elapsed_ns`) und, wenn der Schritt
+endet, am Ende (`elapsed_ns_end`). **Kein Zaehlen von Samples, kein Anfassen von `CameraVideo`** —
+das „Do NOT" der Phase bleibt.
+
+Ein Drehschritt ist STATISCH: die Figur steht still, der Import nimmt das ganze Fenster und ein
+Frame Ungenauigkeit kostet nichts. Deshalb ist die Uhr genug und ein Index unnoetig.
 
 ### Plan holen
 
@@ -128,8 +136,9 @@ deshalb steht ihr Erzeugungszeitpunkt daneben.
 - **Integrationstest gegen den ECHTEN `SessionRecorder`** (`app/build.gradle.kts:228` hat
   `testFixtures(project(":tracker-runtime"))`): danach liegen `log.jsonl` mit acht Zeilen und
   aufsteigendem `ply`, `session.yaml` mit `mode: capture`, und `capture.json` mit acht `steps`.
-- **Jeder `step` traegt ein `video_frame`**, und die acht sind streng aufsteigend — der Test
-  prueft das, sonst waere ein hartkodiertes 0 gruen.
+- **Jeder `step` traegt ein `elapsed_ns`**, und die acht sind streng aufsteigend — der Test
+  prueft das, sonst waere eine hartkodierte 0 gruen. `elapsed_ns_end` eines Schritts liegt nie
+  hinter dem `elapsed_ns` des naechsten.
 
 Dazu einmal `gradlew.bat :app:test --tests "*CommentBudgetTest*" --rerun-tasks`.
 

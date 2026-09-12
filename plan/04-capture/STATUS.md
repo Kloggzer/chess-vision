@@ -145,6 +145,24 @@ war zeitweise nicht uebersetzbar und ein `processTestResources` lief einmal in e
 `core-engine/build/`. Beide Gates sind spaeter sauber durchgelaufen; die Zahlen unten stammen von
 diesen Laeufen.
 
+**Blocker 02 aufgeloest, 2026-09-13 (Nutzerentscheid: „nimm das, was wir eh schon machen").**
+Die Pruefung des Android-Agenten war richtig: einen Video-Frame-INDEX kennt das Geraet nicht, er
+entsteht beim Dekodieren auf dem PC (`PhoneCandidate.kt:550`). Meine Spec-Reparatur vom Vortag
+behauptete das Gegenteil und war falsch.
+
+Umgestellt auf das, was der Partie-Import ohnehin tut: `capture.json` traegt
+`steps[].elapsed_ns` — die monotone Geraeteuhr, die `SessionTimeline` schon in jede Zeile
+schreibt — und der Import interpoliert ueber die `video_sync`-Zeilen der `timeline.jsonl` zur
+Videozeit und daraus zum Index. Auf `2026-09-11-20-00-52` liegen 10 543 solche Zeilen.
+
+Zwei Dinge machen das billiger als beim Partie-Pfad: ein Drehschritt ist **statisch**, also kostet
+ein Frame Ungenauigkeit nichts und der Import nimmt gleich das ganze Fenster
+`[elapsed_ns, elapsed_ns_end)`. Und `CameraVideo` bleibt unberuehrt, das „Do NOT" der Phase haelt.
+
+**Offen dabei:** Python hat keinen Timeline-Leser, die Umrechnung liegt in Kotlin
+(`RecordedFrames.videoNsAt`). Phase 01 bekommt eine kleine eigene — mit **Paritaetstest gegen
+gemessene Kotlin-Werte**, nicht gegen sich selbst (`kotlin-is-the-reference-implementation`).
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
