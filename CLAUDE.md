@@ -201,7 +201,14 @@
   Operator dann aus dem Loader, schreibt ihn aber weiter in `config.json` — **das Serving sieht
   rohe Kamerabilder und muss ihn selbst rechnen.**
 - **Der Feed ist gemessen, nicht geschätzt:** 985 → 76 µs/Crop. Weitere Loader-Arbeit kauft null
-  Wanduhrzeit, die GPU ist der Boden. Der Trainings-Batch auf 8 Bretter zu heben brächte 17 %,
+  Wanduhrzeit, die GPU ist der Boden.
+  **Seit den Session-Packs ist der Boden die PLATTE, nicht die GPU (2026-09-12):** auf
+  `real13-mix-v7-128` (48,1 GB Packs, 13 GB freier Cache) wartet der Trainingsschritt zu 68–77 %
+  auf Daten, bei 80 px (18,8 GB) zu 55 %. **Mehr Worker helfen nicht** — gemessen 2 gegen 4, warm
+  10,7 gegen 10,6 s je Epoche und dieselbe Wartezeit auf die Zehntelsekunde; vier Prozesse stehen
+  an derselben Platte an. Und die Worker-Zahl ist **kein freier Schalter**: der Trainingsverlust
+  war NICHT bitgleich (0,733245 gegen 0,741672), ein Wechsel macht Läufe unvergleichbar.
+  `scripts/worker_probe.py` fährt die Probe; sie braucht einen ruhigen Rechner. Der Trainings-Batch auf 8 Bretter zu heben brächte 17 %,
   ändert aber BatchNorm-Statistik und Gradientenrauschen — für die Folds also nein.
 
 ## Der Trainingsschritt ist startgebunden, nicht rechengebunden (2026-09-10)
