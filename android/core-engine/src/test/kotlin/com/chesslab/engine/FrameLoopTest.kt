@@ -251,6 +251,34 @@ class FrameLoopTest {
         assertEquals(STATE_OCCLUDED, h.state.state)
     }
 
+    /**
+     * A hold shorter than the 0.1 s keep-alive lets `ready` fire on live core stamps. The
+     * occluded state then re-measured the quiet board against the old reference every frame
+     * and latched on a played move (2026-08-07-13-52-38 lost 8 plies at 50 ms holds).
+     */
+    @Test
+    fun coreOccludedStateExitsOnAQuietBoard() {
+        val h = Harness(testConfig().copy(motionHoldS = 0.05, occluderHoldS = 0.05, settleFramesOverride = 2))
+        var t = 0L
+        repeat(3) {
+            h.feed(tsMs = t)
+            t += 100
+        }
+        assertNotNull(h.state.refGray)
+        val moved = grayFrame(listOf("c8", "d7", "e5"))
+        h.feed(gray = moved, tsMs = t, motionRoi = 1.0)
+        var sawOccluded = false
+        var detected = false
+        repeat(30) {
+            t += 33
+            val outcome = h.feed(gray = moved, tsMs = t)
+            if (h.state.state == STATE_OCCLUDED) sawOccluded = true
+            if (outcome is FrameOutcome.Detect) detected = true
+        }
+        assertTrue(sawOccluded, "the live core stamps must gate the first ready frame")
+        assertTrue(detected, "a quiet board that differs from the reference is a move, not a hand")
+    }
+
     /** The keep-alive is evaluated against `nowS` and expires on its own. */
     @Test
     fun occlusionKeepAliveExpires() {

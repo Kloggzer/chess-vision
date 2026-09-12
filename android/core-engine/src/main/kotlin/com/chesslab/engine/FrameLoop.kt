@@ -131,8 +131,10 @@ internal class FrameLoop(
     }
 
     /**
-     * Per-square occlusion against the baseline reference, during the motion and occlusion states.
-     * The expiry stamps are what bridge "the hand left" and "motion hold expired".
+     * Per-square occlusion against the baseline reference while the hand moves or the grid is
+     * covered; the expiry stamps bridge "the hand left" and "motion hold expired". NOT in the
+     * core-gated occluded state: refreshing there re-flags a quiet board that merely differs from
+     * the reference (a played move), and the state never exits without motion (2026-09-12).
      */
     private fun updateBaselineOcclusion(input: FrameInput) {
         val ref = state.refGray
@@ -145,7 +147,7 @@ internal class FrameLoop(
             state.note = NOTE_WAITING_CLEAR
             return
         }
-        if (ref != null && state.state != STATE_WAITING && state.state != STATE_MOVE) {
+        if (ref != null && (state.state == STATE_MOVING || state.occlGridActive)) {
             val result =
                 state.baselineScratch.baselineOcclusionAndShadow(
                     input.grayDet,
