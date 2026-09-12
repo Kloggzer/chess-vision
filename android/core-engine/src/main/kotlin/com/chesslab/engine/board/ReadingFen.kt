@@ -14,12 +14,23 @@ fun fenOf(snap: CnnSnapshot): String? {
             val row = reading.rows[i]
             BOARD_SQUARES[i] to letters[row.indices.maxBy { row[it] }]
         }
+    return fenOf(board)
+}
+
+/**
+ * Square ("h3") to label ("wQ"); what is missing is [blank]. The `CnnSnapshot` path always supplies
+ * all 64 squares ([BOARD_SQUARES]), so it reads the same string it did when the map was total.
+ */
+fun fenOf(
+    board: Map<String, String>,
+    blank: String = "empty",
+): String {
     val ranks =
         (BOARD_SIDE downTo 1).joinToString("/") { rank ->
             var empty = 0
             val line = StringBuilder()
             for (file in FILES) {
-                val label = board.getValue("$file$rank")
+                val label = board["$file$rank"] ?: blank
                 val symbol = symbolOf(label)
                 if (symbol == null) {
                     empty += 1
