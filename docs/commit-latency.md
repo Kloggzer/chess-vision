@@ -112,3 +112,40 @@ physikalisch abgedeckt. Die Ankunftsregel per Identitaet steht in `TODO.md`; ers
 der Split ein Kandidat. Die 15-fps-Basis selbst traegt auf 222741 ein Phantom (`Nf2`,
 cnn_recovery), das 30 fps nicht hat — der skalierte Satz ist rauschiger, und der Split hat es dort
 nicht (33/0/0).
+
+### Nachmittag: Kadenz, Drain, Parallelisierung (2026-09-12, Fortsetzung)
+
+**Die Sofort-Beobachtung darf die Kadenz nicht verschieben (5136a4f9).** Der erste Bau
+beantwortete die Anfrage des Beobachters und kippte damit die Paritaet der
+Jeder-zweite-Frame-Kadenz; 20-57-45 verlor 45 Plies an eine paritaetsempfindliche
+Alarm-Recovery, bei GLEICHER Beobachtungszahl. Jetzt bleibt die Anfrage stehen, die Beobachtung
+ist zusaetzlich. Seitdem per Vorgabe an (3256ff39).
+
+**Same-Frame-Drain (7919df45).** Der Host leerte die Snapshot-Queue erst am Kopf des naechsten
+Ticks; jetzt zieht der Koordinator sie nach dem Beobachter-Aufruf noch im Frame — derselbe
+Zustand, dieselbe Uhr (`nowS` aendert erst `onFrame`), einen Frame frueher.
+
+| 15 fps, 10 Regressions- + 5 Handy-Aufnahmen | Basis | Sofort-Beobachtung | + Drain |
+| --- | ---: | ---: | ---: |
+| Bewegungsende → Commit, Median (p90) | 333 (400) | 267 (333) | **200 (267)** |
+| Verify Median | 133 | 67 | **0** |
+| Score | — | 15/15 identisch | 15/15 identisch |
+
+Jeder Commit exakt einen Frame frueher, kein Zug anders. Am Geraet greift der Drain, wenn die
+Inferenz die Frame-Periode unterbietet; sonst laeuft es wie bisher.
+
+**Parallel auf dem Frame-Thread (94139d76, 9e63622c, 9ca7f79f).** Rillen-Hand als Future neben
+Zuschnitt und Inferenz (Release der Warps am letzten Leser); ROI-Bewegung als Future neben
+Grau/Gitter; der Crop-Warp startet mit der Konvertierung (`beginCropWarp`) und wird nach dem
+Engine-Tick uebergeben (`finishCropFrame`). Entscheidungslogs bytegleich (20-00-52, 13-52-38);
+Wanduhr je Frame am PC 15,1 → 10,1 ms bei unveraenderter CPU-Summe (12,5 ms).
+
+**Remap statt warpPerspective: gemessen, verworfen (bb7a87b4).** Die zwischengespeicherten
+Festkomma-Tabellen waren bytegleich, aber der Warp kostet 5,2 → 5,1 ms: unimodal bei 5 ms, die
+Zeit ist das Einsammeln von 350 000 Zielpixeln aus dem QHD-Quellbild, nicht die Koordinaten.
+Das Ziel ist mit `forNativeCrops` schon minimal (576 px, Crops sind Submats).
+
+**LiveAlign auf der halbskalierten Kopie (bc7b8ddf).** Der Bus klonte alle 200 ms QHD (2,7 ms)
+nur fuer LiveAlign, das bei `alignScale` 0,5 liest. Jetzt: voller Klon nur bei abonnierter
+Vorschau oder ausstehendem Rillen-Fit je Pose, sonst die INTER_AREA-Verkleinerung, die der
+Detektor selbst gemacht haette (bytegleiche Pixel, Punkte durch dieselbe Division zurueck).
