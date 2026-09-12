@@ -145,7 +145,8 @@ Festkomma-Tabellen waren bytegleich, aber der Warp kostet 5,2 → 5,1 ms: unimod
 Zeit ist das Einsammeln von 350 000 Zielpixeln aus dem QHD-Quellbild, nicht die Koordinaten.
 Das Ziel ist mit `forNativeCrops` schon minimal (576 px, Crops sind Submats).
 
-**LiveAlign auf der halbskalierten Kopie (bc7b8ddf).** Der Bus klonte alle 200 ms QHD (2,7 ms)
-nur fuer LiveAlign, das bei `alignScale` 0,5 liest. Jetzt: voller Klon nur bei abonnierter
-Vorschau oder ausstehendem Rillen-Fit je Pose, sonst die INTER_AREA-Verkleinerung, die der
-Detektor selbst gemacht haette (bytegleiche Pixel, Punkte durch dieselbe Division zurueck).
+**LiveAlign auf der halbskalierten Kopie: gemessen, verworfen (bc7b8ddf, zurueck mit dem
+Folge-Commit).** Der Bus klont alle 200 ms QHD nur fuer LiveAlign, das bei `alignScale` 0,5
+liest; die INTER_AREA-Verkleinerung an seiner Stelle war bytegleich, kostete aber 1,14 statt
+1,08 ms — der Boxfilter liest dieselben 11 MB wie der Klon. Sparen liesse sich der Klon nur,
+wenn weder Vorschau noch LiveAlign ihn brauchen, und LiveAlign ist per Vorgabe an.
