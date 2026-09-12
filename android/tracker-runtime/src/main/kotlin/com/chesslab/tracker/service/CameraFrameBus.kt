@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.opencv.core.Mat
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
 
 /** ~5 fps. A preview and a calibration tap need freshness, not frame rate. */
 private const val PUBLISH_INTERVAL_MS = 200L
@@ -63,7 +65,31 @@ class CameraFrameBus<B>(
     private val rotation = MutableStateFlow(0)
     private val lock = Any()
     private var latest: Mat? = null
+    private var latestScale = 1.0
     private var latestVersion = 0L
+
+    /** Who needs the retained frame: full for previews or a grid fit, small for the marker read. */
+    private var wantsFull: () -> Boolean = { true }
+    private var wantsSmall: () -> Boolean = { false }
+    private var smallScale: () -> Double = { 1.0 }
+
+    /**
+     * The clone is the largest copy on the analyzer thread (2,7 ms QHD); LiveAlign reads markers
+     * at `alignScale` anyway, so it gets a once-resized copy and the full clone only while a
+     * preview is on screen or the once-per-pose grid fit still needs full resolution.
+     */
+    fun demandFrom(
+        full: () -> Boolean,
+        small: () -> Boolean,
+        scale: () -> Double,
+    ) {
+        wantsFull = full
+        wantsSmall = small
+        smallScale = scale
+    }
+
+    val previewSubscribed: Boolean
+        get() = publishPreviews && (preview.subscriptionCount.value > 0 || board.subscriptionCount.value > 0)
     private var lastMs = 0L
     private var lastBoardMs = 0L
 
@@ -107,10 +133,18 @@ class CameraFrameBus<B>(
         val now = nowMs()
         if (now - lastMs < PUBLISH_INTERVAL_MS) return
         lastMs = now
-        val frame = bgr.profiledClone(WorkOperation.RAW_FRAME_COPY)
+        val full = previewSubscribed || wantsFull()
+        val scale = smallScale()
+        val frame =
+            when {
+                full || scale >= 1.0 -> bgr.profiledClone(WorkOperation.RAW_FRAME_COPY)
+                wantsSmall() -> bgr.profiledResize(scale)
+                else -> return
+            }
         synchronized(lock) {
             latest?.release()
             latest = frame
+            latestScale = if (full || scale >= 1.0) 1.0 else scale
             latestVersion += 1
         }
         if (publishPreviews) publishPreview()
@@ -141,7 +175,7 @@ class CameraFrameBus<B>(
     /** An immutable shared view — the caller releases it. Null until the first frame arrives. */
     override fun latestCalibrationFrame(): Mat? =
         synchronized(lock) {
-            latest?.profiledView(WorkOperation.CALIBRATION_FRAME_COPY)
+            latest?.takeIf { latestScale >= 1.0 }?.profiledView(WorkOperation.CALIBRATION_FRAME_COPY)
         }
 
     /** Frame and version captured under one lock, so LiveAlign cannot pair mismatched values. */
@@ -152,7 +186,7 @@ class CameraFrameBus<B>(
         synchronized(lock) {
             val frame = latest ?: return@synchronized null
             if (afterVersion == latestVersion) return@synchronized null
-            CalibrationFrame(latestVersion, frame.profiledView(WorkOperation.CALIBRATION_FRAME_COPY))
+            CalibrationFrame(latestVersion, frame.profiledView(WorkOperation.CALIBRATION_FRAME_COPY), latestScale)
         }
 
     override fun close() {
@@ -181,6 +215,15 @@ class CameraFrameBus<B>(
 private fun Mat.profiledClone(operation: WorkOperation): Mat =
     WorkProfiler.span(operation) {
         clone().also { copy -> WorkProfiler.bytes(operation, copy.total() * copy.elemSize().toLong()) }
+    }
+
+/** The resize IS the copy: exactly the INTER_AREA call the marker detector would make itself. */
+private fun Mat.profiledResize(scale: Double): Mat =
+    WorkProfiler.span(WorkOperation.RAW_FRAME_COPY) {
+        Mat().also { small ->
+            Imgproc.resize(this, small, Size(), scale, scale, Imgproc.INTER_AREA)
+            WorkProfiler.bytes(WorkOperation.RAW_FRAME_COPY, small.total() * small.elemSize().toLong())
+        }
     }
 
 /** A new native header retaining the same immutable pixels; releasing either header is safe. */
@@ -234,4 +277,6 @@ interface CalibrationFrames<B> {
 class CalibrationFrame(
     val version: Long?,
     val frame: Mat,
+    /** Below 1.0 the frame is a once-resized copy; marker points are scaled back by it. */
+    val scale: Double = 1.0,
 )

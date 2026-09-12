@@ -352,7 +352,7 @@ class LiveAlign(
         cachedMarkers?.let { markers ->
             val corners = boardCornersFromMarkers(markers(frames), geometry(), tracker)
             corners?.let {
-                val corrected = cornersToFlat(onGrid(frame, it))
+                val corrected = cornersToFlat(onGrid(frame, it, fullFrame = sample.scale >= 1.0))
                 onCorners(corrected)
                 cornerSink?.invoke(alignedAfterFrame, corrected)
             }
@@ -365,12 +365,19 @@ class LiveAlign(
         scope.launch(dispatcher) {
             val result =
                 runCatching {
-                    boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
+                    boardCornersForFrame(
+                        frame,
+                        geometry(),
+                        current,
+                        detectScale = cfg.alignScale,
+                        detector = markerDetector,
+                        prescaled = sample.scale,
+                    )
                 }
             result.onSuccess { corners ->
                 // Before `onGrid`, which would measure a correction against the pose that is gone.
                 corners?.takeIf { startedAt == generation }?.let {
-                    val corrected = cornersToFlat(onGrid(frame, it))
+                    val corrected = cornersToFlat(onGrid(frame, it, fullFrame = sample.scale >= 1.0))
                     onCorners(corrected)
                     cornerSink?.invoke(alignedAfterFrame, corrected)
                 }
@@ -380,6 +387,9 @@ class LiveAlign(
             inFlight = false
         }
     }
+
+    /** True while the grid fit is still owed: the bus then retains a full frame for it. */
+    fun needsFullFrame(): Boolean = correction == null && !correctionTried
 
     /**
      * The ArUco quad pulled back onto the board's own grooves.
@@ -410,13 +420,16 @@ class LiveAlign(
      * `specs/30` measured that residual as systematic per setup and differing in sign between
      * setups, i.e. exactly a per-calibration constant.
      */
+
     private fun onGrid(
         frame: Mat,
         corners: List<DoubleArray>,
+        fullFrame: Boolean = true,
     ): List<DoubleArray> {
         val geom = geometry()
         expireCorrection(cornersToFlat(corners), geom)
-        if (correction == null && !correctionTried) {
+        // The fit reads grooves at full resolution; on a resized frame it waits for the next one.
+        if (correction == null && !correctionTried && fullFrame) {
             correctionTried = true
             val fixed = improveQuad(frame, corners, geom).quad
             correction = fixed?.let { gridCorrection(corners, it, geom) }

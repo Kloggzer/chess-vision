@@ -66,4 +66,37 @@ class CameraFrameBusTest {
             Loader.load(opencv_java::class.java)
         }
     }
+
+    /** LiveAlign reads markers at `alignScale`; the bus hands it the resize instead of the clone. */
+    @Test
+    fun theMarkerReadGetsAResizedCopyAndNobodyGetsAFullClone() {
+        val bus = CameraFrameBus(MutableStateFlow<CameraHealth>(CameraHealth.Up), scope, toPreview = { Unit })
+        bus.demandFrom(full = { false }, small = { true }, scale = { 0.5 })
+        val source = Mat(4, 4, CvType.CV_8UC3)
+        try {
+            bus.offer(source)
+            val sample = requireNotNull(bus.latestCalibrationSample())
+            assertEquals(0.5, sample.scale)
+            assertEquals(2, sample.frame.rows())
+            assertEquals(null, bus.latestCalibrationFrame(), "the calibration tap wants full resolution only")
+            sample.frame.release()
+        } finally {
+            source.release()
+            bus.close()
+        }
+    }
+
+    @Test
+    fun withoutAnyConsumerTheBusRetainsNothing() {
+        val bus = CameraFrameBus(MutableStateFlow<CameraHealth>(CameraHealth.Up), scope, toPreview = { Unit })
+        bus.demandFrom(full = { false }, small = { false }, scale = { 0.5 })
+        val source = Mat(4, 4, CvType.CV_8UC3)
+        try {
+            bus.offer(source)
+            assertEquals(null, bus.latestCalibrationSample())
+        } finally {
+            source.release()
+            bus.close()
+        }
+    }
 }
