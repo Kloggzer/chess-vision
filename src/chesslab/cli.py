@@ -485,6 +485,23 @@ def capture_plan_cmd(
         print(f"   {s['id']:28s} {wo}, Hoehe {s['height']}, {s['orientations']} Drehschritte")
 
 
+@capture_app.command("import")
+def capture_import_cmd(
+    name: Annotated[str, typer.Argument(help="Die Aufnahme unter data/recordings/.")],
+    profile: str = typer.Option("desktop", "--profile", help="Profil, durch das geschnitten wird."),
+) -> None:
+    """Ein Buendel MIT `capture.json` wird zu Brettern — ohne Kandidat und ohne Zugerkennung."""
+    from .capture_import import import_capture
+
+    try:
+        res = import_capture(name, profile)
+    except (OSError, ValueError, KeyError) as e:
+        print(f"[FAIL] {e}")
+        raise typer.Exit(1) from e
+    print(f"[OK] {len(res['rows'])} Bretter -> {res['session_dir']} "
+          f"({res['no_mesh']} ohne Mesh, {res['no_frame']} ohne Bild)")
+
+
 @pack_app.command("import")
 def pack_import_cmd(
     src: Annotated[
