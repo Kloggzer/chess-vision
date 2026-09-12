@@ -208,18 +208,13 @@ fun boardCornersForFrame(
     minMarkers: Int? = null,
     detectScale: Double = 1.0,
     detector: BoardMarkerDetector? = null,
-    // The frame ALREADY sits at this scale (the bus resized it once, INTER_AREA like the detector
-    // would): detect at 1.0 and scale the points back by the same division, identical numbers.
-    prescaled: Double = 1.0,
 ): List<DoubleArray>? {
     val needed = minMarkers ?: tracker.params.defaultMinMarkers
-    val scale = if (prescaled < 1.0) 1.0 else detectScale
-    val raw =
-        detector?.detectBoardMarkers(frame, geom.markerDict, corner = MARKER_CORNER_CENTER, detectScale = scale)
+    val det =
+        detector?.detectBoardMarkers(frame, geom.markerDict, corner = MARKER_CORNER_CENTER, detectScale = detectScale)
             ?: BoardMarkerDetector().use {
-                it.detectBoardMarkers(frame, geom.markerDict, corner = MARKER_CORNER_CENTER, detectScale = scale)
+                it.detectBoardMarkers(frame, geom.markerDict, corner = MARKER_CORNER_CENTER, detectScale = detectScale)
             }
-    val det = if (prescaled < 1.0) raw.mapValues { (_, p) -> doubleArrayOf(p[0] / prescaled, p[1] / prescaled) } else raw
     return boardCornersFromMarkers(det, geom, tracker, needed)
 }
 

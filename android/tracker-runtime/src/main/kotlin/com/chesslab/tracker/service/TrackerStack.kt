@@ -284,41 +284,10 @@ class TrackerStack<T>(
     init {
         // The pull half of the CNN path: the observer asks before it spends an inference.
         observer.demandFrom(host::wantsCnnRead)
-        // The bus clones QHD only for a preview or the once-per-pose grid fit; the marker read
-        // takes a once-resized copy at `alignScale`, or nothing while LiveAlign is off.
-        frames.demandFrom(
-            full = { seed.cachedAlignment == null && seed.config.liveAlign && align.needsFullFrame() },
-            small = { seed.cachedAlignment == null && seed.config.liveAlign },
-            scale = { seed.config.alignScale },
-        )
         // The same bargain one layer down, and the reason it is set here rather than passed in:
         // the pipeline is built before the engine that answers for it.
         pipeline.reads = host.reads
     }
-
-    // The align detection shares the observer's dispatcher choice: inline for replays, its own
-    // worker live. Inline is not only determinism (an align lands at a video time, not a wall
-    // time) — it is what makes the desktop SINGLE-THREADED through OpenCV: with the drive
-    // thread's stages and ArUco running concurrently, the 4.10 Windows build's `detectMarkers`
-    // committed a single ~53 GB native buffer on a motion-blur frame (specs/52 STATUS,
-    // 2026-08-08), and `Core.setNumThreads(1)` alone only made the balloon rarer, not impossible.
-    private val align =
-        LiveAlign(
-            scope,
-            seed.geometry,
-            // THIS RUN's config: `liveAlign`/`alignEvery`/`alignScale` are restart-only, so
-            // reading them off the repository served its DEFAULT to any host whose repository
-            // is not the run's config — a `config=` replay's recorded `alignEvery=2` aligned
-            // every 3rd frame like everything else (20260814-143233, 2026-08-14).
-            { seed.config.withLiveKnobsOf(settings.config.value) },
-            { pipeline.corners = it },
-            seed.logs("chesslabTracker"),
-            dispatcher = seed.observerDispatcher ?: Dispatchers.Default,
-            cachedCorners = seed.cachedAlignment,
-            cornerSink = seed.alignmentSink,
-            cachedMarkers = seed.cachedMarkerDetections,
-            onRectificationChanged = { host.submit(EngineAction.RectificationChanged) },
-        )
 
     val coordinator =
         TrackerCoordinator(
@@ -327,7 +296,29 @@ class TrackerStack<T>(
             publisher,
             frames,
             observer,
-            align,
+            // The align detection shares the observer's dispatcher choice: inline for replays,
+            // its own worker live. Inline is not only determinism (an align lands at a video
+            // time, not a wall time) — it is what makes the desktop SINGLE-THREADED through
+            // OpenCV: with the drive thread's stages and ArUco running concurrently, the 4.10
+            // Windows build's `detectMarkers` committed a single ~53 GB native buffer on a
+            // motion-blur frame (specs/52 STATUS, 2026-08-08), and `Core.setNumThreads(1)`
+            // alone only made the balloon rarer, not impossible.
+            LiveAlign(
+                scope,
+                seed.geometry,
+                // THIS RUN's config: `liveAlign`/`alignEvery`/`alignScale` are restart-only, so
+                // reading them off the repository served its DEFAULT to any host whose repository
+                // is not the run's config — a `config=` replay's recorded `alignEvery=2` aligned
+                // every 3rd frame like everything else (20260814-143233, 2026-08-14).
+                { seed.config.withLiveKnobsOf(settings.config.value) },
+                { pipeline.corners = it },
+                seed.logs("chesslabTracker"),
+                dispatcher = seed.observerDispatcher ?: Dispatchers.Default,
+                cachedCorners = seed.cachedAlignment,
+                cornerSink = seed.alignmentSink,
+                cachedMarkers = seed.cachedMarkerDetections,
+                onRectificationChanged = { host.submit(EngineAction.RectificationChanged) },
+            ),
             timings,
             seed.nowMs,
             seed.exposure,
