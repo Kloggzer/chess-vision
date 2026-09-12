@@ -309,6 +309,18 @@ class OpenCvStages<T>(
         bgr: BgrImage,
         gray: GrayImage,
     ) {
+        val job = beginCropWarp(corners, seq) ?: return
+        finishCropFrame(job, tsMs, bgr, gray)
+    }
+
+    /**
+     * The warp alone: it reads only the converted frame and the corners, so it can run on another
+     * thread while gray, grid and the engine work on this one; [finishCropFrame] hands it over.
+     */
+    override fun beginCropWarp(
+        corners: FloatArray,
+        seq: Long,
+    ): CropWarpJob? {
         val cropGeom = cropGeometry()
         val cached = cropStore.cached(seq)
         val source = if (cached == null) frame else null
@@ -322,30 +334,43 @@ class OpenCvStages<T>(
                     remapCache = cropRemap,
                 )
             }
-        if (cached == null && warp == null) return
-        var gridPlane: CropFrameStore.GridPlane? = null
+        if (cached == null && warp == null) return null
+        val gridPlane =
+            try {
+                gridPlaneFor(corners, cropGeom, source)
+            } catch (e: Throwable) {
+                warp?.release()
+                throw e
+            }
+        return CropWarpJob(warp, gridPlane, cropGeom, cached, seq)
+    }
+
+    override fun finishCropFrame(
+        job: CropWarpJob,
+        tsMs: Long,
+        bgr: BgrImage,
+        gray: GrayImage,
+    ) {
         var handed = false
         try {
-            gridPlane = gridPlaneFor(corners, cropGeom, source)
             // COPIES of the two seam planes, and this is the one place that must copy them. `Pending`
             // crosses to the OBSERVER thread, becomes `CnnSnapshot.gray`/`.warped`, and the engine can
             // hold that snapshot for seconds — or adopt it as `refGray`/`refBgr` on a recovery commit,
             // i.e. forever. That lifetime is unbounded, so it can never come out of the ring.
             val copies =
-                WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, seq) {
+                WorkProfiler.span(WorkOperation.CROP_FRAME_COPY, job.seq) {
                     val bgrCopy = bgr.copyPlane()
                     val grayCopy = gray.copyPlane()
-                    WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), seq)
+                    WorkProfiler.bytes(WorkOperation.CROP_FRAME_COPY, (bgrCopy.data.size + grayCopy.data.size).toLong(), job.seq)
                     bgrCopy to grayCopy
                 }
-            cropStore.update(CropFrameStore.Pending(warp, seq, tsMs, copies.first, copies.second, cropGeom, cached, gridPlane))
+            cropStore.update(
+                CropFrameStore.Pending(job.warp, job.seq, tsMs, copies.first, copies.second, job.geometry, job.cached, job.gridPlane),
+            )
             handed = true
         } finally {
             // Bricht eine Stufe nach dem Warp ab, gehoert er niemandem: der Store hat ihn nie gesehen.
-            if (!handed) {
-                warp?.release()
-                gridPlane?.warp?.release()
-            }
+            if (!handed) job.release()
         }
     }
 

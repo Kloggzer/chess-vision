@@ -122,6 +122,19 @@ interface FrameStages<T> {
         gray: GrayImage,
     )
 
+    /** The crop warp alone, runnable off-thread; null when neither a frame nor a cache serves it. */
+    fun beginCropWarp(
+        corners: FloatArray,
+        seq: Long,
+    ): CropWarpJob? = null
+
+    fun finishCropFrame(
+        job: CropWarpJob,
+        tsMs: Long,
+        bgr: BgrImage,
+        gray: GrayImage,
+    ) = Unit
+
     fun onConfigChanged(config: TrackerConfig)
 
     fun onGeometryChanged(geometry: BoardGeometry)
@@ -163,6 +176,9 @@ class FramePipeline<T>(
 
     /** The frame [emit] last produced, for [cropFrameNow]; null once a frame was skipped. */
     private var emitted: FrameInput? = null
+
+    /** The crop warp started at the top of [emit], joined by [cropWarpAfterTick]. */
+    private var cropJob: CompletableFuture<CropWarpJob?>? = null
 
     /** The dark gate's own input, for the perf line — the one number that decides a skip. */
     fun lastLuma(): Double = luma
@@ -208,7 +224,11 @@ class FramePipeline<T>(
             if (note != null) {
                 if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
             }
-            if (note != null) emitted = null
+            if (note != null) {
+                emitted = null
+                cropJob?.let { stale -> runCatching { stale.join()?.release() } }
+                cropJob = null
+            }
             val result = if (note != null) FrameResult.Skipped(note) else emit(requireNotNull(pts), timestampMs)
             timings.mark(Stage.TOTAL)
             result
@@ -236,7 +256,18 @@ class FramePipeline<T>(
      */
     fun cropWarpAfterTick(verifyWaiting: Boolean) {
         val input = emitted ?: return
-        if (cropStore.wantsFrame()) {
+        val started = cropJob
+        cropJob = null
+        if (started != null) {
+            // Stages without the split (a fake, a cache-only source) answer null: warp here instead.
+            val job = started.join()
+            if (job != null) {
+                stages.finishCropFrame(job, input.timestampMs, input.bgrDet, input.grayDet)
+            } else {
+                stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
+            }
+            cropStore.served()
+        } else if (cropStore.wantsFrame()) {
             stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
             cropStore.served()
         } else if (verifyWaiting) {
@@ -293,6 +324,11 @@ class FramePipeline<T>(
         pts: FloatArray,
         timestampMs: Long,
     ): FrameResult {
+        seq += 1
+        // The observer's warp needs only frame and corners: started here, it overlaps gray, grid,
+        // motion and the engine tick, and is handed over after the tick (`cropWarpAfterTick`).
+        cropJob?.let { stale -> runCatching { stale.join()?.release() } }
+        cropJob = if (cropStore.wantsFrame()) CompletableFuture.supplyAsync { stages.beginCropWarp(pts, seq) } else null
         // ROI motion reads the raw frame with its own scratch, so it runs beside gray, BGR and
         // grid coverage, which share the detection chain; its mark then measures the join.
         val motionTask = if (reads.roiMotion) CompletableFuture.supplyAsync { stages.roiMotion(pts) } else null
@@ -303,7 +339,6 @@ class FramePipeline<T>(
         timings.mark(Stage.GRID)
         val motion = motionTask?.join() ?: MOTION_UNREAD
         timings.mark(Stage.MOTION)
-        seq += 1
         val input = FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt)
         emitted = input
         return FrameResult.Ready(input)
@@ -326,4 +361,18 @@ class FramePipeline<T>(
         } else {
             null
         }
+}
+
+/** A crop warp in flight between [FrameStages.beginCropWarp] and [FrameStages.finishCropFrame]. */
+class CropWarpJob(
+    val warp: org.opencv.core.Mat?,
+    val gridPlane: CropFrameStore.GridPlane?,
+    val geometry: com.chesslab.geometry.BoardGeometry,
+    val cached: CropFrameStore.CachedVisual?,
+    val seq: Long,
+) {
+    fun release() {
+        warp?.release()
+        gridPlane?.warp?.release()
+    }
 }
