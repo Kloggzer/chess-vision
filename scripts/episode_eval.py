@@ -65,6 +65,8 @@ def main() -> int:
     ap.add_argument("--split", default="val")
     ap.add_argument("--sessions", help="Nur diese Aufnahmen (kommagetrennt).")
     ap.add_argument("--json", help="Ergebnis zusaetzlich hierhin schreiben.")
+    ap.add_argument("--dump", help="Je Episode eine Zeile (JSONL) - die Einheit, ueber die ein "
+                                   "Bootstrap ziehen darf. Zellen sind es nicht.")
     args = ap.parse_args()
 
     import torch
@@ -123,6 +125,16 @@ def main() -> int:
     print(f"schlechteste Aufnahme auf Episodenebene: {worst:.4f}   "
           f"groesste Episode traegt {total['share_top1']:.0%} aller Fehler, "
           f"die zwoelf groessten {total['share_top12']:.0%}")
+    if args.dump:
+        eps = episodes(vis_rows)
+        with Path(args.dump).open("w", encoding="utf-8") as fh:
+            for ep in eps:
+                r = vis_rows[ep[0]]
+                fh.write(json.dumps({"session_id": r["session_id"], "square": r["square"],
+                                     "label": r["label"], "ply": r.get("ply"),
+                                     "cells": len(ep),
+                                     "errors": sum(1 for i in ep if not ok[i])}) + "\n")
+        print(f"[OK] {len(eps)} Episoden -> {args.dump}")
     if args.json:
         Path(args.json).write_text(json.dumps({"run": args.run, "split": args.split,
                                                "total": total, "per_session": per_session},

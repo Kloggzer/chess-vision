@@ -32,7 +32,7 @@ an der gemessenen Fehlermechanik ansetzt.
 
 | Schranke | Zahl | Quelle |
 |---|---|---|
-| Val löst nur ~876 unabhängige Entscheidungen auf, nicht 9 028 Zellen | 1 pp = **9 Entscheidungen** | `02` |
+| Val löst nur **147 Verweil-Episoden** auf, nicht 32 330 Zellen (v7; die 876 aus `02` sind der alte Val und die gröbere Einheit) | 1 Episode = **0,68 pp** | gemessen 2026-09-12 |
 | Von 98,6 auf 99,0 sind 47 Zellen | Seed-sd 0,0157 = 142 Zellen | `03` |
 | Zulässige Kandidatenzahl gegen den Siegerfluch | **2** bei 1 Seed, 4 bei 3, 8 bei 5, 13 bei 7 | `03` |
 | Paarung je Seed kürzt den Seed-Effekt NICHT | sd_d 0,0204 = √2 × 0,0144 | `03` |
@@ -204,6 +204,43 @@ Sieger, und der Abstand ist gross (`r90` 0,9989 gegen `p4a` 0,9652, das 177-fach
 0,0019). Als **Auswahl** ist keiner der drei zitierfähig: sobald aus `g2` eine
 Architekturentscheidung werden soll, braucht sie ihre drei Seeds, und dasselbe gilt für jede
 Aussage der Form „Arm X ist besser als Y" aus diesen Läufen.
+
+### Phase 0.3 und 3.2 eingelöst, 2026-09-12 — und was sie korrigieren
+
+`scripts/episode_eval.py` auf allen 14 Läufen (`rot` und `p4a`, je sieben Seeds), ausgewertet auf
+**`best.pt`** nach Regel 0.4. Drei Zähleinheiten auf demselben Val-Satz:
+
+| Einheit | Zahl | was sie zählt |
+|---|---:|---|
+| sichtbare Zellen | 32 330 | jeder Frame einzeln |
+| (Ply, Feld)-Paare | 2 431 | 13,3 Frames je Paar |
+| **Verweil-Episoden** | **147** | eine stehende Figur EINMAL |
+
+**Die Schranke im Kopf dieses Plans war zu großzügig.** Die 876 stammen aus `02`, also vom alten
+Val, und zählen (Ply, Feld) — eine Figur, die zehn Plies steht, zählt dort zehnmal. Auf der
+Einheit, die 0.3 selbst vorschreibt, löst der heutige Val **147** Entscheidungen auf. Eine Episode
+ist damit **0,68 pp**, nicht 0,11.
+
+**Episodengenauigkeit, sieben gepaarte Seeds:**
+
+| | s42 | s43 | s44 | s45 | s46 | s47 | s48 |
+|---|---|---|---|---|---|---|---|
+| `rot` | 0,9864 | 0,9932 | 0,9796 | 1,0000 | 0,9796 | 0,9932 | 0,9932 |
+| `p4a` | 0,9048 | 0,9456 | 0,9116 | 0,9252 | 0,9252 | 0,9456 | 0,9388 |
+
+Kein Überlapp: der schlechteste `rot`-Seed liegt 3,4 Punkte über dem besten `p4a`-Seed. Die
+Klumpung aus `02` bestätigt sich auf v7 — bei `rot-s42` trägt **eine einzige Episode die Hälfte
+aller Fehler**, zwölf tragen alle.
+
+**Bootstrap (`scripts/group_bootstrap.py`, 10 000 Ziehungen):** Abstand **+0,0612**, 95-%-Intervall
+**[+0,0360, +0,0894]**, **0 von 10 000** Ziehungen ≤ 0.
+
+**Aber nicht der Bootstrap, den 3.2 verlangt.** Der angeheftete Split trägt `val: 1 Aufnahme`
+(`rg-2026-09-06-20-27-33`) — eine Ziehung über 14 Aufnahmegruppen ist darauf nicht definiert.
+Gezogen wurde über **Episoden**; das Skript sagt das in seiner Ausgabe und rechnet nie über
+Zellen. Gemessen ist damit die Streuung INNERHALB dieser Aufnahme. Die Streuung ZWISCHEN
+Aufnahmen — die eigentliche Frage von 3.2 — braucht die Sitzungs-Folds (3.3) oder die Testgruppe.
+**3.2 bleibt damit offen**, auch wenn eine Zahl vorliegt.
 
 ## Offene Punkte, die nach der Abnahme noch fehlen
 
