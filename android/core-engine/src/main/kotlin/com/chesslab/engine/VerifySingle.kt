@@ -157,7 +157,7 @@ private fun EngineState.ladder(
 
         // 2) Positive confirmation on the reliable axes, checked BEFORE the veto so a genuine move
         //    is not killed by a mis-read destination.
-        sig.commits(cnn.minAgreement, pend.uci) ->
+        sig.commits(cnn.minAgreement, pend.uci, early = nowS < refHoldUntil) ->
             if (pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) commitTerminal(pend) else emptyList()
 
         // 3) Hard veto: destination confidently EMPTY while the origin did NOT clearly empty →
@@ -338,6 +338,7 @@ private class Signals(
     fun commits(
         minAgreement: Double,
         pendingUci: String,
+        early: Boolean,
     ): Boolean {
         val fromLeftOk =
             fromLeftConf && (castling || (cnnUci == pendingUci && cnnAgreement >= minAgreement))
@@ -346,9 +347,11 @@ private class Signals(
         // agrees 2/2 either way; the CNN's own derived move is the square it did look at
         // (00-39-57 ply 15, 2026-09-12). A confident different derivation is not a confirmation.
         val contradicted = cnnUci != null && cnnUci != pendingUci && cnnAgreement >= minAgreement
-        // Before every rung-2 path: the lifted capturer also empties FROM, and the derived move
-        // agrees with a bishop still in the hand.
-        return captureArrived && (fromLeftOk || toArrivedOk || (!contradicted && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES))
+        // Only INSIDE the motion hold: the lifted capturer also empties FROM, and the derived move
+        // agrees with a bishop still in the hand. After the hold the arm has left; demanding the
+        // identity there cost one capture per recording 467 ms and 20-57-45 a ply (2026-09-13).
+        val arrived = !early || captureArrived
+        return arrived && (fromLeftOk || toArrivedOk || (!contradicted && occAgree >= minAgreement && occN >= MIN_VERIFIED_SQUARES))
     }
 
     /**

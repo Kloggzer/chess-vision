@@ -93,18 +93,31 @@ class VerifySingleTest {
         val fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
         val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2)
         val stillTheVictim = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "bP"))
-        val waiting = pendingState(uci = "e4d5", fen = fen)
+
+        fun early(): EngineState =
+            pendingState(uci = "e4d5", fen = fen).also {
+                it.nowS = 10.0
+                it.refHoldUntil = 10.2
+            }
+        val waiting = early()
         repeat(2) { waiting.glance(cnn, stillTheVictim) }
         // The lifted pawn also empties e4, and a derive that agrees must not commit either.
         val derived = VerifyEvaluator(occAgree = 1.0, occN = 2, deriveMove = "e4d5", deriveAgreement = 1.0)
-        val lifted = pendingState(uci = "e4d5", fen = fen)
+        val lifted = early()
         repeat(2) { lifted.glance(derived, stillTheVictim) }
         assertEquals(emptyList<String>(), lifted.history)
+        // After the hold the arm has left: occupancy alone commits the capture as it always did.
+        val afterHold = pendingState(uci = "e4d5", fen = fen)
+        repeat(2) { afterHold.glance(cnn, stillTheVictim) }
+        assertEquals(listOf("exd5"), afterHold.history)
         assertEquals(emptyList<String>(), waiting.history)
         assertNotNull(waiting.pending, "the pawn on d5 is still black: nothing has arrived")
 
         val landed = VerifyObs(mapOf("e4" to false, "d5" to true), mapOf("e4" to true, "d5" to true), labels = mapOf("d5" to "wP"))
-        val done = pendingState(uci = "e4d5", fen = fen)
+        // Early commits also need the sight series (`earlyCommitObs`): d5 occupied, e4 empty, both seen.
+        val done = early()
+        val all = -1L
+        repeat(2) { done.sights.addLast(SquareSight(it.toLong(), visible = all, confident = all, occupied = 1L shl Squares.index("d5"))) }
         repeat(2) { done.glance(cnn, landed) }
         assertEquals(listOf("exd5"), done.history)
     }
