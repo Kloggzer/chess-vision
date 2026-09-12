@@ -2,10 +2,10 @@
 
 | Phase | File | State | Note |
 |---|---|---|---|
-| 00 | 00-planer-api.md | todo | |
+| 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 58 Auftraege, 58 eindeutige `id`. 19 pytest, 4 vitest gruen. **Auf der halben Karte gerechnet** — Vorbedingung offen |
 | 01 | 01-import.md | todo | |
 | 02 | 02-erfassungs-modus.md | todo | |
-| 03 | 03-messachsen.md | todo | |
+| 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
 
 ## Dependencies
 
@@ -61,9 +61,33 @@ auf 62 % des Korpus, und manche der 58 Luecken koennten laengst gedeckt sein.
 Verkuerzung 0,955–1,025, Median 0,986 ueber 24 Aufnahmen mit `corners`; der Datensatz traegt 23.
 `--rot90 +0,0245` ueber sieben gepaarte Seeds, p = 0,0078.
 
+**Nach der Umsetzung von 00 und 03 (2026-09-12):**
+
+| | |
+|---|---|
+| `BANDS` verschoben | aus `scripts/coverage_gaps.py` nach `src/chesslab/capture_plan.py` — `scripts/` ist kein Paket, und zwei Auswahlregeln haengen daran |
+| Akzeptanz 00 sagte `Verkuerzung` | `docs/capture-axes.md` schreibt `Verkürzung`; die Spec-Zeile wurde auf den Umlaut gezogen, das Dokument nicht verstuemmelt |
+| `CaptureSession`/`CaptureStep` | in `capture_plan.py` angelegt, obwohl `docs/capture-session.schema.json` (02) noch fehlt — 03 spiegelt nur, 02 bleibt Autoritaet |
+| Kommentarbudget | zweimal zugeschlagen: Modul-Docstring 7 Zeilen, `lib/capture-plan.ts` 6. Beide gekuerzt, nicht ausgenommen |
+| Achsen-Tests | `coverage_gaps.py` ueber `importlib.util.spec_from_file_location` geladen, wie `tests/test_episode_eval.py` |
+
+**Die Vorbedingung ist NICHT erfuellt:** `scripts/backfill_brightness.py` ist geschrieben, aber
+nicht gelaufen. Die 58 Auftraege in `data/reports/capture-plan.json` stehen auf 602 723 von
+979 363 Zeilen. Vor der ersten echten Aufnahme: backfill, dann `coverage_gaps.py`, dann
+`chesslab capture plan` neu.
+
 **Offen:** Fassung 7 ist noch nicht geprueft. Budget 674 Zeilen gegen einen Richtwert von 500 —
 vier Phasen statt drei, jede unter 150.
 
 ## Session log
 
-(leer)
+**2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
+`scripts/coverage_gaps.py` (Achsenblock), `chesslab capture plan`,
+`docs/capture-plan.schema.json`, `docs/capture-axes.md`, `platform/app/lib/capture-plan.ts`
+plus `/api/capture/plan` und `/api/capture/coverage`. Tests: `tests/test_capture_plan.py` 19
+gruen, `lib/capture-plan.test.ts` 4 gruen (401-Zweig darunter), `ruff` und beide
+Kommentarbudgets sauber, `tsc --noEmit` sauber.
+
+**Naechster Schritt, exakt:** `uv run python scripts/backfill_brightness.py` laufen lassen,
+danach `uv run python scripts/coverage_gaps.py` und `uv run chesslab capture plan --limit 58`
+neu — erst dann ist der Plan belastbar. Danach Phase 01 (Import ohne Kandidaten-Maschinerie).

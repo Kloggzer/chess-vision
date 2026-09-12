@@ -127,7 +127,7 @@ python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['
 - `npm test -- capture-plan` deckt den 401-Zweig ab, weil die Routenlogik in `lib` liegt und die
   Route duenn ist — so machen es die 50 vorhandenen `lib/*.test.ts`.
 - `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere enthaelt die
-  Zeichenkette `Verkuerzung` **und** `0,986` (die Zahl allein waere schwach: 0,9860 ist auch eine
+  Zeichenkette `Verkürzung` **und** `0,986` (die Zahl allein waere schwach: 0,9860 ist auch eine
   `val_visible_piece_acc` in `docs/plan-98/00-plan.md`).
 
 ## Do NOT
