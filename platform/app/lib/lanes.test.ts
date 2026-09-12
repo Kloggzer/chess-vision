@@ -318,6 +318,21 @@ test("temporal anomalies are review questions, not hand or coverage claims", () 
   expect(cells[0].exception).toBeNull();
 });
 
+test("erst der Grund, dann die Klasse — eine Seite zeigt eine Frage an einer Figur", () => {
+  const at = (square: string, reason: string, fen_label: string) =>
+    ({ session: 0, pos: 0, stem: "000100", square, fen_label, dev: 50, reason });
+  // Nach Feld sortiert lagen drei FRAGEN und alle Figuren auf einer Seite (User, 2026-09-12).
+  const positions = [
+    at("a1", "timing", "wQ"), at("a2", "changed", "wP"), at("a3", "timing", "wP"),
+    at("a4", "timing", "wP"), at("a5", "temporal", "wP"), at("a6", "timing", "wQ"),
+  ];
+  const cells = laneCells(streamOf({ positions }), "audit");
+  // `changed` vor `temporal` vor `timing`; darin die groesste Klasse zuerst (wP 2, dann wQ).
+  expect(cells.map((c) => `${c.square}${c.fen_label}`)).toEqual([
+    "a2wP", "a5wP", "a3wP", "a4wP", "a1wQ", "a6wQ",
+  ]);
+});
+
 test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
   const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", cov: 0.82, measured: 0 }];
   // Kein Producer: `—`, nie 0 — sonst liest sich "nichts zu tun" wie "nichts gemessen".

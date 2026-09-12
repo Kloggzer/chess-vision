@@ -26,7 +26,9 @@ $env:CC = (Resolve-Path ".venv\Lib\site-packages\triton\runtime\tcc\tcc.exe").Pa
 $env:CHESSLAB_TRAIN_SLOT = "A"
 
 # Der Arm IST das Rezept: Name, Backbone, und was ihn vom anderen unterscheidet.
-$arms = @(
+# `$armTable`, nicht `$arms`: PowerShell unterscheidet bei Variablennamen Gross- und
+# Kleinschreibung NICHT, und `$arms` ueberschrieb damit den Parameter `$Arms`, bevor er gelesen war.
+$armTable = @(
   [pscustomobject]@{ Tag = "p4a"; Backbone = "boardattn:cellnet_p4"; Extra = @() },
   [pscustomobject]@{ Tag = "rot"; Backbone = "boardattn:cellnet_p4"; Extra = @("--rot90", "--hflip-p", "0.5") },
   # Die Ablation: `rot` aenderte ZWEI Parameter zusammen und testet damit das Paket, nicht den
@@ -43,15 +45,15 @@ $arms = @(
   [pscustomobject]@{ Tag = "g2n"; Backbone = "boardattn:cellnet_p4g2"; Extra = @() }
 )
 
-$Arms = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
-$arms = @($arms | Where-Object { $Arms -contains $_.Tag })
-if (-not $arms) { Write-Error "keine bekannten Arme in: $($Arms -join ',')"; exit 1 }
+$want = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$armTable = @($armTable | Where-Object { $want -contains $_.Tag })
+if (-not $armTable) { Write-Error "keine bekannten Arme in: $($want -join ',')"; exit 1 }
 
 New-Item -ItemType Directory -Force $OutRoot | Out-Null
-Write-Output "kampagne: $($arms.Count) Arme x $($Seeds.Count) Seeds auf $Dataset"
+Write-Output "kampagne: $($armTable.Count) Arme x $($Seeds.Count) Seeds auf $Dataset"
 
 foreach ($seed in $Seeds) {
-  foreach ($arm in $arms) {
+  foreach ($arm in $armTable) {
     $out = Join-Path $OutRoot "$($arm.Tag)-s$seed"
     $metrics = Join-Path $out "metrics.jsonl"
     if (Test-Path $metrics) {

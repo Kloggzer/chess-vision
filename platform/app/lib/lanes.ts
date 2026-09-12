@@ -10,7 +10,7 @@
 
 import { PIECE_VISIBLE_MAX, coveragePct, isIdentity } from "@/lib/classes";
 import { fenLabels } from "@/lib/fen";
-import type { LabelStream, StreamBoard } from "@/lib/label-stream";
+import type { LabelStream, StreamBoard, StreamPositionCell } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
 export type LaneId = "audit" | "control" | "all";
@@ -275,7 +275,7 @@ export function wallCells(hits: readonly QueryHit[], stream: LabelStream): LaneC
 /** Die Zellen der Hand-Lane: kein Klassenwort und kein `exception` — die einzige Antwort ist der
  *  Dirty-Pinsel, und ⏎ sagt "keine Hand", also bestaetigt es das FEN-Wort von der Platte. */
 function handCells(stream: LabelStream): LaneCell[] {
-  return groupBySquare(
+  return byClaim(groupBySquare(
     (stream.hands ?? []).map((c) => ({
       session: c.session,
       pos: c.pos,
@@ -288,30 +288,51 @@ function handCells(stream: LabelStream): LaneCell[] {
       caption: `${c.square} · Modell ${(c.cov * 100).toFixed(0)} % verdeckt`,
       note: c.measured === null ? "Hand? Matte kennt dieses Frame nicht" : `Hand? Matte ${(c.measured * 100).toFixed(0)} %`,
     })),
-  );
+  ));
+}
+
+/**
+ * Die Gründe der Stellungs-Karten, in der Reihenfolge, in der die Lane sie zeigt. Sie stellen
+ * VERSCHIEDENE Fragen — „steht da etwas anderes" gegen „gilt der Zug hier schon" —, und nach Feld
+ * sortiert lagen sie auf einer Seite gemischt (User, 2026-09-12). Unbekannte Gründe hinten.
+ */
+const POSITION_REASONS = ["changed", "temporal", "timing", "unreadable"];
+const reasonRank = (reason: string) => {
+  const i = POSITION_REASONS.indexOf(reason);
+  return i === -1 ? POSITION_REASONS.length : i;
+};
+
+function positionCell(c: StreamPositionCell): LaneCell {
+  return {
+    session: c.session,
+    pos: c.pos,
+    stem: c.stem,
+    square: c.square,
+    fen_label: c.fen_label,
+    label: c.fen_label,
+    ledger: "corrections" as const,
+    exception: null,
+    caption: `${c.square} · FEN ${c.fen_label}`,
+    note: c.reason === "temporal"
+      ? `Bildabweichung ${c.temporal_score?.toFixed(2) ?? "?"} · Hand oder Stellung prüfen`
+      // `timing` fragt nicht "steht da etwas anderes", sondern "gilt der Zug hier schon".
+      : c.reason === "timing" ? `Zug-Zeitpunkt · schon gezogen oder noch nicht?`
+      : c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
+  };
 }
 
 /** Die Stellungs-Zellen: ⏎ bestaetigt den FEN (Schatten-Fehlalarm), die Palette schreibt die Figur,
  *  die wirklich dasteht. Deshalb `corrections` — hier ist der FEN der Verdaechtige. */
 function positionCells(stream: LabelStream): LaneCell[] {
-  return groupBySquare(
-    (stream.positions ?? []).map((c) => ({
-      session: c.session,
-      pos: c.pos,
-      stem: c.stem,
-      square: c.square,
-      fen_label: c.fen_label,
-      label: c.fen_label,
-      ledger: "corrections" as const,
-      exception: null,
-      caption: `${c.square} · FEN ${c.fen_label}`,
-      note: c.reason === "temporal"
-        ? `Bildabweichung ${c.temporal_score?.toFixed(2) ?? "?"} · Hand oder Stellung prüfen`
-        // `timing` fragt nicht "steht da etwas anderes", sondern "gilt der Zug hier schon".
-        : c.reason === "timing" ? `Zug-Zeitpunkt · schon gezogen oder noch nicht?`
-        : c.reason === "unreadable" ? "Stellung? kaum Feld zu sehen" : `Stellung? Δ ${c.dev.toFixed(0)}`,
-    })),
-  );
+  const groups = new Map<string, StreamPositionCell[]>();
+  for (const row of stream.positions ?? []) {
+    const list = groups.get(row.reason);
+    if (list) list.push(row);
+    else groups.set(row.reason, [row]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => reasonRank(a) - reasonRank(b) || a.localeCompare(b))
+    .flatMap(([, rows]) => byClaim(groupBySquare(rows.map(positionCell))));
 }
 
 /**
@@ -332,7 +353,7 @@ function visible(stream: LabelStream, cell: { session: number; stem: string; squ
 export function laneCells(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCell[] {
   if (id === "audit") {
     return [
-      ...(stream.audit ?? []).map(judgedCell),
+      ...byClaim((stream.audit ?? []).map(judgedCell)),
       ...byClaim(groupBySquare(wall?.cells ?? [])),
       ...positionCells(stream),
       ...handCells(stream),
