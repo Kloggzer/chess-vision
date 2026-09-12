@@ -15,6 +15,7 @@ import com.chesslab.geometry.GridCoverage
 import com.chesslab.geometry.HomographyCache
 import com.chesslab.geometry.ImageNode
 import com.chesslab.geometry.MatPool
+import com.chesslab.geometry.RemapCache
 import com.chesslab.geometry.ToGrayNode
 import com.chesslab.geometry.Undistorter
 import com.chesslab.geometry.cornersFromFlat
@@ -184,6 +185,8 @@ class OpenCvStages<T>(
     private val motion = RoiMotion(config.motionMargin, config.motionPxThr)
     private val homographies = HomographyCache()
     private val gridHomographies = HomographyCache()
+    private val cropRemap = RemapCache()
+    private val gridRemap = RemapCache()
     private var frame: Mat? = null
     private var warped: Mat? = null
 
@@ -309,7 +312,16 @@ class OpenCvStages<T>(
         val cropGeom = cropGeometry()
         val cached = cropStore.cached(seq)
         val source = if (cached == null) frame else null
-        val warp = source?.let { warpBoardForCrops(it, cropGeom, cornersFromFlat(corners), homographyCache = homographies) }
+        val warp =
+            source?.let {
+                warpBoardForCrops(
+                    it,
+                    cropGeom,
+                    cornersFromFlat(corners),
+                    homographyCache = homographies,
+                    remapCache = cropRemap,
+                )
+            }
         if (cached == null && warp == null) return
         var gridPlane: CropFrameStore.GridPlane? = null
         var handed = false
@@ -345,7 +357,7 @@ class OpenCvStages<T>(
     ): CropFrameStore.GridPlane? {
         val gridGeom = geometry.takeIf { gridArm && it.boardSize != cropGeom.boardSize } ?: return null
         val frame = source ?: return null
-        val warp = warpBoardForCrops(frame, gridGeom, cornersFromFlat(corners), homographyCache = gridHomographies)
+        val warp = warpBoardForCrops(frame, gridGeom, cornersFromFlat(corners), homographyCache = gridHomographies, remapCache = gridRemap)
         return CropFrameStore.GridPlane(warp, gridGeom)
     }
 
@@ -372,6 +384,8 @@ class OpenCvStages<T>(
         lens?.close()
         grid.close()
         motion.close()
+        cropRemap.release()
+        gridRemap.release()
         endFrame()
         dropChain()
         pool.close()
