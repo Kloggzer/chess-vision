@@ -115,15 +115,8 @@ class TrackerCoordinator<T>(
         // The preview bus is fed from INSIDE the pipeline now (`FrameStages.publishFrame`), off the
         // frame the convert already produced — see `CameraFrameBus.offer`.
         val result = pipeline.onFrame(image, delivered.width, delivered.height, nowMs())
-        val events = host.tick((result as? FrameResult.Ready)?.input)
-        for (event in events) {
-            if (!notes.accept(event)) continue
-            when (event) {
-                is TrackerEvent.Note -> onNote("seq=$sourceSeq note: ${event.text}")
-                is TrackerEvent.Stuck -> onNote("seq=$sourceSeq stuck: ${event.reason}")
-                else -> Unit
-            }
-        }
+        val events = host.tick((result as? FrameResult.Ready)?.input).toMutableList()
+        noteEvents(events)
         // The engine runs HERE, on the analyzer thread, and it is part of the frame budget.
         timings.mark(Stage.ENGINE)
         publisher.sizeMismatch = pipeline.sizeMismatch
@@ -134,6 +127,14 @@ class TrackerCoordinator<T>(
         // A candidate formed on this frame gets its observation from this frame (`verifyObserveNow`).
         if (host.verifyWaiting()) pipeline.cropFrameNow()
         observer.onFrameAvailable()
+        // An observation already back (inline in a replay, a fast phone) is judged NOW rather than
+        // at the top of the next tick: same state, same clock, one frame earlier.
+        val late = host.tick(null)
+        if (late.isNotEmpty()) {
+            events += late
+            noteEvents(late)
+            publisher.publish(host::status, host.fen(), late, null)
+        }
         // Nach dem Frame, nicht davor: die Messung liest den Warp, den dieser Frame schon bezahlt
         // hat. Eine Verstellung verschiebt jeden Pixel, also ist die Pixel-Referenz danach hin —
         // `CaptureBaseline` ist genau das, ohne die Stellung zu verlieren.
@@ -158,6 +159,17 @@ class TrackerCoordinator<T>(
         }
         align.maybeAlign(bus, delivered)
         timings.endFrame((result as? FrameResult.Skipped)?.note, pipeline.lastLuma(), noise.busy)
+    }
+
+    private fun noteEvents(events: List<TrackerEvent>) {
+        for (event in events) {
+            if (!notes.accept(event)) continue
+            when (event) {
+                is TrackerEvent.Note -> onNote("seq=$sourceSeq note: ${event.text}")
+                is TrackerEvent.Stuck -> onNote("seq=$sourceSeq stuck: ${event.reason}")
+                else -> Unit
+            }
+        }
     }
 
     /**

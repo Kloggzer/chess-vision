@@ -90,6 +90,17 @@ class EngineActionQueueTest {
         assertEquals(listOf("Undo", "CaptureBaseline", "snap:7", "frame:1"), ops.calls)
     }
 
+    /** The end-of-frame drain: an observation that came back inline is judged without a frame. */
+    @Test
+    fun aFramelessTickDrainsTheQueuesAndTouchesNoFrame() {
+        val ops = RecordingOps()
+        val host = EngineHost(ops)
+        host.tick(frameInput(1))
+        host.submit(snapshot(1))
+        host.tick(null)
+        assertEquals(listOf("frame:1", "snap:1"), ops.calls)
+    }
+
     @Test
     fun everyEngineCallHappensOnTheOwningThread() {
         val ops = RecordingOps()
