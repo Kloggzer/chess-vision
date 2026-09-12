@@ -15,22 +15,20 @@ Compose und die OpenCV-Runtime von `:app` uebernehmen — ohne Letztere fehlen 3
 
 | Braucht | Woher | Anker |
 |---|---|---|
-| Session schreiben | `:tracker-runtime` (reines JVM) | `record/SessionRecorder.kt`: `frames/%04d.jpg` (`:114`), `log.jsonl` (`:89`), `session.yaml` (`:176`), `corners` als `[a8,h8,h1,a1]` (`:70-72`) |
-| Upload und Kopplung | `:tracker-runtime` | `sync/HttpIngestClient.kt`, `sync/SyncSettings.kt` |
-| Ecken, Verfeinerung, Warp, Zellschnitt | `:core-geometry` | `Aruco.kt`, `Corners.kt`, `QuadRefine.kt`, `GridCorrection.kt`, `GridLines.kt`, `ProjectiveFit.kt`, `Warp.kt`, `Crops.kt` |
+| Session schreiben | `:tracker-runtime` | `record/SessionRecorder.kt`: `frames/%04d.jpg` (`:114`), `log.jsonl` (`:89`), `session.yaml` (`:176`), `corners` `[a8,h8,h1,a1]` (`:70-72`) |
+| Upload, Kopplung | `:tracker-runtime` | `sync/HttpIngestClient.kt`, `sync/SyncSettings.kt` |
+| Geometrie | `:core-geometry` | `Aruco`, `Corners`, `QuadRefine`, `GridCorrection`, `GridLines`, `ProjectiveFit`, `Warp`, `Crops` |
 | **Kamera** | **selbst** | siehe unten |
 
-**Kamera: eigene, minimale Bindung.** Alle neun CameraX-Dateien liegen in `:app`, und ein
-Application-Modul kann kein anderes einbinden. `:capture` bindet Preview plus Einzelbild, **genau
-ein** `bindToLifecycle`. Die Regel „EIN Kamera-Besitzer" gilt je Prozess.
-Die Governors (`ExposureGovernor.kt`, `FocusGovernor.kt`) liegen zwar in `:tracker-runtime` und
-waeren erreichbar — sie bleiben trotzdem draussen, weil eine stehende Stellung keine Nachfuehrung
-braucht. Das ist eine Entscheidung, keine Unmoeglichkeit.
+**Kamera: eigene, minimale Bindung** — alle neun CameraX-Dateien liegen in `:app`, das kein Modul
+einbinden kann. Preview plus Einzelbild, **genau ein** `bindToLifecycle`; „EIN Kamera-Besitzer"
+gilt je Prozess. Die Governors (`ExposureGovernor.kt`, `FocusGovernor.kt`) liegen in
+`:tracker-runtime` und waeren erreichbar, bleiben aber draussen: eine stehende Stellung braucht
+keine Nachfuehrung. Entscheidung, keine Unmoeglichkeit.
 
-**Kalibrier-Ablauf: nachgebaut.** `ArucoCalibrator` liegt in `:app`
-(`app/src/main/kotlin/com/chesslab/tracker/geometry/ArucoCalibrator.kt`) und ist nicht erreichbar.
-`:capture` ruft die Bausteine aus `:core-geometry` selbst der Reihe nach auf — doppelte
-ABLAUFLOGIK, keine doppelte Mathematik. Als Schuld in `STATUS.md` notieren.
+**Kalibrier-Ablauf nachgebaut:** `ArucoCalibrator` liegt in `:app` und ist nicht erreichbar, also
+ruft `:capture` die `:core-geometry`-Bausteine selbst der Reihe nach auf — doppelte ABLAUFLOGIK,
+keine doppelte Mathematik. Als Schuld in `STATUS.md` notieren.
 
 ### Der FEN je Schritt — der Kern dieser Phase
 
@@ -43,18 +41,33 @@ IST einer: leeres Brett plus die Figuren aus `place`.
 fun fenOf(place: List<Placement>): String
 ```
 
-`ply` = Index des Drehschritts (0-basiert), `moveSan` = `null`. `SessionMeta`: `profile` wie `:app`
-es fuer diese Kamera setzt (aus `session.yaml` einer bestehenden Aufnahme ablesen), `mode = "track"`.
+`ply` = Index des Drehschritts, **0-basiert und 0 Grad bei Schritt 0** (`orientation_deg = ply * 45`).
+`moveSan` = `null`.
 
-### `capture.json` — von DIESER Phase geschrieben
+`SessionMeta`, alle sechs: `sessionId` = `yyyyMMdd-HHmmss` wie `:app` (gemessen: der Bundle von
+`2026-09-06-21-29-35` liegt unter `files/sessions/20260906-212935/`), `frameWidth`/`frameHeight`
+aus der Bildgroesse, `notes` = die `id` des Auftrags, `mode = "track"`, `profile` woertlich aus
+`data/recordings/2026-09-06-21-29-35/session.yaml`.
 
-Neben `log.jsonl`, gelesen von Phase 02. `place` hat **dieselbe Form wie im Schema**:
+**Wie daraus eine Aufnahme wird** (der Schritt, den niemand erfinden darf): der Ingest legt den
+Bundle unter `data/recordings/<name>/files/sessions/<id>/` ab (`platform/app/lib/ingest.ts:98`).
+`realgames.stored_session_dirs` (`realgames.py:1963`) liest genau dort, `chesslab realgames
+fit-stored` fittet den Quad nach, und `export-session` schreibt `boards/` samt oberem `log.jsonl`.
+Das ist der bestehende Weg jeder Handy-Aufnahme; `:capture` erfindet daran nichts.
+
+### `capture.json` — von DIESER Phase geschrieben, mit eigenem Schema
+
+`docs/capture-session.schema.json` (neu, gehoert 01) ist die Autoritaet; 02 liest dagegen. Die
+Datei liegt NEBEN `log.jsonl` im Bundle, also unter `files/sessions/<id>/`.
 
 ```json
 {"id": "wq-light-sehr-hell", "height": "normal", "light": null,
- "steps": [{"frame": "frames/0000.jpg", "orientation_deg": 45,
+ "steps": [{"frame": "frames/0000.jpg", "orientation_deg": 0,
             "place": [{"square": "h3", "piece": "wQ"}]}]}
 ```
+
+`frame` ist der **Pfad wie in `log.jsonl`**; der Verbund mit einer Manifestzeile laeuft ueber den
+Stamm (`Path(frame).stem`), weil das Manifest `"0000"` traegt.
 
 Die Ausrichtung ist **deklariert**, nicht gemessen — die App hat zum Drehen aufgefordert.
 
@@ -62,12 +75,33 @@ Die Ausrichtung ist **deklariert**, nicht gemessen — die App hat zum Drehen au
 
 ```kotlin
 @Serializable data class Placement(val square: String, val piece: String)
+@Serializable data class Gap(
+    val piece: String, @SerialName("square_color") val squareColor: String,
+    val band: String, val have: Int, val fix: String,
+    @SerialName("corpus_in_band") val corpusInBand: Int)
 /** Alle NEUN Schluessel des Schemas; `@SerialName` haelt die Namen der JSON-Seite. */
 @Serializable data class Shot(
     val id: String, val fix: String, val reason: String, val place: List<Placement>,
     val light: String?, @SerialName("reference_square") val referenceSquare: String,
     val height: String, val orientations: Int, val closes: List<Gap>)
+@Serializable data class CapturePlan(
+    @SerialName("generated_at") val generatedAt: String, val dataset: String,
+    @SerialName("gaps_from") val gapsFrom: String, val shots: List<Shot>)
 ```
+
+`Json { ignoreUnknownKeys = true }` — sonst wirft `kotlinx.serialization` bei jedem Schluessel,
+den 00 spaeter ergaenzt.
+
+### Oberflaeche
+
+Compose wie `:app`, Abstaende auf 12dp-Tokens, jedes Bedienelement mit `contentDescription`
+(CLAUDE.md). Drei Bildschirme, mehr nicht:
+
+| Bildschirm | Inhalt |
+|---|---|
+| Plan | Liste der Auftraege, je Zeile `reason` und `fix`; oben „Auftrag 3 von 10"; Abdeckung als Text mit `generated_at` |
+| Aufbau | der Auftrag im Klartext („Dame auf h3, Hoehe normal"), Kamera-Preview, ein Knopf „Aufbau steht" |
+| Drehen | „Schritt 4 von 8 — 135 Grad", Preview, ein Knopf „Aufgenommen"; der Nutzer quittiert JEDEN Schritt von Hand, es gibt keinen Timer |
 
 Plan holen → Auftrag zeigen → je Drehschritt ein Einzelbild mit FEN → `capture.json` schreiben →
 `HttpIngestClient` hochladen → naechster Auftrag. Die App zeigt **Fortschritt gegen den Plan**
@@ -77,6 +111,8 @@ und bewegt sich nach einem Upload nicht.
 ## Steps
 
 1. Modul, Manifest, Gradle, OpenCV-Runtime → `feat(capture): eigenes Modul fuer die Erfassung`
+   (detekt erwartet `config/detekt/baseline-capture.xml`, `android/build.gradle.kts:29` — eine
+   FEHLENDE Baseline ist zulaessig und bleibt es; keine anlegen, um gruen zu werden)
 2. Kamerabindung, Preview, Einzelbild → `feat(capture): Preview und Einzelbildaufnahme`
 3. Plan holen, Typen, 401 sichtbar machen → `feat(capture): Auftraege aus der Plan-Route`
 4. Geometrie aus `:core-geometry` → `feat(capture): Brettgeometrie ohne eigene Mathematik`
@@ -88,8 +124,9 @@ und bewegt sich nach einem Upload nicht.
 
 `gradlew.bat :capture:test --rerun-tasks`:
 
-- `fenOf(listOf(Placement("h3","wQ")))` gibt `"8/8/8/8/8/7Q/8/8 w - - 0 1"`.
-- `orientations = 8` erzeugt acht Schritte und acht `steps` in `capture.json`.
+- `fenOf(listOf(Placement("h3","wQ")))` gibt `"8/8/8/8/8/7Q/8/8 w - - 0 1"`; Schritt 0 traegt
+  `orientation_deg = 0`, Schritt 3 traegt 135; `orientations = 8` erzeugt acht `steps`.
+- Ein Plan-JSON mit unbekanntem Zusatzschluessel wird gelesen statt geworfen.
 - Leeres `place` (`fix="Licht"`) ergibt den FEN des leeren Bretts und trotzdem acht Schritte.
 - Ein 401 der Plan-Route fuehrt zu einer sichtbaren Kopplungs-Meldung, nicht zu einer leeren Liste.
 - **Integrationstest gegen die ECHTE `HttpIngestClient`** und einen lokalen Fake-Server: eine

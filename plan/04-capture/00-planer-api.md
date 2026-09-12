@@ -26,7 +26,7 @@
 | `reason` | ein Satz, warum es diesen Auftrag gibt |
 | `place` | **immer** Liste von `{"square", "piece"}`; leer bei `fix="Licht"` |
 | `light` | bei `fix="Licht"` das Zielband als Text, sonst `null` |
-| `reference_square` | bei `fix="Stellung"` das Feld aus `place[0]`; bei `fix="Licht"` das hellste bzw. dunkelste Feld der Farbe, an dem der Nutzer das Licht beurteilt |
+| `reference_square` | bei `fix="Stellung"` das Feld aus `place[0]`; bei `fix="Licht"` das Feld der geforderten Farbe, dessen Median-Helligkeit der **Bandmitte am naechsten** liegt (`(lo+hi)/2` aus `BANDS`) — das ist fuer alle fuenf Baender entscheidbar, „hellstes oder dunkelstes" waere es fuer `mittel` nicht |
 | `height` | reihum aus `HEIGHTS`, damit ueber die Auftraege alle drei Hoehen vorkommen |
 | `orientations` | immer `ORIENTATION_STEPS` |
 
@@ -51,7 +51,9 @@ def square_brightness(dataset: str) -> dict[str, float]:
     376 640 von 979 363 (alle Komposite) haben keine."""
 
 def shots(gaps: list[Gap], bright: dict[str, float], limit: int = 10) -> list[Shot]:
-    """Luecken zu Auftraegen, teuerste Achse zuerst."""
+    """Luecken zu Auftraegen, in der Reihenfolge, die `coverage_gaps.gaps()` schon liefert:
+    `fix="Stellung"` vor `fix="Licht"`, darin aufsteigend nach `have` (`coverage_gaps.py:74`).
+    Nicht umsortieren - die Quelle entscheidet, `limit` schneidet nur ab."""
 ```
 
 ### CLI
@@ -71,11 +73,16 @@ Muster `platform/app/app/api/ingest/session/route.ts:12` — **nicht** `hello`, 
 | `GET /api/capture/plan` | `capture-plan.json` roh; fehlt sie: 200 mit `{"shots": [], "why": "<Befehl>"}` |
 | `GET /api/capture/coverage` | `coverage-gaps.json` roh plus `generated_at` aus der **mtime** |
 
-`platform/app/lib/capture-plan.ts` traegt `Shot`, `Gap`, `Placement` aus dem Schema, keine `any`.
+`platform/app/lib/capture-plan.ts` traegt `Shot`, `Gap`, `Placement` und die Huelle `CapturePlan`
+(`generated_at`, `dataset`, `gaps_from`, `shots`) aus dem Schema, keine `any`. **Die Logik beider
+Routen liegt dort**, die Route ist duenn — so testet `capture-plan.test.ts` auch den 401-Zweig,
+und so macht es jede der rund 40 vorhandenen `lib/*.test.ts`.
 
 ### `docs/capture-axes.md` (Deliverable)
 
-Die vier Achsen mit Begruendung, die Posenmessung (0,955–1,025, Median 0,986, 24 Aufnahmen), der
+Die vier Achsen mit Begruendung, die Posenmessung (Verkuerzung 0,955–1,025, Median 0,986 ueber die
+24 Aufnahmen mit `corners` in `data/recordings/*/log.jsonl`; der Datensatz selbst traegt 23 `rg-`
+Aufnahmen, die 24. hat noch keinen Pack), der
 Verweis auf die 7-Seed-Messung von `--rot90` und die Abgrenzung zum August-Wert −0,046, warum der
 Kamerawinkel keine Achse ist, **und warum die Abdeckung nicht live sein kann**.
 
@@ -95,6 +102,9 @@ Kamerawinkel keine Achse ist, **und warum die Abdeckung nicht live sein kann**.
 - Bei `square_color="light"` waehlt der Planer das HELLSTE helle Feld.
 - **Die `id` ist ueber alle 58 echten Luecken eindeutig** (Regressionsfall: ohne Band waeren es 24).
 - Ueber zehn Auftraege kommt jede der drei Hoehen mindestens einmal vor.
+- Bei `fix="Licht"` und Zielband `mittel` waehlt der Planer das Feld naeher an der Bandmitte,
+  nicht das hellste.
+- Die Reihenfolge der Auftraege entspricht der von `coverage_gaps.gaps()`.
 - `limit` schneidet ab, ohne die Reihenfolge zu aendern.
 
 `npm test -- capture-plan`: fehlende Datei ergibt `{shots: [], why}`; ohne Kopplung 401.
@@ -106,7 +116,9 @@ uv run chesslab capture plan --dataset real13-mix-v7-128 --limit 58
 python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['shots'];assert len(s)>0;assert len({x['id'] for x in s})==len(s);assert all(x['place'] for x in s if x['fix']=='Stellung')"
 ```
 - `grep -c ': any' platform/app/lib/capture-plan.ts` gibt `0` (Exit 1 ist dabei normal).
-- `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere nennt 0,986.
+- `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere enthaelt die
+  Zeichenkette `Verkuerzung` **und** `0,986` (die Zahl allein waere schwach: 0,9860 ist auch eine
+  `val_visible_piece_acc` in `docs/plan-98/00-plan.md`).
 
 ## Do NOT
 
