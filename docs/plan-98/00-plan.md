@@ -147,6 +147,41 @@ Brett gegen 4,3–4,9. Die Entscheidung dafür fällt aber erst im Kotlin-Replay
 EINER Aufnahme (~876 unabhängige Platzierungen), es sind Schwanzmittel und kein auslieferbarer
 Checkpoint, und die eingefrorene Testgruppe ist unberührt.
 
+### Ablation `--rot90` gegen `--hflip-p 0.5`, gelaufen 2026-09-12
+
+Vier Arme, Seed 42, 128 px, alle luckenlos ueber 60 Epochen, Schwanzmittel Ep. 40-59:
+
+| Arm | `--rot90` | `--hflip-p` | Wert | gegen `p4a` |
+|---|---|---|---:|---:|
+| `p4a` | – | – | 0,9652 | — |
+| `hfl` | – | 0,5 | 0,9918 | +0,0265 |
+| `r90` | ✓ | – | 0,9989 | +0,0337 |
+| `rot` | ✓ | 0,5 | 0,9988 | +0,0335 |
+
+**Beide wirken, aber sie sind redundant, nicht komplementaer.** Die Wechselwirkung ist −0,0267:
+zusammen bringen sie so viel wie die Drehung allein. Beide speisen denselben Kanal — eine
+Ansicht, die die Figur im Korpus nie hatte. Die Drehung deckt vier Ausrichtungen ab, die
+Spiegelung zwei, und die zwei sind in den vier enthalten. Dass Spiegelung ueberhaupt traegt, ist
+kein Widerspruch: der Springer ist die scheiternde Klasse und **chiral**, gespiegelt schaut sein
+Kopf zur anderen Seite.
+
+**Folgerung fuers Rezept:** `--hflip-p 0.5` kann entfallen (−0,0001 neben `--rot90`). Ein Schalter
+weniger, und einer, dessen spaeteres Umlegen Laeufe unvergleichbar machen wuerde.
+
+### A1 (`cellnet_p4g2`), zwei Regime, gelaufen 2026-09-12
+
+| | Kontrolle `cellnet_p4` | A1 | Abstand | in Seed-sd |
+|---|---:|---:|---:|---:|
+| 80 px | 0,9884 | 0,9689 | −0,0195 | 2,8 |
+| 128 px | 0,9988 | 0,9909 | −0,0079 | 4,1 |
+
+A1 verliert in beiden Regimen und **staerker dort, wo mehr Luft ist** — der Deckeneffekt, den der
+Plan bei 128 px befuerchtete, erklaert das Ergebnis also nicht. Es ist auch kein
+Kapazitaetsmangel: die Projektion traegt 147 648 Parameter MEHR als ihre Kontrolle, die dadurch
+nicht parameterangeglichen ist (der Plan fordert das; hier schadet es nicht, weil A1 trotz
+Mehrgewicht verliert). Offen bleibt `g2n` — A1 ohne Augmentierung gegen `p4a`, das letzte Regime
+mit echtem Spielraum.
+
 **Was aus dieser Abnahme NICHT zitiert werden darf.** Die Schranke gegen den Siegerfluch erlaubt
 **2 Kandidaten bei 1 Seed**, 4 bei 3, 13 bei 7. Auf Seed 42 allein laufen heute drei Arme: `r90`,
 `hfl` (Ablation) und `g2` (A1). Für eine **Zerlegung** ist das vertretbar — sie kürt keinen
