@@ -9,7 +9,7 @@
 param(
   [string]$Dataset = "real13-mix-v7-128",
   [string]$OutRoot = "data/models/_acc128v7",
-  [int[]]$Seeds = @(42, 43, 44, 45, 46, 47, 48),
+  [string[]]$Seeds = @('42', '43', '44', '45', '46', '47', '48'),
   [int]$Epochs = 60,
   [string]$Split = "split-pin.json",
   # Gemessen: der Start braucht mehr als die Reserve selbst, weil Manifest und Sampler zuerst
@@ -45,6 +45,10 @@ $armTable = @(
   [pscustomobject]@{ Tag = "g2n"; Backbone = "boardattn:cellnet_p4g2"; Extra = @() }
 )
 
+# `powershell -File` reicht eine Komma-Liste als EIN Element durch. Bei `-Arms` landete der
+# zweite Arm sonst im Namen des ersten, bei `-Seeds` wurde aus 42,43,44 der eine Seed 424344 und
+# die halbe Warteschlange lief mit 0 Epochen durch.
+$Seeds = @($Seeds | ForEach-Object { "$_" -split ',' } | Where-Object { $_ } | ForEach-Object { [int]$_ })
 $want = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $armTable = @($armTable | Where-Object { $want -contains $_.Tag })
 if (-not $armTable) { Write-Error "keine bekannten Arme in: $($want -join ',')"; exit 1 }
