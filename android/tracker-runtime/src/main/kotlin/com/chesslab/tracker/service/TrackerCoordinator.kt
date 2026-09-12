@@ -131,6 +131,8 @@ class TrackerCoordinator<T>(
         publisher.corners = pipeline.corners
         // A PROVIDER: the publisher samples at 10 Hz and only builds the status when it will use it.
         publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
+        // A candidate formed on this frame gets its observation from this frame (`verifyObserveNow`).
+        if (host.verifyWaiting()) pipeline.cropFrameNow()
         observer.onFrameAvailable()
         // Nach dem Frame, nicht davor: die Messung liest den Warp, den dieser Frame schon bezahlt
         // hat. Eine Verstellung verschiebt jeden Pixel, also ist die Pixel-Referenz danach hin —

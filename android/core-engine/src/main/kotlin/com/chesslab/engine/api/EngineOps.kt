@@ -15,6 +15,9 @@ interface EngineOps {
     /** False skips needless inference, reducing a game from thousands of reads to hundreds. */
     fun wantsCnnRead(): Boolean = true
 
+    /** A candidate is waiting for an observation at or after its frame. */
+    fun verifyWaiting(): Boolean = false
+
     /** Declared once at startup so the host can skip unused per-frame measurements. */
     val reads: FrameReads get() = FrameReads()
 }

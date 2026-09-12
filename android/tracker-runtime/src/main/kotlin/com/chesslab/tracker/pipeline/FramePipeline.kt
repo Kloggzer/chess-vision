@@ -160,6 +160,9 @@ class FramePipeline<T>(
     private var sourceSeq = 0L
     private var luma = 0.0
 
+    /** The frame [emit] last produced, for [cropFrameNow]; null once a frame was skipped. */
+    private var emitted: FrameInput? = null
+
     /** The dark gate's own input, for the perf line — the one number that decides a skip. */
     fun lastLuma(): Double = luma
 
@@ -204,10 +207,24 @@ class FramePipeline<T>(
             if (note != null) {
                 if (note == NOTE_WAITING_MARKERS) skippedWaitingMarkers += 1 else skippedDark += 1
             }
+            if (note != null) emitted = null
             val result = if (note != null) FrameResult.Skipped(note) else emit(requireNotNull(pts), timestampMs)
             timings.mark(Stage.TOTAL)
             result
         }
+
+    /**
+     * The crop warp for THIS frame, on demand after the engine step: a fresh candidate wants its
+     * verifying observation now, not on the next frame the request/serve handshake would reach.
+     * Nothing to do while the store still holds an untaken warp or the frame was skipped.
+     */
+    fun cropFrameNow(): Boolean {
+        val input = emitted ?: return false
+        if (!config.verifyObserveNow || !cropStore.idle) return false
+        stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
+        cropStore.served()
+        return true
+    }
 
     /** Frames that never reached the engine, by reason — until now only a note string per frame. */
     var skippedWaitingMarkers = 0L
@@ -271,9 +288,9 @@ class FramePipeline<T>(
             stages.updateCropFrame(pts, seq, timestampMs, bgr, gray)
             cropStore.served()
         }
-        return FrameResult.Ready(
-            FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt),
-        )
+        val input = FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt)
+        emitted = input
+        return FrameResult.Ready(input)
     }
 
     /**

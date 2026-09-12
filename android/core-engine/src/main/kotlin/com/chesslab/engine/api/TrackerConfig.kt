@@ -52,6 +52,9 @@ data class TrackerConfig(
     // Detection may open before `motionHoldS`; the reference is then re-captured once the full hold
     // has passed (2026-09-12). null = the motion hold: commit and reference on the same frame.
     val commitHoldS: Double? = null,
+    // A pending verify warps and observes the CURRENT frame instead of waiting for the observer's
+    // request/serve alternation (every 2nd frame, 133 ms at 15 fps). Off = the measured cadence.
+    val verifyObserveNow: Boolean = false,
     val occlusionColorThr: Double = 3.0,
     val minGridLineCoverage: Double = 0.5,
     val diffClaheClip: Double = 2.0,

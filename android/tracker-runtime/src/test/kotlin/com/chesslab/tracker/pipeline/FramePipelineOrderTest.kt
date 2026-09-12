@@ -74,6 +74,21 @@ class FramePipelineOrderTest {
     }
 
     @Test
+    fun `cropFrameNow warps the emitted frame once, and only when asked to`() {
+        assertTrue(!pipeline.cropFrameNow(), "nothing emitted yet")
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_000L)
+        assertTrue(!pipeline.cropFrameNow(), "off by default: the handshake cadence stands")
+        pipeline.onConfigChanged(TrackerConfig(verifyObserveNow = true))
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_100L)
+        assertTrue(pipeline.cropFrameNow())
+        assertEquals(listOf(2L), stages.cropSeqs)
+        stages.luma = 12.0
+        pipeline.onFrame(FakeImage(), 1280, 720, 1_200L)
+        store.take()
+        assertTrue(!pipeline.cropFrameNow(), "a skipped frame has nothing to warp")
+    }
+
+    @Test
     fun `every emitted frame carries the roi motion and the grid coverage`() {
         stages.motion = 1.75
         stages.coverage = 0.5

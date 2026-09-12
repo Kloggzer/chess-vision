@@ -101,6 +101,7 @@ val KNOBS: List<Knob> =
         // NOT in LIVE_TUNABLE_KEYS: that list is `app.py::_live_tuning_kwargs` verbatim and this
         // knob has no Python counterpart. It takes a tracker restart, and the catalog says so.
         Knob("occluderHoldS", DOUBLE, { it.occluderHoldS }, { c, v -> c.copy(occluderHoldS = v) }),
+        Knob("verifyObserveNow", BOOL, { bool(it.verifyObserveNow) }, { c, v -> c.copy(verifyObserveNow = v != 0.0) }),
         Knob("commitHoldS", DOUBLE, { it.commitHoldS ?: Double.NaN }, { c, v -> c.copy(commitHoldS = if (v.isNaN()) null else v) }),
         Knob("occlusionColorThr", DOUBLE, { it.occlusionColorThr }, { c, v -> c.copy(occlusionColorThr = v) }),
         Knob("minGridLineCoverage", DOUBLE, { it.minGridLineCoverage }, { c, v -> c.copy(minGridLineCoverage = v) }),

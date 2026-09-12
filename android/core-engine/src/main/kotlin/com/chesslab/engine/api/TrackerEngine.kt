@@ -98,6 +98,8 @@ class TrackerEngine(
 
     private val loop = FrameLoop(state) { cur, curBgr -> state.setRef(cur, curBgr) }
 
+    fun verifyWaiting(): Boolean = state.pending != null
+
     /**
      * The whole per-frame loop plus detection. `Stuck` and `Note` are emitted only on a CHANGE; one
      * event per frame would be pure spam on a bus the UI reads.
