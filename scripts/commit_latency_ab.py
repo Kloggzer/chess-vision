@@ -10,7 +10,8 @@ SCORE_KEYS = ("found", "missed", "invented", "beyond", "reordered")
 
 
 def commits(trace):
-    rows = [json.loads(line) for line in trace.open(encoding="utf-8")]
+    # A trace still being written ends in a partial line.
+    rows = [json.loads(line) for line in trace.open(encoding="utf-8") if line.endswith("}" + chr(10))]
     time_at = {row["index"]: row["timeMs"] for row in rows if row["kind"] == "frame"}
     # A decision fires inside the frame's step, before that frame's row is written.
     return {(row["ply"], row["uci"]): time_at[row["index"]]
