@@ -36,7 +36,11 @@ $arms = @(
   # A1: die Zelle bleibt 2x2 aufgeloest, statt zu einem Vektor gemittelt zu werden. Auf dem
   # GEWINNENDEN Rezept, nicht auf der Baseline - die Frage ist, ob es oben drauf noch etwas holt.
   # +0,148 MMAC/Crop gegen `rot`, also rund 0,4 ms je Session auf dem SM8650.
-  [pscustomobject]@{ Tag = "g2"; Backbone = "boardattn:cellnet_p4g2"; Extra = @("--rot90", "--hflip-p", "0.5") }
+  [pscustomobject]@{ Tag = "g2"; Backbone = "boardattn:cellnet_p4g2"; Extra = @("--rot90", "--hflip-p", "0.5") },
+  # Dasselbe A1 OHNE Augmentierung. Auf dem Gewinner-Rezept liegt der Arm bei 0,9988 und hat
+  # keinen Spielraum mehr - ein Deckeneffekt wuerde einen echten Beitrag verstecken. Die Kontrolle
+  # dafuer ist `p4a`, das mit sieben Seeds vorliegt.
+  [pscustomobject]@{ Tag = "g2n"; Backbone = "boardattn:cellnet_p4g2"; Extra = @() }
 )
 
 $Arms = @($Arms | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
