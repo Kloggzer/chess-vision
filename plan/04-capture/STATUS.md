@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 46 Auftraege auf der VOLLEN Karte, 46 eindeutige `id`. 18 pytest, 4 vitest gruen |
 | 01 | 01-import.md | todo | |
-| 02 | 02-erfassungs-modus.md | todo | |
+| 02 | 02-erfassungs-modus.md | **blocked** | 2026-09-13; Steps 1 und 2 stehen (`fenOf(Map)`, Plan-Abruf). Steps 3 und 4 haengen an `video_frame` — siehe Blocker unten |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
 
 ## Dependencies
@@ -103,6 +103,48 @@ Behoben: `docs/capture-session.schema.json` liegt jetzt und fuehrt `steps[].vide
 Pflichtfeld. 02 schreibt es, 01 liest es und bricht ohne es ab. Das Schema ist damit die
 Autoritaet, gegen die beide Phasen parallel bauen koennen.
 
+## Blocker 02 (2026-09-13): `video_frame` hat auf dem Geraet keine Quelle
+
+`docs/capture-session.schema.json` und `02-erfassungs-modus.md` sagen beide, der Recorder kenne die
+Zahl im Moment der Aufnahme, „dieselbe Zahl, die `candidate.json` unter `moves[].frame` fuehrt".
+**Der Code sagt etwas anderes.** `moves[].frame` entsteht auf dem PC:
+`RealGameCandidate.kt:31` nennt es „0-based decode index of the frame", und
+`PhoneCandidate.kt:550` holt es aus `PhoneFrameClock.indexAt(videoMs)` — einer Liste von
+Frame-Zeitstempeln, die der Scan beim **Dekodieren des Videos** gesammelt hat. Die Bruecke davor
+sind die `video_sync`-Zeilen der `timeline.jsonl` (`RecordedFrames.videoNsAt`).
+
+Auf dem Telefon existiert kein Frame-Index. Gesucht in `SessionRecorder`, `RecordingBundleHost`,
+`SessionCaptureController`, `SessionTimeline`, `CameraVideo`: `grep -rn "videoFrame|frameIndex|
+frameCount|frameNumber" app/src core-engine/src tracker-runtime/src` findet genau einen Treffer,
+und der ist ein Testfixture. Was die App ehrlich weiss, ist die **Videozeit**
+(`VideoProgress.durationNs`, je gemuxtem Sample gemeldet) — und genau die schliesst das Schema als
+Ersatz aus („`t` … nie als Ersatz fuer `video_frame`").
+
+Zwei Wege, beide brauchen eine Entscheidung ausserhalb dieser Phase:
+
+1. **`CameraVideo` zaehlt seine gemuxten Samples** und gibt den Index heraus (Vorlauf-Flush in
+   `goLive` + Live-Samples in `sample`). Das ist gemessen, nicht geschaetzt, und liegt in `:app`,
+   nicht in `:tracker-runtime`. Es verletzt aber das „Do NOT" der Phasendatei
+   („`CameraVideo` … nicht umbauen — nur benutzen").
+2. **Das Schema laesst `video_frame` aus der Videozeit ableiten** (Import rechnet `t` gegen die
+   Frame-Zeitstempel, wie der PC es fuer eine Partie ohnehin tut). Dann aendert sich
+   `docs/capture-session.schema.json`, und 01 muss mitziehen.
+
+Bis dahin bleiben Step 3 (die drei Bildschirme) und Step 4 (Aufnahme je Ply) liegen: Step 4
+braucht die Zahl direkt, Step 3 braucht fuer den Aufbau-Schirm dieselbe laufende Kamera, die Step 4
+verdrahtet.
+
+**Nebenbefund, kein Blocker:** die Plan-Route antwortet `{"shots": [], "why": <Befehl>}`, wenn kein
+Plan gerechnet wurde (`platform/app/lib/capture-plan.ts:62`). `why` steht in
+`docs/capture-plan.schema.json` nicht. Der Kotlin-Typ traegt es trotzdem, sonst laese die App
+„kein Plan gerechnet" als „alles abgedeckt".
+
+**Umgebung, waehrend 02 lief:** ein zweiter Agent hat gleichzeitig in `:core-engine` und
+`:tracker-runtime` geschrieben (`recordSight`/`sightSettled`, „early commit on sight"). Der Baum
+war zeitweise nicht uebersetzbar und ein `processTestResources` lief einmal in eine Race auf
+`core-engine/build/`. Beide Gates sind spaeter sauber durchgelaufen; die Zahlen unten stammen von
+diesen Laeufen.
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
@@ -116,3 +158,12 @@ Danach Backfill (376 640 Zeilen), Karte und Plan neu: 46 Auftraege statt 58.
 
 **Naechster Schritt, exakt:** nach dem Ablationslauf `manifest-bright.jsonl` ueber
 `manifest.jsonl` schieben. Dann Phase 01 (Import ohne Kandidaten-Maschinerie).
+
+**2026-09-13 — Phase 02, Steps 1 und 2.** `fenOf(Map<String,String>, blank)` in
+`core-engine/.../board/ReadingFen.kt`, `fenOf(snap)` ruft sie; der Referenzwert
+`4k1n1/8/8/4p3/3P4/8/8/R3K3 w - - 0 1` wurde VOR dem Umbau gegen den alten Code gemessen und steht
+als `ReadingFenTest.REFERENCE`. Dazu `app/.../capture/CapturePlan.kt` und `CapturePlanClient.kt`:
+Typen des Plan-Schemas, `ignoreUnknownKeys`, 401 als sichtbare Kopplungs-Meldung.
+Gates: `:core-engine:test --tests *ReadingFenTest*` 4 gruen, `:app:testDebugUnitTest --tests
+*CapturePlanTest*` 4 gruen, `:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege.
+Steps 3 und 4 nicht begonnen — siehe Blocker oben.
