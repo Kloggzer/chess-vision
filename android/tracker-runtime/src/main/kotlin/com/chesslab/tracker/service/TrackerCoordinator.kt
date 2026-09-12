@@ -124,8 +124,8 @@ class TrackerCoordinator<T>(
         publisher.corners = pipeline.corners
         // A PROVIDER: the publisher samples at 10 Hz and only builds the status when it will use it.
         publisher.publish(host::status, host.fen(), events, (result as? FrameResult.Skipped)?.note)
-        // A candidate formed on this frame gets its observation from this frame (`verifyObserveNow`).
-        if (host.verifyWaiting()) pipeline.cropFrameNow()
+        // The observer's warp comes after the decision; a fresh candidate gets one on this frame too.
+        pipeline.cropWarpAfterTick(host.verifyWaiting())
         observer.onFrameAvailable()
         // An observation already back (inline in a replay, a fast phone) is judged NOW rather than
         // at the top of the next tick: same state, same clock, one frame earlier.

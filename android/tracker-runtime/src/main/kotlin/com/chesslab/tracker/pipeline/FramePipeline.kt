@@ -8,6 +8,7 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
 import com.chesslab.geometry.BoardGeometry
+import java.util.concurrent.CompletableFuture
 
 // One camera frame -> one `FrameInput`. Port of the per-frame order in `tracker.py::_loop`,
 // between `_note_frame_size` and the detection state machine. THE ORDER IS BEHAVIOUR:
@@ -228,6 +229,21 @@ class FramePipeline<T>(
         return true
     }
 
+    /**
+     * The bordered full-resolution warp, AFTER the engine tick: the engine never reads it, only the
+     * observer does, so the frame's decision no longer waits the warp's 7 ms on the phone. Same
+     * frame, same observation — only the order on the analyzer thread changed (2026-09-12).
+     */
+    fun cropWarpAfterTick(verifyWaiting: Boolean) {
+        val input = emitted ?: return
+        if (cropStore.wantsFrame()) {
+            stages.updateCropFrame(input.corners, input.seq, input.timestampMs, input.bgrDet, input.grayDet)
+            cropStore.served()
+        } else if (verifyWaiting) {
+            cropFrameNow()
+        }
+    }
+
     /** Frames that never reached the engine, by reason — until now only a note string per frame. */
     var skippedWaitingMarkers = 0L
         private set
@@ -277,19 +293,17 @@ class FramePipeline<T>(
         pts: FloatArray,
         timestampMs: Long,
     ): FrameResult {
+        // ROI motion reads the raw frame with its own scratch, so it runs beside gray, BGR and
+        // grid coverage, which share the detection chain; its mark then measures the join.
+        val motionTask = if (reads.roiMotion) CompletableFuture.supplyAsync { stages.roiMotion(pts) } else null
         val gray = stages.grayDet()
         val bgr = stages.bgrDet()
         timings.mark(Stage.GRAY)
-        val motion = if (reads.roiMotion) stages.roiMotion(pts) else MOTION_UNREAD
-        timings.mark(Stage.MOTION)
         val coverage = gridCoverage()
         timings.mark(Stage.GRID)
+        val motion = motionTask?.join() ?: MOTION_UNREAD
+        timings.mark(Stage.MOTION)
         seq += 1
-        // Last, and only on demand: the bordered full-resolution warp is the expensive one.
-        if (cropStore.wantsFrame()) {
-            stages.updateCropFrame(pts, seq, timestampMs, bgr, gray)
-            cropStore.served()
-        }
         val input = FrameInput(seq, gray, bgr, pts, motion, coverage, luma, timestampMs, board = stages::boardAt)
         emitted = input
         return FrameResult.Ready(input)

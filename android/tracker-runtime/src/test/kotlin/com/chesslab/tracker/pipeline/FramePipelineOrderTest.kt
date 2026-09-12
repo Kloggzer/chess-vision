@@ -67,6 +67,7 @@ class FramePipelineOrderTest {
         repeat(30) { frame ->
             if (frame % 10 == 0) store.request()
             pipeline.onFrame(FakeImage(), 1280, 720, 1_000L + frame)
+            pipeline.cropWarpAfterTick(verifyWaiting = false)
         }
         assertEquals(3, stages.cropWarps)
         // The crop frame carries the seq of the frame it was warped from (Spec 11 pairing).
@@ -86,6 +87,7 @@ class FramePipelineOrderTest {
         // Extra, not instead: the next frame still serves the regular request.
         store.take()
         pipeline.onFrame(FakeImage(), 1280, 720, 1_150L)
+        pipeline.cropWarpAfterTick(verifyWaiting = false)
         assertEquals(listOf(2L, 3L), stages.cropSeqs)
         stages.luma = 12.0
         pipeline.onFrame(FakeImage(), 1280, 720, 1_200L)
