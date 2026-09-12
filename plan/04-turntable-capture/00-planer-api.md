@@ -3,111 +3,113 @@
 ## Why
 
 `coverage_gaps.py` nennt Luecken, aber keine Handlung: `{"piece":"wQ","square_color":"light",
-"band":"sehr hell","have":0}` sagt nicht, wohin die Dame gehoert. Die Bruecke fehlt.
+"band":"sehr hell","have":0}` sagt nicht, wohin die Dame gehoert.
 
 **Landet ALLEIN und zuerst.** 01 und 02 schreiben gegen diese Formen.
 
 ## Design (entschieden — nicht neu entwerfen)
 
-### Die Auftragsform: `docs/turntable-plan.schema.json` (neu, EINZIGE Autoritaet)
+### `docs/capture-plan.schema.json` (neu, EINZIGE Autoritaet)
 
 ```json
-{"id": "wQ-light", "fix": "Stellung", "reason": "wQ auf hellem Feld, Band 'sehr hell': 0 Belege",
+{"id": "wq-light-sehr-hell", "fix": "Stellung",
+ "reason": "wQ auf hellem Feld, Band 'sehr hell': 0 Belege",
  "place": [{"square": "h3", "piece": "wQ"}], "light": null, "reference_square": "h3",
  "height": "normal", "orientations": 8,
  "closes": [{"piece": "wQ", "square_color": "light", "band": "sehr hell", "have": 0}]}
 ```
 
-| Schluessel | Bedeutung |
+| Schluessel | Regel |
 |---|---|
-| `id` | Slug, Kleinbuchstaben, nur `[a-z0-9-]`; Leerzeichen werden `-` |
+| `id` | `"{piece}-{square_color}-{band}"`, kleingeschrieben, Leerzeichen zu `-`. **Das Band MUSS hinein**: 58 Luecken verteilen sich auf nur 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender |
 | `fix` | `"Stellung"` oder `"Licht"`, unveraendert aus `coverage-gaps.json` |
-| `place` | **immer eine Liste von Objekten**, leer bei `fix="Licht"` |
+| `reason` | ein Satz, warum es diesen Auftrag gibt |
+| `place` | **immer** Liste von `{"square", "piece"}`; leer bei `fix="Licht"` |
 | `light` | bei `fix="Licht"` das Zielband als Text, sonst `null` |
-| `reference_square` | Feld, an dem der Nutzer das Licht beurteilt |
-| `height` | `"tief"` \| `"normal"` \| `"hoch"` |
+| `reference_square` | bei `fix="Stellung"` das Feld aus `place[0]`; bei `fix="Licht"` das hellste bzw. dunkelste Feld der Farbe, an dem der Nutzer das Licht beurteilt |
+| `height` | reihum aus `HEIGHTS`, damit ueber die Auftraege alle drei Hoehen vorkommen |
+| `orientations` | immer `ORIENTATION_STEPS` |
 
-**Ein Auftrag verspricht kein Band.** Kein Feld hat „sehr hell" als haeufigstes Band; der Planer
-waehlt das hellste (bzw. dunkelste) Feld der geforderten Farbe, und was erreicht wurde, misst
-Phase 02 hinterher.
+**Ein Auftrag verspricht kein Band** — der Planer waehlt ein Feld, gemessen wird hinterher.
 
-### `src/chesslab/turntable.py` (neu)
+### `src/chesslab/capture_plan.py` (neu)
 
 ```python
-ORIENTATION_STEPS = 8          # 45-Grad-Schritte, von Hand noch zuverlaessig zu setzen
+ORIENTATION_STEPS = 8                      # 45-Grad-Schritte, von Hand zuverlaessig zu setzen
 HEIGHTS = ("tief", "normal", "hoch")
 
-class Shot(TypedDict):         # exakt die Schluessel des Schemas, keine losen dicts
-    ...
+class Gap(TypedDict):                      # genau die Schluessel aus coverage-gaps.json
+    piece: str; square_color: str; band: str; have: int; fix: str; corpus_in_band: int
+class Placement(TypedDict):
+    square: str; piece: str
+class Shot(TypedDict):                     # genau die Schluessel des Schemas, alle neun
+    id: str; fix: str; reason: str; place: list[Placement]; light: str | None
+    reference_square: str; height: str; orientations: int; closes: list[Gap]
 
 def square_brightness(dataset: str) -> dict[str, float]:
-    """Feld -> MEDIAN der gemessenen Helligkeit. Zeilen ohne `brightness` zaehlen nicht mit:
-    376 640 von 979 363 (alle Komposite) haben keine, und `or 0.0` warf sie frueher geschlossen
-    ins dunkelste Band."""
+    """Feld -> MEDIAN der gemessenen Helligkeit. Zeilen OHNE `brightness` zaehlen nicht mit:
+    376 640 von 979 363 (alle Komposite) haben keine."""
 
-def shots(gaps: list[dict], bright: dict[str, float], limit: int = 10) -> list[Shot]:
-    """Luecken zu Auftraegen. `fix="Stellung"` -> hellstes/dunkelstes Feld der Farbe;
-    `fix="Licht"` -> leeres `place`, Zielband in `light`."""
+def shots(gaps: list[Gap], bright: dict[str, float], limit: int = 10) -> list[Shot]:
+    """Luecken zu Auftraegen, teuerste Achse zuerst."""
 ```
 
 ### CLI
 
-`chesslab turntable plan --dataset real13-mix-v7-128 --limit 10` schreibt
-`data/reports/turntable-plan.json`: `{"generated_at", "dataset", "gaps_from", "shots": [...]}`.
-Registrierung wie die 24 vorhandenen Unterbefehle (`grep -n "session_app.command" src/chesslab/cli.py`,
-Muster `session_pack_cmd` in `cli.py:407`).
+Neue Typer-Sub-App `capture` — Muster der acht vorhandenen bei `src/chesslab/cli.py:30-62`
+(`app.add_typer(...)`), der Unterbefehl wie `session_pack_cmd` (`cli.py:407`).
+`chesslab capture plan --dataset real13-mix-v7-128 --limit 10` schreibt
+`data/reports/capture-plan.json`: `{"generated_at", "dataset", "gaps_from", "shots": [...]}`.
 
 ### Zwei Routen
 
-Muster ist `platform/app/app/api/ingest/session/route.ts:12` — **nicht** `hello`, das nie ablehnt:
-
-```ts
-if (!(await authorized(request))) return Response.json({ error: "unpaired" }, { status: 401 });
-```
+Muster `platform/app/app/api/ingest/session/route.ts:12` — **nicht** `hello`, das nie ablehnt:
+`if (!(await authorized(request))) return Response.json({ error: "unpaired" }, { status: 401 });`
 
 | Route | Antwort |
 |---|---|
-| `GET /api/turntable/plan` | `turntable-plan.json` roh; fehlt die Datei: 200 mit `{"shots": [], "why": "<Befehl>"}` |
-| `GET /api/turntable/coverage` | `coverage-gaps.json` roh plus `"generated_at"` aus dessen mtime |
+| `GET /api/capture/plan` | `capture-plan.json` roh; fehlt sie: 200 mit `{"shots": [], "why": "<Befehl>"}` |
+| `GET /api/capture/coverage` | `coverage-gaps.json` roh plus `generated_at` aus der **mtime** |
 
-`platform/app/lib/turntable.ts` traegt `Shot` und `Gap` **aus dem Schema abgeschrieben**, keine
-`any`. Die Kopplung ist die bestehende (`platform/app/lib/ingest.ts:262` `authorized`).
+`platform/app/lib/capture-plan.ts` traegt `Shot`, `Gap`, `Placement` aus dem Schema, keine `any`.
 
-### `docs/turntable-capture.md` (Deliverable)
+### `docs/capture-axes.md` (Deliverable)
 
-Die vier Achsen mit Begruendung, die Posenmessung (0,954–1,025, Median 0,986, 24 Aufnahmen),
-warum der Kamerawinkel keine Achse ist, **und warum die Abdeckung nicht live sein kann**.
+Die vier Achsen mit Begruendung, die Posenmessung (0,955–1,025, Median 0,986, 24 Aufnahmen), der
+Verweis auf die 7-Seed-Messung von `--rot90` und die Abgrenzung zum August-Wert −0,046, warum der
+Kamerawinkel keine Achse ist, **und warum die Abdeckung nicht live sein kann**.
 
 ## Steps
 
-1. Schema + `square_brightness` + `shots` + Tests → `feat(turntable): Luecken zu Auftraegen`
-2. CLI → `feat(cli): chesslab turntable plan`
-3. Routen + `lib/turntable.ts` + Vitest → `feat(platform): Plan- und Abdeckungs-Route`
-4. Doku → `docs(turntable): die vier Achsen und die Grenzen der Rueckmeldung`
+1. Schema + `square_brightness` + `shots` + Tests → `feat(capture): Luecken zu Auftraegen`
+2. CLI-Sub-App → `feat(cli): chesslab capture plan`
+3. Routen + `lib/capture-plan.ts` + Vitest → `feat(platform): Plan- und Abdeckungs-Route`
+4. Doku → `docs(capture): die vier Achsen und die Grenzen der Rueckmeldung`
 
 ## Tests
 
-`uv run pytest -q tests/test_turntable.py`:
+`uv run pytest -q tests/test_capture_plan.py`:
 
-- `square_brightness` ignoriert Zeilen ohne `brightness` (sonst faerbt ein Komposit das Feld dunkel).
-- `fix="Stellung"` ergibt nichtleeres `place`, `fix="Licht"` **leeres** `place` und gesetztes `light`.
-- Fuer `square_color="light"` waehlt der Planer das HELLSTE helle Feld, nicht irgendeines.
-- `id` enthaelt nur `[a-z0-9-]`.
+- `square_brightness` ignoriert Zeilen ohne `brightness`.
+- `fix="Stellung"` ergibt nichtleeres `place`, `fix="Licht"` leeres `place` und gesetztes `light`.
+- Bei `square_color="light"` waehlt der Planer das HELLSTE helle Feld.
+- **Die `id` ist ueber alle 58 echten Luecken eindeutig** (Regressionsfall: ohne Band waeren es 24).
+- Ueber zehn Auftraege kommt jede der drei Hoehen mindestens einmal vor.
 - `limit` schneidet ab, ohne die Reihenfolge zu aendern.
 
-`npm test -- turntable` in `platform/app`: fehlende Datei ergibt `{shots: [], why}` und wirft nicht;
-ohne Kopplung antwortet die Route 401.
+`npm test -- capture-plan`: fehlende Datei ergibt `{shots: [], why}`; ohne Kopplung 401.
 
 ## Acceptance
 
-- `uv run chesslab turntable plan --dataset real13-mix-v7-128` schreibt eine Datei, in der **jeder**
-  Auftrag mit `fix="Stellung"` ein nichtleeres `place` hat — pruefbar mit
-  `python -c "import json;d=json.load(open('data/reports/turntable-plan.json'));assert all(s['place'] for s in d['shots'] if s['fix']=='Stellung')"`.
-- `grep -c ': any' platform/app/lib/turntable.ts` gibt `0`.
-- `docs/turntable-plan.schema.json` und `docs/turntable-capture.md` existieren; letztere nennt 0,986.
+```
+uv run chesslab capture plan --dataset real13-mix-v7-128 --limit 58
+python -c "import json;d=json.load(open('data/reports/capture-plan.json'));s=d['shots'];assert len(s)>0;assert len({x['id'] for x in s})==len(s);assert all(x['place'] for x in s if x['fix']=='Stellung')"
+```
+- `grep -c ': any' platform/app/lib/capture-plan.ts` gibt `0` (Exit 1 ist dabei normal).
+- `docs/capture-plan.schema.json` und `docs/capture-axes.md` existieren; letztere nennt 0,986.
 
 ## Do NOT
 
 - Keine Android-Datei — das ist 01. `scripts/coverage_gaps.py` nicht aendern — das ist 02.
 - Keine Schreib-Route: der Rueckkanal ist der bestehende Ingest.
-- Kein Auftrag, der ein Helligkeitsband ZUSAGT.
+- Kein Auftrag, der ein Helligkeitsband ZUSAGT. Kein `turntable` im Namen.

@@ -7,95 +7,112 @@ Partie, hier steht eine Stellung still und wird gedreht.
 
 ## Design (entschieden — nicht neu entwerfen)
 
-Neues Gradle-Modul `:capture`, `com.android.application`, eigener `applicationId`
-(`com.chesslab.capture`), eine Zeile `include(":capture")` in `android/settings.gradle.kts`
-(dort stehen neun; Muster von `:app` uebernehmen, inklusive `compileSdk` und Compose).
+Neues Gradle-Modul `:capture`, `com.android.application`, `applicationId com.chesslab.capture`,
+eine Zeile `include(":capture")` in `android/settings.gradle.kts` (dort stehen neun; `compileSdk`,
+Compose und die OpenCV-Runtime von `:app` uebernehmen — ohne Letztere fehlen 342 Klassen).
 
 ### Was wiederverwendet wird — und was NICHT
 
 | Braucht | Woher | Anker |
 |---|---|---|
-| Session schreiben | `:tracker-runtime` (reines JVM) | `record/SessionRecorder.kt` — schreibt `frames/%04d.jpg` (`:114`), `log.jsonl` (`:89`), `session.yaml` (`:176`) |
-| Upload | `:tracker-runtime` | `sync/HttpIngestClient.kt`, Kopplung wie `sync/SyncSettings.kt` |
-| Ecken, Zellschnitt, Warp | `:core-geometry` | `Aruco.kt`, `Corners.kt`, `QuadRefine.kt`, `GridCorrection.kt`, `GridLines.kt`, `ProjectiveFit.kt`, `Warp.kt`, `Crops.kt` |
-| optionaler Aufbau-Check | `:tracker-runtime` | `cnn/OnnxSquareClassifier.kt` (das Interface liegt in `:core-cnn`) |
-| **Kamera** | **selbst**, siehe unten | — |
+| Session schreiben | `:tracker-runtime` (reines JVM) | `record/SessionRecorder.kt`: `frames/%04d.jpg` (`:114`), `log.jsonl` (`:89`), `session.yaml` (`:176`), `corners` als `[a8,h8,h1,a1]` (`:70-72`) |
+| Upload und Kopplung | `:tracker-runtime` | `sync/HttpIngestClient.kt`, `sync/SyncSettings.kt` |
+| Ecken, Verfeinerung, Warp, Zellschnitt | `:core-geometry` | `Aruco.kt`, `Corners.kt`, `QuadRefine.kt`, `GridCorrection.kt`, `GridLines.kt`, `ProjectiveFit.kt`, `Warp.kt`, `Crops.kt` |
+| **Kamera** | **selbst** | siehe unten |
 
-**Die Kamera wird NICHT wiederverwendet, weil es sie hier nicht gibt.** `:tracker-runtime` ist
-`java-library` (`build.gradle.kts:2`) und traegt null CameraX-Dateien; alle neun liegen in `:app`,
-und ein Application-Modul kann kein anderes als Abhaengigkeit einbinden. `:capture` schreibt eine
-eigene, minimale Bindung: Preview plus Einzelbild, **genau ein** `bindToLifecycle`. Die Regel
-„EIN Kamera-Besitzer" gilt je Prozess; ein eigenes APK ist ein eigener Prozess. Die Governors aus
-`:app` (`camera/ExposureGovernor.kt`, `FocusGovernor.kt`) werden **nicht** nachgebaut — eine
-stehende Stellung braucht keine Nachfuehrung.
+**Kamera: eigene, minimale Bindung.** Alle neun CameraX-Dateien liegen in `:app`, und ein
+Application-Modul kann kein anderes einbinden. `:capture` bindet Preview plus Einzelbild, **genau
+ein** `bindToLifecycle`. Die Regel „EIN Kamera-Besitzer" gilt je Prozess.
+Die Governors (`ExposureGovernor.kt`, `FocusGovernor.kt`) liegen zwar in `:tracker-runtime` und
+waeren erreichbar — sie bleiben trotzdem draussen, weil eine stehende Stellung keine Nachfuehrung
+braucht. Das ist eine Entscheidung, keine Unmoeglichkeit.
 
-**Ebenso die Kalibrier-Orchestrierung.** `ArucoCalibrator` liegt in `:app`
+**Kalibrier-Ablauf: nachgebaut.** `ArucoCalibrator` liegt in `:app`
 (`app/src/main/kotlin/com/chesslab/tracker/geometry/ArucoCalibrator.kt`) und ist nicht erreichbar.
-`:capture` ruft die Bausteine aus `:core-geometry` selbst der Reihe nach auf. Das ist bewusst
-doppelte ABLAUFLOGIK, keine doppelte Geometrie — und es gehoert in `STATUS.md` als Schuld notiert.
+`:capture` ruft die Bausteine aus `:core-geometry` selbst der Reihe nach auf — doppelte
+ABLAUFLOGIK, keine doppelte Mathematik. Als Schuld in `STATUS.md` notieren.
 
-**OpenCV:** `:core-geometry` ist `compileOnly` gegen `org.bytedeco:opencv`
-(`core-geometry/build.gradle.kts:8-20`). `:capture` muss wie `:app` das `org.opencv`-AAR plus
-Natives liefern, sonst fehlen zur Laufzeit 342 Klassen.
+### Der FEN je Schritt — der Kern dieser Phase
 
-### Ablauf und Typen
+`SessionRecorder.capture(writer, ply, fen, moveSan, corners)` will einen FEN. Ein gezielter Aufbau
+IST einer: leeres Brett plus die Figuren aus `place`.
 
 ```kotlin
-/** Abgeschrieben aus `docs/turntable-plan.schema.json` - das Schema ist die Autoritaet, nicht
- *  die TypeScript- und nicht diese Kotlin-Fassung. */
-data class Shot(val id: String, val fix: String, val place: List<Placement>,
-                val light: String?, val referenceSquare: String,
-                val height: String, val orientations: Int)
-
-sealed interface CaptureStep {
-    data class Setup(val shot: Shot, val checked: BoardCheck?) : CaptureStep
-    data class Turning(val shot: Shot, val step: Int, val total: Int) : CaptureStep
-    data class Uploading(val session: String, val percent: Int) : CaptureStep
-}
-/** Was das CNN zum Aufbau sagt. `null` = nicht gefragt; der Check ist OPTIONAL und blockiert nie. */
-data class BoardCheck(val matches: Boolean, val wrong: List<String>)
+/** `place` -> Brett-FEN. Nachgemessen: GameState("8/8/8/8/8/7Q/8/8 w - - 0 1").label_for("h3")
+ *  gibt `wQ`, also labelt der bestehende Slice-Pfad die Aufnahme ohne Sonderweg. */
+fun fenOf(place: List<Placement>): String
 ```
 
-Plan holen → Auftrag zeigen → optional CNN fragen → je Ausrichtungsschritt ein Einzelbild →
-`SessionRecorder` schliessen → `HttpIngestClient` hochladen → naechster Auftrag.
+`ply` = Index des Drehschritts (0-basiert), `moveSan` = `null`. `SessionMeta`: `profile` wie `:app`
+es fuer diese Kamera setzt (aus `session.yaml` einer bestehenden Aufnahme ablesen), `mode = "track"`.
 
-**Fortschritt, nicht Abdeckung.** Die App zeigt „Auftrag 3 von 10" aus dem Plan. Die Abdeckung
-kommt von `GET /api/turntable/coverage` **mit ihrem `generated_at`** und aendert sich nach einem
-Upload nicht — sie stammt aus einem gebauten Datensatz. Kein Balken, der Bewegung vortaeuscht.
+### `capture.json` — von DIESER Phase geschrieben
+
+Neben `log.jsonl`, gelesen von Phase 02. `place` hat **dieselbe Form wie im Schema**:
+
+```json
+{"id": "wq-light-sehr-hell", "height": "normal", "light": null,
+ "steps": [{"frame": "frames/0000.jpg", "orientation_deg": 45,
+            "place": [{"square": "h3", "piece": "wQ"}]}]}
+```
+
+Die Ausrichtung ist **deklariert**, nicht gemessen — die App hat zum Drehen aufgefordert.
+
+### Typen und Ablauf
+
+```kotlin
+@Serializable data class Placement(val square: String, val piece: String)
+/** Alle NEUN Schluessel des Schemas; `@SerialName` haelt die Namen der JSON-Seite. */
+@Serializable data class Shot(
+    val id: String, val fix: String, val reason: String, val place: List<Placement>,
+    val light: String?, @SerialName("reference_square") val referenceSquare: String,
+    val height: String, val orientations: Int, val closes: List<Gap>)
+```
+
+Plan holen → Auftrag zeigen → je Drehschritt ein Einzelbild mit FEN → `capture.json` schreiben →
+`HttpIngestClient` hochladen → naechster Auftrag. Die App zeigt **Fortschritt gegen den Plan**
+(„Auftrag 3 von 10"); die Abdeckung kommt von `GET /api/capture/coverage` **mit `generated_at`**
+und bewegt sich nach einem Upload nicht.
 
 ## Steps
 
 1. Modul, Manifest, Gradle, OpenCV-Runtime → `feat(capture): eigenes Modul fuer die Erfassung`
 2. Kamerabindung, Preview, Einzelbild → `feat(capture): Preview und Einzelbildaufnahme`
-3. Plan holen und anzeigen → `feat(capture): Auftraege aus der Plan-Route`
-4. Geometrie: Ecken, Verfeinerung, Zellschnitt → `feat(capture): Brettgeometrie aus core-geometry`
-5. Aufnahme je Drehschritt in `SessionRecorder` → `feat(capture): Einzelbilder je Drehschritt`
-6. Upload → `feat(capture): Session ueber den bestehenden Ingest`
-7. Optionaler CNN-Check → `feat(capture): optionaler Abgleich des Aufbaus`
+3. Plan holen, Typen, 401 sichtbar machen → `feat(capture): Auftraege aus der Plan-Route`
+4. Geometrie aus `:core-geometry` → `feat(capture): Brettgeometrie ohne eigene Mathematik`
+5. `fenOf` + Aufnahme je Drehschritt → `feat(capture): Aufbau als FEN je Drehschritt`
+6. `capture.json` → `feat(capture): Hoehe und Ausrichtung mitschreiben`
+7. Upload → `feat(capture): Session ueber den bestehenden Ingest`
 
 ## Tests
 
 `gradlew.bat :capture:test --rerun-tasks`:
 
-- `orientations = 8` erzeugt acht Schritte, nicht sieben oder neun.
-- Leeres `place` (`fix = "Licht"`) ueberspringt den CNN-Check.
-- `BoardCheck(matches = false)` blockiert die Aufnahme **nicht**.
+- `fenOf(listOf(Placement("h3","wQ")))` gibt `"8/8/8/8/8/7Q/8/8 w - - 0 1"`.
+- `orientations = 8` erzeugt acht Schritte und acht `steps` in `capture.json`.
+- Leeres `place` (`fix="Licht"`) ergibt den FEN des leeren Bretts und trotzdem acht Schritte.
 - Ein 401 der Plan-Route fuehrt zu einer sichtbaren Kopplungs-Meldung, nicht zu einer leeren Liste.
 - **Integrationstest gegen die ECHTE `HttpIngestClient`** und einen lokalen Fake-Server: eine
-  Session geht durch Handshake, Chunk und Complete; `SessionRecorder` hat `log.jsonl`,
-  `session.yaml` und `frames/0000.jpg` geschrieben.
+  Session geht durch Handshake, Chunk und Complete; danach liegen `log.jsonl`, `session.yaml`,
+  `frames/0000.jpg` und `capture.json`.
+
+Dazu einmal `gradlew.bat :app:test --tests "*CommentBudgetTest*" --rerun-tasks` — der Ratchet
+laeuft ueber den ganzen `android/`-Baum und faellt sonst erst beim Orchestrator auf.
 
 ## Acceptance
 
 - `gradlew.bat :capture:assembleDebug --rerun-tasks` baut.
 - `gradlew.bat :capture:ktlintCheck :capture:detekt --rerun-tasks` ohne NEUE Befunde.
-- `grep -rc "bindToLifecycle" android/capture/src/main/` summiert zu **1**.
-- `grep -rn "class SessionRecorder\|class HttpIngestClient\|object Corners\|fun warp" android/capture/`
+- `grep -rn "bindToLifecycle" android/capture/src/main/ | wc -l` gibt **1**.
+- `grep -rn "class SessionRecorder\|class HttpIngestClient\|fun warp\|fun refineQuad" android/capture/`
   trifft nichts — nichts davon ist kopiert.
+- `grep -rn "turntable" android/capture/` trifft nichts (der Name gehoert dem Drehteller).
 
 ## Do NOT
 
 - Keine Datei in `:app`, `:tracker-runtime`, `:core-geometry`, `:core-cnn` aendern. Fehlt dort
   etwas, in `STATUS.md` melden und **anhalten**.
+- Kein CNN-Aufbau-Check in dieser Fassung: das Modell laege in `:app/src/main/assets/cnn_model/`
+  und ist nicht erreichbar. Spaetere Phase, wenn ueberhaupt.
 - Kein eigener Session-Schreiber, kein eigener Upload, keine eigene Geometrie-Mathematik.
-- Keine Schreib-Route zur Platform erfinden. Keinen Abdeckungszaehler auf dem Geraet fuehren.
+- Keinen Abdeckungszaehler auf dem Geraet fuehren.

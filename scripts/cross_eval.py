@@ -9,13 +9,22 @@ den v7-Val im eigenen Training hatte, wird abgewiesen statt geschoent.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
-import sys
 from pathlib import Path
 
+#: Das Konsolenskript, nicht `python -m chesslab` - ein `__main__.py` gibt es nicht.
+CHESSLAB = str(Path(".venv/Scripts/chesslab.exe").resolve())
+#: Ohne das waehlt Triton clang, dem die Windows-Header fehlen.
+TCC = str(Path(".venv/Lib/site-packages/triton/runtime/tcc/tcc.exe").resolve())
+
 VAL = "rg-2026-09-06-20-27-33"
+#: `data/models/p4a-80-clahe` ist der EXPORT (nur config.json und model.onnx). Der Lauf dahinter
+#: traegt die Gewichte, und nur der laesst sich mit `chesslab eval --run` gegen einen fremden
+#: Datensatz stellen.
 RUNS = [
-    ("data/models/p4a-80-clahe", "real13-mix-v7-80"),
+    ("data/models/_arch/real13-mix-v4/p4a80-clahe2-s42", "real13-mix-v7-80"),
+    ("data/models/p4a-80-v5-head256", "real13-mix-v7-80"),
     ("data/models/_arch80v6/p4a-s42", "real13-mix-v7-80"),
     ("data/models/_arch80v6/rot-s42", "real13-mix-v7-80"),
     ("data/models/_arch128v6/p4a-s42", "real13-mix-v7-128"),
@@ -43,9 +52,9 @@ def main() -> int:
             print(f"[SKIP] {run}: hatte {VAL} im Training - nicht vergleichbar")
             continue
         print(f"\n=== {run} gegen {dataset} ===", flush=True)
-        subprocess.run([sys.executable, "-m", "chesslab", "eval", "--run", run,
-                        "--dataset", dataset, "--split", "val",
-                        "--split-file", "split-pin.json"], check=False)
+        subprocess.run([CHESSLAB, "eval", "--run", run, "--dataset", dataset, "--split", "val",
+                        "--split-file", "split-pin.json"], check=False,
+                       env={**os.environ, "CC": TCC, "OPENBLAS_NUM_THREADS": "1"})
     return 0
 
 
