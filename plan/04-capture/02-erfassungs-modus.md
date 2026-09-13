@@ -102,12 +102,27 @@ Bei 3840x2160 waeren es bei gleicher Rahmung **~166 Quellpixel**, also +40 % geg
 128 px waeren dann erstmals eine VERKLEINERUNG statt eines Gleichstands — und die Schranke
 „128 px ist die Sensorgrenze" (`plan-98/00-plan.md:40`) gaelte nicht mehr.
 
-**Warum es bei der Erfassung ueberhaupt geht.** `CameraVideo` kodiert heute denselben
-Analyzer-Strom, der den Tracker fuettert, weil dieses Telefon kein QHD-Recorder-Profil anbietet
-und `VideoCapture` nicht NEBEN `ImageAnalysis` gebunden werden kann (`CameraVideo.kt:94`, dazu
-`MIN_VIDEO_WIDTH = 2560`). Eine Erfassung **trackt aber nichts** — keine Zugerkennung, kein
-Hand-Gate, keine CNN-Reads. Sie darf `VideoCapture` deshalb STATT `ImageAnalysis` binden. Das
-bleibt EIN Kamera-Besitzer, die Regel aus `CLAUDE.md` haelt.
+**Korrigiert 2026-09-13: es braucht wahrscheinlich gar keinen Umbau.** Ich hatte hier eine zweite
+Bindung (`VideoCapture` statt `ImageAnalysis`) vorgeschlagen. Nachgesehen:
+
+- `ResolutionMode.R2160` → `CameraRequest(WIDTH_2160, HEIGHT_2160)` existiert schon
+  (`CameraModels.kt:66`) und steht im Einstellungsmenue (`AppSettingsSection.kt:39` listet
+  `ResolutionMode.entries`).
+- `CameraVideo.sourceAvailable` ist ein **Boden**, keine Obergrenze: `max ≥ 2560 && min ≥ 1440`
+  (`CameraVideo.kt:161-164`). 3840×2160 kommt durch.
+- `androidx.camera:camera-video` ist gar nicht im Projekt (`libs.versions.toml:59-60` fuehrt nur
+  `camera-core` und `camera-camera2`) — `VideoCapture` und `QualitySelector` sind nicht auf dem
+  Klassenpfad. Der Umbau waere also TEURER als der Weg, der schon da ist.
+
+Wer heute 2160p einstellt, bekommt 4K durch den bestehenden MediaCodec-Weg. **Ungeprueft bleibt,
+ob das Geraet 3840×2160 an `ImageAnalysis` liefert** — das entscheidet eine Aufnahme, kein Code.
+
+**Der Haken ist die Bitrate, nicht die Bindung.** `VIDEO_BIT_RATE` steht fest auf 20 Mbit/s.
+2160p hat **2,25× die Pixel** von 1440p; bei gleicher Bitrate sinkt die Qualitaet je Pixel im
+selben Mass, in dem die Aufloesung steigt. Der erhoffte Gewinn von +40 % Quellpixel je Zelle
+koennte davon aufgefressen werden. **15 fps rettet das fast genau**: halbe Bildrate bei gleicher
+Bitrate verdoppelt die Bits je Bild und deckt damit 89 % des 4K-Aufschlags. Die beiden
+Entscheidungen des Nutzers greifen also ineinander — einzeln ist keine von beiden sicher.
 
 **15 fps ist die Absicht des Nutzers** (2026-09-13, Platzgruende). Zwei Dinge dazu gehoeren in die
 Messung: `VIDEO_BIT_RATE` ist heute fest auf 20 Mbit/s, und bei halber Bildrate bleibt die Datei
