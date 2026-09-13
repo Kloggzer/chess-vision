@@ -321,6 +321,56 @@ meldet, steht **nirgends im Repo**; der Code liest sie nur zur Laufzeit und logg
 die Antwort jetzt aufgeschrieben wird: `ae_fps_range` in `capture.json` ist `null`, wenn nichts
 gepinnt wurde. **15 bleibt die Vorgabe, 10 ist nicht eingebaut.**
 
+## Die Bitrate folgt der Aufloesung (2026-09-13) — und was daran ueberrascht
+
+`BITS_PER_PIXEL = 0,54` ist die einzige Stellschraube; `DEFAULT_VIDEO_BIT_RATE` ist weg.
+Gerechnet wird in `CameraVideo.agreedProfile` auf der **gelieferten** `DeliveredSize`, nicht auf
+der angefragten — 4K verlangen, waehrend das Geraet 1440p liefert, kaufte sonst die dreifache Rate
+fuer ein Bild, das sie nicht braucht. `requested_bit_rate` ist ab jetzt der Formelwert,
+`bit_rate` der genommene; beide stehen weiter in `capture.json` und `session.yaml`.
+
+**Die Bildrate ist damit nicht mehr gratis.** Wer von 15 auf 30 fps stellt, VERDOPPELT die Datei.
+Das ist richtig — gleiche Qualitaet je Bild kostet bei doppelt so vielen Bildern das Doppelte —,
+aber vorher war die Bitrate eine Konstante und die Bildrate schien kostenlos. Wer an `FPS30` denkt,
+muss ab jetzt an den Platz denken.
+
+**R2160 bei 30 fps waere 134,4 Mbit/s und 1 GB/min.** Ob der Hardware-Encoder das annimmt,
+entscheidet `agreedProfile` gegen `caps.bitrateRange` — und sie ist laut: Logcat, roter Text auf
+dem Schirm, `notes` in `capture.json`. Ungeprueft, weil kein Geraet da ist; die Klemmung ist der
+Grund, warum das kein stiller Ausfall wird.
+
+**Der Boden ist 8 Mbit/s.** Eine unglaubwuerdig kleine gelieferte Groesse (Kamera liefert 720p,
+weil 4K abgelehnt wurde) ergaebe sonst eine Datei, aus der nichts zu schneiden ist. Die Klemmung
+nach OBEN steht genauso in den `notes` wie die nach unten, also ist `bit_rate` > `requested_bit_rate`
+ein moeglicher und ehrlicher Fall.
+
+| Modus | Mbit/s (Formel) | MB/min |
+|---|---:|---:|
+| R1080 @ 15 | 16,8 | 126 |
+| R1440 @ 15 (Partie) | 29,9 | 224 |
+| R2160 @ 15 (Erfassung) | 67,2 | 504 |
+| R1440 @ 30 | 59,7 | 448 |
+| R2160 @ 30 | 134,4 | 1008 |
+
+### Offen, bewusst NICHT angefasst: `SessionCaptureController.capReached`
+
+`tracker-runtime/.../record/SessionCapture.kt:236` misst die Videogroesse als
+
+```kotlin
+val videoBytes = active?.let { File(it.dir, "video.mp4").length() } ?: 0L
+```
+
+Das ist **Segment 0 allein** — genau der Fehler, den `video_bytes` hatte, nur an der zweiten
+Stelle. Die Kappe (`DEFAULT_CAP_BYTES` = 1 GB) glaubt also, eine Aufnahme sei so gross wie ihre
+erste Minute. Gemessen an `2026-09-11-20-00-52` war das ein Faktor **10**. Bei 67 Mbit/s fuellt
+sich der Speicher zusaetzlich gut dreimal schneller als bei den alten 20, also laeuft die Kappe
+entsprechend spaeter an.
+
+Der Fix waere derselbe wie in `CameraVideo.writtenBytes`: alle `video-*.mp4` des Ordners summieren.
+Er liegt aber in `:tracker-runtime`, ist die SPEICHERKAPPE und nicht Metadaten, und `capReached`
+laeuft auf dem Aufnahmepfad (ein Verzeichnis-Walk je Aufruf waere teuer, die Segmentliste nicht).
+**Entscheidung steht aus** — Nutzer und Orchestrator.
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
@@ -365,3 +415,13 @@ Segmente` und `feat(capture): 4K, 15 fps und eine eigene Bitrate`. Angefasst: `C
 `RecordingBundleHostTest` (5) gruen, `:app:ktlintCheck` und `:tracker-runtime:ktlintCheck` gruen,
 `comment_budget.py` ohne neue Eintraege (zwei eigene KDoc-Bloecke dafuer von 8/9 auf 6 gekuerzt).
 Jeder Gradle-Aufruf erst nach `trainers.ps1` = 0.
+
+**2026-09-13 — die Bitrate folgt der Aufloesung.** `refactor(capture): die Bitrate folgt der
+Aufloesung`. `BITS_PER_PIXEL`/`MIN_VIDEO_BIT_RATE`/`bitRateFor` in `CameraVideo.kt`,
+`CaptureProfile.bitRate` ist abgeleitet statt gespeichert, `DEFAULT_VIDEO_BIT_RATE` entfernt.
+Neuer Test `VideoBitRateTest` (5): die Kopplung an die Pixelzahl, die Kopplung an die Bildrate,
+beide beschlossenen Werte aus der Formel, der Boden, und dass ein Profil seine Rate selbst
+ableitet. Gates: `:app:testDebugUnitTest` ueber `VideoBitRateTest` (5), `CaptureRunTest` (6),
+`CapturePlanTest` (4), `SessionRecorderTest` (7), `RecordingBundleHostTest` (5) gruen,
+`:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege. Jeder Gradle-Aufruf nach
+`trainers.ps1` = 0.
