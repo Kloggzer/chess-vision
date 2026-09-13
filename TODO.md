@@ -291,6 +291,41 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
      eine fehlgehende Bewegungserkennung Material, ohne dass es auffaellt. Die Aufnahme sollte
      deshalb mitzaehlen, welcher Anteil behalten wurde; faellt er weit unter das Erwartete
      (gemessen 18 % bei +-2 s), ist das ein Befund und kein Erfolg.
+  **GEMESSEN 2026-09-13 — kein Ausloeser schafft beides.** Rueckwirkend ueber 13 Aufnahmen
+  (148,5 min, 174 875 Frames, 401 Plies, 5 374 exportiert = 3,07 %):
+
+  | Ausloeser | Bytes gespart | Deckung | Verdeckung | Plies mit ≥ 8 |
+  |---|---:|---:|---:|---:|
+  | Commit ±2 s | 73 % | **69 %** | 85 % | 74 % |
+  | Commit ±2 s ODER Bewegung | 55 % | 83 % | 96 % | 84 % |
+  | **Commit ±4 s ODER Bew. ±1 s** | **33 %** | **94 %** | **99,6 %** | **91 %** |
+
+  **Meine Schaetzung von „18 % behalten bei ±2 s" war falsch** — gemessen sind es 28 %, und vor
+  allem fielen dabei **31 % der tatsaechlich exportierten Frames** weg. Ich hatte nur Fenster
+  aufaddiert und nie geprueft, ob das Rezept wirklich nur um den Zug herum schneidet. Tut es nicht.
+
+  **Drei Gruende, warum die Idee weniger bringt als gedacht:**
+  - Das Video ist nicht ueberwiegend still: stille Strecken Median **0,54 s**, p90 5,5 s, und nur
+    **drei** Strecken in 148 min sind laenger als 60 s. Das Bild „zehn Minuten dieselbe Stellung"
+    traegt in diesem Korpus nicht.
+  - Das stille Brett kostet fast so viel wie eine Hand: `waiting` 17,5 Mbit/s gegen `moving`
+    20,1. Der Encoder spart auf Stillstand kaum — ein I-Frame **jede Sekunde**.
+  - **Das Verdeckungsmaterial liegt VOR dem Commit**: 76 % der 2 248 verdeckten Frames, Median
+    −0,8 s, p99 −10,9 s. Ein Ausloeser, der beim Commit einschaltet, ist per Konstruktion zu spaet
+    fuer genau das Material, um das es geht — er muss rueckwirkend behalten.
+
+  **Zwei billigere Hebel, vor jedem Umbau am Recorder:**
+  1. **`VIDEO_I_FRAME_SECONDS = 1`** (`CameraVideo.kt:58`) — bei 15 fps ist jeder 15. Frame ein
+     I-Frame. Ein groesseres Intervall spart Bytes, **ohne einen einzigen Frame zu verlieren**.
+     Kosten: groebere Segmentnaht und teurerer Seek.
+  2. **`PRE_ROLL_MAX_BYTES` = 80 MB ist die echte Grenze, nicht `PRE_ROLL_SECONDS = 45`.**
+     Gerechnet: 35,6 s bei den heutigen ~18 Mbit/s, **21,4 s** bei den neuen 29,9, und nur
+     **9,5 s** bei 67,2 im Erfassungspfad. Der Vorlauf schrumpft also still mit jeder
+     Bitratenerhoehung — und 9,5 s liegen unter dem p99 der Verdeckung.
+
+  **Und der Ring ist ein Einmal-Ding:** `goLive()` setzt ihn auf `null` (`CameraVideo.kt:499`), es
+  gibt keinen Weg zurueck ins Armierte. Ein getakteter Recorder ist NEUE Maschinerie, kein Schalter.
+
   3. **Wofuer „voll" da ist:** ein neuer Aufbau, bei dem man dem Ausloeser noch nicht traut, und
      Aufnahmen, die spaeter Frame fuer Frame durchgesehen werden sollen. Bei Turntable-Aufnahmen
      ist die Unterscheidung ohnehin fast gegenstandslos — dort wird durchgehend gedreht, es gibt
