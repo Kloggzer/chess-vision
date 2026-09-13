@@ -88,6 +88,34 @@ das „Do NOT" der Phase bleibt.
 Ein Drehschritt ist STATISCH: die Figur steht still, der Import nimmt das ganze Fenster und ein
 Frame Ungenauigkeit kostet nichts. Deshalb ist die Uhr genug und ein Index unnoetig.
 
+### 4K — erst messen, dann entscheiden (offen, 2026-09-13)
+
+**Warum die Frage hier steht.** Ein Turntable dreht das Brett DIAGONAL durchs Bild. Gemessen an 14
+Aufnahmen: Brettkante ~950 px, Diagonale beim 45-Grad-Dreh 1343 px, kurze Bildseite 1440 px —
+**Reserve 1,06x im Median, 1,02x im schlechtesten Fall.** Rechnerisch passt es, praktisch nicht:
+die `corners` sind das INNERE Brettquad, der Rahmen kommt dazu, und hohe Figuren neigen sich
+perspektivisch nach aussen. Der Mensch muss also zurueck.
+
+Was das kostet, ist klein: mit 15 % Rand um die Diagonale sinkt die Zelle von 119 auf **111
+Quellpixel** — 7 %, und damit im gemessenen Korpusband von 97–126 (`plan-98/01-aufloesung.md:66`).
+Bei 3840x2160 waeren es bei gleicher Rahmung **~166 Quellpixel**, also +40 % gegenueber heute.
+128 px waeren dann erstmals eine VERKLEINERUNG statt eines Gleichstands — und die Schranke
+„128 px ist die Sensorgrenze" (`plan-98/00-plan.md:40`) gaelte nicht mehr.
+
+**Warum es bei der Erfassung ueberhaupt geht.** `CameraVideo` kodiert heute denselben
+Analyzer-Strom, der den Tracker fuettert, weil dieses Telefon kein QHD-Recorder-Profil anbietet
+und `VideoCapture` nicht NEBEN `ImageAnalysis` gebunden werden kann (`CameraVideo.kt:94`, dazu
+`MIN_VIDEO_WIDTH = 2560`). Eine Erfassung **trackt aber nichts** — keine Zugerkennung, kein
+Hand-Gate, keine CNN-Reads. Sie darf `VideoCapture` deshalb STATT `ImageAnalysis` binden. Das
+bleibt EIN Kamera-Besitzer, die Regel aus `CLAUDE.md` haelt.
+
+**Auftrag dieser Phase: messen, nicht bauen.** Was das Geraet an Recorder-Profilen anbietet
+(`Recorder.getVideoCapabilities`, `QualitySelector`), in `STATUS.md` schreiben — Liste der
+Qualitaeten, ob UHD dabei ist, und ob `VideoCapture` allein bindet. **Keine Umstellung ohne diese
+Messung.** Drei Dinge koennen sie kippen: kein UHD-Profil, thermisches Drosseln mitten in einer
+Drehung, oder eine Bitrate, die den Speicher sprengt (heute 20 Mbit/s). Ein Befund „geht nicht"
+ist ein vollwertiges Ergebnis.
+
 ### Plan holen
 
 `HttpIngestClient.call()` ist privat und das `IngestClient`-Interface kennt nur
