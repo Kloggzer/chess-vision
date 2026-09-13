@@ -3,7 +3,7 @@
 | Phase | File | State | Note |
 |---|---|---|---|
 | 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 46 Auftraege auf der VOLLEN Karte, 46 eindeutige `id`. 18 pytest, 4 vitest gruen |
-| 01 | 01-import.md | todo | |
+| 01 | 01-import.md | **achtung** | 2026-09-13; gebaut, liest aber noch `steps[].video_frame`. Das Schema fuehrt seit derselben Nacht `elapsed_ns` — der Import bricht auf jedem Buendel ab, das 02 schreibt. Siehe unten |
 | 02 | 02-erfassungs-modus.md | done | 2026-09-13; alle vier Steps. `elapsed_ns` statt Frame-Index (Blocker unten, geloest). 8 JVM-Tests gruen, ktlint gruen, `:tracker-runtime` und `CameraVideo` unberuehrt. **4K ist NICHT gemessen** — kein Geraet, siehe eigener Abschnitt |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
 
@@ -262,6 +262,65 @@ Daraus zwei Dinge, beide reine Code-Lektuere:
 **Bis dahin ist nichts umgestellt.** `CameraVideo`, `TrackerCamera` und die Anfrage sind unberuehrt,
 `grep -rn "bindToLifecycle" android/app/src/main/ | wc -l` steht weiter auf 1.
 
+## Aufnahmeprofil gebaut (2026-09-13) — und ein Bruch zwischen 01 und dem Schema
+
+**Gebaut, wie `02-erfassungs-modus.md` es nach der Korrektur festlegt:** die Erfassung faehrt
+3840x2160 / 15 fps / **67 Mbit/s**, der Partieweg 1440p / 15 fps / **30 Mbit/s** (vorher 20).
+`VIDEO_BIT_RATE` ist vom `const` zum Parameter geworden (`CameraVideo.bitRate`,
+`DEFAULT_VIDEO_BIT_RATE`), das Profil liegt temporaer auf derselben EINEN Kamerabindung
+(`TrackerCamera.applyCaptureProfile` → `retarget`) und wird beim Verlassen zurueckgenommen.
+`bindToLifecycle` steht weiter auf **1**.
+
+**Nichts faellt still zurueck.** Vor dem `configure` fragt `agreedProfile` die
+`MediaCodecInfo.CodecCapabilities`: Groesse, Bildrate und Bitratenbereich. Jede Abweichung wird
+geklemmt, in den Logcat geschrieben, auf dem Aufbau- und Dreh-Schirm angezeigt (rot statt Akzent)
+und als `notes` in `capture.json` gelegt. Eine NICHT gepinnte AE-Spanne erscheint dort als
+fehlendes `ae_fps_range` — also als „die Kamera lief frei", nicht als stille hoehere Bildrate.
+
+**Was gemessen in der Aufnahme landet:** `capture.json` traegt jetzt `recording` mit
+`requested_size`, `delivered_size` (am `ImageProxy` gelesen), `requested_fps`, `ae_fps_range`,
+`requested_bit_rate`, `bit_rate` und `notes`. `session.yaml` traegt `video_bit_rate_requested` und
+`video_bit_rate`.
+
+### Der Bruch: 01 liest `video_frame`, das Schema fuehrt `elapsed_ns`
+
+`src/chesslab/capture_import.py:35-39` verlangt je Schritt ein `video_frame` und bricht sonst ab
+(„traegt kein `video_frame` — Abbruch statt Bretter unter geratenen Namen"). Der String
+`elapsed_ns` kommt in `src/chesslab/` und `tests/` **gar nicht vor**. 02 schreibt nach dem
+aktuellen Schema `elapsed_ns` und KEIN `video_frame`. **Jedes Buendel, das dieser Modus aufnimmt,
+laesst `chesslab capture import` abbrechen.** Ich habe Python nicht angefasst (Auftrag). 01 muss
+nachziehen: `elapsed_ns` ueber die `video_sync`-Zeilen der `timeline.jsonl` zur Videozeit und
+daraus zum Index — derselbe Weg, den `PhoneCandidate.kt:550` fuer eine Partie geht.
+
+### Was beim Bauen sonst gegen die Spec stand
+
+| Befund | wie geloest |
+|---|---|
+| „Nichts in `:tracker-runtime` aendern" (Phasendatei) gegen „die tatsaechliche Bitrate gehoert in `session.yaml`" (Auftrag) | Der Auftrag sticht: `SessionVideoMeta` traegt zwei neue Felder mit Vorgabe 0, `writeSessionYaml` schreibt sie nur, wenn sie gesetzt sind. Eine alte Aufnahme sagt damit gar nichts statt „mit 0 aufgenommen". **Die Abnahmezeile „`git diff --name-only` nennt keine Datei unter `android/tracker-runtime/`" gilt fuer 02 damit nicht mehr** |
+| „`CameraVideo` nicht umbauen — nur benutzen" (Do NOT) gegen „`VIDEO_BIT_RATE` wird zum Parameter" | Der Auftrag sticht. `CameraVideo` hat zwei neue Felder, eine neue private Funktion und den Bytes-Fix; die Encoder-Lebensdauer ist unberuehrt |
+| `capture.json` hat `additionalProperties: false`, das gemessene Profil passte in keinen Schluessel | `docs/capture-session.schema.json` gehoert laut Register **02**. Ein optionaler `recording`-Block ist dazugekommen, nichts weggenommen. 01 liest nur `steps` und ist davon unberuehrt |
+| `SessionCaptureController.capReached` misst die Videogroesse ebenfalls als `File(dir, "video.mp4").length()` | **Nicht angefasst** (`:tracker-runtime`, und es ist die Speicherkappe, nicht die Metadaten). Die Kappe unterschaetzt damit lange Aufnahmen um denselben Faktor wie `video_bytes` vorher — gemeldet, nicht repariert |
+
+### `video_bytes` — Ursache und Grenze der Pruefung
+
+`stopInternal` nahm `outputFile?.length()?.takeIf { it > 0L } ?: encodedBytes`. `outputFile` ist
+**Segment 0**, also `video.mp4` allein, und weil es > 0 war, kam der mitlaufende `encodedBytes` nie
+zum Zug. `writtenBytes()` summiert jetzt `(0..segment)` nach `releaseEncoder()`, also wenn der
+letzte Muxer seinen Index geschrieben hat. **Kein JVM-Test dafuer**: `CameraVideo` braucht
+`MediaCodec`/`MediaMuxer` und laeuft nicht auf dem Desktop. Nachweis ist die naechste echte
+Aufnahme — `video_bytes` gegen `du -sb` des Session-Ordners.
+
+### 10 fps — geprueft, nicht eingebaut
+
+`pinFrameRate` waehlt ausschliesslich aus `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES` und nimmt die
+ENGSTE Spanne, deren Obergrenze die eingestellte Bildrate ist. Findet es keine, pinnt es gar nichts
+und die Kamera laeuft frei — der Kommentar an der Stelle haelt fest, dass die Rueckkamera des
+24117RK2CG **keine gesperrte Spanne unter 15** anbietet. Welche Spannen das Geraet wirklich
+meldet, steht **nirgends im Repo**; der Code liest sie nur zur Laufzeit und loggt sie
+(`AE target fps range pinned to … (of …)`). Ohne Geraet ist das nicht zu beantworten. Neu ist, dass
+die Antwort jetzt aufgeschrieben wird: `ae_fps_range` in `capture.json` ist `null`, wenn nichts
+gepinnt wurde. **15 bleibt die Vorgabe, 10 ist nicht eingebaut.**
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
@@ -295,3 +354,14 @@ Gates: `:app:testDebugUnitTest --tests *CaptureRunTest* --tests *CapturePlanTest
 `:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege. Nicht gelaufen: `:app:detekt`,
 `:app:assembleDebug`, `CommentBudgetTest` — der Rechner fuhr Fold-Trainings, jeder Gradle-Aufruf
 lief nur bei null laufenden Trainern (24 min gewartet).
+
+**2026-09-13 — Aufnahmeprofil und der Bitraten-Umbau.** `fix(record): video_bytes zaehlt alle
+Segmente` und `feat(capture): 4K, 15 fps und eine eigene Bitrate`. Angefasst: `CameraVideo.kt`
+(Bitrate als Parameter, `agreedProfile`, `writtenBytes`), `CaptureProfile.kt` (neu),
+`TrackerCamera.kt` (`CaptureProfilePort`, `pinnedFpsRange`), `RecordingBundleHost.kt`,
+`SessionRecorder.kt` (`:tracker-runtime`, zwei Felder), das `capture`-Paket,
+`docs/capture-session.schema.json` (`recording`). Gates: `:app:testDebugUnitTest` ueber
+`CaptureRunTest` (6), `CapturePlanTest` (4), `SessionRecorderTest` (7) und
+`RecordingBundleHostTest` (5) gruen, `:app:ktlintCheck` und `:tracker-runtime:ktlintCheck` gruen,
+`comment_budget.py` ohne neue Eintraege (zwei eigene KDoc-Bloecke dafuer von 8/9 auf 6 gekuerzt).
+Jeder Gradle-Aufruf erst nach `trainers.ps1` = 0.
