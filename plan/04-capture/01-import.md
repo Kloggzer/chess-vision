@@ -95,9 +95,33 @@ und der Nutzer will kuenftig mit **15 fps** aufnehmen (Platzgruende, 2026-09-13)
 gerechnete Index um den Faktor 2 verschoben, lautlos. Also `CAP_PROP_FPS` des Containers lesen und
 bei einem unglaubwuerdigen Wert (0, NaN, > 240) **abbrechen**, nicht auf 30 ausweichen.
 
-**Paritaet, nicht Nachbau.** Die Interpolation spiegelt `RecordedFrames.videoNsAt` (Kotlin ist die
-Referenz). Sie ist klein genug, um sie in Python zu halten, aber der Test muss sie gegen
-**gemessene Kotlin-Werte** stellen, nicht nur gegen sich selbst.
+**KORRIGIERT 2026-09-13: NICHT linear interpolieren.** Eine fruehere Fassung schrieb das vor.
+`RecordedFrames.videoNsAt` (`RecordedFrames.kt:49`) verwirft es ausdruecklich und nimmt den
+**naechstgelegenen Anker plus die verstrichene Systemzeit, Steigung fest 1**. Begruendung im
+Docstring, gemessen: beide Uhren laufen gleich schnell (85 ms Drift auf 25,3 s ueber 379
+Sync-Zeilen), eine aus zwei BENACHBARTEN Ankern geschaetzte Steigung las 2,36 — reiner
+Callback-Jitter — und warf die Vorlauf-Zeilen auf −8,5 s. Der Unterschied ist gross: fuer die
+Anker `[(1000,10),(2000,500),(5000,900)]` liefert Kotlin bei 1700 den Wert **200**, lineare
+Interpolation **353**.
+
+**Paritaet, nicht Nachbau** (Kotlin ist die Referenz). Der Test stellt die Semantik gegen
+`RecordedFrames.kt:49` und deckt alle vier Zweige ab: vor dem ersten Anker, naeher am linken,
+naeher am rechten, hinter dem letzten.
+
+### Der fps-Weg ist eine Naeherung, keine Paritaet — und wann er kippt
+
+`PhoneCandidate.indexAt` (`PhoneCandidate.kt:181`) sucht den Frame-Index in der Liste der **echten
+dekodierten Zeitstempel**, nicht ueber `videoMs × fps`. Ueber fps zu rechnen setzt eine konstante
+Bildrate voraus. Das ist hier vertretbar, weil ein Drehschritt statisch ist und ein Frame daneben
+dieselbe Stellung zeigt — aber es driftet ueber eine lange Aufnahme.
+
+**Die Bedingung, unter der es NICHT mehr reicht, steht in der Aufnahme selbst:** `capture.json`
+traegt `recording.ae_fps_range`, und ist der Schluessel `null`, hat das Geraet keine gesperrte
+Spanne angeboten und **die Kamera lief frei** — dann ist die Bildrate nicht die eingestellte.
+Trifft das zu, muss der Index aus den echten Zeitstempeln kommen: `Recording.frames` laeuft
+ohnehin einmal ueber das Video, und ein reiner `grab`-Durchgang kostet 1,96 ms je Frame
+(`docs/export-decode.md`), also rund 21 s fuer eine 12-Minuten-Aufnahme bei 15 fps. Solange
+`ae_fps_range` gesetzt ist, bleibt der fps-Weg.
 
 Fehlt `timeline.jsonl`, fehlen die `video_sync`-Zeilen oder fehlt einem Schritt `elapsed_ns`:
 **Abbruch**. Ein stiller Fehler waere teuer — die Bretter bekaemen Namen von Frames, die sie nicht
