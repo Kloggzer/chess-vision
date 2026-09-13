@@ -175,7 +175,7 @@ private fun EngineState.onMatchOk(
     if (stuckReason != null && anchor != null) {
         // `fromCommit = true`: the CNN tolerates partial occlusion (`minConfidentRecovery`), so
         // this frame is not verifiably clean enough to rebuild the colour gamut (invariant 6).
-        setRef(anchor.cur, anchor.curBgr, fromCommit = true)
+        setRefComposite(anchor.cur, anchor.curBgr, visibleSquares(snap), fromCommit = true)
         // Ein gegen die alte Referenz gestarteter Timer autorisiert sonst sofort einen Patch
         // gegen die neue — `finishCommit` und der stille Neu-Anker raeumen ihn aus demselben Grund.
         anomalySince = 0L
@@ -264,7 +264,7 @@ private fun EngineState.commitRecovery(
         refFen = null
         grayBuf.clear()
     } else {
-        setRef(anchor.cur, anchor.curBgr, fromCommit = true)
+        setRefComposite(anchor.cur, anchor.curBgr, visibleSquares(snap), fromCommit = true)
     }
     // Recovery means we WERE behind: a reply played during the recovery window is already visible
     // against this (old) reference, so grant exactly one motion window — otherwise the recency

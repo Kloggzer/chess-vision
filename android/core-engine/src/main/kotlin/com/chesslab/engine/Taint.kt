@@ -194,20 +194,27 @@ internal fun EngineState.liveExpiry(expiry: DoubleArray): Long {
 
 /** Per square, not hand-shaped: a single covered square hides that square's evidence just as well. */
 internal fun EngineState.recordSight(snap: CnnSnapshot) {
-    var covered = snap.gridOccluded
     var confident = 0L
     var occupied = 0L
     val thr = config.cnnConfThr
     for (i in 0 until Squares.COUNT) {
         val square = Squares.ALL[i]
-        if (snap.obs.pOccluded(square) > config.sightCoverageMax) covered = covered.with(i)
         if (snap.obs.confident(square, thr)) {
             confident = confident.with(i)
             if (snap.obs.occupied(square)) occupied = occupied.with(i)
         }
     }
-    sights.addLast(SquareSight(snap.seq, covered.inv(), confident, occupied))
+    sights.addLast(SquareSight(snap.seq, visibleSquares(snap), confident, occupied))
     while (sights.size > SIGHT_DEPTH) sights.removeFirst()
+}
+
+/** Squares neither hand arm flags in this observation — the only ones a reference may take from it. */
+internal fun EngineState.visibleSquares(snap: CnnSnapshot): Long {
+    var covered = snap.gridOccluded
+    for (i in 0 until Squares.COUNT) {
+        if (snap.obs.pOccluded(Squares.ALL[i]) > config.sightCoverageMax) covered = covered.with(i)
+    }
+    return covered.inv()
 }
 
 /**

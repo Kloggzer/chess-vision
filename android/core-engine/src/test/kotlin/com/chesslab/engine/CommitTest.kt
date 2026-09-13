@@ -48,6 +48,33 @@ class CommitTest {
         assertEquals(0.0, settled.refProvisionalUntil)
     }
 
+    /** The composite takes the new frame only on visible squares; covered ones keep the old reference. */
+    @Test
+    fun aCompositeReferenceKeepsCoveredSquaresFromTheOldOne() {
+        val state = detectState(ref = grayFrame(listOf("e2")))
+        val fresh = grayFrame(listOf("e4"))
+        val e4 = Squares.index("e4")
+        state.setRefComposite(fresh, null, visible = -1L and (1L shl e4).inv(), fromCommit = true)
+        val ref = state.refGray!!
+        val boxes = state.detBoxes
+
+        fun centre(i: Int) = ref.data[(boxes.y0[i] + boxes.y1[i]) / 2 * ref.width + (boxes.x0[i] + boxes.x1[i]) / 2].toInt() and 0xFF
+        assertEquals(TEST_BASE_LEVEL, centre(e4), "e4 was covered: the old (empty) reference stays")
+        assertEquals(TEST_BASE_LEVEL, centre(Squares.index("e2")), "e2 was visible: the fresh (empty) pixels arrive")
+        val allNew = detectState(ref = grayFrame(listOf("e2")))
+        allNew.setRefComposite(fresh, null, visible = -1L, fromCommit = true)
+        assertEquals(
+            TEST_BLOB_LEVEL,
+            (
+                allNew.refGray!!.data[
+                    (boxes.y0[e4] + boxes.y1[e4]) / 2 * ref.width +
+                        (boxes.x0[e4] + boxes.x1[e4]) / 2,
+                ].toInt() and
+                    0xFF
+            ),
+        )
+    }
+
     @Test
     fun commitSequenceAppliesBothMovesAtomically() {
         val state = detectState()

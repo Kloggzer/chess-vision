@@ -238,3 +238,45 @@ internal fun EngineState.flushSessionCapture(): PendingCapture? {
     pendingCapture = null
     return due
 }
+
+/**
+ * The reference as a composite: [cur]'s pixels only on [visible] squares, the standing reference
+ * everywhere else. A reference pulled forward or anchored under a hand used to take the hand's
+ * pixels and then differed on 24 squares for the rest of the game (11-59-12, 154327 —
+ * 2026-09-13). Without a standing reference of the same size the frame is taken whole.
+ */
+internal fun EngineState.setRefComposite(
+    cur: GrayImage,
+    curBgr: BgrImage?,
+    visible: Long,
+    fromCommit: Boolean,
+) {
+    val ref = refGray
+    val refColor = refBgr
+    if (visible == -1L || ref == null || ref.width != cur.width || ref.height != cur.height) {
+        setRef(cur, curBgr, fromCommit)
+        return
+    }
+    val gray = GrayImage(ref.width, ref.height, ref.data.copyOf())
+    val color =
+        if (curBgr != null && refColor != null && refColor.data.size == curBgr.data.size) {
+            BgrImage(refColor.width, refColor.height, refColor.data.copyOf())
+        } else {
+            null
+        }
+    val boxes = detBoxes
+    visible.forEachSquare { i ->
+        val x0 = boxes.x0[i].coerceIn(0, ref.width)
+        val x1 = boxes.x1[i].coerceIn(0, ref.width)
+        val y0 = boxes.y0[i].coerceIn(0, ref.height)
+        val y1 = boxes.y1[i].coerceIn(0, ref.height)
+        for (y in y0 until y1) {
+            val row = y * ref.width
+            System.arraycopy(cur.data, row + x0, gray.data, row + x0, x1 - x0)
+            if (color != null && curBgr != null) {
+                System.arraycopy(curBgr.data, (row + x0) * BGR_CHANNELS, color.data, (row + x0) * BGR_CHANNELS, (x1 - x0) * BGR_CHANNELS)
+            }
+        }
+    }
+    setRef(gray, color ?: curBgr, fromCommit)
+}
