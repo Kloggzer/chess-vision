@@ -7,23 +7,78 @@ bei einer gezielten Erfassung steht es im Buendel-Log (`plan/04-capture/01-impor
 from __future__ import annotations
 
 import json
+import math
+from bisect import bisect_left
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
 from typing import Any
+
+import cv2
 
 from . import realgames
 from .recording import Recording
 
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
 CARRIED = ("ply", "fen", "corners", "ts")
+NS_PER_S = 1_000_000_000
+#: Darueber ist der Container-Wert kaputt, nicht schnell — und `1e9 * fps` rundet auf der
+#: Frame-Grenze mal nach oben, mal nach unten, deshalb die Toleranz vor dem Aufrunden.
+MAX_FPS, INDEX_EPS = 240.0, 1e-6
 
 
-def capture_steps(bundle: Path) -> dict[int, int]:
-    """`{ply: video_frame}` aus `capture.json` — der Video-Index wird GELESEN, nie hergeleitet.
+def container_fps(video: Path) -> float:
+    """`CAP_PROP_FPS` des Containers — GELESEN, nie angenommen.
 
-    Ohne die Datei ist nicht belegt, dass das Buendel eine Erfassung ist. Ohne `video_frame` truege
-    ein Brett den Namen eines Frames, den es nicht zeigt, und alles danach saehe korrekt aus.
+    `realgames.video_fps` faellt ohne Kandidaten auf 30,0 zurueck; die vorhandenen Aufnahmen laufen
+    mit 28,63 und die Erfassung mit 15. Ein geratener Wert verschiebt jeden Index lautlos.
+    """
+    cap = cv2.VideoCapture(str(video))
+    try:
+        fps = float(cap.get(cv2.CAP_PROP_FPS))
+    finally:
+        cap.release()
+    if not math.isfinite(fps) or not 0.0 < fps <= MAX_FPS:
+        raise ValueError(f"{video}: unglaubwuerdige Bildrate {fps!r} — Abbruch statt 30,0 zu raten")
+    return fps
+
+
+def video_syncs(bundle: Path) -> list[tuple[int, int]]:
+    """`(elapsedNs, durationNs)` je `video_sync`-Zeile — die Bruecke Geraeteuhr -> Videozeit."""
+    path = bundle / "timeline.jsonl"
+    if not path.is_file():
+        raise FileNotFoundError(f"{path} fehlt — ohne sie ist `elapsed_ns` keine Videozeit")
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        row = json.loads(line) if line.strip() else {}
+        if row.get("kind") == "video_sync" and row.get("durationNs") is not None:
+            out.append((int(row["elapsedNs"]), int(row["durationNs"])))
+    if not out:
+        raise ValueError(f"{path}: keine `video_sync`-Zeile — die Geraeteuhr hat keinen Anker")
+    return sorted(out)
+
+
+def video_ns_at(elapsed_ns: int, syncs: list[tuple[int, int]]) -> float:
+    """Naechster Anker plus verstrichene Systemzeit, Steigung 1 — `RecordedFrames.videoNsAt`.
+
+    NICHT zwischen den Ankern interpoliert: aus zwei benachbarten geschaetzt las die Steigung 2,36
+    statt 1,0 (reiner Callback-Jitter) und der Vorlauf landete bei -8,5 s. Kotlin ist die Referenz.
+    """
+    after = bisect_left([s[0] for s in syncs], elapsed_ns)
+    if after >= len(syncs):
+        anchor = syncs[-1]
+    elif after == 0:
+        anchor = syncs[0]
+    else:
+        anchor = min(syncs[after - 1], syncs[after], key=lambda s: abs(s[0] - elapsed_ns))
+    return anchor[1] + float(elapsed_ns - anchor[0])
+
+
+def capture_steps(bundle: Path) -> dict[int, tuple[int, int | None]]:
+    """`{ply: (Beginn, Ende)}` der Geraeteuhr aus `capture.json`; fehlt ein Ende, gilt der naechste.
+
+    Ohne die Datei ist nicht belegt, dass das Buendel eine Erfassung ist. Ohne `elapsed_ns` gibt es
+    keinen Weg ins Video, und die Bretter truegen die Namen fremder Frames.
     """
     path = bundle / "capture.json"
     if not path.is_file():
@@ -31,29 +86,45 @@ def capture_steps(bundle: Path) -> dict[int, int]:
             f"{path} fehlt — ohne sie ist das Buendel keine Erfassung "
             f"(Form: docs/capture-session.schema.json)")
     steps = json.loads(path.read_text(encoding="utf-8")).get("steps") or []
-    out: dict[int, int] = {}
     for i, step in enumerate(steps):
-        if step.get("video_frame") is None or step.get("ply") is None:
-            raise ValueError(f"{path}: Schritt {i} traegt kein `video_frame` — Abbruch statt "
+        if step.get("elapsed_ns") is None or step.get("ply") is None:
+            raise ValueError(f"{path}: Schritt {i} traegt kein `elapsed_ns` — Abbruch statt "
                              f"Bretter unter geratenen Namen")
-        out[int(step["ply"])] = int(step["video_frame"])
-    if not out:
+    ordered = sorted(steps, key=lambda s: int(s["elapsed_ns"]))
+    if not ordered:
         raise ValueError(f"{path}: kein Schritt, also kein Frame zu holen")
+    out: dict[int, tuple[int, int | None]] = {}
+    for i, step in enumerate(ordered):
+        end = step.get("elapsed_ns_end")
+        nxt = int(ordered[i + 1]["elapsed_ns"]) if i + 1 < len(ordered) else None
+        out[int(step["ply"])] = (int(step["elapsed_ns"]), int(end) if end is not None else nxt)
     return out
 
 
-def capture_rows(bundle: Path, steps: dict[int, int]) -> list[dict]:
-    """Die Buendel-Zeilen unter ihrem VIDEO-Index, benannt wie der Export (`frames/{idx:06d}.png`)."""
+def frame_range(window: tuple[int, int | None], syncs, fps: float) -> range:
+    """Die Frames in `[Beginn, Ende)`, mindestens einer — ein Drehschritt steht still."""
+    def index_at(elapsed_ns: int) -> int:
+        return max(0, math.ceil(video_ns_at(elapsed_ns, syncs) * fps / NS_PER_S - INDEX_EPS))
+
+    start, end = window
+    lo = index_at(start)
+    hi = lo + 1 if end is None else index_at(end)
+    return range(lo, max(lo + 1, hi))
+
+
+def capture_rows(bundle: Path, steps, syncs, fps: float) -> list[dict]:
+    """Je Frame im Fenster eines Schritts eine Zeile, benannt nach dem GERECHNETEN Video-Index."""
     rows = []
     for src in realgames.stored_rows(bundle):
-        idx = steps.get(int(src["ply"]))
-        if idx is None:
+        window = steps.get(int(src["ply"]))
+        if window is None:
             raise ValueError(f"{bundle}: Ply {src['ply']} steht im Log, aber in keinem Schritt")
-        rows.append({"frame": f"frames/{idx:06d}.png",
-                     **{k: src[k] for k in CARRIED if k in src}})
+        rows += [{"frame": f"frames/{idx:06d}.png",
+                  **{k: src[k] for k in CARRIED if k in src}}
+                 for idx in frame_range(window, syncs, fps)]
     rows.sort(key=lambda r: r["frame"])
     if len({r["frame"] for r in rows}) != len(rows):
-        raise ValueError(f"{bundle}: zwei Zeilen teilen sich einen Video-Index")
+        raise ValueError(f"{bundle}: zwei Schritte teilen sich einen Video-Index")
     return rows
 
 
@@ -74,9 +145,11 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     if len(dirs) != 1:
         raise ValueError(f"{name}: genau ein Buendel erwartet, gefunden {[str(d) for d in dirs]}")
     bundle = dirs[0]
-    rows = capture_rows(bundle, capture_steps(bundle))
+    video = realgames.video_path(name)
+    fps = container_fps(video)
+    rows = capture_rows(bundle, capture_steps(bundle), video_syncs(bundle), fps)
     session_dir = realgames.game_dir(name)
-    prof, video = load_profile(profile), realgames.video_path(name)
+    prof = load_profile(profile)
     # Das ArUco-Quad des Telefons ist grob (CLAUDE.md), und ohne die `grid_lines`, die erst der Fit
     # schreibt, findet `meshes_for_boards` nichts und jedes Brett bleibt gebogen.
     fit = realgames.fit_rows_to_grid(rows, prof, frames=video_frames(video, rows))
@@ -89,4 +162,4 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     return {"session_dir": session_dir, "bundle": bundle, "rows": rows,
-            "fit": fit, **made}
+            "fps": fps, "fit": fit, **made}

@@ -502,7 +502,7 @@ def capture_import_cmd(
     fit = res["fit"]
     print(f"  Grid-Fit: {fit[FIT_SOURCE]} nachgezogen, {fit[FIT_KEPT]} schon auf dem Raster, "
           f"{fit[FIT_FAILED]} unlesbar — align_worst_px Median {fit['median']}, Mesh auf {fit['mesh']}")
-    print(f"[OK] {len(res['rows'])} Bretter -> {res['session_dir']} "
+    print(f"[OK] {len(res['rows'])} Bretter -> {res['session_dir']} bei {res['fps']:.2f} fps "
           f"({res['no_mesh']} ohne Mesh, {res['no_frame']} ohne Bild)")
 
 
