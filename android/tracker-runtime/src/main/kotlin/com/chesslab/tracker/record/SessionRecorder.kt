@@ -46,6 +46,14 @@ data class SessionVideoMeta(
      * the encoder was armed at the commit and the reach-and-think is gone.
      */
     val preRollNs: Long = 0L,
+    /**
+     * bit/s asked for, and what the encoder agreed to.
+     *
+     * Nothing wrote these down, and the recordings on disk measure 8,1 to 19,6 Mbit/s — a factor of
+     * 2,4 nobody saw. 0 means a recording from before this was written, not a recording at zero.
+     */
+    val bitRateRequested: Int = 0,
+    val bitRate: Int = 0,
 )
 
 /**
@@ -169,6 +177,8 @@ class SessionRecorder(
                     appendLine("video_duration_ns: ${it.durationNs}")
                     appendLine("video_bytes: ${it.bytes}")
                     appendLine("video_pre_roll_ns: ${it.preRollNs}")
+                    if (it.bitRateRequested > 0) appendLine("video_bit_rate_requested: ${it.bitRateRequested}")
+                    if (it.bitRate > 0) appendLine("video_bit_rate: ${it.bitRate}")
                     it.error?.let { error -> appendLine("video_error: '${error.replace("'", "''")}'") }
                 }
                 appendLine("notes: '${meta.notes.replace("'", "''")}'")

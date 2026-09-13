@@ -1,6 +1,7 @@
 package com.chesslab.tracker.capture
 
 import android.os.SystemClock
+import com.chesslab.tracker.camera.CaptureObserved
 import com.chesslab.tracker.sync.SyncPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,8 @@ data class CaptureUi(
     val shotIndex: Int = -1,
     val ply: Int = 0,
     val recording: Boolean = false,
+    /** What the camera really does under the capture profile — measured, never assumed. */
+    val observed: CaptureObserved? = null,
 )
 
 /**
@@ -59,6 +62,20 @@ object CaptureHost {
         ui.value = ui.value.copy(shotIndex = index, ply = 0, message = null)
     }
 
+    /**
+     * The setup screen's own job besides showing the order: put the capture profile on early enough
+     * that the camera has rebound and the encoder re-armed before the first turn is taken.
+     */
+    fun prepare(recorder: CaptureRecorder?) {
+        recorder?.prepare()
+        refresh(recorder)
+    }
+
+    /** Poll what the device settled on — the screen calls this while the human is still building. */
+    fun refresh(recorder: CaptureRecorder?) {
+        ui.value = ui.value.copy(observed = recorder?.observed())
+    }
+
     /** "Aufbau steht": the bundle opens here, and step 0's clock starts with it. */
     fun begin(
         index: Int,
@@ -70,7 +87,14 @@ object CaptureHost {
         active = started
         stepStartedNs = clock()
         val refusal = if (started == null) NOT_RECORDING else null
-        ui.value = ui.value.copy(shotIndex = index, ply = 0, recording = started != null, message = refusal)
+        ui.value =
+            ui.value.copy(
+                shotIndex = index,
+                ply = 0,
+                recording = started != null,
+                message = refusal,
+                observed = recorder?.observed(),
+            )
         return started != null
     }
 
@@ -98,10 +122,12 @@ object CaptureHost {
         return true
     }
 
-    fun finish() {
+    /** The run closes FIRST — `capture.json` states the capture profile, not the restored one. */
+    fun finish(recorder: CaptureRecorder?) {
         active?.finish()
         active = null
-        ui.value = ui.value.copy(shotIndex = -1, ply = 0, recording = false)
+        recorder?.release()
+        ui.value = ui.value.copy(shotIndex = -1, ply = 0, recording = false, observed = null)
     }
 }
 

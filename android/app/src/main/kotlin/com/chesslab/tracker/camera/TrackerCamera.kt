@@ -52,7 +52,8 @@ class TrackerCamera(
     private val policy: ReconnectPolicy = ReconnectPolicy(),
     private val onVideoAvailability: (DeliveredSize?, String?) -> Unit = { _, _ -> },
 ) : AutoCloseable,
-    VideoRecorderPort {
+    VideoRecorderPort,
+    CaptureProfilePort {
     private val analyzerExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "chesslab-analyzer") }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mismatch = ResolutionMismatchLogger { Log.w(TAG, it) }
@@ -96,6 +97,18 @@ class TrackerCamera(
     @Volatile
     private var videoEnabled = false
 
+    /** The request a capture profile displaced, so [restoreCaptureProfile] can put it back. */
+    @Volatile
+    private var restoreTo: CameraRequest? = null
+
+    @Volatile
+    private var requestedProfile: CaptureProfile? = null
+
+    /** The AE range [pinFrameRate] actually pinned — null means the device advertised none. */
+    @Volatile
+    var pinnedFpsRange: String? = null
+        private set
+
     override val videoFailure: String? get() = video.failure
     override val videoResolution: DeliveredSize? get() = video.resolution
 
@@ -104,6 +117,10 @@ class TrackerCamera(
 
     /** The pre-roll the last recording actually carried — see `CameraVideo.preRollUs`. */
     override val videoPreRollNs: Long get() = video.preRollUs * 1000L
+
+    override val videoBitRateRequested: Int get() = video.bitRate
+
+    override val videoBitRate: Int get() = video.acceptedBitRate
 
     /**
      * Set by [stop] and cleared only by [resume].
@@ -144,6 +161,37 @@ class TrackerCamera(
         target = request
         mainHandler.post(::bindAnalysis)
     }
+
+    /**
+     * The capture profile goes on: encoder down FIRST, then the retarget.
+     *
+     * An armed encoder is configured for the size it was armed at, and `copyImage` would overrun
+     * that buffer with 4K rows. Stopping drops `RecordingBundleHost.videoStarted`; the arm comes
+     * back by itself when the first frame of the new size publishes an availability.
+     */
+    override fun applyCaptureProfile(profile: CaptureProfile) {
+        restoreTo = restoreTo ?: target
+        requestedProfile = profile
+        video.stop()
+        video.bitRate = profile.bitRate
+        retarget(CameraRequest(profile.width, profile.height, target.lensFacing, profile.fps))
+    }
+
+    /** The game path's own settings back, bit rate included. A capture may not outlive its shot. */
+    override fun restoreCaptureProfile() {
+        val previous = restoreTo ?: return
+        restoreTo = null
+        requestedProfile = null
+        video.stop()
+        video.bitRate = DEFAULT_VIDEO_BIT_RATE
+        retarget(previous)
+    }
+
+    override val captureObserved: CaptureObserved?
+        get() =
+            requestedProfile?.let {
+                CaptureObserved(it, deliveredSize, pinnedFpsRange, video.acceptedBitRate, video.profileNotes)
+            }
 
     /** Enable/disable encoding of the one analyzer stream. No camera rebind is needed. */
     fun setVideoEnabled(enabled: Boolean) {
@@ -311,11 +359,14 @@ class TrackerCamera(
         if (range == null) {
             // Loud, because the setting then reads 15 while the sensor runs at 30: the back camera
             // of a 24117RK2CG advertises no locked range below 15, and one it does not advertise
-            // is a binding failure rather than a slower camera.
+            // is a binding failure rather than a slower camera. `null` carries that all the way
+            // into `capture.json`, where a capture states what it really ran at.
+            pinnedFpsRange = null
             Log.w(TAG, "no ${target.targetFps} fps AE range advertised (${available?.joinToString()}) — leaving auto-exposure alone")
             return
         }
         extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
+        pinnedFpsRange = range.toString()
         Log.i(TAG, "AE target fps range pinned to $range (of ${available.joinToString()})")
     }
 

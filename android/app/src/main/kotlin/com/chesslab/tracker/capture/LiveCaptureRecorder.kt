@@ -1,6 +1,8 @@
 package com.chesslab.tracker.capture
 
 import android.os.SystemClock
+import com.chesslab.tracker.camera.CaptureObserved
+import com.chesslab.tracker.camera.CaptureProfilePort
 import com.chesslab.tracker.record.CaptureSource
 import com.chesslab.tracker.record.RecordingBundleHost
 import com.chesslab.tracker.record.RecordingPrefs
@@ -17,18 +19,29 @@ import java.util.Locale
  * `RecordingBundleHost` arms the encoder and names the video file. `moveSan` is null because a
  * turn is not a move — see `02-erfassungs-modus.md`.
  */
+@Suppress("LongParameterList")
 class LiveCaptureRecorder(
     private val source: CaptureSource,
     private val sessions: SessionStore,
     private val profileName: () -> String,
     private val host: RecordingBundleHost,
+    private val camera: CaptureProfilePort,
     private val prefs: () -> RecordingPrefs,
     private val newId: () -> String = { SimpleDateFormat(ID_FORMAT, Locale.US).format(Date()) },
     private val clock: () -> Long = SystemClock::elapsedRealtimeNanos,
 ) : CaptureRecorder {
+    override fun prepare() = camera.applyCaptureProfile(CAPTURE_VIDEO_PROFILE)
+
+    override fun release() = camera.restoreCaptureProfile()
+
+    override fun observed(): CaptureObserved? = camera.captureObserved
+
     /** No video, no capture: the turning pan IS the material, and stills alone would not carry it. */
     override fun begin(shot: Shot): CaptureRun? {
         if (!prefs().enabled) return null
+        // Idempotent, and the arm the profile's own rebind already earned: [prepare] took the
+        // encoder down, and the first frame at the new size brought it back through
+        // `videoAvailability`. This one only covers a run that skipped the setup screen.
         host.armVideo()
         val frame = source.sessionFrame() ?: return null
         val id = newId()
@@ -38,7 +51,7 @@ class LiveCaptureRecorder(
                 SessionMeta(id, profileName(), frame.width, frame.height, notes = shot.id, mode = CAPTURE_MODE),
             )
         host.opened(recorder)
-        return BundleCaptureRun(shot, recorder, source, clock) { host.finished() }
+        return BundleCaptureRun(shot, recorder, source, clock, ::observed) { host.finished() }
     }
 }
 
@@ -51,6 +64,8 @@ class BundleCaptureRun(
     private val recorder: SessionRecorder,
     private val source: CaptureSource,
     private val clock: () -> Long,
+    /** Read BEFORE the profile is put back, or the recording would state the game path's numbers. */
+    private val observed: () -> CaptureObserved? = { null },
     private val onFinished: () -> Unit = {},
 ) : CaptureRun {
     private val steps = mutableListOf<CaptureStep>()
@@ -74,7 +89,8 @@ class BundleCaptureRun(
     }
 
     override fun finish(): File? {
-        val written = if (steps.isEmpty()) null else writeCaptureSession(recorder.dir, captureSessionOf(shot, steps.toList()))
+        val session = captureSessionOf(shot, steps.toList(), captureRecordingOf(observed()))
+        val written = if (steps.isEmpty()) null else writeCaptureSession(recorder.dir, session)
         recorder.finish()
         onFinished()
         return written

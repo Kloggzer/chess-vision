@@ -510,6 +510,7 @@ class TrackerService :
                 SessionStore(File(filesDir, "sessions")),
                 captureProfile::value,
                 recording,
+                camera,
                 { recordingSettings.prefs.value },
             ),
         )

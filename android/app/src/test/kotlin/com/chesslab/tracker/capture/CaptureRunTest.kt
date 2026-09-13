@@ -1,5 +1,8 @@
 package com.chesslab.tracker.capture
 
+import com.chesslab.tracker.camera.CaptureObserved
+import com.chesslab.tracker.camera.CaptureProfile
+import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.record.CaptureFrame
 import com.chesslab.tracker.record.CaptureSource
 import com.chesslab.tracker.record.FrameWriter
@@ -70,6 +73,30 @@ class CaptureRunTest {
         assertEquals(setOf("8/8/8/8/8/8/8/8 w - - 0 1"), fens.toSet())
     }
 
+    /** The profile the device really ran goes into the bundle, fallbacks and all. */
+    @Test
+    fun theRecordingStatesWhatTheDeviceActuallyDid() {
+        val run = newRun(SHOT, observed = { FELL_BACK })
+        run.step(0, 0, SHOT.boardFen(), tick())
+        val recording = requireNotNull(finish(run).recording)
+
+        assertEquals("3840x2160", recording.requestedSize)
+        assertEquals("2560x1440", recording.deliveredSize)
+        assertEquals(15, recording.requestedFps)
+        assertNull(recording.aeFpsRange)
+        assertEquals(40_000_000, recording.requestedBitRate)
+        assertEquals(24_000_000, recording.bitRate)
+        assertEquals(listOf("bit rate clamped 40000000 -> 24000000"), recording.notes)
+    }
+
+    /** Nothing armed, nothing claimed: no `recording` key rather than a block of zeroes. */
+    @Test
+    fun anUnmeasuredRunClaimsNoProfile() {
+        val run = newRun(SHOT)
+        run.step(0, 0, SHOT.boardFen(), tick())
+        assertNull(finish(run).recording)
+    }
+
     /** A frame the writer could not produce writes no row at all — `steps` never outruns `log.jsonl`. */
     @Test
     fun aLostFrameLeavesNoStep() {
@@ -99,11 +126,22 @@ class CaptureRunTest {
     private fun newRun(
         shot: Shot,
         source: CaptureSource = FakeSource,
+        observed: () -> CaptureObserved? = { null },
     ): BundleCaptureRun {
         val recorder = SessionRecorder(dir, SessionMeta("20260913-120000", "default", 2560, 1440, shot.id, CAPTURE_MODE))
-        return BundleCaptureRun(shot, recorder, source, ::grabbed)
+        return BundleCaptureRun(shot, recorder, source, ::grabbed, observed)
     }
 }
+
+/** 4K asked for, 1440p delivered, no AE range pinned, the encoder clamped the rate. */
+private val FELL_BACK =
+    CaptureObserved(
+        requested = CaptureProfile(3840, 2160, 15, 40_000_000),
+        delivered = DeliveredSize(2560, 1440, 0),
+        aeFpsRange = null,
+        bitRate = 24_000_000,
+        notes = listOf("bit rate clamped 40000000 -> 24000000"),
+    )
 
 private const val STEP_NS = 3_000_000_000L
 private const val GRAB_NS = 1_000_000L

@@ -1,6 +1,7 @@
 package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.DebugDecision
+import com.chesslab.tracker.camera.DEFAULT_VIDEO_BIT_RATE
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.MIN_VIDEO_HEIGHT
 import com.chesslab.tracker.camera.MIN_VIDEO_WIDTH
@@ -217,6 +218,10 @@ private class FakeVideoCamera : VideoRecorderPort {
     override val videoSegments = 1
 
     override val videoPreRollNs = 0L
+
+    override val videoBitRateRequested = DEFAULT_VIDEO_BIT_RATE
+
+    override val videoBitRate = DEFAULT_VIDEO_BIT_RATE
 
     override fun startVideo(
         maxBytes: Long,

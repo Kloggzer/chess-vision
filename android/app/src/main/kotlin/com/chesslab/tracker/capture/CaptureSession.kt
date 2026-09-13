@@ -1,5 +1,6 @@
 package com.chesslab.tracker.capture
 
+import com.chesslab.tracker.camera.CaptureObserved
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -18,12 +19,29 @@ data class CaptureStep(
     @SerialName("elapsed_ns_end") val elapsedNsEnd: Long? = null,
 )
 
+/**
+ * What the device really did, beside what it was asked for. Measured: [deliveredSize] is read off
+ * the `ImageProxy`, [bitRate] is what the encoder agreed to, [aeFpsRange] is null when the camera
+ * advertised no locked range and therefore ran free.
+ */
+@Serializable
+data class CaptureRecording(
+    @SerialName("requested_size") val requestedSize: String,
+    @SerialName("delivered_size") val deliveredSize: String? = null,
+    @SerialName("requested_fps") val requestedFps: Int = 0,
+    @SerialName("ae_fps_range") val aeFpsRange: String? = null,
+    @SerialName("requested_bit_rate") val requestedBitRate: Int = 0,
+    @SerialName("bit_rate") val bitRate: Int = 0,
+    val notes: List<String> = emptyList(),
+)
+
 @Serializable
 data class CaptureSession(
     @SerialName("shot_id") val shotId: String,
     val height: String,
     @SerialName("reference_square") val referenceSquare: String? = null,
     val steps: List<CaptureStep> = emptyList(),
+    val recording: CaptureRecording? = null,
     val note: String? = null,
 )
 
@@ -35,6 +53,7 @@ const val CAPTURE_MODE = "capture"
 fun captureSessionOf(
     shot: Shot,
     steps: List<CaptureStep>,
+    recording: CaptureRecording? = null,
     note: String? = null,
 ): CaptureSession =
     CaptureSession(
@@ -42,8 +61,23 @@ fun captureSessionOf(
         height = shot.height.takeIf { it in HEIGHTS } ?: UNKNOWN_HEIGHT,
         referenceSquare = shot.referenceSquare.takeIf { SQUARE.matches(it) },
         steps = steps,
+        recording = recording,
         note = note,
     )
+
+/** The camera's own answer, transcribed. Null before anything was armed — then nothing is claimed. */
+fun captureRecordingOf(observed: CaptureObserved?): CaptureRecording? =
+    observed?.let {
+        CaptureRecording(
+            requestedSize = "${it.requested.width}x${it.requested.height}",
+            deliveredSize = it.deliveredSize,
+            requestedFps = it.requested.fps,
+            aeFpsRange = it.aeFpsRange,
+            requestedBitRate = it.requested.bitRate,
+            bitRate = it.bitRate,
+            notes = it.notes,
+        )
+    }
 
 fun writeCaptureSession(
     dir: File,

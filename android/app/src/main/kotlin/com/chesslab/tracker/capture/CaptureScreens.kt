@@ -24,6 +24,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chesslab.tracker.camera.CaptureObserved
 import com.chesslab.tracker.sync.SyncHost
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
@@ -39,6 +40,7 @@ import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
@@ -140,6 +142,13 @@ fun CaptureSetupRoute(
     val ui by CaptureHost.state.collectAsStateWithLifecycle()
     val recorder by CaptureRecorderHost.recorder.collectAsStateWithLifecycle()
     val shot = CaptureHost.shotAt(index)
+    // The profile goes on here and the device is asked again while the human builds: a rebind to
+    // 4K and the encoder's re-arm both take frames, not instants.
+    LaunchedEffect(recorder) { CaptureHost.prepare(recorder) }
+    LaunchedEffect(recorder, ui.observed) {
+        delay(PROFILE_POLL_MS)
+        CaptureHost.refresh(recorder)
+    }
 
     ChesslabScaffold("Build it", onBack) { bars ->
         if (shot == null) {
@@ -156,6 +165,7 @@ fun CaptureSetupRoute(
                 Text(shot.reason, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
             }
             Viewfinder(Modifier.fillMaxWidth().aspectRatio(VIEWFINDER_RATIO))
+            ProfileLine(ui.observed)
             ui.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
             FilledAction(
                 "It is built",
@@ -186,6 +196,33 @@ private fun Viewfinder(modifier: Modifier) {
     }
 }
 
+/**
+ * What the camera is REALLY doing, in the accent colour only when it is all as asked. A capture that
+ * quietly fell back to 1440p or to the game path's bit rate is the failure this line exists to
+ * catch, and the same words go into `capture.json`.
+ */
+@Composable
+private fun ProfileLine(observed: CaptureObserved?) {
+    if (observed == null) {
+        Text("camera profile not applied yet", style = MaterialTheme.typography.bodySmall, color = Danger)
+        return
+    }
+    Text(
+        profileText(observed),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (observed.asAsked) Accent else Danger,
+    )
+}
+
+private fun profileText(observed: CaptureObserved): String {
+    val want = observed.requested
+    val head =
+        "asked ${want.width}x${want.height} · ${want.fps} fps · ${want.bitRate / MBIT} Mbit/s — " +
+            "got ${observed.deliveredSize ?: NO_FRAME} · ${observed.aeFpsRange ?: NOT_PINNED} · " +
+            "${observed.bitRate / MBIT} Mbit/s"
+    return (listOf(head) + observed.notes).joinToString(System.lineSeparator())
+}
+
 /** One turn per tap, acknowledged BY HAND — nothing here decides that the piece has stopped moving. */
 @Composable
 fun CaptureTurnRoute(
@@ -194,11 +231,12 @@ fun CaptureTurnRoute(
     onDone: () -> Unit,
 ) {
     val ui by CaptureHost.state.collectAsStateWithLifecycle()
+    val recorder by CaptureRecorderHost.recorder.collectAsStateWithLifecycle()
     val shot = CaptureHost.shotAt(index)
     // Both ways out close the bundle: a run left open writes no `capture.json` at all, and system
     // back does not travel through [onBack].
     val leave: () -> Unit = {
-        CaptureHost.finish()
+        CaptureHost.finish(recorder)
         onBack()
     }
     BackHandler(onBack = leave)
@@ -227,6 +265,7 @@ fun CaptureTurnRoute(
                 )
             }
             Viewfinder(Modifier.fillMaxWidth().aspectRatio(VIEWFINDER_RATIO))
+            ProfileLine(ui.observed)
             ui.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
                 if (!done) {
@@ -242,7 +281,7 @@ fun CaptureTurnRoute(
                 OutlineAction(
                     if (done) "Finish" else "Stop here",
                     onClick = {
-                        CaptureHost.finish()
+                        CaptureHost.finish(recorder)
                         onDone()
                     },
                     modifier = Modifier.weight(1f),
@@ -259,6 +298,10 @@ private fun orderText(shot: Shot): String {
 }
 
 private const val VIEWFINDER_RATIO = 4f / 3f
+private const val MBIT = 1_000_000
+private const val NO_FRAME = "no frame yet"
+private const val NOT_PINNED = "fps NOT pinned"
+private const val PROFILE_POLL_MS = 1500L
 
 /** The screens render before the service is bound; an unbound camera is simply no frame. */
 private val NO_PREVIEW = MutableStateFlow<Bitmap?>(null)

@@ -16,7 +16,15 @@ const val MIN_VIDEO_WIDTH = 2560
 const val MIN_VIDEO_HEIGHT = 1440
 
 private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
-private const val VIDEO_BIT_RATE = 20_000_000
+
+/**
+ * What a GAME records at: 30 Mbit/s since 2026-09-13, up from 20.
+ *
+ * The corpus was never uniform — the recordings on disk measure 8,1 to 19,6 Mbit/s and nothing
+ * wrote the number down. 30 Mbit/s at 1440p and the 15 fps the device really runs is 0,543 bit/px;
+ * `session.yaml` now states what a run got. Capture asks its own rate via [CameraVideo.bitRate].
+ */
+const val DEFAULT_VIDEO_BIT_RATE = 30_000_000
 
 /** Only the fallback for [CameraVideo.frameRate] — the camera request sets the real one. */
 private const val VIDEO_FRAME_RATE = 30
@@ -77,6 +85,11 @@ interface VideoRecorderPort {
     val videoSegments: Int
 
     val videoPreRollNs: Long
+
+    /** bit/s asked for, and what the encoder took — `session.yaml` states both. */
+    val videoBitRateRequested: Int
+
+    val videoBitRate: Int
 
     fun startVideo(
         maxBytes: Long,
@@ -186,6 +199,20 @@ class CameraVideo : AutoCloseable {
     @Volatile
     var frameRate: Int = VIDEO_FRAME_RATE
 
+    /** What the next arm ASKS for. [acceptedBitRate] is what the encoder then agreed to. */
+    @Volatile
+    var bitRate: Int = DEFAULT_VIDEO_BIT_RATE
+
+    /** What the running encoder was configured with — 0 until an arm succeeded. */
+    @Volatile
+    var acceptedBitRate: Int = 0
+        private set
+
+    /** Every place the device refused what was asked for. Empty means it took it all. */
+    @Volatile
+    var profileNotes: List<String> = emptyList()
+        private set
+
     /** Arms the encoder. No file and no muxer exist until [keep] -- see the class KDoc. */
     @Synchronized
     fun start(
@@ -211,21 +238,61 @@ class CameraVideo : AutoCloseable {
         lastArmedLogMs = 0L
         ring = PreRollRing(PRE_ROLL_SECONDS * US_PER_SECOND, PRE_ROLL_MAX_BYTES)
         return runCatching {
+            val encoder = MediaCodec.createEncoderByType(VIDEO_MIME)
+            val agreed = agreedProfile(encoder, size)
+            acceptedBitRate = agreed
             val format =
                 MediaFormat.createVideoFormat(VIDEO_MIME, size.width, size.height).apply {
                     setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                    setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BIT_RATE)
+                    setInteger(MediaFormat.KEY_BIT_RATE, agreed)
                     setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
                     setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, VIDEO_I_FRAME_SECONDS)
                 }
             codec =
-                MediaCodec.createEncoderByType(VIDEO_MIME).apply {
+                encoder.apply {
                     configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                     start()
                 }
-            Log.i(TAG, "armed at ${size.width}x${size.height}: ${PRE_ROLL_SECONDS}s pre-roll buffering in memory, no file yet")
+            Log.i(
+                TAG,
+                "armed at ${size.width}x${size.height} @ $frameRate fps, $agreed bit/s " +
+                    "(asked $bitRate): ${PRE_ROLL_SECONDS}s pre-roll buffering in memory, no file yet",
+            )
             true
         }.onFailure { fail("QHD video start failed", it) }.getOrDefault(false)
+    }
+
+    /**
+     * What this encoder will really do with the asked-for size and rate, and it says so out loud.
+     *
+     * A rate above the codec's advertised range is not refused by `configure` — it is silently
+     * re-interpreted, and the recording then claims a quality it never had. Asking first is what
+     * turns that into a line in the log and a note in `capture.json`.
+     */
+    private fun agreedProfile(
+        encoder: MediaCodec,
+        size: DeliveredSize,
+    ): Int {
+        val notes = mutableListOf<String>()
+        val caps =
+            runCatching { encoder.codecInfo.getCapabilitiesForType(VIDEO_MIME).videoCapabilities }
+                .getOrElse {
+                    notes += "encoder advertises no video capabilities — asked $bitRate bit/s unchecked"
+                    profileNotes = notes
+                    return bitRate
+                }
+        if (!caps.isSizeSupported(size.width, size.height)) {
+            notes += "encoder does not advertise ${size.width}x${size.height} (${caps.supportedWidths} x ${caps.supportedHeights})"
+        }
+        val rates = runCatching { caps.getSupportedFrameRatesFor(size.width, size.height) }.getOrNull()
+        if (rates != null && !rates.contains(frameRate.toDouble())) {
+            notes += "encoder does not advertise $frameRate fps at ${size.width}x${size.height} (offers $rates)"
+        }
+        val agreed = bitRate.coerceIn(caps.bitrateRange.lower, caps.bitrateRange.upper)
+        if (agreed != bitRate) notes += "bit rate clamped $bitRate -> $agreed by the encoder's range ${caps.bitrateRange}"
+        profileNotes = notes
+        notes.forEach { Log.w(TAG, it) }
+        return agreed
     }
 
     /**

@@ -100,6 +100,21 @@ class SessionRecorderTest {
         assertTrue(yaml.contains("video_duration_ns: 12000000000"))
         // Nothing downstream can measure the pre-roll from the frames, so the session states it.
         assertTrue(yaml.contains("video_pre_roll_ns: 19000000000"))
+        // A recording from before the bit rate was written down states no rate at all — 0 would
+        // read as "recorded at zero" and is exactly the silence that hid a factor of 2,4.
+        assertTrue(!yaml.contains("video_bit_rate"), yaml)
         assertEquals("", File(rec.dir, "log.jsonl").readText())
+    }
+
+    /** Both numbers, because a clamped encoder is the case the archive could never show. */
+    @Test
+    fun theBitRateAskedForAndTheOneTakenBothReachTheYaml() {
+        val rec = recorder()
+        rec.updateVideo(
+            SessionVideoMeta(3840, 2160, 1L, 2L, bitRateRequested = 67_000_000, bitRate = 48_000_000),
+        )
+        val yaml = File(rec.dir, "session.yaml").readText()
+        assertTrue(yaml.contains("video_bit_rate_requested: 67000000"), yaml)
+        assertTrue(yaml.contains("video_bit_rate: 48000000"), yaml)
     }
 }

@@ -71,6 +71,46 @@
         }
       }
     },
+    "recording": {
+      "type": "object",
+      "description": "Was das Geraet beim Aufnehmen WIRKLICH getan hat. Die Erfassung faehrt ein eigenes Profil (3840x2160, 15 fps, 40 Mbit/s) waehrend der Partieweg bei 20 Mbit/s bleibt; faellt das Geraet darunter zurueck, steht es hier statt nur im Logcat.",
+      "additionalProperties": false,
+      "properties": {
+        "requested_size": {
+          "type": "string",
+          "description": "Angefragt, z. B. '3840x2160'."
+        },
+        "delivered_size": {
+          "type": "string",
+          "description": "Am ImageProxy GELESEN, nie an der Anfrage. Fehlt, wenn nie ein Bild kam."
+        },
+        "requested_fps": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ae_fps_range": {
+          "type": "string",
+          "description": "Die gepinnte CONTROL_AE_TARGET_FPS_RANGE. Fehlt sie, hat das Geraet keine gesperrte Spanne angeboten und die Kamera lief frei — dann ist die Bildrate NICHT die eingestellte."
+        },
+        "requested_bit_rate": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "bit/s, angefragt."
+        },
+        "bit_rate": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "bit/s, wie der Hardware-Encoder sie angenommen hat (MediaCodecInfo)."
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Jede Stelle, an der das Geraet weniger gab als gefragt. Leer heisst: alles wie gefragt."
+        }
+      }
+    },
     "note": {
       "type": "string",
       "description": "Freitext des Menschen."

@@ -220,6 +220,8 @@ class RecordingBundleHost(
                 progress.error,
                 camera.videoSegments,
                 camera.videoPreRollNs,
+                camera.videoBitRateRequested,
+                camera.videoBitRate,
             ),
         )
         timeline?.close()
