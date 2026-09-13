@@ -19,11 +19,16 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Schlagzuege brauchen die Ankunft, nicht die Belegung (2026-09-12):** mit `commitHoldS` unter dem
-  Hold committet 11-59-12 `Bxe4` 17 Frames vor der Label-Stellung — b7 leer, e4 war ohnehin belegt,
-  `verifyMove` sieht 2/2. Rung 2 sollte bei Schlagzuegen den Schlaeger per Identitaet auf dem
-  Zielfeld sehen (`labelConfident`), sonst Fenster. Messen: `splitobs15` gegen `base15g`, 11-59-12
-  52/21 → 73/0 waere der Beweis; `docs/commit-latency.md` §4.
+- **Split (`commitHoldS`) bleibt aus, zwei Faelle offen (2026-09-13):** 11-59-12 verliert nach
+  `Bxe4` (5032) 21 Plies, weil „board unchanged" bei 5050 die Referenz auf ein Snapshot-Bild zieht,
+  das ab 5070 auf 24 Feldern abweicht — Ursache nicht isoliert. Messen: `splitsight2` gegen
+  `drain15`; `docs/commit-latency.md` §4.
+- **Basis-Snapshot mit Temporal-Average je Feld (Nutzer, 2026-09-13):** letzter sauberer Blick je
+  Feld als Referenz-Komposit, damit die Frame-Diff unter der Hand auf sichtbaren Feldern laeuft und
+  die Referenz nie auf einem Arm-Schatten landet. Aendert die Evidenz selbst; Regressionssatz als Veto.
+- **Drei Handy-Sessions (08-24, 08-30) tragen Schema 4 in `settings.json`** und fallen aus jeder
+  `config=`-Messung; Migration im Codec oder Replay mit Vorgaben.
+
 
 - **Observer-Rundreise am Handy (0,1–0,3 s je Zug):** eine Beobachtung aus der Ruhephase vor dem
   Kandidaten annehmen statt eine nach `pend.seq` zu verlangen; nur am Gerät messbar, Veto-Risiko
@@ -91,10 +96,6 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Daten / Training / Labeling
 
-- **Fruehe Commits und die Referenz (2026-09-12):** `commitHoldS` unter `motionHoldS` committet auf
-  dem Hand-Schweif, die Referenz wird beim ersten ruhigen Frame nach dem vollen Hold nachgezogen.
-  Kommt die Hand vorher zurueck, bleibt `refProvisionalUntil` gesetzt — der Export/Labeler soll
-  diese Commits kennen, weil ihr Referenzfenster keinen handfreien Raum fand (Nutzer, 2026-09-12).
 
 - **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
   Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von
@@ -181,6 +182,13 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Phantome disqualifizieren, Verpasstes ist verhandelbar, `beyond`/`reordered` sind keine Fehler.
 
 ## Erledigt — das Ergebnis in einer Zeile
+
+- Commit-Latenz 333 → 200 ms median bei 15 fps (p90 400 → 267) ohne Score-Aenderung auf 15
+  Aufnahmen: Sofort-Beobachtung (kadenzneutral) + Same-Frame-Drain (2026-09-12/13).
+- Ankunftsregel fuer Schlagzuege und Sichtbarkeits-Serie gelten nur im Motion-Hold (`commitHoldS`);
+  bei Standardwerten kosteten sie 467 ms je Schlagzug und einen Ply — jetzt bytegleich (2026-09-13).
+- `refProvisional` laeuft vom Commit bis in den Export (`ref_provisional`), damit der Labeler die
+  Frames vor der nachgezogenen Referenz kennt (2026-09-13).
 
 - **Matt-Zug wieder da (2026-09-07):** die Segmentnaht-Uhr ließ den letzten Zug von 21-12-56 und
   20-57-45 „hinter dem Video" landen; nach dem Nahtfix neu eingelesen, 54 bzw. 55 Halbzüge.
