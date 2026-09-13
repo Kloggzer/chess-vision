@@ -75,6 +75,23 @@ class CommitTest {
         )
     }
 
+    /** Inside the commit hold a hypothesis from half-seen squares never becomes pending. */
+    @Test
+    fun anEarlyHypothesisWaitsForItsSquaresSeenSettled() {
+        val early = detectState(ref = grayFrame(listOf("e2")))
+        early.config = early.config.copy(commitHoldS = 0.05)
+        early.nowS = 10.0
+        early.refHoldUntil = 10.2
+        early.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+        assertEquals(emptyList<String>(), early.history, "no sights: nothing is dispatched, nothing committed")
+        assertNull(early.pending)
+
+        val all = -1L
+        repeat(2) { early.sights.addLast(SquareSight(it.toLong(), visible = all, confident = all, occupied = 1L shl Squares.index("e4"))) }
+        early.tryDetect(grayFrame(listOf("e4")), null, seq = 2)
+        assertEquals(listOf("e4"), early.history)
+    }
+
     @Test
     fun commitSequenceAppliesBothMovesAtomically() {
         val state = detectState()

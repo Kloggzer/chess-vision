@@ -42,6 +42,7 @@ import com.chesslab.engine.refuseIllegalMove
 import com.chesslab.engine.san
 import com.chesslab.engine.scoreViableMoves
 import com.chesslab.engine.setRef
+import com.chesslab.engine.sightSettled
 import com.chesslab.engine.sortedSquareNames
 import com.chesslab.engine.squareNames
 import com.chesslab.engine.takeBack
@@ -383,8 +384,15 @@ internal fun EngineState.tryDetect(
         // 6. Hypothesis — the ONE place that turns evidence into a candidate.
         val cand = generateHypothesis(lastZ, moves, cur, curBgr)
         if (cand != null && commitGates(cand)) {
-            anomalySince = 0L
-            events += dispatch(cand.moves, cur, curBgr, cand.priorUsed, cand.note, seq)
+            // Under the hand a hypothesis from half-seen squares must not even become pending:
+            // an early wrong `Nb6` poisoned confirmer and ambiguity until the alarm (11-59-12,
+            // 2026-09-13). Inside the commit hold the squares have to be SEEN settled first.
+            if (earlyCommit && !sightSettled(board, cand.moves)) {
+                note = "early: ${cand.moves.joinToString(" ") { board.san(it) }} not seen settled yet (${sights.size} sights)"
+            } else {
+                anomalySince = 0L
+                events += dispatch(cand.moves, cur, curBgr, cand.priorUsed, cand.note, seq)
+            }
         }
     }
     val promo = promoPending
