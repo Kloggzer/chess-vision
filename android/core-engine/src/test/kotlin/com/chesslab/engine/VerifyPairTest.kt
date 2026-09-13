@@ -34,6 +34,7 @@ class VerifyPairTest {
             pairState().also {
                 it.nowS = 10.0
                 it.refHoldUntil = 10.2
+                it.config = it.config.copy(commitHoldS = 0.05)
             }
         val moves = pairMoves(early, listOf("e2e4", "e7e5"))
         val cnn = PairRecovery(matchFen = afterFen(early, moves))
@@ -44,6 +45,7 @@ class VerifyPairTest {
             pairState().also {
                 it.nowS = 10.0
                 it.refHoldUntil = 10.2
+                it.config = it.config.copy(commitHoldS = 0.05)
             }
         val all = -1L
         val occupied = (1L shl Squares.index("e4")) or (1L shl Squares.index("e5"))

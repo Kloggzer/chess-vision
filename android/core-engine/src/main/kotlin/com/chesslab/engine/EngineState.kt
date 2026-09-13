@@ -141,6 +141,14 @@ internal class EngineState(
 
     /** > 0: the reference came from an early commit and is re-captured at this time. */
     var refProvisionalUntil: Double = 0.0
+
+    /**
+     * A commit that only `commitHoldS` makes possible: the motion hold has not run out AND the
+     * commit hold is the shorter one. At defaults this is never true, so the evidence gates in
+     * VerifySingle/VerifyPair leave the default behaviour bytewise alone (2026-09-13).
+     */
+    val earlyCommit: Boolean
+        get() = (config.commitHoldS ?: config.motionHoldS) < config.motionHoldS && nowS < refHoldUntil
     var motionSinceRef: Boolean = false
     var occlGridActive: Boolean = false
     var gridCoverage: Double = 1.0

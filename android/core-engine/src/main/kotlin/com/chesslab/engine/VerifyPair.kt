@@ -57,7 +57,7 @@ internal object VerifyPair {
         pend.lastTickS = state.nowS
         // Same rule as the single ladder: inside the motion hold no verdict until both moves'
         // squares were SEEN settled — `a5` was a pair commit under the hand (233929, 2026-09-13).
-        if (state.nowS < state.refHoldUntil && !state.sightSettled(boardSnap, moves)) {
+        if (state.earlyCommit && !state.sightSettled(boardSnap, moves)) {
             state.note = "early: waiting to see the pair settled (${state.sights.size} sights)"
             return emptyList()
         }

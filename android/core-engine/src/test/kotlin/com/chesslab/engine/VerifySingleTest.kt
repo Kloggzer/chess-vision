@@ -58,6 +58,7 @@ class VerifySingleTest {
             pendingState().also {
                 it.nowS = 10.0
                 it.refHoldUntil = 10.2
+                it.config = it.config.copy(commitHoldS = 0.05)
             }
         val e2 = Squares.index("e2")
         val e4 = Squares.index("e4")
@@ -98,6 +99,7 @@ class VerifySingleTest {
             pendingState(uci = "e4d5", fen = fen).also {
                 it.nowS = 10.0
                 it.refHoldUntil = 10.2
+                it.config = it.config.copy(commitHoldS = 0.05)
             }
         val waiting = early()
         repeat(2) { waiting.glance(cnn, stillTheVictim) }

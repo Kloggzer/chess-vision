@@ -144,7 +144,7 @@ private fun EngineState.ladder(
     val votes = config.verifyObsVotes
     // Early = the motion hold has not run out (`commitHoldS`): no verdict until the move's
     // squares have been SEEN settled, no vote either — the glance simply does not count.
-    if (nowS < refHoldUntil && !sightSettled(boardSnap, move)) {
+    if (earlyCommit && !sightSettled(boardSnap, move)) {
         note = "early: waiting to see ${board.san(move)} settled (${sights.size} sights)"
         return emptyList()
     }
@@ -157,7 +157,7 @@ private fun EngineState.ladder(
 
         // 2) Positive confirmation on the reliable axes, checked BEFORE the veto so a genuine move
         //    is not killed by a mis-read destination.
-        sig.commits(cnn.minAgreement, pend.uci, early = nowS < refHoldUntil) ->
+        sig.commits(cnn.minAgreement, pend.uci, early = earlyCommit) ->
             if (pendingVoted(OUTCOME_COMMIT, COMMIT_VOTES)) commitTerminal(pend) else emptyList()
 
         // 3) Hard veto: destination confidently EMPTY while the origin did NOT clearly empty →
