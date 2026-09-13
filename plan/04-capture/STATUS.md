@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 46 Auftraege auf der VOLLEN Karte, 46 eindeutige `id`. 18 pytest, 4 vitest gruen |
 | 01 | 01-import.md | todo | |
-| 02 | 02-erfassungs-modus.md | **blocked** | 2026-09-13; Steps 1 und 2 stehen (`fenOf(Map)`, Plan-Abruf). Steps 3 und 4 haengen an `video_frame` — siehe Blocker unten |
+| 02 | 02-erfassungs-modus.md | done | 2026-09-13; alle vier Steps. `elapsed_ns` statt Frame-Index (Blocker unten, geloest). 8 JVM-Tests gruen, ktlint gruen, `:tracker-runtime` und `CameraVideo` unberuehrt. **4K ist NICHT gemessen** — kein Geraet, siehe eigener Abschnitt |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
 
 ## Dependencies
@@ -103,7 +103,7 @@ Behoben: `docs/capture-session.schema.json` liegt jetzt und fuehrt `steps[].vide
 Pflichtfeld. 02 schreibt es, 01 liest es und bricht ohne es ab. Das Schema ist damit die
 Autoritaet, gegen die beide Phasen parallel bauen koennen.
 
-## Blocker 02 (2026-09-13): `video_frame` hat auf dem Geraet keine Quelle
+## Blocker 02 (2026-09-13, GELOEST): `video_frame` hatte auf dem Geraet keine Quelle
 
 `docs/capture-session.schema.json` und `02-erfassungs-modus.md` sagen beide, der Recorder kenne die
 Zahl im Moment der Aufnahme, „dieselbe Zahl, die `candidate.json` unter `moves[].frame` fuehrt".
@@ -120,7 +120,10 @@ und der ist ein Testfixture. Was die App ehrlich weiss, ist die **Videozeit**
 (`VideoProgress.durationNs`, je gemuxtem Sample gemeldet) — und genau die schliesst das Schema als
 Ersatz aus („`t` … nie als Ersatz fuer `video_frame`").
 
-Zwei Wege, beide brauchen eine Entscheidung ausserhalb dieser Phase:
+**Entschieden wurde Weg 2** (Nutzer, 2026-09-13): `docs/capture-session.schema.json` fuehrt jetzt
+`elapsed_ns` statt `video_frame`, der Import rechnet ueber die `video_sync`-Zeilen zur Videozeit
+und daraus zum Index — derselbe Weg wie der Partie-Import. `CameraVideo` ist unberuehrt geblieben.
+Die beiden Wege, die zur Wahl standen:
 
 1. **`CameraVideo` zaehlt seine gemuxten Samples** und gibt den Index heraus (Vorlauf-Flush in
    `goLive` + Live-Samples in `sample`). Das ist gemessen, nicht geschaetzt, und liegt in `:app`,
@@ -163,6 +166,102 @@ ein Frame Ungenauigkeit nichts und der Import nimmt gleich das ganze Fenster
 (`RecordedFrames.videoNsAt`). Phase 01 bekommt eine kleine eigene — mit **Paritaetstest gegen
 gemessene Kotlin-Werte**, nicht gegen sich selbst (`kotlin-is-the-reference-implementation`).
 
+## Was 02 beim Umsetzen von Step 3/4 gegen den Code gefunden hat (2026-09-13)
+
+| Befund | wie geloest |
+|---|---|
+| Die Plan-Route antwortet `{"shots": [], "why": <Befehl>}`, wenn kein Plan gerechnet wurde (`lib/capture-plan.ts:62`). `why` steht in `docs/capture-plan.schema.json` NICHT | Der Kotlin-Typ traegt es trotzdem. Ohne das laese die App „kein Plan gerechnet" als „alles abgedeckt" — genau die Verwechslung, gegen die die Route den Schluessel schreibt. **Schema nicht angefasst** |
+| Fuer `/api/capture/coverage` gibt es gar kein Schema; die Route reicht `data/reports/coverage-gaps.json` plus `generated_at` aus der mtime durch | `CaptureCoverage` ist an der ECHTEN Datei abgelesen (`dataset`, `thin_below`, `gaps[]`) und liest mit `ignoreUnknownKeys` alles andere weg. Der Schirm zeigt `gaps.size` und das Datum — gezaehlt hat der PC, nicht das Telefon (Do-NOT: kein Abdeckungszaehler auf dem Geraet) |
+| `GameSessionWiring.DEFAULT_PROFILE` ist **private** und liegt in `:tracker-runtime` | Die Konstante steht als `CAPTURE_DEFAULT_PROFILE` ein zweites Mal in `TrackerService.kt`, mit Zeiger auf das Original. `:tracker-runtime` bleibt unberuehrt, wie die Phasendatei verlangt |
+| `CalibrationStore.profile` ist ein kalter `Flow`, kein `StateFlow`; `wireGameSession` haelt seine Kopie modul-intern | `TrackerService` sammelt den Profilnamen ein zweites Mal ein. Ein Collector, keine zweite Quelle |
+| `Shot` hat neun Pflichtschluessel, detekts `LongParameterList` steht auf 8 | `@Suppress("LongParameterList")` mit Begruendung, wie `TrackerCoordinator.kt:50` und `TrackerStack.kt:58` es vormachen. Die Liste IST das Schema |
+| `TrackerBinder` ist bewusst „flows in, values out" und gibt Kamera und Recorder nicht heraus | Der Modus bekommt einen eigenen `CaptureRecorderHost`, den der Service veroeffentlicht — dasselbe Muster wie `GameSessionHost`. Keine zweite Kamerabindung, `bindToLifecycle` steht weiter auf 1 |
+
+**Was `elapsed_ns` in dieser Umsetzung genau bedeutet.** `elapsed_ns` ist die Uhr, als die App zum
+Schritt AUFFORDERTE (bei Ply 0: als „Aufbau steht" gedrueckt wurde), `elapsed_ns_end` die Uhr beim
+Griff nach dem Bild. Die Schritte kacheln die Zeitleiste damit lueckenlos — genau die Regel, die
+das Schema selbst als Ruecklauf nennt („fehlt es, gilt der Beginn des naechsten Schritts").
+**Das Fenster enthaelt also die Drehbewegung**, nicht nur den Stillstand danach. Das ist
+beabsichtigt: die Zwischenwinkel sind der Zweck der Uebung, und eine Hand ueber einem
+unveraenderten Brett behaelt ihr FEN (CLAUDE.md, „The board is the witness, not the hand"). Wer
+spaeter nur den Stillstand will, nimmt das Ende des Fensters.
+
+**Ein verlorenes Bild schreibt keinen Schritt.** `source.grab()` gibt `null` zurueck, solange keine
+`corners` anliegen (`LiveCaptureSource.kt:34`) — ohne laufenden Tracker also immer. Dann bleibt der
+Zaehler stehen und der Schirm sagt es, statt einen Schritt zu ueberspringen: `steps` und
+`log.jsonl` haben immer dieselbe Laenge.
+
+## 4K — was statisch feststeht und was ohne Geraet nicht geht (2026-09-13)
+
+**Die Messung, die die Phasendatei verlangt, konnte ich NICHT machen: es haengt kein Geraet dran**
+(`adb devices` listet nichts), der Emulator ist gesperrt und wuerde die Frage fuer DIESES Telefon
+ohnehin nicht beantworten. Was ohne Geraet feststeht, steht hier; darunter die Befehle.
+
+**Befund 1 — `androidx.camera:camera-video` ist gar nicht im Projekt.** `gradle/libs.versions.toml`
+fuehrt `camera-core`, `camera-camera2`, `camera-lifecycle`, `camera-view`, sonst nichts
+(`app/build.gradle.kts:190-193`). `Recorder`, `Recorder.getVideoCapabilities`, `QualitySelector`
+und CameraX' `VideoCapture` sind also **nicht auf dem Klassenpfad**. Die Messung braucht zuerst
+eine neue Abhaengigkeit — das ist mehr als „messen, nicht bauen", deshalb habe ich sie nicht
+hinzugefuegt.
+
+**Befund 2 — fuer 4K braucht es `VideoCapture` womoeglich gar nicht.** `CameraVideo` kodiert den
+Analyzer-Strom, und der Analyzer kennt 2160p schon: `ResolutionMode.R2160` = 3840x2160
+(`CameraModels.kt:66,77-78`) steht als Einstellung „Camera & model" im Menue. Und die Schranke, die
+das Video ablehnt, ist ein **Boden**, keine Decke: `sourceAvailable` verlangt
+`max >= 2560 && min >= 1440` (`CameraVideo.kt:161-164`), was 3840x2160 erfuellt. Heisst: wer heute
+2160p einstellt und aufnimmt, bekommt ein 4K-Video durch den bestehenden MediaCodec-Weg — ohne
+zweite Kamerabindung, ohne neue Abhaengigkeit, ohne Umbau. Der Abschnitt „4K" der Phasendatei
+nimmt an, dafuer muesse `VideoCapture` STATT `ImageAnalysis` gebunden werden; der Code sagt, das
+ist nicht noetig. **Ungeprueft bleibt, ob das Geraet 3840x2160 auch LIEFERT** — `deliveredSize`
+wird am `ImageProxy` gelesen, nie an der Anfrage, und `ResolutionMismatchLogger` existiert genau
+dafuer.
+
+**Befund 3 — die Bitrate ist der eigentliche Haken, und sie ist fest.** `VIDEO_BIT_RATE` steht hart
+auf 20 Mbit/s (`CameraVideo.kt:19`), `KEY_FRAME_RATE` folgt der Einstellung, `KEY_BIT_RATE` nicht.
+Daraus zwei Dinge, beide reine Code-Lektuere:
+
+- Bei 15 statt 30 fps bleibt die Datei **gleich gross** (~150 MB/min, 1-GB-Kappe ≈ 6,7 min). Die
+  Ersparnis kaeme von der Bitrate. Das bestaetigt, was die Phasendatei vermutet.
+- 2160p hat **2,25x** die Pixel von 1440p, bekommt aber dieselben 20 Mbit/s. Der Gewinn, um den es
+  geht, sind +40 % Quellpixel je Zelle — ein Kompressionsverlust in derselben Groessenordnung
+  frisst ihn auf. **Ohne Bitratenanhebung ist 4K kein sicherer Gewinn**, und mit ihr steigt der
+  Platzbedarf linear. Das gehoert in die Entscheidung, nicht erst hinterher in die Messung.
+
+**Was der Nutzer selbst laufen lassen muss.** Zwei Stufen, die billige zuerst:
+
+1. *Beantwortet die eigentliche Frage, ohne Codeaenderung.* Telefon anstecken, in der App
+   Einstellungen → „Camera & model" auf **2160p**, Recording an, eine Drehung aufnehmen. Danach:
+
+   ```
+   adb logcat -d -s chesslabVideo
+   adb exec-out "run-as com.chesslab.tracker cat files/sessions/<id>/session.yaml"
+   ```
+
+   `video_size` sagt, was wirklich kodiert wurde, `video_bytes`/`video_duration_ns` die reale
+   Datenrate, und eine `video_error`-Zeile sagt, wenn der Encoder 4K abgelehnt hat. Thermisches
+   Drosseln zeigt sich als einbrechende Bildrate ueber die Laenge einer Drehung.
+   **Vorher `files/` sichern** (CLAUDE.md, „Phone: back up `files/` before touching the install").
+
+2. *Beantwortet die woertliche Frage der Phasendatei.* Dafuer muss `camera-video` dazu:
+
+   ```kotlin
+   // gradle/libs.versions.toml
+   camera-video = { group = "androidx.camera", name = "camera-video", version.ref = "camera" }
+   ```
+
+   ```kotlin
+   val caps = Recorder.getVideoCapabilities(cameraProvider.availableCameraInfos.first())
+   Log.i("chesslab4k", "qualities=" + caps.getSupportedQualities(DynamicRange.SDR))
+   Log.i("chesslab4k", "uhd=" + caps.isQualitySupported(Quality.UHD, DynamicRange.SDR))
+   ```
+
+   plus ein `bindToLifecycle(owner, selector, VideoCapture.withOutput(recorder))` OHNE
+   `ImageAnalysis`, um „bindet `VideoCapture` allein?" zu beantworten. **Das ist ein Umbau und
+   haette die `bindToLifecycle`-Zahl von 1 auf 2 gehoben — deshalb nicht gemacht.**
+
+**Bis dahin ist nichts umgestellt.** `CameraVideo`, `TrackerCamera` und die Anfrage sind unberuehrt,
+`grep -rn "bindToLifecycle" android/app/src/main/ | wc -l` steht weiter auf 1.
+
 ## Session log
 
 **2026-09-12 — Phasen 00 und 03.** `src/chesslab/capture_plan.py` (neu, traegt `BANDS`),
@@ -185,3 +284,14 @@ Typen des Plan-Schemas, `ignoreUnknownKeys`, 401 als sichtbare Kopplungs-Meldung
 Gates: `:core-engine:test --tests *ReadingFenTest*` 4 gruen, `:app:testDebugUnitTest --tests
 *CapturePlanTest*` 4 gruen, `:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege.
 Steps 3 und 4 nicht begonnen — siehe Blocker oben.
+
+**2026-09-13 — Phase 02, Steps 3 und 4.** Neu: `app/.../capture/CaptureRecorder.kt` (Naht +
+`CaptureRecorderHost`), `CaptureHost.kt` (Zustand ueber drei Back-Stack-Eintraege),
+`CaptureScreens.kt` (Plan, Aufbau, Drehen), `CaptureSession.kt` (`capture.json`),
+`LiveCaptureRecorder.kt` (`SessionRecorder` + `RecordingBundleHost` ohne Partie). Geaendert:
+`ChesslabNavHost.kt` (drei Ziele), `ui/settings/SettingsScreen.kt` (Einstieg neben Transfer),
+`service/TrackerService.kt` (veroeffentlicht den Recorder, raeumt ihn in `onDestroy` ab).
+Gates: `:app:testDebugUnitTest --tests *CaptureRunTest* --tests *CapturePlanTest*` 4+4 gruen,
+`:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege. Nicht gelaufen: `:app:detekt`,
+`:app:assembleDebug`, `CommentBudgetTest` — der Rechner fuhr Fold-Trainings, jeder Gradle-Aufruf
+lief nur bei null laufenden Trainern (24 min gewartet).
