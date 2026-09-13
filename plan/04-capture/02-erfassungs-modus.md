@@ -135,22 +135,41 @@ messen, statt sie zu hoffen.
 
 Der Erfassungsmodus nimmt mit **eigenen** Werten auf, nicht mit denen des Partiewegs:
 
-| | Partie (unveraendert) | Erfassung |
+| | Partie | Erfassung |
 |---|---|---|
-| Aufloesung | `ResolutionMode` des Nutzers | **`R2160`** (3840×2160) |
-| Bildrate | 30 | **15** |
-| Bitrate | 20 Mbit/s | **40 Mbit/s** |
+| Aufloesung | `ResolutionMode` des Nutzers (heute `R1440`) | **`R2160`** (3840×2160) |
+| Bildrate | `FPS15` (schon heute) | **15** |
+| Bitrate | 20 → **30 Mbit/s** | **67 Mbit/s** |
 
-**Der Partieweg bleibt bei 20 Mbit/s.** Eine stille Aenderung dort machte neue Aufnahmen mit dem
-Archiv unvergleichbar — dieselbe Regel wie bei `--fused-adamw`. `VIDEO_BIT_RATE` wird deshalb vom
-`const` zum Parameter mit 20 Mbit/s als Vorgabe; nur die Erfassung setzt 40.
+**Korrigiert 2026-09-13.** Eine fruehere Fassung rechnete den Partieweg mit 30 fps und kam auf
+0,181 bit/px. Gemessen laeuft er mit **15** (`settings.json`: `"frameRate":"FPS15"` in allen acht
+juengsten Aufnahmen), also **0,362 bit/px**. Die daraus abgeleiteten 40 Mbit/s fuer 4K waeren mit
+0,322 bit/px ein RUECKSCHRITT gewesen, kein Gewinn.
 
-**Warum 40 und nicht 20.** Heute sind 20 Mbit/s auf 2560×1440 bei 30 fps **0,181 bit/px**. 4K bei
-15 fps ist mit 124,4 Mpx/s fast dieselbe Datenrate wie heute (110,6), also braeuchte gleiche
-Qualitaet 22,5 Mbit/s. 40 Mbit/s geben **0,32 bit/px**, also das 1,8-Fache der heutigen Qualitaet
-je Pixel — und das ist der Punkt: der Korpus ist zweimal komprimiert (AVC, dann WebP 95), das
-Serving sieht rohe Pixel. Bei einer Aufnahme, die gezielt fehlende Ansichten liefern soll, ist
-Kompression der falsche Sparposten. Preis: **300 MB/min**, eine 10-Minuten-Drehung also 3 GB.
+| Profil | Mpx/s | bit/px | MB/min |
+|---|---:|---:|---:|
+| Partie heute (1440/15, 20) | 55,3 | 0,362 | 150 |
+| Partie **gemessen** (Median 17,7) | 55,3 | 0,320 | 133 |
+| Partie neu (1440/15, **30**) | 55,3 | 0,543 | 225 |
+| Erfassung 4K/15 bei **67** | 124,4 | 0,539 | 502 |
+
+Beide neuen Profile liegen bei ~0,54 bit/px, also dem **1,5-Fachen** von heute. Eine Turntable-
+Runde ist kurz (acht Ausrichtungen zu 30 s = 4 min = 2 GB), eine 13-Minuten-Partie kostet 2,9 GB
+statt 1,95 GB.
+
+**Der Partieweg DARF sich hier aendern** — anders als bei den Trainingsschaltern. Der Korpus ist
+schon heute nicht einheitlich: die gemessenen Bitraten der vorhandenen Aufnahmen reichen von
+**8,1 bis 19,6 Mbit/s** (Faktor 2,4), und niemand hat es bemerkt, weil nichts sie aufschreibt.
+Eine Anhebung verschiebt neues Material ans bessere Ende. **Die tatsaechliche Bitrate gehoert
+deshalb in `session.yaml`**, je Aufnahme, sonst wiederholt sich genau dieses Uebersehen.
+
+**Nebenbefund, der eine Entscheidung beruehrt:** die eingefrorene Testaufnahme
+`rg-2026-09-11-20-00-52` liegt mit **8,1 Mbit/s** am unteren Ende — sie ist staerker komprimiert
+als das Material, auf dem trainiert wurde. Das gehoert gemessen, BEVOR sie verbraucht wird.
+
+**`session.yaml` untertreibt die Groesse um den Faktor 10:** dort steht `video_bytes: 76,7 MB`,
+auf der Platte liegen 761 MB in 13 Segmenten. Der Zaehler erfasst offenbar nur ein Segment. Fuer
+die Pipeline harmlos, aber jede Platzrechnung daraus ist falsch.
 
 **10 fps ist auf diesem Geraet vermutlich nicht zu haben.** `pinFrameRate` waehlt nur aus
 ADVERTISED `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES`, und der Kommentar dort haelt fest, dass die
