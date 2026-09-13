@@ -267,7 +267,62 @@ Mechanik aus `02`, erstmals auf v7 und im Bild statt in der Tabelle.
   Frames steht, die der Export selbst aussortiert hat. Vor der Testmessung prüfen, ob der
   Testsatz dieselbe Mischung trägt.
 
-**Aber nicht der Bootstrap, den 3.2 verlangt.** Der angeheftete Split trägt `val: 1 Aufnahme`
+### 3.2 und 3.3 eingeloest, 2026-09-13 — der Bootstrap ueber AUFNAHMEGRUPPEN
+
+Vier Sitzungs-Folds (`chesslab dataset folds -k 4`), je `rot` und `p4a` auf Seed 42, alle acht
+Laeufe lueckenlos ueber 60 Epochen. Die eingefrorene Aufnahme ist aus dem Schnitt genommen.
+
+**Schwanzmittel je Fold** (jeder Fold hat ein ANDERES Val):
+
+| Fold | Val-Aufnahmen | Komposit-Anteil | `p4a` | `rot` | Diff |
+|---|---:|---:|---:|---:|---:|
+| 0 | 3 | 0 % | 0,9686 | 0,9903 | +0,0217 |
+| 1 | 13 | 77 % | 0,8547 | 0,9238 | +0,0691 |
+| 2 | 8 | 24 % | 0,9585 | 0,9891 | +0,0306 |
+| 3 | 25 | 45 % | 0,9020 | 0,9904 | +0,0884 |
+
+Mittel +0,0525, **Minimum +0,0217**. Vier Folds geben im Vorzeichentest nur p = 0,0625 — das ist
+die **Bestaetigung** der 7-Seed-Abnahme, nicht ihr Ersatz. Was es hinzufuegt, ist die Achse, die
+der Seed-Test nicht hatte: der Vorsprung ueberlebt den Wechsel der Aufnahmen.
+
+**Der Komposit-Anteil ordnet die Schwierigkeit.** Fold 1 traegt zu 77 % genau die beiden Quellen
+aus Punkt 1.4 (`VID_20260812_112853`, `2026-08-09 20-48-50`, zusammen 105 152 Zeilen), deren
+Crop-Kasten 90 px misst und auf 128 **hochgerechnet** wird. An den Pack-Pixeln nachgemessen: ein
+Rundgang ueber 64 px kostet diese Packs nur 4,4–5,4 % ihres Details, eine echte Aufnahme 10,5–12,1 %
+— sie sind bereits interpoliert. Beide Arme brechen dort ein, `rot` weniger.
+**Nebenbefund: der Aufloesungsvergleich war damit unfair GEGEN 128 px** — 128 trug 10,7 % erfundene
+Pixel, 80 px trug null (dort ist derselbe Kasten eine Verkleinerung, 0,89x), und 128 gewann
+trotzdem 6/6.
+
+**Der Bootstrap, den 3.2 verlangt** (`scripts/group_bootstrap.py`, 1 Mio. Ziehungen): die vier
+Fold-Vals zusammengelegt ergeben **3 955 Episoden aus 49 Aufnahmen in 8 Gruppen**, jede
+out-of-fold vorhergesagt. Abstand **+0,0736**, 95-%-Intervall **[+0,0521, +0,0890]**, keine von
+1 Mio. Ziehungen ≤ 0.
+
+| Gruppe | Aufn. | Episoden | `p4a` | `rot` | Diff |
+|---|---:|---:|---:|---:|---:|
+| 2026-08-08 | 2 | 434 | 0,7719 | 0,8111 | +0,0392 |
+| 2026-08-09 | 6 | 384 | 0,5833 | 0,6615 | +0,0781 |
+| 2026-08-12 | 6 | 384 | 0,5703 | 0,5885 | +0,0182 |
+| 2026-08-17 | 6 | 384 | 0,7188 | 0,8359 | +0,1172 |
+| 2026-08-23 | 6 | 384 | 0,8958 | 0,9818 | +0,0859 |
+| 2026-08-24 | 2 | 308 | 0,8961 | 0,9643 | +0,0682 |
+| 2026-08-25 | 18 | 1 152 | 0,8811 | 0,9696 | +0,0885 |
+| 2026-09-06 | 3 | 525 | 0,8800 | 0,9486 | +0,0686 |
+
+**`rot` gewinnt in 8 von 8 Gruppen.** Das ist die Aussage, die der Episoden-Bootstrap nicht machen
+konnte.
+
+**Drei Einschraenkungen, damit die Zahlen nicht mehr tragen, als sie koennen.** Das Niveau ist
+out-of-fold viel niedriger (0,8703 gegen 0,7967) als auf dem angehefteten Split — ein Fold-Modell
+hat ganze Aufnahmegruppen nie gesehen, seine Metriken sind mit denen des Hauptmodells **nicht**
+vergleichbar. Acht Gruppen sind wenige: eine traegt 12,5 % des Ziehungsgewichts. Und es ist EIN
+Seed je Fold.
+
+**Der alte Episoden-Bootstrap (unten) bleibt gueltig fuer seine Frage** — er misst die Streuung
+innerhalb einer Aufnahme, dieser hier die zwischen Aufnahmen.
+
+**Der fruehere Vorbehalt, jetzt aufgeloest:** Der angeheftete Split trägt `val: 1 Aufnahme`
 (`rg-2026-09-06-20-27-33`) — eine Ziehung über 14 Aufnahmegruppen ist darauf nicht definiert.
 Gezogen wurde über **Episoden**; das Skript sagt das in seiner Ausgabe und rechnet nie über
 Zellen. Gemessen ist damit die Streuung INNERHALB dieser Aufnahme. Die Streuung ZWISCHEN
