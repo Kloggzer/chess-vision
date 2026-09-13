@@ -284,10 +284,23 @@ class CameraVideo : AutoCloseable {
             while (SystemClock.elapsedRealtime() < deadline && !drain(active, CODEC_TIMEOUT_US)) Unit
         }.onFailure { finalError = "video finalize failed (${it.javaClass.simpleName}: ${it.message.orEmpty()})" }
         releaseEncoder()
-        val bytes = outputFile?.length()?.takeIf { it > 0L } ?: encodedBytes
+        val bytes = writtenBytes()
         // The duration of what is ON DISK -- an unkept run reports its buffered span and 0 bytes.
         val durationUs = (lastPtsUs - originUs.coerceAtLeast(0L)).coerceAtLeast(0L)
         listener(VideoProgress(durationUs * NANOS_PER_US, bytes, final = true, error = finalError))
+    }
+
+    /**
+     * EVERY segment, not just `video.mp4`.
+     *
+     * `outputFile.length()` is segment 0 alone, and it won over the accumulated total — measured on
+     * `2026-09-11-20-00-52`: `session.yaml` said 76,7 MB where 761 MB lay on disk in 13 files. Read
+     * after [releaseEncoder], so the last muxer has written its index and the lengths are final.
+     */
+    private fun writtenBytes(): Long {
+        if (outputFile == null) return encodedBytes
+        val onDisk = (0..segment).sumOf { index -> runCatching { segmentFile(index).length() }.getOrDefault(0L) }
+        return onDisk.takeIf { it > 0L } ?: encodedBytes
     }
 
     /** Returns true after the encoder's end-of-stream buffer. */
