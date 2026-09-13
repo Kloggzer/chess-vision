@@ -171,6 +171,39 @@ als das Material, auf dem trainiert wurde. Das gehoert gemessen, BEVOR sie verbr
 auf der Platte liegen 761 MB in 13 Segmenten. Der Zaehler erfasst offenbar nur ein Segment. Fuer
 die Pipeline harmlos, aber jede Platzrechnung daraus ist falsch.
 
+### Die Bitrate folgt der Aufloesung, statt zweimal dazustehen (2026-09-13)
+
+Zwei fest verdrahtete Zahlen sind eine Einladung, sie auseinanderlaufen zu lassen. Es ist EINE
+Entscheidung — wie viele Bits ein Pixel wert ist — und die gilt fuer beide Wege:
+
+```
+bitRate = round(width * height * fps * BITS_PER_PIXEL)
+BITS_PER_PIXEL = 0.54
+```
+
+| Modus | Mbit/s | MB/min |
+|---|---:|---:|
+| R1080 @ 15 | 16,8 | 126 |
+| **R1440 @ 15** (Partie) | **29,9** | 224 |
+| **R2160 @ 15** (Erfassung) | **67,2** | 504 |
+| R1440 @ 30 | 59,7 | 448 |
+| R2160 @ 30 | 134,4 | 1008 |
+
+Die beiden beschlossenen Werte fallen mit **unter 0,5 % Abweichung** aus der Formel (29,9 gegen 30,
+67,2 gegen 67). `DEFAULT_VIDEO_BIT_RATE` entfaellt damit als Konstante; `BITS_PER_PIXEL` ist die
+einzige Stellschraube, und 0,54 ist das 1,5-Fache der heute gemessenen 0,362.
+
+**Zwei Folgen, die ausgesprochen gehoeren.** Die Bildrate ist damit nicht mehr gratis: wer auf 30
+stellt, verdoppelt die Datei. Das ist richtig so — gleiche Qualitaet je Bild kostet bei doppelt so
+vielen Bildern das Doppelte —, aber es ueberrascht, wenn es nirgends steht. Und R2160 bei 30 fps
+laege bei 134 Mbit/s und 1 GB/min; ob der Encoder das annimmt, entscheidet die schon gebaute
+Klemmung, und sie ist laut.
+
+**Der Boden bleibt.** Ein unglaubwuerdig kleiner Wert (etwa aus einer winzigen gelieferten Groesse)
+darf nicht durchgereicht werden: unter 8 Mbit/s wird auf 8 geklemmt und das steht in den `notes`.
+8, weil die schwaechste vorhandene Aufnahme (`rg-2026-09-11-20-00-52`) genau dort liegt und schon
+sie als grenzwertig gilt.
+
 **10 fps ist auf diesem Geraet vermutlich nicht zu haben.** `pinFrameRate` waehlt nur aus
 ADVERTISED `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES`, und der Kommentar dort haelt fest, dass die
 Rueckkamera des 24117RK2CG **keine gesperrte Spanne unter 15** anbietet
