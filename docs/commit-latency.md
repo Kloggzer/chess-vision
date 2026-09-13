@@ -156,3 +156,40 @@ Der Warp ueberlappte Grau, Gitter und Tick, aber auf dem einkernig gefahrenen De
 kostete der Warp-Frame 23,8 statt 18,8 ms CPU-Summe — der Pool-Thread und der Analyzer-Thread
 stehen sich in OpenCV im Weg. Er bleibt hinter dem Engine-Tick (9e63622c): der Frame
 entscheidet, bevor er warpt, und niemand wartet auf niemanden.
+
+### Nacht auf den 2026-09-13: Ankunftsregel, Sichtbarkeits-Serie, was den Split noch haelt
+
+**Ankunftsregel fuer Schlagzuege (a365ce4d, cff28209, 7598785e).** Das Zielfeld eines Schlagzugs
+ist vorher und nachher belegt, die Belegung sieht die Ankunft nicht; Rung 2 verlangt den
+Schlaeger per Identitaet auf dem Zielfeld — vor JEDEM Rung-2-Pfad, weil der gehobene Schlaeger
+auch FROM leert und eine Ableitung mit ihm uebereinstimmt. Bei Standardwerten gemessen: Scores
+10/10 und 5/5 identisch, aber je Aufnahme ein Schlagzug 467 ms spaeter (Fensterende, 12 von 553
+und 17 von 371 Commits ueber `diff_after_verify`) und 20-57-45 ein Ply weniger (54/1). Deshalb
+gilt sie nur fuer Commits im Motion-Hold (`earlyCommit`), wo der Hold die Ankunft nicht mehr
+physisch deckt.
+
+**Sichtbarkeits-Serie (2d1bf7ef, 2d1bae0a, 5346ae34).** Ein Commit im Hold — nur mit
+`commitHoldS` kuerzer als `motionHoldS` — braucht `earlyCommitObs` (2) aufeinanderfolgende
+Beobachtungen, in denen jedes Zugfeld unverdeckt war (Rillen- UND Coverage-Arm je Feld, nicht
+handfoermig) und schon die Nach-Zug-Belegung zeigte; fuer Paare ueber die Felder beider Zuege.
+Das ist „die Hand darf nicht im selben Crop sein wie ein Element, das committet wird"
+(Nutzer). Bei Standardwerten greift keines der Gates: `earlyCommit` verlangt den kuerzeren
+Commit-Hold, sonst warteten Verifikationen waehrend eines NEUEN Holds im Sicht-Gate (zwei Plies
+400–600 ms spaeter, 5346ae34).
+
+| Split 133 ms + Ankunft + Sicht-Serie, gegen Drain | Regressionssatz 15 fps | Handy-Sessions |
+| --- | --- | --- |
+| Score | 8/10 identisch; 11-59-12 52/21, 154327 51/66 (Stall), 233929 +1 (Label-Ende) | **5/5 identisch** |
+| Bewegungsende → Commit, Median (p90) | 133 ms (267) | 133 ms (267) |
+| was die Serie loeste | 20-00-52: 30/87/3 → 117/0/0 (halbe Rochade Rc1); 00-39-57 ohne Umsortierung | — |
+
+**Was den Split noch haelt, ist die Referenz nach dem fruehen Commit.** 11-59-12 (nach `Bxe4`,
+5032) und 154327 (nach ply 53, 5602) laufen in denselben Zustand: `refProvisional` ist gesetzt,
+„board unchanged" zieht die Referenz auf ein Snapshot-Bild, wenig spaeter weichen 24–26 Felder ab,
+der Alarm rastet ein und nichts committet mehr. Der Commit selbst war jeweils richtig. Das ist
+genau der Fall fuer den Basis-Snapshot mit Temporal-Average je Feld (Nutzer, TODO): eine
+Referenz, die nur aus gesehenen Feldern besteht, kann nicht auf einem Arm-Schatten landen.
+233929: `a5` bei 2396 als Paar-Commit mit 0 Hand-Feldern und mehrfach gleicher CNN-Lesung — die
+Aufnahme ist dort abgeschnitten, das Label endet; eine Label-Frage, kein Engine-Fehler.
+
+**Endstand der Vorgaben:** bytegleich zum Drain-Stand — Entscheidungslogs ohne eine einzige abweichende Zeile ueber alle zehn Regressionsaufnahmen und fuenf Handy-Sessions (`final15b`, `pfinalb`, Binary 5346ae34). Median 200 ms, p90 267 ms bei 15 fps.
