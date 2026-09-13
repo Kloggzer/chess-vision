@@ -244,3 +244,12 @@ Vorschlag dagegen; er ging mit Stand E unter und ist einzeln nicht gemessen.
 identisch zum Drain-Stand. Gegen den Vorgaben-Stand vom Morgen (`final15d`, `pfinald`) kommen am
 Regressionssatz vier Plies 67–267 ms frueher und keiner spaeter; am Handy ein Ply 133 ms frueher
 und einer (21-29-35) 1,27 s spaeter, Median 0.
+
+**Nachtrag, Stand G: das Schnellspiel-Paar ist geloest.** Die Keepalive-Taints werden als eigene
+Teilmenge gefuehrt (`keepaliveTainted`), und nur fuer die Paar-Bewertung bekommt ein solches Feld
+wieder die Schwellen-Evidenz zurueck, wenn die frische Beobachtung es sicher belegt liest
+(`captureTargetsRestored`, `PairCandidate`). Kein Modell, kein Filter, keine Lernung angefasst.
+Gemessen (`splitG`, `psplitG`): **10/10 und 5/5 scoregleich**, auch 233929 jetzt identisch;
+Median 67 ms frueher auf beiden Saetzen, laengste Verzoegerung gegen Drain am Handy 0,9 s statt
+10 s; Paar-Commits 24 → 20 und 14 → 6, Recovery 76 → 50 und 48 → 28. Gegen Stand F bewegt sich
+nur 11-59-12 (ein Ply 4,3 s frueher, eins 0,5 s spaeter) und 154327 (±67 ms).

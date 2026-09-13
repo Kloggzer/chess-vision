@@ -180,6 +180,9 @@ internal class EngineState(
      */
     var tainted: Long = 0L
 
+    /** The subset of [tainted] that came from the motion keep-alive, not from a resting hand. */
+    var keepaliveTainted: Long = 0L
+
     /** Expiry timestamp per tainted square; only meaningful for squares set in [tainted]. */
     val taintExpiry = DoubleArray(Squares.COUNT)
 

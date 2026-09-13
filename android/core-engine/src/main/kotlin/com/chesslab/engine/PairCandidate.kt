@@ -17,9 +17,10 @@ internal fun EngineState.pairCandidate(
 ): Candidate? {
     val soft = config.zThr * PAIR_SOFT_FACTOR
     val banned = rejectedPair?.takeIf { rejectedPairFen == board.fen() }
+    val zp = captureTargetsRestored(z)
     val viable =
-        loglikSequenceScores(board, z, config.zThr, LL_K, maxPlies = FAST_PLIES)
-            .filter { sequenceViable(it.first, z, soft) && it.first.joinToString(" ") { m -> uciOf(m) } != banned }
+        loglikSequenceScores(board, zp, config.zThr, LL_K, maxPlies = FAST_PLIES)
+            .filter { sequenceViable(it.first, zp, soft) && it.first.joinToString(" ") { m -> uciOf(m) } != banned }
     if (viable.isEmpty()) return null
     val (seq, best) = viable[0]
     val second = if (viable.size > 1) viable[1].second else NO_SCORE
@@ -28,6 +29,26 @@ internal fun EngineState.pairCandidate(
     bestScore = best
     secondScore = rival
     return Candidate(moves = seq, priorUsed = false, vote = true)
+}
+
+/**
+ * A capture target is occupied before AND after, so the keep-alive's occupancy filter reads it as a
+ * hand and zeroes it; a detect inside the keep-alive (the commit hold, 133 ms) then loses the pair
+ * Kxd8 + Rxd3+ to the single (21-29-35, 2026-09-13). For pair scoring only, such a square keeps
+ * the threshold's worth of evidence when the fresh observation reads it confidently occupied.
+ */
+private fun EngineState.captureTargetsRestored(z: DoubleArray): DoubleArray {
+    val snap = freshSnapshot() ?: return z
+    var restored = 0L
+    keepaliveTainted.forEachSquare { i ->
+        val name = Squares.ALL[i]
+        val readOccupied = snap.obs.confident(name, config.cnnConfThr) && snap.obs.occupied(name)
+        if (board.pieceCharAt(name) != null && readOccupied) restored = restored.with(i)
+    }
+    if (restored == 0L) return z
+    val out = z.copyOf()
+    restored.forEachSquare { out[it] = max(out[it], config.zThr) }
+    return out
 }
 
 /**

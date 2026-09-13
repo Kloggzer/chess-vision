@@ -38,6 +38,7 @@ internal fun EngineState.applyTaints() {
         cnnOcclusionFilter(motionOccluded).forEachSquare { i ->
             lastZ[i] = 0.0
             tainted = tainted.with(i)
+            keepaliveTainted = keepaliveTainted.with(i)
             taintExpiry[i] = nowS + config.occluderHoldS
         }
     }
@@ -174,6 +175,7 @@ private fun EngineState.releaseLatches() {
         val backToBaseline = lastZ[i] < config.zThr
         if (nowS > exp && (motionSinceTaint || backToBaseline)) {
             tainted = tainted.without(bit(i))
+            keepaliveTainted = keepaliveTainted.without(bit(i))
         } else {
             lastZ[i] = 0.0
         }
