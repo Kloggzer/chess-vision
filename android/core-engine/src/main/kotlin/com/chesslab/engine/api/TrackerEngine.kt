@@ -48,6 +48,7 @@ import com.chesslab.engine.squareNames
 import com.chesslab.engine.takeBack
 import com.chesslab.engine.topChangedVals
 import com.chesslab.engine.trackAnomalies
+import com.chesslab.engine.uciOf
 import com.chesslab.engine.with
 
 const val STARTPOS = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -388,7 +389,7 @@ internal fun EngineState.tryDetect(
             // an early wrong `Nb6` poisoned confirmer and ambiguity until the alarm (11-59-12,
             // 2026-09-13). Inside the commit hold the squares have to be SEEN settled first.
             if (earlyCommit && !sightSettled(board, cand.moves)) {
-                note = "early: ${cand.moves.joinToString(" ") { board.san(it) }} not seen settled yet (${sights.size} sights)"
+                note = "early: ${cand.moves.joinToString(" ") { uciOf(it) }} not seen settled yet (${sights.size} sights)"
             } else {
                 anomalySince = 0L
                 events += dispatch(cand.moves, cur, curBgr, cand.priorUsed, cand.note, seq)
