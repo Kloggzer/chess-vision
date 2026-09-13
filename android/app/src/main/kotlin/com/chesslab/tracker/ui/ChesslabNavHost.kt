@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -136,38 +137,42 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                 ArchiveReviewRoute(id = entry.arguments?.getString("id").orEmpty(), onBack = nav::back)
             }
         }
-        // Targeted capture is three screens of ONE flow, so it is three destinations here and not
-        // a graph of its own — the state that crosses them is `CaptureHost`, not the back stack.
-        composable(ROUTE_CAPTURE) { entry ->
-            val nav = remember(entry) { Nav(navController, entry) }
-            Resumable(nav) {
-                CapturePlanRoute(onBack = nav::back, onOpenShot = { nav.to("$ROUTE_CAPTURE_SETUP/$it") })
-            }
-        }
-        composable("$ROUTE_CAPTURE_SETUP/{index}") { entry ->
-            val nav = remember(entry) { Nav(navController, entry) }
-            Resumable(nav) {
-                CaptureSetupRoute(
-                    index = entry.arguments?.getString("index")?.toIntOrNull() ?: 0,
-                    onBack = nav::back,
-                    onStart = { nav.replace("$ROUTE_CAPTURE_TURN/$it") },
-                )
-            }
-        }
-        composable("$ROUTE_CAPTURE_TURN/{index}") { entry ->
-            val nav = remember(entry) { Nav(navController, entry) }
-            Resumable(nav) {
-                CaptureTurnRoute(
-                    index = entry.arguments?.getString("index")?.toIntOrNull() ?: 0,
-                    onBack = nav::back,
-                    onDone = { nav.replace(ROUTE_CAPTURE) },
-                )
-            }
-        }
+        captureDestinations(navController)
         // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside
         // the board (`EvalBarSlot`), which is where an evaluation belongs.
     }
 }
+
+/**
+ * Targeted capture: three destinations of ONE flow, in THIS graph and not one of its own. What
+ * crosses them is `CaptureHost`, not the back stack — grouped here only so the graph stays readable.
+ */
+private fun NavGraphBuilder.captureDestinations(navController: NavHostController) {
+    composable(ROUTE_CAPTURE) { entry ->
+        val nav = remember(entry) { Nav(navController, entry) }
+        Resumable(nav) {
+            CapturePlanRoute(onBack = nav::back, onOpenShot = { nav.to("$ROUTE_CAPTURE_SETUP/$it") })
+        }
+    }
+    composable("$ROUTE_CAPTURE_SETUP/{index}") { entry ->
+        val nav = remember(entry) { Nav(navController, entry) }
+        Resumable(nav) {
+            CaptureSetupRoute(
+                index = entry.shotIndex(),
+                onBack = nav::back,
+                onStart = { nav.replace("$ROUTE_CAPTURE_TURN/$it") },
+            )
+        }
+    }
+    composable("$ROUTE_CAPTURE_TURN/{index}") { entry ->
+        val nav = remember(entry) { Nav(navController, entry) }
+        Resumable(nav) {
+            CaptureTurnRoute(index = entry.shotIndex(), onBack = nav::back, onDone = { nav.replace(ROUTE_CAPTURE) })
+        }
+    }
+}
+
+private fun NavBackStackEntry.shotIndex(): Int = arguments?.getString("index")?.toIntOrNull() ?: 0
 
 /**
  * One destination's navigation, dead the moment that destination stops being the current one.

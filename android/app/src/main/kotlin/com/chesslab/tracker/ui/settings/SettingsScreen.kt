@@ -437,17 +437,7 @@ private fun LazyListScope.landing(
     item(key = "analysis-row") { AnalysisRow(nav) }
     item(key = "recording-row") { RecordingRow(nav) }
     item(key = "transfer-row") { TransferRow(nav) }
-    // Not behind the developer door: it is a RECORDING task the user starts on purpose, and the
-    // plan it follows lives on the PC beside the transfers.
-    item(key = "capture-row") {
-        DisclosureRow(
-            title = "Targeted capture",
-            subtitle = "Record the shots the coverage report asks for",
-            onOpen = nav.openCapture,
-            icon = Icons.Filled.Star,
-            chevron = false,
-        )
-    }
+    item(key = "capture-row") { CaptureRow(nav) }
     item(key = "camera-heading") { SectionHeading("Camera & model") }
     // Die drei, die der Nutzer tatsaechlich anfasst (2026-08-25: *„nutze eigentlich nur fps,
     // aufloesung und modell"*). specs/51 hatte sie mit den 29 Reglern hinter dieselbe Tuer
@@ -471,6 +461,21 @@ private fun LazyListScope.landing(
             chevron = false,
         )
     }
+}
+
+/**
+ * Not behind the developer door: it is a RECORDING task the user starts on purpose, and the plan it
+ * follows lives on the PC beside the transfers.
+ */
+@Composable
+private fun CaptureRow(nav: SettingsNav) {
+    DisclosureRow(
+        title = "Targeted capture",
+        subtitle = "Record the shots the coverage report asks for",
+        onOpen = nav.openCapture,
+        icon = Icons.Filled.Star,
+        chevron = false,
+    )
 }
 
 /** Read from the host rather than passed down: [landing] is a `LazyListScope`, not a composable. */

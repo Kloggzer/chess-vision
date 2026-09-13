@@ -142,7 +142,12 @@ interface VideoRecorderPort {
  * minute-segment rotation included. A run that is never kept writes NOTHING -- board setup,
  * marker taping and calibration were nine of eleven transferred recordings (4.7 GB) on
  * 2026-08-13/14, and this is the mechanism that keeps them off the disk.
+ *
+ * `TooManyFunctions` is suppressed because the count IS the encoder's lifecycle: arm, keep, encode,
+ * drain, sample, go live, rotate, release, plus the two that ask the device what it will accept and
+ * report what it wrote.
  */
+@Suppress("TooManyFunctions")
 class CameraVideo : AutoCloseable {
     private var codec: MediaCodec? = null
     private var muxer: MediaMuxer? = null

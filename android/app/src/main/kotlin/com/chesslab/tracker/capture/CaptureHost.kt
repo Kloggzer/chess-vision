@@ -106,20 +106,20 @@ object CaptureHost {
         index: Int,
         clock: () -> Long = SystemClock::elapsedRealtimeNanos,
     ): Boolean {
-        val shot = shotAt(index) ?: return false
-        val running = active
-        if (running == null) {
-            ui.value = ui.value.copy(message = NOT_RECORDING)
-            return false
-        }
         val ply = ui.value.ply
-        if (!running.step(ply, shot.orientationDeg(ply), shot.boardFen(), stepStartedNs)) {
-            ui.value = ui.value.copy(message = FRAME_LOST)
-            return false
+        val shot = shotAt(index)
+        val running = active
+        val written =
+            shot != null &&
+                running != null &&
+                running.step(ply, shot.orientationDeg(ply), shot.boardFen(), stepStartedNs)
+        if (written) {
+            stepStartedNs = clock()
+            ui.value = ui.value.copy(ply = ply + 1, message = null)
+        } else if (shot != null) {
+            ui.value = ui.value.copy(message = if (running == null) NOT_RECORDING else FRAME_LOST)
         }
-        stepStartedNs = clock()
-        ui.value = ui.value.copy(ply = ply + 1, message = null)
-        return true
+        return written
     }
 
     /** The run closes FIRST — `capture.json` states the capture profile, not the restored one. */
