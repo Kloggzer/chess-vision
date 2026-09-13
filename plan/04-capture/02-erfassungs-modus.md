@@ -216,16 +216,19 @@ wirklich lief.
 erlaubt, das Geraet fuhr **10,0 ms** (`docs/board-exposure.md:104`). Die Belichtung ist nicht
 verhandelbar, also kostet eine langsamere Bildrate keine Schaerfe.
 
-**Zu pruefen beim Bauen:** ob der Hardware-Encoder 3840×2160 bei 40 Mbit/s annimmt (AVC-Level;
-`MediaCodecInfo.CodecCapabilities` fragen und bei Ablehnung LAUT auf den hoechsten angebotenen
-Wert zurueckfallen, nicht still), und ob das Geraet 2160p ueberhaupt an `ImageAnalysis` liefert.
+**GEBAUT 2026-09-13.** `agreedProfile` fragt vor dem `configure` die
+`MediaCodecInfo.CodecCapabilities` (Groesse, Bildrate, Bitratenbereich) und klemmt laut: Logcat,
+roter Text auf beiden Schirmen, `notes` in `capture.json`. Ob das Geraet 2160p an `ImageAnalysis`
+liefert, bleibt ungeprueft — es gibt kein Geraet; die Antwort steht danach in
+`recording.delivered_size`.
 
-**Auftrag dieser Phase: messen, nicht bauen.** Was das Geraet an Recorder-Profilen anbietet
-(`Recorder.getVideoCapabilities`, `QualitySelector`), in `STATUS.md` schreiben — Liste der
-Qualitaeten, ob UHD dabei ist, und ob `VideoCapture` allein bindet. **Keine Umstellung ohne diese
-Messung.** Drei Dinge koennen sie kippen: kein UHD-Profil, thermisches Drosseln mitten in einer
-Drehung, oder eine Bitrate, die den Speicher sprengt (heute 20 Mbit/s). Ein Befund „geht nicht"
-ist ein vollwertiges Ergebnis.
+**Erledigt.** Die urspruengliche Fassung verlangte hier eine Geraetemessung VOR jeder Umstellung.
+Sie ist entfallen, weil die Messung ohne Geraet nicht zu haben war und der Nutzer die Umstellung
+beschlossen hat. Was an ihre Stelle trat, ist besser: nichts faellt still zurueck, und was das
+Geraet wirklich getan hat, steht nach jeder Aufnahme in `recording` (`delivered_size`,
+`ae_fps_range`, `bit_rate`, `notes`). Offen bleiben zwei Dinge, die nur eine echte Aufnahme
+beantwortet: ob 2160p geliefert wird, und ob das Geraet unter 15 fps eine gesperrte AE-Spanne
+anbietet.
 
 ### Plan holen
 
