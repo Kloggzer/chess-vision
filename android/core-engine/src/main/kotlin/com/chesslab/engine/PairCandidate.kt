@@ -16,9 +16,10 @@ internal fun EngineState.pairCandidate(
     bestSingle: Double,
 ): Candidate? {
     val soft = config.zThr * PAIR_SOFT_FACTOR
+    val banned = rejectedPair?.takeIf { rejectedPairFen == board.fen() }
     val viable =
         loglikSequenceScores(board, z, config.zThr, LL_K, maxPlies = FAST_PLIES)
-            .filter { sequenceViable(it.first, z, soft) }
+            .filter { sequenceViable(it.first, z, soft) && it.first.joinToString(" ") { m -> uciOf(m) } != banned }
     if (viable.isEmpty()) return null
     val (seq, best) = viable[0]
     val second = if (viable.size > 1) viable[1].second else NO_SCORE

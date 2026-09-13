@@ -180,6 +180,10 @@ private fun EngineState.rejectPair(
     conflicts: List<String>,
 ) {
     recordRejection(key, "$VERIFY_STATE_GHOST — $noteText", foldConsecutive = false)
+    // A pair with a phantom second half was re-proposed until the alarm (c6g6 + a2a4, 00-39-57;
+    // d8f8 + g8f8, 20-27-33 — 2026-09-13): the single it shadows never got its turn.
+    rejectedPair = key
+    rejectedPairFen = board.fen()
     pending = null
     confirmer.reset()
     // NICHT `recoveryConfirmer.reset()`, wie in `VerifySingle.reject`: diese Ablehnung sagt nur,

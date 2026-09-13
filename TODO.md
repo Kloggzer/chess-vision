@@ -19,10 +19,13 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Split (`commitHoldS`) bleibt aus, zwei Faelle offen (2026-09-13):** 11-59-12 verliert nach
-  `Bxe4` (5032) 21 Plies, weil „board unchanged" bei 5050 die Referenz auf ein Snapshot-Bild zieht,
-  das ab 5070 auf 24 Feldern abweicht — Ursache nicht isoliert. Messen: `splitsight2` gegen
-  `drain15`; `docs/commit-latency.md` §4.
+- **Split (`commitHoldS` 0.067, `settleFramesOverride` 2) ist messbar, aber nicht Vorgabe
+  (2026-09-13):** Stand F haelt 9/10 + 5/5 scoregleich bei 67 ms weniger je Commit und halbiert
+  Paar- und Recovery-Commits. Offen: 21-29-35 Schnellspiel-Paar Kxd8 + Rxd3+ committet halb und
+  braucht 10 s Recovery (Keepalive-Taints auf Schlagfeldern im fruehen Detect). Vier Guards an
+  Rausch-Lernen/Taints gebaut und verworfen, jeder riss anderswo eine Aufnahme —
+  `docs/commit-latency.md` §4 (Tag 13). Naechster Hebel ohne Lernpfad: Nachbarring in der
+  Sicht-Serie EINZELN messen, und die Paar-Viabilitaet gegen Taints auf Schlagfeldern.
 - **Basis-Snapshot mit Temporal-Average je Feld (Nutzer, 2026-09-13):** letzter sauberer Blick je
   Feld als Referenz-Komposit, damit die Frame-Diff unter der Hand auf sichtbaren Feldern laeuft und
   die Referenz nie auf einem Arm-Schatten landet. Aendert die Evidenz selbst; Regressionssatz als Veto.

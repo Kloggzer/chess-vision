@@ -193,3 +193,54 @@ Referenz, die nur aus gesehenen Feldern besteht, kann nicht auf einem Arm-Schatt
 Aufnahme ist dort abgeschnitten, das Label endet; eine Label-Frage, kein Engine-Fehler.
 
 **Endstand der Vorgaben:** bytegleich zum Drain-Stand — Entscheidungslogs ohne eine einzige abweichende Zeile ueber alle zehn Regressionsaufnahmen und fuenf Handy-Sessions (`final15b`, `pfinalb`, Binary 5346ae34). Median 200 ms, p90 267 ms bei 15 fps.
+
+### 2026-09-13, Tag: Commit unter der Hand — der Stand, der haelt, und die vier, die nicht hielten
+
+**Was den Split jetzt traegt (Stand F):** Dispatch-Gate (`4b100131`, eine Hypothese wird im Hold erst
+pending, wenn ihre Felder gesehen settled sind), Referenz-Komposit (`c70c00d8`) und der
+**Rueckfall aufs Einzelzug**: ein Paar, das die Verify-Leiter verworfen hat, wird in derselben
+Stellung nie wieder vorgeschlagen (`rejectedPair`/`rejectedPairFen`, `PairCandidate`). Der Fall war
+zweimal derselbe: `c6g6 + a2a4` (00-39-57) und `d8f8 + g8f8` (20-27-33) — Paare mit einer
+Phantom-Zweithaelfte, auf Farbe abgelehnt, jeden Frame neu vorgeschlagen, bis das Fenster den Alarm
+zog; der richtige Einzelzug kam nie an die Reihe. Regel gilt auch bei Vorgaben (nicht an den
+Split gebunden), deshalb sind sie neu gemessen (`final15e`, `pfinale`, s. u.).
+
+| Stand F (Split 67 ms, 2 Ruhe-Frames, Sicht-Serie, Ankunft, Komposit, Paar-Rueckfall) | Regressionssatz 15 fps | Handy-Sessions |
+| --- | --- | --- |
+| Score gegen Drain | 9/10 identisch, 233929 8/2/1 (Label-Ende) | **5/5 identisch** |
+| Bewegungsende → Commit | 67 ms frueher im Median (547 Plies), p90 gleich | 67 ms frueher (372 Plies) |
+| Paar-Commits | 24 → 20 | 14 → 6 |
+| Recovery-Commits | 76 → 49 | 48 → 28 |
+| Stalls gegen Drain | keiner neu (11-59-12 ein Ply 7,5 s, wie reiner Split) | 21-29-35 ein Ply 10 s spaeter (offen, s. u.); 20-57-45 ein Alarm 26 s frueher geloest |
+
+**Vier Eingriffe, gebaut, gemessen, verworfen.** Alle vier sassen an Rausch-Lernen oder Taints
+im fruehen Detect-Frame, und jeder kippte anderswo eine Aufnahme — die beiden Rausch-EMAs
+reagieren auf EINE Lernung mehr oder weniger mit einer anderen Partie:
+
+| Eingriff (nur im Commit-Hold) | loeste | riss |
+| --- | --- | --- |
+| kein `learnNoise` | 20-27-33 (Rxf8+ → Phantom-Paar) | 11-59-12 60/13/1, 154327 51/66 |
+| kein `censusNoise.update` | 21-29-35 mehrdeutig → Einzelzug | 00-39-57 53/14/6 |
+| Farbwechsel als Widerspruch im Taint-Filter | 21-29-35 (Kxd8 + Rxd3+) | 11-59-12 60/13/1 |
+| keine Keepalive-Taints, Ganzbrett-Sicht + Nachbarring | Regressionssatz 10/10 | 20-57-45 18/37, 21-29-35 Stall zurueck |
+
+Bisect je Guard (`tmp/latency/run33`, `run35`) und die Staende B–E (`run36`–`run39`).
+
+**Offen: das Schnellspiel-Paar unter dem Split (21-29-35, 392,0 s).** Kxd8 und Rxd3+ in einem
+Handbesuch; der fruehe Detect bei 133 ms liegt noch in der 100-ms-Keepalive der
+Bewegungs-Verdeckung, der Belegungs-Filter taintet die Schlagfelder d8 und d3 (belegt vor UND
+nach), das Paar ist nicht mehr viabel, Kxd8 committet allein, Rxd3+ steht schon in der Referenz
+und nur die CNN-Recovery findet ihn — 10 s. Jede Korrektur am Taint-Filter kostete anderswo mehr
+(Tabelle). Score bleibt identisch.
+
+**Was der Coverage-Kopf bei Fingern neben der Figur sieht (Nutzerfrage):** auf dem Holdout
+20-41-33 (16 000 Zellen, SAM-Matte) liest der Kopf Zellen mit 5–15 % echter Verdeckung zu 59 % als
+frei (≤ 0,05), mit 15–30 % zu 24 %, ab 30 % zu 2 %. Die Sicht-Serie haengt deshalb nicht nur am
+Kopf: Rillen-Arm je Feld, zwei Beobachtungen, zwei ruhige Frames. Ueber 764 fruehe Commits auf 15
+Aufnahmen kein falscher. Der Nachbarring (Zugfelder UND ihre Nachbarn handfrei) war der
+Vorschlag dagegen; er ging mit Stand E unter und ist einzeln nicht gemessen.
+
+**Endstand der Vorgaben mit dem Paar-Rueckfall (`final15e`, `pfinale`):** Scores 10/10 und 5/5
+identisch zum Drain-Stand. Gegen den Vorgaben-Stand vom Morgen (`final15d`, `pfinald`) kommen am
+Regressionssatz vier Plies 67–267 ms frueher und keiner spaeter; am Handy ein Ply 133 ms frueher
+und einer (21-29-35) 1,27 s spaeter, Median 0.

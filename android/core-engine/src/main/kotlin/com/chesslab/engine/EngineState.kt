@@ -330,6 +330,10 @@ internal class EngineState(
     var refusedKey: String? = null
     var refusedStreak: Int = 0
 
+    /** The pair verify rejected in THIS position (`rejectedPairFen`): never re-proposed, the single gets its turn. */
+    var rejectedPair: String? = null
+    var rejectedPairFen: String? = null
+
     /** Squares persistently changed but unexplained, and since when. */
     var anomalySince: Long = 0L
 
