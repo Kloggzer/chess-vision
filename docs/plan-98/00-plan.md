@@ -400,9 +400,38 @@ Luft ist, faellt es deutlicher aus: Fold 1 traegt zu 77 % genau dieses Material 
 0,9238 der schwaechste von vier Folds, und `2026-08-12` war die einzige Aufnahmegruppe, in der
 `rot` fast nichts gewann (+0,0182 gegen +0,0885 im Schnitt).
 
-**Praktische Folge:** bei 128 px kosten diese Zeilen nichts und bringen nichts. Sie wegzulassen
-spart 10,7 % Zeilen und Bauzeit. **Bei 80 px gilt das NICHT** — dort ist derselbe Kasten eine
-Verkleinerung (0,89x), das Material also einwandfrei.
+**Praktische Folge:** bei 128 px kosten diese Zeilen nichts und bringen nichts. **Bei 80 px gilt
+das NICHT** — dort ist derselbe Kasten eine Verkleinerung (0,89x), das Material also einwandfrei.
+
+### Entscheidung 2026-09-13 (Nutzer): NICHT jetzt neu bauen, erst Ersatz
+
+Naheliegend waere, den v7-Satz sofort ohne die zwoelf Sitzungen neu zu bauen. Der Nutzer hat
+anders entschieden, und die Begruendung ist gut: **erst Ersatz schaffen, dann neu bauen — mit den
+neuen Daten in einem Zug.**
+
+Der gemessene Gewinn (+0,0014, unter der Relevanzschwelle) rechtfertigt keinen Satzwechsel fuer
+sich. Ein Satzwechsel kostet dagegen die Vergleichbarkeit mit allem, was bisher auf
+`real13-mix-v7-128` gemessen wurde — sieben Seeds der Abnahme, vier Folds, die Ablation, drei
+A1-Regime. Zweimal umzubauen waere der teuerste Weg.
+
+**Wie viel Ersatz noetig ist, gemessen:** die zwoelf Sitzungen tragen **52 576 sichtbare
+Figurenzeilen**, das sind **13,3 %** aller Figurenzeilen. Verteilt sind sie **gleichmaessig** —
+zwischen 10,8 % (`wK`) und 15,3 % (`bN`), kein Klumpenrisiko:
+
+| Klasse | im Korpus | davon unscharf | Anteil |
+|---|---:|---:|---:|
+| `bN` | 21 499 | 3 286 | 15,3 % |
+| `wN` | 24 063 | 3 286 | 13,7 % |
+| `bP` | 94 572 | 13 144 | 13,9 % |
+| `wK` | 15 241 | 1 643 | 10,8 % |
+
+Je Figurenklasse fehlen also rund **3 300 Zeilen** (Bauern 13 000). Das ist der Massstab fuer die
+Turntable-Aufnahmen: die 46 Auftraege in `data/reports/capture-plan.json` zielen ohnehin auf
+Springer und Laeufer, also auf die Klassen mit dem groessten Anteil.
+
+**Bedingung fuer den Neubau:** genug neues 4K-Material, dass der Wegfall gedeckt ist — dann ein
+neuer Satz OHNE die zwoelf Sitzungen und MIT den neuen Aufnahmen, und die Abnahme laeuft einmal
+darauf neu. Bis dahin bleibt `real13-mix-v7-128` unveraendert die Messlatte.
 
 ## Phase 2 — nur bei verbleibender Lücke: EIN Architekturarm
 
