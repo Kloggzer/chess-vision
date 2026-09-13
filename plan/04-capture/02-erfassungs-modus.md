@@ -131,6 +131,43 @@ erlaubt bis zu 1/15 s Belichtung; bei 6 Grad/s Drehung sind das rund 3 px Versch
 Brettkante, bei 18 Grad/s schon 10. Also: langsam drehen, und die Schaerfe hinterher je Frame
 messen, statt sie zu hoffen.
 
+### Das Aufnahmeprofil der Erfassung (entschieden 2026-09-13, Nutzerwunsch)
+
+Der Erfassungsmodus nimmt mit **eigenen** Werten auf, nicht mit denen des Partiewegs:
+
+| | Partie (unveraendert) | Erfassung |
+|---|---|---|
+| Aufloesung | `ResolutionMode` des Nutzers | **`R2160`** (3840×2160) |
+| Bildrate | 30 | **15** |
+| Bitrate | 20 Mbit/s | **40 Mbit/s** |
+
+**Der Partieweg bleibt bei 20 Mbit/s.** Eine stille Aenderung dort machte neue Aufnahmen mit dem
+Archiv unvergleichbar — dieselbe Regel wie bei `--fused-adamw`. `VIDEO_BIT_RATE` wird deshalb vom
+`const` zum Parameter mit 20 Mbit/s als Vorgabe; nur die Erfassung setzt 40.
+
+**Warum 40 und nicht 20.** Heute sind 20 Mbit/s auf 2560×1440 bei 30 fps **0,181 bit/px**. 4K bei
+15 fps ist mit 124,4 Mpx/s fast dieselbe Datenrate wie heute (110,6), also braeuchte gleiche
+Qualitaet 22,5 Mbit/s. 40 Mbit/s geben **0,32 bit/px**, also das 1,8-Fache der heutigen Qualitaet
+je Pixel — und das ist der Punkt: der Korpus ist zweimal komprimiert (AVC, dann WebP 95), das
+Serving sieht rohe Pixel. Bei einer Aufnahme, die gezielt fehlende Ansichten liefern soll, ist
+Kompression der falsche Sparposten. Preis: **300 MB/min**, eine 10-Minuten-Drehung also 3 GB.
+
+**10 fps ist auf diesem Geraet vermutlich nicht zu haben.** `pinFrameRate` waehlt nur aus
+ADVERTISED `CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES`, und der Kommentar dort haelt fest, dass die
+Rueckkamera des 24117RK2CG **keine gesperrte Spanne unter 15** anbietet
+(`TrackerCamera.kt:311-313`). Fehlt die Spanne, laesst der Code AE in Ruhe und warnt laut — dann
+laeuft die Kamera schneller als eingestellt. Also: 15 als Vorgabe, 10 nur wenn das Geraet es
+anbietet, und die Wahl gehoert in die Aufnahme-Metadaten, damit hinterher nachlesbar ist, was
+wirklich lief.
+
+**Bewegungsunschaerfe ist KEIN Argument gegen 15 fps** — gemessen: bei `[15,15]` waeren 66,7 ms
+erlaubt, das Geraet fuhr **10,0 ms** (`docs/board-exposure.md:104`). Die Belichtung ist nicht
+verhandelbar, also kostet eine langsamere Bildrate keine Schaerfe.
+
+**Zu pruefen beim Bauen:** ob der Hardware-Encoder 3840×2160 bei 40 Mbit/s annimmt (AVC-Level;
+`MediaCodecInfo.CodecCapabilities` fragen und bei Ablehnung LAUT auf den hoechsten angebotenen
+Wert zurueckfallen, nicht still), und ob das Geraet 2160p ueberhaupt an `ImageAnalysis` liefert.
+
 **Auftrag dieser Phase: messen, nicht bauen.** Was das Geraet an Recorder-Profilen anbietet
 (`Recorder.getVideoCapabilities`, `QualitySelector`), in `STATUS.md` schreiben — Liste der
 Qualitaeten, ob UHD dabei ist, und ob `VideoCapture` allein bindet. **Keine Umstellung ohne diese
