@@ -56,6 +56,9 @@ data class TrackerConfig(
     // observations in which the move's squares were unoccluded and already showed the post-move
     // occupancy: evidence instead of the physical hold (2026-09-13). 0 = the hold alone.
     val earlyCommitObs: Int = 2,
+    // "Seen" for the sight series: no hand at all, not `pOccludedThr` (0.15 is where the model still
+    // has a chance at the piece). Hand-free squares read 0.001–0.02, covered ones 0.87–1.0.
+    val sightCoverageMax: Double = 0.05,
     // A pending verify warps and observes the CURRENT frame on top of the observer's request/serve
     // alternation (every 2nd frame). 333 → 267 ms median at 15 fps, no score change on 12 recordings.
     val verifyObserveNow: Boolean = true,

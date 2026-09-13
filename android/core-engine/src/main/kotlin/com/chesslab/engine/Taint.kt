@@ -200,7 +200,7 @@ internal fun EngineState.recordSight(snap: CnnSnapshot) {
     val thr = config.cnnConfThr
     for (i in 0 until Squares.COUNT) {
         val square = Squares.ALL[i]
-        if (snap.obs.pOccluded(square) > config.pOccludedThr) covered = covered.with(i)
+        if (snap.obs.pOccluded(square) > config.sightCoverageMax) covered = covered.with(i)
         if (snap.obs.confident(square, thr)) {
             confident = confident.with(i)
             if (snap.obs.occupied(square)) occupied = occupied.with(i)

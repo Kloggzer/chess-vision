@@ -102,6 +102,7 @@ val KNOBS: List<Knob> =
         // knob has no Python counterpart. It takes a tracker restart, and the catalog says so.
         Knob("occluderHoldS", DOUBLE, { it.occluderHoldS }, { c, v -> c.copy(occluderHoldS = v) }),
         Knob("verifyObserveNow", BOOL, { bool(it.verifyObserveNow) }, { c, v -> c.copy(verifyObserveNow = v != 0.0) }),
+        Knob("sightCoverageMax", DOUBLE, { it.sightCoverageMax }, { c, v -> c.copy(sightCoverageMax = v) }),
         Knob("earlyCommitObs", INT, { it.earlyCommitObs.toDouble() }, { c, v -> c.copy(earlyCommitObs = v.toInt()) }),
         Knob("commitHoldS", DOUBLE, { it.commitHoldS ?: Double.NaN }, { c, v -> c.copy(commitHoldS = if (v.isNaN()) null else v) }),
         Knob("occlusionColorThr", DOUBLE, { it.occlusionColorThr }, { c, v -> c.copy(occlusionColorThr = v) }),
