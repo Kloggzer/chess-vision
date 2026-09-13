@@ -35,8 +35,12 @@ class CommitTest {
     @Test
     fun commitInsideTheMotionHoldFlagsTheReferenceProvisional() {
         val early = detectState(ref = grayFrame(listOf("e2")))
+        early.config = early.config.copy(commitHoldS = 0.05)
         early.nowS = 10.0
         early.refHoldUntil = 10.15
+        val e4 = 1L shl Squares.index("e4")
+        val touched = (1L shl Squares.index("e2")) or e4
+        repeat(2) { early.sights.addLast(SquareSight(it.toLong(), visible = -1L, confident = touched, occupied = e4)) }
         early.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
         assertEquals(listOf("e4"), early.history)
         assertEquals(10.15, early.refProvisionalUntil, 1e-9)

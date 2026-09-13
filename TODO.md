@@ -19,12 +19,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Tracker / Engine
 
-- **Split (`commitHoldS` 0.067, `settleFramesOverride` 2) ist freigabereif, aber nicht Vorgabe
-  (2026-09-13):** Stand G haelt 10/10 + 5/5 scoregleich bei 67 ms weniger je Commit, halbiert
-  Paar- und Recovery-Commits, kein Stall mehr gegen Drain. Vier Guards an Rausch-Lernen/Taints
-  gebaut und verworfen, jeder riss anderswo eine Aufnahme — `docs/commit-latency.md` §4 (Tag 13).
-  Offen: Nachbarring in der Sicht-Serie EINZELN messen (Finger neben der Figur liest der
-  Coverage-Kopf zu 24 % als frei), und die Entscheidung, den Split zur Vorgabe zu machen.
+- **Split ist Vorgabe (2026-09-13): 133 ms, 2 Frames.** Offen: Nachbarring in der Sicht-Serie
+  EINZELN messen (Finger neben der Figur liest der Coverage-Kopf zu 24 % als frei), und eine
+  Messung am Geraet — `docs/commit-latency.md` §4 (Tag 13).
 - **Basis-Snapshot mit Temporal-Average je Feld (Nutzer, 2026-09-13):** letzter sauberer Blick je
   Feld als Referenz-Komposit, damit die Frame-Diff unter der Hand auf sichtbaren Feldern laeuft und
   die Referenz nie auf einem Arm-Schatten landet. Aendert die Evidenz selbst; Regressionssatz als Veto.

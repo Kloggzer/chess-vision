@@ -253,3 +253,10 @@ Gemessen (`splitG`, `psplitG`): **10/10 und 5/5 scoregleich**, auch 233929 jetzt
 Median 67 ms frueher auf beiden Saetzen, laengste Verzoegerung gegen Drain am Handy 0,9 s statt
 10 s; Paar-Commits 24 → 20 und 14 → 6, Recovery 76 → 50 und 48 → 28. Gegen Stand F bewegt sich
 nur 11-59-12 (ein Ply 4,3 s frueher, eins 0,5 s spaeter) und 154327 (±67 ms).
+
+**Der Split ist Vorgabe (2026-09-13, Abend).** `commitHoldS` 0.067 und `SETTLE_FRAMES_CNN` 2 sind die
+ausgelieferten Werte; `final15h`/`pfinalh` (reine Vorgaben) sind bytegleich zu `splitG`/`psplitG`
+ueber alle 15 Aufnahmen. Bewegungsende → Commit bei 15 fps: 333 ms (5 Frames) am Freitag, 200 ms
+(3) heute Morgen, **133 ms (2) jetzt** — Scores auf allen 15 Aufnahmen identisch zum Ausgang.
+Die Unit-Tests, die den Motion-Hold beschreiben, pinnen `commitHoldS = null` (`testConfig`), die
+Python-Paritaet ebenso; `KnobCatalog` fuehrt die vier Split-Knoepfe als erklaerte Messwerte.

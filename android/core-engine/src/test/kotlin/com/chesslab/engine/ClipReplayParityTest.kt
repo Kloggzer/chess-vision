@@ -96,7 +96,8 @@ private fun replay(clip: ParityClip): ReplayResult {
     val meta = clip.meta
     assertTrue(meta.whitePov, "${meta.clip}: the engine assumes whitePov (EngineState has no override)")
     // Never Kotlin defaults: `occlusionColorThr` is 1.5 here and 3.0 in TRACK_DEFAULTS (D00b-3).
-    val engine = TrackerEngine(meta.effectiveConfig.toTrackerConfig(), meta.startFen ?: API_STARTPOS)
+    // Parity with the Python tracker, which had no commit hold.
+    val engine = TrackerEngine(meta.effectiveConfig.toTrackerConfig().copy(commitHoldS = null), meta.startFen ?: API_STARTPOS)
     // The emitter constructs the tracker and then calls `reset_to_start(start_fen)`
     // (`emit_parity_fixtures.py:266`), which is what puts "Reference set" on frame 0.
     engine.setFen(meta.startFen ?: API_STARTPOS)

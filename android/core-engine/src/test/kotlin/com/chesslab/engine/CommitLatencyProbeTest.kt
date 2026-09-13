@@ -16,8 +16,8 @@ class CommitLatencyProbeTest {
                 val shorter = firstDetection(periodMs, gridCovered, 0.05)
                 println("periodMs=$periodMs grid=$gridCovered defaultMs=$baseline shorterMs=$shorter")
                 assertTrue(shorter <= baseline)
-                // Three stable frames still bind even when the hold is shorter.
-                assertTrue(shorter >= 3 * periodMs)
+                // The settle frames still bind even when the hold is shorter.
+                assertTrue(shorter >= 2 * periodMs)
             }
         }
     }

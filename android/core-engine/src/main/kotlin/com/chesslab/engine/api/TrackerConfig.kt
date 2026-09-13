@@ -51,7 +51,7 @@ data class TrackerConfig(
     val occluderHoldS: Double = 0.20,
     // Detection may open before `motionHoldS`; the reference is then re-captured once the full hold
     // has passed (2026-09-12). null = the motion hold: commit and reference on the same frame.
-    val commitHoldS: Double? = null,
+    val commitHoldS: Double? = 0.067,
     // A commit INSIDE the motion hold (only with `commitHoldS`) needs this many consecutive
     // observations in which the move's squares were unoccluded and already showed the post-move
     // occupancy: evidence instead of the physical hold (2026-09-13). 0 = the hold alone.
@@ -110,7 +110,7 @@ data class TrackerConfig(
     val detSize: Int get() = if (detectScale < 1.0) (boardSize * detectScale).toInt() else boardSize
 
     private companion object {
-        const val SETTLE_FRAMES_CNN = 3
+        const val SETTLE_FRAMES_CNN = 2
         const val SETTLE_FRAMES_NO_CNN = 4
         const val AVG_FRAMES_CNN = 2
         const val AVG_FRAMES_NO_CNN = 3

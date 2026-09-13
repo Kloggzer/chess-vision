@@ -60,6 +60,8 @@ internal fun testConfig(
     minGridLineCoverage: Double = 0.0,
 ): TrackerConfig =
     TrackerConfig(
+        // The unit tests describe the motion hold; the shipped commit hold (0.067) is set where a test wants it.
+        commitHoldS = null,
         boardSize = boardSize,
         detectScale = 1.0,
         overhang = overhang,

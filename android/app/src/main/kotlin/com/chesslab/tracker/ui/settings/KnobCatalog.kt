@@ -58,6 +58,22 @@ val NOT_A_SETTING: Map<String, String> =
             "the MODEL's accuracy there, so each model brings its own as `coverage_gate` and the app applies " +
             "it on attach. Measured at loss ratio 2 against the SAM mattes, `comp13` carries 0.02 where the " +
             "real13 runs carry 0.15 — a slider here would overwrite a measurement with a guess.",
+        "commitHoldS" to
+            "Not a preference but the measured commit hold: 0.067 s (two quiet frames at 15 fps) against the " +
+            "0.20 s motion hold, with the sight series as the evidence that replaces the wait. Measured " +
+            "2026-09-13 over 10 + 5 recordings score-identical, 67 ms earlier per commit. null = the motion hold.",
+        "earlyCommitObs" to
+            "Not a preference but the sight series' depth: two consecutive observations in which the move's " +
+            "squares were unoccluded and already showed the post-move occupancy. One glance is what the " +
+            "verify ladder refuses everywhere else; more only costs frames.",
+        "sightCoverageMax" to
+            "Not a preference but a measurement: hand-free squares read 0.001–0.02 coverage, covered ones " +
+            "0.87–1.0, so 0.05 separates them. pOccludedThr (0.15) is where the model still has a chance " +
+            "at the piece, not where no hand is.",
+        "verifyObserveNow" to
+            "Not a preference but the observer's cadence: a fresh candidate gets its observation on the same " +
+            "frame instead of waiting for the next scheduled one. Measured 2026-09-12: 133 ms less per commit, " +
+            "15/15 recordings score-identical. Off restores the slower tracker.",
         "cnnEvalOnSettle" to
             "Not a preference but the observation schedule: read once when the board comes to rest, then stay " +
             "quiet until it moves again. Measured 2026-08-24 over the 10-recording corpus at 304/90/7 against " +
