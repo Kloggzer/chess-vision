@@ -265,3 +265,17 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   Fenster?), und was kostet es an Occlusion-Material, das gerade aus den Hand-Frames kommt. Bei
   67 Mbit/s waere der Gewinn gross: 500 MB/min laufen sonst auch durch die Wartezeit.
 
+  **Gemessen 2026-09-13 ueber 151 min Video aus 13 Aufnahmen:** der Export nutzt **3,0 %** aller
+  Frames (5 324 von 176 813), also rund 13–15 je Ply oder eine Sekunde Video je Zug. Ein Fenster
+  von ±2 s um jeden Zug behielte **18 %** — das Sechsfache dessen, was das Rezept heute anfasst,
+  also reichlich Reserve fuer ein spaeter breiteres Schneiden — und spart 82 %. ±4 s behalten 33 %.
+  Die Ersparnis ist sehr ungleich: `2026-08-24-22-43-46` sind 24 min Video fuer 17 Zuege (±2 s
+  behaelt 5 %), `2026-09-11-20-00-52` hat 117 Zuege in 12 min (behaelt 63 %). Es trifft also genau
+  die Aufnahmen, in denen das Warten den Platz frisst.
+
+  **Der Ausloeser darf nicht der Zug allein sein.** Gemessen 2026-08-16 trugen **424 von 2 228
+  Frames** eine Hand OHNE Zug — jemand rueckt eine Figur oder greift ueber das Brett. Genau daraus
+  entstehen die Verdeckungslabels. Der Tracker rechnet ohnehin je Frame eine `motion`-Zahl (sie
+  steht in jeder `frame`-Zeile der Timeline), also: **Zug ODER Bewegung**, und nur der wirklich
+  stille Teil faellt weg.
+
