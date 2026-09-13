@@ -3,6 +3,7 @@ package com.chesslab.tracker.capture
 import com.chesslab.tracker.camera.CaptureObserved
 import com.chesslab.tracker.camera.CaptureProfile
 import com.chesslab.tracker.camera.DeliveredSize
+import com.chesslab.tracker.camera.bitRateFor
 import com.chesslab.tracker.record.CaptureFrame
 import com.chesslab.tracker.record.CaptureSource
 import com.chesslab.tracker.record.FrameWriter
@@ -84,7 +85,7 @@ class CaptureRunTest {
         assertEquals("2560x1440", recording.deliveredSize)
         assertEquals(15, recording.requestedFps)
         assertNull(recording.aeFpsRange)
-        assertEquals(40_000_000, recording.requestedBitRate)
+        assertEquals(bitRateFor(3840, 2160, 15), recording.requestedBitRate)
         assertEquals(24_000_000, recording.bitRate)
         assertEquals(listOf("bit rate clamped 40000000 -> 24000000"), recording.notes)
     }
@@ -136,7 +137,7 @@ class CaptureRunTest {
 /** 4K asked for, 1440p delivered, no AE range pinned, the encoder clamped the rate. */
 private val FELL_BACK =
     CaptureObserved(
-        requested = CaptureProfile(3840, 2160, 15, 40_000_000),
+        requested = CaptureProfile(3840, 2160, 15),
         delivered = DeliveredSize(2560, 1440, 0),
         aeFpsRange = null,
         bitRate = 24_000_000,

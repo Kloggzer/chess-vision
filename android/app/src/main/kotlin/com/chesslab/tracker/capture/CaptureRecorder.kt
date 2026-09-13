@@ -59,11 +59,10 @@ object CaptureRecorderHost {
 }
 
 /**
- * 4K at 15 fps and 67 Mbit/s (2026-09-13). 4K carries 2,25x the pixels of the game path's 1440p, so
- * matching its 0,54 bit/px costs 2,25x the rate — 40 Mbit/s would have been a step BACKWARDS per
- * pixel. Costs 502 MB/min; a turntable round is four minutes.
+ * 4K at 15 fps (2026-09-13). The bit rate is not named here — it follows the picture through
+ * `BITS_PER_PIXEL`, which lands on 67,2 Mbit/s and 502 MB/min. A turntable round is four minutes.
  */
-val CAPTURE_VIDEO_PROFILE = CaptureProfile(width = 3840, height = 2160, fps = 15, bitRate = 67_000_000)
+val CAPTURE_VIDEO_PROFILE = CaptureProfile(width = 3840, height = 2160, fps = 15)
 
 /** The declared position: a shot names the squares it fills, everything else is empty. */
 fun Shot.boardFen(): String = fenOf(place.associate { it.square to it.piece })

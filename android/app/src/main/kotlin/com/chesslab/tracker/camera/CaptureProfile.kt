@@ -9,8 +9,10 @@ data class CaptureProfile(
     val width: Int,
     val height: Int,
     val fps: Int,
-    val bitRate: Int,
-)
+) {
+    /** Derived, never stored: the rate is a function of the picture (`BITS_PER_PIXEL`). */
+    val bitRate: Int get() = bitRateFor(width, height, fps)
+}
 
 /**
  * Measured, never wished for: the request beside what the device delivered. It reaches

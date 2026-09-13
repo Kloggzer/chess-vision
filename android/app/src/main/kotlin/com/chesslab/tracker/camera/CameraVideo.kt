@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import java.io.File
 import java.nio.ByteBuffer
+import kotlin.math.roundToInt
 
 /** The minimum useful recording size. Smaller video is never silently accepted as training input. */
 const val MIN_VIDEO_WIDTH = 2560
@@ -18,13 +19,38 @@ const val MIN_VIDEO_HEIGHT = 1440
 private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
 
 /**
- * What a GAME records at: 30 Mbit/s since 2026-09-13, up from 20.
+ * How much a pixel is worth, and it is ONE decision for both paths (2026-09-13).
  *
- * The corpus was never uniform — the recordings on disk measure 8,1 to 19,6 Mbit/s and nothing
- * wrote the number down. 30 Mbit/s at 1440p and the 15 fps the device really runs is 0,543 bit/px;
- * `session.yaml` now states what a run got. Capture asks its own rate via [CameraVideo.bitRate].
+ * Two hardwired rates were an invitation to drift apart. 0,54 is 1,5x the 0,362 the corpus measures
+ * today; a game at 1440p/15 lands on 29,9 Mbit/s, a capture at 2160p/15 on 67,2.
  */
-const val DEFAULT_VIDEO_BIT_RATE = 30_000_000
+const val BITS_PER_PIXEL = 0.54
+
+/**
+ * The floor, because an implausibly small delivered frame must not produce an unusable file.
+ *
+ * 8 Mbit/s is where the weakest recording on disk (`rg-2026-09-11-20-00-52`) already sits, and it
+ * is already considered borderline.
+ */
+const val MIN_VIDEO_BIT_RATE = 8_000_000
+
+/** The formula itself, unfloored — [bitRateFor] is what a recording actually asks for. */
+internal fun rawBitRateFor(
+    width: Int,
+    height: Int,
+    fps: Int,
+): Int = (width.toDouble() * height * fps * BITS_PER_PIXEL).roundToInt()
+
+/**
+ * bit/s for a frame of this size at this rate. Computed on the DELIVERED size, never the requested
+ * one: asking for 4K while the device hands over 1440p would buy three times the rate for a picture
+ * that cannot use it.
+ */
+fun bitRateFor(
+    width: Int,
+    height: Int,
+    fps: Int,
+): Int = maxOf(rawBitRateFor(width, height, fps), MIN_VIDEO_BIT_RATE)
 
 /** Only the fallback for [CameraVideo.frameRate] — the camera request sets the real one. */
 private const val VIDEO_FRAME_RATE = 30
@@ -199,9 +225,10 @@ class CameraVideo : AutoCloseable {
     @Volatile
     var frameRate: Int = VIDEO_FRAME_RATE
 
-    /** What the next arm ASKS for. [acceptedBitRate] is what the encoder then agreed to. */
+    /** What the formula asked for at the delivered size — 0 until an arm computed it. */
     @Volatile
-    var bitRate: Int = DEFAULT_VIDEO_BIT_RATE
+    var requestedBitRate: Int = 0
+        private set
 
     /** What the running encoder was configured with — 0 until an arm succeeded. */
     @Volatile
@@ -256,7 +283,7 @@ class CameraVideo : AutoCloseable {
             Log.i(
                 TAG,
                 "armed at ${size.width}x${size.height} @ $frameRate fps, $agreed bit/s " +
-                    "(asked $bitRate): ${PRE_ROLL_SECONDS}s pre-roll buffering in memory, no file yet",
+                    "(formula $requestedBitRate): ${PRE_ROLL_SECONDS}s pre-roll buffering in memory, no file yet",
             )
             true
         }.onFailure { fail("QHD video start failed", it) }.getOrDefault(false)
@@ -274,12 +301,17 @@ class CameraVideo : AutoCloseable {
         size: DeliveredSize,
     ): Int {
         val notes = mutableListOf<String>()
+        val raw = rawBitRateFor(size.width, size.height, frameRate)
+        val wanted = bitRateFor(size.width, size.height, frameRate)
+        requestedBitRate = wanted
+        if (wanted != raw) notes += "bit rate floored $raw -> $wanted: ${size.width}x${size.height} @ $frameRate fps is implausibly small"
         val caps =
             runCatching { encoder.codecInfo.getCapabilitiesForType(VIDEO_MIME).videoCapabilities }
                 .getOrElse {
-                    notes += "encoder advertises no video capabilities — asked $bitRate bit/s unchecked"
+                    notes += "encoder advertises no video capabilities — asking $wanted bit/s unchecked"
                     profileNotes = notes
-                    return bitRate
+                    notes.forEach { note -> Log.w(TAG, note) }
+                    return wanted
                 }
         if (!caps.isSizeSupported(size.width, size.height)) {
             notes += "encoder does not advertise ${size.width}x${size.height} (${caps.supportedWidths} x ${caps.supportedHeights})"
@@ -288,8 +320,8 @@ class CameraVideo : AutoCloseable {
         if (rates != null && !rates.contains(frameRate.toDouble())) {
             notes += "encoder does not advertise $frameRate fps at ${size.width}x${size.height} (offers $rates)"
         }
-        val agreed = bitRate.coerceIn(caps.bitrateRange.lower, caps.bitrateRange.upper)
-        if (agreed != bitRate) notes += "bit rate clamped $bitRate -> $agreed by the encoder's range ${caps.bitrateRange}"
+        val agreed = wanted.coerceIn(caps.bitrateRange.lower, caps.bitrateRange.upper)
+        if (agreed != wanted) notes += "bit rate clamped $wanted -> $agreed by the encoder's range ${caps.bitrateRange}"
         profileNotes = notes
         notes.forEach { Log.w(TAG, it) }
         return agreed

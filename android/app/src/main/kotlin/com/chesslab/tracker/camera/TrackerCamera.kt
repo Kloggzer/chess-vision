@@ -118,7 +118,7 @@ class TrackerCamera(
     /** The pre-roll the last recording actually carried — see `CameraVideo.preRollUs`. */
     override val videoPreRollNs: Long get() = video.preRollUs * 1000L
 
-    override val videoBitRateRequested: Int get() = video.bitRate
+    override val videoBitRateRequested: Int get() = video.requestedBitRate
 
     override val videoBitRate: Int get() = video.acceptedBitRate
 
@@ -173,17 +173,15 @@ class TrackerCamera(
         restoreTo = restoreTo ?: target
         requestedProfile = profile
         video.stop()
-        video.bitRate = profile.bitRate
         retarget(CameraRequest(profile.width, profile.height, target.lensFacing, profile.fps))
     }
 
-    /** The game path's own settings back, bit rate included. A capture may not outlive its shot. */
+    /** The game path's own request back. The rate follows the picture, so it returns with it. */
     override fun restoreCaptureProfile() {
         val previous = restoreTo ?: return
         restoreTo = null
         requestedProfile = null
         video.stop()
-        video.bitRate = DEFAULT_VIDEO_BIT_RATE
         retarget(previous)
     }
 

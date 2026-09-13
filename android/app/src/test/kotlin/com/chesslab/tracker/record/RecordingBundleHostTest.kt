@@ -1,13 +1,13 @@
 package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.DebugDecision
-import com.chesslab.tracker.camera.DEFAULT_VIDEO_BIT_RATE
 import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.camera.MIN_VIDEO_HEIGHT
 import com.chesslab.tracker.camera.MIN_VIDEO_WIDTH
 import com.chesslab.tracker.camera.PRE_ROLL_SECONDS
 import com.chesslab.tracker.camera.VideoProgress
 import com.chesslab.tracker.camera.VideoRecorderPort
+import com.chesslab.tracker.camera.bitRateFor
 import com.chesslab.tracker.settings.ConfigStore
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -205,6 +205,8 @@ class RecordingBundleHostTest {
  * Counts arms and refuses a second one exactly as `CameraVideo.start` does (`codec != null`):
  * a fake that accepted overlapping arms would swallow the sequence under test.
  */
+private const val FAKE_FPS = 15
+
 private class FakeVideoCamera : VideoRecorderPort {
     var arms = 0
         private set
@@ -219,9 +221,9 @@ private class FakeVideoCamera : VideoRecorderPort {
 
     override val videoPreRollNs = 0L
 
-    override val videoBitRateRequested = DEFAULT_VIDEO_BIT_RATE
+    override val videoBitRateRequested = bitRateFor(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, FAKE_FPS)
 
-    override val videoBitRate = DEFAULT_VIDEO_BIT_RATE
+    override val videoBitRate = videoBitRateRequested
 
     override fun startVideo(
         maxBytes: Long,
