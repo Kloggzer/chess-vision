@@ -352,7 +352,7 @@ ein moeglicher und ehrlicher Fall.
 | R1440 @ 30 | 59,7 | 448 |
 | R2160 @ 30 | 134,4 | 1008 |
 
-### Offen, bewusst NICHT angefasst: `SessionCaptureController.capReached`
+### Erledigt 2026-09-13: `SessionCaptureController.capReached`
 
 `tracker-runtime/.../record/SessionCapture.kt:236` misst die Videogroesse als
 
@@ -366,10 +366,39 @@ erste Minute. Gemessen an `2026-09-11-20-00-52` war das ein Faktor **10**. Bei 6
 sich der Speicher zusaetzlich gut dreimal schneller als bei den alten 20, also laeuft die Kappe
 entsprechend spaeter an.
 
-Der Fix waere derselbe wie in `CameraVideo.writtenBytes`: alle `video-*.mp4` des Ordners summieren.
-Er liegt aber in `:tracker-runtime`, ist die SPEICHERKAPPE und nicht Metadaten, und `capReached`
-laeuft auf dem Aufnahmepfad (ein Verzeichnis-Walk je Aufruf waere teuer, die Segmentliste nicht).
-**Entscheidung steht aus** — Nutzer und Orchestrator.
+**Repariert** (`fix(record): die Kappe zaehlt alle Segmente und steht auf 8 GB`): `videoBytesOf`
+summiert die ZUSAMMENHAENGENDEN Segmentnamen und hoert beim ersten Loch auf — kein `listFiles()`,
+weil `capReached` auf dem Aufnahmepfad laeuft.
+
+**`SessionVideoMeta.segments` taugte dafuer nicht**, obwohl es naheliegt: es wird erst geschrieben,
+wenn der Encoder FERTIG ist (`RecordingBundleHost.finalizeVideo`), waehrend der Aufnahme steht dort
+1. Die Kappe muss also selbst zaehlen.
+
+**Die 8 GB gehoeren zwingend dazu.** Mit korrekter Zaehlung haette 1 GB eine Partie nach 4,4 min und
+eine Erfassung nach 2,0 min abgebrochen — die Reparatur ALLEIN waere eine Verschlechterung gewesen.
+8 GB sind 35,6 bzw. 15,9 Minuten. Und die Auswahlliste in den Einstellungen (`CAPS`) hat den Wert
+mitbekommen: eine Vorgabe, die der Picker nicht anbietet, ist eine Zeile ohne Auswahl.
+
+## Abnahme: `:app:detekt` war schon vorher rot (2026-09-13)
+
+`:app:assembleDebug` ist **gruen**, das APK liegt unter `app/build/outputs/apk/debug/`.
+
+`:app:detekt` meldet **9 Befunde, und keiner davon kommt aus dieser Phase.** Vier kamen von ihr und
+sind behoben (`style(capture): die vier detekt-Befunde dieser Phase`): `ChesslabNavHost` und
+`landing` ueber `LongMethod`, `CaptureHost.record` ueber `ReturnCount`, `CameraVideo` ueber
+`TooManyFunctions`.
+
+Die uebrigen neun liegen in Dateien, die 02 nie angefasst hat — `TrackerService`
+(`TooManyFunctions` 20/15, ohne eine einzige neue Funktion von hier), `DebugSessionBinding`,
+`ModelSpecTest`, `CameraLookControl` (ungenutzter Import), `OpticsLock` (2x), `TrackerCamera`
+(`MagicNumber` in `pinExposureTime`, unberuehrter Code), `SpeechEngine`,
+`SourceWorkProfileControllerTest`. Letzte Aenderung dieser Dateien: 2026-08-23 bis 2026-09-09.
+**`config/detekt/baseline-app.xml` traegt genau EINEN Eintrag** und ist damit veraltet;
+`:tracker-runtime:detekt` zeigt dasselbe Bild (18 Befunde, keiner in `SessionCapture.kt`).
+
+Das ist kein Befund dieser Phase, sondern ein stehender Schuldenposten: der Gate laesst sich nicht
+gruen bekommen, ohne fremde Dateien anzufassen oder die Baseline neu zu schreiben. Beides gehoert
+entschieden, nicht nebenbei getan.
 
 ## Session log
 
@@ -425,3 +454,10 @@ ableitet. Gates: `:app:testDebugUnitTest` ueber `VideoBitRateTest` (5), `Capture
 `CapturePlanTest` (4), `SessionRecorderTest` (7), `RecordingBundleHostTest` (5) gruen,
 `:app:ktlintCheck` gruen, `comment_budget.py` ohne neue Eintraege. Jeder Gradle-Aufruf nach
 `trainers.ps1` = 0.
+
+**2026-09-13 — Speicherkappe und Abnahme.** `fix(record): die Kappe zaehlt alle Segmente und steht
+auf 8 GB` (`SessionCapture.kt` in `:tracker-runtime`, `CAPS` in `RecordingSection.kt`, zwei neue
+Faelle in `SessionCaptureTest`) und `style(capture): die vier detekt-Befunde dieser Phase`.
+Gates am Stueck: `:app:testDebugUnitTest` ueber sieben Klassen (5+4+6+5+20+7+13 = 60 Tests) gruen,
+`:app:ktlintCheck` und `:tracker-runtime:ktlintCheck` gruen, `:app:assembleDebug` gruen,
+`comment_budget.py` ohne neue Eintraege. `:app:detekt` rot — neun fremde Altlasten, siehe oben.
