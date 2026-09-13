@@ -28,6 +28,8 @@ import com.chesslab.tracker.camera.FocusNotice
 import com.chesslab.tracker.camera.FocusTuner
 import com.chesslab.tracker.camera.TrackerCamera
 import com.chesslab.tracker.camera.cameraRequestFor
+import com.chesslab.tracker.capture.CaptureRecorderHost
+import com.chesslab.tracker.capture.LiveCaptureRecorder
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.cnn.ModelSpec
@@ -37,6 +39,7 @@ import com.chesslab.tracker.diagnostics.androidHostIdentity
 import com.chesslab.tracker.diagnostics.diagnosticsDir
 import com.chesslab.tracker.diagnostics.runStartOf
 import com.chesslab.tracker.games.GameSessionController
+import com.chesslab.tracker.geometry.ProfileLoad
 import com.chesslab.tracker.geometry.calibrationStore
 import com.chesslab.tracker.geometry.cropLine
 import com.chesslab.tracker.geometry.withCropOf
@@ -47,10 +50,12 @@ import com.chesslab.tracker.pipeline.PERF_TAG
 import com.chesslab.tracker.pipeline.StageTimings
 import com.chesslab.tracker.pipeline.cameraStages
 import com.chesslab.tracker.record.BuildStamp
+import com.chesslab.tracker.record.LiveCaptureSource
 import com.chesslab.tracker.record.RecordingBundleHost
 import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
 import com.chesslab.tracker.record.SessionSettingsHost
+import com.chesslab.tracker.record.SessionStore
 import com.chesslab.tracker.record.TimelineFrame
 import com.chesslab.tracker.runtime.AppPaths
 import com.chesslab.tracker.settings.AppSettings
@@ -80,6 +85,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 private const val PREVIEW_MAX_SIDE = 640
+
+/** `GameSessionWiring.DEFAULT_PROFILE`, which is private in `:tracker-runtime` and stays there. */
+private const val CAPTURE_DEFAULT_PROFILE = "default"
 private const val SOURCE_PROFILE_TAG = "chesslabSourceProfile"
 private const val SOURCE_PROFILE_DRAIN_MS = 250L
 
@@ -346,6 +354,7 @@ class TrackerService :
         sourceWorkProfile.close()
         TrackerRestartHost.publish(null)
         GameSessionHost.publish(null)
+        CaptureRecorderHost.publish(null)
         // The service IS the session: stopping it ends the game rather than losing it. A game with
         // no moves saves nothing, so a start/stop cycle still leaves the library alone.
         games.endAndSave()
@@ -488,6 +497,22 @@ class TrackerService :
                 }, { camera.videoFailure }),
             )
         GameSessionHost.publish(games)
+        // Targeted capture drives the SAME recorder without a game (plan/04-capture). The profile
+        // name is collected here because `CalibrationStore.profile` is a cold Flow and
+        // `wireGameSession` keeps its own copy inside `:tracker-runtime`.
+        val captureProfile = MutableStateFlow(CAPTURE_DEFAULT_PROFILE)
+        calibration.profile
+            .onEach { captureProfile.value = (it as? ProfileLoad.Ok)?.profile?.name ?: CAPTURE_DEFAULT_PROFILE }
+            .launchIn(lifecycleScope)
+        CaptureRecorderHost.publish(
+            LiveCaptureRecorder(
+                LiveCaptureSource(frames::latestCalibrationFrame, { publisher.status.value?.corners }, { null }),
+                SessionStore(File(filesDir, "sessions")),
+                captureProfile::value,
+                recording,
+                { recordingSettings.prefs.value },
+            ),
+        )
     }
 
     /** Persisted truth first, then the stack, then the camera — a frame with no stack is wasted. */
