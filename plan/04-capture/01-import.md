@@ -88,6 +88,13 @@ STATISCH, die Figur steht still. Ein Frame daneben zeigt dieselbe Stellung. Desh
 Import das ganze Fenster `[elapsed_ns, elapsed_ns_end)` — fehlt das Ende, gilt der Beginn des
 naechsten Schritts — und schneidet jeden Frame darin.
 
+**Die Bildrate wird GELESEN, nie angenommen.** `realgames.video_fps` faellt ohne Kandidaten auf
+**30,0** zurueck (`realgames.py:230`), und eine Erfassung hat keinen. Gemessen laufen die
+vorhandenen Aufnahmen mit **28,63 fps** — der Vorgabewert liegt also schon heute 4,6 % daneben,
+und der Nutzer will kuenftig mit **15 fps** aufnehmen (Platzgruende, 2026-09-13). Dann waere jeder
+gerechnete Index um den Faktor 2 verschoben, lautlos. Also `CAP_PROP_FPS` des Containers lesen und
+bei einem unglaubwuerdigen Wert (0, NaN, > 240) **abbrechen**, nicht auf 30 ausweichen.
+
 **Paritaet, nicht Nachbau.** Die Interpolation spiegelt `RecordedFrames.videoNsAt` (Kotlin ist die
 Referenz). Sie ist klein genug, um sie in Python zu halten, aber der Test muss sie gegen
 **gemessene Kotlin-Werte** stellen, nicht nur gegen sich selbst.

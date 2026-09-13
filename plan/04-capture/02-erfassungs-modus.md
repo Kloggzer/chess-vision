@@ -109,6 +109,13 @@ und `VideoCapture` nicht NEBEN `ImageAnalysis` gebunden werden kann (`CameraVide
 Hand-Gate, keine CNN-Reads. Sie darf `VideoCapture` deshalb STATT `ImageAnalysis` binden. Das
 bleibt EIN Kamera-Besitzer, die Regel aus `CLAUDE.md` haelt.
 
+**15 fps ist die Absicht des Nutzers** (2026-09-13, Platzgruende). Zwei Dinge dazu gehoeren in die
+Messung: `VIDEO_BIT_RATE` ist heute fest auf 20 Mbit/s, und bei halber Bildrate bleibt die Datei
+damit **gleich gross** — die Ersparnis kaeme von der Bitrate, nicht von der Bildrate. Und 15 fps
+erlaubt bis zu 1/15 s Belichtung; bei 6 Grad/s Drehung sind das rund 3 px Verschmierung an der
+Brettkante, bei 18 Grad/s schon 10. Also: langsam drehen, und die Schaerfe hinterher je Frame
+messen, statt sie zu hoffen.
+
 **Auftrag dieser Phase: messen, nicht bauen.** Was das Geraet an Recorder-Profilen anbietet
 (`Recorder.getVideoCapabilities`, `QualitySelector`), in `STATUS.md` schreiben — Liste der
 Qualitaeten, ob UHD dabei ist, und ob `VideoCapture` allein bindet. **Keine Umstellung ohne diese
