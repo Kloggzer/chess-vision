@@ -279,3 +279,20 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
   steht in jeder `frame`-Zeile der Timeline), also: **Zug ODER Bewegung**, und nur der wirklich
   stille Teil faellt weg.
 
+  **Entschieden 2026-09-13 (Nutzer): sparsam ist die VORGABE, voll bleibt waehlbar.** Drei Dinge
+  haengen daran, und der Schalter allein reicht nicht:
+
+  1. **Die Aufnahme muss sagen, in welchem Modus sie lief.** Sonst weiss ein spaeter gebauter
+     Datensatz nicht, ob eine Luecke im Video eine stille Phase war oder ein Ausfall. Gehoert
+     neben `recording.bit_rate` in `session.yaml` — derselbe Grund, aus dem die Bitrate dort
+     gelandet ist: die 2,4-fache Spreizung der vorhandenen Aufnahmen blieb nur unbemerkt, weil
+     nichts sie aufschrieb.
+  2. **Ein stiller Ausfall des Ausloesers ist der teure Fall.** Bei der Vorgabe „sparsam" verliert
+     eine fehlgehende Bewegungserkennung Material, ohne dass es auffaellt. Die Aufnahme sollte
+     deshalb mitzaehlen, welcher Anteil behalten wurde; faellt er weit unter das Erwartete
+     (gemessen 18 % bei +-2 s), ist das ein Befund und kein Erfolg.
+  3. **Wofuer „voll" da ist:** ein neuer Aufbau, bei dem man dem Ausloeser noch nicht traut, und
+     Aufnahmen, die spaeter Frame fuer Frame durchgesehen werden sollen. Bei Turntable-Aufnahmen
+     ist die Unterscheidung ohnehin fast gegenstandslos — dort wird durchgehend gedreht, es gibt
+     keine Wartezeit zu sparen.
+
