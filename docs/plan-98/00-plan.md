@@ -374,10 +374,35 @@ Nach erwartetem Ertrag je Aufwand. Alle drei Seeds, Hausrezept (`--epoch-frac 0.
 | 1.1 | ~~**128 px unter dem Hausrezept**~~ **GELAUFEN, 7 Seeds** | Nie gelaufen. 0,9860 stammt von `frac 1.0`, einem Seed. Billigster Lauf im Plan. | ~24 min × 3 |
 | 1.2 | ~~**Rotations-/Flip-Augmentierung**~~ **GELAUFEN: +0,0245 gepaart, 7/7** | Ahmt die 3D-Blickrichtung nach. Alle Läufe fahren heute `aug_rot90=False` und sämtliche Flips auf 0 — **nie getestet**, und es ist der einzige billige Hebel, der direkt auf die Springer-Mechanik zielt. | ~24 min × 3 |
 | 1.3 | **Zeitliche Mehrheit auf dem Gerät** | Die Streufehler sind unsicher (Konfidenz-Median 0,697 gegen 1,000 bei den Springern) und 9× mit Teilverdeckung angereichert. Kein Training nötig. | Kotlin |
-| 1.4 | **Komposit-Resample beheben** | 105 152 Zeilen (12,5 %) werden beim Packen 1,4× hochskaliert; `pack_from_source` hat keinen Aufrufer mehr. | Build |
+| 1.4 | ~~**Komposit-Resample beheben**~~ **GEMESSEN 2026-09-13, siehe unten** | 105 152 Zeilen (12,5 %) werden beim Packen 1,4× hochskaliert; `pack_from_source` hat keinen Aufrufer mehr. | Build |
 
 Rechnung aus `02` über Val+Test: `e2` lösen → 0,9924, `d5` dazu → 0,9940, Streufehler halbieren
 → 0,9965. **Das Ziel liegt in Phase 1, nicht in Phase 2.**
+
+### 1.4 gemessen: die hochskalierten Kompositen tragen nichts — mit Kontrolle
+
+Die 105 152 Zeilen aus `VID_20260812_112853` und `2026-08-09 20-48-50` (Crop-Kasten 90 px, auf 128
+**hochgerechnet**) sind 20 % des Trainings. Ein Verlust beim Weglassen waere also auch als
+„weniger Daten" erklaerbar — deshalb zwei Arme, drei gepaarte Seeds, identischer Val und Test:
+
+| Arm | entfernt | Mittel | Minimum | positiv |
+|---|---|---:|---:|---:|
+| `noblur` | die 12 unscharfen Sitzungen (105 152 Zeilen) | **+0,0014** | +0,0001 | **3/3** |
+| `nosharp` | 22 SCHARFE Sitzungen, gleiche Menge (105 536) | −0,0032 | −0,0052 | 0/3 |
+
+**Der eigentliche Vergleich ist die Differenz: +0,0046.** Gleich viel scharfes Material zu
+entfernen schadet, gleich viel unscharfes zu entfernen nuetzt leicht. Die hochskalierten Zeilen
+sind also nicht nur wertlos, sie stehen unter dem, was ihre Menge an gutem Material leisten wuerde.
+
+**Ehrlich zur Groesse: der Effekt liegt UNTER der Relevanzschwelle 0,010** und ist damit keine
+Abnahme. Der Grund ist die Decke — dieser Val steht bei 0,9945 bis 0,9988, da ist kaum Luft. Wo
+Luft ist, faellt es deutlicher aus: Fold 1 traegt zu 77 % genau dieses Material und ist mit
+0,9238 der schwaechste von vier Folds, und `2026-08-12` war die einzige Aufnahmegruppe, in der
+`rot` fast nichts gewann (+0,0182 gegen +0,0885 im Schnitt).
+
+**Praktische Folge:** bei 128 px kosten diese Zeilen nichts und bringen nichts. Sie wegzulassen
+spart 10,7 % Zeilen und Bauzeit. **Bei 80 px gilt das NICHT** — dort ist derselbe Kasten eine
+Verkleinerung (0,89x), das Material also einwandfrei.
 
 ## Phase 2 — nur bei verbleibender Lücke: EIN Architekturarm
 
