@@ -257,3 +257,11 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 - **Hintergrund-Randomisierung, `export_static` (2026-08-21):** entfernt, nie benutzt bzw. gemessen.
 - **Videostand (2026-08-21):** 25 von 43 lokal, 6 nur auf dem Handy — gesichert unter `data/footage/phone-backups/`.
 - **Pre-roll-Offset (2026-08-19):** Ursache behoben; alte Einzeldatei-Sessions 1 Frame daneben, bewusst so.
+- **Nur aufnehmen, was interessiert (2026-09-13, Nutzeridee):** das Video laeuft heute durch, auch
+  wenn zehn Minuten lang dieselbe Stellung steht. Fuer Training ist das redundant —
+  `corpus-is-threefold-redundant` misst, dass 3,9 % der Crops gleich gut sind. Der Encoder KANN
+  schon puffern statt schreiben (`PreRollRing`, armiert bis zum ersten Commit), also ist die
+  Maschinerie da. Offene Fragen vor einem Bau: was ist „interessant" (Bewegung? Hand? Commit plus
+  Fenster?), und was kostet es an Occlusion-Material, das gerade aus den Hand-Frames kommt. Bei
+  67 Mbit/s waere der Gewinn gross: 500 MB/min laufen sonst auch durch die Wartezeit.
+
