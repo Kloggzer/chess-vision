@@ -8,7 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /**
- * One GET, in this package on purpose: `IngestClient` is the upload protocol (hello/declare/chunk/
+ * Two GETs, in this package on purpose: `IngestClient` is the upload protocol (hello/declare/chunk/
  * complete) and `HttpIngestClient.call` is private, so a plan fetch there would widen a seam that
  * exists for transfers. Host and token are the SAME pairing the upload uses (`SyncSettings`).
  */
@@ -16,14 +16,26 @@ suspend fun fetchCapturePlan(prefs: SyncPrefs): PlanAnswer =
     withContext(Dispatchers.IO) {
         val base = baseUrl(prefs.host.ifBlank { prefs.lastHost }, prefs.port)
         if (base.isEmpty()) return@withContext PlanAnswer.Refused(NO_HOST)
-        runCatching { get("$base/api/capture/plan", prefs.token) }
-            .getOrElse { PlanAnswer.Refused(it.message ?: it.javaClass.simpleName) }
+        runCatching { call("$base/api/capture/plan", prefs.token) }
+            .fold({ planAnswer(it.first, it.second) }, { PlanAnswer.Refused(it.message ?: it.javaClass.simpleName) })
     }
 
-private fun get(
+/** Null on every failure: the coverage is a garnish, and the plan fetch already names the refusal. */
+suspend fun fetchCaptureCoverage(prefs: SyncPrefs): CaptureCoverage? =
+    withContext(Dispatchers.IO) {
+        val base = baseUrl(prefs.host.ifBlank { prefs.lastHost }, prefs.port)
+        if (base.isEmpty()) return@withContext null
+        runCatching {
+            val (status, body) = call("$base/api/capture/coverage", prefs.token)
+            if (status != HTTP_OK) return@runCatching null
+            CAPTURE_JSON.decodeFromString(CaptureCoverage.serializer(), body).takeIf { it.generatedAt.isNotBlank() }
+        }.getOrNull()
+    }
+
+private fun call(
     url: String,
     token: String,
-): PlanAnswer {
+): Pair<Int, String> {
     val connection = URI(url).toURL().openConnection() as HttpURLConnection
     try {
         connection.requestMethod = "GET"
@@ -32,7 +44,7 @@ private fun get(
         connection.setRequestProperty("Authorization", "Bearer $token")
         val status = connection.responseCode
         val stream = if (status == HTTP_OK) connection.inputStream else connection.errorStream
-        return planAnswer(status, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
+        return status to stream?.bufferedReader()?.use { it.readText() }.orEmpty()
     } finally {
         connection.disconnect()
     }

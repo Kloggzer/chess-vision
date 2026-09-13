@@ -12,6 +12,9 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.chesslab.tracker.capture.CapturePlanRoute
+import com.chesslab.tracker.capture.CaptureSetupRoute
+import com.chesslab.tracker.capture.CaptureTurnRoute
 import com.chesslab.tracker.service.TrackerRestartHost
 import com.chesslab.tracker.ui.camera.CameraRoute
 import com.chesslab.tracker.ui.debug.DebugRoute
@@ -45,6 +48,9 @@ const val ROUTE_SETTINGS = "settings"
 const val ROUTE_DEBUG = "debug"
 const val ROUTE_GAMES = "games"
 const val ROUTE_REVIEW = "review"
+const val ROUTE_CAPTURE = "capture"
+const val ROUTE_CAPTURE_SETUP = "capture/setup"
+const val ROUTE_CAPTURE_TURN = "capture/turn"
 
 /**
  * "Open the running game", from the foreground notification.
@@ -107,6 +113,7 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
                     onOpenDebug = { nav.to(ROUTE_DEBUG) },
                     // The second door to the camera screen, from where somebody looks for setup.
                     onOpenCalibration = { nav.to(ROUTE_CAMERA) },
+                    onOpenCapture = { nav.to(ROUTE_CAPTURE) },
                     onRestartTracker = restart?.let { { it.restartTracker() } },
                 )
             }
@@ -127,6 +134,34 @@ fun ChesslabNavHost(navController: NavHostController = rememberNavController()) 
             val nav = remember(entry) { Nav(navController, entry) }
             Resumable(nav) {
                 ArchiveReviewRoute(id = entry.arguments?.getString("id").orEmpty(), onBack = nav::back)
+            }
+        }
+        // Targeted capture is three screens of ONE flow, so it is three destinations here and not
+        // a graph of its own — the state that crosses them is `CaptureHost`, not the back stack.
+        composable(ROUTE_CAPTURE) { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) {
+                CapturePlanRoute(onBack = nav::back, onOpenShot = { nav.to("$ROUTE_CAPTURE_SETUP/$it") })
+            }
+        }
+        composable("$ROUTE_CAPTURE_SETUP/{index}") { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) {
+                CaptureSetupRoute(
+                    index = entry.arguments?.getString("index")?.toIntOrNull() ?: 0,
+                    onBack = nav::back,
+                    onStart = { nav.replace("$ROUTE_CAPTURE_TURN/$it") },
+                )
+            }
+        }
+        composable("$ROUTE_CAPTURE_TURN/{index}") { entry ->
+            val nav = remember(entry) { Nav(navController, entry) }
+            Resumable(nav) {
+                CaptureTurnRoute(
+                    index = entry.arguments?.getString("index")?.toIntOrNull() ?: 0,
+                    onBack = nav::back,
+                    onDone = { nav.replace(ROUTE_CAPTURE) },
+                )
             }
         }
         // No analysis route, and there will not be one: 07c shipped the eval bar as a SLOT beside

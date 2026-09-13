@@ -80,6 +80,7 @@ fun SettingsRoute(
     onBack: () -> Unit,
     onOpenDebug: () -> Unit,
     onOpenCalibration: () -> Unit,
+    onOpenCapture: () -> Unit,
     onRestartTracker: (() -> Unit)? = null,
 ) {
     val repository by SettingsHost.repository.collectAsStateWithLifecycle()
@@ -90,7 +91,14 @@ fun SettingsRoute(
             OutlineAction("Back", onBack)
         }
     } else {
-        SettingsScreen(remember(bound) { SettingsViewModel(bound) }, onBack, onOpenDebug, onOpenCalibration, onRestartTracker)
+        SettingsScreen(
+            remember(bound) { SettingsViewModel(bound) },
+            onBack,
+            onOpenDebug,
+            onOpenCalibration,
+            onOpenCapture,
+            onRestartTracker,
+        )
     }
 }
 
@@ -100,6 +108,7 @@ private fun SettingsScreen(
     onBack: () -> Unit,
     onOpenDebug: () -> Unit,
     onOpenCalibration: () -> Unit,
+    onOpenCapture: () -> Unit,
     onRestartTracker: (() -> Unit)?,
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -140,6 +149,7 @@ private fun SettingsScreen(
                     openGroup = { screen.place = it },
                     openDebug = onOpenDebug,
                     openCalibration = onOpenCalibration,
+                    openCapture = onOpenCapture,
                     resetGroup = { screen.resetGroup = it },
                     resetAll = { screen.confirmResetAll = true },
                 ),
@@ -270,6 +280,7 @@ private class SettingsNav(
     val openGroup: (SettingsPlace) -> Unit,
     val openDebug: () -> Unit,
     val openCalibration: () -> Unit,
+    val openCapture: () -> Unit,
     val resetGroup: (KnobGroup) -> Unit,
     val resetAll: () -> Unit,
 )
@@ -426,6 +437,17 @@ private fun LazyListScope.landing(
     item(key = "analysis-row") { AnalysisRow(nav) }
     item(key = "recording-row") { RecordingRow(nav) }
     item(key = "transfer-row") { TransferRow(nav) }
+    // Not behind the developer door: it is a RECORDING task the user starts on purpose, and the
+    // plan it follows lives on the PC beside the transfers.
+    item(key = "capture-row") {
+        DisclosureRow(
+            title = "Targeted capture",
+            subtitle = "Record the shots the coverage report asks for",
+            onOpen = nav.openCapture,
+            icon = Icons.Filled.Star,
+            chevron = false,
+        )
+    }
     item(key = "camera-heading") { SectionHeading("Camera & model") }
     // Die drei, die der Nutzer tatsaechlich anfasst (2026-08-25: *„nutze eigentlich nur fps,
     // aufloesung und modell"*). specs/51 hatte sie mit den 29 Reglern hinter dieselbe Tuer
