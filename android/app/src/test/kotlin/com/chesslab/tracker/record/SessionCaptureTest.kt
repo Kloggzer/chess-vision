@@ -183,6 +183,40 @@ class SessionCaptureTest {
     }
 
     /**
+     * The cap has to see the WHOLE recording, not its first minute.
+     *
+     * `video.mp4` is segment 0; a long run rotates into `video-001.mp4` and up. Counting only the
+     * first file made a 761 MB session read as 76,7 MB (`2026-09-11-20-00-52`), so the 1 GB cap
+     * never fired and recordings really ran to ~10 GB. Each file here is under the cap on its own.
+     */
+    @Test
+    fun everySegmentCountsAgainstTheSessionCap() {
+        prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
+        val controller = controller()
+        controller.queue(1, FEN, "e4", clean = false)
+        val recorder = requireNotNull(controller.recorder)
+        listOf("video.mp4", "video-001.mp4", "video-002.mp4").forEach {
+            File(recorder.dir, it).writeBytes(ByteArray(800))
+        }
+        assertTrue(controller.syncEnabled(), "2400 bytes over three segments are over the 2000 byte cap")
+        assertNull(controller.recorder)
+        assertTrue(controller.stoppedReason.orEmpty().contains("limit reached"), controller.stoppedReason)
+    }
+
+    /** A gap ends the count — segments are consecutive, and nothing here walks the directory. */
+    @Test
+    fun aSegmentBeyondAGapIsNotCounted() {
+        prefs = RecordingPrefs(enabled = true, capBytes = 2000L)
+        val controller = controller()
+        controller.queue(1, FEN, "e4", clean = false)
+        val recorder = requireNotNull(controller.recorder)
+        File(recorder.dir, "video.mp4").writeBytes(ByteArray(800))
+        File(recorder.dir, "video-007.mp4").writeBytes(ByteArray(9000))
+        assertFalse(controller.syncEnabled(), "only the contiguous run counts")
+        assertNotNull(controller.recorder)
+    }
+
+    /**
      * D3. `startRecorder` ran `SessionRecorder.<init>` — which writes `frames/`, an empty
      * `log.jsonl` and a `session.yaml` — BEFORE the cap was evaluated, so a start that the cap
      * refuses left an empty session directory on disk that then counted against the next

@@ -46,7 +46,9 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 private const val MB = 1024L * 1024L
-private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 0L)
+
+// 8 GB is `DEFAULT_CAP_BYTES`: a default the picker cannot show is a row with nothing selected.
+private val CAPS = listOf(250L * MB, 1024L * MB, 2048L * MB, 8192L * MB, 0L)
 
 /** Also the Settings landing summary — one place decides how a storage cap is written. */
 internal fun capLabel(bytes: Long): String = if (bytes <= 0L) "unlimited" else formatBytes(bytes)

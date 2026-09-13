@@ -5,8 +5,14 @@ import java.io.File
 
 private const val KB: Long = 1024L
 
-/** Bytes under `filesDir/sessions` at which recording stops. Default 1 GB. */
-const val DEFAULT_CAP_BYTES: Long = KB * KB * KB
+/**
+ * Bytes under `filesDir/sessions` at which recording stops. 8 GB since 2026-09-13.
+ *
+ * It was 1 GB while [videoBytesOf] counted only the first segment, so a recording really ran to
+ * ~10 GB. Counting correctly at 1 GB would have cut a game off after 4,4 minutes and a capture
+ * after 2,0 — the repair alone would have been a regression. 8 GB is 35,6 resp. 15,9 minutes.
+ */
+const val DEFAULT_CAP_BYTES: Long = 8L * KB * KB * KB
 
 /**
  * Off by default — recording writes QHD video plus full-resolution reference JPEGs, and that
@@ -233,7 +239,7 @@ class SessionCaptureController(
     private fun capReached(): Boolean {
         val cap = prefs().capBytes
         val active = recorder
-        val videoBytes = active?.let { File(it.dir, "video.mp4").length() } ?: 0L
+        val videoBytes = active?.let { videoBytesOf(it.dir) } ?: 0L
         if (cap <= 0L || existingBytes() + (active?.bytes ?: 0L) + videoBytes < cap) return false
         stoppedReason = "recording stopped: ${cap / (KB * KB)} MB limit reached"
         recorder?.finish()?.also(hooks.finished)
@@ -251,3 +257,24 @@ class SessionCaptureController(
 
     private fun writeFailure(): String? = if (failedWrites == 0) null else "frame could not be written — $failedWrites lost"
 }
+
+/**
+ * Every segment, not just `video.mp4`. Naming follows `CameraVideo.segmentFile`.
+ *
+ * `SessionVideoMeta.segments` is only written when the encoder FINISHES, so a running recording
+ * still reads 1 and the cap counted its first minute as the whole file — factor 10 on
+ * `2026-09-11-20-00-52`. Consecutive names, stopping at the first gap: never a `listFiles()` here.
+ */
+private fun videoBytesOf(dir: File): Long {
+    var total = 0L
+    var index = 0
+    while (true) {
+        val length = File(dir, if (index == 0) VIDEO_FILE else VIDEO_SEGMENT.format(index)).length()
+        if (length <= 0L) return total
+        total += length
+        index++
+    }
+}
+
+private const val VIDEO_FILE = "video.mp4"
+private const val VIDEO_SEGMENT = "video-%03d.mp4"
