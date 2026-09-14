@@ -176,6 +176,9 @@
   Bildrate anfasst, muss `motionThr` mitziehen: `TrackerService.engineConfig()` tut das mit
   `× 30 / fps`, und die Kopplung ist am Regressions-Satz gemessen.
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
+- **Abdeckung:** erstmals gemessen 2026-09-14 — Python 67,1 %, Kotlin 64,7 % ohne `:app`,
+  Web `lib/` 73,9 %. Die drei Aufrufe und die zwei Fallen (pytest-cov toetet den CUDA-Graph-Test,
+  `:app` liefert keinen Kover-Bericht solange `ModelSpecTest` rot ist): `docs/test-coverage-2026-09-14.md`.
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not
   undisputed, it is unmeasured, and the lane says `—` rather than `0`.
