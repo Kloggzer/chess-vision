@@ -260,6 +260,8 @@ data class ReplayOptions(
 internal fun ReplayOptions.trackerConfig(
     geometry: BoardGeometry,
     live: Boolean,
+    /** The rate frames actually REACH the engine at; the CLI's `fps=` unless a caller knows better. */
+    emulatedFps: Double? = fps.takeIf { !live },
 ): TrackerConfig {
     // The recorded file FIRST, the geometry copy AFTER: `boardSize` (and with it `detSize`) is a
     // measurement of THIS footage, and a phone's recorded size would poison the warp of any other
@@ -278,7 +280,22 @@ internal fun ReplayOptions.trackerConfig(
             // cadence IS the experiment, `set:observerIntervalS=<s>` says so explicitly.
             observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
         ).withOverrides(overrides)
+        .withMotionThrFor(emulatedFps)
 }
+
+/**
+ * `motionThr` scaled to the emulated rate, exactly as `TrackerService.engineConfig` does it live.
+ *
+ * It is a percent of pixels changed against the PREVIOUS frame, so skipping frames doubles the
+ * delta and the unscaled threshold measures a tracker the phone never runs. Applied AFTER
+ * `set:motionThr=` for the same reason the phone applies it after the stored knobs: the scale
+ * belongs to the frame period, the knob to the motion.
+ */
+private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig =
+    if (rate == null || rate == REFERENCE_FPS) this else copy(motionThr = motionThr * REFERENCE_FPS / rate)
+
+/** The rate every `motionThr` on record was measured at — `TrackerService`'s `REFERENCE_RATE`. */
+private const val REFERENCE_FPS = 30.0
 
 /**
  * `config=<file>`, loaded and announced. Accepts a session's `settings.json` (its `config` block)

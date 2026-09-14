@@ -175,23 +175,29 @@ def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
                        auroc: float | None = None) -> tuple[tuple[float, float, float], dict]:
     """Gewichteter Checkpoint-Score plus die geteilte Belegungs-Aufschluesselung, in einem Durchgang."""
     bd = occupancy_piece_breakdown(classes, trues, preds)
-    bd["occupied_board_acc"] = occupancy_board_acc(rows, classes, trues, preds)
     # Benotet wird, was der Verlust auch lernt: alles ueber PIECE_VISIBLE_MAX ist ausmaskiert,
-    # es mitzuzaehlen waehlt Checkpoints nach Zellen, die das Modell nie treffen sollte. Ohne
+    # es mitzuzaehlen waehlt Checkpoints nach Zellen, die das Modell nie treffen sollte. Das
+    # gilt fuer BEIDE Tiebreaker mit, nicht nur fuer die gewichteten Anteile. Ohne
     # Coverage-Spalte bleibt jede Zelle sichtbar und die Zahlen sind die alten.
     from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX
 
     vis = [i for i, r in enumerate(rows)
            if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX
            and r.get("brightness", 255.0) >= CELL_DARK_MIN]
-    bd_vis = occupancy_piece_breakdown(classes, [trues[i] for i in vis], [preds[i] for i in vis])         if 0 < len(vis) < len(rows) else bd
+    if vis and len(vis) < len(rows):
+        v_rows = [rows[i] for i in vis]
+        v_trues, v_preds = [trues[i] for i in vis], [preds[i] for i in vis]
+        bd_vis = occupancy_piece_breakdown(classes, v_trues, v_preds)
+    else:
+        v_rows, v_trues, v_preds, bd_vis = rows, trues, preds, bd
+    bd["occupied_board_acc"] = occupancy_board_acc(v_rows, classes, v_trues, v_preds)
     bd["visible_piece_acc"] = bd_vis["piece_acc"]
     bd["visible_occupied_acc"] = bd_vis["occupied_acc"]
     # Ohne gemessene Konfidenz zaehlt die Kalibrierung neutral (0,5 = Zufall), damit ein
     # Aufrufer ohne sie nicht stillschweigend bestraft oder belohnt wird.
     bd["calibration"] = auroc if auroc is not None else 0.5
     score = sum(w * bd[k] for k, w in CHECKPOINT_WEIGHTS.items())
-    mr = _macro_recall(trues, preds, len(classes))
+    mr = _macro_recall(v_trues, v_preds, len(classes))
     return (score, bd["occupied_board_acc"], mr), bd
 
 

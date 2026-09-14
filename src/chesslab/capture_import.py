@@ -137,6 +137,28 @@ def video_frames(video: Path, rows: list[dict]) -> Iterator[tuple[dict, Any]]:
             yield wanted[idx], frame
 
 
+def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str, prof) -> Path:
+    """`session.yaml` neben dem Log, in der Form von `realgames.write_session`.
+
+    Ohne sie ueberspringen `position_flags`/`frame_hands` das Verzeichnis WORTLOS, statt zu
+    meckern — der importierte Mitschnitt erreicht das Training dann nie.
+    """
+    import yaml
+
+    src = bundle / "session.yaml"
+    carried = yaml.safe_load(src.read_text(encoding="utf-8")) if src.is_file() else None
+    meta = {**(carried or {}),
+            "session_id": f"rg-{session_dir.name}",
+            "profile": profile,
+            "mode": "capture",
+            "frame_size": [int(v) for v in prof.frame_size],
+            "notes": f"imported from data/recordings/{name}/{bundle.name} (plan/04-capture)"}
+    session_dir.mkdir(parents=True, exist_ok=True)
+    with (session_dir / "session.yaml").open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
+    return session_dir / "session.yaml"
+
+
 def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     """Ein Buendel mit `capture.json` wird zu Brettern und dem `log.jsonl`, das `slice` liest."""
     from .calibration import load_profile
@@ -158,6 +180,7 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     # Eine Zeile ohne Brett benennt eine Datei, die nie geschrieben wurde — hinter dem Ende einer
     # abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
     rows = [r for r in rows if r.get("board")]
+    write_capture_meta(session_dir, bundle, name, profile, prof)
     with (session_dir / "log.jsonl").open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")

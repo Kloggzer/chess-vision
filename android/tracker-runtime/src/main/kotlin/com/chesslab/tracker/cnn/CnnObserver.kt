@@ -173,8 +173,9 @@ class CnnObserver(
         scope.launch { observe(startFen) }
     }
 
+    /** Disabled means disabled: no ONNX open, no warm-up, and no [CnnState.Ready] that [wantsFrame] could never grant. */
     fun attach(open: () -> Attached) {
-        if (!holder.beginAttach()) return
+        if (!enabled || !holder.beginAttach()) return
         scope.launch { load(open) }
     }
 
@@ -241,7 +242,7 @@ class CnnObserver(
                 // [close] ran while the model was still opening and warming up: it saw no
                 // classifier to close, so this one is nobody's but ours — and Ready after a
                 // disable would re-arm an observer whose thread is already gone.
-                if (closed) {
+                if (closed || !enabled) {
                     runCatching { it.classifier.close() }
                     return
                 }

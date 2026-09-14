@@ -147,11 +147,15 @@ class TrackerCoordinator<T>(
         val quiet = events.isEmpty()
         if (ready != null) {
             // Waehrend eines Sweeps stellt die Belichtung nicht: sie verschoebe den Kontrast unter
-            // der laufenden Messreihe, und der Gipfel ist ein Vergleich von Reihe zu Reihe.
-            val sweeping = focus.sweeping
-            val where = focusRegion(ready.input.corners, ready.input.bgrDet.width, ready.input.bgrDet.height)
+            // der laufenden Messreihe, und der Gipfel ist ein Vergleich von Reihe zu Reihe. Als
+            // unruhiger Frame, nicht als uebersprungener Aufruf: so armiert der Sweep den Hold
+            // mit, statt den Frame nach ihm ueber die frische Pixel-Referenz regeln zu lassen.
+            val settled = quiet && !focus.sweeping
+            // Normalisiert gegen den GELIEFERTEN Frame: `corners` sind Quellpixel, der Warp misst
+            // boardSize * detectScale, und das Geraet misst in Frame-Koordinaten.
+            val where = focusRegion(ready.input.corners, delivered.width, delivered.height)
             val moved = focus.onBoard(ready.input.seq, quiet, where) { ready.input.board?.invoke(FOCUS_BOARD_PX) }
-            val lit = !sweeping && exposure.onBoard(ready.input.seq, quiet) { ready.input.board?.invoke(METER_BOARD_PX) }
+            val lit = exposure.onBoard(ready.input.seq, settled) { ready.input.board?.invoke(METER_BOARD_PX) }
             if (moved || lit) {
                 host.submit(EngineAction.CaptureBaseline)
                 noise.disarm()

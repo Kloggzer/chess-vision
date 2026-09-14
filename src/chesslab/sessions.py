@@ -952,7 +952,7 @@ def write_boards_session(session_id: str) -> dict:
         for key in BOARD_KEYS:
             r.pop(key, None)
     todo = [r for r in rows if r.get("corners") and r.get("frame")]
-    jobs = [(sdir, r["frame"], r["corners"], prof) for r in todo]
+    jobs = [(sdir, r["frame"], r["corners"], prof, bool(r.get("dirty"))) for r in todo]
     if len(jobs) >= POOL_MIN_ROWS:
         with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
             made = list(pool.map(board_from_frame, jobs, chunksize=4))
@@ -1095,6 +1095,7 @@ def mark_hands_session(session_id: str) -> dict:
     from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
     from .imgops import skin_patch
     from .labeling import _profile_for_session, read_session_meta
+    from .realgames import place_board
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -1125,6 +1126,7 @@ def mark_hands_session(session_id: str) -> dict:
         seen += 1
         added += not r.get("dirty")
         r["dirty"] = True
+        place_board(sdir, r)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "hands": seen, "newly_dirty": added, "of": len(rows),

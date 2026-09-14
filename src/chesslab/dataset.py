@@ -278,8 +278,10 @@ def assign_sessions_to_splits(sizes: dict, val_frac: float, test_frac: float, se
         else:
             splits["train"].append(sid)
 
-    for name in ("val", "test"):                            # never emit an empty holdout
-        if splits[name] or len(splits["train"]) <= 1:
+    # Never emit an empty holdout — EXCEPT where the caller asked for none. A rescue at
+    # frac 0 hands out a split nobody wanted and takes the session out of train.
+    for name, frac in (("val", val_frac), ("test", test_frac)):
+        if frac <= 0 or splits[name] or len(splits["train"]) <= 1:
             continue
         movable = [s for s in splits["train"] if s not in force_train]
         if not movable:

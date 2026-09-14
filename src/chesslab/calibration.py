@@ -1002,8 +1002,11 @@ def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
     quad = corners if lens is None else undistort_points(corners, lens)
     h = np.array(compute_homography(quad, bs, profile.margin), dtype=np.float64)
     if mesh is None and lens is None:
+        # Kubisch wie der Mesh-Zweig: die Funktion ist fuer die Schaerfe egal, die Interpolation
+        # nicht — bilinear behaelt 63,6 % der Laplace-Energie, kubisch 92,1 %
+        # (`docs/warp-resampling.md`). Ein Bild, eine Schaerfe, egal welcher Zweig es schneidet.
         t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]], dtype=np.float64)
-        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
+        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad), flags=cv2.INTER_CUBIC)
     u, v = _crop_mesh_coordinates(bs, pad, None if mesh is None else _mesh_key(mesh))
     ix, iy = _board_to_image(u, v, np.linalg.inv(h), bs)
     if lens is not None:

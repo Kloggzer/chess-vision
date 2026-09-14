@@ -500,6 +500,19 @@ def build_dataset(
 
     wanted = set(session_ids)
     rows = [r for src in srcs for r in dataset_mod.load_manifest(src) if r["session_id"] in wanted]
+    # Zwei Pools duerfen dieselbe Aufnahme fuehren (54 liegen in zweien). Ohne diesen Schnitt
+    # traegt der Datensatz dasselbe physische Crop mehrfach — das verschiebt die Gewichtung
+    # still und zaehlt Zeilen, die es nur einmal gibt.
+    seen: set[str] = set()
+    deduped = []
+    for r in rows:
+        if r["path"] not in seen:
+            seen.add(r["path"])
+            deduped.append(r)
+    if len(deduped) < len(rows):
+        print(f"[source] {len(rows) - len(deduped)} rows listed by more than one source "
+              f"manifest — kept once each")
+    rows = deduped
     n_raw = len(rows)
     if per_position:
         rows = keep_per_position(rows, per_position)

@@ -174,7 +174,9 @@ export async function recentVerdicts(name: string, limit: number): Promise<Recen
   for (const ledger of ["reviewed", "corrections"] as const) {
     for (const [key, v] of (await ledgerRows(name, ledger)).bySession.get(id) ?? []) {
       const older = out.get(key);
-      if (older && older.ts >= v.ts) continue;
+      // Gleiche Sekunde: die Korrektur gewinnt, wie in `judgedKeys` — sonst zeigen die beiden
+      // Sichten verschiedene gueltige Labels an.
+      if (older && older.ts > v.ts) continue;
       const [frame, square] = key.split("|");
       out.set(key, { frame, square, label: v.label, ledger, ts: v.ts });
     }

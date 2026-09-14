@@ -235,7 +235,9 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
     bd_vis = None
-    if 0 < len(vis) < len(rows):
+    if len(vis) == len(rows):
+        bd_vis = bd                       # nichts verdeckt: die volle Zahl IST die sichtbare
+    elif vis:
         bd_vis = occupancy_piece_breakdown(
             classes, [res["trues"][i] for i in vis], [res["preds"][i] for i in vis])
         share = 100.0 * (len(rows) - len(vis)) / len(rows)

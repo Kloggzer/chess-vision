@@ -99,12 +99,16 @@ export function boardToStored(session: Session, board: { size: number; border: n
   return [s, 0, board.border, 0, s, board.border, 0, 0, 1];
 }
 
-const cache = new Map<string, { key: number; value: Session }>();
+const cache = new Map<string, { key: string; value: Session }>();
 
 /** Log + the candidate's geometry block — the two files the crops are cut from. */
 export async function loadSession(name: string): Promise<Session> {
   const log = path.join(sessionDir(name), "log.jsonl");
-  const key = (await stat(log)).mtimeMs;
+  // Beide Dateien im Schluessel: Brettgroesse, Crop-Parameter, fps und die Commit-Grenzen kommen
+  // aus `candidate.json`, ein Schnitt auf altem Stand trifft das falsche Feld.
+  const stamp = async (file: string) =>
+    stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
+  const key = `${await stamp(log)}|${await stamp(path.join(sessionDir(name), "candidate.json"))}`;
   // Keyed by the PATH, not the bare name: `CHESSLAB_DATA_DIR` is a variable, and two roots
   // holding a session of the same name would otherwise share an entry whenever their logs
   // happened to land in the same millisecond.

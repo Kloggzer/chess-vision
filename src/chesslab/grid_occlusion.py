@@ -30,14 +30,16 @@ BOARD_SIDE = 8
 #: A square reads occluded at this many missing edge segments (of its four).
 MIN_MISSING_EDGES = 2
 
-#: `config.CROP_WARP_BORDER_CELLS` — the crop warp's minimum border, in cells.
-CROP_WARP_BORDER_CELLS = 0.1
-
 
 def crop_border_px(profile) -> int:
-    """`cropBorderPx` — the pad the crop warp (and therefore this read) is cut with."""
-    cell = profile.board_size / BOARD_SIDE
-    return int(round(max(CROP_WARP_BORDER_CELLS, profile.crop.pad_side, profile.crop.pad_up) * cell))
+    """`cropBorderPx` — the pad the crop warp (and therefore this read) is cut with.
+
+    One formula, not a second copy: the max-of-the-two-pads form this module carried is the one
+    `calibration` already corrected to their SUM, and the scan must measure on the raster the
+    crops are cut from. Kotlin's `CropBox.cropBorderPx` still carries the max form."""
+    from .calibration import crop_border_px as _crop_border_px
+
+    return _crop_border_px(profile)
 
 
 def warp_padded(frame, corners, profile, pad: int):

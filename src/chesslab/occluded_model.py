@@ -102,13 +102,18 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     """The 64 BGR crops of one logged row — through `crops_for_frame`, the slice's own path.
 
     From the stored BOARD, like `slice_session`: a session has kept no source stills since the
-    board store landed (2026-08-17), and reading `row["frame"]` failed on every session.
+    board store landed (2026-08-17). A row that has none falls back to its frame, warped.
     """
     path = session_dir / (row.get("board") or row["frame"])
-    board = cv2.imread(str(path))
-    if board is None:
+    image = cv2.imread(str(path))
+    if image is None:
         raise FileNotFoundError(f"board not readable: {path}")
-    return crops_for_frame(None, row["corners"], profile, board=board)
+    # A row without a stored board (`--no-fit`) names a RAW camera frame, and handing that in as
+    # `board=` cuts 64 board-coordinate boxes out of an unwarped picture. Its quad is on the row,
+    # so warp it — refusing would drop every such session's reads over geometry we have.
+    if row.get("board"):
+        return crops_for_frame(None, row["corners"], profile, board=image)
+    return crops_for_frame(image, row["corners"], profile)
 
 
 #: What one model saw on every square of a session. `occluded-proposals.jsonl` carried this as a

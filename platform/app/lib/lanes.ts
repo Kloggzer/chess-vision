@@ -543,7 +543,7 @@ export type EventGroup<T> = { head: T; members: T[] };
  * Collapse a square's run of crops into events: same square, same FEN word, frames within
  * [GROUP_SPAN]. The head is what the phone shows; a long press answers for the whole group.
  */
-export function collapseEvents<T extends { square: string; stem: string; fen_label: string }>(
+export function collapseEvents<T extends { session?: number; square: string; stem: string; fen_label: string }>(
   cells: T[],
 ): EventGroup<T>[] {
   const out: EventGroup<T>[] = [];
@@ -551,6 +551,9 @@ export function collapseEvents<T extends { square: string; stem: string; fen_lab
     const last = out[out.length - 1];
     const near =
       last !== undefined &&
+      // Die Aufnahme gehoert in den Vergleich: Frame-Nummern fangen je Aufnahme neu an, und ein
+      // langer Druck schriebe das Urteil sonst auf Crops, die niemand gesehen hat.
+      last.head.session === cell.session &&
       last.head.square === cell.square &&
       last.head.fen_label === cell.fen_label &&
       Math.abs(Number(cell.stem) - Number(last.members[last.members.length - 1].stem)) <= GROUP_SPAN;

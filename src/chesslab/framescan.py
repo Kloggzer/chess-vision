@@ -64,19 +64,20 @@ class Wanted:
         return index in self.rng or index in self.extra
 
 
-def cell_sharpness(board_gray, size: int, hands=()) -> float:
+def cell_sharpness(board_gray, size: int, hands=(), *, white_pov: bool = True) -> float:
     """Laplace-Varianz je Feld, Median ueber die UNVERDECKTEN — die Schaerfe des Bretts.
 
     Ueber das ganze Bild misst sie die Hand mit: Haut ist texturarm und zieht die Varianz wie
-    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500)."""
+    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500). `hands` traegt
+    NAMEN, und die haengen an der Seite des Profils: hartkodiert mass diese Funktion unter einem
+    Schwarz-Profil auf der Hand. Der Aufrufer reicht `profile.white_pov` durch, sie raet nicht."""
     lap = cv2.Laplacian(board_gray, cv2.CV_64F)
     step = size // 8
-    vals = []
+    cells = []
     for c in range(64):
-        if cell_square(c, True) in hands:
-            continue
         ri, ci = divmod(c, 8)
-        vals.append(float(lap[ri * step:(ri + 1) * step, ci * step:(ci + 1) * step].var()))
+        cells.append(float(lap[ri * step:(ri + 1) * step, ci * step:(ci + 1) * step].var()))
+    vals = [v for c, v in enumerate(cells) if cell_square(c, white_pov) not in hands]
     return round(float(np.median(vals)), 1) if len(vals) >= 16 else -1.0
 
 
@@ -266,7 +267,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
                     # Der Fokus, gemessen wie die Hand: erst messen, dann waehlen. Die Rillen
                     # liefern die Maske gleich mit, eine Matte gibt es hier noch nicht.
                     "sharp": cell_sharpness(padded_gray[pad:pad + size, pad:pad + size],
-                                            size, hands),
+                                            size, hands, white_pov=profile.white_pov),
                 }
                 rows.append(row)
                 pending.append((row, board))

@@ -736,6 +736,14 @@ class PackedBoardDataset(Dataset):
         if not keep:
             raise ValueError(f"kein vollstaendiges Brett unter {len(boards)} — "
                              "wurde der Split mit --max-empty-ratio ausgeduennt?")
+        for board in keep:
+            # 64 Zeilen sind noch kein Brett: ein doppeltes Feld bedeckt ein fehlendes, und der
+            # Brettkopf bekaeme eine raeumlich falsche Stellung, ohne dass es auffaellt.
+            if len({r["square"] for r in board}) != CELLS:
+                raise ValueError(
+                    f"Brett {board[0]['session_id']}/{board[0]['frame']}: {CELLS} Zeilen, aber "
+                    f"nur {len({r['square'] for r in board})} verschiedene Felder — "
+                    "doppelte Felder im Manifest, der Pool muss neu geschnitten werden")
         self.with_coverage = with_coverage
         self.transform = transform
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]

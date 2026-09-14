@@ -92,10 +92,19 @@ def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
     partial = out_dir / (packs._IMAGE + ".partial")
     rows: list[dict] = []
     h = w = size
+    shape: tuple[int, int] | None = None
     with partial.open("wb") as fh:
         for crop, row in crops:
             row["path"] = f"{packs.MM_PREFIX}{name}/{row['frame']}/{row['square']}"
             h, w = crop.shape[:2]
+            # Der Pack veroeffentlicht EINE Geometrie fuer alle Zeilen. Zwei Formen gleicher
+            # Pixelzahl (2x3 gegen 3x2) rutschen sonst durch und jede fruehere Zeile wird
+            # spaeter mit der Form der letzten gelesen.
+            if shape is None:
+                shape = (h, w)
+            elif (h, w) != shape:
+                raise ValueError(f"{what}: crop {row['frame']}/{row['square']} is {h}x{w}, the "
+                                 f"pack already holds {shape[0]}x{shape[1]} — one pack, one shape")
             fh.write(np.ascontiguousarray(crop).tobytes())
             rows.append(row)
     if not rows:

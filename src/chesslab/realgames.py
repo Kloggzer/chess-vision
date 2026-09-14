@@ -96,7 +96,9 @@ def frame_anchor(name: str, move: dict) -> str:
 
     The replay writes `.webp` (`AnnotatedFrames.REVIEW_SUFFIX`); runs before 2026-08-17 left PNG.
     """
-    stem = f"{int(move['frame']):06d}"
+    # `retime._write_boards` rewrites the review pictures around `frame_review` and deletes the
+    # old set, so the entry frame names a file that is gone. `review-cards.ts` reads the same pair.
+    stem = f"{int(move.get('frame_review') or move['frame']):06d}"
     frames = game_dir(name) / "frames"
     shot = next((p for ext in (".webp", ".png") if (p := frames / f"{stem}{ext}").is_file()),
                 frames / f"{stem}.webp")
@@ -453,6 +455,7 @@ def adopt_reported_dirty(name: str) -> dict:
         row["dirty_reason"] = "occluded"
         row["dirty_source"] = "reported"
         row["dirty_set_at"] = stamp
+        place_board(session_dir, row)
         changed.append(stem)
     if not changed:
         return {"reported": len(wanted), "changed": 0, "stems": [], "backup": None}
@@ -1012,13 +1015,33 @@ def interval_moves(refs: dict[int, Any], fens: dict[int, str]) -> list[dict]:
     return out
 
 
-def board_from_frame(job: tuple[Path, str, list, object]) -> dict | None:
+def board_from_frame(job: tuple[Path, str, list, object, bool]) -> dict | None:
     """One frame -> one board, for the retrofit pool: only paths cross the process boundary."""
-    session_dir, frame_rel, corners, profile = job
+    session_dir, frame_rel, corners, profile, dirty = job
     frame = cv2.imread(str(session_dir / frame_rel))
     if frame is None:
         return None
-    return write_board(session_dir, Path(frame_rel).stem, frame, corners, profile)
+    return write_board(session_dir, Path(frame_rel).stem, frame, corners, profile, dirty)
+
+
+def place_board(session_dir: Path, row: dict) -> bool:
+    """Move a stored board into the folder its `dirty` flag names, and repoint the row.
+
+    The FOLDER is the clean/dirty predicate downstream: `temporal_matte.bracketing` and
+    `sensor_audit.audit` pick their reference peers out of `boards/`. A flag set after the export
+    that leaves the file where it was makes a hand frame a reference plate.
+    """
+    rel = row.get("board")
+    if not rel:
+        return False
+    want = board_rel(Path(rel).stem, bool(row.get("dirty")))
+    src, dst = session_dir / rel, session_dir / want
+    if want == rel or not src.is_file():
+        return False
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.replace(dst)
+    row["board"] = want
+    return True
 
 
 def write_board(session_dir: Path, stem: str, frame, corners, profile,
@@ -1036,7 +1059,12 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     rel = board_rel(stem, dirty)
     out = session_dir / rel
     out.parent.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners, mesh, lens), BOARD_ENCODE)
+    if not cv2.imwrite(str(out), warp_board_for_crops(frame, profile, corners, mesh, lens), BOARD_ENCODE):
+        raise OSError(f"could not write board {out}")
+    # A stem must exist in ONE folder — the folder is the clean/dirty predicate `temporal_matte`
+    # and `sensor_audit` read. AFTER the new plate is on disk: dropping the old one first loses the
+    # board outright if the warp or the write fails.
+    (session_dir / board_rel(stem, not dirty)).unlink(missing_ok=True)
     keys = {"board": rel, "board_size": int(profile.board_size),
             "board_border": crop_border_px(profile)}
     return keys if mesh is None else {**keys, "board_straightened": True}

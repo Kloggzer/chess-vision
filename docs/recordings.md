@@ -14,6 +14,33 @@ the still frame that would prove it. `VID_20260727_233929` loses its last four p
 this, and both trackers measured on it lose the same four (2026-08-25). Two seconds of nothing
 happening are the cheapest recall in this project.
 
+## Was in `frames/` liegt — und was NICHT (gemessen 2026-09-14)
+
+**Die Dateien sind `.webp`, das Log nennt `.png` oder `.jpg`.** Umgestellt wurde wegen der Groesse
+(Nutzer, rund einen Monat vor dem 2026-09-14); das `frame`-Feld im Log traegt weiter den Namen aus
+dem Export. Ein Leser, der ueber den GESCHRIEBENEN Pfad joint, findet nichts — ueber den Stamm
+abgleichen, nie ueber die Endung.
+
+**Und es sind keine Quellbilder.** Ueber alle zehn Aufnahmen unter `data/recordings/` gemessen:
+die Bilder in `frames/` sind brettgross (928, 880, 1280 px), nicht kameragross — die Ecken im Log
+spannen dagegen ueber 1 000 px in einem Bild von rund 1920x1280. Gegen den gespeicherten
+Brettkern: 12 px Rand weniger, mittlere Abweichung 14 Graustufen, Korrelation **0,93**. Es sind
+also die Review-Bilder, die `retime._write_boards` schreibt, nicht die rohen Frames.
+
+**Die Quelle ist das VIDEO, nicht ein Ordner.** Rohe Bilder werden nicht als Dateien gehalten,
+sondern bei Bedarf dekodiert — in Python `Recording.frames(start=, wanted=, rotate=)`
+(`src/chesslab/recording.py`), das die Segmente einer Aufnahme als EINEN Strom von
+(Gesamtindex, Bild) liefert und mit `wanted=` nur die gefragten Bilder bezahlt; in Kotlin
+`FrameSource`/`VideoFileSource` (`android/desktop/.../FrameSource.kt`). Beide lesen vorwaerts und
+seeken nur den Start an — ein Seek mittendrin ist unzuverlaessig (`Recording.segment_base`,
+`docs/export-decode.md`).
+
+**Folge, und sie ist richtig so:** `missing_source_frames` findet auf keiner dieser Aufnahmen eine
+Frame-DATEI, also verweigern `session scan-alignment`, `fit-mesh`, `mark-hands`, `autofix-corners`
+und seit 2026-09-14 auch `session boards` den Dienst. Diese Schritte fitten gegen das rohe Bild und
+erwarten es auf der Platte. Wer neu messen will, geht ueber `realgames export-session`, das die
+Bilder selbst aus dem Video holt — `data/_parked/frames/` ist leer und muss es auch nicht sein.
+
 ## Columns
 
 - **position** — the FEN placement field that holds for the WHOLE recording, or `game` when it

@@ -389,11 +389,18 @@ internal fun replayRun(
         val spec = desktopModelSpec(options.model)
         val geometry =
             replayBoardGeometry(quad, sessionDirOf(options, video), options.configFile?.let(::File)).withCropOf(spec)
+        // Before the config, because the config depends on it: `motionThr` is a per-frame-period
+        // percent, so the rate frames REACH the engine at scales it — as `TrackerService` does live.
+        val recorded = recordedFrameGate(options, video)
+        val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
         // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`), and
         // `:app` has applied it on attach since it was measured. The replay did not — so every
         // measurement here ran at the 0.5 default while the phone ran the model's own 0.15, and a
         // square between the two counted as a witness in one and not in the other.
-        val config = options.trackerConfig(geometry, live = camera != null).withCoverageGateOf(spec)
+        val config =
+            options
+                .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
+                .withCoverageGateOf(spec)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")
@@ -435,8 +442,6 @@ internal fun replayRun(
         // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both. Which
         // is why nothing here may READ it for a knob the run owns: it holds the defaults.
         val settings = SettingsRepository(MemoryConfigStore, scope)
-        val recorded = recordedFrameGate(options, video)
-        val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
         val visualCache =
             options.visualCache?.let { path ->
                 require(video != null && camera == null) { "visualcache= is only valid for a recorded video" }

@@ -83,9 +83,12 @@ def read_pack(name: str, paths: config.Paths = config.DATA, *, dir_: Path | None
     pack_paths = list(meta["paths"])
     if len(pack_paths) != n:
         raise ValueError(f"pack {name}: meta lists {len(pack_paths)} paths for n={n}")
-    if pack_paths and pack_name_of(pack_paths[0]) != name:
-        raise ValueError(f"pack {name}: its rows say {pack_name_of(pack_paths[0])} "
-                         f"({pack_paths[0]}) — the directory name IS the pack name")
+    # Jede Zeile, nicht nur die nullte: ein Pack, dessen spaetere Zeilen einen anderen Pack
+    # nennen, liest sonst fremde Pixel unter dem eigenen Namen.
+    foreign = next((p for p in pack_paths if pack_name_of(p) != name), None)
+    if foreign is not None:
+        raise ValueError(f"pack {name}: its rows say {pack_name_of(foreign)} "
+                         f"({foreign}) — the directory name IS the pack name")
     return PackRef(name=name, image=img_path, shape=(n, h, w), paths=pack_paths)
 
 

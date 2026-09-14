@@ -52,8 +52,8 @@ def test_the_scan_and_the_crop_agree_on_the_border_they_cut_at():
 
 def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():
     """`scan_video` names hands with `profile.white_pov` and `cell_sharpness` re-derives the
-    square names with `white_pov=True` hardcoded, so a black-POV profile masks the 180-degree
-    mirror of the hand and measures focus ON the hand instead."""
+    square names with `white_pov=True` hardcoded, so it ignored the side it was told and masked
+    the 180-degree mirror of the hand, measuring focus ON the hand instead."""
     size = 64
     step = size // 8
     rng = np.random.default_rng(0)
@@ -61,7 +61,7 @@ def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():
     gray[5 * step:] = rng.integers(0, 256, (size - 5 * step, size), dtype=np.uint8)
     hands = [f"{f}{r}" for r in range(1, 6) for f in "abcdefgh"]
 
-    sharp = cell_sharpness(gray, size, hands)
+    sharp = cell_sharpness(gray, size, hands, white_pov=False)
 
     assert sharp > 0.0, (
         "the five flat ranks the sensor flagged as a hand were kept and the five sharp ones "
@@ -69,10 +69,14 @@ def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():
     )
 
 
-def test_the_same_warp_geometry_resamples_the_same_way_with_and_without_a_mesh():
-    """`warp_padded` falls to `cv2.warpPerspective` (INTER_LINEAR) when mesh and lens are both
-    None and uses `cv2.remap` (INTER_CUBIC) otherwise. An identity mesh is the same map, so the
-    pixels must not move — `straighten_board` measures the linear step at -44 % crop sharpness."""
+def test_both_warp_paths_resample_the_same_way():
+    """Ein Identitaets-Mesh ist dieselbe Abbildung, also muessen die Pixel gleich bleiben.
+
+    War bis 2026-09-14 verletzt: der schnelle Zweig (`warpPerspective`, kein Mesh und keine
+    Lens) interpolierte bilinear, der Mesh-Zweig (`remap`) kubisch — 63 Graustufen Abstand,
+    zwei Schaerfe-Domaenen aus derselben Geometrie. Seit der Vereinheitlichung auf kubisch
+    bleiben 11 Graustufen an einzelnen Randpixeln (Mittel 0,002), `docs/warp-resampling.md`.
+    """
     prof = _profile()
     pad = crop_border_px(prof)
     rng = np.random.default_rng(1)
@@ -85,10 +89,9 @@ def test_the_same_warp_geometry_resamples_the_same_way_with_and_without_a_mesh()
     inner = (slice(pad + 8, pad + SIDE - 8), slice(pad + 8, pad + SIDE - 8))
     worst = int(np.abs(plain[inner].astype(int) - meshed[inner].astype(int)).max())
 
-    assert worst <= 8, (
-        f"an identity mesh moves a pixel by {worst} grey levels: the no-mesh warp is bilinear and "
-        "the mesh warp bicubic, so a recording whose mesh fit failed feeds the dataset crops "
-        "resampled through a low-pass the mesh recordings never see"
+    assert worst <= 12, (
+        f"an identity mesh moves a pixel by {worst} grey levels: the two warp paths no longer "
+        "resample alike, so a crop's sharpness depends on whether a mesh fit happened to succeed"
     )
 
 

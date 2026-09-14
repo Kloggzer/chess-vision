@@ -19,6 +19,7 @@ from .labeling import (
     crops_for_frame,
     read_log,
     read_session_meta,
+    usable_board,
 )
 
 SAM3_REPO = "facebook/sam3"
@@ -436,7 +437,11 @@ def recut_fixed(
             row["frame"],
         )
 
-        if fixed.exists() and entry is not None:
+        if (
+            fixed.exists()
+            and entry is not None
+            and usable_board(entry, profile)
+        ):
             fixed_image = cv2.imread(
                 str(fixed),
                 cv2.IMREAD_GRAYSCALE,
@@ -531,8 +536,8 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     """Run `solid` over the alphas already on disk, and recut the coverage it moves.
 
     The seam is a fault of the UNION, so the stored pixels carry it exactly as the worker wrote
-    them and re-running SAM would cost hours to change the same pixels. `.fixed.webp` stays put:
-    those are a person's."""
+    them and re-running SAM would cost hours to change the same pixels. A row a person corrected
+    (`alpha: fixed`) is skipped whole: that alpha and that coverage are theirs."""
     from .calibration import load_profile
     from .ioutil import read_jsonl
     from .realgames import game_dir
@@ -552,7 +557,10 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
         alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
         entry = entries.get(row["frame"])
         image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
-        if image is None or entry is None:
+        # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
+        # from SAM's own matte would replace their numbers while the row keeps claiming theirs.
+        if (image is None or entry is None or row.get("alpha") == "fixed"
+                or not usable_board(entry, profile)):
             rows.append(row)
             continue
         filled = solid(image)
@@ -845,10 +853,17 @@ def alpha_worker(
                 / entry["board"]
             )
 
+            # Coverage is a training target, so an off-scale cut poisons the label rather than
+            # blurring it: the row's own numbers decide, exactly as every other board reader.
+            raster = usable_board(
+                entry,
+                profile,
+            )
+
             board = cv2.imread(
                 str(board_path),
                 cv2.IMREAD_COLOR,
-            )
+            ) if raster else None
 
             row = {
                 "frame": stem,
@@ -861,6 +876,8 @@ def alpha_worker(
             if board is None:
                 row["skipped"] = (
                     "board unreadable"
+                    if raster
+                    else "board not the crop raster"
                 )
 
             else:
