@@ -45,7 +45,6 @@ val BUNDLED_MODELS =
         "p4afull-128",
         "p4a-128",
         "p4-128",
-        "p4a-96",
         "p4a-80",
         "p4-80",
     )

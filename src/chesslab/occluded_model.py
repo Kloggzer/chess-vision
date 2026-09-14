@@ -38,16 +38,32 @@ def model_classes(run_dir: Path) -> list[str]:
     return list(cfg.get("classes", []))
 
 
-def trained_on(run_dir: Path) -> set[str]:
-    """Session ids in the model's training split — the sessions it must not be asked about."""
-    cfg = json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+def run_config(run_dir: Path) -> dict:
+    return json.loads((run_dir / "config.json").read_text(encoding="utf-8"))
+
+
+def split_path(run_dir: Path) -> Path | None:
+    """Where the run's training split should be — `None` when the run names no dataset."""
+    cfg = run_config(run_dir)
     dataset = cfg.get("dataset")
     if not dataset:
-        return set()
+        return None
     from . import config
 
-    split = config.DATA.datasets / dataset / (cfg.get("split_file") or "split.json")
-    if not split.exists():
+    return config.DATA.datasets / dataset / (cfg.get("split_file") or "split.json")
+
+
+def trained_on(run_dir: Path) -> set[str]:
+    """Session ids in the model's training split — the sessions it must not be asked about.
+
+    The run's OWN `config.json["split"]` wins: it is frozen at training time, while the dataset
+    directory can be rebuilt or deleted underneath it (`real13-mix-v4` is gone, 2026-09-14).
+    """
+    embedded = (run_config(run_dir).get("split") or {}).get("splits")
+    if embedded:
+        return set(embedded.get("train") or [])
+    split = split_path(run_dir)
+    if split is None or not split.exists():
         return set()
     splits = json.loads(split.read_text(encoding="utf-8")).get("splits") or {}
     return set(splits.get("train") or [])
@@ -60,7 +76,21 @@ def _names_session(entry: str, session_id: str) -> bool:
 
 
 def check_not_circular(run_dir: Path, session_id: str) -> None:
-    """Refuse loudly: a model scoring its own training session is a mirror, not a proposer."""
+    """Refuse loudly: a model scoring its own training session is a mirror, not a proposer.
+
+    An UNREADABLE split refuses too. `real13-mix-v4` is gone from disk while three bundled
+    models still name it, and an empty set of hits then read as "held out" (found 2026-09-14).
+    """
+    embedded = (run_config(run_dir).get("split") or {}).get("splits")
+    split = split_path(run_dir)
+    if not embedded and split is None:
+        raise ValueError(f"{run_dir.name} carries neither a `split` nor a dataset name, so its "
+                         f"training split cannot be checked — the guard refuses rather than "
+                         f"assume {session_id} is held out.")
+    if not embedded and not split.exists():
+        raise ValueError(f"{run_dir.name} was trained on `{split.parent.name}`, whose split is "
+                         f"not on disk ({split}) — whether {session_id} is held out is UNKNOWN, "
+                         f"so the guard refuses. Restore the dataset or use another model.")
     hits = sorted(e for e in trained_on(run_dir) if _names_session(e, session_id))
     if hits:
         raise ValueError(

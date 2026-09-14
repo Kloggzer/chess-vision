@@ -13,7 +13,10 @@ from chesslab import config
 from chesslab.audit_flags import class_thresholds, confident_class, session_flags
 from chesslab.realgames import game_dir
 
-MODEL = "data/models/real14-ms-s3-hn-bn80"
+#: Deliberately NOT a run on disk: these tests are about flag selection, and the guard has
+#: its own. A real path would be read under the monkeypatched data root, where its split
+#: is absent — which `check_not_circular` refuses since 2026-09-14.
+MODEL = "data/models/_not-on-disk-audit-fixture"
 
 
 def _row(frame, square, label, probs, session="rg-g"):
