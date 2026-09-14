@@ -44,6 +44,33 @@ Nachgemessen an der Zusicherung selbst: ueber ein Identitaets-Mesh lag der Absta
 **63** Graustufen, jetzt bei **11** an einzelnen Randpixeln, im Mittel 0,002, Laplace 23 189,8
 gegen 23 189,3. `test_both_warp_paths_resample_the_same_way` haelt das fest.
 
+## Was es kostet, und warum NUR der Crop-Warp (Nutzer, 2026-09-14)
+
+Der Aufschlag haengt an der Ziel-Leinwand, und die folgt aus dem MODELL: ein 80-px-Modell
+impliziert ein Brett von 582, ein 128er eines von 931 (`board_size/8 * (1 + 2*pad_side)`). Der
+Konfigurationswert 1600 ist ein Platzhalter und kommt real nicht vor.
+
+| Modell | Brett | Aufschlag je Beobachtung |
+|---|---|---|
+| 80 px (`p4a-80-clahe`, Vorgabe) | 582 | **+0,62 ms** |
+| 96 px | 698 | +0,90 ms |
+| 128 px | 931 | +0,61 ms |
+
+Unter einer Millisekunde, und nur je BEOBACHTUNG, nicht je Frame — gegen 16 ms CNN-Inferenz und
+66 ms Bildperiode bei 15 fps. Im Replay sind es 43 s ueber 41 136 Beobachtungen; die restlichen
+250 s des gemessenen Unterschieds waren ein beschaeftigter Rechner, nicht der Warp.
+
+**Der Erkennungs- und der Gitter-Warp bleiben bilinear, und das ist die eigentliche Entscheidung.**
+Fuer BILDDATEN heisst schaerfer besser. Fuer eine MESSUNG heisst es gar nichts: sie wird nicht
+richtiger, nur anders skaliert — und jede Schwelle wurde gegen die bisherige Weichheit gefittet.
+Gemessen: der Gitter-Warp kubisch verschob das gefittete Quad um 2,78 px, und der Ruhe-Vergleich
+wurde bei identischem Versatz ~10 % empfindlicher, waehrend `SETTLE_LIMIT` auf 45 steht. Aus dem
+Erkennungs-Warp kommt zudem ALLES, was die Engine diffed, also auch die Basis von `motionThr`,
+`ACTIVITY_THR` und dem Census. Eine schaerfere Basis senkt jede dieser Schwellen faktisch ab, ohne
+dass jemand eine anfasst — derselbe Fehler wie das fehlende `coverage_gate`, nur in anderer Form.
+Kosten waeren es nicht: kubisch je Frame sind 8-12 ms/s bei 15 fps. Wer es trotzdem will, macht ein
+eigenes Vorhaben daraus, mit Nachmessen der Schwellen und A/B davor und danach.
+
 ## Was NICHT belegt ist
 
 Die Schaerfezahl ist gemessen, der Nutzen nicht. Laplace-Energie ist ein Kantenmass, kein Beleg,
