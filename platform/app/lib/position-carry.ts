@@ -19,6 +19,9 @@ function sameLabels(a: Labels, b: Labels): boolean {
   return aKeys.every((key) => a[key] === b[key]);
 }
 
+// TODO: unverdrahtet — `board-paint` verarbeitet `prefilled` bis in `planBoard`, aber niemand
+// reicht es hinein. Verdrahten ist eine Produktentscheidung (welche Korrektur auf welches Brett
+// wandert), siehe docs/offene-entscheidungen.md.
 export function carryPositionCorrections(input: {
   frames: readonly CarryFrame[];
   from: number;

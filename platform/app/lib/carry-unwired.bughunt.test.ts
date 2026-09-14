@@ -29,16 +29,16 @@ async function files(): Promise<{ rel: string; text: string }[]> {
   })));
 }
 
-test("carryPositionCorrections has a production caller", async () => {
+test("carryPositionCorrections is still unwired — a decision, not an oversight", async () => {
   const callers = (await files())
     .filter((f) => f.rel !== "lib/position-carry.ts" && f.text.includes("carryPositionCorrections"))
     .map((f) => f.rel);
-  expect(callers, "BUG: only lib/position-carry.test.ts calls it — the carry never runs").not.toEqual([]);
+  expect(callers, "Der Carry ist bewusst unverdrahtet (docs/offene-entscheidungen.md). Wer ihn anschliesst, dreht diese Zusicherung um.").toEqual([]);
 });
 
-test("something passes the prefilled prop board-paint accepts", async () => {
+test("the prefilled prop stays accepted so wiring it later is one call", async () => {
   const passers = (await files())
     .filter((f) => f.rel !== "components/board-paint.tsx" && /\bprefilled=/.test(f.text))
     .map((f) => f.rel);
-  expect(passers, "BUG: the receiving prop has no caller either").not.toEqual([]);
+  expect(passers, "Die Gegenseite steht bereit: `prefilled` wird bis in `planBoard` verarbeitet, nur nie gefuellt.").toEqual([]);
 });

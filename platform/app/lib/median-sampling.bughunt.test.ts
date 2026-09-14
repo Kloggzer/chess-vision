@@ -11,7 +11,10 @@ import { medianPng } from "@/lib/crops";
  * never reach the median the comment says spreads over the whole interval.
  */
 const FRAMES = 14;
-const BRIGHT = new Set([0, 3, 9, 12]);
+// Die HINTERE Haelfte ist hell: ein Schnitt, der nur den Anfang trifft, bekommt einen dunklen
+// Median, jeder der das Ende erreicht einen hellen. Das ist die Eigenschaft, nicht eine
+// bestimmte Schrittweite.
+const BRIGHT = new Set([7, 8, 9, 10, 11, 12, 13]);
 const SIZE = 928;
 
 let root: string;

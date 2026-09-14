@@ -45,7 +45,7 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
   return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
-/** The pen overwrites a file this cache keys by PATH alone — a stale raster would outlive it. */
+/** Der Stift ueberschreibt eine Datei; der Cache traegt die mtime, das hier ist der Sofort-Wurf. */
 export function forgetRaster(file: string): void {
   decoded.delete(file);
 }
@@ -151,6 +151,11 @@ export async function mattePng(name: string, stem: string, size: number) {
   const session = await loadSession(name);
   const board = session.byStem.get(stem)?.board;
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
+  // Dieselbe Wache wie `cutSource`: die Matte IST das Brett-Raster, ein ungerades Brett legte
+  // die Woelbung sonst still in jede Alpha-Ansicht.
+  if (!board.straightened) {
+    throw new Error(`${name}/${stem}: board is not straightened — run \`chesslab session straighten\``);
+  }
   const file = await alphaPath(name, stem);
   const src = { raster: await rasterOf(file), h: boardToStored(session, board) };
   return encode(field(session, src, size), size, size);
@@ -167,8 +172,14 @@ export async function medianPng(name: string, stem: string, square: string, size
   const session = await loadSession(name);
   const ply = session.byStem.get(stem)?.ply;
   const stems = session.plies.get(ply ?? -1) ?? [stem];
-  const step = Math.max(1, Math.floor(stems.length / SAMPLES));
-  const picked = stems.filter((_, i) => i % step === 0).slice(0, SAMPLES);
+  // Gleichmaessig ueber das GANZE Intervall: `floor(n/SAMPLES)` plus `slice` traf nur den Anfang
+  // (bei 12 Frames die Indizes 0-8), und dort zieht die Hand sich gerade erst zurueck.
+  const n = stems.length;
+  const take = Math.min(SAMPLES, n);
+  const picked = take <= 1
+    ? stems.slice(0, 1)
+    : [...new Set(Array.from({ length: take }, (_, i) => Math.round((i * (n - 1)) / (take - 1))))]
+        .map((i) => stems[i]);
 
   // Each sample through its own board: the frames of one interval were straightened with their
   // own mesh, so the median stacks the same square and not a slowly sliding one.

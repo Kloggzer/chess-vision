@@ -107,8 +107,6 @@ type StreamAuditCell = {
   square: string;
   fen_label: string;
   predicted: string;
-  prob: number;
-  margin: number;
 };
 
 /** Eine schon beurteilte Zelle, wie „Fertige zeigen" sie zurueckholt. */
@@ -492,8 +490,6 @@ function auditCells(
       square: row.square,
       fen_label: row.fen_label,
       predicted: row.predicted,
-      prob: row.prob,
-      margin: row.margin,
     });
   }
   return out;

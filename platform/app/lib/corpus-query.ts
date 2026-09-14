@@ -40,7 +40,11 @@ export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryA
     if (rows.length === 0) continue;
     for (const klass of classesSeen(rows)) classes.add(klass);
     // Only when asked for: `loadSession` parses a log the query itself has no use for.
-    const session = phase === "any" ? null : await loadSession(name).catch(() => null);
+    // Unlesbares Log bei gesetztem Filter heisst NICHT "passt": die Aufnahme faellt raus. Vorher
+    // schaltete `catch(() => null)` den Filter fuer sie still ab, und die Antwort nannte die
+    // Phase trotzdem.
+    const session = phase === "any" ? null : await loadSession(name).catch(() => undefined);
+    if (session === undefined) continue;
     const id = sessionId(name);
 
     const byFrame = new Map<string, QueryHit>();

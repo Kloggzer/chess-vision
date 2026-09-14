@@ -25,6 +25,8 @@ export type Candidate = {
   confirmed_at?: string;
   created_at?: string;
   reviewed_plies?: number[];
+  /** Plies, die ein Mensch gestrichen hat, weil die LCS eine SAN traf und keine Stellung. */
+  struck_plies?: number[];
   start_fen?: string;
   moves: Move[];
   /** Board geometry of the recording — the cell crops are cut through it (`lib/warp.ts`). */
@@ -199,7 +201,10 @@ export async function writeConfirmation(name: string, kept: number[], drop: numb
   // replay committed `Nf6` where the board actually showed `e5`, and the LCS matched that `Nf6` to
   // the reference's own — four plies later. The position it stamps on its commit window never
   // existed, so the human must be able to strike it.
-  const dropped = new Set(drop);
+  // Gestrichenes bleibt gestrichen: `drop` wurde nur angewendet und nie gespeichert, also holte
+  // der naechste Aufruf ohne Liste die Plies zurueck — und `/api/zuege` schickt nie eine.
+  const struck = [...new Set([...(candidate.struck_plies ?? []), ...drop])].sort((a, b) => a - b);
+  const dropped = new Set(struck);
   const plies = reviewedPlies(candidate.moves, matched, kept.filter((j) => inventedSet.has(j))).filter(
     (ply) => !dropped.has(ply),
   );
@@ -207,6 +212,7 @@ export async function writeConfirmation(name: string, kept: number[], drop: numb
   doc.confirmed = true;
   doc.confirmed_at = new Date().toISOString().replace(/\.\d+Z$/, "Z");
   doc.reviewed_plies = plies;
+  if (struck.length > 0) doc.struck_plies = struck;
 
   const tmp = `${file}.tmp`;
   await writeFile(tmp, JSON.stringify(doc, null, 2) + "\n", "utf8");

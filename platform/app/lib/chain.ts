@@ -144,7 +144,16 @@ export async function chainState(name: string): Promise<ChainState> {
     exists(path.join(dir, "model-reads.jsonl")),
     uselessFlag(name),
   ]);
-  const confirmed = candidateText !== null && (JSON.parse(candidateText) as { confirmed?: boolean }).confirmed === true;
+  // Eine halb geschriebene `candidate.json` ist "noch nicht bestaetigt", kein Grund, die ganze
+  // Queue-Seite zu leeren — sie entsteht waehrend `writeConfirmation` schreibt.
+  const confirmed = candidateText !== null
+    && ((): boolean => {
+      try {
+        return (JSON.parse(candidateText) as { confirmed?: boolean }).confirmed === true;
+      } catch {
+        return false;
+      }
+    })();
   // Checked before the button is offered, not after ten minutes of replay.
   const broken = video && !(await checkMp4(video)).finalized;
   const state = {
@@ -181,7 +190,9 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   // Before `model-read`, which needs a model picked by hand: the alphas need nothing but the
   // export. The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out,
   // and a step waiting for the other 314 would strand the biggest sessions on this rung forever.
-  if (state.mattes.done < state.mattes.target) return "matte";
+  // Auch gemeldete Frames AUSSERHALB des Haufens: `--reported` holt sie, aber sobald das Ziel
+  // erfuellt war, bot die Kette den Schritt nicht mehr an und sie blieben unerreichbar.
+  if (state.mattes.done < state.mattes.target || state.mattes.reported > 0) return "matte";
   // After SAM, never before: the pass adopts what SAM has not cut and upserts where SAM found
   // nothing, so it needs SAM's rows on disk to know which is which.
   if (!state.hasTemporalPass) return "temporal";

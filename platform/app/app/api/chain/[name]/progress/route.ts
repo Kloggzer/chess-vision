@@ -1,4 +1,4 @@
-import { jobs } from "@/lib/jobs";
+import { jobOf } from "@/lib/jobs";
 import { progressOf } from "@/lib/progress";
 
 export const runtime = "nodejs";
@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: Request, ctx: RouteContext<"/api/chain/[name]/progress">) {
   const { name } = await ctx.params;
   try {
-    const job = (await jobs(100)).find((j) => j.name === name) ?? null;
+    // `jobs(100)` schnitt VOR dem Filter: hinter 120 neueren Zeilen las ein laufender Job der
+    // gesuchten Aufnahme als idle, und die Seite bot den Knopf erneut an.
+    const job = await jobOf(name);
     return Response.json({ job, progress: await progressOf(name, job?.log) });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });

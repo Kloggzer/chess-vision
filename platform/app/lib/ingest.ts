@@ -195,8 +195,12 @@ export async function complete(name: string): Promise<TransferRow> {
     const landed = await sizeOf(path.join(targetDir(name), file.path));
     if (landed === file.bytes) continue;
     const partial = path.join(staging, file.path + ".partial");
+    // Auch die fertige Datei zaehlt: der erste Abschluss benennt jedes `.partial` um, ein
+    // Wiederholungsversuch fand danach nichts und meldete "unvollstaendig" — 409 fuer immer,
+    // und das Handy laedt alles neu hoch.
     const have = await sizeOf(partial);
-    if (have !== file.bytes) missing.push({ path: file.path, have: Math.max(0, have), want: file.bytes });
+    const done = have === file.bytes ? have : await sizeOf(path.join(staging, file.path));
+    if (done !== file.bytes) missing.push({ path: file.path, have: Math.max(0, have), want: file.bytes });
   }
   if (missing.length > 0) throw Object.assign(new Error("incomplete transfer"), { missing, conflict: true });
 
@@ -229,7 +233,15 @@ export async function complete(name: string): Promise<TransferRow> {
 export async function transfers(limit = 50): Promise<TransferRow[]> {
   try {
     const text = await readFile(ledgerPath(), "utf8");
-    const rows = text.split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as TransferRow);
+    // Eine halb geschriebene Zeile faellt WEG, nicht die Seite: `appendFile` kann mitten im
+    // Schreiben stehen, und ein Wurf hier liess `transfers` leer zurueckkommen.
+    const rows = text.split("\n").filter((l) => l.trim()).flatMap((l) => {
+      try {
+        return [JSON.parse(l) as TransferRow];
+      } catch {
+        return [];
+      }
+    });
     return rows.slice(-limit).reverse();
   } catch {
     return [];
@@ -255,8 +267,15 @@ export async function ingestToken(): Promise<string> {
   }
   const token = randomBytes(8).toString("hex");
   await mkdir(inboxDir(), { recursive: true });
-  await writeFile(file, token + "\n", "utf8");
-  return token;
+  // `wx`: wer zuerst schreibt, gewinnt. Lesen-dann-Schreiben liess zwei gleichzeitige Aufrufer je
+  // einen Token erzeugen, der zweite ueberschrieb den ersten — das Handy hielt dann einen, den
+  // die Transfers-Seite nicht mehr zeigt.
+  try {
+    await writeFile(file, token + "\n", { encoding: "utf8", flag: "wx" });
+    return token;
+  } catch {
+    return (await readFile(file, "utf8")).trim();
+  }
 }
 
 export async function authorized(request: Request): Promise<boolean> {

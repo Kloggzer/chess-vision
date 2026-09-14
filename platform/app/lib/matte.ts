@@ -130,7 +130,6 @@ export function matteTarget(): number {
 type Sets = Map<string, { key: string; value: Set<string> }>;
 const sets: Sets = ((globalThis as { __chesslabMatteSets?: Sets }).__chesslabMatteSets ??= new Map());
 
-const FRAME = /"frame":\s*"([^"]+)"/g;
 const FRAME_ONE = /"frame":\s*"([^"]+)"/;
 const BOARD_ONE = /"board":\s*"([^"]+)"/;
 const OCCLUDED_ONE = /"dirty_reason":\s*"occluded"/;
@@ -189,10 +188,9 @@ async function cachedSet(file: string, tag: string,
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [usable, pile, matted, reviews] = await Promise.all([
+  const [usable, pile, reviews] = await Promise.all([
     cachedSet(path.join(dir, "matte.jsonl"), "usable", usableStemsIn),
     cachedSet(path.join(dir, "log.jsonl"), "pile", occludedStemsIn),
-    matteStems(path.join(dir, "matte.jsonl")),
     frameReviews(sessionId(name)),
   ]);
   // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel. Ein Re-Export waehlt andere
@@ -201,12 +199,9 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   let done = 0;
   for (const stem of usable) if (pile.has(stem)) done += 1;
   const total = pile.size;
-  const reported = [...reviews].filter(([stem, r]) => r.dirty && !matted.has(stem)).length;
+  // `matted` traegt auch die Zeilen, die SAM ABGELEHNT hat (kein `coverage`). Ein gemeldeter
+  // Frame, den SAM nicht schneiden konnte, fiel damit aus der Zahl, die ihn sichtbar macht.
+  const reported = [...reviews].filter(([stem, r]) => r.dirty && !usable.has(stem)).length;
   return { done, total, target: Math.min(matteTarget(), total), reported };
 }
 
-/** Die Stems, die eine Matte-Zeile haben — `done` zählt sie nur, hier braucht es die Namen. */
-async function matteStems(file: string): Promise<Set<string>> {
-  const text = await readFile(file, "utf8").catch(() => "");
-  return new Set([...text.matchAll(FRAME)].map((m) => m[1]));
-}

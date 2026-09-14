@@ -20,8 +20,11 @@ const ARCHIVED_AT = /^archived_at:\s*(\S.*)$/m;
 export async function loadMeta(name: string): Promise<UiMeta> {
   try {
     return JSON.parse(await readFile(path.join(gameDir(name), FILE), "utf8")) as UiMeta;
-  } catch {
-    return {};
+  } catch (e) {
+    // NUR "nicht da" ist leer. Eine kaputte Datei als `{}` zu lesen liess `saveMeta` darauf
+    // schreiben und nahm dabei ein gesetztes `archived` mit.
+    if ((e as { code?: string })?.code === "ENOENT") return {};
+    throw e;
   }
 }
 

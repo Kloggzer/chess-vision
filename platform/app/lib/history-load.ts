@@ -9,6 +9,10 @@ import type { Change } from "@/lib/history";
 import { liveGames } from "@/lib/label-stream";
 import { loadSession } from "@/lib/session";
 
+/** Kopfraum je Aufnahme: genug, damit keine die anderen verdraengt, und weit unter
+ *  "alles lesen". Geschnitten wird danach ueber den ganzen Korpus. */
+const GAMES_HEADROOM = 4;
+
 const LEDGERS: readonly Ledger[] = ["corrections", "reviewed"];
 
 /** Jüngste zuerst; bei gleichem Zeitstempel entscheidet die Zeilennummer, denn ein Stapel-Schreiben
@@ -27,7 +31,9 @@ export async function loadHistory(limit: number): Promise<Change[]> {
     // Erst filtern, dann schneiden: ein Re-Export schreibt Bretter neu, Labels sind global
     // gekeyt und ueberleben das — geschnitten wurde sonst auf Zeilen, die danach wegfielen.
     for (const row of rows.sort(newestFirst)) {
-      if (out.length >= limit) break;
+      // Kein Deckel je Aufnahme: hatte die erste genug Zeilen, trug keine weitere mehr etwas bei.
+      // Geschnitten wird am Ende, ueber den ganzen Korpus sortiert.
+      if (out.length >= limit * GAMES_HEADROOM) break;
       const fen = fens.get(row.frame);
       if (fen === undefined) continue;
       out.push({

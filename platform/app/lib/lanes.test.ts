@@ -190,7 +190,7 @@ test("a cell lane carries its own pre-label and ledger, and the identity lanes n
   expect(wall.note).toBe("Modell bB");
 
   const audit = laneCells(
-    streamOf({ audit: [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", predicted: "bB", prob: 0.91, margin: 0.62 }] }),
+    streamOf({ audit: [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", predicted: "bB" }] }),
     "audit",
   )[0];
   expect(audit).toMatchObject({ label: "bP", ledger: "reviewed", exception: "bB" });
@@ -255,7 +255,7 @@ test("die Strittig-Lane traegt die Abfrage der Klassenwand mit, und sagt — sol
 
 test("eine verdeckte Zelle ist keine Frage — der Verlust maskiert sie ohnehin", () => {
   const audit = (square: string) =>
-    ({ session: 0, pos: 0, stem: "000100", square, fen_label: "bP", predicted: "bB", prob: 0.9, margin: 0.5 });
+    ({ session: 0, pos: 0, stem: "000100", square, fen_label: "bP", predicted: "bB" });
   const stream = streamOf({
     audit: [audit("e5"), audit("h1")],
     // e5 liegt unter einer Hand (`PIECE_VISIBLE_MAX` 0.15), h1 ist frei, a1 wurde nie gemessen.

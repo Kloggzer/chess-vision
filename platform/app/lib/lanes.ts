@@ -249,7 +249,7 @@ export type LaneCell = {
  */
 function judgedCell(c: {
   session: number; pos: number; stem: string; square: string; fen_label: string;
-  predicted: string; prob: number; margin?: number;
+  predicted: string;
 }): LaneCell {
   // Only one of the 13: `occluded` is measured now and `validate` rejects it, so offering it as
   // "das Modell hat recht" would 400 the whole page instead of writing one row.
@@ -319,7 +319,6 @@ export function wallCells(hits: readonly QueryHit[], stream: LabelStream): LaneC
           square,
           fen_label: fen[square] ?? "empty",
           predicted: hit.accept[square] ?? "",
-          prob: 0,
         }),
       );
     }

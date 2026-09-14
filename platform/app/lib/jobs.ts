@@ -255,13 +255,20 @@ export async function videoInput(name: string): Promise<{ video: string; session
   try {
     sessions = (await readdir(sessionsRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name);
   } catch {
-    return { reason: "no sessions/ in the transfer" };
+    /* kein sessions/ — die gespiegelte Kopie kann trotzdem daliegen */
   }
   const sessionId = sessions.sort().at(-1);
-  if (!sessionId) return { reason: "no session directory" };
-  const video = path.join(sessionsRoot, sessionId, "video.mp4");
-  if (!(await exists(video))) return { reason: `no video.mp4 in sessions/${sessionId} — recording ran without the QHD bundle` };
-  return { video, sessionId };
+  if (sessionId) {
+    const video = path.join(sessionsRoot, sessionId, "video.mp4");
+    if (await exists(video)) return { video, sessionId };
+  }
+  // Derselbe Rueckfall wie `chain.ts`: die gespiegelte Kopie liegt neben dem Bundle. Ohne ihn bot
+  // die Chain den Knopf an und die Reparatur verweigerte ihn — eine dauerhafte Sperre.
+  const mirrored = path.join(path.dirname(files), "video.mp4");
+  if (await exists(mirrored)) return { video: mirrored, sessionId: sessionId ?? name };
+  return { reason: sessionId
+    ? `no video.mp4 in sessions/${sessionId} — recording ran without the QHD bundle`
+    : "no sessions/ and no mirrored video.mp4 in the transfer" };
 }
 
 /**
@@ -998,6 +1005,19 @@ const asFailed = (row: Job): Job => ({
   reason: "the server restarted while this job was running — press the step again",
   finishedAt: row.finishedAt ?? row.startedAt ?? row.queuedAt,
 });
+
+/**
+ * Der Job EINER Aufnahme, ohne Liste.
+ *
+ * `jobs(n)` schneidet vor dem Filtern: hinter genug neueren Zeilen las ein laufender Job als
+ * idle, und die Seite bot ihren Knopf ein zweites Mal an.
+ */
+export async function jobOf(name: string): Promise<Job | null> {
+  const live = queue.jobs.get(name);
+  if (live) return live;
+  const row = (await ledger((r) => r.name)).get(name) ?? null;
+  return row === null ? null : (restarted(row) ? asFailed(row) : row);
+}
 
 /** In-memory state first, the ledger behind it — a job from before a restart is still a fact. */
 export async function jobs(limit = 25): Promise<Job[]> {
