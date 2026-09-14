@@ -52,5 +52,6 @@ def read_jsonl(path: Path) -> list[dict]:
     # TextIO already yields Unicode. Calling the decoder directly avoids repeating the public
     # json.loads type/encoding dispatch for every line of large manifests.
     decode = json.JSONDecoder(object_pairs_hook=pooled).decode
+    # TODO: Ignore only an invalid unterminated tail; a killed append must not poison prior rows.
     with p.open(encoding="utf-8") as fh:
         return [decode(line) for line in fh if line.strip()]

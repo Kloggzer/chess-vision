@@ -105,6 +105,8 @@ private fun buildController(
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
     // Snapshotted here and never on the capture path: it is a directory walk.
+    // TODO: never refreshed, so every session finished in THIS process is invisible to the size cap —
+    // three 3 GB games in a row still measure the disk as it was at service start.
     val baseline = sessions.totalBytes()
     val capture =
         SessionCaptureController(

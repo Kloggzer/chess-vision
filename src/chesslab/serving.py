@@ -326,6 +326,7 @@ def _is_plain_rgb(cfg: dict) -> bool:
     input representation (`--input-repr`) or on per-crop statistics does not fit the fold, and
     feeding it the wrong preprocessing silently is worse than losing the fast path.
     """
+    # TODO: Reject custom fixed mean/std here; the graph hard-codes config defaults and would diverge.
     return (cfg.get("input_repr", "rgb") == "rgb"
             and cfg.get("normalize", {}).get("mode", "fixed") != "per_crop"
             # CLAHE sitzt in der PIL-Kette; der gefaltete mul+sub kennt es nicht und wuerde es
@@ -367,6 +368,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     logits = None
     if (all_at_size and len(crops) <= _GRAPH_BATCH and _is_plain_rgb(cfg)
             and device.startswith("cuda") and not isinstance(model, _ONNXModel)):
+        # TODO: Include weights; otherwise a cached default graph serves later SWA checkpoint calls.
         key = f"{Path(run_dir).resolve()}|{device}"
         pred = _graph_predictor(key, model, out_h, out_w, device)
         if pred is not None:

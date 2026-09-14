@@ -113,6 +113,43 @@ class FrameLoopTest {
         assertThrows(IllegalArgumentException::class.java) { h.loop.step(input.copy(seq = 6L)) }
     }
 
+    /** Pending verification and asynchronous snapshots must use the producer's one sequence domain. */
+    @Test
+    fun detectionKeepsTheInputSequenceWhenTheProducerStartsAboveOne() {
+        val config =
+            TrackerConfig(
+                boardSize = TEST_BOARD_SIZE,
+                detectScale = 1.0,
+                darkLumaThr = 0.0,
+                minGridLineCoverage = 0.0,
+                motionHoldS = 0.0,
+                commitHoldS = null,
+                settleFramesOverride = 1,
+                avgFramesOverride = 1,
+            )
+        val h = Harness(config)
+        fun input(seq: Long) =
+            FrameInput(
+                seq = seq,
+                grayDet = grayFrame(),
+                bgrDet = bgrFrame(),
+                corners = FloatArray(CORNER_FLOATS),
+                motionRoiScore = 0.0,
+                gridLineCoverage = 1.0,
+                lumaPreClahe = Harness.QUIET_LUMA,
+                timestampMs = seq,
+            )
+
+        h.loop.step(input(100L))
+        val detected = h.loop.step(input(101L)) as FrameOutcome.Detect
+
+        assertEquals(
+            101L,
+            detected.seq,
+            "a candidate stamped 2 accepts CNN seq 99 even though that observation predates input seq 101",
+        )
+    }
+
     /** `:1629-1641` — the motion branch drops both buffers and arms the hold. */
     @Test
     fun motionBranchClearsBuffersAndArmsTheHold() {

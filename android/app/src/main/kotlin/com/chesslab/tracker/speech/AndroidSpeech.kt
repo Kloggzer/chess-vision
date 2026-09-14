@@ -31,6 +31,8 @@ class AndroidTts(
 ) : Tts {
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
     private val queuedAtMs = ConcurrentHashMap<String, Long>()
+    // TODO: written by the TextToSpeech init callback (main thread) and read from the announcer's
+    // Dispatchers.Default thread with no synchronisation — a stale `ready` drops the first move.
     private var counter = 0L
     private var ready = false
     private var deferred: (() -> Unit)? = null

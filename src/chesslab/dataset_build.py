@@ -36,6 +36,7 @@ log = logging.getLogger("chesslab.dataset_build")
 
 def _safe_name(name: str) -> str:
     n = (name or "").strip()
+    # TODO: Reject Windows device names and trailing dots/spaces; they alias or fail as directories.
     if not n or "/" in n or "\\" in n or ".." in n:
         raise ValueError(f"invalid dataset name: {name!r}")
     return n
@@ -122,6 +123,7 @@ def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -
     for r in rows:
         groups.setdefault((r["session_id"], r["square"], r["label"]), []).append(r)
     kept: list[dict] = []
+    # TODO: Iterate sorted group keys; RNG draws currently depend on manifest/group encounter order.
     for g in groups.values():
         if len(g) > cap:
             g = sorted(g, key=lambda r: str(r.get("frame", "")))   # deterministic

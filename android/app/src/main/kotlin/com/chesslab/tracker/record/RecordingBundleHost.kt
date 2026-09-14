@@ -73,6 +73,8 @@ class RecordingBundleHost(
      */
     fun armVideo() = startVideo()
 
+    // TODO: not @Synchronized, unlike [frame] and [adopt] — a frame arriving between the close
+    // below and [adopt] is trySent into a closed channel and lost without touching `evicted`.
     fun opened(recorder: SessionRecorder) {
         val next = SessionTimeline(recorder.dir, scope, timelineContext)
         timeline?.close()

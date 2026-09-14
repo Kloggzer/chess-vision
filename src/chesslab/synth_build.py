@@ -192,6 +192,7 @@ def build_synth_dataset(
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
+    # TODO: Count after collapse_labels; pieces13 drops occluded rows and leaves pack metadata stale.
     n_final = len(rows)
     # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
     # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.

@@ -268,6 +268,7 @@ internal class FrameLoop(
                         FrameOutcome.Skip(SKIP_OCCLUDED)
                     } else {
                         // seq = newest frame in the averaged buffer (the decision signature).
+                        // TODO: Preserve FrameInput.seq; a private counter cannot order CNN work after a nonzero sequence start.
                         FrameOutcome.Detect(cur, curBgr, state.frameSeq)
                     }
             }

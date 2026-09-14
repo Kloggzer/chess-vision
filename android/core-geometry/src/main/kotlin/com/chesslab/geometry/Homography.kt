@@ -207,6 +207,8 @@ private fun similarityProject(
     }
 }
 
+// TODO: both projections leak every `Mat` they build (3 point mats + `out` per call, per frame on
+// the live corner path) — the same finalizer leak `computeHomography` above had to release by hand.
 private fun affineProject(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,

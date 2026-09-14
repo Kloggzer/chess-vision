@@ -520,6 +520,7 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
  * INTERSECTION of the three callers — each adds its own remainder, so no path clears more.
  */
 internal fun EngineState.clearReferenceState() {
+    // TODO: Centralize position-scoped resets; partial caller tails let old proof survive adoption.
     refGray = null
     refBgr = null
     refFen = null

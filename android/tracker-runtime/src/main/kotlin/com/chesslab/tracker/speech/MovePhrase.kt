@@ -146,6 +146,8 @@ object MovePhrase {
         w: Words,
     ): String {
         val name = w.pieces[letter.uppercaseChar()] ?: letter.toString()
+        // TODO: LETTERS spells the MOVING piece as a letter but the promotion piece as a word —
+        // "N f 3" and then "promotes queen" in the same setting.
         val verb = if (verbosity == SpeechVerbosity.LETTERS) w[Term.PROMOTES] else w[Term.PROMOTES_TO]
         return "$verb $name"
     }

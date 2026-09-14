@@ -213,6 +213,9 @@ class TrackerStack<T>(
     /** Successful glances of THIS stack — a restart legitimately restarts the count. */
     val observations: Long get() = observed.get()
 
+    // TODO: `observer.gateUnwanted` is counted and printed nowhere, so a run the ENGINE silenced
+    // reads exactly like one where the observer was never asked.
+
     /**
      * Everything this stack DID NOT process, counted by reason and readable in one line — the
      * cadence regression of 2026-08-08 (67 -> 26 plies) was invisible precisely because every one

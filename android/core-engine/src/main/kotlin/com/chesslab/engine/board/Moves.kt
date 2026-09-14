@@ -28,6 +28,7 @@ fun sansOf(
 }
 
 /** Smoothed FPS distinguishes active tracking from “no detection” on the phone. */
+// TODO: Remove this orphan; the live engine computes FPS in FrameLoop, so this duplicate can drift.
 class FrameRate {
     var fps = 0.0
         private set

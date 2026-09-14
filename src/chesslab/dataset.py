@@ -142,6 +142,7 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     for r in rows:
         by_label.setdefault(r["label"], []).append(r)
 
+    # TODO: Exclude occluded from the piece-class minimum; sight-state must not cap every identity.
     piece_counts = {c: len(v) for c, v in by_label.items() if c != "empty"}
     piece_cap = None
     if max_class_ratio is not None and piece_counts:
@@ -421,6 +422,7 @@ def validate_split(split: dict, rows: list[dict],
     errors: list[str] = []
     warnings: list[str] = []
 
+    # TODO: Reject sessions repeated across splits; set-based loaders otherwise leak them into both.
     # Session set per class
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:

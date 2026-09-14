@@ -107,6 +107,7 @@ def describe(info: dict) -> str:
 def acquire(lock: Path, job: str, name: str) -> dict | None:
     """None if the lock is now ours, otherwise the live holder — callers word their own refusal."""
     lock = Path(lock)
+    # TODO: Claim with an exclusive create; check-then-write lets simultaneous writers both win.
     info = held_by(lock)
     if info is not None:
         return info

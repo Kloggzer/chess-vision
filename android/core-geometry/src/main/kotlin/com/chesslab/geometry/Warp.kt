@@ -19,9 +19,10 @@ import org.opencv.imgproc.Imgproc
 //
 // Interpolation follows Python EXACTLY, and the two sides differ on purpose (2026-09-14):
 // `warpFromCorners` stays at OpenCV's default INTER_LINEAR like Python's `warp_from_corners`,
-// while the CROP and GRID warps are INTER_CUBIC like Python's `warp_padded` — bilinear keeps
+// while the CROP warp is INTER_CUBIC like Python's `warp_board_for_crops` — bilinear keeps
 // 63,6 % of the Laplacian energy against 92,1 % (`docs/warp-resampling.md`). Border stays
-// BORDER_CONSTANT black. `test_crop_pixel_parity` is what holds the two implementations together.
+// BORDER_CONSTANT black. Der GITTER-Warp bleibt bilinear: er MISST, und kubisch gemessen
+// verschob er das gefittete Quad um 2,78 px. `test_crop_pixel_parity` haelt beide Seiten zusammen.
 
 private const val H_DIM: Int = 3
 
@@ -130,6 +131,8 @@ fun warpBoardForCrops(
  *
  * Geometry is identical to the borderless warp, only shifted by [pad].
  */
+// TODO: the file header says the GRID warp is INTER_CUBIC; it is bilinear here, and Python's
+// `warp_padded` says bilinear is deliberate (cubic moved the fitted quad 2,78 px). Fix the comment.
 internal fun warpFromCornersPadded(
     frame: Mat,
     geom: BoardGeometry,

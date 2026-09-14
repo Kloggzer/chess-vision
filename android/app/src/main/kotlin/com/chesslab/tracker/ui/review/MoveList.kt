@@ -98,6 +98,8 @@ fun MoveList(
     val listState = rememberLazyListState()
     val plyCount = game.plies.size
     LaunchedEffect(plyCount) {
+        // TODO: totalItemsCount is one PAST the last index, and it is read from layoutInfo that is
+        // still empty on the first composition — so the newest move is not reliably scrolled to.
         if (plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
     }
     Box(

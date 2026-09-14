@@ -32,6 +32,8 @@ data class CaptureObserved(
     /** True only when size, rate and bit rate all came back as asked. */
     val asAsked: Boolean
         get() =
+            // TODO: the delivered check compares only the LONG side, so a 3840x1644 frame reads as
+            // "exactly as asked" and capture.json claims a picture the device never delivered.
             notes.isEmpty() &&
                 aeFpsRange != null &&
                 bitRate == requested.bitRate &&

@@ -173,6 +173,8 @@ class SessionCaptureController(
         committed = true
         if (recorder == null) start()
         gates.inventoryFilter = prefs().inventoryFilter
+        // TODO: this gate judges the NEW ply's FEN but throws away the EARLIER ply's deferred photo,
+        // uncounted — the silent loss `supersededFrames` was added to make visible.
         if (gates.blocks(fen, source.geometryNote())) {
             pending = null
             return

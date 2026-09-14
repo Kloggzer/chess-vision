@@ -34,9 +34,9 @@ MIN_MISSING_EDGES = 2
 def crop_border_px(profile) -> int:
     """`cropBorderPx` — the pad the crop warp (and therefore this read) is cut with.
 
-    One formula, not a second copy: the max-of-the-two-pads form this module carried is the one
-    `calibration` already corrected to their SUM, and the scan must measure on the raster the
-    crops are cut from. Kotlin's `CropBox.cropBorderPx` still carries the max form."""
+    One formula, not a second copy: der Scan muss auf dem Raster messen, aus dem die Crops
+    geschnitten werden. Seit `pad_up` weg ist, ist das auf allen drei Seiten
+    `max(CROP_WARP_BORDER_CELLS, pad_side)` — Python, Kotlin und TS."""
     from .calibration import crop_border_px as _crop_border_px
 
     return _crop_border_px(profile)

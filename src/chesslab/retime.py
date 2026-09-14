@@ -196,6 +196,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     profile = load_profile(EXPORT_PROFILE)
     cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
     prof = effective_profile(profile, cfg.get("pad_side"))
+    # TODO: Read infer_size through the canonical helper; out_size adds a lossy intermediate resize.
     out_size = tuple(cfg.get("out_size") or (80, 80))
     classes = model_classes(model_dir)
     squares = all_squares()

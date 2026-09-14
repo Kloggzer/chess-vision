@@ -68,6 +68,8 @@ fun undistortPoints(
     val src = MatOfPoint2f()
     src.fromList(points.map { Point(it[0], it[1]) })
     val dst = MatOfPoint2f()
+    // TODO: the rectification `Mat()` is never released — a native allocation per call, and
+    // `fitLens` makes hundreds of these calls per candidate model.
     Calib3d.undistortPoints(src, dst, k, d, Mat(), k)
     val out = dst.toArray().map { doubleArrayOf(it.x, it.y) }
     listOf(k, d, src, dst).forEach { it.release() }

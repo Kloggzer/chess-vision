@@ -25,6 +25,7 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
     if (exists && !replace) {
       return Response.json({ error: "reference.pgn exists — replace must be explicit" }, { status: 409 });
     }
+    // TODO: Preserve a backup and replace atomically with a revision guard; this file is human truth.
     await writeFile(file, text.endsWith("\n") ? text : text + "\n", "utf8");
     return Response.json({ plies, replaced: exists });
   } catch (error) {

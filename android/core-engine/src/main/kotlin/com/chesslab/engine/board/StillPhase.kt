@@ -3,6 +3,7 @@ package com.chesslab.engine.board
 import com.chesslab.engine.api.FrameInput
 
 /** Thresholds are raw-board gray levels measured on recordings from 2026-08-25. */
+// TODO: Remove or wire this orphan; no production caller can exercise its independent settle state.
 class StillPhase {
     private var prev: ByteArray? = null
 

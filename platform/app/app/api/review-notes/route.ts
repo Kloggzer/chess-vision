@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     const written = await appendReviewNotes(rows);
     // Die gemeldete Hand ist erst auf dem Stapel, wenn sie im Log steht — und das ist billig, also
     // muss niemand dafür einen Knopf suchen. SAM 3 bleibt ein Knopf, das kostet Rechenzeit.
+    // TODO: Surface adopt-dirty launch failures; 200 currently proves only the note append.
     for (const name of new Set(rows.flatMap((r) => (r.verdict === "dirty-frame" ? [recordingName(r.session_id)] : [])))) {
       adoptDirty(name);
     }
