@@ -12,14 +12,19 @@ from chesslab.capture_plan import (
     BANDS,
     HEIGHTS,
     ORIENTATION_STEPS,
+    SET_BUDGET,
     Gap,
     band_middle,
     band_of,
+    band_range,
+    board_spread,
+    bundles,
     pose_of,
     shots,
     slug,
     square_brightness,
     square_colour,
+    square_stats,
 )
 
 _spec = importlib.util.spec_from_file_location(
@@ -64,42 +69,125 @@ def test_the_slug_carries_the_band_because_the_pair_collides():
     assert len(with_band) == len(BANDS) and len(without) == 1
 
 
-def test_a_position_gap_names_a_field_and_promises_no_band():
-    got = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]
+def test_a_placement_carries_the_band_it_is_measured_against():
+    """Ein Feld allein sagt nichts zu: `a8` mass ueber den Korpus 6 bis 207. Erst `lo`/`hi`
+    machen den Vorschlag pruefbar."""
+    got = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["place"]
 
-    assert got["place"] == [{"square": "b1", "piece": "wQ"}]
-    assert got["light"] is None and got["reference_square"] == "b1"
-
-
-def test_a_light_gap_leaves_the_board_empty_and_names_the_target_band():
-    got = shots([_gap(band="hell", fix="Licht")], BRIGHT, limit=1)[0]
-
-    assert got["place"] == [] and got["light"] == "hell"
-    # Bandmitte 155: b1 (100) liegt naeher als h3 (215). Das Referenzfeld ist auch hier das
-    # der Mitte naechste, nicht das hellste — sonst waere die Regel zwei Regeln.
-    assert got["reference_square"] == "b1"
+    assert got == [{"square": "b1", "piece": "wQ", "band": "mittel", "lo": 80, "hi": 130}]
 
 
 def test_the_field_is_the_one_nearest_the_band_middle_not_the_brightest():
     """Fuer `sehr hell` ist es das hellste, fuer `mittel` gerade nicht — dieselbe Regel."""
-    hell = shots([_gap(band="sehr hell")], BRIGHT, limit=1)[0]["reference_square"]
-    mitte = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["reference_square"]
+    hell = shots([_gap(band="sehr hell")], BRIGHT, limit=1)[0]["place"][0]["square"]
+    mitte = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["place"][0]["square"]
 
     assert hell == "h3" and mitte == "b1"
 
 
+# --- Die Buendelung: zwei Grenzen, Figurenkasten und Lampe ---
+
+
+def test_one_shot_carries_many_pieces_because_the_board_holds_them():
+    """Der ganze Punkt: sechs Luecken sind EINE Aufnahme, nicht sechs."""
+    gaps = [_gap(piece=p, colour="light", band="mittel") for p in ("wQ", "wK", "bQ")]
+    gaps += [_gap(piece=p, colour="dark", band="mittel") for p in ("bK", "wR", "bR")]
+
+    got = shots(gaps, BRIGHT, limit=9)
+
+    assert len(got) == 1 and len(got[0]["place"]) == len(gaps)
+
+
+def test_two_gaps_for_the_same_piece_need_two_shots():
+    """Es gibt nur eine schwarze Dame — `bQ` fehlt in fuenf Baendern, also fuenf Aufnahmen."""
+    gaps = [_gap(piece="bQ", band="mittel"), _gap(piece="bQ", band="mittel")]
+
+    assert [len(g) for g in bundles(gaps, spread=255)] == [1, 1]
+
+
+def test_eight_pawn_gaps_still_fit_one_shot():
+    """`SET_BUDGET` ist der Kasten, nicht eine runde Zahl: acht Bauern liegen darin."""
+    gaps = [_gap(piece="wP", band="mittel") for _ in range(SET_BUDGET["P"])]
+
+    assert [len(g) for g in bundles(gaps, spread=255)] == [len(gaps)]
+
+
+def test_bands_further_apart_than_the_board_spans_cannot_share_a_shot():
+    """Eine Lampe verschiebt alle Felder zusammen. `sehr dunkel` (20) und `sehr hell` (218) im
+    selben Bild verlangten eine Spanne von 198 — gemessen sind es 112."""
+    gaps = [_gap(piece="wQ", band="sehr dunkel"), _gap(piece="wK", band="sehr hell")]
+
+    assert [len(g) for g in bundles(gaps, spread=112)] == [1, 1]
+    assert [len(g) for g in bundles(gaps, spread=198)] == [2]
+
+
+def test_board_spread_is_the_gradient_not_the_absolute_level():
+    assert board_spread({"a1": 45.0, "h8": 157.0}) == 112.0
+    assert board_spread({}) == 0.0
+
+
+def test_no_two_pieces_land_on_the_same_square():
+    """Ohne die Sperre stuenden zwoelf Figuren auf demselben `a8` — der Plan waere unbaubar."""
+    gaps = [_gap(piece=p, band="mittel") for p in ("wQ", "wK", "bQ", "bK", "wR", "bR")]
+
+    place = shots(gaps, BRIGHT, limit=1)[0]["place"]
+
+    assert len({p["square"] for p in place}) == len(place)
+
+
+def test_a_gap_without_a_free_square_is_dropped_not_stacked():
+    """Drei helle Felder kennt BRIGHT; die vierte helle Luecke hat keines mehr."""
+    gaps = [_gap(piece=p, colour="light", band="mittel") for p in ("wQ", "wK", "bQ", "bK")]
+
+    assert len(shots(gaps, BRIGHT, limit=1)[0]["place"]) == 3
+
+
+def test_closes_names_only_the_gaps_that_were_actually_placed():
+    """Sonst meldet der Plan eine Luecke als geschlossen, fuer die keine Figur steht — und die
+    CLI zaehlt sie mit. Die verworfene muss in die NAECHSTE Aufnahme."""
+    gaps = [_gap(piece=p, colour="light", band="mittel") for p in ("wQ", "wK", "bQ", "bK")]
+
+    got = shots(gaps, BRIGHT, limit=9)
+
+    assert [len(s["place"]) for s in got] == [len(s["closes"]) for s in got]
+    placed = [p["piece"] for s in got for p in s["place"]]
+    assert sorted(placed) == ["bK", "bQ", "wK", "wQ"], "die vierte Luecke ist verlorengegangen"
+
+
+def test_a_shot_that_can_place_nothing_is_not_emitted_at_all():
+    """`id='01-'` und „0 Figuren, Baender " bestand die Schema-Pruefung klaglos."""
+    only_light = {sq: v for sq, v in BRIGHT.items() if square_colour(sq) == "light"}
+
+    got = shots([_gap(colour="dark", band="mittel")], only_light, limit=9)
+
+    assert got == []
+
+
 def test_every_height_appears_across_the_shots():
     """Der Korpus kennt genau eine Hoehe; ein Plan, der nur eine vorschlaegt, aendert das nie."""
-    got = shots([_gap(band=n) for _, _, n in BANDS] * 2, BRIGHT, limit=6)
+    got = shots([_gap(piece="wQ", band=n) for _, _, n in BANDS] * 3, BRIGHT, limit=6)
 
     assert {s["height"] for s in got} == set(HEIGHTS)
     assert {s["orientations"] for s in got} == {ORIENTATION_STEPS}
 
 
-def test_limit_cuts_without_reordering():
-    gaps = [_gap(piece=p) for p in ("wQ", "wK", "bQ")]
+def test_limit_cuts_bundles_without_reordering():
+    """`limit` schneidet AUFNAHMEN ab, nicht Luecken — sonst faellt die Haelfte eines Buendels weg."""
+    gaps = [_gap(piece="wQ", band="mittel") for _ in range(3)]
 
-    assert [s["closes"][0]["piece"] for s in shots(gaps, BRIGHT, limit=2)] == ["wQ", "wK"]
+    got = shots(gaps, BRIGHT, limit=2)
+
+    assert len(got) == 2 and [len(s["closes"]) for s in got] == [1, 1]
+
+
+def test_band_range_and_middle_agree():
+    assert band_range("mittel") == (80, 130) and band_middle("mittel") == 105.0
+
+
+def test_shots_refuses_an_unmeasured_board():
+    """Ohne `brightness` waere jedes Feld geraten — lieber laut als ein erfundener Plan."""
+    with pytest.raises(ValueError, match="backfill_brightness"):
+        shots([_gap()], {}, limit=1)
 
 
 def test_square_brightness_ignores_rows_without_the_column(tmp_path):
@@ -110,6 +198,18 @@ def test_square_brightness_ignores_rows_without_the_column(tmp_path):
         {"square": "h3"}, {"square": "a1", "brightness": 20.0}]), encoding="utf-8")
 
     assert square_brightness(p) == {"h3": 205.0, "a1": 20.0}
+
+
+def test_square_stats_carry_the_spread_not_just_the_median(tmp_path):
+    """Der Median waehlt das Feld, die Spannweite sagt, ob das Band dort je erreicht wurde."""
+    p = tmp_path / "manifest.jsonl"
+    rows = [{"square": "h3", "brightness": float(v)} for v in range(0, 200, 2)]
+    p.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+
+    got = square_stats(p)["h3"]
+
+    assert got["color"] == "light" and got["n"] == len(rows)
+    assert got["p5"] == 10.0 and got["median"] == 99.0 and got["p95"] == 190.0
 
 
 def test_a_square_quad_is_straight_down():

@@ -12,7 +12,7 @@ class CapturePlanTest {
         assertEquals("2026-09-12T10:00:00Z", plan.generatedAt)
         assertEquals(listOf("wq-light-sehr-hell"), plan.shots.map { it.id })
         val shot = plan.shots.first()
-        assertEquals("g4", shot.referenceSquare)
+        assertEquals(listOf("g4"), shot.place.map { it.square })
         assertEquals(174, shot.closes.first().corpusInBand)
     }
 
@@ -42,8 +42,8 @@ private val PLAN_WITH_EXTRA_KEYS =
     """
     {"generated_at":"2026-09-12T10:00:00Z","dataset":"real13-mix-v7-128",
      "gaps_from":"data/reports/coverage-gaps.json","planner_version":3,
-     "shots":[{"id":"wq-light-sehr-hell","fix":"Licht","reason":"nur 12 Belege",
-               "place":[{"square":"g4","piece":"wQ"}],"light":"sehr hell","reference_square":"g4",
+     "shots":[{"id":"wq-light-sehr-hell","reason":"nur 12 Belege",
+               "place":[{"square":"g4","piece":"wQ","band":"sehr hell","lo":180,"hi":256}],
                "height":"normal","orientations":8,"note_for_a_later_phase":"ignored",
                "closes":[{"piece":"wQ","square_color":"light","band":"sehr hell","have":12,
                           "fix":"Licht","corpus_in_band":174}]}]}

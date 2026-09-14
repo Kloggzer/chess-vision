@@ -1,20 +1,47 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "capture-plan",
-  "description": "Aufnahmeauftraege aus gemessenen Korpusluecken. Erzeugt von `chesslab capture plan`; die EINZIGE Autoritaet der Auftragsform. Python, TypeScript und Kotlin schreiben sie ab.",
+  "description": "Aufnahmeauftraege aus gemessenen Korpusluecken. Erzeugt von `chesslab capture plan`; die EINZIGE Autoritaet der Auftragsform. Python, TypeScript und Kotlin schreiben sie ab. Ein Auftrag ist ein BUENDEL: so viele Luecken auf einmal, wie Figurenset und Brettspanne hergeben.",
   "type": "object",
-  "required": ["generated_at", "dataset", "gaps_from", "shots"],
+  "required": ["generated_at", "dataset", "gaps_from", "board_spread", "squares", "shots"],
   "properties": {
     "generated_at": {"type": "string", "description": "ISO-8601, wann der Plan gerechnet wurde."},
     "dataset": {"type": "string"},
     "gaps_from": {"type": "string", "description": "Pfad der gelesenen coverage-gaps.json."},
+    "board_spread": {
+      "type": "number",
+      "description": "Hellster minus dunkelster Feldmedian, gemessen 112. Die Lampe verschiebt alle Felder zusammen; dieser Abstand ist der Gradient des Bretts und begrenzt, welche Baender in EIN Buendel passen."
+    },
+    "squares": {
+      "type": "object",
+      "description": "Feld -> gemessene Helligkeit im Korpus. Die App haelt ihre Livemessung dagegen; ohne die Spannweite sagt ein Median nicht, ob ein Band dort je erreicht wurde (`a8` mass 6 bis 207).",
+      "additionalProperties": {"$ref": "#/$defs/squareStat"}
+    },
     "shots": {"type": "array", "items": {"$ref": "#/$defs/shot"}}
   },
   "$defs": {
+    "squareStat": {
+      "type": "object",
+      "required": ["color", "median", "p5", "p95", "n"],
+      "properties": {
+        "color": {"enum": ["light", "dark"]},
+        "median": {"type": "number"},
+        "p5": {"type": "number"},
+        "p95": {"type": "number"},
+        "n": {"type": "integer"}
+      }
+    },
     "placement": {
       "type": "object",
-      "required": ["square", "piece"],
-      "properties": {"square": {"type": "string"}, "piece": {"type": "string"}}
+      "required": ["square", "piece", "band", "lo", "hi"],
+      "description": "Ein VORSCHLAG. `square` ist das freie Feld, dessen Median der Bandmitte am naechsten liegt; `lo`/`hi` sind das Band, gegen das die App live misst und, wenn noetig, umhaengt.",
+      "properties": {
+        "square": {"type": "string"},
+        "piece": {"type": "string"},
+        "band": {"type": "string"},
+        "lo": {"type": "integer"},
+        "hi": {"type": "integer"}
+      }
     },
     "gap": {
       "type": "object",
@@ -30,19 +57,12 @@
     },
     "shot": {
       "type": "object",
-      "required": ["id", "fix", "reason", "place", "light", "reference_square", "height",
-                   "orientations", "closes"],
+      "required": ["id", "reason", "place", "height", "orientations", "closes"],
       "properties": {
         "id": {"type": "string", "pattern": "^[a-z0-9-]+$",
-               "description": "{piece}-{square_color}-{band}. Das Band MUSS hinein: 58 Luecken verteilen sich auf 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender."},
-        "fix": {"enum": ["Stellung", "Licht"]},
+               "description": "{laufende Nummer}-{Baender}. Das Band MUSS hinein: 58 Luecken verteilen sich auf 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender."},
         "reason": {"type": "string"},
-        "place": {"type": "array", "items": {"$ref": "#/$defs/placement"},
-                  "description": "Leer bei fix=Licht. Das Feld ist das der Bandmitte naechste seiner Farbe — 'hellstes bzw. dunkelstes' waere fuer das Band 'mittel' nicht entscheidbar."},
-        "light": {"type": ["string", "null"],
-                  "description": "Bei fix=Licht das Zielband, sonst null."},
-        "reference_square": {"type": "string",
-                             "description": "Feld, an dem der Nutzer das Licht beurteilt."},
+        "place": {"type": "array", "items": {"$ref": "#/$defs/placement"}},
         "height": {"enum": ["tief", "normal", "hoch"]},
         "orientations": {"type": "integer",
                          "description": "Drehschritte zu je 360/orientations Grad."},

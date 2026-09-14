@@ -7,12 +7,9 @@ import { coverageResponse, loadPlan, planResponse } from "@/lib/capture-plan";
 const TOKEN = "kopplung";
 
 const SHOT = {
-  id: "wq-light-sehr-hell",
-  fix: "Stellung",
-  reason: "wQ auf hellem Feld, Band 'sehr hell': 0 Belege",
-  place: [{ square: "h3", piece: "wQ" }],
-  light: null,
-  reference_square: "h3",
+  id: "01-sehr-hell",
+  reason: "1 Figuren, Baender sehr hell",
+  place: [{ square: "h3", piece: "wQ", band: "sehr hell", lo: 180, hi: 256 }],
   height: "normal",
   orientations: 8,
   closes: [{ piece: "wQ", square_color: "light", band: "sehr hell", have: 0, fix: "Stellung", corpus_in_band: 12 }],

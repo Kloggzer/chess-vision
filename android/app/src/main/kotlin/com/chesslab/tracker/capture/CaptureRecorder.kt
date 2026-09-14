@@ -45,7 +45,7 @@ interface CaptureRun {
     ): Boolean
 
     /** Writes `capture.json` beside `log.jsonl` and closes the bundle. */
-    fun finish(): File?
+    fun finish(placed: List<Target> = emptyList()): File?
 }
 
 object CaptureRecorderHost {
@@ -64,8 +64,12 @@ object CaptureRecorderHost {
  */
 val CAPTURE_VIDEO_PROFILE = CaptureProfile(width = 3840, height = 2160, fps = 15)
 
-/** The declared position: a shot names the squares it fills, everything else is empty. */
-fun Shot.boardFen(): String = fenOf(place.associate { it.square to it.piece })
+/**
+ * Die FEN der Stellung, die WIRKLICH steht. Ueber die gemessenen Ziele und nicht ueber
+ * `Shot.place`: der Plan schlaegt Felder nach dem Korpus-Median vor, die App haengt nach ihrer
+ * Helligkeitsmessung um, und eine FEN auf den Vorschlag labelte jede Figur aufs falsche Feld.
+ */
+fun fenOfTargets(targets: List<Target>): String = fenOf(targets.associate { it.square to it.piece })
 
 /** `orientations` is what the planner asked for; below 1 there is still one shot to take. */
 val Shot.stepCount: Int get() = orientations.coerceAtLeast(1)

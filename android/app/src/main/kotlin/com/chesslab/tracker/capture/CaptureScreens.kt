@@ -2,6 +2,8 @@ package com.chesslab.tracker.capture
 
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,14 +20,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.camera.CaptureObserved
+import com.chesslab.tracker.settings.AppSettings
+import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.sync.SyncHost
 import com.chesslab.tracker.ui.Card
 import com.chesslab.tracker.ui.ChesslabScaffold
@@ -35,12 +50,15 @@ import com.chesslab.tracker.ui.FilledAction
 import com.chesslab.tracker.ui.OutlineAction
 import com.chesslab.tracker.ui.SectionHeading
 import com.chesslab.tracker.ui.SourceFramedPreview
+import com.chesslab.tracker.ui.debug.DebugSessionHost
 import com.chesslab.tracker.ui.theme.Accent
 import com.chesslab.tracker.ui.theme.Danger
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
 import com.chesslab.tracker.ui.theme.Space
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
+import com.chesslab.tracker.ui.tracking.cellRect
+import com.chesslab.tracker.ui.tracking.fittedRect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -79,7 +97,7 @@ fun CapturePlanRoute(
             itemsIndexed(shots, key = { _, shot -> shot.id }) { index, shot ->
                 DisclosureRow(
                     title = "${index + 1} of ${shots.size} · ${shot.id}",
-                    subtitle = "${shot.fix} — ${shot.reason}",
+                    subtitle = shot.reason,
                     onOpen = {
                         CaptureHost.open(index)
                         onOpenShot(index)
@@ -133,7 +151,7 @@ private fun NoShots(ui: CaptureUi) {
     }
 }
 
-/** The order in plain words, over the live viewfinder — the one screen where both are needed. */
+/** Where every piece goes, drawn ON the live board — the one screen where both are needed. */
 @Composable
 fun CaptureSetupRoute(
     index: Int,
@@ -143,6 +161,38 @@ fun CaptureSetupRoute(
     val ui by CaptureHost.state.collectAsStateWithLifecycle()
     val recorder by CaptureRecorderHost.recorder.collectAsStateWithLifecycle()
     val shot = CaptureHost.shotAt(index)
+    val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
+    val whitePov = boardIsWhitePov()
+    var measured by remember { mutableStateOf(emptyMap<String, Int>()) }
+    // Der Plan schlaegt Felder nach dem Korpus-Median vor, das Band macht aber die Lampe. Also
+    // wird das rektifizierte Brett laufend gemessen und die Belegung daraus neu gelegt.
+    LaunchedEffect(session, whitePov) {
+        val frames = session?.boardPreview ?: return@LaunchedEffect
+        while (true) {
+            measured = measureSquares(frames.value, whitePov)
+            delay(MEASURE_MS)
+        }
+    }
+    // Festgehalten wird nur neu BEURTEILT, nie neu verteilt: eine hingestellte Figur verschiebt
+    // ihr Feld um bis zu 61 Grauwerte und wuerfelte die Belegung sonst neu.
+    val frozen = ui.frozen
+    val targets =
+        remember(shot, measured, frozen) {
+            if (frozen != null) refit(frozen, measured) else assign(shot?.place.orEmpty(), measured)
+        }
+    // Der Lauf labelt gegen DIESE Belegung, nicht gegen den Vorschlag des Plans.
+    LaunchedEffect(targets) { CaptureHost.place(targets) }
+    // Der Debug-Payload traegt die Reads (`entry.md` verbietet einen UI-Seitenkanal). Er kostet
+    // 64 Felder je Bild, also nur solange hier aufgebaut wird — die Aufnahme laeuft ohne ihn.
+    val debug by DebugSessionHost.session.collectAsStateWithLifecycle()
+    val status by (debug?.status ?: NO_STATUS).collectAsStateWithLifecycle()
+    DisposableEffect(debug, ui.recording) {
+        debug?.setDebugEnabled(!ui.recording)
+        onDispose { debug?.setDebugEnabled(false) }
+    }
+    val reads = if (ui.recording) emptyList() else status?.debug?.cnnReads.orEmpty()
+    val checks = remember(targets, reads) { checkPlacement(targets, reads) }
+    val stray = remember(targets, reads) { strayPieces(targets, reads) }
     // The profile goes on here and the device is asked again while the human builds: a rebind to
     // 4K and the encoder's re-arm both take frames, not instants.
     LaunchedEffect(recorder) { CaptureHost.prepare(recorder) }
@@ -164,19 +214,111 @@ fun CaptureSetupRoute(
             Card {
                 Text(shot.id, style = MaterialTheme.typography.titleMedium, color = OnSurface)
                 Text(orderText(shot), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
-                Text(shot.reason, style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+                Text(
+                    if (frozen == null) "Erst das Licht stellen — die Felder wandern noch" else lightAdvice(targets),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (frozen != null && targets.all { it.fit == Fit.OK }) Accent else Danger,
+                )
+                // Kontrolle, kein Veto: das Modell ist auf genau diesen Feldern am schwaechsten.
+                if (frozen != null) {
+                    Text(
+                        checkSummary(checks, stray),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (stray.isEmpty() && checks.none { it.value == Check.EMPTY }) OnSurfaceMuted else Danger,
+                    )
+                }
             }
-            Viewfinder(Modifier.fillMaxWidth().aspectRatio(VIEWFINDER_RATIO))
+            TargetBoard(targets, frozen != null, checks, stray, Modifier.fillMaxWidth().aspectRatio(1f))
             ProfileLine(ui.observed)
             ui.message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Danger) }
-            FilledAction(
-                "It is built",
-                onClick = {
-                    CaptureHost.begin(index, recorder)
-                    onStart(index)
-                },
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "The position is built, start recording" },
-            )
+            if (frozen == null) {
+                FilledAction(
+                    "Felder festhalten",
+                    onClick = { CaptureHost.freeze(targets) },
+                    modifier =
+                        Modifier.fillMaxWidth().semantics {
+                            contentDescription = "Die Felder festhalten und mit dem Aufbau beginnen"
+                        },
+                )
+                return@Column
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Space.sm)) {
+                OutlineAction("Nochmal verteilen", onClick = CaptureHost::thaw, modifier = Modifier.weight(1f))
+                FilledAction(
+                    "Aufbau steht",
+                    onClick = {
+                        CaptureHost.begin(index, recorder)
+                        onStart(index)
+                    },
+                    modifier = Modifier.weight(1f).semantics { contentDescription = "The position is built, start recording" },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Das rektifizierte Brett mit den Zielfeldern darauf — die Antwort auf „wo soll was hin".
+ *
+ * Auf dem gewarpten Brett und nicht auf dem Rohbild: dort liegt a8 per Konstruktion oben links,
+ * Overlay und Messung koennen also nicht auseinanderlaufen (`BoardPreview`). Gefaerbt wird erst
+ * nach dem Festhalten — vorher waere es ein Urteil ueber einen Vorschlag, der noch wandert.
+ */
+@Composable
+private fun TargetBoard(
+    targets: List<Target>,
+    frozen: Boolean,
+    checks: Map<String, Check>,
+    stray: List<String>,
+    modifier: Modifier,
+) {
+    val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
+    val board by (session?.boardPreview ?: NO_PREVIEW).collectAsStateWithLifecycle()
+    val measurer = rememberTextMeasurer()
+    val bitmap = board
+    Box(modifier) {
+        if (bitmap == null) {
+            EmptyState("Kein Brett im Bild", "Die Kamera sieht keine Marker — erst kalibrieren.")
+            return@Box
+        }
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "Brett mit den Zielfeldern des Auftrags",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+        )
+        // Vor dem Draw-Lambda gelesen: das ist kein Composable-Scope (`BoardPreview`).
+        val hit = Accent
+        val miss = Danger
+        val pending = OnSurfaceMuted
+        val label = TextStyle(color = OnSurface, fontSize = TARGET_TEXT)
+        Canvas(Modifier.fillMaxSize()) {
+            val rect = fittedRect(size, bitmap.width, bitmap.height)
+            targets.forEach { target ->
+                val cell = cellRect(rect, target.square) ?: return@forEach
+                val colour =
+                    if (!frozen) {
+                        pending
+                    } else if (target.fit == Fit.OK) {
+                        hit
+                    } else {
+                        miss
+                    }
+                drawRect(colour.copy(alpha = TARGET_FILL), cell.topLeft, cell.size)
+                drawRect(colour, cell.topLeft, cell.size, style = Stroke(width = TARGET_STROKE))
+                drawText(
+                    measurer,
+                    target.piece + checkMark(checks[target.square]),
+                    topLeft = cell.topLeft + Offset(TARGET_STROKE, TARGET_STROKE),
+                    style = label,
+                )
+            }
+            // Eine Figur auf einem Feld, das die FEN als `empty` fuehrt, verdirbt jeden Frame.
+            stray.forEach { square ->
+                val cell = cellRect(rect, square) ?: return@forEach
+                drawRect(miss, cell.topLeft, cell.size, style = Stroke(width = TARGET_STROKE))
+                drawText(measurer, "!", topLeft = cell.topLeft + Offset(TARGET_STROKE, TARGET_STROKE), style = label)
+            }
         }
     }
 }
@@ -235,6 +377,19 @@ fun CaptureTurnRoute(
     val ui by CaptureHost.state.collectAsStateWithLifecycle()
     val recorder by CaptureRecorderHost.recorder.collectAsStateWithLifecycle()
     val shot = CaptureHost.shotAt(index)
+    // Auch waehrend der Drehungen weiter messen: das Licht kann ueber acht Schritte wandern, und
+    // eine Aufnahme, die dabei aus dem Band laeuft, faellt sonst erst im Datensatz auf.
+    val session by TrackerSessionHost.session.collectAsStateWithLifecycle()
+    val whitePov = boardIsWhitePov()
+    var measured by remember { mutableStateOf(emptyMap<String, Int>()) }
+    LaunchedEffect(session, whitePov) {
+        val frames = session?.boardPreview ?: return@LaunchedEffect
+        while (true) {
+            measured = measureSquares(frames.value, whitePov)
+            delay(MEASURE_MS)
+        }
+    }
+    val live = remember(ui.frozen, measured) { refit(ui.frozen.orEmpty(), measured) }
     // Both ways out close the bundle: a run left open writes no `capture.json` at all, and system
     // back does not travel through [onBack].
     val leave: () -> Unit = {
@@ -265,6 +420,14 @@ fun CaptureTurnRoute(
                     style = MaterialTheme.typography.bodySmall,
                     color = if (ui.recording) Accent else Danger,
                 )
+                // Die Helligkeit DIESER Aufnahme, Schritt fuer Schritt — sie ist die Groesse, die
+                // ueber jede Zelle im Datensatz entscheidet, und sie wandert ueber acht Drehungen.
+                Text(
+                    lightAdvice(live),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (live.all { it.fit == Fit.OK }) Accent else Danger,
+                )
+                Text(driftLine(ui.frozen.orEmpty(), live), style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
             }
             Viewfinder(Modifier.fillMaxWidth().aspectRatio(VIEWFINDER_RATIO))
             ProfileLine(ui.observed)
@@ -293,13 +456,36 @@ fun CaptureTurnRoute(
     }
 }
 
-private fun orderText(shot: Shot): String {
-    val place = shot.place.joinToString(", ") { "${it.piece} on ${it.square}" }.ifBlank { "leave the board as it is" }
-    val light = shot.light?.let { ", light $it on ${shot.referenceSquare}" }.orEmpty()
-    return "$place, camera ${shot.height}$light — ${shot.stepCount} turns"
+/**
+ * Die eingestellte Brettorientierung. Sie entscheidet, welches PIXEL zu welchem Feld gehoert:
+ * der Warp kennt kein `whitePov`, die Feldzuordnung schon, und bei BLACK_BOTTOM liegt `a8` unten
+ * rechts. Ohne sie misst und labelt die Erfassung jede Figur aufs gespiegelte Feld.
+ */
+@Composable
+private fun boardIsWhitePov(): Boolean {
+    val repository by SettingsHost.repository.collectAsStateWithLifecycle()
+    val settings by (repository?.appSettings ?: NO_APP_SETTINGS).collectAsStateWithLifecycle()
+    return settings.orientation.whitePov
 }
 
+/** Ein Zeichen hinter der Figur. Leer, wo das Modell nichts zu sagen hat — nicht „ungeprueft". */
+private fun checkMark(check: Check?): String =
+    when (check) {
+        Check.AGREES -> " ✓"
+        Check.EMPTY -> " leer"
+        Check.OTHER_PIECE -> " ?"
+        else -> ""
+    }
+
+private fun orderText(shot: Shot): String = "${shot.place.size} Figuren, Kamera ${shot.height} — ${shot.stepCount} Drehungen"
+
 private const val VIEWFINDER_RATIO = 4f / 3f
+
+/** Gemessen wird gedrosselt: 64 Crop-Boxen je Durchgang, und die Lampe bewegt sich langsam. */
+private const val MEASURE_MS = 400L
+private const val TARGET_FILL = 0.25f
+private const val TARGET_STROKE = 4f
+private val TARGET_TEXT = 13.sp
 private const val MBIT = 1_000_000
 private const val NO_FRAME = "no frame yet"
 private const val NOT_PINNED = "fps NOT pinned"
@@ -307,4 +493,6 @@ private const val PROFILE_POLL_MS = 1500L
 
 /** The screens render before the service is bound; an unbound camera is simply no frame. */
 private val NO_PREVIEW = MutableStateFlow<Bitmap?>(null)
+private val NO_STATUS = MutableStateFlow<TrackerStatus?>(null)
+private val NO_APP_SETTINGS = MutableStateFlow(AppSettings())
 private val NO_ROTATION = MutableStateFlow(0)

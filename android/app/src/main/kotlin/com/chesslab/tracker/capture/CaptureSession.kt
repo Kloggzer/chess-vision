@@ -35,11 +35,19 @@ data class CaptureRecording(
     val notes: List<String> = emptyList(),
 )
 
+/** Was WIRKLICH stand, mit dem Grauwert, den das Feld beim Aufbau hatte. */
+@Serializable
+data class CapturePlaced(
+    val square: String,
+    val piece: String,
+    val brightness: Int? = null,
+)
+
 @Serializable
 data class CaptureSession(
     @SerialName("shot_id") val shotId: String,
     val height: String,
-    @SerialName("reference_square") val referenceSquare: String? = null,
+    val place: List<CapturePlaced> = emptyList(),
     val steps: List<CaptureStep> = emptyList(),
     val recording: CaptureRecording? = null,
     val note: String? = null,
@@ -53,13 +61,18 @@ const val CAPTURE_MODE = "capture"
 fun captureSessionOf(
     shot: Shot,
     steps: List<CaptureStep>,
+    placed: List<Target> = emptyList(),
     recording: CaptureRecording? = null,
     note: String? = null,
 ): CaptureSession =
     CaptureSession(
         shotId = shot.id,
         height = shot.height.takeIf { it in HEIGHTS } ?: UNKNOWN_HEIGHT,
-        referenceSquare = shot.referenceSquare.takeIf { SQUARE.matches(it) },
+        // Die gemessene Belegung, nicht der Vorschlag: sie ist die Ground Truth des Imports.
+        place =
+            placed
+                .filter { SQUARE.matches(it.square) }
+                .map { CapturePlaced(it.square, it.piece, it.measured) },
         steps = steps,
         recording = recording,
         note = note,

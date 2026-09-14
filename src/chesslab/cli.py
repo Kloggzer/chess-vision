@@ -454,34 +454,36 @@ def capture_plan_cmd(
 ) -> None:
     """Aus `coverage-gaps.json` konkrete Aufnahmeauftraege machen.
 
-    Ein Auftrag nennt ein FELD und sagt kein Helligkeitsband zu — kein Feld traegt „sehr hell"
-    als haeufigstes Band, gemessen wird hinterher (`docs/capture-axes.md`).
+    Ein Auftrag ist ein BUENDEL: so viele Luecken auf einmal, wie Figurenset und Brettspanne
+    hergeben. Die Felder sind Vorschlaege — das Band macht die Lampe, gemessen wird in der App
+    (`docs/capture-axes.md`).
     """
     from datetime import UTC, datetime
 
-    from .capture_plan import shots, square_brightness
+    from .capture_plan import board_spread, shots, square_stats
     from .dataset_build import dataset_dir
 
     if not gaps_file.is_file():
         print(f"[FAIL] {gaps_file} fehlt — erst `uv run python scripts/coverage_gaps.py`.")
         raise typer.Exit(1)
     gaps = json.loads(gaps_file.read_text(encoding="utf-8")).get("gaps") or []
-    bright = square_brightness(manifest or dataset_dir(dataset) / "manifest.jsonl")
-    if not bright:
+    stats = square_stats(manifest or dataset_dir(dataset) / "manifest.jsonl")
+    if not stats:
         print(f"[FAIL] {dataset}: keine Zeile traegt `brightness` — erst "
               f"`uv run python scripts/backfill_brightness.py`.")
         raise typer.Exit(1)
+    bright = {sq: s["median"] for sq, s in stats.items()}
     plan = shots(gaps, bright, limit=limit)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"generated_at": datetime.now(UTC).isoformat(), "dataset": dataset,
-                               "gaps_from": str(gaps_file), "shots": plan},
+                               "gaps_from": str(gaps_file), "board_spread": board_spread(bright),
+                               "squares": stats, "shots": plan},
                               indent=1, ensure_ascii=False), encoding="utf-8")
-    stellung = sum(1 for s in plan if s["fix"] == "Stellung")
-    print(f"[OK] {len(plan)} Auftraege ({stellung} ueber eine Stellung, "
-          f"{len(plan) - stellung} ueber Licht) -> {out}")
-    for s in plan[:5]:
-        wo = ", ".join(f"{p['piece']} auf {p['square']}" for p in s["place"]) or              f"Licht auf Band '{s['light']}' bei {s['reference_square']}"
-        print(f"   {s['id']:28s} {wo}, Hoehe {s['height']}, {s['orientations']} Drehschritte")
+    closed = sum(len(s["closes"]) for s in plan)
+    print(f"[OK] {len(plan)} Aufnahmen fuer {closed} Luecken -> {out}")
+    for s in plan:
+        print(f"   {s['id']:28s} {s['reason']}, Hoehe {s['height']}, "
+              f"{s['orientations']} Drehschritte")
 
 
 @capture_app.command("import")

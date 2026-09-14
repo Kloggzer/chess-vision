@@ -4,15 +4,27 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/**
- * The shot list, as `docs/capture-plan.schema.json` defines it — that file is the authority and
- * this is a transcript of it, not a second design. Unknown keys are ignored so a key the planner
- * adds later reaches an older APK as silence instead of an exception.
- */
+// The shot list, as `docs/capture-plan.schema.json` defines it — that file is the authority and
+// this is a transcript of it, not a second design. Unknown keys are ignored so a key the planner
+// adds later reaches an older APK as silence instead of an exception.
+
+/** Ein VORSCHLAG: `lo`/`hi` ist das Band, gegen das [assign] die Livemessung haelt. */
 @Serializable
 data class Placement(
     val square: String,
     val piece: String,
+    val band: String = "",
+    val lo: Int = 0,
+    val hi: Int = BYTE_RANGE,
+)
+
+@Serializable
+data class SquareStat(
+    val color: String = "",
+    val median: Double = 0.0,
+    val p5: Double = 0.0,
+    val p95: Double = 0.0,
+    val n: Int = 0,
 )
 
 @Serializable
@@ -25,16 +37,12 @@ data class Gap(
     @SerialName("corpus_in_band") val corpusInBand: Int,
 )
 
-/** Nine keys because `docs/capture-plan.schema.json` requires nine — the list IS the schema. */
-@Suppress("LongParameterList")
+/** Six keys because `docs/capture-plan.schema.json` requires six — the list IS the schema. */
 @Serializable
 data class Shot(
     val id: String,
-    val fix: String,
     val reason: String,
     val place: List<Placement> = emptyList(),
-    val light: String? = null,
-    @SerialName("reference_square") val referenceSquare: String,
     val height: String,
     val orientations: Int,
     val closes: List<Gap> = emptyList(),
@@ -48,6 +56,9 @@ data class CapturePlan(
     @SerialName("generated_at") val generatedAt: String = "",
     val dataset: String = "",
     @SerialName("gaps_from") val gapsFrom: String = "",
+    /** Hellster minus dunkelster Feldmedian — was EINE Lampeneinstellung ueberhaupt aufspannt. */
+    @SerialName("board_spread") val boardSpread: Double = 0.0,
+    val squares: Map<String, SquareStat> = emptyMap(),
     val shots: List<Shot> = emptyList(),
     /** Not in the schema: the route answers `{shots: [], why: <command>}` when no plan was computed. */
     val why: String? = null,
@@ -79,6 +90,9 @@ sealed interface PlanAnswer {
 internal val CAPTURE_JSON = Json { ignoreUnknownKeys = true }
 
 private const val FULL_TURN = 360
+
+/** Ein Band ohne obere Grenze reicht bis ans Ende der Grauskala, nicht bis 0. */
+private const val BYTE_RANGE = 256
 
 internal const val HTTP_OK = 200
 internal const val HTTP_UNAUTHORIZED = 401

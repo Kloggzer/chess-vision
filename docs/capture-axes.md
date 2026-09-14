@@ -38,8 +38,103 @@ am nächsten** liegt — „das hellste bzw. dunkelste" wäre für das Band `mit
 und `hell`, `dunkel` und `mittel` sind 18 der 34 Stellungs-Aufträge. Was erreicht wurde, **misst**
 `axes` hinterher.
 
-Die `id` eines Auftrags ist `{piece}-{square_color}-{band}`. Das Band muss hinein: 58 Lücken
+Die `id` eines Auftrags war `{piece}-{square_color}-{band}`. Das Band musste hinein: 58 Lücken
 verteilen sich auf nur 24 Paare aus Figur und Feldfarbe, **22 davon kollidieren** über die Bänder.
+Seit der Bündelung ist sie `{laufende Nummer}-{Bänder}` (`01-sehr-dunkel` … `05-sehr-hell`) —
+ein Bündel trägt viele Figuren, aber immer noch seine Bänder.
+
+## Der Vorschlag ist kein Auftrag mehr, und ein Auftrag ist ein Bündel (2026-09-14)
+
+**Stand 2026-09-14.** Zwei Befunde haben die beiden Regeln oben eingerahmt; keiner hebt sie auf.
+
+**Der Median wählt ein Feld, aber er sagt nicht, wie weit es daneben liegt.** Für „light sehr hell"
+(Bandmitte 218) nennt die Regel `g4` — Median **157**. Das Feld streut über den Korpus aber selbst
+massiv, und zwar über die Aufnahmen, nicht über die Position:
+
+| Feld | min | p5 | Median | p95 | max |
+|---|---|---|---|---|---|
+| `a8` (hell) | 6 | 66 | 115 | 172 | 207 |
+| `g4` (hell) | 6 | 83 | 157 | 203 | 225 |
+| `h2` (dunkel) | 5 | 45 | 84 | 183 | 225 |
+| `a7` (dunkel) | 4 | 26 | 45 | 106 | 201 |
+
+Das Band kommt also **von der Lampe**, nicht vom Feld. Ein Auftrag, der ein Feld nennt und das
+Band verschweigt, liest sich darum wie „stell was hin und dreh" und ist beim aktuellen Licht oft
+gar nicht erfüllbar. Seitdem trägt jedes `place` sein `lo`/`hi` mit, der Plan trägt `squares`
+(Median und Spannweite je Feld), und die **App misst das rektifizierte Brett live** und hängt die
+Figuren auf die Felder um, die gerade wirklich im Band liegen (`CaptureLight.kt`). Die FEN folgt
+der Messung, nicht dem Vorschlag — sonst wäre jede Figur aufs falsche Feld gelabelt.
+
+**Ein Auftrag ist ein Bündel.** 46 Lücken waren 46 Aufnahmen à 8 Drehungen, obwohl auf ein Brett
+viele Figuren gleichzeitig passen. Zwei Grenzen bündeln sie:
+
+- **Der Figurenkasten** (`SET_BUDGET`): `bQ` fehlt in fünf Bändern, es gibt aber nur eine schwarze
+  Dame — also fünf Aufnahmen, nicht fünf Aufträge im selben Bild.
+- **Die Brettspanne** (`board_spread`, gemessen **112**: `a7` 45 bis `g4` 157). Eine Lampe
+  verschiebt alle Felder zusammen; der Abstand zwischen ihnen ist der Gradient des Bretts. Bänder,
+  deren Mitten weiter auseinanderliegen, können nicht in ein Bild — `sehr dunkel` (20) und
+  `sehr hell` (218) verlangten 198.
+
+Gemessen auf `real13-mix-v7-128`: **46 Lücken → 5 Aufnahmen** mit 3 bis 19 Figuren. Jede Aufnahme
+fordert EINE Lampeneinstellung, nicht ein einziges Band: drei der fünf spannen zwei benachbarte
+Bänder (`02-hell-sehr-hell`, `03-dunkel-hell`, `04-sehr-dunkel-dunkel`), was genau der Zweck von
+`board_spread` ist — was zusammen erreichbar ist, kommt zusammen ins Bild.
+
+`closes` nennt dabei nur die Lücken, für die auch wirklich eine Figur steht: findet `_assign` kein
+freies Feld mehr, wandert die Lücke in die NÄCHSTE Aufnahme, statt als geschlossen gemeldet zu
+werden. Und eine Aufnahme, die gar nichts stellen kann, wird nicht ausgegeben — `id='01-'` mit
+„0 Figuren" bestand die Schema-Prüfung klaglos und hieß nichts (Review 2026-09-14).
+
+`capture.json` trägt deshalb kein `reference_square` mehr, sondern `place` — was **wirklich**
+stand, Feld für Feld, mit dem gemessenen Grauwert. Ein einzelnes Referenzfeld konnte ein Bündel
+nicht beschreiben, und der Import bekommt damit die Ground Truth statt einer Ableitung.
+
+## Die Felder müssen festgehalten werden, bevor der Mensch baut (2026-09-14)
+
+Eine Figur verschiebt den Crop-Mittelwert **ihres eigenen Feldes**. Gemessen über 40 Felder mit je
+mindestens 50 Belegen pro Art (`empty` / weiß / schwarz):
+
+| | Median | Spanne |
+|---|---|---|
+| weiße Figur | −3 | −41 bis +32 |
+| schwarze Figur | −22 | −61 bis +8 |
+
+Die Bänder sind 40 bis 76 Grauwerte breit — **16 der 80 Verschiebungen überspringen ein ganzes
+Band.** Ohne Gegenmaßnahme hätte die erste hingestellte Figur die Zuweisung neu gewürfelt und die
+Anzeige wäre unter der Hand des Nutzers gewandert.
+
+Der Ablauf ist deshalb zweistufig: **Licht stellen** (`assign` läuft, die Felder wandern) →
+**Felder festhalten** → aufbauen (`refit`: dieselben Felder, nur neu beurteilt). Das Licht wird
+weiter bewertet, und zwar richtig — der Crop **mit** Figur ist der, der im Datensatz landet.
+
+Gemessen wird auch **während der acht Drehungen**, nicht nur beim Aufbau: eine Wolke oder ein
+Schatten zieht das ganze Brett mit, und eine Aufnahme, die dabei aus dem Band läuft, fiele sonst
+erst im fertigen Datensatz auf — mit allen Frames schon geschrieben. `driftLine` nennt den Median
+der Verschiebung gegen den Moment des Festhaltens und das stärkste Feld dazu; unter 3 Grauwerten
+heißt es „stabil", weil die schmalsten Bänder 40 breit sind. Felder ohne aktuelle Messung zählen
+nicht mit — ein fehlender Read wäre sonst ein Sturz um 200.
+
+## Das CNN kontrolliert den Aufbau, es sperrt ihn nicht (2026-09-14)
+
+Beim Aufbau läuft eine Kontrolle über `TrackerStatus.debug.cnnReads` (kein UI-Seitenkanal,
+`entry.md`), je Zielfeld ein Zustand: `AGREES`, `OTHER_PIECE`, `EMPTY`, `UNSURE`, `OFF`. Dazu
+`strayPieces` — Felder ohne Ziel, auf denen das Modell sicher eine Figur sieht.
+
+**Warum es kein Veto sein darf:** aufgenommen wird genau auf den Kombinationen, die dem Modell
+fehlen. 16 der 46 Lücken haben **null** Belege — dort ist seine Zuverlässigkeit nicht einmal
+messbar. Ein Widerspruch kann also der Aufbau sein oder die Lücke selbst, und die beiden sind
+nicht unterscheidbar. Der Mensch entscheidet; nichts wird gesperrt.
+
+**Was trotzdem trägt:**
+
+- `EMPTY` auf einem Zielfeld — der häufigste Fehler bei 19 Figuren, und er hängt *nicht* an der
+  Figurklasse, sondern nur an der Belegung.
+- `strayPieces` — eine Figur auf einem Feld, das die FEN als `empty` führt, macht dieses Label in
+  **jedem** Frame des Laufs falsch, und dem Bild sieht man es später nicht an.
+- `UNSURE` ist keine Aussage über den Aufbau und wird als solche angezeigt, nicht als Fehler.
+
+Der Payload kostet 64 Felder je Bild und ist deshalb nur im Aufbau-Schirm armiert — **während der
+Aufnahme aus**, die 4K-Aufnahme hat das Budget nicht.
 
 ## Die Abdeckung kann nicht live sein
 
@@ -95,3 +190,19 @@ nur in 602 723 Zeilen, den 138 Komposit-Sessions fehlt er, und ein Ply steht fü
 
 Was nicht erfasst ist, zählt unter `"unbekannt"` — nie unter `"normal"`. Nicht gemessen ist nicht
 dasselbe wie gemessen und unauffällig.
+
+## Die Orientierung entscheidet, welches Pixel welches Feld ist (2026-09-14)
+
+`warpFromCorners` kennt **kein** `whitePov` — es baut die Homographie nur aus `corners` und
+`margin` (`Warp.kt`). Die Feldzuordnung kennt es dagegen sehr wohl: `squareToColRow` dreht sie um
+180 Grad, wenn `!whitePov`. Steht die Brettorientierung also auf `BLACK_BOTTOM`, liegt `a8` im
+gewarpten Bild da, wo bei `WHITE_BOTTOM` `h1` liegt.
+
+`measureSquares` verdrahtete `whitePov = true` fest. Folge wäre gewesen: jede Figur auf dem
+gespiegelten Feld gemessen, dorthin gehängt und dorthin gelabelt — jeder Crop des Laufs falsch,
+ohne Symptom. Der Schirm reicht die Einstellung jetzt durch (`AppSettings.orientation.whitePov`).
+
+**Nicht aufgefallen, weil es einen Zwilling hat:** `cellRect` (`BoardPreview.kt`) verdrahtet
+dieselbe Annahme für das Tracking-Overlay. Messung und Overlay sind damit konsistent *zueinander*
+falsch, aber beide inkonsistent zu den Crops, die das CNN sieht. Das Overlay ist nicht mit
+korrigiert — wer es anfasst, prüft zuerst, ob `BoardPreview` je unter `BLACK_BOTTOM` lief.

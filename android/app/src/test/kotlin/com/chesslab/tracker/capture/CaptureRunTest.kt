@@ -34,7 +34,7 @@ class CaptureRunTest {
     @Test
     fun eightTurnsLeaveEightRowsEightStepsAndACaptureBundle() {
         val run = newRun(SHOT)
-        repeat(SHOT.stepCount) { ply -> assertTrue(run.step(ply, SHOT.orientationDeg(ply), SHOT.boardFen(), tick())) }
+        repeat(SHOT.stepCount) { ply -> assertTrue(run.step(ply, SHOT.orientationDeg(ply), fenOfTargets(PLACED), tick())) }
         val session = finish(run)
 
         assertEquals(listOf(0, 1, 2, 3, 4, 5, 6, 7), log().map { it.getValue("ply").jsonPrimitive.int })
@@ -42,14 +42,14 @@ class CaptureRunTest {
         assertEquals(8, session.steps.size)
         assertEquals("wq-light-sehr-hell", session.shotId)
         assertEquals("normal", session.height)
-        assertEquals("g4", session.referenceSquare)
+        assertEquals(listOf("g4"), session.place.map { it.square })
         assertEquals(listOf(0, 45, 90, 135, 180, 225, 270, 315), session.steps.map { it.orientationDeg })
     }
 
     @Test
     fun everyStepCarriesAClockAndTheWindowsNeverOverlap() {
         val run = newRun(SHOT)
-        repeat(SHOT.stepCount) { ply -> run.step(ply, SHOT.orientationDeg(ply), SHOT.boardFen(), tick()) }
+        repeat(SHOT.stepCount) { ply -> run.step(ply, SHOT.orientationDeg(ply), fenOfTargets(PLACED), tick()) }
         val steps = finish(run).steps
 
         val starts = steps.map { it.elapsedNs }
@@ -62,12 +62,12 @@ class CaptureRunTest {
         }
     }
 
-    /** `fix = "Licht"` places nothing, and an empty board is still eight labelled turns. */
+    /** Ein Buendel, dessen Felder alle vergeben waren, stellt nichts — und labelt das leere Brett. */
     @Test
-    fun aLightShotRecordsTheEmptyBoardEightTimes() {
-        val shot = SHOT.copy(fix = "Licht", place = emptyList())
+    fun aShotThatPlacesNothingRecordsTheEmptyBoardEightTimes() {
+        val shot = SHOT.copy(place = emptyList())
         val run = newRun(shot)
-        repeat(shot.stepCount) { ply -> run.step(ply, shot.orientationDeg(ply), shot.boardFen(), tick()) }
+        repeat(shot.stepCount) { ply -> run.step(ply, shot.orientationDeg(ply), fenOfTargets(emptyList()), tick()) }
         run.finish()
 
         val fens = log().map { it.getValue("fen").jsonPrimitive.content }
@@ -79,7 +79,7 @@ class CaptureRunTest {
     @Test
     fun theRecordingStatesWhatTheDeviceActuallyDid() {
         val run = newRun(SHOT, observed = { FELL_BACK })
-        run.step(0, 0, SHOT.boardFen(), tick())
+        run.step(0, 0, fenOfTargets(PLACED), tick())
         val recording = requireNotNull(finish(run).recording)
 
         assertEquals("3840x2160", recording.requestedSize)
@@ -95,7 +95,7 @@ class CaptureRunTest {
     @Test
     fun anUnmeasuredRunClaimsNoProfile() {
         val run = newRun(SHOT)
-        run.step(0, 0, SHOT.boardFen(), tick())
+        run.step(0, 0, fenOfTargets(PLACED), tick())
         assertNull(finish(run).recording)
     }
 
@@ -103,7 +103,7 @@ class CaptureRunTest {
     @Test
     fun aLostFrameLeavesNoStep() {
         val run = newRun(SHOT, source = DeadSource)
-        assertTrue(!run.step(0, 0, SHOT.boardFen(), tick()))
+        assertTrue(!run.step(0, 0, fenOfTargets(PLACED), tick()))
         assertNull(run.finish())
         assertEquals(0, log().size)
     }
@@ -114,7 +114,7 @@ class CaptureRunTest {
         var finished = false
         val recorder = SessionRecorder(dir, SessionMeta("20260913-120000", "default", 2560, 1440, SHOT.id, CAPTURE_MODE))
         val run = BundleCaptureRun(SHOT, recorder, FakeSource, ::grabbed, { null }) { finished = true }
-        run.step(0, 0, SHOT.boardFen(), tick())
+        run.step(0, 0, fenOfTargets(PLACED), tick())
         assertTrue(File(dir, CAPTURE_FILE).mkdir(), "the stand-in for a disk that refuses the write was not put in place")
 
         assertThrows(Exception::class.java) { run.finish() }
@@ -141,7 +141,7 @@ class CaptureRunTest {
     private fun log() = File(dir, "log.jsonl").readLines().filter { it.isNotBlank() }.map { Json.parseToJsonElement(it).jsonObject }
 
     private fun finish(run: BundleCaptureRun): CaptureSession =
-        Json.decodeFromString(CaptureSession.serializer(), requireNotNull(run.finish()).readText())
+        Json.decodeFromString(CaptureSession.serializer(), requireNotNull(run.finish(PLACED)).readText())
 
     private fun newRun(
         shot: Shot,
@@ -166,14 +166,14 @@ private val FELL_BACK =
 private const val STEP_NS = 3_000_000_000L
 private const val GRAB_NS = 1_000_000L
 
+/** Was die Messung ergeben hat — der Lauf labelt dagegen, nicht gegen den Vorschlag. */
+private val PLACED = listOf(Target("g4", "wQ", "sehr hell", 180, 256, 199, Fit.OK))
+
 private val SHOT =
     Shot(
         id = "wq-light-sehr-hell",
-        fix = "Stellung",
         reason = "nur 12 Belege",
-        place = listOf(Placement("g4", "wQ")),
-        light = null,
-        referenceSquare = "g4",
+        place = listOf(Placement("g4", "wQ", "sehr hell", 180, 256)),
         height = "normal",
         orientations = 8,
     )

@@ -6,6 +6,8 @@
 | 01 | 01-import.md | **achtung** | 2026-09-13; gebaut, liest aber noch `steps[].video_frame`. Das Schema fuehrt seit derselben Nacht `elapsed_ns` — der Import bricht auf jedem Buendel ab, das 02 schreibt. Siehe unten |
 | 02 | 02-erfassungs-modus.md | done | 2026-09-13; alle vier Steps. `elapsed_ns` statt Frame-Index (Blocker unten, geloest). 8 JVM-Tests gruen, ktlint gruen, `:tracker-runtime` und `CameraVideo` unberuehrt. **4K ist NICHT gemessen** — kein Geraet, siehe eigener Abschnitt |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
+| 04 | — | done | 2026-09-14 auf Nutzer-Einwand („das sagt mir immer nur stelle eine figur hin"). Ein Auftrag ist jetzt ein BUENDEL und die App misst live. 46 Luecken -> **5 Aufnahmen** mit 3-19 Figuren. 27 pytest (`test_capture_plan.py`), 19 JVM-Tests, 4 vitest gruen; ktlint gruen. `docs/capture-axes.md` |
+| 05 | — | done | 2026-09-14; Felder werden vor dem Aufbau FESTGEHALTEN (eine Figur verschiebt ihr Feld um bis zu 61 Grauwerte) und das CNN kontrolliert den Aufbau ueber `debug.cnnReads` — **nie als Veto**, 16 der 46 Luecken haben null Belege. 41 JVM-Tests gruen. Review 2026-09-14 (3 Agenten) fand 4 echte Fehler, alle zu |
 
 ## Dependencies
 
@@ -21,6 +23,46 @@ Die Aufnahmen macht der Nutzer: Stellung aufbauen, Licht stellen, Figur drehen, 
 Kein Agent nimmt etwas auf.
 
 ## Notes / discrepancies
+
+**Der Vorschlag war nie ein Auftrag (2026-09-14).** Der Nutzer hat den Erfassungs-Modus benutzt und
+zwei Dinge bemaengelt, beide berechtigt: er sagt immer nur „stelle EINE Figur hin", und er sagt
+nicht, wo die Figur eigentlich hin soll. Gemessen dahinter:
+
+1. `shots()` baute je Luecke einen Auftrag. Auf ein Brett passen aber viele Figuren gleichzeitig —
+   begrenzt nur vom Figurenkasten und davon, wie weit das Brett bei EINER Lampeneinstellung spannt
+   (gemessen 112 Grauwerte). 46 Luecken sind damit **5 Aufnahmen**, nicht 46.
+2. `_pick_square` waehlte nach dem Median und verschwieg den Abstand: fuer Band `sehr hell`
+   (Mitte 218) nannte es `g4` mit Median 157. Dasselbe Feld mass ueber den Korpus 6 bis 207 — das
+   Band kommt von der LAMPE. Seitdem traegt jedes `place` sein `lo`/`hi`, der Plan traegt `squares`,
+   und die App misst das rektifizierte Brett und haengt live um (`CaptureLight.kt`).
+
+**Die Belegung friert ein, bevor der Mensch baut (2026-09-14).** Gemessen ueber 40 Felder mit je
+>= 50 Belegen je Art: eine Figur verschiebt den Crop-Mittelwert IHRES Feldes um Median -22
+(schwarz) bzw. -3 (weiss), Spanne -61 bis +32. Die Baender sind 40-76 breit, **16 von 80
+Verschiebungen ueberspringen ein ganzes Band** — die erste hingestellte Figur haette die Zuweisung
+neu gewuerfelt. Zwei Stufen: Licht stellen (`assign`) -> festhalten -> aufbauen (`refit`).
+
+**Das CNN kontrolliert, es sperrt nicht (2026-09-14, Nutzer: „nur als kontrolle ... ich bin ja
+immernoch aktiv dabei").** `checkPlacement`/`strayPieces` ueber `TrackerStatus.debug.cnnReads`,
+kein UI-Seitenkanal. Ein Veto waere falsch herum: aufgenommen wird auf genau den Kombinationen, die
+dem Modell fehlen, und 16 der 46 Luecken haben NULL Belege — dort ist seine Zuverlaessigkeit nicht
+messbar. Wert hat es trotzdem ueber die BELEGUNG: eine vergessene Figur und eine, die auf einem
+`empty`-Feld steht, sind klassenunabhaengig und verderben sonst jeden Frame des Laufs. Der Payload
+ist nur im Aufbau-Schirm armiert, waehrend der 4K-Aufnahme aus.
+
+**Die FEN folgt der Messung.** `Shot.boardFen()` ist weg; `fenOfTargets(placed)` nimmt die Belegung,
+auf die die App gekommen ist. Mit dem alten Weg waere nach jedem Umhaengen jede Figur aufs
+vorgeschlagene Feld gelabelt worden — still, und in jedem Frame des Laufs.
+
+**`capture.json` hat kein `reference_square` mehr, sondern `place`.** Ein einzelnes Feld kann ein
+Buendel nicht beschreiben. Der Import gewinnt dadurch die Ground-Truth-Stellung statt einer
+Ableitung.
+
+**Korrektur (2026-09-14, Review):** der `steps[].video_frame`-Blocker in Zeile 6 EXISTIERT NICHT
+MEHR. `capture_import.py:88-93` verlangt `elapsed_ns`, seit `b1e9f972`; `git grep video_frame`
+findet dort nur noch die Funktion `video_frames`. Ich hatte die alte Zeile ungeprueft
+fortgeschrieben. Phase 01 steht auf **achtung**, ohne dass jemand sagen kann wofuer — wer sie
+anfasst, prueft zuerst, ob ueberhaupt etwas offen ist.
 
 **Sechs Pruefungen durch fremde Agenten.** Fassung 7 beantwortet den letzten strukturellen Befund.
 

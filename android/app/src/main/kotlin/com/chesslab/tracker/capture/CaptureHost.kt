@@ -20,6 +20,8 @@ data class CaptureUi(
     val recording: Boolean = false,
     /** What the camera really does under the capture profile — measured, never assumed. */
     val observed: CaptureObserved? = null,
+    /** Festgehaltene Felder; null heisst, die Messung darf sie noch verschieben. */
+    val frozen: List<Target>? = null,
 )
 
 /**
@@ -36,6 +38,30 @@ object CaptureHost {
 
     /** The schema's `elapsed_ns` for the step now being asked for. */
     private var stepStartedNs = 0L
+
+    /** Die Belegung, wie der Aufbau-Schirm sie gemessen hat. */
+    private var placed: List<Target> = emptyList()
+
+    /** Der Aufbau-Schirm meldet, was seine Messung ergeben hat. */
+    fun place(targets: List<Target>) {
+        placed = targets
+    }
+
+    /**
+     * Die Felder festhalten, bevor der Mensch baut — ab hier nur noch [refit].
+     *
+     * Ohne das wuerfelt die erste hingestellte Figur die Belegung neu: sie verschiebt den
+     * Crop-Mittelwert ihres Feldes um bis zu 61 Grauwerte, ein ganzes Band.
+     */
+    fun freeze(targets: List<Target>) {
+        placed = targets
+        ui.value = ui.value.copy(frozen = targets)
+    }
+
+    /** Zurueck ans Licht-Stellen: die Felder duerfen wieder wandern. */
+    fun thaw() {
+        ui.value = ui.value.copy(frozen = null)
+    }
 
     fun load(
         scope: CoroutineScope,
@@ -59,7 +85,7 @@ object CaptureHost {
     }
 
     fun open(index: Int) {
-        ui.value = ui.value.copy(shotIndex = index, ply = 0, message = null)
+        ui.value = ui.value.copy(shotIndex = index, ply = 0, message = null, frozen = null)
     }
 
     /**
@@ -123,7 +149,7 @@ object CaptureHost {
         val written =
             shot != null &&
                 running != null &&
-                running.step(ply, shot.orientationDeg(ply), shot.boardFen(), stepStartedNs)
+                running.step(ply, shot.orientationDeg(ply), fenOfTargets(placed), stepStartedNs)
         if (written) {
             stepStartedNs = clock()
             ui.value = ui.value.copy(ply = ply + 1, message = null)
@@ -137,7 +163,7 @@ object CaptureHost {
     fun finish(recorder: CaptureRecorder?) {
         // A throwing close (a full disk) must not keep the 4K capture profile on the camera the
         // tracker goes back to, nor leave the screen claiming it is still recording.
-        val failed = runCatching { active?.finish() }.exceptionOrNull()
+        val failed = runCatching { active?.finish(placed) }.exceptionOrNull()
         active = null
         recorder?.release()
         ui.value =

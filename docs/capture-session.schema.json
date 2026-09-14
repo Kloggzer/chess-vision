@@ -25,10 +25,22 @@
       ],
       "description": "Kamerahoehe, wie der Auftrag sie verlangt hat. Namen, keine Messlatte."
     },
-    "reference_square": {
-      "type": "string",
-      "pattern": "^[a-h][1-8]$",
-      "description": "Das Feld, auf dem die Figur steht."
+    "place": {
+      "type": "array",
+      "description": "Was WIRKLICH stand, Feld fuer Feld — die Belegung, auf die die App nach ihrer Helligkeitsmessung gekommen ist, nicht der Vorschlag des Plans. Ein Auftrag ist ein Buendel; ein einzelnes Referenzfeld kann ihn nicht mehr beschreiben.",
+      "items": {
+        "type": "object",
+        "required": ["square", "piece"],
+        "additionalProperties": false,
+        "properties": {
+          "square": {"type": "string", "pattern": "^[a-h][1-8]$"},
+          "piece": {"type": "string", "pattern": "^[wb][PNBRQK]$"},
+          "brightness": {
+            "type": "integer",
+            "description": "Der gemessene Grauwert des Feldes beim Aufbau, auf der Skala von `brightness` im Manifest."
+          }
+        }
+      }
     },
     "steps": {
       "type": "array",
