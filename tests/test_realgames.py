@@ -347,6 +347,9 @@ def test_slice_runs_unmodified(tmp_path, monkeypatch):
         # that a plain session still yields all 64 crops per frame (see tests/test_labeling_unknown).
         "unknown_dropped": 0,
         "dirty_dropped": 64,
+        # Neu seit der Crop-Lane: eine Zelle, die ein Mensch als unbrauchbar markiert hat,
+        # wird vor der Korrektur geprueft und faellt raus (`labeling.read_unusable_cells`).
+        "unusable_cells_dropped": 0,
         # These rows carry no `settle_dev`, and a row without a score is one the gate does not
         # judge — the export writes the score only after `session settle-scan` has an interval.
         "unsettled_dropped": 0,

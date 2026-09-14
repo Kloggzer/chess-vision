@@ -50,6 +50,9 @@ export type SessionRow = {
   dirtyReason?: string;
   /** `settle_dev` liegt an: dann entscheidet die ZELLE, ob ein Label gilt, nicht die Frame-Klasse. */
   measured: boolean;
+  /** Das Urteil „hier steht keine gueltige Stellung" (`session flag --unusable`). `slice_session`
+   *  und `matte.alpha_worker` ueberspringen die Zeile beide. */
+  unusable: boolean;
 };
 export type Session = {
   name: string;
@@ -139,6 +142,7 @@ export async function loadSession(name: string): Promise<Session> {
       board_straightened?: boolean;
       dirty_reason?: string;
       settle_dev?: number[];
+      unusable?: boolean;
     };
     const stem = path.basename(row.frame, ".png");
     const at = Number(stem);
@@ -163,6 +167,7 @@ export async function loadSession(name: string): Promise<Session> {
         : undefined,
       dirtyReason: row.dirty_reason,
       measured: (row.settle_dev ?? []).length > 0,
+      unusable: row.unusable === true,
     });
   }
   const geometry = candidate.geometry ?? {};

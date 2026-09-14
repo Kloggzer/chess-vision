@@ -28,7 +28,11 @@ import {
   laneOpen,
   lanePath,
   laneReads,
+  laneFrames,
+  openFrames,
   keepPosition,
+  UNUSABLE_BRUSH,
+  UNUSABLE_KEY,
   recentCells,
   openBoards,
   openCells,
@@ -38,6 +42,7 @@ import {
 import { queryText, type Filter, type QueryAnswer } from "@/lib/query";
 import { addRows, emptyTally } from "@/lib/session-tally";
 import { BoardLane } from "./board-lane";
+import { FrameLane, type FrameVerdict } from "./frame-lane";
 import { CellLane } from "./cell-lane";
 import { MobileSort } from "./mobile-sort";
 import { WallQueryBar } from "./wall-query";
@@ -98,6 +103,7 @@ const KEYS: [string, string][] = [
   ["⇧⏎", "nächster Halbzug"],
   ["z", "zurück"],
   ["d", "Hand drauf → ganzes Frame dirty"],
+  ["u", "Pinsel: Crop unbrauchbar (Zell-Lanes)"],
   ["x", "Brett raus"],
   ["X", "Aufnahme raus"],
   [".", "/game (neuer Tab)"],
@@ -254,19 +260,29 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     return raw.filter((c) => !dropped.has(c.session) && !thrown.has(`${c.session}|${c.stem}`));
   }, [boards, dropped, lane, stream, thrown, wallLane, withDone]);
 
-  const board = laneById(lane).renderer === "board" ? boards[Math.min(at, boards.length - 1)] : undefined;
+  const renderer = laneById(lane).renderer;
+  const frames = useMemo(
+    () => (withDone ? laneFrames(stream, lane) : openFrames(stream, lane)).filter(live),
+    [lane, live, stream, withDone],
+  );
+  const board = renderer === "board" ? boards[Math.min(at, boards.length - 1)] : undefined;
   const positions = useMemo(
-    () => (laneById(lane).renderer === "board" ? boards.map((b) => b.pos) : cells.map((c) => c.pos)),
-    [boards, cells, lane],
+    () =>
+      renderer === "board" ? boards.map((b) => b.pos)
+      : renderer === "frames" ? frames.map((f) => f.pos)
+      : cells.map((c) => c.pos),
+    [boards, cells, frames, renderer],
   );
   const pos = positions[Math.min(at, positions.length - 1)] ?? 0;
-  const length = laneById(lane).renderer === "board" ? boards.length : cells.length;
+  const length = renderer === "board" ? boards.length : renderer === "frames" ? frames.length : cells.length;
 
   function switchLane(id: LaneId) {
     const next =
       laneById(id).renderer === "board"
         ? openBoards(stream, id).filter(live).map((b) => b.pos)
-        : openCells(stream, id, wallLane).map((c) => c.pos);
+        : laneById(id).renderer === "frames"
+          ? openFrames(stream, id).filter(live).map((f) => f.pos)
+          : openCells(stream, id, wallLane).map((c) => c.pos);
     setAt(keepPosition(next, pos));
     router.push(lanePath(id));
   }
@@ -349,7 +365,8 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   }, [fail, history, overlay, positions, say]);
 
   /** The frame under the cursor, whichever renderer is up — a cell lane throws ITS board out too. */
-  const here = board ?? cells[Math.min(at, cells.length - 1)];
+  const here = board ?? (renderer === "frames" ? frames[Math.min(at, frames.length - 1)] : undefined)
+    ?? cells[Math.min(at, cells.length - 1)];
   /** `{square: coverage}` of the frame under the cursor; `undefined` while no alpha was ever cut. */
   const coverage = here ? stream.coverage[here.session]?.[here.stem] : undefined;
   const dirtyHere = here !== undefined && reported.has(frameKey(here));
@@ -433,6 +450,46 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     }
   }
 
+  /**
+   * Das Urteil ueber ein ganzes Frame. `matte` legt einen Zettel, `unusable` setzt das Flag im
+   * `log.jsonl` — beide nehmen das Frame hier aus der Lane, das Nachladen holt die Wahrheit.
+   */
+  async function ruleFrame(frame: StreamBoard, verdict: FrameVerdict) {
+    const session = stream.sessions[frame.session];
+    setThrown((t) => new Set(t).add(`${frame.session}|${frame.stem}`));
+    say(
+      verdict === "matte"
+        ? `${frame.stem} zur Matte — SAM holt es mit \`occluders alpha-worker --wanted\`, danach liegen seine Crops in Strittig`
+        : `${frame.stem} unbrauchbar — Flag im log.jsonl, Slice und Matte ueberspringen die Zeile`,
+    );
+    try {
+      await post("/api/frame-verdict", { session_id: session.sessionId, frame: frame.stem, verdict });
+    } catch (error) {
+      setThrown((t) => new Set([...t].filter((k) => k !== `${frame.session}|${frame.stem}`)));
+      fail(error);
+    }
+  }
+
+  /** „Aus diesem Crop ist kein Label zu holen" — ein eigenes Ledger, nie `corrections.jsonl`. */
+  const ruleCells = useCallback(
+    async (marked: LaneCell[]) => {
+      if (marked.length === 0) return;
+      const rows = marked.map((c) => ({
+        session_id: stream.sessions[c.session].sessionId,
+        frame: c.stem,
+        square: c.square,
+        unusable: true,
+      }));
+      try {
+        await post("/api/unusable-cells", { rows });
+        say(`${rows.length} Crops als unbrauchbar vermerkt — sie werden zu keiner Manifest-Zeile`);
+      } catch (error) {
+        fail(error);
+      }
+    },
+    [fail, say, stream.sessions],
+  );
+
   // One listener, one keymap — the renderers publish what they can do instead of binding keys of
   // their own, which is how `bucket.tsx` and `drilldown.tsx` came to disagree about Space.
   const handler = useRef<(event: KeyboardEvent) => void>(() => undefined);
@@ -489,6 +546,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         return;
       }
       default: {
+        if (event.key === UNUSABLE_KEY) {
+          event.preventDefault();
+          now.brush?.(UNUSABLE_BRUSH);
+          return;
+        }
         if (event.key === DIRTY_KEY) {
           event.preventDefault();
           now.brush?.(DIRTY_BRUSH);
@@ -509,9 +571,11 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const session = stream.sessions[here?.session ?? 0];
   const counts = useMemo(() => LANES.map((l) => laneCount(stream, l.id, wallLane)), [stream, wallLane]);
   const seconds = median(gaps);
-  const open = laneById(lane).renderer === "board"
+  const open = renderer === "board"
     ? boards.filter((b) => laneOpen(b, lane, decided[b.session] ?? {})).length
-    : cells.filter((c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined).length;
+    : renderer === "frames"
+      ? openFrames(stream, lane).filter(live).length
+      : cells.filter((c) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined).length;
   const pct = stream.progress.boards > 0 ? (stream.progress.done / stream.progress.boards) * 100 : 0;
   // A new query is a new corpus, not a new page of the old one — the renderer starts over.
   const laneKey = lane === "audit" ? `${lane}|${wallLane.text}|${answer.phase}` : lane;
@@ -665,6 +729,16 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         <div>
           {length === 0 ? (
             <p className="text-muted-foreground text-sm">{laneEmpty(lane)}</p>
+          ) : renderer === "frames" ? (
+            <FrameLane
+              actionsRef={actions}
+              at={at}
+              frames={frames}
+              key={lane}
+              onAt={setAt}
+              onVerdict={(frame, verdict) => void ruleFrame(frame, verdict)}
+              sessions={stream.sessions}
+            />
           ) : phone ? (
             <MobileSort
               actionsRef={actions}
@@ -705,6 +779,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               onDirty={(cell, on) => void markDirty(cell.session, cell.stem, on, "Labeln-Strom: Crop-Ecke")}
               onFlush={flush}
               onDirtyCells={markPaintedDirty}
+              onUnusable={(marked) => void ruleCells(marked)}
               reported={reported}
               showDone={showDone}
               sessions={stream.sessions}

@@ -18,10 +18,11 @@ import { type HandFlag, loadHandFlags } from "@/lib/hand-flags";
 import { type FrameHand, handKey, loadFrameHands } from "@/lib/frame-hands";
 import { isArchived } from "@/lib/meta";
 import { loadModelReads, topRead, type ModelRead } from "@/lib/model-reads";
-import { frameReviews, unusableBoards } from "@/lib/review-notes";
+import { frameReviews, matteWanted, unusableBoards } from "@/lib/review-notes";
 import { recordedAt } from "@/lib/queues";
 import { loadSession, sessionId, type FramePhase, type SessionRow } from "@/lib/session";
 import { loadMatte } from "@/lib/matte";
+import { unusableCells } from "@/lib/unusable-cells";
 import { uselessFlag } from "@/lib/useless";
 
 export type StreamSession = {
@@ -33,6 +34,8 @@ export type StreamSession = {
   probs: boolean;
   /** Stems already reported dirty. The note is on disk, so the mark must survive a reload. */
   reportedDirty: string[];
+  /** Stems, die aus der Frame-Lane zur Matte geschickt wurden — sie warten, sie fragen nicht mehr. */
+  matteWanted: string[];
 };
 
 export type StreamBoard = {
@@ -157,6 +160,9 @@ export type LabelStream = {
    */
   frameHands: Record<string, FrameHand>[];
   handsMeasured: boolean[];
+  /** Per session, `frame|square` a human called unlabelable — `unusable-cells.jsonl`. Keine Lane
+   *  fragt sie noch, und `iter_session_crops` macht keine Manifest-Zeile mehr daraus. */
+  unusableCells: string[][];
 };
 
 /** Newest recording first, the same reading of the two naming schemes the queues use. */
@@ -198,6 +204,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const decided: Record<string, string>[] = [];
   const coverage: Record<string, Record<string, number>>[] = [];
   const frameHands: Record<string, FrameHand>[] = [];
+  const unusableCell: string[][] = [];
   const handsMeasured: boolean[] = [];
   const gateRows = await loadFrameHands();
   const auditRows = await loadAuditFlags();
@@ -224,11 +231,13 @@ export async function loadLabelStream(): Promise<LabelStream> {
       continue; // not exported yet — the chain owes this one an `export-session`
     }
     const id = sessionId(name);
-    const [{ rows }, judged, unusable, matte] = await Promise.all([
+    const [{ rows }, judged, unusable, matte, wanted, useless] = await Promise.all([
       loadModelReads(name).catch(() => ({ rows: [] as ModelRead[] })),
       judgedKeys(name),
       unusableBoards(id),
       loadMatte(name),
+      matteWanted(id),
+      unusableCells(name),
     ]);
 
     const broke = violated.get(id) ?? new Map<string, CorrectionViolation>();
@@ -246,8 +255,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
     // Every exported frame, as CONCEPT.md 4.2 says: the reads are a model pass over one session at
     // a time, and gating the stream on them would hide 42 of 43 recordings from the free-hand lane.
     const readStems = new Set(rows.map((r) => r.frame));
+    // `unusable` auf der Log-Zeile ist das Urteil "keine gueltige Stellung" — `slice_session`
+    // ueberspringt sie, also darf keine Lane sie noch zeigen.
     const stems = session.rows
-      .filter((r) => !unusable.has(r.stem))
+      .filter((r) => !unusable.has(r.stem) && !r.unusable)
       .sort((a, b) => a.stem.localeCompare(b.stem));
     if (stems.length === 0) continue;
     if (rows.length === 0) without += 1;
@@ -259,6 +270,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
       reads: rows.length > 0,
       probs: rows.some((r) => r.probs !== undefined),
       reportedDirty: [...(await frameReviews(id))].flatMap(([stem, r]) => (r.dirty ? [stem] : [])),
+      matteWanted: [...wanted],
     });
 
     const byStem = new Map<string, StreamBoard>();
@@ -308,6 +320,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
       }),
     ));
     handsMeasured.push(gateRows.measured.has(id));
+    unusableCell.push([...useless]);
     cells.push(...controlCells(index, stems, byStem, judged));
     for (const row of await recentVerdicts(name, RECENT_MAX)) {
       const board = byStem.get(row.frame);
@@ -335,6 +348,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     coverage,
     frameHands,
     handsMeasured,
+    unusableCells: unusableCell,
   };
 }
 

@@ -356,6 +356,28 @@ def read_corrections(session_dir: Path) -> dict[tuple[str, str, str], str]:
     return load_corrections(Path(session_dir) / "corrections.jsonl")
 
 
+def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
+    """`unusable-cells.jsonl` — Zellen, aus denen kein Label zu holen ist (Glanz, Schmier, Figur
+    ueber zwei Feldern). Eigenes Ledger neben `corrections.jsonl`, weil dort jede Zeile eine der
+    13 Identitaeten ist; gelesen wie jedes Ledger: letzte Zeile gewinnt, `unusable: false` nimmt
+    zurueck. Der Schluessel ist derselbe `(session_id, frame, square)`.
+    """
+    path = Path(session_dir) / "unusable-cells.jsonl"
+    if not path.exists():
+        return set()
+    out: set[tuple[str, str, str]] = set()
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        key = (row["session_id"], str(row["frame"]), row["square"])
+        if row.get("unusable") is False:
+            out.discard(key)
+        else:
+            out.add(key)
+    return out
+
+
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
 
@@ -417,6 +439,7 @@ def iter_session_crops(
 
     matte = read_matte(session_dir)
     label_overrides = read_corrections(session_dir)
+    unlabelable = read_unusable_cells(session_dir)
     prof = effective_profile(profile, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
 
@@ -430,6 +453,8 @@ def iter_session_crops(
     #: Cells whose pixels left the position they are labelled with (`realgames.departures`).
     n_unsettled = 0
     n_unusable = 0
+    #: Cells a human called unlabelable (`unusable-cells.jsonl`) — never a manifest row.
+    n_unusable_cells = 0
     n_mesh = 0       # frames straightened HERE, i.e. warped from a frame rather than a store
     n_bowed = 0      # stored boards nobody pulled straight — the barrel goes into these crops
     tracker = make_tracker(prof)   # per session: seeded from profile, markers held per frame
@@ -519,6 +544,12 @@ def iter_session_crops(
         for i, square in enumerate(squares):
             if square in ambiguous_set:
                 continue
+            # Vor jeder anderen Regel: der Mensch hat gesagt, dass dieses BILD kein Label hergibt.
+            # Eine Korrektur auf derselben Zelle nimmt es nicht zurueck — das tut nur eine spaetere
+            # `unusable: false`-Zeile im selben Ledger.
+            if (session_id, frame_stem, square) in unlabelable:
+                n_unusable_cells += 1
+                continue
             corrected = (
                 label_overrides.get((session_id, frame_stem, square)) if label_overrides else None
             )
@@ -570,6 +601,7 @@ def iter_session_crops(
     if stats is not None:
         stats.update({"session_id": session_id, "frames": len(log), "crops": n_crops,
                       "overrides": n_overrides, "skipped": n_skipped, "unusable": n_unusable,
+                      "unusable_cells_dropped": n_unusable_cells,
                       "unknown_dropped": n_unknown, "dirty_dropped": n_dirty,
                       "unsettled_dropped": n_unsettled, "mesh_frames": n_mesh,
                       "bowed_boards": n_bowed})

@@ -50,6 +50,29 @@ and a click takes one off (`lib/selection.ts`): confirm commits exactly what is 
 says so live, `⌫` takes all of them off. The `reviewed` ledger lives per recording next to
 `corrections.jsonl` (`lib/corrections.ts` `ledgerPath`) and is provenance only — Python skips it.
 
+### `Strittige Frames` — ein Urteil über das ganze Bild
+
+Jede andere Lane urteilt über ZELLEN; manche Frames geben aber gar keine gültige Stellung her
+(Figur umgekippt, Katze im Bild). Die Lane zeigt **die dirty Frames OHNE `occluded`** — 1 179 in
+28 Aufnahmen (`stale` 978, `changed` 177, `grid-late` 24). Genau die fasst heute niemand an:
+`alpha_worker` mattet per Vorgabe nur `occluded`, und ohne Matte lässt `slice_session` jede Zelle
+eines dirty Frames fallen. Der Satz steht über der Lane, nicht in einem Filter.
+
+Zwei Urteile, verschieden schwer. **⏎ matten lassen** schreibt `matte-wanted` nach
+`review-notes.jsonl`; `chesslab occluders alpha-worker <name> --wanted` holt genau diese Stems
+(`alpha_worker(frames=…)` übergeht beide Filter), und ab der Matte sind die Crops Sache der
+Strittig-Lane. **unbrauchbar** setzt `unusable` auf der Log-Zeile (`lib/frame-flag.ts`: Sicherung,
+dann tmp+rename wie `sessions._write_log`) — `slice_session` und `alpha_worker` überspringen die
+Zeile beide, und `loadLabelStream` nimmt sie aus dem Strom. Ein Frame verlässt die Lane mit jedem
+der beiden Urteile, und auch dann, wenn eine Matte da ist. Beides über `POST /api/frame-verdict`.
+
+Dasselbe Wort gibt es je CROP: der Pinsel `u` 🚫 der Zell-Lanes schreibt nach
+`data/recordings/<name>/unusable-cells.jsonl` (`POST /api/unusable-cells`) — eigenes Ledger,
+gleicher Schlüssel `(session_id, frame, square)`, letzte Zeile gewinnt, `unusable: false` nimmt
+zurück. NICHT in `corrections.jsonl`: dort ist jede Zeile eine der 13 Identitäten, und
+`labeling.read_corrections` sagt das seinen Lesern zu. `labeling.read_unusable_cells` liest es,
+und `iter_session_crops` macht aus einer markierten Zelle keine Manifest-Zeile mehr.
+
 - Corrections go out through `POST /api/corrections` — appended to that recording's own
   `data/recordings/<name>/corrections.jsonl` in the schema of `specs/53-cnn-headroom/entry.md`.
   The rows stay a **global training input** (park them between experiments); only the file moved

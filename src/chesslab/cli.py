@@ -1235,6 +1235,7 @@ def _session_try(fn, *args) -> dict:
     Fuer die `--all`-Schleifen: eine Session mit totem Profil hat den ganzen Lauf abgeraeumt und
     der Exit-Code ging in der Pipeline unter — 11 von 24 Sessions blieben ungemessen (2026-09-09).
     """
+    # TODO: Centralize bulk-command failure accounting; callers currently disagree on exit status.
     from .sessions import NothingToDo
 
     try:
@@ -1546,6 +1547,11 @@ def occluders_alpha_worker(
                                   help="Re-measure exactly the frames a human reported dirty in "
                                        "the labeling stream. Overrides --limit and any matte "
                                        "already there — the report is a verdict on that matte."),
+    wanted: bool = typer.Option(False, "--wanted",
+                                help="Genau die strittigen Frames, die ein Mensch in der "
+                                     "Frame-Lane zur Matte geschickt hat (`matte-wanted`). "
+                                     "Sie liegen auf dem dirty-Stapel, aber nicht als "
+                                     "`occluded` — der Stapel-Lauf sieht sie nie."),
     temporal: bool = typer.Option(False, "--temporal",
                                   help="Exactly the frames `session temporal-adopt` wrote; SAM's "
                                        "row then lands behind ours and wins in read_matte."),
@@ -1581,6 +1587,14 @@ def occluders_alpha_worker(
             print(f"[OK] {name}: nothing reported dirty by hand")
             raise typer.Exit(0)
         print(f"[i] {len(frames)} frames reported, re-measuring those")
+    if wanted:
+        from .realgames import reported_dirty
+
+        frames = {f"{index:06d}" for index in reported_dirty(f"rg-{name}", verdict="matte-wanted")}
+        if not frames:
+            print(f"[OK] {name}: no frame routed to the matte by hand")
+            raise typer.Exit(0)
+        print(f"[i] {len(frames)} frames routed to the matte, measuring those")
     if temporal:
         import json
 

@@ -3,6 +3,7 @@ import { fenLabels } from "@/lib/fen";
 import type { LabelStream, StreamBoard, StreamCell } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 import {
+  FRAME_LANE_SET,
   GROUP_SPAN,
   LANES,
   NO_AUDIT,
@@ -22,8 +23,13 @@ import {
   laneCells,
   laneChip,
   laneCount,
+  laneBoards,
+  laneFrames,
   laneOpen,
   lanePath,
+  openFrames,
+  frameCandidate,
+  isUnusableCell,
   openCells,
   recentCells,
   wallCells,
@@ -33,10 +39,11 @@ import {
 test("every lane declares a renderer, a unit and its own denominator", () => {
   // DREI, nach der Frage geschnitten: strittige Zelle, blinde Stichprobe, ganzes Brett. Neun
   // Lanes waren neun Herkuenfte derselben drei Fragen und wurden zu zweit benutzt (2026-09-07).
-  expect(LANES.map((l) => l.id)).toEqual(["audit", "control", "all"]);
+  expect(LANES.map((l) => l.id)).toEqual(["audit", "control", "frames", "all"]);
+  const UNIT = { board: "Bretter", cells: "Zellen", frames: "Frames" } as const;
   for (const lane of LANES) {
     expect(lane.denominator.length).toBeGreaterThan(0);
-    expect(lane.unit).toBe(lane.renderer === "board" ? "Bretter" : "Zellen");
+    expect(lane.unit).toBe(UNIT[lane.renderer]);
   }
   // The one lane that must NOT be indexed against the 3 976 (CONCEPT.md 4.2, REVIEW S9).
   expect(laneById("control").denominator).toContain("exportierten Sessions");
@@ -115,10 +122,10 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 });
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
-  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [] }],
+  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: [] }],
   boards: [], cells: [], recent: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
   reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
-  frameHands: [{}], handsMeasured: [true], ...over,
+  frameHands: [{}], handsMeasured: [true], unusableCells: [[]], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
@@ -140,7 +147,7 @@ test("a lane counts what is OPEN against what it holds, and null only when EVERY
 });
 
 test("every lane has a URL segment of its own, and the slugs are unique", () => {
-  expect(LANES.map((l) => l.slug)).toEqual(["audit", "stichprobe", "alle"]);
+  expect(LANES.map((l) => l.slug)).toEqual(["audit", "stichprobe", "frames", "alle"]);
   expect(new Set(LANES.map((l) => l.slug)).size).toBe(LANES.length);
   // `Abnicken` ist weg — der Lesezeichen-Pfad darf keine Lane mehr treffen (User, 2026-08-18).
   expect(laneBySlug("abnicken")).toBeUndefined();
@@ -232,7 +239,7 @@ test("the Klassenwand joins the server's answer to the stream, and never invents
 
 test("die Strittig-Lane traegt die Abfrage der Klassenwand mit, und sagt — solange nichts antwortet", () => {
   const stream = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [] }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [], matteWanted: [] }],
     boards: [board()],
     audit: [],
   });
@@ -387,4 +394,69 @@ test("recentCells hands the ledger back as cells, newest first and with its own 
     ["e5", "bP", "reviewed"],
   ]);
   expect(cells[0].note).toContain("beurteilt");
+});
+
+test("die Frame-Lane zeigt den Stapel, den niemand anfasst: dirty OHNE occluded", () => {
+  const stale = board({ pos: 0, stem: "000100", dirtyReason: "stale" });
+  const changed = board({ pos: 1, stem: "000200", dirtyReason: "changed" });
+  const late = board({ pos: 2, stem: "000300", dirtyReason: "grid-late" });
+  // `occluded` hat seinen Weg schon (SAM -> Coverage -> Zell-Lanes), ein sauberes Frame keine Frage.
+  const occluded = board({ pos: 3, stem: "000400", dirtyReason: "occluded" });
+  const clean = board({ pos: 4, stem: "000500" });
+  const stream = streamOf({ boards: [stale, changed, late, occluded, clean] });
+
+  expect([stale, changed, late].every(frameCandidate)).toBe(true);
+  expect([occluded, clean].some(frameCandidate)).toBe(false);
+  expect(laneFrames(stream, "frames").map((b) => b.stem)).toEqual(["000100", "000200", "000300"]);
+  // Eine Frame-Lane liefert keine Zellen und keine Bretter — sonst stuende dieselbe Arbeit zweimal.
+  expect(laneFrames(stream, "all")).toEqual([]);
+  expect(laneCells(stream, "frames")).toEqual([]);
+  expect(laneBoards(stream, "frames")).toEqual([]);
+  expect(FRAME_LANE_SET).toContain("occluded");
+});
+
+test("ein Frame verlaesst die Lane mit JEDEM der beiden Urteile", () => {
+  const boards = [
+    board({ pos: 0, stem: "000100", dirtyReason: "stale" }),
+    board({ pos: 1, stem: "000200", dirtyReason: "stale" }),
+    board({ pos: 2, stem: "000300", dirtyReason: "changed" }),
+  ];
+  const open = streamOf({ boards });
+  expect(openFrames(open, "frames")).toHaveLength(3);
+  expect(laneCount(open, "frames")).toEqual({ n: 3, total: 3 });
+
+  // Zur Matte geschickt: der Zettel liegt, SAM lief noch nicht — trotzdem ist die Frage beantwortet.
+  const routed = streamOf({
+    boards,
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: ["000100"] }],
+  });
+  expect(openFrames(routed, "frames").map((b) => b.stem)).toEqual(["000200", "000300"]);
+  // Gemattet: ab hier sind seine Crops Sache der Strittig-Lane, nicht mehr dieser.
+  const matted = streamOf({ boards, coverage: [{ "000200": { e5: 0.4 } }] });
+  expect(openFrames(matted, "frames").map((b) => b.stem)).toEqual(["000100", "000300"]);
+  // Beide zusammen, und die Zahl neben dem Chip bleibt gegen den vollen Stapel gemessen.
+  const both = streamOf({
+    boards,
+    coverage: [{ "000200": {} }],
+    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: ["000100"] }],
+  });
+  expect(laneCount(both, "frames")).toEqual({ n: 1, total: 3 });
+  expect(laneChip(laneById("frames"), laneCount(both, "frames")).text).toBe("Strittige Frames 1");
+});
+
+test("eine unbrauchbare Zelle ist beantwortet — sie kommt in keiner Zell-Lane wieder", () => {
+  const boards = [board({ stem: "000100" }), board({ pos: 1, stem: "000200" })];
+  const stream = streamOf({ boards, cells: [cell(), cell({ pos: 1, stem: "000200" })] });
+  expect(openCells(stream, "control")).toHaveLength(2);
+  const judged = streamOf({
+    boards,
+    cells: [cell(), cell({ pos: 1, stem: "000200" })],
+    unusableCells: [["000100|e5"]],
+  });
+  expect(isUnusableCell(judged, { session: 0, stem: "000100", square: "e5" })).toBe(true);
+  // Nur diese eine: das Urteil gilt dem Bild dieser Zelle, nicht dem Feld und nicht dem Frame.
+  expect(isUnusableCell(judged, { session: 0, stem: "000200", square: "e5" })).toBe(false);
+  expect(openCells(judged, "control").map((c) => c.stem)).toEqual(["000200"]);
+  // Der Nenner bleibt: die Zelle ist beurteilt, nicht verschwunden.
+  expect(laneCount(judged, "control")).toEqual({ n: 1, total: 2 });
 });

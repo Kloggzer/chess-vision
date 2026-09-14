@@ -9,7 +9,8 @@ import { checkName, dataDir } from "@/lib/data";
  * the hand the scan missed — `plan_scanned` moves that frame to the dirty pile as `occluded`.
  */
 export const FRAME_VERDICTS =
-  ["unusable-board", "matte-ok", "matte-bad", "matte-clean", "position-ok", "dirty-frame"] as const;
+  ["unusable-board", "matte-ok", "matte-bad", "matte-clean", "position-ok", "dirty-frame",
+   "matte-wanted"] as const;
 export type FrameVerdict = (typeof FRAME_VERDICTS)[number];
 
 export type ReviewNote =
@@ -79,6 +80,8 @@ const noteKey = (r: ReviewNote): string =>
 /** Per frame, the last word on each question — `undefined` means nobody was asked yet. */
 export type FrameReview = {
   matte?: "ok" | "bad" | "clean"; position?: "ok"; dirty?: true;
+  /** Der Mensch hat dieses strittige Frame zur Matte geschickt — `alpha-worker --wanted` holt es. */
+  wanted?: true;
   /** When the matte verdict was given — a merge that rewrote the mask later reopens the frame. */
   matteAt?: string;
 };
@@ -113,6 +116,7 @@ async function bySession(): Promise<BySession> {
         const seen = entry.frames.get(row.frame) ?? {};
         if (row.verdict === "position-ok") entry.frames.set(row.frame, { ...seen, position: "ok" });
         else if (row.verdict === "dirty-frame") entry.frames.set(row.frame, { ...seen, dirty: true });
+        else if (row.verdict === "matte-wanted") entry.frames.set(row.frame, { ...seen, wanted: true });
         else entry.frames.set(row.frame, { ...seen, matte: MATTE[row.verdict], matteAt: row.ts });
       }
       value.set(row.session_id, entry);
@@ -132,6 +136,12 @@ export async function unusableBoards(session_id: string): Promise<Set<string>> {
 /** What the human already answered per frame — the matte review's own progress. */
 export async function frameReviews(session_id: string): Promise<Map<string, FrameReview>> {
   return new Map((await bySession()).get(session_id)?.frames ?? []);
+}
+
+/** Stems, die ein Mensch aus der Frame-Lane zur Matte geschickt hat. */
+export async function matteWanted(session_id: string): Promise<Set<string>> {
+  const frames = (await bySession()).get(session_id)?.frames ?? new Map<string, FrameReview>();
+  return new Set([...frames].flatMap(([stem, r]) => (r.wanted ? [stem] : [])));
 }
 
 /** Plies whose interval the human called junk — the picture, not the move. */

@@ -406,8 +406,12 @@ def corrected_frames(name: str) -> set[int]:
             if str(frame).isdigit()}
 
 
-def reported_dirty(session_id: str) -> set[int]:
+def reported_dirty(session_id: str, verdict: str = "dirty-frame") -> set[int]:
     """Source indices a human called dirty in the labeling stream (`review-notes.jsonl`).
+
+    `verdict="matte-wanted"` liest denselben Zettel der Frame-Lane: ein strittiges Frame, das ein
+    Mensch zur Matte geschickt hat statt es wegzuwerfen. Es steht schon auf dem dirty-Stapel, nur
+    nicht als `occluded` — es kommt deshalb NUR ueber `alpha_worker(frames=...)` an SAM vorbei.
 
     The scan measures grooves and a person, and it misses a hand that neither moved a piece nor
     reached over the markers. The human sees it, and the honest word for the frame is the same one
@@ -425,7 +429,7 @@ def reported_dirty(session_id: str) -> set[int]:
         if not line.strip():
             continue
         row = json.loads(line)
-        if (row.get("session_id") == session_id and row.get("verdict") == "dirty-frame"
+        if (row.get("session_id") == session_id and row.get("verdict") == verdict
                 and str(row.get("frame", "")).isdigit()):
             out.add(int(row["frame"]))
     return out

@@ -9,7 +9,7 @@ import type { Correction } from "@/lib/corrections";
 import type { FrameHand } from "@/lib/frame-hands";
 import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
-import { cellCoverage, handBeside, type LaneCell } from "@/lib/lanes";
+import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, type LaneCell } from "@/lib/lanes";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
@@ -27,6 +27,8 @@ export type CellLaneProps = {
   onDirty: (cell: LaneCell, on: boolean) => void;
   /** Der Dirty-Pinsel: die Zellen, deren FRAME als dirty gemeldet werden soll. */
   onDirtyCells: (cells: LaneCell[]) => void;
+  /** Die Zellen, aus denen kein Label zu holen ist — eigenes Ledger, nie `corrections.jsonl`. */
+  onUnusable: (cells: LaneCell[]) => void;
   /** Auch die schon beurteilten Zellen zeigen — die Nachkorrektur des Stroms. */
   showDone: boolean;
   actionsRef: RefObject<LaneActions>;
@@ -45,8 +47,10 @@ const keyOf = (c: LaneCell) => `${c.session}|${c.stem}|${c.square}`;
 const UNSURE = "";
 const MODEL = "modell";
 const MATTE = DIRTY_BRUSH;
+/** Die dritte Nicht-Klasse: „kein Label zu holen" — Glanz, Schmier, Figur ueber zwei Feldern. */
+const USELESS = UNUSABLE_BRUSH;
 const isClass = (v: string | undefined): v is string =>
-  v !== undefined && v !== UNSURE && v !== MODEL && v !== MATTE;
+  v !== undefined && v !== UNSURE && v !== MODEL && v !== MATTE && v !== USELESS;
 
 /** Das stehende Urteil gehoert auf die Karte, sonst malt man im Nachlauf gegen ein unsichtbares. */
 function noteOf(cell: LaneCell, verdict: string | undefined): { note?: string } {
@@ -70,7 +74,7 @@ type Picks = Record<number, string>;
  */
 export function CellLane(props: CellLaneProps) {
   const { cells, sessions, decided, coverage, frameHands, at, onAt, reported, onDirty, onDirtyCells,
-    showDone, actionsRef, onFlush } = props;
+    onUnusable, showDone, actionsRef, onFlush } = props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
   // sobald der Zeiger nur vorbeizieht. Ohne sie kostet der Hover nichts.
@@ -83,6 +87,8 @@ export function CellLane(props: CellLaneProps) {
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set<string>());
   /** Die ZWEITE Achse: das Label gilt der Zelle, die Hand dem Frame — beides zugleich ist erlaubt. */
   const [remeasure, setRemeasure] = useState<ReadonlySet<string>>(new Set<string>());
+  /** Gemalt als „unbrauchbar" — die Zelle verlaesst den Klassifikations-Schreibweg ganz. */
+  const [useless, setUseless] = useState<ReadonlySet<string>>(new Set<string>());
   /** Von „zurück" wieder hergeholt: die Zelle steht im Ledger und wird trotzdem noch mal gezeigt. */
   const [revived, setRevived] = useState<ReadonlySet<string>>(new Set<string>());
   const [page, setPage] = useState(() => Math.floor(at / PAGE));
@@ -168,14 +174,22 @@ export function CellLane(props: CellLaneProps) {
     // Eine schon beurteilte Zelle, die niemand angefasst hat, schreibt NICHTS: die Vorbelegung
     // wuerde sonst eine frueher gemalte Korrektur mit dem FEN-Wort ueberschreiben, sobald man die
     // Seite nur noch einmal ansieht.
-    const taken = slice.filter((c, i) => pick[i] === undefined && verdictOf(c) === undefined);
+    // Eine unbrauchbare Zelle bekommt KEINE Klassenzeile — sie ist beantwortet, nur nicht mit
+    // einem Label. Sonst schriebe die Vorbelegung genau das Label, das der Mensch verneint hat.
+    const junk = slice.filter((c) => useless.has(keyOf(c)));
+    const live = slice.filter((c) => !useless.has(keyOf(c)));
+    const taken = live.filter((c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined);
     const writes: Verdict[] = [
       {
         rows: rows([
           ...taken.filter((c) => c.ledger === "corrections").map((cell) => ({ cell, label: cell.label })),
-          ...slice.flatMap((cell, i) => (isClass(pick[i]) ? [{ cell, label: pick[i] }] : [])),
           ...slice.flatMap((cell, i) =>
-            pick[i] === MODEL && cell.exception !== null ? [{ cell, label: cell.exception }] : [],
+            isClass(pick[i]) && !useless.has(keyOf(cell)) ? [{ cell, label: pick[i] }] : [],
+          ),
+          ...slice.flatMap((cell, i) =>
+            pick[i] === MODEL && cell.exception !== null && !useless.has(keyOf(cell))
+              ? [{ cell, label: cell.exception }]
+              : [],
           ),
         ]),
         ledger: "corrections",
@@ -187,12 +201,14 @@ export function CellLane(props: CellLaneProps) {
     ];
     const wanted = slice.filter((c) => remeasure.has(keyOf(c)));
     if (wanted.length > 0) onDirtyCells(wanted);
+    if (junk.length > 0) onUnusable(junk);
     await onFlush(slice[0].pos, writes, priorOf(slice));
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setRemeasure((r) => new Set([...r].filter((k) => !slice.some((c) => keyOf(c) === k))));
+    setUseless((u) => new Set([...u].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setTrail((t) => [...t, slice.map(keyOf)]);
     clear();
-  }, [onDirtyCells, onFlush, pick, priorOf, remeasure, rows, shifted, slice, verdictOf]);
+  }, [onDirtyCells, onFlush, onUnusable, pick, priorOf, remeasure, rows, shifted, slice, useless, verdictOf]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
@@ -220,6 +236,15 @@ export function CellLane(props: CellLaneProps) {
 
   /** Zweimal dieselbe Farbe nimmt sie wieder ab — der Radierer des Bretts, ohne eigene Taste. */
   const put = (i: number, label: string) => {
+    if (label === USELESS) {
+      const key = keyOf(slice[i]);
+      setUseless((u) => {
+        const next = new Set(u);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+      return;
+    }
     if (label === MATTE) {
       const key = keyOf(slice[i]);
       setRemeasure((r) => {
@@ -356,6 +381,21 @@ export function CellLane(props: CellLaneProps) {
         >
           {DIRTY_KEY} <span className="text-sm">🖐</span>
         </button>
+        <button
+          className={`w-11 cursor-pointer rounded border py-0.5 text-center font-mono text-xs max-sm:h-11 ${
+            brush === USELESS
+              ? "border-destructive bg-destructive text-white"
+              : "border-border text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={(event) => {
+            event.currentTarget.blur();
+            setBrush((b) => (b === USELESS ? UNSURE : USELESS));
+          }}
+          title="unbrauchbar — aus diesem Crop ist kein Label zu holen. Eigenes Ledger, keine Klasse."
+          type="button"
+        >
+          {UNUSABLE_KEY} <span className="text-sm">🚫</span>
+        </button>
         <Button
           className={TOUCH}
           onClick={(event) => {
@@ -386,7 +426,9 @@ export function CellLane(props: CellLaneProps) {
               ? "keiner — Klick = unsicher"
               : brush === MATTE
                 ? `dirty — Hand drauf (${remeasure.size} Zellen markiert)`
-                : brush}
+                : brush === USELESS
+                  ? `unbrauchbar (${useless.size} Zellen markiert)`
+                  : brush}
           </span>
         </span>
       </div>
@@ -408,7 +450,7 @@ export function CellLane(props: CellLaneProps) {
           caption: cell.caption,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
           ...handMark(handBeside(frameHands, coverage, cell), cell.square),
-          ...noteOf(cell, verdictOf(cell)),
+          ...noteOf(cell, useless.has(keyOf(cell)) ? "🚫 unbrauchbar" : verdictOf(cell)),
           ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),
         }))}
@@ -416,7 +458,9 @@ export function CellLane(props: CellLaneProps) {
         erasing={(i, mode) =>
           brush === MATTE && mode !== "right"
             ? remeasure.has(keyOf(slice[i]))
-            : pick[i] === (mode === "right" ? MODEL : brush)
+            : brush === USELESS && mode !== "right"
+              ? useless.has(keyOf(slice[i]))
+              : pick[i] === (mode === "right" ? MODEL : brush)
         }
         marked={new Set(slice.flatMap((_, i) => (pick[i] === MODEL ? [i] : [])))}
         onDirty={(i) => onDirty(slice[i], !dirty.has(i))}

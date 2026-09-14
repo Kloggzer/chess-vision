@@ -14,11 +14,12 @@ import type { FrameHand } from "@/lib/frame-hands";
 import type { LabelStream, StreamBoard, StreamPositionCell } from "@/lib/label-stream";
 import type { QueryHit } from "@/lib/query";
 
-export type LaneId = "audit" | "control" | "all";
+export type LaneId = "audit" | "control" | "all" | "frames";
 
-/** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10). */
-type LaneRenderer = "board" | "cells";
-type LaneUnit = "Bretter" | "Zellen";
+/** A board lane paints the 8x8; a cell lane renders the crop grid, grouped by square (REVIEW S10);
+ *  a frame lane judges the WHOLE picture and writes no label at all. */
+type LaneRenderer = "board" | "cells" | "frames";
+type LaneUnit = "Bretter" | "Zellen" | "Frames";
 
 export type Lane = {
   id: LaneId;
@@ -30,6 +31,11 @@ export type Lane = {
   /** What the count is measured against — the chip's tooltip, never the chip itself. */
   denominator: string;
 };
+
+/** Was die Frame-Lane zeigt — als Satz, damit die Wahl auf dem Schirm steht und nicht in einem
+ *  Filter: dirty ohne `occluded`, also genau das, was heute niemand anfasst. */
+export const FRAME_LANE_SET =
+  "dirty Frames OHNE `occluded` — stale, changed, grid-late: weder SAM noch der Slice fasst sie an";
 
 /**
  * DREI Lanes, nach der FRAGE geschnitten, nicht nach dem Produzenten (2026-09-07). Neun Lanes
@@ -56,6 +62,14 @@ export const LANES: readonly Lane[] = [
     denominator: "Kontroll-Stichprobe über die noch unbeurteilten ruhigen Zellen der exportierten Sessions",
   },
   {
+    id: "frames",
+    slug: "frames",
+    label: "Strittige Frames",
+    renderer: "frames",
+    unit: "Frames",
+    denominator: FRAME_LANE_SET,
+  },
+  {
     id: "all",
     slug: "alle",
     label: "Bretter",
@@ -64,6 +78,21 @@ export const LANES: readonly Lane[] = [
     denominator: "Bretter im Strom",
   },
 ];
+
+/**
+ * Der Stapel, ueber den nie jemand entschieden hat: dirty, aber NICHT `occluded`. SAM mattet nur
+ * `occluded` (`matte.alpha_worker --reason`), und ohne Matte laesst `slice_session` jede Zelle
+ * eines dirty Frames fallen — 1 179 Frames in 28 Aufnahmen (`stale` 978, `changed` 177,
+ * `grid-late` 24) liegen damit still auf der Platte. `occluded` hat seinen Weg schon.
+ */
+/** Der Pinsel „unbrauchbar" der Zell-Lane, mit seiner Taste — der Strom und die Lane laden ihn
+ *  von hier, damit die Tastatur und die Palette nicht auseinanderlaufen (wie `DIRTY_BRUSH`). */
+export const UNUSABLE_BRUSH = "unbrauchbar";
+export const UNUSABLE_KEY = "u";
+
+export function frameCandidate(board: StreamBoard): boolean {
+  return board.dirtyReason !== undefined && board.dirtyReason !== "occluded";
+}
 
 export const laneById = (id: LaneId): Lane => LANES.find((l) => l.id === id)!;
 export const laneBySlug = (slug: string): Lane | undefined => LANES.find((l) => l.slug === slug);
@@ -106,7 +135,9 @@ function missingSources(stream: LabelStream, wall?: WallQuery): string[] {
 export const laneEmpty = (id: LaneId): string =>
   id === "control"
     ? "Stichprobe erschöpft — jede ruhige Zelle des Korpus trägt ein Urteil."
-    : "Diese Lane ist leer — nichts wartet hier auf ein Urteil.";
+    : id === "frames"
+      ? "Kein strittiges Frame offen — jedes trägt ein Urteil oder schon eine Matte."
+      : "Diese Lane ist leer — nichts wartet hier auf ein Urteil.";
 
 export type LaneCount = {
   /** OPEN items — the stream shows nothing else. `null` = the producer owes this lane its input. */
@@ -502,6 +533,25 @@ export function reachesPool(board: StreamBoard, coverage: Record<string, Record<
  * would land somewhere else than it took the row from.
  */
 
+/** Jedes strittige Frame des Korpus, beurteilt oder nicht — der Nenner der Lane. */
+export function laneFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
+  return id === "frames" ? stream.boards.filter(frameCandidate) : [];
+}
+
+/**
+ * Was noch auf ein Urteil wartet. Ein Frame geht raus, sobald es EINES von beiden traegt: zur
+ * Matte geschickt (der Zettel bleibt liegen, auch bevor SAM lief) oder schon gemattet — dann
+ * gehoeren seine Zellen der Strittig-Lane. `unusable` kommt gar nicht erst im Strom an: die Zeile
+ * traegt das Flag, und `loadLabelStream` laesst sie fallen.
+ */
+export function openFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
+  return laneFrames(stream, id).filter(
+    (b) =>
+      !(stream.sessions[b.session]?.matteWanted ?? []).includes(b.stem) &&
+      stream.coverage[b.session]?.[b.stem] === undefined,
+  );
+}
+
 export function openBoards(stream: LabelStream, id: LaneId): StreamBoard[] {
   return laneBoards(stream, id).filter(
     (b) => reachesPool(b, stream.coverage) && laneOpen(b, id, stream.decided[b.session] ?? {}),
@@ -515,14 +565,25 @@ export function openCells(stream: LabelStream, id: LaneId, wall?: WallQuery): La
   return laneCells(stream, id, wall).filter(
     (c) =>
       alive.has(`${c.session}|${c.stem}`) &&
+      !isUnusableCell(stream, c) &&
       (stream.decided[c.session] ?? {})[`${c.stem}|${c.square}`] === undefined,
   );
+}
+
+/** „Aus diesem Crop ist kein Label zu holen" — ein Urteil wie jedes andere, nur dass es KEINE
+ *  Klasse nennt. Die Zelle ist damit beantwortet und darf nicht wieder auf der Seite stehen. */
+export function isUnusableCell(
+  stream: LabelStream,
+  cell: { session: number; stem: string; square: string },
+): boolean {
+  return (stream.unusableCells[cell.session] ?? []).includes(`${cell.stem}|${cell.square}`);
 }
 
 /** Open and total, or `null` with the reason every producer still owes this lane its input. */
 export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): LaneCount {
   const missing = id === "audit" ? missingSources(stream, wall) : [];
   if (missing.length === 4) return { n: null, why: missing.join(" ") };
+  if (id === "frames") return { n: openFrames(stream, id).length, total: laneFrames(stream, id).length };
   const board = laneById(id).renderer === "board";
   const total = board ? laneBoards(stream, id).length : laneCells(stream, id, wall).length;
   const n = board ? openBoards(stream, id).length : openCells(stream, id, wall).length;
