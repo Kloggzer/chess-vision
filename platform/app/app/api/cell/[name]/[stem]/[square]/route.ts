@@ -20,7 +20,15 @@ export async function GET(
     const px = size(request, 160);
     // Only a bundle that was never exported falls through to its stored JPEGs (the same
     // "no session log" reading `lib/label-stream.ts` uses); an exported session's errors surface.
-    const exported = await loadSession(name).then(() => true, () => false);
+    const exported = await loadSession(name).then(
+      () => true,
+      (e: unknown) => {
+        // NUR "kein Log da" faellt auf die gespeicherten JPEGs zurueck. Ein kaputtes log.jsonl
+        // servierte sonst Pixel aus einer anderen Geometrie, ohne sich zu zeigen.
+        if ((e as { code?: string })?.code === "ENOENT") return false;
+        throw e;
+      },
+    );
     const png = exported ? await cut(name, stem, square, px) : await storedCellPng(name, stem, square, px);
     return new Response(new Uint8Array(png), {
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },

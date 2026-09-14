@@ -7,7 +7,8 @@ import { appendUnusableCells, validateCell } from "@/lib/unusable-cells";
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { rows?: unknown };
-    const rows = Array.isArray(body.rows) ? body.rows.map(validateCell) : [];
+    if (!Array.isArray(body.rows)) throw new Error("rows fehlt oder ist kein Array");
+    const rows = body.rows.map(validateCell);
     return Response.json({ written: await appendUnusableCells(rows) });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });

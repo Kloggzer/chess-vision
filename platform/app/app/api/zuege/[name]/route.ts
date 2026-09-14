@@ -49,7 +49,14 @@ async function reexport(name: string): Promise<Response> {
     return Response.json({ error: `heavy.lock: pid ${pid} arbeitet an ${job} ${holder}` }, { status: 409 });
   }
   try {
-    return Response.json(await enqueueChain(name, "export"), { status: 202 });
+    const job = await enqueueChain(name, "export");
+    // `enqueueChain` gibt einen VORHANDENEN Job zurueck, statt einzureihen. Ein 202 darauf
+    // meldete "Re-Export gestartet", waehrend nichts lief — und hielt den Heavy-Lock.
+    if (job.kind !== "export") {
+      await releaseHeavyLock().catch(() => undefined);
+      return Response.json({ error: `${name}: ${job.kind} laeuft bereits (${job.state})` }, { status: 409 });
+    }
+    return Response.json(job, { status: 202 });
   } catch (error) {
     await releaseHeavyLock().catch(() => undefined);
     throw error;

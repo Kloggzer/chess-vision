@@ -53,6 +53,17 @@ export function gameDir(name: string): string {
   return path.join(dataDir(), "recordings", checkName(name, "game name"));
 }
 
+/**
+ * Die Aufnahme muss schon dastehen, bevor ein Ledger neben sie geschrieben wird.
+ *
+ * `mkdir(recursive)` legte sie sonst aus einem Tippfehler in `session_id` an, und `listGames`
+ * fuehrt jedes Verzeichnis als Aufnahme — mit Trainingseingabe darin.
+ */
+export async function requireRecording(dir: string, session_id: string): Promise<void> {
+  const ok = await stat(dir).then((s) => s.isDirectory(), () => false);
+  if (!ok) throw new Error(`keine Aufnahme ${session_id} auf dieser Maschine (${dir})`);
+}
+
 export async function listGames(): Promise<string[]> {
   try {
     const entries = await readdir(path.join(dataDir(), "recordings"), { withFileTypes: true });

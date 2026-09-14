@@ -16,7 +16,8 @@ let legacyFile: string;
 beforeEach(async () => {
   const root = await mkdtemp(path.join(tmpdir(), "chesslab-corrections-"));
   // One ledger per recording since 2026-08-20: the id keeps `rg-`, the directory never had it.
-  for (const name of ["rec-1", "old"]) await mkdir(path.join(root, "recordings", name), { recursive: true });
+  // "g" gehoert dazu, seit der Schreiber eine fehlende Aufnahme ABLEHNT statt sie anzulegen.
+  for (const name of ["rec-1", "old", "g"]) await mkdir(path.join(root, "recordings", name), { recursive: true });
   file = path.join(root, "recordings", "rec-1", "corrections.jsonl");
   legacyFile = path.join(root, "recordings", "old", "corrections.jsonl");
   await writeFile(file, EXISTING, "utf8");

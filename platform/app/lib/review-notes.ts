@@ -71,7 +71,9 @@ export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
   });
   await writeFile(file, kept.length > 0 ? kept.join("\n") + "\n" : "", "utf8");
   cache.delete(file);
-  return kept.length;
+  // Die ENTFERNTEN, nicht der Rest: ein Widerruf, der nichts trifft, meldete sonst die Groesse
+  // des globalen Ledgers als Erfolg.
+  return text.split("\n").filter((line) => line.trim()).length - kept.length;
 }
 
 const noteKey = (r: ReviewNote): string =>

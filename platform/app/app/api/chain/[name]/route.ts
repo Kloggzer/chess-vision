@@ -12,6 +12,7 @@ export async function POST(request: Request, ctx: RouteContext<"/api/chain/[name
     // `lens` is passed through UNTOUCHED: absent means "let the source decide" (`lensFor`), and the
     // old `body.lens !== false` turned every ordinary press back into an explicit `lens: true`,
     // which is exactly the refusal the automation exists to avoid.
+    // TODO: Ein fehlendes `step` wird zur Zeichenkette "undefined" und steht so in der 409-Meldung.
     const result = await startStep(name, String(body.step), body.lens);
     if (refused(result)) {
       return Response.json({ error: result.error, state: result.state }, { status: result.status });

@@ -6,10 +6,10 @@
  * The rows stay GLOBAL training input (CLAUDE.md) — only the file moved next to the recording it
  * judges, which is why the writer validates instead of trusting the client.
  */
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { appendFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
-import { checkName, gameDir } from "@/lib/data";
+import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
@@ -66,7 +66,9 @@ export async function appendCorrections(rows: Correction[], ledger: Ledger = "co
   for (const row of rows) bySession.set(row.session_id, [...(bySession.get(row.session_id) ?? []), row]);
   for (const [session_id, mine] of bySession) {
     const file = ledgerPath(recordingName(session_id), ledger);
-    await mkdir(path.dirname(file), { recursive: true });
+    // `recursive` legte die AUFNAHME selbst an: ein Tippfehler in `session_id` erzeugte ein
+    // Verzeichnis, das `listGames` danach in jeder Lane fuehrt — mit Trainingseingabe darin.
+    await requireRecording(path.dirname(file), session_id);
     await appendFile(file, mine.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
     // Our own write is the one case an mtime key can miss (same millisecond, and on a coarse clock
     // the same stamp), so the entry goes rather than being trusted to look stale.

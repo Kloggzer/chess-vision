@@ -103,6 +103,8 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
         continue;
       }
       mine.push({
+        // TODO: Wird beim Anhaengen an `frames` sofort ueberschrieben — ein Pflichtfeld, das
+        // hier nie stimmt; der Index gehoert in den Typ erst, wenn es ihn gibt.
         session: -1,
         stem: row.stem,
         ply: row.ply,
