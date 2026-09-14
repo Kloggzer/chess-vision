@@ -91,6 +91,13 @@ die uebrigen vier gleich. Die drei Unterschiede sind genau die Baender, die zwis
 Spreizung wie zwischen comp13 und den real13-Laeufen oben. Eine gemeinsame Konstante kann fuer
 beide Enden nicht stimmen.
 
+**Am Regressionssatz gemessen: kein Unterschied (2026-09-14).** 0,5 gegen 0,25 ergibt
+Aufnahme fuer Aufnahme 385 / 14 / 1 / 167 und 6 Alarme. Das Gate wirkt dabei nachweislich — es
+maskiert **17 % mehr Zellen** (184 827 -> 216 231 ueber 41 136 Beobachtungen) —, nur war keine
+davon fuer einen Commit entscheidend. Der Satz enthaelt den Fall nicht, gegen den das Gate
+schuetzt. Details und warum `set:pOccludedThr=` dafuer nicht taugt:
+`docs/regression-reference.md`.
+
 **Und 0,5 war fuer JEDES der sieben zu lasch.** Im Band 0,50–0,70, das der Alt-Default als Evidenz
 durchliess, liegt selbst der beste bei 47,8 % und der Default bei 29,5 %.
 

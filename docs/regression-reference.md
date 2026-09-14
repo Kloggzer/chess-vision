@@ -79,3 +79,40 @@ zeigt sich erst, wenn ein Modell auf kubisch geschnittenen Crops TRAINIERT wird
 
 683 s gelten fuer zwei parallele JVMs auf einem sonst unbelasteten Rechner mit warmem Cache. Kalt
 dauert es deutlich laenger. Die Sekunden gehoeren zur Nachvollziehbarkeit, nicht zur Bewertung.
+
+## Zweiter A/B: das `coverage_gate` von 0,5 auf 0,25, 2026-09-14
+
+**Punktgleich, Aufnahme fuer Aufnahme: 385 / 14 / 1 / 167 und 6 Alarme in beiden Armen**
+(1 036 s gegen 1 098 s). Logs: `tmp/batch/gate050/` und `tmp/batch/gate025/`.
+
+Der Basis-Arm reproduziert den Stand oben Ziffer fuer Ziffer, obwohl der Baum seither vier
+Engine-Fixes (Stellungs-Scoping der Evidenz, `frameSeq`, die zwei Reset-Pfade) und den kubischen
+CROP-Warp traegt. Keiner davon bewegt den Satz — der Sicht-Latch-Fix war ausdruecklich als
+"am ehesten zeitverschiebend" gemeldet und ist es nicht.
+
+**Das Gate wirkt trotzdem nachweislich**, es entscheidet nur nichts anderes:
+
+| | Gate 0,5 | Gate 0,25 | Delta |
+|---|---|---|---|
+| verdeckte Zellen gesamt | 184 827 | 216 231 | **+17,0 %** |
+| Schnitt je Beobachtung | 4,49 | 5,26 | +0,76 |
+| Beobachtungen mit mindestens einer Flagge | 14 939 | 15 317 | +2,5 % |
+
+Ueber 41 136 Beobachtungen maskiert die schaerfere Schwelle **31 404 Zellen mehr** aus der
+Evidenz. Die Gitter-Maske des modellfreien Arms bleibt dabei unveraendert — die Differenz kommt
+ausschliesslich aus dem CNN-Arm, wie beabsichtigt. Ausserhalb der `occl=`-Zaehler unterscheiden
+sich die Logs nur in Zeitmessungen.
+
+**Was das heisst:** die zusaetzlich maskierten Zellen waren fuer keinen Commit entscheidend; die
+Verify-Leiter und das Settle-Gate trugen diese Frames ohnehin. Das Gate kauft hier keine
+Verbesserung, sondern Sicherheit gegen einen Fall, den dieser Satz nicht enthaelt — Reads, die zu
+28–70 % falsch sind und unter 0,5 als Evidenz zaehlen durften. Das eine Phantom in
+`VID_20260802_222741` bleibt und kommt damit NICHT aus einer verdeckten Zelle.
+
+**Nicht noch einmal messen.** Ein gemessenes Null ist ein Ergebnis; der Satz ist gegen die
+Schwelle unempfindlich. Wer die Wirkung des Gates sehen will, braucht Material mit Haenden ueber
+entscheidenden Feldern, nicht diesen Satz.
+
+**Und wie man es misst:** `withCoverageGateOf(spec)` laeuft NACH den `set:`-Overrides und
+ueberschreibt sie — `set:pOccludedThr=` ist wirkungslos. Der einzige Weg ist, das Asset selbst zu
+stempeln (`scripts/stage_model_asset.py --stamp`), zwei Laeufe zu fahren und zurueckzustempeln.
