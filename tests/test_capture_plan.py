@@ -22,7 +22,6 @@ from chesslab.capture_plan import (
     pose_of,
     shots,
     slug,
-    square_brightness,
     square_colour,
     square_stats,
 )
@@ -190,14 +189,14 @@ def test_shots_refuses_an_unmeasured_board():
         shots([_gap()], {}, limit=1)
 
 
-def test_square_brightness_ignores_rows_without_the_column(tmp_path):
+def test_a_row_without_the_column_does_not_darken_the_square(tmp_path):
     """Ein Komposit ohne `brightness` darf das Feld nicht dunkel faerben."""
     p = tmp_path / "manifest.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in [
         {"square": "h3", "brightness": 200.0}, {"square": "h3", "brightness": 210.0},
         {"square": "h3"}, {"square": "a1", "brightness": 20.0}]), encoding="utf-8")
 
-    assert square_brightness(p) == {"h3": 205.0, "a1": 20.0}
+    assert {sq: st["median"] for sq, st in square_stats(p).items()} == {"h3": 205.0, "a1": 20.0}
 
 
 def test_square_stats_carry_the_spread_not_just_the_median(tmp_path):

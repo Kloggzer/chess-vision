@@ -477,7 +477,7 @@ def capture_plan_cmd(
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"generated_at": datetime.now(UTC).isoformat(), "dataset": dataset,
                                "gaps_from": str(gaps_file), "board_spread": board_spread(bright),
-                               "squares": stats, "shots": plan},
+                               "shots": plan},
                               indent=1, ensure_ascii=False), encoding="utf-8")
     closed = sum(len(s["closes"]) for s in plan)
     print(f"[OK] {len(plan)} Aufnahmen fuer {closed} Luecken -> {out}")

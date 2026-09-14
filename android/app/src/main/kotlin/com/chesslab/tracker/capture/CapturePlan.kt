@@ -19,15 +19,6 @@ data class Placement(
 )
 
 @Serializable
-data class SquareStat(
-    val color: String = "",
-    val median: Double = 0.0,
-    val p5: Double = 0.0,
-    val p95: Double = 0.0,
-    val n: Int = 0,
-)
-
-@Serializable
 data class Gap(
     val piece: String,
     @SerialName("square_color") val squareColor: String,
@@ -56,9 +47,6 @@ data class CapturePlan(
     @SerialName("generated_at") val generatedAt: String = "",
     val dataset: String = "",
     @SerialName("gaps_from") val gapsFrom: String = "",
-    /** Hellster minus dunkelster Feldmedian — was EINE Lampeneinstellung ueberhaupt aufspannt. */
-    @SerialName("board_spread") val boardSpread: Double = 0.0,
-    val squares: Map<String, SquareStat> = emptyMap(),
     val shots: List<Shot> = emptyList(),
     /** Not in the schema: the route answers `{shots: [], why: <command>}` when no plan was computed. */
     val why: String? = null,

@@ -22,9 +22,7 @@ data class Target(
     val hi: Int,
     val measured: Int?,
     val fit: Fit,
-) {
-    val middle: Int get() = (lo + hi) / 2
-}
+)
 
 /** `a1` ist dunkel — dieselbe Paritaetsregel wie `capture_plan.square_colour`. */
 fun squareIsDark(square: String): Boolean {

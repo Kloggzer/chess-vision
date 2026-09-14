@@ -3,34 +3,18 @@
   "title": "capture-plan",
   "description": "Aufnahmeauftraege aus gemessenen Korpusluecken. Erzeugt von `chesslab capture plan`; die EINZIGE Autoritaet der Auftragsform. Python, TypeScript und Kotlin schreiben sie ab. Ein Auftrag ist ein BUENDEL: so viele Luecken auf einmal, wie Figurenset und Brettspanne hergeben.",
   "type": "object",
-  "required": ["generated_at", "dataset", "gaps_from", "board_spread", "squares", "shots"],
+  "required": ["generated_at", "dataset", "gaps_from", "board_spread", "shots"],
   "properties": {
     "generated_at": {"type": "string", "description": "ISO-8601, wann der Plan gerechnet wurde."},
     "dataset": {"type": "string"},
     "gaps_from": {"type": "string", "description": "Pfad der gelesenen coverage-gaps.json."},
     "board_spread": {
       "type": "number",
-      "description": "Hellster minus dunkelster Feldmedian, gemessen 112. Die Lampe verschiebt alle Felder zusammen; dieser Abstand ist der Gradient des Bretts und begrenzt, welche Baender in EIN Buendel passen."
-    },
-    "squares": {
-      "type": "object",
-      "description": "Feld -> gemessene Helligkeit im Korpus. Die App haelt ihre Livemessung dagegen; ohne die Spannweite sagt ein Median nicht, ob ein Band dort je erreicht wurde (`a8` mass 6 bis 207).",
-      "additionalProperties": {"$ref": "#/$defs/squareStat"}
+      "description": "Hellster minus dunkelster Feldmedian, gemessen 112. Die Lampe verschiebt alle Felder zusammen; dieser Abstand ist der Gradient des Bretts und begrenzt, welche Baender in EIN Buendel passen. Steht als PROVENIENZ hier: unter welcher Annahme gebuendelt wurde, ist ohne sie nicht nachpruefbar. Kein Leser wertet sie aus."
     },
     "shots": {"type": "array", "items": {"$ref": "#/$defs/shot"}}
   },
   "$defs": {
-    "squareStat": {
-      "type": "object",
-      "required": ["color", "median", "p5", "p95", "n"],
-      "properties": {
-        "color": {"enum": ["light", "dark"]},
-        "median": {"type": "number"},
-        "p5": {"type": "number"},
-        "p95": {"type": "number"},
-        "n": {"type": "integer"}
-      }
-    },
     "placement": {
       "type": "object",
       "required": ["square", "piece", "band", "lo", "hi"],

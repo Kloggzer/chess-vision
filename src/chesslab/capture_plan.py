@@ -160,12 +160,6 @@ def square_stats(manifest: Path | str) -> dict[str, SquareStat]:
     return out
 
 
-def square_brightness(manifest: Path | str) -> dict[str, float]:
-    """Nur die Mediane. `square_stats` ist die Messung, das hier der Ausschnitt fuer die
-    Feldwahl."""
-    return {sq: stat["median"] for sq, stat in square_stats(manifest).items()}
-
-
 def board_spread(bright: dict[str, float]) -> float:
     """Wie weit das Brett bei EINER Lampeneinstellung spannt: hellster minus dunkelster Feldmedian.
 

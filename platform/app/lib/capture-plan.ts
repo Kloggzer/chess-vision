@@ -20,8 +20,6 @@ export type Gap = {
 /** Ein Vorschlag: `lo`/`hi` sind das Band, gegen das die App live misst und ggf. umhaengt. */
 export type Placement = { square: string; piece: string; band: string; lo: number; hi: number };
 
-export type SquareStat = { color: string; median: number; p5: number; p95: number; n: number };
-
 export type Shot = {
   id: string;
   reason: string;
@@ -36,7 +34,6 @@ export type CapturePlan = {
   dataset: string;
   gaps_from: string;
   board_spread: number;
-  squares: Record<string, SquareStat>;
   shots: Shot[];
 };
 
