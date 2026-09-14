@@ -387,8 +387,6 @@ def _export_row(seg: dict, idx: int, corners: list, base, fps: float,
            "corners": seg.get("corners") or corners, "corners_source": "realgame-export"}
     if unknown := unknown_for(seg, idx, margin_frames, settle):
         row["unknown_squares"] = unknown
-    if seg.get("ref_provisional"):
-        row["ref_provisional"] = True
     return row
 
 

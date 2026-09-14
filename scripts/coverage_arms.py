@@ -73,8 +73,13 @@ def main():
             continue
         cells = crops_for_frame(None, r["corners"], profile, board=board)
         reads = occluded_model.all_reads(Path(args.run), cells)
+        # Ueber `read_gate` mit dem Rand der ZEILE: `read_boards` schneidet ihn nicht ab, das
+        # CNN daneben schneidet ihn sehr wohl — 12 px auf 952 sind ein Viertel Feld Versatz, und
+        # jede Zelle meldete die Nachbarin. Genau der Vergleich, der hier gemessen wird.
         said = ([0.0] * 65 if gate is None
-                else hand_gate.read_boards(gate, dev, [board], card["size"])[0])
+                else hand_gate.read_gate(gate, dev, [sdir / (r.get("board") or r["frame"])],
+                                         card["size"],
+                                         borders=[int(r.get("board_border") or 0)])[0])
         m = matte[stem]
         for j, sq in enumerate(squares):
             truth.append(float(m.get(sq, 0.0)))

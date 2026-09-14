@@ -246,6 +246,10 @@ class CnnObserver(
                     runCatching { it.classifier.close() }
                     return
                 }
+                // Der vorige Klassifikator gehoert geschlossen, bevor er ueberschrieben
+                // wird: `retryAttach` kommt auch aus `Ready` hier an und liess sonst je
+                // Aufruf eine native Sitzung samt Arena stehen.
+                classifier?.let { old -> runCatching { old.close() } }
                 classifier = it.classifier
                 holder.ready(it.backend, it.model, it.classifier.classes.size)
             }.onFailure { holder.failed(it.message.orEmpty(), it) }

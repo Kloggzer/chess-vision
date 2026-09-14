@@ -365,7 +365,8 @@ def keep_per_position(rows: list[dict], per_position: int) -> list[dict]:
     """
     groups: dict[tuple[str, str], set[str]] = defaultdict(set)
     for r in rows:
-        groups[(r["session_id"], str(r.get("fen", "")).split()[0])].add(str(r["frame"]))
+        placement = (str(r.get("fen") or "").split() or [""])[0]
+        groups[(r["session_id"], placement)].add(str(r["frame"]))
     keep: dict[str, set[str]] = defaultdict(set)
     for (sid, _fen), frames in groups.items():
         f = sorted(frames)

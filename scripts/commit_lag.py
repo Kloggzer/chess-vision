@@ -10,6 +10,7 @@ what a player feels: how long after the piece landed the engine committed.
 from __future__ import annotations
 
 import json
+import math
 import re
 import statistics as st
 import sys
@@ -58,7 +59,7 @@ def main(tags: list[str]) -> int:
         if not allv:
             print(f"{tag:32s} no reference or no score lines")
             continue
-        print(f"{tag:32s} {len(per):4d} {len(allv):5d} {st.median(allv):9.2f} {allv[int(len(allv) * 0.9)]:7.2f} {allv[-1]:7.2f}")
+        print(f"{tag:32s} {len(per):4d} {len(allv):5d} {st.median(allv):9.2f} {allv[max(0, math.ceil(0.9 * len(allv)) - 1)]:7.2f} {allv[-1]:7.2f}")
     return 0
 
 

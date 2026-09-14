@@ -71,6 +71,9 @@ internal class AlignmentMarkerPrepass private constructor(
                         received += 1
                     }
                 }
+            // TODO: Ohne `try/finally` um den `measureNanoTime`-Block: wirft ein Worker, fliegt
+            //  die `ExecutionException` an beiden Zeilen vorbei und laesst Pool-Threads und die
+            //  nativen ArUco-Detektoren stehen. `ParallelVisualPrepass` macht es richtig.
             executor.shutdown()
             detectors.forEach(BoardMarkerDetector::close)
             println(

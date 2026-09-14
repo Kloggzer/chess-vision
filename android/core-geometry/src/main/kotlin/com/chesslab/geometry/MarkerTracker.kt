@@ -67,6 +67,9 @@ class MarkerTracker(
     fun update(detected: Map<Int, DoubleArray>): Map<Int, DoubleArray> {
         for (i in pos.keys) {
             age[i] = (age[i] ?: 0) + 1
+            // `jumpConfirmFrames` meint AUFEINANDERFOLGENDE Bilder: ohne das hier ueberlebte ein
+            // Kandidat eine 500-Bild-Luecke und wurde auf ein einziges Wiedersehen bestaetigt.
+            if (i !in detected) pending.remove(i)
         }
         for ((i, q) in detected) {
             val p = doubleArrayOf(q[0], q[1])

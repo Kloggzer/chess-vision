@@ -222,11 +222,13 @@ class SessionCaptureController(
     fun stop(): SessionResult? {
         // The next game earns its own directory with its own first commit.
         committed = false
+        // VOR dem fruehen Ausstieg: `queue()` zaehlt auch ohne offenen Recorder hoch, und die
+        // Zahlen wanderten dann als "Zug-Foto verloren" in eine Partie, die nichts verloren hat.
+        failedWrites = 0
+        supersededFrames = 0
         val active = recorder ?: return null
         recorder = null
         pending = null
-        failedWrites = 0
-        supersededFrames = 0
         return active.finish().also(hooks.finished)
     }
 

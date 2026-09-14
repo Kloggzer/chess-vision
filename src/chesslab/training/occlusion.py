@@ -50,7 +50,6 @@ class OcclusionLoss(nn.Module):
         super().__init__()
         self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction="none",
                                       label_smoothing=label_smoothing)
-        self.bce = nn.BCEWithLogitsLoss()
         self.occ_weight = occ_weight
         self.visible_max = visible_max
         self.dark_min = dark_min

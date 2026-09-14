@@ -774,6 +774,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
               coverage={stream.coverage}
               decided={decided}
               frameHands={stream.frameHands}
+              handsMeasured={stream.handsMeasured}
               key={laneKey}
               onAt={setAt}
               onDirty={(cell, on) => void markDirty(cell.session, cell.stem, on, "Labeln-Strom: Crop-Ecke")}

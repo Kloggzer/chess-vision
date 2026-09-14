@@ -24,7 +24,10 @@ export async function loadHistory(limit: number): Promise<Change[]> {
     if (rows.length === 0) continue;
     // Erst hier: die Session zu laden kostet, und die meisten Aufnahmen tragen gar kein Ledger.
     const fens = new Map((await loadSession(name)).rows.map((r) => [r.stem, r.fen]));
-    for (const row of rows.sort(newestFirst).slice(0, limit)) {
+    // Erst filtern, dann schneiden: ein Re-Export schreibt Bretter neu, Labels sind global
+    // gekeyt und ueberleben das — geschnitten wurde sonst auf Zeilen, die danach wegfielen.
+    for (const row of rows.sort(newestFirst)) {
+      if (out.length >= limit) break;
       const fen = fens.get(row.frame);
       if (fen === undefined) continue;
       out.push({

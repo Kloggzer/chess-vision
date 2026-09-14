@@ -115,8 +115,17 @@ private fun lcsRest(
     }
     while (i < label.size) missed += label[i++]
     while (j < run.size) unmatched += IndexedValue(j, run[j++])
+    // Nur ein Lauf, der das Label bis zum Ende gegangen ist, hat einen Nachlauf. Wer Plies
+    // uebersprungen hat und dann weiterlief, hat Phantome — und die bleiben Phantome. Ohne das
+    // Gate reichte ein Label ohne Frames (`frame = -1`, der Normalfall bei Ply-Versatz), um
+    // jedes Phantom nach `beyond` zu schieben. Dieselbe Regel wie im Arena-Zwilling.
     val referenceEnd = label.maxOfOrNull { it.frame } ?: -1
-    val (beyond, invented) = unmatched.partition { it.index > lastFound && it.value.frame > referenceEnd }
+    val (beyond, invented) =
+        if (missed.isEmpty()) {
+            unmatched.partition { it.index > lastFound && it.value.frame > referenceEnd }
+        } else {
+            emptyList<IndexedValue<ScoredPly>>() to unmatched
+        }
     return MoveScore(found, missed, invented.map { it.value }, beyond.map { it.value }, reordered)
 }
 

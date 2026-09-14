@@ -50,8 +50,11 @@ def collect(reads_name, sessions):
                 continue
             if truth.get(r["frame"], {}).get(r["square"]) is None:
                 continue
-            out.append(((r.get("cov") or 0.0),
-                        max(r["probs"], key=r["probs"].get) == r["fen_label"]))
+            # Ohne Occlusion-Kopf schreibt `read_session` kein `cov`. Als 0,0 gelesen fiele
+            # jeder Read ins unterste Band und das Skript leitete eine Schwelle aus nichts ab.
+            if r.get("cov") is None:
+                continue
+            out.append((r["cov"], max(r["probs"], key=r["probs"].get) == r["fen_label"]))
     return out
 
 
@@ -59,6 +62,10 @@ def main():
     reads_name = sys.argv[1] if len(sys.argv) > 1 else "model-reads.jsonl"
     sessions = sys.argv[2:] or ["2026-08-08-00-39-57", "2026-08-08-11-55-19"]
     rows = collect(reads_name, sessions)
+    if not rows:
+        print(f"[FAIL] {reads_name}: keine Zeile traegt `cov` — der Lauf hat keinen "
+              f"Occlusion-Kopf, hier ist nichts abzuleiten.")
+        return 1
     print(f"{reads_name}: {len(rows)} Figuren-Reads aus {len(sessions)} Sessions\n")
     print(f"{'Band (vorhergesagte cov)':<26} {'n':>7} {'richtig':>9} {'95%-Untergrenze':>16}")
     bands = []

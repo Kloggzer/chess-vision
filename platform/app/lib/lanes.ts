@@ -219,6 +219,14 @@ export function handBeside(
   return (coverage[cell.session]?.[cell.stem]?.[cell.square] ?? 0) > PIECE_VISIBLE_MAX ? null : hand;
 }
 
+/**
+ * `true`, wenn fuer diese Aufnahme NIE ein Hand-Scan lief — dann ist ein fehlender Stem keine
+ * Aussage. CLAUDE.md: ohne Messung ist eine Zelle nicht unbedenklich, sondern ungemessen.
+ */
+export function handsUnmeasured(measured: boolean[], cell: { session: number }): boolean {
+  return measured[cell.session] !== true;
+}
+
 export type LaneCell = {
   session: number;
   pos: number;

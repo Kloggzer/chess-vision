@@ -175,10 +175,9 @@ export async function recentVerdicts(name: string, limit: number): Promise<Recen
   const out = new Map<string, Recent>();
   for (const ledger of ["reviewed", "corrections"] as const) {
     for (const [key, v] of (await ledgerRows(name, ledger)).bySession.get(id) ?? []) {
-      const older = out.get(key);
-      // Gleiche Sekunde: die Korrektur gewinnt, wie in `judgedKeys` — sonst zeigen die beiden
-      // Sichten verschiedene gueltige Labels an.
-      if (older && older.ts > v.ts) continue;
+      // Die Korrektur gewinnt IMMER, wie in `judgedKeys` — sie laeuft als zweites Ledger. Der
+      // Zeitvergleich liess eine neuere `reviewed`-Zeile gewinnen, und die Lane zeigte dann ein
+      // Label, das Python nie benutzt.
       const [frame, square] = key.split("|");
       out.set(key, { frame, square, label: v.label, ledger, ts: v.ts });
     }

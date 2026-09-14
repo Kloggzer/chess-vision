@@ -65,11 +65,14 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
         load_corrections(ledger, corrections)
     squares = all_squares()
     rows: list[dict] = []
-    for session_dir in sorted(paths.sessions.glob("*")):
+    # Ueber BEIDE Wurzeln: `sessions/` ist seit dem Zusammenlegen 2026-08-20 leer, und die
+    # Ledger sind auf `rg-<name>` gekeyt, nicht auf den Ordnernamen — der Audit fand nie etwas.
+    from .sessions import all_sessions
+
+    for sid, session_dir in all_sessions(paths):
         log = session_dir / "log.jsonl"
         if not log.is_file():
             continue
-        sid = session_dir.name
         for line in log.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue

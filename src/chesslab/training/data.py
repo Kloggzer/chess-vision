@@ -299,7 +299,7 @@ def confident_confusions(classes: list[str], trues, preds, conf, top: int = 8) -
     return rows[:top]
 
 
-def fit_temperature(logits, trues, iters: int = 200) -> float:
+def fit_temperature(logits, trues, iters: int = 200, *, n_classes: int | None = None) -> float:
     """Ein Skalar, der die Wahrscheinlichkeiten ehrlich macht — der Argmax bleibt unberuehrt.
 
     Post-hoc auf val angepasst (Guo et al. 2017). Deshalb aendert sich KEINE Genauigkeit,
@@ -311,8 +311,10 @@ def fit_temperature(logits, trues, iters: int = 200) -> float:
         return 1.0
     z = logits.detach().float()
     y = torch.as_tensor(trues, dtype=torch.long)
-    if z.shape[1] > 1 and z.shape[1] != int(y.max()) + 1:
-        z = z[:, :int(y.max()) + 1]          # Coverage-Logit gehoert nicht dazu
+    # Aus dem Aufrufer, nicht aus den Labels: fehlt die letzte Klasse im Val, fiel ihre Spalte
+    # zusammen mit der Coverage-Spalte weg und die gefittete Temperatur landete so in config.json.
+    if n_classes is not None and z.shape[1] > n_classes:
+        z = z[:, :n_classes]                 # Coverage-Logit gehoert nicht dazu
     log_t = torch.zeros(1, requires_grad=True)
     opt = torch.optim.LBFGS([log_t], lr=0.1, max_iter=iters)
     loss_fn = torch.nn.CrossEntropyLoss()

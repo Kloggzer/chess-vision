@@ -9,7 +9,7 @@ import type { Correction } from "@/lib/corrections";
 import type { FrameHand } from "@/lib/frame-hands";
 import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
-import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, type LaneCell } from "@/lib/lanes";
+import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
@@ -20,6 +20,8 @@ export type CellLaneProps = {
   coverage: Record<string, Record<string, number>>[];
   /** Per session, `stem -> Hand am BRETT` — die Marke, die dem Crop nicht anzusehen ist. */
   frameHands: Record<string, FrameHand>[];
+  /** Je Aufnahme: lief der Hand-Scan ueberhaupt? Ohne ihn ist ein fehlender Stem keine Aussage. */
+  handsMeasured: boolean[];
   at: number;
   onAt: (at: number) => void;
   /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
@@ -73,7 +75,7 @@ type Picks = Record<number, string>;
  * class, and one Enter writes the page.
  */
 export function CellLane(props: CellLaneProps) {
-  const { cells, sessions, decided, coverage, frameHands, at, onAt, reported, onDirty, onDirtyCells,
+  const { cells, sessions, decided, coverage, frameHands, handsMeasured, at, onAt, reported, onDirty, onDirtyCells,
     onUnusable, showDone, actionsRef, onFlush } = props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
@@ -276,18 +278,21 @@ export function CellLane(props: CellLaneProps) {
     });
   }, [slice]);
 
-  const now = useRef({ accept, discard, brush, cursor, slice });
+  // `put` MUSS ueber den Ref laufen: der Effekt darunter laeuft einmal und hielt sonst die
+  // Closure des ERSTEN Renders fest — nach einem Seitenwechsel schrieb `u` dann das Urteil auf
+  // eine Zelle von Seite eins, die der Mensch nie gesehen hat.
+  const now = useRef({ accept, discard, brush, cursor, slice, put });
   const nowFlood = useRef(allToModel);
   useEffect(() => {
-    now.current = { accept, discard, brush, cursor, slice };
+    now.current = { accept, discard, brush, cursor, slice, put };
     nowFlood.current = allToModel;
   });
   useEffect(() => {
     actionsRef.current = {
       commit: () => void now.current.accept(),
       reject: () => now.current.discard(),
-      toggleAt: () => put(now.current.cursor, now.current.brush),
-      gridAt: () => put(now.current.cursor, MODEL),
+      toggleAt: () => now.current.put(now.current.cursor, now.current.brush),
+      gridAt: () => now.current.put(now.current.cursor, MODEL),
       floodModel: () => nowFlood.current(),
       brush: (label) => setBrush((b) => (b === label ? UNSURE : label)),
       step: (delta) => setCursor((i) => Math.max(0, Math.min(now.current.slice.length - 1, i + delta))),
@@ -450,6 +455,7 @@ export function CellLane(props: CellLaneProps) {
           caption: cell.caption,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
           ...handMark(handBeside(frameHands, coverage, cell), cell.square),
+          ...(handsUnmeasured(handsMeasured, cell) ? { handsUnmeasured: true } : {}),
           ...noteOf(cell, useless.has(keyOf(cell)) ? "🚫 unbrauchbar" : verdictOf(cell)),
           ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),

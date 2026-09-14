@@ -724,7 +724,7 @@ class PackedBoardDataset(Dataset):
     collate_fn = staticmethod(board_collate)
 
     def __init__(self, rows, classes, transform, packed: PackedArg,
-                 with_coverage: bool = True) -> None:
+                 ) -> None:
         from .boardnet import CELLS, square_index
 
         c2i = class_to_idx(classes)
@@ -744,7 +744,6 @@ class PackedBoardDataset(Dataset):
                     f"Brett {board[0]['session_id']}/{board[0]['frame']}: {CELLS} Zeilen, aber "
                     f"nur {len({r['square'] for r in board})} verschiedene Felder — "
                     "doppelte Felder im Manifest, der Pool muss neu geschnitten werden")
-        self.with_coverage = with_coverage
         self.transform = transform
         self.rows = [r for board in keep for r in sorted(board, key=lambda r: square_index(r["square"]))]
         self._files, idx = _pack_index(self.rows, packed)

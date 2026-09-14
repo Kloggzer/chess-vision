@@ -13,8 +13,6 @@ private const val RANKS = 8
  */
 val ALL_SQUARES: List<String> = (1..RANKS).flatMap { rank -> FILES.map { file -> "$file$rank" } }
 
-fun allSquares(): List<String> = ALL_SQUARES
-
 internal fun squareOf(square: String): Square = Square.fromValue(square.uppercase())
 
 /** `config.py:379 label_from_piece` — 'P' -> "wP", 'n' -> "bN", null/empty -> "empty". */

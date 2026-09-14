@@ -31,6 +31,9 @@ internal fun visualCacheSignature(
         "stride=$stride",
         "lens=$lens",
         "model=$model",
+        // TODO: `replayStartFrame`, `limitFrames` und das Recorded-Frame-Gate fehlen hier,
+        //  obwohl die Cache-Zeilen an der RELATIVEN Sequenznummer haengen. Ein Cache aus
+        //  `start=0` wird von `start=5` akzeptiert und liefert die Beobachtungen fremder Bilder.
     ).joinToString("|")
 
 /**

@@ -29,8 +29,6 @@ class FrameSizeGuard(
     private val info: (String) -> Unit = {},
     private val requestRegeneration: () -> Unit = {},
 ) {
-    private var requestedW = 0
-    private var requestedH = 0
     private var actualW = 0
     private var actualH = 0
     private var profileName = ""
@@ -40,14 +38,6 @@ class FrameSizeGuard(
     /** Non-null while the active profile does not match the delivered size. */
     var mismatch: SizeMismatch? = null
         private set
-
-    fun setRequested(
-        width: Int,
-        height: Int,
-    ) {
-        requestedW = width
-        requestedH = height
-    }
 
     /** The active calibration profile. Setting it re-arms the check on the next frame. */
     fun setProfile(
@@ -110,14 +100,8 @@ class FrameSizeGuard(
         width: Int,
         height: Int,
     ) {
-        val fellBack = requestedW > 0 && (requestedW != width || requestedH != height)
-        if (fellBack) {
-            warn(
-                "camera mode requested ${requestedW}x$requestedH but the source delivers ${width}x$height " +
-                    "(driver fell back to its nearest supported mode).",
-            )
-        } else {
-            info("camera delivers ${width}x$height.")
-        }
+        // Die angefragte gegen die gelieferte Groesse meldet `camera/ResolutionMismatchLogger`,
+        // ratenbegrenzt und verdrahtet. Dieser Guard REAGIERT (Profil neu erzeugen), er meldet nicht.
+        info("camera delivers ${width}x$height.")
     }
 }

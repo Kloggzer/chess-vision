@@ -18,7 +18,6 @@ class FrameSizeGuardTest {
     /** The a7dab73 regression test: the note names the DELIVERED size, never the requested one. */
     @Test
     fun `the mismatch is reported from the delivered size, not the requested one`() {
-        guard.setRequested(1280, 720)
         guard.setProfile("desk", 1280, 720)
         guard.note(1280, 960)
         val mismatch = checkNotNull(guard.mismatch)

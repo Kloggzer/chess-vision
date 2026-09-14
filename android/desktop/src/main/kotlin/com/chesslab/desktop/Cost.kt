@@ -40,7 +40,7 @@ class Cost {
                     Locale.US,
                     what,
                     sorted[sorted.size / 2],
-                    sorted[(sorted.size * P90_NUM) / P90_DEN],
+                    sorted[p90Index(sorted.size)],
                     sorted.last(),
                     sorted.size,
                 ),
@@ -52,3 +52,6 @@ class Cost {
 private const val NANOS_PER_MS = 1_000_000.0
 private const val P90_NUM = 9
 private const val P90_DEN = 10
+
+/** Nearest-Rank, 0-basiert: `floor` zeigte bei n <= 10 auf das letzte Element, also aufs Maximum. */
+private fun p90Index(n: Int): Int = maxOf(0, (n * P90_NUM + P90_DEN - 1) / P90_DEN - 1)

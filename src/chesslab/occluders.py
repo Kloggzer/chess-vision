@@ -256,6 +256,8 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     out_dir.mkdir(parents=True, exist_ok=True)
     kept: list[np.ndarray] = []
     written = skipped_thin = skipped_dup = 0
+    # TODO: `scale` bleibt 1.0, wenn keine Kachel geschrieben wurde — `tile` im Bericht steht dann
+    # in MASKEN-Koordinaten und behauptet trotzdem, "was WIRKLICH geschrieben wurde".
     scale = 1.0
     src = (blurred_pairs(cap, n, stride, size) if pair_blur and fps > 45
            else _plain(cap, n, stride, size))

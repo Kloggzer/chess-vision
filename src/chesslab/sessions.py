@@ -159,6 +159,8 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
 
 def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     """Drop a trimmed frame's matte row. Keyed by frame alone — the file belongs to one session."""
+    # TODO: die Datei wird zweimal gelesen, nur um `removed` zu zaehlen — und `trim_session`
+    # wirft die Zahl danach weg, waehrend es jede andere Aufraeum-Zahl meldet.
     path = sdir / "matte.jsonl"
     if not path.exists() or not frame_stems:
         return 0
@@ -393,6 +395,9 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     # Also the session's OWN sidecars: a trimmed frame used to keep its matte row
     # forever, because nothing here knew the file existed.
     removed_corrections = _filter_jsonl_frames(target / "corrections.jsonl", sid, removed_stems)
+    # Dasselbe fuer das ZWEITE menschliche Ledger: Frames heissen nach Quell-Index, ein
+    # Re-Export vergibt die Stems neu — ein altes "unbrauchbar" traefe dann ein anderes Bild.
+    _filter_jsonl_frames(target / "unusable-cells.jsonl", sid, removed_stems)
     _filter_matte_frames(target, removed_stems)
     return {
         "session_id": sid,
@@ -1136,13 +1141,13 @@ def mark_hands_session(session_id: str) -> dict:
 def mark_hands_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
     """`mark_hands_session` over every session with a log — minutes long, so it reports per session."""
     out = []
-    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+    for sid, sdir in all_sessions(paths):
         if not (sdir / "log.jsonl").is_file():
             continue
         try:
-            r = mark_hands_session(sdir.name)
+            r = mark_hands_session(sid)
         except (FileNotFoundError, ValueError, KeyError) as e:
-            r = {"session_id": sdir.name, "error": f"{type(e).__name__}: {e}"}
+            r = {"session_id": sid, "error": f"{type(e).__name__}: {e}"}
         out.append(r)
         if on_done is not None:
             on_done(r)
@@ -1173,13 +1178,13 @@ def repair_mesh_session(session_id: str) -> dict:
 def repair_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
     """`repair_mesh_session` over every active session that has a log."""
     out = []
-    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+    for sid, sdir in all_sessions(paths):
         if not (sdir / "log.jsonl").is_file():
             continue
         try:
-            r = repair_mesh_session(sdir.name)
+            r = repair_mesh_session(sid)
         except (FileNotFoundError, ValueError, KeyError) as e:
-            r = {"session_id": sdir.name, "error": str(e)}
+            r = {"session_id": sid, "error": str(e)}
         out.append(r)
         if on_done:
             on_done(r)
@@ -1193,13 +1198,13 @@ def fit_mesh_all(paths: config.Paths = config.DATA, on_done=None) -> list[dict]:
     and a caller that only speaks at the end cannot say where it stands or what failed.
     """
     out = []
-    for sdir in sorted(paths.sessions.iterdir()) if paths.sessions.is_dir() else []:
+    for sid, sdir in all_sessions(paths):
         if not (sdir / "log.jsonl").is_file():
             continue
         try:
-            r = fit_mesh_session(sdir.name)
+            r = fit_mesh_session(sid)
         except (FileNotFoundError, ValueError, KeyError) as e:
-            r = {"session_id": sdir.name, "error": f"{type(e).__name__}: {e}"}
+            r = {"session_id": sid, "error": f"{type(e).__name__}: {e}"}
         out.append(r)
         if on_done is not None:
             on_done(r)

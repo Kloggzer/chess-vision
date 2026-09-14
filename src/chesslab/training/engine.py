@@ -117,11 +117,11 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     if cover:
         from .occlusion import classification_eligible
 
-        vmax = getattr(criterion, "visible_max", None)
-        dmin = getattr(criterion, "dark_min", None)
+        # Die FESTE Maske, nicht die des Laufs: `--visible-max`/`--dark-min` verschoben sonst
+        # die benotete Zellmenge, waehrend `checkpoint_metrics` weiter auf den Konstanten steht —
+        # ein Epochen-Datensatz mischte damit zwei Zellmengen.
         eligible = np.array([
-            classification_eligible(r, **({"visible_max": vmax} if vmax is not None else {}),
-                                    **({"dark_min": dmin} if dmin is not None else {}))
+            classification_eligible(r)
             for r in dataset.rows], dtype=bool)
     else:
         eligible = np.ones(len(trues), dtype=bool)

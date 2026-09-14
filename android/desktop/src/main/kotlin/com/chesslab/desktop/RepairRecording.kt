@@ -71,6 +71,11 @@ internal fun repair(
     // muxer left a placeholder there — and the index is appended behind it.
     broken.copyTo(out, overwrite = false)
     RandomAccessFile(out, "rw").use { file ->
+        // TODO: Beide Header-Formen kommen aus `mdatPayloadStart`, gepatcht wird nur das
+        //  64-Bit-Format. Bei einem 8-Byte-Header zeigt `payloadStart - 8` auf den Boxanfang,
+        //  und der `writeLong` ueberschreibt Groesse UND `mdat`-Fourcc mit einem um 8 zu grossen
+        //  Wert — eine Datei, die kein Demuxer mehr kennt, ohne einen Fehler. Die Aufnahmen sind
+        //  die einzigen Kopien (CLAUDE.md 4).
         file.seek(payloadStart - Long.SIZE_BYTES)
         file.writeLong(out.length() - (payloadStart - MDAT_HEADER_64))
         file.seek(out.length())

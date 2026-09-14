@@ -231,6 +231,8 @@ def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int
             cap.release()
             q.put(None)
 
+    # TODO: Kein Stop-Event wie in `tile_stream`: wird der Generator vorzeitig verlassen, haengt
+    #  der Pump-Thread fuer immer in `q.put` und gibt sein `VideoCapture` nie frei.
     Thread(target=pump, daemon=True).start()
     while (item := q.get()) is not None:
         yield item

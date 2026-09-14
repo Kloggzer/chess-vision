@@ -1386,7 +1386,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         cal = evaluate_dataset(model, val_ds, device, batch_size=eval_batch,
                                num_workers=0, keep_workers=False)
         eligible = cal["classification_eligible"]
-        temp = fit_temperature(cal.get("logits")[eligible], cal["trues"][eligible])
+        temp = fit_temperature(cal.get("logits")[eligible], cal["trues"][eligible],
+                               n_classes=len(classes))
         cfg_path = run_dir / "config.json"
         cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
         cfg_now["temperature"] = round(temp, 4)

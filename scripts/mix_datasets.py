@@ -37,10 +37,11 @@ def main() -> int:
     grows, gsplit = load(a.guest)
     if hsplit.get("classes") != gsplit.get("classes"):
         raise SystemExit("[FAIL] verschiedene Klassenlisten — der Mischsatz waere nicht lesbar.")
-    mm = [r for r in grows if str(r["path"]).startswith("mm://")]
-    if mm:
-        raise SystemExit(f"[FAIL] {a.guest} hat {len(mm)} mm://-Zeilen und keine Dateien; "
-                         "ein Mischsatz kann daraus nicht frisch packen.")
+    for side, rows in ((a.host, hrows), (a.guest, grows)):
+        mm = [r for r in rows if str(r["path"]).startswith("mm://")]
+        if mm:
+            raise SystemExit(f"[FAIL] {side} hat {len(mm)} mm://-Zeilen und keine Dateien; "
+                             "ein Mischsatz kann daraus nicht frisch packen.")
 
     hval = set(hsplit["splits"].get("val", [])) | set(hsplit["splits"].get("test", []))
     gsess = sorted({r["session_id"] for r in grows})

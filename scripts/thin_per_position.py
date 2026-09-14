@@ -52,7 +52,9 @@ def main():
     for (sess, ply), frames in per_pos.items():
         ordered = sorted(frames, key=lambda f: (mean[(sess, ply, f)], f))
         c, dy = args.clean, args.dirty
-        head, tail = (ordered[:c], ordered[len(ordered) - dy:]) if len(ordered) > c + dy else (ordered, [])
+        # `head` ist IMMER nur der saubere Kopf: im Rueckfall stand hier `ordered`, also wurde
+        # das verdeckteste Brett der Stellung als sauber vervielfacht.
+        head, tail = ordered[:c], ordered[max(c, len(ordered) - dy):]
         chosen = head + tail
         clean_keys.update((sess, ply, f) for f in head)
         keep.update((sess, ply, f) for f in chosen)

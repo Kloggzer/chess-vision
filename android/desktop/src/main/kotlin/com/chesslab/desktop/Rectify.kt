@@ -117,6 +117,9 @@ private fun rectifyEach(
             if (quad == null) {
                 missed += at
             } else {
+                // TODO: `warpFromCorners` legt ohne `dst` ein neues `Mat` an und niemand gibt es
+                //  hier frei (anders als `LensProbe`/`ArenaMain`). Bei `every=1` sind das ~4,6 MB
+                //  nativ je geschriebenem Bild.
                 val board = warpFromCorners(frame, boardGeometryFor(quad), cornersFromFlat(quad), size)
                 Imgcodecs.imwrite(File(outDir, "${at.toString().padStart(STEM_DIGITS, '0')}.png").path, board)
                 offsetSum += squareOffsetOf(frame, quad)

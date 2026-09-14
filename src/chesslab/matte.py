@@ -550,7 +550,10 @@ def matte_status(name: str) -> dict:
             if r.get("board") and r.get("dirty") and not r.get("unusable")}
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
-    have = {str(r["frame"]) for r in read_jsonl(path) if r.get("frame")} if path.exists() else set()
+    # Wie `read_matte`: eine Zeile ohne `coverage` (uebersprungen) ist keine Matte. Als eine
+    # gezaehlt verschwieg dieser Bericht genau die Luecke, die er melden soll.
+    have = ({str(r["frame"]) for r in read_jsonl(path) if r.get("frame") and r.get("coverage")}
+            if path.exists() else set())
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(want - have), "orphans": sorted(have - known)}
 
