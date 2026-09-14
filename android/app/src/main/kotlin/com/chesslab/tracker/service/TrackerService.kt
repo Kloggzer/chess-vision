@@ -238,7 +238,7 @@ class TrackerService :
         }
 
     /**
-     * What the model declares it takes (`infer_size` since specs/22, `pad_side`/`pad_up` since
+     * What the model declares it takes (`infer_size` since specs/22, `pad_side` since
      * specs/45), or null while nothing could be read.
      *
      * Null keeps [BoardGeometry]'s defaults — calibration runs long before a classifier attaches

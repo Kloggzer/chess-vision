@@ -150,7 +150,7 @@ def test_a_matted_occluded_frame_reaches_the_trainer_with_its_coverage(tmp_path,
     prof = CalibrationProfile(
         profile="p", camera_index=0, frame_size=(320, 240), board_size=128, image_corners=corners,
         homography=compute_homography(corners, 128, 0.0), white_pov=True, margin=0.0,
-        crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)))
+        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)))
     res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                         squares_root=tmp_path / "squares", out_size=(32, 32))
 
@@ -191,7 +191,7 @@ def test_an_occluded_frame_without_a_matte_stays_out(tmp_path, monkeypatch):
     prof = CalibrationProfile(
         profile="p", camera_index=0, frame_size=(320, 240), board_size=128, image_corners=corners,
         homography=compute_homography(corners, 128, 0.0), white_pov=True, margin=0.0,
-        crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)))
+        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)))
     res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                         squares_root=tmp_path / "squares", out_size=(32, 32))
 

@@ -58,7 +58,7 @@ data class ModelIdentity(
     /** `infer_size` the loaded run declares, e.g. `"80x80"` — a per-model key, not a constant. */
     val inferSize: String?,
     /**
-     * `pad_side`/`pad_up` the run declares, e.g. `"0.05/0.0"` — null when it declares NONE.
+     * `pad_side` the run declares, e.g. `"0.05"` — null when it declares NONE.
      *
      * A null here is the whole point of the field: the crops are then cut at whatever the
      * calibration profile says, a box no model ever asked for. [servedPads] says which box that
@@ -234,7 +234,7 @@ fun runStartOf(
                 loadedDir = cnn.modelDir,
                 loadedAsset = cnn.model,
                 inferSize = spec?.let { "${it.outWidth}x${it.outHeight}" },
-                declaredPads = spec?.takeIf { it.declaresCrop }?.let { "${it.padSide}/${it.padUp}" },
+                declaredPads = spec?.takeIf { it.declaresCrop }?.let { "${it.padSide}" },
                 servedPads = servedPads,
                 classes = spec?.classes?.size,
                 requestedEp = cnn.requestedEp ?: app.epRequest.name,

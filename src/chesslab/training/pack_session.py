@@ -24,7 +24,7 @@ def _gb(n: int, h: int, w: int) -> float:
 
 def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
                        paths: config.Paths = config.DATA, profile: str | None = None,
-                       pad_side: float | None = None, pad_up: float | None = None,
+                       pad_side: float | None = None,
                        replace: bool = False) -> dict:
     """Cut every crop of `session_id` at `size` px into `data/packs/<session_id>-<size>/`."""
     from ..labeling import _profile_for_session, iter_session_crops, read_session_meta
@@ -34,7 +34,7 @@ def write_session_pack(session_id: str, size: int = packs.DEFAULT_PACK_SIDE, *,
     session_path, _ = session_dir(session_id, paths)
     prof = _profile_for_session(read_session_meta(session_path), profile)
     crops = ((crop[:, :, ::-1], row) for crop, row in
-             iter_session_crops(session_path, profile=prof, pad_up=pad_up, pad_side=pad_side,
+             iter_session_crops(session_path, profile=prof, pad_side=pad_side,
                                 out_size=(size, size)))
     return _cut(name, size, crops, f"session {session_id}", paths, replace)
 

@@ -22,10 +22,10 @@ import java.util.Locale
 /**
  * The calibrated board geometry, cropping exactly as [spec] declares.
  *
- * The model supplies `outW`/`outH` and, when it declares them, `padSide`/`padUp`. `boardSize` and
+ * The model supplies `outW`/`outH` and, when it declares it, `padSide`. `boardSize` and
  * `margin` stay the board's own: they say where the board IS in the image, which no model can know.
  *
- * A [spec] that declares no crop keeps the profile's pads — LEGACY, and loud rather than silent
+ * A [spec] that declares no crop keeps the profile's pad — LEGACY, and loud rather than silent
  * ([cropLine], the diagnostics `run_start` row and the debug screen's CNN panel all report it. A
  * silent fallback here is the original bug).
  *
@@ -42,7 +42,6 @@ fun BoardGeometry.withCropOf(spec: ModelSpec?): BoardGeometry =
             outW = spec.outWidth,
             outH = spec.outHeight,
             padSide = spec.padSide ?: padSide,
-            padUp = spec.padUp ?: padUp,
         )
     }
 
@@ -51,7 +50,7 @@ fun BoardGeometry.withCropOf(spec: ModelSpec?): BoardGeometry =
  * header and the debug panel.
  *
  * [geom] is the geometry the pixels actually come from, so the legacy case still reports a real
- * value: "these are the pads you are being served, and no model chose them".
+ * value: "this is the pad you are being served, and no model chose it".
  */
 fun cropLine(
     spec: ModelSpec?,
@@ -59,6 +58,6 @@ fun cropLine(
 ): String {
     // ROOT, not the device locale: a decimal comma in a diagnostics row is a value nobody can
     // parse back, and this line is read by machines as often as by people.
-    val pads = String.format(Locale.ROOT, "side=%.3f up=%.3f", geom.padSide, geom.padUp)
+    val pads = String.format(Locale.ROOT, "side=%.3f", geom.padSide)
     return if (spec?.declaresCrop == true) pads else "$pads (LEGACY: the model declares no crop)"
 }

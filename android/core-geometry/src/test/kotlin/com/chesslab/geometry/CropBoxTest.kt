@@ -23,7 +23,6 @@ class CropBoxTest {
                 BoardGeometry(
                     boardSize = GeometryFixtures.num(case["boardSize"]).toInt(),
                     whitePov = case["whitePov"] as Boolean,
-                    padUp = GeometryFixtures.num(case["padUp"]),
                     padSide = GeometryFixtures.num(case["padSide"]),
                 )
             val clamp = case["clamp"] as Boolean
@@ -84,21 +83,21 @@ class CropBoxTest {
         assertArrayEquals(intArrayOf(0, 0, 210, 210), squareToCropBox("a8", geom, clamp = true))
         assertEquals(1610, squareToCropBox("h1", geom, clamp = false)[2])
         assertEquals(1600, squareToCropBox("h1", geom, clamp = true)[2])
-        // max(0.1, padSide, padUp) * cell, and the 0.1 FLOOR is what decides here — the border did
-        // not move with the pad (the phase file's "200" is an arithmetic slip; `_geometry/meta.json
+        // max(0.1, padSide) * cell, and the 0.1 FLOOR is what decides here — the border did not
+        // move with the pad (the phase file's "200" is an arithmetic slip; `_geometry/meta.json
         // -> cropBoxes` agrees with 20).
         assertEquals(20, cropBorderPx(geom))
     }
 
     @Test
-    fun `pad up extends the box upward only and raises the crop border`() {
-        val geom = BoardGeometry(padUp = 0.25)
-        val flat = squareToCropBox("e4", BoardGeometry(), clamp = false)
-        val tall = squareToCropBox("e4", geom, clamp = false)
-        assertEquals(flat[0], tall[0])
-        assertEquals(flat[2], tall[2])
-        assertEquals(flat[3], tall[3])
-        assertEquals(flat[1] - 50, tall[1])
+    fun `pad side grows the box on all four edges and raises the crop border`() {
+        val geom = BoardGeometry(padSide = 0.25)
+        val flat = squareToCropBox("e4", BoardGeometry(padSide = 0.0), clamp = false)
+        val padded = squareToCropBox("e4", geom, clamp = false)
+        assertEquals(flat[0] - 50, padded[0])
+        assertEquals(flat[1] - 50, padded[1])
+        assertEquals(flat[2] + 50, padded[2])
+        assertEquals(flat[3] + 50, padded[3])
         assertEquals(50, cropBorderPx(geom), "0.25 * 200 = 50")
     }
 

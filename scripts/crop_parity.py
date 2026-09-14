@@ -50,8 +50,7 @@ def profile_from(receipt: dict, margin: float = config.DEFAULT_MARKER_MARGIN) ->
     return CalibrationProfile(
         profile="__parity__", camera_index=-1, frame_size=(0, 0), board_size=bs,
         image_corners=quad, homography=compute_homography(quad, bs, margin), white_pov=True,
-        crop=CropParams(cell=bs / 8.0, pad_up=float(receipt["padUp"]),
-                        pad_side=float(receipt["padSide"]),
+        crop=CropParams(cell=bs / 8.0, pad_side=float(receipt["padSide"]),
                         out_size=(int(receipt["outW"]), int(receipt["outH"]))),
         margin=margin,
     )

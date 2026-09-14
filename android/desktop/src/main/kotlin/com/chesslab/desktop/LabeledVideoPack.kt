@@ -536,7 +536,7 @@ private fun manifestRow(
 ): String =
     "{\"path\":\"${json(path)}\",\"session_id\":\"${json(id)}\",\"frame\":\"$frame\"," +
         "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
-        "\"pad_side\":0.05,\"pad_up\":0.0}"
+        "\"pad_side\":0.05}"
 
 private fun List<String>.option(name: String): String? = firstOrNull { it.startsWith("$name=") }?.substringAfter('=')
 

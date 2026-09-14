@@ -86,7 +86,7 @@ private fun cutEach(
             }
             quads.append("{\"frame\": $at, \"quad\": ${quad.joinToString(",", "[", "]")}, ")
             quads.append("\"boardSize\": ${geom.boardSize}, \"padSide\": ${geom.padSide}, ")
-            quads.append("\"padUp\": ${geom.padUp}, \"outW\": ${geom.outW}, \"outH\": ${geom.outH}}")
+            quads.append("\"outW\": ${geom.outW}, \"outH\": ${geom.outH}}")
             quads.append(System.lineSeparator())
             written += 1
         }
@@ -147,7 +147,7 @@ fun probeCrop(args: List<String>) {
     }
     File(outDir, "probe.json").writeText(
         "{\"boardSize\":${geometry.boardSize},\"outW\":${geometry.outW},\"outH\":${geometry.outH}," +
-            "\"padSide\":${geometry.padSide},\"padUp\":${geometry.padUp}," +
+            "\"padSide\":${geometry.padSide}," +
             "\"border\":${cropBorderPx(geometry)}," +
             "\"quad\":\"${if (fitted == null) "marker" else "grid-fit"}\"," +
             "\"mesh\":\"$stage\"}\n",
@@ -349,7 +349,7 @@ private fun turntableRow(
 ): String =
     "{\"path\":\"${json(path)}\",\"session_id\":\"${json(id)}\",\"frame\":\"$frame\"," +
         "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
-        "\"pad_side\":${geom.padSide},\"pad_up\":${geom.padUp}}"
+        "\"pad_side\":${geom.padSide}}"
 
 internal fun json(value: String): String = value.replace("\\", "\\\\").replace("\"", "\\\"")
 

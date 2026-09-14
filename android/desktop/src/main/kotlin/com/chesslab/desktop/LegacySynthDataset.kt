@@ -142,7 +142,7 @@ private fun legacyManifestRow(
 ): String =
     "{\"path\":\"${json(path)}\",\"session_id\":\"${json(session)}\",\"frame\":\"${json(frame)}\"," +
         "\"square\":\"$square\",\"label\":\"$label\",\"out_size\":[$PACK_CROP_SIDE,$PACK_CROP_SIDE]," +
-        "\"pad_side\":0.05,\"pad_up\":0.0}"
+        "\"pad_side\":0.05}"
 
 private fun updateLegacyDigest(
     digest: MessageDigest,

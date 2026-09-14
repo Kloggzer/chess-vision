@@ -148,7 +148,7 @@ def test_the_slice_carries_the_matte_into_the_manifest(tmp_path, monkeypatch):
     prof = replace(_profile(), profile="p", frame_size=(320, 240), board_size=128,
                    image_corners=corners,
                    homography=compute_homography(corners, 128, 0.0),
-                   crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)),
+                   crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
                    margin=0.0)
     slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                   squares_root=tmp_path / "squares", out_size=(32, 32))
@@ -185,7 +185,7 @@ def test_a_hand_the_tracker_missed_still_takes_the_frame_out(tmp_path, monkeypat
 
     prof = replace(_profile(), profile="p", frame_size=(320, 240), board_size=128,
                    image_corners=corners, homography=compute_homography(corners, 128, 0.0),
-                   crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)),
+                   crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
                    margin=0.0)
     res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                         squares_root=tmp_path / "squares", out_size=(32, 32))

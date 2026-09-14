@@ -9,7 +9,7 @@ Motivation (2026-07-21, live incident): the deployed CNN read the empty dark squ
 bB and a black queen on b6 as wQ with high confidence — the known dark-square domain gap.
 The `empty` class is capped at dataset-build time (`subsample_classes`), and the random cap
 throws away exactly the rare HARD empties (dark corner squares, neighbour pieces bleeding
-into the crop via pad_up, shadows). This script finds those hard cases so the build can
+into the crop over the pad, shadows). This script finds those hard cases so the build can
 keep them (see `priority_paths` in `dataset.subsample_classes`).
 
 Two selection criteria, because "misread" means different things to a 2-class and an identity run:

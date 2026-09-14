@@ -349,7 +349,6 @@ private fun sourceJson(
 internal fun cropJson(geometry: BoardGeometry): JsonObject =
     buildJsonObject {
         put("cell", geometry.boardSize / SQUARES_PER_SIDE)
-        put("pad_up", geometry.padUp)
         put("pad_side", geometry.padSide)
         put(
             "out_size",

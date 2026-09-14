@@ -353,7 +353,7 @@ def untrained_size_error(cfg: dict, w: int, h: int) -> str | None:
     return None
 
 
-def crop_of_dataset(name: str, paths: config.Paths | None = None) -> tuple[float, float] | None:
+def crop_of_dataset(name: str, paths: config.Paths | None = None) -> float | None:
     """[crop_of_rows][chesslab.training.data.crop_of_rows] for a dataset by name.
 
     A dataset that is not on this machine any more reads as legacy rather than raising — an
@@ -375,7 +375,7 @@ def run_export(run: str, fmt: str = "torchscript",
     and then read straight back through `infer_size_of`, so the exported graph is always what the
     config says and never a value that existed only in this argument.
 
-    The crop's COMPOSITION (`pad_side`/`pad_up`) is written the same way and for the same reason
+    The crop's COMPOSITION (`pad_side`) is written the same way and for the same reason
     (specs/45): it decides what the 64 crops contain, the consumer has to reproduce it, and only
     the dataset knows it. A run whose dataset cannot say declares nothing and is reported LOUDLY
     as legacy — the serving path then keeps the calibration profile's values, which is the very
@@ -407,14 +407,14 @@ def run_export(run: str, fmt: str = "torchscript",
         return 1
     crop = crop_of_dataset(str(cfg.get("dataset") or ""))
     if crop is not None:
-        cfg["pad_side"], cfg["pad_up"] = crop
+        cfg["pad_side"] = crop
     elif "pad_side" not in cfg:
         # Never removes a declaration already in the file: a value established by hand from the
         # session profiles (which is how the bundled models got theirs) outranks a dataset that
         # has since been rebuilt or moved away.
         print(f"[LEGACY] {run_dir.name} declares NO crop: dataset {cfg.get('dataset')!r} does "
-              "not record `pad_side`/`pad_up` for all its rows. Every consumer will keep its own "
-              "calibration profile's pads, which is the silent domain shift specs/45 is about — "
+              "not record `pad_side` for all its rows. Every consumer will keep its own "
+              "calibration profile's pad, which is the silent domain shift specs/45 is about — "
               "re-slice the sessions to fix it.")
     # The occlusion head ships ONE extra output beside the classes, and it is a sigmoid coverage,
     # not a class. Declared rather than inferred from `head`: a consumer reading `classes.size`

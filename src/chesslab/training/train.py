@@ -1075,15 +1075,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print(f"[board] Sampler ueber {len(board_w)} Bretter, {n_draw} Ziehungen je Epoche")
     train_loader = DataLoader(train_ds, shuffle=sampler is None, sampler=sampler, drop_last=False, **loader_kw)
 
-    # The crop's COMPOSITION, from ALL rows and not just the first: the pads decide what the
-    # examples contain, and serving has to reproduce them (specs/45). Absent = this dataset
+    # The crop's COMPOSITION, from ALL rows and not just the first: the pad decides what the
+    # examples contain, and serving has to reproduce it (specs/45). Absent = this dataset
     # cannot say, which every consumer must then treat as legacy rather than guess at.
     crop = crop_of_rows(manifest)
     if crop is None:
-        print(f"[crop] dataset {dataset!r} does not record pad_side/pad_up on every row — the "
-              "run will declare no crop and every consumer keeps its own profile's pads.")
+        print(f"[crop] dataset {dataset!r} does not record pad_side on every row — the "
+              "run will declare no crop and every consumer keeps its own profile's pad.")
     else:
-        print(f"[crop] pad_side={crop[0]:g} pad_up={crop[1]:g} — declared by this run")
+        print(f"[crop] pad_side={crop:g} — declared by this run")
 
     run_dir = Path(out) if out else config.DATA.models / f"run-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     if (run_dir / "metrics.jsonl").exists() and not continue_run:
@@ -1123,7 +1123,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "clahe_clip": clahe_clip, "clahe_tile": clahe_tile,
             "clahe_min_mean": clahe_min_mean, "clahe_max_mean": clahe_max_mean,
             "clahe_denoise": clahe_denoise}),
-        **({} if crop is None else {"pad_side": crop[0], "pad_up": crop[1]}),
+        **({} if crop is None else {"pad_side": crop}),
         # What SERVING must reproduce. `normalize.mode` "per_crop" ignores mean/std entirely, and
         # `input_repr` decides both the channel stack AND the stem's fan-in — a consumer that gets
         # either wrong feeds the model something it has never seen, silently.

@@ -22,7 +22,7 @@ fun annotate(
     val shot = board.clone()
     val scale = shot.cols().toDouble() / geom.boardSize
     for (square in allSquares()) {
-        val box = squareToCropBox(square, geom.copy(padSide = 0.0, padUp = 0.0), clamp = true)
+        val box = squareToCropBox(square, geom.copy(padSide = 0.0), clamp = true)
         val topLeft = Point(box[0] * scale, box[1] * scale)
         val bottomRight = Point(box[2] * scale, box[3] * scale)
         Imgproc.rectangle(shot, topLeft, bottomRight, GRID, 1)

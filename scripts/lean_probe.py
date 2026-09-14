@@ -1,12 +1,12 @@
 """Wie weit ragt eine Figur ueber ihr eigenes Feld hinaus?
 
-`pad_up` steht auf 0, der Crop ist also das Feld plus 5 % zur Seite. Bei einer stehenden Figur
-und einer Kamera ueber dem Brett faellt der KOPF — das einzige, was Springer von Laeufer von Turm
-trennt — in ein Nachbarfeld. Das waere die Erklaerung dafuer, dass 98 % der Fehler Typfehler sind
-und die Grundreihen die schlimmsten sind.
+Der Crop ist das Feld plus 5 % zur Seite. Bei einer stehenden Figur und einer Kamera ueber dem
+Brett faellt der KOPF — das einzige, was Springer von Laeufer von Turm trennt — in ein
+Nachbarfeld. Das waere die Erklaerung dafuer, dass 98 % der Fehler Typfehler sind und die
+Grundreihen die schlimmsten sind.
 
 Zeichnet das Zellraster auf ein rektifiziertes Brett und daneben dieselbe Zelle bei wachsendem
-`pad_up`.
+`pad_side`.
 
     uv run python scripts/lean_probe.py [--session ...] [--square d8]
 """
@@ -61,16 +61,16 @@ def main():
     for r_i, sq in enumerate(squares):
         for c_i, pu in enumerate(pads):
             prof = load_profile(read_session_meta(sdir)["profile"])
-            object.__setattr__(prof.crop, "pad_up", pu)
+            object.__setattr__(prof.crop, "pad_side", pu)
             x0, y0, x1, y1 = square_to_crop_box(sq, prof, clamp=True)
             crop = cv2.resize(board[y0:y1, x0:x1], (CELLPX, CELLPX))
             y = 10 + r_i * (CELLPX + 22)
             x = 10 + c_i * (CELLPX + 8)
             sheet[y:y + CELLPX, x:x + CELLPX] = crop
-            cv2.putText(sheet, f"{sq} pad_up {pu}", (x, y + CELLPX + 14),
+            cv2.putText(sheet, f"{sq} pad_side {pu}", (x, y + CELLPX + 14),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.38, (150, 220, 255), 1)
-    cv2.imwrite(f"{a.out}/pad-up.png", sheet)
-    print(f"[OK] {a.out}/pad-up.png")
+    cv2.imwrite(f"{a.out}/pad-side.png", sheet)
+    print(f"[OK] {a.out}/pad-side.png")
 
 
 if __name__ == "__main__":

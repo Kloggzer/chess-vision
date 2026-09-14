@@ -62,7 +62,7 @@ internal fun epLine(runtime: CnnRuntimeInfo): String {
 internal fun epFellBack(runtime: CnnRuntimeInfo): Boolean = runtime.actualEp != null && runtime.requestedEp != runtime.actualEp
 
 /**
- * `real14-80 @ 80x80 · crop side=0.050 up=0.000` — which bundled model attached, the size it is fed,
+ * `real14-80 @ 80x80 · crop side=0.050` — which bundled model attached, the size it is fed,
  * and the box those pixels were cut out of.
  *
  * All three are what the app MEASURED, never what the settings asked for: the name is the

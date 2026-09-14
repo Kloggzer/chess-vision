@@ -14,13 +14,14 @@ import org.opencv.core.Scalar
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CropsTest {
     @Test
-    fun `overhang is black padded, never replicated`() {
-        // padUp > padSide: the crop box reaches above what the border covers, so the top of
-        // the a8 crop is genuine BLACK padding.
-        val tall = BoardGeometry(boardSize = 640, padSide = 0.10, padUp = 0.50)
-        val bordered = warpBoardForCrops(SyntheticBoard.frame(), tall, SyntheticBoard.CORNERS)
-        val crop = cropSquare(bordered, "a8", tall)
-        assertEquals(0.0, SyntheticBoard.sample(crop, 64, 0), 0.0, "top row is black pad, not replicated background")
+    fun `the warp border always covers the pad, so no edge crop is black padded`() {
+        // `cropBorderPx` is max(CROP_WARP_BORDER_CELLS, padSide) since the upward pad was retired
+        // (2026-09-14), so the box can no longer reach past the border. The black-pad path in
+        // `cropSquare` stays as the guard it is; no geometry should be able to trigger it.
+        val geom = BoardGeometry(boardSize = 640, padSide = 0.25)
+        val bordered = warpBoardForCrops(SyntheticBoard.frame(), geom, SyntheticBoard.CORNERS)
+        val crop = cropSquare(bordered, "a8", geom)
+        assertTrue(SyntheticBoard.sample(crop, 64, 0) > 0.0, "top row is board surroundings, not black pad")
         assertTrue(SyntheticBoard.sample(crop, 64, 127) > 0.0, "the bottom of the crop still has content")
     }
 
@@ -56,7 +57,7 @@ class CropsTest {
 
     @Test
     fun `sequential scratch cropper is pixel-identical for every square`() {
-        val geometry = BoardGeometry(boardSize = 640, padSide = 0.05, padUp = 0.25, outW = 80, outH = 80)
+        val geometry = BoardGeometry(boardSize = 640, padSide = 0.25, outW = 80, outH = 80)
         val bordered = warpBoardForCrops(SyntheticBoard.frame(), geometry, SyntheticBoard.CORNERS)
         try {
             SquareCropper().use { cropper ->

@@ -175,7 +175,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     if center_frac is None:
         # The "piece region" of a crop is the CELL inside it: crop width = cell * (1 + 2*pad_side)
         # (labeling.crop_square), so center_frac = 1/(1+2*pad_side) ~ 0.83 at pad_side 0.10.
-        # The old hardcoded 0.55 was authored for the 128x176 pad_up-0.35 crops, where the piece
+        # The old hardcoded 0.55 was authored for the taller 128x176 crops, where the piece
         # floated small inside a tall crop; on today's tight square crops it missed the whole
         # silhouette — tall pieces (kings!) scored piece_frac ~0 although the model reads them.
         center_frac = 1.0 / (1.0 + 2.0 * config.CROP.pad_side)

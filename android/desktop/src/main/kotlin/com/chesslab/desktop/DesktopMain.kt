@@ -340,8 +340,8 @@ internal fun replayRun(
         // carrying the 1600 placeholder disagrees with every plane the warp produces and
         // `FrameLoop.step` refuses them — "one silently dropped frame at a time".
         //
-        // It does NOT come from the model. The model owns the crop composition (specs/45: pad_side,
-        // pad_up, infer_size); this is the resolution the DIFF path works in
+        // It does NOT come from the model. The model owns the crop composition (specs/45:
+        // pad_side, infer_size); this is the resolution the DIFF path works in
         // (`detSize = boardSize * detectScale`), and the recognizer has no business setting that.
 
         // Built once and handed to the stages, which own it and close it. The board is located on

@@ -79,7 +79,7 @@ export function squareColRow(square: string, whitePov = true): [number, number] 
   return whitePov ? [col, row] : [7 - col, 7 - row];
 }
 
-export type CropParams = { pad_up: number; pad_side: number };
+export type CropParams = { pad_side: number };
 
 /** 'e4' -> (x0, y0, x1, y1) in the rectified board image, `square_to_crop_box` (unclamped). */
 export function squareCropBox(square: string, boardSize: number, crop: CropParams, whitePov = true) {
@@ -87,7 +87,7 @@ export function squareCropBox(square: string, boardSize: number, crop: CropParam
   const cell = boardSize / 8;
   return {
     x0: col * cell - crop.pad_side * cell,
-    y0: row * cell - (crop.pad_side + crop.pad_up) * cell,
+    y0: row * cell - crop.pad_side * cell,
     x1: (col + 1) * cell + crop.pad_side * cell,
     y1: (row + 1) * cell + crop.pad_side * cell,
   };

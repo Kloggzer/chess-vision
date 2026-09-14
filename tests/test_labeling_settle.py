@@ -48,7 +48,7 @@ def session(tmp_path, monkeypatch):
     prof = CalibrationProfile(
         profile="p", camera_index=-1, frame_size=(320, 240), board_size=128,
         image_corners=corners, homography=compute_homography(corners, 128, 0.0), white_pov=True,
-        crop=CropParams(cell=16.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32)),
+        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
         margin=0.0, source=None)
     return sdir, prof, tmp_path
 

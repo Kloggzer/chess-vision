@@ -28,8 +28,8 @@ fun allSquares(): List<String> = (1..BOARD_SIDE).flatMap { r -> FILES.map { f ->
  * Scale to `outW x outH` WITHOUT distortion: uniform scale, remainder centred and filled with
  * black (letterbox). Port of `imgops.py:14 resize_keep_aspect`.
  *
- * With the square defaults this is a borderless resize; the letterbox path exists because
- * `padUp > 0` makes the crop box taller than wide.
+ * With the square crop box this is a borderless resize; the letterbox path exists for a
+ * non-square `outW x outH`.
  */
 fun resizeKeepAspect(
     img: Mat,

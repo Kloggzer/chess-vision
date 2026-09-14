@@ -208,7 +208,7 @@ def test_slice_start_position(tmp_path):
     assert e1["square_color"] == "dark"
     from chesslab import config
 
-    assert e1["out_size"] == [config.CROP.out_w, config.CROP.out_h]  # follows CropDefaults (square since pad_up=0)
+    assert e1["out_size"] == [config.CROP.out_w, config.CROP.out_h]  # follows CropDefaults
     # crop file actually written, ImageFolder-style
     assert (squares_root / "wK" / f"sess1_0000_e1{CROP_SUFFIX}").exists()
 
@@ -220,8 +220,8 @@ def test_crop_square_is_square_and_undistorted():
 
     prof = _identity_profile(800)
     # Pin a zero-pad square crop: this tests the pure undistortion invariant, independent of the
-    # config default (which now uses pad_up>0 + a taller out_size to capture the piece top).
-    prof.crop = CropParams(cell=800 / 8.0, pad_up=0.0, pad_side=0.0, out_size=(128, 128))
+    # config default.
+    prof.crop = CropParams(cell=800 / 8.0, pad_side=0.0, out_size=(128, 128))
     board = np.zeros((800, 800, 3), dtype=np.uint8)
     cx, cy = square_center("e4", prof)
     cv2.circle(board, (cx, cy), 30, (255, 255, 255), -1)
@@ -290,7 +290,7 @@ def test_reslice_with_new_params_is_reproducible(tmp_path):
 
     # Re-slice with different crop params; no re-capture needed.
     slice_session(sdir, profile=prof, manifest_path=manifest, squares_root=squares_root,
-                  pad_up=3.0, out_size=(64, 64))
+                  pad_side=0.30, out_size=(64, 64))
     rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert len(rows) == 64                          # session replaced, not duplicated
     assert all(r["out_size"] == [64, 64] for r in rows)

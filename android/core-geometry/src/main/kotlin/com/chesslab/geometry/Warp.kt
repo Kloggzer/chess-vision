@@ -17,8 +17,11 @@ import org.opencv.imgproc.Imgproc
 //  - `warpBoardForCrops` (calibration.py:944) - CNN CROP warp on a `boardSize + 2B` canvas,
 //    homography pre-multiplied by a translation of `B = cropBorderPx`. Only `Crops.kt` calls it.
 //
-// Interpolation/border stay at OpenCV's defaults (INTER_LINEAR, BORDER_CONSTANT black), which
-// is what Python's bare `cv2.warpPerspective` uses.
+// Interpolation follows Python EXACTLY, and the two sides differ on purpose (2026-09-14):
+// `warpFromCorners` stays at OpenCV's default INTER_LINEAR like Python's `warp_from_corners`,
+// while the CROP and GRID warps are INTER_CUBIC like Python's `warp_padded` — bilinear keeps
+// 63,6 % of the Laplacian energy against 92,1 % (`docs/warp-resampling.md`). Border stays
+// BORDER_CONSTANT black. `test_crop_pixel_parity` is what holds the two implementations together.
 
 private const val H_DIM: Int = 3
 
@@ -81,7 +84,7 @@ fun warpFromCorners(
 /**
  * Rectification WITH border — the data/crop warp. Canvas `boardSize + 2B` with
  * `B = cropBorderPx(geom)`, homography translated by `B`, so EDGE squares have real board
- * content for their `padSide`/`padUp` extension instead of a black image border.
+ * content for their `padSide` extension instead of a black image border.
  * Port of `calibration.py:944 warp_board_for_crops`.
  *
  * Geometry is identical to the borderless warp, only shifted by `B`; `cropSquare` shifts its
@@ -110,7 +113,7 @@ fun warpBoardForCrops(
     val side = (bs + 2 * cropBorderPx(geom)).toDouble()
     val out = dst ?: Mat()
     WorkProfiler.span(WorkOperation.CROP_WARP) {
-        Imgproc.warpPerspective(frame, out, h, Size(side, side))
+        Imgproc.warpPerspective(frame, out, h, Size(side, side), Imgproc.INTER_CUBIC)
     }
     h.release()
     return out

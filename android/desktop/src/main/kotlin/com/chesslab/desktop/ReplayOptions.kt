@@ -284,12 +284,9 @@ internal fun ReplayOptions.trackerConfig(
 }
 
 /**
- * `motionThr` scaled to the emulated rate, exactly as `TrackerService.engineConfig` does it live.
- *
- * It is a percent of pixels changed against the PREVIOUS frame, so skipping frames doubles the
- * delta and the unscaled threshold measures a tracker the phone never runs. Applied AFTER
- * `set:motionThr=` for the same reason the phone applies it after the stored knobs: the scale
- * belongs to the frame period, the knob to the motion.
+ * `motionThr` skaliert auf die emulierte Rate, wie `TrackerService.engineConfig` es live tut: der
+ * Wert ist ein Prozentsatz gegen den VORIGEN Frame, also misst er ohne Skalierung einen Tracker,
+ * den das Handy nie faehrt. Nach `set:motionThr=`, weil die Skala zur Bildperiode gehoert.
  */
 private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig =
     if (rate == null || rate == REFERENCE_FPS) this else copy(motionThr = motionThr * REFERENCE_FPS / rate)

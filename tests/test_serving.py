@@ -187,7 +187,7 @@ def test_run_spec_needs_no_manifest(tmp_path):
         chesslab.config.DATA = cfg_mod.Paths(root=tmp_path / "empty")
         spec = serving.run_spec(run_dir)
         assert spec.classes == config.CLASSES
-        assert spec.pad_side is None and spec.pad_up is None
+        assert spec.pad_side is None
     finally:
         chesslab.config.DATA = orig
 

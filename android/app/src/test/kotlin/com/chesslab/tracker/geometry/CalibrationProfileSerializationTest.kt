@@ -19,7 +19,7 @@ class CalibrationProfileSerializationTest {
             sourceWidth = 1280,
             sourceHeight = 960,
             corners = corners,
-            crop = CropParams(outW = 96, outH = 96, padUp = 0.25, padSide = 0.12),
+            crop = CropParams(outW = 96, outH = 96, padSide = 0.12),
             savedAtMs = 123456L,
         )
 

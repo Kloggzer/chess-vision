@@ -2,7 +2,7 @@
 
 Die Bretter liegen mit `board_border` = 12 px auf einer 116-px-Zelle, also 10 %. Eine stehende
 Figur neigt sich in der Draufsicht radial nach aussen; auf den Grundreihen faellt ihr Kopf damit
-aus dem Raster. `pad_up` kann das nicht holen — die Pixel sind gar nicht da.
+aus dem Raster. Ein groesserer Pad kann das nicht holen — die Pixel sind gar nicht da.
 
 Warpt EIN Frame aus dem Quellvideo mit grossem Rand und legt beide nebeneinander.
 

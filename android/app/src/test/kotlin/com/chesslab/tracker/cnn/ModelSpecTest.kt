@@ -140,25 +140,28 @@ class ModelSpecTest {
     }
 
     /**
-     * specs/45 — the pads are a model property, and the app must be able to tell a model that
+     * specs/45 — `pad_side` is a model property, and the app must be able to tell a model that
      * DECLARES 0.05 from one that says nothing and is served 0.05 by its calibration profile.
+     *
+     * `pad_up` was retired 2026-09-14. Archived configs still carry it, so the parse has to read
+     * it as any other unknown key: ignored, and never a reason to refuse a model.
      */
     @Test
     fun readsTheDeclaredCropAndTreatsAnAbsentOneAsLegacy() {
-        val declared = ModelSpec.parse(config(padSide = 0.05, padUp = 0.0))
+        val declared = ModelSpec.parse(config(padSide = 0.05))
         assertEquals(0.05, declared.padSide)
-        assertEquals(0.0, declared.padUp)
         assertTrue(declared.declaresCrop)
 
         val legacy = ModelSpec.parse(config())
         assertNull(legacy.padSide)
-        assertNull(legacy.padUp)
         assertFalse(legacy.declaresCrop, "an absent crop must never read as a default")
 
-        // Half a declaration is not one: the missing half would come from the profile, composing
-        // a box nobody chose.
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(padSide = 0.05)) }
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(padUp = 0.0)) }
+        val archived = ModelSpec.parse(config(padSide = 0.05, padUp = 0.0))
+        assertEquals(0.05, archived.padSide)
+        assertTrue(archived.declaresCrop)
+
+        assertNull(ModelSpec.parse(config(padUp = 0.0)).padSide)
+        assertFalse(ModelSpec.parse(config(padUp = 0.0)).declaresCrop)
     }
 
     /**

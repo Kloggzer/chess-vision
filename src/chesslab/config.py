@@ -71,16 +71,9 @@ DEFAULT_BOARD_SIZE: int = 1600  # Edge length of the rectified board (px) = 200 
 class CropDefaults:
     """Default per-square crop geometry. A board square is square (board_size/8 per side),
     so the default crop is the **plain square cell** with a square out_size — no aspect
-    distortion. `pad_up`/`pad_side` optionally extend the box (cell·(1+pad_up) high) for
-    cameras flat enough that 3D pieces lean into the rank behind; `crop_square` keeps the
-    aspect ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
+    distortion. `pad_side` extends the box symmetrically; `crop_square` keeps the aspect
+    ratio (letterbox) so any pad value stays distortion-free. Overridable per `slice`."""
 
-    pad_up: float = 0.0      # ADDITIONAL expansion only upward (3D lean), * cell. Kept 0 by default:
-                             # a non-zero pad_up makes the crop TALLER than wide and, on near-top-down
-                             # cameras/renders, drags the NEIGHBOUR rank's piece + board into the crop —
-                             # exactly the board-shortcut we fight (Grad-CAM then lands on the board, not
-                             # the piece). Raise it per `slice` only for a strongly oblique camera where
-                             # tall pieces genuinely clip at the cell's top edge.
     pad_side: float = 0.05   # symmetric expansion in ALL 4 directions, * cell (5% MORE than the strict
                              # cell border on every side). Symmetric → the box stays SQUARE (no aspect
                              # distortion); gives margin so the piece isn't cut off hard at the square
@@ -97,15 +90,14 @@ class CropDefaults:
                              # the corpus and every shipped model went 0.05, so the default follows
                              # them. See specs/45-the-crop-belongs-to-the-model/.
     out_w: int = 128
-    out_h: int = 128         # SQUARE — matches the square (pad_up=0) box aspect, so the piece fills the
-                             # crop with no letterboxing and no neighbour-rank context. Raise out_h with
-                             # pad_up together if a per-slice oblique override reintroduces upward padding.
+    out_h: int = 128         # SQUARE — matches the box aspect, so the piece fills the crop with no
+                             # letterboxing and no neighbour-rank context.
 
 
 CROP = CropDefaults()
 
 # During slicing, the board is rectified with a border (in cells) so that EDGE SQUARES have real
-# image content for the pad_side/pad_up expansion (instead of a black border at the board edge).
+# image content for the pad_side expansion (instead of a black border at the board edge).
 # Only affects the data/crop pipeline; the web display remains edge-to-edge. Grows automatically with the pads.
 CROP_WARP_BORDER_CELLS: float = 0.1
 

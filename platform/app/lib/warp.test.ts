@@ -63,7 +63,7 @@ test("the crop box is square_to_crop_box, pads included", () => {
   expect(squareColRow("h1")).toEqual([7, 7]);
   expect(squareColRow("a8", false)).toEqual([7, 7]);
   // board 928 -> cell 116, pad_side 0.05 -> a 127.6 px box, the phone/desktop profile's number.
-  const box = squareCropBox("a8", 928, { pad_up: 0, pad_side: 0.05 });
+  const box = squareCropBox("a8", 928, { pad_side: 0.05 });
   for (const [got, want] of [
     [box.x0, -5.8],
     [box.y0, -5.8],
@@ -72,7 +72,7 @@ test("the crop box is square_to_crop_box, pads included", () => {
   ]) {
     expect(got).toBeCloseTo(want, 9);
   }
-  const e2 = squareCropBox("e2", 928, { pad_up: 0, pad_side: 0 });
+  const e2 = squareCropBox("e2", 928, { pad_side: 0 });
   expect([e2.x0, e2.y0]).toEqual([464, 696]);
 });
 
@@ -88,7 +88,6 @@ const MESH_FIXTURE = JSON.parse(
 ) as {
   boardSize: number;
   padSide: number;
-  padUp: number;
   whitePov: boolean;
   mesh: Required<GridMesh>;
   meshPoints: number[][];

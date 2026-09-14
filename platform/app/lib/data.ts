@@ -31,7 +31,7 @@ export type Candidate = {
   geometry?: { corners?: number[][]; margin?: number | number[]; board_size?: number };
   /** The recording's own frame rate — commit distances are reported in seconds off it. */
   clock?: { fps?: number };
-  source?: { lens?: boolean; crop?: { pad_up?: number; pad_side?: number; out_size?: number[] } };
+  source?: { lens?: boolean; crop?: { pad_side?: number; out_size?: number[] } };
 };
 
 /** `..` and separators would let a URL segment walk out of the data dir. */

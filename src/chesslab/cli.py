@@ -413,7 +413,6 @@ def session_pack_cmd(
     session: str = typer.Option(..., "--session", help="Session ID."),
     size: int = typer.Option(None, "--size", help="Crop side in px. Default: the pack default."),
     pad_side: float = typer.Option(None, "--pad-side", help="Override the profile's side pad."),
-    pad_up: float = typer.Option(None, "--pad-up", help="Override the profile's upward pad."),
     pool: str = typer.Option(None, "--pool",
                              help="Crop pool tag (data/crops/<tag>) for a session that has NO "
                                   "directory — composites, turntable. Their pool file is their "
@@ -432,7 +431,7 @@ def session_pack_cmd(
     side = size or packs.DEFAULT_PACK_SIDE
     try:
         res = (pack_session.write_pool_pack(session, side, pool=pool, replace=replace) if pool else
-               pack_session.write_session_pack(session, side, pad_side=pad_side, pad_up=pad_up,
+               pack_session.write_session_pack(session, side, pad_side=pad_side,
                                                replace=replace))
     except (FileNotFoundError, ValueError) as e:
         print(f"[FAIL] {e}")
@@ -1251,7 +1250,6 @@ def slice_cmd(
     session: str = typer.Option(None, "--session", help="Slice session ID."),
     all_sessions: bool = typer.Option(False, "--all", help="Slice all sessions."),
     profile: str = typer.Option(None, "--profile", help="Override profile (default: from session.yaml)."),
-    pad_up: float = typer.Option(None, "--pad-up", help="Override crop height upward."),
     pad_side: float = typer.Option(None, "--pad-side", help="Override side crop extension."),
     out_size: str = typer.Option(None, "--out-size", help="Crop size WxH, e.g. 96x128."),
     preview: str = typer.Option(None, "--preview", help="Session ID: visually check label vs crop."),
@@ -1265,7 +1263,7 @@ def slice_cmd(
     """Session logs -> 64 labeled square crops per position + manifest."""
     raise typer.Exit(labeling_mod.run_slice(
         session=session, slice_all=all_sessions, profile=profile,
-        pad_up=pad_up, pad_side=pad_side, out_size=out_size, preview=preview,
+        pad_side=pad_side, out_size=out_size, preview=preview,
         variant_tag=variant_tag, flat_field=flat_field,
     ))
 

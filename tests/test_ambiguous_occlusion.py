@@ -6,7 +6,7 @@ from chesslab.calibration import CropParams
 
 # The crop the rows describe (specs/45); irrelevant to what these tests assert, but the rows
 # must state one, so it is the same defaults the pixel pass would use.
-_CROP = CropParams(cell=4.0, pad_up=0.0, pad_side=0.05, out_size=(32, 32))
+_CROP = CropParams(cell=4.0, pad_side=0.05, out_size=(32, 32))
 
 
 def _entry(**over):

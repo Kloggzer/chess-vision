@@ -176,7 +176,7 @@ export async function loadSession(name: string): Promise<Session> {
     moves: new Map(candidate.moves.flatMap((m) => (m.fen_after ? [[m.ply, { san: m.san, fen: m.fen_after }] as const] : []))),
     boardSize: geometry.board_size ?? 928,
     margin: geometry.margin ?? 0,
-    crop: { pad_up: source.crop?.pad_up ?? 0, pad_side: source.crop?.pad_side ?? 0.05 },
+    crop: { pad_side: source.crop?.pad_side ?? 0.05 },
     whitePov: true,
   };
   cache.set(log, { key, value });

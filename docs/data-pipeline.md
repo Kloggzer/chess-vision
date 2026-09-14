@@ -236,7 +236,7 @@ exists; the pool's `<label>/` directories are just its pixel backing.
 {"path": "data/crops/default/wR/20260630-080531_0000_a1.png", "label": "wR",
  "session_id": "20260630-080531", "frame": "0000", "ply": 1, "square": "a1",
  "square_color": "dark", "fen": "…", "out_size": [128,128],
- "pad_side": 0.05, "pad_up": 0.0, "ts": "…"}
+ "pad_side": 0.05, "ts": "…"}
 ```
 
 Facts worth knowing before you touch it:
@@ -367,7 +367,7 @@ Python writes `mm://<sid>-<W>/…` into `data/packs/<sid>-<W>/`, the Kotlin writ
 `mm://<sid>/…`, so an imported Kotlin pack keeps the plain id. `packs.read_pack` refuses a
 directory whose rows disagree, and nothing renames a pack.
 
-**A pack's geometry is frozen.** `out_size`, `pad_side` and `pad_up` sit on every row and a pack
+**A pack's geometry is frozen.** `out_size` and `pad_side` sit on every row and a pack
 is immutable — `session pack` refuses to overwrite one. All packs in one dataset must agree on
 `(h, w)`; `--from-packs --pack-size 80x80` SELECTS which pack per session is taken, it never
 resizes. `dataset.yaml` then carries `packs: [<name>, …]`, which is the only thing that tells a
@@ -1040,10 +1040,11 @@ Two keys in a run's `config.json`, deliberately not one (`specs/22-inference-res
 Changing a model's serving resolution is therefore: edit that model's `infer_size`, re-export,
 ship. Not a flag at a call site, and not a constant in the app.
 
-Since **2026-08-06** (`specs/45-the-crop-belongs-to-the-model/`) two more keys sit beside them:
+Since **2026-08-06** (`specs/45-the-crop-belongs-to-the-model/`) one more key sits beside them
+(`pad_up` was the second until it was retired on 2026-09-14):
 
-- **`pad_side` / `pad_up`** — what the crop CONTAINS, in cells around the square. `infer_size`
-  says the picture is 80 px; the pads say whether those 80 px hold 1.10 or 1.20 of a cell, which
+- **`pad_side`** — what the crop CONTAINS, in cells around the square. `infer_size`
+  says the picture is 80 px; the pad says whether those 80 px hold 1.10 or 1.20 of a cell, which
   is a different photograph of the same square. Written by `train` from the dataset's rows (all of
   them — a dataset whose sessions disagree declares nothing) and by `run_export` for older runs;
   read by `serving.run_spec` → `crops_for_model` and by the app's `ModelSpec` → `withCropOf`.

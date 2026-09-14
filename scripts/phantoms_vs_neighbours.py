@@ -3,7 +3,7 @@
 The per-square classifier never sees the board — one crop in, one occupied/empty out — so position
 diversity ought to buy nothing, and a start-position session ought to be worth as much per crop as a
 mid-game one. Worth checking rather than assuming, because there are two ways a neighbour can reach
-these pixels even though the crop box is barely larger than its cell (`pad_up 0.0`, `pad_side 0.05`
+these pixels even though the crop box is barely larger than its cell (`pad_side 0.05`
 of a 100 px cell):
 
 - The homography rectifies the board PLANE. Anything above it is displaced outward, so a tall piece

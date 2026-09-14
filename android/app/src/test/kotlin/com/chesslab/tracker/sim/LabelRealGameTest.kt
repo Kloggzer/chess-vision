@@ -176,7 +176,6 @@ private fun realGameSource(): RealGameSource {
         // against filmed footage, because the pixels it would be served are pixels nobody chose.
         cropParams =
             CropParams(
-                padUp = requireNotNull(spec.padUp) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
                 padSide = requireNotNull(spec.padSide) { "model '$DEFAULT_MODEL' declares no crop — label with one that does" },
             ),
     )
@@ -202,7 +201,7 @@ private fun restingClip(): RealGameSource {
         fps = clip.fps,
         // No model is attached, so no crop is ever cut. Stated anyway, because the type refuses to
         // let a caller leave it unsaid — which is the whole point of it having no default.
-        cropParams = CropParams(padUp = 0.0, padSide = clip.geometry.padSide),
+        cropParams = CropParams(padSide = clip.geometry.padSide),
     )
 }
 

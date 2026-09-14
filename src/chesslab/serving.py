@@ -59,7 +59,6 @@ class RunSpec:
     #: box are different photographs of the same square. None = the run predates the key and the
     #: caller's profile decides, which is legacy and must be reported as such.
     pad_side: float | None = None
-    pad_up: float | None = None
 
 
 def run_spec(run_dir: Path) -> RunSpec:
@@ -80,7 +79,6 @@ def run_spec(run_dir: Path) -> RunSpec:
     infer_size = infer_size_of({**cfg, "out_size": out_size})
 
     pad_side = None if cfg.get("pad_side") is None else float(cfg["pad_side"])
-    pad_up = None if cfg.get("pad_up") is None else float(cfg["pad_up"])
 
     return RunSpec(
         run_dir=run_dir,
@@ -88,7 +86,6 @@ def run_spec(run_dir: Path) -> RunSpec:
         out_size=out_size,
         infer_size=infer_size,
         pad_side=pad_side,
-        pad_up=pad_up,
     )
 
 
@@ -202,16 +199,16 @@ def crops_for_model(frame: np.ndarray, corners, profile, spec: RunSpec) -> list[
     crops on disk were built at. The square is cut out of the warped board straight at that size,
     so there is no intermediate 128 px step and nothing is resampled twice (specs/22).
 
-    The BOX is the model's too, when it declares one (`spec.pad_side`/`pad_up`, specs/45): the
+    The BOX is the model's too, when it declares one (`spec.pad_side`, specs/45): the
     profile says where the board is, the model says how much around each square its examples
-    carried. A run that declares nothing keeps the profile's pads — legacy, and the caller is the
+    carried. A run that declares nothing keeps the profile's pad — legacy, and the caller is the
     one that has to say so.
 
     Thin wrapper around `labeling.crops_for_frame` — the geometry implementation
     stays there (single source of truth).
     """
-    if spec.pad_side is not None or spec.pad_up is not None:
-        profile = labeling.effective_profile(profile, spec.pad_up, spec.pad_side)
+    if spec.pad_side is not None:
+        profile = labeling.effective_profile(profile, spec.pad_side)
     return labeling.crops_for_frame(frame, corners, profile, out_size=spec.infer_size)
 
 

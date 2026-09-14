@@ -46,17 +46,16 @@ data class ModelSpec(
     val outWidth: Int,
     val outHeight: Int,
     /**
-     * `pad_side`/`pad_up` — how much of the square's SURROUNDINGS one crop carries, in cells
-     * (specs/45). [outWidth] says the picture is 80 px; these say whether those 80 px hold 1.10
+     * `pad_side` — how much of the square's SURROUNDINGS one crop carries, in cells
+     * (specs/45). [outWidth] says the picture is 80 px; this says whether those 80 px hold 1.10
      * or 1.20 of a cell, which is a different photograph of the same square and is what the
      * network was trained on.
      *
      * Null = the run declares none. That is LEGACY and never a default: guessing a pad here is
      * the exact failure the key exists to end, so the geometry keeps the calibration profile's
-     * values and every path that can say so says so ([declaresCrop]).
+     * value and every path that can say so says so ([declaresCrop]).
      */
     val padSide: Double? = null,
-    val padUp: Double? = null,
     val mean: List<Float>,
     val std: List<Float>,
     /**
@@ -106,7 +105,7 @@ data class ModelSpec(
      * because the answer decides whether the pixels it is about to cut are the pixels this model
      * was trained on or merely the ones its calibration profile happens to produce.
      */
-    val declaresCrop: Boolean get() = padSide != null && padUp != null
+    val declaresCrop: Boolean get() = padSide != null
 
     companion object {
         /**
@@ -143,16 +142,11 @@ data class ModelSpec(
                     "serving it without would feed it crops it was never trained on"
             }
             val padSide = root["pad_side"]?.jsonPrimitive?.content?.toDouble()
-            val padUp = root["pad_up"]?.jsonPrimitive?.content?.toDouble()
-            require((padSide == null) == (padUp == null)) {
-                "model declares only half a crop (pad_side=$padSide, pad_up=$padUp) — declare both or neither"
-            }
             return ModelSpec(
                 classes = requireExpectedClasses(root.getValue("classes").jsonArray.map { it.jsonPrimitive.content }),
                 outWidth = outWidth,
                 outHeight = outHeight,
                 padSide = padSide,
-                padUp = padUp,
                 mean = normalize.floats("mean") ?: IMAGENET_MEAN,
                 std = normalize.floats("std") ?: IMAGENET_STD,
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",

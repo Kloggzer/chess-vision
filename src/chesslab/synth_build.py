@@ -44,7 +44,7 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
     """64 metadata rows for one frame: label per square from the FEN (+ occluded override).
 
     `crop` is the `CropParams` the pixel pass cuts with — the rows say what the picture holds
-    (`pad_side`/`pad_up`), not only how large it is (specs/45).
+    (`pad_side`), not only how large it is (specs/45).
     """
     from .labeling import square_color
     from .state import GameState
@@ -71,7 +71,6 @@ def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
                 "fen": entry["fen"],
                 "out_size": [int(crop.out_size[0]), int(crop.out_size[1])],
                 "pad_side": float(crop.pad_side),
-                "pad_up": float(crop.pad_up),
                 "ts": entry.get("ts") or datetime.now(UTC).isoformat(),
                 "rot": 0,
             })

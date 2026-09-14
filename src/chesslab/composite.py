@@ -373,7 +373,7 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                 prof = replace(base, frame_size=(frame.shape[1], frame.shape[0]),
                                board_size=board_size, image_corners=corners,
                                homography=compute_homography(corners, board_size, base.margin),
-                               crop=CropParams(cell=board_size / 8, pad_up=base.crop.pad_up,
+                               crop=CropParams(cell=board_size / 8,
                                                pad_side=(base.crop.pad_side if pad_side is None
                                                          else pad_side), out_size=out_size))
                 mesh = median_mesh(cap, prof)
@@ -468,8 +468,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
             rows.append({"path": path.as_posix(), "label": label, "coverage": round(cov[sq], 4),
                          "session_id": sid, "split_group": stem_sid, "frame": stem, "square": sq,
                          "square_color": square_color(sq), "fen": fen,
-                         "out_size": list(out_size), "pad_side": prof.crop.pad_side,
-                         "pad_up": prof.crop.pad_up})
+                         "out_size": list(out_size), "pad_side": prof.crop.pad_side})
             written += 1
         # Der Rueckstau ist die Bremse, nicht der Puffer: haelt man alle Crops eines Clips fuer
         # einen Lauf am Ende, liegen 60k davon im Speicher (~3 GB). Vier Bretter reichen, weil

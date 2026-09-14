@@ -68,9 +68,8 @@ def cell_sharpness(board_gray, size: int, hands=(), *, white_pov: bool = True) -
     """Laplace-Varianz je Feld, Median ueber die UNVERDECKTEN — die Schaerfe des Bretts.
 
     Ueber das ganze Bild misst sie die Hand mit: Haut ist texturarm und zieht die Varianz wie
-    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500). `hands` traegt
-    NAMEN, und die haengen an der Seite des Profils: hartkodiert mass diese Funktion unter einem
-    Schwarz-Profil auf der Hand. Der Aufrufer reicht `profile.white_pov` durch, sie raet nicht."""
+    Unschaerfe (ein scharfes Brett mit nacktem Arm landete bei 17 statt 500). `hands` traegt NAMEN,
+    die an der Seite des Profils haengen — hartkodiert mass sie unter Schwarz auf der Hand."""
     lap = cv2.Laplacian(board_gray, cv2.CV_64F)
     step = size // 8
     cells = []

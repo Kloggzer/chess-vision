@@ -304,14 +304,14 @@ def sweep_path_a(runs: dict[str, tuple], rows: list[dict], sizes: tuple[int, ...
         keep = [j for j, sq in enumerate(squares) if sq in labels]
         truth = [labels[squares[j]] != "empty" for j in keep]
         for s in sizes:
-            by_box: dict[tuple[float | None, float | None], list[np.ndarray]] = {}
+            by_box: dict[float | None, list[np.ndarray]] = {}
             for name, (run_dir, model, cfg) in runs.items():
                 spec = specs[name]
-                box = (spec.pad_up, spec.pad_side)
+                box = spec.pad_side
                 if box not in by_box:
                     prof = profiles[sid]
-                    if spec.pad_side is not None or spec.pad_up is not None:
-                        prof = labeling.effective_profile(prof, spec.pad_up, spec.pad_side)
+                    if spec.pad_side is not None:
+                        prof = labeling.effective_profile(prof, spec.pad_side)
                     by_box[box] = labeling.crops_for_frame(frame, corners, prof, out_size=(s, s))
                 crops = by_box[box]
                 cfg_at_size = install_at_size(run_dir, model, cfg, s)

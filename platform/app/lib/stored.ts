@@ -125,7 +125,7 @@ export function storedQuad(fit: QuadFit | null, row: StoredRow): StoredQuad {
 }
 
 /** The crop composition every pack of these sessions cuts with (`manifestRow`, LabeledVideoPack.kt). */
-const STORED_CROP = { pad_side: 0.05, pad_up: 0 };
+const STORED_CROP = { pad_side: 0.05 };
 
 async function storedRaster(dir: string, frame: string): Promise<Raster> {
   const { data, info } = await sharp(await readFile(path.join(dir, frame)))

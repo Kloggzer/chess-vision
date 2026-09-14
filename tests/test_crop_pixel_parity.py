@@ -63,7 +63,7 @@ def _profile(case: str, receipt: dict, margin: float) -> tuple:
         profile=f"__parity_{case}__", camera_index=-1,
         frame_size=(frame.shape[1], frame.shape[0]), board_size=bs, image_corners=quad,
         homography=compute_homography(quad, bs, margin), white_pov=True,
-        crop=CropParams(cell=bs / 8.0, pad_up=float(receipt["padUp"]),
+        crop=CropParams(cell=bs / 8.0,
                         pad_side=float(receipt["padSide"]),
                         out_size=(int(receipt["outW"]), int(receipt["outH"]))),
         margin=margin,

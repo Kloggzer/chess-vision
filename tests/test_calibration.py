@@ -30,22 +30,23 @@ def _make_profile(board_size: int = 800, white_pov: bool = True) -> CalibrationP
     )
 
 
-def test_crop_border_covers_both_pads_stacked_at_the_top_edge():
-    """The border must reach as far above the board as rank 8's crop box does.
+def test_crop_border_covers_the_pad_on_every_edge():
+    """The border must reach as far past the board as an edge square's crop box does.
 
-    `square_region` puts y0 at `row*cell - pad_side*cell - pad_up*cell`, so the two pads STACK at
-    the top. Taking `max(pad_side, pad_up)` for the warp border left the difference uncovered and
-    rank 8 came back with replicated border where there is image. Invisible at the shipped
-    `pad_up = 0` — which is exactly why it was worth pinning.
+    The upward pad is gone (2026-09-14), so one symmetric `pad_side` drives both the box and the
+    border. The edge squares are what pins it: a border that trailed the pad gave rank 8
+    replicated border where there is image.
     """
     from chesslab.calibration import crop_border_px
 
     prof = _make_profile(board_size=800)
-    prof.crop = CropParams(cell=100.0, pad_up=0.30, pad_side=0.05, out_size=(128, 128))
+    prof.crop = CropParams(cell=100.0, pad_side=0.30, out_size=(128, 128))
+    border = crop_border_px(prof)
 
-    _x0, y0, _x1, _y1 = square_to_crop_box("a8", prof, clamp=False)
-    assert crop_border_px(prof) >= -y0, (
-        f"rank 8 reaches {-y0} px above the board but only {crop_border_px(prof)} px are warped")
+    x0, y0, _x1, _y1 = square_to_crop_box("a8", prof, clamp=False)
+    _x0, _y0, x1, y1 = square_to_crop_box("h1", prof, clamp=False)
+    reach = max(-x0, -y0, x1 - prof.board_size, y1 - prof.board_size)
+    assert border >= reach, f"the box reaches {reach} px past the board, only {border} px are warped"
 
 
 def test_profile_roundtrip_without_camera(tmp_path):
@@ -81,10 +82,9 @@ def test_white_pov_false_flips_board():
 
 
 def test_crop_box_zero_pad_is_square_cell():
-    """pad_up=pad_side=0: die Box ist exakt die quadratische Zelle (board_size/8)."""
+    """pad_side=0: die Box ist exakt die quadratische Zelle (board_size/8)."""
     prof = _make_profile()
     prof.crop.pad_side = 0.0
-    prof.crop.pad_up = 0.0
     bs = prof.board_size
     cell = bs / 8.0
     x0, y0, x1, y1 = square_to_crop_box("e2", prof)
@@ -96,20 +96,20 @@ def test_crop_box_pad_side_symmetric():
     """pad_side weitet die Zelle SYMMETRISCH in alle 4 Richtungen (Default 0.05 = 5% je Seite)."""
     prof = _make_profile()
     prof.crop.pad_side = 0.05
-    prof.crop.pad_up = 0.0
     cell = prof.board_size / 8.0
     x0, y0, x1, y1 = square_to_crop_box("e4", prof, clamp=False)   # Innenfeld -> kein Clamp
     assert abs((x1 - x0) - cell * 1.10) <= 1 and abs((y1 - y0) - cell * 1.10) <= 1
 
 
-def test_crop_extends_upward_when_pad_up_set():
-    """With pad_up>0 the box is extended upward (for tall 3D pieces with an angled camera)."""
+def test_the_box_stays_square_at_every_pad():
+    """No pad can make the box taller than wide — the upward pad went on 2026-09-14."""
     prof = _make_profile()
-    prof.crop.pad_up = 1.0
-    bs = prof.board_size
-    cell = bs / 8.0
-    x0, y0, x1, y1 = square_to_crop_box("e2", prof)          # e2: not at the top edge
-    assert (y1 - y0) > cell                                   # extended upward
+    cell = prof.board_size / 8.0
+    for pad in (0.0, 0.05, 0.5, 1.0):
+        prof.crop.pad_side = pad
+        x0, y0, x1, y1 = square_to_crop_box("e2", prof, clamp=False)
+        assert (x1 - x0) == (y1 - y0)
+        assert abs((y1 - y0) - cell * (1 + 2 * pad)) <= 1
     # raw (clamp=False) may extend beyond the edge; crop_square fills in
     _, y0u, _, _ = square_to_crop_box("e8", prof, clamp=False)
     assert y0u < 0
@@ -412,7 +412,7 @@ def test_ensure_profile_returns_an_existing_profile_untouched(tmp_path, monkeypa
     tuned = ensure_profile("tuned", str(img_path), board_size=800)
     tuned.white_pov = False
     tuned.margin = 0.11
-    tuned.crop = CropParams(cell=100.0, pad_up=0.77, pad_side=0.33, out_size=(48, 96))
+    tuned.crop = CropParams(cell=100.0, pad_side=0.33, out_size=(48, 96))
     tuned.save(profile_path("tuned"))
 
     prof = ensure_profile("tuned", str(img_path))
@@ -420,7 +420,7 @@ def test_ensure_profile_returns_an_existing_profile_untouched(tmp_path, monkeypa
     assert prof.margin == pytest.approx([0.11] * 4)
     assert prof.board_size == 800
     assert prof.crop.out_size == (48, 96)
-    assert load_profile("tuned").crop.pad_up == pytest.approx(0.77)
+    assert load_profile("tuned").crop.pad_side == pytest.approx(0.33)
 
 
 def test_ensure_profile_kwargs_apply_when_the_profile_is_missing(tmp_path, monkeypatch):

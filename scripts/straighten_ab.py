@@ -60,7 +60,7 @@ def profile_of(candidate: dict) -> CalibrationProfile:
         image_corners=[[float(x), float(y)] for x, y in geom["corners"]],
         homography=compute_homography(geom["corners"], bs, geom.get("margin", 0.0)),
         white_pov=True,
-        crop=CropParams(cell=bs / 8.0, pad_up=float(crop.get("pad_up", 0.0)),
+        crop=CropParams(cell=bs / 8.0,
                         pad_side=float(crop.get("pad_side", config.CROP.pad_side)),
                         out_size=(config.CROP.out_w, config.CROP.out_h)),
         margin=float(geom.get("margin", 0.0)),

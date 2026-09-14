@@ -577,7 +577,7 @@ def build_dataset(
         "\n".join(json.dumps(r, ensure_ascii=False) for r in rows) + ("\n" if rows else ""),
         encoding="utf-8")
     # Mined hard-negative empties (scripts/mine_hard_empty.py) survive the empty cap:
-    # a random cap throws away exactly the rare hard cases (dark corner squares, pad_up
+    # a random cap throws away exactly the rare hard cases (dark corner squares,
     # neighbour bleed) that the deployed model confidently misreads.
     priority_paths = dataset_mod.load_priority_paths(paths)
     if priority_paths:

@@ -12,7 +12,7 @@ import kotlinx.serialization.json.Json
 // profile by a resolution ratio produced a silently wrong grid. Re-detect instead.
 
 /** Current on-disk schema. Bump on any incompatible field change; never migrate blindly. */
-const val PROFILE_SCHEMA_VERSION: Int = 2
+const val PROFILE_SCHEMA_VERSION: Int = 3
 
 /**
  * `config.DEFAULT_MARKER_MARGIN` — the fraction by which a marker's centre sits outside the
@@ -29,21 +29,20 @@ private const val CORNER_FLOATS: Int = 8
 /** Where the crop defaults come from — each number exists in exactly one place, its declaration. */
 private val DEFAULT_GEOMETRY = BoardGeometry()
 
-/** `config.CROP` (config.py:40-65). `padUp` is 0.0, not 0.25. */
+/** `config.CROP` (config.py:40-65). */
 @Serializable
 data class CropParams(
     /**
      * The whole crop, defaulted from [BoardGeometry] rather than restated here.
      *
-     * A stored profile still carries all four, but the LIVE tracker crops the way the loaded model
-     * declares ([withCropOf]): the size that has to be right is the one the ONNX graph takes and
-     * the pads that have to be right are the ones the training crops were cut with. Both are
+     * A stored profile still carries all three, but the LIVE tracker crops the way the loaded
+     * model declares ([withCropOf]): the size that has to be right is the one the ONNX graph takes
+     * and the pad that has to be right is the one the training crops were cut with. Both are
      * properties of the model, not of the board — a stored profile written before specs/45 still
      * says `padSide = 0.10` and would otherwise keep serving it forever.
      */
     val outW: Int = DEFAULT_GEOMETRY.outW,
     val outH: Int = DEFAULT_GEOMETRY.outH,
-    val padUp: Double = DEFAULT_GEOMETRY.padUp,
     val padSide: Double = DEFAULT_GEOMETRY.padSide,
 )
 
@@ -84,7 +83,6 @@ data class CalibrationProfile(
             boardSize = boardSize,
             margin = margin,
             whitePov = whitePov,
-            padUp = crop.padUp,
             padSide = crop.padSide,
             outW = crop.outW,
             outH = crop.outH,

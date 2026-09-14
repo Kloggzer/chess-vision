@@ -108,7 +108,7 @@ def _export_candidate(tmp_path, monkeypatch, *, confirmed=True, frames=(100, 400
             "board_size": 128,
             "frame_size": [320, 240],
         },
-        "source": {"crop": {"cell": 16.0, "pad_up": 0.0, "pad_side": 0.05, "out_size": [80, 80]}},
+        "source": {"crop": {"cell": 16.0, "pad_side": 0.05, "out_size": [80, 80]}},
         "moves": [
             {"ply": i, "san": s, "frame": f, "fen_after": fen}
             for i, (s, f, fen) in enumerate(

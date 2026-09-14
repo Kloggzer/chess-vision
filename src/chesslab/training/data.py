@@ -31,20 +31,20 @@ def load_manifest(path: Path) -> list[dict]:
         return read_jsonl(p)
 
 
-def crop_of_rows(rows: list[dict]) -> tuple[float, float] | None:
-    """`(pad_side, pad_up)` EVERY row was cut with — or None when they cannot agree on one.
+def crop_of_rows(rows: list[dict]) -> float | None:
+    """The `pad_side` EVERY row was cut with — or None when they cannot agree on one.
 
-    None has two causes and one meaning. The rows may predate the fields (every crop written
+    None has two causes and one meaning. The rows may predate the field (every crop written
     before 2026-08-06 does), or they may disagree because the sessions were sliced under
     different profiles. Either way the run must declare nothing: a consumer crops to what the
     model declares, so a wrong value is worse than an absent one — an absent one is at least
     visible as legacy (specs/45).
     """
-    pads: set[tuple[float, float]] = set()
+    pads: set[float] = set()
     for row in rows:
-        if "pad_side" not in row or "pad_up" not in row:
+        if "pad_side" not in row:
             return None
-        pads.add((float(row["pad_side"]), float(row["pad_up"])))
+        pads.add(float(row["pad_side"]))
         if len(pads) > 1:
             return None
     return next(iter(pads)) if len(pads) == 1 else None

@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /** What `geometry.cropLine` produces for a model that declares its crop (specs/45). */
-private const val CROP = "side=0.050 up=0.000"
+private const val CROP = "side=0.050"
 
 private fun payload(
     tainted: Set<String> = emptySet(),
@@ -215,7 +215,7 @@ class DebugStateTest {
         assertEquals("-", modelLine(live.copy(modelDir = null, inputShape = null, crop = null)))
         // A model that declared no crop is served the profile's pads, and the panel says so — the
         // silent version of this is the whole of specs/45.
-        assertTrue(modelLine(live.copy(crop = "side=0.100 up=0.000 (LEGACY: the model declares no crop)")).contains("LEGACY"))
+        assertTrue(modelLine(live.copy(crop = "side=0.100 (LEGACY: the model declares no crop)")).contains("LEGACY"))
     }
 
     @Test

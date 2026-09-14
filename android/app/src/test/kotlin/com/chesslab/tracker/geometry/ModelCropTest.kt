@@ -16,7 +16,6 @@ import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -52,7 +51,6 @@ class ModelCropTest {
                 boardSize = 800,
                 margin = margins4(DEFAULT_MARKER_MARGIN),
                 whitePov = false,
-                padUp = 0.25,
                 padSide = 0.05,
             )
         // A model that declares no crop moves nothing but the size its box is scaled to — and
@@ -63,33 +61,34 @@ class ModelCropTest {
     @Test
     fun `a declared crop is honoured, and the board is still the board`() {
         val geom = BoardGeometry(boardSize = 800, margin = margins4(DEFAULT_MARKER_MARGIN), padSide = 0.10)
-        val cropped = geom.withCropOf(spec(96, padSide = 0.05, padUp = 0.25))
-        assertEquals(geom.copy(outW = 96, outH = 96, padSide = 0.05, padUp = 0.25), cropped)
+        val cropped = geom.withCropOf(spec(96, padSide = 0.05))
+        assertEquals(geom.copy(outW = 96, outH = 96, padSide = 0.05), cropped)
     }
 
     @Test
     fun `a model that declares no crop keeps the profile pads and says so`() {
-        val geom = BoardGeometry(boardSize = 800, padSide = 0.10, padUp = 0.0)
+        val geom = BoardGeometry(boardSize = 800, padSide = 0.10)
         val legacy = geom.withCropOf(spec(96))
         // Kept, not defaulted: the profile's box is the only one anybody here knows about.
         assertEquals(0.10, legacy.padSide)
-        assertEquals(0.0, legacy.padUp)
         // …and never silently. This string is what the run header and the debug panel show.
         assertTrue(cropLine(spec(96), legacy).contains("LEGACY"), cropLine(spec(96), legacy))
         assertTrue(cropLine(spec(96), legacy).contains("side=0.100"), cropLine(spec(96), legacy))
         // No model at all is legacy too — nothing chose these pads either.
         assertTrue(cropLine(null, geom).contains("LEGACY"))
 
-        val declaring = spec(96, padSide = 0.05, padUp = 0.0)
-        assertEquals("side=0.050 up=0.000", cropLine(declaring, geom.withCropOf(declaring)))
+        val declaring = spec(96, padSide = 0.05)
+        assertEquals("side=0.050", cropLine(declaring, geom.withCropOf(declaring)))
     }
 
     @Test
-    fun `half a crop declaration is refused`() {
-        // Filling the missing half from the profile would compose a box nobody chose.
-        assertThrows<IllegalArgumentException> {
-            ModelSpec.parse("""{"classes":$CLASSES_JSON,"out_size":[128,128],"pad_side":0.05}""")
-        }
+    fun `a retired pad_up in an archived config is ignored, not refused`() {
+        val archived =
+            ModelSpec.parse(
+                """{"classes":$CLASSES_JSON,"out_size":[128,128],"pad_side":0.05,"pad_up":0.0}""",
+            )
+        assertEquals(0.05, archived.padSide)
+        assertTrue(archived.declaresCrop)
     }
 
     @Test
@@ -196,9 +195,8 @@ private val CLASSES_JSON = PIECES13_CLASSES.joinToString(",", "[", "]") { "\"$it
 private fun spec(
     inferSize: Int,
     padSide: Double? = null,
-    padUp: Double? = null,
 ): ModelSpec {
-    val crop = if (padSide == null || padUp == null) "" else ""","pad_side":$padSide,"pad_up":$padUp"""
+    val crop = padSide?.let { ""","pad_side":$it""" }.orEmpty()
     return ModelSpec.parse(
         """{"classes":$CLASSES_JSON,"out_size":[128,128],"infer_size":[$inferSize,$inferSize]$crop}""",
     )

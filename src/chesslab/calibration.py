@@ -37,14 +37,12 @@ _FILES = "abcdefgh"
 @dataclass
 class CropParams:
     cell: float
-    pad_up: float
     pad_side: float
-    out_size: tuple[int, int]  # [W, H], H > W
+    out_size: tuple[int, int]  # [W, H]
 
     def to_dict(self) -> dict:
         return {
             "cell": float(self.cell),
-            "pad_up": float(self.pad_up),
             "pad_side": float(self.pad_side),
             "out_size": [int(self.out_size[0]), int(self.out_size[1])],
         }
@@ -53,7 +51,6 @@ class CropParams:
     def from_dict(cls, d: dict) -> CropParams:
         return cls(
             cell=float(d["cell"]),
-            pad_up=float(d["pad_up"]),
             pad_side=float(d["pad_side"]),
             out_size=(int(d["out_size"][0]), int(d["out_size"][1])),
         )
@@ -63,7 +60,6 @@ class CropParams:
         c = config.CROP
         return cls(
             cell=board_size / 8.0,
-            pad_up=c.pad_up,
             pad_side=c.pad_side,
             out_size=(c.out_w, c.out_h),
         )
@@ -291,24 +287,21 @@ def square_to_crop_box(square: str, profile: CalibrationProfile,
                         clamp: bool = True) -> tuple[int, int, int, int]:
     """'e4' -> (x0, y0, x1, y1) in the rectified board_size image.
 
-    Base cell (cell x cell, square) optionally extended UPWARD (height =
-    cell*(1+pad_up), anchored at the lower square edge) and expanded sideways by
-    pad_side*cell. `clamp=True` clips to image boundaries (box may become smaller);
+    Base cell (cell x cell, square) expanded by pad_side*cell on every side.
+    `clamp=True` clips to image boundaries (box may become smaller);
     `clamp=False` returns the raw box — the caller (crop_square) fills protruding
     areas with border padding so the box geometry stays constant across all squares.
     """
     col, row = _square_to_col_row(square, profile.white_pov)
     bs = profile.board_size
     cell = bs / 8.0
-    pad_up = profile.crop.pad_up
     pad_side = profile.crop.pad_side
 
-    # `pad_side` expands the cell SYMMETRICALLY in all 4 directions (a bit more of the piece visible,
-    # not cut off sharply at the square edge). `pad_up` additionally extends upward for
-    # the 3D lean. pad_side=pad_up=0 = exact cell (backward compatible).
+    # Symmetric in all 4 directions, so the box stays SQUARE: a bit more of the piece is
+    # visible instead of being cut off sharply at the square edge. pad_side=0 = exact cell.
     x0 = col * cell - pad_side * cell
     x1 = (col + 1) * cell + pad_side * cell
-    y0 = row * cell - pad_side * cell - pad_up * cell
+    y0 = row * cell - pad_side * cell
     y1 = (row + 1) * cell + pad_side * cell
 
     def fix(v: float) -> int:
@@ -537,15 +530,10 @@ def square_center(square: str, profile: CalibrationProfile) -> tuple[int, int]:
 
 def crop_border_px(profile: CalibrationProfile) -> int:
     """Border (in pixels) with which the board is warped for the DATA crop, so edge squares
-    have content for their pad_side/pad_up extension. Grows automatically with the pads (at least
+    have content for their pad_side extension. Grows automatically with the pad (at least
     `config.CROP_WARP_BORDER_CELLS`). 0 -> no border (display behavior)."""
     cell = profile.board_size / 8.0
-    # The two pads STACK at the top edge — `square_region` puts y0 at
-    # `row*cell - pad_side*cell - pad_up*cell`, so rank 8 reaches `pad_side + pad_up` cells above
-    # the board. Taking the max of the two instead left the sum minus the larger one uncovered,
-    # i.e. rank 8 crops carried replicated border where they should carry image. No effect at the
-    # shipped `pad_up = 0`; it bites any oblique profile that reintroduces upward padding.
-    border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side + profile.crop.pad_up)
+    border_cells = max(config.CROP_WARP_BORDER_CELLS, profile.crop.pad_side)
     return int(round(border_cells * cell))
 
 
@@ -976,7 +964,7 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
                          mesh: GridMesh | None = None, lens: LensModel | None = None):
     """Rectify board **with border** — the DATA crop warp. Canvas `board_size + 2B` with
     `B = crop_border_px(profile)`, homography translated by B. This way EDGE squares have real
-    board/edge content for their pad_side/pad_up extension (instead of black border at the
+    board/edge content for their pad_side extension (instead of black border at the
     playing field edge); `crop_square` shifts its box accordingly by +B.
 
     `mesh` and `lens` are COMPOSED into this one map, so the board is straight after a SINGLE
@@ -987,26 +975,32 @@ def warp_board_for_crops(frame, profile: CalibrationProfile, corners,
     Order matters: the quad was detected on the RAW frame, so the optics take it along BEFORE the
     homography is built from it, and the map then reads through the barrel still in the file.
     """
-    return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens)
+    # Kubisch, weil hier BILDDATEN entstehen: bilinear behaelt 63,6 % der Laplace-Energie gegen
+    # 92,1 % (`docs/warp-resampling.md`). Der Gitter-Warp bleibt bilinear — er misst, und eine
+    # kubische Messung verschob das gefittete Quad um 2,78 px.
+    return warp_padded(frame, profile, corners, crop_border_px(profile), mesh, lens,
+                       interpolation=cv2.INTER_CUBIC)
 
 
 def warp_padded(frame, profile: CalibrationProfile, corners, pad: int,
-                mesh: GridMesh | None = None, lens: LensModel | None = None):
+                mesh: GridMesh | None = None, lens: LensModel | None = None,
+                interpolation: int = cv2.INTER_LINEAR):
     """The board rectified into a `board_size + 2*pad` canvas — the one warp, two borders use it.
 
     `warp_board_for_crops` asks for the crop border, `alignment.warp_for_grid` for the wider one
     that makes the outer grid lines measurable. Everything else about the map is identical, and
     that is why it lives in one place.
+
+    [interpolation] steuert NUR den schnellen Zweig; der Mesh-Zweig war immer kubisch. Der
+    Crop-Warp bittet um kubisch (Bilddaten), der Gitter-Warp nicht: kubisch gemessen verschob das
+    gefittete Quad um 2,78 px (`docs/warp-resampling.md`).
     """
     bs = profile.board_size
     quad = corners if lens is None else undistort_points(corners, lens)
     h = np.array(compute_homography(quad, bs, profile.margin), dtype=np.float64)
     if mesh is None and lens is None:
-        # Kubisch wie der Mesh-Zweig: die Funktion ist fuer die Schaerfe egal, die Interpolation
-        # nicht — bilinear behaelt 63,6 % der Laplace-Energie, kubisch 92,1 %
-        # (`docs/warp-resampling.md`). Ein Bild, eine Schaerfe, egal welcher Zweig es schneidet.
         t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]], dtype=np.float64)
-        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad), flags=cv2.INTER_CUBIC)
+        return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad), flags=interpolation)
     u, v = _crop_mesh_coordinates(bs, pad, None if mesh is None else _mesh_key(mesh))
     ix, iy = _board_to_image(u, v, np.linalg.inv(h), bs)
     if lens is not None:

@@ -124,7 +124,7 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
 
     `priority_paths`: crop paths that must SURVIVE the `empty` cap — the mined hard
     negatives (`scripts/mine_hard_empty.py`: real empty squares the model confidently
-    misreads, e.g. dark corner squares / pad_up neighbour bleed). A random cap throws
+    misreads, e.g. dark corner squares / neighbour bleed). A random cap throws
     away exactly these rare hard cases; here they are kept first and only the REST of
     the cap budget is filled by random sampling. If there are more hard empties than
     the cap allows, all of them are kept (deliberate overshoot — they are the point).

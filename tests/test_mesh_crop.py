@@ -40,7 +40,7 @@ def _profile(fx: dict, out_size=(96, 128)) -> CalibrationProfile:
         profile="__mesh-parity__", camera_index=-1, frame_size=(bs, bs), board_size=bs,
         image_corners=corners, homography=compute_homography(corners, bs, 0.0),
         white_pov=bool(fx["whitePov"]),
-        crop=CropParams(cell=bs / 8.0, pad_up=float(fx["padUp"]), pad_side=float(fx["padSide"]),
+        crop=CropParams(cell=bs / 8.0, pad_side=float(fx["padSide"]),
                         out_size=out_size),
         margin=0.0,
     )
@@ -245,7 +245,7 @@ def test_fit_mesh_replaces_a_stale_mesh_and_backs_the_log_up(tmp_path, monkeypat
     answers = iter([fresh, None])
     monkeypatch.setattr(realgames, "grid_line_fracs", lambda *a, **k: next(answers))
     monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
-        {"boardSize": 800, "padSide": 0.05, "padUp": 0.0, "whitePov": True}))
+        {"boardSize": 800, "padSide": 0.05, "whitePov": True}))
 
     first = sessions.fit_mesh_session("meshy")
     rows = sessions.read_log(tmp_path / "data" / "sessions" / "meshy")
@@ -284,7 +284,7 @@ def _measured_session(tmp_path, monkeypatch, answers):
     it = iter(answers)
     monkeypatch.setattr(realgames, "grid_line_fracs", lambda *a, **k: next(it, None))
     monkeypatch.setattr("chesslab.labeling._profile_for_session", lambda meta, name: _profile(
-        {"boardSize": 8, "padSide": 0.05, "padUp": 0.0, "whitePov": True}))
+        {"boardSize": 8, "padSide": 0.05, "whitePov": True}))
     return sdir
 
 

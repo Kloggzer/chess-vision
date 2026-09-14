@@ -47,15 +47,14 @@ internal data class RealGameSource(
      * The board geometry of this footage — the ONE place the crop reaches the warp.
      *
      * `outW`/`outH` are the crop's output size, and when a model is attached `ClipPipeline`
-     * overrides them with the size that model's graph takes (`withCropSizeOf`). `padSide`/`padUp`
-     * are the box itself and are never overridden by anything.
+     * overrides them with the size that model's graph takes (`withCropSizeOf`). `padSide` is the
+     * box itself and is never overridden by anything.
      */
     override val geometry: BoardGeometry
         get() =
             BoardGeometry(
                 boardSize = boardSize,
                 margin = margins4(margin),
-                padUp = cropParams.padUp,
                 padSide = cropParams.padSide,
                 outW = cropParams.outW,
                 outH = cropParams.outH,

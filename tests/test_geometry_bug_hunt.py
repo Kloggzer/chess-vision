@@ -16,6 +16,7 @@ from chesslab.calibration import (
     GridMesh,
     compute_homography,
     crop_border_px,
+    warp_board_for_crops,
     warp_padded,
 )
 from chesslab.framescan import cell_sharpness
@@ -38,7 +39,7 @@ def test_the_scan_and_the_crop_agree_on_the_border_they_cut_at():
     """`grid_occlusion.crop_border_px` takes the MAX of the two pads, `calibration`'s takes their
     SUM. `framescan.scan_video` measures on the first raster, `realgames.write_board` stores the
     second, and `labeling.usable_board` compares stored rows against the second."""
-    prof = _profile(pad_side=0.05, pad_up=0.10)
+    prof = _profile(pad_side=0.05)
 
     scan_border = grid_occlusion.crop_border_px(prof)
     crop_border = crop_border_px(prof)
@@ -70,12 +71,12 @@ def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():
 
 
 def test_both_warp_paths_resample_the_same_way():
-    """Ein Identitaets-Mesh ist dieselbe Abbildung, also muessen die Pixel gleich bleiben.
+    """Der CROP-Warp resampelt gleich, ob ein Mesh-Fit geklappt hat oder nicht.
 
-    War bis 2026-09-14 verletzt: der schnelle Zweig (`warpPerspective`, kein Mesh und keine
-    Lens) interpolierte bilinear, der Mesh-Zweig (`remap`) kubisch — 63 Graustufen Abstand,
-    zwei Schaerfe-Domaenen aus derselben Geometrie. Seit der Vereinheitlichung auf kubisch
-    bleiben 11 Graustufen an einzelnen Randpixeln (Mittel 0,002), `docs/warp-resampling.md`.
+    War bis 2026-09-14 verletzt: ohne Mesh bilinear, mit Mesh kubisch — 63 Graustufen, zwei
+    Schaerfe-Domaenen aus derselben Geometrie. Der GITTER-Warp weicht weiterhin ab, und das
+    ist Absicht: kubisch gemessen verschob er das gefittete Quad um 2,78 px
+    (`docs/warp-resampling.md`).
     """
     prof = _profile()
     pad = crop_border_px(prof)
@@ -84,8 +85,8 @@ def test_both_warp_paths_resample_the_same_way():
     corners = [[10.5, 12.5], [330.5, 14.5], [332.5, 300.5], [8.5, 298.5]]
     identity = GridMesh([k / 8.0 for k in range(9)], [k / 8.0 for k in range(9)])
 
-    plain = warp_padded(frame, prof, corners, pad)
-    meshed = warp_padded(frame, prof, corners, pad, mesh=identity)
+    plain = warp_board_for_crops(frame, prof, corners)
+    meshed = warp_board_for_crops(frame, prof, corners, mesh=identity)
     inner = (slice(pad + 8, pad + SIDE - 8), slice(pad + 8, pad + SIDE - 8))
     worst = int(np.abs(plain[inner].astype(int) - meshed[inner].astype(int)).max())
 

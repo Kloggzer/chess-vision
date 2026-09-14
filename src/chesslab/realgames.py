@@ -600,7 +600,6 @@ def ensure_export_profile(profile: str, candidate: dict) -> Path:
         white_pov=True,
         crop=CropParams(
             cell=board_size / 8.0,
-            pad_up=float(crop.get("pad_up", 0.0)),
             pad_side=float(crop.get("pad_side", config.CROP.pad_side)),
             out_size=(config.CROP.out_w, config.CROP.out_h),
         ),
@@ -1046,8 +1045,8 @@ def place_board(session_dir: Path, row: dict) -> bool:
 
 def write_board(session_dir: Path, stem: str, frame, corners, profile,
                 dirty: bool = False, mesh=None, lens=None) -> dict:
-    """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two agree only
-    while `pad_up == 0`, and the store has to be the crop's raster under any profile.
+    """The DATA warp (`warp_board_for_crops`), not `grid_occlusion.warp_padded`: the two differ
+    as soon as `pad_side` exceeds the display border, and the store has to be the crop's raster.
 
     Returns the row's `board` keys — the path AND the scale the pixels are in. A homography hides
     that scale (board coordinates cancel against it), a stored raster does not: the candidate's

@@ -12,7 +12,6 @@
   ],
   "boardSize": 928,
   "padSide": 0.05,
-  "padUp": 0.0,
   "outW": 128,
   "outH": 128,
   "source": "data/recordings/2026-08-08-11-55-19/video.mp4",
@@ -27,5 +26,5 @@
     "f2"
   ],
   "why": "Weitwinkel-Desktopkamera, k1=-0.2508, Arm ueber dem Brett",
-  "cut_by": "android :desktop crops (2026-08-21)"
+  "cut_by": "android :desktop crops (2026-09-14, INTER_CUBIC im Crop-Warp)"
 }

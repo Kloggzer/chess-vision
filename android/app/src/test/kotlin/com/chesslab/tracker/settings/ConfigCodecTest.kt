@@ -49,14 +49,14 @@ class ConfigCodecTest {
         val decoded = ConfigCodec.decode(stored)
         assertEquals(TrackerConfig(), decoded.config)
         assertEquals("settings schema 4 is unknown — reset to defaults", decoded.note)
-        assertEquals(5, CONFIG_SCHEMA_VERSION)
+        assertEquals(6, CONFIG_SCHEMA_VERSION)
     }
 
     @Test
     fun theCurrentSchemaRoundTripsLossless() {
         val tuned = TrackerConfig(censusThr = 41.0, verifyWindow = 9)
         val encoded = ConfigCodec.encode(tuned)
-        assertTrue(encoded.startsWith("""{"version":5,"""), "the envelope must name the schema it was written under: $encoded")
+        assertTrue(encoded.startsWith("""{"version":6,"""), "the envelope must name the schema it was written under: $encoded")
         assertEquals(tuned, ConfigCodec.decode(encoded).config)
         assertNull(ConfigCodec.decode(encoded).note)
     }

@@ -40,7 +40,7 @@ class CalibrationStoreTest {
             sourceWidth = 640,
             sourceHeight = 480,
             corners = floatArrayOf(1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f),
-            crop = CropParams(outW = 96, outH = 96, padUp = 0.25, padSide = 0.12),
+            crop = CropParams(outW = 96, outH = 96, padSide = 0.12),
         )
 
     private val measured =

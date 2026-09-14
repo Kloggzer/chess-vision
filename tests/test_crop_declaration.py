@@ -1,6 +1,6 @@
 """specs/45 — the crop belongs to the model.
 
-`pad_side`/`pad_up` decide what a training example LOOKS like: 128 px of a 1.10-cell box and
+`pad_side` decides what a training example LOOKS like: 128 px of a 1.10-cell box and
 128 px of a 1.20-cell box are different photographs of the same square, and nothing in the
 pipeline notices the difference. These tests pin the CONTRACT that ends that — a crop says how
 it was cut, a run declares it, and serving crops to what the model declares — never the values
@@ -47,11 +47,11 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
     sdir = _make_session(tmp_path)
     manifest = tmp_path / "manifests" / "crops.jsonl"
     prof = _identity_profile()
-    prof.crop.pad_side, prof.crop.pad_up = 0.05, 0.0
+    prof.crop.pad_side = 0.05
     labeling.slice_session(sdir, profile=prof, manifest_path=manifest,
                            squares_root=tmp_path / "squares")
     rows = [json.loads(x) for x in manifest.read_text(encoding="utf-8").splitlines() if x.strip()]
-    assert {(r["pad_side"], r["pad_up"]) for r in rows} == {(0.05, 0.0)}
+    assert {r["pad_side"] for r in rows} == {0.05}
 
     # The OVERRIDE is what lands in the row, not the profile it overrode — otherwise
     # `slice --pad-side` would write rows describing crops it did not cut.
@@ -64,13 +64,16 @@ def test_slice_records_the_pads_it_cut_with(tmp_path):
 # --- what a dataset can and cannot claim -------------------------------------------------
 
 def test_crop_of_rows_declares_only_what_is_unanimous():
-    unanimous = [{"pad_side": 0.05, "pad_up": 0.0} for _ in range(3)]
-    assert crop_of_rows(unanimous) == (0.05, 0.0)
+    unanimous = [{"pad_side": 0.05} for _ in range(3)]
+    assert crop_of_rows(unanimous) == 0.05
+    # A row from before 2026-09-14 still carries the retired `pad_up`; it is not read and must
+    # not split the set.
+    assert crop_of_rows([*unanimous, {"pad_side": 0.05, "pad_up": 0.0}]) == 0.05
     # A pre-2026-08-06 row carries no pads at all: nothing may be inferred from its neighbours.
     assert crop_of_rows([*unanimous, {"out_size": [128, 128]}]) is None
     # Two profiles in one dataset: a wrong declaration is worse than an absent one, because a
     # consumer CROPS to what it is told.
-    assert crop_of_rows([*unanimous, {"pad_side": 0.10, "pad_up": 0.0}]) is None
+    assert crop_of_rows([*unanimous, {"pad_side": 0.10}]) is None
     assert crop_of_rows([]) is None
 
 
@@ -79,9 +82,9 @@ def test_crop_of_dataset_reads_the_built_manifest(tmp_path):
     ds = paths.datasets / "ds"
     ds.mkdir(parents=True)
     (ds / "manifest.jsonl").write_text(
-        "\n".join(json.dumps({"pad_side": 0.05, "pad_up": 0.25}) for _ in range(4)),
+        "\n".join(json.dumps({"pad_side": 0.05}) for _ in range(4)),
         encoding="utf-8")
-    assert crop_of_dataset("ds", paths) == (0.05, 0.25)
+    assert crop_of_dataset("ds", paths) == 0.05
     # A dataset that is not on this machine reads as legacy, never as an exception: an export
     # must stay possible without the corpus that produced it.
     assert crop_of_dataset("gone", paths) is None
@@ -99,16 +102,17 @@ def test_run_spec_reads_the_declared_crop(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
     cfg = {"classes": ["empty", "occupied"], "out_size": [128, 128]}
-    (run / "config.json").write_text(json.dumps({**cfg, "pad_side": 0.05, "pad_up": 0.25}),
+    # `pad_up` is an archived key: still on disk in older runs, read by nobody.
+    (run / "config.json").write_text(json.dumps({**cfg, "pad_side": 0.05, "pad_up": 0.0}),
                                      encoding="utf-8")
     spec = serving.run_spec(run)
-    assert (spec.pad_side, spec.pad_up) == (0.05, 0.25)
+    assert spec.pad_side == 0.05
 
     # No keys = LEGACY. It must read as "unknown", never as a default that happens to be in
     # `config.CROP` — a guess here is exactly the failure the declaration exists to end.
     (run / "config.json").write_text(json.dumps(cfg), encoding="utf-8")
     legacy = serving.run_spec(run)
-    assert legacy.pad_side is None and legacy.pad_up is None
+    assert legacy.pad_side is None
 
 
 def test_crops_for_model_crops_at_the_declared_pad(tmp_path):
@@ -118,11 +122,10 @@ def test_crops_for_model_crops_at_the_declared_pad(tmp_path):
     frame = _frame()
     corners = prof.image_corners
 
-    declared = serving.crops_for_model(frame, corners, prof, _spec(tmp_path, pad_side=0.05,
-                                                                  pad_up=0.0))
+    declared = serving.crops_for_model(frame, corners, prof, _spec(tmp_path, pad_side=0.05))
     # The reference: the same call with a profile that ALREADY holds the declared pads.
     ref_prof = _identity_profile()
-    ref_prof.crop.pad_side, ref_prof.crop.pad_up = 0.05, 0.0
+    ref_prof.crop.pad_side = 0.05
     reference = serving.crops_for_model(frame, corners, ref_prof, _spec(tmp_path))
     for i, (a, b) in enumerate(zip(declared, reference, strict=True)):
         assert np.array_equal(a, b), f"crop {i} is not the one the model asked for"
@@ -142,6 +145,6 @@ def test_legacy_model_keeps_the_profiles_pads(tmp_path):
     frame = _frame()
     legacy = serving.crops_for_model(frame, prof.image_corners, prof, _spec(tmp_path))
     explicit = serving.crops_for_model(frame, prof.image_corners, prof,
-                                       _spec(tmp_path, pad_side=0.10, pad_up=0.0))
+                                       _spec(tmp_path, pad_side=0.10))
     for a, b in zip(legacy, explicit, strict=True):
         assert np.array_equal(a, b)

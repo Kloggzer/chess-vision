@@ -99,7 +99,7 @@ const CELL_PNGS_MAX = 6000;
 type CellPngs = Map<string, Buffer>;
 const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__chesslabCellPngs ??= new Map());
 
-/** One square, cut with the profile's crop box (pad_side/pad_up), as the CNN would see it. */
+/** One square, cut with the profile's crop box (pad_side), as the CNN would see it. */
 export async function cellPng(name: string, stem: string, square: string, size: number) {
   const session = await loadSession(name);
   const rel = session.byStem.get(stem)?.board?.rel;

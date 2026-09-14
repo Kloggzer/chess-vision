@@ -27,8 +27,8 @@ internal fun pyRound(v: Double): Int = Math.rint(v).toInt()
  * `'e4' -> (x0, y0, x1, y1)` in the rectified `boardSize` image.
  * Port of `calibration.py:347 square_to_crop_box`.
  *
- * The base cell is expanded symmetrically by `padSide * cell` and additionally upward by
- * `padUp * cell`. `clamp = true` clips to the image (box may shrink); `clamp = false` returns
+ * The base cell is expanded symmetrically by `padSide * cell`, so the box stays square.
+ * `clamp = true` clips to the image (box may shrink); `clamp = false` returns
  * the raw box — `cropSquare` then pads the overhang with black so the box geometry is
  * constant across all 64 squares.
  */
@@ -42,7 +42,7 @@ fun squareToCropBox(
     val bs = geom.boardSize.toDouble()
     val x0 = col * cell - geom.padSide * cell
     val x1 = (col + 1) * cell + geom.padSide * cell
-    val y0 = row * cell - geom.padSide * cell - geom.padUp * cell
+    val y0 = row * cell - geom.padSide * cell
     val y1 = (row + 1) * cell + geom.padSide * cell
 
     fun fix(v: Double): Int = pyRound(if (clamp) max(0.0, min(bs, v)) else v)
@@ -76,11 +76,11 @@ private fun BoardGeometry.nativeCell(): Int {
 
 /**
  * Border in pixels the board is warped with for the DATA crop, so edge squares have real
- * content for their `padSide`/`padUp` extension. Port of `calibration.py:384 crop_border_px`.
+ * content for their `padSide` extension. Port of `calibration.py:384 crop_border_px`.
  *
- * Defaults (`boardSize = 1600`, `padSide = 0.10`, `cell = 200`): `0.10 * 200.0 = 20`.
+ * Defaults (`boardSize = 1600`, `padSide = 0.05`, `cell = 200`): the 0.1 floor decides, 20 px.
  */
-fun cropBorderPx(geom: BoardGeometry): Int = pyRound(max(CROP_WARP_BORDER_CELLS, max(geom.padSide, geom.padUp)) * geom.cell)
+fun cropBorderPx(geom: BoardGeometry): Int = pyRound(max(CROP_WARP_BORDER_CELLS, geom.padSide) * geom.cell)
 
 /** Grid lines per axis: 8 cells share 9 boundaries. */
 const val GRID_LINES_PER_AXIS: Int = 9

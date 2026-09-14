@@ -18,7 +18,7 @@ import kotlin.math.abs
  */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class MeshStraightnessTest {
-    private val geom = BoardGeometry(boardSize = BS, padSide = 0.05, padUp = 0.0, outW = OUT, outH = OUT)
+    private val geom = BoardGeometry(boardSize = BS, padSide = 0.05, outW = OUT, outH = OUT)
 
     private val xs = DoubleArray(9) { it / 8.0 }
 

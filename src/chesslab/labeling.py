@@ -160,7 +160,7 @@ def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size
 
     `square_to_crop_box` returns the box in board coordinates [0, board_size]; since the data warp
     is offset by `B = crop_border_px(profile)`, the box is shifted by +B into the canvas.
-    This ensures edge squares have actual content for their pad_side/pad_up extension. Overhang is
+    This ensures edge squares have actual content for their pad_side extension. Overhang is
     filled with black (constant geometry across all 64 squares), then scaled losslessly to out_size.
 
     A plain rectangle, always. The board's own lines are put straight ONCE, on the whole raster
@@ -231,13 +231,11 @@ def read_log(session_dir: Path) -> list[dict]:
     return read_jsonl(p)
 
 
-def effective_profile(profile: CalibrationProfile, pad_up, pad_side) -> CalibrationProfile:
-    """A COPY of `profile` with the pads overridden — the one way to cut at a box the profile
-    does not hold. Used by `slice --pad-side` and by serving, where the pads belong to the MODEL
+def effective_profile(profile: CalibrationProfile, pad_side) -> CalibrationProfile:
+    """A COPY of `profile` with the pad overridden — the one way to cut at a box the profile
+    does not hold. Used by `slice --pad-side` and by serving, where the pad belongs to the MODEL
     (`serving.crops_for_model`, specs/45)."""
     prof = copy.deepcopy(profile)
-    if pad_up is not None:
-        prof.crop.pad_up = float(pad_up)
     if pad_side is not None:
         prof.crop.pad_side = float(pad_side)
     return prof
@@ -400,7 +398,6 @@ def iter_session_crops(
     session_dir: Path,
     *,
     profile: CalibrationProfile,
-    pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
     flat_field: bool = False,
@@ -420,7 +417,7 @@ def iter_session_crops(
 
     matte = read_matte(session_dir)
     label_overrides = read_corrections(session_dir)
-    prof = effective_profile(profile, pad_up, pad_side)
+    prof = effective_profile(profile, pad_side)
     out = tuple(out_size) if out_size else tuple(prof.crop.out_size)
 
     n_crops = 0
@@ -551,12 +548,11 @@ def iter_session_crops(
                 "fen": entry["fen"],
                 "out_size": [out[0], out[1]],
                 # WHAT IS IN THE PICTURE, not just how large it is. `out_size` says the crop is
-                # 128 px; only the pads say whether those 128 px hold 1.10 or 1.20 of a cell —
+                # 128 px; only the pad says whether those 128 px hold 1.10 or 1.20 of a cell —
                 # i.e. whether a model trained on this row may be served that box. A row that
-                # does not carry them cannot be reconciled with anything later: the profile it
+                # does not carry it cannot be reconciled with anything later: the profile it
                 # was cut with is mutable and is not stamped anywhere else (specs/45).
                 "pad_side": float(prof.crop.pad_side),
-                "pad_up": float(prof.crop.pad_up),
                 "ts": datetime.now(UTC).isoformat(),
                 # Mittlere Luma der Zelle. Zweiter Grund, eine Zeile aus dem Klassifikationsteil
                 # zu nehmen — neben der Verdeckung: unter `config.CELL_DARK_MIN` traegt das Bild
@@ -603,7 +599,6 @@ def _slice_session(
     manifest_path: Path,
     squares_root: Path,
     write_pool: ThreadPoolExecutor,
-    pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
     flat_field: bool = False,
@@ -619,7 +614,7 @@ def _slice_session(
     out_dirs: dict[str, Path] = {}
     session_id, frame_stem, started = "", "", 0.0
     jobs: list[tuple] = []
-    for crop, row in iter_session_crops(session_dir, profile=profile, pad_up=pad_up,
+    for crop, row in iter_session_crops(session_dir, profile=profile,
                                         pad_side=pad_side, out_size=out_size,
                                         flat_field=flat_field, stats=stats):
         if row["frame"] != frame_stem:
@@ -651,7 +646,6 @@ def slice_session(
     profile: CalibrationProfile,
     manifest_path: Path,
     squares_root: Path,
-    pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: tuple[int, int] | None = None,
     flat_field: bool = False,
@@ -662,7 +656,7 @@ def slice_session(
     if write_pool is not None:
         return _slice_session(
             session_dir, profile=profile, manifest_path=manifest_path,
-            squares_root=squares_root, write_pool=write_pool, pad_up=pad_up,
+            squares_root=squares_root, write_pool=write_pool,
             pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
             flat_field=flat_field,
         )
@@ -671,7 +665,7 @@ def slice_session(
     ) as owned_pool:
         return _slice_session(
             session_dir, profile=profile, manifest_path=manifest_path,
-            squares_root=squares_root, write_pool=owned_pool, pad_up=pad_up,
+            squares_root=squares_root, write_pool=owned_pool,
             pad_side=pad_side, out_size=out_size, manifest_batch=manifest_batch,
             flat_field=flat_field,
         )
@@ -711,7 +705,6 @@ def run_slice(
     session: str | None = None,
     slice_all: bool = False,
     profile: str | None = None,
-    pad_up: float | None = None,
     pad_side: float | None = None,
     out_size: str | None = None,
     preview: str | None = None,
@@ -760,7 +753,7 @@ def run_slice(
                             prof = _profile_for_session(meta, profile)
                             stats = slice_session(
                                 session_dir, profile=prof, manifest_path=manifest_path,
-                                squares_root=squares_root, pad_up=pad_up, pad_side=pad_side,
+                                squares_root=squares_root, pad_side=pad_side,
                                 out_size=out_size_t, manifest_batch=manifest_batch,
                                 write_pool=write_pool, flat_field=flat_field,
                             )

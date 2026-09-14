@@ -12,7 +12,6 @@
   ],
   "boardSize": 672,
   "padSide": 0.05,
-  "padUp": 0.0,
   "outW": 128,
   "outH": 128,
   "source": "data/footage/turntable/2026-08-09 20-48-50/video.mp4",
@@ -27,5 +26,5 @@
     "f2"
   ],
   "why": "Drehscheibe: Quad um +31 Grad gekippt, 860 px vom Median der Aufnahme",
-  "cut_by": "android :desktop crops (2026-08-21)"
+  "cut_by": "android :desktop crops (2026-09-14, INTER_CUBIC im Crop-Warp)"
 }

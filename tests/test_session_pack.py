@@ -17,14 +17,15 @@ from chesslab.training import pack_session, packs
 
 START_FEN = chess.Board().fen()
 
-#: Measured on `feat/session-packs` BEFORE `iter_session_crops` existed (cv2 4.13.0, Python
-#: 3.12.7). The seam only moves the cut; the pool bytes and the manifest rows must not move with
-#: it. `ts` is `datetime.now` and is dropped before hashing.
-CROPS_SHA = "fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418"
-#: Nachgezogen 2026-09-09, weil jede Zeile jetzt `brightness` traegt (`training/occlusion.py`,
-#: `CELL_DARK_MIN`). Die PIXEL blieben dabei bytegleich — `CROPS_SHA` ist unveraendert, und genau
-#: das ist der Nachweis, dass nur das Feld dazukam und nicht der Zuschnitt.
-ROWS_SHA = "921c42f21f21d74b770c2e9bc83bd09c570eb4ab51b4756bc3b3124beb0e83bb"
+#: Nachgezogen 2026-09-14: der Crop-Warp interpoliert kubisch statt bilinear, also aendern sich die
+#: PIXEL — als einziges. Geometrie und Zeilen blieben, `ROWS_SHA` ist unveraendert und das Quad der
+#: Paritaets-Fixtures wich um 0,0 px ab (`docs/warp-resampling.md`). Davor, seit `feat/session-packs`:
+#: fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418. `ts` faellt vorm Hashen weg.
+CROPS_SHA = "d3e9b05e7888b090bb56849579991384d2fe4e4fdd88af96c416e20497237b75"
+#: Nachgezogen 2026-09-14 aus ZWEI Gruenden, die sich hier ueberlagern: `pad_up` ist entfernt und
+#: steht nicht mehr in der Zeile, und `brightness` wird aus den jetzt kubisch geschnittenen Pixeln
+#: gerechnet. 2026-09-09 kam `brightness` dazu, ohne die Pixel zu bewegen.
+ROWS_SHA = "fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42"
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
@@ -110,7 +111,7 @@ def _pack_rows(name: str, paths: config.Paths) -> list[dict]:
 
 
 def _cell(row: dict) -> tuple:
-    return (row["frame"], row["square"], row["label"], row["pad_side"], row["pad_up"])
+    return (row["frame"], row["square"], row["label"], row["pad_side"])
 
 
 def test_session_pack_rows_match_slice_rows(tmp_path, monkeypatch):
@@ -228,7 +229,7 @@ def _pool_session(paths: config.Paths, session_id: str, tag: str, frames=("0000"
             cv2.imwrite(str(p), img, [cv2.IMWRITE_WEBP_QUALITY, 100])
             rows.append({"path": p.as_posix(), "label": "empty", "session_id": session_id,
                          "frame": frame, "square": sq, "square_color": "light", "fen": "x",
-                         "out_size": [side, side], "pad_side": 0.05, "pad_up": 0.0})
+                         "out_size": [side, side], "pad_side": 0.05})
     m = paths.crops / tag / "manifest.jsonl"
     with m.open("a", encoding="utf-8") as fh:
         fh.writelines(json.dumps(r) + "\n" for r in rows)

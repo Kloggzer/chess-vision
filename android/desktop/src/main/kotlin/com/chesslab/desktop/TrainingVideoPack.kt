@@ -436,7 +436,7 @@ private class VideoPackSink(
             manifest.append(
                 "{\"path\":\"${escape(path)}\",\"session_id\":\"${escape(id)}\"," +
                     "\"frame\":\"$stem\",\"square\":\"$square\",\"label\":\"$label\"," +
-                    "\"out_size\":[$PACK_SIDE,$PACK_SIDE],\"pad_side\":0.05,\"pad_up\":0.0$reviewFields}\n",
+                    "\"out_size\":[$PACK_SIDE,$PACK_SIDE],\"pad_side\":0.05$reviewFields}\n",
             )
             digest.update(path.toByteArray(UTF_8))
             digest.update(0)
