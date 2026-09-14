@@ -89,6 +89,7 @@ def visible_board_items(rows: list[dict], trues: list[int], preds: list[int]) ->
     46 % der Bretter im Val-Split von `real13-straight-80-v3` tragen mindestens eine verdeckte
     Zelle, `board_acc` ist damit konstruktionsbedingt auf 54 % gedeckelt.
     """
+    # TODO: Centralize loss/metric eligibility; duplicated masks have already drifted on darkness.
     from .occlusion import PIECE_VISIBLE_MAX
 
     return [((r["session_id"], str(r["frame"])), bool(t == p))

@@ -17,7 +17,6 @@ from chesslab.calibration import (
     compute_homography,
     crop_border_px,
     warp_board_for_crops,
-    warp_padded,
 )
 from chesslab.framescan import cell_sharpness
 

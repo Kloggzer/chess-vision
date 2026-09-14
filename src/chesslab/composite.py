@@ -248,6 +248,7 @@ def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride
     stop = Event()
 
     def pump() -> None:
+        # TODO: A loader exception never reaches the consumer, which then blocks on an empty queue.
         names = np.array(tiles, dtype=object)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             idx = 0

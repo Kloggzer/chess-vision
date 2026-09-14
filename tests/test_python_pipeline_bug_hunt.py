@@ -4,9 +4,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from chesslab import config
+from chesslab import config, dataset_build
 from chesslab import dataset as dataset_mod
-from chesslab import dataset_build
 from chesslab.training import packs
 from chesslab.training.data import checkpoint_score
 from chesslab.training.pack_session import _write_rows
@@ -37,9 +36,7 @@ def test_checkpoint_tiebreakers_ignore_cells_masked_out_of_the_loss():
 
 def test_eval_records_visible_metrics_when_every_cell_is_visible(tmp_path, monkeypatch):
     pytest.importorskip("torch")
-    from chesslab.training import engine
-    from chesslab.training import evaluate
-    from chesslab.training import torch_data
+    from chesslab.training import engine, evaluate, torch_data
 
     paths = config.Paths(root=tmp_path)
     monkeypatch.setattr(config, "DATA", paths)

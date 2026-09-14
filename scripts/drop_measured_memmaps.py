@@ -15,6 +15,7 @@ PACK_FILES = ("packed_images.u8", "packed_meta.json", "packed_progress.json", "p
 
 
 def main() -> None:
+    # TODO: Use argparse because a misspelled safety flag currently falls through to deletion.
     dry = "--dry-run" in sys.argv
     freed = 0.0
     for name in NAMES:

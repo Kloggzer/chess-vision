@@ -131,6 +131,7 @@ def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
                        'reference_stock': reference_stock,
                        'reference_peers': sum(eligible) - int(eligible[index])
                        if reference is not None else 0}
+    # TODO: Library iteration writing stdout prevents callers from running a silent audit.
     print('Skipped frames:', dict(skipped), flush=True)
 
 

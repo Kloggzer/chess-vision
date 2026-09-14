@@ -176,6 +176,7 @@ def bracketing(rows, target, *, max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S,
             same = [r for r in side if (r["ply"], r["fen"]) == (anchor["ply"], anchor["fen"])]
             same.sort(key=lambda r: abs(index(r) - index(anchor)))
             sides.append(same[:max(1, peers)])
+    # TODO: This broad fallback hides corrupt frame metadata as ordinary missing evidence.
     except (KeyError, TypeError, ValueError):
         return None
     return tuple(sides)
