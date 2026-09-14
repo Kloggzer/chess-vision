@@ -89,7 +89,9 @@ internal class FrameLoop(
         }
         state.lastInputSeq = input.seq
         state.nowS = input.timestampMs / MS_PER_S
-        state.frameSeq += 1
+        // The producer's sequence, not a private count: CNN snapshots carry `FrameInput.seq`, and a
+        // candidate stamped from a second domain lets an OLDER observation satisfy `snap.seq >= pending.seq`.
+        state.frameSeq = input.seq
         state.lastCorners = input.corners
         val cfg = state.config
         // Measured on the luma BEFORE CLAHE: CLAHE amplifies near-black sensor noise into phantom
@@ -268,7 +270,6 @@ internal class FrameLoop(
                         FrameOutcome.Skip(SKIP_OCCLUDED)
                     } else {
                         // seq = newest frame in the averaged buffer (the decision signature).
-                        // TODO: Preserve FrameInput.seq; a private counter cannot order CNN work after a nonzero sequence start.
                         FrameOutcome.Detect(cur, curBgr, state.frameSeq)
                     }
             }

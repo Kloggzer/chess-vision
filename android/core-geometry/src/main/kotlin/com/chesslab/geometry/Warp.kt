@@ -131,8 +131,6 @@ fun warpBoardForCrops(
  *
  * Geometry is identical to the borderless warp, only shifted by [pad].
  */
-// TODO: the file header says the GRID warp is INTER_CUBIC; it is bilinear here, and Python's
-// `warp_padded` says bilinear is deliberate (cubic moved the fitted quad 2,78 px). Fix the comment.
 internal fun warpFromCornersPadded(
     frame: Mat,
     geom: BoardGeometry,

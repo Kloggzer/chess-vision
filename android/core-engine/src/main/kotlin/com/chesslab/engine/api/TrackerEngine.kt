@@ -520,7 +520,6 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
  * INTERSECTION of the three callers — each adds its own remainder, so no path clears more.
  */
 internal fun EngineState.clearReferenceState() {
-    // TODO: Centralize position-scoped resets; partial caller tails let old proof survive adoption.
     refGray = null
     refBgr = null
     refFen = null
@@ -529,6 +528,12 @@ internal fun EngineState.clearReferenceState() {
     bgrBuf.clear()
     clearStuck()
     tainted = 0L
+    // The keep-alive subset outlived its parent and restored pair evidence for a taint nobody holds.
+    keepaliveTainted = 0L
+    // Keyed to the reference we are discarding — an unchanged FEN TEXT is not the same epoch, and the
+    // latch went on suppressing a legitimate fast pair after the user reset the position.
+    rejectedPair = null
+    rejectedPairFen = null
     occlWhitelist = 0L
     occludedSince = null
     shadowVetoed = 0L

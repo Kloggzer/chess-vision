@@ -52,7 +52,8 @@ enum class FrameRateMode(
 enum class EpRequest(
     val label: String,
 ) {
-    AUTO("Auto (QNN → NNAPI → CPU)"),
+    // NNAPI left the automatic chain after a measured 5x regression; the label named it anyway.
+    AUTO("Auto (QNN → XNNPACK → CPU)"),
     QNN("QNN / Hexagon NPU"),
     NNAPI("NNAPI"),
     CPU("CPU"),

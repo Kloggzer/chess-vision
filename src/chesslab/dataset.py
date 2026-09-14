@@ -142,8 +142,9 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     for r in rows:
         by_label.setdefault(r["label"], []).append(r)
 
-    # TODO: Exclude occluded from the piece-class minimum; sight-state must not cap every identity.
-    piece_counts = {c: len(v) for c, v in by_label.items() if c != "empty"}
+    # `occluded` ist ein Sehzustand, keine Identitaet: in historischen 14-Klassen-Manifesten
+    # ist es selten und wuerde als Minimum jede echte Figurenklasse mit herunterziehen.
+    piece_counts = {c: len(v) for c, v in by_label.items() if c not in ("empty", "occluded")}
     piece_cap = None
     if max_class_ratio is not None and piece_counts:
         piece_cap = int(round(max_class_ratio * min(piece_counts.values())))
@@ -422,7 +423,16 @@ def validate_split(split: dict, rows: list[dict],
     errors: list[str] = []
     warnings: list[str] = []
 
-    # TODO: Reject sessions repeated across splits; set-based loaders otherwise leak them into both.
+    # Eine Aufnahme in zwei Splits heisst: die mengenbasierten Loader legen IHRE Zeilen in beide.
+    # Das ist Leckage und wird laut verweigert, nicht stillschweigend geradegebogen.
+    split_names = list(split.get("splits", {}))
+    for i, a in enumerate(split_names):
+        for b in split_names[i + 1:]:
+            both = sorted(set(split["splits"][a]) & set(split["splits"][b]))
+            errors.extend(f"Session {sid} is in {a} and {b} — a session belongs to exactly "
+                          "one split, otherwise its rows are evaluated on and trained on."
+                          for sid in both)
+
     # Session set per class
     class_sessions: dict[str, set] = {c: set() for c in CLASSES}
     for r in rows:

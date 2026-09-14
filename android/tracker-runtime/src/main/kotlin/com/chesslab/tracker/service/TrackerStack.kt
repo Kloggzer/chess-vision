@@ -213,9 +213,6 @@ class TrackerStack<T>(
     /** Successful glances of THIS stack — a restart legitimately restarts the count. */
     val observations: Long get() = observed.get()
 
-    // TODO: `observer.gateUnwanted` is counted and printed nowhere, so a run the ENGINE silenced
-    // reads exactly like one where the observer was never asked.
-
     /**
      * Everything this stack DID NOT process, counted by reason and readable in one line — the
      * cadence regression of 2026-08-08 (67 -> 26 plies) was invisible precisely because every one
@@ -225,6 +222,7 @@ class TrackerStack<T>(
     fun dropLine(): String =
         "dropped[markers=${pipeline.skippedWaitingMarkers} dark=${pipeline.skippedDark} " +
             "obsOff=${observer.gateOff} obsBusy=${observer.gateBusy} obsInterval=${observer.gateInterval} " +
+            "obsUnwanted=${observer.gateUnwanted} " +
             "cropOverwritten=${cropStore.overwritten} snapQueue=${host.snapshotsDropped} actionQueue=${host.actionsDropped}]"
 
     /** The ledger channel: one line per emitted observation, `adb logcat -s chesslabObs`-able. */

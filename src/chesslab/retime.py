@@ -186,6 +186,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
         video_path,
     )
     from .recording import Recording
+    from .training.torch_data import infer_size_of
 
     candidate = load_candidate(name)
     moves = candidate["moves"]
@@ -196,8 +197,9 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     profile = load_profile(EXPORT_PROFILE)
     cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
     prof = effective_profile(profile, cfg.get("pad_side"))
-    # TODO: Read infer_size through the canonical helper; out_size adds a lossy intermediate resize.
-    out_size = tuple(cfg.get("out_size") or (80, 80))
+    # Einmal auf die Groesse schneiden, die das Netz frisst: `serving` haette den Zuschnitt an
+    # `out_size` sonst ein zweites Mal skaliert (specs/22).
+    out_size = infer_size_of(cfg)
     classes = model_classes(model_dir)
     squares = all_squares()
     fens = [candidate.get("start_fen") or STARTPOS] + [m["fen_after"] for m in moves]

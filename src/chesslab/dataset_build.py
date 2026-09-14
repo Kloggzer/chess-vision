@@ -32,12 +32,17 @@ from . import dataset as dataset_mod
 
 log = logging.getLogger("chesslab.dataset_build")
 
+_WINDOWS_DEVICE_NAMES = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"{stem}{i}" for stem in ("COM", "LPT") for i in range(1, 10)])
 
 
 def _safe_name(name: str) -> str:
     n = (name or "").strip()
-    # TODO: Reject Windows device names and trailing dots/spaces; they alias or fail as directories.
-    if not n or "/" in n or "\\" in n or ".." in n:
+    # Windows loest `CON`/`NUL`/`COM1` auf ein GERAET auf und schneidet Punkte am Ende ab: beides
+    # traefe ein anderes Ziel als der Name sagt.
+    if (not n or "/" in n or "\\" in n or ".." in n or n.endswith(".")
+            or n.split(".")[0].upper() in _WINDOWS_DEVICE_NAMES):
         raise ValueError(f"invalid dataset name: {name!r}")
     return n
 
@@ -123,8 +128,10 @@ def dedup_metadata(rows: list[dict], cap: int | None, seed: int = config.SEED) -
     for r in rows:
         groups.setdefault((r["session_id"], r["square"], r["label"]), []).append(r)
     kept: list[dict] = []
-    # TODO: Iterate sorted group keys; RNG draws currently depend on manifest/group encounter order.
-    for g in groups.values():
+    # Sortiert, nicht in Einfuegereihenfolge: derselbe Seed muss dieselben Crops behalten, egal in
+    # welcher Reihenfolge das Manifest die Gruppen liefert.
+    for key in sorted(groups):
+        g = groups[key]
         if len(g) > cap:
             g = sorted(g, key=lambda r: str(r.get("frame", "")))   # deterministic
             g = rng.sample(g, cap)

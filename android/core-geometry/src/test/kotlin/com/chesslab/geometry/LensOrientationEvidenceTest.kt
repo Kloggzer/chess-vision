@@ -17,8 +17,7 @@ class LensOrientationEvidenceTest {
     private fun toFrame(
         bx: Double,
         by: Double,
-    ): Pair<Double, Double> =
-        (cos(angle) * bx - sin(angle) * by + ORIGIN_X) to (sin(angle) * bx + cos(angle) * by + ORIGIN_Y)
+    ): Pair<Double, Double> = (cos(angle) * bx - sin(angle) * by + ORIGIN_X) to (sin(angle) * bx + cos(angle) * by + ORIGIN_Y)
 
     private fun rotatedBoardSamples(): List<GridSample> {
         val out = mutableListOf<GridSample>()

@@ -56,7 +56,9 @@ internal fun EngineState.applyTaints() {
  * while a confident DISAGREEMENT is what a real move looks like — tainting it would zero its evidence.
  */
 internal fun EngineState.cnnOcclusionFilter(squares: Long): Long {
-    val snap = freshSnapshot()
+    // Position-scoped like every other verdict off this cache: a read of the position we held before
+    // a commit or a resync cannot say which of THESE squares is a hand and which is the move.
+    val snap = freshSnapshot()?.takeIf { it.fen == board.fen() }
     // No observation model: it was never built, or building it failed.
     if (snap == null || !cnnRun) {
         return if (squares.countOneBits() > HAND_HEURISTIC_LIMIT) squares else 0L
@@ -206,7 +208,7 @@ internal fun EngineState.recordSight(snap: CnnSnapshot) {
             if (snap.obs.occupied(square)) occupied = occupied.with(i)
         }
     }
-    sights.addLast(SquareSight(snap.seq, visibleSquares(snap), confident, occupied))
+    sights.addLast(SquareSight(snap.seq, visibleSquares(snap), confident, occupied, snap.fen))
     while (sights.size > SIGHT_DEPTH) sights.removeFirst()
 }
 
@@ -246,8 +248,12 @@ internal fun EngineState.sightSettled(
     }
     var wanted = 0L
     touched.forEachSquare { if (after.pieceCharAt(it) != null) wanted = wanted.with(it) }
+    // The sight's own position decides whether it says anything here: a snapshot that landed after
+    // a commit or a `setFen` describes the position we left, and it proved the adopted one's move.
+    val reference = boardSnap.fen()
     return sights.toList().takeLast(need).all { sight ->
-        (sight.visible and touched) == touched &&
+        (sight.fen == null || sight.fen == reference) &&
+            (sight.visible and touched) == touched &&
             (sight.confident and touched) == touched &&
             (sight.occupied and touched) == wanted
     }

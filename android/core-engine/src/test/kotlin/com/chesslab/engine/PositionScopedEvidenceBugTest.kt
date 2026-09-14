@@ -12,7 +12,11 @@ class PositionScopedEvidenceBugTest {
     fun staleSnapshotCannotArbitrateCurrentPositionOcclusion() {
         val engine = TrackerEngine(TrackerConfig())
         val oldFen = engine.state.board.fen()
-        val afterE4 = engine.state.board.copy().also { it.push(requireNotNull(engine.state.legalMoveFor("e2e4"))) }.fen()
+        val afterE4 =
+            engine.state.board
+                .copy()
+                .also { it.push(requireNotNull(engine.state.legalMoveFor("e2e4"))) }
+                .fen()
         engine.setFen(afterE4)
         val state = engine.state
         state.cnnRun = true
@@ -36,7 +40,11 @@ class PositionScopedEvidenceBugTest {
     fun staleSnapshotsRejectedAfterSetFenCannotProveAnEarlyCommit() {
         val engine = TrackerEngine(TrackerConfig(commitHoldS = 0.067, earlyCommitObs = 2))
         val oldFen = engine.state.board.fen()
-        val afterE4 = engine.state.board.copy().also { it.push(requireNotNull(engine.state.legalMoveFor("e2e4"))) }.fen()
+        val afterE4 =
+            engine.state.board
+                .copy()
+                .also { it.push(requireNotNull(engine.state.legalMoveFor("e2e4"))) }
+                .fen()
         engine.setFen(afterE4)
         val state = engine.state
         val all = -1L

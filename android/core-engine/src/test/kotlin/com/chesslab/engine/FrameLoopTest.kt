@@ -128,6 +128,7 @@ class FrameLoopTest {
                 avgFramesOverride = 1,
             )
         val h = Harness(config)
+
         fun input(seq: Long) =
             FrameInput(
                 seq = seq,

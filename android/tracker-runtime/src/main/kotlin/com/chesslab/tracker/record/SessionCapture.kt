@@ -173,16 +173,16 @@ class SessionCaptureController(
         committed = true
         if (recorder == null) start()
         gates.inventoryFilter = prefs().inventoryFilter
-        // TODO: this gate judges the NEW ply's FEN but throws away the EARLIER ply's deferred photo,
-        // uncounted — the silent loss `supersededFrames` was added to make visible.
-        if (gates.blocks(fen, source.geometryNote())) {
-            pending = null
-            return
-        }
-        // Detect if a pending frame from an earlier ply is being superseded.
+        // Count BEFORE the gate: the gate judges the NEW ply's FEN, but what it clears is the
+        // EARLIER ply's deferred photo, taken under its own FEN and never gated. Counting after
+        // it left that loss invisible — the very case this counter exists for.
         val oldPending = pending
         if (oldPending != null && oldPending.ply != ply) {
             supersededFrames++
+        }
+        if (gates.blocks(fen, source.geometryNote())) {
+            pending = null
+            return
         }
         pending = Pending(ply, fen, san)
         if (clean) flush()

@@ -12,7 +12,7 @@ app/strom/labeln/stream.tsx 7
 app/strom/zuege/page.tsx 6
 app/strom/zuege/stream.tsx 7
 app/api/ingest/hello/route.ts 8
-app/api/pgn/[name]/route.ts 8
+app/api/pgn/[name]/route.ts 6
 app/api/useless/[name]/route.ts 7
 app/api/zuege/[name]/route.ts 9
 app/api/zuege/[name]/note/route.ts 7

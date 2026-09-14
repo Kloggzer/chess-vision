@@ -52,6 +52,21 @@ def read_jsonl(path: Path) -> list[dict]:
     # TextIO already yields Unicode. Calling the decoder directly avoids repeating the public
     # json.loads type/encoding dispatch for every line of large manifests.
     decode = json.JSONDecoder(object_pairs_hook=pooled).decode
-    # TODO: Ignore only an invalid unterminated tail; a killed append must not poison prior rows.
+    rows: list[dict] = []
+    broken: ValueError | None = None
+    # Ein mitten im Anhaengen erschlagener Schreiber laesst eine halbe LETZTE Zeile zurueck; die
+    # faellt weg. Eine kaputte Zeile MITTENDRIN ist Korruption und bleibt laut — deshalb wird der
+    # Fehler erst geworfen, wenn doch noch eine Zeile folgt.
     with p.open(encoding="utf-8") as fh:
-        return [decode(line) for line in fh if line.strip()]
+        for line in fh:
+            if not line.strip():
+                continue
+            if broken is not None:
+                raise broken
+            try:
+                rows.append(decode(line))
+            except ValueError as exc:
+                if line.endswith("\n"):
+                    raise
+                broken = exc
+    return rows

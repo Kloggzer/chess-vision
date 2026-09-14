@@ -122,7 +122,7 @@ class CnnObserver(
     val counters: String
         get() =
             "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted " +
-                "gateOff=$gateOff gateBusy=$gateBusy gateInterval=$gateInterval"
+                "gateOff=$gateOff gateBusy=$gateBusy gateInterval=$gateInterval gateUnwanted=$gateUnwanted"
 
     private var attempts = 0L
     private var noClassifier = 0L

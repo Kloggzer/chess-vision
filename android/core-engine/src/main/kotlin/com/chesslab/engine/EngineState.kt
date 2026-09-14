@@ -526,6 +526,8 @@ internal class SquareSight(
     val visible: Long,
     val confident: Long,
     val occupied: Long,
+    /** The position the observation was taken under; `null` = unscoped, for hand-built sights in tests. */
+    val fen: String? = null,
 )
 
 internal const val SIGHT_DEPTH = 8

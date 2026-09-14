@@ -46,25 +46,31 @@ class MoveAnnouncer(
 
     private fun onEvent(event: TrackerEvent) {
         val app = settings.appSettings.value
-        if (!app.speechEnabled) return
         // Die Stimme folgt der Einstellung. Ohne das sprach eine en-US-Stimme deutsche Wörter.
-        if (app.speechLanguage != spoken) {
+        if (app.speechEnabled && app.speechLanguage != spoken) {
             spoken = app.speechLanguage
             speaker.setLanguage(app.speechLanguage)
         }
+        // Der Latch läuft AUCH bei stummer Stimme: ein hier verschlucktes AlarmCleared liess ihn
+        // für den Rest des Prozesses stehen und verwarf jeden späteren Zug lautlos. Gesprochen wird
+        // deshalb in den Handlern, geschaltet immer.
         when (event) {
             is TrackerEvent.Alarm -> onAlarm(event, app)
             is TrackerEvent.AlarmCleared -> onCleared(app)
-            is TrackerEvent.MoveCommitted ->
-                if (latched == null) {
-                    val started = System.currentTimeMillis()
-                    speaker.say(phrase(event.san, ply(event.fenAfter), app))
-                    onQueued(event.san, System.currentTimeMillis() - started)
-                }
-            is TrackerEvent.SequenceCommitted -> onSequence(event, app)
+            is TrackerEvent.MoveCommitted -> if (app.speechEnabled && latched == null) announce(event, app)
+            is TrackerEvent.SequenceCommitted -> if (app.speechEnabled) onSequence(event, app)
             // Stuck, Note, ReAnchored and PromotionPending are screen business, not speech.
             else -> Unit
         }
+    }
+
+    private fun announce(
+        event: TrackerEvent.MoveCommitted,
+        app: AppSettings,
+    ) {
+        val started = System.currentTimeMillis()
+        speaker.say(phrase(event.san, ply(event.fenAfter), app))
+        onQueued(event.san, System.currentTimeMillis() - started)
     }
 
     private fun onAlarm(
@@ -75,7 +81,7 @@ class MoveAnnouncer(
         // Derselbe Grund ohne zwischenzeitliches Clear ist dieselbe Nachricht zweimal; ein anderer
         // Grund ist neue Nachricht, auch wenn dieselbe Sperre hält.
         val news = "${alarm.kind}/${alarm.reason}"
-        if (latched == news || !app.speechAnnounceAlarms) {
+        if (latched == news || !app.speechAnnounceAlarms || !app.speechEnabled) {
             latched = news
             return
         }
@@ -88,7 +94,7 @@ class MoveAnnouncer(
     private fun onCleared(app: AppSettings) {
         if (latched == null) return
         latched = null
-        if (app.speechAnnounceAlarms) speaker.say(AlarmPhrase.restored(app.speechLanguage))
+        if (app.speechAnnounceAlarms && app.speechEnabled) speaker.say(AlarmPhrase.restored(app.speechLanguage))
     }
 
     private fun onSequence(

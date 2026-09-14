@@ -107,17 +107,67 @@ def describe(info: dict) -> str:
 def acquire(lock: Path, job: str, name: str) -> dict | None:
     """None if the lock is now ours, otherwise the live holder — callers word their own refusal."""
     lock = Path(lock)
-    # TODO: Claim with an exclusive create; check-then-write lets simultaneous writers both win.
+    observed = _raw(lock)
     info = held_by(lock)
     if info is not None:
         return info
     lock.parent.mkdir(parents=True, exist_ok=True)
     boot = _boot_time()
-    lock.write_text(json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": job,
-                                "name": name, "startedAt": datetime.now().isoformat(),
-                                **({"boot": boot.isoformat()} if boot else {})},
-                               indent=2), encoding="utf-8")
-    return None
+    payload = json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": job,
+                          "name": name, "startedAt": datetime.now().isoformat(),
+                          **({"boot": boot.isoformat()} if boot else {})}, indent=2)
+    # Ein Lock, das VOR unserem Versuch schon dalag, ist tot (`held_by` sagte frei) und darf weg;
+    # eines, das WAEHREND des Versuchs entsteht, gehoert einem Mitbewerber — Pruefen-dann-Schreiben
+    # liess sonst beide gewinnen.
+    _break_stale(lock, observed)
+    if _claim(lock, payload):
+        return None
+    return held_by(lock) or _read_lock(lock) or {"job": job, "name": name}
+
+
+def _read_lock(lock: Path) -> dict | None:
+    try:
+        info = json.loads(lock.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return info if isinstance(info, dict) else None
+
+
+def _raw(lock: Path) -> bytes | None:
+    try:
+        return lock.read_bytes()
+    except OSError:
+        return None
+
+
+def _break_stale(lock: Path, observed: bytes | None) -> None:
+    """Move the dead lock WE read aside, so a reclaimer can create the file anew.
+
+    Zurueckgelegt wird, was inzwischen jemand anderes geschrieben hat: sonst raeumt der zweite
+    Reclaimer den FRISCHEN Anspruch des ersten weg und beide halten sich fuer den Halter.
+    """
+    if observed is None:
+        return
+    aside = lock.with_name(f"{lock.name}.stale-{os.getpid()}")
+    try:
+        os.replace(lock, aside)
+        if aside.read_bytes() == observed:
+            aside.unlink()
+        else:
+            os.replace(aside, lock)
+    except OSError:
+        pass
+
+
+def _claim(lock: Path, payload: str) -> bool:
+    """True if WE created the lock file. `O_EXCL` is the whole point — one winner, no window."""
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(payload)
+    return True
 
 
 def release(lock: Path) -> None:

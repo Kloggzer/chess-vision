@@ -192,15 +192,17 @@ def build_synth_dataset(
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
-    # TODO: Count after collapse_labels; pieces13 drops occluded rows and leaves pack metadata stale.
-    n_final = len(rows)
     # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
     # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
+    # Erst JETZT gezaehlt: `pieces13` wirft `occluded` weg, und Manifest, Memmap und
+    # `packed_meta.json` muessen dieselbe Zahl tragen.
+    n_final = len(rows)
 
     # Disk preflight without reading any file: the memmap size is exact arithmetic here.
     w, h = int(out_size[0]), int(out_size[1])
     need = n_final * h * w * 3
+    paths.root.mkdir(parents=True, exist_ok=True)   # `Paths` legt on demand an; `disk_usage` nicht
     free = shutil.disk_usage(str(paths.root)).free
     if need > free * 0.9:
         raise ValueError(f"packed memmap would need ~{need / 1e9:.0f} GB but only "

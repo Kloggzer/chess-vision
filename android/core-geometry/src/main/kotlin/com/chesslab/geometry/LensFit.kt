@@ -176,9 +176,9 @@ private fun orientationsIn(
     all: List<List<DoubleArray>>,
     usable: List<List<DoubleArray>>,
 ): Int {
-    // TODO: this compares SIGNED deltas where the question is about magnitudes, so on a board
-    // rotated past 45 degrees in the frame both families answer alike and the fit sees one axis.
-    val vertical = usable.count { line -> line.first()[0] - line.last()[0] < line.first()[1] - line.last()[1] }
+    // Magnitudes, not signed deltas: the sign is the direction the points happened to be sorted
+    // in, so past 45 degrees in the frame both families answered alike and the fit saw one axis.
+    val vertical = usable.count { line -> abs(line.first()[0] - line.last()[0]) < abs(line.first()[1] - line.last()[1]) }
     return if (vertical > 0 && vertical < usable.size) {
         2
     } else if (all.isEmpty()) {

@@ -326,9 +326,15 @@ def _is_plain_rgb(cfg: dict) -> bool:
     input representation (`--input-repr`) or on per-crop statistics does not fit the fold, and
     feeding it the wrong preprocessing silently is worse than losing the fast path.
     """
-    # TODO: Reject custom fixed mean/std here; the graph hard-codes config defaults and would diverge.
+    # Der gefaltete mul+sub traegt config.NORMALIZE_*; ein Lauf mit EIGENEN festen Statistiken
+    # wuerde still mit fremder Normalisierung bedient — das Modell-config.json entscheidet.
+    norm = cfg.get("normalize", {})
+    mean = tuple(float(v) for v in norm.get("mean", config.NORMALIZE_MEAN))
+    std = tuple(float(v) for v in norm.get("std", config.NORMALIZE_STD))
     return (cfg.get("input_repr", "rgb") == "rgb"
-            and cfg.get("normalize", {}).get("mode", "fixed") != "per_crop"
+            and norm.get("mode", "fixed") != "per_crop"
+            and mean == tuple(config.NORMALIZE_MEAN)
+            and std == tuple(config.NORMALIZE_STD)
             # CLAHE sitzt in der PIL-Kette; der gefaltete mul+sub kennt es nicht und wuerde es
             # STILL weglassen — dieselbe Regel, die `build_transform` fuer `_EvalRgbTransform` zieht.
             and float(cfg.get("clahe_clip", 0.0)) <= 0

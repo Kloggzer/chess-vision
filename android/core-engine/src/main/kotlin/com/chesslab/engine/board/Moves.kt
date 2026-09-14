@@ -27,8 +27,9 @@ fun sansOf(
     return runCatching { list.toSanArray().toList() }.getOrDefault(moves.map(::uci))
 }
 
-/** Smoothed FPS distinguishes active tracking from “no detection” on the phone. */
 // TODO: Remove this orphan; the live engine computes FPS in FrameLoop, so this duplicate can drift.
+
+/** Smoothed FPS distinguishes active tracking from “no detection” on the phone. */
 class FrameRate {
     var fps = 0.0
         private set
