@@ -4,7 +4,7 @@
 |---|---|---|---|
 | 00 | 00-planer-api.md | done | 2026-09-12; Planer, Schema, CLI, zwei Routen. 46 Auftraege auf der VOLLEN Karte, 46 eindeutige `id`. 18 pytest, 4 vitest gruen |
 | 01 | 01-import.md | **achtung** | 2026-09-13; gebaut, liest aber noch `steps[].video_frame`. Das Schema fuehrt seit derselben Nacht `elapsed_ns` — der Import bricht auf jedem Buendel ab, das 02 schreibt. Siehe unten |
-| 02 | 02-erfassungs-modus.md | done | 2026-09-13; alle vier Steps. `elapsed_ns` statt Frame-Index (Blocker unten, geloest). 8 JVM-Tests gruen, ktlint gruen, `:tracker-runtime` und `CameraVideo` unberuehrt. **4K ist NICHT gemessen** — kein Geraet, siehe eigener Abschnitt |
+| 02 | 02-erfassungs-modus.md | done | 2026-09-13; alle vier Steps. **4K ist seit 2026-09-14 GEMESSEN** (Screenshot vom Geraet): `asked 3840x2160 · 15 fps · 67 Mbit/s — got 3840x2160 · [15, 15] · 67 Mbit/s`, also keine Ruecknahme. `elapsed_ns` statt Frame-Index (Blocker unten, geloest). 8 JVM-Tests gruen, ktlint gruen, `:tracker-runtime` und `CameraVideo` unberuehrt. **4K ist NICHT gemessen** — kein Geraet, siehe eigener Abschnitt |
 | 03 | 03-messachsen.md | done | 2026-09-12; `pose_of`, `axes` ueber 979 363 Zeilen. Gemessen: `foreshorten` 0,95-1,00 = 502 278, 1,00-1,05 = 100 445, unbekannt = 376 640; `edge_px` 900-1000 = 406 077. `height`/`orientation_deg` heute ganz unbekannt — es gibt keine `capture.json` |
 | 04 | — | done | 2026-09-14 auf Nutzer-Einwand („das sagt mir immer nur stelle eine figur hin"). Ein Auftrag ist jetzt ein BUENDEL und die App misst live. 46 Luecken -> **5 Aufnahmen** mit 3-19 Figuren. 27 pytest (`test_capture_plan.py`), 19 JVM-Tests, 4 vitest gruen; ktlint gruen. `docs/capture-axes.md` |
 | 05 | — | done | 2026-09-14; Felder werden vor dem Aufbau FESTGEHALTEN (eine Figur verschiebt ihr Feld um bis zu 61 Grauwerte) und das CNN kontrolliert den Aufbau ueber `debug.cnnReads` — **nie als Veto**, 16 der 46 Luecken haben null Belege. 41 JVM-Tests gruen. Review 2026-09-14 (3 Agenten) fand 4 echte Fehler, alle zu |
@@ -23,6 +23,16 @@ Die Aufnahmen macht der Nutzer: Stellung aufbauen, Licht stellen, Figur drehen, 
 Kein Agent nimmt etwas auf.
 
 ## Notes / discrepancies
+
+**Der Schirm sah aus wie ein Befund, nicht wie eine Anleitung (2026-09-14, am Geraet).** Der
+Nutzer: „ich hab in der view wirklich keine Ahnung was ich tun soll, die positionen der figuren
+wirkt fuer mich mehr als ein was das modell entdeckt hat als eine anleitung da was zu platzieren."
+Er hat recht, und der Grund ist die geliehene Bildsprache: halbtransparente Kaesten mit einem
+Kuerzel in der Ecke sind GENAU das, womit `BoardPreview` erkannte Felder markiert. Seitdem steht
+die FIGUR als Schachzeichen gross im Zielfeld, die Ueberschrift ist die Aufgabe („4 Figuren
+aufstellen" / „1 von 4 stehen"), die Auftrags-id rutscht nach unten, und die CNN-Marken kommen
+erst nach dem Festhalten — vorher ist „leer" auf jedem Zielfeld trivial wahr und uebermalt nur
+die Anweisung.
 
 **Der Vorschlag war nie ein Auftrag (2026-09-14).** Der Nutzer hat den Erfassungs-Modus benutzt und
 zwei Dinge bemaengelt, beide berechtigt: er sagt immer nur „stelle EINE Figur hin", und er sagt

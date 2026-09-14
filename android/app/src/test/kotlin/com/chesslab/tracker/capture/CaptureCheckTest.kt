@@ -118,6 +118,41 @@ class CaptureCheckTest {
         assertTrue(orderLine(emptyList()).isNotEmpty())
     }
 
+    /**
+     * Ein Kuerzel in der Ecke las sich wie ein Befund des Modells, nicht wie eine Anweisung. Das
+     * Feld zeigt deshalb die FIGUR, die dorthin soll — ein Symbol, das ohne Erklaerung liest.
+     */
+    @Test
+    fun everyPieceHasItsOwnSymbol() {
+        val all = listOf("wK", "wQ", "wR", "wB", "wN", "wP", "bK", "bQ", "bR", "bB", "bN", "bP")
+
+        val symbols = all.map(::pieceSymbol)
+
+        assertEquals(all.size, symbols.toSet().size, "zwei Figuren teilen sich ein Zeichen: $symbols")
+        assertTrue(symbols.none { it.isBlank() }, symbols.toString())
+    }
+
+    @Test
+    fun anUnknownPieceFallsBackToItsOwnName() {
+        """Lieber `xx` als ein leeres Feld: ein Zielfeld ohne Zeichen waere gar keine Anweisung."""
+        assertEquals("xx", pieceSymbol("xx"))
+    }
+
+    @Test
+    fun theProgressCountsWhatTheModelCanSeeStanding() {
+        val targets = listOf(target("c8", "wQ"), target("a8", "wK"), target("e8", "bQ"))
+        val reads = listOf(read("c8", "wQ", conf = 0.9), read("a8", null, occupied = false))
+
+        assertEquals("1 von 3 stehen", progressLine(checkPlacement(targets, reads)))
+    }
+
+    @Test
+    fun withoutAModelTheProgressSaysHowManyToPlace() {
+        val targets = listOf(target("c8", "wQ"), target("a8", "wK"))
+
+        assertEquals("2 Figuren aufstellen", progressLine(checkPlacement(targets, emptyList())))
+    }
+
     @Test
     fun withTheModelOffTheLineSaysSoRatherThanZero() {
         val targets = listOf(target("c8", "wQ"))

@@ -29,6 +29,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.toSize
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.camera.CaptureObserved
@@ -199,7 +201,10 @@ fun CaptureSetupRoute(
         debug?.setDebugEnabled(!ui.recording)
         onDispose { debug?.setDebugEnabled(false) }
     }
-    val reads = if (ui.recording) emptyList() else status?.debug?.cnnReads.orEmpty()
+    // Erst ab dem Festhalten: vor dem Aufbau ist JEDES Zielfeld leer, und „leer" auf allen vier
+    // ist keine Meldung, sondern Laerm, der die eigentliche Anweisung uebermalt.
+    val reads =
+        if (ui.recording || ui.frozen == null) emptyList() else status?.debug?.cnnReads.orEmpty()
     val checks = remember(targets, reads) { checkPlacement(targets, reads) }
     val stray = remember(targets, reads) { strayPieces(targets, reads) }
     // The profile goes on here and the device is asked again while the human builds: a rebind to
@@ -211,7 +216,7 @@ fun CaptureSetupRoute(
         CaptureHost.refresh(recorder)
     }
 
-    ChesslabScaffold("Build it", onBack) { bars ->
+    ChesslabScaffold("Figuren aufstellen", onBack) { bars ->
         if (shot == null) {
             EmptyState("This shot is gone", "Go back and pick one from the plan.")
             return@ChesslabScaffold
@@ -221,15 +226,32 @@ fun CaptureSetupRoute(
             verticalArrangement = Arrangement.spacedBy(Space.sm),
         ) {
             Card {
-                Text(shot.id, style = MaterialTheme.typography.titleMedium, color = OnSurface)
-                Text(orderText(shot), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                // Die Aufgabe zuerst und in Befehlsform: der Schirm sah aus wie ein Befund des
+                // Modells, nicht wie eine Anleitung („keine Ahnung was ich tun soll", 2026-09-14).
+                Text(
+                    progressLine(checks).ifBlank { "${shot.place.size} Figuren aufstellen" },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = OnSurface,
+                )
                 // Die Felder IM KLARTEXT, nicht nur im Overlay: ohne Kamerabild waere sonst
                 // nirgends zu lesen, was aufzubauen ist.
                 Text(orderLine(targets), style = MaterialTheme.typography.bodyMedium, color = Accent)
+                Text("${shot.id} · ${orderText(shot)}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceMuted)
+                // Vor dem Festhalten ist nichts falsch, nur noch nichts entschieden — deshalb
+                // weder rot noch eine Aufforderung, am Licht zu drehen.
                 Text(
-                    if (frozen == null) "Erst das Licht stellen — die Felder wandern noch" else lightAdvice(targets),
+                    if (frozen == null) {
+                        "Noch nicht festgehalten — die Vorschlaege wandern mit der Messung"
+                    } else {
+                        lightAdvice(targets)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (frozen != null && targets.all { it.fit == Fit.OK }) Accent else Danger,
+                    color =
+                        when {
+                            frozen == null -> OnSurfaceMuted
+                            targets.all { it.fit == Fit.OK } -> Accent
+                            else -> Danger
+                        },
                 )
                 // Kontrolle, kein Veto: das Modell ist auf genau diesen Feldern am schwaechsten.
                 if (frozen != null) {
@@ -300,7 +322,7 @@ private fun TargetBoard(
         // Vor dem Draw-Lambda gelesen: das ist kein Composable-Scope (`BoardPreview`).
         val hit = Accent
         val miss = Danger
-        val pending = OnSurfaceMuted
+        val pending = OnSurface
         val label = TextStyle(color = OnSurface, fontSize = TARGET_TEXT)
         Canvas(Modifier.fillMaxSize()) {
             // Ohne Kamerabild ein eigenes Raster: die Anweisung, was wohin gehoert, darf nicht am
@@ -325,12 +347,17 @@ private fun TargetBoard(
                     }
                 drawRect(colour.copy(alpha = TARGET_FILL), cell.topLeft, cell.size)
                 drawRect(colour, cell.topLeft, cell.size, style = Stroke(width = TARGET_STROKE))
+                // Die FIGUR ins Feld, gross und mittig. Ein Kuerzel in der Ecke sah aus wie ein
+                // Befund des Tracking-Overlays; eine Figur im Feld liest jeder als „hierhin damit".
+                val glyph = measurer.measure(pieceSymbol(target.piece), pieceStyle(cell.width))
                 drawText(
-                    measurer,
-                    target.piece + checkMark(checks[target.square]),
-                    topLeft = cell.topLeft + Offset(TARGET_STROKE, TARGET_STROKE),
-                    style = label,
+                    glyph,
+                    topLeft = cell.center - Offset(glyph.size.width / 2f, glyph.size.height / 2f),
                 )
+                val at = cell.topLeft + Offset(TARGET_STROKE, TARGET_STROKE)
+                val note = measurer.measure(target.square + checkMark(checks[target.square]), label)
+                drawRect(LABEL_BACKDROP, at, note.size.toSize())
+                drawText(note, topLeft = at)
             }
             // Eine Figur auf einem Feld, das die FEN als `empty` fuehrt, verdirbt jeden Frame.
             stray.forEach { square ->
@@ -514,6 +541,25 @@ private fun checkMark(check: Check?): String =
 private fun orderText(shot: Shot): String = "${shot.place.size} Figuren, Kamera ${shot.height} — ${shot.stepCount} Drehungen"
 
 private const val BOARD_SIDE = 8
+
+/** Hinter der Feldbeschriftung, damit sie auf hellem Holz lesbar bleibt. */
+private val LABEL_BACKDROP = Color(0xCC101214)
+
+/**
+ * Die Geist-Figur im Zielfeld: weiss mit dunkler Kontur, damit sie auf beiden Feldfarben steht.
+ * Die Groesse folgt der Zelle — ein fester Wert waere auf dem Telefon entweder winzig oder zu gross.
+ */
+private fun DrawScope.pieceStyle(cellWidth: Float) =
+    TextStyle(
+        color = Color.White,
+        // `toSp` und nicht `.sp`: `cellWidth` ist ein Pixelmass des Canvas, und auf diesem
+        // Telefon (560 dpi) waere die Figur sonst dreieinhalbmal zu gross.
+        fontSize = (cellWidth * GLYPH_OF_CELL).toSp(),
+        shadow = Shadow(Color.Black, blurRadius = GLYPH_SHADOW),
+    )
+
+private const val GLYPH_OF_CELL = 0.62f
+private const val GLYPH_SHADOW = 6f
 
 /** Nur fuer das Ersatzbrett: ein Raster, das nicht vorgibt, ein Kamerabild zu sein. */
 private val EMPTY_LIGHT = Color(0xFFEED8B8)

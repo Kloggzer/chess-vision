@@ -49,6 +49,24 @@ fun strayPieces(
 }
 
 /**
+ * Das Schachzeichen einer Figur. Ein Kuerzel in der Feldecke sah aus wie ein Befund des Modells —
+ * dieselbe Sprache, die das Tracking-Overlay fuer ERKANNTES benutzt. Eine Figur, die im Feld
+ * steht, liest dagegen jeder als „hierhin damit".
+ */
+fun pieceSymbol(piece: String): String = SYMBOLS[piece] ?: piece
+
+/**
+ * Wie weit der Aufbau ist. Ohne Modell zaehlt sie die Aufgabe, nicht den Fortschritt: null von
+ * vier gestellt waere gelogen, solange niemand hinsieht.
+ */
+fun progressLine(checks: Map<String, Check>): String {
+    if (checks.isEmpty()) return ""
+    if (checks.values.all { it == Check.OFF }) return "${checks.size} Figuren aufstellen"
+    val standing = checks.count { it.value != Check.EMPTY && it.value != Check.OFF }
+    return "$standing von ${checks.size} stehen"
+}
+
+/**
  * Die Belegung als Text: `wQ c8 · bK a1`.
  *
  * Ohne Kamerabild zeichnet der Schirm kein Brett, und dann ist diese Zeile das Einzige, was sagt,
@@ -77,3 +95,20 @@ fun checkSummary(
     if (stray.isNotEmpty()) parts += "steht im Weg: ${stray.joinToString(", ")}"
     return parts.joinToString(" · ")
 }
+
+/** Die Figuren als Zeichen. Weiss und schwarz getrennt, damit auch die FARBE ohne Text liest. */
+private val SYMBOLS =
+    mapOf(
+        "wK" to "♔",
+        "wQ" to "♕",
+        "wR" to "♖",
+        "wB" to "♗",
+        "wN" to "♘",
+        "wP" to "♙",
+        "bK" to "♚",
+        "bQ" to "♛",
+        "bR" to "♜",
+        "bB" to "♝",
+        "bN" to "♞",
+        "bP" to "♟",
+    )
