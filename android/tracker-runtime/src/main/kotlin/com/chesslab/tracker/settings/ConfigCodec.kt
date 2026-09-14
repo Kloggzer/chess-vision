@@ -36,11 +36,14 @@ import kotlinx.serialization.json.Json
  * after 4 shipped, without the bump 3 made the rule — both were inert at 0, so the reset costs only
  * hand-tuned knobs, and `boardSize` is re-measured by `onMeasuredBoard`.
  *
+ * **6 changes the default `commitHoldS`:** the split commit uses 0.067 (133 ms) instead of
+ * null, so a stored null would keep overriding the new default on an upgraded device.
+ *
  * Note what a bump costs, because it is not free: it resets every knob to the defaults, and
  * `boardSize` is a measurement the calibration profile owns rather than a default anyone chose.
  * `TrackerService`'s `onMeasuredBoard` is what keeps that reset from silently stopping detection.
  */
-const val CONFIG_SCHEMA_VERSION = 5
+const val CONFIG_SCHEMA_VERSION = 6
 
 @Serializable
 private data class ConfigEnvelope(

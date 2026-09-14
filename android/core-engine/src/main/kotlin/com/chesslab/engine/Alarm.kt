@@ -78,7 +78,7 @@ internal fun EngineState.desyncEvidence(
     val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     val guess = if (due) cnn?.guessIllegalMove(board.fen(), snap.obs, config.cnnConfThr) else null
     if (guess != null) {
-        val raised = latchAlarm(conflicts, guess)
+        val raised = latchAlarm(desyncConflicts.squareNames(), guess)
         note = alarmNote(raised)
         return listOf(raised)
     }
@@ -91,7 +91,7 @@ internal fun EngineState.desyncEvidence(
             desyncObs >= config.desyncStandoffObsN &&
             !alarmDeferred()
     if (standoffDue) {
-        val raised = latchAlarm(conflicts, guess = null)
+        val raised = latchAlarm(desyncConflicts.squareNames(), guess = null)
         note = alarmNote(raised)
         return listOf(raised)
     }
@@ -158,7 +158,7 @@ private fun EngineState.raiseAlarmIfDue(
 ): List<TrackerEvent> {
     val due = alarmable && desyncObs >= config.desyncObsN && !alarmDeferred()
     if (!due || !cnn.hasOccupancyConflict(board.fen(), obs, config.cnnConfThr, conflicts)) return emptyList()
-    return listOf(latchAlarm(conflicts, cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
+    return listOf(latchAlarm(desyncConflicts.squareNames(), cnn.guessIllegalMove(board.fen(), obs, config.cnnConfThr)))
 }
 
 /**
