@@ -15,15 +15,35 @@ from pathlib import Path
 ASSETS = Path("android/app/src/main/assets/cnn_model")
 
 
+def stamp(asset: Path, gate: float) -> int:
+    """Set `coverage_gate` on an already staged asset and touch nothing else."""
+    cfg_path = asset / "config.json"
+    if not cfg_path.is_file() or not (asset / "model.onnx").is_file():
+        raise SystemExit(f"{asset} ist kein abgelegtes Asset (config.json + model.onnx)")
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    cfg["coverage_gate"] = gate
+    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    print(f"[OK] {asset.name}  coverage_gate={gate}")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("run")
+    ap.add_argument("run", nargs="?")
+    ap.add_argument("--stamp", metavar="ASSET-DIR",
+                    help="Nur `coverage_gate` in ein BESTEHENDES Asset schreiben. Das Gate wird "
+                         "nach dem Ablegen gemessen, und zu sechs der sieben gebuendelten "
+                         "Modelle gibt es keinen Lauf-Ordner mehr.")
     ap.add_argument("--gate", type=float, required=True,
                     help="coverage_gate, gemessen mit scripts/occlusion_gate.py")
     ap.add_argument("--name", default=None, help="Asset-Ordner (Default: Name des Run-Ordners)")
     ap.add_argument("--force", action="store_true", help="Vorhandenen Asset-Ordner ueberschreiben")
     args = ap.parse_args()
 
+    if args.stamp:
+        return stamp(Path(args.stamp), args.gate)
+    if not args.run:
+        raise SystemExit("entweder <run-dir> oder --stamp <asset-dir>")
     run = Path(args.run)
     cfg = json.loads((run / "config.json").read_text(encoding="utf-8"))
     onnx = run / "model.onnx"
