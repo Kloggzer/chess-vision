@@ -91,13 +91,23 @@ class CnnModelAssets(
 
     private var recopied = false
 
-    /** Size-guarded: an already-staged file of the same length is left alone. */
+    /**
+     * The config is compared by CONTENT, the graph by length.
+     *
+     * `coverage_gate` 0.25 and 0.35 are the same number of bytes, so a size guard left the stale
+     * copy standing and an A/B between two thresholds would have measured nothing.
+     */
     private fun stageFile(name: String): File? {
         val source = open(name) ?: return null
         return source.use { input ->
             val target = File(dir, name)
-            val expected = input.available().toLong()
-            if (!target.isFile || target.length() != expected) {
+            if (name == MODEL_CONFIG_FILE) {
+                val bytes = input.readBytes()
+                if (!target.isFile || !target.readBytes().contentEquals(bytes)) {
+                    target.writeBytes(bytes)
+                    recopied = true
+                }
+            } else if (!target.isFile || target.length() != input.available().toLong()) {
                 target.outputStream().use { input.copyTo(it) }
                 recopied = true
             }

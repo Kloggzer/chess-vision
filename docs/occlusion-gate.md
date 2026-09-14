@@ -22,7 +22,9 @@ confidente Entscheidung wenn die Hand im Bild ist einfach falsch"*).
 
 Die Regel ist die übliche Form unter asymmetrischem Verlust: ein Read lohnt, wenn
 `p(richtig) ≥ λ/(1+λ)`, mit λ als Preis einer Erfindung gegen den Nutzen eines Treffers. Was
-dabei herauskommt, hängt am Modell — gemessen bei λ = 2, Wilson-Untergrenze, zusammengefasste
+dabei herauskommt, hängt am Modell. **Der Projektwert ist λ = 3 (Nutzer, 2026-09-14), nicht die
+2, unter der die drei Läufe hier gemessen wurden** — die Tabelle bleibt als Herleitung der Regel
+stehen, die ausgelieferten Schwellen stehen weiter unten. Wilson-Untergrenze, zusammengefasste
 Bänder:
 
 | Modell | 0,00–0,02 | 0,02–0,15 | 0,15–0,25 | τ bei λ=2 |
@@ -58,26 +60,39 @@ erbten alle den Alt-Default 0,5, genau die Konstante, die dieses Dokument oben v
 `ModelSpecTest` stand deshalb rot und ist es seit der Messung nicht mehr.
 
 Gemessen auf den **12 Aufnahmen, die alle sieben herausgehalten haben**, 104 337 Figuren-Reads
-gegen die SAM-Matte, λ = 2, Wilson-Untergrenze:
+gegen die SAM-Matte, Wilson-Untergrenze.
 
-| Modell | τ (λ=2) | 0,00–0,02 | 0,15–0,25 | 0,50–0,70 | Reads, die bleiben |
-|---|---|---|---|---|---|
-| `p4a-80-clahe` (Default) | **0,35** | 94,1 % | 79,2 % | 29,5 % | 85 % |
-| `p4a-128` | **0,35** | 96,9 % | 84,6 % | 42,2 % | 85 % |
-| `p4afull-128` | **0,35** | 95,5 % | 84,9 % | 47,8 % | 85 % |
-| `p4a-80` | **0,15** | 93,5 % | 68,2 % | 18,3 % | 84 % |
-| `p4full-128` | **0,15** | 97,8 % | 64,8 % | 24,9 % | 86 % |
-| `p4-128` | **0,10** | 97,5 % | 61,4 % | 22,8 % | 85 % |
-| `p4-80` | **0,05** | 94,2 % | 57,2 % | 21,7 % | 84 % |
+**λ = 3, nicht 2 (Nutzer, 2026-09-14: „das wichtigste ist keine phantome zu haben").** λ ist eine
+ENTSCHEIDUNG, keine Messung: es sagt, was eine Erfindung gegen einen Treffer kostet. Die
+stehende Regel des Projekts ist, dass Phantome disqualifizieren und Misses verrechenbar sind, und
+λ = 3 (ein Read muss 75 % halten) bildet genau das ab. Es kostet gegenueber λ = 2 rund **einen
+Prozentpunkt der Reads** und wirft dafuer die knappen Baender raus.
 
-**Die `a`-Familie traegt den Unterschied.** `p4a-80-clahe` haelt bei 0,15–0,25 noch 79,2 %, wo
+| Modell | τ (λ=3) | 0,00–0,02 | 0,15–0,25 | 0,25–0,35 | 0,50–0,70 | Reads bleiben |
+|---|---|---|---|---|---|---|
+| `p4a-128` | **0,35** | 96,9 % | 84,6 % | 80,2 % | 42,2 % | 85 % |
+| `p4afull-128` | **0,35** | 95,5 % | 84,9 % | 77,7 % | 47,8 % | 85 % |
+| `p4a-80-clahe` (Default) | **0,25** | 94,1 % | 79,2 % | 72,2 % | 29,5 % | 84 % |
+| `p4a-80` | **0,15** | 93,5 % | 68,2 % | 55,9 % | 18,3 % | 84 % |
+| `p4-128` | **0,05** | 97,5 % | 61,4 % | 44,5 % | 22,8 % | 84 % |
+| `p4-80` | **0,05** | 94,2 % | 57,2 % | 46,7 % | 21,7 % | 84 % |
+| `p4full-128` | **0,05** | 97,8 % | 64,8 % | 53,7 % | 24,9 % | 84 % |
+
+(Die Prozente sind die Punktwerte; entschieden hat jeweils die Untergrenze. τ ist die OBERE Kante
+des letzten angenommenen Bandes — `p4a-80-clahe` mit 0,25 nimmt also 0,15–0,25 bei 76,6 %
+Untergrenze noch mit und verwirft 0,25–0,35 bei 69,3 %.)
+
+**Was λ = 2 anders entschieden haette:** `p4a-80-clahe` 0,35, `p4-128` 0,10, `p4full-128` 0,15 —
+die uebrigen vier gleich. Die drei Unterschiede sind genau die Baender, die zwischen 67 % und
+75 % liegen, und `p4afull-128` haelt seine 0,35 bei λ = 3 mit 75,1 % Untergrenze nur knapp.
+
+**Die `a`-Familie traegt die Spreizung.** `p4a-80-clahe` haelt bei 0,15–0,25 noch 79,2 %, wo
 `p4-80` auf 57,2 % faellt — Faktor 7 zwischen dem strengsten und dem lockersten Gate, dieselbe
 Spreizung wie zwischen comp13 und den real13-Laeufen oben. Eine gemeinsame Konstante kann fuer
 beide Enden nicht stimmen.
 
 **Und 0,5 war fuer JEDES der sieben zu lasch.** Im Band 0,50–0,70, das der Alt-Default als Evidenz
-durchliess, liegt selbst der beste bei 47,8 % und der Default bei 29,5 %. Das Zumachen kostet
-14–16 % der Reads, und das sind fast nur die falschen.
+durchliess, liegt selbst der beste bei 47,8 % und der Default bei 29,5 %.
 
 Die vier Modelle mit aelterem Gate (`real14-80` ohne, die beiden `real13-ms-*` je 0,15,
 `comp13-occ-bn-lr1e2-bs512` 0,02) sind seit 2026-08-30 NICHT mehr im APK. Ihre Zahlen oben bleiben

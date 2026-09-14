@@ -41,12 +41,15 @@
   **The threshold rides in the model, not the engine, and all seven now carry a MEASURED one
   (2026-09-14):** `coverage_gate` in the model's `config.json`, read by `ModelSpec`, applied onto
   `TrackerConfig.pOccludedThr`. Measured on the 12 recordings all seven held out, 104 337 piece
-  reads against the SAM matte, lambda 2: the `a` family 0,35 (`p4a-80-clahe`, `p4a-128`,
-  `p4afull-128`), then 0,15 (`p4a-80`, `p4full-128`), 0,10 (`p4-128`), 0,05 (`p4-80`). **0,5 was
-  too loose for every one of them** — in the band it let through, the best sits at 47,8 % correct
-  and the default at 29,5 %; closing it costs 14-16 % of the reads, almost all of them wrong.
-  `ModelSpecTest` pinned the gap and is green since. Repeating the measurement, and the guard bug
-  that nearly voided it: `docs/occlusion-gate.md`.
+  reads against the SAM matte. **lambda = 3, because phantoms are the veto** (user, 2026-09-14:
+  "das wichtigste ist keine phantome zu haben") — lambda is a DECISION, not a measurement, and 3
+  demands 75 % per read where 2 demands 67 %. It costs about one point of the reads. Result:
+  `p4a-128`/`p4afull-128` 0,35, `p4a-80-clahe` (DEFAULT) **0,25**, `p4a-80` 0,15, the three plain
+  p4 runs 0,05. Under lambda 2 three of them would sit looser (clahe 0,35, `p4-128` 0,10,
+  `p4full-128` 0,15). **0,5 was too loose for every one of them** — in the band it let through,
+  the best sits at 47,8 % correct and the default at 29,5 %. `ModelSpecTest` pinned the gap and is
+  green since. Repeating the measurement, and the guard bug that nearly voided it:
+  `docs/occlusion-gate.md`.
   `BUNDLED_MODELS` is hand-maintained: a model merely dropped into `assets/cnn_model/` never
   appears in the picker.
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.

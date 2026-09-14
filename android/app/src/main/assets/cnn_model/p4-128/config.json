@@ -278,5 +278,5 @@
   },
   "temperature": 1.7551,
   "coverage_output": true,
-  "coverage_gate": 0.1
+  "coverage_gate": 0.05
 }
