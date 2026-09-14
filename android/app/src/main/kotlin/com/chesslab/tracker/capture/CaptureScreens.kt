@@ -26,7 +26,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.chesslab.engine.api.TrackerStatus
 import com.chesslab.tracker.camera.CaptureObserved
+import com.chesslab.tracker.service.TrackerRun
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.sync.SyncHost
@@ -81,6 +86,10 @@ fun CapturePlanRoute(
         settings.load()
         CaptureHost.load(scope) { settings.prefs.value }
     }
+    // Ohne laufenden Dienst gibt es keine Kamera und kein `boardPreview` — der Schirm misst dann
+    // nichts und der Mensch muss erst von Hand eine Partie starten. Hier, nicht im Aufbau-Schirm:
+    // Dienststart und Bindung kosten Frames, die der Weg ueber die Liste ohnehin hergibt.
+    LaunchedEffect(Unit) { TrackerRun.start() }
 
     ChesslabScaffold("Targeted capture", onBack) { bars ->
         LazyColumn(
@@ -214,6 +223,9 @@ fun CaptureSetupRoute(
             Card {
                 Text(shot.id, style = MaterialTheme.typography.titleMedium, color = OnSurface)
                 Text(orderText(shot), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                // Die Felder IM KLARTEXT, nicht nur im Overlay: ohne Kamerabild waere sonst
+                // nirgends zu lesen, was aufzubauen ist.
+                Text(orderLine(targets), style = MaterialTheme.typography.bodyMedium, color = Accent)
                 Text(
                     if (frozen == null) "Erst das Licht stellen — die Felder wandern noch" else lightAdvice(targets),
                     style = MaterialTheme.typography.bodyMedium,
@@ -277,23 +289,30 @@ private fun TargetBoard(
     val measurer = rememberTextMeasurer()
     val bitmap = board
     Box(modifier) {
-        if (bitmap == null) {
-            EmptyState("Kein Brett im Bild", "Die Kamera sieht keine Marker — erst kalibrieren.")
-            return@Box
+        bitmap?.let {
+            Image(
+                bitmap = it.asImageBitmap(),
+                contentDescription = "Brett mit den Zielfeldern des Auftrags",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = "Brett mit den Zielfeldern des Auftrags",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize(),
-        )
         // Vor dem Draw-Lambda gelesen: das ist kein Composable-Scope (`BoardPreview`).
         val hit = Accent
         val miss = Danger
         val pending = OnSurfaceMuted
         val label = TextStyle(color = OnSurface, fontSize = TARGET_TEXT)
         Canvas(Modifier.fillMaxSize()) {
-            val rect = fittedRect(size, bitmap.width, bitmap.height)
+            // Ohne Kamerabild ein eigenes Raster: die Anweisung, was wohin gehoert, darf nicht am
+            // Bild haengen — sonst steht der Mensch vor einem leeren Schirm und baut gar nichts.
+            val rect =
+                if (bitmap != null) {
+                    fittedRect(size, bitmap.width, bitmap.height)
+                } else {
+                    val side = minOf(size.width, size.height)
+                    Rect(Offset((size.width - side) / 2f, (size.height - side) / 2f), Size(side, side))
+                }
+            if (bitmap == null) drawEmptyBoard(rect)
             targets.forEach { target ->
                 val cell = cellRect(rect, target.square) ?: return@forEach
                 val colour =
@@ -456,6 +475,21 @@ fun CaptureTurnRoute(
     }
 }
 
+/** Ein Schachbrett aus Rechtecken — der Ersatz fuer das Kamerabild, nicht seine Nachahmung. */
+private fun DrawScope.drawEmptyBoard(board: Rect) {
+    val cell = board.width / BOARD_SIDE
+    for (col in 0 until BOARD_SIDE) {
+        for (row in 0 until BOARD_SIDE) {
+            val dark = (col + row) % 2 == 1
+            drawRect(
+                if (dark) EMPTY_DARK else EMPTY_LIGHT,
+                Offset(board.left + col * cell, board.top + row * cell),
+                Size(cell, cell),
+            )
+        }
+    }
+}
+
 /**
  * Die eingestellte Brettorientierung. Sie entscheidet, welches PIXEL zu welchem Feld gehoert:
  * der Warp kennt kein `whitePov`, die Feldzuordnung schon, und bei BLACK_BOTTOM liegt `a8` unten
@@ -478,6 +512,12 @@ private fun checkMark(check: Check?): String =
     }
 
 private fun orderText(shot: Shot): String = "${shot.place.size} Figuren, Kamera ${shot.height} — ${shot.stepCount} Drehungen"
+
+private const val BOARD_SIDE = 8
+
+/** Nur fuer das Ersatzbrett: ein Raster, das nicht vorgibt, ein Kamerabild zu sein. */
+private val EMPTY_LIGHT = Color(0xFFEED8B8)
+private val EMPTY_DARK = Color(0xFFA67C5A)
 
 private const val VIEWFINDER_RATIO = 4f / 3f
 

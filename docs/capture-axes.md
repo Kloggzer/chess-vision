@@ -206,3 +206,53 @@ ohne Symptom. Der Schirm reicht die Einstellung jetzt durch (`AppSettings.orient
 dieselbe Annahme für das Tracking-Overlay. Messung und Overlay sind damit konsistent *zueinander*
 falsch, aber beide inkonsistent zu den Crops, die das CNN sieht. Das Overlay ist nicht mit
 korrigiert — wer es anfasst, prüft zuerst, ob `BoardPreview` je unter `BLACK_BOTTOM` lief.
+
+## Die Zieldomaene ist `dunkel` bis `hell` — die Raender kommen als Beifang (2026-09-14)
+
+Am Geraet gemessen und vom Nutzer bestaetigt: die beiden Randbaender waren nicht nur schwer zu
+treffen, sie liegen auch grossenteils ausserhalb dessen, was das Modell koennen muss.
+
+| Band (alt) | Anteil | Kontrast | Dynamik | Farbigkeit |
+|---|---|---|---|---|
+| `sehr dunkel` (0-40) | 6,8 % | **28,7** | 83,8 | 13,3 |
+| Mitte | 92,8 % | 69,2 | 183,8 | 21,9 |
+| `sehr hell` (180-256) | 0,4 % | 75,3 | 206,1 | 24,7 |
+
+`sehr dunkel` traegt **halben Kontrast und halbe Farbigkeit** — da ist wenig zu lernen.
+`sehr hell` ist dagegen das kontrastreichste Band ueberhaupt, aber mit 1 352 Zellen so selten,
+dass ein Auftrag dafuer den Aufwand nicht traegt. Nichts brennt aus: der hellste je gemessene
+Wert ist **240**, der dunkelste **2** — 0 und 255 gibt es nicht, weshalb die geometrische Mitte
+eines Randbands (20 bzw. 218) ein Ziel war, das nie existierte.
+
+**Beide entstehen ohnehin nicht durch die Zimmerlampe.** Die Kamera regelt aus: bei Kerzenlicht
+wird das Bild nicht dunkel, sondern verrauscht. Ein Extremwert entsteht durch SCHATTEN und
+SPOTLIGHT — punktuelles Licht macht helle und tiefdunkle Zellen im selben Bild. Deshalb sind die
+Raender Beifang einer solchen Aufnahme, kein eigener Auftrag.
+
+Die Zieldomaene `[40, 180)` ist seitdem in fuenf **gleich breite** Gruppen geteilt (`dunkel`,
+`halbdunkel`, `mittel`, `halbhell`, `hell`, je 28 Grauwerte). Gleich breit und nicht nach
+Quantilen: Quantilgrenzen verschoeben sich mit jedem neuen Datensatz und machten alte
+Lueckenzahlen unvergleichbar. `OUTSIDE` haelt `zu dunkel` und `zu hell` fuer die Messung bereit;
+`coverage_gaps.gaps()` laeuft nur ueber `BANDS` und beauftragt sie nie.
+
+**Was das bringt, gemessen auf `real13-mix-v7-128`:** 46 duenne Zellen -> **29**, davon **0 nur
+ueber Licht** erreichbar (vorher 12). Aus 5 unmoeglichen Auftraegen werden **6 erfuellbare** mit
+2 bis 10 Figuren. Am echten Brett (`20-19`, ohne jede Lichtaenderung): **9 von 10 Zielfeldern im
+Band** statt 0 von 13.
+
+Dritte Buendelgrenze ist seitdem `BAND_CAPACITY` — wie viele Felder EINER Farbe gleichzeitig in
+eine Gruppe fallen, p90 ueber 15 235 volle Bretter. Ohne sie verlangte der Plan zwoelf Figuren
+fuer eine Gruppe, in die ein einziges Feld faellt.
+
+## Die Anweisung darf nicht am Kamerabild haengen (2026-09-14)
+
+Zwei Fehler, die zusammen dafuer sorgten, dass der Nutzer **nie sah, was er aufbauen soll**:
+
+- Der Erfassungs-Schirm startete `TrackerRun` nie. Ohne laufenden Dienst gibt es keine Kamera und
+  kein `boardPreview` — der Mensch musste erst von Hand eine Partie starten.
+- `TargetBoard` zeichnete das Overlay nur UEBER dem Kamerabild und sonst einen leeren Hinweis.
+  Dazu war die Auftragszeile auf „10 Figuren, Kamera tief" gekuerzt, weil das Brett die Felder ja
+  zeigte. Ohne Bild stand damit nirgends, welche Figur wohin gehoert.
+
+Seitdem zeichnet der Schirm ohne Bild sein eigenes Raster, und `orderLine` nennt die Belegung im
+Klartext (`wQ c8 · bK a1`) — unabhaengig davon, ob die Kamera etwas liefert.

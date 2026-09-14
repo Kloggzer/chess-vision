@@ -48,6 +48,19 @@ fun strayPieces(
     return reads.filter { it.square !in wanted && it.occupied && it.confident }.map { it.square }
 }
 
+/**
+ * Die Belegung als Text: `wQ c8 · bK a1`.
+ *
+ * Ohne Kamerabild zeichnet der Schirm kein Brett, und dann ist diese Zeile das Einzige, was sagt,
+ * was aufzubauen ist — sie darf die Felder deshalb nie weglassen, auch wenn das Overlay sie zeigt.
+ */
+fun orderLine(targets: List<Target>): String =
+    if (targets.isEmpty()) {
+        "nichts aufzubauen — leeres Brett"
+    } else {
+        targets.joinToString(" · ") { "${it.piece} ${it.square}" }
+    }
+
 /** Ein Satz, der zaehlt und benennt — nie ein Urteil ueber den Aufbau. */
 fun checkSummary(
     checks: Map<String, Check>,

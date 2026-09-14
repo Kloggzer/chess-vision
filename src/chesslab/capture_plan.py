@@ -13,12 +13,16 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
 
-#: Helligkeitsbaender des Zell-Mittelwerts. Die Grenzen folgen dem Lichtgradienten des Bretts
-#: (h3 bei 156, a7 bei 20 auf 20-41-33), nicht einer runden Zahl. Hier und nicht in `scripts/`,
-#: weil zwei Auswahlregeln daran haengen und `scripts/` kein Paket ist.
+#: Die ZIELDOMAENE des Zell-Mittelwerts, in fuenf gleich breite Gruppen. 92,8 % aller sichtbaren
+#: Figurenzellen liegen darin. Gleich breit und NICHT nach Quantilen: Quantilgrenzen verschoeben
+#: sich mit jedem neuen Datensatz und machten alte Lueckenzahlen unvergleichbar.
 BANDS: tuple[tuple[int, int, str], ...] = (
-    (0, 40, "sehr dunkel"), (40, 80, "dunkel"), (80, 130, "mittel"),
-    (130, 180, "hell"), (180, 256, "sehr hell"))
+    (40, 68, "dunkel"), (68, 96, "halbdunkel"), (96, 124, "mittel"),
+    (124, 152, "halbhell"), (152, 180, "hell"))
+#: Die Raender. Sie werden GEMESSEN, aber nie beauftragt (`coverage_gaps.gaps` laeuft ueber
+#: `BANDS`): unter 40 faellt der Kontrast auf 28,7 gegen 69,2 in der Mitte, ueber 180 liegen
+#: 0,4 % des Korpus. Beides entsteht durch Schatten und Spotlight — als Beifang, nicht auf Ansage.
+OUTSIDE: tuple[tuple[int, int, str], ...] = ((0, 40, "zu dunkel"), (180, 256, "zu hell"))
 PIECES = ("wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
 #: Ab hier gilt eine Zelle als belegt. 200 sichtbare Crops sind rund drei Verweil-Episoden.
 THIN = 200
@@ -31,6 +35,15 @@ HEIGHTS = ("tief", "normal", "hoch")
 #: Wie oft eine Figur im Kasten liegt. Sie ist die Buendelgrenze: `bQ` fehlt in fuenf Baendern,
 #: es gibt aber nur eine schwarze Dame — also braucht es fuenf Aufnahmen, nicht fuenf Auftraege.
 SET_BUDGET = {"P": 8, "N": 2, "B": 2, "R": 2, "Q": 1, "K": 1}
+#: Wie viele Felder EINER Farbe gleichzeitig in einer Gruppe liegen (p90 ueber 15 235 volle
+#: Bretter). Ohne diese Grenze verlangte der Plan 12 Figuren in einer Gruppe, die ein Feld
+#: hergibt — die Anweisung wurde nie gruen, weil sie es nicht werden konnte.
+BAND_CAPACITY: dict[tuple[str, str], int] = {
+    ("light", "dunkel"): 3, ("light", "halbdunkel"): 8, ("light", "mittel"): 11,
+    ("light", "halbhell"): 16, ("light", "hell"): 14,
+    ("dark", "dunkel"): 22, ("dark", "halbdunkel"): 16, ("dark", "mittel"): 8,
+    ("dark", "halbhell"): 4, ("dark", "hell"): 2,
+}
 UNKNOWN = "unbekannt"
 
 
@@ -40,7 +53,7 @@ def band_of(value: float | None) -> str:
     an (`training/data.py:186`). Beides waere geraten, also bekommen sie ein eigenes Band."""
     if value is None:
         return UNKNOWN
-    for lo, hi, name in BANDS:
+    for lo, hi, name in BANDS + OUTSIDE:
         if lo <= value < hi:
             return name
     return "?"
@@ -56,7 +69,7 @@ def band_middle(name: str) -> float:
 def band_range(name: str) -> tuple[int, int]:
     """Die Grenzen selbst. Sie reisen im Auftrag mit, weil die App gegen sie MISST — eine Mitte
     allein sagt nicht, ob ein Feld gerade drin liegt."""
-    for lo, hi, band in BANDS:
+    for lo, hi, band in BANDS + OUTSIDE:
         if band == name:
             return lo, hi
     raise ValueError(f"unbekanntes Band: {name!r}")
@@ -169,23 +182,27 @@ def board_spread(bright: dict[str, float]) -> float:
 
 
 def bundles(gaps: Sequence[Gap], spread: float) -> list[list[Gap]]:
-    """So viele Luecken je Aufnahme, wie Figurenset UND Lampe hergeben.
+    """So viele Luecken je Aufnahme, wie Figurenset, Brett UND Lampe hergeben.
 
-    Zwei Grenzen: eine Figur liegt nur so oft im Kasten (`SET_BUDGET`), und zwei Baender passen
-    nur zusammen, wenn ihre Mitten naeher beieinander liegen als das Brett spannt — sonst stuende
-    im selben Bild ein Feld auf 20 und eines auf 218. Die Reihenfolge von `gaps()` bleibt."""
+    Drei Grenzen: der Figurenkasten (`SET_BUDGET`), wie viele Felder einer Farbe gleichzeitig in
+    die Gruppe fallen (`BAND_CAPACITY` — ohne sie verlangte der Plan zwoelf Figuren fuer ein
+    Feld), und die Brettspanne gegen die Gruppenmitten. Die Reihenfolge von `gaps()` bleibt."""
     rest = list(gaps)
     out: list[list[Gap]] = []
     while rest:
         used: dict[str, int] = {}
+        filled: dict[tuple[str, str], int] = {}
         mids: list[float] = []
         taken: list[Gap] = []
         left: list[Gap] = []
         for gap in rest:
             piece, mid = gap["piece"], band_middle(gap["band"])
+            cell = (gap["square_color"], gap["band"])
             reach = max(mids + [mid]) - min(mids + [mid]) <= spread
-            if reach and used.get(piece, 0) < SET_BUDGET.get(piece[1], 1):
+            room = filled.get(cell, 0) < BAND_CAPACITY.get(cell, len(gaps))
+            if reach and room and used.get(piece, 0) < SET_BUDGET.get(piece[1], 1):
                 used[piece] = used.get(piece, 0) + 1
+                filled[cell] = filled.get(cell, 0) + 1
                 mids.append(mid)
                 taken.append(gap)
             else:

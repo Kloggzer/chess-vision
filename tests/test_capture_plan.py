@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from chesslab.capture_plan import (
+    BAND_CAPACITY,
     BANDS,
     HEIGHTS,
     ORIENTATION_STEPS,
@@ -31,13 +32,13 @@ _spec = importlib.util.spec_from_file_location(
 COVERAGE = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(COVERAGE)
 
-#: Je Farbe drei Felder: eines im Band `sehr hell`, eines in `mittel`, eines in `dunkel`.
+#: Je Farbe drei Felder, eines in `hell`, `mittel` und `dunkel` der ZIELDOMAENE.
 #: Die Farben sind die des echten Bretts — a1 dunkel, b1 hell, a3 dunkel.
-BRIGHT = {"h3": 215.0, "b1": 100.0, "e4": 40.0,          # hell
-          "a1": 210.0, "a3": 105.0, "d4": 35.0}          # dunkel
+BRIGHT = {"h3": 166.0, "b1": 110.0, "e4": 54.0,          # hell
+          "a1": 166.0, "a3": 110.0, "d4": 54.0}          # dunkel
 
 
-def _gap(piece="wQ", colour="light", band="sehr hell", have=0, fix="Stellung") -> Gap:
+def _gap(piece="wQ", colour="light", band="hell", have=0, fix="Stellung") -> Gap:
     return Gap(piece=piece, square_color=colour, band=band, have=have, fix=fix,
                corpus_in_band=1211)
 
@@ -45,13 +46,13 @@ def _gap(piece="wQ", colour="light", band="sehr hell", have=0, fix="Stellung") -
 def test_a_missing_brightness_is_unknown_not_dark():
     """376 640 Komposit-Zeilen haengen daran; `or 0.0` warf sie frueher ins dunkelste Band."""
     assert band_of(None) == "unbekannt"
-    assert band_of(0.0) == "sehr dunkel"
+    assert band_of(0.0) == "zu dunkel"
 
 
 def test_band_middle_is_defined_for_every_band():
     """Die Auswahlregel braucht sie fuer alle fuenf — „hellstes bzw. dunkelstes" waere fuer
     `mittel` nicht entscheidbar."""
-    assert [band_middle(name) for _, _, name in BANDS] == [20.0, 60.0, 105.0, 155.0, 218.0]
+    assert [band_middle(name) for _, _, name in BANDS] == [54.0, 82.0, 110.0, 138.0, 166.0]
 
 
 def test_square_colour_matches_the_board():
@@ -73,12 +74,12 @@ def test_a_placement_carries_the_band_it_is_measured_against():
     machen den Vorschlag pruefbar."""
     got = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["place"]
 
-    assert got == [{"square": "b1", "piece": "wQ", "band": "mittel", "lo": 80, "hi": 130}]
+    assert got == [{"square": "b1", "piece": "wQ", "band": "mittel", "lo": 96, "hi": 124}]
 
 
 def test_the_field_is_the_one_nearest_the_band_middle_not_the_brightest():
-    """Fuer `sehr hell` ist es das hellste, fuer `mittel` gerade nicht — dieselbe Regel."""
-    hell = shots([_gap(band="sehr hell")], BRIGHT, limit=1)[0]["place"][0]["square"]
+    """Fuer `hell` ist es das hellste, fuer `mittel` gerade nicht — dieselbe Regel."""
+    hell = shots([_gap(band="hell")], BRIGHT, limit=1)[0]["place"][0]["square"]
     mitte = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["place"][0]["square"]
 
     assert hell == "h3" and mitte == "b1"
@@ -112,12 +113,46 @@ def test_eight_pawn_gaps_still_fit_one_shot():
 
 
 def test_bands_further_apart_than_the_board_spans_cannot_share_a_shot():
-    """Eine Lampe verschiebt alle Felder zusammen. `sehr dunkel` (20) und `sehr hell` (218) im
-    selben Bild verlangten eine Spanne von 198 — gemessen sind es 112."""
-    gaps = [_gap(piece="wQ", band="sehr dunkel"), _gap(piece="wK", band="sehr hell")]
+    """Eine Lampe verschiebt alle Felder zusammen. Die Zieldomaene spannt von `dunkel` (54) bis
+    `hell` (166) genau 112 — gemessen ist die Brettspanne 112, also passen alle fuenf Gruppen in
+    EIN Bild. Ein Grauwert weniger, und die Raender trennen sich."""
+    gaps = [_gap(piece="wQ", band="dunkel"), _gap(piece="wK", band="hell")]
 
-    assert [len(g) for g in bundles(gaps, spread=112)] == [1, 1]
-    assert [len(g) for g in bundles(gaps, spread=198)] == [2]
+    assert [len(g) for g in bundles(gaps, spread=111)] == [1, 1]
+    assert [len(g) for g in bundles(gaps, spread=112)] == [2]
+
+
+def test_a_band_never_gets_more_pieces_than_squares_fall_into_it():
+    """Gemessen ueber 15 235 volle Bretter: in `hell` liegen auf dunklen Feldern p90 ZWEI Zellen
+    gleichzeitig. Ein Auftrag ueber vier davon wurde nie gruen, weil er es nicht werden konnte."""
+    gaps = [_gap(piece=p, colour="dark", band="hell") for p in ("wQ", "wK", "bQ", "bK")]
+
+    got = bundles(gaps, spread=255)
+
+    assert [len(g) for g in got] == [BAND_CAPACITY[("dark", "hell")], 2]
+
+
+def test_the_capacity_is_per_band_and_colour_not_global():
+    """Auf hellen Feldern traegt dieselbe Gruppe 14 — die Grenze ist die Feldfarbe, nicht das Band."""
+    gaps = [_gap(piece=p, colour="light", band="hell") for p in ("wQ", "wK", "bQ", "bK")]
+
+    assert [len(g) for g in bundles(gaps, spread=255)] == [4]
+
+
+def test_the_edges_are_measured_but_never_ordered():
+    """`zu dunkel` und `zu hell` entstehen durch Schatten und Spotlight — als Beifang. Der Planer
+    kennt sie, `coverage_gaps.gaps` laeuft aber nur ueber `BANDS`."""
+    assert band_of(20.0) == "zu dunkel" and band_of(200.0) == "zu hell"
+    assert band_range("zu dunkel") == (0, 40) and band_range("zu hell") == (180, 256)
+    assert "zu dunkel" not in [n for _, _, n in BANDS]
+
+
+def test_the_target_domain_is_five_equal_groups():
+    """Gleich breit und nicht nach Quantilen: Quantilgrenzen verschoeben sich mit jedem Datensatz
+    und machten alte Lueckenzahlen unvergleichbar."""
+    widths = {hi - lo for lo, hi, _ in BANDS}
+
+    assert widths == {28} and BANDS[0][0] == 40 and BANDS[-1][1] == 180
 
 
 def test_board_spread_is_the_gradient_not_the_absolute_level():
@@ -180,7 +215,7 @@ def test_limit_cuts_bundles_without_reordering():
 
 
 def test_band_range_and_middle_agree():
-    assert band_range("mittel") == (80, 130) and band_middle("mittel") == 105.0
+    assert band_range("mittel") == (96, 124) and band_middle("mittel") == 110.0
 
 
 def test_shots_refuses_an_unmeasured_board():
@@ -309,7 +344,7 @@ def test_axes_counts_a_different_denominator_than_the_gaps(axes, tmp_path):
     """`gaps` zaehlt nur sichtbare Figurenzellen, `axes` jede Zeile — nie gegeneinander rechnen."""
     rows = [{"session_id": "comp-x", "frame": "0", "label": "empty", "square_color": "light"},
             {"session_id": "comp-x", "frame": "0", "label": "wQ", "square_color": "light",
-             "brightness": 215.0}]
+             "brightness": 166.0}]
     name = _dataset(tmp_path, rows)
 
     assert axes(name)["rows_counted"] == 2

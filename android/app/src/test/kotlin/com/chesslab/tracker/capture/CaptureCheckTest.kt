@@ -99,6 +99,25 @@ class CaptureCheckTest {
         assertEquals("", checkSummary(emptyMap(), emptyList()))
     }
 
+    /**
+     * Ohne Kamerabild zeichnet der Schirm kein Brett — dann ist diese Zeile das EINZIGE, was sagt,
+     * was aufzubauen ist. Sie stand auf „10 Figuren, Kamera tief" und nannte kein einziges Feld.
+     */
+    @Test
+    fun theOrderNamesEverySquareBecauseThePictureMayBeMissing() {
+        val targets = listOf(target("c8", "wQ"), target("a1", "bK"))
+
+        val line = orderLine(targets)
+
+        assertTrue(line.contains("wQ") && line.contains("c8"), line)
+        assertTrue(line.contains("bK") && line.contains("a1"), line)
+    }
+
+    @Test
+    fun anEmptyOrderSaysSoRatherThanBeingBlank() {
+        assertTrue(orderLine(emptyList()).isNotEmpty())
+    }
+
     @Test
     fun withTheModelOffTheLineSaysSoRatherThanZero() {
         val targets = listOf(target("c8", "wQ"))
