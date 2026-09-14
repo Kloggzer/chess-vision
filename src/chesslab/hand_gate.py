@@ -447,9 +447,11 @@ def _forward(model, device, images: list, batch: int) -> list:
     return out
 
 
-def read_gate(model, device, paths: list[Path], size: int, batch: int = 24):
+def read_gate(model, device, paths: list[Path], size: int, batch: int = 24,
+              borders: list[int] | None = None):
     """Die Bretter unter [paths] durch den Kopf — je Brett `(Veto, 64 Coverage-Werte)`."""
-    images = [_read_board(p, size) for p in paths]
+    borders = borders if borders is not None else [0] * len(paths)
+    images = [_read_board(path, size, border) for path, border in zip(paths, borders, strict=True)]
     said = iter(_forward(model, device, [im for im in images if im is not None], batch))
     return [next(said) if im is not None else None for im in images]
 
@@ -480,7 +482,8 @@ def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
     session_dir = game_dir(name)
     model, card, device = load_gate(tag)
     rows = [r for r in read_jsonl(session_dir / "log.jsonl") if r.get("board")]
-    said = read_gate(model, device, [session_dir / r["board"] for r in rows], card["size"], batch)
+    said = read_gate(model, device, [session_dir / r["board"] for r in rows], card["size"], batch,
+                     borders=[int(r.get("board_border") or 0) for r in rows])
     squares = all_squares()
     thr = card["perfect_recall"]["thr"]
     lines = []

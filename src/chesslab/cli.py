@@ -626,15 +626,18 @@ def session_park_frames(
 
     ids = _target_sessions(session, all_sessions)
     total = 0.0
+    failed = 0
     for sid in ids:
         r = _session_try(sessions_mod.park_frames_session, sid)
         if r.get("error"):
             print(f"[FAIL] {sid}: {r['error']}", flush=True)
+            failed += 1
             continue
         total += r["freed_mb"]
         print(f"[OK] {sid}: {r['moved']}/{r['of']} frames parked, {r['freed_mb']} MB -> {r['parked_to']}", flush=True)
     if all_sessions:
         print(f"[OK] {total / 1024:.1f} GB parked over {len(ids)} sessions")
+    _exit_on_bulk_failures(failed)
 
 
 @session_app.command("fit-mesh")
@@ -671,6 +674,7 @@ def session_fit_mesh(
             said(rows[0])
         ok = [r for r in rows if not r.get("error")]
         print(f"[OK] {sum(r['repaired'] for r in ok)} frames repaired over {len(ok)} sessions.")
+        _exit_on_bulk_failures(len(rows) - len(ok))
         return
 
     def say(r: dict) -> None:
@@ -689,6 +693,7 @@ def session_fit_mesh(
     print(f"[OK] {sum(r['measured'] for r in done)} frames meshed and "
           f"{sum(r['carried'] for r in done)} carried over {len(done)} sessions, "
           f"{len(rows) - len(done)} failed")
+    _exit_on_bulk_failures(len(rows) - len(done))
 
 @session_app.command("mark-hands")
 def session_mark_hands(
@@ -721,6 +726,7 @@ def session_mark_hands(
     done = [r for r in rows if not r.get("error")]
     print(f"[OK] {sum(r['newly_dirty'] for r in done)} frames newly dirty over {len(done)} "
           f"sessions, {len(rows) - len(done)} failed")
+    _exit_on_bulk_failures(len(rows) - len(done))
 
 
 @session_app.command("adopt")
@@ -1001,17 +1007,22 @@ def realgames_adopt_dirty(
         print("[ERR] name or --all, not both")
         raise typer.Exit(1)
     total = 0
+    failed = 0
     for target in (names if all_recordings else [name]):
         try:
             res = rg_mod.adopt_reported_dirty(target)
         except (FileNotFoundError, ValueError, KeyError) as e:
             print(f"[ERR] {target}: {e}")
+            failed += 1
             continue
         total += res["changed"]
         if res["changed"]:
             print(f"[OK] {target}: {res['changed']} von {res['reported']} gemeldeten Frames "
                   f"auf `occluded` gesetzt (Backup {res['backup']})")
-    print(f"[OK] {total} Frames warten jetzt auf die Matte — `chesslab occluders alpha-worker`")
+    status = "FAIL" if failed else "OK"
+    print(f"[{status}] {total} Frames warten jetzt auf die Matte — "
+          "`chesslab occluders alpha-worker`")
+    _exit_on_bulk_failures(failed)
 
 
 @realgames_app.command("audit-corrections")
@@ -1176,10 +1187,22 @@ def session_restore(
 def session_trim(
     session: str = typer.Argument(..., help="Session ID."),
     keep: int = typer.Option(..., "--keep", help="Number of frames to keep, from the start."),
+    yes: bool = typer.Option(False, "--yes", help="Trim without asking."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Print the requested trim and change nothing."),
 ) -> None:
     """Drop the tail of a session, with its crops and manifest rows."""
     from . import sessions as sessions_mod
 
+    if dry_run:
+        print(json.dumps({"session_id": session, "keep_frames": keep}))
+        raise typer.Exit(0)
+    counts = _session_call(sessions_mod.deletion_cost, session)
+    if counts["corrections"] and not yes:
+        print("[FAIL] die Korrekturen sind Handarbeit — mit --yes bestaetigen, wenn das so gemeint ist")
+        raise typer.Exit(1)
+    if not yes and not typer.confirm(f"  {session} nach Frame {keep} abschneiden?", default=False):
+        print("[--] nichts entfernt")
+        raise typer.Exit(0)
     r = _session_call(sessions_mod.trim_session, session, keep)
     print(f"[OK] {session} trimmed to {keep} frames — "
           f"{r.get('removed_frames', 0)} frames, {r.get('removed_crops', 0)} crops removed")
@@ -1235,7 +1258,6 @@ def _session_try(fn, *args) -> dict:
     Fuer die `--all`-Schleifen: eine Session mit totem Profil hat den ganzen Lauf abgeraeumt und
     der Exit-Code ging in der Pipeline unter — 11 von 24 Sessions blieben ungemessen (2026-09-09).
     """
-    # TODO: Centralize bulk-command failure accounting; callers currently disagree on exit status.
     from .sessions import NothingToDo
 
     try:
@@ -1244,6 +1266,11 @@ def _session_try(fn, *args) -> dict:
         return {"error": str(e)}
     except (ValueError, FileNotFoundError) as e:
         return {"error": str(e)}
+
+
+def _exit_on_bulk_failures(failed: int) -> None:
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command("slice")
@@ -1434,11 +1461,13 @@ def occluders_close_seams(
     else:
         names = [name]
     total = {"closed": 0, "frames": 0, "crossed": 0}
+    failed = 0
     for one in names:
         try:
             res = matte_mod.close_seams(one, dry_run=dry_run, progress=not all_sessions)
         except (FileNotFoundError, ValueError, KeyError, OSError) as e:
             print(f"[ERR] {one}: {e}")
+            failed += 1
             continue
         for k in total:
             total[k] += res[k]
@@ -1449,6 +1478,7 @@ def occluders_close_seams(
     if len(names) > 1:
         print(f"[OK] gesamt {total['closed']}/{total['frames']} Alphas, "
               f"{total['crossed']} Zellen wechseln PIECE_VISIBLE_MAX")
+    _exit_on_bulk_failures(failed)
 
 
 @occluders_app.command("gate-train")
@@ -1635,7 +1665,7 @@ def ingest_cmd(
     adapter: str = typer.Argument(..., help="synthetic (rendered dataset)."),
     root: str = typer.Argument(..., help="Path to locally extracted dataset."),
     tag: str | None = typer.Option(None, "--tag", help="Name for sessions/dataset (default: pretrain-<adapter>)."),
-    board_size: int = typer.Option(900, "--board-size", help="Warp resolution (px). Keep moderate (phone source), otherwise upscale blur."),
+    board_size: int = typer.Option(config.SYNTH.warp_board_size, "--board-size", help="Warp resolution (px). Keep moderate (phone source), otherwise upscale blur."),
     limit: int | None = typer.Option(None, "--limit", help="Only the first N images (quick test)."),
     debug_overlay: int = typer.Option(0, "--debug-overlay", help="Warp N frames + overlay FEN labels (visual check against label swapping)."),
     no_build: bool = typer.Option(False, "--no-build", help="Only slice, don't build a dataset."),

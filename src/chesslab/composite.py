@@ -378,6 +378,7 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
                                                pad_side=(base.crop.pad_side if pad_side is None
                                                          else pad_side), out_size=out_size))
                 mesh = median_mesh(cap, prof)
+            frame_mesh = mesh if mesh is not None else mesh_for(frame, corners, prof)
             # Bis zur passenden ID vorspulen — Bretter ohne Marker lassen ihre Kacheln liegen.
             batch = []
             if plates is not None:
@@ -387,10 +388,10 @@ def composed_boards(video: Path, plate_dir: Path | None = None, *, board_size: i
             if batch:
                 # Die Pose haengt an der FRAME-ID, nicht an der Aufrufreihenfolge.
                 crops, cov, _ = composite_frame(frame, corners, prof, batch,
-                                                np.random.default_rng([seed, idx]), mesh=mesh,
+                                                np.random.default_rng([seed, idx]), mesh=frame_mesh,
                                                 plate_long=plate_long)
             else:
-                crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=mesh)
+                crops = crops_for_frame(frame, corners, prof, out_size=out_size, mesh=frame_mesh)
                 cov = dict.fromkeys(all_squares(), 0.0)
             yield idx, crops, cov, prof
     finally:
@@ -409,10 +410,11 @@ def recut_frames(prov: dict, wanted: dict[int, list[str]], out_size: tuple[int, 
     einem Resample statt ueber den Pool skaliert.
     """
     for idx, crops, _cov, _prof in composed_boards(
-            Path(prov["video"]), Path(prov["plate_dir"]), board_size=prov["board_size"],
+            Path(prov["video"]), None if prov.get("clean") else Path(prov["plate_dir"]),
+            board_size=prov["board_size"],
             out_size=out_size, stride=prov["stride"],
             tiles_per_frame=tuple(prov["tiles_per_frame"]), seed=prov["seed"],
-            profile_name=prov["profile"]):
+            profile_name=prov["profile"], pad_side=prov.get("pad_side")):
         if idx not in wanted:
             continue
         by_square = dict(zip(all_squares(), crops, strict=True))
@@ -451,34 +453,41 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
     pool = ThreadPoolExecutor(max_workers=WRITE_THREADS)
     stats: dict = {}
     prof = None
-    for idx, crops, cov, prof in composed_boards(
-            video, None if clean else plate_dir, board_size=board_size, out_size=out_size,
-            stride=stride, pad_side=pad_side,
-            tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
-        stem = f"{idx:06d}"
-        if angle_buckets:
-            per_turn = 360.0 / deg_per_frame
-            b = int((idx % per_turn) / (per_turn / angle_buckets)) % angle_buckets
-            sid = f"{stem_sid}-a{b:02d}"
-        else:
-            sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
-        for sq, crop in zip(all_squares(), crops, strict=True):
-            label = labels[sq]
-            path = out_root / label / f"{sid}_{stem}_{sq}{CROP_SUFFIX}"
-            pending.append(pool.submit(cv2.imwrite, str(path), crop, CROP_ENCODE))
-            rows.append({"path": path.as_posix(), "label": label, "coverage": round(cov[sq], 4),
-                         "session_id": sid, "split_group": stem_sid, "frame": stem, "square": sq,
-                         "square_color": square_color(sq), "fen": fen,
-                         "out_size": list(out_size), "pad_side": prof.crop.pad_side})
-            written += 1
-        # Der Rueckstau ist die Bremse, nicht der Puffer: haelt man alle Crops eines Clips fuer
-        # einen Lauf am Ende, liegen 60k davon im Speicher (~3 GB). Vier Bretter reichen, weil
-        # Encode (33 ms je Brett auf acht Threads) unter der Rechnung (250 ms) bleibt.
-        while len(pending) > 4 * 64:
-            pending.popleft().result()
+    try:
+        for idx, crops, cov, prof in composed_boards(
+                video, None if clean else plate_dir, board_size=board_size, out_size=out_size,
+                stride=stride, pad_side=pad_side,
+                tiles_per_frame=tiles_per_frame, seed=seed, profile_name=profile_name, stats=stats):
+            stem = f"{idx:06d}"
+            if angle_buckets:
+                per_turn = 360.0 / deg_per_frame
+                b = int((idx % per_turn) / (per_turn / angle_buckets)) % angle_buckets
+                sid = f"{stem_sid}-a{b:02d}"
+            else:
+                sid = f"{stem_sid}-{min(blocks - 1, idx * blocks // max(1, n)):02d}"
+            for sq, crop in zip(all_squares(), crops, strict=True):
+                label = labels[sq]
+                path = out_root / label / f"{sid}_{stem}_{sq}{CROP_SUFFIX}"
+                pending.append(pool.submit(cv2.imwrite, str(path), crop, CROP_ENCODE))
+                rows.append({"path": path.as_posix(), "label": label,
+                             "coverage": round(cov[sq], 4), "session_id": sid,
+                             "split_group": stem_sid, "frame": stem, "square": sq,
+                             "square_color": square_color(sq), "fen": fen,
+                             "out_size": list(out_size), "pad_side": prof.crop.pad_side})
+                written += 1
+            # Der Rueckstau ist die Bremse, nicht der Puffer: haelt man alle Crops eines Clips fuer
+            # einen Lauf am Ende, liegen 60k davon im Speicher (~3 GB). Vier Bretter reichen, weil
+            # Encode (33 ms je Brett auf acht Threads) unter der Rechnung (250 ms) bleibt.
+            while len(pending) > 4 * 64:
+                if not pending.popleft().result():
+                    raise OSError("Cannot write composite crop")
+        while pending:
+            if not pending.popleft().result():
+                raise OSError("Cannot write composite crop")
+    finally:
+        pool.shutdown(wait=True)
     skipped = stats.get("skipped", 0)
     board_size = prof.board_size if prof is not None else board_size
-    pool.shutdown(wait=True)
     # Upsert by clip, not overwrite: a second clip into the same pool used to discard the first
     # one's rows while its crops stayed on disk — which is why every clip got its own tag.
     _replace_session_in_manifest(manifest, stem_sid,
@@ -492,6 +501,7 @@ def build_from_video(video: Path, plate_dir: Path, out_root: Path, manifest: Pat
         "angle_buckets": int(angle_buckets), "clean": bool(clean),
         "tiles_per_frame": list(tiles_per_frame), "profile": profile_name,
         "plate_dir": Path(plate_dir).resolve().as_posix(),
+        "pad_side": pad_side if pad_side is not None else (prof.crop.pad_side if prof else None),
     })
     covered = sum(r["coverage"] > 0.5 for r in rows)
     return {"session_id": stem_sid, "blocks": blocks, "frames": len(rows) // 64, "crops": written, "skipped": skipped,

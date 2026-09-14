@@ -32,7 +32,7 @@ INTERVAL_REPORT = "interval-check.jsonl"
 TIMING_WINDOW = 3
 
 
-def frame_flags(entry: dict, coverage: dict[str, float], session_id: str) -> list[dict]:
+def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str) -> list[dict]:
     """Die strittigen Zellen EINES Frames — die, die das Intervall als verlassen gemeldet hat.
 
     Kein eigenes Urteil: `settle_left` steht schon in der Zeile, samt Zeitachse. Diese Datei
@@ -48,12 +48,13 @@ def frame_flags(entry: dict, coverage: dict[str, float], session_id: str) -> lis
     stem = Path(entry["frame"]).stem
     out = []
     for square in left:
+        cov = coverage.get(square) if coverage is not None else None
         i = index[square]
         short = i < len(seen) and seen[i] < SETTLE_SEEN_MIN
         out.append({"session_id": session_id, "frame": stem, "square": square,
                     "fen_label": labels.label_for(square), "ply": entry.get("ply"),
                     "dev": round(float(dev[i]), 2) if i < len(dev) else None,
-                    "cov": round(float(coverage.get(square, 0.0)), 4),
+                    "cov": round(float(cov), 4) if cov is not None else None,
                     "seen": round(float(seen[i]), 3) if i < len(seen) else None,
                     "reason": "unreadable" if short else "changed"})
     return out
@@ -110,9 +111,8 @@ def position_flags() -> dict:
         session_id = read_session_meta(session_dir)["session_id"]
         matte = read_matte(session_dir)
         entries = read_log(session_dir)
-        # Settle cards need a matte: without one `cov` 0.0 would claim a clear cell.
         found = [flag for entry in entries
-                 for flag in frame_flags(entry, matte.get(Path(entry["frame"]).stem, {}), session_id)
+                 for flag in frame_flags(entry, matte.get(Path(entry["frame"]).stem), session_id)
                  ] if (session_dir / "matte.jsonl").is_file() else []
         intervals = [json.loads(line) for line in
                      (session_dir / INTERVAL_FILE).read_text(encoding="utf-8").splitlines()
@@ -121,6 +121,9 @@ def position_flags() -> dict:
         temporal, stale = load_flags(session_dir, session_id, entries, matte)
         if stale:
             stale_temporal.append(session_id)
+        temporal_keys = {(flag["frame"], flag["square"]) for flag in temporal}
+        found = [flag for flag in found if flag["cov"] is not None
+                 or (flag["frame"], flag["square"]) in temporal_keys]
         # Eine Karte je Zelle, schwaechste Diagnose zuerst: `timing` vermutet nur, `temporal` hat
         # gemessen, `changed` hat gegen das gesetzte Brett gemessen. Der Anomaliewert ueberlebt,
         # auch wenn die staerkere Quelle die Karte benennt.

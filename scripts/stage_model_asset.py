@@ -21,6 +21,7 @@ def main():
     ap.add_argument("--gate", type=float, required=True,
                     help="coverage_gate, gemessen mit scripts/occlusion_gate.py")
     ap.add_argument("--name", default=None, help="Asset-Ordner (Default: Name des Run-Ordners)")
+    ap.add_argument("--force", action="store_true", help="Vorhandenen Asset-Ordner ueberschreiben")
     args = ap.parse_args()
 
     run = Path(args.run)
@@ -34,12 +35,16 @@ def main():
     cfg["coverage_gate"] = args.gate
 
     out = ASSETS / (args.name or run.name)
+    if out.exists() and not args.force:
+        print(f"[FAIL] {out} existiert bereits; zum Ersetzen --force angeben")
+        return 1
     out.mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
     shutil.copy2(onnx, out / "model.onnx")
     print(f"[OK] {out}  classes={len(cfg['classes'])} coverage_output={cfg['coverage_output']} "
           f"coverage_gate={args.gate}  ({(out/'model.onnx').stat().st_size/1e6:.1f} MB)")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

@@ -3,7 +3,7 @@
 The list is the 2026-09-05 decision (session packs landed): these pixels come back from the pool
 or the board stores, their results live in docs/ and TODO.md. `--dry-run` only prints sizes.
 """
-import sys
+import argparse
 from pathlib import Path
 
 NAMES = [
@@ -15,8 +15,9 @@ PACK_FILES = ("packed_images.u8", "packed_meta.json", "packed_progress.json", "p
 
 
 def main() -> None:
-    # TODO: Use argparse because a misspelled safety flag currently falls through to deletion.
-    dry = "--dry-run" in sys.argv
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true", help="Nur Groessen anzeigen")
+    args = ap.parse_args()
     freed = 0.0
     for name in NAMES:
         d = Path("data/datasets") / name
@@ -28,10 +29,10 @@ def main() -> None:
             p = d / f
             if p.exists():
                 gb += p.stat().st_size / 1e9
-                if not dry:
+                if not args.dry_run:
                     p.unlink()
         freed += gb
-        print(f"{'would free' if dry else 'freed'} {gb:6.2f} GB  {name}")
+        print(f"{'would free' if args.dry_run else 'freed'} {gb:6.2f} GB  {name}")
     print(f"total {freed:.1f} GB")
 
 

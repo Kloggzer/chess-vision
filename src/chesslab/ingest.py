@@ -114,11 +114,19 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
 
     groups: dict[str, list[ImportItem]] = {}
     for it in items:
-        groups.setdefault(_safe_group(it.group), []).append(it)
+        groups.setdefault(str(it.group), []).append(it)
 
     session_ids: list[str] = []
+    used_groups: set[str] = set()
     for group, its in sorted(groups.items()):
-        sid = f"{tag}__{group}"
+        safe_group = _safe_group(group)
+        unique_group = safe_group
+        suffix = 2
+        while unique_group in used_groups:
+            unique_group = f"{safe_group}-{suffix}"
+            suffix += 1
+        used_groups.add(unique_group)
+        sid = f"{tag}__{unique_group}"
         sdir = paths.sessions / sid
         sdir.mkdir(parents=True, exist_ok=True)
         meta = {

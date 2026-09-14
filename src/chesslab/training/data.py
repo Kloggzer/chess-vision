@@ -89,12 +89,11 @@ def visible_board_items(rows: list[dict], trues: list[int], preds: list[int]) ->
     46 % der Bretter im Val-Split von `real13-straight-80-v3` tragen mindestens eine verdeckte
     Zelle, `board_acc` ist damit konstruktionsbedingt auf 54 % gedeckelt.
     """
-    # TODO: Centralize loss/metric eligibility; duplicated masks have already drifted on darkness.
-    from .occlusion import PIECE_VISIBLE_MAX
+    from .occlusion import classification_eligible
 
     return [((r["session_id"], str(r["frame"])), bool(t == p))
             for r, t, p in zip(rows, trues, preds, strict=False)
-            if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX]
+            if classification_eligible(r)]
 
 
 def _piece_type(label: str) -> str:
@@ -180,17 +179,12 @@ def checkpoint_metrics(rows: list[dict], classes: list[str], trues: list[int],
     # es mitzuzaehlen waehlt Checkpoints nach Zellen, die das Modell nie treffen sollte. Das
     # gilt fuer BEIDE Tiebreaker mit, nicht nur fuer die gewichteten Anteile. Ohne
     # Coverage-Spalte bleibt jede Zelle sichtbar und die Zahlen sind die alten.
-    from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX
+    from .occlusion import classification_eligible
 
-    vis = [i for i, r in enumerate(rows)
-           if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX
-           and r.get("brightness", 255.0) >= CELL_DARK_MIN]
-    if vis and len(vis) < len(rows):
-        v_rows = [rows[i] for i in vis]
-        v_trues, v_preds = [trues[i] for i in vis], [preds[i] for i in vis]
-        bd_vis = occupancy_piece_breakdown(classes, v_trues, v_preds)
-    else:
-        v_rows, v_trues, v_preds, bd_vis = rows, trues, preds, bd
+    vis = [i for i, r in enumerate(rows) if classification_eligible(r)]
+    v_rows = [rows[i] for i in vis]
+    v_trues, v_preds = [trues[i] for i in vis], [preds[i] for i in vis]
+    bd_vis = occupancy_piece_breakdown(classes, v_trues, v_preds)
     bd["occupied_board_acc"] = occupancy_board_acc(v_rows, classes, v_trues, v_preds)
     bd["visible_piece_acc"] = bd_vis["piece_acc"]
     bd["visible_occupied_acc"] = bd_vis["occupied_acc"]
@@ -219,38 +213,36 @@ def per_session_metrics(rows: list[dict], classes: list[str],
     A corpus mean hides the one session that carries the whole error — which is exactly the
     question when a model is pointed at a dataset it was not trained on.
     """
-    from .occlusion import PIECE_VISIBLE_MAX
+    from .occlusion import classification_eligible
 
     by_sid: dict[str, list[tuple[dict, int, int]]] = defaultdict(list)
     for r, t, p in zip(rows, trues, preds, strict=False):
         by_sid[r["session_id"]].append((r, t, p))
     out: dict[str, dict] = {}
     for sid, items in by_sid.items():
-        rs = [r for r, _, _ in items]
-        ts = [t for _, t, _ in items]
-        ps = [p for _, _, p in items]
-        ok = [t == p for t, p in zip(ts, ps, strict=True)]
-        boards = [((r["session_id"], str(r["frame"])), c) for r, c in zip(rs, ok, strict=True)]
+        visible = [(r, t, p_) for r, t, p_ in items if classification_eligible(r)]
+        ok = [t == p for _, t, p in visible]
+        boards = [((r["session_id"], str(r["frame"])), t == p) for r, t, p in visible]
         # `piece_acc` gehoert dazu: sie streut ueber die Sessions am staerksten (gemessen
         # 2026-08-25 ueber vier Folds: 0,584 bis 0,993), und genau sie entscheidet.
-        vis = [(t, p_) for r, t, p_ in items
-               if float(r.get("coverage") or 0.0) <= PIECE_VISIBLE_MAX and classes[t] != "empty"]
-        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok),
+        vis = [(t, p_) for _, t, p_ in visible if classes[t] != "empty"]
+        vrs = [r for r, _, _ in visible]
+        vts = [t for _, t, _ in visible]
+        vps = [p for _, _, p in visible]
+        out[sid] = {"crops": len(items), "square_acc": sum(ok) / len(ok) if ok else 0.0,
                     "visible_piece_acc": (sum(t == p_ for t, p_ in vis) / len(vis)) if vis else None,
                     "board_acc": board_accuracy(boards),
-                    "occupied_board_acc": occupancy_board_acc(rs, classes, ts, ps)}
+                    "occupied_board_acc": occupancy_board_acc(vrs, classes, vts, vps)}
     return out
 
 
 def visible_confidence(rows, trues, preds, conf):
     """(trues, preds, conf) nur auf sichtbaren Zellen — leere Konfidenz reicht sie durch."""
-    from .occlusion import PIECE_VISIBLE_MAX
+    from .occlusion import classification_eligible
 
     if not conf:
         return trues, preds, conf
-    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
-    if not 0 < len(vis) < len(rows):
-        return trues, preds, conf
+    vis = [i for i, r in enumerate(rows) if classification_eligible(r)]
     return [trues[i] for i in vis], [preds[i] for i in vis], [conf[i] for i in vis]
 
 

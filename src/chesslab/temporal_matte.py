@@ -328,6 +328,11 @@ def adopt_proposals(session_id, *, method="local"):
     report = directory / "proposals.jsonl"
     if not report.is_file():
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
+    metadata_path = directory / "proposals.meta.json"
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata.get("source") != source_stamp(recording):
+            raise RuntimeError("Proposal source changed; proposals must be regenerated")
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"

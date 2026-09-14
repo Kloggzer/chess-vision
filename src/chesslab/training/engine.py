@@ -7,7 +7,7 @@ import weakref
 import numpy as np
 import torch
 
-from .data import board_accuracy, visible_board_items
+from .data import board_accuracy
 
 
 def get_device(require_gpu: bool):
@@ -66,6 +66,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     conf: list[float] = []
     keep_logits: list = []
     loss_sum = torch.zeros((), device=device) if criterion is not None else None
+    loss_den = torch.zeros((), device=device) if criterion is not None else None
+    coverage_loss_sum = torch.zeros((), device=device) if criterion is not None else None
+    coverage_loss_den = torch.zeros((), device=device) if criterion is not None else None
     n = 0
     n_out = 0
     from .memory import guarded_batches
@@ -79,9 +82,16 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
                                                    mode="bilinear", align_corners=False)
             x = flat.view(*x.shape[:2], *flat.shape[1:]) if x.dim() == 5 else flat
         logits = model(x)
-        n_out = int(logits.shape[1])
         if criterion is not None:
-            loss_sum.add_(criterion(logits, y).detach() * logits.shape[0])
+            if hasattr(criterion, "validation_terms"):
+                piece_sum, piece_n, coverage_sum, coverage_n = criterion.validation_terms(logits, y)
+                loss_sum.add_(piece_sum.detach())
+                loss_den.add_(piece_n)
+                coverage_loss_sum.add_(coverage_sum.detach())
+                coverage_loss_den.add_(coverage_n)
+            else:
+                loss_sum.add_(criterion(logits, y).detach() * logits.shape[0])
+                loss_den.add_(logits.shape[0])
         # An occlusion run carries (class, coverage) in one target and reads its LAST logit as the
         # coverage — the class metrics must look past both or they score a regression head.
         occluding = y.dim() == 2
@@ -89,6 +99,7 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
             cover.extend(y[:, 1].cpu().tolist())
             probs.extend(torch.sigmoid(logits[:, -1]).cpu().tolist())
             logits, y = logits[:, :-1], y[:, 0].long()
+        n_out = int(logits.shape[1])
         p = logits.argmax(1)
         # Wie SICHER ist das Modell? Nicht die Genauigkeit entscheidet die Dekodierung,
         # sondern wie ueberzeugt ein Fehler auftritt — ein Modell mit 1,00 auf falschen
@@ -101,7 +112,23 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
 
     trues_a = np.array(trues)
     preds_a = np.array(preds)
-    square_acc = float((trues_a == preds_a).mean()) if n else 0.0
+    if len(dataset.rows) != len(trues):
+        raise ValueError(f"dataset has {len(dataset.rows)} rows but evaluation produced {len(trues)} labels")
+    if cover:
+        from .occlusion import classification_eligible
+
+        vmax = getattr(criterion, "visible_max", None)
+        dmin = getattr(criterion, "dark_min", None)
+        eligible = np.array([
+            classification_eligible(r, **({"visible_max": vmax} if vmax is not None else {}),
+                                    **({"dark_min": dmin} if dmin is not None else {}))
+            for r in dataset.rows], dtype=bool)
+    else:
+        eligible = np.ones(len(trues), dtype=bool)
+    metric_trues = trues_a[eligible]
+    metric_preds = preds_a[eligible]
+    metric_conf = np.asarray(conf)[eligible]
+    square_acc = float((metric_trues == metric_preds).mean()) if len(metric_trues) else 0.0
 
     # Macro-recall: mean of per-class hit rate over present classes.
     # Meaningful even when board_acc=0 (small/hard datasets) and ignores the
@@ -113,13 +140,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # value, after four epochs had already passed through the same code.
     n_classes = n_out if n_out else (len(getattr(dataset, "c2i", {})) or 1)
     if n:
+        lo = int(trues_a.min())
         hi = int(max(trues_a.max(), preds_a.max()))
-        if hi >= n_classes:
-            bad = sorted({int(v) for v in trues_a[trues_a >= n_classes]})[:8]
+        if lo < 0 or hi >= n_classes:
+            bad = sorted({int(v) for v in trues_a[(trues_a < 0) | (trues_a >= n_classes)]})[:8]
             raise ValueError(
                 f"label {hi} outside the model's {n_classes} outputs — the dataset and the head "
                 f"disagree, or a loader served a corrupt label. Offending true labels: {bad}")
-    cm = confusion_matrix(trues_a, preds_a, n_classes) if n else np.zeros((1, 1))
+    cm = confusion_matrix(metric_trues, metric_preds, n_classes) if len(metric_trues) else np.zeros((n_classes, n_classes))
     present = cm.sum(axis=1) > 0
     macro_recall = float(per_class_recall(cm)[present].mean()) if present.any() else 0.0
 
@@ -127,25 +155,30 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # strict: rows and predictions MUST align 1:1 — silent truncation here would compute
     # board accuracy on a shifted pairing (the plausible-but-wrong failure mode).
     items = [((r["session_id"], str(r["frame"])), bool(t == p))
-             for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
+             for r, t, p, keep in zip(dataset.rows, trues, preds, eligible, strict=True) if keep]
     board_acc = board_accuracy(items)
     # Zwei Zwillinge neben der harten Zahl, weil die allein nicht lesbar ist: ohne die verdeckten
     # Zellen (die der Verlust maskiert, also nie gelernt wurden) und mit einer Zelle Spielraum.
-    visible_items = visible_board_items(dataset.rows, trues, preds)
+    if criterion is not None and hasattr(criterion, "validation_terms"):
+        total_loss = (loss_sum / loss_den.clamp(min=1)
+                      + criterion.occ_weight * coverage_loss_sum / coverage_loss_den.clamp(min=1))
+    else:
+        total_loss = loss_sum / loss_den.clamp(min=1) if criterion is not None else None
 
     return {
-        "loss": float(loss_sum.cpu()) / n if (criterion is not None and n) else None,
+        "loss": float(total_loss.cpu()) if (criterion is not None and n) else None,
         "square_acc": square_acc,
         "macro_recall": macro_recall,
         "board_acc": board_acc,
-        "visible_board_acc": board_accuracy(visible_items),
+        "visible_board_acc": board_accuracy(items),
         "board_acc_tol1": board_accuracy(items, tolerance=1),
         "trues": trues_a,
         "preds": preds_a,
-        "conf_wrong": float(np.array(conf)[trues_a != preds_a].mean())
-        if n and (trues_a != preds_a).any() else 0.0,
-        "conf_right": float(np.array(conf)[trues_a == preds_a].mean())
-        if n and (trues_a == preds_a).any() else 0.0,
+        "classification_eligible": eligible,
+        "conf_wrong": float(metric_conf[metric_trues != metric_preds].mean())
+        if (metric_trues != metric_preds).any() else 0.0,
+        "conf_right": float(metric_conf[metric_trues == metric_preds].mean())
+        if (metric_trues == metric_preds).any() else 0.0,
         # Roh-Logits fuer die Temperatur-Anpassung: der Argmax bleibt, nur die
         # Wahrscheinlichkeiten werden ehrlich (`fit_temperature`).
         "logits": torch.cat(keep_logits) if keep_logits else None,

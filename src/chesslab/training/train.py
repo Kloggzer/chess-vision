@@ -63,7 +63,7 @@ STATE_FILE = "state.pt"
 #: Ein Zustand gehoert zu SEINEM Rezept. Weicht eines dieser Felder ab, ist es ein anderer Lauf.
 STATE_KEYS = ("backbone", "epochs", "batch_size", "lr", "sched", "seed", "dataset", "split_file",
               "head", "norm", "out_size", "batch_aug", "epoch_frac", "balance",
-              "checkpoint_policy")
+              "checkpoint_policy", "worker_rng_policy")
 
 
 def _save_state(path, epoch, model, optimizer, scheduler, scaler, sampler, swa_model, swa_sched,
@@ -1102,8 +1102,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "low_memory": low_memory, "ram_reserve_gb": ram_reserve_gb,
         "pin_memory": not low_memory,
         "num_workers": nw, "eval_workers": eval_workers, "prefetch_factor": prefetch_factor,
-        "checkpoint_policy": "visible-piece-v2",
-        "metrics_schema": 2,
+        "checkpoint_policy": "loss-mask-v3",
+        "worker_rng_policy": "epoch-seeded-v1",
+        "metrics_schema": 3,
         # Was der LAUF gewuerfelt hat, nicht was im Loader stand: mit `--batch-aug` stehen die
         # Staerken dort auf 0, gerechnet werden sie trotzdem — und `config.json` ist das, was
         # Serving und jede spaetere Auswertung lesen.
@@ -1282,14 +1283,11 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_acc": val["square_acc"],
             "val_macro_recall": val["macro_recall"],
             "val_board_acc": val["board_acc"],
-            # Die harte Zahl ist auf 54 % gedeckelt (verdeckte Zellen zaehlen mit, obwohl der
-            # Verlust sie maskiert) und ein Alles-oder-nichts ueber 32 Figuren. Diese beiden
-            # sagen, was sie sagen soll: ohne die maskierten Zellen, und mit einer Zelle Spielraum.
             "val_visible_board_acc": val["visible_board_acc"],
             "val_board_acc_tol1": val["board_acc_tol1"],
-            "val_occupied_acc": bd["occupied_acc"],
+            "val_occupied_acc": bd["visible_occupied_acc"],
             "val_occupied_board_acc": bd["occupied_board_acc"],
-            "val_piece_acc": bd["piece_acc"],
+            "val_piece_acc": bd["visible_piece_acc"],
             # Die Zahl, die zwei gleich genaue Modelle trennt: ueberzeugte Fehler brechen
             # die Dekodierung, unsichere lassen sich korrigieren.
             "val_conf_wrong": _conf_mean(vis_conf, wrong=True),
@@ -1305,7 +1303,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if occ_diag:
             rec.update(occ_diag)
             rec = _compact_metrics(rec)
-        rec["metrics_schema"] = 2
+        rec["metrics_schema"] = 3
 
         with metrics_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
@@ -1365,9 +1363,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         torch.save(inner.state_dict(), run_dir / "swa.pt")
         sv = evaluate_dataset(inner, val_ds, device, criterion=criterion,
                               batch_size=eval_batch, num_workers=0, keep_workers=False)
-        st, sbd = checkpoint_metrics(
-            score_rows, classes, list(sv["trues"]), list(sv["preds"]),
-            auroc=confidence_auroc(sv["trues"], sv["preds"], sv.get("conf") or []))
+        sva = visible_confidence(score_rows, list(sv["trues"]), list(sv["preds"]),
+                                 sv.get("conf") or [])
+        st, sbd = checkpoint_metrics(score_rows, classes, list(sv["trues"]), list(sv["preds"]),
+                                     auroc=confidence_auroc(*sva))
         print(f"[OK] swa.pt: score {st[0]:.4f} piece {sbd['piece_acc']:.4f} "
               f"auroc {sbd['calibration']:.4f} — gegen best.pt {best_score[0]:.4f} messen")
 
@@ -1383,7 +1382,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # One eval pass does not earn workers anyway.
         cal = evaluate_dataset(model, val_ds, device, batch_size=eval_batch,
                                num_workers=0, keep_workers=False)
-        temp = fit_temperature(cal.get("logits"), cal["trues"])
+        eligible = cal["classification_eligible"]
+        temp = fit_temperature(cal.get("logits")[eligible], cal["trues"][eligible])
         cfg_path = run_dir / "config.json"
         cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
         cfg_now["temperature"] = round(temp, 4)

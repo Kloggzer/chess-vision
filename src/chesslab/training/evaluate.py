@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+
 from .. import config
 from .data import crop_of_rows, filter_rows_by_split, load_manifest, load_split
 from .model import stock_batchnorm
@@ -223,32 +225,21 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     # 1b. Occupancy/piece diagnosis: WHERE are the errors (occupancy vs. type vs. color)?
     from .data import occupancy_board_acc, occupancy_piece_breakdown
 
-    bd = occupancy_piece_breakdown(classes, list(res["trues"]), list(res["preds"]))
-    occ_bacc = occupancy_board_acc(rows, classes, list(res["trues"]), list(res["preds"]))
+    vis = np.flatnonzero(res.get("classification_eligible", np.ones(len(rows), dtype=bool)))
+    vis_rows = [rows[i] for i in vis]
+    vis_trues = [res["trues"][i] for i in vis]
+    vis_preds = [res["preds"][i] for i in vis]
+    vis_conf = [res["conf"][i] for i in vis]
+    bd = occupancy_piece_breakdown(classes, vis_trues, vis_preds)
+    occ_bacc = occupancy_board_acc(vis_rows, classes, vis_trues, vis_preds)
     print(f"Occupancy: square {bd['occupied_acc']:.4f} | board {occ_bacc:.4f}   "
           f"Figur (auf besetzt): {bd['piece_acc']:.4f}   "
           f"Fehler: Typ {bd['type_err']:.3f} / Farbe {bd['color_err']:.3f}")
-    # Dieselbe Aufschluesselung NUR auf sichtbaren Zellen. Der Trainingsverlust maskiert
-    # alles ueber PIECE_VISIBLE_MAX aus — es zu benoten misst, was das Modell nie lernen
-    # sollte. Beide Zahlen stehen da, damit niemand die falsche zitiert.
-    from .occlusion import PIECE_VISIBLE_MAX
-
-    vis = [i for i, r in enumerate(rows) if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX]
-    bd_vis = None
-    if len(vis) == len(rows):
-        bd_vis = bd                       # nichts verdeckt: die volle Zahl IST die sichtbare
-    elif vis:
-        bd_vis = occupancy_piece_breakdown(
-            classes, [res["trues"][i] for i in vis], [res["preds"][i] for i in vis])
-        share = 100.0 * (len(rows) - len(vis)) / len(rows)
-        print(f"  nur SICHTBAR ({share:.1f} % verdeckt ausgelassen): "
-              f"Figur {bd_vis['piece_acc']:.4f}   Belegung {bd_vis['occupied_acc']:.4f}   "
-              f"Typ {bd_vis['type_err']:.3f}")
     # Welche Verwechslungen tragen die ueberzeugten Fehler? Ein Mittelwert sagt nicht,
     # ob es viele laue oder wenige sehr sichere sind — und das entscheidet die Gegenmassnahme.
     from .data import confident_confusions
 
-    top = confident_confusions(classes, res["trues"], res["preds"], res.get("conf") or [])
+    top = confident_confusions(classes, vis_trues, vis_preds, vis_conf)
     if top:
         print(f"Ueberzeugte Fehler (conf auf Fehlern {res.get('conf_wrong', 0):.3f}):")
         for r in top:
@@ -274,7 +265,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
         print("  Der Korpuswert ist ein Mittel darueber. Ein Vergleich zweier Laeufe muss diese "
               "Spanne schlagen, sonst misst er, welche Sessions im Split lagen.")
     # 2. Per-Klassen-Recall
-    cm = confusion_matrix(res["trues"], res["preds"], len(classes))
+    cm = confusion_matrix(np.asarray(vis_trues), np.asarray(vis_preds), len(classes))
     recall = per_class_recall(cm)
     print("Per-class recall:")
     for c, r in zip(classes, recall, strict=False):
@@ -293,9 +284,9 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     summary = {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
                "square_acc": res["square_acc"], "occupied_acc": bd["occupied_acc"],
                "occupied_board_acc": occ_bacc,
-               "visible_piece_acc": (bd_vis or {}).get("piece_acc"),
-               "visible_occupied_acc": (bd_vis or {}).get("occupied_acc"),
-               "visible_type_err": (bd_vis or {}).get("type_err"),
+               "visible_piece_acc": bd["piece_acc"],
+               "visible_occupied_acc": bd["occupied_acc"],
+               "visible_type_err": bd["type_err"],
                "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
                "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
                "per_session": per_session, "session_spread": spread}

@@ -26,9 +26,14 @@ def main():
     ap.add_argument("--dirty", type=int, default=2, help="verdeckte Bretter je Stellung")
     ap.add_argument("--clean-repeat", type=int, default=1,
                     help="saubere Zeilen so oft wiederholen — trennt Haeufigkeit von Vielfalt")
+    ap.add_argument("--force", action="store_true", help="Vorhandenen Zieldatensatz ueberschreiben")
     args = ap.parse_args()
 
     src = dataset_dir(args.source)
+    dst = dataset_dir(args.target)
+    if dst.exists() and not args.force:
+        print(f"[FAIL] {dst} existiert bereits; zum Ersetzen --force angeben")
+        return 1
     rows = [json.loads(x) for x in (src / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
 
     cover = collections.defaultdict(list)
@@ -60,7 +65,6 @@ def main():
         # Wiederholte Zeilen zeigen auf dieselben Memmap-Eintraege: identische Pixel, nur oefter
         # gezogen. So variiert die HAEUFIGKEIT sauberer Zellen ohne ihre Vielfalt zu aendern.
         kept.extend([r] * (args.clean_repeat if k in clean_keys else 1))
-    dst = dataset_dir(args.target)
     dst.mkdir(parents=True, exist_ok=True)
     (dst / "manifest.jsonl").write_text(
         "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept), encoding="utf-8")
@@ -72,7 +76,8 @@ def main():
           f"({100 * len(keep) / len(mean):.0f} %), Crops {len(rows)} -> {len(kept)}")
     print(f"[OK] {dst}\n     jetzt: uv run chesslab dataset pack {args.target} "
           f"--pack-size 80x80 --from {args.source}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

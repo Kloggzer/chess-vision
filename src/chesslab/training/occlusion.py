@@ -21,6 +21,12 @@ PIECE_VISIBLE_MAX = 0.15
 CELL_DARK_MIN = 25.0
 
 
+def classification_eligible(row: dict, visible_max: float = PIECE_VISIBLE_MAX,
+                            dark_min: float = CELL_DARK_MIN) -> bool:
+    return (float(row.get("coverage") or 0.0) <= visible_max
+            and float(row.get("brightness", 255.0) or 0.0) >= dark_min)
+
+
 def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """`(B, 2|3)` float target -> (class index, coverage, Helligkeit).
 
@@ -50,14 +56,21 @@ class OcclusionLoss(nn.Module):
         self.dark_min = dark_min
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        piece_sum, visible_count, coverage_sum, coverage_count = self.validation_terms(logits, target)
+        piece = piece_sum / visible_count.clamp(min=1)
+        coverage = coverage_sum / max(coverage_count, 1)
+        return piece + self.occ_weight * coverage
+
+    def validation_terms(self, logits: torch.Tensor, target: torch.Tensor):
         y, cov, bright = split_targets(target)
         # Zwei Gruende, dieselbe Zelle aus dem KLASSENteil zu nehmen — verdeckt oder zu dunkel.
         # Der Coverage-Kopf lernt weiter auf allen: Dunkelheit ist keine Verdeckung, und die
         # Hand-Sperre der App haengt an dieser Zahl.
         visible = (cov <= self.visible_max) & (bright >= self.dark_min)
         piece = self.ce(logits[:, :-1], y)
-        piece = (piece * visible).sum() / visible.sum().clamp(min=1)
-        return piece + self.occ_weight * self.bce(logits[:, -1], cov)
+        coverage = torch.nn.functional.binary_cross_entropy_with_logits(
+            logits[:, -1], cov, reduction="sum")
+        return (piece * visible).sum(), visible.sum(), coverage, cov.numel()
 
 
 def coverage_metrics(logits: torch.Tensor, target: torch.Tensor,
