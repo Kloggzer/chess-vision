@@ -32,8 +32,8 @@
   the human only checks that the alpha and the shown position are right.
   The 2-class `occupancy` scheme is **gone** (2026-08-20), Python and Kotlin: `--classes` takes
   `pieces13` or `pieces` only (`dataset_build.CLASS_MODES`).
-  **Android ships coverage (Stand 2026-09-14):** the APK bundles EIGHT `p4*` models,
-  `p4a-80-clahe` the `DEFAULT_MODEL`. All eight declare `coverage_output` — 13 class logits plus an
+  **Android ships coverage (Stand 2026-09-14):** the APK bundles SEVEN `p4*` models,
+  `p4a-80-clahe` the `DEFAULT_MODEL`. All seven declare `coverage_output` — 13 class logits plus an
   INDEPENDENT coverage sigmoid in column 13 (`Observations.kt`, `Preprocess.kt`). Where it is
   declared, `TrackerService` switches the model-free arm OFF
   (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms have
@@ -180,7 +180,8 @@
 - **Python:** `uv run pytest`, `ruff`, `vulture` (min_confidence 80).
 - **Abdeckung:** erstmals gemessen 2026-09-14 — Python 67,1 %, Kotlin 64,7 % ohne `:app`,
   Web `lib/` 73,9 %. Die drei Aufrufe und die zwei Fallen (pytest-cov toetet den CUDA-Graph-Test,
-  `:app` liefert keinen Kover-Bericht solange `ModelSpecTest` rot ist): `docs/test-coverage-2026-09-14.md`.
+  `:app` lieferte keinen Kover-Bericht, solange `ModelSpecTest` rot war — seit den gemessenen
+  `coverage_gate`s ist er gruen, die Falle ist also zu): `docs/test-coverage-2026-09-14.md`.
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not
   undisputed, it is unmeasured, and the lane says `—` rather than `0`.
