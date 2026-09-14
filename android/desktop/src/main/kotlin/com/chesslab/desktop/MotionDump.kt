@@ -18,7 +18,6 @@ internal class MotionDump(
 ) : FrameStages<Mat> by inner {
     private var frame = 0L
 
-    /** Empty under `engine=stillness`/`engine=changeset`: neither reads the score, so it is never taken. */
     override fun roiMotion(corners: FloatArray): Double = inner.roiMotion(corners).also { out.write("${++frame},$it\n") }
 
     override fun close() {

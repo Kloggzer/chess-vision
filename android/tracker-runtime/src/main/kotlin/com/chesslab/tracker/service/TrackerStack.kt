@@ -20,7 +20,6 @@ import com.chesslab.tracker.pipeline.FramePipeline
 import com.chesslab.tracker.pipeline.FrameSizeGuard
 import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.StageTimings
-import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.SettingsRepository
 import com.chesslab.tracker.settings.withLiveKnobsOf
 import kotlinx.coroutines.CoroutineDispatcher
@@ -132,8 +131,6 @@ class TrackerSeed<T>(
     val alignmentSink: ((Long, FloatArray) -> Unit)? = null,
     /** Offline cold path: raw marker detections precomputed independently per alignment frame. */
     val cachedMarkerDetections: ((Long) -> Map<Int, DoubleArray>)? = null,
-    /** Which engine decides. Read once, here — a change rebuilds the stack like every other one. */
-    val engine: EngineKind = EngineKind.CLASSIC,
 )
 
 /**
@@ -171,7 +168,6 @@ class TrackerStack<T>(
 
     val host =
         engineHost(
-            seed.engine,
             seed.config,
             CnnRecovery(cnnConfig(seed.config)),
             seed.startFen,

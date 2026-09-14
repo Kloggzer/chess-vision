@@ -48,24 +48,6 @@ enum class FrameRateMode(
     FPS30("30 fps", 30),
 }
 
-/**
- * Which engine decides what a move is.
- *
- * Three verdicts on the same pictures. The diff channel reads what CHANGED against a reference and
- * asks the model to confirm it; the stillness engine waits for rest and asks which legal
- * continuation explains the READING; the changeset engine waits for rest like the second but
- * decides like the first, asking the model only empty/white/black and never which piece — because
- * identity is the weakest thing it produces (`docs/engine-changeset.md`). None is better
- * everywhere, which is why the choice exists at all.
- */
-enum class EngineKind(
-    val label: String,
-) {
-    CLASSIC("Diff + CNN (Standard)"),
-    STILLNESS("Stillstand + Legalitaetssuche"),
-    CHANGESET("Stillstand + Veraenderung (CNN nur Farbe)"),
-}
-
 /** Which ONNX execution provider to REQUEST. What was actually selected is 07b's CNN panel. */
 enum class EpRequest(
     val label: String,
@@ -134,8 +116,6 @@ data class AppSettings(
     val modelDir: String = DEFAULT_MODEL,
     val modelAsset: String = "model.onnx",
     val epRequest: EpRequest = EpRequest.AUTO,
-    /** Read once when the stack is built; a change restarts the tracker like every other one here. */
-    val engine: EngineKind = EngineKind.CLASSIC,
     /** Read by 07b; only the settings screen writes it. Off means the payload is not assembled. */
     val debugEnabled: Boolean = false,
     /** 08c. Off by default: an app that starts talking uninvited is a bug, not a feature. */

@@ -219,7 +219,7 @@ private val PGN_SPACE = Regex("""\s+""")
  * Three numbers, three lists, no average — und das MODELL, mit dem sie entstanden sind.
  *
  * Ohne den Namen ist die Zahl nicht zuzuordnen, und das Label ist ein historischer App-Stand
- * statt einer Wahrheit ueber das Brett: `docs/engine-changeset.md`, "Was der Score misst".
+ * statt einer Wahrheit ueber das Brett.
  */
 internal fun printScore(
     candidate: File,

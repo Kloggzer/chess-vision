@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.BoardOrientation
-import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.EpRequest
 import com.chesslab.tracker.settings.FrameRateMode
 import com.chesslab.tracker.settings.ResolutionMode
@@ -46,16 +45,6 @@ fun AppSettingsSection(
             options = FrameRateMode.entries.map { it.label to it },
             selected = app.frameRate,
             onSelect = { onChange(app.copy(frameRate = it)) },
-        )
-        ValuePreference(
-            title = "Move engine",
-            summary =
-                "Which engine decides what a move is · Diff reads what CHANGED against a reference, " +
-                    "Stillness waits for rest and asks which legal move explains the reading, " +
-                    "Change waits for rest but decides on the pixels and asks the model only for colour",
-            options = EngineKind.entries.map { it.label to it },
-            selected = app.engine,
-            onSelect = { onChange(app.copy(engine = it)) },
         )
         ValuePreference(
             title = "CNN model",

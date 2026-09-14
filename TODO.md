@@ -187,6 +187,9 @@ am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App
 
 ## Erledigt — das Ergebnis in einer Zeile
 
+- Die zwei Experiment-Engines (`:engine-stillness`, `:engine-changeset`) sind raus, samt
+  `EngineKind`, Regler, `engine=`-Replayoption und 13 Budget-Zeilen; Bestandsgeraete fallen ueber
+  `ignoreUnknownKeys` still auf die Diff-Engine zurueck (2026-09-14).
 - Commit-Latenz 333 → 200 ms median bei 15 fps (p90 400 → 267) ohne Score-Aenderung auf 15
   Aufnahmen: Sofort-Beobachtung (kadenzneutral) + Same-Frame-Drain (2026-09-12/13).
 - Ankunftsregel fuer Schlagzuege und Sichtbarkeits-Serie gelten nur im Motion-Hold (`commitHoldS`);

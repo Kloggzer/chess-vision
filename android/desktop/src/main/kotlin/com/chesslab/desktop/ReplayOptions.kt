@@ -4,7 +4,6 @@ import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.settings.ConfigCodec
-import com.chesslab.tracker.settings.EngineKind
 import com.chesslab.tracker.settings.KNOBS
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -125,18 +124,8 @@ data class ReplayOptions(
     val limitFrames: Int? = null,
     /** Exact unsampled engine state and operation durations per delivered frame. */
     val trace: String? = null,
-    /**
-     * `engine=<name>` — which engine decides. The A/B this whole seam exists for: two runs that
-     * differ in one word, scored the same way.
-     */
-    val engine: EngineKind = EngineKind.CLASSIC,
 ) {
     companion object {
-        /** One of the engine names, or a refusal that lists them — a typo must not pick a default. */
-        private fun engineNamed(name: String): EngineKind =
-            EngineKind.entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
-                ?: error("engine= wants one of ${EngineKind.entries.map { it.name.lowercase() }}, got '$name'")
-
         /** The plain flag words, each one field. Assignments (`x=`) live in [assigned]. */
         private val FLAGS: Map<String, (ReplayOptions) -> ReplayOptions> =
             mapOf(
@@ -161,7 +150,7 @@ data class ReplayOptions(
                     FLAGS[word]?.invoke(options) ?: assigned(options, word)
                         ?: error(
                             "unknown option '$word' (${FLAGS.keys.joinToString(" | ")} " +
-                                "| dump=<n> | name=<x> | model=<name> | engine=<name> | config=<file> | fps=<n> | visualcache=<file>)",
+                                "| dump=<n> | name=<x> | model=<name> | config=<file> | fps=<n> | visualcache=<file>)",
                         )
             }
             return options
@@ -194,7 +183,6 @@ data class ReplayOptions(
                     )
                 word.startsWith("limit=") -> options.copy(limitFrames = word.removePrefix("limit=").toInt().also { require(it > 0) })
                 word.startsWith("trace=") -> options.copy(trace = word.removePrefix("trace=").also { require(it.isNotBlank()) })
-                word.startsWith("engine=") -> options.copy(engine = engineNamed(word.removePrefix("engine=")))
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("prior=") ->
                     options.copy(
