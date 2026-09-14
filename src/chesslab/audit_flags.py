@@ -161,6 +161,8 @@ def is_occupancy(flag: dict) -> bool:
     return (flag["fen_label"] == "empty") != (flag["predicted"] == "empty")
 
 
+# TODO: heisst `visible_cells`, liefert die VERDECKTEN — jeder Aufrufer muss den Namen
+# umdrehen (`covered = visible_cells(...)`), und wer das ueberliest, filtert genau falsch.
 def visible_cells(session_dir: Path) -> set[tuple[str, str]]:
     """(frame, square) of every cell this recording's matte measured as COVERED, over the cut.
 

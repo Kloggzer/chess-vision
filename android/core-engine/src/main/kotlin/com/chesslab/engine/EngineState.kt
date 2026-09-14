@@ -186,6 +186,10 @@ internal class EngineState(
     /** Expiry timestamp per tainted square; only meaningful for squares set in [tainted]. */
     val taintExpiry = DoubleArray(Squares.COUNT)
 
+    /** Wann der Taint begann. Aus `expiry - occluderHoldS` zurueckgerechnet wanderte er mit dem
+     *  Regler, und ein hochgedrehter Hold zog aeltere Bewegung ins Fenster. */
+    val taintStart = DoubleArray(Squares.COUNT)
+
     var occludedVetoed: Long = 0L
     var shadowVetoed: Long = 0L
 

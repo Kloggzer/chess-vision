@@ -974,8 +974,10 @@ def write_boards_session(session_id: str) -> dict:
     missing = len(jobs) - written
     # A fresh warp is bowed again, so the store's one straightening has to follow the rewrite —
     # otherwise this repair would quietly hand the cutters a board nobody pulls straight any more.
-    pulled = straighten_boards(sdir, rows)
+    # Der Flag ist laut `straighten_boards` das EINZIGE zwischen einem abgebrochenen Lauf und
+    # einem zweimal gezogenen Store — also muss er unterwegs auf die Platte, nicht erst am Ende.
     backup = backup_log(sdir / "log.jsonl")
+    pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
     _write_log(sdir, rows)
     return {"session_id": session_id, "written": written, "of": len(rows),
             "missing": missing, "backup": backup, "straightened": pulled["straightened"]}

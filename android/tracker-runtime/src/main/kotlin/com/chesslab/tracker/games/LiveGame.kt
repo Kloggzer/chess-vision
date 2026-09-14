@@ -189,10 +189,22 @@ class LiveGame(
      * moment after it is bit-for-bit the same thing as a take-back. See
      * `GameSessionController.onStatus` for what turns this into a decision.
      */
-    fun wouldUndo(fen: String): Boolean {
+    fun wouldUndo(fen: String): Boolean = undoDepth(fen) > 0
+
+    /**
+     * Wie viele Plies die Engine gerade zurueckgenommen hat, 0 wenn keiner.
+     *
+     * `TrackerEngine.undo` poppt `lastCommitSize` Plies auf einmal — ein Schnellspiel-Paar
+     * oder die CNN-Bruecke sind mehr als einer. Nur den letzten zu pruefen liess ein
+     * Paar-Undo unsichtbar, beide Plies blieben im Record und wurden Trainingsmaterial.
+     */
+    private fun undoDepth(fen: String): Int {
         val moves = current.moves
-        val last = moves.lastOrNull() ?: return false
-        return fen != last.fenAfter && fen == current.fenBefore(moves.size - 1)
+        if (moves.isEmpty() || fen == moves.last().fenAfter) return 0
+        for (k in 1..minOf(MAX_UNDO_PLIES, moves.size)) {
+            if (fen == current.fenBefore(moves.size - k)) return k
+        }
+        return 0
     }
 
     /**
@@ -204,9 +216,10 @@ class LiveGame(
      * an empty list. The first segment stays whatever happens — it carries the record's `startFen`.
      */
     fun onFen(fen: String): Boolean {
-        if (!wouldUndo(fen)) return false
+        val depth = undoDepth(fen)
+        if (depth == 0) return false
         val moves = current.moves
-        moves.removeAt(moves.size - 1)
+        repeat(depth) { moves.removeAt(moves.size - 1) }
         if (moves.isEmpty() && segments.size > 1) segments.removeAt(segments.size - 1)
         return true
     }
@@ -285,3 +298,7 @@ fun DebugDecision.toProvenance(): MoveProvenance =
         cnnAgreement = cnnAgreement,
         verifyOutcomes = listOfNotNull(verifyOutcome),
     )
+
+/** So weit poppt `TrackerEngine.undo` hoechstens: die `FAST_PLIES` der Paar-Suche. Weiter
+ *  zurueck zu greifen hiesse, eine Stellungswiederholung fuer ein Undo zu halten. */
+private const val MAX_UNDO_PLIES = 3

@@ -50,13 +50,17 @@ export function forgetRaster(file: string): void {
   decoded.delete(file);
 }
 
-async function rasterOf(file: string): Promise<Raster> {
+async function rasterOf(path_: string): Promise<Raster> {
+  // Der Schluessel traegt die mtime: ein Re-Export schreibt das Brett unter demselben Namen neu,
+  // und nach dem Pfad allein servierte der Cache die Pixel von vorher.
+  const stamp = await stat(path_).then((s) => s.mtimeMs, () => 0);
+  const file = `${path_}|${stamp}`;
   const hit = decoded.get(file);
   if (hit) return hit;
   const pending = inFlight.get(file);
   if (pending) return pending;
 
-  const job = sharp(await readFile(file))
+  const job = sharp(await readFile(path_))
     .removeAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })

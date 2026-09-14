@@ -196,7 +196,10 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
     """
     msgs: list[str] = []
 
-    if report.get("verts", 0) < _MIN_VERTS:
+    # Nur ueber Zahlen urteilen, die der Bericht WIRKLICH traegt. Seit dem Verbatim-Umbau nennt
+    # `prepare_scan` weder `verts` noch die Kantenzaehlungen, und ein fehlender Schluessel als 0
+    # gelesen meldete hinter jeder einwandfreien Figur "only None vertices".
+    if "verts" in report and report.get("verts", 0) < _MIN_VERTS:
         msgs.append(
             f"only {report.get('verts')} vertices — suspiciously few "
             "(check scan/preview)")

@@ -15,7 +15,6 @@ from chesslab.dataset import (
     load_priority_paths,
     make_split,
     subsample_classes,
-    subsample_empty,
     verify,
 )
 
@@ -48,18 +47,6 @@ def test_compute_stats_counts_and_warnings():
     assert any("wP" in w and "200" in w for w in stats["warnings"])
     # bN absent entirely
     assert any(w.startswith("Class bN") for w in stats["warnings"])
-
-
-def test_subsample_empty_caps_and_is_seed_stable():
-    rows = _dataset()  # empty=240, largest piece (wP)=40 -> cap at 1.5*40=60
-    sub = subsample_empty(rows, 1.5, seed=42)
-    n_empty = sum(r["label"] == "empty" for r in sub)
-    assert n_empty == 60
-    # non-empty untouched
-    assert sum(r["label"] != "empty" for r in sub) == sum(r["label"] != "empty" for r in rows)
-    # deterministic
-    again = subsample_empty(rows, 1.5, seed=42)
-    assert [r["square_color"] for r in sub] == [r["square_color"] for r in again]
 
 
 def test_subsample_priority_paths_survive_empty_cap():

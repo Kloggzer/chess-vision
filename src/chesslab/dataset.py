@@ -151,15 +151,21 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
 
     kept: list[dict] = []
     eff_piece: dict[str, int] = {}
-    for c, v in by_label.items():
+    # Sortiert, wie `dedup_metadata` es 30 Zeilen weiter oben schon tut: EIN `rng` zieht hier je
+    # Klasse der Reihe nach, und in Einfuegereihenfolge haengt die Auswahl damit am Manifest statt
+    # am Seed — derselbe Seed behielt 54 von 62 anderen Crops.
+    for c in sorted(by_label):
+        v = by_label[c]
         if c == "empty":
             continue
         if piece_cap is not None and len(v) > piece_cap:
-            v = rng.sample(v, piece_cap)
+            v = rng.sample(sorted(v, key=lambda r: str(r.get("path"))), piece_cap)
         eff_piece[c] = len(v)
         kept.extend(v)
 
-    empties = by_label.get("empty", [])
+    # Auch hier stabil sortiert: sonst zieht derselbe Seed je nach Manifest-Reihenfolge andere
+    # leere Felder.
+    empties = sorted(by_label.get("empty", []), key=lambda r: str(r.get("path")))
     if max_empty_ratio is not None and eff_piece:
         empty_cap = int(round(max_empty_ratio * max(eff_piece.values())))
         if len(empties) > empty_cap:
@@ -173,10 +179,6 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     kept.extend(empties)
     return kept
 
-
-def subsample_empty(rows: list[dict], max_empty_ratio: float | None, seed: int) -> list[dict]:
-    """Only cap `empty` (compatibility wrapper around subsample_classes)."""
-    return subsample_classes(rows, max_empty_ratio=max_empty_ratio, max_class_ratio=None, seed=seed)
 
 
 def compute_class_weights(counts: dict, classes: list[str] | None = None,

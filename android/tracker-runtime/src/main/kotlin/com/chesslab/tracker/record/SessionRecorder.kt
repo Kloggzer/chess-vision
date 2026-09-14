@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.time.Instant
+import java.util.Locale
 
 private val JSON = Json { encodeDefaults = true }
 
@@ -119,7 +120,7 @@ class SessionRecorder(
         moveSan: String?,
         corners: FloatArray,
     ): String? {
-        val rel = "frames/%04d.jpg".format(entries.size)
+        val rel = "frames/%04d.jpg".format(Locale.ROOT, entries.size)
         val dest = File(dir, rel)
         val written = runCatching { writer.write(dest) }.getOrDefault(0L)
         if (written <= 0L) {

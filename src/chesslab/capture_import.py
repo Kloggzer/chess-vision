@@ -181,8 +181,12 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     # abgeschnittenen Aufnahme gibt der Dekoder kein Bild mehr her.
     rows = [r for r in rows if r.get("board")]
     write_capture_meta(session_dir, bundle, name, profile, prof)
-    # TODO: `realgames.write_session` sichert ein vorhandenes `log.jsonl` per `backup_log`, weil
-    #  darin handgesetzte Quads und Urteile stehen koennen; dieser Pfad ueberschreibt es stumm.
+    # Wie `realgames.write_session`: im Log koennen handgesetzte Quads und Urteile stehen, und
+    # ein Re-Import darf sie nicht ohne Kopie ueberschreiben.
+    from .sessions import backup_log
+
+    if (session_dir / "log.jsonl").is_file():
+        backup_log(session_dir / "log.jsonl")
     with (session_dir / "log.jsonl").open("w", encoding="utf-8") as fh:
         for row in rows:
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")

@@ -68,9 +68,9 @@ internal fun loglikScores(
 }
 
 /**
- * LL score for MOVE PAIRS (half-move + reply) — rescues fast play without a CNN. Only pairs whose from
- * AND to endpoints carry at least weak evidence are candidates — endpoints ONLY, never the full touched
- * set — and the score sums the logits over the UNION, so a shared square counts once.
+ * LL score for MOVE PAIRS — die Naht, an der `ScoringTest` gegen die Python-Fixtures prueft.
+ * Der ausgelieferte Pfad ruft `loglikSequenceScores` direkt; der Wrapper haelt die Paritaet
+ * an genau der Form fest, die Python rechnet.
  */
 internal fun loglikPairScores(
     g: Game,

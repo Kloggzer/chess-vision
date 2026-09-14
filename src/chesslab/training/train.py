@@ -879,6 +879,15 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         print("[loss] class-weight override: "
               + ", ".join(f"{c}={class_weight[c]}" for c in sorted(class_weight)))
     weights = class_weights_tensor(split, classes).to(device)
+    # VOR dem Kopf-Zweig: unter `--head occlusion` sprang die Pruefung ganz aus, also lief
+    # `--loss banana` widerspruchslos durch und landete als Provenienz in der config.json.
+    if loss not in ("ce", "focal"):
+        print(f"[FAIL] unknown --loss {loss!r} (ce | focal).")
+        return 1
+    if occluding and loss != "ce":
+        print(f"[FAIL] --head occlusion bringt seinen eigenen Verlust mit; --loss {loss!r} "
+              f"waere wirkungslos und stuende trotzdem in der config.json.")
+        return 1
     if occluding:
         from .occlusion import CELL_DARK_MIN, PIECE_VISIBLE_MAX, OcclusionLoss
 
@@ -905,9 +914,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   "log-probs and would be soft-maxed twice.")
             return 1
         criterion = FocalLoss(weight=weights, gamma=focal_gamma).to(device)
-    else:
-        print(f"[FAIL] unknown --loss {loss!r} (ce | focal).")
-        return 1
     print(f"[loss] {loss}" + (f" gamma={focal_gamma}" if loss == "focal" else "")
           + f", effective weights: {dict(zip(classes, [round(float(w), 4) for w in weights.tolist()], strict=True))}")
     # AdamW = Adam with decoupled weight decay (docs/references.md#loshchilov-2017). Bis 2026-08-26
@@ -1136,7 +1142,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "input_repr": input_repr, "in_chans": in_chans,
         "scales": scales,
         "aug": {"erase_p": policy.erase_p, "neighbour_p": neighbour_p or 0.0},
-        "loss": loss, "focal_gamma": focal_gamma if loss == "focal" else None,
+        # Was WIRKLICH gerechnet wurde: unter `--head occlusion` ist das `OcclusionLoss`,
+        # nicht `loss` — die Provenienz nannte sonst einen Verlust, den der Lauf nie anfasste.
+        "loss": "occlusion" if occluding else loss,
+        "focal_gamma": focal_gamma if (loss == "focal" and not occluding) else None,
         "class_weight_override": dict(class_weight or {}),
         "hard_negative_multiplier": hard_negative_multiplier,
         "balance": balance,

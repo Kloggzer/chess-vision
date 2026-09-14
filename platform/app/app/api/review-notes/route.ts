@@ -6,7 +6,8 @@ import { appendReviewNotes, dropReviewNotes, validateNote } from "@/lib/review-n
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { rows?: unknown; retract?: unknown };
-    const rows = Array.isArray(body.rows) ? body.rows.map(validateNote) : [];
+    if (!Array.isArray(body.rows)) throw new Error("rows fehlt oder ist kein Array");
+    const rows = body.rows.map(validateNote);
     if (body.retract === true) return Response.json({ written: await dropReviewNotes(rows) });
     const written = await appendReviewNotes(rows);
     // Die gemeldete Hand ist erst auf dem Stapel, wenn sie im Log steht — und das ist billig, also

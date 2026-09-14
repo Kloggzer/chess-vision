@@ -215,6 +215,10 @@ class StatusPublisher(
         val last = raw.value ?: return
         val since = nowMs() - lastPublishMs
         if (lastPublishMs == NEVER_BUILT || since < FRAME_STALL_MS) return
+        // An `resolveNote` vorbei zu schreiben verlor den Alarmtext — und der ist die einzige
+        // Meldung, die den Nutzer bei geschlossener App erreicht. Eine vom Nutzer freigegebene
+        // Kamera ist ausserdem keine Stoerung, sondern seine Entscheidung.
+        if (last.alarm != null || last.note?.contains("camera is released") == true) return
         val note = "no frames from the camera for ${since / MS_PER_S}s — the feed stopped"
         if (last.note == note && last.fps == 0.0 && last.cameraFps == 0.0) return
         raw.value = last.copy(note = note, fps = 0.0, cameraFps = 0.0)

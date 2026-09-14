@@ -94,7 +94,7 @@ def timing_flags(entries: list[dict], intervals: list[dict],
                 out.append({"session_id": session_id, "frame": stem, "square": square,
                             "fen_label": labels.label_for(square), "ply": entry.get("ply"),
                             "dev": round(dev, 2), "cov": round(cov, 4),
-                            "seen": bool(row.get("seen")), "moved_ply": ply,
+                            "seen": bool(row.get("seen")),
                             "reason": "timing"})
     return out
 

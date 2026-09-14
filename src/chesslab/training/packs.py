@@ -89,7 +89,25 @@ def read_pack(name: str, paths: config.Paths = config.DATA, *, dir_: Path | None
     if foreign is not None:
         raise ValueError(f"pack {name}: its rows say {pack_name_of(foreign)} "
                          f"({foreign}) — the directory name IS the pack name")
+    _check_digest(name, d, meta)
     return PackRef(name=name, image=img_path, shape=(n, h, w), paths=pack_paths)
+
+
+def _check_digest(name: str, d: Path, meta: dict) -> None:
+    """Der Pack gegen das Manifest, aus dem er geschnitten wurde — der Monolith-Pfad nennt das
+    "the one failure mode that produces a plausible-looking but wrong model". Ohne Digest
+    unpruefbar, nicht falsch.
+    """
+    want = meta.get("digest")
+    manifest = d / "manifest.jsonl"
+    if want is None or not manifest.is_file():
+        return
+    from ..ioutil import read_jsonl
+
+    got = _manifest_digest(list(read_jsonl(manifest)))
+    if got != want:
+        raise ValueError(f"pack {name}: manifest digest {got} does not match the packed "
+                         f"{want} — the manifest moved on, re-cut before it feeds a run")
 
 
 def list_packs(paths: config.Paths = config.DATA) -> list[PackRef]:

@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.camera.core.ImageProxy
 import java.io.File
 import java.nio.ByteBuffer
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /** The minimum useful recording size. Smaller video is never silently accepted as training input. */
@@ -553,7 +554,7 @@ class CameraVideo : AutoCloseable {
     private fun segmentFile(index: Int): File {
         val base = requireNotNull(outputFile)
         if (index == 0) return base
-        return File(base.parentFile, "%s-%03d.%s".format(base.nameWithoutExtension, index, base.extension))
+        return File(base.parentFile, "%s-%03d.%s".format(Locale.ROOT, base.nameWithoutExtension, index, base.extension))
     }
 
     private fun releaseEncoder() {

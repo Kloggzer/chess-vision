@@ -62,7 +62,8 @@ internal fun repair(
     out: File,
 ): RepairReport {
     val (avcc, fps, size) = referenceStream(reference)
-    val payloadStart = mdatPayloadStart(broken)
+    val mdat = mdatBox(broken)
+    val payloadStart = mdat.payloadStart
     val samples = walkSamples(broken, payloadStart)
     check(samples.isNotEmpty()) { "${broken.name}: no samples in mdat" }
 
@@ -71,13 +72,17 @@ internal fun repair(
     // muxer left a placeholder there — and the index is appended behind it.
     broken.copyTo(out, overwrite = false)
     RandomAccessFile(out, "rw").use { file ->
-        // TODO: Beide Header-Formen kommen aus `mdatPayloadStart`, gepatcht wird nur das
-        //  64-Bit-Format. Bei einem 8-Byte-Header zeigt `payloadStart - 8` auf den Boxanfang,
-        //  und der `writeLong` ueberschreibt Groesse UND `mdat`-Fourcc mit einem um 8 zu grossen
-        //  Wert — eine Datei, die kein Demuxer mehr kennt, ohne einen Fehler. Die Aufnahmen sind
-        //  die einzigen Kopien (CLAUDE.md 4).
-        file.seek(payloadStart - Long.SIZE_BYTES)
-        file.writeLong(out.length() - (payloadStart - MDAT_HEADER_64))
+        // Nach der Form des Headers, den die Datei WIRKLICH traegt: blind den 64-Bit-Patch zu
+        // schreiben ueberschrieb bei 8 Byte die `mdat`-Fourcc gleich mit, und kein Demuxer findet
+        // die Nutzlast danach wieder — lautlos, auf Aufnahmen, die es nur einmal gibt.
+        val boxLength = out.length() - (payloadStart - mdat.header)
+        if (mdat.header == MDAT_HEADER_64) {
+            file.seek(payloadStart - Long.SIZE_BYTES)
+            file.writeLong(boxLength)
+        } else {
+            file.seek(payloadStart - mdat.header)
+            file.writeInt(boxLength.toInt())
+        }
         file.seek(out.length())
         file.write(buildMoov(samples, payloadStart, avcc, size.first, size.second, fps))
     }
@@ -149,8 +154,16 @@ internal fun walkSamples(
     return samples
 }
 
-/** The first byte of the payload. `mdat`'s own size is the placeholder the muxer never patched. */
-internal fun mdatPayloadStart(file: File): Long {
+/** Wo die `mdat`-Nutzlast beginnt, und wie breit ihr Header ist (8 oder 16 Byte).
+ *  Ihre eigene Groesse ist der Platzhalter, den der Muxer nie gepatcht hat. */
+internal data class MdatBox(
+    val payloadStart: Long,
+    val header: Long,
+)
+
+internal fun mdatPayloadStart(file: File): Long = mdatBox(file).payloadStart
+
+internal fun mdatBox(file: File): MdatBox {
     DataInputStream(file.inputStream().buffered()).use { input ->
         var at = 0L
         while (true) {
@@ -162,7 +175,7 @@ internal fun mdatPayloadStart(file: File): Long {
                 length = input.readLong()
                 header = MDAT_HEADER_64
             }
-            if (type == "mdat") return at + header
+            if (type == "mdat") return MdatBox(at + header, header)
             val skip = length - header
             check(skip > 0) { "${file.name}: box $type has no length — nothing to walk" }
             input.skipNBytes(skip)

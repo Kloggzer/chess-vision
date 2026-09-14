@@ -230,7 +230,10 @@ class BoardFocusGovernor(
 
     @Synchronized
     override fun cancel() {
-        if (sweep == null) return
+        // An `sweeping`, nicht am Sweep-Objekt: in der Geraetesuche und in der Bestaetigung
+        // ist `sweep` null, `sweeping` aber true — Abbrechen tat dort lautlos nichts und die
+        // manuelle Distanz kam nie zurueck, waehrend der Lauf die Linse trotzdem sperrte.
+        if (!sweeping) return
         restore(FocusState.Idle)
     }
 

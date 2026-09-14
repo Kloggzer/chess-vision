@@ -51,23 +51,32 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-def _boot_time() -> datetime | None:
-    """Wann der Rechner zuletzt gestartet ist, ohne psutil. None, wenn unbekannt."""
+def _uptime_s() -> float | None:
+    """Sekunden seit dem Systemstart, ohne psutil. None, wenn unbekannt."""
     try:
         if os.name == "nt":
             import ctypes
 
             ctypes.windll.kernel32.GetTickCount64.restype = ctypes.c_uint64
-            up = ctypes.windll.kernel32.GetTickCount64() / 1000.0
-        else:
-            up = float(Path("/proc/uptime").read_text().split()[0])
+            return ctypes.windll.kernel32.GetTickCount64() / 1000.0
+        return float(Path("/proc/uptime").read_text().split()[0])
     except (OSError, ValueError, AttributeError):
         return None
-    return datetime.now() - timedelta(seconds=up)
 
 
-def _same_boot(stamp: object) -> bool:
-    """Wurde `stamp` in derselben Sitzung geschrieben? Unbekanntes gilt als aktuell."""
+def _boot_time() -> datetime | None:
+    """Wann der Rechner zuletzt gestartet ist. None, wenn unbekannt."""
+    up = _uptime_s()
+    return None if up is None else datetime.now() - timedelta(seconds=up)
+
+
+def _same_boot(stamp: object, uptime: object = None) -> bool:
+    """Dieselbe Sitzung? Die LAUFZEIT entscheidet, die Wanduhr ist nur Rueckfall: eine
+    Zeitumstellung verschob die abgeleitete Bootzeit und gab das Lock frei, waehrend der Lauf lief.
+    """
+    now_up = _uptime_s()
+    if isinstance(uptime, (int, float)) and now_up is not None:
+        return now_up >= float(uptime) - _BOOT_TOLERANCE_S
     boot = _boot_time()
     if boot is None or not isinstance(stamp, str):
         return True
@@ -94,7 +103,7 @@ def held_by(lock: Path) -> dict | None:
     # eingefrorener Lauf jedes weitere Training: Windows vergibt die PID nach dem Neustart neu
     # (2026-09-11 gehoerte 20176 danach `taskhostw`), und `pid_alive` sagt brav ja. Verglichen wird
     # der beim Setzen notierte Systemstart, nicht das Alter — ein Lock ohne das Feld bleibt gueltig.
-    if not _same_boot(info.get("boot")):
+    if not _same_boot(info.get("boot"), info.get("uptime")):
         return None
     return info
 
@@ -112,10 +121,11 @@ def acquire(lock: Path, job: str, name: str) -> dict | None:
     if info is not None:
         return info
     lock.parent.mkdir(parents=True, exist_ok=True)
-    boot = _boot_time()
+    boot, up = _boot_time(), _uptime_s()
     payload = json.dumps({"pid": os.getpid(), "childPid": os.getpid(), "job": job,
                           "name": name, "startedAt": datetime.now().isoformat(),
-                          **({"boot": boot.isoformat()} if boot else {})}, indent=2)
+                          **({"boot": boot.isoformat()} if boot else {}),
+                          **({"uptime": round(up, 1)} if up is not None else {})}, indent=2)
     # Ein Lock, das VOR unserem Versuch schon dalag, ist tot (`held_by` sagte frei) und darf weg;
     # eines, das WAEHREND des Versuchs entsteht, gehoert einem Mitbewerber — Pruefen-dann-Schreiben
     # liess sonst beide gewinnen.

@@ -476,6 +476,9 @@ class TaintTest {
         val i = Squares.index(square)
         tainted = tainted.with(i)
         taintExpiry[i] = expiry
+        // Wie die Produktion: der Beginn wird MITGESCHRIEBEN, nicht aus dem Hold
+        // zurueckgerechnet — sonst laege er auf 0 und jede Bewegung zaehlte als danach.
+        taintStart[i] = expiry - config.occluderHoldS
     }
 
     private fun snapshot(

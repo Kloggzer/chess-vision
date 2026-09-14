@@ -87,6 +87,10 @@ def illumination_field(board_bgr, board_size: int, border: int,
     h, w = board_bgr.shape[:2]
     # Auf die ZELLMITTEN setzen und ueber den Rand fortsetzen, sonst sitzt die Karte um
     # eine halbe Zelle daneben.
+
+    # TODO: der Docstring begruendet die Wahl mit "bilinear kann nicht extrapolieren",
+    # gerechnet wird aber INTER_CUBIC, das ueberschwingt (gemessen 1,6 % ueber die Spanne
+    # der Zellkarte). Und `docs/flat-field.md`, hier dreimal zitiert, gibt es nicht.
     big = cv2.resize(rel, (board_size, board_size), interpolation=cv2.INTER_CUBIC)
     field = np.ones((h, w), np.float32)
     field[border:border + board_size, border:border + board_size] = big

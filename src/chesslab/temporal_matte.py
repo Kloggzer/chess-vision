@@ -377,7 +377,9 @@ def require_fresh_proposals(directory, recording) -> None:
     """
     metadata_path = directory / "proposals.meta.json"
     if not metadata_path.is_file():
-        return
+        # `propose_session` schreibt die Vorschlaege VOR der Meta: stirbt der Lauf dazwischen,
+        # liegt ein vollstaendig aussehender Satz ohne Herkunft da. Ohne Stempel keine Adoption.
+        raise RuntimeError(f"{directory.name}: proposals carry no source stamp — regenerate them")
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     if metadata.get("source") != source_stamp(recording):
         raise RuntimeError("Proposal source changed; proposals must be regenerated")

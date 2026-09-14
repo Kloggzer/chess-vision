@@ -311,7 +311,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
     decided.push(seen);
     coverage.push(Object.fromEntries([...matte].map(([stem, frame]) => [
       stem,
-      Object.fromEntries(Object.entries(frame.coverage).filter(([, v]) => v > 0)),
+      // Nullen BLEIBEN: eine geleerte Matte ist "gemessen, nichts verdeckt", und ohne sie las
+      // `reachesPool` das Brett als ungemattet und liess es fallen — waehrend Python seine 64
+      // Zellen ins Training schneidet.
+      frame.coverage,
     ])));
     frameHands.push(Object.fromEntries(
       stems.flatMap((row) => {

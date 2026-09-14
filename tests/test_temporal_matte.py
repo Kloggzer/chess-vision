@@ -192,6 +192,11 @@ def test_adopt_writes_matte_rows_only_for_frames_sam_never_cut(tmp_path, monkeyp
         {"frame": s, "alpha": f"{s}.alpha.png", "fraction_above_half": .3}) + "\n"
         for s in ("000001", "000002", "000003", "000004")), encoding="utf-8")
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    # Den Stempel mit, wie `propose_session`: ein Satz OHNE Meta ist seit 2026-09-14 nicht mehr
+    # adoptierbar — ein Abbruch zwischen den beiden Schreibvorgaengen hinterliess sonst einen
+    # vollstaendig aussehenden Satz ohne Herkunft.
+    (proposals / "proposals.meta.json").write_text(
+        json.dumps({"source": temporal_matte.source_stamp(rec)}), encoding="utf-8")
     monkeypatch.setattr(calibration, "load_profile", lambda _: "profile")
     monkeypatch.setattr(matte, "coverage_of", lambda alpha, entry, profile: {"a1": float(alpha.mean())})
     result = temporal_matte.adopt_proposals("rg-t")
@@ -234,6 +239,11 @@ def test_upsert_replaces_only_frames_where_sam_found_nothing(tmp_path, monkeypat
         {"frame": s, "alpha": f"{s}.alpha.png", "fraction_above_half": 1.}) + "\n"
         for s in ("000001", "000002", "000003")), encoding="utf-8")
     monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    # Den Stempel mit, wie `propose_session`: ein Satz OHNE Meta ist seit 2026-09-14 nicht mehr
+    # adoptierbar — ein Abbruch zwischen den beiden Schreibvorgaengen hinterliess sonst einen
+    # vollstaendig aussehenden Satz ohne Herkunft.
+    (proposals / "proposals.meta.json").write_text(
+        json.dumps({"source": temporal_matte.source_stamp(rec)}), encoding="utf-8")
     monkeypatch.setattr(calibration, "load_profile", lambda _: "profile")
     monkeypatch.setattr(matte, "coverage_of", lambda alpha, entry, profile: {"a": float(alpha.mean())})
     result = temporal_matte.upsert_proposals("rg-t")

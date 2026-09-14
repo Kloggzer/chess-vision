@@ -108,11 +108,6 @@ def all_reads(run_dir: Path, cells: list[np.ndarray], device: str = "cpu",
     return serving.predict_arrays(run_dir, cells, device=device, return_probs=True, weights=weights)
 
 
-def all_probs(run_dir: Path, cells: list[np.ndarray], device: str = "cpu") -> list[list[float]]:
-    """The full softmax per crop, in the run's class order."""
-    return [[float(x) for x in r["probs"]] for r in all_reads(run_dir, cells, device)]
-
-
 #: Below this a probability is noise no filter would ever be pointed at.
 PROB_FLOOR = 0.01
 

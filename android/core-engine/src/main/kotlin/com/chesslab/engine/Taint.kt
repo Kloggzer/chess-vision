@@ -37,6 +37,7 @@ internal fun EngineState.applyTaints() {
             tainted = tainted.with(i)
             keepaliveTainted = keepaliveTainted.with(i)
             taintExpiry[i] = nowS + config.occluderHoldS
+            taintStart[i] = nowS
         }
     }
     restingHandVeto()
@@ -158,6 +159,7 @@ private fun EngineState.restingHandVeto() {
         lastZ[i] = 0.0
         tainted = tainted.with(i)
         taintExpiry[i] = expiry
+        taintStart[i] = nowS
     }
 }
 
@@ -167,10 +169,11 @@ private fun EngineState.restingHandVeto() {
  * evidence returned to baseline (else a misread latches a quiet board forever). Until then z is ZEROED.
  */
 private fun EngineState.releaseLatches() {
-    val hold = config.occluderHoldS
     tainted.forEachSquare { i ->
         val exp = taintExpiry[i]
-        val motionSinceTaint = lastMotionTs >= exp - hold
+        // Gegen den GESPEICHERTEN Beginn: `exp - occluderHoldS` folgte dem Live-Regler, und wer
+        // ihn hochdrehte, weitete das Fenster rueckwaerts ueber Bewegung von vorher.
+        val motionSinceTaint = lastMotionTs >= taintStart[i]
         val backToBaseline = lastZ[i] < config.zThr
         if (nowS > exp && (motionSinceTaint || backToBaseline)) {
             tainted = tainted.without(bit(i))
