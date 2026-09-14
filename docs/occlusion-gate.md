@@ -52,15 +52,50 @@ genau die, die ohnehin falsch waren.
 
 ## Was ausgeliefert wird
 
-**Stand 2026-09-14: die APK buendelt ACHT `p4*`-Modelle, und KEINES traegt ein `coverage_gate`.**
-Alle acht deklarieren `coverage_output`, erben damit aber den Alt-Default 0,5 — genau die
-Konstante, die dieses Dokument oben verwirft. Die Messung wurde fuer die p4-Familie nie gemacht;
-`ModelSpecTest` haelt das fest und laeuft rot, bis sie existiert, und die Rueckfallebene meldet
-sich seit `4368a05b` statt stillzuschweigen.
+**Stand 2026-09-14: die APK buendelt SIEBEN `p4*`-Modelle, und jedes traegt jetzt ein gemessenes
+`coverage_gate`.** (`p4a-96` ist an dem Tag raus — zu wenig Tempo, zu wenig Qualitaet.) Bis dahin
+erbten alle den Alt-Default 0,5, genau die Konstante, die dieses Dokument oben verwirft;
+`ModelSpecTest` stand deshalb rot und ist es seit der Messung nicht mehr.
 
-Die vier Modelle mit gemessenem Gate (`real14-80` ohne, die beiden `real13-ms-*` je 0,15,
+Gemessen auf den **12 Aufnahmen, die alle sieben herausgehalten haben**, 104 337 Figuren-Reads
+gegen die SAM-Matte, λ = 2, Wilson-Untergrenze:
+
+| Modell | τ (λ=2) | 0,00–0,02 | 0,15–0,25 | 0,50–0,70 | Reads, die bleiben |
+|---|---|---|---|---|---|
+| `p4a-80-clahe` (Default) | **0,35** | 94,1 % | 79,2 % | 29,5 % | 85 % |
+| `p4a-128` | **0,35** | 96,9 % | 84,6 % | 42,2 % | 85 % |
+| `p4afull-128` | **0,35** | 95,5 % | 84,9 % | 47,8 % | 85 % |
+| `p4a-80` | **0,15** | 93,5 % | 68,2 % | 18,3 % | 84 % |
+| `p4full-128` | **0,15** | 97,8 % | 64,8 % | 24,9 % | 86 % |
+| `p4-128` | **0,10** | 97,5 % | 61,4 % | 22,8 % | 85 % |
+| `p4-80` | **0,05** | 94,2 % | 57,2 % | 21,7 % | 84 % |
+
+**Die `a`-Familie traegt den Unterschied.** `p4a-80-clahe` haelt bei 0,15–0,25 noch 79,2 %, wo
+`p4-80` auf 57,2 % faellt — Faktor 7 zwischen dem strengsten und dem lockersten Gate, dieselbe
+Spreizung wie zwischen comp13 und den real13-Laeufen oben. Eine gemeinsame Konstante kann fuer
+beide Enden nicht stimmen.
+
+**Und 0,5 war fuer JEDES der sieben zu lasch.** Im Band 0,50–0,70, das der Alt-Default als Evidenz
+durchliess, liegt selbst der beste bei 47,8 % und der Default bei 29,5 %. Das Zumachen kostet
+14–16 % der Reads, und das sind fast nur die falschen.
+
+Die vier Modelle mit aelterem Gate (`real14-80` ohne, die beiden `real13-ms-*` je 0,15,
 `comp13-occ-bn-lr1e2-bs512` 0,02) sind seit 2026-08-30 NICHT mehr im APK. Ihre Zahlen oben bleiben
 gueltig als Herleitung der Regel, nicht als Aussage ueber das, was ausgeliefert wird.
+
+**Der Weg, es zu wiederholen** — und die Falle, die dabei auffiel: `trained_on` las nur das
+Datensatz-Verzeichnis, und `real13-mix-v4` ist nicht mehr auf der Platte. Die Zirkularitaetssperre
+fand dann keine Treffer und meldete JEDE Aufnahme als herausgehalten; ohne den Fix waeren drei
+Modelle auf ihren eigenen Trainingsdaten gemessen worden. Seit 2026-09-14 gilt der im Lauf
+eingefrorene `config.json["split"]` vor dem Verzeichnis, und ist keines lesbar, verweigert die
+Sperre.
+
+    uv run chesslab realgames model-read <session> --model <asset-dir> --out model-reads.gate-<m>.jsonl
+    uv run python scripts/occlusion_gate.py model-reads.gate-<m>.jsonl <die 12 Sessions>
+    uv run python scripts/stage_model_asset.py --stamp <asset-dir> --gate <tau>
+
+`--out` ist Pflicht: `model-reads.jsonl` ist tragend (Labeling-Lane, `audit_flags`, Chain-Steps,
+Provenance), sieben Laeufe haetten es sieben Mal ueberschrieben.
 
 Die Liste steht in `BUNDLED_MODELS` und ist HANDGEPFLEGT — zwei Tests prüfen je Eintrag Graph-Form und Crop-Größe,
 also erzwingt sie, dass jemand die Form eines neuen Modells hinschreibt. Wer ein Modell nur nach

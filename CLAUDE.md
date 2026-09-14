@@ -38,13 +38,15 @@
   declared, `TrackerService` switches the model-free arm OFF
   (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms have
   never been measured against each other (`docs/class-scheme.md`).
-  **The threshold rides in the model, not the engine — but NONE of the eight carries one
+  **The threshold rides in the model, not the engine, and all seven now carry a MEASURED one
   (2026-09-14):** `coverage_gate` in the model's `config.json`, read by `ModelSpec`, applied onto
-  `TrackerConfig.pOccludedThr`. The gate is a MEASUREMENT (`scripts/stage_model_asset.py --gate`)
-  and the p4 family never got it, so every bundled model inherits the old constant 0.5 — the one
-  that admits reads which are 84 % wrong. `ModelSpecTest` pins this and runs RED until the
-  measurement exists; the fallback announces itself since `4368a05b`. The factor-7 derivation and
-  the older models that did carry a measured gate: `docs/occlusion-gate.md`.
+  `TrackerConfig.pOccludedThr`. Measured on the 12 recordings all seven held out, 104 337 piece
+  reads against the SAM matte, lambda 2: the `a` family 0,35 (`p4a-80-clahe`, `p4a-128`,
+  `p4afull-128`), then 0,15 (`p4a-80`, `p4full-128`), 0,10 (`p4-128`), 0,05 (`p4-80`). **0,5 was
+  too loose for every one of them** — in the band it let through, the best sits at 47,8 % correct
+  and the default at 29,5 %; closing it costs 14-16 % of the reads, almost all of them wrong.
+  `ModelSpecTest` pinned the gap and is green since. Repeating the measurement, and the guard bug
+  that nearly voided it: `docs/occlusion-gate.md`.
   `BUNDLED_MODELS` is hand-maintained: a model merely dropped into `assets/cnn_model/` never
   appears in the picker.
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.

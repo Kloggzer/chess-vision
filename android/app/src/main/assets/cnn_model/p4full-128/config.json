@@ -277,5 +277,6 @@
     "bK": 1.9383000135421753
   },
   "temperature": 1.7202,
-  "coverage_output": true
+  "coverage_output": true,
+  "coverage_gate": 0.15
 }
