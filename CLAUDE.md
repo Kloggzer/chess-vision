@@ -70,6 +70,13 @@
   the occlusion labels are made of. Only `next_touches` decides `stale`; all 64 cells flagged the
   player's shadow on rank 1 (median 7 cells).
 - **`boards/` is the clean p8 stock, `dirty/` the pile**, each row carrying `dirty_reason`.
+- **`_persistent` nahm die VEREINIGUNG statt der Schnittmenge (gefixt 2026-09-14).**
+  `all(off[j] …)` prueft bei Mengen nur auf nicht-leer, also galten zwei abwechselnd flackernde
+  Zellen gemeinsam als dauerhafte Aenderung — `classify` erklaerte daraufhin den Rest des
+  Intervalls zu `stale`/`changed`, und diese Frames fielen aus dem sauberen Vorrat. Seitdem
+  entscheidet die Schnittmenge. **Der Fix aendert nur KUENFTIGE Exporte**; was auf der Platte
+  liegt, entstand unter der alten Regel. Ein einzelner Schlussframe haelt trivial durch, kostet
+  einen Frame und ist kein Fehler.
 - **The CELL decides now, not the frame (2026-08-22).** With `settle_dev` on the row and a matte
   beside it, `dirty_reason` only steers what SAM mattes first: a cell over `PIECE_VISIBLE_MAX` keeps
   its FEN label (coverage takes it out of the loss), a visible one is checked against the interval's
