@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import type { CorpusIndex, Split } from "@/lib/corpus";
-import { dedupCorrections, fenLabels, foldPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
+import { dedupCorrections, occupiedLabels, foldPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
 
 const START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -10,7 +10,7 @@ const SESSION = [
 ];
 
 test("a FEN asserts 64 labels and never asserts occluded", () => {
-  const labels = fenLabels(START);
+  const labels = occupiedLabels(START);
   expect(Object.keys(labels)).toHaveLength(64);
   expect(labels.a1).toBe("wR");
   expect(labels.e8).toBe("bK");

@@ -15,6 +15,7 @@ import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEvent
+import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.geometry.CropClahe
 import com.chesslab.tracker.BuildConfig
@@ -784,8 +785,4 @@ internal fun TrackerConfig.withCoverageGateOf(
  * 273/55/102 at 15 fps against the baseline's 303/25/6, and 312/16/30 once scaled; 30 fps scales
  * by one, so every number measured there stands (`docs/battery.md`).
  */
-private fun TrackerConfig.withMotionThrFor(rate: FrameRateMode): TrackerConfig =
-    if (rate == REFERENCE_RATE) this else copy(motionThr = motionThr * REFERENCE_RATE.fps / rate.fps)
-
-/** The rate every `motionThr` on record was measured at. Scaling is relative to it. */
-private val REFERENCE_RATE = FrameRateMode.FPS30
+private fun TrackerConfig.withMotionThrFor(rate: FrameRateMode): TrackerConfig = atFrameRate(rate.fps.toDouble())

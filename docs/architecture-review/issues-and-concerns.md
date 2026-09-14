@@ -1,3 +1,7 @@
+> **Veraltet.** Dieses Verzeichnis beschreibt den PYTHON-Baum vom Juli 2026. Ein Dutzend
+> der genannten Module ist seit dem Zusammenlegen 2026-08-20 geloescht, und fuer Kotlin und
+> TypeScript gilt hier gar nichts. Aktueller Stand: `docs/architektur-2026-09-15.md`.
+
 # Architecture Issues & Concerns
 
 Consolidated from four subsystem analyses (Core Pipeline, Training, Web, move_tracker/synth/tests),

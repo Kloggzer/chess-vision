@@ -1375,7 +1375,8 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
     Every row also gets its `grid_lines` mesh where all 18 lines were readable, so `slice` cuts at
     the board's own boundaries instead of the nominal eighth (docs/data-pipeline.md §2).
     """
-    from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
+    from .calibration import crop_border_px, warp_padded
+    from .grid_occlusion import hand_squares, missing_edges
     from .imgops import skin_patch
 
     counts = {FIT_SOURCE: 0, FIT_KEPT: 0, FIT_FAILED: 0}
@@ -1398,7 +1399,7 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
         # label (measured 2026-08-16: 424 of 2 228 frames). The grooves are the witness, and the
         # frame is already decoded here. Only ADDS the flag; a commit window stays dirty.
         row.pop("hand_squares", None)
-        padded = None if frame is None else warp_padded(frame, row["corners"], profile, pad)
+        padded = None if frame is None else warp_padded(frame, profile, row["corners"], pad)
         found = None if padded is None else hand_squares(missing_edges(
             cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY), profile.board_size, pad,
             white_pov=profile.white_pov))

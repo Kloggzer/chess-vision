@@ -34,20 +34,19 @@ def _profile(**crop_kw) -> CalibrationProfile:
     )
 
 
-def test_the_scan_and_the_crop_agree_on_the_border_they_cut_at():
-    """`grid_occlusion.crop_border_px` takes the MAX of the two pads, `calibration`'s takes their
-    SUM. `framescan.scan_video` measures on the first raster, `realgames.write_board` stores the
-    second, and `labeling.usable_board` compares stored rows against the second."""
-    prof = _profile(pad_side=0.05)
+def test_there_is_only_one_crop_border_and_one_padded_warp():
+    """Der Scan und der Crop muessen denselben Rand schneiden — und das haelt am billigsten, wenn
+    es nur EINE Funktion gibt.
 
-    scan_border = grid_occlusion.crop_border_px(prof)
-    crop_border = crop_border_px(prof)
-
-    assert scan_border == crop_border, (
-        f"the scan pads the board by {scan_border} px while the crop warp pads it by "
-        f"{crop_border} px, so every groove, cell mean and sharpness the scan measures sits "
-        f"{crop_border - scan_border} px off the raster the crops are cut from"
-    )
+    `grid_occlusion` trug bis 2026-09-15 eigene Kopien: `crop_border_px` nahm einst das MAXIMUM der
+    beiden Pads, `calibration`s nimmt ihre SUMME, und `warp_padded` hatte dort sogar die Argumente
+    VERTAUSCHT (`frame, corners, profile` gegen `frame, profile, corners`). Beide sind entfernt.
+    """
+    assert not hasattr(grid_occlusion, "crop_border_px"), (
+        "die Kopie ist zurueck — der Scan misst dann auf einem anderen Raster als der Crop schneidet")
+    assert not hasattr(grid_occlusion, "warp_padded"), (
+        "die Kopie ist zurueck, und ihre Argumentreihenfolge war die vertauschte")
+    assert crop_border_px(_profile(pad_side=0.05)) > 0
 
 
 def test_the_sharpness_masks_the_squares_the_hand_sensor_actually_named():

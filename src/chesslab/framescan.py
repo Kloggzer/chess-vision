@@ -208,8 +208,8 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     """
     import json
 
-    from .calibration import load_profile
-    from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
+    from .calibration import crop_border_px, load_profile, warp_padded
+    from .grid_occlusion import hand_squares, missing_edges
     from .hand_gate import load_gate, read_boards
     from .realgames import (
         EXPORT_PROFILE,
@@ -251,7 +251,7 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     with closing(Recording(video).frames(0, wanted=Wanted(stride, extra), rotate=rotate)) as stream:
         for idx, frame in stream:
             with span("FramePipeline.onFrame"):
-                padded = warp_padded(frame, corners, profile, pad)
+                padded = warp_padded(frame, profile, corners, pad)
                 board = padded[pad:pad + size, pad:pad + size]
                 gray_key = (str(video.resolve()), idx, rotate, "padded-gray")
                 with measure("BGR to Gray conversions", gray_key,

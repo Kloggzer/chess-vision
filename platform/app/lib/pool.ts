@@ -6,6 +6,7 @@
  * `labeling.load_corrections` dedups on. DIFF exists because datasets are snapshots and nothing is
  * incremental (docs/data-pipeline.md §5.9): without it nobody can see which labels made it in.
  */
+import { FILES } from "@/lib/fen";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { correctionsPath } from "@/lib/corrections";
@@ -31,10 +32,16 @@ export function dedupCorrections(lines: Iterable<string>): Map<string, string> {
   return last;
 }
 
-const FILES = "abcdefgh";
 
-/** The 64 labels a FEN asserts, in `config.CLASSES` spelling — a FEN never says `occluded`. */
-export function fenLabels(fen: string): Record<string, string> {
+/**
+ * Die BESETZTEN Felder einer FEN, in `config.CLASSES`-Schreibweise.
+ *
+ * Duenn, nicht dicht: der einzige Aufrufer zaehlt `Object.entries`, und die dichte Variante in
+ * `lib/fen.ts` (gleicher Name bis 2026-09-15) haette jedes leere Feld mitgezaehlt. Die beiden
+ * sind NICHT austauschbar — eine Autovervollstaendigung, die den falschen Import zieht, aendert
+ * still ein Ergebnis.
+ */
+export function occupiedLabels(fen: string): Record<string, string> {
   const out: Record<string, string> = {};
   const ranks = fen.split(" ")[0].split("/");
   for (let i = 0; i < ranks.length && i < 8; i++) {
@@ -72,7 +79,7 @@ export function foldPool(sessions: SessionLog[], corrections: Map<string, string
     pool.occludedBySession[session.sessionId] ??= 0;
     for (const frame of session.frames) {
       pool.frames += 1;
-      for (const [square, fenLabel] of Object.entries(fenLabels(frame.fen))) {
+      for (const [square, fenLabel] of Object.entries(occupiedLabels(frame.fen))) {
         const corrected = corrections.get(cellKey(session.sessionId, frame.stem, square));
         if (corrected !== undefined) hits += 1;
         const label = corrected ?? fenLabel;

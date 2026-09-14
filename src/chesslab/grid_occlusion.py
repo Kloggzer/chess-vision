@@ -29,31 +29,6 @@ BOARD_SIDE = 8
 
 #: A square reads occluded at this many missing edge segments (of its four).
 MIN_MISSING_EDGES = 2
-
-
-def crop_border_px(profile) -> int:
-    """`cropBorderPx` — the pad the crop warp (and therefore this read) is cut with.
-
-    One formula, not a second copy: der Scan muss auf dem Raster messen, aus dem die Crops
-    geschnitten werden. Seit `pad_up` weg ist, ist das auf allen drei Seiten
-    `max(CROP_WARP_BORDER_CELLS, pad_side)` — Python, Kotlin und TS."""
-    from .calibration import crop_border_px as _crop_border_px
-
-    return _crop_border_px(profile)
-
-
-def warp_padded(frame, corners, profile, pad: int):
-    """The rectified board with `pad` px of surroundings — `warpFromCornersPadded`."""
-    import cv2
-
-    from .calibration import compute_homography
-
-    bs = profile.board_size
-    h = np.array(compute_homography(corners, bs, profile.margin), np.float64)
-    t = np.array([[1.0, 0.0, pad], [0.0, 1.0, pad], [0.0, 0.0, 1.0]])
-    return cv2.warpPerspective(frame, t @ h, (bs + 2 * pad, bs + 2 * pad))
-
-
 def missing_edges(gray: np.ndarray, board_size: int, pad: int, *, white_pov: bool = True) -> dict[str, int]:
     """Per SQUARE NAME: how many of its four edge segments found no groove (only entries >= 1).
 

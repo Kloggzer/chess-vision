@@ -1099,7 +1099,8 @@ def mark_hands_session(session_id: str) -> dict:
     """
     import cv2
 
-    from .grid_occlusion import crop_border_px, hand_squares, missing_edges, warp_padded
+    from .calibration import crop_border_px, warp_padded
+    from .grid_occlusion import hand_squares, missing_edges
     from .imgops import skin_patch
     from .labeling import _profile_for_session, read_session_meta
     from .realgames import place_board
@@ -1121,7 +1122,7 @@ def mark_hands_session(session_id: str) -> dict:
             continue
         if frame is None:
             continue
-        padded = warp_padded(frame, r["corners"], prof, pad)
+        padded = warp_padded(frame, prof, r["corners"], pad)
         gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
         squares = hand_squares(missing_edges(gray, prof.board_size, pad, white_pov=prof.white_pov))
         if squares:

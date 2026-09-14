@@ -118,3 +118,18 @@ data class TrackerConfig(
         const val CONFIRM_FRAMES_NO_CNN = 2
     }
 }
+
+/** Die Bildrate, gegen die jeder `motionThr` auf Akte gemessen wurde. */
+const val MOTION_THR_REFERENCE_FPS: Double = 30.0
+
+/**
+ * `motionThr` auf [fps] umgerechnet — ein Prozentsatz gegen den VORIGEN Frame haengt an der
+ * Bildperiode. Am Regressionssatz gemessen (`docs/battery.md`); stand bis 2026-09-15 zweimal
+ * im Baum, je mit eigener Referenzkonstante.
+ */
+fun TrackerConfig.atFrameRate(fps: Double): TrackerConfig =
+    if (fps == MOTION_THR_REFERENCE_FPS) {
+        this
+    } else {
+        copy(motionThr = motionThr * MOTION_THR_REFERENCE_FPS / fps)
+    }

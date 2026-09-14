@@ -1,6 +1,7 @@
 package com.chesslab.desktop
 
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.engine.api.atFrameRate
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
 import com.chesslab.tracker.settings.ConfigCodec
@@ -288,11 +289,7 @@ internal fun ReplayOptions.trackerConfig(
  * Wert ist ein Prozentsatz gegen den VORIGEN Frame, also misst er ohne Skalierung einen Tracker,
  * den das Handy nie faehrt. Nach `set:motionThr=`, weil die Skala zur Bildperiode gehoert.
  */
-private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig =
-    if (rate == null || rate == REFERENCE_FPS) this else copy(motionThr = motionThr * REFERENCE_FPS / rate)
-
-/** The rate every `motionThr` on record was measured at — `TrackerService`'s `REFERENCE_RATE`. */
-private const val REFERENCE_FPS = 30.0
+private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig = if (rate == null) this else atFrameRate(rate)
 
 /**
  * `config=<file>`, loaded and announced. Accepts a session's `settings.json` (its `config` block)
