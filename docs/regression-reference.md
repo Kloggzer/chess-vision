@@ -47,6 +47,21 @@ punktneutral. Er ist damit NICHT als Verbesserung belegt, sondern als unschaedli
 enthaelt nur diesen einen Fall, in dem Kern und letzte Beobachtung auseinandergehen; wer die
 Wirkung messen will, braucht Material mit rotierenden Konflikten.
 
+## Zweiter A/B: der kubische Crop-Warp (`a99ff156`), 2026-09-14
+
+Punktgleich mit dem Referenzstand: 385 / 14 / 1 / 167 und 6 Alarme, Zeile fuer Zeile identisch.
+Logs: `tmp/batch/warp-cubic/`.
+
+**Und der Cache beweist, dass wirklich jeder Crop anders ist:** der Referenzlauf hatte 4 418
+Treffer bei 3 Fehlschlaegen, dieser **0 Treffer bei 4 421** — `tmp/obs-cache` ist nach Crop-Bytes
+gekeyt. Die 1 171 s statt 683 s sind dieser kalte Cache, keine langsamere Engine.
+
+**Was das heisst:** kein Crop ist mehr derselbe, und das Modell faellt trotzdem dieselben Urteile.
+Die Umstellung ist auf diesem Satz unschaedlich — und das Modell ist robuster gegen die
+Schaerfe-Domaene, als die Laplace-Zahl vermuten liesse. Es ist KEIN Beleg fuer einen Gewinn; der
+zeigt sich erst, wenn ein Modell auf kubisch geschnittenen Crops TRAINIERT wird
+(`docs/warp-resampling.md`).
+
 ## Wie die Spalten zu lesen sind
 
 - **erfunden ist das Veto.** Ein Phantom disqualifiziert einen Kandidaten, verfehlte Zuege sind
