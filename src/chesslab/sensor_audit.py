@@ -70,12 +70,14 @@ def summary(values):
 
 
 def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
-          reference_stock="boards"):
+          reference_stock="boards", skipped=None):
+    # `skipped` is the caller's counter: a generator that prints leaves nobody a silent
+    # audit, and `temporal_flags.scan_session` writes JSON, not prose.
     profile = _profile_for_session(read_session_meta(rec), None)
     mattes = read_matte(rec)
     rows = read_log(rec)
     by_interval = defaultdict(list)
-    skipped = Counter()
+    skipped = Counter() if skipped is None else skipped
     for row in rows:
         if not usable_board(row, profile) or not row.get('board_straightened'):
             skipped['unsupported_geometry'] += 1
@@ -131,8 +133,6 @@ def audit(rec, *, temporal=False, seen_min=SETTLE_SEEN_MIN, contrast_floor=8.0,
                        'reference_stock': reference_stock,
                        'reference_peers': sum(eligible) - int(eligible[index])
                        if reference is not None else 0}
-    # TODO: Library iteration writing stdout prevents callers from running a silent audit.
-    print('Skipped frames:', dict(skipped), flush=True)
 
 
 def main():
@@ -151,10 +151,13 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     groups = defaultdict(list)
     with args.out.open('w', encoding='utf-8') as output:
+        skipped = Counter()
         for cell in audit(rec, temporal=args.temporal, seen_min=args.seen_min,
-                          contrast_floor=args.contrast_floor, reference_stock=args.reference_stock):
+                          contrast_floor=args.contrast_floor,
+                          reference_stock=args.reference_stock, skipped=skipped):
             output.write(json.dumps(cell, allow_nan=False) + '\n')
             groups[cell['group']].append(cell)
+    print('Skipped frames:', dict(skipped), flush=True)
     for group in GROUPS:
         cells = groups[group]
         print(group, 'total', len(cells), 'settle status',

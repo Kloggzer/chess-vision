@@ -284,6 +284,12 @@ class _CudaGraphPredictor:
         return self._static_out[:n].float()
 
 
+def graph_key(run_dir, device: str, weights: str | None) -> str:
+    """One graph per run, device AND checkpoint — a run holds several and they are not the same
+    model. Without `weights` a graph captured for the default replayed for every later one."""
+    return f"{Path(run_dir).resolve()}|{device}|{weights or ''}"
+
+
 def _graph_predictor(key: str, model, out_h: int, out_w: int, device: str):
     """Cached _CudaGraphPredictor for a run, or None when capture is unavailable.
 
@@ -374,8 +380,7 @@ def predict_arrays(run_dir: Path, crops: list[np.ndarray], device: str = "cpu",
     logits = None
     if (all_at_size and len(crops) <= _GRAPH_BATCH and _is_plain_rgb(cfg)
             and device.startswith("cuda") and not isinstance(model, _ONNXModel)):
-        # TODO: Include weights; otherwise a cached default graph serves later SWA checkpoint calls.
-        key = f"{Path(run_dir).resolve()}|{device}"
+        key = graph_key(run_dir, device, weights)
         pred = _graph_predictor(key, model, out_h, out_w, device)
         if pred is not None:
             try:

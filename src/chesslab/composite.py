@@ -248,24 +248,31 @@ def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride
     stop = Event()
 
     def pump() -> None:
-        # TODO: A loader exception never reaches the consumer, which then blocks on an empty queue.
         names = np.array(tiles, dtype=object)
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            idx = 0
-            while not stop.is_set():
-                # An der FRAME-ID, nicht an einer Ordnungszahl: ein uebersprungenes Brett
-                # darf die Kacheln aller folgenden nicht verschieben, und ein zweiter Lauf
-                # mit anderem `stride` trifft fuer dieselbe ID dieselbe Wahl.
-                rng = np.random.default_rng([seed, idx])
-                k = int(rng.integers(per_frame[0], per_frame[1] + 1))
-                picks = rng.choice(names, size=k, replace=False) if k else []
-                q.put((idx, [(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks]))
-                idx += stride
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                idx = 0
+                while not stop.is_set():
+                    # An der FRAME-ID, nicht an einer Ordnungszahl: ein uebersprungenes Brett
+                    # darf die Kacheln aller folgenden nicht verschieben, und ein zweiter Lauf
+                    # mit anderem `stride` trifft fuer dieselbe ID dieselbe Wahl.
+                    rng = np.random.default_rng([seed, idx])
+                    k = int(rng.integers(per_frame[0], per_frame[1] + 1))
+                    picks = rng.choice(names, size=k, replace=False) if k else []
+                    q.put((idx, [(Path(x).name, pool.submit(read_tile, Path(x))) for x in picks]))
+                    idx += stride
+        except BaseException as e:  # noqa: BLE001 - re-raised in the consumer, see below
+            # A dead pump used to leave the consumer on `q.get()` forever: the composite build
+            # hung with no message. The failure travels the queue and is raised where it is read.
+            q.put(e)
 
     Thread(target=pump, daemon=True).start()
     try:
         while True:
-            idx, jobs = q.get()
+            item = q.get()
+            if isinstance(item, BaseException):
+                raise item
+            idx, jobs = item
             yield idx, [(name, *job.result()) for name, job in jobs]
     finally:
         stop.set()
