@@ -10,9 +10,6 @@ import com.github.bhlangonijr.chesslib.move.Move
  */
 internal const val OBS_MAX_AGE_S: Double = 3.0
 
-/** The observer's `occluded` class dominates. Shared with the recovery clean gate. */
-internal const val P_OCCLUDED_THR: Double = 0.5
-
 /** Fresh per-square hand reads surfaced for hosts that must prove a frame is safe to persist. */
 internal fun EngineState.freshCnnOccludedSquares(): Set<String> {
     val snap = freshSnapshot() ?: return emptySet()

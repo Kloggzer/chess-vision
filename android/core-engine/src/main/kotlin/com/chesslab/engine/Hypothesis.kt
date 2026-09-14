@@ -90,7 +90,9 @@ internal fun EngineState.touchedReadable(
 private fun EngineState.capturesConfirmedColour(mv: Move): Boolean {
     val taken = board.pieceCharAt(mv.to.ordinal)
     val moving = board.pieceCharAt(mv.from.ordinal)
-    val obs = cnnSnap?.obs
+    // Es ist die einzige Stelle, die einen Zug allein aus einer Modellfarbe viabel macht —
+    // roh gelesen trug sie ein beliebig altes Bild aus einer anderen Stellung.
+    val obs = freshSnapshot()?.takeIf { it.fen == board.fen() }?.obs
     val capture = taken != null && moving != null && taken.isUpperCase() != moving.isUpperCase()
     if (!capture || obs == null) return false
     val name = Squares.ALL[mv.to.ordinal]

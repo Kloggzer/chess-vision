@@ -128,7 +128,10 @@ fun preprocessInto(
         "out holds ${out.size} floats, expected ${crops.size * repr.channels * plane}"
     }
     if (repr != InputRepr.RGB) {
-        representInto(crops, outW, outH, out, mean, std, repr)
+        // Python normalisiert hier NICHT mit den Werten des Laufs: `build_transform` haengt
+        // `InputRepresentation` statt `Normalize` an, und die greift fest auf die
+        // ImageNet-Konstanten. Ein Lauf mit eigenen mean/std las sonst anders als er trainierte.
+        representInto(crops, outW, outH, out, IMAGENET_MEAN, IMAGENET_STD, repr)
         return
     }
     // Unboxed ONCE. `mean`/`std` are `List<Float>`, i.e. boxed `java.lang.Float`, and reading them
@@ -276,9 +279,6 @@ private fun representInto(
     std: List<Float>,
     repr: InputRepr,
 ) {
-    // TODO: the RGB planes here use the RUN's mean/std, while `InputRepresentation.forward` uses
-    // the fixed `config.NORMALIZE_MEAN/STD` and `build_transform` skips `Normalize` for a non-rgb
-    // repr entirely. Latent only while every run writes the ImageNet constants.
     // Reflect-101 mirrors ACROSS the edge pixel, so it needs a second row/column to mirror onto.
     require(outW >= 2 && outH >= 2) { "$repr needs a crop of at least 2x2, got ${outW}x$outH" }
     val plane = outW * outH

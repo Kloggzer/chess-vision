@@ -154,9 +154,11 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     # Board-Accuracy: Crops über (session, frame) gruppieren (dataset.rows ist ausgerichtet).
     # strict: rows and predictions MUST align 1:1 — silent truncation here would compute
     # board accuracy on a shifted pairing (the plausible-but-wrong failure mode).
-    items = [((r["session_id"], str(r["frame"])), bool(t == p))
-             for r, t, p, keep in zip(dataset.rows, trues, preds, eligible, strict=True) if keep]
-    board_acc = board_accuracy(items)
+    every = [((r["session_id"], str(r["frame"])), bool(t == p))
+             for r, t, p in zip(dataset.rows, trues, preds, strict=True)]
+    items = [cell for cell, keep in zip(every, eligible, strict=True) if keep]
+    # Die HARTE Zahl geht ueber jede Zelle; gefiltert war sie ihr eigener Zwilling.
+    board_acc = board_accuracy(every)
     # Zwei Zwillinge neben der harten Zahl, weil die allein nicht lesbar ist: ohne die verdeckten
     # Zellen (die der Verlust maskiert, also nie gelernt wurden) und mit einer Zelle Spielraum.
     if criterion is not None and hasattr(criterion, "validation_terms"):

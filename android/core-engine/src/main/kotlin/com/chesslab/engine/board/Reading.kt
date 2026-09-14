@@ -11,16 +11,6 @@ class Reading(
     val rows: Array<DoubleArray>,
     val coverage: DoubleArray,
 ) {
-    /** Blind squares stay separate from [coverage]: hands lift, but waiting on a blind spot deadlocks. */
-    val blind = BooleanArray(BOARD_SQUARES.size)
-
-    fun hide(squares: Set<String>) {
-        if (squares.isEmpty()) return
-        BOARD_SQUARES.forEachIndexed { i, name -> if (name in squares) blind[i] = true }
-    }
-
-    fun coveredSquares(gate: Double): List<String> = BOARD_SQUARES.filterIndexed { i, _ -> coverage[i] > gate }
-
     companion object {
         /** Missing distributions yield null rather than a fabricated uniform guess. */
         fun of(snap: CnnSnapshot): Reading? {

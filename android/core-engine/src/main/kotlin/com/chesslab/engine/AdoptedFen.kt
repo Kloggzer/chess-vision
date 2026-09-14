@@ -16,6 +16,9 @@ private const val FEN_HALFMOVE = 4
 
 private const val FEN_FULLMOVE = 5
 
+// TODO: liest `cnnSnap` roh — jeder andere Leser im Modul geht ueber `freshSnapshot()`, hier
+// darf ein beliebig alter Blick die Stellung des Nutzers umschreiben.
+
 /** The position the last glance would adopt, or `null` with the refusal in `note`. */
 internal fun EngineState.adoptableCnnFen(thr: Double): String? {
     val obs = cnnSnap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }

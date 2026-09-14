@@ -328,11 +328,7 @@ def adopt_proposals(session_id, *, method="local"):
     report = directory / "proposals.jsonl"
     if not report.is_file():
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
-    metadata_path = directory / "proposals.meta.json"
-    if metadata_path.is_file():
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        if metadata.get("source") != source_stamp(recording):
-            raise RuntimeError("Proposal source changed; proposals must be regenerated")
+    require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"
@@ -373,6 +369,20 @@ def adopt_proposals(session_id, *, method="local"):
             "replaced": len(ours)}
 
 
+def require_fresh_proposals(directory, recording) -> None:
+    """Die Vorschlaege muessen zu der Quelle passen, aus der sie entstanden sind.
+
+    `upsert_proposals` ersetzt GANZE Frames; ein veralteter Satz stempelt sonst Alphas von
+    vorgestern auf den Korpus.
+    """
+    metadata_path = directory / "proposals.meta.json"
+    if not metadata_path.is_file():
+        return
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    if metadata.get("source") != source_stamp(recording):
+        raise RuntimeError("Proposal source changed; proposals must be regenerated")
+
+
 def upsert_proposals(session_id, *, method="local", solid=.5):
     """Where SAM found NOTHING on a frame, temporal's matte replaces it whole — never per cell.
 
@@ -388,6 +398,9 @@ def upsert_proposals(session_id, *, method="local", solid=.5):
     report = directory / "proposals.jsonl"
     if not report.is_file():
         raise FileNotFoundError(f"{session_id}: no proposals — run session temporal-mattes first")
+    # Dieselbe Wache wie `adopt_proposals`: hier werden GANZE Frames ersetzt, veraltete Alphas
+    # waeren also teurer als dort.
+    require_fresh_proposals(directory, recording)
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"

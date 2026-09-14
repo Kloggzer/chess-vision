@@ -153,6 +153,9 @@ class BoardWarpNode(
     }
 }
 
+// TODO: kein einziger Aufrufer im ganzen Repo, Tests eingeschlossen — der Crop-Warp laeuft
+// woanders. Entweder anschliessen oder loeschen.
+
 /** Der bordierte Vollauflösungs-Warp — `warpBoardForCrops`, ebenfalls selbst gespannt. */
 class CropWarpNode : ImageNode(WorkOperation.CROP_WARP, mixKey(2)) {
     override fun shape(

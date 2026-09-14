@@ -309,6 +309,8 @@ def gate_score(cover: dict) -> float:
     return round(2 * r * p / max(r + p, 1e-9), 4)
 
 
+# TODO: 0.15 ist `training.occlusion.PIECE_VISIBLE_MAX` abgeschrieben — der einzige Aufrufer
+# setzt den Parameter nie, also driftet die Zahl beim naechsten Umstellen still auseinander.
 def coverage_report(said: list, truth: list, visible_max: float = 0.15) -> dict:
     """Was der Schüler auf den Feldern taugt: der mittlere Fehler, und — was allein zählt — ob er
     dieselben Felder über `PIECE_VISIBLE_MAX` hebt wie SAM."""

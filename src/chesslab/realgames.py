@@ -1291,14 +1291,20 @@ def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> d
             done["no_mesh"] += 1
             continue
         bs, border = int(row["board_size"]), int(row["board_border"])
-        cv2.imwrite(str(session_dir / rel), straighten_board(board, mesh, bs, border), BOARD_ENCODE)
+        # Ungeprueft setzte der naechste Block `board_straightened` auf ein Brett, das noch
+        # gebogen auf der Platte liegt — und das wird laut Docstring nie wieder angefasst.
+        if not cv2.imwrite(str(session_dir / rel),
+                           straighten_board(board, mesh, bs, border), BOARD_ENCODE):
+            raise OSError(f"could not write straightened board {session_dir / rel}")
         # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
         # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
         # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
         for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")):
             alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
             if alpha is not None:
-                cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border), MATTE_ENCODE)
+                if not cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border),
+                                   MATTE_ENCODE):
+                    raise OSError(f"could not write straightened matte {matte}")
                 done["mattes"] += 1
         row["board_straightened"] = True
         done["straightened"] += 1

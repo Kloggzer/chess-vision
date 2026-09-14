@@ -277,6 +277,29 @@ class PreprocessTest {
         }
     }
 
+    /**
+     * A non-rgb repr normalises RGB with the IMAGENET constants, never the run's own `normalize`:
+     * `build_transform` appends `InputRepresentation` INSTEAD of `Normalize(mean, std)` for every
+     * repr but `rgb`, and `forward` reads `config.NORMALIZE_MEAN/STD`. `ModelSpec` passes the run's
+     * pair anyway, so any run that carries another one feeds the graph a scale it never saw.
+     */
+    @Test
+    fun `a non-rgb repr ignores the run's own mean and std`() {
+        val out = FloatArray(InputRepr.RGB_SOBEL.channels * 4 * 4)
+        preprocessInto(
+            listOf(BgrImage(4, 4, DISTINCT_CROP)),
+            4,
+            4,
+            out,
+            mean = listOf(0.1f, 0.2f, 0.3f),
+            std = listOf(0.5f, 0.6f, 0.7f),
+            repr = InputRepr.RGB_SOBEL,
+        )
+        for (i in RGB_SOBEL_GOLDEN.indices) {
+            assertEquals(RGB_SOBEL_GOLDEN[i], out[i], 1e-5f, "element $i")
+        }
+    }
+
     @Test
     fun `an unknown input_repr is refused by name`() {
         assertEquals(InputRepr.GRAY_SOBEL, InputRepr.of("gray+sobel"))

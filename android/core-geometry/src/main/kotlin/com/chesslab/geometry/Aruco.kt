@@ -76,9 +76,6 @@ class BoardMarkerDetector : AutoCloseable {
     private var dictionary: String? = null
     private var detector: ArucoDetector? = null
 
-    // TODO: with `detectScale < 1.0` this returns SCALED-frame coordinates — its Python twin
-    // `_detect_marker_quads` divides them back, and the sibling below does too. A public seam whose
-    // coordinate space silently depends on an argument.
     fun detectMarkerQuads(
         frame: Mat,
         dictName: String = "DICT_4X4_50",

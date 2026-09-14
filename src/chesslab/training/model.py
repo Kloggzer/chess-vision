@@ -324,7 +324,9 @@ def _retune_stem(m: nn.Module, in_chans: int) -> None:
     new = nn.Conv2d(in_chans, old.out_channels, old.kernel_size, old.stride, old.padding,
                     bias=old.bias is not None)
     with torch.no_grad():
-        w = old.weight.sum(dim=1, keepdim=True) * (3.0 / in_chans)
+        # Die Summe wird auf die Kanaele VERTEILT, nicht mit 3 skaliert: `repeat` legt sie
+        # `in_chans`-mal an, ein Graubild bekam sonst exakt die dreifache Antwort.
+        w = old.weight.sum(dim=1, keepdim=True) / in_chans
         new.weight.copy_(w.repeat(1, in_chans, 1, 1))
         if old.bias is not None:
             new.bias.copy_(old.bias)
@@ -343,6 +345,12 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
     """
     if head != "combined":
         raise ValueError(f"unknown head {head!r} — the model builds one flat head.")
+    # `cellnet` und die BoardNet-Truenke kennen kein `norm`. Still BatchNorm zu bauen schrieb
+    # `"norm": "groupnorm"` in die config.json eines Modells, in dem nichts eines ist.
+    if norm != "batchnorm" and (backbone in CELLNET_PRESETS
+                                or backbone.startswith(("board:", "boardattn:"))):
+        raise ValueError(f"{backbone} baut immer BatchNorm — `--norm {norm}` waere eine Luege "
+                         f"in der config.json")
     if backbone.startswith(("board:", "boardattn:")):
         from .boardnet import BoardNet, build_trunk
 

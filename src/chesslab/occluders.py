@@ -78,6 +78,8 @@ def _sample(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int]) -> np.n
     for k, i in enumerate(idx):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
         ok, f = cap.read()
+        # TODO: ein fehlgeschlagener Dekodierschritt legt ein SCHWARZES Bild in den Median und
+        # zieht die Platte nach unten; `chroma_cut_of` macht an derselben Stelle `continue`.
         stack[k] = cv2.resize(f, size, interpolation=cv2.INTER_AREA) if ok else 0
     return stack
 

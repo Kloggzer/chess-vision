@@ -321,6 +321,8 @@ class Paths:
     def calibration(self) -> Path:
         return self.root / "calibration"
 
+    # TODO: niemand liest `DATA.lens` mehr — `calib.npz` und `lens.py` gingen 2026-08-21, das
+    # Objektiv wohnt seitdem in `lens.json` der Aufnahme.
     @property
     def lens(self) -> Path:
         """Lens intrinsics (`calib.npz`). Deliberately NOT under `calibration/` — that

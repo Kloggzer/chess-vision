@@ -3,11 +3,6 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/** The debug list keeps the strongest 8 census-z squares. */
-private const val STRUCT_VALS_LIMIT = 8
-
-private const val STRUCT_VALS_SOFT_FACTOR = 0.5
-
 /** One decimal, HALF_EVEN (`Math.rint`), not half-up. */
 private const val ROUND_ONE_DECIMAL = 10.0
 
@@ -30,7 +25,6 @@ internal fun EngineState.computeEvidence(cur: GrayImage) {
         if (config.censusZWeight > 0.0) {
             censusEvidence(cur)
         } else {
-            structVals = emptyList()
             null
         }
 
@@ -67,10 +61,8 @@ private fun EngineState.censusEvidence(cur: GrayImage): DoubleArray? {
     if (hot > config.maxChanged + 2) {
         if (alarm == null) censusNoise.update(censNorm)
         censRaw = null
-        structVals = emptyList()
         return null
     }
-    structVals = topStructVals(zCensus, w, config.zThr)
     lastCens = censNorm
     return zCensus
 }
@@ -100,20 +92,3 @@ internal fun EngineState.refCensusCodes(ref: GrayImage): ByteArray {
 /** [refCensusCodes] against the live reference; fails loudly when there is none. */
 internal fun EngineState.refCensusCodes(): ByteArray =
     refCensusCodes(requireNotNull(refGray) { "refCensusCodes without a reference image" })
-
-private fun topStructVals(
-    zs: DoubleArray,
-    weight: Double,
-    zThr: Double,
-): List<Pair<String, Double>> {
-    val soft = zThr * STRUCT_VALS_SOFT_FACTOR
-    val out = ArrayList<Pair<String, Double>>()
-    for (i in 0 until Squares.COUNT) {
-        // The gate reads the UNROUNDED value; only the emitted number is rounded.
-        if (weight * zs[i] >= soft) {
-            out.add(Squares.ALL[i] to Math.rint(zs[i] * ROUND_ONE_DECIMAL) / ROUND_ONE_DECIMAL)
-        }
-    }
-    sortByValueDescending(out)
-    return if (out.size > STRUCT_VALS_LIMIT) ArrayList(out.subList(0, STRUCT_VALS_LIMIT)) else out
-}

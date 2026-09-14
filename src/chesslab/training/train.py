@@ -976,6 +976,9 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # Platzierungen, jede 131-fach je Epoche. Gleiche Ziehungsmasse je Situation laesst die
     # Lichtvariation der Frames drin und nimmt nur die Schieflage raus.
     situation_w = None
+    # TODO: `--balance` ist Freitext ohne Pruefung — ein Tippfehler faellt lautlos auf
+    # `situation` zurueck, wird als der Tippfehler nach `config.json` geschrieben und macht
+    # zwei Sweep-Arme heimlich zu demselben Lauf. Eine Liste gueltiger Werte fehlt.
     if balance != "none":
         import collections
 

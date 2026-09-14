@@ -733,6 +733,9 @@ class MarkerTracker:
                 self.seeded.discard(i)                         #    offset grid, pitfall in
                 self._pending.pop(i, None)                     #    marker fallback slicing)
                 continue
+            # TODO: `i not in self.seeded` ist hier immer wahr — der Zweig oben hat jeden
+            # gesaeten Marker schon mit `continue` verlassen. Der Zusatz liest sich wie eine
+            # Bedingung und ist keine.
             if d > self.p.jump_reject_px and i not in self.seeded:
                 if not self._confirm_jump(i, p):               # not yet confirmed -> keep old position
                     continue

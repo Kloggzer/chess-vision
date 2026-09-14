@@ -127,6 +127,9 @@ class SessionWriter:
                 corners: list[list[float]] | None = None,
                 labels: dict[str, str] | None = None) -> str:
 
+        # TODO: beide `imwrite` unten geben ihren Rueckgabewert nicht her — verschwindet das
+        # Verzeichnis unter dem Schreiber (derselbe Fall, den `_write_session_yaml` behandelt),
+        # bekommt `log.jsonl` eine Zeile auf eine Datei, die es nie gab.
         if self.jpeg_quality is None:
             rel = f"frames/{self._frame_idx:04d}.png"
             cv2.imwrite(str(self.dir / rel), frame)

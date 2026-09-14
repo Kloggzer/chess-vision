@@ -330,6 +330,8 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     from .recording import Recording
 
     out.mkdir(parents=True, exist_ok=True)
+    # TODO: erst alles loeschen, dann neu dekodieren — bricht der Dekoder ab, ist der alte
+    # Review-Satz weg und kein neuer da. Neben `_write_candidate` steht das os.replace-Muster.
     for old in out.glob("*.webp"):
         old.unlink()
     wanted: dict[int, int] = {}

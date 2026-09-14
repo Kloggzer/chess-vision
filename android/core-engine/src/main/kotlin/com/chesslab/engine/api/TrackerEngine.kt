@@ -437,6 +437,8 @@ internal fun EngineState.quietOutcome(
                 clearStuck()
                 anomalySince = 0L
                 setRef(cur, curBgr)
+                // TODO: `tainted != 0L` ist der erste Zweig dieses `when` — hier ist die Bedingung
+                // bewiesen wahr und sagt dem Leser eine Absicherung zu, die es nicht gibt.
                 if (tainted == 0L) flushSessionCapture()
                 events += TrackerEvent.ReAnchored
             }
@@ -534,8 +536,6 @@ internal fun EngineState.clearReferenceState() {
     // latch went on suppressing a legitimate fast pair after the user reset the position.
     rejectedPair = null
     rejectedPairFen = null
-    occlWhitelist = 0L
-    occludedSince = null
     shadowVetoed = 0L
     shadowBlocked.clear()
     occludedVetoed = 0L

@@ -773,7 +773,7 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
     print(f"[i] fold crop counts {loads} (largest/smallest {max(loads) / max(1, min(loads)):.2f}x)")
 
     priority_paths = dataset_mod.load_priority_paths(paths)
-    written, errors = [], []
+    written, errors, pending = [], [], []
     for i, fold in enumerate(folds):
         # val comes from the NEXT fold, filled to val_frac: one group misses the quota badly
         # (4.6 % where 15 % was asked), and taking it from this fold would leak into its own test.
@@ -800,14 +800,19 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
         out = dd / f"{prefix}{i}.json"
         if out.exists() and not (force or dry_run):
             raise ValueError(f"{out} exists — pass --force to overwrite.")
-        if not dry_run:
-            out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+        pending.append((out, split))
         written.append(out.name)
         c = split["counts"]
         print(f"[fold {i}] train {c['train']} / val {c['val']} / test {c['test']} crops · "
               f"test sessions: {', '.join(test)}")
+    # Erst pruefen, dann schreiben: ein verworfener Satz liess sonst k Folds liegen, und
+    # der zweite Versuch scheiterte an "exists" statt am eigentlichen Grund.
     if errors:
         raise ValueError("\n".join(errors))
+    if not dry_run:
+        for out, split in pending:
+            out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
     seen = [s for f in folds for g in f for s in members[g]]
     assert len(seen) == len(set(seen)), "folds overlap — out-of-fold would be a lie"

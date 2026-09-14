@@ -159,6 +159,9 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
                 f"{d.name}: not a piece name (P/N/B/R/Q/K, optional w/b prefix, "
                 "optional variant suffix) — the renderer won't find this template")
         canonical, variant = parsed if parsed else (d.name, "v1")
+        # TODO: dieser Zweig geht an `pick_mesh` vorbei, dessen Regel "cropped.obj gewinnt IMMER"
+        # damit nie greift — und `cropped.obj` schrieb die geloeschte FastAPI-Schicht, es schreibt
+        # sie heute niemand mehr. Entweder `pick_mesh` hier benutzen oder die Regel loeschen.
         if glbs:                                     # preferred: RealityScan-simplified .glb
             if len(glbs) > 1:
                 warnings.append(f"{d.name}: multiple .glb — taking {glbs[0].name}")

@@ -315,8 +315,11 @@ def _persistent(quiet: list[dict], ref, change_thr: float,
         dev = np.abs(diff - np.median(diff))
         off[row["idx"]] = {c for c in cells if dev[c] >= change_thr}
     tail = [r["idx"] for r in quiet]
-    hit = next((i for n, i in enumerate(tail) if all(off[j] for j in tail[n:])), None)
-    return hit, ({c for i in tail[tail.index(hit):] for c in off[i]} if hit is not None else set())
+    # SCHNITTMENGE, nicht "jede Menge nicht leer": zwei Zellen, die abwechselnd flackern, sahen
+    # sonst aus wie eine dauerhafte Aenderung, und der Rest des Intervalls fiel aus dem Vorrat.
+    held = [(i, set.intersection(*(off[j] for j in tail[n:]))) for n, i in enumerate(tail)]
+    hit, kept = next(((i, c) for i, c in held if c), (None, set()))
+    return hit, kept
 
 
 def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,

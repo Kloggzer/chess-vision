@@ -38,7 +38,9 @@ internal fun EngineState.pairCandidate(
  * the threshold's worth of evidence when the fresh observation reads it confidently occupied.
  */
 private fun EngineState.captureTargetsRestored(z: DoubleArray): DoubleArray {
-    val snap = freshSnapshot() ?: return z
+    // Die Stellung muss dieselbe sein: hier wird Evidenz ERZEUGT, eine Lesung aus der
+    // Stellung davor hob sonst ein leeres Feld auf `zThr`.
+    val snap = freshSnapshot()?.takeIf { it.fen == board.fen() } ?: return z
     var restored = 0L
     keepaliveTainted.forEachSquare { i ->
         val name = Squares.ALL[i]

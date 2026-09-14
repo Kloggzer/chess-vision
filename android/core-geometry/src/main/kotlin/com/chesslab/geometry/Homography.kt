@@ -207,17 +207,24 @@ private fun similarityProject(
     }
 }
 
-// TODO: both projections leak every `Mat` they build (3 point mats + `out` per call, per frame on
-// the live corner path) — the same finalizer leak `computeHomography` above had to release by hand.
+// Beide geben ihre nativen Mats von Hand frei, wie `computeHomography` oben: sie laufen je
+// Frame auf dem Live-Eckenpfad, und der Finalizer holt das nicht rechtzeitig nach.
 private fun affineProject(
     src: List<DoubleArray>,
     dst: List<DoubleArray>,
     targets: List<DoubleArray>,
 ): List<DoubleArray> {
-    val m = Imgproc.getAffineTransform(pointsMat(src.take(3)), pointsMat(dst.take(3)))
+    val a = pointsMat(src.take(3))
+    val b = pointsMat(dst.take(3))
+    val t = pointsMat(targets)
+    val m = Imgproc.getAffineTransform(a, b)
     val out = Mat()
-    Core.transform(pointsMat(targets), out, m)
-    return readPoints(out, targets.size)
+    try {
+        Core.transform(t, out, m)
+        return readPoints(out, targets.size)
+    } finally {
+        listOf(a, b, t, m, out).forEach { it.release() }
+    }
 }
 
 private fun perspectiveProject(
@@ -225,10 +232,17 @@ private fun perspectiveProject(
     dst: List<DoubleArray>,
     targets: List<DoubleArray>,
 ): List<DoubleArray> {
-    val h = Imgproc.getPerspectiveTransform(pointsMat(src.take(CORNER_COUNT)), pointsMat(dst.take(CORNER_COUNT)))
+    val a = pointsMat(src.take(CORNER_COUNT))
+    val b = pointsMat(dst.take(CORNER_COUNT))
+    val t = pointsMat(targets)
+    val h = Imgproc.getPerspectiveTransform(a, b)
     val out = Mat()
-    Core.perspectiveTransform(pointsMat(targets), out, h)
-    return readPoints(out, targets.size)
+    try {
+        Core.perspectiveTransform(t, out, h)
+        return readPoints(out, targets.size)
+    } finally {
+        listOf(a, b, t, h, out).forEach { it.release() }
+    }
 }
 
 /** `n x 1` `CV_32FC2` — what Python's `astype(np.float32).reshape(-1, 1, 2)` produces. */

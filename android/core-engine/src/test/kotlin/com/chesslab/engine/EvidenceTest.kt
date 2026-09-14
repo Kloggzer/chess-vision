@@ -79,7 +79,6 @@ class EvidenceTest {
                 // The guard dropped the channel THIS frame: no census channel, no raw copy.
                 assertNull(state.lastCens, "$where cens must be null when the guard fires")
                 assertNull(state.censRaw, "$where censRaw must be null when the guard fires")
-                assertTrue(state.structVals.isEmpty(), "$where structVals must be empty")
                 guardFrames++
             } else {
                 assertCloseMap(tierA.censusNormalized, requireNotNull(state.lastCens).asSquareMap(), "$where cens")
@@ -235,7 +234,6 @@ class EvidenceTest {
 
         assertNull(state.lastCens, "the census channel must be dropped")
         assertNull(state.censRaw, "the raw copy must be dropped with it")
-        assertTrue(state.structVals.isEmpty())
         val grayOnly = testState(testConfig(maxChanged = 6, censusZWeight = 0.0))
         grayOnly.refGray = ref
         grayOnly.computeEvidence(cur)
@@ -282,7 +280,6 @@ class EvidenceTest {
 
         assertNull(state.censRaw, "a stale raw channel must never survive into the next frame")
         assertNull(state.lastCens)
-        assertTrue(state.structVals.isEmpty())
     }
 
     /** `_ref_census_codes` caches on IDENTITY — an in-place patch invalidates it. */

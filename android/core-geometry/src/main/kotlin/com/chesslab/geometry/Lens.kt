@@ -68,11 +68,10 @@ fun undistortPoints(
     val src = MatOfPoint2f()
     src.fromList(points.map { Point(it[0], it[1]) })
     val dst = MatOfPoint2f()
-    // TODO: the rectification `Mat()` is never released — a native allocation per call, and
-    // `fitLens` makes hundreds of these calls per candidate model.
-    Calib3d.undistortPoints(src, dst, k, d, Mat(), k)
+    val rectify = Mat()
+    Calib3d.undistortPoints(src, dst, k, d, rectify, k)
     val out = dst.toArray().map { doubleArrayOf(it.x, it.y) }
-    listOf(k, d, src, dst).forEach { it.release() }
+    listOf(k, d, src, dst, rectify).forEach { it.release() }
     return out
 }
 
@@ -106,10 +105,11 @@ class Undistorter(
         val d = matOf(1, model.distCoeffs.size, model.distCoeffs)
         // The same K for the destination: no rescaling, no cropping. Undistortion moves pixels, it
         // does not reframe the board — a changed field of view would invalidate every stored quad.
+        val rectify = Mat()
         Calib3d.initUndistortRectifyMap(
             k,
             d,
-            Mat(),
+            rectify,
             k,
             Size(width.toDouble(), height.toDouble()),
             CvType.CV_16SC2,
@@ -118,6 +118,7 @@ class Undistorter(
         )
         k.release()
         d.release()
+        rectify.release()
     }
 
     /** The corrected frame. Owned and reused here, like every other Mat on the frame path. */

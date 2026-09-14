@@ -186,12 +186,6 @@ internal class EngineState(
     /** Expiry timestamp per tainted square; only meaningful for squares set in [tainted]. */
     val taintExpiry = DoubleArray(Squares.COUNT)
 
-    /** Persistent-occlusion squares exempt from the veto. */
-    var occlWhitelist: Long = 0L
-
-    /** Occlusion-latch timer (gamut escape hatch); `null` = not latched. */
-    var occludedSince: Double? = null
-
     var occludedVetoed: Long = 0L
     var shadowVetoed: Long = 0L
 
@@ -236,7 +230,6 @@ internal class EngineState(
 
     var changed: Long = 0L
     var changedVals: List<Pair<String, Double>> = emptyList() // top 8
-    var structVals: List<Pair<String, Double>> = emptyList() // top 8
 
     // -- scoring / hypothesis -----------------------------------------------------------------------
 
