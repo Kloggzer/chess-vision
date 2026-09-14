@@ -119,4 +119,15 @@ fun desktopModelSpec(model: String): ModelSpec? =
  * here ran at the 0.5 default while the phone ran the model's own — and a square covered between
  * the two counted as a witness in one and not in the other.
  */
-fun TrackerConfig.withCoverageGateOf(spec: ModelSpec?): TrackerConfig = spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+fun TrackerConfig.withCoverageGateOf(
+    spec: ModelSpec?,
+    warn: (String) -> Unit = { println("warn: $it") },
+): TrackerConfig {
+    if (spec?.coverageOutput == true && spec.coverageGate == null) {
+        warn(
+            "model declares coverage_output but no measured coverage_gate — " +
+                "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
+        )
+    }
+    return spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+}

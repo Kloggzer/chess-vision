@@ -85,6 +85,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 
 private const val PREVIEW_MAX_SIDE = 640
+private const val TAG = "chesslabTracker"
 
 /** `GameSessionWiring.DEFAULT_PROFILE`, which is private in `:tracker-runtime` and stays there. */
 private const val CAPTURE_DEFAULT_PROFILE = "default"
@@ -766,7 +767,18 @@ private suspend fun declaredModelSpec(
  * Die Verdeckungsschwelle des MODELLS, wenn es eine nennt — sie folgt aus dessen Guete und ist
  * deshalb keine Engine-Konstante (`docs/occlusion-gate.md`).
  */
-private fun TrackerConfig.withCoverageGateOf(spec: ModelSpec?): TrackerConfig = spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+internal fun TrackerConfig.withCoverageGateOf(
+    spec: ModelSpec?,
+    warn: (String) -> Unit = { Log.w(TAG, it) },
+): TrackerConfig {
+    if (spec?.coverageOutput == true && spec.coverageGate == null) {
+        warn(
+            "model declares coverage_output but no measured coverage_gate — " +
+                "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
+        )
+    }
+    return spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+}
 
 /**
  * `motionThr` scaled to the frame rate: it is a percent of pixels changed against the PREVIOUS
