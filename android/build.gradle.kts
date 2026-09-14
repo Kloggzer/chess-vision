@@ -7,6 +7,14 @@ plugins {
     alias(libs.plugins.kotlin.serialization) apply false
     alias(libs.plugins.ktlint) apply false
     alias(libs.plugins.detekt) apply false
+    alias(libs.plugins.kover)
+}
+
+subprojects { apply(plugin = "org.jetbrains.kotlinx.kover") }
+
+dependencies {
+    listOf(":core-engine", ":core-geometry", ":core-cnn", ":tracker-runtime", ":app")
+        .forEach { kover(project(it)) }
 }
 
 subprojects {
