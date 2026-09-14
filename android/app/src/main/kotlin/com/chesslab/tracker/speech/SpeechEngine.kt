@@ -102,6 +102,9 @@ class SpeechEngine(
             }
         if (engine == null) {
             current.value = SpeechState.Failed("no TextToSpeech engine")
+            // The focus was taken two lines up, and nothing is going to speak: holding it would
+            // duck the user's music for the rest of the session.
+            silence.abandonFocus()
             return
         }
         if (flush) queue.flush(text) else queue.offer(text)

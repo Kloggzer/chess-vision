@@ -15,6 +15,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -105,6 +106,24 @@ class CaptureRunTest {
         assertTrue(!run.step(0, 0, SHOT.boardFen(), tick()))
         assertNull(run.finish())
         assertEquals(0, log().size)
+    }
+
+    /** A full disk. The bundle still has to be closed and the encoder still has to be released. */
+    @Test
+    fun aBundleThatCannotWriteItsCaptureJsonIsStillClosed() {
+        var finished = false
+        val recorder = SessionRecorder(dir, SessionMeta("20260913-120000", "default", 2560, 1440, SHOT.id, CAPTURE_MODE))
+        val run = BundleCaptureRun(SHOT, recorder, FakeSource, ::grabbed, { null }) { finished = true }
+        run.step(0, 0, SHOT.boardFen(), tick())
+        assertTrue(File(dir, CAPTURE_FILE).mkdir(), "the stand-in for a disk that refuses the write was not put in place")
+
+        assertThrows(Exception::class.java) { run.finish() }
+
+        assertTrue(
+            finished,
+            "the write threw and took the close with it: the session is never finalised and the " +
+                "encoder is never released, so the next shot records into an open bundle",
+        )
     }
 
     /** The step's START — the turning the human does between two taps. */

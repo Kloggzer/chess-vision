@@ -124,6 +124,19 @@ class SpeechEngineTest {
         assertTrue(engine.state.value is SpeechState.Failed)
     }
 
+    /** The focus is taken BEFORE the engine is opened, so the path that never speaks must give it back. */
+    @Test
+    fun aMissingEngineGivesTheAudioFocusBack() {
+        val silence = FakeSilence()
+        val (engine, _) = engine(silence, null)
+        engine.say("Knight f3")
+        assertEquals(
+            1,
+            silence.abandons,
+            "the audio focus was requested and never abandoned: the user's music stays ducked with nothing ever spoken",
+        )
+    }
+
     @Test
     fun closeShutsDownAndForgetsTheEngine() {
         val tts = FakeTts()

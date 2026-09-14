@@ -88,13 +88,18 @@ class BundleCaptureRun(
         return true
     }
 
-    override fun finish(): File? {
-        val session = captureSessionOf(shot, steps.toList(), captureRecordingOf(observed()))
-        val written = if (steps.isEmpty()) null else writeCaptureSession(recorder.dir, session)
-        recorder.finish()
-        onFinished()
-        return written
-    }
+    /**
+     * `finally`, because the disk is what fails here: a `capture.json` that cannot be written must
+     * still close the bundle and release the encoder, or the run stays open and nothing says so.
+     */
+    override fun finish(): File? =
+        try {
+            val session = captureSessionOf(shot, steps.toList(), captureRecordingOf(observed()))
+            if (steps.isEmpty()) null else writeCaptureSession(recorder.dir, session)
+        } finally {
+            recorder.finish()
+            onFinished()
+        }
 }
 
 private const val ID_FORMAT = "yyyyMMdd-HHmmss"

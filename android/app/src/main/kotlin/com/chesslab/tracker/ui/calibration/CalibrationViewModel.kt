@@ -19,6 +19,8 @@ private const val AUTO_DETECT_MS: Long = 500
 
 private const val NO_FRAME = "Waiting for the camera…"
 
+private const val SAVE_FAILED = "The calibration could not be stored — it will be tried again."
+
 private const val ALL_MARKERS = 4
 
 private const val CORNER_FLOATS = ALL_MARKERS * 2
@@ -130,10 +132,17 @@ class CalibrationViewModel(
         if (!needsWrite(measured)) return
         writing = true
         scope.launch {
-            val saved = store.saveRecalibrated(measured, savedAtMs = nowMs())
-            _state.value = _state.value.copy(saved = true)
+            // A store that throws used to leave [writing] set, and this instance then never
+            // adopted a board again — silently, with the screen still saying "hold it there".
+            val saved = runCatching { store.saveRecalibrated(measured, savedAtMs = nowMs()) }
             writing = false
-            onSaved(saved)
+            val profile = saved.getOrNull()
+            if (profile == null) {
+                _state.value = _state.value.copy(note = SAVE_FAILED)
+                return@launch
+            }
+            _state.value = _state.value.copy(saved = true)
+            onSaved(profile)
         }
     }
 
@@ -152,8 +161,15 @@ class CalibrationViewModel(
     internal suspend fun detectOnce() {
         if (_state.value.detecting) return
         _state.value = _state.value.copy(detecting = true)
-        val result = detector.detect()
-        val s = _state.value.copy(detecting = false)
+        // The guard above is a latch: a detector that throws must still open it, or every later
+        // poll returns at the first line and the screen sits on its last note for good.
+        val result =
+            try {
+                detector.detect()
+            } finally {
+                _state.value = _state.value.copy(detecting = false)
+            }
+        val s = _state.value
         if (result == null) {
             _state.value = s.copy(note = NO_FRAME)
             return

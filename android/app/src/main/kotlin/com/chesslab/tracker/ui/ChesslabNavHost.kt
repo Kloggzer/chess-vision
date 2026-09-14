@@ -61,12 +61,19 @@ const val ROUTE_CAPTURE_TURN = "capture/turn"
  * the user back to the tracker every time this graph recomposed.
  */
 object OpenTracker {
-    private val requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    // `replay = 1`, because a cold start requests in `onCreate` and the nav host subscribes only
+    // after `setContent`: an emission into no subscriber is dropped, and the tap landed on Home.
+    private val requests = MutableSharedFlow<Unit>(replay = 1)
 
     val flow: SharedFlow<Unit> = requests
 
     fun request() {
         requests.tryEmit(Unit)
+    }
+
+    /** Navigated: the replayed request must not send a recreated activity back to the tracker. */
+    fun consume() {
+        requests.resetReplayCache()
     }
 }
 
@@ -74,7 +81,12 @@ object OpenTracker {
 fun ChesslabNavHost(navController: NavHostController = rememberNavController()) {
     // The running game and its recording are NOT attached here: they belong to the service, which
     // outlives the whole UI (D08a-4). Screens observe them through `GameSessionHost`.
-    LaunchedEffect(navController) { OpenTracker.flow.collect { navController.navigate(ROUTE_TRACKING) } }
+    LaunchedEffect(navController) {
+        OpenTracker.flow.collect {
+            OpenTracker.consume()
+            navController.navigate(ROUTE_TRACKING)
+        }
+    }
     NavHost(navController = navController, startDestination = ROUTE_HOME) {
         // Home and the tracker are the two screens where a "return to the game" banner would be
         // either redundant or a link to itself, so neither provides one.

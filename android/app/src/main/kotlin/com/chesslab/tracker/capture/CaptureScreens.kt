@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -145,6 +146,7 @@ fun CaptureSetupRoute(
     // The profile goes on here and the device is asked again while the human builds: a rebind to
     // 4K and the encoder's re-arm both take frames, not instants.
     LaunchedEffect(recorder) { CaptureHost.prepare(recorder) }
+    DisposableEffect(recorder) { onDispose { CaptureHost.releaseIfIdle(recorder) } }
     LaunchedEffect(recorder, ui.observed) {
         delay(PROFILE_POLL_MS)
         CaptureHost.refresh(recorder)

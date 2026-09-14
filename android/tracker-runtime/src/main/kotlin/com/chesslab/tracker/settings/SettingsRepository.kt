@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Python's `_apply_live_tuning` note — the user's proof that the change took effect. */
 const val NOTE_TUNED_LIVE = "tracker tuning updated live"
@@ -63,6 +65,8 @@ class SettingsRepository(
 
     private val loadedState = MutableStateFlow(false)
 
+    private val writing = Mutex()
+
     /**
      * Read the persisted truth. Called exactly once per process, by [SettingsHost].
      *
@@ -94,7 +98,7 @@ class SettingsRepository(
         val changed = ConfigCodec.changedKeys(current.value, new)
         current.value = new
         submit(new)
-        scope.launch { store.write(SLOT_CONFIG, ConfigCodec.encode(new)) }
+        persist(SLOT_CONFIG) { ConfigCodec.encode(current.value) }
         return UpdateResult(
             note = if (changed.any { it.live }) NOTE_TUNED_LIVE else null,
             restartRequired = changed.filterNot { it.live }.map { it.key },
@@ -104,10 +108,22 @@ class SettingsRepository(
     /** App-level settings. None of them is live: every one is read at construction (D07a-3). */
     fun updateApp(new: AppSettings) {
         publishApp(new)
-        scope.launch { store.write(SLOT_APP, encodeAppSettings(new)) }
+        persist(SLOT_APP) { encodeAppSettings(appState.value) }
     }
 
     fun setDebugEnabled(on: Boolean) = updateApp(appState.value.copy(debugEnabled = on))
+
+    /**
+     * One writer at a time, and it writes the LATEST state rather than the value it was queued
+     * with: two edits in a burst are two coroutines on a thread pool, and the older one landing
+     * last used to leave the store disagreeing with the screen until the next process start.
+     */
+    private fun persist(
+        slot: String,
+        latest: () -> String,
+    ) {
+        scope.launch { writing.withLock { store.write(slot, latest()) } }
+    }
 
     private fun publishApp(new: AppSettings) {
         appState.value = new

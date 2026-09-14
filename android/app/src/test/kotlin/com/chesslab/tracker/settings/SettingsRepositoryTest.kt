@@ -2,6 +2,7 @@ package com.chesslab.tracker.settings
 
 import com.chesslab.engine.api.TrackerConfig
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -122,6 +123,25 @@ class SettingsRepositoryTest {
             assertEquals(AppSettings(), broken.appSettings.value)
         }
 
+    /** Two taps in a burst are two coroutines on a thread POOL, and DataStore keeps the last one. */
+    @Test
+    fun aSlowFirstWriteCannotOverwriteTheNewerSetting() =
+        runTest {
+            val store = SlowFirstStore()
+            val repo = repository(store, FakePipeline())
+            repo.update(TrackerConfig(censusThr = 41.0))
+            repo.update(TrackerConfig(censusThr = 42.0))
+            advanceUntilIdle()
+
+            val stored = ConfigCodec.decode(store.slots[SLOT_CONFIG]).config.censusThr
+            assertEquals(
+                42.0,
+                stored,
+                "the older write landed last: the store holds censusThr=$stored while the screen " +
+                    "and the engine hold 42.0, and the next process start reads the stale one back",
+            )
+        }
+
     @Test
     fun anUnreadableStoreLoadsDefaultsWithANote() =
         runTest {
@@ -140,3 +160,22 @@ private fun TestScope.repository(
     store: ConfigStore,
     pipeline: FakePipeline,
 ): SettingsRepository = SettingsRepository(store, this) { pipeline.applied += it }
+
+/** The IO pool reordering two writes, made deterministic: the FIRST write is the slow one. */
+private class SlowFirstStore : ConfigStore {
+    val slots = mutableMapOf<String, String>()
+    private var calls = 0
+
+    override suspend fun read(slot: String): String? = slots[slot]
+
+    override suspend fun write(
+        slot: String,
+        text: String,
+    ) {
+        delay(if (calls++ == 0) SLOW_MS else FAST_MS)
+        slots[slot] = text
+    }
+}
+
+private const val SLOW_MS = 100L
+private const val FAST_MS = 1L

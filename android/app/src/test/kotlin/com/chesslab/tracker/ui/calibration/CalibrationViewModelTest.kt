@@ -6,9 +6,12 @@ import com.chesslab.tracker.geometry.CalibrationProfile
 import com.chesslab.tracker.geometry.CalibrationResult
 import com.chesslab.tracker.geometry.CalibrationStore
 import com.chesslab.tracker.geometry.FakeProfileBacking
+import com.chesslab.tracker.geometry.ProfileBacking
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -114,6 +117,37 @@ class CalibrationViewModelTest {
             advanceUntilIdle()
         }
 
+    /** One throw from the detector must not take the screen down with it for good. */
+    @Test
+    fun aThrowingDetectionDoesNotWedgeTheScreen() =
+        runTest {
+            val detector = ThrowingOnceDetector()
+            val vm = CalibrationViewModel(detector, store(), this) { 7L }
+            runCatching { vm.detectOnce() }
+
+            vm.detectOnce()
+
+            assertEquals(2, detector.calls, "the detect latch stayed closed after a throw: every later poll returns at the guard")
+            assertTrue(vm.state.value.found, "the screen never recovered and shows no board")
+        }
+
+    /** And one throw from the STORE must not stop the screen adopting a board ever again. */
+    @Test
+    fun aThrowingStoreDoesNotWedgeTheAdoption() =
+        runTest {
+            val backing = ThrowingOnceBacking()
+            val vm = CalibrationViewModel(FakeDetector(ok()), CalibrationStore(backing), this) { 7L }
+            launch { vm.autoDetect() }
+            runCurrent()
+            advanceTimeBy(2_000)
+            runCurrent()
+            advanceTimeBy(2_000)
+            runCurrent()
+
+            assertEquals(2, backing.writes, "the write latch stayed closed after a throw: this screen never writes a calibration again")
+            coroutineContext.cancelChildren()
+        }
+
     /** Three matching four-code reads are adopted with nobody pressing anything. */
     @Test
     fun aFullReadIsAdoptedOnItsOwn() =
@@ -210,5 +244,38 @@ class BoardNoteTest {
         assertTrue(boardNote(ok = true, markers = 3, stableReads = 5).contains("calibrated", ignoreCase = true))
         assertTrue(boardNote(ok = false, markers = 2).contains("move the camera"))
         assertTrue(boardNote(ok = false, markers = 0).contains("point the camera", ignoreCase = true))
+    }
+}
+
+/** Throws on the first detection and behaves on every later one. */
+private class ThrowingOnceDetector : BoardDetector {
+    var calls: Int = 0
+        private set
+
+    override suspend fun detect(): CalibrationResult {
+        calls++
+        if (calls == 1) error("detector blew up")
+        return ok()
+    }
+
+    override suspend fun warp(
+        corners: FloatArray,
+        whitePov: Boolean,
+        margin: List<Double>?,
+    ): Bitmap? = null
+}
+
+/** A store that fails its first write — a full disk, or a store the process cannot open. */
+private class ThrowingOnceBacking : ProfileBacking {
+    private val flow = MutableStateFlow<String?>(null)
+    var writes: Int = 0
+        private set
+
+    override val text: Flow<String?> = flow
+
+    override suspend fun write(text: String) {
+        writes++
+        if (writes == 1) error("store blew up")
+        flow.value = text
     }
 }

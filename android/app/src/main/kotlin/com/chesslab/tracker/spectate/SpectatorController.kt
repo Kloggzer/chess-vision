@@ -17,15 +17,16 @@ import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.service.NOTIFICATION_CHANNEL_ID
 import com.chesslab.tracker.settings.SettingsHost
 import com.chesslab.tracker.ui.games.GameSessionHost
+import com.chesslab.tracker.ui.tracking.TrackerSession
 import com.chesslab.tracker.ui.tracking.TrackerSessionHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
 
 private const val SPECTATOR_NOTIFICATION_ID = 2
@@ -74,11 +75,7 @@ class SpectatorController(
         repository.updateApp(repository.appSettings.value.copy(spectatorEnabled = on))
     }
 
-    private suspend fun followTracker() {
-        TrackerSessionHost.session.filterNotNull().collectLatest { session ->
-            session.status.collect(::onStatus)
-        }
-    }
+    private suspend fun followTracker() = followTrackerSessions(TrackerSessionHost.session, ::onStatus)
 
     /**
      * The score sheet is the service's ONE live game, never a second accumulator.
@@ -165,6 +162,17 @@ class SpectatorController(
         }
     }
 }
+
+/**
+ * Follow whatever session is current, and let go of the one that died.
+ *
+ * The teardown is a `null` emission, so it has to REACH [collectLatest]: filtering it away left the
+ * inner collector — and the dead service's binder with it — attached for the life of the process.
+ */
+internal suspend fun followTrackerSessions(
+    sessions: Flow<TrackerSession?>,
+    onStatus: (TrackerStatus?) -> Unit,
+) = sessions.collectLatest { session -> session?.status?.collect(onStatus) }
 
 private const val ACTION_STOP = "com.chesslab.tracker.SPECTATOR_STOP"
 

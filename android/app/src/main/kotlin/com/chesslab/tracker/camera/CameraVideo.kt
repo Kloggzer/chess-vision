@@ -86,6 +86,10 @@ private const val BYTES_PER_MB = 1024L * 1024L
  * encoder was armed. This line is what makes the next run answer that without forensics.
  */
 private const val ARMED_LOG_INTERVAL_MS = 5000L
+
+/** A refused encoder gets a few more tries at the same size, not one per delivered frame. */
+private const val MAX_REARMS = 3
+
 private const val YUV_BYTES_NUMERATOR = 3
 private const val YUV_BYTES_DENOMINATOR = 2
 
@@ -200,6 +204,9 @@ class CameraVideo : AutoCloseable {
 
     private var lastArmedLogMs = 0L
 
+    /** Re-arms at an unchanged delivered size since the last one succeeded. See [sourceAvailable]. */
+    private var rearms = 0
+
     /** Returns true only when a newly available source size should be published to the session. */
     @Suppress("ReturnCount")
     fun sourceAvailable(delivered: DeliveredSize): Boolean {
@@ -215,6 +222,10 @@ class CameraVideo : AutoCloseable {
         }
         rotationDegrees = delivered.rotationDegrees
         if (resolution == delivered && failure == null) return false
+        // Clearing a failure re-arms the encoder, and at an unchanged size that used to happen on
+        // every frame: a codec the device refuses was retried thirty times a second, for ever.
+        if (resolution == delivered && rearms++ >= MAX_REARMS) return false
+        if (resolution != delivered) rearms = 0
         resolution = delivered
         failure = null
         return true
@@ -280,11 +291,12 @@ class CameraVideo : AutoCloseable {
                     setInteger(MediaFormat.KEY_FRAME_RATE, frameRate)
                     setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, VIDEO_I_FRAME_SECONDS)
                 }
-            codec =
-                encoder.apply {
-                    configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-                    start()
-                }
+            // Assigned BEFORE configure/start, because either can throw and [fail] can only
+            // release what `codec` holds — a local would leak its native encoder on every attempt.
+            codec = encoder
+            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            encoder.start()
+            rearms = 0
             Log.i(
                 TAG,
                 "armed at ${size.width}x${size.height} @ $frameRate fps, $agreed bit/s " +

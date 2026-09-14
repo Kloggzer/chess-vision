@@ -71,6 +71,17 @@ object CaptureHost {
         refresh(recorder)
     }
 
+    /**
+     * Leaving the setup screen WITHOUT starting puts the capture profile back. The forward path
+     * leaves the same composition, so a run that has BEGUN keeps it — `capture.json` must state
+     * the profile its frames were taken under.
+     */
+    fun releaseIfIdle(recorder: CaptureRecorder?) {
+        if (ui.value.recording) return
+        recorder?.release()
+        ui.value = ui.value.copy(observed = null)
+    }
+
     /** Poll what the device settled on — the screen calls this while the human is still building. */
     fun refresh(recorder: CaptureRecorder?) {
         ui.value = ui.value.copy(observed = recorder?.observed())
@@ -124,13 +135,23 @@ object CaptureHost {
 
     /** The run closes FIRST — `capture.json` states the capture profile, not the restored one. */
     fun finish(recorder: CaptureRecorder?) {
-        active?.finish()
+        // A throwing close (a full disk) must not keep the 4K capture profile on the camera the
+        // tracker goes back to, nor leave the screen claiming it is still recording.
+        val failed = runCatching { active?.finish() }.exceptionOrNull()
         active = null
         recorder?.release()
-        ui.value = ui.value.copy(shotIndex = -1, ply = 0, recording = false, observed = null)
+        ui.value =
+            ui.value.copy(
+                shotIndex = -1,
+                ply = 0,
+                recording = false,
+                observed = null,
+                message = failed?.let { NOT_CLOSED },
+            )
     }
 }
 
 private const val NOT_RECORDING =
     "Nothing is being recorded — switch Recording on under Settings and give the camera a moment."
 private const val FRAME_LOST = "The last frame could not be written."
+private const val NOT_CLOSED = "The recording could not be closed — check the free space before the next shot."

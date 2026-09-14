@@ -143,8 +143,13 @@ class TrackerCamera(
         owner = lifecycleOwner
         val future = ProcessCameraProvider.getInstance(context)
         future.addListener({
-            provider = future.get()
-            bindAnalysis()
+            // `get` throws when the provider cannot initialise, and this listener runs on the MAIN
+            // thread: unhandled it took the process down instead of the retry the state already has.
+            runCatching { future.get() }
+                .onSuccess {
+                    provider = it
+                    bindAnalysis()
+                }.onFailure { scheduleRebind("camera provider unavailable (${it.javaClass.simpleName})") }
         }, context.mainExecutor)
     }
 
