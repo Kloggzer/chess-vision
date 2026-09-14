@@ -65,8 +65,8 @@ Fuer BILDDATEN heisst schaerfer besser. Fuer eine MESSUNG heisst es gar nichts: 
 richtiger, nur anders skaliert — und jede Schwelle wurde gegen die bisherige Weichheit gefittet.
 Gemessen: der Gitter-Warp kubisch verschob das gefittete Quad um 2,78 px, und der Ruhe-Vergleich
 wurde bei identischem Versatz ~10 % empfindlicher, waehrend `SETTLE_LIMIT` auf 45 steht. Aus dem
-Erkennungs-Warp kommt zudem ALLES, was die Engine diffed, also auch die Basis von `motionThr`,
-`ACTIVITY_THR` und dem Census. Eine schaerfere Basis senkt jede dieser Schwellen faktisch ab, ohne
+Erkennungs-Warp kommt zudem ALLES, was die Engine diffed, also auch die Basis von `motionThr`
+und dem Census. Eine schaerfere Basis senkt jede dieser Schwellen faktisch ab, ohne
 dass jemand eine anfasst — derselbe Fehler wie das fehlende `coverage_gate`, nur in anderer Form.
 Kosten waeren es nicht: kubisch je Frame sind 8-12 ms/s bei 15 fps. Wer es trotzdem will, macht ein
 eigenes Vorhaben daraus, mit Nachmessen der Schwellen und A/B davor und danach.

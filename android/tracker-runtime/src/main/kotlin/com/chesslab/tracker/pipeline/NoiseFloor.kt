@@ -42,7 +42,7 @@ class NoiseFloor(
         val previous = armed
         // Two boards are comparable only under the same corners: `LiveAlign` re-derives the quad
         // every few frames and each measurement shifts the warp by a fraction of a pixel, which
-        // lands in every cell as change that never happened — see `StillPhase.observe`.
+        // lands in every cell as change that never happened. Hence the `contentEquals` below.
         if (previous != null && armedCorners?.contentEquals(corners) == true) {
             busy = busyLevel(cellDeltas(previous, gray))
             disarm()
