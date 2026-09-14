@@ -943,6 +943,11 @@ def write_boards_session(session_id: str) -> dict:
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     prof = _profile_for_session(read_session_meta(sdir), None)
+    # The pop below is unconditional, so without this the verb clears every pointer and then writes
+    # none back: a parked session loses its store in the log while the boards sit on disk, and the
+    # slice error that follows names THIS command as the repair.
+    if (why := missing_source_frames(sdir, rows)):
+        return {"session_id": session_id, "error": why}
     for r in rows:
         for key in BOARD_KEYS:
             r.pop(key, None)

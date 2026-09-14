@@ -30,3 +30,14 @@ test("adding rows never edits the tally it was given", () => {
   addRows(first, [row("000200", "e4", "wP")], "corrections");
   expect(first.boards.size).toBe(1);
 });
+
+test("board counts are global keys, so equal frame stems in two sessions count twice", () => {
+  let tally = addRows(emptyTally(), [row("000100", "e4", "wP")], "corrections");
+  tally = addRows(
+    tally,
+    [{ ...row("000100", "e4", "wP"), session_id: "rg-other" }],
+    "corrections",
+  );
+
+  expect(tally.boards.size, "two recordings at frame 000100 are two reviewed boards, not one").toBe(2);
+});

@@ -172,6 +172,21 @@ test("recentVerdicts caps at the limit, keeping the newest", async () => {
   expect((await recentVerdicts("rec-1", 1)).map((r) => r.square)).toEqual(["d4"]);
 });
 
+test("recentVerdicts agrees with judgedKeys when both ledgers share a second", async () => {
+  await writeFile(
+    path.join(path.dirname(file), "reviewed.jsonl"),
+    EXISTING.replace('"label": "occluded"', '"label": "wP"'),
+    "utf8",
+  );
+  const { recentVerdicts } = await import("@/lib/corrections");
+
+  expect((await judgedKeys("rec-1")).get("000001|a1")).toBe("occluded");
+  expect(
+    (await recentVerdicts("rec-1", 10)).find((r) => `${r.frame}|${r.square}` === "000001|a1")?.label,
+    "the recent view must show the correction that actually wins, not a same-second review row",
+  ).toBe("occluded");
+});
+
 test("ledgerChanges keeps file order and the value each row replaced", async () => {
   const { ledgerChanges } = await import("@/lib/corrections");
   await appendCorrections([{ session_id: "rg-rec-1", frame: "000001", square: "a1", label: "wR" }]);

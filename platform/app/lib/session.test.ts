@@ -106,3 +106,17 @@ test("a row's grid_lines travel with it, at the stage they hold up to", async ()
   expect(byStem.get("000120")!.mesh!.x).toEqual(axis);
   expect(byStem.get("000130")!.mesh).toBeUndefined();
 });
+
+test("the session cache follows candidate geometry even while log.jsonl is unchanged", async () => {
+  await write(log(row(110)));
+  expect((await loadSession("g")).boardSize).toBe(928);
+
+  const changed = JSON.parse(CANDIDATE);
+  changed.geometry.board_size = 1008;
+  await writeFile(path.join(root, "recordings", "g", "candidate.json"), JSON.stringify(changed), "utf8");
+
+  expect(
+    (await loadSession("g")).boardSize,
+    "candidate.json changed the crop geometry, so cached session coordinates must be invalidated",
+  ).toBe(1008);
+});

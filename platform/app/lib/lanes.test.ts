@@ -90,6 +90,15 @@ test("an event is one square, one FEN word and frames within GROUP_SPAN", () => 
   expect(groups[0].head.stem).toBe("000100");
 });
 
+test("an event never crosses a recording boundary, even when frame and square match", () => {
+  const groups = collapseEvents([
+    { session: 0, stem: "000100", square: "e5", fen_label: "bP" },
+    { session: 1, stem: "000100", square: "e5", fen_label: "bP" },
+  ]);
+
+  expect(groups, "a long press must not apply one recording's crop verdict to another recording").toHaveLength(2);
+});
+
 const board = (over: Partial<StreamBoard> = {}): StreamBoard => ({
   session: 0, pos: 0, stem: "000100", ply: 4, fen: "8/8/8/8/8/8/8/R6R w - - 0 1",
   unknown: [], violations: [], violating: {}, disagree: {}, disagreeReads: {},
