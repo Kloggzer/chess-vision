@@ -1502,6 +1502,34 @@ def occluders_gate_scan(
         print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto -> {r['path']}", flush=True)
 
 
+@occluders_app.command("status")
+def occluders_status(
+    name: str | None = typer.Argument(None, help="Recording name; ohne Argument alle."),
+) -> None:
+    """Luecken und Waisen je Aufnahme: dirty-Frames ohne Matte, Matten ohne Frame.
+
+    Der Export waehlt die Frames, `matte.jsonl` haengt nur an — niemand gleicht beide ab, und eine
+    fehlende Matte sieht im Training aus wie ein freies Feld (CLAUDE.md, "Coverage Matte Trap").
+    """
+    from . import matte as matte_mod
+    from .sessions import all_sessions
+
+    names = [name] if name else [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
+    gaps = orphans = 0
+    for n in names:
+        try:
+            res = matte_mod.matte_status(n)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[--] {n}: {exc}")
+            continue
+        gaps += len(res["missing"])
+        orphans += len(res["orphans"])
+        if res["missing"] or res["orphans"]:
+            print(f"[!!] {n}: {res['matted']}/{res['dirty']} gemattet, "
+                  f"{len(res['missing'])} fehlen, {len(res['orphans'])} Waisen")
+    print(f"[OK] {len(names)} Aufnahmen: {gaps} fehlende Matten, {orphans} Waisen")
+
+
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
     name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),

@@ -325,3 +325,24 @@ def test_a_recut_refuses_to_overwrite_the_running_worker(tmp_path, monkeypatch):
 
     kept = (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(kept) == 2, "the worker's row survives — nothing was written over it"
+
+
+def test_the_status_names_orphans_and_gaps(tmp_path, monkeypatch):
+    """Ein Re-Export aendert die Frame-Auswahl, `matte.jsonl` wird nur angehaengt.
+
+    Gemessen 2026-09-14 ueber den Korpus: 2 975 Matten-Zeilen ohne Log-Zeile und 2 497 dirty-Frames
+    ohne Matte — und niemand gleicht die beiden ab. Eine Luecke ist dabei die teurere Haelfte:
+    ein Crop ohne Matte bekommt Coverage 0 und sieht aus wie ein nachweislich freies Feld.
+    """
+    import json
+
+    pad = crop_border_px(_profile())
+    sdir = _session(tmp_path, monkeypatch, _dirty_rows(pad))
+    (sdir / "matte.jsonl").write_text(
+        json.dumps({"frame": "000001", "coverage": {"a8": 0.5}}) + "\n"
+        + json.dumps({"frame": "009999", "coverage": {"a8": 0.5}}) + "\n", encoding="utf-8")
+
+    res = matte.matte_status("s1")
+
+    assert res["orphans"] == ["009999"], f"eine Matte ohne Log-Zeile muss auffallen: {res}"
+    assert res["missing"] == ["000002"], f"ein dirty-Frame ohne Matte muss auffallen: {res}"

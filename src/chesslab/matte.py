@@ -532,6 +532,26 @@ def recut_fixed(
     }
 
 
+def matte_status(name: str) -> dict:
+    """Welche dirty-Frames eine Matte haben, und welche Matten keinen Frame mehr.
+
+    Niemand gleicht Export und `matte.jsonl` ab. Eine LUECKE ist die teure Haelfte: ein Crop ohne
+    Matte bekommt Coverage 0 und sieht aus wie ein freies Feld ("Coverage Matte Trap").
+    """
+    from .ioutil import read_jsonl
+    from .labeling import read_log
+    from .realgames import game_dir
+
+    session_dir = game_dir(name)
+    rows = read_log(session_dir)
+    want = {Path(r["board"]).stem for r in rows if r.get("board") and r.get("dirty")}
+    known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
+    path = session_dir / "matte.jsonl"
+    have = {str(r["frame"]) for r in read_jsonl(path) if r.get("frame")} if path.exists() else set()
+    return {"session": name, "dirty": len(want), "matted": len(want & have),
+            "missing": sorted(want - have), "orphans": sorted(have - known)}
+
+
 def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
     """Run `solid` over the alphas already on disk, and recut the coverage it moves.
 
