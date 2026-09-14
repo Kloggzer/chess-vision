@@ -655,7 +655,7 @@ def correct_quad(frame, quad, profile, iters: int = ITERS):
     return cur
 
 
-def refine_quad(frame, quad, profile, *, max_frac: float = MAX_OFFSET_FRAC):
+def refine_quad(frame, quad, profile):
     """`(best quad, verdict)` — the COARSE-to-FINE staging, in one call.
 
     `quad` is whatever located the board at all: an ArUco quad from two, three or four markers, the
@@ -669,7 +669,7 @@ def refine_quad(frame, quad, profile, *, max_frac: float = MAX_OFFSET_FRAC):
     """
     fixed = correct_quad(frame, quad, profile)
     best = quad if fixed is None else fixed
-    return best, alignment_of(frame, best, profile, max_frac=max_frac)
+    return best, alignment_of(frame, best, profile)
 
 
 #: A pose has moved, and its grid correction expired, past this mean per-corner distance in CELLS.

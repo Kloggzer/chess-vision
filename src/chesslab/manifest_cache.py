@@ -40,6 +40,8 @@ def manifest_stats(path: Path) -> dict:
     with _LOCK:
         hit = _CACHE.get(path)
         if hit and hit[0] == key:
+            # TODO: Returning the cached dict itself lets any caller mutate all later answers;
+            # the cache currently relies on an undocumented read-only convention.
             return hit[1]
     stats = _scan(path)
     with _LOCK:
