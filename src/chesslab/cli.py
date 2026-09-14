@@ -307,11 +307,12 @@ def session_temporal_mattes(
 @session_app.command("temporal-adopt")
 def session_temporal_adopt(
     session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+    method: str = typer.Option("local", help="Der Zweig unter reports/temporal-mattes/<name>/, den `temporal-mattes` geschrieben hat."),
 ) -> None:
     """Turn temporal mask proposals with a hand into matte rows for the matte lane."""
     from .temporal_matte import adopt_proposals
 
-    r = adopt_proposals(session)
+    r = adopt_proposals(session, method=method)
     print(f"[OK] {r['adopted']} temporal mattes adopted, {r['empty']} empty, {r['replaced']} replaced, "
           f"{r['kept_sam']} frames already had a SAM row -> {r['path']}")
 
@@ -319,11 +320,12 @@ def session_temporal_adopt(
 @session_app.command("temporal-upsert")
 def session_temporal_upsert(
     session: str = typer.Argument(..., help="Canonical session ID (rg- for recordings)."),
+    method: str = typer.Option("local", help="Der Zweig unter reports/temporal-mattes/<name>/, den `temporal-mattes` geschrieben hat."),
 ) -> None:
     """Where SAM found nothing on a frame, temporal's matte replaces it whole."""
     from .temporal_matte import upsert_proposals
 
-    r = upsert_proposals(session)
+    r = upsert_proposals(session, method=method)
     print(f"[OK] {r['upserted']} frames upserted, {r['sam_found']} where SAM found a hand, "
           f"{r['fixed']} hand-fixed left alone, {r['replaced']} earlier upserts redone -> {r['path']}")
 
@@ -332,6 +334,8 @@ def session_temporal_upsert(
 def session_temporal_pass(
     name: str = typer.Argument(..., help="Recording name (or rg- id)."),
     workers: int = typer.Option(4, min=1, help="Processes for the three-frame mattes."),
+    method: str = typer.Option("local", help="local oder difference; beide Zweige laufen durch "
+                                             "dieselbe Kette."),
 ) -> None:
     """The temporal SOP in one press: scan, mattes, adopt, SAM over the adopted, upsert, flags."""
     import subprocess
@@ -343,9 +347,9 @@ def session_temporal_pass(
     started = datetime.now(UTC).isoformat()
     scan = temporal_flags.scan_session(session)
     print(f"[OK] scan: {scan['cells']} cells, {scan['flags']} candidates", flush=True)
-    mattes = propose_session(session, workers=workers)
+    mattes = propose_session(session, method=method, workers=workers)
     print(f"[OK] mattes: {mattes['proposed']} proposals, {mattes['skipped']} skipped", flush=True)
-    adopted = adopt_proposals(session)
+    adopted = adopt_proposals(session, method=method)
     print(f"[OK] adopt: {adopted['adopted']} new, {adopted['kept_sam']} SAM kept", flush=True)
     if adopted["adopted"]:
         # Its own process: SAM's ROCm teardown wedges, and `alpha-worker` leaves via os._exit.
@@ -354,7 +358,7 @@ def session_temporal_pass(
         if code != 0:
             print(f"[ERR] alpha-worker --temporal exited {code}")
             raise typer.Exit(1)
-    upsert = upsert_proposals(session)
+    upsert = upsert_proposals(session, method=method)
     print(f"[OK] upsert: {upsert['upserted']} frames, {upsert['sam_found']} stay with SAM", flush=True)
     pruned = prune_dead_rows(session)
     print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)

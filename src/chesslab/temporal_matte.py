@@ -250,7 +250,7 @@ def _propose_chunk(recording, targets, compatible, directory, options):
     return [propose_frame(recording, t, compatible, directory, cache=cache, **options) for t in targets]
 
 
-def propose_session(session_id, *, frames=None, low=config.TEMPORAL_MATTE_LOW,
+def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
                     high=config.TEMPORAL_MATTE_HIGH,
                     max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S, method="local",
                     peers=config.TEMPORAL_MATTE_PEERS, refine=True, rgba=False, workers=1,
@@ -268,7 +268,7 @@ def propose_session(session_id, *, frames=None, low=config.TEMPORAL_MATTE_LOW,
     flags, stale = load_flags(recording, session_id, entries, sam_matte(recording))
     if stale:
         raise ValueError("Temporal scan is stale; run session temporal-scan first")
-    wanted = set(frames) if frames is not None else {f["frame"] for f in flags}
+    wanted = {f["frame"] for f in flags}
     compatible = [r for r in entries if usable_board(r, profile) and r.get("board_straightened")]
     targets = [r for r in compatible if Path(r["frame"]).stem in wanted]
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
@@ -383,7 +383,7 @@ def require_fresh_proposals(directory, recording) -> None:
         raise RuntimeError("Proposal source changed; proposals must be regenerated")
 
 
-def upsert_proposals(session_id, *, method="local", solid=.5):
+def upsert_proposals(session_id, *, method="local"):
     """Where SAM found NOTHING on a frame, temporal's matte replaces it whole — never per cell.
 
     Motion blur is what SAM misses (459 frames in four sessions, 2026-09-11). SAM's file
@@ -430,7 +430,9 @@ def upsert_proposals(session_id, *, method="local", solid=.5):
             continue
         alpha = cv2.imread(str(directory / row["alpha"]), cv2.IMREAD_GRAYSCALE)
         coverage = coverage_of(alpha.astype(np.float32) / 255., entry, profile)
-        if max(coverage.values()) <= solid:
+        # Dieselbe Schwelle wie oben: `solid` war ein zweiter, undokumentierter Schnitt
+        # fuer dieselbe Entscheidung, den nie ein Aufrufer gesetzt hat.
+        if max(coverage.values()) <= MATTE_DIRTY:
             continue
         target = mattes / f"{stem}.webp"
         if target.is_file():

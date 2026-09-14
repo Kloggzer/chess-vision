@@ -111,16 +111,6 @@ class Recording:
             base += count
         return len(self.segments) - 1, base
 
-    def _frame_counts(self) -> list[int]:
-        """Frames per segment, probed once — only a seek past segment 1 needs them.
-
-        The container's count and a full forward decode agree on the segmented sessions this was
-        measured against (204855: 1800 and 900), and a forward walk never consults them at all.
-        """
-        self._counts.extend(_frame_count(p) for p in self.segments[len(self._counts):])
-        return self._counts
-
-
 def _frame_count(path: Path) -> int:
     cap = cv2.VideoCapture(str(path))
     try:

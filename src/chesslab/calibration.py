@@ -796,8 +796,7 @@ def make_tracker(profile: CalibrationProfile | None = None) -> MarkerTracker:
 
 
 def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerTracker,
-                            min_markers: int | None = None,
-                            detect_scale: float = 1.0) -> list[list[float]] | None:
+                            min_markers: int | None = None) -> list[list[float]] | None:
     """The 4 board corners (a8,h8,h1,a1) in **frame pixels** for this frame.
 
     Updates the tracker once with the current marker detection and resolves the
@@ -807,16 +806,7 @@ def board_corners_for_frame(frame, profile: CalibrationProfile, tracker: MarkerT
     """
     if min_markers is None:
         min_markers = config.TRACKER.default_min_markers
-    # `detect_scale` < 1: detect on a downscaled frame and scale the points back — ArUco is
-    # the most expensive per-frame op (~25 ms at 1080p, ~9 ms at half-res) and the ±1 px
-    # rescale error lies inside the MarkerTracker's dead-zone (move_threshold 4 px).
-    if detect_scale and detect_scale < 1.0:
-        small = cv2.resize(frame, None, fx=detect_scale, fy=detect_scale,
-                           interpolation=cv2.INTER_AREA)
-        det = detect_board_markers(small, profile.marker_dict, corner="center")
-        det = {i: [p[0] / detect_scale, p[1] / detect_scale] for i, p in det.items()}
-    else:
-        det = detect_board_markers(frame, profile.marker_dict, corner="center")
+    det = detect_board_markers(frame, profile.marker_dict, corner="center")
     tracker.update(det)
     pts = tracker.points()
     if len(pts) < min_markers:
@@ -871,21 +861,16 @@ def _warn_degraded(n_used: int) -> None:
         n_used, shape)
 
 
-def warp_from_corners(frame, profile: CalibrationProfile, corners, target_size: int | None = None):
+def warp_from_corners(frame, profile: CalibrationProfile, corners):
     """Rectify board **borderless** from 4 frame corners (a8,h8,h1,a1) — playing field fills [0, board_size].
 
     This is the **display warp** (web frontend places its 8×8 overlay exactly on the playing field edge).
     For DATA crop see `warp_board_for_crops` (with border). Pure transformation without
     marker detection; reproduces the same geometry as at recording time.
 
-    If `target_size` is given, the warp destination is target_size×target_size instead of
-    board_size×board_size (much cheaper for detection at detect_scale < 1.0).
     """
-    sz = target_size if target_size is not None else profile.board_size
+    sz = profile.board_size
     h = np.array(compute_homography(corners, profile.board_size, profile.margin), dtype=np.float64)
-    if sz != profile.board_size:
-        s = float(sz) / profile.board_size
-        h[0] *= s; h[1] *= s
     return cv2.warpPerspective(frame, h, (sz, sz))
 
 

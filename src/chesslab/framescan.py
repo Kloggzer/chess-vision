@@ -176,11 +176,11 @@ def read_scan(name: str) -> list[dict]:
     return sorted(read_jsonl(path), key=lambda r: r["idx"]) if path.exists() else []
 
 
-def cell_means(padded, size: int, pad: int, *, gray=None, work_key=None) -> list[float]:
+def cell_means(padded, size: int, pad: int, *, gray=None) -> list[float]:
     """The board as 64 grey means, one per square — enough to see a piece lying where it stood."""
     if gray is None:
         source = padded[pad:pad + size, pad:pad + size]
-        key = work_key if work_key is not None else ("array", id(padded), "gray")
+        key = ("array", id(padded), "gray")
         with measure("BGR to Gray conversions", key, processed_bytes=source.nbytes):
             board = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
     else:

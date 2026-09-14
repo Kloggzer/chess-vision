@@ -84,8 +84,7 @@ def _sample(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int]) -> np.n
     return stack
 
 
-def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | None = None,
-               refine: bool = True) -> np.ndarray:
+def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | None = None) -> np.ndarray:
     """The empty backdrop: the per-pixel median over the clip, refined against a GLOBAL reference.
 
     A hand parked for over half the clip becomes the median there, and judging the refinement
@@ -94,9 +93,6 @@ def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | Non
     size = size or work_size(cap)
     stack = _sample(cap, n_frames, size)
     med = np.median(stack, axis=0).astype(np.float32)
-    if not refine:
-        return med
-
     chroma = med.astype(np.float32) + 1.0
     chroma /= chroma.sum(2)[..., None]
     ref = np.median(chroma.reshape(-1, 3), axis=0).reshape(1, 1, 3) * 255.0

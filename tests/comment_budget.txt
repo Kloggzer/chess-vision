@@ -12,7 +12,7 @@ src/chesslab/ingest_adapters/synthetic.py 8
 src/chesslab/ioutil.py 10
 src/chesslab/labeling.py 11
 src/chesslab/manifest_cache.py 10
-src/chesslab/meshprep.py 21
+src/chesslab/meshprep.py 15
 src/chesslab/occluded_model.py 20
 src/chesslab/realgames.py 17
 src/chesslab/recording.py 11

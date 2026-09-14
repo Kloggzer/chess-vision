@@ -121,21 +121,6 @@ class Pose(TypedDict):
     edge_px: float
 
 
-class CaptureStep(TypedDict):
-    """Ein Schritt aus `capture.json`. Geschrieben wird sie von der Erfassungs-App, hier wird sie
-    nur GELESEN — die Autoritaet ueber die Form ist `docs/capture-session.schema.json`."""
-
-    ply: int
-    orientation_deg: int
-    shot_id: str
-
-
-class CaptureSession(TypedDict):
-    shot_id: str
-    height: str
-    steps: list[CaptureStep]
-
-
 def slug(*parts: str) -> str:
     """Kleinbuchstaben mit Bindestrich. Das Band gehoert in jede `id`: 58 Luecken verteilen sich
     auf nur 24 Paare aus Figur und Feldfarbe, 22 davon kollidieren ueber die Baender."""

@@ -35,7 +35,6 @@ def prepare_scan(
     out_dir: Path,
     *,
     make_preview: bool = True,
-    process: bool = False,
     smooth_iters: int = 0,
 ) -> dict:
     """Import a scanned piece into the render pipeline.
@@ -45,14 +44,8 @@ def prepare_scan(
     _preview.png,_preview_clay.png}``.  This lets several scans of the same piece
     (e.g. two white pawns, one black) coexist as ``v1``/``v2``/… inside ``wP/``.
 
-    ``process=False`` (default) is a **verbatim import**: the model the user
-    supplies is copied unchanged and rendered as-is — no uprighting, no component
-    filtering, no re-export.  Use this when you provide already-clean, upright,
-    correctly-scaled models and only want them rendered.
-
-    ``process=True`` runs the legacy minimal cleanup (largest component + base-plane
-    uprighting + clean OBJ re-export).  Handy for raw RealityScan dumps, but it can
-    distort an already-finished model, so it is no longer the default.
+    A **verbatim import**: the model the user supplies is copied unchanged and rendered
+    as-is — no uprighting, no component filtering, no re-export.
 
     ``smooth_iters > 0`` (verbatim mode only) additionally runs shrink-free Taubin
     smoothing over the vertices — for raw RealityScan exports whose reconstruction
@@ -63,62 +56,10 @@ def prepare_scan(
     piece_dir.mkdir(parents=True, exist_ok=True)
     stem = item.variant
 
-    if not process:
-        if smooth_iters > 0:
-            return _import_smoothed(item, piece_dir, stem, smooth_iters,
-                                    make_preview=make_preview)
-        return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
-
-    # ---- 1. Load mesh
-    mesh, tex_img = _load_and_extract(item)
-    tris_before = len(mesh.faces)
-    _log.info("loaded %s: %d verts, %d tris", item.name, len(mesh.vertices), tris_before)
-
-    # ---- 2. Keep largest connected component
-    mesh, center_component_frac = _keep_largest_component(mesh)
-    _log.info("largest component frac: %.3f", center_component_frac)
-
-    # ---- 3. Fit plane to bottom for uprighting
-    base_normal, base_d, base_inlier_mask = _fit_plane(mesh.vertices)
-    _log.info("base plane fit for upright: %d inliers", int(base_inlier_mask.sum()))
-
-    signed = mesh.vertices @ base_normal + base_d
-    fig_side = 1 if signed.max() > abs(signed.min()) else -1
-    if fig_side < 0:
-        base_normal = -base_normal
-
-    # ---- 4. Upright + re-center
-    mesh = _upright(mesh, base_normal)
-
-    # ---- 5. Write clean OBJ directly from trimesh
-    tex_dst = piece_dir / f"{stem}.png"
-    _write_trimesh_obj(mesh, stem, piece_dir, tex_img, tex_dst)
-
-    # ---- 6. Mesh quality
-    quality = _mesh_quality(mesh)
-
-    # ---- 7. Dimensions + height ratio
-    dims, height_ratio = _compute_dims_ratio(mesh)
-
-    # ---- 8. Report
-    report: dict = {
-        "piece": item.name,
-        "variant": stem,
-        "verts": len(mesh.vertices),
-        "tris": int(tris_before),
-        "center_component_frac": round(float(center_component_frac), 3),
-        **quality,
-        "dims": [round(float(d), 4) for d in dims],
-        "height_ratio": round(float(height_ratio), 3),
-    }
-    report_path = piece_dir / f"{stem}_report.json"
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-    _log.info("wrote %s", report_path)
-
-    if make_preview:
-        _render_previews(mesh, stem, piece_dir, tex_dst)
-
-    return report
+    if smooth_iters > 0:
+        return _import_smoothed(item, piece_dir, stem, smooth_iters,
+                                make_preview=make_preview)
+    return _import_verbatim(item, piece_dir, stem, make_preview=make_preview)
 
 
 # ==============================================================================
@@ -143,8 +84,7 @@ def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
     # independently tears the seams open (visible dark crack lines in the render).
     v = np.asarray(mesh.vertices)
     uniq, inv = np.unique(np.round(v, 6), axis=0, return_inverse=True)
-    welded = trimesh.Trimesh(vertices=uniq.copy(), faces=inv[np.asarray(mesh.faces)],
-                             process=False)
+    welded = trimesh.Trimesh(vertices=uniq.copy(), faces=inv[np.asarray(mesh.faces)])
     trimesh.smoothing.filter_taubin(welded, lamb=0.5, nu=0.53, iterations=iters)
     mesh.vertices = np.asarray(welded.vertices)[inv]
 
@@ -395,192 +335,6 @@ def _extract_glb_texture(mesh) -> Path | None:
     return None
 
 
-def _fit_plane(vertices: np.ndarray):
-    """Fit a plane to the substrate via Open3D RANSAC segment_plane.
-
-    Restricts sampling to the lowest 20 % of the mesh (by Z) so RANSAC
-    reliably finds the table/base plane instead of a vertical facet.
-
-    Returns ``(normal, d, inlier_mask)`` where plane eq. is ``v·normal + d = 0``.
-    """
-    import open3d as o3d
-
-    n = len(vertices)
-    extent = float(np.max(vertices.max(axis=0) - vertices.min(axis=0)))
-    tolerance = max(extent * _RANSAC_TOL_FRAC, 1e-6)
-
-    # Restrict to the bottom 20 % of the dominant axis (the figure sits on a plate).
-    # Find the axis with the largest extent (= figure height in Y-up or Z-up).
-    axis_extents = vertices.max(axis=0) - vertices.min(axis=0)
-    dominant_axis = int(np.argmax(axis_extents))
-    vals = vertices[:, dominant_axis]
-    v_min, v_max = vals.min(), vals.max()
-    v_cut = v_min + 0.20 * (v_max - v_min)
-    bottom_mask = vals <= v_cut
-    bottom_verts = vertices[bottom_mask]
-    _log.info("RANSAC: sampling %d/%d vertices in bottom 20%% of axis %d",
-              len(bottom_verts), n, dominant_axis)
-
-    if len(bottom_verts) < 100:
-        _log.warning("too few bottom vertices, using all %d", n)
-        bottom_verts = vertices
-        bottom_mask = np.ones(n, dtype=bool)
-
-    pcd = o3d.geometry.PointCloud()
-    pcd.points = o3d.utility.Vector3dVector(bottom_verts)
-
-    plane_model, inlier_subset = pcd.segment_plane(
-        distance_threshold=tolerance,
-        ransac_n=3,
-        num_iterations=_RANSAC_ITERS,
-    )
-
-    # Map back to full vertex set: compute signed distances for ALL vertices
-    normal = np.array(plane_model[:3])
-    d = plane_model[3]
-    signed = vertices @ normal + d
-    inlier_mask = np.abs(signed) < tolerance
-
-    return normal, d, inlier_mask
-
-
-def _keep_largest_component(mesh):
-    """Keep only the largest connected component of the entire mesh.
-
-    Used in the ``isolate=False`` pipeline for pre-cut single-piece meshes
-    with no substrate/plate.
-
-    Returns ``(new_mesh, kept_fraction)`` where *kept_fraction* is the ratio
-    of kept triangles to total triangles.
-    """
-    import open3d as o3d
-
-    faces = mesh.faces
-    if len(faces) == 0:
-        raise RuntimeError("Mesh has no faces")
-
-    # Build Open3D mesh for clustering
-    o3d_mesh = o3d.geometry.TriangleMesh()
-    o3d_mesh.vertices = o3d.utility.Vector3dVector(np.array(mesh.vertices))
-    o3d_mesh.triangles = o3d.utility.Vector3iVector(np.array(faces))
-
-    triangle_clusters, cluster_counts, _ = o3d_mesh.cluster_connected_triangles()
-    n_clusters = len(cluster_counts)
-
-    if n_clusters == 0:
-        raise RuntimeError("No connected components found in mesh")
-
-    cluster_sizes = np.array(cluster_counts, dtype=int)
-    best_cluster = int(np.argmax(cluster_sizes))
-    total_tris = len(faces)
-    best_tris = int(cluster_sizes[best_cluster])
-    kept_fraction = best_tris / total_tris if total_tris > 0 else 1.0
-
-    _log.info("selected cluster %d/%d (size=%d tris, %.1f%%)",
-              best_cluster, n_clusters, best_tris, 100 * kept_fraction)
-
-    # Keep only best cluster triangles
-    best_mask = np.asarray(triangle_clusters) == best_cluster
-    best_tri_indices = faces[best_mask]
-    best_vert_idx = np.unique(best_tri_indices.flatten())
-
-    # Compact remap
-    v2 = {int(old): new for new, old in enumerate(best_vert_idx)}
-    final_faces = np.array([[v2[vi] for vi in tri] for tri in best_tri_indices], dtype=np.int32)
-    final_verts = mesh.vertices[best_vert_idx]
-
-    # Remove statistical outliers (lenient)
-    clean_verts = final_verts
-    clean_tris = final_faces
-    if len(final_verts) > 500:
-        try:
-            pcd = o3d.geometry.PointCloud()
-            pcd.points = o3d.utility.Vector3dVector(final_verts)
-            pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=50, std_ratio=3.0)
-            kept_frac = len(ind) / len(final_verts)
-            if kept_frac > 0.3:
-                clean_verts = np.asarray(pcd.points)
-                clean_idx_set = set(ind)
-                clean_tris = np.array([tri for tri in final_faces if all(v in clean_idx_set for v in tri)], dtype=np.int32)
-                _log.info("outlier removal kept %.1f%% of vertices", 100 * kept_frac)
-        except Exception:
-            pass
-
-    # Remap
-    new_vert_map = {old: new for new, old in enumerate(sorted({v for tri in clean_tris for v in tri}))}
-    clean_tris_mapped = np.array([[new_vert_map[vi] for vi in tri] for tri in clean_tris], dtype=np.int32)
-
-    # Carry over vertex attributes (UVs, colors) through the entire vertex remap chain
-    import trimesh
-    kwargs = {}
-    orig_visual = mesh.visual
-    orig_uv = getattr(orig_visual, "uv", None)
-    orig_vc = getattr(orig_visual, "vertex_colors", None)
-    if clean_verts is final_verts:
-        # No outlier removal → simple UV remap through best_vert_idx
-        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
-            kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=orig_uv[best_vert_idx])
-        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
-            kwargs["vertex_colors"] = orig_vc[best_vert_idx]
-    else:
-        # Outlier removal was applied → map UVs through best_vert_idx then ind
-        # (ind is defined by remove_statistical_outlier inside the try block above,
-        #  and clean_verts is final_verts[ind])
-        if orig_uv is not None and len(orig_uv) == len(mesh.vertices):
-            mapped_uv = orig_uv[best_vert_idx][list(ind)]
-            kwargs["visual"] = trimesh.visual.texture.TextureVisuals(uv=mapped_uv)
-        elif orig_vc is not None and len(orig_vc) == len(mesh.vertices):
-            kwargs["vertex_colors"] = orig_vc[best_vert_idx][list(ind)]
-
-    result = trimesh.Trimesh(vertices=clean_verts, faces=clean_tris_mapped,
-                             process=False, **kwargs)
-    return result, kept_fraction
-
-def _upright(mesh, plane_normal: np.ndarray):
-    """Rotate/translate mesh so that the base sits at z=0 and the figure axis is +Z."""
-    # Rotate so plane normal aligns with +Z
-    z_axis = np.array([0.0, 0.0, 1.0])
-    rot = _rotation_between(plane_normal, z_axis)
-    mesh.apply_transform(rot)
-
-    # Translate so min Z = 0
-    min_z = mesh.vertices[:, 2].min()
-    mesh.vertices[:, 2] -= min_z
-
-    # Center XY
-    centroid_xy = mesh.vertices[:, :2].mean(axis=0)
-    mesh.vertices[:, 0] -= centroid_xy[0]
-    mesh.vertices[:, 1] -= centroid_xy[1]
-
-    return mesh
-
-
-def _rotation_between(a: np.ndarray, b: np.ndarray):
-    """4x4 homogeneous transform that rotates unit vector a to unit vector b."""
-    import trimesh
-
-    a = a / np.linalg.norm(a)
-    b = b / np.linalg.norm(b)
-    if np.allclose(a, b):
-        return np.eye(4)
-    if np.allclose(a, -b):
-        # 180° rotation around any perpendicular axis
-        perp = np.array([1.0, 0.0, 0.0])
-        if np.abs(np.dot(perp, a)) > 0.99:
-            perp = np.array([0.0, 1.0, 0.0])
-        perp = perp - np.dot(perp, a) * a
-        perp = perp / np.linalg.norm(perp)
-        return trimesh.transformations.rotation_matrix(np.pi, perp)
-
-    v = np.cross(a, b)
-    s = np.linalg.norm(v)
-    c = np.dot(a, b)
-    vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-    R = np.eye(3) + vx + vx @ vx * ((1 - c) / (s * s))
-    T = np.eye(4)
-    T[:3, :3] = R
-    return T
-
 def _vertex_normals(verts: np.ndarray, faces: np.ndarray) -> np.ndarray:
     """Flächengewichtete Per-Vertex-Normalen (nach außen), normalisiert."""
     verts = np.asarray(verts, dtype=np.float64)
@@ -706,52 +460,6 @@ def _save_texture(tex_img, tex_fallback: Path | None, dst: Path):
     if tex_fallback is not None:
         import shutil
         shutil.copy2(str(tex_fallback), str(dst))
-def _mesh_quality(mesh) -> dict:
-    """Count boundary and non-manifold edges.
-
-    Welds vertices **by position** before counting edges so that UV-seam splits
-    do not inflate the boundary edge count.
-    """
-    if len(mesh.faces) == 0:
-        return {"boundary_edges": 0, "nonmanifold_edges": 0}
-
-    verts = np.asarray(mesh.vertices)
-    faces = np.asarray(mesh.faces, dtype=np.int64)
-
-    # Weld vertices by position (tolerance ~ 0.1 μm in mesh units)
-    tol = 1e-4
-    verts_rounded = np.round(verts / tol) * tol
-    _, __, pos_ids = np.unique(verts_rounded, axis=0,
-                               return_index=True, return_inverse=True)
-    welded_faces = pos_ids[faces]
-
-    # Build edge set from welded faces
-    edges = np.vstack([
-        welded_faces[:, [0, 1]],
-        welded_faces[:, [1, 2]],
-        welded_faces[:, [2, 0]],
-    ])
-    edges_sorted = np.sort(edges, axis=1)
-    ___, ___, counts = np.unique(edges_sorted, axis=0,
-                                 return_inverse=True, return_counts=True)
-
-    boundary = int((counts == 1).sum())
-    nonmanifold = int((counts > 2).sum())
-
-    return {"boundary_edges": boundary, "nonmanifold_edges": nonmanifold}
-
-
-def _compute_dims_ratio(mesh):
-    """Bounding-box dimensions and height/width ratio."""
-    if len(mesh.vertices) == 0:
-        return np.zeros(3), 0.0
-    mn = mesh.vertices.min(axis=0)
-    mx = mesh.vertices.max(axis=0)
-    dims = mx - mn
-    height_ratio = float(dims[2] / max(dims[0], dims[1], 1e-9))
-    return dims, height_ratio
-
-
 # ---------------------------------------------------------------------------
 # Preview rendering (best-effort, optional)
 # ---------------------------------------------------------------------------
