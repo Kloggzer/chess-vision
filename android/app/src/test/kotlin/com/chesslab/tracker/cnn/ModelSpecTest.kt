@@ -205,6 +205,24 @@ class ModelSpecTest {
     }
 
     @Test
+    fun everyBundledModelWithCoverageOutputDeclaresACoverageGate() {
+        val offending = mutableListOf<String>()
+        for (dir in bundledAssetDirs()) {
+            val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+            if (spec.coverageOutput && spec.coverageGate == null) {
+                offending.add(dir.name)
+            }
+        }
+        assertTrue(
+            offending.isEmpty(),
+            buildString {
+                append("coverage_output models without coverage_gate: ${offending.joinToString(", ")}")
+                append(" — the threshold silently falls back to the legacy default 0.5, which admits reads 84% wrong")
+            },
+        )
+    }
+
+    @Test
     fun `the run's own clahe declaration is what serving reproduces`() {
         val spec =
             ModelSpec.parse(
