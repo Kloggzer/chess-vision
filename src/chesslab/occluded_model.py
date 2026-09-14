@@ -122,7 +122,8 @@ READS_FILE = "model-reads.jsonl"
 
 
 def read_session(name: str, model_dir: Path, *, device: str = "cpu",
-                 progress: bool = True, weights: str | None = None) -> dict:
+                 progress: bool = True, weights: str | None = None,
+                 out: str | None = None) -> dict:
     """Every square of every board, as the model reads it, into `model-reads.jsonl`.
 
     EVERY row, not only the dirty ones: a wrong piece on a clean board is what the p8 stock
@@ -139,7 +140,9 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     classes = model_classes(model_dir)
     squares = all_squares()
     rows = [r for r in read_log(session_dir) if r.get("board") or r.get("frame")]
-    path = game_dir(name) / READS_FILE
+    # A side measurement (the per-model `coverage_gate`) must not overwrite the canonical
+    # file: the labeling lane, audit-flags, chain-steps and provenance all read it.
+    path = game_dir(name) / (out or READS_FILE)
     written = 0
     with path.open("w", encoding="utf-8") as fh:
         fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,

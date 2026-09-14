@@ -929,6 +929,10 @@ def realgames_model_read(
                                        help="Checkpoint inside the run instead of its default: "
                                             "swa.pt, best_piece.pt. A run holds several and the "
                                             "training picks no winner among them."),
+    out: str | None = typer.Option(None, "--out",
+                                   help="Write beside model-reads.jsonl instead of over it, e.g. "
+                                        "model-reads.p4a-80-clahe.jsonl. Needed for a side "
+                                        "measurement: the canonical file feeds the labeling lane."),
 ) -> None:
     """Read every square of a session with a model into `model-reads.jsonl`.
 
@@ -941,7 +945,8 @@ def realgames_model_read(
     from . import occluded_model
 
     try:
-        res = occluded_model.read_session(name, _Path(model), device=device, weights=weights)
+        res = occluded_model.read_session(name, _Path(model), device=device, weights=weights,
+                                          out=out)
     except (FileNotFoundError, ValueError, KeyError) as e:
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
