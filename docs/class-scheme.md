@@ -64,15 +64,20 @@ festgehalten hat.** Die Kotlin-*Leseseite* kann Coverage: `ModelSpec.coverageOut
 entweder aus der `occluded`-Klasse, aus der Extraspalte oder — wenn es beides nicht gibt — aus
 `0.0` (`android/core-cnn/.../cnn/Observations.kt:34`).
 
-Die *Gewichte* sind noch nicht nachgezogen: **kein einziges** Asset unter
-`android/app/src/main/assets/cnn_model/*/config.json` deklariert `coverage_output`. Der Default
-`real14-80` ist ein echtes 14-Klassen-Softmax mit `occluded` auf Index 13. Seit dem 2026-08-20
-liegen nur noch diese beiden im APK — die sechs 2-Klassen-Modelle und `occl14-80` sind raus:
+**Nachgezogen, Stand 2026-09-14:** im APK liegen ACHT `p4*`-Modelle, Default `p4a-80-clahe`, und
+**alle acht** deklarieren `coverage_output` — 13 Klassen-Logits plus eine unabhaengige
+Coverage-Sigmoide in Spalte 13. `real14-80` und `id35-80` sind seit 2026-08-30 raus; der Absatz
+darunter beschreibt den Zustand, der dazu gefuehrt hat.
 
-| Modell | Klassen | `coverage_output` | `pOccluded` kommt aus |
-|---|---|---|---|
-| `real14-80` (Default) | 14 | nein | Softmax-Klasse 13 |
-| `id35-80` | 13 | nein | `0.0` — blind |
+| Modell | Klassen | `coverage_output` | `coverage_gate` | `pOccluded` kommt aus |
+|---|---|---|---|---|
+| `p4a-80-clahe` (Default) | 13 | ja | **fehlt** | Sigmoide Spalte 13 |
+| die sieben weiteren `p4*` | 13 | ja | **fehlt** | Sigmoide Spalte 13 |
+
+Die Bruecke ist also gebaut — aber die Schwelle fehlt: keines der acht traegt ein gemessenes
+`coverage_gate`, alle erben damit 0,5 (`docs/occlusion-gate.md`, `ModelSpecTest` laeuft rot).
+
+*Historisch, der Zustand vor dem Umstieg:*
 
 Die Bruchstelle ist der **Export**, nicht die Leseseite: `comp13-occ-bn-lr1e2-bs512` unter
 `data/models/` trägt `"head": "occlusion"`, wurde aber nie als ONNX mit `coverage_output`

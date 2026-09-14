@@ -6,8 +6,9 @@
 
 ## Aufnahmen — was der Regressionssatz nicht hat (2026-09-05)
 
-Stand: 9 von 10 Aufnahmen fehlerfrei, `222203` mit 3 Referenz-Plies wertlos, `233929` ein Phantom
-am abgeschnittenen Ende. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App (Ecken, Timeline,
+Stand gemessen 2026-09-14: `docs/regression-reference.md` (385 gefunden, 14 verfehlt, **1**
+erfunden, 6 Alarme). `222203` mit 3 Referenz-Plies wertlos, `233929` verliert das Ende an die zu
+frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App (Ecken, Timeline,
 `settings.json` liegen dann bei), jede mit **2 s Stillstand nach dem letzten Zug**:
 
 - zwei Partien **von Schwarz gespielt** (`BLACK_BOTTOM`; der Replay liest die Seite aus `settings.json`)

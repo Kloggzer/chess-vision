@@ -261,7 +261,7 @@ preserved.
     phone's own commit log under that name (`frame`, `ply`, `fen`, `ts`, `move_san`), which used to
     read as an export and skipped the export rung outright (`2026-08-30-14-33-02`).
 - A video without a matching game record shows **Züge erkennen**. The button queues
-  `replay <video> label lens name=<transfer> model=real14-80` on the same single worker. Geometry
+  `replay <video> label lens name=<transfer> model=p4a-80-clahe` on the same single worker. Geometry
   measurement, replay and review frames all use the same accepted per-recording lens fit; a refused
   fit writes no candidate. After it writes `candidate.json`, **zur Label-Seite** opens the normal
   confirm view. Existing candidates are never overwritten.

@@ -32,20 +32,21 @@
   the human only checks that the alpha and the shown position are right.
   The 2-class `occupancy` scheme is **gone** (2026-08-20), Python and Kotlin: `--classes` takes
   `pieces13` or `pieces` only (`dataset_build.CLASS_MODES`).
-  **Android ships coverage (2026-08-24):** the APK bundles `real14-80` (14-class softmax,
-  `occluded` at index 13, the `DEFAULT_MODEL`), `id35-80` (13-class, so `pOccluded` = 0.0),
-  `comp13-occ-bn-lr1e2-bs512` and the two newer `real13-ms-*` runs. The latter three declare
-  `coverage_output` — 13 class logits plus an INDEPENDENT coverage sigmoid in column 13
-  (`Observations.kt`, `Preprocess.kt`): same 14 columns as `real14-80`, different meaning. Where it
-  is declared, `TrackerService` switches the model-free arm OFF
+  **Android ships coverage (Stand 2026-09-14):** the APK bundles EIGHT `p4*` models,
+  `p4a-80-clahe` the `DEFAULT_MODEL`. All eight declare `coverage_output` — 13 class logits plus an
+  INDEPENDENT coverage sigmoid in column 13 (`Observations.kt`, `Preprocess.kt`). Where it is
+  declared, `TrackerService` switches the model-free arm OFF
   (`runGridOcclusion = coverageOutput != true`); the desktop replay runs both. The two arms have
   never been measured against each other (`docs/class-scheme.md`).
-  **The threshold rides in the model, not the engine (2026-08-24):** `coverage_gate` in the
-  model's `config.json`, read by `ModelSpec`, applied onto `TrackerConfig.pOccludedThr`. It follows
-  from the model's accuracy and differs by a factor of 7 between families — comp13 carries 0.02
-  where the real13 runs carry 0.15, both at loss ratio 2 (`docs/occlusion-gate.md`). The old
-  constant 0.5 admitted reads that are 84 % wrong. `BUNDLED_MODELS` is hand-maintained: a model
-  merely dropped into `assets/cnn_model/` never appears in the picker.
+  **The threshold rides in the model, not the engine — but NONE of the eight carries one
+  (2026-09-14):** `coverage_gate` in the model's `config.json`, read by `ModelSpec`, applied onto
+  `TrackerConfig.pOccludedThr`. The gate is a MEASUREMENT (`scripts/stage_model_asset.py --gate`)
+  and the p4 family never got it, so every bundled model inherits the old constant 0.5 — the one
+  that admits reads which are 84 % wrong. `ModelSpecTest` pins this and runs RED until the
+  measurement exists; the fallback announces itself since `4368a05b`. The factor-7 derivation and
+  the older models that did carry a measured gate: `docs/occlusion-gate.md`.
+  `BUNDLED_MODELS` is hand-maintained: a model merely dropped into `assets/cnn_model/` never
+  appears in the picker.
 - **Geometry:** Squares `a1`..`h8`; Corners `[a8, h8, h1, a1]`.
 - **Config:** Paths/Parameters in YAML. Classes only in `config.CLASSES`.
 - **Cache:** per-session crop counts via `manifest_cache.py` (mtime-keyed); its web callers went with the FastAPI layer.

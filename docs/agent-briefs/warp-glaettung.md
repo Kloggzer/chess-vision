@@ -74,9 +74,9 @@ Das betrifft zwei Orte, die dieselbe Krankheit haben:
    sie soll unter die 12 fallen, an denen ein echter dunkler Zug liegt. Sie zu senken ist das
    Ergebnis; was ein anderer damit anfängt, ist eine andere Arbeit.
 3. **Der Regressionssatz darf sich nicht verschlechtern.** Zehn Aufnahmen unter
-   `data/recordings/`, gemessen mit `replay <video> score name=<aufnahme>
-   model=real13-ms-s3-hn4-bn80`. Erwartet wird found/missed/invented je Aufnahme; die heutigen
-   Zahlen stehen in `docs/agent-briefs/tracker-from-scratch.md`. **Phantome disqualifizieren** —
+   `data/recordings/`, gemessen mit `scripts/replay-regression.ps1 -Tag <x>` (Modell-Default, kein
+   `model=` — `real13-ms-s3-hn4-bn80` ist nicht mehr gebuendelt). Der Referenzstand steht in
+   `docs/regression-reference.md`. **Phantome disqualifizieren** —
    eine Änderung, die einen einzigen erzeugt, ist keine Verbesserung, egal was sie sonst hebt.
    Höchstens zwei Replays gleichzeitig, jede JVM hält rund 6 GB, davon das meiste nativ.
 4. **Die Schwellen bleiben, wo sie sind.** Sie nachzuziehen ist die NÄCHSTE Arbeit, mit eigener

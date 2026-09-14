@@ -114,7 +114,8 @@ parallel grid stream.
 
 ### CNN threads
 
-The shipped 64-crop `real14-80` graph takes **16.16 ms with one thread** and **6.87 ms with the phone
+Gemessen am damals ausgelieferten 64-Crop-Graphen `real14-80` (seit 2026-08-30 nicht mehr im APK;
+der Default ist `p4a-80-clahe`, die Verhaeltnisse gelten weiter). Er nimmt **16.16 ms with one thread** and **6.87 ms with the phone
 default of four**: 2.35x faster and 9.30 ms less per inference. This measures the ORT/XNNPACK session
 only. Crop creation and the 20.73 ms model-free grid read are outside that number.
 

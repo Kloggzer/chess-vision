@@ -52,10 +52,17 @@ genau die, die ohnehin falsch waren.
 
 ## Was ausgeliefert wird
 
-Die APK bündelt seit 2026-08-24 vier Modelle, jedes mit seinem gemessenen `coverage_gate`:
-`real14-80` (14 Klassen, kein Gate), `real13-ms-s3-hn4-bn80` und
-`real13-ms-s2-bn80-bs256-swa1e4` (je 0,15), `comp13-occ-bn-lr1e2-bs512` (0,02). Die Liste steht in
-`BUNDLED_MODELS` und ist HANDGEPFLEGT — zwei Tests prüfen je Eintrag Graph-Form und Crop-Größe,
+**Stand 2026-09-14: die APK buendelt ACHT `p4*`-Modelle, und KEINES traegt ein `coverage_gate`.**
+Alle acht deklarieren `coverage_output`, erben damit aber den Alt-Default 0,5 — genau die
+Konstante, die dieses Dokument oben verwirft. Die Messung wurde fuer die p4-Familie nie gemacht;
+`ModelSpecTest` haelt das fest und laeuft rot, bis sie existiert, und die Rueckfallebene meldet
+sich seit `4368a05b` statt stillzuschweigen.
+
+Die vier Modelle mit gemessenem Gate (`real14-80` ohne, die beiden `real13-ms-*` je 0,15,
+`comp13-occ-bn-lr1e2-bs512` 0,02) sind seit 2026-08-30 NICHT mehr im APK. Ihre Zahlen oben bleiben
+gueltig als Herleitung der Regel, nicht als Aussage ueber das, was ausgeliefert wird.
+
+Die Liste steht in `BUNDLED_MODELS` und ist HANDGEPFLEGT — zwei Tests prüfen je Eintrag Graph-Form und Crop-Größe,
 also erzwingt sie, dass jemand die Form eines neuen Modells hinschreibt. Wer ein Modell nur nach
 `assets/cnn_model/` legt, findet es im Picker nicht wieder, und `bundledModelOrDefault` setzt einen
 von Hand gesetzten Namen still auf den Default zurück.

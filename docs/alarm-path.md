@@ -12,6 +12,13 @@ anhaltend", nicht „dreimal ausgewertet". Ein zweiter Weg ist der Standoff (`de
 = 12) für Konflikte, die nicht zug-förmig sind — Rochade (2-und-2) oder ein einzelnes Feld
 (1-und-0) nennt `guessIllegalMove` nie.
 
+**Was der Latch traegt, ist der KERN, nicht die letzte Beobachtung (2026-09-14, `f7e2cf1a`):**
+`advanceDesyncStreak` fuehrt in `desyncConflicts` die Schnittmenge ueber die Serie; bis dahin
+uebergaben alle drei Latch-Stellen aber die aktuelle `conflicts`-Liste. Ein Alarm auf
+{e2,e4}, {e2,e4}, {e2,e4,a1} trug damit a1, und die Erholung musste ein Feld erklaeren, das nur
+einmal auffiel. Ein leerer Kern ist dort unmoeglich: eine leere Schnittmenge setzt die Serie auf
+eins zurueck, der Alarm verlangt mehr.
+
 ## Was ihn zurückhält
 
 ```kotlin
