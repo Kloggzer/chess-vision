@@ -1552,7 +1552,7 @@ def occluders_alpha_worker(
 ) -> None:
     """Cut the hand out of a session's dirty pile with SAM 3: alpha per frame, coverage per square.
 
-    Runs long by design (11.9 s a frame) and appends every row as it lands, so it can be stopped
+    Runs long by design (1,87 s a frame, gemessen 2026-09-14) and appends every row as it lands, so it can be stopped
     and resumed at any point. The pile itself was chosen by the frame scan (`docs/frame-scan.md`).
     """
     from . import matte as matte_mod

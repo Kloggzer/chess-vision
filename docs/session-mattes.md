@@ -120,8 +120,13 @@ keine davon besser:
 1. **Der Frame-Scan muss den Frame als `occluded` geführt haben.** Der destillierte Gate
    entscheidet, OB eine Hand da ist, SAM 3 nur WO. Der Gate ist auf SAM destilliert, hängt
    im Betrieb aber an keinem Foundation-Modell (`docs/hand-gate.md`).
-2. **Nur `occluded`, nicht `stale`.** Ein Alpha über einer Stellung, die niemand kennt, ist 11,9 s
-   für nichts — die FEN muss unter der Hand noch gelten.
+2. ~~**Nur `occluded`, nicht `stale`.**~~ **Ueberholt seit 2026-08-22, aufgehoben 2026-09-14.**
+   Die Begruendung war, die FEN muesse unter der Hand noch gelten. Seitdem entscheidet aber die
+   ZELLE und nicht der Frame: `dirty_reason` steuert nur noch, was SAM zuerst mattet, und genau das
+   rettet `stale`- und `changed`-Frames Zelle für Zelle (CLAUDE.md, `docs/position-check.md`).
+   Die Stellung ist bekannt, unsicher ist nur der eine Zug, und die strittigen Zellen kommen über
+   die Audit-Lane. Auch der Preis stimmte nicht mehr: **1,87 s je Frame**, gemessen 2026-09-14 über
+   189 Alphas in 354 s, nicht 11,9 s.
 3. **Zone über 60 % des Bretts → Frame verwerfen.** Das ist Licht, kein Arm.
 4. Coverage wird mit demselben `crops_for_frame`-Aufruf geschnitten wie das Bild — die Label-Region
    ist per Konstruktion die Crop-Region, Mesh und Pads eingeschlossen.

@@ -544,7 +544,10 @@ def matte_status(name: str) -> dict:
 
     session_dir = game_dir(name)
     rows = read_log(session_dir)
-    want = {Path(r["board"]).stem for r in rows if r.get("board") and r.get("dirty")}
+    # JEDER dirty-Frame, nicht nur `occluded`: seit 2026-08-22 entscheidet die ZELLE, und
+    # `dirty_reason` steuert nur noch die Reihenfolge (CLAUDE.md, `docs/position-check.md`).
+    want = {Path(r["board"]).stem for r in rows
+            if r.get("board") and r.get("dirty") and not r.get("unusable")}
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
     have = {str(r["frame"]) for r in read_jsonl(path) if r.get("frame")} if path.exists() else set()
@@ -770,11 +773,14 @@ def alpha_worker(
     # Der AKTUELLE Stapel, nicht jede Zeile mit einem Brett: eine Matte zu einem Stem, den der
     # Export inzwischen anders einstuft, verbraucht sonst `--limit`-Budget fuer Arbeit, die gar
     # nicht mehr ansteht (2026-09-09, nach dem Re-Export der ungescannten Sessions).
+    # `unusable` ist der Weg fuer das, was keine gueltige Stellung hergibt (umgefallene Figur,
+    # Katze im Bild). `slice` respektiert ihn laengst; ohne ihn hier mattet SAM ihn trotzdem.
     live = {
         Path(entry["board"]).stem
         for entry in rows
         if entry.get("board")
         and entry.get("dirty")
+        and not entry.get("unusable")
         and (reason == "all" or entry.get("dirty_reason") == reason)
     }
 
@@ -817,6 +823,7 @@ def alpha_worker(
         entry
         for entry in rows
         if entry.get("dirty")
+        and not entry.get("unusable")
         and (
             reason == "all"
             or entry.get("dirty_reason") == reason

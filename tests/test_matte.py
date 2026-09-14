@@ -345,4 +345,28 @@ def test_the_status_names_orphans_and_gaps(tmp_path, monkeypatch):
     res = matte.matte_status("s1")
 
     assert res["orphans"] == ["009999"], f"eine Matte ohne Log-Zeile muss auffallen: {res}"
-    assert res["missing"] == ["000002"], f"ein dirty-Frame ohne Matte muss auffallen: {res}"
+    assert res["missing"] == ["000002"], f"auch ein `stale`-Frame braucht seine Matte: {res}"
+
+
+def test_an_unusable_frame_is_neither_matted_nor_counted_as_due(tmp_path, monkeypatch):
+    """`slice` ueberspringt markierte Frames, SAM lief bisher trotzdem darueber.
+
+    Die Markierung ist der Weg fuer das, was keine gueltige Stellung hergibt — umgefallene Figur,
+    Katze im Bild. Ohne sie hier kostet sie Rechenzeit und liefert eine Coverage, die niemand will.
+    """
+    import json
+
+    pad = crop_border_px(_profile())
+    rows = _dirty_rows(pad)
+    rows[0]["unusable"] = True
+    sdir = _session(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.zeros(b.shape[:2], np.float32), {}))
+    monkeypatch.setattr(matte, "coverage_of", lambda *a, **k: {"a8": 0.9})
+    monkeypatch.setattr("chesslab.calibration.load_profile", lambda name: _profile())
+
+    matte.alpha_worker("s1", reason="all", progress=False)
+
+    matted = {str(json.loads(line).get("frame"))
+              for line in (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()}
+    assert "000001" not in matted, f"ein als unbrauchbar markierter Frame wurde gemattet: {matted}"
+    assert matte.matte_status("s1")["missing"] == [], "und er darf nicht als Luecke gelten"
