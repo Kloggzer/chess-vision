@@ -1,29 +1,46 @@
-# Entscheidungsvorlage (Stand 2026-09-15, abends)
+# Entscheidungsvorlage (Stand 2026-09-15, Nacht)
 
 Jeder Punkt ist gemessen oder am Code belegt — es fehlt nicht die Analyse, sondern eine
 Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 
-**Seit der letzten Fassung gebaut und damit hier gestrichen:** der `MarkerTracker`-Port in
-`calibration.py` (alt 1), die Achsen-Fit-Paritaet Python/Kotlin (alt 10), die doppelte
-Verdeckungsschwelle in der Verify-Leiter (alt 12), die korpusweiten Namen in `eval_*.json`
-(alt 13) und die vier `TrackerService`-Ableitungen (alt 7, `ServiceDerivationsTest.kt`). Dazu die
-drei Ketten-Punkte: der Herkunftsstempel `_source` in `pass.json` und `model-reads.jsonl` (alt 1),
-`settle-scan` als eigene Sprosse zwischen `export` und `matte` (alt 2) und `nextStep`, das seinen
-Grund mitgibt (alt 4).
+**Heute gebaut und damit gestrichen:** `MarkerTracker`-Port, Achsen-Fit-Paritaet, die doppelte
+Verdeckungsschwelle, die korpusweiten `eval`-Namen, die vier `TrackerService`-Ableitungen, die
+drei Ketten-Punkte (`_source`, `settle-scan` als Sprosse, `nextStep` mit Grund), `position-flags`
+nennt ungemessene Sessions (alt 3), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
+allen drei Sprachen (alt 9) und die ganze Namensdrift `cov`/`measured`/`pack` (alt 10).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
 Verhalten oder Format — nie ohne A/B am Regressionssatz.
 
 | # | Punkt | Kiste | Aufwand | Empfehlung |
 |---|---|---|---|---|
-| 3 | `position-flags` nennt ungemessene Sessions nicht | A | 1 h | **ja** |
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
-| 6 | `_persistent`-Fix gilt nur kuenftig — Altbestand neu exportieren? | C | ~28 s/Aufnahme | messen, dann entscheiden |
-| 7 | Zwei unvollstaendig gescannte Aufnahmen | A | 10 min | nachscannen |
-| 8 | Kommentar-Ratsche Kotlin von 8 auf 5 | A | ½ Tag Handarbeit | spaeter |
-| 9 | Ein Fixture-Baukasten je Sprache | B | 1½ Tage | Python gebaut, TS/Kotlin offen |
-| 10 | Namensdrift ueber die Schichten (`cov`, `measured`) | B/C | laufend | `pack` erledigt, `cov` jetzt |
+| 6 | `_persistent`: 532 Frames zu Unrecht im Vorrat, 947 zu bergen | C | Re-Export | mit dem naechsten Neubau |
+| 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
+| 17 | `ALPHA_REASON`: Bericht und Worker meinen verschiedene Stapel | B | 1 h | **entscheiden** |
+| 18 | `withCoverageGateOf` gattert ohne Coverage-Spalte | C | 2 h | braucht den Regressionssatz |
+| 19 | `recoveryConfig` weicht als einziger Rig-Bauer ab | A | 15 min | vermutlich versehentlich |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
+
+## 17. `ALPHA_REASON` — welche Seite hat recht?
+
+`matte_status` zaehlt JEDEN dirty-Frame als fehlende Matte (die ZELLE entscheidet, 2026-08-22),
+`alpha_worker` mattet per Vorgabe nur `occluded` (die Regel davor). Der Bericht meldet damit eine
+Luecke, die kein Standardlauf je schliesst, und `MatteCensus.reported` sammelt genau dort an.
+Beide Seiten haben einen Test, der sie verteidigt; `dirty_pile` ist seit heute die eine Funktion,
+die Frage bleibt offen (`tests/test_matte_pile_agreement.py`, TODO am Symbol).
+
+## 18. `TrackerService.kt:779` — `coverage_gate` ohne `coverage_output`
+
+`spec?.coverageGate?.let { copy(...) }` fragt die Spalte nie; der Null-Check haengt nur an der
+Warnung. Ein Modell ohne Coverage-Spalte hat `pOccluded = 0.0` — dagegen auf 0,25 zu gattern
+gattert gegen eine Zahl, die nie geliefert wurde. Kein ausgeliefertes Modell faellt heute hinein.
+
+## 19. `RecoveryFixtures.recoveryConfig`
+
+Der einzige Rig-Bauer, der `minGridLineCoverage` beim ausgelieferten 0,5 laesst, waehrend
+`testConfig`, `detectConfig` und `seamConfig` es alle auf 0,0 zwingen. Sieht versehentlich aus —
+es zu aendern verschiebt aber Verhalten, also liegt es unangetastet.
 
 ---
 
