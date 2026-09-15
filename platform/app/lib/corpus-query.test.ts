@@ -1,16 +1,16 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { queryCorpus } from "@/lib/corpus-query";
 import { DISAGREE } from "@/lib/query";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const cell = (game: string, frame: string, square: string, fen: string, probs: Record<string, number>) =>
   JSON.stringify({ session_id: `rg-${game}`, frame, square, fen_label: fen, dirty_reason: null, probs });
 
 /** Two games, so the answer has to be corpus-wide and not one session's (`api/filter/[name]`). */
 async function corpus() {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-corpus-query-"));
+  const root = await tempDataRoot("corpus-query");
   for (const [game, lines] of [
     ["a", [
       cell("a", "000100", "a1", "wR", { wR: 0.2, wQ: 0.7 }),
@@ -25,7 +25,6 @@ async function corpus() {
     await mkdir(path.join(root, "recordings", game), { recursive: true });
     await writeFile(path.join(root, "recordings", game, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
   }
-  process.env.CHESSLAB_DATA_DIR = root;
 }
 
 test("the query spans every live session and answers with keys, reads and what ⏎ agrees to", async () => {

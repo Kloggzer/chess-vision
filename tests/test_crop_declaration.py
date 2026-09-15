@@ -15,19 +15,14 @@ import numpy as np
 import pytest
 
 from chesslab import config, labeling, serving
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from chesslab.calibration import CalibrationProfile
 from chesslab.training.data import crop_of_rows
 from chesslab.training.evaluate import crop_of_dataset
+from conftest import make_profile
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    corners = [[0, 0], [board_size, 0], [board_size, board_size], [0, board_size]]
-    return CalibrationProfile(
-        profile="test", camera_index=0, frame_size=(board_size, board_size),
-        board_size=board_size, image_corners=corners,
-        homography=compute_homography(corners, board_size),
-        white_pov=True, crop=CropParams.default(board_size),
-    )
+    return make_profile(board_size)
 
 
 def _frame(board_size: int = 800) -> np.ndarray:

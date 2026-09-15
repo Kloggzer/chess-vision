@@ -139,7 +139,7 @@ def test_dataset_build_does_not_duplicate_overlapping_source_rows(tmp_path):
     result = dataset_build.build_dataset(
         "ds", ["s1"], source_manifest=[source, source], per_cell_cap=0,
         phash_enabled=False, val_frac=0.0, test_frac=0.0, allow_degenerate=True,
-        pack=False, paths=paths)
+        write_pack=False, paths=paths)
 
     assert result["counts"]["final"] == 1, (
         "listing an overlapping source manifest duplicated one physical crop in the dataset")

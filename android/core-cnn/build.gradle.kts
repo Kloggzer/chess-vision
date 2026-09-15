@@ -23,6 +23,7 @@ dependencies {
 
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(testFixtures(project(":core-engine")))
 }
 
 tasks.withType<Test>().configureEach {

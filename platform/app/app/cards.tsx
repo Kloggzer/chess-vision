@@ -41,7 +41,7 @@ export type GameInfo = {
   cells: number;
   cellsDone: number;
   /** `false` = no `model-reads.jsonl`, so the bar prints `—` instead of claiming zero of zero. */
-  measured: boolean;
+  modelRead: boolean;
   /** Where this game sits on the label → confirm → export → model-read → labeln ladder. */
   chain: ChainState;
   /** The last job this game ran, so a reload still shows what failed and what answers it. */
@@ -81,7 +81,7 @@ function UselessCard({ game }: { game: GameInfo }) {
 
 /** Bretter sind die Einheit, die ein Mensch abarbeitet; die Zellen stehen im Tooltip (CONCEPT.md 6.2). */
 function BoardProgress({ game }: { game: GameInfo }) {
-  if (!game.measured) {
+  if (!game.modelRead) {
     return (
       <Tooltip>
         <TooltipTrigger asChild>

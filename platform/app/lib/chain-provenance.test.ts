@@ -5,18 +5,17 @@
  * frischer (derselbe Riss wie bei der driftenden `coverage`), und eine vergessene `settle-scan`
  * meldet sich nicht, sondern zeigt eine leere Strittig-Lane.
  */
-import { mkdir, mkdtemp, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { chainState, nextStep } from "@/lib/chain";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 const NAME = "2026-08-13-12-10-55";
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-prov-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("prov");
   delete process.env.CHESSLAB_MODEL_READ_RUN;
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });

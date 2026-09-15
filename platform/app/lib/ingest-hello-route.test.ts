@@ -1,9 +1,7 @@
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { ingestToken } from "@/lib/ingest";
 import { GET } from "@/app/api/ingest/hello/route";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * Der Handschlag, mit dem das Handy das Subnetz absucht. Er muss zwei Dinge leisten: sich
@@ -12,7 +10,7 @@ import { GET } from "@/app/api/ingest/hello/route";
  * den Fehler an der falschen Stelle.
  */
 beforeEach(async () => {
-  process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-hello-"));
+  await tempDataRoot("hello");
   delete process.env.CHESSLAB_INGEST_TOKEN;
 });
 

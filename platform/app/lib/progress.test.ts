@@ -1,15 +1,14 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { progressOf } from "@/lib/progress";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 let log: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-progress-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("progress");
   log = path.join(data, "job.log");
 });
 

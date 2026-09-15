@@ -480,8 +480,10 @@ def iter_session_crops(
                     f"Neither board nor frame readable: {frame_path}"
                     + ("" if entry.get("board") else " — run `chesslab session boards` for this session"))
         corners = entry.get("corners")
-        if not corners:
-            # Fallback (sessions without saved corners): per frame from the markers.
+        if not corners and board is None:
+            # Fallback (sessions without saved corners): per frame from the markers. A stored
+            # board is already under its own quad, so asking the markers there would read a frame
+            # that was never loaded — and the answer would go unused.
             corners = board_corners_for_frame(frame, prof, tracker)
             if corners is None:
                 n_skipped += 1   # no markers in frame -> not usable, skip

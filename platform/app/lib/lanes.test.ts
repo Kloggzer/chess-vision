@@ -126,7 +126,7 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: [] }],
   boards: [], cells: [], recent: [], audit: null, hands: null, positions: null, decided: [{}],
   reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
-  frameHands: [{}], handsMeasured: [true], unusableCells: [[]], positionsUnmeasured: [], ...over,
+  frameHands: [{}], handScanned: [true], unusableCells: [[]], positionsUnmeasured: [], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
@@ -296,9 +296,9 @@ test("a board that can never yield a crop is not asked about", () => {
 
 test("mit Settle-Messung rettet die Matte auch ein `stale` Brett — zellweise", () => {
   const cover = [{ "000002": { h6: 0.9 } }];
-  const board = (measured: boolean) =>
+  const board = (settleMeasured: boolean) =>
     ({ session: 0, pos: 0, stem: "000002", ply: 1, fen: "x", phase: "after", unknown: [],
-       violations: [], disagree: {}, dirtyReason: "stale", measured }) as never;
+       violations: [], disagree: {}, dirtyReason: "stale", settleMeasured }) as never;
   // Der sichtbar ziehende Bauer: das Frame ist `stale`, aber 62 seiner Felder sind es nicht.
   expect(reachesPool(board(true), cover)).toBe(true);
   expect(reachesPool(board(false), cover)).toBe(false);
@@ -359,7 +359,7 @@ test("die Hand am Brett gilt der Karte nur, solange ihr eigenes Feld frei ist", 
   expect(handBeside(hands, [{}], at("a1"))?.gate).toBe(0.97);
   // Verdeckt sagt die Coverage schon; zwei Marken fuer dieselbe Aussage sind eine zu viel.
   expect(handBeside(hands, [{ "000100": { a1: 0.8 } }], at("a1"))).toBeNull();
-  // Kein Eintrag heisst hier nichts: ob gemessen wurde, sagt `handsMeasured`, nicht diese Zeile.
+  // Kein Eintrag heisst hier nichts: ob gescannt wurde, sagt `handScanned`, nicht diese Zeile.
   expect(handBeside([{}], [{}], at("a1"))).toBeNull();
 });
 

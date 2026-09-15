@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, test } from "vitest";
 import { writeConfirmation } from "@/lib/data";
 import { lcsReport } from "@/lib/lcs";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /** Same fixture as `tests/test_realgames.py::_candidate`. */
 const PGN = '[Event "t"]\n\n1. e4 e5 2. Nf3 Nc6 *\n';
@@ -27,13 +27,12 @@ const CANDIDATE = JSON.stringify(
 let file: string;
 
 beforeEach(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-app-"));
+  const root = await tempDataRoot("app");
   const dir = path.join(root, "recordings", "g");
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "reference.pgn"), PGN, "utf8");
   file = path.join(dir, "candidate.json");
   await writeFile(file, CANDIDATE + "\n", "utf8");
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 test("lcs mirrors the python/kotlin semantics", () => {

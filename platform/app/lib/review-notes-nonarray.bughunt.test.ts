@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `/api/corrections` and `/api/unusable-cells` throw on a non-array `rows`; `/api/review-notes`
@@ -10,9 +10,8 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "chesslab-notes-"));
+  root = await tempDataRoot("notes");
   await mkdir(path.join(root, "recordings", "rec-1"), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 afterEach(async () => {

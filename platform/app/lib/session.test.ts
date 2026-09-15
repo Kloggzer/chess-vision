@@ -1,51 +1,35 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { loadSession } from "@/lib/session";
+import { type RowSpec, tempDataRoot, writeLog, writeSession } from "@/lib/test-fixtures";
 
 /** Two plies, committed at frames 100 and 200 — one interval, 100 frames wide, at 25 fps. */
-const CANDIDATE = JSON.stringify({
-  name: "g",
-  clock: { fps: 25 },
-  geometry: { board_size: 928 },
-  moves: [
-    { ply: 1, san: "e4", frame: 100, fen_after: "x" },
-    { ply: 2, san: "e5", frame: 200, fen_after: "y" },
-  ],
-});
-
-/** One row per frame of interest: right after the commit, right before the next, and the middle. */
-function log(...rows: object[]): string {
-  return rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
-}
+const MOVES = [
+  { ply: 1, san: "e4", frame: 100, fen_after: "x" },
+  { ply: 2, san: "e5", frame: 200, fen_after: "y" },
+];
 
 let root: string;
+let dir: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-session-"));
-  await mkdir(path.join(root, "recordings", "g"), { recursive: true });
-  await mkdir(path.join(root, "recordings", "g"), { recursive: true });
-  await writeFile(path.join(root, "recordings", "g", "candidate.json"), CANDIDATE, "utf8");
-  process.env.CHESSLAB_DATA_DIR = root;
+  root = await tempDataRoot("session");
+  dir = await writeSession({ root, moves: MOVES });
 });
 
-async function write(text: string) {
-  await writeFile(path.join(root, "recordings", "g", "log.jsonl"), text, "utf8");
-}
+const write = (...rows: RowSpec[]) => writeLog(dir, rows);
 
 /** Dirty by default — a frame with no hand in it is the `settled` case, tested on its own. */
-const row = (frame: number, extra: object = {}) => ({
-  frame: `frames/${String(frame).padStart(6, "0")}.png`,
-  ply: 1,
+const row = (frame: number, extra: Partial<RowSpec> = {}): RowSpec => ({
+  frame,
   fen: "x",
-  corners: [],
   dirty: true,
   ...extra,
 });
 
 test("a frame is placed by which commit it is nearer, in frames and seconds", async () => {
-  await write(log(row(110), row(190)));
+  await write(row(110), row(190));
   const { byStem } = await loadSession("g");
 
   const after = byStem.get("000110")!;
@@ -60,27 +44,40 @@ test("a frame is placed by which commit it is nearer, in frames and seconds", as
   expect(before.to).toBe(10);
 });
 
+test("a dirty row's raster is the one the export stored for it", async () => {
+  await write(row(110), row(115, { dirty: false }));
+  const { byStem } = await loadSession("g");
+
+  expect(byStem.get("000110")!.board).toEqual({ rel: "dirty/000110.webp", size: 928, border: 0, straightened: true });
+  expect(byStem.get("000115")!.board!.rel).toBe("boards/000115.webp");
+});
+
+test("a row from before the board store carries no raster at all", async () => {
+  await write(row(110, { board: false }));
+  expect((await loadSession("g")).byStem.get("000110")!.board).toBeUndefined();
+});
+
 test("a quiet row is `settled` wherever it sits — the exporter's word, not the arithmetic", async () => {
   // Nearer the NEXT commit, so the side arithmetic would say `before`; without a hand in the
   // frame there is no side to be on.
-  await write(log(row(195, { dirty: false })));
+  await write(row(195, { dirty: false }));
   expect((await loadSession("g")).byStem.get("000195")!.phase).toBe("settled");
 });
 
 test("the boundary belongs to `after` — a tie is not the arriving move", async () => {
-  await write(log(row(150)));
+  await write(row(150));
   expect((await loadSession("g")).byStem.get("000150")!.phase).toBe("after");
 });
 
 test("unknown_squares travel with the row", async () => {
-  await write(log(row(195, { unknown_squares: ["e7", "e5"] }), row(105)));
+  await write(row(195, { extra: { unknown_squares: ["e7", "e5"] } }), row(105));
   const { byStem } = await loadSession("g");
   expect(byStem.get("000195")!.unknown).toEqual(["e7", "e5"]);
   expect(byStem.get("000105")!.unknown).toEqual([]);
 });
 
 test("the last ply has no closing commit, so its interval never reads `before`", async () => {
-  await write(log(row(9000, { ply: 2 })));
+  await write(row(9000, { ply: 2 }));
   const last = (await loadSession("g")).byStem.get("009000")!;
   expect(last.phase).toBe("after");
   expect(last.to).toBe(Number.POSITIVE_INFINITY);
@@ -92,12 +89,10 @@ test("a row's grid_lines travel with it, at the stage they hold up to", async ()
   const axis = [...Array(9)].map((_, k) => k / 8);
   const lines = { x: axis, y: axis, tx: Array(9).fill(0.01), ty: Array(9).fill(0) };
   await write(
-    log(
-      row(110, { grid_lines: { ...lines, cx: Array(9).fill(0.02), cy: Array(9).fill(0) } }),
-      // Tilts over the limit: the row keeps its offsets and loses the stage, never half of it.
-      row(120, { grid_lines: { ...lines, tx: Array(9).fill(0.9) } }),
-      row(130),
-    ),
+    row(110, { extra: { grid_lines: { ...lines, cx: Array(9).fill(0.02), cy: Array(9).fill(0) } } }),
+    // Tilts over the limit: the row keeps its offsets and loses the stage, never half of it.
+    row(120, { extra: { grid_lines: { ...lines, tx: Array(9).fill(0.9) } } }),
+    row(130),
   );
   const { byStem } = await loadSession("g");
 
@@ -108,12 +103,14 @@ test("a row's grid_lines travel with it, at the stage they hold up to", async ()
 });
 
 test("the session cache follows candidate geometry even while log.jsonl is unchanged", async () => {
-  await write(log(row(110)));
+  await write(row(110));
   expect((await loadSession("g")).boardSize).toBe(928);
 
-  const changed = JSON.parse(CANDIDATE);
-  changed.geometry.board_size = 1008;
-  await writeFile(path.join(root, "recordings", "g", "candidate.json"), JSON.stringify(changed), "utf8");
+  await writeFile(
+    path.join(dir, "candidate.json"),
+    JSON.stringify({ name: "g", clock: { fps: 25 }, geometry: { board_size: 1008 }, moves: MOVES }),
+    "utf8",
+  );
 
   expect(
     (await loadSession("g")).boardSize,

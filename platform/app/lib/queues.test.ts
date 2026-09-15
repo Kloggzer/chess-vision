@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { ChainState } from "@/lib/chain";
 import { isBare, queueRows, splitQueues, type QueueRow } from "@/lib/queues";
 import { setUseless } from "@/lib/useless";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const CHAIN: ChainState = {
   step: "label",
@@ -103,8 +103,7 @@ describe("queueRows", () => {
   let data: string;
 
   beforeEach(async () => {
-    data = await mkdtemp(path.join(tmpdir(), "chesslab-queues-"));
-    process.env.CHESSLAB_DATA_DIR = data;
+    data = await tempDataRoot("queues");
   });
 
   const game = (name: string, ...parts: string[]) => path.join(data, "recordings", name, ...parts);

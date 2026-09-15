@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { transfers } from "@/lib/ingest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * Every other JSONL reader in the app parses per line and skips a half-written one. `transfers`
@@ -13,8 +13,7 @@ import { transfers } from "@/lib/ingest";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-transfers-"));
-  process.env.CHESSLAB_DATA_DIR = root;
+  root = await tempDataRoot("transfers");
   await mkdir(path.join(root, "inbox"), { recursive: true });
 });
 

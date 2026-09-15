@@ -27,7 +27,8 @@ from chesslab.alignment import (
     warp_for_grid,
     worst_offset,
 )
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from chesslab.calibration import CalibrationProfile, compute_homography
+from conftest import make_profile
 
 BS = 800
 CELL = BS / 8
@@ -40,17 +41,7 @@ BORDER = int(round(BORDER_CELLS * CELL))
 
 
 def _profile() -> CalibrationProfile:
-    return CalibrationProfile(
-        profile="align-test",
-        camera_index=0,
-        frame_size=(1400, 1200),
-        board_size=BS,
-        image_corners=TRUTH,
-        homography=compute_homography(TRUTH, BS),
-        white_pov=True,
-        crop=CropParams.default(BS),
-        margin=0.0,
-    )
+    return make_profile(BS, corners=TRUTH, frame_size=(1400, 1200), profile="align-test")
 
 
 def _board() -> np.ndarray:

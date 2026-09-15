@@ -17,7 +17,7 @@ def test_phash_runs_before_the_cap(tmp_path, monkeypatch):
                         lambda r, h: (order.append("phash"), real_phash(r, h))[1])
     monkeypatch.setattr(db, "dedup_metadata",
                         lambda r, c, seed=0: (order.append("cap"), real_cap(r, c, seed))[1])
-    db.build_dataset("ord", sids, phash_enabled=True, pack=False, per_cell_cap=4)
+    db.build_dataset("ord", sids, phash_enabled=True, write_pack=False, per_cell_cap=4)
     assert order[:2] == ["phash", "cap"], f"ran in the order {order[:2]}"
 
 
@@ -32,6 +32,6 @@ def test_the_cap_is_skipped_but_phash_is_not_when_disabled(tmp_path, monkeypatch
                         lambda r, h: (order.append("phash"), r)[1])
     monkeypatch.setattr(db, "dedup_metadata",
                         lambda r, c, seed=0: (order.append("cap"), real_cap(r, c, seed))[1])
-    db.build_dataset("ord2", sids, phash_enabled=False, pack=False, per_cell_cap=4)
+    db.build_dataset("ord2", sids, phash_enabled=False, write_pack=False, per_cell_cap=4)
     assert "phash" not in order
     assert "cap" in order

@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { appendChunk, complete, declare } from "@/lib/ingest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `complete` strips every `.partial` suffix BEFORE it checks whether the transfer is a duplicate,
@@ -13,8 +13,7 @@ import { appendChunk, complete, declare } from "@/lib/ingest";
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-complete-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("complete");
 });
 
 const stream = (text: string) =>

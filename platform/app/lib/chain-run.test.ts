@@ -1,10 +1,8 @@
 // The single door every press goes through — one heavy job at a time is the rule it enforces.
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ChainState } from "@/lib/chain";
 import type { Job } from "@/lib/jobs";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const fake = vi.hoisted(() => ({ running: vi.fn(), enqueue: vi.fn(), phone: vi.fn(), state: {} as ChainState }));
 
@@ -42,7 +40,7 @@ const MATTE: ChainState = {
 const RUNNING: Job = { name: "2026-08-14-14-32-33", kind: "matte", state: "running", queuedAt: "2026-08-19T06:00:00Z" };
 
 beforeEach(async () => {
-  process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-door-"));
+  await tempDataRoot("door");
   fake.state = MATTE;
   fake.running.mockReset().mockReturnValue(null);
   fake.enqueue.mockReset().mockResolvedValue({ name: "x", kind: "matte", state: "queued", queuedAt: "" });

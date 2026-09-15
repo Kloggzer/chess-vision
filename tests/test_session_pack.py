@@ -11,9 +11,10 @@ import pytest
 import yaml
 
 from chesslab import config
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from chesslab.calibration import CalibrationProfile
 from chesslab.labeling import slice_session
 from chesslab.training import pack_session, packs
+from conftest import make_profile
 
 START_FEN = chess.Board().fen()
 
@@ -29,17 +30,7 @@ ROWS_SHA = "fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42"
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    corners = [[0, 0], [board_size, 0], [board_size, board_size], [0, board_size]]  # a8,h8,h1,a1
-    return CalibrationProfile(
-        profile="test",
-        camera_index=0,
-        frame_size=(board_size, board_size),
-        board_size=board_size,
-        image_corners=corners,
-        homography=compute_homography(corners, board_size),
-        white_pov=True,
-        crop=CropParams.default(board_size),
-    )
+    return make_profile(board_size)
 
 
 def _frame_with_markers(board_size=800):

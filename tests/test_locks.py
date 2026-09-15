@@ -57,4 +57,4 @@ def test_a_build_refuses_a_pool_that_is_being_written(tmp_path, monkeypatch):
     monkeypatch.setattr(locks, "pid_alive", lambda pid: pid == 999999)
 
     with pytest.raises(ValueError, match="is being written by"):
-        dataset_build.build_dataset("ds", ["s1"], paths=paths, pack=False)
+        dataset_build.build_dataset("ds", ["s1"], paths=paths, write_pack=False)

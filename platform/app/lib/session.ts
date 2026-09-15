@@ -52,7 +52,7 @@ export type SessionRow = {
   /** Why the exporter refused to vouch for this frame — `occluded` is the one with an alpha. */
   dirtyReason?: string;
   /** `settle_dev` liegt an: dann entscheidet die ZELLE, ob ein Label gilt, nicht die Frame-Klasse. */
-  measured: boolean;
+  settleMeasured: boolean;
   /** Das Urteil „hier steht keine gueltige Stellung" (`session flag --unusable`). `slice_session`
    *  und `matte.alpha_worker` ueberspringen die Zeile beide. */
   unusable: boolean;
@@ -171,7 +171,7 @@ export async function loadSession(name: string): Promise<Session> {
             straightened: row.board_straightened === true }
         : undefined,
       dirtyReason: row.dirty_reason,
-      measured: (row.settle_dev ?? []).length > 0,
+      settleMeasured: (row.settle_dev ?? []).length > 0,
       unusable: row.unusable === true,
     });
   }

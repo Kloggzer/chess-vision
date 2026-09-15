@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import pytest
 
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from chesslab.calibration import CalibrationProfile, CropParams
 from chesslab.labeling import (
     CROP_SUFFIX,
     _fen_labels,
@@ -20,6 +20,7 @@ from chesslab.labeling import (
     square_color,
 )
 from chesslab.work_audit import WorkAudit, activate, deactivate
+from conftest import make_profile
 
 START_FEN = chess.Board().fen()
 
@@ -143,17 +144,7 @@ def test_run_slice_publishes_completed_batch_on_keyboard_interrupt(tmp_path, mon
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:
-    corners = [[0, 0], [board_size, 0], [board_size, board_size], [0, board_size]]  # a8,h8,h1,a1
-    return CalibrationProfile(
-        profile="test",
-        camera_index=0,
-        frame_size=(board_size, board_size),
-        board_size=board_size,
-        image_corners=corners,
-        homography=compute_homography(corners, board_size),
-        white_pov=True,
-        crop=CropParams.default(board_size),
-    )
+    return make_profile(board_size)
 
 
 def _frame_with_markers(board_size=800):

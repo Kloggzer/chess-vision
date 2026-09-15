@@ -2,17 +2,16 @@
  * Audit 2026-09-14: Befunde in `app/api/**`, jeder mit seinem roten Test.
  * Kein Fix in dieser Datei — sie beweist nur, dass die Route heute die falsche Antwort gibt.
  */
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "chesslab-route-audit-"));
+  root = await tempDataRoot("route-audit");
   await mkdir(path.join(root, "recordings", "rec-1"), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 afterEach(async () => {

@@ -4,16 +4,15 @@
  * nichts". `present: false` und eine leere Liste sind aber AUSSAGEN — die Lane zeigt "nie
  * gelaufen", wo in Wahrheit ein Lesefehler stand. Gefunden von Codex, 2026-09-15.
  */
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-invented-"));
-  process.env.CHESSLAB_DATA_DIR = root;
+  root = await tempDataRoot("invented");
 });
 
 /** Ein Verzeichnis dort, wo eine Datei erwartet wird: `readFile` wirft EISDIR, nicht ENOENT. */
@@ -23,16 +22,13 @@ async function dirWhereFileBelongs(...parts: string[]) {
 
 test("eine fehlende Bildrate wird nicht zu 30 erfunden", async () => {
   const { loadSession } = await import("@/lib/session");
-  const dir = path.join(root, "recordings", "g");
-  await mkdir(dir, { recursive: true });
   // Aufnahmen auf dieser Platte laufen zwischen 14,8 und 30,0 fps; 30 als Vorgabe verdoppelt
   // `sinceS`/`toS` fuer jede Handy-Aufnahme, und die Sekundenangabe sieht dabei normal aus.
-  await writeFile(path.join(dir, "candidate.json"), JSON.stringify({
-    name: "g", geometry: { board_size: 928 },
+  await writeSession({
+    root, fps: null,
     moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }],
-  }), "utf8");
-  await writeFile(path.join(dir, "log.jsonl"),
-    JSON.stringify({ frame: "frames/000110.png", ply: 1, fen: "x", corners: [] }) + "\n", "utf8");
+    rows: [{ frame: 110, fen: "x" }],
+  });
 
   await expect(loadSession("g")).rejects.toThrow(/fps/i);
 });

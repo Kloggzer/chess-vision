@@ -1,6 +1,5 @@
 // Against disk: `adoptPgn` is a file copy with one rule, and the rule is what is tested.
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { adoptFailures, adoptOffered, clearAdoptFailures } from "@/lib/chain";
@@ -8,6 +7,7 @@ import { gameDir } from "@/lib/data";
 import { offeredPgns } from "@/lib/queues";
 import type { ChainState } from "@/lib/chain";
 import type { QueueRow } from "@/lib/queues";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const NAME = "2026-08-14-09-23-19";
 
@@ -21,7 +21,7 @@ async function bundle(name: string, pgn: string | null): Promise<string> {
 const reference = (name: string) => readFile(path.join(gameDir(name), "reference.pgn"), "utf8");
 
 beforeEach(async () => {
-  process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-adopt-"));
+  await tempDataRoot("adopt");
   clearAdoptFailures();
 });
 

@@ -215,7 +215,7 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
 
 
 def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
-                          pack: bool,
+                          write_pack: bool,
                           paths: config.Paths | None = None, seed: int = config.SEED,
                           pack_size: tuple[int, int] | None = None) -> None:
     """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
@@ -233,7 +233,7 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     import cv2
 
     n_final = len(train_rows) + len(holdout)
-    if not pack:                 # a pack-built dataset has no memmap, and no crop file to sample
+    if not write_pack:           # a pack-built dataset has no memmap, and no crop file to sample
         return
 
     # A seeded sample of rows, first readable one wins — all crops share one out_size, we only
@@ -273,7 +273,7 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
     if need > free * 0.9:
         raise ValueError(
             f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
-            f"Reduce it: pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
+            f"Reduce it: write_pack=False skips the ~{need / 1e9:.0f} GB memmap; or lower per_cell_cap.")
 
 
 # --- Build ----------------------------------------------------------------------------
@@ -284,7 +284,7 @@ def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | No
 # epoch line appeared, with both CPU and GPU idle. 45 000 separate `Image.open` calls per epoch are
 # not fine; they are the whole wall clock. At 128x128x3 the memmap costs ~50 KB per crop, so this
 # threshold is ~0.1 GB of disk — cheap enough that the only sets worth excluding are the toy ones
-# in the test suite, and those pass `pack=False` explicitly anyway.
+# in the test suite, and those pass `write_pack=False` explicitly anyway.
 _PACK_MIN_CROPS = 2_000
 
 
@@ -454,7 +454,7 @@ def build_dataset(
     like: str | None = None,
     add_test: Sequence[str] = (),
     add_train: Sequence[str] = (),
-    pack: bool = True,
+    write_pack: bool = True,
     pack_size: tuple[int, int] | None = None,
     from_packs: bool = False,
     #: None means "unspecified": `--like` then supplies the donor's, otherwise it is `pieces`.
@@ -597,7 +597,7 @@ def build_dataset(
 
     # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
     # new dataset nor the old one.
-    _preflight_disk_check(train_rows, holdout, pack and not from_packs, paths=paths, seed=seed,
+    _preflight_disk_check(train_rows, holdout, write_pack and not from_packs, paths=paths, seed=seed,
                           pack_size=pack_size)
 
     ds = paths.datasets / name
@@ -663,7 +663,7 @@ def build_dataset(
     # I/O bottleneck). Best-effort: a pack failure just means training falls back to the per-PNG
     # loader (load_packed returns None). The memmap is disk-backed — it does NOT load into RAM.
     packed_info = None
-    if pack and not from_packs and n_final >= _PACK_MIN_CROPS:   # small sets load fine per-PNG
+    if write_pack and not from_packs and n_final >= _PACK_MIN_CROPS:   # small sets load fine per-PNG
         try:
             from .training.pack import pack_dataset
             packed_info = pack_dataset(name, paths, out_size=pack_size)

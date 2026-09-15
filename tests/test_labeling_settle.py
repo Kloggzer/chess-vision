@@ -7,32 +7,20 @@ the 60 worst such cells are fingers and standing pieces on squares labelled `emp
 
 import json
 
-import numpy as np
 import pytest
 
-from chesslab import config
 from chesslab.labeling import CROP_SUFFIX, SETTLE_LIMIT, all_squares, slice_session
+from conftest import START_FEN
 
-START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 #: a1 is index 0 in `all_squares()`; e4 is the one the tests move.
 E4 = all_squares().index("e4")
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
-    import cv2
-    import yaml
-
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "s1"
-    (sdir / "frames").mkdir(parents=True)
-    corners = [[20, 20], [300, 20], [300, 220], [20, 220]]
+def session(slice_fixture):
     rows = []
     for stem, dev in (("000001", 0.0), ("000002", SETTLE_LIMIT + 5), ("000003", None)):
-        cv2.imwrite(str(sdir / "frames" / f"{stem}.png"), np.full((240, 320, 3), 128, np.uint8))
-        row = {"frame": f"frames/{stem}.png", "fen": START, "ply": 1, "corners": corners}
+        row = {"frame": f"frames/{stem}.png", "fen": START_FEN, "ply": 1}
         if dev is not None:
             scores = [0.0] * 64
             scores[E4] = dev
@@ -42,15 +30,7 @@ def session(tmp_path, monkeypatch):
             if dev >= SETTLE_LIMIT:
                 row["settle_left"] = ["e4"]
         rows.append(row)
-    (sdir / "session.yaml").write_text(
-        yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8")
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    prof = CalibrationProfile(
-        profile="p", camera_index=-1, frame_size=(320, 240), board_size=128,
-        image_corners=corners, homography=compute_homography(corners, 128, 0.0), white_pov=True,
-        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
-        margin=0.0, source=None)
-    return sdir, prof, tmp_path
+    return slice_fixture(rows)
 
 
 def _corrections(sdir, by_square, frame):

@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `adoptDirty` wurde ohne `await` gefeuert und die Route antwortete 200 — scheiterte schon der
@@ -10,8 +10,7 @@ import { beforeEach, expect, test } from "vitest";
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "chesslab-adopt-start-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  dir = await tempDataRoot("adopt-start");
   await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
 });
 

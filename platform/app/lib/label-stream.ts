@@ -47,7 +47,7 @@ export type StreamBoard = {
   /** Why the exporter called it dirty. Only `occluded` can be rescued by a matte alone. */
   dirtyReason?: string;
   /** `settle_dev` liegt an: dann entscheidet die Zelle über ihr Label, nicht die Frame-Klasse. */
-  measured?: boolean;
+  settleMeasured?: boolean;
   sinceS?: number;
   toS?: number;
   /** Squares the exporter refuses to vouch for — the `FEN unklar` lane's whole predicate. */
@@ -152,10 +152,10 @@ export type LabelStream = {
   coverage: Record<string, Record<string, number>>[];
   /**
    * Per session, `stem -> Hand am BRETT` aus `frame-hands.jsonl`. Ein fehlender Stem heisst nur
-   * dann "keine Hand", wenn `handsMeasured` die Session traegt — sonst wurde nie gemessen.
+   * dann "keine Hand", wenn `handScanned` die Session traegt — sonst wurde nie gemessen.
    */
   frameHands: Record<string, FrameHand>[];
-  handsMeasured: boolean[];
+  handScanned: boolean[];
   /** Per session, `frame|square` a human called unlabelable — `unusable-cells.jsonl`. Keine Lane
    *  fragt sie noch, und `iter_session_crops` macht keine Manifest-Zeile mehr daraus. */
   unusableCells: string[][];
@@ -201,7 +201,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const coverage: Record<string, Record<string, number>>[] = [];
   const frameHands: Record<string, FrameHand>[] = [];
   const unusableCell: string[][] = [];
-  const handsMeasured: boolean[] = [];
+  const handScanned: boolean[] = [];
   const gateRows = await loadFrameHands();
   const auditRows = await loadAuditFlags();
   const handRows = await loadHandFlags();
@@ -278,7 +278,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
         fen: row.fen,
         phase: row.phase,
         ...(row.dirtyReason ? { dirtyReason: row.dirtyReason } : {}),
-        measured: row.measured,
+        settleMeasured: row.settleMeasured,
         sinceS: row.sinceS,
         toS: Number.isFinite(row.toS) ? row.toS : undefined,
         unknown: row.unknown,
@@ -315,7 +315,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
         return hand ? [[row.stem, hand] as const] : [];
       }),
     ));
-    handsMeasured.push(gateRows.measured.has(id));
+    handScanned.push(gateRows.scannedSessions.has(id));
     unusableCell.push([...useless]);
     cells.push(...controlCells(index, stems, byStem, judged));
     for (const row of await recentVerdicts(name, RECENT_MAX)) {
@@ -343,7 +343,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
     coverage,
     frameHands,
-    handsMeasured,
+    handScanned,
     unusableCells: unusableCell,
   };
 }

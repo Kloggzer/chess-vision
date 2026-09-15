@@ -13,10 +13,11 @@ export type FrameHand = {
 };
 
 export type FrameHands = {
-  /** `session_id|stem -> Hand`. Ein fehlender Schluessel heisst nur in `measured` "keine Hand". */
+  /** `session_id|stem -> Hand`. Ein fehlender Schluessel heisst nur fuer eine GESCANNTE Session
+   *  "keine Hand" — `scannedSessions` sagt, welche das sind. */
   rows: Map<string, FrameHand>;
   /** Die gescannten Sessions. Ausserhalb davon ist eine Aufnahme UNGEMESSEN, nicht handfrei. */
-  measured: Set<string>;
+  scannedSessions: Set<string>;
   present: boolean;
 };
 
@@ -29,7 +30,7 @@ export const handKey = (sessionId: string, stem: string): string => `${sessionId
 type Cache = Map<string, { key: string; value: FrameHands }>;
 const cache: Cache = ((globalThis as { __chesslabFrameHands?: Cache }).__chesslabFrameHands ??= new Map());
 
-const EMPTY: FrameHands = { rows: new Map(), measured: new Set(), present: false };
+const EMPTY: FrameHands = { rows: new Map(), scannedSessions: new Set(), present: false };
 
 export async function loadFrameHands(): Promise<FrameHands> {
   const file = frameHandsPath();
@@ -46,14 +47,14 @@ export async function loadFrameHands(): Promise<FrameHands> {
   }
 
   const rows = new Map<string, FrameHand>();
-  const measured = new Set<string>();
+  const scanned = new Set<string>();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const o = JSON.parse(line) as Record<string, unknown>;
       // Die Kopfzeile traegt `_sessions` und kein `square`-loses `frame` — sie ist kein Flag.
       if (Array.isArray(o._sessions)) {
-        for (const id of o._sessions) measured.add(String(id));
+        for (const id of o._sessions) scanned.add(String(id));
         continue;
       }
       if (typeof o.session_id !== "string" || o.frame === undefined) continue;
@@ -65,7 +66,7 @@ export async function loadFrameHands(): Promise<FrameHands> {
       /* eine halb geschriebene Zeile ist kein Flag */
     }
   }
-  const value: FrameHands = { rows, measured, present: true };
+  const value: FrameHands = { rows, scannedSessions: scanned, present: true };
   cache.set(file, { key, value });
   return value;
 }

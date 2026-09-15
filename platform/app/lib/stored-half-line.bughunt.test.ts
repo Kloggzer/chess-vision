@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `loadStored` parste jede Zeile ungeschuetzt. Eine halb geschriebene riss ueber das `Promise.all`
@@ -14,8 +14,7 @@ const row = (stem: string) =>
   JSON.stringify({ frame: `${stem}.jpg`, ply: 1, fen: "8/8/8/8/8/8/8/8", corners: [[0, 0], [1, 0], [1, 1], [0, 1]] });
 
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "chesslab-stored-half-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  dir = await tempDataRoot("stored-half");
   const session = path.join(dir, "recordings", "g", "files", "sessions", "s1");
   await mkdir(session, { recursive: true });
   await writeFile(path.join(session, "log.jsonl"), `${row("000001")}\n{"frame": "0000\n${row("000003")}\n`, "utf8");

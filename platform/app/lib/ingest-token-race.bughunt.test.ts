@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { ingestToken } from "@/lib/ingest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `ingestToken` reads, then mints, then writes. Two concurrent unauthenticated `/api/ingest/hello`
@@ -13,9 +13,8 @@ import { ingestToken } from "@/lib/ingest";
 let root: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "chesslab-token-"));
+  root = await tempDataRoot("token");
   delete process.env.CHESSLAB_INGEST_TOKEN;
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 afterEach(async () => {

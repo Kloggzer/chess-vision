@@ -1,11 +1,11 @@
 package com.chesslab.tracker.service
 
 import android.app.Application
-import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
 import com.chesslab.tracker.cnn.BUNDLED_MODELS
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.modelConfigJson
 import com.chesslab.tracker.settings.FrameRateMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -79,13 +79,14 @@ class ServiceDerivationsTest {
         coverageOutput: Boolean = false,
         coverageGate: Double? = null,
         claheClip: Double = 0.0,
-    ): ModelSpec {
-        val coverage = if (coverageOutput) ", \"coverage_output\": true" else ""
-        val gate = coverageGate?.let { ", \"coverage_gate\": $it" }.orEmpty()
-        val clahe = if (claheClip > 0.0) ", \"clahe_clip\": $claheClip" else ""
-        return ModelSpec.parse(
-            """{"backbone": "x", "classes": ${PIECES13_CLASSES.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-                """ "out_size": [80, 80]$coverage$gate$clahe}""",
+    ): ModelSpec =
+        ModelSpec.parse(
+            modelConfigJson(
+                outSize = listOf(80, 80),
+                mean = null,
+                coverageOutput = coverageOutput,
+                coverageGate = coverageGate,
+                claheClip = claheClip.takeIf { it > 0.0 },
+            ),
         )
-    }
 }

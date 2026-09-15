@@ -2,7 +2,6 @@
 interpolation and the matte's stored-board contract. Every test here FAILS on today's code."""
 
 import json
-from dataclasses import replace
 
 import cv2
 import numpy as np
@@ -12,13 +11,12 @@ import yaml
 from chesslab import config, grid_occlusion, matte, realgames
 from chesslab.calibration import (
     CalibrationProfile,
-    CropParams,
     GridMesh,
-    compute_homography,
     crop_border_px,
     warp_board_for_crops,
 )
 from chesslab.framescan import cell_sharpness
+from conftest import make_profile
 
 SIDE = 320
 CELL = SIDE // 8
@@ -26,12 +24,7 @@ CELL = SIDE // 8
 
 def _profile(**crop_kw) -> CalibrationProfile:
     corners = [[0, 0], [SIDE, 0], [SIDE, SIDE], [0, SIDE]]
-    return CalibrationProfile(
-        profile="t", camera_index=0, frame_size=(SIDE, SIDE), board_size=SIDE,
-        image_corners=corners, homography=compute_homography(corners, SIDE),
-        white_pov=True,
-        crop=replace(CropParams.default(SIDE), out_size=(32, 32), **crop_kw),
-    )
+    return make_profile(SIDE, corners=corners, profile="t", out_size=(32, 32), **crop_kw)
 
 
 def test_there_is_only_one_crop_border_and_one_padded_warp():

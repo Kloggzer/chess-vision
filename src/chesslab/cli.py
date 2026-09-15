@@ -1853,7 +1853,7 @@ def dataset_build_cmd(
                                per_cell_cap=per_cell_cap, phash_enabled=phash,
                                phash_hamming=hamming, per_position=per_position,
                                rotations=(config.DEDUP.rotations_augmented if rotate else config.DEDUP.rotations),
-                               allow_degenerate=allow_degenerate, pack=not no_pack,
+                               allow_degenerate=allow_degenerate, write_pack=not no_pack,
                                pack_size=_out_size(pack_size), from_packs=from_packs,
                                class_mode=classes, like=like,
                                force_train=[s.strip() for s in (force_train or '').split(',') if s.strip()],

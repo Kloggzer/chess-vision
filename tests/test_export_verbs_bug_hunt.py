@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 
 from chesslab import config
+from conftest import make_profile
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 CORNERS = [[10.0, 10.0], [190.0, 10.0], [190.0, 150.0], [10.0, 150.0]]
@@ -25,17 +26,12 @@ def _picture(h=160, w=200):
 
 def _profile(name="desktop", board_size=BOARD_SIZE, corners=None, frame_size=(200, 160)):
     from chesslab.calibration import (
-        CalibrationProfile,
-        CropParams,
-        compute_homography,
         profile_path,
     )
 
     quad = corners or CORNERS
-    prof = CalibrationProfile(
-        profile=name, camera_index=-1, frame_size=frame_size, board_size=board_size,
-        image_corners=quad, homography=compute_homography(quad, board_size, 0.0),
-        white_pov=True, crop=CropParams.default(board_size), margin=0.0, source="test")
+    prof = make_profile(board_size, corners=quad, frame_size=frame_size, profile=name,
+                        camera_index=-1, source="test")
     prof.save(profile_path(name))
     return prof
 

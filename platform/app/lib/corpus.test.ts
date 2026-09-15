@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, stat, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { classScheme, corpusIndex, corpusIndexDir, datasetDir, INDEX_VERSION, isRealGame, loadDatasetMeta, sameSession, tallyLines, trainShares, type Split } from "@/lib/corpus";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /** Two sessions, one of them a real game under its `occ-` alias — the shape §7.2 groups by. */
 const MANIFEST = [
@@ -22,15 +22,13 @@ const SPLIT: Split = {
   splits: { train: ["train80-VID_1", "occ-rg-2026-08-07"], val: [], test: [] },
 };
 
-let root: string;
 let manifest: string;
 
 /** The memo is pinned to `globalThis` on purpose — every test has to start from an empty one. */
 const clearMemo = () => (globalThis as { __chesslabCorpusIndex?: Map<string, unknown> }).__chesslabCorpusIndex?.clear();
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-corpus-"));
-  process.env.CHESSLAB_DATA_DIR = root;
+  await tempDataRoot("corpus");
   clearMemo();
   await mkdir(datasetDir("d1"), { recursive: true });
   manifest = path.join(datasetDir("d1"), "manifest.jsonl");

@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { loadLabelStream } from "@/lib/label-stream";
 import { openBoards } from "@/lib/lanes";
+import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 /**
  * Eine Matte, die UEBERALL 0 misst, ist das Ergebnis von `clearAlpha` + `occluders recut`
@@ -15,20 +15,12 @@ const FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const SQUARES = [..."abcdefgh"].flatMap((f) => [1, 2, 3, 4, 5, 6, 7, 8].map((r) => `${f}${r}`));
 
 async function fixture(coverage: Record<string, number>): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-zero-"));
-  process.env.CHESSLAB_DATA_DIR = root;
+  const root = await tempDataRoot("zero");
   const name = "2026-09-14-10-00-00";
-  const dir = path.join(root, "recordings", name);
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "candidate.json"), '{"clock":{"fps":25},"moves":[]}', "utf8");
-  await writeFile(
-    path.join(dir, "log.jsonl"),
-    JSON.stringify({
-      frame: "000000.png", ply: 1, fen: FEN, corners: [],
-      dirty: true, dirty_reason: "stale", settle_dev: [1.0, 2.0],
-    }) + "\n",
-    "utf8",
-  );
+  const dir = await writeSession({
+    root, name,
+    rows: [{ frame: 0, fen: FEN, dirty: true, extra: { dirty_reason: "stale", settle_dev: [1.0, 2.0] } }],
+  });
   await writeFile(
     path.join(dir, "matte.jsonl"),
     JSON.stringify({ frame: "000000", coverage, concepts: {} }) + "\n",

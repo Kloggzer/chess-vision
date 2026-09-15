@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { beforeEach, expect, test } from "vitest";
 import { medianPng } from "@/lib/crops";
+import { type RowSpec, stemOf, tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 /**
  * `Math.floor(stems.length / SAMPLES)` makes the stride too short and `.slice(0, SAMPLES)` then
@@ -17,33 +17,21 @@ const FRAMES = 14;
 const BRIGHT = new Set([7, 8, 9, 10, 11, 12, 13]);
 const SIZE = 928;
 
-let root: string;
-let dir: string;
-
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-median-"));
-  dir = path.join(root, "recordings", "g");
+  const root = await tempDataRoot("median");
+  const rows: RowSpec[] = Array.from({ length: FRAMES }, (_, i) => ({ frame: 100 + i, fen: "x" }));
+  const dir = await writeSession({
+    root,
+    moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }],
+    rows,
+  });
   await mkdir(path.join(dir, "boards"), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
-
-  await writeFile(
-    path.join(dir, "candidate.json"),
-    JSON.stringify({ name: "g", clock: { fps: 25 }, geometry: { board_size: SIZE },
-      moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }] }),
-    "utf8",
-  );
-
-  const lines: string[] = [];
   for (let i = 0; i < FRAMES; i++) {
-    const stem = String(100 + i).padStart(6, "0");
     const grey = BRIGHT.has(i) ? 250 : 10;
     const webp = await sharp({ create: { width: SIZE, height: SIZE, channels: 3,
       background: { r: grey, g: grey, b: grey } } }).webp({ lossless: true }).toBuffer();
-    await writeFile(path.join(dir, "boards", `${stem}.webp`), webp);
-    lines.push(JSON.stringify({ frame: `frames/${stem}.png`, ply: 1, fen: "x", corners: [],
-      board: `boards/${stem}.webp`, board_size: SIZE, board_border: 0, board_straightened: true }));
+    await writeFile(path.join(dir, "boards", `${stemOf(100 + i)}.webp`), webp);
   }
-  await writeFile(path.join(dir, "log.jsonl"), lines.join("\n") + "\n", "utf8");
 });
 
 test("the median samples the whole ply interval, not only its front", async () => {

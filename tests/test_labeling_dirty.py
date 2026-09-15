@@ -4,53 +4,23 @@ exported rows are dirty and every one of them was sliced with a FEN label)."""
 
 import json
 
-import numpy as np
 import pytest
 
-from chesslab import config
 from chesslab.labeling import CROP_SUFFIX, slice_session
-
-START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+from conftest import START_FEN
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
-    import cv2
-    import yaml
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "s1"
-    (sdir / "frames").mkdir(parents=True)
-    (tmp_path / "data" / "calibration").mkdir(parents=True, exist_ok=True)
-    corners = [[20, 20], [300, 20], [300, 220], [20, 220]]
-    rows = []
-    for stem, dirty in (("000001", True), ("000002", False)):
-        cv2.imwrite(str(sdir / "frames" / f"{stem}.png"), np.full((240, 320, 3), 128, np.uint8))
-        row = {"frame": f"frames/{stem}.png", "fen": START, "ply": 1, "corners": corners}
-        if dirty:
-            row["dirty"] = True
-        rows.append(row)
-    rows.append({"frame": "frames/000003.png", "fen": START, "ply": 1, "corners": corners,
-                 "grid_lines_source": "carried"})
-    cv2.imwrite(str(sdir / "frames" / "000003.png"), np.full((240, 320, 3), 128, np.uint8))
-    (sdir / "session.yaml").write_text(
-        yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8"
-    )
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
-    prof = CalibrationProfile(
-        profile="p", camera_index=-1, frame_size=(320, 240), board_size=128,
-        image_corners=corners, homography=compute_homography(corners, 128, 0.0), white_pov=True,
-        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
-        margin=0.0, source=None,
-    )
-    return sdir, prof, tmp_path
+def session(slice_fixture):
+    rows = [{"frame": "frames/000001.png", "fen": START_FEN, "ply": 1, "dirty": True},
+            {"frame": "frames/000002.png", "fen": START_FEN, "ply": 1},
+            {"frame": "frames/000003.png", "fen": START_FEN, "ply": 1,
+             "grid_lines_source": "carried"}]
+    return slice_fixture(rows)
 
 
 def _corrections(session, by_square, frame="000001"):
     """A correction is a row in the session's own ledger now, not an argument."""
-    import json
 
     (session[0] / "corrections.jsonl").write_text(
         "".join(json.dumps({"session_id": "s1", "frame": frame, "square": sq,

@@ -39,7 +39,7 @@ import numpy as np
 import pytest
 
 from chesslab import config, labeling
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from conftest import make_profile
 
 FIXTURES = (Path(__file__).resolve().parents[1]
             / "android/core-engine/src/test/resources/parity/_pixels")
@@ -59,15 +59,10 @@ def _profile(case: str, receipt: dict, margin: float) -> tuple:
     q = receipt["quad"]
     quad = [[float(q[i]), float(q[i + 1])] for i in range(0, 8, 2)]
     bs = int(receipt["boardSize"])
-    prof = CalibrationProfile(
-        profile=f"__parity_{case}__", camera_index=-1,
-        frame_size=(frame.shape[1], frame.shape[0]), board_size=bs, image_corners=quad,
-        homography=compute_homography(quad, bs, margin), white_pov=True,
-        crop=CropParams(cell=bs / 8.0,
-                        pad_side=float(receipt["padSide"]),
-                        out_size=(int(receipt["outW"]), int(receipt["outH"]))),
-        margin=margin,
-    )
+    prof = make_profile(
+        bs, corners=quad, margin=margin, profile=f"__parity_{case}__", camera_index=-1,
+        frame_size=(frame.shape[1], frame.shape[0]), pad_side=float(receipt["padSide"]),
+        out_size=(int(receipt["outW"]), int(receipt["outH"])))
     return labeling.warp_board_for_crops(frame, prof, quad), prof
 
 

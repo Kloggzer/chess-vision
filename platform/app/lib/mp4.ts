@@ -9,7 +9,8 @@
  * them cost a ten-minute replay to find out. Reading the atom chain costs three seeks: an MP4 is a
  * list of length-prefixed boxes, so the header of each says where the next one starts.
  */
-import { open } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
+import path from "node:path";
 
 const HEADER = 8;
 const LARGE_SIZE = 1;
@@ -42,4 +43,31 @@ export async function checkMp4(file: string): Promise<Mp4Check> {
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * Jedes Segment der Aufnahme, in der Reihenfolge, in der `Recording` sie liest — der Kopf und
+ * jedes `video-NNN.mp4` daneben (`src/chesslab/recording.py:22`). Die Suche endet an der ersten
+ * Luecke, genau wie dort: `video-004` ohne `video-003` gehoert nicht mehr zu diesem Strom.
+ */
+export async function recordingSegments(head: string): Promise<string[]> {
+  const dir = path.dirname(head);
+  const stem = path.basename(head, path.extname(head));
+  const out = [head];
+  for (let i = 1; ; i++) {
+    const part = path.join(dir, `${stem}-${String(i).padStart(3, "0")}${path.extname(head)}`);
+    if (!(await stat(part).then((s) => s.isFile(), () => false))) return out;
+    out.push(part);
+  }
+}
+
+/**
+ * Der erste Teil ohne Index, oder `null`. Nur den Kopf zu pruefen deckte bei einer 11-teiligen
+ * Aufnahme 9 % ab, und der Export endet an einem fehlenden `moov` still.
+ */
+export async function firstUnfinalized(head: string): Promise<string | null> {
+  for (const part of await recordingSegments(head)) {
+    if (!(await checkMp4(part)).finalized) return part;
+  }
+  return null;
 }

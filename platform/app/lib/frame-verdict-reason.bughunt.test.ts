@@ -1,7 +1,7 @@
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * Der Zettel nannte als Herkunft "Strittige Frames". Einziger Aufrufer ist der Labeln-Strom;
@@ -10,8 +10,7 @@ import { beforeEach, expect, test } from "vitest";
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "chesslab-verdict-reason-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  dir = await tempDataRoot("verdict-reason");
   await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
 });
 

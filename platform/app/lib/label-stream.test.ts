@@ -1,11 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { expect, test } from "vitest";
 import { appendCorrections } from "@/lib/corrections";
 import { FILES, fenLabels } from "@/lib/fen";
 import { loadLabelStream, type StreamCell } from "@/lib/label-stream";
 import { laneCount, laneEmpty, openCells } from "@/lib/lanes";
+import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 const NAME = "2026-08-19-12-00-00";
 const FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -14,15 +12,12 @@ const key = (c: StreamCell) => `${c.stem}|${c.square}`;
 
 /** [frames] quiet frames, nothing dirty — the whole settled population the control draws from. */
 async function fixture(frames: number): Promise<void> {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-stream-"));
-  process.env.CHESSLAB_DATA_DIR = root;
-  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
-  await mkdir(path.join(root, "recordings", NAME), { recursive: true });
-  await writeFile(path.join(root, "recordings", NAME, "candidate.json"), '{"clock":{"fps":25},"moves":[]}', "utf8");
-  const rows = Array.from({ length: frames }, (_, i) =>
-    JSON.stringify({ frame: `${String(i).padStart(6, "0")}.png`, ply: 1, fen: FEN, corners: [] }),
-  );
-  await writeFile(path.join(root, "recordings", NAME, "log.jsonl"), rows.join("\n") + "\n", "utf8");
+  const root = await tempDataRoot("stream");
+  await writeSession({
+    root,
+    name: NAME,
+    rows: Array.from({ length: frames }, (_, i) => ({ frame: i, fen: FEN })),
+  });
 }
 
 const control = async () => (await loadLabelStream()).cells;

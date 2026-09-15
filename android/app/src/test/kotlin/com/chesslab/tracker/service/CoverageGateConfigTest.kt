@@ -1,9 +1,9 @@
 package com.chesslab.tracker.service
 
 import android.app.Application
-import com.chesslab.cnn.PIECES13_CLASSES
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ModelSpec
+import com.chesslab.tracker.cnn.modelConfigJson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -17,7 +17,7 @@ class CoverageGateConfigTest {
     @Test
     fun withCoverageGateOfLogsWarningWhenCoverageOutputButNoGate() {
         val config = TrackerConfig()
-        val spec = ModelSpec.parse(configJson(coverageOutput = true))
+        val spec = ModelSpec.parse(modelConfigJson(coverageGate = null))
 
         val warnings = mutableListOf<String>()
         val result = config.withCoverageGateOf(spec) { warnings.add(it) }
@@ -33,7 +33,7 @@ class CoverageGateConfigTest {
     @Test
     fun withCoverageGateOfDoesNotWarnWhenCoverageGateDeclared() {
         val config = TrackerConfig()
-        val spec = ModelSpec.parse(configJson(coverageOutput = true, coverageGate = 0.15))
+        val spec = ModelSpec.parse(modelConfigJson(coverageGate = 0.15))
 
         val warnings = mutableListOf<String>()
         val result = config.withCoverageGateOf(spec) { warnings.add(it) }
@@ -45,22 +45,12 @@ class CoverageGateConfigTest {
     @Test
     fun withCoverageGateOfDoesNotWarnWhenCoverageOutputFalse() {
         val config = TrackerConfig()
-        val spec = ModelSpec.parse(configJson(coverageOutput = false))
+        val spec = ModelSpec.parse(modelConfigJson(coverageOutput = false, coverageGate = null))
 
         val warnings = mutableListOf<String>()
         val result = config.withCoverageGateOf(spec) { warnings.add(it) }
 
         assertTrue("no warning expected when coverageOutput=false", warnings.isEmpty())
         assertEquals("pOccludedThr should remain at default 0.5", 0.5, result.pOccludedThr, 0.01)
-    }
-
-    private fun configJson(
-        coverageOutput: Boolean = false,
-        coverageGate: Double? = null,
-    ): String {
-        val coverage = if (coverageOutput) ", \"coverage_output\": true" else ""
-        val gate = coverageGate?.let { ", \"coverage_gate\": $it" }.orEmpty()
-        return """{"backbone": "x", "classes": ${PIECES13_CLASSES.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": [128, 128]$coverage$gate}"""
     }
 }

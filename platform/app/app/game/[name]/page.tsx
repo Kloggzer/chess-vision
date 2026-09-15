@@ -49,7 +49,7 @@ async function gameInfo(name: string, lastJob: Job | null): Promise<{ info: Game
     boardsDone: done,
     cells: census.cells,
     cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
-    measured: census.present,
+    modelRead: census.present,
     chain,
     lastJob,
   };

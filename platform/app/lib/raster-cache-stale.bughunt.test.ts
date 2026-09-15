@@ -1,9 +1,9 @@
-import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { beforeEach, expect, test } from "vitest";
 import { cellPng } from "@/lib/crops";
+import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 /**
  * `cellPng` keys its encoded cache by the board's mtime because `session boards` rewrites the
@@ -28,17 +28,13 @@ const mean = async (png: Buffer) => {
 };
 
 beforeEach(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-raster-"));
-  dir = path.join(root, "recordings", "g");
+  const root = await tempDataRoot("raster");
+  dir = await writeSession({
+    root, boardSize: SIZE,
+    moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }],
+    rows: [{ frame: 100, fen: "x", boardSize: SIZE }],
+  });
   await mkdir(path.join(dir, "boards"), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
-  await writeFile(path.join(dir, "candidate.json"),
-    JSON.stringify({ name: "g", clock: { fps: 25 }, geometry: { board_size: SIZE },
-      moves: [{ ply: 1, san: "e4", frame: 100, fen_after: "x" }] }), "utf8");
-  await writeFile(path.join(dir, "log.jsonl"),
-    JSON.stringify({ frame: "frames/000100.png", ply: 1, fen: "x", corners: [],
-      board: "boards/000100.webp", board_size: SIZE, board_border: 0, board_straightened: true }) + "\n",
-    "utf8");
 });
 
 test("a rewritten board is cut from its new pixels, not from the decoded old ones", async () => {

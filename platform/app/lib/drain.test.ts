@@ -1,10 +1,8 @@
 // Nothing here ticks: every job in these tests starts because a press asked for it.
-import { mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { beforeEach, expect, test, vi } from "vitest";
 import type { ChainState } from "@/lib/chain";
 import type { QueueRow } from "@/lib/queues";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const fake = vi.hoisted(() => ({ start: vi.fn(), stop: vi.fn(), rows: [] as unknown[] }));
 
@@ -56,7 +54,7 @@ const job = (name: string) => ({ name, kind: "matte", state: "queued", queuedAt:
 const idle = () => vi.waitFor(async () => expect((await drainStatus()).drain).toBeNull());
 
 beforeEach(async () => {
-  process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-drain-"));
+  await tempDataRoot("drain");
   // The 10 s snapshot is pinned on globalThis and outlives a test — the next one would read the
   // last one's corpus.
   (globalThis as { __chesslabDrain?: { snapshot: unknown } }).__chesslabDrain!.snapshot = null;

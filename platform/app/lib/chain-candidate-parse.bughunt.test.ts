@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { chainState } from "@/lib/chain";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `chainState` once parsed `candidate.json` UNGUARDED after reading it with `.catch(() => null)`.
@@ -13,8 +13,7 @@ const NAME = "2026-08-13-12-10-55";
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-chain-parse-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("chain-parse");
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 

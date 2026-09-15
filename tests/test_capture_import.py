@@ -7,6 +7,7 @@ import pytest
 
 from chesslab import config
 from chesslab.capture_import import import_capture, video_ns_at
+from conftest import make_profile
 
 FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 #: Die wahren Brettecken im Testbild, und das grobe Quad, das das Buendel-Log statt dessen fuehrt
@@ -22,16 +23,11 @@ REFERENCE_LOG = Path("data/recordings/2026-09-06-21-29-35/log.jsonl")
 
 def _profile(name="desktop"):
     from chesslab.calibration import (
-        CalibrationProfile,
-        CropParams,
-        compute_homography,
         profile_path,
     )
 
-    prof = CalibrationProfile(
-        profile=name, camera_index=-1, frame_size=(640, 480), board_size=BOARD_SIZE,
-        image_corners=CORNERS, homography=compute_homography(CORNERS, BOARD_SIZE, 0.0),
-        white_pov=True, crop=CropParams.default(BOARD_SIZE), margin=0.0, source="test")
+    prof = make_profile(BOARD_SIZE, corners=CORNERS, frame_size=(640, 480), profile=name,
+                        camera_index=-1, source="test")
     prof.save(profile_path(name))
 
 

@@ -56,6 +56,8 @@ export async function loadHandFlags(): Promise<HandFlags> {
       // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
       const modelCov = typeof o.model_cov === "number" ? o.model_cov : o.cov;
       if (typeof modelCov !== "number") continue;
+      // `measured`: SERIALISIERT von `hand_flags.py` vor 2026-09-16 — der Schluessel auf der
+      // Platte bleibt, nur der TS-Name wanderte auf `matte_cov`.
       const matteCov = typeof o.matte_cov === "number" ? o.matte_cov : o.measured;
       rows.push({
         session_id: o.session_id,

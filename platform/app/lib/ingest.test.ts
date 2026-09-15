@@ -1,14 +1,13 @@
-import { mkdtemp, mkdir, readFile, writeFile, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { appendChunk, checkRelPath, complete, declare, pending, transferName, validateManifest } from "@/lib/ingest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-ingest-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("ingest");
 });
 
 const stream = (text: string) =>

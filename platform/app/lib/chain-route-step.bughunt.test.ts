@@ -1,15 +1,14 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * Fehlt `step` im Rumpf, machte `String(body.step)` daraus die Zeichenkette "undefined" — und
  * genau die stand dann in der 409-Meldung, die ein Mensch liest.
  */
 beforeEach(async () => {
-  const dir = await mkdtemp(path.join(tmpdir(), "chesslab-chain-step-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  const dir = await tempDataRoot("chain-step");
   await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
 });
 

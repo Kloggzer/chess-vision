@@ -7,8 +7,6 @@ import com.chesslab.engine.api.TrackerConfig
 // Shared synthetic-image helpers for the phase-03a tests. Mirrors `_gray_frame` in
 // `tests/test_move_tracker.py`: a flat board with bright blobs on the named squares.
 
-internal const val TEST_BOARD_SIZE = 400
-
 internal const val TEST_BASE_LEVEL = 128
 
 internal const val TEST_BLOB_LEVEL = 220
@@ -59,11 +57,10 @@ internal fun testConfig(
     maxChanged: Int = 6,
     minGridLineCoverage: Double = 0.0,
 ): TrackerConfig =
-    TrackerConfig(
+    RIG_CONFIG.copy(
         // The unit tests describe the motion hold; the shipped commit hold (0.067) is set where a test wants it.
         commitHoldS = null,
         boardSize = boardSize,
-        detectScale = 1.0,
         overhang = overhang,
         censusZWeight = censusZWeight,
         maxChanged = maxChanged,

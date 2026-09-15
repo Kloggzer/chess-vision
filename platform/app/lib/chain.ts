@@ -13,7 +13,7 @@ import path from "node:path";
 import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
 import { type MatteCensus, matteCensus } from "@/lib/matte";
-import { checkMp4 } from "@/lib/mp4";
+import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
 
@@ -230,11 +230,14 @@ export async function chainState(name: string): Promise<ChainState> {
       ? { "model-read": otherModel ? `die Lesarten stammen von ${path.basename(readsSource!.model!)}, gelesen wird mit ${path.basename(model!)}` : STALE }
       : {}),
   };
-  // Checked before the button is offered, not after ten minutes of replay.
-  const broken = video && !(await checkMp4(video)).finalized;
+  // Checked before the button is offered, not after ten minutes of replay. JEDES Segment: eine
+  // Aufnahme ist bis zu elf Dateien, und der Export endet an einem fehlenden `moov` still.
+  const broken = video ? await firstUnfinalized(video) : null;
   const state = {
     video,
-    videoBroken: broken ? "the recording has no MP4 index (moov) — it was interrupted before the recorder could close it" : null,
+    videoBroken: broken
+      ? `${path.basename(broken)} hat keinen MP4-Index (moov) — die Aufnahme wurde abgebrochen, bevor der Recorder sie schliessen konnte`
+      : null,
     offeredPgn: hasReference ? null : offeredPgn,
     hasReference,
     hasPhoneRecord,

@@ -8,6 +8,7 @@ import numpy as np
 
 from chesslab import matte
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
+from conftest import make_profile
 
 SIDE = 320
 CELL = SIDE // 8
@@ -15,11 +16,7 @@ CELL = SIDE // 8
 
 def _profile() -> CalibrationProfile:
     corners = [[0, 0], [SIDE, 0], [SIDE, SIDE], [0, SIDE]]
-    return CalibrationProfile(
-        profile="t", camera_index=0, frame_size=(SIDE, SIDE), board_size=SIDE,
-        image_corners=corners, homography=compute_homography(corners, SIDE),
-        white_pov=True, crop=replace(CropParams.default(SIDE), out_size=(32, 32)),
-    )
+    return make_profile(SIDE, corners=corners, profile="t", out_size=(32, 32))
 
 
 def _entry(pad: int) -> dict:

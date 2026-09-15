@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from chesslab import config, labeling, serving
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
+from conftest import make_profile
 
 # ---------------------------------------------------------------------------
 # Helfer
@@ -22,12 +22,7 @@ from chesslab.calibration import CalibrationProfile, CropParams, compute_homogra
 
 def _identity_profile(bs: int = 800):
     """Identity calibration profile (image corners = board corners)."""
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-    return CalibrationProfile(
-        profile="t", camera_index=0, frame_size=(bs, bs), board_size=bs,
-        image_corners=corners, homography=compute_homography(corners, bs),
-        white_pov=True, crop=CropParams.default(bs),
-    )
+    return make_profile(bs, profile="t")
 
 
 def _synthetic_frame(bs: int = 800) -> np.ndarray:

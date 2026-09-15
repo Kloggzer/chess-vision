@@ -1,14 +1,13 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { coveredSquares, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { claimsAnything } from "@/lib/verify";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let dir: string;
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "chesslab-matte-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  dir = await tempDataRoot("matte");
   await mkdir(path.join(dir, "recordings", "g"), { recursive: true });
   (globalThis as { __chesslabMattes?: Map<string, unknown> }).__chesslabMattes?.clear();
 });

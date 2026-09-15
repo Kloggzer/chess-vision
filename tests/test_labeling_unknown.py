@@ -1,43 +1,16 @@
 """`unknown_squares` reaches the SLICE — the poison path that was open until 2026-08-09."""
 
-import json
 
-import numpy as np
 import pytest
 
-from chesslab import config
 from chesslab.labeling import CROP_SUFFIX, slice_session
-
-START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+from conftest import START_FEN
 
 
 @pytest.fixture
-def session(tmp_path, monkeypatch):
-    import cv2
-    import yaml
-
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "s1"
-    (sdir / "frames").mkdir(parents=True)
-    (tmp_path / "data" / "calibration").mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(sdir / "frames" / "000001.png"), np.full((240, 320, 3), 128, np.uint8))
-    (sdir / "session.yaml").write_text(
-        yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8"
-    )
-    row = {"frame": "frames/000001.png", "fen": START, "ply": 1,
-           "corners": [[20, 20], [300, 20], [300, 220], [20, 220]],
-           "unknown_squares": ["e2", "e4"]}
-    (sdir / "log.jsonl").write_text(json.dumps(row) + "\n", encoding="utf-8")
-
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
-    corners = row["corners"]
-    prof = CalibrationProfile(
-        profile="p", camera_index=-1, frame_size=(320, 240), board_size=128,
-        image_corners=corners, homography=compute_homography(corners, 128, 0.0), white_pov=True,
-        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)),
-        margin=0.0, source=None,
-    )
-    return sdir, prof, tmp_path
+def session(slice_fixture):
+    return slice_fixture([{"frame": "frames/000001.png", "fen": START_FEN, "ply": 1,
+                           "unknown_squares": ["e2", "e4"]}])
 
 
 def _corrections(sdir, by_square, frame):

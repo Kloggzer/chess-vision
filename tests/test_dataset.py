@@ -415,8 +415,8 @@ def test_a_narrower_class_mode_reuses_the_same_rows(tmp_path, monkeypatch):
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
-    a = db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    b = db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
+    a = db.build_dataset("pieces", sids, phash_enabled=False, write_pack=False)
+    b = db.build_dataset("id13", sids, phash_enabled=False, write_pack=False, class_mode="pieces13")
     assert a["counts"]["final"] == b["counts"]["final"]
     ra = [json.loads(x) for x in
           (db.dataset_dir("pieces") / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -432,8 +432,8 @@ def test_a_narrower_class_mode_preserves_the_per_session_split(tmp_path, monkeyp
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
-    db.build_dataset("pieces", sids, phash_enabled=False, pack=False)
-    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
+    db.build_dataset("pieces", sids, phash_enabled=False, write_pack=False)
+    db.build_dataset("id13", sids, phash_enabled=False, write_pack=False, class_mode="pieces13")
     sa = json.loads((db.dataset_dir("pieces") / "split.json").read_text(encoding="utf-8"))["splits"]
     sb = json.loads((db.dataset_dir("id13") / "split.json").read_text(encoding="utf-8"))["splits"]
     assert sa == sb
@@ -445,8 +445,8 @@ def test_piece_class_build_is_unchanged(tmp_path, monkeypatch):
     from chesslab import dataset_build as db
 
     sids, _ = _build_pool(tmp_path, monkeypatch)
-    db.build_dataset("a", sids, phash_enabled=False, pack=False)
-    db.build_dataset("b", sids, phash_enabled=False, pack=False, class_mode="pieces13")
+    db.build_dataset("a", sids, phash_enabled=False, write_pack=False)
+    db.build_dataset("b", sids, phash_enabled=False, write_pack=False, class_mode="pieces13")
     assert ((db.dataset_dir("a") / "split.json").read_bytes()
             == (db.dataset_dir("b") / "split.json").read_bytes())
 
@@ -466,7 +466,7 @@ def test_a_narrower_build_drops_occluded_rows_loudly(tmp_path, monkeypatch, caps
     rows = [json.loads(x) for x in mp.read_text(encoding="utf-8").splitlines()]
     rows[0]["label"] = "occluded"
     mp.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
-    db.build_dataset("id13", sids, phash_enabled=False, pack=False, class_mode="pieces13")
+    db.build_dataset("id13", sids, phash_enabled=False, write_pack=False, class_mode="pieces13")
     assert "dropped 1" in capsys.readouterr().out
 
 

@@ -1,16 +1,15 @@
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { chainState } from "@/lib/chain";
 import { isUseless, readUseless, setUseless, uselessFlag } from "@/lib/useless";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 const NAME = "2026-08-14-20-35-52";
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-useless-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("useless");
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 

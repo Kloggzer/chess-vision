@@ -275,7 +275,7 @@ dokumentierte Falle ungeschuetzt). Vier Einzeiler, 2 h. **Naechster Schritt, wen
   HTTP-Response-Body laufen und zeigt dem Nutzer rohes JSON.
 - **`pack` ist vier Artefakte** mit je eigener `manifest.jsonl` (`training/pack.py`,
   `training/packs.py` — ein Modulname Unterschied —, `training-pack/` aus Kotlin, und der
-  Crop-Pool). Namensfrage, aber eine, die jeder Neuleser einmal falsch raet.
+  Crop-Pool). **Benannt seit 2026-09-15 in `docs/pack-arten.md`**, die Module blieben.
 
 ## Widerlegt in Runde 2 — gehoert dazu
 

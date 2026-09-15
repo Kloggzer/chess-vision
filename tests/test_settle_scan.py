@@ -4,12 +4,11 @@ The alpha is the second half of it — it says WHERE the board was visible, and 
 deviation mean the position changed rather than that a hand is in the way.
 """
 
-from dataclasses import replace
 
 import cv2
 import numpy as np
 
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
+from chesslab.calibration import CalibrationProfile, crop_border_px
 from chesslab.labeling import SETTLE_LIMIT, all_squares
 from chesslab.realgames import (
     SETTLE_CELL_PX,
@@ -17,6 +16,7 @@ from chesslab.realgames import (
     departures,
     settle_for_ply,
 )
+from conftest import make_profile
 
 SIDE = 320
 CELL = SIDE // 8
@@ -25,11 +25,7 @@ PX = SETTLE_CELL_PX
 
 def _profile() -> CalibrationProfile:
     corners = [[0, 0], [SIDE, 0], [SIDE, SIDE], [0, SIDE]]
-    return CalibrationProfile(
-        profile="t", camera_index=0, frame_size=(SIDE, SIDE), board_size=SIDE,
-        image_corners=corners, homography=compute_homography(corners, SIDE),
-        white_pov=True, crop=replace(CropParams.default(SIDE), out_size=(PX, PX)),
-    )
+    return make_profile(SIDE, corners=corners, profile="t", out_size=(PX, PX))
 
 
 def _board(shade: int = 90) -> np.ndarray:

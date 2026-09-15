@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { nextStep } from "@/lib/chain";
+import { tempDataRoot, writeLog } from "@/lib/test-fixtures";
 
 /**
  * Ein gemeldetes Frame, das SAM ABGELEHNT hat, steht nie in `usable` — `reported` blieb damit
@@ -12,13 +12,10 @@ import { nextStep } from "@/lib/chain";
 let dir: string;
 
 beforeEach(async () => {
-  dir = await mkdtemp(path.join(tmpdir(), "chesslab-reported-blocks-"));
-  process.env.CHESSLAB_DATA_DIR = dir;
+  dir = await tempDataRoot("reported-blocks");
   const rec = path.join(dir, "recordings", "g");
   await mkdir(rec, { recursive: true });
-  await writeFile(path.join(rec, "log.jsonl"),
-    JSON.stringify({ frame: "frames/000002.png", board: "boards/000002.webp", dirty: true, dirty_reason: "stale" }) + "\n",
-    "utf8");
+  await writeLog(rec, [{ frame: 2, dirty: true, extra: { dirty_reason: "stale" } }]);
   await writeFile(path.join(rec, "matte.jsonl"),
     JSON.stringify({ frame: "000002", skipped: "board unreadable" }) + "\n", "utf8");
   await mkdir(path.join(dir, "labels"), { recursive: true });

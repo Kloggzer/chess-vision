@@ -1,15 +1,14 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { adoptPgn, chainState, nextStep, referenceOrigin } from "@/lib/chain";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 const NAME = "2026-08-13-12-10-55";
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-chain-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("chain");
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 

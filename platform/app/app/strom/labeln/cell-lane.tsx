@@ -21,7 +21,7 @@ export type CellLaneProps = {
   /** Per session, `stem -> Hand am BRETT` — die Marke, die dem Crop nicht anzusehen ist. */
   frameHands: Record<string, FrameHand>[];
   /** Je Aufnahme: lief der Hand-Scan ueberhaupt? Ohne ihn ist ein fehlender Stem keine Aussage. */
-  handsMeasured: boolean[];
+  handScanned: boolean[];
   at: number;
   onAt: (at: number) => void;
   /** Gemeldete Frames als `session|stem` — die Marke hängt am Frame, nicht am Zellindex. */
@@ -75,7 +75,7 @@ type Picks = Record<number, string>;
  * class, and one Enter writes the page.
  */
 export function CellLane(props: CellLaneProps) {
-  const { cells, sessions, decided, coverage, frameHands, handsMeasured, at, onAt, reported, onDirty, onDirtyCells,
+  const { cells, sessions, decided, coverage, frameHands, handScanned, at, onAt, reported, onDirty, onDirtyCells,
     onUnusable, showDone, actionsRef, onFlush } = props;
   const [brush, setBrush] = useState<string>(UNSURE);
   // Die Lupe: ein WERKZEUG, kein Dauerzustand — sonst deckt die Tafel den Blick auf das Raster ab,
@@ -455,7 +455,7 @@ export function CellLane(props: CellLaneProps) {
           caption: cell.caption,
           ...(cellCoverage(coverage, cell) ? { covered: cellCoverage(coverage, cell)! } : {}),
           ...handMark(handBeside(frameHands, coverage, cell), cell.square),
-          ...(handsUnmeasured(handsMeasured, cell) ? { handsUnmeasured: true } : {}),
+          ...(handsUnmeasured(handScanned, cell) ? { handsUnmeasured: true } : {}),
           ...noteOf(cell, useless.has(keyOf(cell)) ? "🚫 unbrauchbar" : verdictOf(cell)),
           ...(dirty.has(i) || remeasure.has(keyOf(cell)) ? { dirty: true } : {}),
           ...(isClass(pick[i]) ? { paint: pick[i] } : {}),

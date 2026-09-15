@@ -117,11 +117,8 @@ class FrameLoopTest {
     @Test
     fun detectionKeepsTheInputSequenceWhenTheProducerStartsAboveOne() {
         val config =
-            TrackerConfig(
-                boardSize = TEST_BOARD_SIZE,
-                detectScale = 1.0,
+            RIG_CONFIG.copy(
                 darkLumaThr = 0.0,
-                minGridLineCoverage = 0.0,
                 motionHoldS = 0.0,
                 commitHoldS = null,
                 settleFramesOverride = 1,

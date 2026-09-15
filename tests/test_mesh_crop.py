@@ -13,15 +13,14 @@ import pytest
 
 from chesslab.calibration import (
     CalibrationProfile,
-    CropParams,
     GridMesh,
-    compute_homography,
     crop_border_px,
     mesh_from_lines,
     mesh_point,
     smooth_mesh_curvature,
     straighten_board,
 )
+from conftest import make_profile
 
 FIXTURE = (Path(__file__).resolve().parents[1]
            / "android/core-engine/src/test/resources/parity/_geometry/mesh_crop_parity.json")
@@ -36,14 +35,9 @@ def fx() -> dict:
 def _profile(fx: dict, out_size=(96, 128)) -> CalibrationProfile:
     bs = int(fx["boardSize"])
     corners = [[0.0, 0.0], [float(bs), 0.0], [float(bs), float(bs)], [0.0, float(bs)]]
-    return CalibrationProfile(
-        profile="__mesh-parity__", camera_index=-1, frame_size=(bs, bs), board_size=bs,
-        image_corners=corners, homography=compute_homography(corners, bs, 0.0),
-        white_pov=bool(fx["whitePov"]),
-        crop=CropParams(cell=bs / 8.0, pad_side=float(fx["padSide"]),
-                        out_size=out_size),
-        margin=0.0,
-    )
+    return make_profile(bs, corners=corners, profile="__mesh-parity__", camera_index=-1,
+                        white_pov=bool(fx["whitePov"]), pad_side=float(fx["padSide"]),
+                        out_size=out_size)
 
 
 def _mesh(fx: dict, *, curved: bool) -> GridMesh:
@@ -185,11 +179,7 @@ def test_slice_cuts_at_the_rows_own_grid_lines(tmp_path):
     from chesslab import labeling
 
     bs = 800
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-    prof = CalibrationProfile(
-        profile="test", camera_index=0, frame_size=(bs, bs), board_size=bs,
-        image_corners=corners, homography=compute_homography(corners, bs), white_pov=True,
-        crop=CropParams.default(bs))
+    prof = make_profile(bs)
     x = [k / 8.0 for k in range(9)]
     lines = {"x": x, "y": list(x), "tx": [0.01] * 9, "ty": [0.0] * 9}
     meshed = labeling.slice_session(_session_with_mesh(tmp_path, lines), profile=prof,
@@ -209,11 +199,7 @@ def test_slice_counts_a_stored_board_nobody_pulled_straight(tmp_path):
     from chesslab import labeling
 
     bs = 800
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-    prof = CalibrationProfile(
-        profile="test", camera_index=0, frame_size=(bs, bs), board_size=bs,
-        image_corners=corners, homography=compute_homography(corners, bs), white_pov=True,
-        crop=CropParams.default(bs))
+    prof = make_profile(bs)
     border = crop_border_px(prof)
     for flag, want in ((False, 1), (True, 0)):
         sdir = _session_with_mesh(tmp_path / f"b{flag}", None)

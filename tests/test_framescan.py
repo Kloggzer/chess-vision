@@ -118,39 +118,21 @@ def test_a_corrected_frame_wins_its_slot_while_it_stays_near():
     assert pick_spread(items, lambda i: True, 4, prefer={11}, tol=2) == [0, 6, 11, 19]
 
 
-def test_a_matted_occluded_frame_reaches_the_trainer_with_its_coverage(tmp_path, monkeypatch):
+def test_a_matted_occluded_frame_reaches_the_trainer_with_its_coverage(slice_fixture, tmp_path):
     """The occlusion target needs positives: without this the manifest holds only coverage 0.0."""
     import json
 
-    import cv2
-    import numpy as np
-    import yaml
-
-    from chesslab import config
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
     from chesslab.labeling import slice_session
+    from conftest import START_FEN
 
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "s1"
-    (sdir / "frames").mkdir(parents=True)
-    corners = [[20, 20], [300, 20], [300, 220], [20, 220]]
-    fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
-    rows = []
-    for stem, reason in (("000001", "occluded"), ("000002", "stale")):
-        cv2.imwrite(str(sdir / "frames" / f"{stem}.png"), np.full((240, 320, 3), 128, np.uint8))
-        rows.append({"frame": f"frames/{stem}.png", "fen": fen, "ply": 1, "corners": corners,
-                     "dirty": True, "dirty_reason": reason})
-    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    (sdir / "session.yaml").write_text(
-        yaml.safe_dump({"session_id": "s1", "profile": "p", "mode": "track"}), encoding="utf-8")
+    rows = [{"frame": f"frames/{stem}.png", "fen": START_FEN, "ply": 1,
+             "dirty": True, "dirty_reason": reason}
+            for stem, reason in (("000001", "occluded"), ("000002", "stale"))]
+    sdir, prof, _ = slice_fixture(rows)
     (sdir / "matte.jsonl").write_text(
         json.dumps({"frame": "000001", "coverage": {"a8": 0.9, "e2": 0.02}}) + "\n"
         + json.dumps({"frame": "000002", "coverage": {"a8": 0.9}}) + "\n", encoding="utf-8")
 
-    prof = CalibrationProfile(
-        profile="p", camera_index=0, frame_size=(320, 240), board_size=128, image_corners=corners,
-        homography=compute_homography(corners, 128, 0.0), white_pov=True, margin=0.0,
-        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)))
     res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                         squares_root=tmp_path / "squares", out_size=(32, 32))
 
@@ -163,35 +145,14 @@ def test_a_matted_occluded_frame_reaches_the_trainer_with_its_coverage(tmp_path,
     assert all(r["frame"] == "000001" for r in rows.values()), "stale stays out, its FEN is void"
 
 
-def test_an_occluded_frame_without_a_matte_stays_out(tmp_path, monkeypatch):
+def test_an_occluded_frame_without_a_matte_stays_out(slice_fixture, tmp_path):
     """Coverage 0.0 under a hand would be a lie, so an unmatted frame is dropped as before."""
-    import json
-
-    import cv2
-    import numpy as np
-    import yaml
-
-    from chesslab import config
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
     from chesslab.labeling import slice_session
+    from conftest import START_FEN
 
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    sdir = tmp_path / "data" / "sessions" / "s2"
-    (sdir / "frames").mkdir(parents=True)
-    corners = [[20, 20], [300, 20], [300, 220], [20, 220]]
-    cv2.imwrite(str(sdir / "frames" / "000001.png"), np.full((240, 320, 3), 128, np.uint8))
-    (sdir / "log.jsonl").write_text(json.dumps({
-        "frame": "frames/000001.png", "ply": 1, "corners": corners, "dirty": True,
-        "dirty_reason": "occluded",
-        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}) + "\n",
-        encoding="utf-8")
-    (sdir / "session.yaml").write_text(
-        yaml.safe_dump({"session_id": "s2", "profile": "p", "mode": "track"}), encoding="utf-8")
-
-    prof = CalibrationProfile(
-        profile="p", camera_index=0, frame_size=(320, 240), board_size=128, image_corners=corners,
-        homography=compute_homography(corners, 128, 0.0), white_pov=True, margin=0.0,
-        crop=CropParams(cell=16.0, pad_side=0.05, out_size=(32, 32)))
+    sdir, prof, _ = slice_fixture(
+        [{"frame": "frames/000001.png", "fen": START_FEN, "ply": 1,
+          "dirty": True, "dirty_reason": "occluded"}], session_id="s2")
     res = slice_session(sdir, profile=prof, manifest_path=tmp_path / "m.jsonl",
                         squares_root=tmp_path / "squares", out_size=(32, 32))
 

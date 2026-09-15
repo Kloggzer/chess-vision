@@ -13,21 +13,13 @@ from chesslab.calibration import (
     compute_homography,
     square_to_crop_box,
 )
+from conftest import make_profile
 
 
 def _make_profile(board_size: int = 800, white_pov: bool = True) -> CalibrationProfile:
     corners = [[100.0, 50.0], [700.0, 50.0], [760.0, 650.0], [40.0, 650.0]]  # a8,h8,h1,a1
-    H = compute_homography(corners, board_size)
-    return CalibrationProfile(
-        profile="test",
-        camera_index=0,
-        frame_size=(1280, 720),
-        board_size=board_size,
-        image_corners=corners,
-        homography=H,
-        white_pov=white_pov,
-        crop=CropParams.default(board_size),
-    )
+    return make_profile(board_size, corners=corners, frame_size=(1280, 720),
+                        white_pov=white_pov)
 
 
 def test_crop_border_covers_the_pad_on_every_edge():
@@ -244,10 +236,7 @@ def test_marker_tracker_ages_to_stale():
 def test_marker_tracker_seed_and_make_tracker():
     """Geseedeter Tracker kennt alle 4 Ecken sofort; Live-Detektion ersetzt den Seed."""
     from chesslab.calibration import (
-        CalibrationProfile,
-        CropParams,
         MarkerTracker,
-        compute_homography,
         make_tracker,
     )
 
@@ -259,11 +248,7 @@ def test_marker_tracker_seed_and_make_tracker():
     assert t.status()[0] == "live" and t.status()[1] == "seed"
 
     corners = [[0, 0], [100, 0], [100, 100], [0, 100]]
-    prof = CalibrationProfile(
-        profile="t", camera_index=0, frame_size=(200, 200), board_size=100,
-        image_corners=corners, homography=compute_homography(corners, 100, 0.0),
-        white_pov=True, crop=CropParams.default(100), margin=0.0,
-    )
+    prof = make_profile(100, corners=corners, frame_size=(200, 200), profile="t")
     seeded = make_tracker(prof)
     assert set(seeded.points()) == {0, 1, 2, 3}     # aus dem Profil vorbelegt
 
@@ -279,11 +264,8 @@ def test_board_corners_for_frame_and_warp_from_corners():
     import cv2
 
     from chesslab.calibration import (
-        CalibrationProfile,
-        CropParams,
         MarkerTracker,
         board_corners_for_frame,
-        compute_homography,
         warp_from_corners,
     )
 
@@ -296,10 +278,8 @@ def test_board_corners_for_frame_and_warp_from_corners():
         frame[cy - s // 2:cy + s // 2, cx - s // 2:cx + s // 2] = m
 
     bs = 800
-    prof = CalibrationProfile(profile="t", camera_index=0, frame_size=(800, 600), board_size=bs,
-                              image_corners=[list(known[i]) for i in range(4)],
-                              homography=compute_homography([list(known[i]) for i in range(4)], bs),
-                              white_pov=True, crop=CropParams.default(bs), margin=0.0)
+    prof = make_profile(bs, corners=[list(known[i]) for i in range(4)],
+                        frame_size=(800, 600), profile="t")
     corners = board_corners_for_frame(frame, prof, MarkerTracker())
     assert corners is not None and len(corners) == 4
     for i, (x, y) in enumerate(corners):                 # ~ Marker-Zentren
@@ -311,7 +291,6 @@ def test_board_corners_for_frame_and_warp_from_corners():
 def test_homography_margin_insets_playing_field():
     import cv2
 
-    from chesslab.calibration import compute_homography
 
     # marker box = a 100x100 image square; field should sit inset for margin>0
     corners = [[0, 0], [100, 0], [100, 100], [0, 100]]
@@ -438,13 +417,11 @@ def test_ensure_profile_kwargs_apply_when_the_profile_is_missing(tmp_path, monke
 
 
 def test_profile_save_is_atomic_and_leaves_no_temp_file(tmp_path):
-    from chesslab.calibration import CalibrationProfile, CropParams
+    from chesslab.calibration import CalibrationProfile
 
-    prof = CalibrationProfile(
-        profile="atomic", camera_index=0, frame_size=(640, 480), board_size=800,
-        image_corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
-        homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], white_pov=True,
-        crop=CropParams.default(800))
+    prof = make_profile(800, corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
+                        homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                        frame_size=(640, 480), profile="atomic")
     p = tmp_path / "atomic.yaml"
     prof.save(p)
     assert not p.with_suffix(".yaml.tmp").exists()
@@ -472,7 +449,6 @@ def test_margins4_broadcasts_a_scalar_and_passes_four_through():
 
 def test_a_scalar_margin_still_produces_the_square_it_always_did():
     """The four-value form must be a strict generalisation — one number, same homography."""
-    from chesslab.calibration import compute_homography
 
     quad = [[10.0, 12.0], [210.0, 8.0], [214.0, 208.0], [6.0, 204.0]]
     scalar = np.array(compute_homography(quad, 160, 0.05))
@@ -486,7 +462,6 @@ def test_one_corner_moves_only_its_own_corner():
     The board corner a8 maps to (0,0). Raising ONLY a8's margin pushes that marker further
     out, so the playing-field corner it implies moves — while h1, diagonally opposite, stays.
     """
-    from chesslab.calibration import compute_homography
 
     bs = 160
     quad = [[10.0, 12.0], [210.0, 8.0], [214.0, 208.0], [6.0, 204.0]]
@@ -505,13 +480,11 @@ def test_one_corner_moves_only_its_own_corner():
 
 def test_a_profile_written_before_per_corner_margins_still_loads():
     """Old YAML stored ONE number. It must broadcast, not crash and not silently become 0."""
-    from chesslab.calibration import CalibrationProfile, CropParams
+    from chesslab.calibration import CalibrationProfile
 
-    prof = CalibrationProfile(
-        profile="legacy", camera_index=0, frame_size=(640, 480), board_size=160,
-        image_corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
-        homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]], white_pov=True,
-        crop=CropParams.default(160))
+    prof = make_profile(160, corners=[[0, 0], [1, 0], [1, 1], [0, 1]],
+                        homography=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                        frame_size=(640, 480), profile="legacy")
     d = prof.to_dict()
     d["margin"] = 0.06                                   # what every profile on disk looks like
     assert CalibrationProfile.from_dict(d).margin == [0.06] * 4

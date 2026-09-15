@@ -114,9 +114,9 @@ def main():
             if r['session_id'] in train:
                 rows.append({**{k: r[k] for k in ('path', 'session_id', 'frame', 'square', 'label',
                                                  'brightness', 'coverage') if k in r}, '_packed_idx': i})
-    pack = dd / 'packed_images.u8'
+    image = dd / 'packed_images.u8'
     ds = PackedBoardDataset(rows, cfg['classes'], tf,
-                            (str(pack), (pack.stat().st_size // (80*80*3), 80, 80), None))
+                            (str(image), (image.stat().st_size // (80*80*3), 80, 80), None))
     ds.rows = None
     del rows
     gc.collect()

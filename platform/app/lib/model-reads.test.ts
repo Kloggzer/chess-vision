@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { acceptLabel, boardProgress, boardProgressOf, DISAGREE, loadModelReads, matches, readCensus } from "@/lib/model-reads";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /** The producer's own shape (`occluded_model.read_session`), header line included. */
 const LINES = [
@@ -13,11 +13,10 @@ const LINES = [
 ];
 
 async function withFile(lines: string[], name = "g") {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-model-reads-"));
+  const root = await tempDataRoot("model-reads");
   const dir = path.join(root, "recordings", name);
   await mkdir(dir, { recursive: true });
   await writeFile(path.join(dir, "model-reads.jsonl"), lines.join("\n") + "\n", "utf8");
-  process.env.CHESSLAB_DATA_DIR = root;
   return dir;
 }
 
@@ -36,9 +35,8 @@ test("header and rows, in the producer's order", async () => {
 });
 
 test("no file is NOT MEASURED, and every count says so instead of claiming zero", async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-model-reads-"));
+  const root = await tempDataRoot("model-reads");
   await mkdir(path.join(root, "recordings", "g"), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
   expect(await loadModelReads("g")).toMatchObject({ rows: [], present: false });
   expect(await readCensus("g")).toMatchObject({ present: false, boards: 0, cells: 0, model: null });
 });

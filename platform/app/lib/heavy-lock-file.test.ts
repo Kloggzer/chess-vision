@@ -1,13 +1,13 @@
 // Test against disk, not mock — the whole point is file semantics.
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { claimHeavyLock, heavyLockPath, readHeavyLock, releaseHeavyLock, stale } from "@/lib/heavy-lock";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 beforeEach(async () => {
-  process.env.CHESSLAB_DATA_DIR = await mkdtemp(path.join(tmpdir(), "chesslab-lock-"));
+  await tempDataRoot("lock");
   await mkdir(path.dirname(heavyLockPath()), { recursive: true });
 });
 

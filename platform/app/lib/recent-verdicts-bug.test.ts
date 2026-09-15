@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { judgedKeys, recentVerdicts } from "@/lib/corrections";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let dir: string;
 
@@ -10,10 +10,9 @@ const row = (label: string, ts: string) =>
   JSON.stringify({ session_id: "rg-rec-1", frame: "000001", square: "a1", label, ts }) + "\n";
 
 beforeEach(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-recent-"));
+  const root = await tempDataRoot("recent");
   dir = path.join(root, "recordings", "rec-1");
   await mkdir(dir, { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 test("recentVerdicts shows the label that actually stands, even when the review row is newer", async () => {

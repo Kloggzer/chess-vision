@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, it } from "vitest";
 import { nextStep } from "@/lib/chain";
 import { videoInput } from "@/lib/jobs";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `chain.videoOf` accepts a bundle whose only video sits beside `files/` (the shape the comment
@@ -15,8 +15,7 @@ const NAME = "2026-08-30-14-33-02";
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-mirror-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("mirror");
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
   await writeFile(path.join(data, "recordings", NAME, "video.mp4"), "x", "utf8");
 });

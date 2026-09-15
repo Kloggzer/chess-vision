@@ -12,19 +12,16 @@ import numpy as np
 import pytest
 
 from chesslab import config, labeling, realgames, sessions
+from conftest import make_profile
 
 BS, BORDER = 64, 4
 EIGHTHS = [k / 8.0 for k in range(9)]
 
 
 def _profile():
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 
     corners = [[0.0, 0.0], [float(BS), 0.0], [float(BS), float(BS)], [0.0, float(BS)]]
-    return CalibrationProfile(
-        profile="t", camera_index=-1, frame_size=(BS, BS), board_size=BS, image_corners=corners,
-        homography=compute_homography(corners, BS, 0.0), white_pov=True,
-        crop=CropParams.default(BS), margin=0.0, source="test")
+    return make_profile(BS, corners=corners, profile="t", camera_index=-1, source="test")
 
 
 def _rows(n: int) -> list[dict]:

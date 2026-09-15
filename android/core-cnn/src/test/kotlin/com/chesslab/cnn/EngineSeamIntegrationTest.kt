@@ -1,5 +1,7 @@
 package com.chesslab.cnn
 
+import com.chesslab.engine.RIG_CONFIG
+import com.chesslab.engine.TEST_BOARD_SIZE
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnSnapshot
 import com.chesslab.engine.api.FrameInput
@@ -161,7 +163,7 @@ class EngineSeamIntegrationTest {
     }
 
     private companion object {
-        const val BOARD_SIZE = 400
+        const val BOARD_SIZE = TEST_BOARD_SIZE
         const val BASE_LEVEL = 128
         const val BLOB_LEVEL = 220
         const val CORNER_FLOATS = 8
@@ -179,11 +181,8 @@ class EngineSeamIntegrationTest {
          * test is about the CNN seam, not about the settle machinery.
          */
         fun seamConfig(): TrackerConfig =
-            TrackerConfig(
-                boardSize = BOARD_SIZE,
-                detectScale = 1.0,
+            RIG_CONFIG.copy(
                 overhang = 0.0,
-                minGridLineCoverage = 0.0,
                 requireMotionForMove = false,
                 motionThr = 100.0,
                 cnnCheckIntervalS = 0.0,

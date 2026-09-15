@@ -1,15 +1,14 @@
-import { mkdir, mkdtemp } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { jobHistory, jobOf, jobs } from "@/lib/jobs";
 import { ingestToken } from "@/lib/ingest";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-ledger-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("ledger");
   delete process.env.CHESSLAB_INGEST_TOKEN;
 });
 

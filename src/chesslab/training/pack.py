@@ -1,11 +1,11 @@
-"""Pack a built dataset's square crops into ONE memory-mapped uint8 array.
+"""Das DATENSATZ-PACK (`docs/pack-arten.md`), nicht das Session-Pack in `packs.py` daneben.
 
-Loading 1M+ individual PNGs per epoch (``Image.open`` per item in ``SquareDataset``) is the
-training bottleneck on this project — random small-file opens on Windows dominate and the GPU
-starves (see docs / the "WebDataset/LMDB statt Mio PNGs" note). Packing all crops into a single
-``packed_images.u8`` memmap turns 1M random file opens into slice reads from one file: the first
-epoch warms the OS page cache, later epochs are effectively RAM-speed. ``PackedSquareDataset``
-(in ``torch_data``) reads from this instead of the filesystem.
+Eines gebauten Datensatzes Crops in EINEM memory-mapped uint8-Array. Loading 1M+ individual PNGs
+per epoch (``Image.open`` per item in ``SquareDataset``) is the training bottleneck on this
+project — random small-file opens on Windows dominate and the GPU starves. Packing all crops into
+a single ``packed_images.u8`` memmap turns 1M random file opens into slice reads from one file:
+the first epoch warms the OS page cache, later epochs are effectively RAM-speed.
+``PackedSquareDataset`` (in ``torch_data``) reads from this instead of the filesystem.
 
 Layout, per dataset dir ``data/datasets/<name>/``:
   - ``packed_images.u8``  : raw memmap, shape (N, H, W, 3) uint8, in manifest row order.

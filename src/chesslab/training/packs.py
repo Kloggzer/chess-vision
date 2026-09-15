@@ -1,7 +1,7 @@
-"""Session packs: where a pack lives, what its meta says, and how an `mm://` row resolves.
+"""Das SESSION-PACK (`docs/pack-arten.md`), nicht das Datensatz-Pack in `pack.py` daneben.
 
-One session's crops once: `packed_images.u8` (N, H, W, 3) uint8 RGB, a slice `manifest.jsonl` of
-`mm://<pack>/…` rows, `packed_meta.json`. Kotlin's `labeled-video-pack` is a pack when `id=` == dir.
+Eine Aufnahme EINMAL nach `data/packs/<session>-<size>/`: `packed_images.u8` (N, H, W, 3) uint8
+RGB, `packed_meta.json`, `manifest.jsonl` aus `mm://<pack>/…`. Kotlins `labeled-video-pack` auch.
 """
 
 from __future__ import annotations

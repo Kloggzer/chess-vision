@@ -1,8 +1,8 @@
-import { appendFile, mkdtemp, readFile, writeFile, mkdir } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { appendFile, readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { appendCorrections, correctionsPath, decidedKeys, judgedKeys } from "@/lib/corrections";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /** A row a previous session wrote — the writer must never touch it. */
 const EXISTING =
@@ -14,7 +14,7 @@ let file: string;
 let legacyFile: string;
 
 beforeEach(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-corrections-"));
+  const root = await tempDataRoot("corrections");
   // One ledger per recording since 2026-08-20: the id keeps `rg-`, the directory never had it.
   // "g" gehoert dazu, seit der Schreiber eine fehlende Aufnahme ABLEHNT statt sie anzulegen.
   for (const name of ["rec-1", "old", "g"]) await mkdir(path.join(root, "recordings", name), { recursive: true });
@@ -22,7 +22,6 @@ beforeEach(async () => {
   legacyFile = path.join(root, "recordings", "old", "corrections.jsonl");
   await writeFile(file, EXISTING, "utf8");
   await writeFile(legacyFile, LEGACY, "utf8");
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 async function post(rows: unknown) {

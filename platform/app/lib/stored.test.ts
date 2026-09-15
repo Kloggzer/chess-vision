@@ -1,5 +1,4 @@
-import { mkdtemp, mkdir, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import sharp from "sharp";
@@ -12,6 +11,7 @@ import {
   storedSessionId,
   storedSessions,
 } from "@/lib/stored";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const BUNDLE = "2026-08-08-22-09-12";
 const ID = "20260808-220912";
@@ -35,7 +35,7 @@ let root: string;
 let session: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), "chesslab-stored-"));
+  root = await tempDataRoot("stored");
   session = path.join(root, "recordings", BUNDLE, "files", "sessions", ID);
   await mkdir(path.join(session, "frames"), { recursive: true });
   await mkdir(path.join(root, "reports"), { recursive: true });
@@ -45,7 +45,6 @@ beforeEach(async () => {
     .jpeg()
     .toBuffer();
   for (const stem of ["0000", "0001"]) await writeFile(path.join(session, "frames", `${stem}.jpg`), jpeg);
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 const writeLog = (...rows: object[]) =>

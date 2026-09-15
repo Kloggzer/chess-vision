@@ -23,7 +23,7 @@ async function progress(name: string) {
     boardsDone: done,
     cells: census.cells,
     cellsDone: rows.filter((r) => decided.has(readKey(r))).length,
-    measured: census.present,
+    modelRead: census.present,
   };
 }
 

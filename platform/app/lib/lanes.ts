@@ -210,7 +210,7 @@ export function cellCoverage(
 /**
  * Die Hand liegt am BRETT, aber nicht auf diesem Feld — dem Crop sieht man das nicht an, und der
  * FEN eines Frames mitten im Griff ist so belastbar wie die Stellung darunter (User, 2026-09-12).
- * `null` heisst "keine Hand ODER nie gescannt"; welches von beiden, sagt `handsMeasured`.
+ * `null` heisst "keine Hand ODER nie gescannt"; welches von beiden, sagt `handScanned`.
  */
 export function handBeside(
   hands: Record<string, FrameHand>[],
@@ -226,8 +226,8 @@ export function handBeside(
  * `true`, wenn fuer diese Aufnahme NIE ein Hand-Scan lief — dann ist ein fehlender Stem keine
  * Aussage. CLAUDE.md: ohne Messung ist eine Zelle nicht unbedenklich, sondern ungemessen.
  */
-export function handsUnmeasured(measured: boolean[], cell: { session: number }): boolean {
-  return measured[cell.session] !== true;
+export function handsUnmeasured(scanned: boolean[], cell: { session: number }): boolean {
+  return scanned[cell.session] !== true;
 }
 
 export type LaneCell = {
@@ -532,7 +532,7 @@ export function reachesPool(board: StreamBoard, coverage: Record<string, Record<
   if (board.phase !== "after" && board.phase !== "before") return true;
   const cover = coverage[board.session]?.[board.stem];
   if (cover === undefined || Object.keys(cover).length === 0) return false;
-  return board.measured === true || board.dirtyReason === "occluded";
+  return board.settleMeasured === true || board.dirtyReason === "occluded";
 }
 
 /**

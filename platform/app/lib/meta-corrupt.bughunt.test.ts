@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { isArchived, saveMeta } from "@/lib/meta";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 /**
  * `loadMeta` collapses "unreadable file" into "no meta". `saveMeta` merges the patch into that
@@ -12,11 +12,10 @@ let root: string;
 let file: string;
 
 beforeEach(async () => {
-  root = await mkdtemp(path.join(os.tmpdir(), "chesslab-meta-"));
+  root = await tempDataRoot("meta");
   const dir = path.join(root, "recordings", "g");
   await mkdir(dir, { recursive: true });
   file = path.join(dir, "ui-meta.json");
-  process.env.CHESSLAB_DATA_DIR = root;
 });
 
 afterEach(async () => {

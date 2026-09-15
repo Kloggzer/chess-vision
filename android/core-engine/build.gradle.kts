@@ -1,5 +1,6 @@
 plugins {
     id("java-library")
+    id("java-test-fixtures")
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ktlint)

@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { coverageResponse, loadPlan, planResponse } from "@/lib/capture-plan";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const TOKEN = "kopplung";
 
@@ -26,10 +26,9 @@ function get(token = TOKEN) {
 }
 
 beforeEach(async () => {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-capture-"));
+  const root = await tempDataRoot("capture");
   reports = path.join(root, "reports");
   await mkdir(reports, { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
   process.env.CHESSLAB_INGEST_TOKEN = TOKEN;
 });
 

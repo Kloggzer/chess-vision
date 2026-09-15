@@ -1,8 +1,8 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/pgn/[name]/route";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const GAME = "proof-game";
 
@@ -11,10 +11,9 @@ describe("POST /api/pgn/[name] data-safety regressions", () => {
   let game: string;
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(os.tmpdir(), "chesslab-pgn-route-"));
+    root = await tempDataRoot("pgn-route");
     game = path.join(root, "recordings", GAME);
     await mkdir(game, { recursive: true });
-    process.env.CHESSLAB_DATA_DIR = root;
   });
 
   afterEach(async () => {

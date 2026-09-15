@@ -21,8 +21,8 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 6 | `_persistent`-Fix gilt nur kuenftig — Altbestand neu exportieren? | C | ~28 s/Aufnahme | messen, dann entscheiden |
 | 7 | Zwei unvollstaendig gescannte Aufnahmen | A | 10 min | nachscannen |
 | 8 | Kommentar-Ratsche Kotlin von 8 auf 5 | A | ½ Tag Handarbeit | spaeter |
-| 9 | Ein Fixture-Baukasten je Sprache | B | 1½ Tage | ja, aber nicht als naechstes |
-| 10 | Namensdrift ueber die Schichten (`cov`, `measured`, `pack`) | B/C | laufend | nur `cov` jetzt |
+| 9 | Ein Fixture-Baukasten je Sprache | B | 1½ Tage | Python gebaut, TS/Kotlin offen |
+| 10 | Namensdrift ueber die Schichten (`cov`, `measured`) | B/C | laufend | `pack` erledigt, `cov` jetzt |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 
 ---
@@ -85,21 +85,25 @@ Ziel und 5 als Obergrenze. Python und TS sind bei harten 5.
 **Empfehlung: spaeter** — es ist Aufraeumen ohne Fund, und die Ratsche verhindert schon, dass es
 schlimmer wird.
 
-## 9. Ein Fixture-Baukasten je Sprache — oder weiter so?
+## 9. Ein Fixture-Baukasten je Sprache — Python-Haelfte gebaut
 
-Dreimal unabhaengig dasselbe Muster gefunden, jedes Mal, weil es keinen gemeinsamen Bauer gibt:
-die vier Python-Labeling-Suiten schneiden aus `frames/` statt aus `boards/` (12 von 14
-`slice_session`-Dateien nehmen den Fallback-Zweig); `session.test.ts` laesst die vier
-`board*`-Schluessel weg, `session.ts:164` wird in seiner eigenen Testdatei **nie** wahr;
-`ModelSpecTest` baut ein Modell ohne `coverage_output` und ohne `coverage_gate` — eine Form, die
-das APK seit 2026-09-14 nicht mehr ausliefert.
+**Python ist erledigt (2026-09-15).** `tests/conftest.py` gab es nicht; jetzt traegt es
+`make_profile` (die 30 Handbauten in 22 Dateien gehen darueber) und `write_session`/`slice_fixture`,
+das per Vorgabe eine Session **mit `boards/`** schreibt und dabei **kein** `frames/` anlegt — ein
+stiller Rueckfall auf den Fallback findet damit keine Datei mehr. Der Altfall ist `boards=False`
+und hat in `test_board_store.py` einen eigenen Test.
 
-Die Tests sind gruen und beschreiben je den Zustand **vor** einer Entscheidung, die seit Wochen
-gilt.
+**Gemessen war es 13 von 14, nicht 12**: nur `test_mesh_crop.py` erreichte den Brett-Zweig
+ueberhaupt. Fuenf Suiten sind umgezogen (`dirty`, `settle`, `unknown`, `unusable_cells`,
+`framescan`); die uebrigen bleiben bewusst auf dem Frame-Weg, weil dort der Frame das THEMA ist
+(Marker-Detektion, `SessionWriter`, die Pixel-Hashes in `test_session_pack.py`).
 
-**Die Frage:** ~1½ Tage in `conftest.py` + `lib/test-fixtures.ts` + einen Kotlin-Bauer? Der Gewinn
-ist nicht "weniger Zeilen", sondern dass die falsche Form danach **unschreibbar** ist.
-**Empfehlung: ja, aber nach 1–5.**
+**Der Fund dabei:** eine Zeile mit Brett, aber ohne `corners`, stuerzte in `iter_session_crops` ab
+— der Marker-Fallback lief auf dem Frame, den das Brett gerade ueberfluessig gemacht hatte
+(`frame = None`), und seine Antwort wurde nie benutzt. Behoben, Regressionstest in
+`test_board_store.py`.
+
+**Offen bleiben `lib/test-fixtures.ts` und der Kotlin-Bauer** (`session.ts:164`, `ModelSpecTest`).
 
 ## 10. Namensdrift ueber die Schichten
 
@@ -114,8 +118,11 @@ Drei Faelle, sehr unterschiedlich teuer:
   `settle_dev`; `label-stream.ts:89` = SAM-Coverage als Zahl; `frame-hands.ts:19` = ueberhaupt
   gescannt). Ausgerechnet das Wort, mit dem das Projekt "ungemessen ist nicht 0" durchsetzt.
   **Empfehlung: umbenennen, wenn die Datei ohnehin angefasst wird — nicht als eigener Lauf.**
-- **`pack` ist vier Artefakte** mit je eigener `manifest.jsonl`. Namensfrage, aber eine, die jeder
-  Neuleser einmal falsch raet. **Empfehlung: spaeter, und nur mit Umbenennung im Doc.**
+- **`pack` ist vier Artefakte** mit je eigener `manifest.jsonl`. **Erledigt 2026-09-15:**
+  `docs/pack-arten.md` benennt die vier (Datensatz-Pack, Session-Pack, Kotlin-Pack, Crop-Pool) und
+  sagt, woran man sie auf der Platte unterscheidet; `pack.py` und `packs.py` nennen sich in Zeile 1
+  selbst. Kein Modul umbenannt. Einzige Code-Umbenennung: `build_dataset(pack=…)` heisst
+  `write_pack=…`, weil es neben `from_packs=…` stand und das Gegenteil meinte.
 
 ---
 

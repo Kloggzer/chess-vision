@@ -1,16 +1,15 @@
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 import { appendUnusableCells, unusableCells, unusableCellsPath, validateCell } from "@/lib/unusable-cells";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const NAME = "2026-09-14-11-00-00";
 const ID = `rg-${NAME}`;
 let data: string;
 
 beforeEach(async () => {
-  data = await mkdtemp(path.join(tmpdir(), "chesslab-unusable-"));
-  process.env.CHESSLAB_DATA_DIR = data;
+  data = await tempDataRoot("unusable");
   await mkdir(path.join(data, "recordings", NAME), { recursive: true });
 });
 

@@ -10,6 +10,7 @@ import pytest
 
 from chesslab import config, dataset, dataset_build
 from chesslab.training import packs
+from conftest import make_profile
 
 SIDE = 8
 CELLS = (("wP", "0000", "e2"), ("wK", "0001", "e1"), ("empty", "0002", "c4"))
@@ -58,9 +59,9 @@ def test_like_adopts_the_donors_pack_size(tmp_path):
     sids = ["s1", "s2", "s3"]
     dataset_build.build_dataset("donor", sids, rotations=(0,), phash_enabled=False,
                                 val_frac=0.0, test_frac=0.0, paths=paths, pack_size=(12, 12),
-                                allow_degenerate=True, from_packs=True, pack=False)
+                                allow_degenerate=True, from_packs=True, write_pack=False)
     dataset_build.build_dataset("twin", sids, rotations=(0,), phash_enabled=False,
-                                paths=paths, like="donor", allow_degenerate=True, pack=False)
+                                paths=paths, like="donor", allow_degenerate=True, write_pack=False)
     rows = [json.loads(x) for x in
             (paths.datasets / "twin" / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
     assert {tuple(r["out_size"]) for r in rows} == {(12, 12)}
@@ -76,15 +77,10 @@ def test_render_stats_survives_a_label_seen_on_one_square_colour_only():
 # --- second wave: sessions, the matte lane and the hand gate ---------------------------------
 
 def _profile_yaml(paths: config.Paths, name: str = "t", board_size: int = 64) -> None:
-    from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 
     corners = [[0.0, 0.0], [float(board_size), 0.0],
                [float(board_size), float(board_size)], [0.0, float(board_size)]]
-    prof = CalibrationProfile(
-        profile=name, camera_index=-1, frame_size=(board_size, board_size),
-        board_size=board_size, image_corners=corners,
-        homography=compute_homography(corners, board_size, 0.0), white_pov=True,
-        crop=CropParams.default(board_size), margin=0.0)
+    prof = make_profile(board_size, corners=corners, profile=name, camera_index=-1)
     paths.calibration.mkdir(parents=True, exist_ok=True)
     prof.save(paths.calibration / f"{name}.yaml")
 

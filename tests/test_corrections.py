@@ -15,8 +15,8 @@ import cv2
 import numpy as np
 import yaml
 
-from chesslab.calibration import CalibrationProfile, CropParams, compute_homography
 from chesslab.labeling import CROP_SUFFIX, slice_session
+from conftest import identity_corners, make_profile
 
 
 def test_labels_to_fen_estimation():
@@ -37,10 +37,8 @@ def test_manual_capture_explicit_labels_produce_entries(tmp_path):
     from chesslab.session_writer import SessionWriter
 
     bs = 800
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-    prof = CalibrationProfile(profile="t", camera_index=0, frame_size=(bs, bs), board_size=bs,
-                              image_corners=corners, homography=compute_homography(corners, bs),
-                              white_pov=True, crop=CropParams.default(bs))
+    corners = identity_corners(bs)
+    prof = make_profile(bs, profile="t")
     frame = np.full((bs, bs, 3), 255, dtype=np.uint8)
     sdir = tmp_path / "sessions" / "man1"
     w = SessionWriter(sdir, session_id="man1", profile="t", mode="manual",
@@ -61,10 +59,7 @@ def test_manual_capture_explicit_labels_produce_entries(tmp_path):
 
 
 def _identity_session(tmp_path, bs=800):
-    corners = [[0, 0], [bs, 0], [bs, bs], [0, bs]]
-    prof = CalibrationProfile(profile="t", camera_index=0, frame_size=(bs, bs), board_size=bs,
-                              image_corners=corners, homography=compute_homography(corners, bs),
-                              white_pov=True, crop=CropParams.default(bs))
+    prof = make_profile(bs, profile="t")
     d = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
     frame = np.full((bs, bs, 3), 255, dtype=np.uint8)
     s, off = 80, 80

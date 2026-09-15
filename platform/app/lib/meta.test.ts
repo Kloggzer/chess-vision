@@ -1,13 +1,12 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
 import { archivedAt, isArchived, loadMeta, saveMeta } from "@/lib/meta";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 async function withGame(name = "g") {
-  const root = await mkdtemp(path.join(tmpdir(), "chesslab-meta-"));
+  const root = await tempDataRoot("meta");
   await mkdir(path.join(root, "recordings", name), { recursive: true });
-  process.env.CHESSLAB_DATA_DIR = root;
   return path.join(root, "recordings", name);
 }
 

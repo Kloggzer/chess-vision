@@ -27,16 +27,9 @@ internal fun detectConfig(
     censusZWeight: Double = 1.0,
     overhang: Double = 0.0,
 ): TrackerConfig =
-    TrackerConfig(
-        boardSize = TEST_BOARD_SIZE,
-        detectScale = 1.0,
+    STOPPED_CLOCK_RIG.copy(
         overhang = overhang,
         censusZWeight = censusZWeight,
-        minGridLineCoverage = 0.0,
-        // Same reason as in `recoveryConfig`: these fixtures feed snapshots with the clock
-        // standing still, so the latch's DURATION gate is off and the COUNT rule is what is
-        // asserted. `AlarmDurationTest` owns the duration rule.
-        alarmMinS = 0.0,
         requireMotionForMove = requireMotion,
         settleFramesOverride = 1,
         avgFramesOverride = 1,

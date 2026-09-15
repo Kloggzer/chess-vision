@@ -3,12 +3,12 @@ import path from "node:path";
 import { expect, test } from "vitest";
 
 /**
- * `LabelStream.handsMeasured` is the one thing that separates "scanned, no hand" from "never
+ * `LabelStream.handScanned` is the one thing that separates "scanned, no hand" from "never
  * scanned" — `lanes.handBeside` returns `null` for both and its own doc points at this field for
  * the answer. The stream builds the array on every load; if nobody reads it, the card silently
  * says "no hand" about a recording `frame-hands.jsonl` has never seen.
  */
-const FIELD = "handsMeasured";
+const FIELD = "handScanned";
 const ROOTS = ["app", "components", "lib"];
 const PRODUCER = path.join("lib", "label-stream.ts");
 
@@ -26,7 +26,7 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
-test("handsMeasured reaches a reader outside the module that writes it", async () => {
+test("handScanned reaches a reader outside the module that writes it", async () => {
   const root = process.cwd();
   const files = (await Promise.all(ROOTS.map((r) => walk(path.join(root, r))))).flat();
   const readers: string[] = [];

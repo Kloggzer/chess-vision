@@ -45,7 +45,7 @@ class ModelSpecTest {
                 it[2] = "wB"
                 it[3] = "wN"
             }
-        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = swapped)) }
+        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = swapped)) }
         // Every accepted order has to appear, not just the word "expected": the one the message
         // omits is the one the failing model is closest to.
         for (accepted in listOf(EXPECTED_CLASSES, PIECES13_CLASSES)) {
@@ -61,7 +61,7 @@ class ModelSpecTest {
     @Test
     fun rejectsWrongClassCount() {
         val missingMiddle = EXPECTED_CLASSES.filterNot { it == "wB" }
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(classes = missingMiddle)) }
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(classes = missingMiddle)) }
     }
 
     /**
@@ -71,7 +71,7 @@ class ModelSpecTest {
      */
     @Test
     fun acceptsThePieces13IdentityList() {
-        val spec = ModelSpec.parse(config(classes = PIECES13_CLASSES))
+        val spec = ModelSpec.parse(modelConfigJson(classes = PIECES13_CLASSES))
         assertEquals(PIECES13_CLASSES, spec.classes)
         assertEquals(13, spec.classes.size, "pieces13 is the 14-class list minus `occluded`")
     }
@@ -83,7 +83,7 @@ class ModelSpecTest {
      */
     @Test
     fun parsesInferSizeWhenPresent() {
-        val spec = ModelSpec.parse(config(inferSize = listOf(96, 96)))
+        val spec = ModelSpec.parse(modelConfigJson(inferSize = listOf(96, 96)))
         assertEquals(96, spec.outWidth)
         assertEquals(96, spec.outHeight)
     }
@@ -94,7 +94,7 @@ class ModelSpecTest {
      */
     @Test
     fun fallsBackToOutSizeWhenInferSizeIsAbsent() {
-        val spec = ModelSpec.parse(config(outSize = listOf(128, 128)))
+        val spec = ModelSpec.parse(modelConfigJson(outSize = listOf(128, 128)))
         assertEquals(128, spec.outWidth)
         assertEquals(128, spec.outHeight)
     }
@@ -105,17 +105,17 @@ class ModelSpecTest {
      */
     @Test
     fun rejectsAnImplausibleSize() {
-        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(config(inferSize = listOf(8, 8))) }
+        val error = assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(inferSize = listOf(8, 8))) }
         assertTrue(error.message!!.contains("plausible"), error.message)
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(outSize = listOf(1024, 1024))) }
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(outSize = listOf(1024, 1024))) }
     }
 
     @Test
     fun fallsBackToImagenetOnlyWhenNormalizeKeyIsAbsent() {
-        val custom = ModelSpec.parse(config(mean = listOf(0.5f, 0.4f, 0.3f)))
+        val custom = ModelSpec.parse(modelConfigJson(mean = listOf(0.5f, 0.4f, 0.3f)))
         assertEquals(listOf(0.5f, 0.4f, 0.3f), custom.mean, "a present normalize block must win over the fallback")
 
-        val fallback = ModelSpec.parse(config(mean = null))
+        val fallback = ModelSpec.parse(modelConfigJson(mean = null))
         assertEquals(listOf(0.485f, 0.456f, 0.406f), fallback.mean)
         assertEquals(listOf(0.229f, 0.224f, 0.225f), fallback.std)
     }
@@ -127,16 +127,16 @@ class ModelSpecTest {
      */
     @Test
     fun readsTheInputRepresentationAndItsChannelCount() {
-        val gs = ModelSpec.parse(config(inputRepr = "gray+sobel"))
+        val gs = ModelSpec.parse(modelConfigJson(inputRepr = "gray+sobel"))
         assertEquals(InputRepr.GRAY_SOBEL, gs.repr)
         assertEquals(2, gs.channels)
 
-        // Runs predating the flag carry no key and were plain RGB.
-        val old = ModelSpec.parse(config())
-        assertEquals(InputRepr.RGB, old.repr)
-        assertEquals(3, old.channels)
+        // Kein Schluessel heisst RGB — der Zustand jedes ausgelieferten Modells und jedes aelteren.
+        val absent = ModelSpec.parse(modelConfigJson())
+        assertEquals(InputRepr.RGB, absent.repr)
+        assertEquals(3, absent.channels)
 
-        assertThrows<IllegalArgumentException> { ModelSpec.parse(config(inputRepr = "edges")) }
+        assertThrows<IllegalArgumentException> { ModelSpec.parse(modelConfigJson(inputRepr = "edges")) }
     }
 
     /**
@@ -148,20 +148,20 @@ class ModelSpecTest {
      */
     @Test
     fun readsTheDeclaredCropAndTreatsAnAbsentOneAsLegacy() {
-        val declared = ModelSpec.parse(config(padSide = 0.05))
+        val declared = ModelSpec.parse(modelConfigJson(padSide = 0.05))
         assertEquals(0.05, declared.padSide)
         assertTrue(declared.declaresCrop)
 
-        val legacy = ModelSpec.parse(config())
-        assertNull(legacy.padSide)
-        assertFalse(legacy.declaresCrop, "an absent crop must never read as a default")
+        val undeclared = ModelSpec.parse(modelConfigJson())
+        assertNull(undeclared.padSide)
+        assertFalse(undeclared.declaresCrop, "an absent crop must never read as a default")
 
-        val archived = ModelSpec.parse(config(padSide = 0.05, padUp = 0.0))
+        val archived = ModelSpec.parse(modelConfigJson(padSide = 0.05, padUp = 0.0))
         assertEquals(0.05, archived.padSide)
         assertTrue(archived.declaresCrop)
 
-        assertNull(ModelSpec.parse(config(padUp = 0.0)).padSide)
-        assertFalse(ModelSpec.parse(config(padUp = 0.0)).declaresCrop)
+        assertNull(ModelSpec.parse(modelConfigJson(padUp = 0.0)).padSide)
+        assertFalse(ModelSpec.parse(modelConfigJson(padUp = 0.0)).declaresCrop)
     }
 
     /**
@@ -185,11 +185,11 @@ class ModelSpecTest {
      */
     @Test
     fun readsTheCoverageOutputAndTreatsAnAbsentOneAsFalse() {
-        val covering = ModelSpec.parse(config(classes = PIECES13_CLASSES, coverageOutput = true))
+        val covering = ModelSpec.parse(modelConfigJson())
         assertTrue(covering.coverageOutput)
         assertEquals(PIECES13_CLASSES.size + 1, covering.outputWidth)
 
-        val legacy = ModelSpec.parse(config())
+        val legacy = ModelSpec.parse(modelConfigJson(classes = EXPECTED_CLASSES, coverageOutput = false, coverageGate = null))
         assertFalse(legacy.coverageOutput, "an absent key must never read as a coverage model")
         assertEquals(EXPECTED_CLASSES.size, legacy.outputWidth)
     }
@@ -229,7 +229,7 @@ class ModelSpecTest {
     fun `the run's own clahe declaration is what serving reproduces`() {
         val spec =
             ModelSpec.parse(
-                config(clahe = ", \"clahe_clip\": 2.0, \"clahe_tile\": 8, \"clahe_min_mean\": 25.0, \"clahe_max_mean\": 40.0"),
+                modelConfigJson(claheClip = 2.0, extra = ", \"clahe_tile\": 8, \"clahe_min_mean\": 25.0, \"clahe_max_mean\": 40.0"),
             )
         assertEquals(2.0, spec.claheClip)
         assertEquals(8, spec.claheTile)
@@ -239,8 +239,8 @@ class ModelSpecTest {
 
     @Test
     fun `a run without a clahe key asks for none`() {
-        // Der Zustand jedes bisher ausgelieferten Modells — und `0.0` ist das Aus-Signal.
-        assertEquals(0.0, ModelSpec.parse(config()).claheClip)
+        // `0.0` ist das Aus-Signal; die drei p4-Laeufe ohne CLAHE stehen genau so im APK.
+        assertEquals(0.0, ModelSpec.parse(modelConfigJson()).claheClip)
     }
 
     @Test
@@ -249,31 +249,9 @@ class ModelSpecTest {
         // Absturz, keine Warnung, nur ein paar Punkte weniger, die niemand einem Schalter zuordnet.
         val e =
             assertThrows<IllegalArgumentException> {
-                ModelSpec.parse(config(clahe = ", \"clahe_clip\": 2.0, \"clahe_denoise\": \"pre\""))
+                ModelSpec.parse(modelConfigJson(claheClip = 2.0, extra = ", \"clahe_denoise\": \"pre\""))
             }
         assertTrue(e.message!!.contains("clahe_denoise")) { e.message!! }
-    }
-
-    private fun config(
-        classes: List<String> = EXPECTED_CLASSES,
-        outSize: List<Int> = listOf(128, 128),
-        mean: List<Float>? = listOf(0.485f, 0.456f, 0.406f),
-        inputRepr: String? = null,
-        inferSize: List<Int>? = null,
-        padSide: Double? = null,
-        padUp: Double? = null,
-        coverageOutput: Boolean = false,
-        clahe: String? = null,
-    ): String {
-        val normalize =
-            mean?.let { ", \"normalize\": {\"mean\": ${it.joinToString(",", "[", "]")}, \"std\": [0.229, 0.224, 0.225]}" }.orEmpty()
-        val repr = inputRepr?.let { ", \"input_repr\": \"$it\"" }.orEmpty()
-        val infer = inferSize?.let { ", \"infer_size\": ${it.joinToString(",", "[", "]")}" }.orEmpty()
-        val crop = (padSide?.let { ", \"pad_side\": $it" }.orEmpty()) + (padUp?.let { ", \"pad_up\": $it" }.orEmpty())
-        val coverage = if (coverageOutput) ", \"coverage_output\": true" else ""
-        val cla = clahe.orEmpty()
-        return """{"backbone": "x", "classes": ${classes.joinToString(",", "[", "]") { "\"$it\"" }},""" +
-            """ "out_size": ${outSize.joinToString(",", "[", "]")}$infer$crop$normalize$repr$coverage$cla}"""
     }
 }
 
