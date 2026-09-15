@@ -75,14 +75,14 @@ private const val CURRENT_MODEL_RELEASE = 5
  * is not release-gated: there is no choice left to respect, only a directory that would fail its
  * attach forever. It is matched against the RAW stored name — see [decodeAppSettings].
  */
-private val RETIRED_MODELS = setOf("shipped", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128")
+internal val RETIRED_MODELS = setOf("shipped", "bn100-80", "bn50-80", "bn35-80", "v6-80", "v4-128")
 
 /**
  * Models that were once the default. They move forward ONCE, at release 4 — pinned to that release
  * rather than to [CURRENT_MODEL_RELEASE] so a later bump cannot overrule the choice a second time.
  */
 private const val LEGACY_DEFAULT_RELEASE = 4
-private val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80", "id35-80")
+internal val LEGACY_DEFAULT_MODELS = setOf("shipped", "bn100-80", "id35-80")
 
 @Serializable
 data class AppSettings(
@@ -205,6 +205,9 @@ fun decodeAppSettings(text: String?): AppSettings {
         when {
             // RAW first: `bundledModelOrDefault` collapses a name this APK dropped to the default,
             // so a membership test on its result can never see a retired one (fixed 2026-08-20).
+            // Heute sind beide Mengen disjunkt zu `BUNDLED_MODELS`, also antwortet der `else`-Zweig
+            // ohnehin gleich — `RetiredModelBranchesTest` pinnt das und wird laut, sobald ein
+            // kuenftiges APK einen dieser Namen wieder mitliefert und die Reihenfolge zaehlt.
             stored in RETIRED_MODELS -> DEFAULT_MODEL
             storedModelRelease < LEGACY_DEFAULT_RELEASE && stored in LEGACY_DEFAULT_MODELS -> DEFAULT_MODEL
             else -> bundledModelOrDefault(stored)
