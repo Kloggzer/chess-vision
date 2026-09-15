@@ -23,7 +23,10 @@ export async function POST(request: Request) {
       return Response.json(await drainStatus());
     }
     const step = body.step ?? null;
-    if (!isJobStep(step)) return Response.json({ error: `"${body.step}" ist kein Schritt` }, { status: 400 });
+    // `chain` folgt der Kette statt einer Sprosse und haelt an jedem Menschen-Tor.
+    if (step !== "chain" && !isJobStep(step)) {
+      return Response.json({ error: `"${body.step}" ist kein Schritt` }, { status: 400 });
+    }
     const started = await startDrain(step);
     if ("error" in started) return Response.json({ error: started.error }, { status: 409 });
     return Response.json(await drainStatus());

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { JobStep } from "@/lib/backlog";
+import type { DrainTarget } from "@/lib/drain";
 import type { DrainStatus } from "@/lib/drain";
 
 const POLL_MS = 5000;
@@ -10,7 +10,7 @@ export type Drain = {
   status: DrainStatus | null;
   busy: boolean;
   /** Start this step's backlog, oldest recording first. Nothing else ever starts a job. */
-  start: (step: JobStep) => void;
+  start: (step: DrainTarget) => void;
   /** End the running drain after its current recording. */
   stop: () => void;
   /** A refusal the press has to answer for (no model chosen, a foreign lock, nothing waiting). */
@@ -51,7 +51,7 @@ const [status, setStatus] = useState<DrainStatus | null>(null);
       .finally(() => setBusy(false));
   }, []);
 
-  const start = useCallback((step: JobStep) => post({ step }), [post]);
+  const start = useCallback((step: DrainTarget) => post({ step }), [post]);
   const stop = useCallback(() => post({ stop: true }), [post]);
 
   return { status, busy, start, stop, note };

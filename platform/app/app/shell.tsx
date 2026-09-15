@@ -5,7 +5,7 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { JobStep } from "@/lib/backlog";
+import type { DrainTarget } from "@/lib/drain";
 import { runDot, runState, useDrain, type Drain } from "./drain-status";
 
 export type NavCounts = { zuege: number; labeln: number; einpflegen: number };
@@ -62,7 +62,14 @@ const HEADING = "text-muted-foreground/70 px-2 pt-2 text-[10px] font-medium trac
 const ORDER = "älteste Aufnahme zuerst, eine nach der anderen; Stopp beendet nach der laufenden.";
 
 /** The five steps of the Kette that are jobs — `chain-actions.tsx` names them the same way. */
-const STEPS: readonly { step: JobStep; label: string; hint: string }[] = [
+const STEPS: readonly { step: DrainTarget; label: string; hint: string }[] = [
+  {
+    step: "chain",
+    label: "Kette",
+    hint: "jede Aufnahme auf ihrer eigenen Sprosse weiterziehen, bis sie an einem Menschen steht "
+      + "(Zuege pruefen, Zellen labeln) — sieben der neun Sprossen sind Jobs; "
+      + `${ORDER}`,
+  },
   {
     step: "phone-record",
     label: "Handy-Züge",
@@ -82,7 +89,12 @@ const STEPS: readonly { step: JobStep; label: string; hint: string }[] = [
 
 function StepButton({ drain, entry, wide }: { drain: Drain; entry: (typeof STEPS)[number]; wide: boolean }) {
   const { status, busy, start } = drain;
-  const waiting = status?.waiting?.[entry.step] ?? 0;
+  // Die Kette hat keine eigene Warteschlange: sie bedient jede Sprosse, also zaehlt die Summe.
+  // Ueber die Antwort summiert, nicht ueber `JOB_STEPS` — das Modul fasst die Platte an und
+  // gehoert damit nicht in eine Client-Komponente (`client-boundary.test.ts`).
+  const waiting = entry.step === "chain"
+    ? Object.values(status?.waiting ?? {}).reduce((sum, n) => sum + n, 0)
+    : (status?.waiting?.[entry.step] ?? 0);
   const running = status?.drain?.step === entry.step;
   return (
     <Tooltip>

@@ -9,9 +9,15 @@ import { queueRows } from "@/lib/queues";
 /** The panel polls; two polls inside this window share one pass over `recordings/`. */
 const SNAPSHOT_MS = 10_000;
 
-/** One press, one step, across the corpus. `started` is the loop guard: a step whose job leaves
- *  the chain where it was would otherwise take the same recording again, forever. */
-type Drain = { step: JobStep; started: Set<string>; stopped: boolean };
+/** `"chain"` folgt der KETTE statt einer Sprosse: jede Aufnahme auf ihrer eigenen, bis zum
+ *  naechsten Menschen-Tor (`confirm`, `labeln` sind Seiten und damit keine Jobs). */
+export type DrainTarget = JobStep | "chain";
+
+/** One press, one step, across the corpus. `started` is the loop guard, gekeyt auf
+ *  `<name>|<step>`: eine Aufnahme darf dieselbe Sprosse nie zweimal nehmen, die naechste schon. */
+type Drain = { step: DrainTarget; started: Set<string>; stopped: boolean };
+
+const taken = (name: string, step: JobStep) => `${name}|${step}`;
 
 type Engine = {
   /** The backlog a human is draining right now — never more than one, because the slot is one. */
@@ -56,18 +62,30 @@ async function sameMattePass(first: string, rest: string[]): Promise<string[]> {
   return rest.filter((row) => mode.get(row) === wanted);
 }
 
+/** Die Sprossen, die dieser Druck bedienen darf — `JOB_STEPS` steht in Kettenreihenfolge. */
+const lane = (drain: Drain): readonly JobStep[] => (drain.step === "chain" ? JOB_STEPS : [drain.step]);
+
 // Null = nothing left to take: the backlog is empty, or Stopp was pressed since the last one.
 async function drainNext(drain: Drain): Promise<{ started: string } | { error: string } | null> {
   if (drain.stopped) return null;
-  const open = (await freshBacklog()).waiting[drain.step].filter((row) => !drain.started.has(row));
+  const waiting = (await freshBacklog()).waiting;
+  let step: JobStep | undefined;
+  let open: string[] = [];
+  for (const candidate of lane(drain)) {
+    open = waiting[candidate].filter((row) => !drain.started.has(taken(row, candidate)));
+    if (open.length > 0) {
+      step = candidate;
+      break;
+    }
+  }
   const [name, ...rest] = open;
-  if (name === undefined) return null;
+  if (name === undefined || step === undefined) return null;
   // Nur Aufnahmen im SELBEN Modus: `runChesslab` waehlt `--reported` oder `--limit` einmal fuer
   // den Prozess, also duerfen nicht beide Sorten mitreisen (`mattes.reportedOpen`).
-  const also = drain.step === BATCHED ? await sameMattePass(name, rest) : [];
-  const started = await startStep(name, drain.step, undefined, also);
+  const also = step === BATCHED ? await sameMattePass(name, rest) : [];
+  const started = await startStep(name, step, undefined, also);
   if (refused(started)) return { error: `${name}: ${started.error}` };
-  for (const row of [name, ...also]) drain.started.add(row);
+  for (const row of [name, ...also]) drain.started.add(taken(row, step));
   engine.snapshot = null;
   return { started: name };
 }
@@ -92,7 +110,7 @@ function keepDraining(drain: Drain): void {
  * Every job goes through `startStep`, so a press shares the single slot and the heavy lock with
  * every other press; the first refusal goes back to the button instead of only to the panel.
  */
-export async function startDrain(step: JobStep): Promise<{ started: string } | { error: string }> {
+export async function startDrain(step: DrainTarget): Promise<{ started: string } | { error: string }> {
   if (engine.drain) return { error: `${engine.drain.step} läuft schon — ein Schritt nach dem anderen` };
   engine.errors = [];
   clearAdoptFailures();
@@ -126,7 +144,7 @@ export type DrainStatus = {
   /** Recordings sitting on each job step — what the panel's buttons count, and drain. */
   waiting: Record<JobStep, number>;
   /** The step being drained and how far it has got. */
-  drain: { step: JobStep; done: number; left: number; stopped: boolean } | null;
+  drain: { step: DrainTarget; done: number; left: number; stopped: boolean } | null;
   repair: number;
   /** Another process holds the machine-wide lock, so nothing of ours may start. */
   foreignLock: { pid: number; job: string; name: string } | null;
@@ -149,7 +167,8 @@ export async function drainStatus(): Promise<DrainStatus> {
     running: job ? { name: job.name, step: job.kind ?? "job" } : null,
     waiting: countWaiting(next),
     drain: drain
-      ? { step: drain.step, done: drain.started.size, left: next.waiting[drain.step].length, stopped: drain.stopped }
+      ? { step: drain.step, done: drain.started.size, stopped: drain.stopped,
+          left: lane(drain).reduce((sum, step) => sum + next.waiting[step].length, 0) }
       : null,
     repair: next.repair.length,
     foreignLock: foreign ? { pid: foreign.pid, job: foreign.job, name: foreign.name } : null,

@@ -385,8 +385,24 @@ export function phoneArgs(recordingDir: string): string[] {
 
 /** The verb's one refusal line, LAST wins — a retry appends to the same log. */
 export function refusalOf(log: string): string | null {
-  const line = log.split(/\r?\n/).findLast((l) => l.startsWith("refused: "));
-  return line === undefined ? null : line.slice("refused: ".length);
+  const lines = log.split(/\r?\n/);
+  const refused = lines.findLast((l) => l.startsWith("refused: "));
+  if (refused !== undefined) return refused.slice("refused: ".length);
+  return tracebackReason(lines);
+}
+
+/** Rich malt den Traceback in einen Kasten, also zaehlt nicht die letzte ZEILE des Logs. */
+const FRAME = /^[\s│╭╰└┌┐┘├┤─━╌·]*$/;
+
+/**
+ * Die Ausnahme unter einem Python-Traceback. `exit 1` sagt nicht, WAS schiefging: `phone-record`
+ * starb an einer OpenCV-Meldung, die im Log stand und den Ledger nie erreichte (2026-09-15).
+ */
+function tracebackReason(lines: string[]): string | null {
+  const start = lines.findLastIndex((l) => l.trimStart().startsWith("Traceback (most recent call last)"));
+  if (start < 0) return null;
+  const last = lines.slice(start + 1).findLast((l) => l.trim() !== "" && !FRAME.test(l));
+  return last === undefined ? null : last.replace(/^[\s│]+|[\s│]+$/g, "");
 }
 
 /**
