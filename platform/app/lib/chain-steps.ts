@@ -26,6 +26,11 @@ export const STEP: Record<ChainStep, { label: string; what: string; hint: string
     what: "Aus den bestätigten Zügen wird je Stellung das Brettbild geschnitten — die Grundlage für alles Weitere.",
     hint: "schreibt data/recordings/<name>/boards/ + log.jsonl",
   },
+  "settle-scan": {
+    label: "Stellungen messen",
+    what: "Jede Zelle wird gegen das ruhige Bild ihres eigenen Zug-Intervalls gemessen — erst danach hat die Strittig-Lane etwas auszulegen.",
+    hint: "schreibt settle_dev/settle_seen in log.jsonl",
+  },
   matte: {
     label: "Hände matten",
     what: "SAM schneidet die Hand aus den verdeckten Bildern, damit die Zellen darunter nicht als Figur gelernt werden.",

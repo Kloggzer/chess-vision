@@ -103,7 +103,7 @@ def position_flags() -> dict:
     """Über jede Session mit einer Matte. -> Zusammenfassung und Pfad."""
     from .temporal_flags import load_flags
 
-    rows, per_session, stale_temporal = [], {}, []
+    rows, per_session, stale_temporal, unmeasured = [], {}, [], []
     for path in sorted(config.DATA.recordings.glob("*/log.jsonl")):
         session_dir = path.parent
         if not (session_dir / "session.yaml").is_file():
@@ -111,6 +111,10 @@ def position_flags() -> dict:
         session_id = read_session_meta(session_dir)["session_id"]
         matte = read_matte(session_dir)
         entries = read_log(session_dir)
+        # Ohne `settle_dev` faellt jede Zelle durch `frame_flags` — null Flags saehen dann aus
+        # wie "nichts strittig", statt wie "`session settle-scan` lief hier nie".
+        if not any("settle_dev" in entry for entry in entries):
+            unmeasured.append(session_id)
         found = [flag for entry in entries
                  for flag in frame_flags(entry, matte.get(Path(entry["frame"]).stem), session_id)
                  ] if (session_dir / "matte.jsonl").is_file() else []
@@ -139,11 +143,13 @@ def position_flags() -> dict:
         if found:
             per_session[session_dir.name] = len(found)
     header = {"_settle_limit": SETTLE_LIMIT, "_seen_min": SETTLE_SEEN_MIN,
-              "_visible_max": MATTE_DIRTY, "_written_at": datetime.now(UTC).isoformat()}
+              "_visible_max": MATTE_DIRTY, "_unmeasured": unmeasured,
+              "_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / FLAGS_FILE, rows, header)
     return {"path": out, "flags": len(rows),
             "frames": len({(r["session_id"], r["frame"]) for r in rows}),
-            "per_session": per_session, "stale_temporal": stale_temporal}
+            "per_session": per_session, "stale_temporal": stale_temporal,
+            "unmeasured": unmeasured}
 
 
 def interval_flags() -> dict:

@@ -134,6 +134,9 @@ export type LabelStream = {
   hands: StreamHandCell[] | null;
   /** `null` = `position-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   positions: StreamPositionCell[] | null;
+  /** Aufnahmen, auf denen `settle-scan` nie lief. Sie tragen null Stellungs-Karten, und das ist
+   *  keine Aussage — ohne sie las sich die Zahl der Lane als "der ganze Korpus ist geprueft". */
+  positionsUnmeasured: string[];
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
   /** How far `model-read` reaches: the boards a model has read. One session of 43 on
@@ -334,6 +337,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     auditStaleSince: auditRows.staleSince,
     hands: handRows.present ? handCells(handRows.rows, bySession) : null,
     positions: positionRows.present ? positionCells(positionRows.rows, bySession) : null,
+    positionsUnmeasured: positionRows.unmeasured,
     decided,
     reads: { boards: readBoards },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },

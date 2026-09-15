@@ -28,6 +28,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from . import provenance
 from .calibration import load_profile
 from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
 from .state import GameState
@@ -176,6 +177,7 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
         with temp.open("w", encoding="utf-8") as fh:
             fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
                                  **({"_weights": weights} if weights else {}),
+                                 "_source": provenance.source(session_dir, str(model_dir)),
                                  "_written_at": datetime.now(UTC).isoformat()}) + "\n")
             for n, row in enumerate(rows, 1):
                 cells = frame_cells(session_dir, row, profile)

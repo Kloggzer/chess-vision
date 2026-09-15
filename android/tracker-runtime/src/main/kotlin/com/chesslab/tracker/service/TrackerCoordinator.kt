@@ -35,17 +35,8 @@ import org.opencv.core.Mat
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * The analyzer-thread loop. Everything expensive is somewhere else.
- *
- * Per frame, in order: publish pixels, build the `FrameInput`, drain queued actions and CNN
- * observations, run the engine, publish the result, offer the CNN a frame, maybe re-align.
- * Nothing here blocks — no `runBlocking`, no `await`, no disk, no ArUco, no inference. The
- * legacy 970-LOC service did all of that inline and held the loop at 100-150 ms (commit 4a7609e).
- *
- * `LongParameterList` is suppressed because the list IS the seam: every parameter is one
- * collaborator a host must supply, and no two of them belong together. The holder object detekt
- * asks for would exist only to satisfy detekt — the same reasoning `preprocessInto` records in
- * `:core-cnn` and `OpenCvStages` in this module. The next parameter deserves an argument.
+ * The analyzer-thread loop — nothing here blocks, and the parameter list IS the seam rather than a
+ * smell. What each decision cost when it was made differently: `docs/tracker-runtime-service.md`.
  */
 @Suppress("LongParameterList")
 class TrackerCoordinator<T>(
@@ -57,33 +48,18 @@ class TrackerCoordinator<T>(
     private val align: LiveAlign,
     private val timings: StageTimings,
     /**
-     * The engine's clock, and the reason it is a parameter.
-     *
-     * `EngineState` calls determinism BINDING: `nowS` is set once per frame from
-     * `FrameInput.timestampMs`, and several gates are ages against it — the motion recency check
-     * under `requireMotionForMove`, the anomaly latch, the CNN cooldowns. Feeding the WALL clock
-     * is correct for a camera, where a frame really does arrive when it arrives, and wrong for a
-     * replay, which decodes as fast as it can: a 319-second video pushed through in 200 seconds
-     * makes every one of those windows 1.6x too short, and two runs of the same file disagree.
-     *
-     * The clip simulation never had this problem because it bypasses this class and passes its
-     * own timestamp straight to `FramePipeline.onFrame`. That is why 18 clips are green while a
-     * real video committed nothing.
+     * The engine's clock, and a parameter because several gates are AGES against it: the wall clock
+     * makes a replay's windows 1.6x too short and two runs disagree (`docs/tracker-runtime-service.md`).
      */
     private val nowMs: () -> Long = System::currentTimeMillis,
     /**
-     * Belichtung nach dem Brett statt nach dem Rahmen.
-     *
-     * Vorgabe [ExposureGovernor.NONE], damit Replay und Clip-Sim unveraendert bleiben: die stellen
-     * keine Kamera, und eine Verstellung mitten im Replay waere eine Eingabe, die nicht in der
-     * Datei steht.
+     * Belichtung nach dem Brett statt nach dem Rahmen. Vorgabe [ExposureGovernor.NONE]: ein Replay
+     * stellt keine Kamera (`docs/tracker-runtime-service.md`).
      */
     private val exposure: ExposureGovernor = ExposureGovernor.NONE,
     /**
-     * Der Fokus-Sweep beim Aufsetzen und die Schaerfe-Aufsicht danach.
-     *
-     * Vorgabe [FocusGovernor.NONE] aus demselben Grund wie bei der Belichtung: ein Replay stellt
-     * keine Linse.
+     * Der Fokus-Sweep beim Aufsetzen und die Schaerfe-Aufsicht danach. Vorgabe [FocusGovernor.NONE]
+     * aus demselben Grund wie [exposure]: ein Replay stellt keine Linse.
      */
     private val focus: FocusGovernor = FocusGovernor.NONE,
     /** Jede Notiz-/Stuck-Aenderung der Engine, eine Zeile: der Replay hat sonst nur Entscheidungszeilen. */
@@ -97,12 +73,8 @@ class TrackerCoordinator<T>(
     private val noise = NoiseFloor()
 
     /**
-     * The frame clock spans this WHOLE method.
-     *
-     * It used to start inside [FramePipeline.onFrame] and stop at the engine, which left three
-     * stages measured by nothing: the preview bus before it, and the status publish, observer poke
-     * and live-align clone after it. That is why `total + engine` read ~65 ms against an observed
-     * ~90 ms frame period — the gap was real work, not measurement noise.
+     * The frame clock spans this WHOLE method. Narrower, it left three stages measured by nothing
+     * and read ~65 ms against an observed ~90 ms frame period (`docs/tracker-runtime-service.md`).
      */
     fun onFrame(
         image: T,
@@ -136,8 +108,7 @@ class TrackerCoordinator<T>(
             publisher.publish(host::status, host.fen(), late, null)
         }
         // Nach dem Frame, nicht davor: die Messung liest den Warp, den dieser Frame schon bezahlt
-        // hat. Eine Verstellung verschiebt jeden Pixel, also ist die Pixel-Referenz danach hin —
-        // `CaptureBaseline` ist genau das, ohne die Stellung zu verlieren.
+        // hat, und eine Verstellung nimmt die Pixel-Referenz mit (`docs/tracker-runtime-service.md`).
         val ready = result as? FrameResult.Ready
         // Vor der Regelung, damit kein Paar ueber eine Verstellung hinweg gemessen wird. Denselben
         // 160er-Warp wie die Belichtung, und der ist je Frame memoisiert — also hoechstens einer.
@@ -146,10 +117,8 @@ class TrackerCoordinator<T>(
         // Alarm oder Re-Anchor — alles Momente, in denen die Pixel-Referenz gerade entsteht.
         val quiet = events.isEmpty()
         if (ready != null) {
-            // Waehrend eines Sweeps stellt die Belichtung nicht: sie verschoebe den Kontrast unter
-            // der laufenden Messreihe, und der Gipfel ist ein Vergleich von Reihe zu Reihe. Als
-            // unruhiger Frame, nicht als uebersprungener Aufruf: so armiert der Sweep den Hold
-            // mit, statt den Frame nach ihm ueber die frische Pixel-Referenz regeln zu lassen.
+            // Waehrend eines Sweeps stellt die Belichtung nicht, und zwar als UNRUHIGER Frame
+            // statt als uebersprungener Aufruf (`docs/tracker-runtime-service.md`).
             val settled = quiet && !focus.sweeping
             // Normalisiert gegen den GELIEFERTEN Frame: `corners` sind Quellpixel, der Warp misst
             // boardSize * detectScale, und das Geraet misst in Frame-Koordinaten.
@@ -177,14 +146,8 @@ class TrackerCoordinator<T>(
     }
 
     /**
-     * 06a's calibration result. Queued, not applied — [TrackerService.calibrate] runs on the main
-     * thread while this loop is mid-frame on the analyzer thread.
-     *
-     * Only `pipeline.corners` is `@Volatile`; the geometry, the profile baseline and the marker
-     * smoother behind it are plain fields. Writing them inline let a frame warp with the NEW
-     * corners under the OLD board size — the two halves of a calibration reaching the loop one
-     * frame apart, which is precisely the state `FrameLoop` refuses a plane for. Handing over one
-     * reference and reading it at a frame boundary makes the swap atomic from the loop's side.
+     * 06a's calibration result. Queued, not applied: written inline, a frame warped with the NEW
+     * corners under the OLD board size (`docs/tracker-runtime-service.md`).
      */
     fun applyCalibration(
         geometry: BoardGeometry,
@@ -216,11 +179,8 @@ class TrackerCoordinator<T>(
 }
 
 /**
- * Die Drossel vor dem Notiz-Log.
- *
- * Notizen tragen Zaehlerstaende ("Much change (7 squares + 1 occluded)…", "holding reference for
- * 3s"), also wechselt der Text waehrend eines Stillstands auf fast jedem Frame und das Handy
- * schreibt eine Zeile je Detektionsframe. Ein Stuck ist ein Zustandswechsel und geht immer durch.
+ * Die Drossel vor dem Notiz-Log: Notizen tragen Zaehlerstaende, wechseln also im Stillstand auf
+ * fast jedem Frame. Ein Stuck ist ein Zustandswechsel und geht immer durch (`docs/tracker-runtime-service.md`).
  */
 internal class NoteThrottle(
     private val nowMs: () -> Long,
@@ -243,24 +203,8 @@ internal class NoteThrottle(
 internal const val MIN_NOTE_GAP_MS = 250L
 
 /**
- * ArUco re-detection, off the frame thread.
- *
- * Commit 4a7609e measured it at 44-87 ms every 300 ms *on the analyzer thread* — the "recorder
- * spikes" that were blamed on recording for weeks. Here it runs on [dispatcher] with at most one
- * detection in flight, and the corners it produces are picked up by the NEXT frame.
- *
- * [dispatcher] is a parameter and not [scope]'s context because for a long time this KDoc said
- * "a background dispatcher" and the phone did not have one. `TrackerService` is a `LifecycleService`
- * and passes `lifecycleScope`; `TrackerStack` builds its scope as `parent.coroutineContext +
- * SupervisorJob()`, which inherits `Dispatchers.Main.immediate`. So ArUco AND the once-per-pose
- * [onGrid] fit ran on the UI THREAD on the one host where that matters, while the desktop passed
- * `Dispatchers.Default` and looked fine. Naming the dispatcher here makes the sentence above true
- * on every host instead of true wherever the caller happened to get it right — [scope] keeps the
- * parent's context, which the settings and observer collectors on it legitimately want.
- *
- * On a delivered-size change the marker tracker is REPLACED, never rescaled (commit a7dab73): its
- * smoothed points are pixel coordinates, and EMA-blending two coordinate spaces drifted the warp
- * by ~2.3 ranks. Re-seeding costs a few frames of alignment; rescaling costs a whole game.
+ * ArUco re-detection, off the frame thread — 44-87 ms every 300 ms on the analyzer thread before
+ * (commit 4a7609e). Why [dispatcher] is a parameter: `docs/tracker-runtime-service.md`.
  */
 @Suppress("LongParameterList")
 class LiveAlign(
@@ -278,9 +222,7 @@ class LiveAlign(
     private val cachedMarkers: ((Long) -> Map<Int, DoubleArray>)? = null,
     /**
      * Die Rektifizierung ist gewechselt — dieselbe Lage wie bei der Belichtung, siehe [onFrame].
-     *
-     * Vorgabe leer, damit Replay und Tests unveraendert bleiben; live haengt daran die
-     * Pixel-Referenz, die nach einer neuen Korrektur gegen ein anders ausgerichtetes Bild vergleicht.
+     * Vorgabe leer; live haengt daran die Pixel-Referenz (`docs/verifier-stall.md`).
      */
     private val onRectificationChanged: () -> Unit = {},
 ) {
@@ -298,15 +240,8 @@ class LiveAlign(
     private var correctionTried = false
 
     /**
-     * The quad [correction] was fitted against, so it can be noticed when that pose is gone.
-     *
-     * Without this the correction outlived its own premise. Its KDoc calls the groove residual "a
-     * per-calibration constant", quoting `specs/30` — which is true, and carries an unstated
-     * condition: it is a constant OF THAT SETUP. `maybeAlign` re-derives the quad from the markers
-     * every `alignEvery` frames, so a nudged phone is followed correctly by the quad and then has a
-     * correction measured at the old pose added on top of it, silently, for the rest of the session.
-     * That is the shape of the failure that cost this project 5.5x its empty-crop margin: a few
-     * pixels of consistent offset with nothing failing loudly.
+     * The quad [correction] was fitted against — it is a constant OF THAT SETUP, and without this
+     * it outlived its own premise for the rest of a session (`docs/tracker-runtime-service.md`).
      */
     @Volatile
     private var fittedAt: FloatArray? = null
@@ -315,11 +250,8 @@ class LiveAlign(
     private var inFlight = false
 
     /**
-     * Which calibration the in-flight job belongs to; [reset] moves it on.
-     *
-     * The worker holds an OLD frame and the smoother from before, and it reads [geometry] inside
-     * itself — so a job landing after a recalibration mixed a pre-calibration quad with the new
-     * geometry and overwrote the corners the user had just measured.
+     * Which calibration the in-flight job belongs to; [reset] moves it on. A job landing after a
+     * recalibration overwrote the corners the user had just measured (`docs/tracker-runtime-service.md`).
      */
     @Volatile
     private var generation = 0
@@ -386,33 +318,8 @@ class LiveAlign(
     }
 
     /**
-     * The ArUco quad pulled back onto the board's own grooves.
-     *
-     * Without this the calibration-time refinement is decoration: [maybeAlign] re-derives the quad
-     * from the markers every `alignEvery` frames — ~0.2 s at 15 fps — and knows nothing about
-     * grooves, so it overwrote the refined corners almost immediately and every crop was cut with
-     * the geometry the refinement exists to remove.
-     *
-     * MEASURED once per pose, then RE-APPLIED for free: four points through a 3x3. It runs on the
-     * align dispatcher with one detection in flight, so it costs at most one skipped align.
-     * Measuring here rather than carrying the value from the calibration screen also means it is
-     * re-established after an app restart, where the screen never runs.
-     *
-     * **It costs ~500 ms, and that is measured.** On the dev machine at boardSize 1248, `improveQuad`
-     * alone reads 412-432 ms and the whole `quadOf` around it 625 ms (medians, 2026-08-07). This
-     * KDoc previously said "70-85 ms at boardSize 800", which even scaled by area would be ~200 ms
-     * — the real figure is roughly triple. It has still NOT been measured on device, where it will
-     * be slower.
-     *
-     * Half a second is why the dispatcher on this class is a parameter: for months this ran on the
-     * phone's UI thread, because `TrackerStack` inherited `lifecycleScope`'s `Main.immediate` and
-     * only the desktop passed anything else. A once-per-pose cost on a background dispatcher is
-     * fine; the same cost on the main thread is a visible freeze that nothing reported.
-     *
-     * The correction lives in rectified space, which is what lets it transfer to a quad it was not
-     * measured on — the whole live case, since the markers move a little between detections.
-     * `specs/30` measured that residual as systematic per setup and differing in sign between
-     * setups, i.e. exactly a per-calibration constant.
+     * The ArUco quad pulled back onto the board's own grooves — MEASURED once per pose at ~500 ms
+     * (2026-08-07, never on device), then re-applied free. `docs/tracker-runtime-service.md`.
      */
     private fun onGrid(
         frame: Mat,
@@ -438,11 +345,8 @@ class LiveAlign(
     }
 
     /**
-     * Drop the correction when the board is no longer where it was fitted.
-     *
-     * Logged both ways round: a correction that silently vanishes is as hard to debug as one that
-     * silently persists, and this one only ever fires on a real change of setup. Warum die
-     * Pixel-Referenz mitgeht: `docs/verifier-stall.md`.
+     * Drop the correction when the board is no longer where it was fitted. Logged both ways round:
+     * a silent vanish debugs as badly as a silent persist (`docs/verifier-stall.md`).
      */
     private fun expireCorrection(
         current: FloatArray,
@@ -459,9 +363,8 @@ class LiveAlign(
     }
 
     /**
-     * A new calibration invalidates the smoothed markers outright, and the grid correction with
-     * them — it is a property of THIS board under THIS lens, and a recalibration is the user
-     * saying that changed.
+     * A new calibration invalidates the smoothed markers and the grid correction with them — that
+     * correction is a property of THIS board under THIS lens.
      */
     fun reset(delivered: DeliveredSize) {
         generation += 1
@@ -475,13 +378,8 @@ class LiveAlign(
 }
 
 /**
- * How far the board may move before the grid correction is thrown away, in cells.
- *
- * **A starting value, not a measurement.** No on-device distribution of `quadDriftCells` exists;
- * a quarter of a square is chosen to sit far above the marker smoother's jitter and far below a
- * shift anyone would call the board moving. Measure it before quoting it as if it were derived —
- * inventing a threshold and presenting it as measured is exactly what sank the first draft of
- * `specs/36`.
+ * How far the board may move before the grid correction is thrown away, in cells. **A starting
+ * value, not a measurement** — measure it before quoting it as derived (`docs/tracker-runtime-service.md`).
  */
 private const val DRIFT_REFIT_CELLS = 0.25
 
@@ -492,11 +390,8 @@ private const val DRIFT_REFIT_CELLS = 0.25
 private const val METER_BOARD_PX = 160
 
 /**
- * Das Brett-Quad als normalisierte Region fuer den Geraete-Autofokus.
- *
- * Der HAL misst seinen Kontrast ueber diesen Kasten; das Brett fuellt ihn nicht ganz, aber alles
- * darin ist Brett. `size` ist die groessere der beiden Kanten, damit die Region nie kleiner ist
- * als das, worauf scharfgestellt werden soll.
+ * Das Brett-Quad als normalisierte Region fuer den Geraete-Autofokus. `size` ist die groessere der
+ * beiden Kanten, damit die Region nie kleiner ist als das, worauf scharfgestellt werden soll.
  */
 internal fun focusRegion(
     corners: FloatArray,
@@ -514,10 +409,7 @@ internal fun focusRegion(
 }
 
 /**
- * Woraus die Schaerfe gemessen wird: 1024 px sind 128 px je Feld.
- *
- * Nicht die 160 der Belichtung — ein Figurenrand ist wenige Pixel breit, und der Warp auf 160
- * rechnet genau die Frequenzen weg, an denen Unschaerfe sichtbar waere. Bezahlt wird der Warp
- * nur, wenn ueberhaupt gemessen wird (Sweep, sonst alle 30 Frames).
+ * Woraus die Schaerfe gemessen wird: 1024 px sind 128 px je Feld — nicht die 160 der Belichtung,
+ * die genau die Frequenzen wegrechnen, an denen Unschaerfe sichtbar waere (`docs/tracker-runtime-service.md`).
  */
 private const val FOCUS_BOARD_PX = 1024

@@ -34,6 +34,8 @@ describe("nextStep", () => {
     hasCandidate: false,
     confirmed: false,
     hasSession: false,
+    hasSettle: true,
+    outdated: {},
     mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0 },
     hasTemporalPass: false,
     hasModelReads: false,
@@ -41,36 +43,36 @@ describe("nextStep", () => {
   };
 
   it("offers nothing at all for a game the human called useless", () => {
-    expect(nextStep({ ...base, useless: { at: "2026-08-14T20:00:00Z" } })).toBeNull();
-    expect(nextStep({ ...base, hasCandidate: true, useless: { at: "2026-08-14T20:00:00Z" } })).toBeNull();
+    expect(nextStep({ ...base, useless: { at: "2026-08-14T20:00:00Z" } }).step).toBeNull();
+    expect(nextStep({ ...base, hasCandidate: true, useless: { at: "2026-08-14T20:00:00Z" } }).step).toBeNull();
   });
 
   it("walks the chain in order", () => {
     const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true };
-    expect(nextStep(base)).toBe("label");
-    expect(nextStep({ ...base, hasCandidate: true })).toBe("confirm");
-    expect(nextStep({ ...base, hasCandidate: true, confirmed: true })).toBe("export");
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0, reportedOpen: 0 } })).toBe("matte");
+    expect(nextStep(base).step).toBe("label");
+    expect(nextStep({ ...base, hasCandidate: true }).step).toBe("confirm");
+    expect(nextStep({ ...base, hasCandidate: true, confirmed: true }).step).toBe("export");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0, reportedOpen: 0 } }).step).toBe("matte");
     // The temporal pass needs SAM's rows to know what SAM missed — so after matte, before the model.
-    expect(nextStep(exported)).toBe("temporal");
-    expect(nextStep({ ...exported, hasTemporalPass: true })).toBe("model-read");
-    expect(nextStep({ ...exported, hasTemporalPass: true, hasModelReads: true })).toBe("labeln");
+    expect(nextStep(exported).step).toBe("temporal");
+    expect(nextStep({ ...exported, hasTemporalPass: true }).step).toBe("model-read");
+    expect(nextStep({ ...exported, hasTemporalPass: true, hasModelReads: true }).step).toBe("labeln");
   });
 
   it("mattes until the RUN'S TARGET is reached, not until the pile is empty", () => {
     const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true, hasTemporalPass: true };
-    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0, reportedOpen: 0 } })).toBe("matte");
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0, reportedOpen: 0 } })).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0, reportedOpen: 0 } }).step).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0, reportedOpen: 0 } }).step).toBe("model-read");
     // 80 of 394 is the instruction carried out (`--all --limit 80`): the biggest sessions must
     // leave this rung, or the chain strands exactly the material it is here for.
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0 } })).toBe("model-read");
-    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 , reported: 0, reportedOpen: 0 } })).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0 } }).step).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 , reported: 0, reportedOpen: 0 } }).step).toBe("matte");
     // A session whose frames are all clean has no pile at all; it must not stall on an empty one.
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0 } })).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0 } }).step).toBe("model-read");
   });
 
   it("never offers export before a human confirmed — an unconfirmed candidate exports nothing", () => {
-    expect(nextStep({ ...base, hasCandidate: true, hasSession: false })).toBe("confirm");
+    expect(nextStep({ ...base, hasCandidate: true, hasSession: false }).step).toBe("confirm");
   });
 });
 
@@ -99,7 +101,7 @@ describe("chainState", () => {
     await video();
     await candidate(true);
     await mkdir(path.join(data, "recordings", NAME), { recursive: true });
-    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), JSON.stringify({ board: "boards/1.webp" }) + "\n");
+    await writeFile(path.join(data, "recordings", NAME, "log.jsonl"), JSON.stringify({ board: "boards/1.webp", settle_dev: [1.0] }) + "\n");
     await writeFile(game("model-reads.jsonl"), "{}\n");
     // The temporal pass sits between SAM and the model: its `pass.json` is what moves the chain on.
     expect((await chainState(NAME)).step).toBe("temporal");
@@ -114,7 +116,7 @@ describe("chainState", () => {
     const dir = path.join(data, "recordings", NAME);
     await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, "log.jsonl"), [
-      JSON.stringify({ frame: "1.png", board: "boards/1.webp", dirty: true, dirty_reason: "occluded" }),
+      JSON.stringify({ frame: "1.png", board: "boards/1.webp", dirty: true, dirty_reason: "occluded", settle_dev: [1.0] }),
       JSON.stringify({ frame: "2.png", board: "boards/2.webp", dirty: true, dirty_reason: "occluded" }),
       JSON.stringify({ frame: "3.png", board: "boards/3.webp", dirty: true, dirty_reason: "grid-late" }),
       JSON.stringify({ frame: "4.png", board: "boards/4.webp" }),

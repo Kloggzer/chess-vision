@@ -20,18 +20,14 @@ const val MIN_VIDEO_HEIGHT = 1440
 private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
 
 /**
- * How much a pixel is worth, and it is ONE decision for both paths (2026-09-13).
- *
- * Two hardwired rates were an invitation to drift apart. 0,54 is 1,5x the 0,362 the corpus measures
- * today; a game at 1440p/15 lands on 29,9 Mbit/s, a capture at 2160p/15 on 67,2.
+ * How much a pixel is worth, ONE decision for both paths (2026-09-13): 1,5x the 0,362 the corpus
+ * measures today, so 1440p/15 lands on 29,9 Mbit/s (`docs/camera-video-encoder.md`).
  */
 const val BITS_PER_PIXEL = 0.54
 
 /**
- * The floor, because an implausibly small delivered frame must not produce an unusable file.
- *
- * 8 Mbit/s is where the weakest recording on disk (`rg-2026-09-11-20-00-52`) already sits, and it
- * is already considered borderline.
+ * The floor, so an implausibly small delivered frame cannot produce an unusable file. It is where
+ * the weakest recording on disk already sits, and that one is borderline (`docs/camera-video-encoder.md`).
  */
 const val MIN_VIDEO_BIT_RATE = 8_000_000
 
@@ -43,9 +39,8 @@ internal fun rawBitRateFor(
 ): Int = (width.toDouble() * height * fps * BITS_PER_PIXEL).roundToInt()
 
 /**
- * bit/s for a frame of this size at this rate. Computed on the DELIVERED size, never the requested
- * one: asking for 4K while the device hands over 1440p would buy three times the rate for a picture
- * that cannot use it.
+ * bit/s for a frame of this size at this rate — on the DELIVERED size, never the requested one, or
+ * asking for 4K on a 1440p stream buys three times the rate for nothing.
  */
 fun bitRateFor(
     width: Int,
@@ -59,15 +54,8 @@ private const val VIDEO_FRAME_RATE = 30
 private const val VIDEO_I_FRAME_SECONDS = 1
 
 /**
- * How much footage a killed process may cost.
- *
- * An MP4's index (`moov`) is written when the muxer is CLOSED, so a recording that is still running
- * is a file no decoder can open. Measured 2026-08-13: four of eleven transferred recordings — 1.99 GB
- * — had `ftyp` and `mdat` and no `moov`, and Android's own exit log names the killer:
- * `reason=16 (PACKAGE UPDATED)`, i.e. installing a new build over a running recording. A SIGKILL
- * from the package manager runs no callback, so nothing can be finalised on the way out; the only
- * defence is to have finalised already. One minute of QHD is ~150 MB, and the muxer swap happens on
- * an encoder sync frame, so nothing is re-encoded and no frame is lost between segments.
+ * How much footage a killed process may cost. An MP4's index is written when the muxer CLOSES, and
+ * 1.99 GB of transferred recordings had none (2026-08-13; `docs/camera-video-encoder.md`).
  */
 private const val SEGMENT_SECONDS = 60L
 private const val US_PER_SECOND = 1_000_000L
@@ -78,13 +66,8 @@ private const val TAG = "chesslabVideo"
 private const val BYTES_PER_MB = 1024L * 1024L
 
 /**
- * How often the ARMED ring reports its depth to logcat.
- *
- * The armed phase has no session, so `RecordingBundleHost`'s progress rows are dropped on a null
- * timeline and no file records them: between the arm and the first commit the pre-roll is
- * invisible. Measured on the phone 2026-08-14 (session `20260814-142947`): the finished recording
- * carried ~1.4 s ahead of the commit where 20 were due, and nothing in it could say WHEN the
- * encoder was armed. This line is what makes the next run answer that without forensics.
+ * How often the ARMED ring reports its depth to logcat — that phase has no session, so a recording
+ * carrying 1.4 s where 20 were due could not say when it was armed (`docs/camera-video-encoder.md`).
  */
 private const val ARMED_LOG_INTERVAL_MS = 5000L
 
@@ -102,11 +85,8 @@ data class VideoProgress(
 )
 
 /**
- * The video seam, as its ONE consumer (`RecordingBundleHost`) sees it.
- *
- * Arming has an owner, and it is the recorder — not the encoder's own callbacks (double "armed",
- * 2026-08-14). Naming the seam is what lets that be driven on the JVM, against a fake that counts
- * who armed what.
+ * The video seam, as its ONE consumer (`RecordingBundleHost`) sees it. Arming has an owner and it is
+ * the recorder, not the encoder's callbacks (`docs/camera-video-encoder.md`).
  */
 interface VideoRecorderPort {
     val videoResolution: DeliveredSize?
@@ -133,24 +113,8 @@ interface VideoRecorderPort {
 }
 
 /**
- * Encodes the same QHD YUV frames that feed the tracker.
- *
- * This phone exposes no CameraX QHD Recorder profile and cannot bind VideoCapture beside
- * ImageAnalysis. A second camera owner would be incorrect, so the one analyzer stream is copied
- * into a hardware AVC encoder. `MediaCodec.getInputImage()` exposes the encoder's actual plane
- * layout, avoiding assumptions about planar versus semi-planar chroma.
- *
- * A recording starts ARMED: the encoder runs but the muxer is never opened -- encoded samples go
- * into a [PreRollRing] instead, capped at [PRE_ROLL_SECONDS] and [PRE_ROLL_MAX_BYTES]. Only
- * [keep] (the first committed move) names a file, opens the muxer and writes the buffered
- * samples with their PTS rebased to zero; from there the recording runs live exactly as before,
- * minute-segment rotation included. A run that is never kept writes NOTHING -- board setup,
- * marker taping and calibration were nine of eleven transferred recordings (4.7 GB) on
- * 2026-08-13/14, and this is the mechanism that keeps them off the disk.
- *
- * `TooManyFunctions` is suppressed because the count IS the encoder's lifecycle: arm, keep, encode,
- * drain, sample, go live, rotate, release, plus the two that ask the device what it will accept and
- * report what it wrote.
+ * Encodes the same QHD YUV frames that feed the tracker, and starts ARMED: an unkept run writes
+ * NOTHING, which kept 4.7 GB of setup footage off the disk (`docs/camera-video-encoder.md`).
  */
 @Suppress("TooManyFunctions")
 class CameraVideo : AutoCloseable {
@@ -194,10 +158,8 @@ class CameraVideo : AutoCloseable {
         private set
 
     /**
-     * The footage that actually preceded the first committed move, as flushed.
-     *
-     * The recording's own answer to "did the pre-roll survive?" — it reaches `session.yaml` as
-     * `video_pre_roll_ns`. Zero means the ring was armed at the commit, not before it.
+     * The footage that actually preceded the first committed move, as flushed — it reaches
+     * `session.yaml` as `video_pre_roll_ns`, and zero means armed AT the commit (`docs/camera-video-encoder.md`).
      */
     @Volatile
     var preRollUs: Long = 0L
@@ -233,11 +195,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * The encoder's rate-control hint, set from the camera request.
-     *
-     * `KEY_BIT_RATE` is per SECOND and the encoder spends it per FRAME, so a 15 fps stream told 30
-     * budgets half of it away — the recording is training material, and half the bits is half the
-     * detail the crops are cut from.
+     * The encoder's rate-control hint, from the camera request. `KEY_BIT_RATE` is per SECOND and
+     * spent per FRAME, so a 15 fps stream told 30 budgets half of it away (`docs/camera-video-encoder.md`).
      */
     @Volatile
     var frameRate: Int = VIDEO_FRAME_RATE
@@ -308,11 +267,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * What this encoder will really do with the asked-for size and rate, and it says so out loud.
-     *
-     * A rate above the codec's advertised range is not refused by `configure` — it is silently
-     * re-interpreted, and the recording then claims a quality it never had. Asking first is what
-     * turns that into a line in the log and a note in `capture.json`.
+     * What this encoder will really do with the asked-for size and rate, said out loud — `configure`
+     * silently re-interprets a rate above its range instead of refusing it (`docs/camera-video-encoder.md`).
      */
     private fun agreedProfile(
         encoder: MediaCodec,
@@ -346,11 +302,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * The first committed move: the pre-roll becomes [file] and the recording goes live.
-     *
-     * Idempotent -- every later commit calls this again and finds it already kept. The muxer may
-     * still have to wait for the encoder's output format ([goLive] runs from the format change
-     * then), but the decision is latched here.
+     * The first committed move: the pre-roll becomes [file] and the recording goes live. Idempotent,
+     * and the decision latches here even when [goLive] must wait for the output format.
      */
     @Synchronized
     fun keep(file: File) {
@@ -408,11 +361,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * EVERY segment, not just `video.mp4`.
-     *
-     * `outputFile.length()` is segment 0 alone, and it won over the accumulated total — measured on
-     * `2026-09-11-20-00-52`: `session.yaml` said 76,7 MB where 761 MB lay on disk in 13 files. Read
-     * after [releaseEncoder], so the last muxer has written its index and the lengths are final.
+     * EVERY segment, not just `video.mp4`: segment 0 alone reported 76,7 MB where 761 MB lay in 13
+     * files. Read after [releaseEncoder], so every index is written (`docs/camera-video-encoder.md`).
      */
     private fun writtenBytes(): Long {
         if (outputFile == null) return encodedBytes
@@ -483,11 +433,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * Open the muxer for segment 0 and write the buffered pre-roll, rebased to zero.
-     *
-     * The flushed samples and the live path share one clock: [originUs] is the ring's first PTS,
-     * [segmentStartUs] starts there too, so the first live sample lands exactly one frame after
-     * the last buffered one and the minute rotation keeps counting from the file's own zero.
+     * Open the muxer for segment 0 and write the buffered pre-roll, rebased to zero — flushed and
+     * live samples share one clock, so nothing overlaps at the seam (`docs/camera-video-encoder.md`).
      */
     private fun goLive() {
         val format = trackFormat ?: return
@@ -525,12 +472,8 @@ class CameraVideo : AutoCloseable {
     }
 
     /**
-     * Close the current file and open the next one, at a SYNC frame.
-     *
-     * The swap has to land on a key frame: a segment that begins with a P-frame has nothing to
-     * decode against, so its first second would be garbage. The encoder emits one every
-     * [VIDEO_I_FRAME_SECONDS], which is why the cut is "at or after the limit" rather than exactly
-     * on it — a segment may run up to a second long, and no frame is dropped or duplicated.
+     * Close the current file and open the next one, at a SYNC frame — hence "at or after the limit"
+     * rather than on it, and no frame is dropped or duplicated (`docs/camera-video-encoder.md`).
      */
     private fun rotateIfDue(info: MediaCodec.BufferInfo) {
         val sync = info.flags and MediaCodec.BUFFER_FLAG_KEY_FRAME != 0

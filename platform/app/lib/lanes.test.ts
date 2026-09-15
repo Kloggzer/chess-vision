@@ -9,6 +9,7 @@ import {
   NO_AUDIT,
   NO_HAND,
   NO_POSITION,
+  NO_SETTLE_SCAN,
   NO_READS,
   NO_QUERY,
   boardCells,
@@ -125,7 +126,7 @@ const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: [] }],
   boards: [], cells: [], recent: [], audit: null, hands: null, positions: null, decided: [{}],
   reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
-  frameHands: [{}], handsMeasured: [true], unusableCells: [[]], ...over,
+  frameHands: [{}], handsMeasured: [true], unusableCells: [[]], positionsUnmeasured: [], ...over,
 });
 
 test("a lane counts what is OPEN against what it holds, and null only when EVERY source is silent", () => {
@@ -459,4 +460,18 @@ test("eine unbrauchbare Zelle ist beantwortet — sie kommt in keiner Zell-Lane 
   expect(openCells(judged, "control").map((c) => c.stem)).toEqual(["000200"]);
   // Der Nenner bleibt: die Zelle ist beurteilt, nicht verschwunden.
   expect(laneCount(judged, "control")).toEqual({ n: 1, total: 2 });
+});
+
+test("eine Aufnahme ohne `settle-scan` steht neben der Zahl, statt in ihr zu verschwinden", () => {
+  const measured = laneCount(streamOf({ audit: [], positions: [], hands: [] }), "audit");
+  expect(measured.denominator).not.toContain("settle-scan");
+
+  const partial = laneCount(
+    streamOf({ audit: [], positions: [], hands: [], positionsUnmeasured: ["rg-a", "rg-b"] }),
+    "audit",
+  );
+
+  expect(partial.n).toBe(0);
+  expect(partial.denominator).toContain(NO_SETTLE_SCAN);
+  expect(partial.denominator).toContain("rg-a, rg-b");
 });

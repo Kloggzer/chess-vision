@@ -49,7 +49,7 @@ test("die größte Abweichung zuerst — dort ist am ehesten wirklich etwas ande
 test("keine Datei ist `present: false` — die Lane rendert `—`, nicht 0", async () => {
   const { loadPositionFlags, positionFlagsPath } = await load();
   expect(positionFlagsPath()).toBe(path.join(dir, "reports", "position-flags.jsonl"));
-  expect(await loadPositionFlags()).toEqual({ rows: [], present: false });
+  expect(await loadPositionFlags()).toEqual({ rows: [], present: false, unmeasured: [] });
 });
 
 test("Kopfzeile, halbe Zeile und Zeile ohne Messwert werden übersprungen, nicht fatal", async () => {
@@ -59,4 +59,22 @@ test("Kopfzeile, halbe Zeile und Zeile ohne Messwert werden übersprungen, nicht
   const { rows } = await loadPositionFlags();
 
   expect(rows.map((r) => r.square)).toEqual(["a3"]);
+});
+
+test("eine Aufnahme ohne `settle-scan` steht in der Kopfzeile und wird weitergereicht", async () => {
+  const { loadPositionFlags } = await load();
+  const head = '{"_settle_limit": 15.0, "_unmeasured": ["rg-a", "rg-b"]}';
+  await write(`${head}\n${row("a2", 18.4)}\n`);
+
+  const { unmeasured, rows } = await loadPositionFlags();
+
+  expect(unmeasured).toEqual(["rg-a", "rg-b"]);
+  expect(rows).toHaveLength(1);
+});
+
+test("eine Kopfzeile aus der Zeit vor dem Feld behauptet nicht, alles sei gemessen", async () => {
+  const { loadPositionFlags } = await load();
+  await write(`${HEAD}\n${row("a2", 18.4)}\n`);
+
+  expect((await loadPositionFlags()).unmeasured).toEqual([]);
 });

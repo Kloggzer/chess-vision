@@ -73,37 +73,19 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.roundToInt
 
 /*
- * The app's vocabulary — every screen is built from what is in this file.
- *
- * Eleven primitives (specs/48). The test is that a twelfth is either genuinely new or the screen
- * that wants it is wrong, and each one's KDoc says what it is NOT for, because the reason a
- * component drifts is that nobody wrote down when not to use it.
+ * The app's vocabulary — eleven primitives (specs/48), and each KDoc says what its primitive is NOT
+ * for, because a component drifts when nobody writes down when not to use it. `docs/ui-vocabulary.md`.
  */
 
 /**
- * How a screen returns to a running tracker, or null where there is nothing to return to.
- *
- * The app has no bottom bar (`specs/47` §3.1a): three destinations do not need permanent chrome, and
- * the reference phone already spends that band on MIUI's own navigation. What the bar WOULD have
- * carried is the way back into a game that is still being tracked, and this is it — provided once by
- * the nav host, read by [ChesslabScaffold], and provided as null by the tracker itself.
+ * How a screen returns to a running tracker, or null where there is nothing to return to — the app
+ * has no bottom bar, and this is what one would have carried (`docs/ui-vocabulary.md`).
  */
 val LocalResumeTracker: ProvidableCompositionLocal<(() -> Unit)?> = compositionLocalOf { null }
 
 /**
- * The frame every screen wears, the tracker included.
- *
- * It exists because Back used to be a differently placed, differently styled control on every
- * screen — an outlined pill on the right here, green text on the left there — and because a
- * hand-rolled header row does not push scrolling content out from under itself, so the settings
- * list scrolled straight under its own title.
- *
- * It also owns the side margin. Screens used to set their own and disagreed: 12 dp on
- * Games/Settings/Speech/Debug, 14 dp on the board, 0 on the camera.
- *
- * The bar sits on the GROUND and is separated from the content by a rule, not by a lighter fill —
- * it was a solid band of `surfaceRaised`, which is elevation by fill and is what this palette
- * retired.
+ * The frame every screen wears, the tracker included. It owns Back, the side margin and the rule
+ * under the bar, because every screen that owned its own disagreed with the others (`docs/ui-vocabulary.md`).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,15 +149,8 @@ fun ChesslabScaffold(
             }
         },
     ) { bars ->
-        // The scaffold owns the side margin AND the gap under the rule, for the same reason: a
-        // screen that sets its own gets it wrong somewhere. Without this the first card sits
-        // ON the hairline, which reads as the card having no top edge at all.
-        //
-        // The BOTTOM gap is bigger than the top one and that is not symmetry, it is the system's
-        // navigation. `MainActivity` consumes `safeDrawingPadding()`, so the window is inset — but a
-        // list's last item then ends flush AT that boundary with Android's own buttons immediately
-        // below, and "Show all 83 moves" was a control the user could not aim at because of it.
-        // Every screen that ends in a scrolling list has the same problem, so it is fixed once here.
+        // The BOTTOM gap is bigger than the top one, and that is the system navigation rather than
+        // symmetry — without it "Show all 83 moves" could not be aimed at (`docs/ui-vocabulary.md`).
         Box(Modifier.padding(start = Space.md, end = Space.md, top = Space.sm, bottom = Space.xl)) { content(bars) }
     }
 }
@@ -190,12 +165,8 @@ fun Rule(modifier: Modifier = Modifier) {
 private val NO_LIVE_GAME = MutableStateFlow(GameSessionState())
 
 /**
- * **Panel — in-progress banner.** One row under the app bar, on every screen that is not the
- * tracker: dot, state, action. It is ABSENT when no game runs, never present-and-empty.
- *
- * Since specs/43 a game survives leaving this screen, leaving the app and the notification shade —
- * it ends only on an explicit stop. Nothing on screen has ever SAID so, and a user who navigates
- * away has no reason to believe it. This row is that statement.
+ * **Panel — in-progress banner.** One row under the app bar, ABSENT when no game runs. Since
+ * specs/43 a game survives leaving the app, and nothing else on screen says so (`docs/ui-vocabulary.md`).
  */
 @Composable
 private fun LiveGameBanner() {
@@ -227,12 +198,8 @@ private fun LiveGameBanner() {
 }
 
 /**
- * **Panel — in-progress banner, second form.** The engine review, on every screen while it runs.
- *
- * The run outlives the screen that started it ([com.chesslab.tracker.ui.review.ReviewHost]), and a
- * search that nobody can see or stop is a background engine burning battery. This is the seeing and
- * the stopping: it names the game, says how far it has got, and carries the app's ONLY Stop for it.
- * Absent when nothing is running, like the banner above it.
+ * **Panel — in-progress banner, second form.** The engine review, which outlives the screen that
+ * started it. This carries the app's ONLY Stop for it (`docs/ui-vocabulary.md`).
  */
 @Composable
 private fun AnalysisBanner() {
@@ -296,12 +263,8 @@ internal fun liveGameLine(live: GameSessionState): String =
     }
 
 /**
- * **Primitive — card.** A container for things that belong together, drawn as a fill on the ground
- * with a 1 px edge.
- *
- * NOT for a single value: a lone value in a card is a [StatTile]. NOT a way to make something look
- * important either — the edge is the same everywhere, and [accented] is the one exception, for the
- * card that is the reason the screen is open.
+ * **Primitive — card.** Things that belong together, as a fill on the ground with a 1 px edge. NOT
+ * for a single value (that is a [StatTile]), and NOT a way to look important (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun Card(
@@ -322,11 +285,8 @@ fun Card(
 }
 
 /**
- * **Primitive — stat tile.** One measured number, large, with its unit and its denominator.
- *
- * NOT for a number nobody measured, and not for a zero on a fresh install — an [EmptyState] replaces
- * the grid. It is drawn on the ground with an edge rather than as a filled block, so a row of them
- * reads as a table and not as four buttons.
+ * **Primitive — stat tile.** One measured number, large, with its unit and denominator. NOT for a
+ * number nobody measured, and not for a zero on a fresh install (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun StatTile(
@@ -363,23 +323,8 @@ fun StatRow(content: @Composable RowScope.() -> Unit) {
 }
 
 /**
- * **Primitive — disclosure row.** A title, one line of what is behind it, and the rule that
- * separates it from the next one.
- *
- * The subtitle says what you will FIND or what the setting currently IS — never what the screen is
- * called. The rule belongs *between* rows and never around them — a bordered row inside a list is a
- * card pretending to be one.
- *
- * **Two variants, one component** (specs/51). The default is the chevron form Home and the review
- * screen use. Settings passes an [icon] and `chevron = false`, which is Android's own Settings
- * shape: the pictogram plus a subtitle stating the current value carry the affordance, so the arrow
- * is furniture. A second row type that looked nearly like this one is how a vocabulary rots, which
- * is the thing specs/47 and specs/48 existed to undo — so the collision is resolved here and not by
- * a `SettingsRow`.
- *
- * The [icon] is DECORATIVE and carries no `contentDescription` on purpose: the row's accessible name
- * is its title, which is what `android-ui.ps1 tap-text` reaches. A described icon would put a second
- * semantics node beside a label that already says the same word.
+ * **Primitive — disclosure row.** Title, one line of what is behind it, the rule to the next. Two
+ * variants (specs/51); the [icon] is DECORATIVE on purpose (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun DisclosureRow(
@@ -413,11 +358,8 @@ fun DisclosureRow(
 }
 
 /**
- * **Primitive — section label.** Body face, semibold, tracked, uppercase.
- *
- * NOT monospace. It was, along with the tab labels and the banner, and monospace used for headings
- * is what made this look like a log viewer. The uppercasing is done here so a call site writes the
- * words the way it would say them.
+ * **Primitive — section label.** Body face, semibold, tracked, uppercase. NOT monospace — that is
+ * what made the app look like a log viewer (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun SectionHeading(text: String) {
@@ -430,10 +372,8 @@ fun SectionHeading(text: String) {
 }
 
 /**
- * **Primitive — filled button.** The one thing this screen is for.
- *
- * There is **at most one per screen**. Everything else is [OutlineAction], [TextAction] or
- * [DangerAction], and a destructive act is never filled.
+ * **Primitive — filled button.** The one thing this screen is for, **at most one per screen**.
+ * Everything else is [OutlineAction], [TextAction] or [DangerAction]; destructive is never filled.
  */
 @Composable
 fun FilledAction(
@@ -490,11 +430,8 @@ fun TextAction(
 }
 
 /**
- * **Primitive — outlined danger.** Destructive, and destructive is never filled.
- *
- * It keeps Material's roomier side padding rather than [ACTION_PADDING]: a destructive button is
- * never one of three across a phone, and at 8 dp the outline hugged the word so tightly inside a
- * dialog that it read as a badge rather than a button.
+ * **Primitive — outlined danger.** Destructive, and destructive is never filled. It keeps
+ * Material's roomier side padding, at which 8 dp read as a badge (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun DangerAction(
@@ -516,18 +453,13 @@ fun DangerAction(
 private val ACTION_PADDING = PaddingValues(horizontal = Space.sm, vertical = Space.xs)
 
 /**
- * **Primitive — chip.** One option of a group, all of which are visible at once.
- *
- * Selected is the FURNITURE colour and a border, never the accent: a chip is a choice among things
- * already on screen, and it must not compete with the one filled button that leaves the screen.
+ * **Primitive — chip.** One option of a group, all visible at once. Selected is the FURNITURE
+ * colour and a border, never the accent — it must not compete with the filled button.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 /**
- * **Primitive — severity stripe.** State encoded in FORM as well as colour: a 3 px edge survives a
- * glance and a colour-vision deficiency where a tinted word does not.
- *
- * Three levels and no more — [Accent], [com.chesslab.tracker.ui.theme.Busy], [Danger]. NOT a way to
- * colour a row that merely differs from its neighbours.
+ * **Primitive — severity stripe.** State in FORM as well as colour — three levels and no more.
+ * NOT a way to colour a row that merely differs from its neighbours (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun SeverityStripe(
@@ -549,9 +481,7 @@ fun SeverityStripe(
 
 /**
  * **Panel — empty state.** One sentence naming what will appear, one button that makes it appear.
- *
- * No zeroes, no skeleton grid, no illustration of nothing. The button is this screen's ONE filled
- * action while the state is empty, which is why it takes a label rather than a slot.
+ * No zeroes, no skeleton grid, no illustration of nothing (`docs/ui-vocabulary.md`).
  */
 @Composable
 fun EmptyState(
@@ -572,22 +502,8 @@ fun EmptyState(
 }
 
 /**
- * **Panel — destructive confirmation.** The only primitive allowed to interrupt, and the app's one
- * answer to "a tap must not do something the user cannot get back".
- *
- * The rules it enforces so no call site has to remember them:
- * - the [title] names the THING — "Delete this game?", never "Are you sure?";
- * - the [body] states the loss in NUMBERS, because a count is what makes a consequence real and an
- *   adjective is not;
- * - the confirm button carries the [verb], never "OK";
- * - it is a [DangerAction] — **outlined, never filled**, because a filled red button is the easiest
- *   thing on a screen to hit by accident;
- * - dismissing by tapping outside cancels, and nothing here takes focus, so no keyboard or
- *   accessibility gesture reaches the destructive button before the harmless one.
- *
- * Use it for an act that cannot be undone and for nothing else. Undo IS the reversal; ending a game
- * SAVES it; a setting can be set back. A prompt in front of those is how this rule metastasises into
- * a prompt in front of everything.
+ * **Panel — destructive confirmation.** The only primitive allowed to interrupt, for an act that
+ * cannot be undone and NOTHING else. The five rules it enforces: `docs/ui-vocabulary.md`.
  */
 @Composable
 fun ConfirmDialog(
@@ -613,11 +529,8 @@ fun ConfirmDialog(
 }
 
 /**
- * **One quantity, one unit.** Win expectancy, accuracy and the cost of a move are all percentages
- * and they are all written the same way, wherever they appear.
- *
- * They were not: the review screen wrote `53 %`, the eval bar `53%` and the score sheet's cost
- * `−10%`, in three files that draw the same quantity. This is the only place that decides.
+ * **One quantity, one unit.** Every percentage is written the same way, wherever it appears — three
+ * files drawing the same quantity spelled it three ways (`docs/ui-vocabulary.md`).
  */
 fun percent(value: Double): String = "${value.roundToInt()} %"
 

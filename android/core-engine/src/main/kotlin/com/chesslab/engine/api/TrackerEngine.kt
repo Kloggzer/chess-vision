@@ -77,9 +77,8 @@ private fun undoneNote(plies: Int): String =
     }
 
 /**
- * The public entry point of `:core-engine`: a pure state machine driven by exactly ONE thread — no
- * `synchronized`, no `Atomic*`, no `Mutex`, no `@Volatile` may ever appear in this module (see
- * `ClasspathPurityTest`), and no wall clock either — the engine's time is [FrameInput.timestampMs].
+ * `:core-engine`'s entry point: a pure state machine on exactly ONE thread — no `synchronized`,
+ * `Atomic*`, `Mutex` or `@Volatile` (`ClasspathPurityTest`), and time is [FrameInput.timestampMs].
  */
 class TrackerEngine(
     config: TrackerConfig,
@@ -133,9 +132,8 @@ class TrackerEngine(
     private var cnn: CnnEvaluator? = null
 
     /**
-     * Inject the evaluator behind the observation model — `:core-engine` may not depend on
-     * `:core-cnn`. `null` is the CNN-unavailable case, which the verify path resolves by committing
-     * the pending candidate rather than stalling; attaching also arms `cnn_run`.
+     * Inject the evaluator — `:core-engine` may not depend on `:core-cnn`. `null` makes verify
+     * commit the pending candidate rather than stall; attaching also arms `cnn_run`.
      */
     fun attachCnn(evaluator: CnnEvaluator?) {
         cnn = evaluator
@@ -187,9 +185,8 @@ class TrackerEngine(
     private var debugEnabled = false
 
     /**
-     * Arm the extra [TrackerStatus.debug] payload. Off by default: assembling it walks 64 squares
-     * twice and copies the decision ring on every published frame, and the 15 fps budget is not
-     * negotiable. The decision log itself is recorded either way, at most once per move.
+     * Arm the extra [TrackerStatus.debug] payload. Off by default: it walks 64 squares twice and
+     * copies the decision ring per frame. The decision log is recorded either way.
      */
     fun setDebugEnabled(on: Boolean) {
         debugEnabled = on
@@ -205,9 +202,8 @@ class TrackerEngine(
     fun fen(): String = state.board.fen()
 
     /**
-     * A user correction: the alarm latch is released and the undone plies' decision rows dropped.
-     * It takes back the LAST COMMIT whatever its size — a CNN recovery is one unit (four plies,
-     * 2026-08-02) — and RECORDS it in [EngineState.takenBack], the only memory of a human rejection.
+     * A user correction: alarm released, decision rows dropped, and the LAST COMMIT taken back
+     * whatever its size (a CNN recovery is one unit). Recorded in [EngineState.takenBack].
      */
     fun undo(): List<TrackerEvent> {
         if (state.history.isNotEmpty()) {
@@ -234,9 +230,8 @@ class TrackerEngine(
     }
 
     /**
-     * The position chokepoint. It was the only adoption path taking a FEN from outside unchecked,
-     * so an unparseable string threw four layers out and an en-prise king was adopted silently
-     * (2026-08-09). Refused positions REPORT.
+     * The position chokepoint. Unchecked, an unparseable FEN threw four layers out and an en-prise
+     * king was adopted silently (2026-08-09). Refused positions REPORT.
      */
     fun setFen(fen: String): List<TrackerEvent> {
         if (!reachable(fen)) {
@@ -268,9 +263,8 @@ class TrackerEngine(
     }
 
     /**
-     * Die Rektifizierung hat sich geaendert — dieselbe Antwort wie auf eine neue Ebenengroesse.
-     * Nicht [captureBaseline]: der Latch bleibt. Ein verrutschtes Brett sagt nichts darueber, ob
-     * Stellung und Brett wieder zusammenpassen, und Invariante 9 haengt genau daran.
+     * Die Rektifizierung hat sich geaendert — wie eine neue Ebenengroesse, aber NICHT
+     * [captureBaseline]: der Latch bleibt, denn Invariante 9 haengt genau daran.
      */
     fun rectificationChanged(): List<TrackerEvent> {
         state.discardVisualReference()
@@ -324,9 +318,8 @@ class TrackerEngine(
     }
 
     /**
-     * The honest door: adopt the observed position, KEEP the history, append nothing. Where
-     * [acceptCnnPosition] declares continuity broken and clears the record, this one records the
-     * discontinuity (one `cnn_resync` row) and continues — the missing bridge is the feature.
+     * The honest door: adopt the observed position, KEEP the history, append nothing. It records
+     * the discontinuity (one `cnn_resync` row) instead of clearing the record.
      */
     fun resyncToBoard(): List<TrackerEvent> {
         val fen = state.adoptableCnnFen(cnn?.confThr ?: state.config.cnnConfThr) ?: return listOf(TrackerEvent.Note(state.note.orEmpty()))
@@ -334,9 +327,8 @@ class TrackerEngine(
     }
 
     /**
-     * Live tuning: the averaging buffers and the confirmers are rebuilt when their length changed,
-     * and the cached square boxes follow `detSize` / `overhang`. Changing the detection plane
-     * invalidates the reference — a baseline from a different warp cannot be compared safely.
+     * Live tuning: buffers and confirmers are rebuilt on a length change, square boxes follow
+     * `detSize`/`overhang`, and a new detection plane invalidates the reference.
      */
     fun updateConfig(config: TrackerConfig) {
         val previous = state.config
@@ -457,9 +449,7 @@ internal fun EngineState.quietOutcome(
 
 /**
  * The confident OCCUPANCY conflicts between a fresh observation and the believed position — a
- * misread piece TYPE is not a desync. Same blind-glance bar as `onMatchOk` and the verify rungs:
- * one confident square on a dark board vetoed for 25 minutes while `identityRead` read the same
- * glance as inconclusive and reset the streak (2026-08-29).
+ * misread TYPE is not a desync, and one confident square vetoed for 25 minutes (2026-08-29).
  */
 private fun EngineState.cnnDesync(): Desync? {
     val snap = freshSnapshot() ?: return null
@@ -519,9 +509,8 @@ internal fun EngineState.toStatus(debugEnabled: Boolean = false): TrackerStatus 
     )
 
 /**
- * The visual state every user-correction path drops: base truth, the averaging buffers, the
- * confirmer, the stuck marker, the occlusion latch and the anomaly timers. Deliberately the
- * INTERSECTION of the three callers — each adds its own remainder, so no path clears more.
+ * The visual state every user-correction path drops — deliberately the INTERSECTION of the three
+ * callers, each of which adds its own remainder, so no path clears more than it must.
  */
 internal fun EngineState.clearReferenceState() {
     refGray = null
@@ -563,9 +552,8 @@ private fun squareValueMap(values: DoubleArray): Map<String, Double> {
 }
 
 /**
- * The ONLY release of the illegal-move latch. **entry.md invariant 9:** nothing in the detection
- * pipeline may call this — the alarm does not heal by drift, by timeout, or by "it looks fine now".
- * A [logReason] marks a user correction (`decider = "user"` row); the verified restores pass `null`.
+ * The ONLY release of the illegal-move latch. **entry.md invariant 9:** no detection-pipeline
+ * caller — the alarm never heals by drift or timeout. A [logReason] marks a user correction.
  */
 internal fun EngineState.clearAlarm(logReason: String?): List<TrackerEvent> {
     if (alarm == null) return emptyList()

@@ -95,11 +95,8 @@ import java.util.Locale
 import kotlin.math.max
 
 /**
- * Order is the order of the tab row, and **Moments is first** (specs/48).
- *
- * A finished game is opened to find out what went wrong. Review — the board you step through — is
- * where a moment sends you when it makes you curious, and it still starts at ply 0, so opening on it
- * asked the reader to walk 83 plies to find the three that mattered.
+ * Order is the order of the tab row, and **Moments is first** (specs/48) — Review still starts at
+ * ply 0, so opening on it asked the reader to walk 83 plies for the three that mattered.
  */
 private enum class ReviewSection {
     MOMENTS,
@@ -108,11 +105,8 @@ private enum class ReviewSection {
 }
 
 /**
- * How many findings are shown before "show all".
- *
- * Three, because the screen's job in its first five seconds is "which moves decided this game" and a
- * list of eleven is a second problem to solve. Working memory is about four chunks and the move
- * notation already competes for them.
+ * How many findings are shown before "show all". Three: the screen's job in its first five seconds
+ * is "which moves decided this game", and working memory holds about four chunks (`docs/game-review.md`).
  */
 private const val TOP_FINDINGS = 3
 
@@ -120,17 +114,8 @@ private const val TOP_FINDINGS = 3
 private const val TOP_MOVE_ROWS = 8
 
 /**
- * The review of a stored game.
- *
- * There used to be a second entry point, `LiveReviewRoute` — the "Spectator" tab. It was this
- * composable fed by the running game, i.e. the tracker's own board and the tracker's own move list
- * on a destination of their own, and its only unique content was one Wi-Fi switch. The switch is in
- * the tracker's overflow menu now and this screen reads exactly one kind of game.
- *
- * An archived review opens on **rating, board with the win bar, what the move on screen did, and the
- * navigation**. Key moments and the complete score sheet are peers behind explicit tabs. Selecting
- * either returns to the board at that position, so the arrow and explanation remain the place where
- * a move is understood.
+ * The review of a stored game — it opens on rating, board with the win bar, what the move did, and
+ * the navigation; moments and score sheet are peers behind tabs (`docs/game-review.md`).
  */
 @Composable
 fun ArchiveReviewRoute(
@@ -307,9 +292,7 @@ private fun ReviewDetailsEditor(
 
 /**
  * Player names are the identity of a game; the timestamp is only the fallback file identity.
- *
- * [resultName] is passed in rather than looked up: this is a plain function so it stays testable
- * on a JVM, and resolving a resource needs a composition.
+ * [resultName] is passed in so this stays a plain JVM-testable function.
  */
 internal fun reviewTitle(
     game: GameView,
@@ -345,15 +328,8 @@ internal data class ReviewSelection(
     val selected: Int,
     val ply: PlyGrade?,
     /**
-     * The ply whose ENGINE MOVE this screen is showing — the same one the board's accent arrow
-     * draws and the verdict's right column names.
-     *
-     * It is the selected ply itself: its `bestUci` is what the engine wanted INSTEAD of what was
-     * played, which is the question a review answers and the one the left column has just posed.
-     * The board drew the NEXT ply's engine move while the card named this one's, so the arrow and
-     * the move beside it were a ply apart — *"die Zuordnung der Pfeile stimmt nicht, die werden um
-     * ein[s] versetzt dargestellt"*. At the start position there is no played ply, so the advice is
-     * the first one's: the engine's opening move.
+     * The ply whose ENGINE MOVE this screen is showing — the SELECTED ply itself, because the board
+     * once drew the next one's and arrow and card were a ply apart (`docs/game-review.md`).
      */
     val advice: PlyGrade?,
     val mateHint: MateLineRequest?,
@@ -566,20 +542,8 @@ private fun LazyListScope.movesSection(
 }
 
 /**
- * The board, the two arrows, and the bar above them.
- *
- * **Both arrows belong to the SAME ply**: what was played (in the last-move colour) and what the
- * engine wanted instead (accent). That pairing is the whole review — *"weiß Zug war …, dann die
- * Veränderung anzeigen, und bester Zug wäre … mit Pfeil zeigen, selbiges auch für Schwarz"* — and it
- * is what the verdict card below spells out in words, for either side's ply without distinction.
- *
- * The arrow was the NEXT ply's engine move until this change, i.e. the move to play FROM here, so
- * the board's arrow and the card's "Engine move" named two different moves. The board still shows
- * the position AFTER the played move, which is why the two are drawn together: read alone, an
- * alternative to a move that has already happened is the ambiguity the pairing removes.
- *
- * An engine move identical to the played one draws nothing extra — one arrow under another is a
- * thicker arrow, not a second statement, and the card already says "best".
+ * The board, the two arrows, and the bar above them. **Both arrows belong to the SAME ply**: what
+ * was played and what the engine wanted instead — that pairing is the whole review (`docs/game-review.md`).
  */
 @Composable
 private fun ReviewBoard(
@@ -601,11 +565,8 @@ private fun ReviewBoard(
 }
 
 /**
- * The tab's accessible name is the LABEL, always.
- *
- * The count used to be inside the same `Text` (`Moments · 24`), so the name changed while the
- * analysis streamed — watched going `· 2` → `· 11` → `· 20` → `· 24` over three minutes — and
- * `tap-text "Moments"` failed. That is the `CLAUDE.md` rule met in the wild.
+ * The tab's accessible name is the LABEL, always. With the count inside the same `Text` the name
+ * changed while the analysis streamed and `tap-text "Moments"` failed (`docs/game-review.md`).
  */
 @Composable
 private fun ReviewTabs(
@@ -624,12 +585,8 @@ private fun ReviewTabs(
 }
 
 /**
- * The width kept clear for a count on BOTH sides of every label.
- *
- * Three digits of [com.chesslab.tracker.ui.theme.Figures] plus the gap. It is reserved on the empty
- * side too, and that is the point: with the pair centred, a label shifted left by half its own
- * count, so `Moments` and `Moves` sat off the centre of their tab and `Review` did not — the three
- * labels did not line up with each other or with the underline. What is centred is the LABEL.
+ * The width kept clear for a count on BOTH sides of every label — reserved on the empty side too,
+ * because what is centred is the LABEL and not the pair (`docs/game-review.md`).
  */
 private val TAB_COUNT_SLOT = 32.dp
 private val REVIEW_BAR_HEIGHT = 10.dp
@@ -680,12 +637,8 @@ private fun MoveSectionHeading() {
 }
 
 /**
- * The screen's ONE "what does this mean" affordance: a small ⓘ beside a heading, opening a dialog.
- *
- * Same glyph, same gesture, same kind of content everywhere — a mixture of tooltips, sheets and
- * dialogs is worse than none. It explains a CONCEPT to somebody who wants to go deeper; it is not a
- * licence to leave jargon on screen and translate it here. If a label needs this to be understood at
- * all, the label is wrong.
+ * The screen's ONE "what does this mean" affordance: a small ⓘ beside a heading. It explains a
+ * CONCEPT — a label that needs it to be understood at all is wrong (`docs/game-review.md`).
  */
 @Composable
 private fun Info(
@@ -780,12 +733,8 @@ private fun ReviewWinBar(winWhite: Double?) {
 }
 
 /**
- * What the engine is doing, on EVERY tab — or null when the screen owes the reader nothing.
- *
- * Null twice over. A FINISHED review has no state worth a card. A run IN FLIGHT has one, but it is
- * not this screen's to draw: the run outlives the screen now, so it is reported by the app bar's
- * analysis banner, which is pinned, appears on every screen and carries the only Stop there is.
- * Drawing it here as well put two progress bars and two counts one above the other.
+ * What the engine is doing, on EVERY tab — or null when the screen owes the reader nothing, which
+ * it does twice over: finished has no state, in-flight belongs to the app bar (`docs/game-review.md`).
  */
 internal enum class AnalysisPhase {
     MISSING_ENGINE,
@@ -809,10 +758,8 @@ internal fun analysisPhase(ui: ReviewUi): AnalysisPhase? {
 }
 
 /**
- * The one card that starts or resumes the engine pass.
- *
- * Reviewing is what an unread game's screen is FOR, so by specs/48 rule 3 it is the filled button —
- * it was a bare `TextAction` with no visible hit area, inside the one tab that also hid the progress.
+ * The one card that starts or resumes the engine pass. Reviewing is what an unread game's screen is
+ * FOR, so by specs/48 rule 3 it is the filled button (`docs/game-review.md`).
  */
 @Composable
 private fun AnalysisState(
@@ -869,10 +816,8 @@ private fun AnalysisState(
 }
 
 /**
- * The rating, and the first thing on the tab the screen opens on.
- *
- * It states its own denominator because a rating owes one: this game's accuracy is over the moves the
- * app actually watched, in a position that was not already decided.
+ * The rating, and the first thing on the tab the screen opens on. It states its own denominator
+ * because a rating owes one — watched moves, in positions not already decided.
  */
 @Composable
 private fun MomentsSummary(
@@ -954,15 +899,8 @@ private fun accuracyColor(accuracy: Double) =
     }
 
 /**
- * The one ply the user is looking at — TWO columns, and each column is one position.
- *
- * *"die zweispaltigkeit war besser"* (2026-08-04). It was two columns at `a5cdfd1` and became one
- * full-width stack, which is what made the caption's height a function of its content.
- *
- * The split is not cosmetic. **Left is the position BEFORE this ply**: the move that was played,
- * what it is called, what it cost, and — where there is one — the forced mate that ran from there.
- * **Right answers the question the verdict creates**: what the engine would have played instead.
- * The board remains after the played move so its last-move highlight and the verdict agree.
+ * The one ply the user is looking at — TWO columns, each one position: left BEFORE the ply, right
+ * what the engine wanted instead. *"die zweispaltigkeit war besser"* (2026-08-04; `docs/game-review.md`).
  */
 @Composable
 private fun PlyVerdict(
@@ -1111,15 +1049,8 @@ private fun verdictColor(ply: PlyGrade): Color =
     }
 
 /**
- * The moves that decided the game, and — separately — the mates nobody took.
- *
- * `GameGrade.findings()` used to sort `compareByDescending { missedMate }` FIRST, so every missed
- * mate outranked every real swing by construction and the heading's top row was routinely a move
- * that went 98 % → 98 %. A missed mate from a won position is a curiosity; a 35-point swing is the
- * turning point the heading promises. They are two questions and they are two sections.
- *
- * A rebuilt ply is in neither: `findings` filters them, because "learn from this mistake" about a
- * move the tracker invented is the worst version of the one bug this project cannot afford.
+ * The moves that decided the game, and — separately — the mates nobody took: two questions, two
+ * sections. A rebuilt ply is in neither (`docs/game-review.md`).
  */
 @Composable
 private fun KeyMoments(
@@ -1162,11 +1093,8 @@ private fun KeyMoments(
 }
 
 /**
- * One finding: what was played, what it is called, the numbers, and the engine's first choice.
- *
- * Tapping it seeks to the ply BEFORE the move — the position where the better move was still
- * available, and the one the board's arrow belongs to. Landing on the mistake itself only shows the
- * damage.
+ * One finding: what was played, its name, the numbers, the engine's first choice. Tapping seeks to
+ * the ply BEFORE it — landing on the mistake itself only shows the damage.
  */
 @Composable
 private fun FindingCard(
@@ -1276,11 +1204,8 @@ internal fun reviewPositionLabel(
     }
 
 /**
- * Everything that is not the review: how the numbers were produced, where a move came from, and the
- * PGN.
- *
- * It lives behind the review overflow: reachable from every tab without taking height away from the
- * board and navigation.
+ * Everything that is not the review: how the numbers were produced, where a move came from, the PGN.
+ * Behind the overflow, so it costs the board and navigation no height.
  */
 @Composable
 private fun AnalysisDetailsDialog(

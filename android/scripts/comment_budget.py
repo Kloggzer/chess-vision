@@ -12,7 +12,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-LIMIT = 8  # consecutive comment lines; keep in sync with CommentBudgetTest.LIMIT
+LIMIT = 5  # consecutive comment lines; keep in sync with CommentBudgetTest.LIMIT
 ROOT = Path(__file__).resolve().parent.parent
 SKIP = {"build", "bin", "third_party", ".gradle"}
 

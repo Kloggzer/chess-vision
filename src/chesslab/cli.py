@@ -349,7 +349,13 @@ def session_temporal_pass(
     import subprocess
 
     from . import position_flags, temporal_flags
-    from .temporal_matte import adopt_proposals, propose_session, prune_dead_rows, upsert_proposals
+    from .temporal_matte import (
+        adopt_proposals,
+        propose_session,
+        prune_dead_rows,
+        upsert_proposals,
+        write_pass_report,
+    )
 
     session = name if name.startswith("rg-") else f"rg-{name}"
     started = datetime.now(UTC).isoformat()
@@ -372,11 +378,11 @@ def session_temporal_pass(
     print(f"[OK] prune: {pruned['dropped']} superseded temporal rows dropped", flush=True)
     flags = position_flags.position_flags()
     print(f"[OK] {flags['flags']} audit cards -> {flags['path']}", flush=True)
-    report = mattes["path"].parent.parent / "pass.json"
-    report.write_text(json.dumps({"started": started, "finished": datetime.now(UTC).isoformat(),
-                                  "candidates": scan["flags"], "proposals": mattes["proposed"],
-                                  "adopted": adopted["adopted"], "upserted": upsert["upserted"],
-                                  "sam_found": upsert["sam_found"]}), encoding="utf-8")
+    report = write_pass_report(session, {
+        "started": started, "finished": datetime.now(UTC).isoformat(),
+        "candidates": scan["flags"], "proposals": mattes["proposed"],
+        "adopted": adopted["adopted"], "upserted": upsert["upserted"],
+        "sam_found": upsert["sam_found"]})
     print(f"[OK] pass -> {report}")
 
 
@@ -1126,6 +1132,9 @@ def realgames_position_flags() -> None:
     print(f"[OK] {r['flags']} Zellen in {r['frames']} Frames -> {r['path']}")
     if r["stale_temporal"]:
         print(f"[WARN] Temporal scans need refreshing: {', '.join(r['stale_temporal'])}")
+    if r["unmeasured"]:
+        print("[WARN] ohne `session settle-scan`, null Flags heisst hier ungemessen: "
+              f"{', '.join(r['unmeasured'])}")
     for sid, n in sorted(r["per_session"].items(), key=lambda kv: -kv[1]):
         print(f"  {sid:34} {n}")
     i = position_flags_mod.interval_flags()

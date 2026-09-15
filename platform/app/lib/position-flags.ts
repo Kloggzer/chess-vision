@@ -24,6 +24,9 @@ export type PositionFlags = {
   rows: PositionFlag[];
   /** `false` = der Producer lief noch nicht; die Lane rendert `—`, nie eine leere Liste. */
   present: boolean;
+  /** Aufnahmen, auf denen `settle-scan` nie lief — null Zeilen heisst dort ungemessen, nicht
+   *  unstrittig. Leer auch bei einer Kopfzeile aus der Zeit vor dem Feld. */
+  unmeasured: string[];
 };
 
 export function positionFlagsPath(): string {
@@ -48,17 +51,19 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
     // `present: false` heisst "der Produzent lief nie" und die Lane schreibt `—` statt `0`. Ein
     // Lesefehler darf das nicht behaupten, sonst ist eine unlesbare Datei eine Aussage.
     if ((e as { code?: string })?.code !== "ENOENT") throw e;
-    const missing: PositionFlags = { rows: [], present: false };
+    const missing: PositionFlags = { rows: [], present: false, unmeasured: [] };
     cache.set(file, { key, value: missing });
     return missing;
   }
 
   const rows: PositionFlag[] = [];
+  let unmeasured: string[] = [];
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
       const o = JSON.parse(line) as Record<string, unknown>;
       // Die Kopfzeile trägt die Schwellen und kein `square` — sie ist kein Flag.
+      if (Array.isArray(o._unmeasured)) unmeasured = o._unmeasured.map(String);
       if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
       if (typeof o.dev !== "number") continue;
       rows.push({
@@ -79,7 +84,7 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
     }
   }
   rows.sort((a, b) => b.dev - a.dev);
-  const value: PositionFlags = { rows, present: true };
+  const value: PositionFlags = { rows, present: true, unmeasured };
   cache.set(file, { key, value });
   return value;
 }

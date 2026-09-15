@@ -48,16 +48,8 @@ import java.util.Locale
 import kotlin.system.exitProcess
 
 /**
- * The tracker on a PC, running the code the phone runs.
- *
- * `replay <video>` drives a recorded clip through the real `TrackerStack` — the same pipeline, the
- * same engine, the same coordinator — and prints what it commits. There is no second loop here and
- * no second pipeline: this file builds the object graph and feeds it frames, which is exactly what
- * `TrackerService` does on the phone, minus the notification.
- *
- * The virtual clock is derived from the source's own frame rate rather than from the wall clock, so
- * a replay is deterministic: the same file produces the same game, which is what makes a breakpoint
- * worth setting.
+ * The tracker on a PC, running the code the phone runs — one object graph, no second pipeline and
+ * no second clock. Why it is built this way, and what each decision cost: `docs/desktop-replay.md`.
  */
 fun main(args: Array<String>) {
     NativeCv.require()
@@ -83,12 +75,8 @@ fun main(args: Array<String>) {
 }
 
 /**
- * `align <n>` — the board against its own grid, on the frames as they arrive.
- *
- * It used to take a `raw` toggle that compared against a STORED calibration, so a reader could tell
- * whether the distortion or the board geometry was the error. That file came from `chesslab lens
- * calibrate`, deleted 2026-08-20, so the toggle had been comparing raw against raw ever since. What
- * answers the question now is `undistort`, which fits the optics from the recording itself.
+ * `align <n>` — the board against its own grid, as the frames arrive. The `raw` toggle that used to
+ * sit here died with the stored calibration; `undistort` answers that now (`docs/desktop-replay.md`).
  */
 private fun alignCamera(index: Int) {
     val cost = Cost()
@@ -111,11 +99,8 @@ private fun timedFrames(
     }
 
 /**
- * The board's own markers, before anything else is built.
- *
- * A first pass rather than a stage in the loop: the quad decides the board SIZE, which decides the
- * warp the engine indexes its squares against — so it has to be known before the stack exists. On
- * the phone the same thing happens, spread over a calibration screen.
+ * The board's own markers, before anything else is built — the quad decides the board size, which
+ * decides the warp, so it cannot be a stage in the loop (`docs/desktop-replay.md`).
  */
 private fun locateBoard(
     next: () -> Mat?,
@@ -124,10 +109,8 @@ private fun locateBoard(
 ): FloatArray? {
     repeat(attempts) {
         val frame = next() ?: return null
-        // The two halves of `quadOf`, called separately so each can be timed. The split is the
-        // point: ArUco carries a "44-87 ms" claim from commit 4a7609e and `improveQuad` a
-        // "70-85 ms at boardSize 800" one that its own KDoc declines to stand behind, and a single
-        // combined number could not have checked either.
+        // The two halves of `quadOf`, timed separately: each carries its own unverified ms claim,
+        // and one combined number could check neither (`docs/desktop-replay.md`).
         val markers = cost.of("aruco") { rawQuadOf(frame) } ?: return@repeat
         return cost.of("grid refit") { refinedQuad(frame, markers) }
     }
@@ -135,17 +118,8 @@ private fun locateBoard(
 }
 
 /**
- * What the STORED marker margin costs on this board, measured against the board's own grid.
- *
- * `margin` says how far outside the playing field the markers sit, and it is a constant today:
- * `DEFAULT_MARKER_MARGIN` = 0.045, one value assumed for all four corners. The markers are glued on
- * by hand. So this asks the only question that decides whether that constant is good enough here —
- * `alignmentOf`, which is absolute rather than self-referential: it fits the board's own nine lines
- * per axis and reports the worst square offset against 4 % of a cell, counting any line it could
- * NOT locate as unread rather than assuming it.
- *
- * It changes nothing. A margin measured per corner is only worth building if this says the constant
- * is wrong, and by how much.
+ * What the STORED marker margin (0.045, hand-glued) costs here, measured absolutely by `alignmentOf`.
+ * Changes nothing: a per-corner margin waits until this says by how much (`docs/desktop-replay.md`).
  */
 private fun measureAlignment(
     next: () -> Mat?,
@@ -191,16 +165,12 @@ private fun measureAlignment(
 }
 
 /**
- * Calibrate the lens from the board, and say plainly whether it worked.
- *
- * Writes nothing on its own: a calibration that does not bring the board under the limit is a
- * finding, not a file. The stored one that made this rig worse is exactly what happens when that
- * distinction is skipped.
+ * Calibrate the lens from the board, and say plainly whether it worked. Writes nothing on its own:
+ * a calibration that misses the limit is a finding, not a file (`docs/desktop-replay.md`).
  */
 private fun calibrate(source: FrameSource) {
-    // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite.
-    // `latestCalibrationFrame()` hands back an immutable view the caller must release, so the
-    // seam is shaped to let each host keep its own rule instead of one of them being quietly wrong.
+    // A LOAN, not a getter: `next()` hands back a Mat the source still owns and will overwrite
+    // (`docs/desktop-replay.md`).
     val fit =
         calibrateFromBoard(
             { use -> source.next()?.also(use) != null },
@@ -244,12 +214,8 @@ private fun report(
 }
 
 /**
- * Median worst square offset over [frames], which is the only form these numbers may be compared in.
- *
- * This measured ONE frame each until 2026-08-07, while `align` measured sixty — so a calibration was
- * being judged against a number taken a different way from the one it would be compared to. The
- * per-run spread turns out to be tiny (<= 0.07 px over sixty frames), but that is a thing you learn
- * by measuring the spread, not a thing you may assume while skipping it.
+ * Median worst square offset over [frames], the only form these numbers may be compared in. Per-run
+ * spread is <= 0.07 px over sixty frames — measured, not assumed (`docs/desktop-replay.md`).
  */
 private fun medianOffset(
     next: () -> Mat?,
@@ -334,38 +300,20 @@ internal fun replayRun(
     // the comparison and the label share their geometry by construction.
     val plan = replayPlanFor(options, video)
     source.use { source ->
-        // The board size is MEASURED from the detected quad and then copied into the config, exactly
-        // as the phone does. `TrackerConfig.boardSize`'s own comment says why it is neither a
-        // preference nor a real default: `measuredBoardSize` clamps to 320..1280, so a config still
-        // carrying the 1600 placeholder disagrees with every plane the warp produces and
-        // `FrameLoop.step` refuses them — "one silently dropped frame at a time".
-        //
-        // It does NOT come from the model. The model owns the crop composition (specs/45:
-        // pad_side, infer_size); this is the resolution the DIFF path works in
-        // (`detSize = boardSize * detectScale`), and the recognizer has no business setting that.
-
-        // Built once and handed to the stages, which own it and close it. The board is located on
-        // the SAME pixels the tracker will see — locating it on raw frames and then tracking on
-        // corrected ones would seed the stack with a quad measured in the other space.
-        // Fitted from the board in THIS footage, not loaded from a file: a stored calibration
-        // assumes the optics have not moved since, and on this rig a fit from the footage beat the
-        // stored one by 1.2 px. It goes through `Stage.LENS` — the frame source never undistorts.
+        // Fitted from the board in THIS footage, not from a file, and built once for the stages
+        // that own and close it. Why, and what the board size is measured from rather than
+        // configured: `docs/desktop-replay.md`.
         val fittedLens = plan?.lens() ?: if (options.lens) fitLensFrom(source) else null
         if (options.lens && video != null && fittedLens == null) {
             error("no accepted lens fit for ${video.name} — refusing to replay raw frames as corrected")
         }
         val optics = fittedLens?.let { Undistorter(it, source.delivered.width, source.delivered.height) }
         val corrected = { source.next()?.let { frame -> optics?.apply(frame) ?: frame } }
-        // The recording starts BEFORE the game. The phone flushes its pre-roll ring at the first
-        // commit (`video_pre_roll_ns`), so tracking from frame 0 means tracking board setup and
-        // hands that the phone's own engine never saw — and an alarm latched there has no user to
-        // clear it, which cost `2026-08-15-22-48-04` all 19 of its plies. Skipped BEFORE the board
-        // is located, so the quad is measured on the game rather than on the setup.
+        // Skipped BEFORE the board is located, so the quad is measured on the game and not on the
+        // setup — it cost `2026-08-15-22-48-04` all 19 plies (`docs/desktop-replay.md`).
         skipPreRoll(source, video, options)?.let { println(it) }
-        // Which quad a run stood on is part of its provenance: the two sources are a measured
-        // ±6-25 plies apart on real videos (specs/52 "geometry A/B", still open), and on
-        // 2026-08-14 a label-plan baseline was compared against locateBoard runs without anyone
-        // being able to see it — a day of suspecting `config=` for a difference the quad made.
+        // Which quad a run stood on is part of its provenance: the sources are a measured ±6-25
+        // plies apart (specs/52, still open; `docs/desktop-replay.md`).
         val quad =
             plan?.quad()?.also { println("quad: from the label plan's geometry scan") }
                 ?: recordedQuad(options, video)?.also { println("quad: from the recording's log.jsonl — what the phone stood on") }
@@ -376,16 +324,13 @@ internal fun replayRun(
             optics?.close()
             return
         }
-        // Where locating the board left the decoder — the first frame the tracker will see, and the
-        // origin every prepass numbers its rows from. Read off the source itself rather than off a
-        // `VideoFileSource` cast: a segmented recording is a `ConcatFrameSource`, the cast fell
-        // through to 0, and the prepass then keyed its detections a locate-run short.
+        // Where locating the board left the decoder — read off the source itself, because the
+        // `VideoFileSource` cast fell through to 0 on segmented recordings
+        // (`docs/desktop-replay.md`).
         val replayStartFrame = source.currentDecodedIndex + 1
-        // The MODEL owns the crop composition (specs/45), and the desktop was not asking it: crops
-        // were cut at `BoardGeometry`'s 128x128 while `id35-80` takes 80x80, so every observation
-        // threw inside `CnnObserver` and was swallowed as a warning while the run reported
-        // `cnn=run`. Read whether or not the CNN is on, so `nocnn` isolates the classifier and not
-        // the geometry — two runs differing in one flag have to differ in one thing.
+        // The MODEL owns the crop composition (specs/45), and the desktop was not asking it. Read
+        // whether or not the CNN is on, so `nocnn` isolates the classifier and not the geometry
+        // (`docs/desktop-replay.md`).
         val spec = desktopModelSpec(options.model)
         val geometry =
             replayBoardGeometry(quad, sessionDirOf(options, video), options.configFile?.let(::File)).withCropOf(spec)
@@ -393,10 +338,8 @@ internal fun replayRun(
         // percent, so the rate frames REACH the engine at scales it — as `TrackerService` does live.
         val recorded = recordedFrameGate(options, video)
         val stride = if (recorded != null) 1 else strideOf(options.fps, source.fps, live = camera != null)
-        // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`), and
-        // `:app` has applied it on attach since it was measured. The replay did not — so every
-        // measurement here ran at the 0.5 default while the phone ran the model's own 0.15, and a
-        // square between the two counted as a witness in one and not in the other.
+        // The coverage gate rides in the MODEL, not in the engine (`docs/occlusion-gate.md`). The
+        // replay did not apply it, so it measured at 0.5 while the phone ran the model's own 0.15.
         val config =
             options
                 .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
@@ -417,13 +360,9 @@ internal fun replayRun(
         // per move (a recovery bridge writes per-move rows), so collecting rows collects plies.
         val session = plan?.session(quad, geometry.boardSize, source.fps, { source.currentDecodedIndex.toInt() }) { publisher.status.value }
         training?.configure(geometry, quad, source.fps)
-        // Held here rather than read back off the stack: `TrackerStack` takes the bus as a
-        // constructor argument and does not expose it, and widening a shared seam for one host's
-        // debugging window would be the wrong trade.
-        // On the engine's clock, like everything else in a replay: the bus throttles its preview
-        // and calibration tap to 200 ms — measured on the WALL by default, which made the frame
-        // LiveAlign detects on depend on how fast this host decodes. Video time makes it the same
-        // frame on every run (and live, FrameClock IS the wall clock).
+        // Held here rather than read back off the stack, and on the engine's clock like everything
+        // else in a replay — its 200 ms tap would otherwise follow this host's decode speed
+        // (`docs/desktop-replay.md`).
         val needsPreview = camera != null || options.watch || options.dumpEvery > 0
         val bus =
             CameraFrameBus(
@@ -434,13 +373,9 @@ internal fun replayRun(
                 publishPreviews = needsPreview,
             )
         val view = openView(options, name)
-        // NOT seeded with this run's config, deliberately. Seeding it (`settings.update(config)`)
-        // was tried on 2026-08-08 and collapsed rec-20260808 from 67 plies to 26 with a phantom on
-        // rec-20260807 — through a path the A/B tests could not pin (liveAlign off and a faster
-        // cadence both failed to heal it). Every good measurement on record ran with the
-        // repository at codec defaults; that state is now declared rather than accidental, and
-        // the one knob where the two sources disagreed (observerIntervalS) is 0.0 in both. Which
-        // is why nothing here may READ it for a knob the run owns: it holds the defaults.
+        // NOT seeded with this run's config, deliberately: seeding it collapsed rec-20260808 from
+        // 67 plies to 26 (2026-08-08). It holds the codec defaults, so nothing here may READ it for
+        // a knob the run owns (`docs/desktop-replay.md`).
         val settings = SettingsRepository(MemoryConfigStore, scope)
         val visualCache =
             options.visualCache?.let { path ->
@@ -602,11 +537,8 @@ internal fun replayRun(
 }
 
 /**
- * Wind the decoder to where `start=` says, and say so. Null when nothing is skipped, which is the
- * DEFAULT: the phone tracks from its first frame, so a replay that skips measures a tracker the
- * device never runs. It used to wind to `session.yaml`'s `video_pre_roll_ns` less a two-second
- * lead. On 2026-08-14-20-35-52 that landed 0.7 s before the first move — too little runway to take
- * a clean reference, so `e4` never registered as a change and the run scored 1/4 instead of 3/4.
+ * Wind the decoder to where `start=` says; null when nothing is skipped, which is the DEFAULT. The
+ * old two-second lead cost a run 2 of its 4 moves (`docs/desktop-replay.md`).
  */
 private fun skipPreRoll(
     source: FrameSource,
@@ -621,9 +553,8 @@ private fun skipPreRoll(
 }
 
 /**
- * The board view, unless the run is scripted. `quiet` is what makes a replay scriptable: with a
- * window open, break-on-stuck is right — a human is watching and wants it to stop — but that same
- * default turns a batch replay into a process waiting forever for a key nobody will press.
+ * The board view, unless the run is scripted. `quiet` is what makes a replay scriptable: with no
+ * window, break-on-stuck would wait forever for a key nobody presses (`docs/desktop-replay.md`).
  */
 private fun openView(
     options: ReplayOptions,
@@ -635,9 +566,8 @@ private fun openView(
 }
 
 /**
- * The signals the engine had AT COMMIT TIME, for calibrating a commit threshold against a target
- * fabrication rate instead of hand-tuning one. Measured 2026-08-24: they do not separate
- * fabrications from hits (`docs/commit-calibration.md`), so this stays a diagnostic.
+ * The signals the engine had AT COMMIT TIME. Measured 2026-08-24: they do not separate fabrications
+ * from hits (`docs/commit-calibration.md`), so this stays a diagnostic.
  */
 private fun DebugDecision.confidenceLine(): String =
     (
@@ -737,18 +667,14 @@ private fun buildStack(
         bus,
         StageTimings(logLine = { println("chesslabPerf: $it") }),
         scope,
-        // With a CNN the engine arbitrates occlusion per square; without one
-        // `Taint.cnnOcclusionFilter` falls back to ">2 changed squares = a hand", which is a
-        // different tracker. `nocnn` runs that fallback ON PURPOSE, so the two can be compared
-        // instead of one being mistaken for the other.
+        // `nocnn` runs `Taint.cnnOcclusionFilter`'s ">2 changed squares = a hand" fallback ON
+        // PURPOSE — it is a different tracker, and the two have to be comparable.
         cnn ?: { error("running without a CNN — the engine uses its occlusion fallback") },
     )
 
 /**
- * Frames in, until the source runs dry or the viewer's window is closed.
- *
- * The view is consulted BEFORE the next frame is pulled, not after: when it stops on a stuck
- * engine, what is on screen has to be the state that caused the stop rather than the one after it.
+ * Frames in, until the source runs dry or the viewer's window is closed. The view is consulted
+ * BEFORE the next frame is pulled, so a stop shows the state that caused it, not the one after.
  */
 @Suppress("LongParameterList")
 private fun drive(
@@ -758,15 +684,13 @@ private fun drive(
     publisher: StatusPublisher,
     view: TrackerView?,
     dumpEvery: Int = 0,
-    // Fired AFTER the engine saw the frame, with its WHOLE-RECORDING index. The index and the
-    // picture travel in one call — the review-frame writer's whole correctness rests on that.
+    // Fired AFTER the engine saw the frame, index and picture in one call — the review-frame
+    // writer's correctness rests on that.
     frameHook: ((Int, Mat, Double) -> Unit)? = null,
-    // Process every stride-th decoded frame — `ReplayOptions.fps`'s realtime emulation. Time comes
-    // off each frame's PTS either way, so skipping changes what the tracker SEES, never what time
-    // it is.
+    // Process every stride-th decoded frame; time comes off each frame's PTS either way.
     stride: Int = 1,
     // Die Frames, die das TELEFON sah. Ist sie da, gilt sie und [stride] ruht — ein Replay, der
-    // andere Bilder waehlt als die Messung, ist keine Reproduktion (`TODO.md`).
+    // andere Bilder waehlt als die Messung, ist keine Reproduktion (`docs/desktop-replay.md`).
     recorded: RecordedFrameGate? = null,
     statusDump: java.io.Writer? = null,
     limitFrames: Int? = null,
@@ -784,8 +708,7 @@ private fun drive(
             }
             return frames
         }
-        // No clock tick: time comes off the frame's own PTS (`FrameClock`), so a stride-skipped
-        // frame still advances it — the property the counted clock had to maintain by hand.
+        // No clock tick: a stride-skipped frame still advances the PTS clock by itself.
         val take = recorded?.accept(source.timestampMs) ?: (frames % stride == 0)
         if (!take) {
             strideDropped += 1
@@ -808,11 +731,8 @@ private fun drive(
 }
 
 /**
- * What a hooked frame is CALLED, over the whole recording.
- *
- * `drive` counts from its own first frame, which is `skipPreRoll` plus the locate walk into the
- * video — 878 frames on 2026-08-16-20-41-33, whose every exported label then sat 29 s ahead of its
- * picture. A live camera has nothing to count from and keeps the counter.
+ * What a hooked frame is CALLED over the whole recording. `drive`'s own count sat 878 frames into
+ * 2026-08-16-20-41-33 and put every label 29 s ahead of its picture (`docs/desktop-replay.md`).
  */
 internal fun hookIndex(
     decoded: Long,
@@ -820,8 +740,8 @@ internal fun hookIndex(
 ): Int = if (decoded >= 0) decoded.toInt() else counted
 
 /**
- * `fps=<n>` -> the frame stride, announced. Refused live: a camera already drops what the
- * pipeline cannot take — the stride exists to give a replay that same reality, deterministically.
+ * `fps=<n>` -> the frame stride, announced. Refused live: a camera already drops what the pipeline
+ * cannot take, and the stride exists to give a replay that same reality, deterministically.
  */
 private fun strideOf(
     targetFps: Double?,
@@ -836,10 +756,8 @@ private fun strideOf(
 }
 
 /**
- * The engine's clock: wall time [live], else the frame's own PTS ([FrameSource.timestampMs]).
- * NOT `frames x 1000/fps` — that counted clock assumed CFR, which the phone never delivers
- * (26.35/23.47 fps segments), sheared video time on VFR footage and forced the label verb to
- * demand lossy re-encodes (2026-08-14, session 143233). PTS is exact and stays reproducible.
+ * The engine's clock: wall time [live], else the frame's own PTS ([FrameSource.timestampMs]). NOT
+ * `frames x 1000/fps` — that assumed CFR, which the phone never delivers (`docs/desktop-replay.md`).
  */
 private class FrameClock(
     private val source: FrameSource,
@@ -923,11 +841,8 @@ private val FILE_TOOLS: Map<String, (List<String>) -> Unit> =
     )
 
 /**
- * Die Ecken, auf denen das TELEFON stand — aus dem `log.jsonl` der Aufnahme.
- *
- * Ohne sie sucht der Replay das Brett selbst, und die beiden Quellen liegen gemessen 6 bis 25
- * Plies auseinander (specs/52). Genau daran ist am 2026-08-30 eine Reproduktion gescheitert:
- * live liefen acht Halbzuege, im Replay vier, und `config=` wie `fps=` waren unschuldig.
+ * Die Ecken, auf denen das TELEFON stand — aus dem `log.jsonl` der Aufnahme. Die beiden Quellen
+ * liegen gemessen 6 bis 25 Plies auseinander (specs/52, `docs/desktop-replay.md`).
  */
 private fun recordedQuad(
     options: ReplayOptions,
@@ -969,10 +884,8 @@ private fun recordedStartFen(
 }
 
 /**
- * Die Frame-Auswahl der Aufnahme, oder `null` wo keine gemessen wurde.
- *
- * Nur dann darf der Replay dezimieren: `fps=<n>` trifft die Anzahl der Frames, aber nicht die
- * Bilder, die CameraX live durchliess — und daran haengt, was der Diff vergleicht.
+ * Die Frame-Auswahl der Aufnahme, oder `null` wo keine gemessen wurde. `fps=<n>` trifft die Anzahl
+ * der Frames, aber nicht die Bilder, die CameraX durchliess (`docs/desktop-replay.md`).
  */
 private fun recordedFrameGate(
     options: ReplayOptions,
@@ -986,8 +899,8 @@ private fun recordedFrameGate(
 }
 
 /**
- * Wie `TrackerService`: die Vorverarbeitung kommt aus der `config.json` des Modells. Der Desktop
- * baute sie nie — jeder Replay mit `p4a-80-clahe` servierte dem CLAHE-trainierten Modell rohe Crops.
+ * Wie `TrackerService`: die Vorverarbeitung kommt aus der `config.json` des Modells — der Desktop
+ * baute sie nie und servierte `p4a-80-clahe` rohe Crops.
  */
 private fun cropClaheOf(spec: ModelSpec?): CropClahe? =
     spec?.takeIf { it.claheClip > 0.0 }?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }

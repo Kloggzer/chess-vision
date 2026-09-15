@@ -152,3 +152,52 @@ def test_an_unusable_frame_never_becomes_a_card():
     flags = timing_flags(entries, [{"ply": 2, "moved": ["e4"], "dev": 61.0}], {}, "s", window=1)
 
     assert [f["frame"] for f in flags] == ["000003", "000005"]
+
+
+# --- Ungemessene Aufnahmen: null Flags heisst nicht "nichts strittig" -------------------
+
+
+def _measured_session(tmp_path, monkeypatch, entries):
+    from chesslab import config, temporal_flags
+    from chesslab import position_flags as mod
+
+    rec = tmp_path / "recordings" / "test"
+    rec.mkdir(parents=True)
+    (rec / "log.jsonl").write_text("", encoding="utf-8")
+    (rec / "session.yaml").write_text("", encoding="utf-8")
+    (rec / "matte.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path))
+    monkeypatch.setattr(mod, "read_session_meta", lambda _: {"session_id": "rg-test"})
+    monkeypatch.setattr(mod, "read_matte", lambda _: {})
+    monkeypatch.setattr(mod, "read_log", lambda _: entries)
+    monkeypatch.setattr(temporal_flags, "load_flags", lambda *_a: ([], False))
+    return mod.position_flags()
+
+
+def test_a_session_settle_scan_never_touched_is_named_as_unmeasured(tmp_path, monkeypatch):
+    """Ohne `settle_dev` faellt jede Zelle durch — der Bericht sah aus wie "nichts strittig"."""
+    entry = {"frame": "frames/000007.png", "fen": START, "ply": 3}
+
+    result = _measured_session(tmp_path, monkeypatch, [entry])
+
+    assert result["flags"] == 0
+    assert result["unmeasured"] == ["rg-test"]
+
+
+def test_a_scanned_session_without_disputes_is_not_called_unmeasured(tmp_path, monkeypatch):
+    result = _measured_session(tmp_path, monkeypatch, [_entry()])
+
+    assert result["flags"] == 0
+    assert result["unmeasured"] == []
+
+
+def test_the_report_header_carries_the_unmeasured_sessions(tmp_path, monkeypatch):
+    """Die Kopfzeile ist, was der TS-Leser sieht — die Rueckgabe bleibt im Prozess."""
+    import json
+
+    entry = {"frame": "frames/000007.png", "fen": START, "ply": 3}
+
+    result = _measured_session(tmp_path, monkeypatch, [entry])
+
+    header = json.loads(result["path"].read_text(encoding="utf-8").splitlines()[0])
+    assert header["_unmeasured"] == ["rg-test"]

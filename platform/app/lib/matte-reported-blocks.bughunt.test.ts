@@ -29,7 +29,7 @@ beforeEach(async () => {
 const EXPORTED = {
   video: "v", videoBroken: null, offeredPgn: null, hasReference: false, hasPhoneRecord: false,
   hasCandidate: true, confirmed: true, hasSession: true,
-  hasTemporalPass: true, hasModelReads: true, useless: null,
+  hasSettle: true, outdated: {}, reason: "", hasTemporalPass: true, hasModelReads: true, useless: null,
 };
 
 test("a frame SAM already refused is reported but no longer open", async () => {
@@ -41,10 +41,10 @@ test("a frame SAM already refused is reported but no longer open", async () => {
 
 test("nextStep leaves the matte rung once every reported frame got its answer", () => {
   const stuck = { done: 80, total: 80, target: 80, reported: 1, reportedOpen: 0 };
-  expect(nextStep({ ...EXPORTED, mattes: stuck }), "BUG: dauerhaft auf `matte` festgenagelt").toBe("labeln");
+  expect(nextStep({ ...EXPORTED, mattes: stuck }).step, "BUG: dauerhaft auf `matte` festgenagelt").toBe("labeln");
 });
 
 test("a reported frame SAM has not answered yet still calls for the step", () => {
   const open = { done: 80, total: 80, target: 80, reported: 1, reportedOpen: 1 };
-  expect(nextStep({ ...EXPORTED, mattes: open })).toBe("matte");
+  expect(nextStep({ ...EXPORTED, mattes: open }).step).toBe("matte");
 });

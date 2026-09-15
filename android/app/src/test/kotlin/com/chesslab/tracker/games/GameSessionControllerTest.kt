@@ -30,10 +30,8 @@ private const val AFTER_JUMP_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/R
 private const val FOOLS_MATE = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3"
 
 /**
- * A jump nothing explains: [AFTER_JUMP] with White's queen's rook gone.
- *
- * [AFTER_JUMP] itself is no longer a seam — the record misses exactly 1...e5 there and `closeSeams`
- * finds it — so a test about seams needs a gap that has no legal explanation at all.
+ * A jump nothing explains: [AFTER_JUMP] with White's queen's rook gone. [AFTER_JUMP] itself is no
+ * longer a seam, so a seam test needs a gap with no legal explanation (`docs/game-record-seams.md`).
  */
 private const val AFTER_LOST_BOARD = "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R b Kkq - 1 2"
 private const val AFTER_LOST_BOARD_NC6 = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/1NBQKB1R w Kkq - 2 3"
@@ -97,9 +95,8 @@ class GameSessionControllerTest {
             }.fen
 
     /**
-     * The four ways a game ends that the BOARD cannot see: a resignation, an agreed draw, a game
-     * simply stopped. `resultFromFen` returns `*` for all of them, so before this every normally
-     * ended game read "Game in progress" in the library.
+     * The ways a game ends that the BOARD cannot see. `resultFromFen` returns `*` for all of them,
+     * so every normally ended game read "Game in progress" (`docs/game-record-seams.md`).
      */
     @Test
     fun theStatedResultIsWhatIsStored() {
@@ -137,11 +134,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * The LIVE source and the ARCHIVE source must project the same game.
-     *
-     * This is the whole claim of "one view, two sources": if `LiveGame.view()` and the same game
-     * replayed off disk ever disagreed about a ply, the spectator and the after-game review would be
-     * looking at different games again — which is the state this replaced.
+     * The LIVE source and the ARCHIVE source must project the same game — the whole claim of "one
+     * view, two sources" (`docs/game-record-seams.md`).
      */
     @Test
     fun theLiveViewAndTheStoredGamesViewAreTheSameProjection() {
@@ -169,12 +163,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * Discard must drop the RECORD, not only reset the engine.
-     *
-     * It used to do neither: "Reset game -> Discard" reset the tracker and left this record standing,
-     * so the next committed ply was illegal from it and opened a seam inside a game the user had
-     * already thrown away. Invisible while nothing read the record; the moment the live game became
-     * the score sheet on screen it was a discarded game still being shown.
+     * Discard must drop the RECORD, not only reset the engine — a left-standing record opened a seam
+     * inside a game the user had already thrown away (`docs/game-record-seams.md`).
      */
     @Test
     fun discardDropsTheRunningGameWithoutStoringIt() {
@@ -231,17 +221,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * The bug behind every seam in the games on the device.
-     *
-     * Commits and status updates are two collectors on two flows, and the status is sampled — so a
-     * status captured a moment BEFORE a commit and delivered a moment after it carries the position
-     * the record has just left. That is bit-for-bit what a take-back looks like, and the record used
-     * to delete the ply it had just written; the next commit then no longer fitted the line and
-     * opened a seam. Measured on 2026-08-10: the engine committed and announced 69 plies, all of
-     * them cleanly, and the stored game kept 39.
-     *
-     * What separates the two is TIME, not shape: a take-back stays on the board, a late sample is
-     * overtaken by the current position within one interval.
+     * The bug behind every seam in the games on the device: a late status sample is bit-for-bit a
+     * take-back, and 69 announced plies were stored as 39 (2026-08-10, `docs/game-record-seams.md`).
      */
     @Test
     fun aStatusThatArrivesOnePlyLateDoesNotDeleteTheMoveItMissed() {
@@ -266,13 +247,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * D1. The engine commits plies through TWO events: `MoveCommitted` and `SequenceCommitted`
-     * (fast play `Commit.kt:165`, CNN recovery `CnnTick.kt:252`). Both queue a session photo in
-     * the engine (`Commit.kt:158`, `CnnTick.kt:223`), and five other consumers of the bus handle
-     * both. This controller handled only the first, so every pair commit and every CNN recovery
-     * was missing from the saved game AND from the recorded session.
-     *
-     * One photo per COMMIT, not per ply — that is what `queueSessionCapture(sans.last())` does.
+     * D1. The engine commits through TWO events, and this controller handled only `MoveCommitted`.
+     * One photo per COMMIT, not per ply (`docs/game-record-seams.md`).
      */
     @Test
     fun aFastPlayPairIsRecordedAsTwoMovesAndOnePhoto() {
@@ -311,20 +287,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * D3. Four of the five games recorded on the device were NOT legal sequences from their own
-     * `startFen` — they broke at plies 1, 2, 18 and 28. The engine cannot commit an illegal move,
-     * so the break is the engine's board JUMPING between two commits (an alarm being resolved, a
-     * FEN resync, an accepted recovery). This controller sees none of those: it handles
-     * `MoveCommitted`, `SequenceCommitted` and `ReAnchored`, and drops `Alarm` / `AlarmCleared`.
-     *
-     * A line that spans two positions is unusable as a game AND as labeled data, because every FEN
-     * after the seam is wrong. The first fix CLOSED the record at the seam, which cost the user the
-     * game: one played game came off the device as three files ("für mich als Nutzer ist so ne Naht
-     * in der Game-Historie unverständlich"). So the seam opens a SEGMENT — a new legal line inside
-     * the same record — and one played game stays one stored record.
-     *
-     * Only for a gap nothing explains, though: see
-     * [aGapTheMissedPlyExplainsIsClosedInsteadOfSplit].
+     * D3. Four of five device games were not legal sequences from their own `startFen`. A seam opens
+     * a SEGMENT, and only for a gap nothing explains (`docs/game-record-seams.md`).
      */
     @Test
     fun aCommitThatLeftTheRecordsLineOpensASegmentNotANewRecord() {
@@ -351,12 +315,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * A CNN recovery commits from where the BOARD is, and the record is behind it by the plies the
-     * tracker missed behind a hand. That is not a lost board: there is exactly one legal sequence
-     * that gets from here to there, so the plies are appended and the line simply carries on.
-     *
-     * The user's report, on a game full of these: *"die Segmente sind mit einer Warnung voneinander
-     * getrennt obwohl sie sich einfach schließen lassen, da dort ein CNN recovery stattfand"*.
+     * A CNN recovery commits from where the BOARD is, and exactly one legal sequence gets from the
+     * record to there — so the plies are appended, not split off (`docs/game-record-seams.md`).
      */
     @Test
     fun aGapTheMissedPlyExplainsIsClosedInsteadOfSplit() {
@@ -379,9 +339,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * Every existing reader — `GameSummary.moveCount`, the games list, the detail screen — reads
-     * `moves`. Segments are additive: the flattened list still holds every ply that was committed,
-     * in order and numbered once across the whole game.
+     * Segments are ADDITIVE: every existing reader reads `moves`, and the flattened list still holds
+     * every committed ply, in order and numbered once across the whole game.
      */
     @Test
     fun theFlattenedMoveListStillHoldsEveryPlyInOrder() {
@@ -399,11 +358,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * Every one of the 77 plies recorded across five device sessions stored `provenance: null` —
-     * including the sessions recorded with debug ON. The decider was being read from the debug
-     * payload and matched by `accepted && uci`, a second source that can fail to line up, while the
-     * engine states it directly on the commit event. Without it a stored game cannot answer the one
-     * question worth asking of it: which path committed this move.
+     * All 77 plies across five device sessions stored `provenance: null`, debug ON included — the
+     * decider belongs on the commit event, not in the debug payload (`docs/game-record-seams.md`).
      */
     @Test
     fun theDeciderIsRecordedWithoutADebugPayload() {
@@ -426,10 +382,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * D2. Python takes the deferred photo only when the occlusion set is empty
-     * (`tracker.py`); the Kotlin engine emits `ReAnchored` unconditionally
-     * (`TrackerEngine.kt:414`). Flushing on every re-anchor photographs the board with a hand
-     * still over it — 64 crops labeled as pieces that cannot be seen.
+     * D2. The Kotlin engine emits `ReAnchored` unconditionally, so flushing on every one of them
+     * photographs a hand — 64 crops labeled as pieces nobody can see (`docs/game-record-seams.md`).
      */
     @Test
     fun aReAnchorWithSquaresStillOccludedDoesNotTakeThePhoto() {
@@ -446,17 +400,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * While the illegal-move latch is up, no frame may be written.
-     *
-     * The app's board and the physical board disagree — that is what the alarm MEANS — so a photo
-     * taken now is stored against a FEN that does not describe it. That is poisoned training data
-     * and it is indistinguishable from good data afterwards.
-     *
-     * Python has no gate of its own: alarmed, it blocks every commit and every re-anchor
-     * (`tracker.py`), and those two are the only things that drive the recorder.
-     * `TrackerEngine.kt:406` blocks re-anchor the same way. This test pins the property at the
-     * CONSUMER, so it survives whatever the engine does — it fails against an `isClean` that
-     * checks only occlusion and taint.
+     * While the illegal-move latch is up, no frame may be written: a photo now is poisoned training
+     * data. Pinned at the CONSUMER so it survives whatever the engine does (`docs/game-record-seams.md`).
      */
 
     @Test
@@ -478,12 +423,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * A seam must not swallow the plies that caused it.
-     *
-     * They are illegal from the closed record's last position — that is what a seam IS — and they
-     * precede the new record's `startFen`, so they land in neither move list. That was silent: one
-     * played game on 2026-07-28 was stored as three files, and Qxd4, Qe5+ and Be7 appear in none of
-     * them. Chaining the fragments back together is impossible without this.
+     * A seam must not swallow the plies that caused it — they fit neither move list, and Qxd4, Qe5+
+     * and Be7 appear in none of one game's three stored files (`docs/game-record-seams.md`).
      */
     @Test
     fun aSeamRecordsThePliesThatCausedItOnTheNewSegment() {
@@ -506,9 +447,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * An undo one ply after a seam must not leave a segment behind that holds no moves: the record
-     * would claim the app rebuilt the board for nothing, and the detail screen would render a seam
-     * note followed by nothing.
+     * An undo one ply after a seam must not leave an empty segment behind — the detail screen would
+     * render a seam note followed by nothing.
      */
     @Test
     fun anUndoRightAfterASeamRemovesTheSegmentItEmptied() {
@@ -533,9 +473,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * A PGN file may hold several games, and that is the honest shape for a record with a seam: one
-     * game per segment, each replayable from its own `[FEN]`. Fabricating one main line out of two
-     * positions produces a file every reader replays wrongly.
+     * One game per segment, each replayable from its own `[FEN]` — one main line fabricated out of
+     * two positions is a file every reader replays wrongly.
      */
     @Test
     fun thePgnWritesOneGamePerSegmentAndNamesTheSeam() {
@@ -554,9 +493,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * The four fragments pulled off the device on 2026-07-28 are in the pre-segment format: one
-     * legal line from `startFen`, with `openedBySeam` beside it. `ignoreUnknownKeys` would drop
-     * that field on the first read and the next write would erase it, so it is migrated.
+     * The 2026-07-28 fragments are pre-segment: `ignoreUnknownKeys` would drop `openedBySeam` on the
+     * first read and the next write would erase it, so it is migrated (`docs/game-record-seams.md`).
      */
     @Test
     fun aRecordWrittenBeforeSegmentsLoadsAsOneSegment() {
@@ -582,9 +520,8 @@ class GameSessionControllerTest {
     }
 
     /**
-     * The fragments actually on the device predate `openedBySeam` too: a mid-game `startFen`, one
-     * move list, and nothing saying where it came from. They must still open — as one segment that
-     * claims no seam, because none was ever recorded.
+     * The device's own fragments predate `openedBySeam` too. They must still open — as one segment
+     * claiming no seam, because none was ever recorded (`docs/game-record-seams.md`).
      */
     @Test
     fun aRecordWrittenBeforeSeamsWereRecordedLoadsAsOneSegmentWithNoSeam() {

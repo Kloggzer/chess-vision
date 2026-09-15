@@ -8,7 +8,7 @@ import type { Job } from "@/lib/jobs";
 import { newestFirst, recordedAt, type QueueRow } from "@/lib/queues";
 
 /** The chain's own order; a recording is in exactly one group, or in none (useless, archived, bare). */
-export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "matte", "temporal", "model-read", "labeln"] as const;
+export const INTAKE_GROUPS = ["phone-record", "label", "confirm", "export", "settle-scan", "matte", "temporal", "model-read", "labeln"] as const;
 export type IntakeGroupKey = (typeof INTAKE_GROUPS)[number];
 
 export type IntakeRow = QueueRow & {

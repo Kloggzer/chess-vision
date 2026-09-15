@@ -114,6 +114,9 @@ export const NO_POSITION =
   "data/reports/position-flags.jsonl fehlt — `chesslab session settle-scan` und danach " +
   "`chesslab realgames position-flags` liefen noch nicht. Ohne Messung ist eine Zelle nicht " +
   "unstrittig, sondern ungemessen.";
+export const NO_SETTLE_SCAN =
+  "auf diesen Aufnahmen lief `chesslab session settle-scan` nie — sie tragen null Stellungs-" +
+  "Karten, weil niemand gemessen hat, nicht weil nichts strittig war:";
 
 /**
  * Was der Strittig-Lane gerade FEHLT. Eine schweigende Quelle darf nicht in der Summe verschwinden:
@@ -600,7 +603,13 @@ export function laneCount(stream: LabelStream, id: LaneId, wall?: WallQuery): La
     const over =
       `Zellen aus Audit, Modell ≠ FEN (»${wall?.text ?? "keine Abfrage"}«, ` +
       `${stream.reads.boards} von ${stream.boards.length} Brettern gelesen), Stellung und Hand`;
-    return { n, total, denominator: missing.length === 0 ? over : `${over} · ES FEHLT: ${missing.join(" ")}` };
+    // Eine ungemessene Aufnahme faellt nicht in `missingSources`: die Datei IST da, sie schweigt
+    // nur ueber diese Aufnahme. Die Nullschwelle des `n: null` oben darf sie deshalb nicht bewegen.
+    const notes =
+      stream.positionsUnmeasured.length > 0
+        ? [...missing, `${NO_SETTLE_SCAN} ${stream.positionsUnmeasured.join(", ")}`]
+        : missing;
+    return { n, total, denominator: notes.length === 0 ? over : `${over} · ES FEHLT: ${notes.join(" ")}` };
   }
   return { n, total };
 }

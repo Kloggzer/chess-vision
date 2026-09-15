@@ -218,7 +218,13 @@
   `coverage_gate`s ist er gruen, die Falle ist also zu): `docs/test-coverage-2026-09-14.md`.
 - **Producer order:** `session settle-scan` writes `settle_dev`/`settle_seen`; only then does
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not
-  undisputed, it is unmeasured, and the lane says `—` rather than `0`.
+  undisputed, it is unmeasured, and the lane says `—` rather than `0`. Die Kette kennt den Schritt
+  seit 2026-09-15 als eigene Sprosse zwischen `export` und `matte` und prueft ihn an `settle_dev`
+  in der `log.jsonl` — vergessen heisst jetzt Knopf, nicht leere Lane.
+- **Herkunft statt Existenz (2026-09-15):** `pass.json` und `model-reads.jsonl` tragen `_source`
+  (`chesslab.provenance`): Mtime-plus-Groesse der `log.jsonl`, bei den Lesarten dazu das Modell.
+  `chain.ts` vergleicht statt nur zu existieren, ein Lauf von vor dem letzten Re-Export macht die
+  Sprosse wieder auf. Eine Datei OHNE Stempel gilt weiter — alles, was heute auf der Platte liegt.
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
 - **Routen-Ratsche (2026-09-16):** `platform/app/route-coverage.txt` listet jede API-Route ohne
   Test und darf nur schrumpfen — `lib/route-coverage.test.ts` schlaegt an, wenn eine neue
@@ -227,7 +233,7 @@
   importiert. Bewusst die ROUTEN und nicht die Gesamtabdeckung: die Hoehe sagt wenig
   (`core-engine` stand bei 92 % und trug vier Stellungs-Fehler), die Routen sind die duennste
   Stelle und tragen den Handy-Weg. Stand: 18 von 29 ohne Test.
-- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
+- **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
 - **`--num-workers 2`, nicht 8.** `config.DEFAULT_NUM_WORKERS` steht weiter auf 8; das ist seit

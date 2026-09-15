@@ -14,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from . import config
+from . import config, provenance
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
 from .sessions import session_dir
 from .temporal_flags import load_flags, source_stamp
@@ -457,6 +457,16 @@ def upsert_proposals(session_id, *, method="local"):
     temp.replace(matte_path)
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
+
+
+def write_pass_report(session_id, report: dict) -> Path:
+    """Der Nachweis des Durchlaufs — gestempelt auf den Export, zu dem seine Zahlen gehoeren."""
+    recording, _ = session_dir(session_id)
+    path = config.DATA.reports / "temporal-mattes" / recording.name / "pass.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({**report, "_source": provenance.source(recording)}),
+                    encoding="utf-8")
+    return path
 
 
 def prune_dead_rows(session_id):

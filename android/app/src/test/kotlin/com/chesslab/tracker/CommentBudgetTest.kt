@@ -6,8 +6,8 @@ import java.io.File
 
 /**
  * A ratchet, not a rule: `config/comment-budget.txt` holds what each file carries today, and both
- * directions fail — gaining a block, or paying one off without lowering the entry. Target is three
- * comment lines and five at the outside; [LIMIT] is only where enforcement stands today.
+ * directions fail — gaining a block, or paying one off without lowering the entry. [LIMIT] is five,
+ * the hard ceiling CLAUDE.md names; three is the target new code should aim for.
  */
 class CommentBudgetTest {
     /** A guard that reads no files passes for the wrong reason. */
@@ -76,8 +76,8 @@ class CommentBudgetTest {
             .toList()
 }
 
-/** Keep in sync with `LIMIT` in `scripts/comment_budget.py`. */
-private const val LIMIT = 8
+/** Keep in sync with `LIMIT` in `android/scripts/comment_budget.py`. */
+private const val LIMIT = 5
 
 /** There were 605 Kotlin sources when this was written; anything near zero means the walk missed them. */
 private const val MIN_SOURCES = 400

@@ -6,17 +6,17 @@ Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 **Seit der letzten Fassung gebaut und damit hier gestrichen:** der `MarkerTracker`-Port in
 `calibration.py` (alt 1), die Achsen-Fit-Paritaet Python/Kotlin (alt 10), die doppelte
 Verdeckungsschwelle in der Verify-Leiter (alt 12), die korpusweiten Namen in `eval_*.json`
-(alt 13) und die vier `TrackerService`-Ableitungen (alt 7, `ServiceDerivationsTest.kt`).
+(alt 13) und die vier `TrackerService`-Ableitungen (alt 7, `ServiceDerivationsTest.kt`). Dazu die
+drei Ketten-Punkte: der Herkunftsstempel `_source` in `pass.json` und `model-reads.jsonl` (alt 1),
+`settle-scan` als eigene Sprosse zwischen `export` und `matte` (alt 2) und `nextStep`, das seinen
+Grund mitgibt (alt 4).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
 Verhalten oder Format — nie ohne A/B am Regressionssatz.
 
 | # | Punkt | Kiste | Aufwand | Empfehlung |
 |---|---|---|---|---|
-| 1 | Die Kette prueft Dateien auf Existenz, nicht auf Herkunft | B | ½ Tag | **ja** |
-| 2 | `settle-scan` ist eine Pflichtsprosse, die die Kette nicht kennt | B | 2 h | **ja** |
 | 3 | `position-flags` nennt ungemessene Sessions nicht | A | 1 h | **ja** |
-| 4 | `nextStep` sagt nur *was*, nie *warum* | A/B | 3 h | ja, mit 1–3 zusammen |
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
 | 6 | `_persistent`-Fix gilt nur kuenftig — Altbestand neu exportieren? | C | ~28 s/Aufnahme | messen, dann entscheiden |
 | 7 | Zwei unvollstaendig gescannte Aufnahmen | A | 10 min | nachscannen |
@@ -26,44 +26,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 
 ---
-
-## 1. Die Kette prueft Dateien auf Existenz, nicht auf Herkunft
-
-`chain.ts:139` schliesst die Sprosse `temporal`, sobald
-`data/reports/temporal-mattes/<name>/pass.json` **da ist**, und `model-read`, sobald
-`model-reads.jsonl` **da ist**. Was in den Dateien steht, sieht die Kette nie.
-
-`model-reads.jsonl` traegt seit heute eine Kopfzeile mit `_model`, `_classes` und `_written_at` —
-die Information ist also schon da, sie wird nur nicht gelesen. Ein Reads-Lauf mit einem anderen
-Modell, oder einer von **vor** dem letzten Re-Export, haelt die Sprosse genauso geschlossen wie
-ein frischer. Dasselbe fuer `pass.json`, das gar keinen Stempel hat.
-
-Das ist derselbe Riss wie bei der driftenden `coverage`: der Zeiger steht, die Grundlage ist
-weitergewandert, und **nichts erinnert daran**.
-
-**Der Vorschlag:** beide Dateien tragen `_source` (Session-Mtime des `log.jsonl` plus Modellname),
-und `chainState` vergleicht statt zu existieren. Eine veraltete Datei oeffnet die Sprosse wieder,
-mit dem Grund im Text.
-
-**Die Frage:** Sprosse wieder aufmachen, oder nur eine Warnung anzeigen? Wieder-Aufmachen ist
-ehrlicher und kostet einen Lauf; eine Warnung ist billiger und wird uebersehen.
-**Empfehlung: wieder aufmachen** — der einzige Riss dieser Art, den wir bisher gemessen haben
-(Coverage-Drift), traf 13 von 24 Aufnahmen.
-
-## 2. `settle-scan` ist eine Pflichtsprosse, die die Kette nicht kennt
-
-CLAUDE.md sagt es als harte Producer-Reihenfolge: *"`session settle-scan` schreibt
-`settle_dev`/`settle_seen`; erst dann hat `realgames position-flags` ueberhaupt etwas
-auszulegen."*
-
-`nextStep` (`chain.ts:185`) kennt die Sprosse nicht. Die Reihenfolge lautet dort
-`label → confirm → export → matte → temporal → model-read → labeln`. Wer `settle-scan` vergisst,
-bekommt keine Fehlermeldung, sondern eine **leere Strittig-Lane** — und die sieht aus wie
-"alles unstrittig".
-
-**Die Frage:** als echte Sprosse zwischen `export` und `matte` einziehen? Das macht die Kette
-einen Schritt laenger fuer jede Aufnahme. **Empfehlung: ja** — genau dafuer ist die Kette da, und
-der stille Ausfall ist teurer als der Klick.
 
 ## 3. `position-flags` nennt ungemessene Sessions nicht
 
@@ -77,20 +39,6 @@ SESSION-Ebene fehlt sie.
 **Der Vorschlag:** `unmeasured: [session_id, …]` in die Rueckgabe und in die Kopfzeile, genau wie
 `stale_temporal` daneben schon steht. Eine Stunde, verhaltensgleich fuer alles ausser der Anzeige.
 **Empfehlung: ja.**
-
-## 4. `nextStep` sagt nur *was*, nie *warum*
-
-`nextStep` gibt `ChainStep | null`. `null` heisst heute dreierlei: der Mensch hat die Aufnahme als
-unbrauchbar markiert, oder sie ist fertig, oder — mit 1–3 oben — eine Sprosse steht offen, deren
-Grund niemand sieht. Die Begruendungen stehen ausfuehrlich als Kommentare **im Code**, genau dort,
-wo der Nutzer sie nicht liest.
-
-**Der Vorschlag:** `{ step, reason }` statt `step`. Die Kommentare wandern in Textbausteine, die
-die Oberflaeche anzeigt.
-
-**Die Frage:** lohnt sich das allein? Eher nicht. Zusammen mit 1–3 schon, denn dann hat die Kette
-erstmals Gruende, die sie **nicht** aus der reinen Dateiexistenz ableitet.
-**Empfehlung: nur im Paket mit 1–3.**
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 

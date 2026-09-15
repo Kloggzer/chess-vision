@@ -105,11 +105,7 @@ export function ChainActions({
 
   // Flagged useless: there is no next step by definition, and the undo lives on the card.
   if (step === null) {
-    return (
-      <span className="text-muted-foreground text-xs">
-        als nutzlos markiert — kein Schritt offen
-      </span>
-    );
+    return <span className="text-muted-foreground text-xs">{state.reason}</span>;
   }
   if (step === "label" && !state.video) {
     return (
@@ -158,6 +154,9 @@ export function ChainActions({
         </Tooltip>
       )}
       {showWhat ? <span className="text-muted-foreground max-w-xl">{what}</span> : null}
+      {/* Der Grund, nicht nur der Schritt: eine wieder aufgemachte Sprosse sieht sonst aus wie
+          ein vergessener Klick. */}
+      <span className="text-muted-foreground max-w-xl">{state.reason}</span>
       {lensRefused(job) ? (
         <Tooltip>
           <TooltipTrigger asChild>

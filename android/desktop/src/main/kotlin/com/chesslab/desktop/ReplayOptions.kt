@@ -11,17 +11,8 @@ import kotlinx.serialization.json.JsonObject
 import java.io.File
 
 /**
- * How one run is configured, parsed once.
- *
- * The verbs grew flags one at a time — `quiet`, then `dump`, then `lens`, then `nocnn`, then
- * `model=` — until `replay` took eight arguments and `main` read them inline for each verb. They
- * are not eight things: they are one description of a run, and the point of a run is that two of
- * them differ in exactly one field. `with(cnn = false)` is the experiment.
- *
- * Order-free and positional at the same time: every flag is a word, so `replay v.mp4 lens nocnn`
- * and `replay v.mp4 nocnn lens` are the same run. Anything unrecognised is REFUSED rather than
- * ignored — a typo'd `nocnn` that silently ran with the CNN would produce a measurement that
- * quietly answers a different question.
+ * How one run is configured, parsed once: ONE description, so two runs can differ in exactly one
+ * field. Order-free words, and an unrecognised one is refused (`docs/desktop-replay.md`).
  */
 data class ReplayOptions(
     /** The board view, which also arms break-on-stuck. Off for a scripted run. */
@@ -31,12 +22,8 @@ data class ReplayOptions(
     /** Fit the optics from the board in the footage before tracking it. */
     val lens: Boolean = false,
     /**
-     * Attach the classifier.
-     *
-     * Off is a real configuration and not a degradation to tolerate:
-     * `Taint.cnnOcclusionFilter` falls back to ">2 changed squares = a hand" without an
-     * observation, so the two settings are two trackers and the only way to know which one a
-     * number came from is to have chosen.
+     * Attach the classifier. Off is a real configuration, not a degradation to tolerate: without an
+     * observation the engine is a different tracker (`docs/desktop-replay.md`).
      */
     val cnn: Boolean = true,
     /** Which bundled graph, when [cnn] is on. */
@@ -46,55 +33,37 @@ data class ReplayOptions(
     /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
     val priorSafety: Boolean = true,
     /**
-     * Drop `requireMotionForMove`.
-     *
-     * That gate refuses any candidate unless ROI motion was seen since the last reference —
-     * "drift/light, not a real move". It has silenced a whole session before: `TrackerEngine`
-     * records finding it live on 2026-08-01 with the deterministic channel committing nothing all
-     * session. It rejects WITHOUT setting a stuck reason, so a run blocked by it looks like a run
-     * with nothing to say, which is why this needs to be switchable to be ruled in or out.
+     * Drop `requireMotionForMove`. It rejects WITHOUT a stuck reason and silenced a whole session
+     * on 2026-08-01, so it has to be switchable to be ruled in or out.
      */
     val motionGate: Boolean = true,
     /**
-     * Write `data/recordings/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
-     * `confirmed: false` always; only a human review may flip that. Measures the footage's
-     * geometry first and refuses footage that cannot carry a label (specs/52 phase 02).
+     * `data/recordings/<name>/candidate.json` plus review JPEGs — the tracker's PROPOSAL,
+     * `confirmed: false` always; footage that cannot carry a label is refused (specs/52 phase 02).
      */
     val label: Boolean = false,
     /**
-     * Score this run against an existing `candidate.json`: found / missed / invented, each with
-     * frame indices, never combined into one accuracy — phantoms are the veto, misses are
-     * negotiable (specs/52 phase 04: measurement only, forbidden from fixing).
+     * Score against an existing `candidate.json`: found / missed / invented with frame indices,
+     * never one combined accuracy — phantoms are the veto (specs/52 phase 04, measurement only).
      */
     val score: Boolean = false,
     /** The candidate's directory name under `data/recordings/`. Default: the video's stem. */
     val name: String? = null,
     /**
-     * Write the DECISIVE frames — every decision row, rejections included, ±2 frames — as the
-     * normalised, labeled board (the rectified warp with verdicts and the believed position),
-     * to `data/recordings/<name>/frames-decisive/`. Never the raw camera frames.
+     * The DECISIVE frames — every decision row, rejections included, ±2 — as the normalised labeled
+     * board, to `data/recordings/<name>/frames-decisive/`. Never the raw camera frames.
      */
     val frames: Boolean = false,
     /** `cleanCommitsOnly` — the strict-hand experiment arm. See the knob's KDoc. */
     val cleanOnly: Boolean = false,
     /**
-     * `set:<knob>=<value>` overrides, applied through `ConfigKnobs.KNOBS` — the generic
-     * experiment instrument, so a one-knob A/B never needs a new CLI word again. Booleans as
-     * true/false; recorded in `effective_config` like everything else the engine ran.
+     * `set:<knob>=<value>` through `ConfigKnobs.KNOBS`, so a one-knob A/B never needs a new CLI
+     * word. Booleans as true/false; recorded in `effective_config` like every other knob.
      */
     val overrides: Map<String, Double> = emptyMap(),
     /**
-     * `fps=<n>` — process every k-th decoded frame (`k = round(videoFps / n)`), the DETERMINISTIC
-     * realtime emulation: the phone sees 15-20 fps of a 30 fps world because CameraX drops what
-     * the analyzer cannot take, and this is that drop made exact and countable. The clock still
-     * ticks for EVERY decoded frame, so video time stays true; skipped frames reach neither the
-     * pipeline nor the engine and are counted as `dropped(stride)`.
-     *
-     * A measurement instrument, not a default. Skipping doubles the inter-frame delta, so the
-     * same physical hand speed scores a higher motion z (`motionThr` bites harder), and
-     * `settleFrames`/`avgFrames` are frame counts that then span twice the wall time. Engine-side
-     * it is SAFE: `seq` must only increase, references are stored planes, and every time window
-     * runs on `nowS`.
+     * `fps=<n>` — every k-th decoded frame, the DETERMINISTIC form of what CameraX drops live. A
+     * measurement instrument, not a default: what it shifts is in `docs/desktop-replay.md`.
      */
     val fps: Double? = null,
     /**
@@ -103,12 +72,8 @@ data class ReplayOptions(
      */
     val startSeconds: Double? = null,
     /**
-     * `config=<file>` — a RECORDED config as the run's base, instead of the defaults: a session's
-     * `settings.json` (the phone writes one per recording since 2026-08-14; its `config` block is
-     * read) or a raw ConfigCodec envelope (the `tracker_config_json` DataStore slot). This is what
-     * lets a recording be replayed under the phone's true knobs rather than a guess at them.
-     * Geometry still wins where geometry must: `boardSize` (and with it `detSize`) is a
-     * measurement of THIS footage, applied after the file.
+     * `config=<file>` — a RECORDED config as the run's base: a session's `settings.json` or a raw
+     * ConfigCodec envelope. Geometry still wins over it (`docs/desktop-replay.md`).
      */
     val configFile: String? = null,
     /** `motiondump=<file>`: one row per emitted frame with its ROI motion score. See `MotionDump`. */
@@ -252,11 +217,8 @@ data class ReplayOptions(
 }
 
 /**
- * The config a replay runs — measured board size, the CLI's experiment arms, and for file
- * replays the fixed VIDEO-time observer cadence: the free-running default observes whenever the
- * wall clock lets it, which made the same file commit 54 plies on one run and 39 on the next.
- * The cadence approximates the live self-pacing (SM8650: 16-100 ms per observation) and is
- * recorded in `effective_config` like every other knob.
+ * The config a replay runs — measured board size, the CLI's arms, and for files the VIDEO-time
+ * observer cadence: on the wall clock the same file committed 54 plies, then 39.
  */
 internal fun ReplayOptions.trackerConfig(
     geometry: BoardGeometry,
@@ -264,39 +226,32 @@ internal fun ReplayOptions.trackerConfig(
     /** The rate frames actually REACH the engine at; the CLI's `fps=` unless a caller knows better. */
     emulatedFps: Double? = fps.takeIf { !live },
 ): TrackerConfig {
-    // The recorded file FIRST, the geometry copy AFTER: `boardSize` (and with it `detSize`) is a
-    // measurement of THIS footage, and a phone's recorded size would poison the warp of any other
-    // video — the same rule `options.trackerConfig` has always kept for the defaults.
+    // The recorded file FIRST, the geometry copy AFTER: `boardSize` is a measurement of THIS
+    // footage, and a phone's recorded size would poison the warp of any other video.
     val base = configFile?.let(::loadRecordedConfig) ?: TrackerConfig()
     return base
         .copy(
             boardSize = geometry.boardSize,
-            // The CLI arms are one-directional: `nomotion`/`cleanonly` override the file, but
-            // their ABSENCE leaves the recorded value standing instead of stamping the default
-            // back over it — otherwise `config=` could never reproduce a phone that had one on.
+            // One-directional: their ABSENCE leaves the recorded value standing, or `config=`
+            // could never reproduce a phone that had one on.
             requireMotionForMove = base.requireMotionForMove && motionGate,
             cleanCommitsOnly = base.cleanCommitsOnly || cleanOnly,
-            // A file replay keeps the REPLAY's cadence, not the phone's: free-running is what
-            // every good measurement ran at (see REPLAY_OBSERVER_INTERVAL_S). When the phone's
-            // cadence IS the experiment, `set:observerIntervalS=<s>` says so explicitly.
+            // A file replay keeps the REPLAY's cadence (see REPLAY_OBSERVER_INTERVAL_S); when the
+            // phone's IS the experiment, `set:observerIntervalS=<s>` says so.
             observerIntervalS = if (live) base.observerIntervalS else REPLAY_OBSERVER_INTERVAL_S,
         ).withOverrides(overrides)
         .withMotionThrFor(emulatedFps)
 }
 
 /**
- * `motionThr` skaliert auf die emulierte Rate, wie `TrackerService.engineConfig` es live tut: der
- * Wert ist ein Prozentsatz gegen den VORIGEN Frame, also misst er ohne Skalierung einen Tracker,
- * den das Handy nie faehrt. Nach `set:motionThr=`, weil die Skala zur Bildperiode gehoert.
+ * `motionThr` skaliert auf die emulierte Rate wie live: der Wert ist ein Prozentsatz gegen den
+ * VORIGEN Frame. Nach `set:motionThr=`, weil die Skala zur Bildperiode gehoert.
  */
 private fun TrackerConfig.withMotionThrFor(rate: Double?): TrackerConfig = if (rate == null) this else atFrameRate(rate)
 
 /**
- * `config=<file>`, loaded and announced. Accepts a session's `settings.json` (its `config` block)
- * or a raw ConfigCodec envelope — the two forms are the same bytes, because the phone embeds the
- * envelope verbatim (`SessionSettingsWriter`). Refuses loudly what it cannot read: ConfigCodec's
- * own fallback is "defaults with a note", and a replay that silently ran defaults under a
- * `config=` flag would measure nothing while claiming to measure the recording.
+ * `config=<file>`, loaded and announced. Refuses loudly what it cannot read: ConfigCodec falls back
+ * to "defaults with a note", and a replay that ran those would measure nothing under the flag.
  */
 private fun loadRecordedConfig(path: String): TrackerConfig {
     val json = Json { allowSpecialFloatingPointValues = true }
@@ -319,9 +274,8 @@ private fun loadRecordedConfig(path: String): TrackerConfig {
 }
 
 /**
- * `set:<knob>=<value>` words applied through the settings catalog — the generic one-knob
- * experiment instrument. Refusing an unknown key loudly is the point: a typo that silently ran
- * the defaults would be a measurement of nothing.
+ * `set:<knob>=<value>` through the settings catalog. Refusing an unknown key loudly is the point:
+ * a typo that silently ran the defaults would be a measurement of nothing.
  */
 private fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
     overrides.entries.fold(this) { config, (key, value) ->
@@ -331,21 +285,14 @@ private fun TrackerConfig.withOverrides(overrides: Map<String, Double>): Tracker
     }
 
 /**
- * The replay observer's cadence: FREE-RUNNING, like the phone's self-pacing default. With the
- * synchronous replay observer that means one observation whenever the previous one is done —
- * every 1-2 frames — which is what every good measurement on record ran at: throttling to a
- * "modelled live rate" of 0.15 s was tried on 2026-08-08 and starved verify votes and recovery
- * glances (rec-20260808: 67 plies -> 26). The observation cache is what makes the dense cadence
- * affordable on re-runs.
+ * The replay observer's cadence: FREE-RUNNING, which every good measurement on record ran at.
+ * Throttling to a "modelled live rate" of 0.15 s took rec-20260808 from 67 plies to 26 (2026-08-08).
  */
 internal const val REPLAY_OBSERVER_INTERVAL_S = 0.0
 
 /**
- * Frames between dumps by default.
- *
- * 150 is ~5 s at 30 fps, which follows a game and is useless for a move: the run that mattered
- * had a perfect read of `e2e4` at frame 150 and six changed squares by 300, so whatever went
- * wrong went wrong inside one interval. `dump=<n>` is for looking there.
+ * Frames between dumps: ~5 s at 30 fps, which follows a game and is useless for a move — one run
+ * read `e2e4` perfectly at 150 and had six changed squares by 300. `dump=<n>` looks inside that.
  */
 private const val DUMP_EVERY = 150
 private const val MAX_VISUAL_WORKERS = 16

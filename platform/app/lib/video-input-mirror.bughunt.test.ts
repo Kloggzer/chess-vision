@@ -27,8 +27,8 @@ it("finds the same mirrored video the chain offered the label button for", async
     video: path.join(data, "recordings", NAME, "video.mp4"), videoBroken: null, offeredPgn: null,
     hasReference: false, hasPhoneRecord: false, hasCandidate: false, confirmed: false,
     hasSession: false, mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0 },
-    hasTemporalPass: false, hasModelReads: false, useless: null,
-  })).toBe("label");
+    hasSettle: true, outdated: {}, hasTemporalPass: false, hasModelReads: false, useless: null,
+  }).step).toBe("label");
 
   const found = await videoInput(NAME);
   expect(found, "BUG: videoInput has no mirrored fallback — the offered step dead-ends").not.toHaveProperty("reason");

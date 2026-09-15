@@ -16,6 +16,9 @@ const CHAIN: ChainState = {
   confirmed: false,
   hasSession: false,
   mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0 },
+  hasSettle: true,
+  outdated: {},
+  reason: "",
   hasTemporalPass: false,
   hasModelReads: false,
   useless: null,
@@ -49,7 +52,7 @@ const run = (rows: QueueRow[], input: Partial<BacklogInput> = {}) =>
   backlog({ rows, lastJobs: new Map(), lastSteps: new Map(), ...input });
 
 /** Nothing waits anywhere — the shape every "not my work" case has to have. */
-const NONE = { "phone-record": [], label: [], export: [], matte: [], temporal: [], "model-read": [] };
+const NONE = { "phone-record": [], label: [], export: [], "settle-scan": [], matte: [], temporal: [], "model-read": [] };
 
 describe("backlog — what waits on which step", () => {
   it("takes the OLDEST recording, across both naming schemes", () => {
@@ -83,6 +86,7 @@ describe("backlog — what waits on which step", () => {
       "phone-record": [],
       label: [],
       export: ["2026-08-13-00-00-04"],
+      "settle-scan": [],
       matte: ["2026-08-13-00-00-05"],
       temporal: ["2026-08-13-00-00-06"],
       "model-read": ["2026-08-13-00-00-03"],
@@ -243,11 +247,11 @@ describe("waiting — what the step buttons's count and drain", () => {
   it("a matte session at its target waits on nothing; one below it waits", () => {
     const settled: ChainState = { ...CHAIN, ...exported, hasTemporalPass: true, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0 } };
     const open: ChainState = { ...settled, mattes: { done: 12, total: 394, target: 80 , reported: 0, reportedOpen: 0 } };
-    expect(nextStep(settled)).toBe("labeln");
-    expect(nextStep(open)).toBe("matte");
+    expect(nextStep(settled).step).toBe("labeln");
+    expect(nextStep(open).step).toBe("matte");
     const { waiting } = run([
-      row("2026-08-13-00-00-02", { ...settled, step: nextStep(settled) }),
-      row("2026-08-13-00-00-03", { ...open, step: nextStep(open) }),
+      row("2026-08-13-00-00-02", { ...settled, ...nextStep(settled) }),
+      row("2026-08-13-00-00-03", { ...open, ...nextStep(open) }),
     ]);
     expect(waiting.matte).toEqual(["2026-08-13-00-00-03"]);
   });

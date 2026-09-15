@@ -36,23 +36,14 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * How this host turns its frames into stages. The phone binds CameraX; a video source binds a Mat
- * straight through. The stack owns the crop store and the preview buses it passes in, so it hands
- * them over rather than letting the host invent its own.
+ * How this host turns its frames into stages. The stack owns the crop store and preview buses it
+ * passes in, rather than letting the host invent its own.
  */
 typealias StagesFactory<T> = (BoardGeometry, TrackerConfig, CropFrameStore, (Mat) -> Unit, (Mat) -> Unit) -> FrameStages<T>
 
 /**
- * What a rebuilt tracker must NOT forget.
- *
- * A restart exists to apply the 34 construction-time knobs; it is not a reset. The position, the
- * calibration and the corner alignment are the user's, not the config's, so they are handed to the
- * new stack. Move HISTORY is not carried: `TrackerEngine` is seeded with a FEN, so undo starts
- * empty after a restart (STATUS D07x-3).
- *
- * `LongParameterList` is suppressed because this IS the holder object detekt's rule exists to
- * ask for — the thing that keeps `TrackerStack`'s own parameter list short. Counting its fields
- * against the same threshold penalises the fix for the problem.
+ * What a rebuilt tracker must NOT forget: a restart applies the 34 construction-time knobs and is
+ * not a reset. What it carries, what it drops, and why detekt is suppressed: `docs/tracker-runtime-service.md`.
  */
 @Suppress("LongParameterList")
 class TrackerSeed<T>(
@@ -63,10 +54,8 @@ class TrackerSeed<T>(
     val corners: FloatArray?,
     val startFen: String,
     /**
-     * Where the rebuilt engine's decision rows go — the session-lived diagnostics writer, which
-     * outlives every stack. It is handed over for the same reason the position is: a restart that
-     * forgot it would leave the new engine writing its rows to nobody, and the session where that
-     * matters is always the one nobody noticed the gap in.
+     * Where the rebuilt engine's decision rows go — the session-lived writer, which outlives every
+     * stack. A restart that forgot it would write its rows to nobody (`docs/tracker-runtime-service.md`).
      */
     val onDecision: (DebugDecision) -> Unit,
     /**
@@ -75,9 +64,8 @@ class TrackerSeed<T>(
      */
     val onState: (String, String, Double) -> Unit = { _, _, _ -> },
     /**
-     * How the stack reaches a log. Seeded rather than constructed for the same reason [onDecision]
-     * is: the host owns the platform, the stack owns the CHANNEL NAMES — and those names are what
-     * `adb logcat -s` is pointed at, so they are behaviour, not decoration.
+     * How the stack reaches a log. The host owns the platform, the stack owns the CHANNEL NAMES —
+     * and those are what `adb logcat -s` is pointed at, so they are behaviour, not decoration.
      */
     val logs: TrackerLogs = NoTrackerLogs,
     /** See [StagesFactory]: the one thing about a frame this stack cannot know by itself. */
@@ -85,11 +73,8 @@ class TrackerSeed<T>(
     /** False only when the successfully parsed model spec supplies its own coverage output. */
     val runGridOcclusion: Boolean = true,
     /**
-     * Lokaler Kontrast je Crop, wenn das geladene Modell ihn deklariert (`ModelSpec.claheClip`).
-     *
-     * Null ist der Zustand jedes bisher ausgelieferten Modells. Ein Modell, das mit CLAHE
-     * trainiert wurde, aber ohne bedient wird, bekommt Pixel, die es nie gesehen hat — deshalb
-     * kommt der Wert aus der `config.json` des Laufs und nicht aus einer Einstellung.
+     * Lokaler Kontrast je Crop, wenn das Modell ihn deklariert (`ModelSpec.claheClip`). Aus der
+     * `config.json` des Laufs, nicht aus einer Einstellung (`docs/tracker-runtime-service.md`).
      */
     val cropClahe: CropClahe? = null,
     /**
@@ -98,21 +83,15 @@ class TrackerSeed<T>(
      */
     val nowMs: () -> Long = System::currentTimeMillis,
     /**
-     * Where the observer's inference runs. `null` — the default, and what the phone uses — is a
-     * dedicated thread: live frames must keep flowing while the model thinks. A REPLAY passes a
-     * direct dispatcher instead, so the observation completes inline before the next frame is
-     * decoded: when a snapshot lands relative to the frames then depends on nothing but the video,
-     * which is what makes two runs of the same file the same run. The cadence knob for that mode
-     * is `observerIntervalS` — synchronous at 0 would mean inference on every frame.
+     * Where the observer's inference runs: `null` is a dedicated thread (the phone), a direct
+     * dispatcher makes a replay's snapshots land on video time (`docs/tracker-runtime-service.md`).
      */
     val observerDispatcher: CoroutineDispatcher? = null,
     /** Desktop-only acceleration: independent square crops retain encounter order. */
     val parallelCrops: Boolean = false,
     /**
-     * Belichtung nach dem BRETT statt nach dem Rahmen — nur das Handy setzt das.
-     *
-     * Vorgabe [ExposureGovernor.NONE]: ein Replay stellt keine Kamera, und eine Verstellung mitten
-     * im Replay waere eine Eingabe, die in der Datei nicht steht.
+     * Belichtung nach dem BRETT statt nach dem Rahmen — nur das Handy setzt das. Vorgabe
+     * [ExposureGovernor.NONE]: ein Replay stellt keine Kamera.
      */
     val exposure: ExposureGovernor = ExposureGovernor.NONE,
     /** Der Fokus-Sweep und die Schaerfe-Aufsicht — wie [exposure] nur am Geraet gesetzt. */
@@ -135,13 +114,7 @@ class TrackerSeed<T>(
 
 /**
  * Everything a tracker restart tears down and rebuilds — and, by omission, everything it does not.
- *
- * NOT here, on purpose: the [com.chesslab.tracker.camera.TrackerCamera] (exactly ONE
- * `ProcessCameraProvider` binding may exist app-wide — MEMORY `android-single-camera-owner`; a
- * restart retargets it instead), the [CameraFrameBus<*>], the [StatusPublisher] and the
- * [SettingsRepository]. The last three because the UI already collects their `StateFlow`s: a
- * swapped flow instance is a screen that silently stops updating, which is the failure mode this
- * whole pack exists to avoid.
+ * What stays outside and why a swapped `StateFlow` is the failure mode: `docs/tracker-runtime-service.md`.
  */
 class TrackerStack<T>(
     seed: TrackerSeed<T>,
@@ -190,11 +163,8 @@ class TrackerStack<T>(
     }
 
     /**
-     * Gehoert dem Stack, weil sie mit ihm stirbt — [close] gibt ihre Mats zurueck.
-     *
-     * Und sie sagt beim Anlegen Bescheid: ob ein Modell seine eigene Vorverarbeitung bekommt, ist
-     * sonst von aussen nicht zu sehen, und eine still ausbleibende Stufe ist genau die Sorte
-     * Fehler, die nur als "ein paar Punkte weniger" auffaellt.
+     * Gehoert dem Stack, weil sie mit ihm stirbt — [close] gibt ihre Mats zurueck. Sie sagt beim
+     * Anlegen Bescheid: eine still ausbleibende Stufe faellt nur als "ein paar Punkte weniger" auf.
      */
     private val clahe =
         seed.cropClahe?.also {
@@ -214,10 +184,8 @@ class TrackerStack<T>(
     val observations: Long get() = observed.get()
 
     /**
-     * Everything this stack DID NOT process, counted by reason and readable in one line — the
-     * cadence regression of 2026-08-08 (67 -> 26 plies) was invisible precisely because every one
-     * of these paths dropped silently. Appended to the per-second perf line on both hosts and
-     * printed in the desktop run summary.
+     * Everything this stack DID NOT process, by reason, in one line — the cadence regression of
+     * 2026-08-08 (67 -> 26 plies) was invisible because every one of these paths dropped silently.
      */
     fun dropLine(): String =
         "dropped[markers=${pipeline.skippedWaitingMarkers} dark=${pipeline.skippedDark} " +
@@ -230,11 +198,8 @@ class TrackerStack<T>(
     private val occludedThr = seed.config.pOccludedThr
 
     /**
-     * The observation LEDGER, one line per emitted snapshot: which frame the CNN looked at, at
-     * what video time, and whether its own read saw a hand. The engine's staleness guard
-     * (`CnnTick`: discard when `snap.fen` moved on) already keeps the book — this makes it
-     * VISIBLE, and it is the number Hebel 2 gates on: a missed move whose window contains
-     * `occl=0` lines had a clean look and wasted it; one without never had a chance.
+     * The observation LEDGER, one line per emitted snapshot. It is the number Hebel 2 gates on: a
+     * missed move whose window holds `occl=0` lines wasted a clean look (`docs/tracker-runtime-service.md`).
      */
     private fun submitObserved(snap: CnnSnapshot) {
         observationSink?.invoke(snap)
@@ -258,11 +223,8 @@ class TrackerStack<T>(
                 priorLambda = seed.priorLambda,
                 priorSafety = seed.priorSafety,
                 log = seed.logs("chesslabCnn"),
-                // The ENGINE's clock, not the wall clock. On the phone the two are the same thing;
-                // in a replay the engine runs on the video's virtual clock, and an observer pacing
-                // itself on the wall clock is a second clock in one machine — its cadence then
-                // depends on how fast THIS host decodes, which is how the same file produced 23
-                // committed plies on one run and 25 on the next. ONE clock; this is that clock.
+                // The ENGINE's clock, not the wall clock: a second clock in one machine made the
+                // same file commit 23 plies on one run and 25 on the next (`docs/tracker-runtime-service.md`).
                 nowMs = seed.nowMs,
             )
         } else {
@@ -293,20 +255,13 @@ class TrackerStack<T>(
             publisher,
             frames,
             observer,
-            // The align detection shares the observer's dispatcher choice: inline for replays,
-            // its own worker live. Inline is not only determinism (an align lands at a video
-            // time, not a wall time) — it is what makes the desktop SINGLE-THREADED through
-            // OpenCV: with the drive thread's stages and ArUco running concurrently, the 4.10
-            // Windows build's `detectMarkers` committed a single ~53 GB native buffer on a
-            // motion-blur frame (specs/52 STATUS, 2026-08-08), and `Core.setNumThreads(1)`
-            // alone only made the balloon rarer, not impossible.
+            // The align detection shares the observer's dispatcher choice — inline is determinism
+            // AND what keeps the desktop single-threaded through OpenCV (`docs/tracker-runtime-service.md`).
             LiveAlign(
                 scope,
                 seed.geometry,
-                // THIS RUN's config: `liveAlign`/`alignEvery`/`alignScale` are restart-only, so
-                // reading them off the repository served its DEFAULT to any host whose repository
-                // is not the run's config — a `config=` replay's recorded `alignEvery=2` aligned
-                // every 3rd frame like everything else (20260814-143233, 2026-08-14).
+                // THIS RUN's config: these three are restart-only, so the repository served its
+                // DEFAULT to any host whose repository is not the run's (`docs/tracker-runtime-service.md`).
                 { seed.config.withLiveKnobsOf(settings.config.value) },
                 { pipeline.corners = it },
                 seed.logs("chesslabTracker"),
@@ -327,10 +282,8 @@ class TrackerStack<T>(
         pipeline.corners = seed.corners
         // The perf line is the one log line both hosts share; from here on it carries the drops.
         timings.extras = ::dropLine
-        // The seed's values, and NOTHING re-applies them: a `settings.config` collector used to,
-        // and since neither knob is live-tunable it could only carry a restart-only value — the
-        // repository's DEFAULT, one tick after start. That is how a replay's `set:cnnVerify=false`
-        // was accepted, printed, and then silently re-enabled (882 observations, `gateOff=0`).
+        // The seed's values, and NOTHING re-applies them: a collector once re-enabled a replay's
+        // `set:cnnVerify=false` a tick after start (882 observations, `gateOff=0`).
         observer.setIntervalS(seed.config.observerIntervalS)
         observer.setEnabled(seed.config.cnnVerify)
         // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
@@ -340,12 +293,8 @@ class TrackerStack<T>(
     }
 
     /**
-     * Reverse construction order, and the observer first.
-     *
-     * It is the only member holding a thread and a native session, and it must stop before the
-     * pipeline it crops from: an observation that survived into a closed pipeline would read
-     * released OpenCV memory. The engine host needs no close — it is queues and plain objects,
-     * and the whole point of rebuilding it is that its thread claim goes with it.
+     * Reverse construction order, observer first: it holds the only thread and native session, and
+     * must stop before the pipeline it crops from (`docs/tracker-runtime-service.md`).
      */
     override fun close() {
         // The timings object outlives the stack on the phone (the service owns it across
@@ -361,13 +310,8 @@ class TrackerStack<T>(
 private const val MS_PER_S_D = 1000.0
 
 /**
- * Owns the one live [TrackerStack] and performs the swap. Generic over [T] only so the ORDER can
- * be asserted against a fake on the desktop JVM — the real stack needs OpenCV and ONNX natives.
- *
- * The order IS the contract: **detach, close, build**. Detaching first is what makes a frame
- * arriving mid-restart a dropped frame instead of a call into a closed pipeline; closing before
- * building is what keeps a restart from holding two ONNX sessions, two observer threads and two
- * sets of full-resolution warps at once — on a phone that is an OOM, not an inefficiency.
+ * Owns the one live [TrackerStack] and performs the swap. The order IS the contract — **detach,
+ * close, build**, and on a phone the wrong order is an OOM (`docs/tracker-runtime-service.md`).
  */
 class StackSwitch<T : AutoCloseable>(
     private val build: () -> T,
@@ -391,11 +335,8 @@ class StackSwitch<T : AutoCloseable>(
 }
 
 /**
- * Where the settings screen reaches the restart.
- *
- * [TrackerBinder] is the real API, but the only composable holding a binder is
- * `ui/TrackerServiceBinding.kt`, which this change does not own — so the service publishes the
- * action the same way it publishes the settings repository (STATUS D07a-2).
+ * Where the settings screen reaches the restart. [TrackerBinder] is the real API, but the service
+ * publishes the action the way it publishes the settings repository (STATUS D07a-2).
  */
 object TrackerRestartHost {
     private val current = MutableStateFlow<TrackerRestart?>(null)

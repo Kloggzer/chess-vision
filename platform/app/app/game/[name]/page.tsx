@@ -74,7 +74,8 @@ export default async function GamePage({ params }: { params: Promise<{ name: str
       </PageTitle>
       <p className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-xs">
         <span>{name}</span>
-        <span title="der nächste offene Schritt der Kette">{game.chain.step ?? "kein Schritt"}</span>
+        <span title={game.chain.reason}>{game.chain.step ?? "kein Schritt"}</span>
+        <span className="font-sans normal-case">{game.chain.reason}</span>
         <span className="truncate">{sessionDir(name)}</span>
       </p>
 

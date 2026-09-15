@@ -21,7 +21,7 @@ import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
-type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "matte" | "temporal" | "model-read";
+type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read";
 export type PackResult = {
   output: string;
   acceptedFrames: number;
@@ -761,7 +761,7 @@ spawn failed: ${error.message}
  */
 export async function enqueueChain(
   name: string,
-  step: "export" | "adopt-dirty" | "matte" | "temporal" | "model-read",
+  step: "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read",
 ): Promise<Job> {
   checkName(name, "game name");
   const known = queue.jobs.get(name);
@@ -897,14 +897,16 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
 
 async function runChesslab(
   job: Job,
-  step: "export" | "adopt-dirty" | "matte" | "temporal" | "model-read",
+  step: "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read",
 ): Promise<void> {
   const verb = step === "export" ? "realgames export-session"
     : step === "adopt-dirty" ? "realgames adopt-dirty"
+    : step === "settle-scan" ? "session settle-scan"
     : step === "matte" ? "occluders alpha-worker"
     : step === "temporal" ? "session temporal-pass" : "realgames model-read";
   const binary = uvBinary();
-  const args = ["run", "chesslab", ...verb.split(" "), job.name];
+  // `session` verbs take the SESSION id, and a recording keeps the `rg-` the directory dropped.
+  const args = ["run", "chesslab", ...verb.split(" "), step === "settle-scan" ? `rg-${job.name}` : job.name];
   const run = modelReadRun();
   if (step === "model-read" && run) args.push("--model", run);
   // The same target the overnight `--all` is given, counted against the rows already there: one
