@@ -96,20 +96,14 @@ class Vision(
 }
 
 /**
- * The 13+1 models: 13 class probabilities plus an independent coverage sigmoid. The 14-class runs
- * beside them read `occluded` as a CLASS, which is a different question about the same picture —
- * mixing both into one measurement would leave a difference unattributable.
+ * Die 13+1-Modelle — EINE Liste, die des APK (`cnn.BUNDLED_MODELS`). Die eigene Kopie hier nannte
+ * vier Namen, die seit Wochen nicht mehr unter `assets/cnn_model/` liegen; `Models.served` liess
+ * nur sie durch, also starb jedes Arena-Verb vor dem ersten Frame (`ServedModelsExistTest`).
  */
-val COVERAGE_MODELS =
-    listOf(
-        "real13-ms-s3-hn4-bn80",
-        "c8d1-seed43",
-        "real13-ms-s2-bn80-bs256-swa1e4",
-        "comp13-occ-bn-lr1e2-bs512",
-    )
+val COVERAGE_MODELS = com.chesslab.tracker.cnn.BUNDLED_MODELS
 
 /** What a run reads unless it names another one. */
-val DEFAULT_MODEL = COVERAGE_MODELS.first()
+val DEFAULT_MODEL = com.chesslab.tracker.cnn.DEFAULT_MODEL
 
 private const val STAGING = "../../tmp/arena-staging"
 

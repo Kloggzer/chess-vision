@@ -20,6 +20,11 @@ const val PRE_ROLL_SECONDS: Long = 45L
  */
 const val PRE_ROLL_MAX_BYTES: Long = 80L * 1024L * 1024L
 
+// TODO: Die 20 Mbit/s oben sind seit `BITS_PER_PIXEL = 0.54` (2026-09-13) ueberholt: 1440p/15,
+// die Vorgabe, verlangt 29,9 Mbit/s. 80 MB halten damit ~21 s, bei 30 fps ~11 s — die Byte-
+// Grenze IST das Fenster, und `PRE_ROLL_WINDOW_NS` haelt 45 s Zeilen ohne Bild dazu.
+// `PreRollRingTest` verdrahtet 83 kB je Sample (`PreRollWindowAtShippedBitRateTest`, rot).
+
 /**
  * One encoded AVC sample. Plain bytes and numbers — no `android.media` type reaches this file, so
  * the ring's rules are testable on the desktop JVM.

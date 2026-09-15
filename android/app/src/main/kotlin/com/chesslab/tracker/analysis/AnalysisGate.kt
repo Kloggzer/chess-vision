@@ -50,7 +50,10 @@ fun gateBlock(
         !settings.respectPressure -> null
         inputs.thermalStatus >= THERMAL_MODERATE -> GateBlock.THERMAL
         inputs.powerSaveMode -> GateBlock.BATTERY
-        inputs.batteryPercent < LOW_BATTERY_PERCENT && !inputs.charging -> GateBlock.BATTERY
+        // Nur ein GEMESSENER Stand sperrt: `getIntProperty` meldet `Integer.MIN_VALUE`, wo die
+        // Eigenschaft fehlt, und der lief bis hierher als "leerer Akku" durch — auf so einem
+        // Geraet lief die Analyse nie, und die Oberflaeche schob es auf den Akku.
+        inputs.batteryPercent in 0..<LOW_BATTERY_PERCENT && !inputs.charging -> GateBlock.BATTERY
         else -> null
     }
 

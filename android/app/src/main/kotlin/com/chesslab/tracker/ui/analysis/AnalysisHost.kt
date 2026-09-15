@@ -31,6 +31,10 @@ private const val ENGINE_BINARY = "libstockfish.so"
 
 private const val TOTAL_STAGE = "total"
 
+// TODO: Der Elvis greift NUR bei `getSystemService == null`. `getIntProperty` ist primitiv und
+// meldet genau diesen Fall als `Integer.MIN_VALUE` — der faellt bis `batteryPercent < 20` durch:
+// Analyse dauerhaft aus, Schuld beim Akku (`UnreadableBatteryGateTest`, rot).
+
 /** An unreadable battery must not gate analysis off, so the fallback is "full". */
 private const val BATTERY_UNKNOWN = 100
 
@@ -127,7 +131,13 @@ class AndroidPowerProbe(
     override fun powerSaveMode(): Boolean = power?.isPowerSaveMode ?: false
 
     override fun batteryPercent(): Int =
-        context.getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        // `getIntProperty` liefert ein PRIMITIVES int: der Elvis feuerte nur ohne Service, und der
+        // dokumentierte Fall — Eigenschaft nicht unterstuetzt — kam als `Integer.MIN_VALUE` durch
+        // und sperrte die Analyse dauerhaft mit `GateBlock.BATTERY`.
+        context
+            .getSystemService(BatteryManager::class.java)
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            ?.takeIf { it in 0..100 }
             ?: BATTERY_UNKNOWN
 
     override fun charging(): Boolean {

@@ -157,11 +157,15 @@ class CnnObserver(
     /** Called per frame from the analyzer thread; returns immediately. */
     fun onFrameAvailable() {
         if (!wantsFrame()) {
+            // Dieselbe Reihenfolge wie `wantsFrame`: dort steht das Intervall VOR `demand()`.
+            // Umgekehrt gezaehlt buchte die Drossel ihre Ablehnungen auf `gateUnwanted`, sobald
+            // die Engine ohnehin blind war — und `gateInterval` meldete 0 (Kadenz-Regression
+            // 2026-08-08: "die Drossel wies Frames ab und nichts sagte es").
             when {
                 !enabled || state.value !is CnnState.Ready -> gateOff += 1
                 busy -> gateBusy += 1
-                !demand() -> gateUnwanted += 1
-                else -> gateInterval += 1
+                nowMs() - startedMs < intervalMs -> gateInterval += 1
+                else -> gateUnwanted += 1
             }
             return
         }

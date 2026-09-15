@@ -101,7 +101,10 @@ class HttpIngestClient(
         name: String,
     ): String {
         val json = call("$base/api/ingest/session/$name/complete", "POST", CALL_TIMEOUT_MS, ByteArray(0))
-        return json["status"]?.jsonPrimitive?.content ?: "landed"
+        // Wie `declare` und `putChunk`: wer den Status nicht nennt, hat ihn nicht gesagt. Erfunden
+        // wurde hier ausgerechnet `landed`, und darauf loescht `sweepSentRecordings` die einzige
+        // Kopie vom Telefon — eine 200 ohne Feld (Proxy, alter Server, `{}`) kostete eine Aufnahme.
+        return json["status"]?.jsonPrimitive?.content ?: error("no status in complete answer")
     }
 
     @Suppress("ThrowsCount")
