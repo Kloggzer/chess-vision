@@ -118,8 +118,9 @@
   Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
 - **Die 0,15 ist gegen den RILLEN-Sensor geeicht, nicht gegen das Bild (gemessen 2026-09-16).**
-  Erstmals gemessen, ab wann das Modell die Figur wirklich nicht mehr liest: im Band 0,15-0,25
-  noch **81 %** richtig, bei 0,25-0,40 **62 %**, und erst ab **0,6** unter Zufall. Die harte Kante
+  Erstmals gemessen (val+test, 84 608 Zellen), ab wann das Modell die Figur wirklich nicht mehr
+  liest: im Band 0,15-0,25 noch **74 %** richtig, bei 0,25-0,40 **67 %**, bei 0,40-0,60 noch
+  **31 %**, und erst ab **0,6** unter Zufall. Die harte Kante
   wirft also Signal weg, und der Schwanz darueber ist nicht schwach, sondern systematisch falsch.
   `chesslab train --coverage-weight soft` folgt stattdessen der gemessenen Kurve (S-Kurve auf 0,6
   gestaucht, liegt an jedem Messpunkt UNTER der Messung). **Vorgabe bleibt `hard`** — `soft` ist
