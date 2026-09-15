@@ -28,7 +28,7 @@ const MATTE: ChainState = {
   hasCandidate: true,
   confirmed: true,
   hasSession: true,
-  mattes: { done: 0, total: 394, target: 80 , reported: 0, reportedOpen: 0 },
+  mattes: { done: 0, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 },
   hasSettle: true,
   outdated: {},
   reason: "",

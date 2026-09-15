@@ -6,6 +6,7 @@ import gc
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -726,6 +727,7 @@ def alpha_worker_all(
     *,
     limit: int | None = None,
     reason: str = ALPHA_REASON,
+    frames_for: Callable[[str], set[str] | None] | None = None,
     progress: bool = True,
 ) -> dict:
     """Every session in one process, so SAM 3's weights are loaded only once.
@@ -749,11 +751,18 @@ def alpha_worker_all(
                     flush=True,
                 )
 
+            frames = None if frames_for is None else frames_for(name)
+            # Ohne Treffer UEBERSPRINGEN, nicht auf den ganzen Stapel zurueckfallen: sonst mattet
+            # ein `--reported`-Lauf ausgerechnet dort alles, wo ein Mensch nichts gemeldet hat.
+            if frames_for is not None and not frames:
+                continue
+
             try:
                 result = alpha_worker(
                     name,
                     limit=limit,
                     reason=reason,
+                    frames=frames,
                     progress=progress,
                 )
 

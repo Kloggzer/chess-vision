@@ -121,6 +121,9 @@ export type MatteCensus = {
    *  Ein abgelehntes Frame bleibt in `reported` sichtbar, haelt den Schritt aber nicht ein
    *  zweites Mal auf: SAM wuerde es wieder ablehnen. */
   reportedOpen: number;
+  /** Meldungen auf Frames, die dieser Export nicht mehr fuehrt — ein Re-Export waehlt andere.
+   *  Es gibt kein Brett zu schneiden, also ist es keine offene Arbeit, sondern ein altes Urteil. */
+  reportedOrphan: number;
 };
 
 /** Frames per session one run brings the file to (`--limit`), as the overnight `--all` is driven. */
@@ -172,6 +175,17 @@ const skippedStemsIn = (text: string): Set<string> => {
 
 /** Der aktuelle Stapel: die Stems der `occluded`-Zeilen, nicht ihre Anzahl. Eine Matte-Zeile zu
  *  einem Stem, den der Export nicht mehr waehlt, ist verwaist und zaehlt nicht als erledigt. */
+/** Jeder Stem mit einem Brett. Der `occluded`-Stapel ist eine TEILMENGE davon. */
+const exportedStemsIn = (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    if (!line) continue;
+    const m = BOARD_ONE.exec(line);
+    if (m) out.add(stemOf(m[1]));
+  }
+  return out;
+};
+
 const occludedStemsIn = (text: string): Set<string> => {
   const out = new Set<string>();
   for (const line of text.split(String.fromCharCode(10))) {
@@ -201,11 +215,12 @@ async function cachedSet(file: string, tag: string,
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [usable, skipped, pile, reviews] = await Promise.all([
+  const [usable, skipped, pile, reviews, exported] = await Promise.all([
     cachedSet(path.join(dir, "matte.jsonl"), "usable", usableStemsIn),
     cachedSet(path.join(dir, "matte.jsonl"), "skipped", skippedStemsIn),
     cachedSet(path.join(dir, "log.jsonl"), "pile", occludedStemsIn),
     frameReviews(sessionId(name)),
+    cachedSet(path.join(dir, "log.jsonl"), "exported", exportedStemsIn),
   ]);
   // Nur was BEIDES ist: brauchbar gemattet UND heute noch im Stapel. Ein Re-Export waehlt andere
   // Frames, und die alten Zeilen meldeten die Session sonst als erledigt, waehrend der Stapel
@@ -217,12 +232,16 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   // aus, und ohne sie fiele ein unschneidbarer Frame aus der Zahl, die ihn ueberhaupt zeigt.
   // OFFEN ist nur, wovon SAM noch nichts weiss: sonst haengt die Kette ewig auf `matte`.
   const open = [...reviews].filter(([stem, r]) => r.dirty && !usable.has(stem));
+  // Eine Meldung auf einen Frame, den dieser Export nicht fuehrt, ist unerreichbar: `--reported`
+  // findet kein Brett. Sie bleibt sichtbar, haelt die Sprosse aber nicht ewig offen.
+  const orphan = open.filter(([stem]) => !exported.has(stem));
   return {
     done,
     total,
     target: Math.min(matteTarget(), total),
     reported: open.length,
-    reportedOpen: open.filter(([stem]) => !skipped.has(stem)).length,
+    reportedOpen: open.filter(([stem]) => !skipped.has(stem) && exported.has(stem)).length,
+    reportedOrphan: orphan.length,
   };
 }
 

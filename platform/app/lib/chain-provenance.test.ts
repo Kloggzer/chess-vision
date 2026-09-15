@@ -127,7 +127,7 @@ describe("nextStep sagt auch warum", () => {
     confirmed: false,
     hasSession: false,
     hasSettle: false,
-    mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0 },
+    mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0, reportedOrphan: 0 },
     hasTemporalPass: false,
     hasModelReads: false,
     outdated: {},

@@ -19,26 +19,35 @@ const BUSY = new Set(["queued", "running"]);
 
 /** Half-matted is the ordinary state, so the button carries the count instead of claiming a start. */
 function stepLabel(step: ChainStep, state: ChainState): string {
-  const { done, total, reported } = state.mattes;
+  const { done, total, reported, reportedOrphan } = state.mattes;
   if (step !== "matte") return STEP[step].label;
   const pile = done > 0 ? ` ${done}/${total}` : "";
-  return `${STEP.matte.label}${pile}${reported > 0 ? ` +${reported} gemeldet` : ""}`;
+  const open = reported - reportedOrphan;
+  // Die Waisen getrennt: `+34 gemeldet` liess sie wie Arbeit aussehen, die ein Druck erledigt.
+  const stale = reportedOrphan > 0 ? ` (${reportedOrphan} ohne Frame)` : "";
+  return `${STEP.matte.label}${pile}${reported > 0 ? ` +${open} gemeldet${stale}` : ""}`;
 }
 
 /** The press is a `--limit` run, so it says what it will compute — an unannounced GPU hour is not on. */
 function stepHint(step: ChainStep, state: ChainState): string {
-  const { done, target, total, reported } = state.mattes;
+  const { done, target, total, reported, reportedOrphan } = state.mattes;
   if (step !== "matte") return STEP[step].hint;
+  const open = reported - reportedOrphan;
+  // Ein Urteil auf einen Frame, den dieser Export nicht mehr fuehrt: es gibt kein Brett zu
+  // schneiden, also holt es kein Lauf. Sagen statt es als offene Arbeit zeigen.
+  const orphans = reportedOrphan > 0
+    ? ` ${reportedOrphan} weitere Meldungen zeigen auf Frames, die dieser Export nicht mehr führt — die holt kein Lauf.`
+    : "";
   // Gemeldete zuerst: sie liegen NICHT im `occluded`-Stapel (meist `stale`), also holt sie kein
   // gewöhnlicher Lauf — genau der Grund, warum markierte Finger ungemattet blieben.
-  if (reported > 0) {
-    return `${STEP.matte.hint}. Ein Druck rechnet die ${reported} von Hand gemeldeten Frames — die stehen nicht im Stapel und kämen sonst nie dran. Danach die ${Math.max(0, target - done)} des Stapels.`;
+  if (open > 0) {
+    return `${STEP.matte.hint}. Ein Druck rechnet die ${open} von Hand gemeldeten Frames — die stehen nicht im Stapel und kämen sonst nie dran. Danach die ${Math.max(0, target - done)} des Stapels.${orphans}`;
   }
   const rest =
     total > target
       ? ` — die restlichen ${total - target} holt "occluders alpha-worker" im Terminal`
       : "";
-  return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.`;
+  return `${STEP.matte.hint}. Ein Druck rechnet ${Math.max(0, target - done)} Frames, Ziel ${target} von ${total} verdeckten${rest}.${orphans}`;
 }
 
 /**
