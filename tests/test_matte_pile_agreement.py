@@ -1,0 +1,43 @@
+"""Der Bericht und der Standardlauf meinen NICHT denselben Stapel — festgehalten, nicht behoben.
+
+`matte_status` zaehlt jeden dirty-Frame als fehlende Matte und begruendet das mit der Entscheidung
+vom 2026-08-22: die ZELLE entscheidet, `dirty_reason` steuert nur die Reihenfolge. `alpha_worker`
+filtert per Vorgabe auf `occluded` und begruendet das mit der Regel von davor
+(`test_the_worker_only_mattes_what_still_carries_its_fen` verteidigt sie). Gemessen auf
+`2026-08-30-14-33-02`: 15 von 24 Frames meldet der Bericht ewig als fehlend. Siehe das TODO an
+`ALPHA_REASON` — welche Seite recht hat, ist offen.
+"""
+from __future__ import annotations
+
+from chesslab.matte import ALPHA_REASON, dirty_pile
+
+
+def _row(stem: str, reason: str | None, **extra) -> dict:
+    return {"frame": f"frames/{stem}.png", "board": f"dirty/{stem}.webp",
+            "dirty": True, "dirty_reason": reason, **extra}
+
+
+ROWS = [
+    _row("000010", "occluded"),
+    _row("000020", "changed"),
+    _row("000030", "stale"),
+    _row("000040", "occluded"),
+    {"frame": "frames/000050.png", "board": "boards/000050.webp"},
+    _row("000060", "changed", unusable=True),
+]
+
+
+def test_the_pile_is_every_dirty_frame_with_a_board_and_no_unusable_flag():
+    assert dirty_pile(ROWS, "all") == {"000010", "000020", "000030", "000040"}
+
+
+def test_a_named_reason_narrows_the_pile():
+    assert dirty_pile(ROWS, "changed") == {"000020"}
+
+
+def test_the_default_run_leaves_half_the_reported_gap_untouched():
+    # Der Befund selbst: was `occluders status` meldet, minus was ein Standardlauf anfasst.
+    never = dirty_pile(ROWS, "all") - dirty_pile(ROWS, ALPHA_REASON)
+    assert never == {"000020", "000030"}, (
+        "wenn diese Menge leer wird, ist der Widerspruch entschieden — dann faellt dieser Test "
+        "samt dem TODO an `ALPHA_REASON` weg")

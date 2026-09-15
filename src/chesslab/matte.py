@@ -370,10 +370,22 @@ def coverage_of(
     }
 
 
-# Frames whose FEN still holds under the hand — `framescan.classify`'s verdict.
-# The approach phase carries a board nobody can label, so its alpha would be a
-# mask over an unknown position.
+# TODO: `matte_status` zaehlt JEDEN dirty-Frame als fehlend (die ZELLE entscheidet, 2026-08-22),
+# dieser Lauf mattet nur `occluded` (Regel von davor) — der Bericht meldet damit eine Luecke, die
+# kein Standardlauf je schliesst, und `MatteCensus.reported` sammelt genau dort an. Eine der
+# beiden Seiten hat unrecht; welche, ist offen (`tests/test_matte_pile_agreement.py`).
 ALPHA_REASON = "occluded"
+
+
+def dirty_pile(rows: list[dict], reason: str = "all") -> set[str]:
+    """Die Stems, die eine Matte brauchen; `reason` engt auf EIN `dirty_reason` ein.
+
+    Eine Funktion, weil `matte_status` und `alpha_worker` denselben Stapel meinen muessen — sie
+    hatten je eine Kopie, und die des Workers stand auf der Regel von vor 2026-08-22.
+    """
+    return {Path(r["board"]).stem for r in rows
+            if r.get("board") and r.get("dirty") and not r.get("unusable")
+            and (reason == "all" or r.get("dirty_reason") == reason)}
 
 
 # A hand-corrected alpha lands beside SAM's, never on top of it: the model's
@@ -610,10 +622,7 @@ def matte_status(name: str) -> dict:
 
     session_dir = game_dir(name)
     rows = read_log(session_dir)
-    # JEDER dirty-Frame, nicht nur `occluded`: seit 2026-08-22 entscheidet die ZELLE, und
-    # `dirty_reason` steuert nur noch die Reihenfolge (CLAUDE.md, `docs/position-check.md`).
-    want = {Path(r["board"]).stem for r in rows
-            if r.get("board") and r.get("dirty") and not r.get("unusable")}
+    want = dirty_pile(rows)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
     # Wie `read_matte`: eine Zeile ohne `coverage` (uebersprungen) ist keine Matte. Als eine
@@ -865,14 +874,7 @@ def alpha_worker(
     # nicht mehr ansteht (2026-09-09, nach dem Re-Export der ungescannten Sessions).
     # `unusable` ist der Weg fuer das, was keine gueltige Stellung hergibt (umgefallene Figur,
     # Katze im Bild). `slice` respektiert ihn laengst; ohne ihn hier mattet SAM ihn trotzdem.
-    live = {
-        Path(entry["board"]).stem
-        for entry in rows
-        if entry.get("board")
-        and entry.get("dirty")
-        and not entry.get("unusable")
-        and (reason == "all" or entry.get("dirty_reason") == reason)
-    }
+    live = dirty_pile(rows, reason)
 
     existing_rows = (
         [
