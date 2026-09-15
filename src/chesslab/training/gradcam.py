@@ -187,7 +187,6 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     model, cfg = load_run(run_dir)
     model.eval()
     classes = cfg["classes"]
-    out_w, out_h = cfg["out_size"]
     if center_frac is None:
         # The "piece region" of a crop is the CELL inside it: crop width = cell * (1 + 2*pad_side)
         # (labeling.crop_square), so center_frac = 1/(1+2*pad_side) ~ 0.83 at pad_side 0.10.
@@ -195,8 +194,13 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
         # floated small inside a tall crop; on today's tight square crops it missed the whole
         # silhouette — tall pieces (kings!) scored piece_frac ~0 although the model reads them.
         center_frac = 1.0 / (1.0 + 2.0 * config.CROP.pad_side)
-    mean = torch.tensor(config.NORMALIZE_MEAN).view(3, 1, 1)
-    std = torch.tensor(config.NORMALIZE_STD).view(3, 1, 1)
+    # Die EINE Transformation des Laufs, nicht von Hand nachgebaut: `eval_transform_for` traegt
+    # CLAHE und die Eingangs-Darstellung mit. Von Hand ImageNet-normalisiert warf ein
+    # `gray+sobel`-Lauf (2 Kanaele gegen 3), und ein CLAHE-Lauf — das Standardmodell — wurde in
+    # einer anderen Domaene gemessen als er trainiert hat. Und an der Groesse, die der GRAPH nimmt.
+    from .torch_data import eval_transform_for, infer_size_of
+    out_w, out_h = infer_size_of(cfg)
+    tf = eval_transform_for(cfg, out_size=(out_w, out_h))
     gray = 0.5  # neutral occluder value on the [0,1] scale
 
     ds_name = cfg.get("dataset")
@@ -214,14 +218,16 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
     split_data = load_split(split_path)
     rows = filter_rows_by_split(manifest, split_data, split)
 
-    from torchvision.transforms.functional import resize, to_tensor
+    from torchvision.transforms.functional import resize, to_pil_image, to_tensor
 
     center = _center_mask(out_h, out_w, center_frac)          # piece region
     border = ~center                                          # background ring
 
     def _prob(t01: torch.Tensor, cls_idx: int) -> float:
+        # Verdeckt wird das BILD, dann laeuft die echte Kette darauf — sonst saehe CLAHE ein
+        # Histogramm, das es nie zu sehen bekaeme.
         with torch.no_grad():
-            logits = model(((t01 - mean) / std).unsqueeze(0))
+            logits = model(tf(to_pil_image(t01)).unsqueeze(0))
             return float(F.softmax(logits, dim=1)[0, cls_idx])
 
     read_crop = _crop_reader(ds_name, rows)
