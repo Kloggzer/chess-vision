@@ -26,18 +26,22 @@ data class OccupancyObservation(
      * by identity — one reference comparison that is visible beats 64 that are not.
      */
     val probs: CnnProbs? = null,
+    /** Die gemessene Schwelle des Modells; null heisst "noch keine", dann gilt `1.0 - thr`. */
+    val coverageThr: Double? = null,
 ) : CnnObservation {
+    override fun withCoverageThr(thr: Double): OccupancyObservation = copy(coverageThr = thr, raw = raw?.withCoverageThr(thr))
+
+    private fun coveredOut(
+        square: String,
+        thr: Double,
+    ): Boolean = pOccluded.getValue(square) >= (coverageThr ?: (1.0 - thr))
+
     override fun classProbs(square: String): DoubleArray = probs?.rows?.get(square) ?: DoubleArray(0)
 
     override val classNames: List<String> get() = probs?.classes.orEmpty()
 
     /** `cnn_recovery.py:43` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
-
-    // TODO: `1.0 - thr` haengt die Verdeckungsschwelle an den KLASSEN-Schwellwert, waehrend
-    // `Taint.kt` dieselbe Frage mit dem gemessenen `config.pOccludedThr` je Modell beantwortet
-    // (0,05 bis 0,35, `docs/occlusion-gate.md`). Zwei Schwellen fuer eine Frage, und `confThr` zu
-    // senken lockert hier die Verdeckung mit. Umbau nur mit dem Regressionssatz daneben.
 
     /**
      * `cnn_recovery.py:46` — occluded-dominant squares are NEVER confident and NEVER count
@@ -48,7 +52,7 @@ data class OccupancyObservation(
         thr: Double,
     ): Boolean =
         maxOf(pOcc.getValue(square), pEmpty.getValue(square)) >= thr &&
-            pOccluded.getValue(square) < (1.0 - thr) &&
+            !coveredOut(square, thr) &&
             !invalidConfident(square, thr)
 
     /**
@@ -67,7 +71,7 @@ data class OccupancyObservation(
             confs != null &&
             confs.getValue(square) >= thr &&
             labels.getValue(square) != "occluded" &&
-            pOccluded.getValue(square) < (1.0 - thr) &&
+            !coveredOut(square, thr) &&
             !invalidConfident(square, thr)
     }
 

@@ -24,6 +24,8 @@ class RejectedVerifyRecoveryTest {
         val raw = e4Observation()
         val conditioned =
             object : CnnObservation by raw {
+                override fun withCoverageThr(thr: Double): CnnObservation = this
+
                 override fun rawObservation(): CnnObservation = raw
             }
         repeat(2) { attempt ->
@@ -93,10 +95,14 @@ class RejectedVerifyRecoveryTest {
         val clear = e4Observation()
         val hand =
             object : CnnObservation by clear {
+                override fun withCoverageThr(thr: Double): CnnObservation = this
+
                 override fun pOccluded(square: String): Double = if (square in setOf("h4", "h5")) 1.0 else 0.0
             }
         val conditioned =
             object : CnnObservation by clear {
+                override fun withCoverageThr(thr: Double): CnnObservation = this
+
                 override fun rawObservation(): CnnObservation = hand
             }
         repeat(2) { attempt ->

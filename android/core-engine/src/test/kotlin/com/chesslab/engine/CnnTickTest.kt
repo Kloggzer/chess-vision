@@ -44,6 +44,8 @@ class CnnTickTest {
         val raw = obsForBoard(engine.state.board, mapOf("e5" to "wP"))
         val conditioned =
             object : CnnObservation by obsForBoard(engine.state.board) {
+                override fun withCoverageThr(thr: Double): CnnObservation = this
+
                 override fun rawObservation(): CnnObservation = raw
             }
         val cnn = RecoveryEvaluator(match = true)

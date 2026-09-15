@@ -155,7 +155,9 @@ class TrackerEngine(
             // Background gates and recovery must see pixels alone — their job is precisely to repair
             // a stale/wrong FEN. Only a pending diff candidate and the promotion prompt may use the
             // position-conditioned view.
-            val rawSnap = snap.copy(obs = snap.obs.rawObservation())
+            // Die gemessene Schwelle des Modells EINMAL, hier am Eingang: danach gatet jeder
+            // `confident`-Aufruf damit statt mit `1.0 - cnnConfThr` (`docs/occlusion-gate.md`).
+            val rawSnap = snap.copy(obs = snap.obs.rawObservation().withCoverageThr(state.config.pOccludedThr))
             state.cnnSnap = rawSnap
             state.recordSight(rawSnap)
             state.cnnSnapsSeen += 1

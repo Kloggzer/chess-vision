@@ -21,6 +21,14 @@ interface CnnObservation {
 
     fun pOccluded(square: String): Double
 
+    /**
+     * Die gemessene Verdeckungsschwelle des MODELLS annehmen (`docs/occlusion-gate.md`); ohne sie
+     * gatet [confident] mit `1.0 - thr`, also am KLASSEN-Schwellwert.
+     *
+     * `CnnObservation by x` MUSS das ueberschreiben — sonst gibt die Delegation `x` zurueck.
+     */
+    fun withCoverageThr(thr: Double): CnnObservation = this
+
     fun invalidMass(square: String): Double = 0.0
 
     fun invalidConfident(
