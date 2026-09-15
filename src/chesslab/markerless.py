@@ -247,9 +247,6 @@ def find_board(bgr, phase: bool = True):
     near = np.arange(d * (1 - SPACING_SLACK), d * (1 + SPACING_SLACK), SPACING_STEP)
     a = _axis(*_offsets(fa, nu), near) or a
     b = _axis(*_offsets(fb, nv), near) or b
-    # TODO: toter Speicher — `d` wird hier neu gesetzt und nie wieder gelesen, die Zeilen
-    # darunter nehmen `a[2]`/`b[2]` direkt.
-    d = (a[2] + b[2]) / 2
     la = _fit_family(fa, nu, [a[1] + k * a[2] for k in range(LINES)], a[2], u)
     lb = _fit_family(fb, nv, [b[1] + k * b[2] for k in range(LINES)], b[2], v)
     if la is None or lb is None:

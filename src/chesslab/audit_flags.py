@@ -161,9 +161,7 @@ def is_occupancy(flag: dict) -> bool:
     return (flag["fen_label"] == "empty") != (flag["predicted"] == "empty")
 
 
-# TODO: heisst `visible_cells`, liefert die VERDECKTEN — jeder Aufrufer muss den Namen
-# umdrehen (`covered = visible_cells(...)`), und wer das ueberliest, filtert genau falsch.
-def visible_cells(session_dir: Path) -> set[tuple[str, str]]:
+def covered_cells(session_dir: Path) -> set[tuple[str, str]]:
     """(frame, square) of every cell this recording's matte measured as COVERED, over the cut.
 
     The matte is the only place coverage lives — `model-reads.jsonl` never carried it.
@@ -232,7 +230,7 @@ def audit_flags(occupancy_only: bool = False, visible_only: bool = False,
             # Modell. Die Helligkeit kommt aus den Reads (`bright`), wo sie gemessen wurde.
             from .training.occlusion import CELL_DARK_MIN
 
-            covered = visible_cells(path.parent)
+            covered = covered_cells(path.parent)
             dark = {(r["frame"], r["square"]) for r in rows
                     if 0 <= r.get("bright", -1) < CELL_DARK_MIN}
             kept = [f for f in found

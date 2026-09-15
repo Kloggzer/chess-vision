@@ -439,9 +439,8 @@ internal fun EngineState.quietOutcome(
                 clearStuck()
                 anomalySince = 0L
                 setRef(cur, curBgr)
-                // TODO: `tainted != 0L` ist der erste Zweig dieses `when` — hier ist die Bedingung
-                // bewiesen wahr und sagt dem Leser eine Absicherung zu, die es nicht gibt.
-                if (tainted == 0L) flushSessionCapture()
+                // `tainted != 0L` ist der erste Zweig dieses `when`, hier also bewiesen 0.
+                flushSessionCapture()
                 events += TrackerEvent.ReAnchored
             }
         }

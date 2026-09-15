@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test
 
 /**
  * Smoke test for the phase-00b golden fixtures. It asserts that the fixtures LOAD and are
- * internally consistent — never that the engine behaves; `TrackerEngine` is still `TODO()`
- * until phase 03d.
+ * internally consistent — never that the engine behaves. The engine's own parity is pinned
+ * elsewhere; this file only guards the fixtures.
  */
 class ParityFixturesTest {
     @Test

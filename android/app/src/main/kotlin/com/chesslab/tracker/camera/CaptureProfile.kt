@@ -29,7 +29,10 @@ data class CaptureObserved(
 ) {
     val deliveredSize: String? get() = delivered?.let { "${it.width}x${it.height}" }
 
-    /** True only when size, rate and bit rate all came back as asked. */
+    /**
+     * True only when nothing was noted, an AE range was pinned at all, the bit rate matched and
+     * the delivered LONG side matched. The frame RATE itself is never compared.
+     */
     val asAsked: Boolean
         get() =
             // TODO: the delivered check compares only the LONG side, so a 3840x1644 frame reads as

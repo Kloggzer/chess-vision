@@ -321,15 +321,6 @@ class Paths:
     def calibration(self) -> Path:
         return self.root / "calibration"
 
-    # TODO: niemand liest `DATA.lens` mehr — `calib.npz` und `lens.py` gingen 2026-08-21, das
-    # Objektiv wohnt seitdem in `lens.json` der Aufnahme.
-    @property
-    def lens(self) -> Path:
-        """Lens intrinsics (`calib.npz`). Deliberately NOT under `calibration/` — that
-        directory holds BOARD profiles and `calibrate list` enumerates its *.yaml. Kept
-        out of `all()` so `ensure_dirs` does not create an empty dir for everyone."""
-        return self.root / "lens"
-
     @property
     def recordings(self) -> Path:
         """One folder per recording: the import, what was cut from it, and its corrections.

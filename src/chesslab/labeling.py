@@ -197,7 +197,7 @@ def crops_for_frame(frame, corners, profile: CalibrationProfile, *,
     (`realgames.straighten_boards`) and must be handed no mesh, or it would be corrected twice.
     `board`: the stored warp (`realgames.write_board`) instead of warping [frame], which may
     then be None.
-    `flat_cells`: Beleuchtungskarte der Session, herausgerechnet VOR dem Zuschnitt (`docs/flat-field.md`).
+    `flat_cells`: Beleuchtungskarte der Session, herausgerechnet VOR dem Zuschnitt.
     `squares`: optional square names, returned in that order; default remains all 64 squares.
     """
     out = tuple(out_size) if out_size else tuple(profile.crop.out_size)
@@ -398,7 +398,7 @@ def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationPro
 
     Je Frame geschaetzt liest der Fit die Stellung mit: ueber fuenf Sessions gemessen schwankte die
     Karte um bis zu 79 %, und die Korrektur machte zwei davon schlechter als roh. Die Kamera
-    bewegt sich nicht, also ist das Feld eine Eigenschaft der Session (`docs/flat-field.md`).
+    bewegt sich nicht, also ist das Feld eine Eigenschaft der Session.
     """
     import numpy as np
 

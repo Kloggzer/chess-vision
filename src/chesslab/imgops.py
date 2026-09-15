@@ -80,17 +80,14 @@ def illumination_field(board_bgr, board_size: int, border: int,
     """Die 8x8-Karte auf das ganze Raster INTERPOLIERT — nicht durch ein Polynom gefittet.
 
     Ein Polynom extrapoliert: ueber fuenf Sessions gemessen ging das Feld auf -0,36 bis 3,46 und
-    machte zwei davon schlechter als roh. Bilineare Interpolation kann das nicht
-    (`docs/flat-field.md`).
+    machte zwei davon schlechter als roh. Interpoliert wird mit INTER_CUBIC, das nicht
+    extrapoliert, aber ueberschwingt (gemessen 1,6 % ueber die Spanne der Zellkarte).
     """
     rel = cell_illumination(board_bgr, board_size, border) if cells is None else cells
     h, w = board_bgr.shape[:2]
     # Auf die ZELLMITTEN setzen und ueber den Rand fortsetzen, sonst sitzt die Karte um
     # eine halbe Zelle daneben.
 
-    # TODO: der Docstring begruendet die Wahl mit "bilinear kann nicht extrapolieren",
-    # gerechnet wird aber INTER_CUBIC, das ueberschwingt (gemessen 1,6 % ueber die Spanne
-    # der Zellkarte). Und `docs/flat-field.md`, hier dreimal zitiert, gibt es nicht.
     big = cv2.resize(rel, (board_size, board_size), interpolation=cv2.INTER_CUBIC)
     field = np.ones((h, w), np.float32)
     field[border:border + board_size, border:border + board_size] = big

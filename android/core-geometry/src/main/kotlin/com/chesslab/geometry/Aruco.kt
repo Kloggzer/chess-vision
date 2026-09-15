@@ -9,10 +9,10 @@ import org.opencv.objdetect.Objdetect
 import kotlin.math.hypot
 
 // ArUco marker detection + the per-frame board corners.
-// Ports of `calibration.py:489 _detect_marker_quads`, `:501 detect_board_markers` and
-// `:883 board_corners_for_frame`.
+// Ports of `calibration.py:603 _detect_marker_quads`, `:624 detect_board_markers` and
+// `:805 board_corners_for_frame`.
 //
-// Marker id 0 -> a8, 1 -> h8, 2 -> h1, 3 -> a1 (`calibration.py:482 _ARUCO_LABELS`).
+// Marker id 0 -> a8, 1 -> h8, 2 -> h1, 3 -> a1 (`calibration.py:582 _ARUCO_LABELS`).
 //
 // `board_corners_for_frame` lives HERE, not in `MarkerTracker.kt`: it needs OpenCV (resize +
 // detection) and `MarkerTracker.kt` must stay native-free for phase 03.
@@ -52,7 +52,7 @@ fun arucoDictionaryId(name: String): Int =
 
 /**
  * Raw detection: `{id: 4 quad corners}` per found marker, in ArUco's own order.
- * Port of `calibration.py:489 _detect_marker_quads`.
+ * Port of `calibration.py:603 _detect_marker_quads`.
  */
 fun detectMarkerQuads(
     frame: Mat,
@@ -146,10 +146,10 @@ class BoardMarkerDetector : AutoCloseable {
         foundIds.release()
     }
 
-    // TODO: `calibration.py:592-615` stellt drei `adaptiveThreshWinSize`-Werte (3, 53, 4) und
-    // verkleinert vorher auf `DETECT_LONG_SIDE = 1344`; beides fehlt hier. Python nennt dazu
-    // Messungen (Randmarker 2/30 gegen 21-25/30 Frames, 4K 135 ms gegen 27 ms). Nachziehen heisst
-    // die Kalibrierung neu vermessen, nicht die Konstanten kopieren.
+    // TODO: `calibration.py:595-624` stellt drei `adaptiveThreshWinSize`-Werte (3, 53, 4) — die
+    // fehlen hier; verkleinert wird um `alignScale` (0,5) statt auf `DETECT_LONG_SIDE = 1344`,
+    // also quellenabhaengig. Python misst Randmarker 2/30 gegen 21-25/30, 4K 135 gegen 27 ms.
+    // Nachziehen heisst die Kalibrierung neu vermessen, nicht die Konstanten kopieren.
     private fun detectorFor(dictName: String): ArucoDetector {
         if (dictionary != dictName || detector == null) {
             detector?.clear()
@@ -163,7 +163,7 @@ class BoardMarkerDetector : AutoCloseable {
 }
 
 /**
- * `{id: [x, y]}` of the FOUND markers. Port of `calibration.py:501 detect_board_markers`.
+ * `{id: [x, y]}` of the FOUND markers. Port of `calibration.py:624 detect_board_markers`.
  *
  * `corner = "center"` (what the tracker always uses) returns the quad CENTROID.
  * `corner = "inner"` returns the quad corner nearest the centroid of all quad means.
@@ -195,7 +195,7 @@ private fun quadMean(quad: List<DoubleArray>): DoubleArray =
 
 /**
  * The 4 board corners `[a8, h8, h1, a1]` in FRAME pixels for this frame.
- * Port of `calibration.py:883 board_corners_for_frame`.
+ * Port of `calibration.py:805 board_corners_for_frame`.
  *
  * Updates the tracker once with the current detection and resolves the corners from it
  * (marker-derived, BEFORE `margin`). Returns `null` when fewer than `minMarkers` corners are

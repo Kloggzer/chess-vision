@@ -473,7 +473,7 @@ disagreements to 14.7 % of the confident-learning flags for exactly this reason.
 not label questions at all: `OcclusionLoss` masks every cell over `PIECE_VISIBLE_MAX` out of the
 class loss, so the label never reaches a model and a human ruling on it changes nothing. The audit
 could not see this because coverage lives in `matte.jsonl` and `model-reads.jsonl` never carried
-it; `audit_flags.visible_cells` reads the matte directly.
+it; `audit_flags.covered_cells` reads the matte directly.
 
 What survives is worth a human: 4 359 cells on **685 `(session, square)` pairs** — a lifted piece
 stays lifted, so one verdict clears 6 cells on average and up to 244 in the largest nest. Split

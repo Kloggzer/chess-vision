@@ -82,8 +82,9 @@ class CalibrationProfile:
     # one independently. A single number stays valid input everywhere via `margins4`.
     margin: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
     marker_dict: str = "DICT_4X4_50"
-    # Multi-cam: optional source (URL/path instead of camera_index) and real intrinsics, so each
-    # camera is a self-contained profile.
+    # Provenance stamp only (video path, "stored-fit", …): written and read back, evaluated
+    # nowhere. There are no per-profile intrinsics — the optics live in the recording's own
+    # `lens.json`.
     source: str | None = None
 
     def __post_init__(self) -> None:
@@ -108,9 +109,6 @@ class CalibrationProfile:
             # already goes through `margins4` — serialization was the one place that did not.
             "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
-            # TODO: wird geschrieben und wieder eingelesen, aber NIRGENDS ausgewertet — die
-            # Mehr-Kamera-Geschichte im Feld-Docstring gibt es nicht, `ensure_profile(source=)`
-            # reicht den Wert gar nicht bis hierher durch.
             "source": self.source,
         }
 
@@ -740,10 +738,7 @@ class MarkerTracker:
                 self.seeded.discard(i)                         #    offset grid, pitfall in
                 self._pending.pop(i, None)                     #    marker fallback slicing)
                 continue
-            # TODO: `i not in self.seeded` ist hier immer wahr — der Zweig oben hat jeden
-            # gesaeten Marker schon mit `continue` verlassen. Der Zusatz liest sich wie eine
-            # Bedingung und ist keine.
-            if d > self.p.jump_reject_px and i not in self.seeded:
+            if d > self.p.jump_reject_px:
                 if not self._confirm_jump(i, p):               # not yet confirmed -> keep old position
                     continue
             a = self.p.smooth_alpha                            # real movement -> EMA smoothing
