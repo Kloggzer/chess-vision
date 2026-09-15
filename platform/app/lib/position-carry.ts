@@ -19,9 +19,11 @@ function sameLabels(a: Labels, b: Labels): boolean {
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-// TODO: unverdrahtet — `board-paint` verarbeitet `prefilled` bis in `planBoard`, aber niemand
-// reicht es hinein. Verdrahten ist eine Produktentscheidung (welche Korrektur auf welches Brett
-// wandert), siehe docs/offene-entscheidungen.md.
+// TODO(Produktfrage, unverdrahtet): `board-paint` verarbeitet `prefilled` bis in `planBoard`,
+// nur reicht es niemand hinein. Offen ist NICHT das Anschliessen, sondern: soll eine gemalte
+// Korrektur ungefragt auf jedes spaetere Frame desselben Ply wandern, oder erst auf Zuruf? Der
+// erste Weg schreibt Labels, die kein Mensch gesehen hat. `carry-unwired.bughunt.test.ts` haelt
+// den Zustand fest, bis das entschieden ist (in docs/offene-entscheidungen.md nicht gelistet).
 export function carryPositionCorrections(input: {
   frames: readonly CarryFrame[];
   from: number;

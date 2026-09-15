@@ -75,9 +75,14 @@ async function loadStored(name: string, dir: string, id: string): Promise<Stored
   const rows: StoredRow[] = [];
   for (const line of (await readFile(log, "utf8")).split("\n")) {
     if (!line.trim()) continue;
-    // TODO: ungeschuetzt — jeder andere jsonl-Leser hier faengt die halb geschriebene Zeile ab.
-    // Ein Wurf hier reisst ueber `Promise.all` die ganze Anfrage mit, statt eine Zeile.
-    const row = JSON.parse(line) as StoredRow & { dirty?: boolean };
+    // Eine halb geschriebene Zeile kostet ihre eigene Zeile: ueber das `Promise.all` in
+    // `storedSessions` riss ein Wurf hier sonst die ganze Anfrage mit.
+    let row: StoredRow & { dirty?: boolean };
+    try {
+      row = JSON.parse(line) as StoredRow & { dirty?: boolean };
+    } catch {
+      continue;
+    }
     // `selectStoredRows` drops a dirty row before it is ever packed, so nobody may be asked about it.
     if (row.dirty === true) continue;
     const stem = path.basename(row.frame, path.extname(row.frame));

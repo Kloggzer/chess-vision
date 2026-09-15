@@ -558,6 +558,12 @@ def matte_status(name: str) -> dict:
             "missing": sorted(want - have), "orphans": sorted(have - known)}
 
 
+def _drop(staged: list[tuple[Path, Path]]) -> None:
+    """Die gestapelten Pixel wegwerfen — ein abgebrochener Lauf hinterlaesst nichts."""
+    for tmp, _ in staged:
+        tmp.unlink(missing_ok=True)
+
+
 def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> dict:
     """Run `solid` over the alphas already on disk, and recut the coverage it moves.
 
@@ -578,6 +584,11 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     stamp = (path.stat().st_mtime_ns, path.stat().st_size)
 
     rows: list[dict] = []
+    # Die Pixel gehen in Nachbardateien und werden ZULETZT umgehaengt, zusammen mit dem Ledger.
+    # Vorher landeten sie sofort auf der Platte: brach der Waechter danach ab, trugen N Alphas die
+    # geschlossenen Pixel und `matte.jsonl` die alte `coverage` — und ein zweiter Lauf fand
+    # `gained == 0` und reparierte es nie, obwohl die Meldung dazu aufforderte.
+    staged: list[tuple[Path, Path]] = []
     closed = crossed = added = 0
     for row in read_jsonl(path):
         alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
@@ -603,12 +614,12 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
         closed += 1
         added += gained
         if not dry_run:
-            # TODO: die Pixel gehen HIER auf die Platte, der Nebenlaeufigkeits-Wecht am Schluss
-            # kann danach nur noch abbrechen — dann tragen N Alphas die geschlossenen Pixel und
-            # `matte.jsonl` die alte `coverage`. Ein zweiter Lauf repariert das nicht (`gained`
-            # ist dann 0), obwohl die Meldung dazu auffordert. `recut_fixed` schreibt keine Pixel.
-            if not cv2.imwrite(str(alpha_path), filled):
-                raise OSError(f"{name}: could not write {alpha_path}")
+            # `.tmp.webp`, nicht `.webp.tmp`: `imwrite` waehlt den Codec ueber die ENDUNG.
+            alpha_tmp = alpha_path.with_name(f"{alpha_path.stem}.tmp{alpha_path.suffix}")
+            if not cv2.imwrite(str(alpha_tmp), filled):
+                _drop(staged)
+                raise OSError(f"{name}: could not write {alpha_tmp}")
+            staged.append((alpha_tmp, alpha_path))
             row = row | {"coverage": coverage,
                          "cells_over_half": sum(v > 0.5 for v in coverage.values())}
         rows.append(row)
@@ -617,13 +628,19 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
 
     if not dry_run and closed:
         if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            _drop(staged)
             raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
                              "is writing it. Let it finish and run this again.")
         temp_path = path.with_suffix(path.suffix + ".tmp")
         temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
         if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
             temp_path.unlink(missing_ok=True)
+            _drop(staged)
             raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
+        # Nur noch Umbenennungen, also Millisekunden statt Minuten. Atomar ueber N+1 Dateien ist es
+        # nicht — dafuer braeuchte es ein Journal —, aber das Fenster ist nicht mehr die Laufzeit.
+        for tmp, final in staged:
+            tmp.replace(final)
         temp_path.replace(path)
     return {"name": name, "frames": len(rows), "closed": closed, "px": added,
             "crossed": crossed, "dry_run": dry_run}

@@ -12,11 +12,12 @@ export async function POST(request: Request) {
     const written = await appendReviewNotes(rows);
     // Die gemeldete Hand ist erst auf dem Stapel, wenn sie im Log steht — und das ist billig, also
     // muss niemand dafür einen Knopf suchen. SAM 3 bleibt ein Knopf, das kostet Rechenzeit.
-    // TODO: Surface adopt-dirty launch failures; 200 currently proves only the note append.
-    for (const name of new Set(rows.flatMap((r) => (r.verdict === "dirty-frame" ? [recordingName(r.session_id)] : [])))) {
-      adoptDirty(name);
-    }
-    return Response.json({ written });
+    // Gewartet wird nur auf den START: ein Prozess, der nie ansprang, gehoert in die Antwort,
+    // sein Laufzeit-Ergebnis nicht — das steht im Job-Log.
+    const names = [...new Set(rows.flatMap((r) => (r.verdict === "dirty-frame" ? [recordingName(r.session_id)] : [])))];
+    const starts = await Promise.all(names.map(async (name) => ({ name, ...(await adoptDirty(name)) })));
+    const adoptFailed = starts.flatMap((s) => (s.started ? [] : [`adopt-dirty ${s.name}: ${s.error}`]));
+    return Response.json({ written, adoptFailed });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });
   }

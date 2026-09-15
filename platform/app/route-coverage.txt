@@ -7,9 +7,7 @@
 # die duennste Stelle (18,6 %) UND die, an der der Handy-Weg haengt.
 api/capture/coverage
 api/capture/plan
-api/chain/[name]
 api/drain
-api/frame-verdict
 api/frame/[name]/[stem]
 api/ingest/jobs
 api/ingest/session

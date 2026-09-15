@@ -19,6 +19,26 @@ from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed
 
 
+def duplicate_sessions(out):
+    """Zwei Folds mit derselben Test-Session waren stille Ueberschreibung — die Zusage "jede
+    Session genau einmal" ist nirgends geprueft, also wird sie hier nachgewiesen statt geglaubt."""
+    folds = collections.defaultdict(list)
+    for sess, fold in out:
+        folds[sess].append(fold)
+    return {s: sorted(f) for s, f in folds.items() if len(f) > 1}
+
+
+def sorted_rows(out):
+    """`nan` vergleicht gegen alles False und liess die Tabelle unsortiert — hier ans Ende."""
+    rows = [(sess, fold, n, vis, piece) for (sess, fold), (n, vis, piece) in out.items()]
+    return sorted(rows, key=lambda r: (r[4] != r[4], r[4] if r[4] == r[4] else 0.0))
+
+
+def table_line(sess, fold, visible, piece):
+    shown = "—".rjust(9) if piece != piece else f"{piece:>9.4f}"
+    return f"{sess:<34}{fold:>5}{visible:>10.4f}{shown}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="real13-straight-80-v3-c8d1")
@@ -61,7 +81,7 @@ def main():
                     if r["label"] != "empty":
                         pieces += 1
                         ok_p += hit
-            out[sess] = (fold, len(rows), ok / len(rows), ok_p / pieces if pieces else float("nan"))
+            out[(sess, fold)] = (len(rows), ok / len(rows), ok_p / pieces if pieces else float("nan"))
             print(f"  {sess:<32} {fold}  n={len(rows):>6}  visible {ok/len(rows):.4f}  "
                   f"piece {ok_p/pieces if pieces else float('nan'):.4f}")
 

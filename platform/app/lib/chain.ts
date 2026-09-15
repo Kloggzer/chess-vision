@@ -191,8 +191,9 @@ export function nextStep(state: Omit<ChainState, "step">): ChainStep | null {
   // export. The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out,
   // and a step waiting for the other 314 would strand the biggest sessions on this rung forever.
   // Auch gemeldete Frames AUSSERHALB des Haufens: `--reported` holt sie, aber sobald das Ziel
-  // erfuellt war, bot die Kette den Schritt nicht mehr an und sie blieben unerreichbar.
-  if (state.mattes.done < state.mattes.target || state.mattes.reported > 0) return "matte";
+  // erfuellt war, bot die Kette den Schritt nicht mehr an und sie blieben unerreichbar. Nur die
+  // OFFENEN: ein von SAM abgelehntes Frame bliebe sonst fuer immer der Grund, hier zu stehen.
+  if (state.mattes.done < state.mattes.target || state.mattes.reportedOpen > 0) return "matte";
   // After SAM, never before: the pass adopts what SAM has not cut and upserts where SAM found
   // nothing, so it needs SAM's rows on disk to know which is which.
   if (!state.hasTemporalPass) return "temporal";

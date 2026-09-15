@@ -114,20 +114,14 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     preds_a = np.array(preds)
     if len(dataset.rows) != len(trues):
         raise ValueError(f"dataset has {len(dataset.rows)} rows but evaluation produced {len(trues)} labels")
-    # TODO: `cover` sagt nur, ob der KOPF Occlusion ist — die Maske haengt aber an der ZEILE.
-    # `data.per_session_metrics` und `visible_board_items` filtern unbedingt, also rechnen die
-    # Korpuszahl und die Zahl je Aufnahme in EINEM Ausdruck ueber verschiedene Zellmengen.
-    if cover:
-        from .occlusion import classification_eligible
+    from .occlusion import classification_eligible
 
-        # Die FESTE Maske, nicht die des Laufs: `--visible-max`/`--dark-min` verschoben sonst
-        # die benotete Zellmenge, waehrend `checkpoint_metrics` weiter auf den Konstanten steht —
-        # ein Epochen-Datensatz mischte damit zwei Zellmengen.
-        eligible = np.array([
-            classification_eligible(r)
-            for r in dataset.rows], dtype=bool)
-    else:
-        eligible = np.ones(len(trues), dtype=bool)
+    # Die Maske haengt an der ZEILE, nicht am Kopf. Bis 2026-09-16 hing sie hier an `cover`, also
+    # rechneten Korpuszahl und Zahl je Aufnahme bei einem Lauf ohne Occlusion-Kopf ueber
+    # verschiedene Zellmengen — `per_session_metrics` und `visible_board_items` filtern unbedingt.
+    # Die FESTE Maske, nicht die des Laufs: `--visible-max`/`--dark-min` verschoeben sonst die
+    # benotete Zellmenge, waehrend `checkpoint_metrics` auf den Konstanten steht.
+    eligible = np.array([classification_eligible(r) for r in dataset.rows], dtype=bool)
     metric_trues = trues_a[eligible]
     metric_preds = preds_a[eligible]
     metric_conf = np.asarray(conf)[eligible]

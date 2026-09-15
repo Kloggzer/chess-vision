@@ -14,10 +14,10 @@ const EXPORTED = {
 };
 
 it("offers matte again for frames a human reported outside the pile", () => {
-  const step = nextStep({ ...EXPORTED, mattes: { done: 80, total: 80, target: 80, reported: 5 } });
+  const step = nextStep({ ...EXPORTED, mattes: { done: 80, total: 80, target: 80, reported: 5, reportedOpen: 5 } });
   expect(step, "BUG: reported frames never reach the --reported branch").toBe("matte");
 });
 
 it("still moves on when nothing was reported", () => {
-  expect(nextStep({ ...EXPORTED, mattes: { done: 80, total: 80, target: 80, reported: 0 } })).toBe("labeln");
+  expect(nextStep({ ...EXPORTED, mattes: { done: 80, total: 80, target: 80, reported: 0, reportedOpen: 0 } })).toBe("labeln");
 });

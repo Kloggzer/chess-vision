@@ -17,8 +17,9 @@ export async function POST(request: Request) {
       return Response.json(await flagFrame(name, frame, true));
     }
     if (body.verdict !== "matte") throw new Error(`bad verdict: ${body.verdict}`);
-    // TODO: `reason` luegt — einziger Aufrufer ist der Labeln-Strom, nicht die Strittig-Lane.
-    const rows = [validateNote({ session_id, frame, verdict: "matte-wanted", reason: "Strittige Frames" })];
+    // Alte Zeilen tragen "Strittige Frames" — falsch, die Lane ruft hier nie an; nachtragen
+    // koennen wir sie nicht, der Zettel ist das Protokoll.
+    const rows = [validateNote({ session_id, frame, verdict: "matte-wanted", reason: "Labeln-Strom" })];
     return Response.json({ written: await appendReviewNotes(rows) });
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });

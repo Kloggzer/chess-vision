@@ -407,7 +407,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
       );
       try {
         const rows = dirtyRows(stream.sessions[index].sessionId, stem, reason);
-        await post("/api/review-notes", on ? { rows } : { rows, retract: true });
+        const answer = await post<{ adoptFailed?: string[] }>("/api/review-notes", on ? { rows } : { rows, retract: true });
+        // Der Zettel liegt, `adopt-dirty` sprang aber nicht an — die Marke stimmt, der Stapel nicht.
+        for (const why of answer.adoptFailed ?? []) fail(why);
       } catch (error) {
         setReported((r) => flip(r, !on));
         fail(`dirty-Meldung fehlgeschlagen, Marke zurückgesetzt: ${String(error)}`);

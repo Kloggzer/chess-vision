@@ -117,6 +117,10 @@ export type MatteCensus = {
   /** Gemeldete Frames OHNE Matte. Nicht in `total`: die meisten sind `stale`, und der Stapel, den
    *  `--reason occluded` abarbeitet, kennt sie nicht — sichtbar wurden sie deshalb nie. */
   reported: number;
+  /** Davon die, auf die SAM noch gar nicht geantwortet hat — die Zahl, an der die Kette haengt.
+   *  Ein abgelehntes Frame bleibt in `reported` sichtbar, haelt den Schritt aber nicht ein
+   *  zweites Mal auf: SAM wuerde es wieder ablehnen. */
+  reportedOpen: number;
 };
 
 /** Frames per session one run brings the file to (`--limit`), as the overnight `--all` is driven. */
@@ -155,6 +159,17 @@ const usableStemsIn = (text: string): Set<string> => {
   return out;
 };
 
+/** Die Stems, die SAM AUSDRUECKLICH abgelehnt hat — beantwortet, aber ohne Alpha auf der Platte. */
+const skippedStemsIn = (text: string): Set<string> => {
+  const out = new Set<string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    if (!line || !line.includes('"skipped"')) continue;
+    const m = FRAME_ONE.exec(line);
+    if (m) out.add(stemOf(m[1]));
+  }
+  return out;
+};
+
 /** Der aktuelle Stapel: die Stems der `occluded`-Zeilen, nicht ihre Anzahl. Eine Matte-Zeile zu
  *  einem Stem, den der Export nicht mehr waehlt, ist verwaist und zaehlt nicht als erledigt. */
 const occludedStemsIn = (text: string): Set<string> => {
@@ -186,8 +201,9 @@ async function cachedSet(file: string, tag: string,
  */
 export async function matteCensus(name: string): Promise<MatteCensus> {
   const dir = sessionDir(name);
-  const [usable, pile, reviews] = await Promise.all([
+  const [usable, skipped, pile, reviews] = await Promise.all([
     cachedSet(path.join(dir, "matte.jsonl"), "usable", usableStemsIn),
+    cachedSet(path.join(dir, "matte.jsonl"), "skipped", skippedStemsIn),
     cachedSet(path.join(dir, "log.jsonl"), "pile", occludedStemsIn),
     frameReviews(sessionId(name)),
   ]);
@@ -197,11 +213,16 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   let done = 0;
   for (const stem of usable) if (pile.has(stem)) done += 1;
   const total = pile.size;
-  // `matted` traegt auch die Zeilen, die SAM ABGELEHNT hat (kein `coverage`). Ein gemeldeter
-  // Frame, den SAM nicht schneiden konnte, fiel damit aus der Zahl, die ihn sichtbar macht.
-  // TODO: `usable` schliesst `skipped` aus. Weist SAM dasselbe Frame erneut zurueck, bleibt
-  // `reported > 0` und `chain.nextStep` haengt die Aufnahme dauerhaft auf `matte` fest.
-  const reported = [...reviews].filter(([stem, r]) => r.dirty && !usable.has(stem)).length;
-  return { done, total, target: Math.min(matteTarget(), total), reported };
+  // Sichtbar ist jeder gemeldete Frame ohne Alpha — `usable` schliesst die von SAM abgelehnten
+  // aus, und ohne sie fiele ein unschneidbarer Frame aus der Zahl, die ihn ueberhaupt zeigt.
+  // OFFEN ist nur, wovon SAM noch nichts weiss: sonst haengt die Kette ewig auf `matte`.
+  const open = [...reviews].filter(([stem, r]) => r.dirty && !usable.has(stem));
+  return {
+    done,
+    total,
+    target: Math.min(matteTarget(), total),
+    reported: open.length,
+    reportedOpen: open.filter(([stem]) => !skipped.has(stem)).length,
+  };
 }
 
