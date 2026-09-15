@@ -1565,7 +1565,8 @@ def occluders_gate_train(
     batch: int = typer.Option(32, "--batch"),
     workers: int = typer.Option(4, "--workers", help="Loader-Prozesse; 8 ist die Obergrenze."),
     lr: float = typer.Option(3e-4, "--lr"),
-    tag: str = typer.Option("", "--tag", help="Eigener Ordner unter data/models/, fuer Vergleiche."),
+    tag: str = typer.Option(..., "--tag", help="Ordner unter data/models/ als `hand-gate-bn-<tag>`. "
+                                               "Pflicht: ohne ihn waere der Lauf unadressierbar."),
 ) -> None:
     """Den Hand-Gate auf SAM 3s Urteil trainieren — das Ja/Nein, das kein Alpha braucht.
 

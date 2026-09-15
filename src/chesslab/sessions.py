@@ -954,6 +954,10 @@ def write_boards_session(session_id: str) -> dict:
     todo = [r for r in rows if r.get("corners") and r.get("frame")]
     # Only the rows this run rewrites: popping over ALL of them left a corner-less row without its
     # `board` while the webp stayed on disk, and every reader downstream is log-driven.
+    # Aufgehoben VOR dem Pop: eine Zeile, deren Brett sich nicht neu schneiden laesst, bekommt
+    # ihren alten Zeiger zurueck. Ohne das liegt das `.webp` da und kein log-getriebener Leser
+    # findet es je wieder — die Zeile sieht aus wie eine ohne Brett.
+    kept = [{k: r[k] for k in BOARD_KEYS if k in r} for r in todo]
     for r in todo:
         for key in BOARD_KEYS:
             r.pop(key, None)
@@ -964,10 +968,9 @@ def write_boards_session(session_id: str) -> dict:
     else:
         made = [board_from_frame(j) for j in jobs]
     written = 0
-    for r, keys in zip(todo, made, strict=True):
+    for r, keys, old in zip(todo, made, kept, strict=True):
         if keys is None:
-            # TODO: der Pop oben lief ueber ALLE `todo`-Zeilen, diese bekommt nichts zurueck:
-            # das Brett bleibt auf der Platte, aber kein log-getriebener Leser findet es noch.
+            r.update(old)
             continue
         r.update(keys)
         written += 1

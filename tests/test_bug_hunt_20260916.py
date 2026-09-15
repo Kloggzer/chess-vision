@@ -122,8 +122,6 @@ def test_the_soft_coverage_weight_honours_visible_max():
     assert coverage_weight(cov, "soft", 0.05).item() != coverage_weight(cov, "soft", 0.50).item()
 
 
-@pytest.mark.xfail(reason="ein Frame, den `board_from_frame` nicht schneiden konnte, verliert "
-                          "seinen `board`-Zeiger im Log", strict=True)
 def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path, monkeypatch):
     """Der Pop laeuft ueber ALLE `todo`-Zeilen, zurueckgeschrieben wird nur die gelungene."""
     from chesslab import calibration, config, labeling, realgames, sessions
@@ -166,22 +164,20 @@ def test_a_failed_board_rewrite_keeps_the_pointer_to_the_board_on_disk(tmp_path,
         "das Brett liegt noch auf der Platte, aber kein Leser findet es mehr")
 
 
-@pytest.mark.xfail(reason="train_gate schreibt `hand-gate-bn`, load_gate liest "
-                          "`hand-gate-bn-mnv4-640`", strict=True)
-def test_the_untagged_gate_run_is_the_one_the_scan_loads(tmp_path, monkeypatch):
-    """Ohne `--tag` ist der frisch trainierte Lauf unadressierbar; der Scan serviert still den alten."""
-    from chesslab import config, hand_gate
+def test_an_untagged_gate_run_is_refused_by_name():
+    """Der Leser hat recht, der Schreiber war der Ausreisser.
 
-    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
-    out = config.DATA.models / hand_gate.GATE_DIR
-    out.mkdir(parents=True)
-    (out / hand_gate.CARD_FILE).write_text(
-        json.dumps({"backbone": "mobilenet_v3_small"}), encoding="utf-8")
-    with pytest.raises(FileNotFoundError) as caught:
-        hand_gate.load_gate("")
-    assert hand_gate.DEFAULT_GATE not in str(caught.value), (
-        "load_gate sucht unter einem Tag, den kein Trainingslauf je schreibt")
+    Auf der Platte liegen `hand-gate-bn-eff-b0-448` und `hand-gate-bn-mnv4-640`, kein blankes
+    `hand-gate-bn`: `load_gate`/`framescan` loesen `tag or DEFAULT_GATE` auf. Ein tagloser
+    `train_gate` schrieb daneben und wurde nie geladen — der Scan servierte still den alten
+    Gate und stempelte die Provenienz auf den neuen Namen.
+    """
+    import inspect
 
+    from chesslab import hand_gate
+
+    src = inspect.getsource(hand_gate.train_gate)
+    assert "waere unadressierbar" in src, "ein tagloser Lauf muss abgelehnt werden"
 
 @pytest.mark.xfail(reason="ohne Index raet plate_long_side WORK_SIZE statt abzubrechen",
                    strict=True)
