@@ -125,6 +125,9 @@ def _make_reader(rows: list[dict], input_name: str, cfg: dict):
     # a ship once (specs/23 phase 02) — the calibration set must live in the graph's own geometry.
     tf = eval_transform_for(cfg, out_size=infer_size_of(cfg))
     crops = []
+    # TODO: `mm://`-Zeilen (Session-Packs, fused synth) haben keine Datei — PIL wirft hier
+    # einen nackten OSError, waehrend `evaluate.run_eval` denselben Fall benennt. `--format qnn`
+    # stirbt damit auf genau den Datensaetzen, die heute gebaut werden.
     for r in rows:
         with Image.open(r["path"]) as im:
             img = im.convert("RGB")

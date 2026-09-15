@@ -216,7 +216,8 @@ def dedup_phash(rows: list[dict], hamming: int) -> list[dict]:
 
 def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
                           pack: bool,
-                          paths: config.Paths | None = None, seed: int = config.SEED) -> None:
+                          paths: config.Paths | None = None, seed: int = config.SEED,
+                          pack_size: tuple[int, int] | None = None) -> None:
     """Project the dataset's on-disk cost BEFORE writing anything, and refuse to start if it
     cannot fit.
 
@@ -224,6 +225,10 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     so it dwarfs the source pngs. (Rotation augmentation no longer materializes files — it runs
     on-the-fly at train time.) Raises ValueError with the concrete numbers rather than filling
     the disk over ~an hour.
+
+    `pack_size` is what `pack_dataset` will actually write, and the project's own recipe cuts a
+    128 px pool into 80 px packs — measuring the crop file instead projected 2.56x too much and
+    refused a disk that fits.
     """
     import cv2
 
@@ -236,6 +241,9 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
     # rotated-png term).
     pool = train_rows or holdout
     if not pool:
+        return
+    if pack_size is not None:
+        _refuse_if_too_small(n_final, int(pack_size[1]) * int(pack_size[0]) * 3, paths)
         return
     rng = random.Random(seed)
     sample_rows = pool if len(pool) <= 32 else rng.sample(pool, 32)
@@ -250,15 +258,18 @@ def _preflight_disk_check(train_rows: list[dict], holdout: list[dict],
         log.warning("preflight: could not read any sample crop — skipping the disk projection.")
         return
 
-    need = n_final * crop_bytes if pack and n_final >= _PACK_MIN_CROPS else 0
+    _refuse_if_too_small(n_final, crop_bytes, paths)
+
+
+def _refuse_if_too_small(n_final: int, crop_bytes: int, paths: config.Paths | None) -> None:
+    need = n_final * crop_bytes if n_final >= _PACK_MIN_CROPS else 0
     if not need:
         return
     # Measure the volume the dataset is actually written to, not the module-global default —
     # `paths` may point at another drive (test isolation, multi-drive setups).
     free = shutil.disk_usage(str((paths or config.DATA).root)).free
-    log.info("preflight: %s final crops (train %s + holdout %s); ~%.1f GB memmap needed, "
-             "%.1f GB free", f"{n_final:,}", f"{len(train_rows):,}", f"{len(holdout):,}",
-             need / 1e9, free / 1e9)
+    log.info("preflight: %s final crops; ~%.1f GB memmap needed, %.1f GB free",
+             f"{n_final:,}", need / 1e9, free / 1e9)
     if need > free * 0.9:
         raise ValueError(
             f"dataset would need ~{need / 1e9:.0f} GB but only {free / 1e9:.0f} GB are free. "
@@ -294,6 +305,7 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
     d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
     return {
         "from_packs": bool(cfg.get(packs.PACKS_KEY)),
+        "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor)),
         "per_cell_cap": d.get("per_cell_cap"),
         "phash_enabled": d.get("phash_enabled"),
         "phash_hamming": d.get("phash_hamming"),
@@ -305,6 +317,20 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         "seed": s.get("seed"),
         "class_mode": cfg.get("class_mode"),
     }
+
+
+def _donor_pack_size(ds: Path) -> tuple[int, int] | None:
+    """(W, H) of the donor's rows — `dataset.yaml` names its packs but not their size, and a
+    128 px donor silently produced an 80 px twin under a name that said otherwise."""
+    manifest = ds / "manifest.jsonl"
+    if not manifest.exists():
+        return None
+    with manifest.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                size = json.loads(line).get("out_size")
+                return (int(size[0]), int(size[1])) if size else None
+    return None
 
 
 def _split_from(donor: str, have: set[str], paths: config.Paths,
@@ -344,12 +370,15 @@ def _split_from(donor: str, have: set[str], paths: config.Paths,
             f"--like {donor}: {len(missing)} session(s) are not in that split and would be "
             f"placed silently: {', '.join(missing)}. Drop them from --sessions, name them in "
             f"--add-test, or build without --like and accept a different assignment.")
-    clash = sorted(set(extra) & {s for k, sids in donor_splits.items() if k != "test" for s in sids})
-    if clash:
-        raise ValueError(
-            f"--add-test: {', '.join(clash)} is already in {donor}'s train or val. Moving a session "
-            f"into test would change what the donor's models were trained on, which is the one "
-            f"thing --like exists to prevent.")
+    # Both directions, or a session named in `--add-train` that the donor put in test stays in
+    # test AND is appended to train: trained on and evaluated on, the leak this refuses.
+    for flag, wanted, keep in (("--add-test", extra, "test"), ("--add-train", extra_train, "train")):
+        clash = sorted(set(wanted) & {s for k, sids in donor_splits.items() if k != keep for s in sids})
+        if clash:
+            raise ValueError(
+                f"{flag}: {', '.join(clash)} is already in another of {donor}'s splits. Moving a "
+                f"session across would change what the donor's models were trained on or "
+                f"evaluated against, which is the one thing --like exists to prevent.")
     out = {k: [s for s in sids if s in have] for k, sids in donor_splits.items()}
     out["test"] = out.get("test", []) + [s for s in extra if s not in out.get("test", [])]
     out["train"] = out.get("train", []) + [s for s in extra_train if s not in out.get("train", [])]
@@ -470,6 +499,7 @@ def build_dataset(
         # donor's policy, and the migration off the monolithic memmaps is exactly "same rows, same
         # split, packs instead" (`docs/session-packs.md`). A pack donor still forces packs.
         from_packs = from_packs or pol["from_packs"]
+        pack_size = pack_size or pol["pack_size"]
         print(f"[like] adopting {like}: classes={class_mode} cap={per_cell_cap} "
               f"phash={phash_enabled} max_empty_ratio={max_empty_ratio} seed={seed}")
     # 13 + coverage since 2026-08-18: `occluded` is a regression target now, not a class, and the
@@ -567,7 +597,8 @@ def build_dataset(
 
     # BEFORE touching the existing dataset: a refusal must not leave the caller with neither the
     # new dataset nor the old one.
-    _preflight_disk_check(train_rows, holdout, pack and not from_packs, paths=paths, seed=seed)
+    _preflight_disk_check(train_rows, holdout, pack and not from_packs, paths=paths, seed=seed,
+                          pack_size=pack_size)
 
     ds = paths.datasets / name
     if ds.exists():

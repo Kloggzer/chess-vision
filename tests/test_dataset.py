@@ -523,7 +523,7 @@ def test_add_test_extends_the_donor_split_without_touching_train(tmp_path):
     assert got["test"] == ["s4", "new"]
 
     # Naming a session that is already in train would silently change what the donor's models saw.
-    with pytest.raises(ValueError, match="already in donor's train or val"):
+    with pytest.raises(ValueError, match="already in another of donor's splits"):
         db._split_from("donor", {"s1", "s2", "s3", "s4"}, _P, add_test=["s1"])
 
     # An extra session NOT named in --add-test is still refused rather than defaulted.

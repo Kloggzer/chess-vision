@@ -292,11 +292,11 @@ def set_session_reviewed(session_id: str, reviewed: bool,
     "Reviewed" is a lightweight per-session marker so the UI can hide sessions the user has
     already looked at and show only NEW ones. It lives in session.yaml (absent == not reviewed).
     """
+    # Through `session_dir`, not a hand-built path: an `rg-` id lives under `recordings/`, so
+    # composing `sessions/<id>` reported every recording as "not found" — the `archive_session`
+    # bug over again.
     sid = _safe_id(session_id)
-    active, archived = paths.sessions / sid, paths.sessions_archive / sid
-    target = active if active.exists() else archived
-    if not target.exists():
-        raise FileNotFoundError(f"Session '{sid}' not found.")
+    target, _archived = session_dir(sid, paths)
     import yaml
 
     meta = _read_meta(target)
@@ -953,10 +953,12 @@ def write_boards_session(session_id: str) -> dict:
     # slice error that follows names THIS command as the repair.
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
-    for r in rows:
+    todo = [r for r in rows if r.get("corners") and r.get("frame")]
+    # Only the rows this run rewrites: popping over ALL of them left a corner-less row without its
+    # `board` while the webp stayed on disk, and every reader downstream is log-driven.
+    for r in todo:
         for key in BOARD_KEYS:
             r.pop(key, None)
-    todo = [r for r in rows if r.get("corners") and r.get("frame")]
     jobs = [(sdir, r["frame"], r["corners"], prof, bool(r.get("dirty"))) for r in todo]
     if len(jobs) >= POOL_MIN_ROWS:
         with ProcessPoolExecutor(max_workers=POOL_WORKERS) as pool:
@@ -1282,6 +1284,8 @@ def adopt_corners(session_id: str, from_index: int | None = None, scope: str = "
                              "Place the box by hand instead.")
         src_idx, quad = cand["from_index"], cand["corners"]
     else:
+        # TODO: klemmt still — `--from-index 500` auf 137 Zeilen uebernimmt Zeile 136 und meldet
+        # das als `from_index`. `flag_frame` wirft fuer denselben Fall.
         src_idx = max(0, min(int(from_index), len(rows) - 1))
         quad = rows[src_idx].get("corners")
         if not quad:

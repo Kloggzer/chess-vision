@@ -21,7 +21,6 @@ export type MatteFrame = {
   alpha?: string;
   /** `session temporal-merge` added cells SAM called clear — when, and which. */
   mergedAt?: string;
-  disputed?: string[];
 };
 
 /** Whose alpha the row's numbers came from: SAM's, a recut correction, or a correction not yet cut. */
@@ -88,7 +87,7 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
       const row = JSON.parse(line) as {
         frame: string; ply?: number; reason?: string; skipped?: string; alpha?: string;
         concepts?: Record<string, number>; coverage?: Record<string, number>;
-        merged_at?: string; disputed?: string[];
+        merged_at?: string;
       };
       value.set(row.frame, {
         stem: row.frame,
@@ -99,7 +98,6 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
         ...(row.alpha ? { alpha: row.alpha } : {}),
         ...(row.skipped ? { skipped: row.skipped } : {}),
         ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),
-        ...(Array.isArray(row.disputed) ? { disputed: row.disputed.map(String) } : {}),
       });
     } catch {
       /* a half-written line carries no alpha */
@@ -201,6 +199,8 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   const total = pile.size;
   // `matted` traegt auch die Zeilen, die SAM ABGELEHNT hat (kein `coverage`). Ein gemeldeter
   // Frame, den SAM nicht schneiden konnte, fiel damit aus der Zahl, die ihn sichtbar macht.
+  // TODO: `usable` schliesst `skipped` aus. Weist SAM dasselbe Frame erneut zurueck, bleibt
+  // `reported > 0` und `chain.nextStep` haengt die Aufnahme dauerhaft auf `matte` fest.
   const reported = [...reviews].filter(([stem, r]) => r.dirty && !usable.has(stem)).length;
   return { done, total, target: Math.min(matteTarget(), total), reported };
 }

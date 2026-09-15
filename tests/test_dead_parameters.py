@@ -24,6 +24,11 @@ REMOVED = [
     ("chesslab.meshprep", "prepare_scan", "process"),
     ("chesslab.calibration", "board_corners_for_frame", "detect_scale"),
     ("chesslab.calibration", "warp_from_corners", "target_size"),
+    # 2026-09-15: `tex_fallback` war ein Zweig, den kein Aufrufer je betreten konnte (der eine
+    # uebergab `None`); `min_depth` und `erode` trugen immer die Modulkonstante.
+    ("chesslab.meshprep", "_save_texture", "tex_fallback"),
+    ("chesslab.alignment", "_notch_centre", "min_depth"),
+    ("chesslab.occluders", "stage_of", "erode"),
 ]
 
 

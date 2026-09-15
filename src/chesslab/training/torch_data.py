@@ -654,6 +654,8 @@ class PackedSquareDataset(Dataset):
         # blutet. `empty` und `occluded` koennen nicht spenden.
         pool = [tuple(a) for a, r in zip(self.idx, rows, strict=True)
                 if r["label"] not in _NOT_A_PIECE]
+        # TODO: ungeschuetzt durch `neighbour_p > 0` — jeder Val-Datensatz baut und zieht den
+        # Spender-Pool ueber hunderttausende Zeilen und liest ihn nie. `SquareDataset` guardet.
         n = min(getattr(policy, "neighbour_pool_size", 512), len(pool))
         self.donors = np.array(random.sample(pool, n) if n else [],
                                dtype=np.int64).reshape(n, 2)

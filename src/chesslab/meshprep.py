@@ -397,7 +397,7 @@ def _write_trimesh_obj(mesh, name: str, out_dir: Path, tex_img, tex_dst: Path):
               obj_path, len(verts), len(normals), len(faces))
 
     _write_clean_mtl(out_dir, name)
-    _save_texture(tex_img, None, tex_dst)
+    _save_texture(tex_img, tex_dst)
     _cleanup_temp(out_dir, name)
 
 
@@ -443,23 +443,19 @@ def _cleanup_temp(out_dir: Path, name: str):
             pass
 
 
-def _save_texture(tex_img, tex_fallback: Path | None, dst: Path):
+def _save_texture(tex_img, dst: Path):
     """Save texture image to *dst* as PNG."""
-    if tex_img is not None:
-        import PIL.Image
-
-        if isinstance(tex_img, PIL.Image.Image):
-            tex_img.save(str(dst))
-        elif isinstance(tex_img, np.ndarray):
-            PIL.Image.fromarray(tex_img).save(str(dst))
-        elif isinstance(tex_img, (str, Path)):
-            import shutil
-            shutil.copy2(str(tex_img), str(dst))
+    if tex_img is None:
         return
+    import PIL.Image
 
-    if tex_fallback is not None:
+    if isinstance(tex_img, PIL.Image.Image):
+        tex_img.save(str(dst))
+    elif isinstance(tex_img, np.ndarray):
+        PIL.Image.fromarray(tex_img).save(str(dst))
+    elif isinstance(tex_img, (str, Path)):
         import shutil
-        shutil.copy2(str(tex_fallback), str(dst))
+        shutil.copy2(str(tex_img), str(dst))
 # ---------------------------------------------------------------------------
 # Preview rendering (best-effort, optional)
 # ---------------------------------------------------------------------------

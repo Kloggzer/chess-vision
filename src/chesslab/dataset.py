@@ -83,7 +83,8 @@ def render_stats(stats: dict) -> str:
         f"{'Class':<9}{'count':>8}{'light':>8}{'dark':>8}",
     ]
     # the stats' own class list, not the module default
-    lines.extend(f"{c:<9}{stats['counts'][c]:>8}{stats['light'][c]:>8}{stats['dark'][c]:>8}"
+    lines.extend(f"{c:<9}{stats['counts'][c]:>8}"
+                 f"{stats['light'].get(c, 0):>8}{stats['dark'].get(c, 0):>8}"
                  for c in stats["counts"])
     if stats["warnings"]:
         lines.append("Warnings:")
@@ -160,6 +161,9 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
             continue
         if piece_cap is not None and len(v) > piece_cap:
             v = rng.sample(sorted(v, key=lambda r: str(r.get("path"))), piece_cap)
+        # TODO: `occluded` ist aus dem MINIMUM heraus (Zeile darueber), steht aber im Maximum —
+        # auf einem 14-Klassen-Bau, wo es die groesste Klasse ist, richtet sich `empty_cap` danach
+        # statt nach der groessten echten Figurenklasse.
         eff_piece[c] = len(v)
         kept.extend(v)
 
@@ -464,6 +468,9 @@ def validate_split(split: dict, rows: list[dict],
         errors.append("Val split is empty — at least 3 sessions needed (session-based split).")
 
     # Adopt warnings from make_split (class missing in Val/Test)
+    # TODO: der Filter kann nie greifen — `make_split` und diese Funktion formulieren denselben
+    # Befund mit verschiedenen Saetzen, also steht er zweimal da, einmal als Fehler, einmal als
+    # Warnung.
     warnings.extend(w for w in split.get("warnings", []) if w not in errors)
 
     return errors, warnings

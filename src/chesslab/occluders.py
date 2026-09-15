@@ -107,7 +107,7 @@ def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | Non
     return out
 
 
-def stage_of(median: np.ndarray, erode: int = 61) -> np.ndarray:
+def stage_of(median: np.ndarray) -> np.ndarray:
     """The backdrop region: the largest area whose CHROMA matches the plate's centre.
 
     No convex hull — the median is arm-free, so a hull would only swallow a knee or a chair.
@@ -121,7 +121,7 @@ def stage_of(median: np.ndarray, erode: int = 61) -> np.ndarray:
     n, lab, stats, _ = cv2.connectedComponentsWithStats(m, connectivity=8)
     big = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     m = np.where(lab == big, 255, 0).astype(np.uint8)
-    return cv2.erode(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode, erode)))
+    return cv2.erode(m, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (61, 61)))
 
 
 def chroma_distance(frame: np.ndarray, median: np.ndarray) -> np.ndarray:

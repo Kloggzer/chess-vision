@@ -199,7 +199,12 @@ def session_scan(
     """
     from . import sessions as sessions_mod
 
+    # Ein geparkter Frame-Satz kommt als ERROR-DICT zurueck, nicht als Ausnahme — `_session_call`
+    # sieht das nicht, und die Erfolgsschluessel darauf ergaben einen Traceback statt [FAIL].
     r = _session_call(sessions_mod.scan_alignment, session)
+    if r.get("error"):
+        print(f"[FAIL] {session}: {r['error']}")
+        raise typer.Exit(1)
     med, mx = r["median"], r["max"]
     print(f"[OK] {r['measured']}/{r['of']} frames measured — "
           f"median {med if med is not None else '-'} px, max {mx if mx is not None else '-'} px")
@@ -223,6 +228,9 @@ def session_autofix(
     from . import sessions as sessions_mod
 
     r = _session_call(sessions_mod.autofix_corners, session, max_off)
+    if r.get("error"):
+        print(f"[FAIL] {session}: {r['error']}")
+        raise typer.Exit(1)
     print(f"[OK] {r['checked']} frames checked, {r['over_threshold']} over {r['max_off']} px, "
           f"{r['changed']} corrected, {r['refused']} refused")
     for i, (before, after) in zip(r.get("indices", []), r.get("gains", []), strict=True):
@@ -433,6 +441,12 @@ def session_pack_cmd(
     from .training import pack_session, packs
 
     side = size or packs.DEFAULT_PACK_SIDE
+    # `--pool` re-decodes crops the slice already cut, so the pad is the POOL's. Accepted and
+    # dropped it would put two framings in one training set (CLAUDE.md 0.1).
+    if pool and pad_side is not None:
+        print("[FAIL] --pad-side does not apply to --pool: the pool's crops are already cut, "
+              "and their pad is whatever `slice` used. Re-slice the pool to change it.")
+        raise typer.Exit(1)
     try:
         res = (pack_session.write_pool_pack(session, side, pool=pool, replace=replace) if pool else
                pack_session.write_session_pack(session, side, pad_side=pad_side,
@@ -850,10 +864,13 @@ def realgames_export_session(
                                          help="Declared hand margin around each commit."),
     dirty: bool = typer.Option(True, "--dirty/--no-dirty",
                                help="Also export the commit windows, flagged `dirty: true`."),
-    every: int = typer.Option(3, "--every", help="Sample every Nth source frame of a HAND window."),
+    every: int = typer.Option(3, "--every",
+                              help="Sample every Nth source frame of a HAND window. Only with "
+                                   "--no-scan; the scan picks per measured frame."),
     per_position: int = typer.Option(8, "--per-position",
-                                     help="Clean boards per position (0 = fall back to --every). "
-                                          "The corpus is short of positions, not of frames."),
+                                     help="Clean boards per position (0 = fall back to --every, "
+                                          "which only exists with --no-scan). The corpus is short "
+                                          "of positions, not of frames."),
     dirty_per_position: int = typer.Option(8, "--dirty-per-position",
                                           help="Boards per position for the dirty pile, "
                                                "withdrawal after the commit first."),

@@ -108,6 +108,9 @@ class CalibrationProfile:
             # already goes through `margins4` — serialization was the one place that did not.
             "margin": margins4(self.margin),
             "marker_dict": self.marker_dict,
+            # TODO: wird geschrieben und wieder eingelesen, aber NIRGENDS ausgewertet — die
+            # Mehr-Kamera-Geschichte im Feld-Docstring gibt es nicht, `ensure_profile(source=)`
+            # reicht den Wert gar nicht bis hierher durch.
             "source": self.source,
         }
 

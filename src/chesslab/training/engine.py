@@ -114,6 +114,9 @@ def evaluate_dataset(model, dataset, device, criterion=None, batch_size: int = 2
     preds_a = np.array(preds)
     if len(dataset.rows) != len(trues):
         raise ValueError(f"dataset has {len(dataset.rows)} rows but evaluation produced {len(trues)} labels")
+    # TODO: `cover` sagt nur, ob der KOPF Occlusion ist — die Maske haengt aber an der ZEILE.
+    # `data.per_session_metrics` und `visible_board_items` filtern unbedingt, also rechnen die
+    # Korpuszahl und die Zahl je Aufnahme in EINEM Ausdruck ueber verschiedene Zellmengen.
     if cover:
         from .occlusion import classification_eligible
 

@@ -28,8 +28,6 @@ import { uselessFlag } from "@/lib/useless";
 export type StreamSession = {
   name: string;
   sessionId: string;
-  /** No `model-reads.jsonl`: the session is in the stream for its `unknown_squares` alone (REVIEW S9). */
-  reads: boolean;
   /** Rows carrying `probs` — what the two identity lanes need, and what only one session has. */
   probs: boolean;
   /** Stems already reported dirty. The note is on disk, so the mark must survive a reload. */
@@ -131,19 +129,15 @@ export type LabelStream = {
   audit: StreamAuditCell[] | null;
   /** Set when a matte or model read is newer than the flags — the lane then shows stale work. */
   auditStaleSince?: string;
-  /** `false` = `correction-violations.jsonl` does not exist; same `—`, for the same reason. */
-  rules: boolean;
   /** `null` = `hand-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   hands: StreamHandCell[] | null;
   /** `null` = `position-flags.jsonl` does not exist; the chip renders `—`, never `0`. */
   positions: StreamPositionCell[] | null;
   /** Per session, `stem|square -> label` from BOTH ledgers — what must not be asked again. */
   decided: Record<string, string>[];
-  /**
-   * How far `model-read` reaches: boards a model has read, and sessions no model has read at all.
-   * One session of 43 on 2026-08-19 — a corpus-wide run waits on a retrained model.
-   */
-  reads: { boards: number; without: number };
+  /** How far `model-read` reaches: the boards a model has read. One session of 43 on
+   *  2026-08-19 — a corpus-wide run waits on a retrained model. */
+  reads: { boards: number };
   /** Boards in the stream corpus-wide, and how many carry a verdict (CONCEPT.md 6.2). */
   progress: { boards: number; done: number };
   /**
@@ -219,7 +213,6 @@ export async function loadLabelStream(): Promise<LabelStream> {
 
   let pos = 0;
   let readBoards = 0;
-  let without = 0;
 
   for (const name of await liveGames()) {
     let session;
@@ -259,13 +252,11 @@ export async function loadLabelStream(): Promise<LabelStream> {
       .filter((r) => !unusable.has(r.stem) && !r.unusable)
       .sort((a, b) => a.stem.localeCompare(b.stem));
     if (stems.length === 0) continue;
-    if (rows.length === 0) without += 1;
 
     const index = sessions.length;
     sessions.push({
       name,
       sessionId: id,
-      reads: rows.length > 0,
       probs: rows.some((r) => r.probs !== undefined),
       reportedDirty: [...(await frameReviews(id))].flatMap(([stem, r]) => (r.dirty ? [stem] : [])),
       matteWanted: [...wanted],
@@ -340,11 +331,10 @@ export async function loadLabelStream(): Promise<LabelStream> {
     recent: recent.sort((a, b) => b.ts.localeCompare(a.ts)).slice(0, RECENT_MAX),
     audit: auditRows.present ? auditCells(auditRows.rows, bySession) : null,
     auditStaleSince: auditRows.staleSince,
-    rules: ruleRows.present,
     hands: handRows.present ? handCells(handRows.rows, bySession) : null,
     positions: positionRows.present ? positionCells(positionRows.rows, bySession) : null,
     decided,
-    reads: { boards: readBoards, without },
+    reads: { boards: readBoards },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
     coverage,
     frameHands,

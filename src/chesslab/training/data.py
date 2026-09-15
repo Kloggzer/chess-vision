@@ -339,6 +339,9 @@ def build_model_card(
     hip_version: str | None,
     exported_formats: list[str],
     infer_size: tuple[int, int] | None = None,
+    # TODO: kein Aufrufer uebergibt das je — `evaluate.run_export` ist der einzige, und er
+    # laesst es weg. Der Zweig ist damit tot, und `scripts/stage_model_asset.py --gate` ist die
+    # Umgehung, die daraus entstand.
     coverage_gate: float | None = None,
 ) -> dict:
     """`out_size` = the size the crops were built at; `infer_size` = the size the exported graph
@@ -349,6 +352,9 @@ def build_model_card(
         "classes": list(classes),
         "out_size": [int(out_size[0]), int(out_size[1])],
         "infer_size": [int(size[0]), int(size[1])],
+        # TODO: `mode` fehlt — ein Lauf mit `--crop-norm per-crop` rechnet mean/std gar nicht,
+        # und die Karte behauptet trotzdem die festen ImageNet-Werte. `train.py` schreibt es in
+        # `config.json` richtig; wer die KARTE liest, bekommt das Gegenteil des Rezepts.
         "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
         "backbone": backbone,
         # Ab welcher Verdeckung ein Feld nicht mehr zaehlt (`ModelSpec.kt`). MESSEN, nicht raten:

@@ -646,14 +646,16 @@ async function runLabel(job: Job, lens?: boolean): Promise<void> {
   await record(running);
   const code = await runDesktop(binary, args, running, log);
   const madeCandidate = code === 0 && (await exists(candidate));
+  const end = endState(job.name, madeCandidate ? 0 : 1);
   await record({
     ...running,
-    state: endState(job.name, madeCandidate ? 0 : 1).state,
+    state: end.state,
     code,
     candidate: madeCandidate ? job.name : undefined,
     // The tool's own last words, not just a path: "see the log" is what a user reads instead of
-    // the sentence that would have told them what to do.
-    reason: madeCandidate ? undefined : `${await lastWords(log)} (exit ${code}, ${log})`,
+    // the sentence that would have told them what to do. Ein GESTOPPTER Lauf hat keine — sein
+    // Log bricht mitten im Satz ab, und `exit -1` daneben las sich als Werkzeugfehler.
+    reason: end.stopped ? STOPPED : madeCandidate ? undefined : `${await lastWords(log)} (exit ${code}, ${log})`,
     finishedAt: new Date().toISOString(),
   });
 }
@@ -735,7 +737,14 @@ function appended(args: string[], running: Job, log: string): Promise<number> {
     }
     child.stdout?.pipe(sink, { end: false });
     child.stderr?.pipe(sink, { end: false });
+    child.on("error", (error) => {
+      sink.end(`
+spawn failed: ${error.message}
+`);
+      resolve(-1);
+    });
     child.on("close", (exit) => {
+      if (queue.live?.child === child) queue.live = null;
       sink.end();
       resolve(exit ?? 1);
     });

@@ -42,6 +42,9 @@ export type SessionRow = {
   /** Squares the exporter refuses to vouch for on this frame (the next move's footprint). */
   unknown: string[];
   /** The frame's 18 measured grid lines, when `session fit-mesh` could put them there. */
+  // TODO: nur `session.test.ts` liest das. `crops.ts` schneidet mit `sampleBox`, nicht mit
+  // `sampleBoxMesh` wie der Stored-Weg — entweder der Schnitt braucht das Netz, oder die
+  // Zeile parst es je Log-Zeile umsonst. Das ist eine Entwurfsfrage, kein Aufraeumen.
   mesh?: GridMesh;
   /** The stored board's own path and scale (`realgames.write_board`). A homography lets board
    *  coordinates cancel against it; a stored raster does not, so both are read, never assumed. */
@@ -65,7 +68,6 @@ export type Session = {
    *  is the one being played into it. */
   moves: Map<number, { san: string; fen: string }>;
   boardSize: number;
-  margin: number | number[];
   crop: CropParams;
   whitePov: boolean;
 };
@@ -180,7 +182,6 @@ export async function loadSession(name: string): Promise<Session> {
     plies: rows.reduce((m, r) => m.set(r.ply, [...(m.get(r.ply) ?? []), r.stem]), new Map()),
     moves: new Map(candidate.moves.flatMap((m) => (m.fen_after ? [[m.ply, { san: m.san, fen: m.fen_after }] as const] : []))),
     boardSize: geometry.board_size ?? 928,
-    margin: geometry.margin ?? 0,
     crop: { pad_side: source.crop?.pad_side ?? 0.05 },
     whitePov: true,
   };

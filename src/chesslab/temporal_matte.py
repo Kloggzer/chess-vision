@@ -335,7 +335,9 @@ def adopt_proposals(session_id, *, method="local"):
     lines = matte_path.read_text(encoding="utf-8").splitlines() if matte_path.is_file() else []
     kept_lines = [s for s in lines if s.strip() and json.loads(s).get("source") != "temporal"]
     ours = {json.loads(s)["frame"] for s in lines if s.strip()} - {json.loads(s)["frame"] for s in kept_lines}
-    have = {json.loads(s)["frame"] for s in kept_lines}
+    # Wie `matte.matte_status`: eine Zeile ohne `coverage` ist SAMs Absage, keine Matte. Als eine
+    # gezaehlt blieben genau die Frames ohne jedes Alpha ungefuellt — die Coverage-Matte-Falle.
+    have = {r["frame"] for r in map(json.loads, kept_lines) if r.get("coverage")}
     (recording / "mattes").mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []

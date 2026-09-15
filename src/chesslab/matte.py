@@ -603,6 +603,10 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
         closed += 1
         added += gained
         if not dry_run:
+            # TODO: die Pixel gehen HIER auf die Platte, der Nebenlaeufigkeits-Wecht am Schluss
+            # kann danach nur noch abbrechen — dann tragen N Alphas die geschlossenen Pixel und
+            # `matte.jsonl` die alte `coverage`. Ein zweiter Lauf repariert das nicht (`gained`
+            # ist dann 0), obwohl die Meldung dazu auffordert. `recut_fixed` schreibt keine Pixel.
             if not cv2.imwrite(str(alpha_path), filled):
                 raise OSError(f"{name}: could not write {alpha_path}")
             row = row | {"coverage": coverage,
@@ -831,6 +835,7 @@ def alpha_worker(
             reason == "all"
             or entry.get("dirty_reason") == reason
         )
+        and entry.get("board")
         and Path(entry["board"]).stem not in done
     ]
 

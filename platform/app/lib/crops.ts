@@ -45,9 +45,11 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
   return { raster: await rasterOf(file), h: boardToStored(session, board) };
 }
 
-/** Der Stift ueberschreibt eine Datei; der Cache traegt die mtime, das hier ist der Sofort-Wurf. */
+/** Der Stift ueberschreibt eine Datei; der Cache traegt die mtime, das hier ist der Sofort-Wurf.
+ *  Ueber das PRAEFIX, weil der Schluessel `<pfad>|<mtime>` ist — nach dem Pfad allein traf das
+ *  `delete` nie einen Eintrag und der Wurf war seit je ein Nulloperator. */
 export function forgetRaster(file: string): void {
-  decoded.delete(file);
+  for (const key of decoded.keys()) if (key.startsWith(`${file}|`)) decoded.delete(key);
 }
 
 async function rasterOf(path_: string): Promise<Raster> {
@@ -67,6 +69,9 @@ async function rasterOf(path_: string): Promise<Raster> {
     .then(({ data, info }) => {
       const raster = { data, width: info.width, height: info.height, channels: info.channels };
       decoded.set(file, raster);
+      // TODO: FIFO, nicht LRU — ein Treffer stellt den Eintrag nicht hinten an (anders als
+      // `cellPngs` unten). Der heisseste Frame einer Seite fliegt damit zuerst raus, genau das
+      // Thrashing, gegen das dieser Cache existiert.
       if (decoded.size > CACHE_MAX) decoded.delete(decoded.keys().next().value as string);
       return raster;
     })

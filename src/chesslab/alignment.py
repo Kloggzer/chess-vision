@@ -129,7 +129,7 @@ OUTER_LOCK_FRAC = 0.5 * OUTER_SEARCH_FRAC
 MAX_OFFSET_FRAC = 0.04
 
 
-def _notch_centre(win: np.ndarray, csp: int, min_depth: float = MIN_DEPTH):
+def _notch_centre(win: np.ndarray, csp: int):
     """Sub-pixel centre of the groove notch in `win`, as `(offset, depth)`, or None.
 
     **A groove is NARROW, and that is what tells it from a piece.** The dark run above half depth
@@ -176,7 +176,7 @@ def _notch_centre(win: np.ndarray, csp: int, min_depth: float = MIN_DEPTH):
     resid = (slope * (t - centre) + mean) - win
     j = int(np.argmax(resid))
     depth = float(resid[j])
-    if depth < min_depth:
+    if depth < MIN_DEPTH:
         return None
     above = resid > 0.5 * depth
     lo = hi = j

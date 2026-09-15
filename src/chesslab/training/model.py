@@ -378,20 +378,22 @@ def build_model(backbone: str, num_classes: int, pretrained: bool = False,
         elif norm != "none":
             _convert_bn_to_primitive(m)
         return m
+    # Nur der LADEVORGANG steht unter dem Auffangnetz: spannte es auch ueber die
+    # Norm-Umbauten, kam ein Fehler DARIN als "Backbone unbekannt" heraus.
     try:
         print(f"[INFO] Versuche Backbone '{backbone}' über timm zu laden...")
         m = _create_timm_model(backbone, pretrained=pretrained, num_classes=num_classes,
                                in_chans=in_chans)
-        if norm == "groupnorm":
-            _convert_bn_to_gn(m)
-        elif norm != "none":
-            _convert_bn_to_primitive(m)
-        return m
     except Exception as e:
         raise ValueError(
             f"unknown backbone {backbone!r}. "
             f"Es ist weder intern registriert noch über timm ladbar. Fehler: {e}"
         )
+    if norm == "groupnorm":
+        _convert_bn_to_gn(m)
+    elif norm != "none":
+        _convert_bn_to_primitive(m)
+    return m
 
 
 def adopt_weights(model, checkpoint, device: str = "cpu") -> tuple[int, int]:

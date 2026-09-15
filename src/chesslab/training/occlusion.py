@@ -23,8 +23,11 @@ CELL_DARK_MIN = 25.0
 
 def classification_eligible(row: dict, visible_max: float = PIECE_VISIBLE_MAX,
                             dark_min: float = CELL_DARK_MIN) -> bool:
+    # `None` ist UNGEMESSEN, nicht dunkel — dieselbe Regel wie `capture_plan.band_of`. Der
+    # alte `or 0.0` warf jede Zeile mit ausgeschriebenem `null` aus jeder Klassenmetrik.
+    bright = row.get("brightness")
     return (float(row.get("coverage") or 0.0) <= visible_max
-            and float(row.get("brightness", 255.0) or 0.0) >= dark_min)
+            and (255.0 if bright is None else float(bright)) >= dark_min)
 
 
 def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

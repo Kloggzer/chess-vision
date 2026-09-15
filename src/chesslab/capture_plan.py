@@ -98,6 +98,8 @@ class Placement(TypedDict):
 
 
 class SquareStat(TypedDict):
+    # TODO: `p5`/`p95` liest ausser dem Test niemand — `capture plan` nimmt nur `median`. Entweder
+    # die Spannweite in den Auftrag ziehen (sie sagt, ob das Band je erreicht wurde) oder streichen.
     color: str
     median: float
     p5: float

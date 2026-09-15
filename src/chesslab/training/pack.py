@@ -294,9 +294,14 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
             got += sum(pool.imap_unordered(_decode_chunk, tasks[kinds:]))
         if got != n:
             raise RuntimeError(f"pixel pass incomplete: {got}/{n} crops")
+        # Ueber die DATEI-Zeilen, nicht ueber alle: die Brett-Zeilen holen ihre Pixel aus
+        # `boards/`, ihre Crop-Datei sagt also nichts ueber den Pack. Ein leerer Wachhund war
+        # kein "nichts zu pruefen", sondern "nie wieder pruefen" — `_rewritten_since_pack`
+        # lief durch eine leere Schleife und meldete jeden Re-Slice als frisch.
         meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
                                          "digest": _manifest_digest(rows),
-                                         "crop_fingerprint": {},
+                                         "crop_fingerprint": _crop_fingerprint(
+                                             [path for _, path in files]),
                                          "paths": [r["path"] for r in rows]}),
                               encoding="utf-8")
         progress_path.unlink(missing_ok=True)

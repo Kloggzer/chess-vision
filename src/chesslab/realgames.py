@@ -468,12 +468,16 @@ def adopt_reported_dirty(name: str) -> dict:
 
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                  settle: dict | None = None, per_position: int = 8,
-                 dirty_per_position: int = 8, prefer=(), reported=()) -> list[dict]:
+                 dirty_per_position: int = 8, prefer=(), reported=(),
+                 dirty: bool = True) -> list[dict]:
     """The rows to store, picked from MEASURED frames instead of from a window around the commit.
 
     The window let 23 % hands into the clean pool and condemned half its dirty frames for nothing
     (`docs/frame-scan.md`). Each dirty row keeps its `dirty_reason`, so what it is good for later
     is written down instead of guessed again.
+
+    `dirty=False` is `--no-dirty`, which reached only the `--no-scan` branch and therefore did
+    nothing on the path every export actually takes.
     """
     from . import framescan
 
@@ -495,22 +499,23 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
         for idx in reported:
             if reasons.get(idx) == "clean":
                 reasons[idx] = "occluded"
-        clean, dirty = framescan.select(reasons, per_position=per_position,
-                                        dirty_per_position=dirty_per_position, prefer=prefer)
+        clean, flagged = framescan.select(reasons, per_position=per_position,
+                                          dirty_per_position=dirty_per_position if dirty else 0,
+                                          prefer=prefer)
         # Ein korrigiertes Bild ist Handarbeit und darf nicht an einem Slot scheitern: `prefer`
         # gewinnt nur im Umkreis von `tol`, und nach einer neuen Abtastung liegt es eben daneben.
         # Es kommt ZUSAETZLICH mit, das Acht-Frame-Ziel gilt dafuer nicht. Nur `clean` und
         # `occluded` — bei `stale`/`changed` laeuft die FEN nach, und die Korrektur beschreibt
         # dann ein anderes Brett als das Label (2026-09-09: 4 von 11 so gerettet, 7 blieben).
         rescued = [idx for idx in sorted(prefer)
-                   if seg["start"] <= idx < seg["end"] and idx not in clean and idx not in dirty
+                   if seg["start"] <= idx < seg["end"] and idx not in clean and idx not in flagged
                    and reasons.get(idx) in ("clean", "occluded")]
         clean = list(clean) + [i for i in rescued if reasons[i] == "clean"]
-        dirty = list(dirty) + [i for i in rescued if reasons[i] == "occluded"]
+        flagged = list(flagged) + ([i for i in rescued if reasons[i] == "occluded"] if dirty else [])
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
                     for idx in clean)
         rows.extend(_export_row(seg, idx, corners, base, fps, margin_frames, settle)
-                    | {"dirty": True, "dirty_reason": reasons[idx]} for idx in dirty)
+                    | {"dirty": True, "dirty_reason": reasons[idx]} for idx in flagged)
     rows.sort(key=lambda r: r["frame"])
     return rows
 
@@ -1227,6 +1232,9 @@ def merge_fit_stats(parts: list[dict]) -> dict:
     run built — an average of medians would not be.
     """
     rows = [row for part in parts for row in part["arrived"]]
+    # TODO: ein FIT_FAILED-Row behaelt das `align_worst_px`, das `carry_repaired_geometry` vom
+    # letzten Export uebernommen hat — der serielle Lauf zaehlt nur GEMESSENE mit. `--workers 4`
+    # meldet damit eine andere Streuung als `--workers 1` auf derselben Aufnahme.
     worsts = sorted(row["align_worst_px"] for row in rows if "align_worst_px" in row)
     merged = {key: sum(part[key] for part in parts)
               for key in (FIT_SOURCE, FIT_KEPT, FIT_FAILED, "mesh", "hands", "late")}
@@ -1628,7 +1636,7 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
     if scan:
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
                             per_position=per_position or 8, dirty_per_position=dirty_per_position,
-                            prefer=prefer, reported=reported)
+                            prefer=prefer, reported=reported, dirty=dirty)
         print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected, "
               f"{len(reported)} reported dirty by hand — "
               f"picking on data instead of on a {quiet_margin_s}s margin")

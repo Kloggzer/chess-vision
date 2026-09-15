@@ -31,6 +31,11 @@ def gate_label(row: dict) -> bool | None:
     Beides muss zusammenkommen: ein Konzept, das feuert, UND Fläche. Ein Konzept ohne Fläche ist
     eine verworfene Box, Fläche ohne Konzept ein Maskenrand.
     """
+    # Eine uebersprungene Zeile (`zone too big`, Brett unlesbar) traegt WEDER Konzepte NOCH
+    # Coverage — als "kein Konzept, keine Flaeche" gelesen lehrte sie den Schueler, genau die
+    # verdecktesten Bretter des Korpus handfrei zu nennen.
+    if row.get("skipped") or row.get("coverage") is None:
+        return None
     concepts = {k for k, v in (row.get("concepts") or {}).items() if v}
     area = sum((row.get("coverage") or {}).values())
     if concepts and area > GATE_AREA_MIN:
@@ -126,6 +131,9 @@ class BoardSet:
         import numpy as np
 
         self.rows, self.size, self.train = rows, size, train
+        # TODO: jeder Dataloader-Worker forkt DIESEN rng — vier Prozesse ziehen dieselbe
+        # Helligkeits-/Versatz-Folge, die Augmentierung ist also ein Viertel so vielfaeltig wie
+        # sie aussieht und gegen `seed` nicht reproduzierbar.
         self.rng = np.random.default_rng(seed)
         self.root = config.DATA.recordings
 

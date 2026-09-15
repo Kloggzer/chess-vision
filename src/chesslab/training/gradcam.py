@@ -22,29 +22,45 @@ import torch.nn.functional as F
 from PIL import Image
 
 
-def _crop_reader(ds_name: str | None):
+def _crop_reader(ds_name: str | None, rows: list[dict] | None = None):
     """Return ``row -> PIL.Image`` that reads from the packed memmap when the dataset has one
-    (required for fused builds, whose mm:// rows have no files) and from disk otherwise."""
+    (required for fused builds, whose mm:// rows have no files) and from disk otherwise.
+
+    `resolve_dataset_packs` FIRST, exactly like `evaluate.run_eval`: a dataset built with
+    `--from-packs` has no memmap of its own, and without that step every one of its rows hit
+    the `mm://` refusal below with advice about a synth build it never was.
+    """
     packed = None
     if ds_name:
-        from .pack import load_packed, open_packed_memmap
-        packed = load_packed(ds_name)
-    if packed is None:
+        from .. import config
+        from .pack import load_packed, open_packed_memmap, resolve_dataset_packs
+        packed = resolve_dataset_packs(ds_name, config.DATA)
+        if packed is None:
+            packed = load_packed(ds_name, config.DATA)
+    if packed is None or rows is None:
         def _read(r: dict) -> Image.Image:
             p = str(r["path"])
             if p.startswith("mm://"):
-                raise ValueError(f"dataset '{ds_name}' is a fused synth build but its packed "
-                                 "memmap is missing/stale — re-run `chesslab dataset build-synth`.")
+                raise ValueError(f"dataset '{ds_name}' has mm:// paths — a fused synth build or a "
+                                 "pack-built dataset — but no usable memmap: re-run `chesslab "
+                                 "dataset build-synth`, or check that dataset.yaml still names "
+                                 "its packs under data/packs/.")
             return Image.open(p).convert("RGB")
         return _read
-    path, shape, p2i = packed
-    mm = open_packed_memmap(path, shape)
+    from .torch_data import _pack_index
+
+    files, idx = _pack_index(rows, packed)
+    at = {str(r["path"]): (int(idx[i][0]), int(idx[i][1])) for i, r in enumerate(rows)}
+    mm: dict[int, object] = {}
 
     def _read(r: dict) -> Image.Image:
-        idx = p2i.get(str(r["path"]))
-        if idx is None:
+        hit = at.get(str(r["path"]))
+        if hit is None:
             return Image.open(str(r["path"])).convert("RGB")
-        return Image.fromarray(np.array(mm[idx]))
+        pack_no, row_no = hit
+        if pack_no not in mm:
+            mm[pack_no] = open_packed_memmap(*files[pack_no])
+        return Image.fromarray(np.array(mm[pack_no][row_no]))
     return _read
 
 
@@ -208,7 +224,7 @@ def reliance_for_run(run_dir: Path, split: str = "test", per_class: int = 8,
             logits = model(((t01 - mean) / std).unsqueeze(0))
             return float(F.softmax(logits, dim=1)[0, cls_idx])
 
-    read_crop = _crop_reader(ds_name)
+    read_crop = _crop_reader(ds_name, rows)
     out: list[dict] = []
     for c in classes:
         hits = _diverse_sample([r for r in rows if r["label"] == c], per_class, seed=seed)

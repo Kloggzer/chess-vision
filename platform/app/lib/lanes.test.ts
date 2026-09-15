@@ -122,9 +122,9 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 });
 
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
-  sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: [] }],
-  boards: [], cells: [], recent: [], audit: null, rules: true, hands: null, positions: null, decided: [{}],
-  reads: { boards: 0, without: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
+  sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: [] }],
+  boards: [], cells: [], recent: [], audit: null, hands: null, positions: null, decided: [{}],
+  reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
   frameHands: [{}], handsMeasured: [true], unusableCells: [[]], ...over,
 });
 
@@ -239,7 +239,7 @@ test("the Klassenwand joins the server's answer to the stream, and never invents
 
 test("die Strittig-Lane traegt die Abfrage der Klassenwand mit, und sagt — solange nichts antwortet", () => {
   const stream = streamOf({
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: true, reportedDirty: [], matteWanted: [] }],
+    sessions: [{ name: "g", sessionId: "rg-g", probs: true, reportedDirty: [], matteWanted: [] }],
     boards: [board()],
     audit: [],
   });
@@ -428,7 +428,7 @@ test("ein Frame verlaesst die Lane mit JEDEM der beiden Urteile", () => {
   // Zur Matte geschickt: der Zettel liegt, SAM lief noch nicht — trotzdem ist die Frage beantwortet.
   const routed = streamOf({
     boards,
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: ["000100"] }],
+    sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: ["000100"] }],
   });
   expect(openFrames(routed, "frames").map((b) => b.stem)).toEqual(["000200", "000300"]);
   // Gemattet: ab hier sind seine Crops Sache der Strittig-Lane, nicht mehr dieser.
@@ -438,7 +438,7 @@ test("ein Frame verlaesst die Lane mit JEDEM der beiden Urteile", () => {
   const both = streamOf({
     boards,
     coverage: [{ "000200": {} }],
-    sessions: [{ name: "g", sessionId: "rg-g", reads: true, probs: false, reportedDirty: [], matteWanted: ["000100"] }],
+    sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: ["000100"] }],
   });
   expect(laneCount(both, "frames")).toEqual({ n: 1, total: 3 });
   expect(laneChip(laneById("frames"), laneCount(both, "frames")).text).toBe("Strittige Frames 1");
