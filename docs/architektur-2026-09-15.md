@@ -176,3 +176,125 @@ einen Schlag unter Test.
   dokumentiert. Nichts anfassen.
 - Elf kleine Module (`state`, `ioutil`, `locks`, `capture_plan`, `doctor`, …) sind **jedes genau
   eine Sache**. Nichts zu melden.
+
+---
+
+# Runde 2: die Naehte und die Testsuite (2026-09-15, nachts)
+
+Zwei ungeprimte Agenten, bewusst anders geschnitten als Runde 1: einer auf die Grenzen zwischen
+Python, Kotlin und TypeScript, einer auf Testsuite und Fehlerbehandlung als Querschnitt.
+**Was daraus schon gebaut ist, steht in `f0cf2f42`** — hier steht nur, was offen bleibt.
+
+## Das Muster, das das Projekt schon besitzt
+
+Das Repo hat zwei sehr gute Naht-Muster und wendet beide an der falschen Stelle an:
+
+- **Geteiltes Fixture ueber drei Sprachen.** `parity/_geometry/mesh_crop_parity.json` wird von
+  keiner Seite geschrieben und von `tests/test_mesh_crop.py`, `MeshPointParityTest.kt` **und**
+  `platform/app/lib/warp.test.ts` gelesen, Toleranz 1e-9. Es sichert **Rechnungen**, nie Formate.
+- **Versionierte Huelle mit dokumentierter Bedeutungsaenderung.** `ConfigCodec.kt`
+  (`CONFIG_SCHEMA_VERSION = 6`) erklaert jede Stufe und hat einen Test. Das beste
+  Migrationsdokument im Baum — und es liegt auf dem einzigen Format, das **keine** Sprachgrenze
+  kreuzt.
+
+**19 Formate kreuzen eine Sprachgrenze. 2 haben ein Schema, beide Prosa. 0 tragen eine Version.
+0 haben einen Round-Trip-Test ueber zwei Sprachen.** Die Naht, die als einzige ein Schema, einen
+deklarativen Kotlin-Codec (`@SerialName`) und einen typisierten TS-Zwilling hat — `capture-plan` —
+ist auch die einzige **ohne** gefundene Drift. Sie ist die Vorlage fuer die anderen neun.
+
+## (A) Klein, getestet, verhaltensgleich — offen
+
+| Fund | Aufwand |
+|---|---|
+| `clahe_golden.py` liegt in `tmp/` und ist gitignored: die Golden-Summe des CLAHE-Zwillings ist **nicht reproduzierbar**. (Ich fasse `tmp/` nicht an — bitte selbst rueberziehen oder freigeben.) | 15 min |
+| `vulture`-`paths` um `scripts` erweitern — 12 061 Zeilen, heute ungeprueft | 10 min |
+| Drei Kotlin-Selbsttests (`theGuardCanSee*Sources`) loeschen: sie pruefen, dass der Waechter seine eigenen Dateien findet, und sind in jedem Zustand des Produktivcodes gruen | 20 min |
+| `training/clahe_gpu.py`: 133 Zeilen, **0 Aufrufer, 0 Tests**, Docstring sagt selbst "UNBENUTZT (2026-09-07)". Loeschkandidat — **nur auf Anweisung** | 5 min |
+| `CommentBudgetTest.kt:79` nennt den falschen Pfad; drei Zeilen tiefer steht der richtige | 5 min |
+
+## (A/B) Die vier `TrackerService`-Ableitungen — der beste Hebel im Bericht
+
+`gridArm = modelSpec?.coverageOutput != true` (`TrackerService.kt:151`) schaltet den modellfreien
+Hand-Sensor — den Arm hinter dem **67/67-mit-0-erfundenen**-Meilenstein. Ueber **1 656 Kotlin-Tests
+reicht kein einziger ihn ab**; die zwei, die `gridArm` erwaehnen, uebergeben das Boolean literal.
+**Eine Ein-Zeichen-Aenderung (`== true`) schaltet den Phantom-Veto auf jedem ausgelieferten Modell
+ab, und alles bleibt gruen.** Dasselbe gilt fuer `cropClahe` (das Standardmodell ist
+`p4a-80-clahe`), fuer `engineConfig` (in null Testdateien, obwohl die fps-Kopplung genau daran
+haengt) und fuer `BUNDLED_MODELS` gegen `assets/cnn_model/` (heute 7:7 deckungsgleich, die
+dokumentierte Falle ungeschuetzt). Vier Einzeiler, 2 h. **Naechster Schritt, wenn Zeit ist.**
+
+## (B) Vorschlaege — aufgeschrieben, nicht gebaut
+
+- **`cov` heisst in zwei Geschwister-Berichten das Gegenteil.** `hand_flags.py:58` `cov` =
+  **Modell**-Sigmoid, `position_flags.py:57` `cov` = **SAM**. Beide landen in `data/reports/`,
+  beide liest die Strittig-Lane, und nur eine Seite hat einen Doc-Kommentar — den falschen fuer die
+  Nachbardatei. `audit_flags.py:103` tauft dieselbe Zahl ein drittes Mal um. Vorschlag:
+  `model_cov`/`matte_cov` ueberall, `cov` verbieten. **2 h, beruehrt Berichtsformate.**
+- **`measured` bedeutet drei Dinge**, zwei davon 35 Zeilen auseinander (`session.ts:52` = traegt
+  `settle_dev`, `label-stream.ts:89` = SAM-Coverage als Zahl, `frame-hands.ts:19` = ueberhaupt
+  gescannt). Ausgerechnet das Wort, mit dem das Projekt "ungemessen ist nicht 0" durchsetzt.
+- **`_fit_axis` gegen `AxisFit.kt` haelt nur ein Kommentar.** Beide Seiten testen gegen ihre eigene
+  synthetische Wahrheit. Der Grid-Fit traegt das ganze Genauigkeitsbudget (Mesh 0,9–1,1 px gegen
+  15–16 px roh). Das Werkzeug dafuer steht im Baum und laeuft in drei Sprachen — es wurde nur nie
+  auf die teuerste Rechnung gerichtet. **½ Tag, der wertvollste Vorschlag der Runde.**
+- **Erfundene Konstanten beim Lesen.** `session.ts:182-184`: `board_size ?? 928`,
+  `pad_side ?? 0.05`, `clock.fps ?? 30` — durch genau diese Zahlen schneidet die
+  Labeling-Oberflaeche jeden Crop, und der Kommentar 80 Zeilen darueber haelt fest, dass Kandidat
+  und Profil sich hier schon um 8 % widersprochen haben. Python daneben: `serving.py:73`
+  `cfg.get("out_size", [96, 128])`, waehrend Kotlin fuer denselben Schluessel `getValue` nutzt und
+  laut wirft. **Ein Format, ein Schluessel, entgegengesetzte Politik.**
+- **`session_profile` macht aus einer fehlenden Datei einen Messwert** (`sessions.py:520`): das
+  Ersatzprofil ist am Rueckgabewert nicht als Ersatz erkennbar, und zwei Aufrufer reichen es in
+  `worst_offset` — eine Ausrichtungsmessung in px, die als `align_worst_px` in den Log geht.
+- **`respondError()` fuer die TS-Routen.** Es gibt im gesamten API **keine einzige 500**:
+  `api/cell/.../route.ts:37` macht aus korrupter `log.jsonl`, ungeradem Brett, fehlender `.webp`
+  oder `sharp`-Fehler ein **404** mit dem Error als Body, den niemand liest. **30 Routen.**
+- **`vitest.config.mts:6` sammelt nur `lib/`.** Alles unter `app/` ist nicht kollektierbar —
+  `app/strom/labeln/stream.tsx` mit 346 Statements steht auf 0,0 %. Die zwei Regex-ueber-JSX-Tests
+  im Baum sind Source-Grep, **weil die Config keinen anderen Weg laesst**.
+- **Kein gemeinsamer Fixture-Baukasten, dreimal.** Python hat **keine einzige `conftest.py`**
+  (`CalibrationProfile(...)` 29-mal von Hand in 21 Dateien); TS kein Helfer-Modul (`mkdtemp`
+  47-mal, `CHESSLAB_DATA_DIR` 43-mal gesetzt, **7** raeumen auf); Kotlin `TrackerConfig(` 121-mal
+  in 55 Dateien.
+- **Und die Folge davon, dreimal dieselbe:** die vier Python-Labeling-Suiten schneiden aus
+  `frames/` statt aus `boards/` (12 von 14 `slice_session`-Dateien nehmen den Fallback-Zweig),
+  `session.test.ts` laesst die vier board-Schluessel weg (`session.ts:164` wird in seiner eigenen
+  Testdatei **nie** wahr), `ModelSpecTest` baut ein Modell **ohne** `coverage_output` und ohne
+  `coverage_gate` — eine Form, die das APK seit 2026-09-14 nicht mehr ausliefert, und daneben liegt
+  in `CoverageGateConfigTest.kt` eine zweite, bereits divergierte Kopie desselben JSON-Bauers.
+  **Ein Bauer je Sprache macht die falsche Form nicht seltener, sondern unschreibbar.**
+
+## (C) Nicht ohne Absprache
+
+- **Versionsfeld und Migrationsregel fuer `log.jsonl`/`candidate.json`.** Aendert, was ein drei
+  Wochen alter Baum bedeutet.
+- **`reason` im Job-Ledger als `{text, log, code}` statt als String.** Heute bauen drei Erzeuger
+  drei Formen, ein Parser (`failure.ts:16`) zerlegt sie per Regex zurueck, und `failure.test.ts`
+  **haelt den Verlust selbst fest**: die Form mit "see" ergibt `code: null`. Schlimmste Stelle:
+  `app/transfers/board.tsx:184` laesst den Job-Ledger-Parser ueber einen beliebigen
+  HTTP-Response-Body laufen und zeigt dem Nutzer rohes JSON.
+- **`pack` ist vier Artefakte** mit je eigener `manifest.jsonl` (`training/pack.py`,
+  `training/packs.py` — ein Modulname Unterschied —, `training-pack/` aus Kotlin, und der
+  Crop-Pool). Namensfrage, aber eine, die jeder Neuleser einmal falsch raet.
+
+## Widerlegt in Runde 2 — gehoert dazu
+
+- **"Wie viele Tests pruefen nur, dass ein Symbol existiert?"** — **1,9 %** (57 von 3 063), und
+  zwei Drittel davon sind bewusste Ratchets. Die Suite hat dieses Problem nicht. Verhalten:
+  Python 97,9 %, TS 97,1 %, Kotlin 97,8 %.
+- **Testkoerper duplizieren sich fast nicht** (Kotlin: 2 Paare ueber 0,82 Aehnlichkeit von 1 261).
+  Die Doppelung sitzt auf **Datei**-Ebene.
+- **"115 Kotlin-Zitate zeigen auf `entry.md`"** — nein: 114 `invariant N` sind **unqualifiziert**
+  (und `docs/specs-index.md` haelt die Landkarte), genau **eine** Datei nannte den toten Pfad.
+  Gefixt.
+- **`ingestToken` praegt bei unlesbarer Datei keinen neuen Token** — das `wx`-Fallback liest
+  zurueck und wirft. Der Test dazu steht jetzt trotzdem im Baum.
+- **`withMotionThrFor` ist nicht mehr doppelt** — beide Seiten delegieren seit gestern an
+  `TrackerConfig.atFrameRate`. Der Abschnitt weiter oben in diesem Dokument ist an der Stelle
+  bereits veraltet.
+- **`frame-flag.ts` schreibt in Pythons `log.jsonl` — und tut es richtig** (COPYFILE_EXCL,
+  tmp+rename, No-Op bei gleichem Wert). Einziger Effekt: `ensure_ascii`, kosmetisch.
+- **`B904` abgeschaltet verliert keine Ursachen** — nur 8 Stellen werfen ohne `from`, und Python
+  verkettet ueber `__context__` ohnehin.
+- **`coverage_output` fehlt, 14-Spalten-Graph als 13 gelesen: faengt der Code laut**
+  (`OnnxSquareClassifier.kt:219`).
