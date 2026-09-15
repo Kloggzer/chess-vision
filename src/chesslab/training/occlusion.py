@@ -40,6 +40,30 @@ def split_targets(target: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, tor
     return target[:, 0].long(), target[:, 1], bright
 
 
+#: Ab hier liest das Modell die Figur schlechter als Zufall — gemessen 2026-09-16,
+#: `docs/coverage-weight-2026-09-16.md`. Der Schwanz darueber ist kein schwaches Signal, er ist
+#: systematisch falsch: dort gehoert eine Null hin und kein kleines Gewicht.
+COVERAGE_ZERO_AT = 0.60
+#: Linksversatz der S-Kurve. Sie startet sonst WAAGERECHT, die Messung faellt dort aber schon
+#: (1,000 -> 0,985 zwischen 0 und 0,05) — ohne ihn laege das Gewicht am Anfang ueber der Messung.
+COVERAGE_SHIFT = 0.01
+
+
+def coverage_weight(cov: torch.Tensor, mode: str = "hard",
+                    visible_max: float = PIECE_VISIBLE_MAX) -> torch.Tensor:
+    """Wie schwer eine Zelle im KLASSENverlust zaehlt, nach ihrer gemessenen Verdeckung.
+
+    `hard` ist die alte Regel: 1 bis `visible_max`, danach 0. `soft` folgt der gemessenen
+    Lesbarkeit — eine gestauchte S-Kurve, die nirgends ueber der Messung liegt.
+    """
+    if mode == "hard":
+        return (cov <= visible_max).to(cov.dtype)
+    if mode != "soft":
+        raise ValueError(f"unknown coverage weight mode {mode!r} — hard or soft")
+    s = ((cov + COVERAGE_SHIFT) / COVERAGE_ZERO_AT).clamp(0.0, 1.0)
+    return 1.0 - (3 * s**2 - 2 * s**3)
+
+
 class OcclusionLoss(nn.Module):
     """Weighted CE over the pieces plus BCE over the coverage, from ONE (B, C+1) output.
 
@@ -49,13 +73,15 @@ class OcclusionLoss(nn.Module):
 
     def __init__(self, class_weights: torch.Tensor, occ_weight: float = 1.0,
                  visible_max: float = PIECE_VISIBLE_MAX,
-                 label_smoothing: float = 0.0, dark_min: float = CELL_DARK_MIN) -> None:
+                 label_smoothing: float = 0.0, dark_min: float = CELL_DARK_MIN,
+                 coverage_weight_mode: str = "hard") -> None:
         super().__init__()
         self.ce = nn.CrossEntropyLoss(weight=class_weights, reduction="none",
                                       label_smoothing=label_smoothing)
         self.occ_weight = occ_weight
         self.visible_max = visible_max
         self.dark_min = dark_min
+        self.coverage_weight_mode = coverage_weight_mode
 
     def forward(self, logits: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         piece_sum, visible_count, coverage_sum, coverage_count = self.validation_terms(logits, target)
@@ -68,7 +94,10 @@ class OcclusionLoss(nn.Module):
         # Zwei Gruende, dieselbe Zelle aus dem KLASSENteil zu nehmen — verdeckt oder zu dunkel.
         # Der Coverage-Kopf lernt weiter auf allen: Dunkelheit ist keine Verdeckung, und die
         # Hand-Sperre der App haengt an dieser Zahl.
-        visible = (cov <= self.visible_max) & (bright >= self.dark_min)
+        # Dunkelheit bleibt ein HARTER Ausschluss: eine unlesbare Zelle traegt kein Signal, egal
+        # wie frei sie ist. Gewichtet wird nur die Verdeckung.
+        weight = coverage_weight(cov, self.coverage_weight_mode, self.visible_max)
+        visible = weight * (bright >= self.dark_min).to(weight.dtype)
         piece = self.ce(logits[:, :-1], y)
         coverage = torch.nn.functional.binary_cross_entropy_with_logits(
             logits[:, -1], cov, reduction="sum")

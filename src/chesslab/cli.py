@@ -1466,6 +1466,44 @@ def occluders_recut(
           f"({res['frames']} Zeilen) -> {res['path']}")
 
 
+@occluders_app.command("recut-coverage")
+def occluders_recut_coverage(
+    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    all_sessions: bool = typer.Option(False, "--all", help="Every session that has a matte.jsonl."),
+) -> None:
+    """Die `coverage` aus den Alphas neu schneiden, mit der HEUTIGEN Geometrie.
+
+    Die gespeicherte Zahl ist ein Schnappschuss vom Matten; `crop_square` schneidet mit den Ecken
+    der aktuellen Log-Zeile. Ein Re-Export verschiebt die Ecken und laesst die Zahl stehen —
+    gemessen 2026-09-16 bei 13 von 24 Aufnahmen. SAM laeuft nicht, das ist reine Arithmetik.
+    """
+    from . import matte as matte_mod
+
+    if bool(name) == all_sessions:
+        print("[ERR] name or --all, not both")
+        raise typer.Exit(1)
+    if all_sessions:
+        from .sessions import all_sessions as _all
+
+        names = [sid[3:] for sid, _ in _all() if sid.startswith("rg-")]
+    else:
+        names = [name]
+    total = crossed = 0
+    for one in names:
+        try:
+            res = matte_mod.recut_coverage(one, progress=len(names) == 1)
+        except (FileNotFoundError, ValueError, KeyError) as e:
+            print(f"[ERR] {one}: {e}")
+            continue
+        total += res["recut"]
+        crossed += res["crossed"]
+        if res["recut"]:
+            print(f"[OK] {one}: {res['recut']} von {res['frames']} Zeilen neu geschnitten, "
+                  f"{res['crossed']} Zellen ueber PIECE_VISIBLE_MAX gekippt")
+    print(f"[OK] {total} Zeilen neu geschnitten, {crossed} Zellen haben die Schwelle gewechselt "
+          f"({len(names)} Aufnahmen)")
+
+
 @occluders_app.command("close-seams")
 def occluders_close_seams(
     name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
@@ -2242,6 +2280,12 @@ def train_cmd(
     label_smoothing: float = typer.Option(0.0, "--label-smoothing",
                                           help="Gegen ueberzeugte Fehler: die Konfidenz auf "
                                                "Fehlern liegt bei 0,75-0,84."),
+    coverage_weight: str = typer.Option("hard", "--coverage-weight",
+                                        help="Wie eine verdeckte Zelle im Klassenverlust zaehlt. "
+                                             "hard = harte Kante bei 0,15 (Vorgabe, wie bisher). "
+                                             "soft = der gemessenen Lesbarkeit folgend, Gewicht 0 "
+                                             "erst ab 0,6. Macht Laeufe mit dem Archiv "
+                                             "unvergleichbar (docs/coverage-weight-2026-09-16.md)."),
     weight_cap: float | None = typer.Option(None, "--weight-cap",
                                             help="Verhaeltnis groesstes/kleinstes Klassengewicht "
                                                  "hoechstens SO. Geglaettet (w ~ 1/n^a), nicht "
@@ -2307,7 +2351,7 @@ def train_cmd(
                                      allow_unpacked=allow_unpacked, visible_max=visible_max,
                                      dark_min=dark_min,
                                      weight_cap=weight_cap, weight_decay=weight_decay,
-                                     label_smoothing=label_smoothing, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
+                                     label_smoothing=label_smoothing, coverage_weight=coverage_weight, hflip_p=hflip_p, vflip_p=vflip_p, rot180_p=rot180_p,
                                      flip_xor_p=flip_xor_p,
                                      invert_p=invert_p,
                                      grayscale_p=grayscale_p,

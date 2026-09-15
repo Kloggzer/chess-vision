@@ -401,6 +401,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               visible_max: float | None = None, weight_cap: float | None = None,
               weight_decay: float | None = None,
               label_smoothing: float = 0.0,
+              coverage_weight: str = "hard",
               hflip_p: float | None = None,
               vflip_p: float | None = None,
               rot180_p: float | None = None,
@@ -896,7 +897,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         vmax = PIECE_VISIBLE_MAX if visible_max is None else visible_max
         dmin = CELL_DARK_MIN if dark_min is None else dark_min
         criterion = OcclusionLoss(weights, visible_max=vmax, dark_min=dmin,
-                                  label_smoothing=label_smoothing).to(device)
+                                  label_smoothing=label_smoothing,
+                                  coverage_weight_mode=coverage_weight).to(device)
+        if coverage_weight != "hard":
+            from .occlusion import COVERAGE_ZERO_AT
+
+            print(f"[occ] Klassen-Gewicht je Zelle: {coverage_weight} — die harte Kante bei "
+                  f"{vmax:g} faellt weg, Gewicht 0 erst ab {COVERAGE_ZERO_AT:g} "
+                  "(docs/coverage-weight-2026-09-16.md)")
         if dmin:
             dark = sum(r.get("brightness", 255.0) < dmin for r in train_rows)
             print(f"[occ] Trainingsmaske zusaetzlich bei Helligkeit < {dmin:g}: "

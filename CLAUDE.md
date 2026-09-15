@@ -117,6 +117,22 @@
   `metrics.jsonl`, und Quervergleiche laufen über `chesslab eval --dataset <gemeinsamer>`.
   Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
+- **Die 0,15 ist gegen den RILLEN-Sensor geeicht, nicht gegen das Bild (gemessen 2026-09-16).**
+  Erstmals gemessen, ab wann das Modell die Figur wirklich nicht mehr liest: im Band 0,15-0,25
+  noch **81 %** richtig, bei 0,25-0,40 **62 %**, und erst ab **0,6** unter Zufall. Die harte Kante
+  wirft also Signal weg, und der Schwanz darueber ist nicht schwach, sondern systematisch falsch.
+  `chesslab train --coverage-weight soft` folgt stattdessen der gemessenen Kurve (S-Kurve auf 0,6
+  gestaucht, liegt an jedem Messpunkt UNTER der Messung). **Vorgabe bleibt `hard`** — `soft` ist
+  eine Rezept-Aenderung und macht Laeufe mit dem Archiv unvergleichbar. Die METRIK wandert nie mit:
+  `classification_eligible` und `val_visible_piece_acc` bleiben auf 0,15, sonst wird jeder Arm auf
+  seiner eigenen Zellmenge benotet. Zahlen, Vorbehalte und die Formel:
+  `docs/coverage-weight-2026-09-16.md`.
+- **Die gespeicherte `coverage` driftet gegen ihre Crops (gemessen 2026-09-16).** Sie ist ein
+  Schnappschuss vom Matten; ein Re-Export verschiebt die Ecken, `crop_square` schneidet mit den
+  neuen, die Zahl bleibt stehen. 13 von 24 Aufnahmen betroffen, 0,10 % der Zellen ueberqueren
+  dabei `PIECE_VISIBLE_MAX` — fast alle auf der Grundreihe und als Totalkipper von 0,000 auf 1,000.
+  `chesslab occluders recut-coverage --all` rechnet sie aus den Alphas neu (kein SAM, Minuten).
+  **Nach jedem Re-Export faellig**, und nichts erinnert daran.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 - **SAMs ABSAGE ist kein sauberes Brett (2026-09-15).** Eine `matte.jsonl`-Zeile mit `skipped`
   (`zone too big`: Alpha über 60 % des Bretts) trägt WEDER `concepts` NOCH `coverage`. Zweimal

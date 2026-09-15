@@ -382,6 +382,70 @@ ALPHA_REASON = "occluded"
 FIXED_SUFFIX = ".fixed.webp"
 
 
+def recut_coverage(
+    name: str,
+    *,
+    progress: bool = True,
+) -> dict:
+    """Die `coverage` aus dem Alpha NEU schneiden, mit der heutigen Geometrie.
+
+    Ein Re-Export verschiebt die Ecken und laesst die Zahl stehen — 13 von 24 Aufnahmen,
+    `docs/coverage-weight-2026-09-16.md`. SAM laeuft nicht, das ist reine Arithmetik.
+    """
+    from .calibration import load_profile
+    from .ioutil import read_jsonl
+    from .realgames import game_dir
+    from .training.occlusion import PIECE_VISIBLE_MAX  # lokal: das Modul zieht torch herein
+
+    session_dir = game_dir(name)
+    path = session_dir / "matte.jsonl"
+    if not path.exists():
+        raise FileNotFoundError(f"{name}: no matte.jsonl — run `occluders alpha-worker` first")
+    profile = load_profile(read_session_meta(session_dir)["profile"])
+    entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
+    stamp = (path.stat().st_mtime_ns, path.stat().st_size)
+
+    rows: list[dict] = []
+    recut = crossed = 0
+    for row in read_jsonl(path):
+        alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+        entry = entries.get(row["frame"])
+        # `alpha: fixed` gehoert dem Menschen, und eine Zeile ohne Coverage ist SAMs Absage.
+        if (not row.get("coverage") or row.get("alpha") == "fixed" or entry is None
+                or not alpha_path.exists() or not usable_board(entry, profile)):
+            rows.append(row)
+            continue
+        image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE)
+        if image is None:
+            rows.append(row)
+            continue
+        fresh = coverage_of(image.astype(np.float32) / 255.0, entry, profile)
+        was = row["coverage"]
+        if all(abs(fresh.get(sq, 0.0) - v) <= 1e-4 for sq, v in was.items()):
+            rows.append(row)
+            continue
+        # Nur was die Schwelle UEBERQUERT, aendert ein Label — der Rest ist Nachkommastelle.
+        crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
+                       for sq, v in fresh.items())
+        recut += 1
+        rows.append(row | {"coverage": fresh,
+                           "cells_over_half": sum(v > 0.5 for v in fresh.values())})
+        if progress and recut % 50 == 0:
+            print(f"[{_timestamp()}]   {recut} Zeilen neu geschnitten", flush=True)
+
+    if recut:
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            raise ValueError(f"{name}: matte.jsonl changed while recutting — the alpha worker "
+                             "is writing it. Let it finish and run this again.")
+        temp_path = path.with_suffix(path.suffix + ".tmp")
+        temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+            temp_path.unlink(missing_ok=True)
+            raise ValueError(f"{name}: matte.jsonl changed while recutting — nothing written.")
+        temp_path.replace(path)
+    return {"name": name, "frames": len(rows), "recut": recut, "crossed": crossed}
+
+
 def recut_fixed(
     name: str,
     *,
