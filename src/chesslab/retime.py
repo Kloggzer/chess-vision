@@ -323,6 +323,17 @@ def _write_candidate(name: str, candidate: dict, plies: list[Retimed], result: d
         tmp.unlink(missing_ok=True)
 
 
+def staged_name(out: Path, idx: int) -> Path:
+    """Der Zwischenname beim Umhaengen. Die Endung bleibt `.webp`, weil `cv2.imwrite` den Codec
+    daran waehlt und `<stem>.webp.tmp` mit "could not find a writer" abbricht."""
+    return out / f"{idx:06d}.tmp.webp"
+
+
+def stale_boards(out: Path):
+    """Die alten Bilder — ohne die gerade gestagten: `*.webp` trifft `<stem>.tmp.webp` mit."""
+    return (p for p in out.glob("*.webp") if p.suffixes[-2:] != [".tmp", ".webp"])
+
+
 def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_of: list, profile,
                   pad: int, encode: list) -> int:
     """The rectified board at every ply's review frame ±REVIEW_CONTEXT, replacing the phone-timed set."""
@@ -330,6 +341,8 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     from .recording import Recording
 
     out.mkdir(parents=True, exist_ok=True)
+    # `staged_name`, nicht `<stem>.webp.tmp`: cv2 waehlt den Codec an der ENDUNG und lehnt `.tmp`
+    # ab — der Schreiber starb dann bei der ersten Datei (gefunden 2026-09-15).
     wanted: dict[int, int] = {}
     for i, p in enumerate(plies):
         for k in range(-REVIEW_CONTEXT, REVIEW_CONTEXT + 1):
@@ -344,10 +357,10 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
             if idx > last:
                 break
             padded = warp_padded(frame, profile, corners_of[wanted[idx]], pad)
-            tmp = out / f"{idx:06d}.webp.tmp"
+            tmp = staged_name(out, idx)
             if cv2.imwrite(str(tmp), padded[pad:pad + size, pad:pad + size], encode):
                 staged.append((tmp, out / f"{idx:06d}.webp"))
-        for old in out.glob("*.webp"):
+        for old in stale_boards(out):
             old.unlink()
         for tmp, dst in staged:
             os.replace(tmp, dst)
