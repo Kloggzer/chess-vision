@@ -558,7 +558,10 @@ export function openFrames(stream: LabelStream, id: LaneId): StreamBoard[] {
   return laneFrames(stream, id).filter(
     (b) =>
       !(stream.sessions[b.session]?.matteWanted ?? []).includes(b.stem) &&
-      stream.coverage[b.session]?.[b.stem] === undefined,
+      // Eine ABSAGE ist keine Matte: es liegt kein Alpha da, die Zellen erreichen die
+      // Strittig-Lane nie, und ohne diese Zeile verschwindet die Frage aus beiden Lanes.
+      (stream.coverage[b.session]?.[b.stem] === undefined
+        || stream.skipped[b.session]?.[b.stem] !== undefined),
   );
 }
 

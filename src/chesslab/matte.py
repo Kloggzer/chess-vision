@@ -624,6 +624,9 @@ def matte_status(name: str) -> dict:
     session_dir = game_dir(name)
     rows = read_log(session_dir)
     want = dirty_pile(rows)
+    # Getrennt, weil nur der Standardstapel von einem gewoehnlichen Lauf erreicht wird: `changed`
+    # und `stale` holt allein `--reason all`, und beides als EINE Zahl meldete ewig eine Luecke.
+    standard = dirty_pile(rows, ALPHA_REASON)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
     # Wie `read_matte`: eine Zeile ohne `coverage` (uebersprungen) ist keine Matte. Als eine
@@ -631,7 +634,9 @@ def matte_status(name: str) -> dict:
     have = ({str(r["frame"]) for r in read_jsonl(path) if r.get("frame") and r.get("coverage")}
             if path.exists() else set())
     return {"session": name, "dirty": len(want), "matted": len(want & have),
-            "missing": sorted(want - have), "orphans": sorted(have - known)}
+            "missing": sorted(standard - have),
+            "missing_other": sorted((want - standard) - have),
+            "orphans": sorted(have - known)}
 
 
 def _drop(staged: list[tuple[Path, Path]]) -> None:

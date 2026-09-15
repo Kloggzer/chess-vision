@@ -786,7 +786,11 @@ internal fun TrackerConfig.withCoverageGateOf(
                 "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
         )
     }
-    return spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+    // Nur MIT der Spalte: ohne `coverage_output` ist `pOccluded` immer 0,0 und die Hand-Pruefung
+    // haengt am modellfreien Arm — die Schwelle zu ziehen bewegt dann eine Zahl, gegen die nie
+    // etwas verglichen wird. Kein ausgeliefertes Modell faellt hinein (gefunden 2026-09-15).
+    if (spec?.coverageOutput != true) return this
+    return spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
 }
 
 /**

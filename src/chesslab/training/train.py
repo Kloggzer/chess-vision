@@ -1321,6 +1321,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
             "val_conf_wrong": _conf_mean(vis_conf, wrong=True),
             "val_conf_auroc": auroc,
             "val_conf_right": _conf_mean(vis_conf, wrong=False),
+            # TODO: das ist `visible_piece_acc`, also dieselbe Zahl wie `val_piece_acc` eine
+            # Zeile hoeher — der gewichtete Score aus CHECKPOINT_WEIGHTS wird in `_` verworfen.
             "val_checkpoint_score": score[0],
             "lr": scheduler.get_last_lr()[0],
             # Where the wall clock went. Without it "the GPU idles between epochs" is a guess:

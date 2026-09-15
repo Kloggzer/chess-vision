@@ -79,6 +79,8 @@ def plate_long_side(plate_dir: Path, fallback: int = max(WORK_SIZE)) -> int:
                  if isinstance(e, dict) and e.get("source")]
         if sizes:
             return max(sizes)
+    # TODO: "Deklariert, nicht geraten" — das hier ist geraten. Ein Kachel-Pool ohne Index
+    # (oder mit Eintraegen ohne `source`) komponiert 4K-Haende auf halber Groesse.
     return fallback
 
 

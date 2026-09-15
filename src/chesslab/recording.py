@@ -111,6 +111,9 @@ class Recording:
             base += count
         return len(self.segments) - 1, base
 
+# TODO: ein unlesbarer oder atomloser Container liefert 0.0, und `max(0, ...)` macht daraus
+# eine gueltig aussehende Laenge. `_locate` addiert die 0 nicht auf `base`, also zeigt jeder
+# spaetere Index auf die falsche Log-Zeile — ein falsches FEN, kein fehlender Frame.
 def _frame_count(path: Path) -> int:
     cap = cv2.VideoCapture(str(path))
     try:

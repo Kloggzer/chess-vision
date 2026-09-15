@@ -150,6 +150,9 @@ export type LabelStream = {
    * different statement from "nothing is covered" and reads as `—`. Squares at 0 are dropped.
    */
   coverage: Record<string, Record<string, number>>[];
+  /** Per session, `stem -> Grund`, wo SAM ABGELEHNT hat. Eine Absage ist keine Messung: es liegt
+   *  kein Alpha da, also bleibt das Frame eine offene Frage (CLAUDE.md, dieselbe Falle). */
+  skipped: Record<string, string>[];
   /**
    * Per session, `stem -> Hand am BRETT` aus `frame-hands.jsonl`. Ein fehlender Stem heisst nur
    * dann "keine Hand", wenn `handScanned` die Session traegt — sonst wurde nie gemessen.
@@ -199,6 +202,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const recent: StreamRecent[] = [];
   const decided: Record<string, string>[] = [];
   const coverage: Record<string, Record<string, number>>[] = [];
+  const skipped: Record<string, string>[] = [];
   const frameHands: Record<string, FrameHand>[] = [];
   const unusableCell: string[][] = [];
   const handScanned: boolean[] = [];
@@ -302,6 +306,9 @@ export async function loadLabelStream(): Promise<LabelStream> {
       if (byStem.has(key.slice(0, key.indexOf("|")))) seen[key] = label;
     }
     decided.push(seen);
+    skipped.push(Object.fromEntries(
+      [...matte].flatMap(([stem, frame]) => (frame.skipped ? [[stem, frame.skipped]] : [])),
+    ));
     coverage.push(Object.fromEntries([...matte].map(([stem, frame]) => [
       stem,
       // Nullen BLEIBEN: eine geleerte Matte ist "gemessen, nichts verdeckt", und ohne sie las
@@ -342,6 +349,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
     reads: { boards: readBoards },
     progress: { boards: boards.length, done: boards.filter((b) => touched[b.session]?.has(b.stem)).length },
     coverage,
+    skipped,
     frameHands,
     handScanned,
     unusableCells: unusableCell,

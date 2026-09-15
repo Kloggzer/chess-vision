@@ -1621,7 +1621,7 @@ def occluders_status(
     from .sessions import all_sessions
 
     names = [name] if name else [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
-    gaps = orphans = 0
+    gaps = other = orphans = 0
     for n in names:
         try:
             res = matte_mod.matte_status(n)
@@ -1629,11 +1629,14 @@ def occluders_status(
             print(f"[--] {n}: {exc}")
             continue
         gaps += len(res["missing"])
+        other += len(res["missing_other"])
         orphans += len(res["orphans"])
         if res["missing"] or res["orphans"]:
+            rest = f", {len(res['missing_other'])} nur mit --reason all" if res["missing_other"] else ""
             print(f"[!!] {n}: {res['matted']}/{res['dirty']} gemattet, "
-                  f"{len(res['missing'])} fehlen, {len(res['orphans'])} Waisen")
-    print(f"[OK] {len(names)} Aufnahmen: {gaps} fehlende Matten, {orphans} Waisen")
+                  f"{len(res['missing'])} fehlen{rest}, {len(res['orphans'])} Waisen")
+    tail = f", {other} nur mit --reason all" if other else ""
+    print(f"[OK] {len(names)} Aufnahmen: {gaps} fehlende Matten{tail}, {orphans} Waisen")
 
 
 @occluders_app.command("alpha-worker")

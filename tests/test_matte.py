@@ -350,7 +350,10 @@ def test_the_status_names_orphans_and_gaps(tmp_path, monkeypatch):
     res = matte.matte_status("s1")
 
     assert res["orphans"] == ["009999"], f"eine Matte ohne Log-Zeile muss auffallen: {res}"
-    assert res["missing"] == ["000002"], f"auch ein `stale`-Frame braucht seine Matte: {res}"
+    # Gemeldet wird er weiterhin — seit 2026-09-16 im ehrlichen Eimer: den `stale`-Frame holt
+    # kein Standardlauf (`--reason occluded`), nur `--reason all`.
+    assert res["missing_other"] == ["000002"], f"auch ein `stale`-Frame braucht seine Matte: {res}"
+    assert res["missing"] == [], f"der Standardstapel ist vollstaendig: {res}"
 
 
 def test_an_unusable_frame_is_neither_matted_nor_counted_as_due(tmp_path, monkeypatch):

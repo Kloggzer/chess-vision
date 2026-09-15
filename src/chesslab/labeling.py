@@ -593,10 +593,11 @@ def iter_session_crops(
                 # stellt 38 von 58 Val-Fehlern). Das LABEL bleibt richtig, das Pixel nicht lesbar.
                 "brightness": round(float(cv2.cvtColor(crops[i], cv2.COLOR_BGR2GRAY).mean()), 2),
             }
-            if matte:
-                # The second training target, from a real hand instead of a composited one. Only
-                # written where mattes exist, so no manifest changes shape behind anyone's back.
-                row["coverage"] = matte.get(frame_stem, {}).get(square, 0.0)
+            # The second training target, from a real hand instead of a composited one. Nur wo
+            # DIESER Frame gemessen wurde: `read_matte` laesst SAMs Absage weg, und ein
+            # uebersprungenes Brett ist das verdeckteste des Korpus, nicht das freieste.
+            if frame_stem in matte:
+                row["coverage"] = matte[frame_stem].get(square, 0.0)
             n_crops += 1
             yield crops[i], row
 

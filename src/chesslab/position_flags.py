@@ -88,12 +88,15 @@ def timing_flags(entries: list[dict], intervals: list[dict],
             labels = GameState(entry["fen"])
             for square in moved:
                 # Was die Coverage ohnehin maskiert, lernt der Klassenkopf nicht - kein Kaertchen.
-                cov = float(matte.get(stem, {}).get(square, 0.0))
-                if cov > MATTE_DIRTY:
+                # `None` heisst UNGEMESSEN, wie in `frame_flags`: ohne Matte eine 0 zu melden
+                # laese sich in der Lane als "die Matte sagt frei".
+                seen_cov = matte.get(stem, {}).get(square)
+                if seen_cov is not None and float(seen_cov) > MATTE_DIRTY:
                     continue
                 out.append({"session_id": session_id, "frame": stem, "square": square,
                             "fen_label": labels.label_for(square), "ply": entry.get("ply"),
-                            "dev": round(dev, 2), "matte_cov": round(cov, 4),
+                            "dev": round(dev, 2),
+                            "matte_cov": None if seen_cov is None else round(float(seen_cov), 4),
                             "seen": bool(row.get("seen")),
                             "reason": "timing"})
     return out

@@ -50,7 +50,11 @@ class ServiceDerivationsTest {
     fun `engineConfig applies the measured board, the model gate and the frame rate together`() {
         val stored = TrackerConfig(boardSize = 800, motionThr = 0.25)
 
-        val out = engineConfig(stored, BoardGeometry(boardSize = 928), spec(coverageGate = 0.25), FrameRateMode.FPS15)
+        // MIT der Spalte, wie alle sieben ausgelieferten Modelle: ohne sie ist `pOccluded` 0,0 und
+        // die Schwelle gattert gegen nichts (`withCoverageGateOf`, 2026-09-15).
+        val spec = spec(coverageOutput = true, coverageGate = 0.25)
+
+        val out = engineConfig(stored, BoardGeometry(boardSize = 928), spec, FrameRateMode.FPS15)
 
         assertEquals("die gemessene Brettgroesse gewinnt", 928, out.boardSize)
         assertEquals("die Schwelle reist im Modell", 0.25, out.pOccludedThr, 1e-9)

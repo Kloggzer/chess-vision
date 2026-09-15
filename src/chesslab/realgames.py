@@ -228,6 +228,9 @@ def say_progress(progress, done: int, line: str) -> None:
 YIELD_HEADER = f"{'population':10} {'rows':>6} {'crops':>8} {'cells':>6} {'cap4':>7} {'cap16':>7}"
 
 
+# TODO: 30.0 ist geraten. `capture_import.container_fps` bricht bei genau dieser Lage ab und
+# nennt den Grund: die Aufnahmen laufen mit 28,63, die Erfassung mit 15. Der Wert steuert
+# `margin_frames`, das letzte Intervall und jedes `ts` — falsch, ohne dass etwas es meldet.
 def video_fps(candidate: dict) -> float:
     return float((candidate.get("clock") or {}).get("fps") or 30.0)
 
@@ -237,6 +240,8 @@ def base_time(candidate: dict) -> datetime:
     try:
         return datetime.fromisoformat(str(candidate.get("created_at", "")).replace("Z", "+00:00"))
     except ValueError:
+        # TODO: das IST die Exportzeit, die der Docstring ausschliesst. Sie landet als `ts`
+        # jeder Zeile und als `created_at` der session.yaml, nicht als abgeleitet erkennbar.
         return datetime.now(UTC)
 
 

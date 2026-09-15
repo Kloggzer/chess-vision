@@ -119,7 +119,11 @@ async function stampOf(file: string): Promise<string | null> {
 /** Wer die Aufnahme geschnitten hat, als der Lauf lief (`chesslab.provenance.source_stamp`). */
 type Provenance = { log?: string; model?: string };
 
-/** `model-reads.jsonl` is one line per CELL — only its header is ever read here. */
+/** `model-reads.jsonl` is one line per CELL — only its header is ever read here.
+ *
+ *  `null` bei unlesbarer Kopfzeile, nicht `{}`: `{}` hiesse "ungestempelt, gilt weiter" (die Regel
+ *  fuer Altbestand), und eine leere Datei — was ein gestoppter Lauf hinterlaesst — schloesse damit
+ *  die Sprosse. Der Mensch landete auf `labeln` ohne eine einzige Lesart. */
 async function headerOf(file: string): Promise<Provenance | null> {
   const handle = await open(file, "r").catch(() => null);
   if (!handle) return null;
@@ -129,7 +133,7 @@ async function headerOf(file: string): Promise<Provenance | null> {
     const line = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
     return (JSON.parse(line) as { _source?: Provenance })._source ?? {};
   } catch {
-    return {};
+    return null;
   } finally {
     await handle.close();
   }
@@ -202,7 +206,11 @@ export async function chainState(name: string): Promise<ChainState> {
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
     exportedSession(name),
     matteCensus(name),
-    readFile(passFile, "utf8").then((t) => (JSON.parse(t) as { _source?: Provenance })._source ?? {}, () => null),
+    // Der Parse GEHOERT in den Versuch: ein Wurf im ersten Arm riss das `Promise.all` mit, und
+    // eine halb geschriebene Datei 500te die ganze Aufnahmeliste. Wie `candidate.json` daneben.
+    readFile(passFile, "utf8")
+      .then((t) => (JSON.parse(t) as { _source?: Provenance })._source ?? {})
+      .catch(() => null),
     headerOf(path.join(dir, "model-reads.jsonl")),
     stampOf(path.join(sessionDir(name), "log.jsonl")),
     uselessFlag(name),

@@ -55,11 +55,11 @@ function reportPath(file: string): string {
  * leere Liste als „alles abgedeckt" zu lesen.
  */
 export async function loadPlan(): Promise<CapturePlan | EmptyPlan> {
-  try {
-    return JSON.parse(await readFile(reportPath(PLAN), "utf8")) as CapturePlan;
-  } catch {
-    return { shots: [], why: MAKE_PLAN };
-  }
+  const text = await readFile(reportPath(PLAN), "utf8").catch(() => null);
+  // Nur ein FEHLENDER Bericht ist ein ungelaufener Befehl. Ein halber meldete sonst `shots: []`
+  // und riet zu genau dem Befehl, der ihn ueberschreibt — der Fehler waere damit weg.
+  if (text === null) return { shots: [], why: MAKE_PLAN };
+  return JSON.parse(text) as CapturePlan;
 }
 
 /**
@@ -69,12 +69,10 @@ export async function loadPlan(): Promise<CapturePlan | EmptyPlan> {
  */
 export async function loadCoverage(): Promise<Coverage | EmptyPlan> {
   const file = reportPath(GAPS);
-  try {
-    const [text, info] = await Promise.all([readFile(file, "utf8"), stat(file)]);
-    return { ...(JSON.parse(text) as Record<string, unknown>), generated_at: info.mtime.toISOString() };
-  } catch {
-    return { shots: [], why: MAKE_GAPS };
-  }
+  const read = await Promise.all([readFile(file, "utf8"), stat(file)]).catch(() => null);
+  if (read === null) return { shots: [], why: MAKE_GAPS };
+  const [text, info] = read;
+  return { ...(JSON.parse(text) as Record<string, unknown>), generated_at: info.mtime.toISOString() };
 }
 
 async function guarded(request: Request, load: () => Promise<unknown>): Promise<Response> {

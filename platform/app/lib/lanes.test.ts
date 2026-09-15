@@ -125,7 +125,7 @@ const hit = (over: Partial<QueryHit> = {}): QueryHit => ({
 const streamOf = (over: Partial<LabelStream> = {}): LabelStream => ({
   sessions: [{ name: "g", sessionId: "rg-g", probs: false, reportedDirty: [], matteWanted: [] }],
   boards: [], cells: [], recent: [], audit: null, hands: null, positions: null, decided: [{}],
-  reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}],
+  reads: { boards: 0 }, progress: { boards: 0, done: 0 }, coverage: [{}], skipped: [{}],
   frameHands: [{}], handScanned: [true], unusableCells: [[]], positionsUnmeasured: [], ...over,
 });
 

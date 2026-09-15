@@ -966,6 +966,8 @@ def write_boards_session(session_id: str) -> dict:
     written = 0
     for r, keys in zip(todo, made, strict=True):
         if keys is None:
+            # TODO: der Pop oben lief ueber ALLE `todo`-Zeilen, diese bekommt nichts zurueck:
+            # das Brett bleibt auf der Platte, aber kein log-getriebener Leser findet es noch.
             continue
         r.update(keys)
         written += 1

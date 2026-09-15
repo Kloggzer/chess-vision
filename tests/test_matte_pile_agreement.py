@@ -41,3 +41,39 @@ def test_the_default_run_leaves_half_the_reported_gap_untouched():
     assert never == {"000020", "000030"}, (
         "wenn diese Menge leer wird, ist der Widerspruch entschieden — dann faellt dieser Test "
         "samt dem TODO an `ALPHA_REASON` weg")
+
+
+def _rows_on_disk(tmp_path):
+    import json
+
+    sdir = tmp_path / "s"
+    (sdir / "boards").mkdir(parents=True)
+    rows = [
+        {"frame": "frames/000010.png", "board": "dirty/000010.webp", "dirty": True,
+         "dirty_reason": "occluded"},
+        {"frame": "frames/000020.png", "board": "dirty/000020.webp", "dirty": True,
+         "dirty_reason": "changed"},
+        {"frame": "frames/000030.png", "board": "dirty/000030.webp", "dirty": True,
+         "dirty_reason": "stale"},
+    ]
+    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    (sdir / "matte.jsonl").write_text("", encoding="utf-8")
+    return sdir
+
+
+def test_the_report_separates_what_a_standard_run_can_close(tmp_path, monkeypatch):
+    """Sonst meldet `occluders status` ewig eine Luecke, die kein Standardlauf schliesst.
+
+    Der Worker mattet per Vorgabe `occluded`; `changed` und `stale` erreicht nur `--reason all`.
+    Beides als eine Zahl zu melden hiess: die Aufnahme sieht unfertig aus und bleibt es.
+    """
+    from chesslab import matte as matte_mod
+
+    sdir = _rows_on_disk(tmp_path)
+    monkeypatch.setattr(matte_mod, "game_dir", lambda name: sdir, raising=False)
+    monkeypatch.setattr("chesslab.realgames.game_dir", lambda name: sdir)
+
+    res = matte_mod.matte_status("s")
+
+    assert res["missing"] == ["000010"], "der Standardstapel"
+    assert res["missing_other"] == ["000020", "000030"], "nur mit --reason all erreichbar"

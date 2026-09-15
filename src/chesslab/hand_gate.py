@@ -405,6 +405,9 @@ def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs:
             "ms_per_board": speed, "perfect_recall": pick_threshold(best["sweep"], 1.0),
             "history": history, "written_at": datetime.now(UTC).isoformat(),
             "best": {k: v for k, v in best.items() if k not in ("weights", "sweep")}}
+    # TODO: ohne Tag schreibt der Lauf nach `hand-gate-bn`, `load_gate` liest aber
+    # `hand-gate-bn-{DEFAULT_GATE}` — der frische Lauf ist unadressierbar, der Scan
+    # serviert still den alten und stempelt die Provenienz auf den neuen Namen.
     out = config.DATA.models / (f"{GATE_DIR}-{tag}" if tag else GATE_DIR)
     out.mkdir(parents=True, exist_ok=True)
     # Gespeichert wird die BESTE Epoche, nicht die letzte: auf 20-40-33 lag Epoche 8 deutlich

@@ -40,9 +40,29 @@ MIN_EPOCH = 15
 STREAK = 3
 
 
+#: Die zwei Spalten, gegen die SD_OCC und SD_MACRO geeicht sind. `_compact_metrics` streicht
+#: beide aus jedem Occlusion-Lauf, und fuer `macro_recall` gibt es dort kein Gegenstueck — eine
+#: `visible_`-Spalte einzusetzen waere eine ANDERE Messung unter denselben Schwellen.
+NEEDED = ("val_occupied_acc", "val_macro_recall")
+
+
+def refuse_unless_comparable(rec: dict) -> None:
+    """Laut statt KeyError: der Lauf traegt die Spalten nicht, gegen die geeicht wurde."""
+    missing = [k for k in NEEDED if k not in rec]
+    if missing:
+        raise SystemExit(
+            f"[FAIL] dieser Lauf traegt {', '.join(missing)} nicht — `_compact_metrics` streicht "
+            f"sie aus jedem `--head occlusion`-Lauf. SD_OCC/SD_MACRO sind gegen genau diese "
+            f"Spalten geeicht; eine `visible_`-Spalte einzusetzen misst etwas anderes unter "
+            f"derselben Schwelle. Neu eichen oder den Lauf ohne Occlusion-Kopf messen."
+        )
+
+
 def verdict(run: list[dict], base: list[dict], e: int) -> str | None:
     """Warum dieser Lauf bei Epoche `e` aus dem Rauschen faellt — oder None."""
     r, b = run[e - 1], base[min(e, len(base)) - 1]
+    refuse_unless_comparable(r)
+    refuse_unless_comparable(b)
     oa, oab = r["val_occupied_acc"], b["val_occupied_acc"]
     if oa < oab - 6 * SD_OCC:
         return f"occ_acc {oa:.4f} liegt {(oab-oa)/SD_OCC:.1f} sd unter der Basis ({oab:.4f})"
@@ -96,10 +116,14 @@ def replay(base: list[dict], dirs: list[Path]) -> None:
             if all(verdict(ms, base, k) for k in range(e - STREAK + 1, e + 1)):
                 hit = e
                 break
-        best = max(ms, key=lambda r: r.get("val_checkpoint_score", -1))
+        # Ohne die Spalte gibt es keinen besten Lauf: `-1` fuer alle waehlte stumm die ERSTE
+        # Epoche und meldete sie als Bestwert.
+        scored = [r for r in ms if "val_checkpoint_score" in r]
+        best = max(scored, key=lambda r: r["val_checkpoint_score"]) if scored else None
         saved = f"{100 * (len(ms) - hit) / len(ms):.0f} %" if hit else "—"
-        print(f"{d.name:30}{len(ms):>4}{(str(hit) if hit else '—'):>13}{saved:>9}"
-              f"{best['val_macro_recall']:>16.4f}{best['val_occupied_acc']:>9.4f}")
+        cols = ("—".rjust(16) + "—".rjust(9) if best is None else
+                f"{best['val_macro_recall']:>16.4f}{best['val_occupied_acc']:>9.4f}")
+        print(f"{d.name:30}{len(ms):>4}{(str(hit) if hit else '—'):>13}{saved:>9}{cols}")
         if hit:
             print(f"{'':30}   Grund: {verdict(ms, base, hit)}")
 
