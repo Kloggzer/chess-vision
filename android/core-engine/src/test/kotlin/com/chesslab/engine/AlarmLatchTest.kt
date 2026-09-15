@@ -484,7 +484,7 @@ class AlarmLatchTest {
         // legality check meaningless, so the latch stays exactly where it was.
         val engine = alarmedEngine()
         val state = engine.state
-        state.cnnSnap = recoverySnap(state, obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY)), seq = 9)
+        state.cnnSnap = recoverySnap(state, obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY)), seq = 9, tsMs = nowMs(state))
         val events = engine.acceptCnnPosition()
         assertEquals(NF3_NO_CASTLING, engine.status().fen)
         assertNotNull(state.alarm)
@@ -518,11 +518,14 @@ class AlarmLatchTest {
         state.armed()
         val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
         engine.attachCnn(RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1"))
-        for (seq in 1L..3L) engine.onCnnSnapshot(recoverySnap(state, obs, seq))
+        for (seq in 1L..3L) engine.onCnnSnapshot(recoverySnap(state, obs, seq, tsMs = nowMs(state)))
         checkNotNull(state.alarm)
         return engine
     }
 }
+
+/** The glance the user is answering happened NOW — `adoptableCnnFen` only reads a fresh one. */
+private fun nowMs(state: EngineState): Long = (state.nowS * 1000.0).toLong()
 
 /** Far past every threshold: long enough that "never" means never, cheap enough to soak. */
 private const val STANDOFF_SOAK = 50L

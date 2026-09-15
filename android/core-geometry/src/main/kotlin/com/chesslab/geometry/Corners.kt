@@ -34,7 +34,7 @@ fun margins4(margin: Double): List<Double> = listOf(margin, margin, margin, marg
  * What the Python `CalibrationProfile` contributes to geometry. This module never reads YAML;
  * the app maps its stored profile onto this value type.
  *
- * Defaults are `config.DEFAULT_BOARD_SIZE` and `config.CROP` (`config.py:40-65`).
+ * Defaults are `config.DEFAULT_BOARD_SIZE` and `config.CROP` (`config.py`).
  */
 data class BoardGeometry(
     /** `config.DEFAULT_BOARD_SIZE`. */
@@ -58,9 +58,9 @@ data class BoardGeometry(
      * declaration wins (`withCropOf`), which is what also fixes profiles stored before that.
      */
     val padSide: Double = 0.05,
-    /** `config.CROP.out_w` (config.py:59). */
+    /** `config.CROP.out_w` (config.py). */
     val outW: Int = 128,
-    /** `config.CROP.out_h` (config.py:60). */
+    /** `config.CROP.out_h` (config.py). */
     val outH: Int = 128,
     val markerDict: String = "DICT_4X4_50",
 ) {
@@ -70,7 +70,7 @@ data class BoardGeometry(
 
 /**
  * `'e4' -> (col, row)` in the rectified image, origin top-left.
- * Port of `calibration.py:329 _square_to_col_row`.
+ * Port of `calibration.py _square_to_col_row`.
  *
  * file a..h -> col 0..7, rank 8..1 -> row 0..7; rotated 180 degrees when `!whitePov`.
  */

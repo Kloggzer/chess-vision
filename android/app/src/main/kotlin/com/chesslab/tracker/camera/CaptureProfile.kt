@@ -31,17 +31,23 @@ data class CaptureObserved(
 
     /**
      * True only when nothing was noted, an AE range was pinned at all, the bit rate matched and
-     * the delivered LONG side matched. The frame RATE itself is never compared.
+     * BOTH delivered edges matched. The frame RATE itself is never compared.
+     *
+     * Long side only let 3840x1644 read as "exactly as asked" — a picture the device never gave.
+     * Compared as an unordered pair, because a delivery may be rotated but never cropped.
      */
     val asAsked: Boolean
         get() =
-            // TODO: the delivered check compares only the LONG side, so a 3840x1644 frame reads as
-            // "exactly as asked" and capture.json claims a picture the device never delivered.
             notes.isEmpty() &&
                 aeFpsRange != null &&
                 bitRate == requested.bitRate &&
-                delivered?.let { maxOf(it.width, it.height) == maxOf(requested.width, requested.height) } == true
+                delivered?.let { edgesOf(it.width, it.height) == edgesOf(requested.width, requested.height) } == true
 }
+
+private fun edgesOf(
+    width: Int,
+    height: Int,
+): Pair<Int, Int> = minOf(width, height) to maxOf(width, height)
 
 /**
  * The capture mode's grip on the camera. Separate from [VideoRecorderPort] because that seam is the

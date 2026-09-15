@@ -18,7 +18,7 @@ private class SearchState(
 )
 
 /**
- * Port of `cnn_recovery.py:285 derive_moves_deep` — conflict-guided beam search over up to
+ * Ported from `cnn_recovery.py derive_moves_deep` when Python still carried the tracker — conflict-guided beam search over up to
  * [maxPlies] half-moves. Only moves touching at least one CONFLICTING square are expanded,
  * so 4 plies stay a few hundred boards.
  *
@@ -76,7 +76,7 @@ fun CnnRecovery.deriveMovesDeepFull(
 
 /**
  * Identity when the observation carries labels, else occupancy — same code path, different
- * value function (`cnn_recovery.py:298-312`).
+ * value function (`cnn_recovery.py`).
  */
 private fun channelFor(
     obs: OccupancyObservation,

@@ -33,7 +33,7 @@ import javax.imageio.ImageIO
  * `crops <video> <outDir> [frames=<file>|every=N] [out=WxH]` — the 64 square crops, as the device cuts them.
  *
  * The reason this exists is parity, not convenience. `cropSquare` is an explicit port of
- * `labeling.py:112`, and the plan is to let Kotlin pack the training memmap directly so no crop is
+ * `labeling.py`, and the plan is to let Kotlin pack the training memmap directly so no crop is
  * ever materialised as a PNG. Before that move, the two implementations have to be shown to agree
  * on the same pixels — a silent divergence here is the `ClipDriver` incident again, where a crop
  * box of 120 px against the served 110 invalidated a whole measurement.

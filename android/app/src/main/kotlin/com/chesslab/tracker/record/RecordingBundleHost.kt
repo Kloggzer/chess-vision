@@ -73,25 +73,18 @@ class RecordingBundleHost(
      */
     fun armVideo() = startVideo()
 
-    // TODO: not @Synchronized, unlike [frame] and [adopt] — a frame arriving between the close
-    // below and [adopt] is trySent into a closed channel and lost without touching `evicted`.
+    /**
+     * The new timeline is built OUTSIDE the lock — its construction writes a file, and
+     * `SessionTimeline.close` blocks for the writer's drain. Only the changeover itself is locked.
+     */
     fun opened(recorder: SessionRecorder) {
         val next = SessionTimeline(recorder.dir, scope, timelineContext)
-        timeline?.close()
         adopt(next)
         session = recorder
         startVideo()
         // The session exists BECAUSE a ply committed (`SessionCaptureController`'s commit gate),
         // so the pre-roll is due now — idempotent when the event collector got there first.
         camera.keepVideo(File(recorder.dir, VIDEO_FILE))
-        // Replay the buffered decision row (if any) into the fresh timeline. The decision was
-        // emitted before the timeline existed and was buffered to not be lost. This happens
-        // right after the writer is created but before any further decisions are written.
-        // See: 2026-08-14 incident where ply 1 decision rows were missing from session timelines.
-        bufferedDecision?.let { (decision, elapsedNs) ->
-            next.decision(decision, elapsedNs)
-            bufferedDecision = null
-        }
     }
 
     /**
@@ -128,15 +121,23 @@ class RecordingBundleHost(
     }
 
     /**
-     * The held rows go in FIRST, under the same lock [frame] takes: a live row written ahead of
-     * them would leave the file out of chronological order, and the replay reads the position it
-     * starts on off the first row (`RecordedFrames.startFen`).
+     * The whole changeover under the lock [frame] takes: closing the old timeline first and adopting
+     * outside it let a frame land in a channel that was already closed — lost, and not even counted
+     * as evicted. The held rows go in FIRST, or the file leaves chronological order and the replay
+     * reads the wrong starting position off row one (`RecordedFrames.startFen`).
      */
     @Synchronized
     private fun adopt(next: SessionTimeline) {
+        timeline?.close()
         preRollFrames.forEach(next::frame)
         preRollFrames.clear()
         timeline = next
+        // The opening move's decision row was emitted before any timeline existed (2026-08-14: ply 1
+        // decision rows missing from every session), so it goes in before anything live can.
+        bufferedDecision?.let { (decision, elapsedNs) ->
+            next.decision(decision, elapsedNs)
+            bufferedDecision = null
+        }
     }
 
     fun event(event: TrackerEvent) {

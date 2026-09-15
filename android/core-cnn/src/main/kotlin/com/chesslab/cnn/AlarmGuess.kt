@@ -3,7 +3,7 @@ package com.chesslab.cnn
 import com.github.bhlangonijr.chesslib.Board
 
 /**
- * Port of `cnn_recovery.py:415 guess_illegal_move`. Exactly ONE source (observed empty, expected
+ * Ported from `cnn_recovery.py guess_illegal_move` when Python still carried the tracker. Exactly ONE source (observed empty, expected
  * non-empty) and exactly ONE destination (observed non-empty, expected empty) yield a uci-LIKE
  * string — **no legality is implied**. Any other pattern -> null.
  * Shape AND confidence are occupancy: read off the identity axis, a destination the classes call

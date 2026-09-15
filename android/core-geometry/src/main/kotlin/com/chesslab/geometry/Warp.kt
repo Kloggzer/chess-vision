@@ -11,10 +11,10 @@ import org.opencv.imgproc.Imgproc
 
 // THE TWO WARPS (entry.md invariant 1). They are NOT interchangeable:
 //
-//  - `warpFromCorners`  (calibration.py:926) - borderless DISPLAY/DETECTION warp, the playing
+//  - `warpFromCorners`  (calibration.py) - borderless DISPLAY/DETECTION warp, the playing
 //    field fills [0, sz]. Run at `detSize = boardSize * detectScale`. Everything the engine
 //    diffs (refGray, refBgr, every CnnSnapshot.warped/gray) comes from here.
-//  - `warpBoardForCrops` (calibration.py:944) - CNN CROP warp on a `boardSize + 2B` canvas,
+//  - `warpBoardForCrops` (calibration.py) - CNN CROP warp on a `boardSize + 2B` canvas,
 //    homography pre-multiplied by a translation of `B = cropBorderPx`. Only `Crops.kt` calls it.
 //
 // Interpolation follows Python EXACTLY, and the two sides differ on purpose (2026-09-14):
@@ -42,7 +42,7 @@ private fun Mat.writeH(from: DoubleArray) = put(0, 0, *from)
 
 /**
  * Borderless rectification from the 4 frame corners `[a8, h8, h1, a1]`.
- * Port of `calibration.py:926 warp_from_corners`.
+ * Port of `calibration.py warp_from_corners`.
  *
  * With `targetSize != boardSize` the destination is `targetSize x targetSize` — rows 0 and 1
  * of the homography are scaled by `targetSize / boardSize`; row 2 (the projective row) is
@@ -86,7 +86,7 @@ fun warpFromCorners(
  * Rectification WITH border — the data/crop warp. Canvas `boardSize + 2B` with
  * `B = cropBorderPx(geom)`, homography translated by `B`, so EDGE squares have real board
  * content for their `padSide` extension instead of a black image border.
- * Port of `calibration.py:944 warp_board_for_crops`.
+ * Port of `calibration.py warp_board_for_crops`.
  *
  * Geometry is identical to the borderless warp, only shifted by `B`; `cropSquare` shifts its
  * box by `+B` accordingly.

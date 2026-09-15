@@ -238,7 +238,7 @@ class SessionCaptureTest {
     /**
      * D4. A frame that cannot be encoded or written was swallowed whole
      * (`SessionRecorder.kt:90`, `runCatching{}.getOrDefault(0L)`): no counter, no reason, no log,
-     * while Python warns (`tracker.py:2878`). The UI went on showing a healthy session.
+     * while Python warns (`tracker.py`). The UI went on showing a healthy session.
      */
     @Test
     fun aFailedFrameWriteIsReported() {

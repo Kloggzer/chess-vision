@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 
-/** Tier C — port check for `calibration.py:883 board_corners_for_frame`. */
+/** Tier C — port check for `calibration.py board_corners_for_frame`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class BoardCornersForFrameTest {
     private val geom = BoardGeometry(boardSize = 640)

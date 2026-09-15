@@ -12,6 +12,7 @@ import com.chesslab.tracker.record.LiveCaptureSource
 import com.chesslab.tracker.record.RecordingGates
 import com.chesslab.tracker.record.RecordingHooks
 import com.chesslab.tracker.record.RecordingSettings
+import com.chesslab.tracker.record.SessionByteBudget
 import com.chesslab.tracker.record.SessionCaptureController
 import com.chesslab.tracker.record.SessionMeta
 import com.chesslab.tracker.record.SessionRecorder
@@ -104,18 +105,23 @@ private fun buildController(
 ): GameSessionController {
     val sessions = SessionStore(paths.sessions)
     val source = LiveCaptureSource(frame, corners) { profile()?.let { it.sourceWidth to it.sourceHeight } }
-    // Snapshotted here and never on the capture path: it is a directory walk.
-    // TODO: never refreshed, so every session finished in THIS process is invisible to the size cap —
-    // three 3 GB games in a row still measure the disk as it was at service start.
-    val baseline = sessions.totalBytes()
+    // The tree is walked once, never on the capture path; a finished session is added by its own
+    // directory instead ([SessionByteBudget]).
+    val budget = SessionByteBudget(sessions)
     val capture =
         SessionCaptureController(
             source = source,
             open = { openRecorder(sessions, profile()?.name ?: DEFAULT_PROFILE, it.width, it.height) },
             gates = RecordingGates(),
             prefs = { settings.prefs.value },
-            existingBytes = { baseline },
-            hooks = recordingHooks,
+            existingBytes = budget::spent,
+            hooks =
+                recordingHooks.copy(
+                    finished = {
+                        budget.finished(it)
+                        recordingHooks.finished(it)
+                    },
+                ),
         )
     return GameSessionController(GameStore(paths.games), capture, System::currentTimeMillis, ::gameId)
 }

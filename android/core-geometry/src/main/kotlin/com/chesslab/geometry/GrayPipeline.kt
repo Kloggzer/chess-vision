@@ -7,7 +7,7 @@ import org.opencv.core.Size
 import org.opencv.imgproc.CLAHE
 import org.opencv.imgproc.Imgproc
 
-// Port of `tracker.py:1008 _gray`.
+// Ported from `tracker.py _gray` when Python still carried the tracker.
 //
 // CLAHE runs BEFORE the blur and on EVERY frame: reference and current must be enhanced
 // identically or the per-square noise model is invalid.
@@ -15,7 +15,7 @@ import org.opencv.imgproc.Imgproc
 // The dark-frame gate reads mean luma BEFORE CLAHE (`FrameInput.lumaPreClahe`) - that is
 // phase 05b's job, not this class's.
 
-/** `config.PHOTOMETRY.clahe_tile` (config.py:166) — `tileGridSize = tile x tile`. */
+/** `config.PHOTOMETRY.clahe_tile` (config.py) — `tileGridSize = tile x tile`. */
 private const val CLAHE_TILE: Double = 8.0
 
 /** Denoise kernel of `cv2.GaussianBlur(g, (5, 5), 0)`. */

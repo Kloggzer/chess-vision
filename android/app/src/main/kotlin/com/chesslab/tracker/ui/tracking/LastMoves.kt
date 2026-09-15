@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.chesslab.tracker.games.GameView
 import com.chesslab.tracker.games.MoveRow
 import com.chesslab.tracker.games.moveRows
+import com.chesslab.tracker.games.startNumber
 import com.chesslab.tracker.games.startsWithBlack
 import com.chesslab.tracker.ui.theme.OnSurface
 import com.chesslab.tracker.ui.theme.OnSurfaceMuted
@@ -36,7 +37,7 @@ fun LastMoves(
     game: GameView,
     modifier: Modifier = Modifier,
 ) {
-    val rows = moveRows(game.plies, startsWithBlack(game.startFen)).takeLast(PAIRS)
+    val rows = moveRows(game.plies, startsWithBlack(game.startFen), startNumber(game.startFen)).takeLast(PAIRS)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
         rows.forEach { MoveRowLine(it) }
     }

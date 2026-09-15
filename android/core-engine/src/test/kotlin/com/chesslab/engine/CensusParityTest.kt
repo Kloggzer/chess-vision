@@ -66,7 +66,7 @@ class CensusParityTest {
         var inBandSquares = 0
         forEachReconstructableFrame { ctx, frame ->
             val tierA = requireNotNull(frame.tierA)
-            // Python `_apply_vetoes` (`tracker.py:3156-3158`): candidate rows with a +/-1 px halo.
+            // Python `_apply_vetoes` (`tracker.py`): candidate rows with a +/-1 px halo.
             val rows = squareBand(tierA.vetoCandidates, ctx) ?: return@forEachReconstructableFrame
             perSquareCensusChange(ctx.refCodes, ctx.cur, ctx.boxes, ctx.out, rows)
             val yLo = maxOf(0, rows[0])

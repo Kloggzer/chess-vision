@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 // Shared helpers for the phase-03d tests. They mirror `_make_tracker`
-// (`tests/test_move_tracker.py:776`): a 400 px identity profile, `avg_frames = 1`,
+// (`tests/test_move_tracker.py`): a 400 px identity profile, `avg_frames = 1`,
 // `confirm_frames = 1`, `require_motion_for_move = False` and detection at full resolution.
 
 internal fun detectConfig(

@@ -34,8 +34,10 @@ CONCEPTS = (
     "wristwatch",
 )
 
-# Past this share of the board it is not an arm reaching in.
-MAX_ZONE_FRAC = 0.60
+# `zone` steht als ZAHL in jeder Zeile, ist aber keine Grenze mehr: bis 2026-09-16 verwarf
+# `MAX_ZONE_FRAC = 0.60` jede Maske darueber. Gemessen ist sie im ganzen Korpus nie gefeuert
+# (8 328 Zeilen, null Absagen) — sie hat nichts gefangen und wartete auf das erste wirklich
+# schwere Material. Was SAM findet, wird geglaubt (Nutzer, 2026-09-16).
 
 
 
@@ -937,57 +939,45 @@ def alpha_worker(
                     board,
                 )
 
-                zone_fraction = float(
-                    (alpha > 0.5).mean(),
+                matte_path = out_dir / f"{stem}.webp"
+
+                matte = (
+                    np.clip(
+                        alpha,
+                        0.0,
+                        1.0,
+                    )
+                    * 255.0
+                ).astype(
+                    np.uint8,
                 )
 
-                if zone_fraction > MAX_ZONE_FRAC:
-                    row["skipped"] = (
-                        "zone too big"
+                if not cv2.imwrite(
+                    str(matte_path),
+                    matte,
+                ):
+                    raise OSError(
+                        f"{name}: failed to write matte: "
+                        f"{matte_path}"
                     )
 
-                else:
-                    matte_path = (
-                        out_dir
-                        / f"{stem}.webp"
-                    )
+                coverage = coverage_of(
+                    alpha,
+                    entry,
+                    profile,
+                )
 
-                    matte = (
-                        np.clip(
-                            alpha,
-                            0.0,
-                            1.0,
-                        )
-                        * 255.0
-                    ).astype(
-                        np.uint8,
-                    )
+                row |= {
+                    "concepts": hits,
+                    "coverage": coverage,
+                    "cells_over_half": sum(
+                        value > 0.5
+                        for value in coverage.values()
+                    ),
+                    "zone": round(float((alpha > 0.5).mean()), 4),
+                }
 
-                    if not cv2.imwrite(
-                        str(matte_path),
-                        matte,
-                    ):
-                        raise OSError(
-                            f"{name}: failed to write matte: "
-                            f"{matte_path}"
-                        )
-
-                    coverage = coverage_of(
-                        alpha,
-                        entry,
-                        profile,
-                    )
-
-                    row |= {
-                        "concepts": hits,
-                        "coverage": coverage,
-                        "cells_over_half": sum(
-                            value > 0.5
-                            for value in coverage.values()
-                        ),
-                    }
-
-                    written += 1
+                written += 1
 
             if why := row.get("skipped"):
                 skipped[why] = (

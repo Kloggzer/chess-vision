@@ -27,6 +27,9 @@ class SessionStore(
 
     fun totalBytes(): Long = root.walkBottomUp().sumOf(File::length)
 
+    /** ONE session's cost. [totalBytes] walks the whole tree; the size cap adds finished games this way. */
+    fun bytesOf(id: String): Long = dir(id).walkBottomUp().sumOf(File::length)
+
     fun delete(id: String): Boolean = dir(id).deleteRecursively()
 
     /** A fresh session directory. `collect.py::generate_session_id` is `%Y%m%d-%H%M%S`. */

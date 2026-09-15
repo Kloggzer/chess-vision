@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// The per-frame body of `_loop` (`tracker.py:1490-1763`) and `_RunningMean` (`:149-186`).
+// The per-frame body of `_loop` (`tracker.py`) and `_RunningMean`.
 //
 // Scenarios mirrored from `tests/test_move_tracker.py`:
 //   test_raw_core_vs_dilated (:2304)                     -> occludedGateCountsRawCoreNotDilated
@@ -258,7 +258,7 @@ class FrameLoopTest {
         assertEquals(STATE_WAITING, h.state.state, "and quiet frames never put it back")
     }
 
-    /** `_occluded_by_grid` (`:1319-1326`) — `minGridLineCoverage <= 0` disables the gate entirely. */
+    /** `_occluded_by_grid` — `minGridLineCoverage <= 0` disables the gate entirely. */
     @Test
     fun gridGateDisabledLeavesCoverageUntouched() {
         val h = Harness(testConfig(minGridLineCoverage = 0.0))

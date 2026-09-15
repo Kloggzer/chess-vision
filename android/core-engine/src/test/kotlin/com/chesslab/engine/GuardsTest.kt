@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-// `_detect_guards` (`tracker.py:3060-3082`) + `_corners_jumped` (`:2578-2588`).
+// `_detect_guards` (`tracker.py`) + `_corners_jumped`.
 //
 // Scenarios mirrored from `tests/test_move_tracker.py`:
 //   test_stale_ref_fen_forces_recapture (:839)          -> staleRefFenForcesRecapture
@@ -146,7 +146,7 @@ class GuardsTest {
         assertTrue(state.cornersJumped(), "the one comparable pair still counts")
     }
 
-    /** `_clear_stuck` also resets the recovery confirmer (`tracker.py:3448-3450`). */
+    /** `_clear_stuck` also resets the recovery confirmer (`tracker.py`). */
     @Test
     fun clearStuckResetsTheRecoveryConfirmer() {
         val state = testState()

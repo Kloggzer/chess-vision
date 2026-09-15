@@ -7,7 +7,7 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
-// Port of `tracker.py:1293 _grid_line_coverage`.
+// Ported from `tracker.py _grid_line_coverage` when Python still carried the tracker.
 //
 // Fraction of the board's 14 interior grid lines (7 vertical + 7 horizontal) that are actually
 // visible in the rectified board image. On a clear board every grid line runs edge to edge; a

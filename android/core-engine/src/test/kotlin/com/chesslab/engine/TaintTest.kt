@@ -630,7 +630,7 @@ class TaintTest {
     }
 }
 
-/** Minimal [CnnObservation] stub — the `_FakeObs` of `tests/test_move_tracker.py:918`. */
+/** Minimal [CnnObservation] stub — the `_FakeObs` of `tests/test_move_tracker.py`. */
 private class FakeObservation(
     private val occupied: Map<String, Boolean> = emptyMap(),
     private val confident: Set<String> = emptySet(),

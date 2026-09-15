@@ -3,7 +3,7 @@ package com.chesslab.cnn
 import com.chesslab.engine.api.CnnObservation
 
 /**
- * Port of `cnn_recovery.py:29 OccupancyObservation`. Immutable; the maps are keyed by all
+ * Ported from `cnn_recovery.py OccupancyObservation` when Python still carried the tracker. Immutable; the maps are keyed by all
  * 64 squares. Implements the frozen engine seam [CnnObservation] (created by phase 00a) so
  * `:core-engine` can consume it without depending on `:core-cnn`.
  */
@@ -40,11 +40,11 @@ data class OccupancyObservation(
 
     override val classNames: List<String> get() = probs?.classes.orEmpty()
 
-    /** `cnn_recovery.py:43` — strict `>`. */
+    /** `cnn_recovery.py` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
 
     /**
-     * `cnn_recovery.py:46` — occluded-dominant squares are NEVER confident and NEVER count
+     * `cnn_recovery.py` — occluded-dominant squares are NEVER confident and NEVER count
      * as occupied: a hand over the board must neither trigger recovery nor "occupy" squares.
      */
     override fun confident(
@@ -56,7 +56,7 @@ data class OccupancyObservation(
             !invalidConfident(square, thr)
 
     /**
-     * `cnn_recovery.py:54` — top confidence >= thr, and the same coverage gate [confident] carries.
+     * `cnn_recovery.py` — top confidence >= thr, and the same coverage gate [confident] carries.
      * The `occluded` LABEL only exists on a 14-class softmax; on every coverage model a fully
      * covered square keeps its class guess, and that guess used to reach `boardMatchesIdentity`,
      * the deep search's identity channel and `cnnAdoptedFen`.

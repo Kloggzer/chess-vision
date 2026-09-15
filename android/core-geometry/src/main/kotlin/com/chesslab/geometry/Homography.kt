@@ -14,14 +14,14 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 // Board homography and marker -> corner reconstruction.
-// Ports of `calibration.py:393 compute_homography` and `:518 resolve_board_corners`.
+// Ports of `calibration.py compute_homography` and `:518 resolve_board_corners`.
 
-/** Below this baseline length the 2-marker similarity is undefined (`calibration.py:539`). */
+/** Below this baseline length the 2-marker similarity is undefined (`calibration.py`). */
 private const val MIN_BASELINE: Double = 1e-6
 
 /**
  * Four image points in `[a8, h8, h1, a1]` order -> the 3x3 homography onto a `boardSize`
- * square. Port of `calibration.py:393 compute_homography`.
+ * square. Port of `calibration.py compute_homography`.
  *
  * `margin > 0`: the image points lie that fraction OUTSIDE the playing field (markers at the
  * outer corners), so the playing field `[0, boardSize]` is indented accordingly. One value PER
@@ -146,7 +146,7 @@ private const val FINGERPRINT_MULTIPLIER = 31L
 
 /**
  * Reconstruct the 4 corner points `[a8, h8, h1, a1]` from 2/3/4 marker points.
- * Port of `calibration.py:518 resolve_board_corners`.
+ * Port of `calibration.py resolve_board_corners`.
  *
  * Returns `(corners4, nUsed)`, or `null` when fewer than 2 markers are known (or the 2-marker
  * baseline is degenerate). 4 -> exact perspective, 3 -> affine (parallelogram),

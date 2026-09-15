@@ -2,12 +2,12 @@ package com.chesslab.geometry
 
 import kotlin.math.abs
 
-// Smoothed, occlusion/jitter-resilient marker positions. Port of `calibration.py:562
-// MarkerTracker`; parameters copied verbatim from `config.TRACKER` (config.py:208-222).
+// Smoothed, occlusion/jitter-resilient marker positions. Port of `calibration.py
+// MarkerTracker`; parameters copied verbatim from `config.TRACKER` (config.py).
 //
 // OpenCV-free ON PURPOSE (see Corners.kt). The detection half lives in `Aruco.kt`.
 
-/** `config.TrackerDefaults` (config.py:208-222). All values in pixels or frames. */
+/** `config.TrackerDefaults` (config.py). All values in pixels or frames. */
 data class MarkerTrackerParams(
     /** Dead zone: detected movement at or below this freezes the position. */
     val moveThreshold: Double = 4.0,

@@ -19,7 +19,7 @@ internal const val NO_AGREEMENT = 0.0
 internal const val FULL_AGREEMENT = 1.0
 internal const val NO_HITS = -1
 
-// verify_move: at least the FROM and TO square must be readable (cnn_recovery.py:204).
+// verify_move: at least the FROM and TO square must be readable (cnn_recovery.py).
 private const val MIN_VERIFIED_SQUARES = 2
 
 /** `score_moves` result: the accepted move (or null) plus both agreement fractions. */
@@ -37,7 +37,7 @@ data class DerivedMoves(
 )
 
 /**
- * `cnn_recovery.py:386 resync_check` result. Declared here with the other result types;
+ * `cnn_recovery.py resync_check` result. Declared here with the other result types;
  * `Resync.kt` holds the functions.
  */
 data class ResyncCheck(
@@ -56,7 +56,7 @@ data class IdentityCheck(
 )
 
 /**
- * Port of `cnn_recovery.py:118 CnnRecovery` — the pure-evaluation half only. `observe`
+ * Ported from `cnn_recovery.py CnnRecovery` when Python still carried the tracker — the pure-evaluation half only. `observe`
  * (pixels -> probabilities) lives behind [SquareClassifier]; the ONNX implementation is
  * phase 05c in `:app`.
  *
@@ -72,7 +72,7 @@ class CnnRecovery(
     override val minAgreement: Double get() = config.minAgreement
 
     /**
-     * `cnn_recovery.py:175 score_moves` — the legal move whose resulting OCCUPANCY best
+     * `cnn_recovery.py score_moves` — the legal move whose resulting OCCUPANCY best
      * explains the observation over the confident squares.
      *
      * The position AS IT STANDS is one of the rivals, not the baseline the moves are measured
@@ -110,7 +110,7 @@ class CnnRecovery(
     }
 
     /**
-     * `cnn_recovery.py:188 verify_move` — LOCAL, not whole-board: only squares physically
+     * `cnn_recovery.py verify_move` — LOCAL, not whole-board: only squares physically
      * changed by the move count. Fewer than two confident touched squares leaves the move
      * unconfirmed (0.0) so the multi-frame window waits for a clear view.
      */
@@ -187,7 +187,7 @@ class CnnRecovery(
 }
 
 /**
- * `cnn_recovery.py:216 board_matches_identity`. Fewer than `minConfidentBoard` label-confident
+ * `cnn_recovery.py board_matches_identity`. Fewer than `minConfidentBoard` label-confident
  * squares is the blind-glance guard: **inconclusive**, never a mismatch.
  */
 fun CnnRecovery.boardMatchesIdentityFull(
@@ -234,7 +234,7 @@ internal fun uciOf(move: Move): String {
 }
 
 /**
- * `cnn_recovery.py:87 _move_touched_squares` — from, to, + the rook squares on castling,
+ * `cnn_recovery.py _move_touched_squares` — from, to, + the rook squares on castling,
  * + the captured pawn on en passant.
  */
 internal fun moveTouchedSquares(

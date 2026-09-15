@@ -5,16 +5,16 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 
-// Per-square boxes in the rectified board image. Ports of `calibration.py:347
+// Per-square boxes in the rectified board image. Ports of `calibration.py
 // square_to_crop_box`, `:377 square_center`, `:384 crop_border_px` and
-// `tracker.py:120 square_region`.
+// `tracker.py square_region`.
 //
 // OpenCV-free ON PURPOSE (see Corners.kt).
 
-/** `config.CROP_WARP_BORDER_CELLS` (config.py:70) — minimum crop-warp border in cells. */
+/** `config.CROP_WARP_BORDER_CELLS` (config.py) — minimum crop-warp border in cells. */
 const val CROP_WARP_BORDER_CELLS: Double = 0.1
 
-/** Default inset of `square_region` (tracker.py:120) — guards against grid-line/neighbour noise. */
+/** Default inset of `square_region` (tracker.py) — guards against grid-line/neighbour noise. */
 const val SQUARE_REGION_INSET: Double = 0.16
 
 /**
@@ -25,7 +25,7 @@ internal fun pyRound(v: Double): Int = Math.rint(v).toInt()
 
 /**
  * `'e4' -> (x0, y0, x1, y1)` in the rectified `boardSize` image.
- * Port of `calibration.py:347 square_to_crop_box`.
+ * Port of `calibration.py square_to_crop_box`.
  *
  * The base cell is expanded symmetrically by `padSide * cell`, so the box stays square.
  * `clamp = true` clips to the image (box may shrink); `clamp = false` returns
@@ -76,7 +76,7 @@ private fun BoardGeometry.nativeCell(): Int {
 
 /**
  * Border in pixels the board is warped with for the DATA crop, so edge squares have real
- * content for their `padSide` extension. Port of `calibration.py:384 crop_border_px`.
+ * content for their `padSide` extension. Port of `calibration.py crop_border_px`.
  *
  * Defaults (`boardSize = 1600`, `padSide = 0.05`, `cell = 200`): the 0.1 floor decides, 20 px.
  */
@@ -201,7 +201,7 @@ fun meshPoint(
     return doubleArrayOf(x, y)
 }
 
-/** Pixel centre of the base cell. Port of `calibration.py:377 square_center`. */
+/** Pixel centre of the base cell. Port of `calibration.py square_center`. */
 fun squareCenter(
     square: String,
     geom: BoardGeometry,
@@ -213,7 +213,7 @@ fun squareCenter(
 
 /**
  * Pixel box `(x0, y0, x1, y1)` of the cell in a `boardSize` rectified image, slightly INSET
- * against grid-line/neighbour noise. Port of `tracker.py:120 square_region` — this is the
+ * against grid-line/neighbour noise. Ported from `tracker.py square_region` when Python still carried the tracker — this is the
  * region the detection evidence is measured over, NOT the crop box.
  *
  * `extendUp` (fraction of a cell) extends the box toward the top of the image; extended cells

@@ -6,6 +6,8 @@ internal const val NOTE_NO_CNN_IDENTITY = "no CNN observation with piece identit
 
 internal const val NOTE_CNN_KINGS = "CNN position has missing/extra kings — use Undo or a FEN resync"
 
+internal const val NOTE_CNN_STALE = "no fresh CNN observation — use Undo or a FEN resync"
+
 /** The empty slot of the rebuilt placement — `' '` is not a FEN piece symbol. */
 private const val EMPTY_SQUARE = ' '
 
@@ -16,14 +18,25 @@ private const val FEN_HALFMOVE = 4
 
 private const val FEN_FULLMOVE = 5
 
-// TODO: liest `cnnSnap` roh — jeder andere Leser im Modul geht ueber `freshSnapshot()`, hier
-// darf ein beliebig alter Blick die Stellung des Nutzers umschreiben.
-
-/** The position the last glance would adopt, or `null` with the refusal in `note`. */
+/**
+ * The position the last glance would adopt, or `null` with the refusal in `note`.
+ *
+ * Through [freshSnapshot] like every other reader in the module: a glance older than
+ * `OBS_MAX_AGE_S` describes a board that has since been played on, and this path overwrites the
+ * user's position. No fresh look means no adoption — never the last one that happened to be around.
+ */
 internal fun EngineState.adoptableCnnFen(thr: Double): String? {
-    val obs = cnnSnap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }
+    val snap = freshSnapshot()
+    val obs = snap?.obs?.takeIf { o -> Squares.ALL.any { o.label(it) != null } }
     val fen = obs?.let { cnnAdoptedFen(it, thr) }
-    if (fen == null) note = if (obs == null) NOTE_NO_CNN_IDENTITY else NOTE_CNN_KINGS
+    if (fen == null) {
+        note =
+            when {
+                snap == null -> NOTE_CNN_STALE
+                obs == null -> NOTE_NO_CNN_IDENTITY
+                else -> NOTE_CNN_KINGS
+            }
+    }
     return fen
 }
 

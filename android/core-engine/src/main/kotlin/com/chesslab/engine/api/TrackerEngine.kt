@@ -526,6 +526,7 @@ internal fun EngineState.clearReferenceState() {
     refGray = null
     refBgr = null
     refFen = null
+    refProvisionalUntil = 0.0
     confirmer.reset()
     grayBuf.clear()
     bgrBuf.clear()

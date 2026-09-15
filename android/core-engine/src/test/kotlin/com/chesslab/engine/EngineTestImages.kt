@@ -5,7 +5,7 @@ import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 
 // Shared synthetic-image helpers for the phase-03a tests. Mirrors `_gray_frame` in
-// `tests/test_move_tracker.py:765`: a flat board with bright blobs on the named squares.
+// `tests/test_move_tracker.py`: a flat board with bright blobs on the named squares.
 
 internal const val TEST_BOARD_SIZE = 400
 

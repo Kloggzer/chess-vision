@@ -3,7 +3,7 @@ package com.chesslab.cnn
 import kotlin.math.exp
 
 /**
- * Port of `cnn_recovery.py:63 observation_from_probs`.
+ * Ported from `cnn_recovery.py observation_from_probs` when Python still carried the tracker.
  *
  * Class indices are ALWAYS derived from the run's `classes` list (13- and 14-class runs);
  * never assume a position. `pOcc` is the summed mass of the 12 piece classes, clamped at 0

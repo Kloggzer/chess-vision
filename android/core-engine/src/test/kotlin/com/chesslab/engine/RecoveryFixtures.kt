@@ -179,7 +179,9 @@ internal fun recoverySnap(
     fen: String = state.board.fen(),
     warped: BgrImage? = null,
     gridOccluded: Long = 0L,
-): CnnSnapshot = CnnSnapshot(obs, seq, 0L, 0.0, warped, gray, fen, gridOccluded)
+    /** Stamped from the engine's own clock where a test needs the glance to read as FRESH. */
+    tsMs: Long = 0L,
+): CnnSnapshot = CnnSnapshot(obs, seq, tsMs, 0.0, warped, gray, fen, gridOccluded)
 
 /** Monotonic snapshot seqs for [recoveryGlances] — far above the hand-numbered ones in tests. */
 private var glanceSeq = 9000L

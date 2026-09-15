@@ -4,7 +4,7 @@ import com.github.bhlangonijr.chesslib.Board
 import kotlin.math.max
 
 /**
- * Port of `cnn_recovery.py:386 resync_check` — whole-board (unlike `verifyMove`, which is
+ * Ported from `cnn_recovery.py resync_check` when Python still carried the tracker — whole-board (unlike `verifyMove`, which is
  * local). Conflicts are iterated in [ALL_SQUARES] order. `move` is set only when exactly one
  * legal move sufficiently explains the observation.
  */
@@ -28,7 +28,7 @@ fun CnnRecovery.resyncCheckFull(
 }
 
 /**
- * Port of `cnn_recovery.py:401 has_occupancy_conflict` — **the alarm gate**.
+ * Port of `cnn_recovery.py has_occupancy_conflict` — **the alarm gate**.
  *
  * True only when at least one conflict square disagrees on OCCUPANCY on the model's reliable
  * empty axis. Identity-only conflicts (right occupancy, wrong piece type — the known N/B/R

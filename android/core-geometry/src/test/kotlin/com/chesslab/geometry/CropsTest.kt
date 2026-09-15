@@ -10,7 +10,7 @@ import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 
-/** Tier C — `labeling.py:112 crop_square` and `imgops.py:14`. */
+/** Tier C — `labeling.py crop_square` and `imgops.py`. */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class CropsTest {
     @Test

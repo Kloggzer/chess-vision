@@ -4,7 +4,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-// Finding ONE groove in ONE collapsed intensity profile. Port of `alignment.py:59 _notch_centre`
+// Finding ONE groove in ONE collapsed intensity profile. Port of `alignment.py _notch_centre`
 // and `:105 _profile_lines`.
 //
 // Kept apart from `Alignment.kt`, which is about where the board's lines are: this file knows

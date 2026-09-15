@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `move_prior` (`tracker.py:597`) against `tierA.movePrior`, which the fixture emits for EVERY
+ * `move_prior` (`tracker.py`) against `tierA.movePrior`, which the fixture emits for EVERY
  * legal move of `frame.fen`.
  */
 class MovePriorTest {

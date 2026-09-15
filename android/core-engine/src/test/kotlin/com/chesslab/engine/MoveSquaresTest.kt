@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 /**
- * `move_touched_squares` (`tracker.py:456`) and `move_destination_squares` (`:474`) against the
+ * `move_touched_squares` (`tracker.py`) and `move_destination_squares` against the
  * phase-00b golden fixtures (`tierA.moveTouchedSquares` / `tierA.moveDestinationSquares`, both
  * emitted for EVERY legal move of `frame.fen`).
  *

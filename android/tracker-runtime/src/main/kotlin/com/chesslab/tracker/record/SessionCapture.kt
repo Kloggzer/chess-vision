@@ -208,12 +208,12 @@ class SessionCaptureController(
         if (active == null) return null
         pending = null
         val written = active.capture(frame.writer, due.ply, due.fen, due.san, frame.corners)
-        // Python logs here (`tracker.py:2878`); this was the one failure that left no trace at all.
+        // Python logs here (`tracker.py`); this was the one failure that left no trace at all.
         if (written == null) failedWrites++
         return written
     }
 
-    /** A taken-back move must not survive as labeled data (`tracker.py:2782`). */
+    /** A taken-back move must not survive as labeled data (`tracker.py`). */
     fun undo() {
         pending = null
         recorder?.undoLast()

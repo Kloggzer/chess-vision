@@ -92,30 +92,45 @@ class CnnModelAssets(
     private var recopied = false
 
     /**
-     * The config is compared by CONTENT, the graph by length.
+     * Everything is compared by CONTENT — `docs/occlusion-gate.md`.
      *
-     * `coverage_gate` 0.25 and 0.35 are the same number of bytes, so a size guard left the stale
-     * copy standing and an A/B between two thresholds would have measured nothing.
+     * The graph was guarded by `available()` ("readable without blocking", not a length), the config
+     * by size, and `coverage_gate` 0.25 and 0.35 are the same number of bytes.
      */
     private fun stageFile(name: String): File? {
-        val source = open(name) ?: return null
-        return source.use { input ->
-            val target = File(dir, name)
-            if (name == MODEL_CONFIG_FILE) {
-                val bytes = input.readBytes()
-                if (!target.isFile || !target.readBytes().contentEquals(bytes)) {
-                    target.writeBytes(bytes)
-                    recopied = true
-                }
-                // TODO: `available()` ist "ohne Blockieren lesbar", keine Dateilaenge. Trifft sie
-                // die Laenge der ALTEN Datei, bleibt der veraltete Graph liegen und `recopied`
-                // bleibt falsch, also bleibt auch der kompilierte QNN-Kontext stehen. Der
-                // `config.json`-Pfad direkt darueber vergleicht dafuer die Bytes.
-            } else if (!target.isFile || target.length() != input.available().toLong()) {
-                target.outputStream().use { input.copyTo(it) }
-                recopied = true
-            }
-            target
+        val target = File(dir, name)
+        val stale = (open(name) ?: return null).use { !target.isFile || !it.sameBytesAs(target) }
+        if (stale) {
+            open(name)?.use { input -> target.outputStream().use { input.copyTo(it) } }
+            recopied = true
+        }
+        return target
+    }
+}
+
+/** A buffer at a time: a graph is megabytes and neither copy may become resident to compare them. */
+private fun InputStream.sameBytesAs(file: File): Boolean {
+    val mine = ByteArray(COMPARE_CHUNK)
+    val theirs = ByteArray(COMPARE_CHUNK)
+    file.inputStream().buffered().use { other ->
+        while (true) {
+            val read = fill(mine)
+            if (read != other.fill(theirs)) return false
+            for (i in 0 until read) if (mine[i] != theirs[i]) return false
+            if (read == 0) return true
         }
     }
 }
+
+/** `read` may return short of the buffer without being at the end; a compare must not read that as a difference. */
+private fun InputStream.fill(buffer: ByteArray): Int {
+    var filled = 0
+    while (filled < buffer.size) {
+        val read = read(buffer, filled, buffer.size - filled)
+        if (read < 0) break
+        filled += read
+    }
+    return filled
+}
+
+private const val COMPARE_CHUNK = 64 * 1024

@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
-/** Tier A — pure math, no OpenCV. Port checks for `calibration.py:562 MarkerTracker`. */
+/** Tier A — pure math, no OpenCV. Port checks for `calibration.py MarkerTracker`. */
 class MarkerTrackerTest {
     private fun pt(
         x: Double,

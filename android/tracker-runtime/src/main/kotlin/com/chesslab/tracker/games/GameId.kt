@@ -4,8 +4,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-// TODO: minute resolution — two games saved inside one minute share an id, and `GameStore.save`
-// overwrites the first game's .json/.pgn and drops its index row without a word.
-
-/** `2026-07-24_1822` — sorts chronologically as a string and is a legal file stem. */
-fun gameId(epochMs: Long): String = SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date(epochMs))
+/**
+ * `2026-07-24_182233` — sorts chronologically as a string and is a legal file stem.
+ *
+ * Seconds, not a collision suffix: the id stays a pure function of the start clock, where a suffix
+ * would need a read-modify-write against `GameStore` on every save and still race. At minute
+ * resolution two games started in one minute shared an id and `save` overwrote the first silently.
+ */
+fun gameId(epochMs: Long): String = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US).format(Date(epochMs))

@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Test
 
-/** Tier A — pure math, no OpenCV. Port checks for `calibration.py:329` and `labeling.py:102`. */
+/** Tier A — pure math, no OpenCV. Port checks for `calibration.py` and `labeling.py`. */
 class CornersTest {
     @Test
     fun `square to col row maps files and ranks white pov`() {

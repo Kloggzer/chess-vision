@@ -33,7 +33,7 @@ fun squareIsDark(square: String): Boolean {
 
 /**
  * Grauwert-Mittel je Feld des rektifizierten Bretts, auf der Skala von `brightness` im Manifest
- * (CROP-Box und BGR-Gewichte wie `labeling.py:592`). [whitePov] MUSS die eingestellte Orientierung
+ * (CROP-Box und BGR-Gewichte wie `labeling.py`). [whitePov] MUSS die eingestellte Orientierung
  * sein — siehe [squareBoxes], sonst misst und labelt jede Figur auf dem gespiegelten Feld.
  */
 fun measureSquares(

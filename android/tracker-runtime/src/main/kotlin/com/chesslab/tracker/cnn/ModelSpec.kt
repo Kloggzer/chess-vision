@@ -128,7 +128,7 @@ data class ModelSpec(
                     "$MIN_INPUT_SIZE..$MAX_INPUT_SIZE"
             }
             // Old configs predate the `normalize` key and were trained on the ImageNet stats
-            // (`quantize.py:172-174`). Nothing else may fall back.
+            // (`quantize.py`). Nothing else may fall back.
             val normalize = root["normalize"]?.jsonObject
             // Both pads or neither: half a crop declaration is not one, and the half that is
             // missing would be filled from the profile — a box nobody chose.

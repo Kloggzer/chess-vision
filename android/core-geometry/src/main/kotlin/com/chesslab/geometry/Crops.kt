@@ -9,8 +9,8 @@ import org.opencv.imgproc.Imgproc
 import kotlin.math.max
 import kotlin.math.min
 
-// The 64 CNN crops. Ports of `labeling.py:102 all_squares`, `:112 crop_square` and
-// `imgops.py:14 resize_keep_aspect`.
+// The 64 CNN crops. Ports of `labeling.py all_squares`, `:112 crop_square` and
+// `imgops.py resize_keep_aspect`.
 //
 // `crops_for_frame` itself is NOT ported any more: the phone cuts its crops in
 // `OpenCvStages.updateCropFrame`, which calls `warpBoardForCrops` once and `cropSquare` per square
@@ -19,14 +19,14 @@ import kotlin.math.min
 // which stopped being true the moment the pipeline called it.)
 
 /**
- * Crop order — `a1,b1,..,h1,a2,..,h8`, rank-major from rank 1 (`labeling.py:102`).
+ * Crop order — `a1,b1,..,h1,a2,..,h8`, rank-major from rank 1 (`labeling.py`).
  * NOT the corner order `[a8, h8, h1, a1]` — entry.md invariant 11.
  */
 fun allSquares(): List<String> = (1..BOARD_SIDE).flatMap { r -> FILES.map { f -> "$f$r" } }
 
 /**
  * Scale to `outW x outH` WITHOUT distortion: uniform scale, remainder centred and filled with
- * black (letterbox). Port of `imgops.py:14 resize_keep_aspect`.
+ * black (letterbox). Port of `imgops.py resize_keep_aspect`.
  *
  * With the square crop box this is a borderless resize; the letterbox path exists for a
  * non-square `outW x outH`.
@@ -64,7 +64,7 @@ fun resizeKeepAspect(
 
 /**
  * One square crop out of the BORDERED board (`warpBoardForCrops`).
- * Port of `labeling.py:112 crop_square`.
+ * Port of `labeling.py crop_square`.
  *
  * A plain rectangle, always — the board's lines are pulled straight once, over the whole raster
  * ([straightenBoard]). Overhang is BLACK (never replicate, never reflect) so the crop geometry is

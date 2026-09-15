@@ -427,7 +427,7 @@ class GameSessionControllerTest {
 
     /**
      * D2. Python takes the deferred photo only when the occlusion set is empty
-     * (`tracker.py:3085-3086`); the Kotlin engine emits `ReAnchored` unconditionally
+     * (`tracker.py`); the Kotlin engine emits `ReAnchored` unconditionally
      * (`TrackerEngine.kt:414`). Flushing on every re-anchor photographs the board with a hand
      * still over it — 64 crops labeled as pieces that cannot be seen.
      */
@@ -453,7 +453,7 @@ class GameSessionControllerTest {
      * and it is indistinguishable from good data afterwards.
      *
      * Python has no gate of its own: alarmed, it blocks every commit and every re-anchor
-     * (`tracker.py:3105`), and those two are the only things that drive the recorder.
+     * (`tracker.py`), and those two are the only things that drive the recorder.
      * `TrackerEngine.kt:406` blocks re-anchor the same way. This test pins the property at the
      * CONSUMER, so it survives whatever the engine does — it fails against an `isClean` that
      * checks only occlusion and taint.

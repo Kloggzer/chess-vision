@@ -9,7 +9,10 @@ import com.chesslab.tracker.camera.VideoProgress
 import com.chesslab.tracker.camera.VideoRecorderPort
 import com.chesslab.tracker.camera.bitRateFor
 import com.chesslab.tracker.settings.ConfigStore
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -18,12 +21,21 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 private const val OPENING_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
 private const val STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+/** Long enough that the changeover is provably still inside `close`, short enough to stay a test. */
+private const val HANDOVER_WAIT_MS = 300L
+private const val DRAIN_GUARD_S = 30L
 
 private fun frameAt(
     elapsedNs: Long,
@@ -187,6 +199,41 @@ class RecordingBundleHostTest {
             val rows = File(sessionDir, "timeline.jsonl").readLines()
             assertEquals(1, rows.size, "the row outside the pre-roll window survived")
         }
+
+    /**
+     * `opened` was the only one of the three that was not `@Synchronized`, and `SessionTimeline.close`
+     * BLOCKS while its writer drains. A frame delivered inside that window took the free monitor, saw
+     * the old timeline and `trySend`ed into a closed channel: gone, and not even counted as evicted.
+     */
+    @Test
+    fun aFrameDeliveredWhileTheSessionChangesOverIsNotLost() {
+        val blocked = CountDownLatch(1)
+        val writers = Executors.newSingleThreadExecutor()
+        writers.submit { blocked.await(DRAIN_GUARD_S, TimeUnit.SECONDS) }
+        val scope = CoroutineScope(SupervisorJob())
+        val host =
+            RecordingBundleHost(
+                FakeVideoCamera(),
+                RecordingSettings(MemoryStore()),
+                sessionsRoot,
+                scope,
+                writers.asCoroutineDispatcher(),
+            )
+        val second = File(sessionsRoot, "s2").also(File::mkdirs)
+
+        host.opened(SessionRecorder(sessionDir, SessionMeta("s1", "default", 2560, 1440)))
+        val changeover = thread { host.opened(SessionRecorder(second, SessionMeta("s2", "default", 2560, 1440))) }
+        Thread.sleep(HANDOVER_WAIT_MS)
+        host.frame(frameAt(7_000_000_000L, OPENING_FEN))
+        changeover.join()
+        blocked.countDown()
+        host.close()
+        writers.shutdown()
+        writers.awaitTermination(DRAIN_GUARD_S, TimeUnit.SECONDS)
+
+        val rows = listOf(sessionDir, second).flatMap { File(it, "timeline.jsonl").readLines() }
+        assertTrue(rows.any { it.contains("7000000000") }, "the frame fell into the closed timeline: $rows")
+    }
 
     @Test
     fun aFinishedSessionDoesNotArmWhileRecordingIsOff() =

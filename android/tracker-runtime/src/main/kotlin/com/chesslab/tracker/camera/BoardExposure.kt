@@ -138,10 +138,10 @@ private fun desiredStepEv(
 ): Double {
     val headroom = evFor(ExposureReading.CLIP_LEVEL, reading.highlightLevel, policy)
     if (reading.darkFraction(policy.floor) <= policy.darkTarget) return minOf(0.0, headroom)
-    // TODO: `darkTarget` (0,05) und `DARK_PERCENTILE` (0,12) meinen verschiedene Punkte — bei 4 bis
-    // 8 dunklen Zellen ist die Ankerzelle selbst hell, `evFor` wird negativ, und die Regelung
-    // dunkelt ein Bild ab, das sie gerade als zu dunkel eingestuft hat.
-    val at = reading.cellMeans.sorted()[(ExposureReading.CELLS * DARK_PERCENTILE).toInt()]
+    // Gemessen wird an DEMSELBEN Perzentil, an dem entschieden wird. Ein eigenes (0,12) traf bei 4
+    // bis 8 dunklen Feldern eine helle Ankerzelle: `evFor` wurde negativ und die Regelung blendete
+    // das Bild ab, das sie gerade als zu dunkel eingestuft hatte.
+    val at = reading.cellMeans.sorted()[(ExposureReading.CELLS * policy.darkTarget).toInt()]
     return minOf(evFor(policy.floor, at, policy), headroom)
 }
 
@@ -166,5 +166,4 @@ fun ExposureRange.evLimits(): ClosedFloatingPointRange<Double> = (indices.first 
 /** Nur fuer Tests und Simulation: der Lichtfaktor hinter einem EV-Versatz. */
 internal fun lightOf(ev: Double): Double = 2.0.pow(ev)
 
-private const val DARK_PERCENTILE = 0.12
 private val LN2 = ln(2.0)

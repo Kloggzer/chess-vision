@@ -95,7 +95,7 @@ fun requireExpectedClasses(classes: List<String>): List<String> {
 }
 
 /**
- * Contract from `serving.py:318-400 predict_arrays` (the `all_at_size` fast path, which is the live
+ * Contract from `serving.py predict_arrays` (the `all_at_size` fast path, which is the live
  * path): BGR uint8 HWC -> BGR->RGB flip -> `/255` -> `(x - mean) / std` -> NCHW float32, N first,
  * then the R, G and B planes. Into a **caller-owned** buffer.
  *
@@ -128,7 +128,7 @@ fun preprocessInto(
         "out holds ${out.size} floats, expected ${crops.size * repr.channels * plane}"
     }
     // `per_crop` und ein Nicht-RGB-Stapel schliessen sich aus, und Python lehnt das Paar ab
-    // (`training/train.py:505`). `ModelSpec` liest beide Schluessel unabhaengig, also KANN eine
+    // (`training/train.py`). `ModelSpec` liest beide Schluessel unabhaengig, also KANN eine
     // `config.json` es verlangen — dann wurde `perCrop` hier stillschweigend fallengelassen und
     // das Modell bekam eine Normalisierung, unter der es nie trainiert hat.
     require(!perCrop || repr == InputRepr.RGB) { "normalize.mode=per_crop is not defined for input_repr=${repr.id}" }
@@ -176,7 +176,7 @@ fun preprocessInto(
 }
 
 /**
- * The model head emits **log-probabilities** (`training/model.py:172-177 HierarchicalHead`
+ * The model head emits **log-probabilities** (`training/model.py HierarchicalHead`
  * returns `occ_term + piece_term * occ_mask`, both `log_softmax`) and Python applies
  * `torch.softmax` to them anyway (`serving.py`). `softmax(log p) == p` up to normalization,
  * so applying softmax to the ONNX output is CORRECT — do not "optimise" it to `exp()`.

@@ -1,5 +1,6 @@
 """The alpha worker: only what still carries its FEN, resumable, and cut like the crop."""
 
+import json
 from dataclasses import replace
 
 import cv2
@@ -96,8 +97,14 @@ def test_the_worker_resumes_where_it_was_killed(tmp_path, monkeypatch):
     assert again["frames"] == 0 and again["already"] == 1, "the finished row is not redone"
 
 
-def test_an_alpha_over_most_of_the_board_is_dropped(tmp_path, monkeypatch):
-    """A matte covering the board is a light change, not an arm — ply 55 covered 97 %."""
+def test_an_alpha_over_most_of_the_board_is_kept_and_says_how_big_it_is(tmp_path, monkeypatch):
+    """Was SAM findet, wird geglaubt (Nutzer, 2026-09-16) — `MAX_ZONE_FRAC = 0.60` ist weg.
+
+    ACHTUNG, das ist der Preis: der frueher hier gepinnte Fall war ECHT — auf Ply 55 deckte eine
+    Maske 97 % des Bretts und war eine LICHTAENDERUNG, kein Arm. Diese Zeile bekommt jetzt ihr
+    Alpha und eine `coverage` nahe 1, und der Occlusion-Verlust maskiert damit fast das ganze
+    Brett aus dem Klassifikationsverlust. `zone` steht in der Zeile, damit es auffindbar bleibt.
+    """
     pad = crop_border_px(_profile())
     sdir = _session(tmp_path, monkeypatch, _dirty_rows(pad))
     monkeypatch.setattr(matte, "alpha_sam3", lambda b: (np.ones(b.shape[:2], np.float32), {}))
@@ -105,9 +112,10 @@ def test_an_alpha_over_most_of_the_board_is_dropped(tmp_path, monkeypatch):
 
     res = matte.alpha_worker("s1", progress=False)
 
-    assert res["alphas"] == 0
-    assert res["skipped"] == {"zone too big": 1}
-    assert not (sdir / "mattes" / "000001.webp").exists()
+    assert res["alphas"] == 1 and res["skipped"] == {}
+    assert (sdir / "mattes" / "000001.webp").exists()
+    row = json.loads((sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()[0])
+    assert row["zone"] > 0.9, f"die Groesse muss in der Zeile stehen: {row.get('zone')}"
 
 
 def test_the_alpha_survives_the_webp_roundtrip(tmp_path):

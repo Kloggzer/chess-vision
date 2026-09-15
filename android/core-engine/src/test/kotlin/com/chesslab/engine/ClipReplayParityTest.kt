@@ -84,7 +84,7 @@ private class ReplayResult(
     val divergences: List<Divergence>,
 )
 
-/** `_VirtualClock`'s epoch (`scripts/emit_parity_fixtures.py:55`). */
+/** `_VirtualClock`'s epoch (`scripts/emit_parity_fixtures.py`). */
 private const val VCLOCK_START = 1_700_000_000.0
 
 private const val MS_PER_S = 1000.0
@@ -99,7 +99,7 @@ private fun replay(clip: ParityClip): ReplayResult {
     // Parity with the Python tracker, which had no commit hold.
     val engine = TrackerEngine(meta.effectiveConfig.toTrackerConfig().copy(commitHoldS = null), meta.startFen ?: API_STARTPOS)
     // The emitter constructs the tracker and then calls `reset_to_start(start_fen)`
-    // (`emit_parity_fixtures.py:266`), which is what puts "Reference set" on frame 0.
+    // (`emit_parity_fixtures.py`), which is what puts "Reference set" on frame 0.
     engine.setFen(meta.startFen ?: API_STARTPOS)
     val promotionPiece = meta.movesUci.firstOrNull { it.length == PROMO_UCI_LENGTH }?.get(PROMO_UCI_LENGTH - 1) ?: 'q'
     val divergences = mutableListOf<Divergence>()
@@ -142,7 +142,7 @@ private fun frameInput(
         corners = FROZEN_CORNERS,
         motionRoiScore = frame.motionRoiScore,
         // The clips run with `min_grid_line_coverage = 0.0`, so the gate is off and the coverage
-        // value is never read (`_occluded_by_grid`, `tracker.py:1319-1321`).
+        // value is never read (`_occluded_by_grid`, `tracker.py`).
         gridLineCoverage = 1.0,
         lumaPreClahe = frame.lumaPreClahe,
         timestampMs = Math.round(clock * MS_PER_S),

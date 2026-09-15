@@ -148,6 +148,34 @@ class AlignmentMarkerPrepassTest {
         assertEquals((0L until TOTAL_FRAMES).filter { it % SELECT_EVERY == 0L }, kept)
     }
 
+    /**
+     * Without a `try/finally` a throwing worker flew past `executor.shutdown()` and
+     * `detectors.forEach(::close)`, leaving the pool's non-daemon threads and the native ArUco
+     * detectors standing. `ParallelVisualPrepass` has always done this right.
+     */
+    @Test
+    fun `a failing worker still takes the pool down with it`() {
+        val video = twoSegmentRecording()
+        val before = poolThreads()
+
+        assertThrows(Exception::class.java) {
+            AlignmentMarkerPrepass.build(video, 0, 1, ALIGN_EVERY, 1.0, "DICT_NOT_A_DICTIONARY")
+        }
+
+        val deadline = System.nanoTime() + SHUTDOWN_WAIT_MS * 1_000_000L
+        while (System.nanoTime() < deadline && (poolThreads() - before).isNotEmpty()) Thread.sleep(SHUTDOWN_POLL_MS)
+        assertEquals(emptySet<String>(), poolThreads() - before, "the worker pool outlived the failure")
+    }
+
+    /** `Executors.newFixedThreadPool` names its non-daemon threads `pool-N-thread-M`. */
+    private fun poolThreads(): Set<String> =
+        Thread
+            .getAllStackTraces()
+            .keys
+            .filter { it.isAlive && it.name.startsWith("pool-") }
+            .map { it.name }
+            .toSet()
+
     @Test
     fun `a frame the run never aligns on is not invented`() {
         val video = twoSegmentRecording()
@@ -285,3 +313,5 @@ private const val MARKER_PX = 96
 private const val MARKER_INSET = 72
 private const val BGR_CHANNELS = 3
 private const val WHITE = 255.0
+private const val SHUTDOWN_WAIT_MS = 5_000L
+private const val SHUTDOWN_POLL_MS = 20L

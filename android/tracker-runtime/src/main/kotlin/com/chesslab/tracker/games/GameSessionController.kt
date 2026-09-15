@@ -90,7 +90,7 @@ class GameSessionController(
             is TrackerEvent.SequenceCommitted ->
                 onCommitted(event.ucis, event.sans, event.fenAfter, status, event.decider, priorUsed = false)
             // The tracker's own proof that nothing is moving — Python flushes the deferred session
-            // photo here, but ONLY with an empty occlusion set (`tracker.py:3085`). A re-anchor is
+            // photo here, but ONLY with an empty occlusion set (`tracker.py`). A re-anchor is
             // emitted unconditionally (`TrackerEngine.kt:414`), so the check belongs here: without
             // it the photo is taken with a hand still over the board.
             is TrackerEvent.ReAnchored -> if (isClean(status)) capture.flush()
@@ -234,7 +234,7 @@ class GameSessionController(
      * exactly the failure the geometry gate exists to prevent.
      *
      * Python reaches the same end without a gate of its own: while alarmed it blocks every commit
-     * AND every re-anchor (`tracker.py:3105`), and those two are the only things that drive the
+     * AND every re-anchor (`tracker.py`), and those two are the only things that drive the
      * recorder. `TrackerEngine.kt:406` blocks re-anchor identically. But that leaves this consumer
      * depending on an engine internal it cannot see; naming the condition here makes the guarantee
      * local, and it costs nothing while the engine keeps its half of the bargain.

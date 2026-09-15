@@ -5,7 +5,7 @@ import com.chesslab.geometry.margins4
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-// The Android counterpart of `calibration.py:72 CalibrationProfile` — geometry CONFIG, never a
+// The Android counterpart of `calibration.py CalibrationProfile` — geometry CONFIG, never a
 // stored position. Corners are `[a8, h8, h1, a1]` in SOURCE pixels (entry.md invariant 11).
 //
 // There is deliberately no `forResolution()`/rescale: a7dab73 deleted it because scaling a stored
@@ -29,7 +29,7 @@ private const val CORNER_FLOATS: Int = 8
 /** Where the crop defaults come from — each number exists in exactly one place, its declaration. */
 private val DEFAULT_GEOMETRY = BoardGeometry()
 
-/** `config.CROP` (config.py:40-65). */
+/** `config.CROP` (config.py). */
 @Serializable
 data class CropParams(
     /**

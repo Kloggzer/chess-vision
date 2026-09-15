@@ -55,6 +55,28 @@ class GameViewTest {
         assertEquals("e4", shifted[0].black?.san)
     }
 
+    /**
+     * `PgnBuilder` numbers from field 5 of the start FEN. The score sheet started at 1 regardless,
+     * so an adopted position read `1...` on the screen and `12...` in the exported PGN.
+     */
+    @Test
+    fun theScoreSheetNumbersFromTheStartFen() {
+        val plies = listOf(ReviewPly(1, "e5", "e7e5", "", null), ReviewPly(2, "Nf3", "g1f3", "", null))
+        val adopted = "rnbqkbnr/pppp1ppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 12"
+
+        val rows = moveRows(plies, startsWithBlack(adopted), startNumber(adopted))
+
+        assertEquals(12, rows[0].number)
+        assertEquals("e5", rows[0].black?.san)
+        assertEquals(13, rows[1].number)
+    }
+
+    @Test
+    fun anUnreadableStartFenStillNumbersFromOne() {
+        assertEquals(1, startNumber("not a fen"))
+        assertEquals(1, startNumber(STARTPOS))
+    }
+
     @Test
     fun sideToMoveIsReadFromTheFenAndAnUnreadableOneIsNotBlack() {
         assertFalse(startsWithBlack(STARTPOS))

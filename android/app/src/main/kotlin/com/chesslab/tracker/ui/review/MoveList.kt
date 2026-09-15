@@ -38,6 +38,7 @@ import com.chesslab.tracker.games.MoveRow
 import com.chesslab.tracker.games.ReviewPly
 import com.chesslab.tracker.games.SeamOrigin
 import com.chesslab.tracker.games.moveRows
+import com.chesslab.tracker.games.startNumber
 import com.chesslab.tracker.games.startsWithBlack
 import com.chesslab.tracker.ui.Figure
 import com.chesslab.tracker.ui.percent
@@ -98,9 +99,9 @@ fun MoveList(
     val listState = rememberLazyListState()
     val plyCount = game.plies.size
     LaunchedEffect(plyCount) {
-        // TODO: totalItemsCount is one PAST the last index, and it is read from layoutInfo that is
-        // still empty on the first composition — so the newest move is not reliably scrolled to.
-        if (plyCount > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount)
+        // Off the ply count, not off `layoutInfo.totalItemsCount`: that is one PAST the last index
+        // and it reads empty on the first composition. The list clamps an index past its end.
+        if (plyCount > 0) listState.animateScrollToItem(plyCount)
     }
     Box(
         modifier
@@ -132,7 +133,7 @@ fun LazyListScope.moveListSection(
     game.segments.forEachIndexed { index, segment ->
         if (remainingRows == 0) return@forEachIndexed
         segment.enteredBy?.let { seam -> item(key = "seam-$index") { SeamRow(seam) } }
-        val rows = moveRows(segment.plies, startsWithBlack(segment.startFen))
+        val rows = moveRows(segment.plies, startsWithBlack(segment.startFen), startNumber(segment.startFen))
         val visibleRows = remainingRows?.let(rows::take) ?: rows
         segmentRows(index, visibleRows, grade, selected, onSelect)
         remainingRows = remainingRows?.let { (it - visibleRows.size).coerceAtLeast(0) }

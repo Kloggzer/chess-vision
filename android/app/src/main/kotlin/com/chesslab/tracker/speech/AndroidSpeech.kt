@@ -9,6 +9,37 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Exactly one utterance held back until `TextToSpeech` reports its init.
+ *
+ * The flag is written on the main thread and read from `Dispatchers.Default`, and it has to flip
+ * TOGETHER with the held call — between them the utterance is stored by one thread and never seen
+ * by the other, and that utterance is the first move of the session.
+ */
+internal class DeferredSpeech {
+    private var readyFlag = false
+    private var deferred: (() -> Unit)? = null
+
+    val isReady: Boolean
+        @Synchronized get() = readyFlag
+
+    /** `true` = say it now; `false` = [say] is held until [ready]. */
+    @Synchronized
+    fun submit(say: () -> Unit): Boolean {
+        if (readyFlag) return true
+        deferred = say
+        return false
+    }
+
+    /** Init reported: what was held, exactly once. */
+    @Synchronized
+    fun ready(): (() -> Unit)? {
+        readyFlag = true
+        return deferred.also { deferred = null }
+    }
+}
 
 /**
  * The one place `TextToSpeech` is touched.
@@ -31,21 +62,17 @@ class AndroidTts(
 ) : Tts {
     private val callbacks = ConcurrentHashMap<String, () -> Unit>()
     private val queuedAtMs = ConcurrentHashMap<String, Long>()
-    private var counter = 0L
+    private val counter = AtomicLong()
+    private val gate = DeferredSpeech()
 
-    // TODO: written by the TextToSpeech init callback (main thread) and read from the announcer's
-    // Dispatchers.Default thread with no synchronisation — a stale `ready` drops the first move.
-    private var ready = false
-    private var deferred: (() -> Unit)? = null
+    @Volatile
     private var language = Locale.US.toLanguageTag()
 
     private val tts =
         TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
-                ready = true
                 applyLanguage()
-                deferred?.invoke()
-                deferred = null
+                gate.ready()?.invoke()
             } else {
                 onState(SpeechState.Failed("TextToSpeech init failed ($status)"))
             }
@@ -81,7 +108,7 @@ class AndroidTts(
 
     override fun setLanguage(tag: String): SpeechState {
         language = tag
-        return if (ready) applyLanguage() else SpeechState.Uninitialised
+        return if (gate.isReady) applyLanguage() else SpeechState.Uninitialised
     }
 
     override fun speak(
@@ -89,11 +116,8 @@ class AndroidTts(
         flush: Boolean,
         onDone: () -> Unit,
     ) {
-        if (!ready) {
-            deferred = { speak(text, flush, onDone) }
-            return
-        }
-        val id = "u${counter++}"
+        if (!gate.submit { speak(text, flush, onDone) }) return
+        val id = "u${counter.getAndIncrement()}"
         callbacks[id] = onDone
         queuedAtMs[id] = System.currentTimeMillis()
         val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD

@@ -117,16 +117,22 @@ data class MoveRow(
 /**
  * Pair the plies into numbered rows. [startsWithBlack] covers a game adopted mid-position
  * (`setFen`), where the first tracked ply belongs to Black.
+ *
+ * [startNumber] is that position's own full-move number ([startNumber]): rows that always began at
+ * 1 put the same half-move on the sheet as `1...` and in the exported PGN as `12...`.
  */
 fun moveRows(
     plies: List<ReviewPly>,
     startsWithBlack: Boolean = false,
+    startNumber: Int = 1,
 ): List<MoveRow> {
     val slots = if (startsWithBlack) listOf<ReviewPly?>(null) + plies else plies
-    // TODO: Faengt immer bei 1 an, waehrend `PgnBuilder` die Zugnummer aus Feld 5 der Start-FEN
-    // liest. Eine uebernommene Stellung (oder jedes Segment hinter einer Naht) steht damit auf dem
-    // Blatt als `1...` und im exportierten PGN als `12...` — dieselbe Halbzug, zwei Nummern.
     return slots.chunked(2).mapIndexed { index, pair ->
-        MoveRow(number = index + 1, white = pair.getOrNull(0), black = pair.getOrNull(1))
+        MoveRow(number = startNumber + index, white = pair.getOrNull(0), black = pair.getOrNull(1))
     }
 }
+
+/** The full-move number a position starts on — FEN field 5, the same one `PgnBuilder` reads. */
+fun startNumber(fen: String): Int = fen.split(" ").getOrNull(FEN_FULLMOVE)?.toIntOrNull() ?: 1
+
+private const val FEN_FULLMOVE = 5

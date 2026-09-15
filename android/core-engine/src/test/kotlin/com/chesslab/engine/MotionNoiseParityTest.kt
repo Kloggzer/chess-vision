@@ -35,9 +35,9 @@ private class BaselineCounts {
 
 class MotionNoiseParityTest {
     /**
-     * `motion_score` (`tracker.py:358`) over EVERY emitted frame of all 18 clips.
+     * `motion_score` (`tracker.py`) over EVERY emitted frame of all 18 clips.
      *
-     * `tierB.motionScore` is `max(motion_score(prevGray, curGray), motionRoi)` (`tracker.py:1603`),
+     * `tierB.motionScore` is `max(motion_score(prevGray, curGray), motionRoi)` (`tracker.py`),
      * and the fixture stream *is* the input stream, so `prevGray` is the previously emitted frame's
      * gray plane (the first frame diffs against itself -> 0.0).
      */
@@ -80,7 +80,7 @@ class MotionNoiseParityTest {
      *
      * `censusNoiseZ == null` marks the frames where `_compute_evidence`'s channel-local guard
      * dropped the census channel and learned the disturbance with FULL alpha and no exclusion
-     * (`tracker.py:3120-3127`) — 3 frames over the 18 clips.
+     * (`tracker.py`) — 3 frames over the 18 clips.
      */
     @Test
     fun squareNoiseTraceMatchesPython() {
@@ -124,11 +124,11 @@ class MotionNoiseParityTest {
     }
 
     /**
-     * `_baseline_occlusion_and_shadow` (`tracker.py:386`) on every frame that carries a
+     * `_baseline_occlusion_and_shadow` (`tracker.py`) on every frame that carries a
      * `baselineOcclusion` block — the hand-over-the-board frames, which is where the classifier and
      * the chroma-outlier branch actually fire.
      *
-     * The block is computed on the RAW current frame against `self.ref_gray` (`tracker.py:1612`),
+     * The block is computed on the RAW current frame against `self.ref_gray` (`tracker.py`),
      * so the reference has to be recovered: `_set_ref` only ever runs inside `_try_detect` (a
      * tier-A frame) or at the very first baseline capture, which precedes every block. Therefore
      * the reference in force at a block frame is exactly `tierA.refFrames` of the **next** tier-A

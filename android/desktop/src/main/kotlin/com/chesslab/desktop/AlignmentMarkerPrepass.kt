@@ -38,44 +38,46 @@ internal class AlignmentMarkerPrepass private constructor(
             var submitted = 0
             var received = 0
             val elapsed =
-                measureNanoTime {
-                    val selector = PublishedFrameSelector(skipDecoded, stride)
-                    // The WHOLE recording, exactly what the replay drives. Opened as a single
-                    // `VideoFileSource` this stopped at `video.mp4` and every replay of a
-                    // segmented recording died at the first swap: "marker prepass has no frame
-                    // 1596" on 2026-08-14, 265 detected frames for a 68 s video.
-                    openRecording(video, selector::keep).use { source ->
-                        while (true) {
-                            val frame = source.next() ?: break
-                            while (submitted - received >= workers * QUEUE_PER_WORKER) {
-                                accept(completed.take().get(), detected)
-                                received += 1
+                try {
+                    measureNanoTime {
+                        val selector = PublishedFrameSelector(skipDecoded, stride)
+                        // The WHOLE recording, exactly what the replay drives. Opened as a single
+                        // `VideoFileSource` this stopped at `video.mp4` and every replay of a
+                        // segmented recording died at the first swap: "marker prepass has no frame
+                        // 1596" on 2026-08-14, 265 detected frames for a 68 s video.
+                        openRecording(video, selector::keep).use { source ->
+                            while (true) {
+                                val frame = source.next() ?: break
+                                while (submitted - received >= workers * QUEUE_PER_WORKER) {
+                                    accept(completed.take().get(), detected)
+                                    received += 1
+                                }
+                                val relative = source.currentDecodedIndex - skipDecoded
+                                val processed = relative / stride + 1
+                                val alignFrame = ((processed + alignEvery - 1) / alignEvery) * alignEvery
+                                submit(
+                                    completed,
+                                    detectorByThread,
+                                    frame.clone(),
+                                    alignFrame,
+                                    source.currentDecodedIndex,
+                                    detectScale,
+                                    dictionary,
+                                )
+                                submitted += 1
                             }
-                            val relative = source.currentDecodedIndex - skipDecoded
-                            val processed = relative / stride + 1
-                            val alignFrame = ((processed + alignEvery - 1) / alignEvery) * alignEvery
-                            submit(
-                                completed,
-                                detectorByThread,
-                                frame.clone(),
-                                alignFrame,
-                                source.currentDecodedIndex,
-                                detectScale,
-                                dictionary,
-                            )
-                            submitted += 1
+                        }
+                        while (received < submitted) {
+                            accept(completed.take().get(), detected)
+                            received += 1
                         }
                     }
-                    while (received < submitted) {
-                        accept(completed.take().get(), detected)
-                        received += 1
-                    }
+                } finally {
+                    // A worker that throws must not leave the pool's threads and the native ArUco
+                    // detectors standing — `ParallelVisualPrepass` closes the same way.
+                    executor.shutdown()
+                    detectors.forEach(BoardMarkerDetector::close)
                 }
-            // TODO: Ohne `try/finally` um den `measureNanoTime`-Block: wirft ein Worker, fliegt
-            //  die `ExecutionException` an beiden Zeilen vorbei und laesst Pool-Threads und die
-            //  nativen ArUco-Detektoren stehen. `ParallelVisualPrepass` macht es richtig.
-            executor.shutdown()
-            detectors.forEach(BoardMarkerDetector::close)
             println(
                 "alignment-prepass: ${detected.size} frames on $workers workers in " +
                     "${"%.1f".format(elapsed / NANOS_PER_SECOND)} s",

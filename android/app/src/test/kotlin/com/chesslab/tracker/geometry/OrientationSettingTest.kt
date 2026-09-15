@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test
  * 07a's `AppSettings.orientation`, which was persisted and read by nobody (STATUS D07a-11).
  *
  * It is written INTO the calibration profile rather than applied beside it, because only the
- * profile survives a recalibration (`ensure_profile`, calibration.py:222). A wrong a8 transposes
+ * profile survives a recalibration (`ensure_profile`, calibration.py). A wrong a8 transposes
  * every label of the session, silently — this is the invariant that class of bug is caught by.
  */
 class OrientationSettingTest {

@@ -9,7 +9,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-// Persistence + the ensure_profile carry-over rule (`calibration.py:222`, docstring:
+// Persistence + the ensure_profile carry-over rule (`calibration.py`, docstring:
 // "Silently falling back to the defaults here would reset a hand-set white_pov: false and
 // transpose every label of the next session").
 

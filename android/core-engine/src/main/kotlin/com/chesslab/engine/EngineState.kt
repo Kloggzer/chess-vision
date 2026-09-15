@@ -70,6 +70,7 @@ internal class EngineState(
         refFen = null
         refCorners = null
         refGamut = null
+        refProvisionalUntil = 0.0
         refCensus = null
         refCensusFor = null
         curCensus = null
@@ -139,12 +140,13 @@ internal class EngineState(
     /** The full motion hold; `holdUntil` may open detection earlier (`commitHoldS`). */
     var refHoldUntil: Double = 0.0
 
-    // TODO: Weder `clearReferenceState`, noch `discardVisualReference`, noch `adoptPosition`
-    // setzen das zurueck, obwohl alle drei `refGray`/`refFen` raeumen. Nach einem fruehen Commit
-    // ueberlebt die Marke eine neue Grundlinie und laesst den naechsten ruhigen Frame die eben
-    // gesetzte Referenz als Commit-Referenz ueberschreiben (ohne `markGamutStale`, Invariante 6).
-
-    /** > 0: the reference came from an early commit and is re-captured at this time. */
+    /**
+     * > 0: the reference came from an early commit and is re-captured at this time.
+     *
+     * Cleared with the reference itself — it outlived every path that drops `refGray`/`refFen`, and
+     * the next quiet frame then overwrote the freshly asked-for baseline through
+     * `setRef(fromCommit = true)`, skipping `markGamutStale` (invariant 6).
+     */
     var refProvisionalUntil: Double = 0.0
 
     /**

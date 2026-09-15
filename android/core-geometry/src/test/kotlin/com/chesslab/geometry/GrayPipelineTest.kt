@@ -12,7 +12,7 @@ import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
-/** Tier C — port check for `tracker.py:1008 _gray` (CLAHE BEFORE the blur, handle cached). */
+/** Tier C — port check for `tracker.py _gray` (CLAHE BEFORE the blur, handle cached). */
 @EnabledIf("com.chesslab.geometry.testutil.OpenCvNatives#available")
 class GrayPipelineTest {
     private fun bytes(mat: Mat): ByteArray {

@@ -7,7 +7,7 @@ data class CnnConfig(
     val confThr: Double = 0.85,
     val minAgreement: Double = 0.97,
     // Margin in SQUARES, not a fraction: a capture differs from a non-capture at the
-    // occupancy level by exactly ONE square (cnn_recovery.py:134-138). 1 == "strictly
+    // occupancy level by exactly ONE square (cnn_recovery.py). 1 == "strictly
     // better is enough"; a 0-square difference (promotion variants) yields NO answer.
     val marginSquares: Int = 1,
     // What one extra HALF-MOVE costs the deep search, in explained squares. Length used to be
@@ -29,7 +29,7 @@ data class CnnConfig(
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
     val recoveryMaxPlies: Int = 4,
-    // cnn_recovery.py:286 derive_moves_deep(beam=8)
+    // cnn_recovery.py derive_moves_deep(beam=8)
     val beam: Int = 8,
     /**
      * Search on COLOUR (empty / white / black) instead of the exact piece type.
