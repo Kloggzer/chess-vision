@@ -56,15 +56,6 @@ Die anderen 22 sind vollständig. Beide sind winzig — Testexporte? Nachscannen
 liefen. Nachgeprüft: die Einzelverben wurden von Hand gefahren, die Daten sind bis auf diese
 zwei vollständig. Seit 2026-09-14 laufen die Sweeps richtig.)
 
-## 5. Testabdeckung: gemessen, aber ohne Konsequenz
-
-Erstmals am 2026-09-14 gemessen: Python 67,1 %, Kotlin 64,7 % ohne `:app`, Web `lib/` 73,9 %,
-die Web-Routen 18,6 %, die UI-Seiten 0 %.
-
-**Die Frage:** soll daraus ein Tor werden (eine Zahl, die nur steigen darf), oder bleibt es eine
-Momentaufnahme? Mein Eindruck nach diesem Tag: die Höhe sagt wenig — `core-engine` stand bei
-92 % und trug trotzdem vier Stellungs-Fehler. Ein Tor auf die ROUTEN (18,6 %) wäre gezielter.
-
 ## 6. Die Kommentar-Ratsche steht bei 8, das Ziel ist 3
 
 `CommentBudgetTest` feuert erst ab 8 aufeinanderfolgenden Kommentarzeilen; CLAUDE.md nennt 3 als

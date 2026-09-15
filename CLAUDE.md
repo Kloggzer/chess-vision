@@ -203,6 +203,13 @@
   `realgames position-flags` have anything to lay out. Without a measurement a cell is not
   undisputed, it is unmeasured, and the lane says `—` rather than `0`.
 - **Android:** `gradlew.bat :app:ktlintCheck ...` (check all modules!). Emulator via `scripts/android-emulator.ps1` (never use `installEmulator` due to shared devices).
+- **Routen-Ratsche (2026-09-16):** `platform/app/route-coverage.txt` listet jede API-Route ohne
+  Test und darf nur schrumpfen — `lib/route-coverage.test.ts` schlaegt an, wenn eine neue
+  ungetestete Route dazukommt, wenn eine getestete ihren Test verliert, oder wenn eine Zeile auf
+  eine Route zeigt, die es nicht mehr gibt. Ein Test zaehlt, wenn er `@/app/<pfad>/route`
+  importiert. Bewusst die ROUTEN und nicht die Gesamtabdeckung: die Hoehe sagt wenig
+  (`core-engine` stand bei 92 % und trug vier Stellungs-Fehler), die Routen sind die duennste
+  Stelle und tragen den Handy-Weg. Stand: 18 von 29 ohne Test.
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement currently fires at **8** consecutive comment lines, target is 3. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
