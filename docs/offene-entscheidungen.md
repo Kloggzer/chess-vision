@@ -29,9 +29,11 @@ indem man einen Satz zweimal exportiert und vergleicht.
 
 ## 3. Der Regressionssatz ist blind für die häufigste Fehlerklasse
 
-Dreimal am 2026-09-14 gefahren — vor den Engine-Fixes, nach dem Gate-Wechsel, nach Welle fünf.
-Jedes Mal **385 / 14 / 1 / 167 und 6 Alarme**, Ziffer für Ziffer. Er beweist damit zuverlässig,
-dass nichts kaputtgeht, und das ist sein Zweck.
+Viermal gefahren — dreimal am 2026-09-14 (vor den Engine-Fixes, nach dem Gate-Wechsel, nach
+Welle fünf) und einmal am 2026-09-15 nach der letzten Bug-Runde, die `isClean`, `NoiseFloor`,
+`Preprocess`, `Observations` und `Reading` angefasst hat. **Jedes Mal 385 / 14 / 1 / 167 und
+6 Alarme**, Ziffer für Ziffer. Er beweist damit zuverlässig, dass nichts kaputtgeht, und das ist
+sein Zweck.
 
 Aber: **vier Stellungs-Lücken** wurden an dem Tag gefunden (Evidenz aus einer fremden Stellung),
 und **keine einzige** bewegt den Satz. Auch das Gate von 0,5 auf 0,25 bewegt ihn nicht, obwohl es
