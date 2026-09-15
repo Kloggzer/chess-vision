@@ -60,7 +60,7 @@ test("a second press is refused while a job runs — never queued behind it", as
 test("with the slot free the step is enqueued as before", async () => {
   await startStep("VID_20260726_233432", "matte");
 
-  expect(fake.enqueue).toHaveBeenCalledWith("VID_20260726_233432", "matte");
+  expect(fake.enqueue).toHaveBeenCalledWith("VID_20260726_233432", "matte", []);
 });
 
 test("label is admitted while the disk says phone-record, and claims the lock as label", async () => {

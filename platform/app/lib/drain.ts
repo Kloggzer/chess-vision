@@ -44,14 +44,30 @@ async function cachedBacklog(): Promise<Backlog> {
   return freshBacklog();
 }
 
+/** SAM zu laden kostet 7-9 min, die Arbeit danach Sekunden je Frame (gemessen 2026-09-15) —
+ *  also faehrt der ganze Stapel in EINEM Prozess. Jeder andere Schritt bleibt einzeln: er haelt
+ *  den Heavy-Slot kuerzer, und Stopp trifft dann genau eine Aufnahme. */
+const BATCHED: JobStep = "matte";
+
+/** Die Aufnahmen aus [rest], die denselben Matte-Modus haben wie [first]. */
+async function sameMattePass(first: string, rest: string[]): Promise<string[]> {
+  const mode = new Map((await queueRows()).map((row) => [row.name, row.chain.mattes.reportedOpen > 0]));
+  const wanted = mode.get(first);
+  return rest.filter((row) => mode.get(row) === wanted);
+}
+
 // Null = nothing left to take: the backlog is empty, or Stopp was pressed since the last one.
 async function drainNext(drain: Drain): Promise<{ started: string } | { error: string } | null> {
   if (drain.stopped) return null;
-  const name = (await freshBacklog()).waiting[drain.step].find((row) => !drain.started.has(row));
+  const open = (await freshBacklog()).waiting[drain.step].filter((row) => !drain.started.has(row));
+  const [name, ...rest] = open;
   if (name === undefined) return null;
-  const started = await startStep(name, drain.step);
+  // Nur Aufnahmen im SELBEN Modus: `runChesslab` waehlt `--reported` oder `--limit` einmal fuer
+  // den Prozess, also duerfen nicht beide Sorten mitreisen (`mattes.reportedOpen`).
+  const also = drain.step === BATCHED ? await sameMattePass(name, rest) : [];
+  const started = await startStep(name, drain.step, undefined, also);
   if (refused(started)) return { error: `${name}: ${started.error}` };
-  drain.started.add(name);
+  for (const row of [name, ...also]) drain.started.add(row);
   engine.snapshot = null;
   return { started: name };
 }

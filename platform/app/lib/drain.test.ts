@@ -65,14 +65,16 @@ beforeEach(async () => {
   fake.stop.mockResolvedValue({ error: "kein Prozess läuft" });
 });
 
+// Auf `export` und nicht auf `matte`: hier ist die SCHLEIFE das Thema, und das Matten faehrt
+// seit 2026-09-15 als ein Prozess (`drain-batch.bughunt.test.ts`).
 test("a press drains the whole step, oldest recording first — and nothing else", async () => {
-  fake.rows = [row("2026-08-14-09-23-19", "matte"), row("VID_20260726_233432", "matte"), row("2026-08-13-12-46-24", "model-read")];
+  fake.rows = [row("2026-08-14-09-23-19", "export"), row("VID_20260726_233432", "export"), row("2026-08-13-12-46-24", "model-read")];
 
-  expect(await startDrain("matte")).toEqual({ started: "VID_20260726_233432" });
+  expect(await startDrain("export")).toEqual({ started: "VID_20260726_233432" });
   await idle();
-  expect(fake.start.mock.calls).toEqual([
-    ["VID_20260726_233432", "matte"],
-    ["2026-08-14-09-23-19", "matte"],
+  expect(fake.start.mock.calls.map((call: unknown[]) => [call[0], call[1]])).toEqual([
+    ["VID_20260726_233432", "export"],
+    ["2026-08-14-09-23-19", "export"],
   ]);
 });
 

@@ -57,6 +57,10 @@ export type Job = {
   /** Wall clock before which the picker must not start this step — the boundary commit's undo
    *  window (§4.1.1). Additive, declared in the §9.1 register; nothing in Python reads this file. */
   notBefore?: string;
+  /** Weitere Aufnahmen, die IM SELBEN Prozess laufen. Nur beim Matten: SAM zu laden kostet
+   *  7-9 min und die Arbeit danach Sekunden je Frame (gemessen 2026-09-15). Der Log nennt jede
+   *  Aufnahme einzeln (`alpha_worker_all`), Stopp killt wie sonst auch den ganzen Prozess. */
+  also?: string[];
 };
 
 /** The process in the slot right now — held so Stopp can kill it, not just decline the next. */
@@ -762,11 +766,14 @@ spawn failed: ${error.message}
 export async function enqueueChain(
   name: string,
   step: "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read",
+  also: string[] = [],
 ): Promise<Job> {
   checkName(name, "game name");
+  for (const row of also) checkName(row, "game name");
   const known = queue.jobs.get(name);
   if (known && (known.state === "queued" || known.state === "running")) return known;
-  const job: Job = { name, kind: step, state: "queued", queuedAt: new Date().toISOString() };
+  const job: Job = { name, kind: step, state: "queued", queuedAt: new Date().toISOString(),
+                     ...(also.length ? { also } : {}) };
   queue.jobs.set(name, job);
   queue.running = queue.running.then(() => guard(job, () => runChesslab(job, step))).then(releaseWhenIdle);
   return job;
@@ -906,7 +913,9 @@ async function runChesslab(
     : step === "temporal" ? "session temporal-pass" : "realgames model-read";
   const binary = uvBinary();
   // `session` verbs take the SESSION id, and a recording keeps the `rg-` the directory dropped.
-  const args = ["run", "chesslab", ...verb.split(" "), step === "settle-scan" ? `rg-${job.name}` : job.name];
+  const names = [job.name, ...(job.also ?? [])];
+  const args = ["run", "chesslab", ...verb.split(" "),
+                ...(step === "settle-scan" ? [`rg-${job.name}`] : names)];
   const run = modelReadRun();
   if (step === "model-read" && run) args.push("--model", run);
   // The same target the overnight `--all` is given, counted against the rows already there: one
@@ -914,8 +923,11 @@ async function runChesslab(
   // `--reported` nimmt genau die gemeldeten Frames und ignoriert Stapel wie `--limit`: ein
   // `stale`-Frame, auf dem ein Mensch Finger gesehen hat, ist sonst unerreichbar.
   if (step === "matte") {
+    // `reportedOpen`, nicht `reported`: eine Meldung auf einen Frame, den dieser Export nicht mehr
+    // fuehrt, ist unerreichbar. Auf `reported` gestuetzt liefe `--reported` ins Leere und die
+    // Aufnahme bekaeme ihren Stapel nie.
     const census = await matteCensus(job.name);
-    if (census.reported > 0) args.push("--reported");
+    if (census.reportedOpen > 0) args.push("--reported");
     else args.push("--limit", String(matteTarget()));
   }
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);

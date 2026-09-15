@@ -6,7 +6,8 @@ import { enqueueChain, enqueueLabel, enqueuePhoneRecord, modelReadRun, runningJo
 
 export type StepRefusal = { error: string; state: ChainState; status: 400 | 409 };
 
-export async function startStep(name: string, step: string, lens?: boolean): Promise<Job | StepRefusal> {
+export async function startStep(name: string, step: string, lens?: boolean,
+                               also: string[] = []): Promise<Job | StepRefusal> {
   const state = await chainState(name);
   // The flag is the whole reason there is no step; running one anyway would be the one thing the
   // user asked it to prevent.
@@ -42,7 +43,7 @@ export async function startStep(name: string, step: string, lens?: boolean): Pro
   try {
     if (requested === "label") return await enqueueLabel(name, lens);
     if (requested === "phone-record") return await enqueuePhoneRecord(name);
-    return await enqueueChain(name, requested);
+    return await enqueueChain(name, requested, also);
   } catch (error) {
     // Nothing was queued, so nothing will ever release it — the lock has to go back now.
     await releaseHeavyLock().catch(() => undefined);

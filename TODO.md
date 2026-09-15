@@ -101,17 +101,14 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 
 ## Daten / Training / Labeling
 
-- **SAM einmal laden, nicht je Aufnahme (beobachtet 2026-09-15, Nutzer):** der `--all`-Pfad
-  `matte.alpha_worker_all` haelt die Gewichte fuer den ganzen Lauf resident, nimmt aber nur
-  `limit` und `reason` — **nicht `frames`/`--reported`**. Der `--reported`-Zweig liegt
-  ausschliesslich im Einzelsession-Pfad (`cli.py:1686`), und die Kette startet ohnehin einen
-  Prozess je Aufnahme (`jobs.ts::runChesslab`). Gemessen an zwei Laeufen auf
-  `2026-08-30-14-33-02`: **7-9 min Laden**, danach 9 Frames in 54 s und 15 in 50 s. Fuer die
-  186 gemeldeten Frames ueber 14 Aufnahmen sind das **~2 h Laden fuer ~12 min Arbeit**.
-  Zu tun: `alpha_worker_all` um `frames`/`reported` erweitern und der Kette einen Stapel-Job
-  geben, der mehrere Aufnahmen in EINEM Prozess abarbeitet.
-
-
+- **SAM einmal laden, nicht je Aufnahme — ERLEDIGT 2026-09-15.** Der Drain startete je
+  Aufnahme einen Prozess, jeder lud SAM neu: gemessen 7-9 min Laden gegen 54 s Arbeit, also
+  ~2 h Laden fuer ~12 min Arbeit bei 186 Frames ueber 14 Aufnahmen. Jetzt nimmt
+  `alpha-worker` eine Namensliste, `alpha_worker_all` loest `--reported`/`--wanted`/
+  `--temporal` je Aufnahme auf, und der Drain buendelt den Matte-Schritt (`drain.ts`,
+  `BATCHED`) — aber nur Aufnahmen im selben Modus, weil `--reported` und `--limit` einmal
+  je Prozess gewaehlt werden. Jeder andere Schritt bleibt einzeln: kuerzerer Heavy-Slot,
+  und Stopp trifft genau eine Aufnahme.
 - **Export-Marge gegen die Commit-Verzögerung (gemessen 2026-09-06):** der physische Zug liegt im
   Median 65 Frames (2,2 s), p90 167 Frames vor dem Commit, die Ruhe-Marge deckt 30 Frames. 79 von
   ~500 Plies tragen so „saubere" Frames mit alter Stellung; die Zellprüfung (`settle_left`,
