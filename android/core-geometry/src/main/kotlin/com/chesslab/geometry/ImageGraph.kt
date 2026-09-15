@@ -153,28 +153,6 @@ class BoardWarpNode(
     }
 }
 
-// TODO: kein einziger Aufrufer im ganzen Repo, Tests eingeschlossen — der Crop-Warp laeuft
-// woanders. Entweder anschliessen oder loeschen.
-
-/** Der bordierte Vollauflösungs-Warp — `warpBoardForCrops`, ebenfalls selbst gespannt. */
-class CropWarpNode : ImageNode(WorkOperation.CROP_WARP, mixKey(2)) {
-    override fun shape(
-        scope: FrameScope,
-        input: Mat?,
-    ): MatShape {
-        val side = scope.geom.boardSize + 2 * cropBorderPx(scope.geom)
-        return MatShape(side, side, scope.source.type())
-    }
-
-    override fun compute(
-        scope: FrameScope,
-        input: Mat?,
-        out: Mat,
-    ) {
-        warpBoardForCrops(scope.source, scope.geom, scope.corners, out, scope.homographies)
-    }
-}
-
 class ToGrayNode(
     source: ImageNode,
 ) : ImageNode(WorkOperation.LUMA_GRAY, mixKey(3, source.key), source) {
