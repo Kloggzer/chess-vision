@@ -178,8 +178,10 @@ internal fun labelPlies(candidate: File): List<ScoredPly> {
     val fromCandidate = candidatePlies(candidate)
     val pgn = File(candidate.parentFile, "reference.pgn")
     if (!pgn.isFile) return fromCandidate
+    // Eine vorhandene, aber unlesbare Referenz ist NICHT "keine Referenz": der Rueckfall benotet
+    // den Tracker gegen seine eigene Ausgabe und meldet dann found = alles.
     val sans = runCatching { pgnSans(pgn.readText()) }.getOrDefault(emptyList())
-    if (sans.isEmpty()) return fromCandidate
+    check(sans.isNotEmpty()) { "$pgn liegt da, ergibt aber keinen Zug — Referenz reparieren oder entfernen" }
     return sans.mapIndexed { i, san ->
         val same = fromCandidate.getOrNull(i)?.takeIf { it.san == san }
         ScoredPly(san, same?.frame ?: -1, same?.decider ?: "reference")

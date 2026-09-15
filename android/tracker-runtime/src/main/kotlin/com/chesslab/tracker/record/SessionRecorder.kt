@@ -129,10 +129,17 @@ class SessionRecorder(
             dest.delete()
             return null
         }
-        bytes += written
+        // Die Logzeile IST der Commit: geht sie nicht durch, ist das JPEG derselbe verwaiste
+        // Frame, den der Guard oben verhindert — nur zaehlte ihn `count`/`bytes` schon mit.
         val entry = LogEntry(rel, ply, fen, now(), moveSan, cornerPairs(corners))
+        val logged =
+            runCatching { logFile.appendText(JSON.encodeToString(LogEntry.serializer(), entry) + "\n") }.isSuccess
+        if (!logged) {
+            dest.delete()
+            return null
+        }
+        bytes += written
         entries += entry
-        logFile.appendText(JSON.encodeToString(LogEntry.serializer(), entry) + "\n")
         return rel
     }
 

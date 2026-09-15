@@ -26,10 +26,20 @@ class GameStore(
     private val indexFile get() = File(root, INDEX)
 
     /** Newest first. Unreadable index = empty library, never a crash on the games screen. */
-    fun list(): List<GameSummary> =
+    fun list(): List<GameSummary> = rows().sortedByDescending { it.startedAtEpochMs }
+
+    /**
+     * Die Zeilen des Index — und wo der nicht zu lesen ist, aus den Spielen selbst.
+     *
+     * Nur auf diesem Pfad wird ein Spiel geoeffnet, denn `save` und `delete` schreiben den Index
+     * aus DIESER Liste neu: aus einer fehlgeschlagenen Lesung heraus haetten sie jedes bestehende
+     * `<id>.json` verwaist, was das KDoc oben ausdruecklich ausschliesst.
+     */
+    private fun rows(): List<GameSummary> =
         runCatching { JSON.decodeFromString(ListSerializer(GameSummary.serializer()), indexFile.readText()) }
-            .getOrDefault(emptyList())
-            .sortedByDescending { it.startedAtEpochMs }
+            .getOrNull()
+            ?: (root.listFiles { f -> f.isFile && f.name.endsWith(".json") && f.name != INDEX } ?: emptyArray())
+                .mapNotNull { f -> runCatching { decodeStoredGame(f.readText()).summary() }.getOrNull() }
 
     /**
      * One game, with the seams that CAN be closed already closed — and written back when any were.
