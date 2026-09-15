@@ -7,6 +7,7 @@
  * warp sharp lacks.
  */
 import { readFile, stat } from "node:fs/promises";
+import { LRUCache } from "lru-cache";
 import sharp from "sharp";
 import { alphaPath } from "@/lib/matte";
 import { boardPath, boardToStored, loadSession, type Session, sessionDir } from "@/lib/session";
@@ -15,24 +16,22 @@ import { type Mat3, type Raster, sampleBox, squareCropBox } from "@/lib/warp";
 
 /**
  * A decoded 1080p frame is 6 MB and its PNG costs ~0.25 s to inflate; a page of the bucket grid
- * asks for 60 crops out of ~22 frames AT ONCE. So: keep the last `CACHE_MAX` rasters, and share
- * the decode between the requests that are waiting for the same frame right now.
+ * asks for 60 crops out of ~22 frames AT ONCE. Gedeckelt wird nach BYTES, nicht nach Stueckzahl:
+ * eine feste Zahl von 24 hielt je nach Aufloesung 50 bis 600 MB fest, und der Rechner trainiert
+ * daneben — die Abstuerze hier waren Speicher, nicht GPU.
  */
-const CACHE_MAX = 24;
-const decoded = new Map<string, Raster>();
-const inFlight = new Map<string, Promise<Raster>>();
+const RASTER_BYTES_MAX = 256 * 1024 * 1024;
+const decoded = new LRUCache<string, Raster>({
+  maxSize: RASTER_BYTES_MAX,
+  sizeCalculation: (r) => r.data.byteLength,
+  // Buendelt gleichzeitige Anfragen auf denselben Frame zu EINEM Dekodiervorgang.
+  fetchMethod: (file) => decode(file.slice(0, file.lastIndexOf("|"))),
+});
 
-/** Ein Treffer wandert ans Ende. Ohne das verdraengt der Cache nach EINFUEGE-Reihenfolge, wirft
- *  also den heissesten Eintrag zuerst weg — genau das Thrashing, gegen das er existiert. */
-export function keepHot<K, V>(cache: Map<K, V>, key: K, value: V): V {
-  cache.delete(key);
-  cache.set(key, value);
-  return value;
-}
-
-/** Aelteste Haelfte der Ordnung raus, sobald [max] ueberschritten ist. */
-export function evictOldest<K, V>(cache: Map<K, V>, max: number): void {
-  if (cache.size > max) cache.delete(cache.keys().next().value as K);
+async function decode(path_: string): Promise<Raster> {
+  const { data, info } = await sharp(await readFile(path_)).removeAlpha().raw()
+    .toBuffer({ resolveWithObject: true });
+  return { data, width: info.width, height: info.height, channels: info.channels };
 }
 
 /**
@@ -62,32 +61,14 @@ async function cutSource(session: Session, name: string, stem: string): Promise<
  *  Ueber das PRAEFIX, weil der Schluessel `<pfad>|<mtime>` ist — nach dem Pfad allein traf das
  *  `delete` nie einen Eintrag und der Wurf war seit je ein Nulloperator. */
 export function forgetRaster(file: string): void {
-  for (const key of decoded.keys()) if (key.startsWith(`${file}|`)) decoded.delete(key);
+  for (const key of [...decoded.keys()]) if (key.startsWith(`${file}|`)) decoded.delete(key);
 }
 
 async function rasterOf(path_: string): Promise<Raster> {
   // Der Schluessel traegt die mtime: ein Re-Export schreibt das Brett unter demselben Namen neu,
   // und nach dem Pfad allein servierte der Cache die Pixel von vorher.
   const stamp = await stat(path_).then((s) => s.mtimeMs, () => 0);
-  const file = `${path_}|${stamp}`;
-  const hit = decoded.get(file);
-  if (hit) return keepHot(decoded, file, hit);
-  const pending = inFlight.get(file);
-  if (pending) return pending;
-
-  const job = sharp(await readFile(path_))
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-    .then(({ data, info }) => {
-      const raster = { data, width: info.width, height: info.height, channels: info.channels };
-      decoded.set(file, raster);
-      evictOldest(decoded, CACHE_MAX);
-      return raster;
-    })
-    .finally(() => inFlight.delete(file));
-  inFlight.set(file, job);
-  return job;
+  return (await decoded.fetch(`${path_}|${stamp}`))!;
 }
 
 /** What a cut is served as. WebP q92 is 5.4 KB against PNG's 37.3 for a 128 px cell — a lane page
@@ -112,11 +93,13 @@ function cellRgb(session: Session, square: string, raster: Raster, h: Mat3, size
  * Fertige Zell-PNGs, LRU über Sitzungsgrenzen: die Audit-Sortierung streut eine Seite über ~50
  * VERSCHIEDENE Frames, der 24er-Raster-Cache thrashte zu 100 % und jede Zelle zahlte den vollen
  * Frame-Decode („der cache aufm server ist zu klein", 2026-08-15). mtime im Schlüssel hält einen
- * Re-Export ehrlich; ~6000 × ~15 KB deckelt den Speicher.
+ * Re-Export ehrlich; gedeckelt wird nach BYTES, damit eine Seite grosser Crops nicht so viel
+ * Speicher haelt wie tausend kleine.
  */
-const CELL_PNGS_MAX = 6000;
-type CellPngs = Map<string, Buffer>;
-const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngs?: CellPngs }).__chesslabCellPngs ??= new Map());
+const CELL_PNGS_BYTES_MAX = 96 * 1024 * 1024;
+type CellPngs = LRUCache<string, Buffer>;
+const cellPngs: CellPngs = ((globalThis as { __chesslabCellPngsLru?: CellPngs }).__chesslabCellPngsLru ??=
+  new LRUCache<string, Buffer>({ maxSize: CELL_PNGS_BYTES_MAX, sizeCalculation: (b) => b.byteLength }));
 
 /** One square, cut with the profile's crop box (pad_side), as the CNN would see it. */
 export async function cellPng(name: string, stem: string, square: string, size: number) {
@@ -133,12 +116,11 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   // changing the encoder without it served PNG under an `image/webp` header until a full restart.
   const key = `${name}|${stem}|${square}|${size}|${srcM}|${logM}|${CUT_MIME}`;
   const hit = cellPngs.get(key);
-  if (hit) return keepHot(cellPngs, key, hit);
+  if (hit) return hit;
   const { raster, h } = await cutSource(session, name, stem);
   const rgb = cellRgb(session, square, raster, h, size);
   const out = await encode(rgb, size, size);
   cellPngs.set(key, out);
-  evictOldest(cellPngs, CELL_PNGS_MAX);
   return out;
 }
 
