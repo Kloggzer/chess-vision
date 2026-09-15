@@ -36,13 +36,15 @@ def measured_coverage(session_dir: Path) -> dict[tuple[str, str], float]:
 
 def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,
                   cut: float, visible_max: float) -> list[dict]:
-    """Eine Session: jede Zelle, deren `cov` ueber `cut` liegt und die die Matte frei nennt.
+    """Eine Session: jede Zelle, deren `model_cov` ueber `cut` liegt und die die Matte frei nennt.
 
     Eine Zeile je ZELLE, denn der Pinsel malt zellweise — das Urteil gilt danach dem Frame.
     """
     out = []
     for row in reads:
-        cov = row.get("cov")
+        # `cov` ist die Schreibweise vor 2026-09-16 und bleibt lesbar — die Dateien liegen
+        # auf der Platte und werden nicht neu gerechnet.
+        cov = row.get("model_cov", row.get("cov"))
         if cov is None or float(cov) <= cut:
             continue
         seen = measured.get((row["frame"], row["square"]))
@@ -55,8 +57,8 @@ def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,
             "frame": row["frame"],
             "square": row["square"],
             "fen_label": row["fen_label"],
-            "cov": round(float(cov), 4),
-            "measured": None if seen is None else round(seen, 4),
+            "model_cov": round(float(cov), 4),
+            "matte_cov": None if seen is None else round(seen, 4),
             "matted": seen is not None,
         })
     return out
@@ -81,7 +83,7 @@ def hand_flags(cut: float = DEFAULT_CUT) -> dict:
         session_dir = reads_path.parent
         lines = [json.loads(x) for x in reads_path.read_text(encoding="utf-8").splitlines() if x.strip()]
         reads = [r for r in lines if r.get("square")]
-        if not any("cov" in r for r in reads):
+        if not any("model_cov" in r or "cov" in r for r in reads):
             without.append(session_dir.name)
             continue
         found = session_flags(reads, measured_coverage(session_dir),

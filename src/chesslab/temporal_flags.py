@@ -92,7 +92,7 @@ def candidate_flags(measurements, entries, matte, session_id, cut):
         found[(stem, square)] = {
             "session_id": session_id, "frame": stem, "square": square,
             "fen_label": GameState(entry["fen"]).label_for(square), "ply": entry.get("ply"),
-            "dev": round(raw, 2), "cov": coverage, "seen": None,
+            "dev": round(raw, 2), "matte_cov": coverage, "seen": None,
             "reason": "temporal", "temporal_score": round(score, 4),
         }
     return list(found.values())

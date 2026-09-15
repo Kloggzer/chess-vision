@@ -54,7 +54,7 @@ def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str)
         out.append({"session_id": session_id, "frame": stem, "square": square,
                     "fen_label": labels.label_for(square), "ply": entry.get("ply"),
                     "dev": round(float(dev[i]), 2) if i < len(dev) else None,
-                    "cov": round(float(cov), 4) if cov is not None else None,
+                    "matte_cov": round(float(cov), 4) if cov is not None else None,
                     "seen": round(float(seen[i]), 3) if i < len(seen) else None,
                     "reason": "unreadable" if short else "changed"})
     return out
@@ -93,7 +93,7 @@ def timing_flags(entries: list[dict], intervals: list[dict],
                     continue
                 out.append({"session_id": session_id, "frame": stem, "square": square,
                             "fen_label": labels.label_for(square), "ply": entry.get("ply"),
-                            "dev": round(dev, 2), "cov": round(cov, 4),
+                            "dev": round(dev, 2), "matte_cov": round(cov, 4),
                             "seen": bool(row.get("seen")),
                             "reason": "timing"})
     return out
@@ -122,7 +122,7 @@ def position_flags() -> dict:
         if stale:
             stale_temporal.append(session_id)
         temporal_keys = {(flag["frame"], flag["square"]) for flag in temporal}
-        found = [flag for flag in found if flag["cov"] is not None
+        found = [flag for flag in found if flag["matte_cov"] is not None
                  or (flag["frame"], flag["square"]) in temporal_keys]
         # Eine Karte je Zelle, schwaechste Diagnose zuerst: `timing` vermutet nur, `temporal` hat
         # gemessen, `changed` hat gegen das gesetzte Brett gemessen. Der Anomaliewert ueberlebt,

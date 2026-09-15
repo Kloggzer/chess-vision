@@ -47,7 +47,7 @@ Schwelle fällt auf einer Zelle durch) und prüft die 0,0 mit.
 | Quelle | wo | Rolle |
 |---|---|---|
 | **Matte** (SAM-Alpha) | `matte.jsonl` | **das Maß** — `--visible` wirft alles über `MATTE_DIRTY = 0.15` raus |
-| Modell (`cov`-Sigmoid) | `model-reads.jsonl` | zweite Meinung, reist als `model_cov` an jedem Flag mit |
+| Modell (`model_cov`-Sigmoid) | `model-reads.jsonl` | zweite Meinung, reist als `model_cov` an jedem Flag mit |
 | Ledger-Altzeilen (`occluded` gemalt) | `corrections.jsonl` | **kein Kandidat mehr** |
 
 Ausgerechnet die veraltete Quelle bestimmte vorher die Flags, während die gemessene nur filterte.

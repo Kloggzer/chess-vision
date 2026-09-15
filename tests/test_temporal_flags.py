@@ -28,7 +28,7 @@ def test_low_raw_deviation_still_reaches_review_without_fabricating_coverage():
     assert result["reason"] == "temporal"
     assert result["fen_label"] == "wP"
     assert result["temporal_score"] == .5
-    assert result["cov"] is None
+    assert result["matte_cov"] is None
 
 
 @pytest.mark.parametrize("change", [

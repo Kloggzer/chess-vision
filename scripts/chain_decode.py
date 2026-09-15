@@ -54,7 +54,8 @@ def load_reads(session, floor, use_coverage, temp, reads):
         row = json.loads(line)
         if "square" not in row:
             continue
-        weight = (1.0 - (row.get("cov") or 0.0)) if use_coverage else 1.0
+        cov = row.get("model_cov", row.get("cov"))          # `cov`: Schreibweise vor 2026-09-16
+        weight = (1.0 - (cov or 0.0)) if use_coverage else 1.0
         dist = tempered(row["probs"], temp)
         cell = {lab: weight * math.log(max(dist.get(lab, floor), floor)) for lab in LABELS}
         table[row["frame"]][row["square"]] = cell

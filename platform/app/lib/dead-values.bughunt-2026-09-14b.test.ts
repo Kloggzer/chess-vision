@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
  *
  * `prob` und `margin` wanderten in jede `StreamAuditCell` und wurden nie gelesen: `judgedCell`
  * nahm sie entgegen und wertete sie nicht aus, und `wallCells` schob konstant `prob: 0` hinein.
- * `cov` sah genauso aus, steht aber in der Bildunterschrift der Lane — der Verdacht war falsch.
+ * `model_cov` sah genauso aus, steht aber in der Bildunterschrift der Lane — der Verdacht war falsch.
  */
 const APP = process.cwd();
 
@@ -18,8 +18,6 @@ it("prob und margin bleiben aus der Audit-Zelle draussen", async () => {
   expect(audit, "wer sie zurueckholt, bringt den Leser mit").not.toMatch(/margin\s*:/);
 });
 
-it("cov bleibt: die Lane zeigt ihn", async () => {
-  const lanes = await readFile(path.join(APP, "lib", "lanes.ts"), "utf8");
-
-  expect(lanes, "der Fund war widerlegt — `cov` steht in der Caption").toContain("c.cov");
-});
+// Der zweite Fall — `cov`, heute `model_cov` — war ein Quelltext-Grep auf `lanes.ts`. Dieselbe
+// Tatsache prueft `lanes.test.ts` am Verhalten ("die Hand-Lane fragt nach der Hand": die Caption
+// traegt die 82 % des Modells). Ein Grep, der beim Umbenennen bricht, deckt nichts zusaetzlich.

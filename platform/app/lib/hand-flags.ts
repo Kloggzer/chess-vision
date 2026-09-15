@@ -11,9 +11,9 @@ export type HandFlag = {
   square: string;
   fen_label: string;
   /** Was der Occlusion-Kopf behauptet (0..1). */
-  cov: number;
+  model_cov: number;
   /** Was die Matte gemessen hat, oder `null` — dann hat sie dieses Frame nie gesehen. */
-  measured: number | null;
+  matte_cov: number | null;
 };
 
 export type HandFlags = {
@@ -53,20 +53,23 @@ export async function loadHandFlags(): Promise<HandFlags> {
       const o = JSON.parse(line) as Record<string, unknown>;
       // Die Kopfzeile trägt `_cut`/`_written_at` und kein `square` — sie ist kein Flag.
       if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
-      if (typeof o.cov !== "number") continue;
+      // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
+      const modelCov = typeof o.model_cov === "number" ? o.model_cov : o.cov;
+      if (typeof modelCov !== "number") continue;
+      const matteCov = typeof o.matte_cov === "number" ? o.matte_cov : o.measured;
       rows.push({
         session_id: o.session_id,
         frame: String(o.frame),
         square: o.square,
         fen_label: String(o.fen_label ?? ""),
-        cov: o.cov,
-        measured: typeof o.measured === "number" ? o.measured : null,
+        model_cov: modelCov,
+        matte_cov: typeof matteCov === "number" ? matteCov : null,
       });
     } catch {
       /* eine halb geschriebene Zeile ist kein Flag */
     }
   }
-  rows.sort((a, b) => b.cov - a.cov);
+  rows.sort((a, b) => b.model_cov - a.model_cov);
   const value: HandFlags = { rows, present: true };
   cache.set(file, { key, value });
   return value;

@@ -185,7 +185,7 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
                 fh.write(json.dumps({
                     "session_id": meta["session_id"], "frame": stem, "square": sq,
                     "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
-                    **({"cov": cov} if cov is not None else {}),
+                    **({"model_cov": cov} if cov is not None else {}),
                     # Die Helligkeit DIESER Zelle auf DIESEM Frame: ein Schatten zieht b4 von 32
                     # auf 5, und ein Widerspruch dort misst das Licht statt das Label.
                     "bright": round(float(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).mean()), 1),

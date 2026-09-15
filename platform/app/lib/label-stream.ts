@@ -83,8 +83,9 @@ export type StreamHandCell = {
   stem: string;
   square: string;
   fen_label: string;
-  cov: number;
-  measured: number | null;
+  /** Der Sigmoid des MODELLS. Die Matte steht daneben — die zwei Zahlen hiessen frueher beide `cov`. */
+  model_cov: number;
+  matte_cov: number | null;
 };
 
 export type StreamPositionCell = {
@@ -434,8 +435,8 @@ function handCells(
       stem: row.frame,
       square: row.square,
       fen_label: row.fen_label,
-      cov: row.cov,
-      measured: row.measured,
+      model_cov: row.model_cov,
+      matte_cov: row.matte_cov,
     });
   }
   return out;

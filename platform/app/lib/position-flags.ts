@@ -13,7 +13,7 @@ export type PositionFlag = {
   /** Abstand zum gesetzten Brett des Intervalls (`labeling.SETTLE_LIMIT` ist die Schwelle). */
   dev: number;
   /** Was die Matte für dieses Feld gemessen hat — unter der Sichtbarkeitsgrenze, sonst kein Flag. */
-  cov: number;
+  matte_cov: number;
   /** `changed` = das Bild ist ein anderes; `unreadable` = zu wenig Feld war überhaupt zu sehen. */
   reason: string;
   /** SAM-free residual relative to reference contrast; not a coverage fraction. */
@@ -64,7 +64,9 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
         square: o.square,
         fen_label: String(o.fen_label ?? ""),
         dev: o.dev,
-        cov: typeof o.cov === "number" ? o.cov : 0,
+        // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
+        matte_cov: typeof o.matte_cov === "number" ? o.matte_cov
+          : typeof o.cov === "number" ? o.cov : 0,
         reason: String(o.reason ?? "changed"),
         ...(typeof o.temporal_score === "number" && Number.isFinite(o.temporal_score)
           ? { temporal_score: o.temporal_score } : {}),

@@ -263,17 +263,17 @@ def test_the_models_coverage_rides_along_as_a_second_opinion():
     rows = [
         # Eine bQ-gelabelte Zelle, damit bQ ueberhaupt eine Schwelle bekommt.
         {"session_id": "rg-x", "frame": "000002", "square": "b2", "fen_label": "bQ",
-         "probs": {"bQ": 0.9}, "cov": 0.01},
+         "probs": {"bQ": 0.9}, "model_cov": 0.01},
         # Die Zelle, die auffliegt: FEN sagt wP, das Modell sagt sicher bQ.
         {"session_id": "rg-x", "frame": "000001", "square": "a1", "fen_label": "wP",
-         "probs": {"bQ": 0.99}, "cov": 0.87},
+         "probs": {"bQ": 0.99}, "model_cov": 0.87},
     ]
     got = [f for f in session_flags(rows, {}, model="m", ts="t", classes=["wP", "bQ"])
            if f["square"] == "a1"]
     assert got and got[0]["model_cov"] == 0.87
-    # Ohne `cov` in der Lesart taucht das Feld gar nicht erst auf.
+    # Ohne `model_cov` in der Lesart taucht das Feld gar nicht erst auf.
     for r in rows:
-        r.pop("cov")
+        r.pop("model_cov")
     bare = [f for f in session_flags(rows, {}, model="m", ts="t", classes=["wP", "bQ"])
             if f["square"] == "a1"]
     assert bare and "model_cov" not in bare[0]

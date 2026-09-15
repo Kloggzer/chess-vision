@@ -37,7 +37,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from chesslab import labeling, sessions  # noqa: E402
+from chesslab import config, labeling, sessions  # noqa: E402
 from chesslab.alignment import (  # noqa: E402
     correct_quad,
     frame_offsets,
@@ -253,7 +253,13 @@ def main() -> None:
                          "picture that answers what a given number actually looks like")
     args = ap.parse_args()
 
-    d, _ = sessions.session_dir(args.session)
+    # Aufnahmen liegen seit dem Umzug unter `recordings/`; `session_dir` kennt nur den alten Baum.
+    try:
+        d, _ = sessions.session_dir(args.session)
+    except FileNotFoundError:
+        d = config.DATA.recordings / args.session
+        if not d.is_dir():
+            raise
     prof = labeling._profile_for_session(labeling.read_session_meta(d), None)
     log = labeling.read_log(d)
     gone = sessions.missing_source_frames(d, log)

@@ -86,17 +86,6 @@ bei `engineConfig` (null Testdateien, obwohl die fps-Kopplung genau daran haengt
 weil es die einzige gefundene Stelle ist, an der eine Ein-Zeichen-Aenderung ein gemessenes
 Ergebnis still zuruecknimmt und die ganze Suite gruen bleibt.
 
-## 8. `cov` heisst in zwei Nachbardateien das Gegenteil
-
-`hand_flags.py:58` schreibt `cov` = **Modell**-Sigmoid, `position_flags.py:57` schreibt `cov` =
-**SAM-Matte**. Beide Berichte landen in `data/reports/`, beide liest die Strittig-Lane, und nur
-eine Seite hat einen Doc-Kommentar — den falschen fuer die Nachbardatei. `audit_flags.py:103`
-tauft dieselbe Modellzahl ein drittes Mal um (`model_cov`).
-
-**Die Frage:** umbenennen auf `model_cov`/`matte_cov` und `cov` verbieten? Das aendert
-Berichtsformate, die auf der Platte liegen — alte Berichte muessten entweder mitwandern oder
-bewusst als alt gelten. 2 h.
-
 ## 9. Ein Fixture-Baukasten je Sprache — oder weiter so?
 
 Dreimal unabhaengig dasselbe Muster gefunden, und jedes Mal, weil es keinen gemeinsamen Bauer gibt:

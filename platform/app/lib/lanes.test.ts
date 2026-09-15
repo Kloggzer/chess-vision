@@ -363,7 +363,7 @@ test("die Hand am Brett gilt der Karte nur, solange ihr eigenes Feld frei ist", 
 });
 
 test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
-  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", cov: 0.82, measured: 0 }];
+  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "bP", model_cov: 0.82, matte_cov: 0 }];
   // Kein Producer: `—`, nie 0 — sonst liest sich "nichts zu tun" wie "nichts gemessen".
   expect(laneCount(streamOf(), "audit").why).toContain(NO_HAND);
   const cells = laneCells(streamOf({ hands }), "audit");
@@ -376,7 +376,7 @@ test("die Hand-Lane fragt nach der Hand, nicht nach der Klasse", () => {
 });
 
 test("eine Zelle ohne Matte-Eintrag sagt das, statt 0 % zu behaupten", () => {
-  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty", cov: 0.5, measured: null }];
+  const hands = [{ session: 0, pos: 0, stem: "000100", square: "e5", fen_label: "empty", model_cov: 0.5, matte_cov: null }];
   expect(laneCells(streamOf({ hands }), "audit")[0].note).toBe("Hand? Matte kennt dieses Frame nicht");
 });
 

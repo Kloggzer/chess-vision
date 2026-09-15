@@ -339,8 +339,8 @@ function handCells(stream: LabelStream): LaneCell[] {
       label: c.fen_label,
       ledger: "reviewed" as const,
       exception: null,
-      caption: `${c.square} · Modell ${(c.cov * 100).toFixed(0)} % verdeckt`,
-      note: c.measured === null ? "Hand? Matte kennt dieses Frame nicht" : `Hand? Matte ${(c.measured * 100).toFixed(0)} %`,
+      caption: `${c.square} · Modell ${(c.model_cov * 100).toFixed(0)} % verdeckt`,
+      note: c.matte_cov === null ? "Hand? Matte kennt dieses Frame nicht" : `Hand? Matte ${(c.matte_cov * 100).toFixed(0)} %`,
     })),
   ));
 }
