@@ -26,6 +26,10 @@ const decoded = new LRUCache<string, Raster>({
   sizeCalculation: (r) => r.data.byteLength,
   // Buendelt gleichzeitige Anfragen auf denselben Frame zu EINEM Dekodiervorgang.
   fetchMethod: (file) => decode(file.slice(0, file.lastIndexOf("|"))),
+  // Verdraengt der Deckel einen Eintrag, dessen Dekodierung noch laeuft, bekommt die wartende
+  // Anfrage sonst `Error('evicted')` — aus einem Cache-Fehlschuss wuerde ein 500. So bekommt sie
+  // ihre Pixel und nur der Cache geht leer aus.
+  ignoreFetchAbort: true,
 });
 
 async function decode(path_: string): Promise<Raster> {

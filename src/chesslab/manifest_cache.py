@@ -39,14 +39,13 @@ def manifest_stats(path: Path) -> dict:
     key = (st.st_mtime_ns, st.st_size)
     with _LOCK:
         hit = _CACHE.get(path)
-        if hit and hit[0] == key:
-            # TODO: Returning the cached dict itself lets any caller mutate all later answers;
-            # the cache currently relies on an undocumented read-only convention.
-            return hit[1]
-    stats = _scan(path)
-    with _LOCK:
-        _CACHE[path] = (key, stats)
-    return stats
+    if not (hit and hit[0] == key):
+        hit = (key, _scan(path))
+        with _LOCK:
+            _CACHE[path] = hit
+    # A copy: handing out the cached dict let one caller's mutation become every later answer,
+    # and the read-only convention that prevented it was nowhere written down.
+    return {"crops_by_session": dict(hit[1]["crops_by_session"])}
 
 
 def session_crop_count(path: Path, session_id: str) -> int:

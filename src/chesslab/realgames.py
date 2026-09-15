@@ -8,7 +8,7 @@ import math
 import os
 from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait
-from contextlib import closing, nullcontext
+from contextlib import closing, contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from itertools import pairwise
@@ -469,7 +469,7 @@ def adopt_reported_dirty(name: str) -> dict:
 def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
                  settle: dict | None = None, per_position: int = 8,
                  dirty_per_position: int = 8, prefer=(), reported=(),
-                 dirty: bool = True) -> list[dict]:
+                 dirty: bool = True, white_pov: bool = True) -> list[dict]:
     """The rows to store, picked from MEASURED frames instead of from a window around the commit.
 
     The window let 23 % hands into the clean pool and condemned half its dirty frames for nothing
@@ -491,7 +491,8 @@ def plan_scanned(candidate: dict, scan: list[dict], *, margin_frames: int,
     blurred = framescan.blurred_indices(scan) | framescan.dark_indices(scan)
     rows = []
     for seg in known_segments(candidate):
-        reasons = {k: v for k, v in framescan.classify(seg, scan).items() if k not in blurred}
+        reasons = {k: v for k, v in framescan.classify(seg, scan, white_pov=white_pov).items()
+                   if k not in blurred}
         # Only over a CLEAN verdict. `occluded` claims the FEN still holds, which contradicts a
         # measured `stale` or `changed` — and a frame promoted that way is rescued by its matte and
         # carries the lagging FEN into training. The report answers "the scan missed a hand", the
@@ -1232,10 +1233,11 @@ def merge_fit_stats(parts: list[dict]) -> dict:
     run built — an average of medians would not be.
     """
     rows = [row for part in parts for row in part["arrived"]]
-    # TODO: ein FIT_FAILED-Row behaelt das `align_worst_px`, das `carry_repaired_geometry` vom
-    # letzten Export uebernommen hat — der serielle Lauf zaehlt nur GEMESSENE mit. `--workers 4`
-    # meldet damit eine andere Streuung als `--workers 1` auf derselben Aufnahme.
-    worsts = sorted(row["align_worst_px"] for row in rows if "align_worst_px" in row)
+    # Nur GEMESSENE, wie der serielle Lauf: ein FIT_FAILED-Row behaelt das `align_worst_px`, das
+    # `carry_repaired_geometry` vom letzten Export uebernahm, und `--workers 4` meldete damit eine
+    # andere Streuung als `--workers 1` auf derselben Aufnahme.
+    worsts = sorted(row["align_worst_px"] for row in rows
+                    if "align_worst_px" in row and row.get("corners_source") != FIT_FAILED)
     merged = {key: sum(part[key] for part in parts)
               for key in (FIT_SOURCE, FIT_KEPT, FIT_FAILED, "mesh", "hands", "late")}
     return {**merged, "arrived": rows,
@@ -1266,13 +1268,18 @@ def rewarp_parallel(session_dir: Path, rows: list[dict], profile_name: str, *, v
     return made, [row for _, chunk in parts for row in chunk]
 
 
-def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> dict:
+def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None,
+                      *, mattes: bool = True) -> dict:
     """Pull every stored board straight, once, so every cut afterwards is a plain rectangle.
 
     This is the ONLY straightening in the pipeline: a board carrying `board_straightened` must
     never be pulled again, and `crop_square` must never be handed a mesh for one. Rows whose board
     is missing, or for which no mesh could be found at all, are counted and left alone — a raw
     board is worse than a straight one but honest, a twice-corrected one is neither.
+
+    `mattes=False`, wenn nur die BRETTER frisch gebogen daliegen: `write_boards_session` schneidet
+    sie neu und poppt dabei das Flag, die Alphas daneben sind vom vorigen Lauf schon gezogen.
+    Gemessen: ein zweiter Zug verbiegt sie um 16 px auf einem 400-px-Brett, in die Gegenrichtung.
 
     `checkpoint()`: persist the rows so far. Called every `STRAIGHTEN_CHECKPOINT` boards, because
     the flag is the ONLY thing standing between a killed run and a twice-corrected store.
@@ -1305,7 +1312,7 @@ def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None) -> d
         # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
         # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
         # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
-        for matte in sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")):
+        for matte in (sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")) if mattes else ()):
             alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
             if alpha is not None:
                 if not cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border),
@@ -1447,6 +1454,33 @@ def fit_rows_to_grid(rows: list[dict], profile, *,
         "median": worsts[len(worsts) // 2] if worsts else None,
         "max": worsts[-1] if worsts else None,
     }
+
+
+#: Liegt waehrend des Brett-Schreibens da. Ein Export ueberschreibt `boards/` an Ort und Stelle,
+#: schreibt `log.jsonl` aber erst zum Schluss — stirbt er dazwischen, beschreiben die Ecken im
+#: alten Log nicht mehr die Pixel auf der Platte, und niemand kann das spaeter noch sehen.
+EXPORT_MARKER = ".export-running"
+
+
+def export_interrupted(session_dir: Path) -> bool:
+    """Steht ein abgebrochener Export im Weg? Dann sind Log und Bretter nicht dasselbe Alter."""
+    return (session_dir / EXPORT_MARKER).is_file()
+
+
+@contextmanager
+def mark_export(session_dir: Path):
+    """Markiert die Strecke, in der Bretter schon neu und das Log noch alt ist."""
+    session_dir.mkdir(parents=True, exist_ok=True)
+    marker = session_dir / EXPORT_MARKER
+    marker.write_text(f"export started {datetime.now(UTC).isoformat()}\n", encoding="utf-8")
+    yield_ok = False
+    try:
+        yield marker
+        yield_ok = True
+    finally:
+        # NUR nach einem sauberen Durchlauf weg: der Marker IST die Spur.
+        if yield_ok:
+            marker.unlink(missing_ok=True)
 
 
 def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict]) -> Path:
@@ -1636,7 +1670,8 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
     if scan:
         rows = plan_scanned(candidate, scan, margin_frames=margin_frames, settle=settle,
                             per_position=per_position or 8, dirty_per_position=dirty_per_position,
-                            prefer=prefer, reported=reported, dirty=dirty)
+                            prefer=prefer, reported=reported, dirty=dirty,
+                            white_pov=load_profile(EXPORT_PROFILE).white_pov)
         print(f"  {len(scan)} measured frames, {len(prefer)} of them already corrected, "
               f"{len(reported)} reported dirty by hand — "
               f"picking on data instead of on a {quiet_margin_s}s margin")
@@ -1664,63 +1699,67 @@ def _export_session(name: str, *, quiet_margin_s: float, every: int, per_positio
         raise ValueError(f"{name}: no reviewed interval survives a {quiet_margin_s}s margin")
     session_dir = game_dir(name)
     if not report_only:
-        # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
-        # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
-        # other export goes video -> board and keeps no 3.3 MB copy of what it already had.
-        on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
-        if on_disk:
-            arrived = decode_frames(
-                video_path(name),
-                {int(Path(r["frame"]).stem) for r in rows},
-                session_dir / "frames",
-                rotate=rotation,
-            )
-            rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
-        if (session_dir / "frames" / "lens.json").is_file():
-            # Undistorting MOVES the board in the image, so a quad measured on the raw frames — and
-            # any repair fitted to them — describes a picture that no longer exists. Re-measure on
-            # the frames that are actually there, and do NOT carry the old geometry over.
-            quad = static_quad(sorted((session_dir / "frames").glob("[0-9]*.png")),
-                               load_profile(EXPORT_PROFILE))
-            for row in rows:
-                row["corners"] = quad
-                row["corners_source"] = "undistorted-remeasure"
-            print("  geometry re-measured on the UNDISTORTED frames (the raw-frame repair is void)")
-        else:
-            carried = carry_repaired_geometry(session_dir, rows)
-            if carried:
-                print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
-        if fit:
-            # Last, so the fit starts from the best quad this export knows — a carried repair or
-            # the undistorted re-measure — and refines THAT rather than the candidate's median.
-            # An undistorted set reads PNGs off the disk, which no walk can be split by; only the
-            # video path goes to workers.
+        # Von hier bis zum Log-Schreiben sind die Bretter schon neu und das Log noch alt.
+        # Stirbt der Lauf dazwischen, beschreiben die Ecken nicht mehr die Pixel — und ohne
+        # Marker sieht das niemand je wieder.
+        with mark_export(session_dir):
+            # The frames only hit the disk for an UNDISTORTED set, whose whole point is a picture the
+            # video cannot reproduce, and for `--no-fit`, which has no pass to write boards in. Every
+            # other export goes video -> board and keeps no 3.3 MB copy of what it already had.
+            on_disk = (session_dir / "frames" / "lens.json").is_file() or not fit
             if on_disk:
-                stats = fit_rows_to_grid(rows, load_profile(EXPORT_PROFILE),
+                arrived = decode_frames(
+                    video_path(name),
+                    {int(Path(r["frame"]).stem) for r in rows},
+                    session_dir / "frames",
+                    rotate=rotation,
+                )
+                rows = [r for r in rows if int(Path(r["frame"]).stem) in arrived]
+            if (session_dir / "frames" / "lens.json").is_file():
+                # Undistorting MOVES the board in the image, so a quad measured on the raw frames — and
+                # any repair fitted to them — describes a picture that no longer exists. Re-measure on
+                # the frames that are actually there, and do NOT carry the old geometry over.
+                quad = static_quad(sorted((session_dir / "frames").glob("[0-9]*.png")),
+                                   load_profile(EXPORT_PROFILE))
+                for row in rows:
+                    row["corners"] = quad
+                    row["corners_source"] = "undistorted-remeasure"
+                print("  geometry re-measured on the UNDISTORTED frames (the raw-frame repair is void)")
+            else:
+                carried = carry_repaired_geometry(session_dir, rows)
+                if carried:
+                    print(f"  kept the repaired geometry of {carried} frames (`session scan|autofix`)")
+            if fit:
+                # Last, so the fit starts from the best quad this export knows — a carried repair or
+                # the undistorted re-measure — and refines THAT rather than the candidate's median.
+                # An undistorted set reads PNGs off the disk, which no walk can be split by; only the
+                # video path goes to workers.
+                if on_disk:
+                    stats = fit_rows_to_grid(rows, load_profile(EXPORT_PROFILE),
+                                             frames=disk_frames(session_dir, rows))
+                else:
+                    stats = fit_rows_parallel(rows, EXPORT_PROFILE, video=video_path(name),
+                                              rotate=rotation, workers=workers, executor=executor)
+                # What the decoder actually handed over — a row past the end of a truncated recording
+                # has no picture, and carrying it would name a board that was never written.
+                rows = stats["arrived"]
+                print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
+                      f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
+                      f"align_worst_px median {stats['median']}, max {stats['max']}, "
+                      f"mesh on {stats['mesh']}, hands on {stats['hands']}")
+                # A SECOND pass over the video, because a board can only be warped straight once the
+                # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
+                # minute; warping first and correcting after costs 57 % of the crop's detail.
+                if on_disk:
+                    made = rewarp_boards(session_dir, rows, load_profile(EXPORT_PROFILE),
                                          frames=disk_frames(session_dir, rows))
-            else:
-                stats = fit_rows_parallel(rows, EXPORT_PROFILE, video=video_path(name),
-                                          rotate=rotation, workers=workers, executor=executor)
-            # What the decoder actually handed over — a row past the end of a truncated recording
-            # has no picture, and carrying it would name a board that was never written.
-            rows = stats["arrived"]
-            print(f"  grid fit over {len(rows)} frames: {stats[FIT_SOURCE]} re-fitted, "
-                  f"{stats[FIT_KEPT]} already on the grid, {stats[FIT_FAILED]} unreadable — "
-                  f"align_worst_px median {stats['median']}, max {stats['max']}, "
-                  f"mesh on {stats['mesh']}, hands on {stats['hands']}")
-            # A SECOND pass over the video, because a board can only be warped straight once the
-            # mesh is final, and a hand frame's mesh is its clean neighbours'. The decode costs a
-            # minute; warping first and correcting after costs 57 % of the crop's detail.
-            if on_disk:
-                made = rewarp_boards(session_dir, rows, load_profile(EXPORT_PROFILE),
-                                     frames=disk_frames(session_dir, rows))
-            else:
-                made, rows = rewarp_parallel(session_dir, rows, EXPORT_PROFILE,
-                                             video=video_path(name), rotate=rotation, lens=None,
-                                             workers=workers, executor=executor)
-            print(f"  boards warped straight: {made['rewarped']}, "
-                  f"{made['no_mesh']} left bowed for want of any mesh")
-        write_session(session_dir, name, candidate, rows)
+                else:
+                    made, rows = rewarp_parallel(session_dir, rows, EXPORT_PROFILE,
+                                                 video=video_path(name), rotate=rotation, lens=None,
+                                                 workers=workers, executor=executor)
+                print(f"  boards warped straight: {made['rewarped']}, "
+                      f"{made['no_mesh']} left bowed for want of any mesh")
+            write_session(session_dir, name, candidate, rows)
     for line in yield_lines(rows):
         print(line)
     return {

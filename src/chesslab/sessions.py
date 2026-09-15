@@ -159,16 +159,13 @@ def _purge_crops_for_frames(session_id: str, frame_stems: set[str], paths: confi
 
 def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     """Drop a trimmed frame's matte row. Keyed by frame alone — the file belongs to one session."""
-    # TODO: die Datei wird zweimal gelesen, nur um `removed` zu zaehlen — und `trim_session`
-    # wirft die Zahl danach weg, waehrend es jede andere Aufraeum-Zahl meldet.
     path = sdir / "matte.jsonl"
     if not path.exists() or not frame_stems:
         return 0
-    kept = [line for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and str(json.loads(line).get("frame")) not in frame_stems]
-    removed = len([x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]) - len(kept)
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    kept = [line for line in lines if str(json.loads(line).get("frame")) not in frame_stems]
     path.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
-    return removed
+    return len(lines) - len(kept)
 
 
 def _filter_jsonl_frames(path: Path, session_id: str, frame_stems: set[str]) -> int:
@@ -398,7 +395,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     # Dasselbe fuer das ZWEITE menschliche Ledger: Frames heissen nach Quell-Index, ein
     # Re-Export vergibt die Stems neu — ein altes "unbrauchbar" traefe dann ein anderes Bild.
     _filter_jsonl_frames(target / "unusable-cells.jsonl", sid, removed_stems)
-    _filter_matte_frames(target, removed_stems)
+    removed_matte_rows = _filter_matte_frames(target, removed_stems)
     return {
         "session_id": sid,
         "kept_frames": keep,
@@ -408,6 +405,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
         "removed_crops": removed_crops,
         "removed_manifest_rows": removed_manifest_rows,
         "removed_corrections": removed_corrections,
+        "removed_matte_rows": removed_matte_rows,
     }
 
 
@@ -979,7 +977,10 @@ def write_boards_session(session_id: str) -> dict:
     # Der Flag ist laut `straighten_boards` das EINZIGE zwischen einem abgebrochenen Lauf und
     # einem zweimal gezogenen Store — also muss er unterwegs auf die Platte, nicht erst am Ende.
     backup = backup_log(sdir / "log.jsonl")
-    pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
+    # `mattes=False`: die Bretter sind frisch (gebogen) aus den Frames geschnitten, die Matten
+    # daneben liegen vom vorigen Lauf schon gerade — sie ein zweites Mal zu ziehen verschiebt sie.
+    pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows),
+                               mattes=False)
     _write_log(sdir, rows)
     return {"session_id": session_id, "written": written, "of": len(rows),
             "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
@@ -1284,9 +1285,9 @@ def adopt_corners(session_id: str, from_index: int | None = None, scope: str = "
                              "Place the box by hand instead.")
         src_idx, quad = cand["from_index"], cand["corners"]
     else:
-        # TODO: klemmt still — `--from-index 500` auf 137 Zeilen uebernimmt Zeile 136 und meldet
-        # das als `from_index`. `flag_frame` wirft fuer denselben Fall.
-        src_idx = max(0, min(int(from_index), len(rows) - 1))
+        src_idx = int(from_index)
+        if src_idx < 0 or src_idx >= len(rows):
+            raise ValueError(f"Index {src_idx} out of range (0-{len(rows) - 1}).")
         quad = rows[src_idx].get("corners")
         if not quad:
             raise ValueError(f"Row {src_idx} has no corners to adopt.")

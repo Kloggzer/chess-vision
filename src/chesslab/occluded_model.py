@@ -169,28 +169,36 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
     # file: the labeling lane, audit-flags, chain-steps and provenance all read it.
     path = game_dir(name) / (out or READS_FILE)
     written = 0
-    with path.open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
-                             **({"_weights": weights} if weights else {}),
-                             "_written_at": datetime.now(UTC).isoformat()}) + "\n")
-        for n, row in enumerate(rows, 1):
-            cells = frame_cells(session_dir, row, profile)
-            reads = all_reads(model_dir, cells, device, weights)
-            stem = Path(row["frame"]).stem
-            labels = GameState(row["fen"]).labels()
-            for sq, read, crop in zip(squares, reads, cells, strict=True):
-                # `cov` rides along only where the run carries an occlusion head: `hand_flags`
-                # needs the model's claim beside the matte's measurement, and a re-read is an hour.
-                cov = read.get("coverage")
-                fh.write(json.dumps({
-                    "session_id": meta["session_id"], "frame": stem, "square": sq,
-                    "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
-                    **({"model_cov": cov} if cov is not None else {}),
-                    # Die Helligkeit DIESER Zelle auf DIESEM Frame: ein Schatten zieht b4 von 32
-                    # auf 5, und ein Widerspruch dort misst das Licht statt das Label.
-                    "bright": round(float(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).mean()), 1),
-                    "probs": sparse(read["probs"], classes)}) + "\n")
-                written += 1
-            if progress and n % PROGRESS_EVERY == 0:
-                print(f"  {n}/{len(rows)} boards, {written} cells", flush=True)
+    # Atomar: die Kette prueft von dieser Datei nur die EXISTENZ (`chain.ts`), eine halbe haelt
+    # die Sprosse also fuer immer geschlossen — und die Labeling-Lane liest sie als Wahrheit.
+    temp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with temp.open("w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"_model": str(model_dir), "_classes": classes,
+                                 **({"_weights": weights} if weights else {}),
+                                 "_written_at": datetime.now(UTC).isoformat()}) + "\n")
+            for n, row in enumerate(rows, 1):
+                cells = frame_cells(session_dir, row, profile)
+                reads = all_reads(model_dir, cells, device, weights)
+                stem = Path(row["frame"]).stem
+                labels = GameState(row["fen"]).labels()
+                for sq, read, crop in zip(squares, reads, cells, strict=True):
+                    # `cov` rides along only where the run carries an occlusion head: `hand_flags`
+                    # needs the model's claim beside the matte's measurement, and a re-read is an hour.
+                    cov = read.get("coverage")
+                    fh.write(json.dumps({
+                        "session_id": meta["session_id"], "frame": stem, "square": sq,
+                        "fen_label": labels[sq], "dirty_reason": row.get("dirty_reason"),
+                        **({"model_cov": cov} if cov is not None else {}),
+                        # Die Helligkeit DIESER Zelle auf DIESEM Frame: ein Schatten zieht b4 von 32
+                        # auf 5, und ein Widerspruch dort misst das Licht statt das Label.
+                        "bright": round(float(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).mean()), 1),
+                        "probs": sparse(read["probs"], classes)}) + "\n")
+                    written += 1
+                if progress and n % PROGRESS_EVERY == 0:
+                    print(f"  {n}/{len(rows)} boards, {written} cells", flush=True)
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    temp.replace(path)
     return {"path": path, "boards": len(rows), "cells": written, "model": str(model_dir)}

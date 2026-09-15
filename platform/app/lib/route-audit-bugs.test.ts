@@ -136,7 +136,7 @@ describe("GET /api/cell when the exported log is unreadable", () => {
   it("surfaces the broken log instead of silently serving the phone's stored JPEGs", async () => {
     const game = path.join(root, "recordings", "rec-1");
     // Exportiert: candidate.json und log.jsonl liegen da — aber das Log ist kaputt.
-    await writeFile(path.join(game, "candidate.json"), JSON.stringify({ name: "rec-1", moves: [] }), "utf8");
+    await writeFile(path.join(game, "candidate.json"), JSON.stringify({ name: "rec-1", clock: { fps: 25 }, moves: [] }), "utf8");
     await mkdir(path.join(game, "frames"), { recursive: true });
     await writeFile(path.join(game, "log.jsonl"), "{ das ist kein JSON\n", "utf8");
 

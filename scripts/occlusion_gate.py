@@ -52,9 +52,10 @@ def collect(reads_name, sessions):
                 continue
             # Ohne Occlusion-Kopf schreibt `read_session` kein `cov`. Als 0,0 gelesen fiele
             # jeder Read ins unterste Band und das Skript leitete eine Schwelle aus nichts ab.
-            if r.get("cov") is None:
+            cov = r.get("model_cov", r.get("cov"))   # `cov`: Schreibweise vor 2026-09-16
+            if cov is None:
                 continue
-            out.append((r["cov"], max(r["probs"], key=r["probs"].get) == r["fen_label"]))
+            out.append((cov, max(r["probs"], key=r["probs"].get) == r["fen_label"]))
     return out
 
 

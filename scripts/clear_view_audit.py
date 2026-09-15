@@ -86,7 +86,7 @@ def audit_session(directory, thresholds, matte_threshold):
         if square in predicted:
             raise ValueError(f"duplicate {frame}/{square} in {directory}")
         if square in SQUARES:
-            predicted[square] = row.get("cov")
+            predicted[square] = row.get("model_cov", row.get("cov"))
     flush()
     for name, before in inputs.items():
         after = (directory / name).stat()

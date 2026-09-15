@@ -64,7 +64,7 @@ def main():
             t = truth[r["frame"]].get(r["square"])
             if t is None:
                 continue
-            pred, real = (r.get("cov") or 0.0) > thr, t > thr
+            pred, real = (r.get("model_cov", r.get("cov")) or 0.0) > thr, t > thr
             key = (s, r["frame"])
             if pred and not real:
                 per_frame[key]["fp"].add(r["square"])

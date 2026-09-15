@@ -155,18 +155,19 @@ class TrackerEngine(
             // Background gates and recovery must see pixels alone — their job is precisely to repair
             // a stale/wrong FEN. Only a pending diff candidate and the promotion prompt may use the
             // position-conditioned view.
-            // Die gemessene Schwelle des Modells EINMAL, hier am Eingang: danach gatet jeder
-            // `confident`-Aufruf damit statt mit `1.0 - cnnConfThr` (`docs/occlusion-gate.md`).
-            val rawSnap = snap.copy(obs = snap.obs.rawObservation().withCoverageThr(state.config.pOccludedThr))
+            // Die gemessene Schwelle des Modells EINMAL, hier am Eingang — auf BEIDE Sichten, sonst
+            // gatet die Verifikations-Leiter weiter mit `1.0 - cnnConfThr` (`docs/occlusion-gate.md`).
+            val gated = snap.copy(obs = snap.obs.withCoverageThr(state.config.pOccludedThr))
+            val rawSnap = gated.copy(obs = gated.obs.rawObservation())
             state.cnnSnap = rawSnap
             state.recordSight(rawSnap)
             state.cnnSnapsSeen += 1
             when {
-                state.promoPending != null -> confirmPromotionFromCnn(state, snap, ::choosePromotion)
+                state.promoPending != null -> confirmPromotionFromCnn(state, gated, ::choosePromotion)
                 state.pending != null -> {
                     state.cnnSnapsToVerify += 1
                     val pendingFen = state.pending?.fen
-                    val events = VerifySingle.tick(state, cnn, snap)
+                    val events = VerifySingle.tick(state, cnn, gated)
                     // The next frame can immediately re-propose the rejected candidate. Give
                     // independent, unconditioned recovery this reading before that happens;
                     // its legality, hand guards and distinct-observation vote still apply.

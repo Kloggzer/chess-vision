@@ -24,6 +24,16 @@ from .data import (
 #: Loader-Worker, wenn `--batch-aug` den Feed schlank macht. Gemessen 2026-09-07: 1 reicht warm
 #: (104 us gegen 127 Budget), ist kalt aber zu langsam (129); 2 sind cold-safe (79).
 BATCH_AUG_WORKERS = 2
+#: Die gueltigen `--balance`-Werte. Als Freitext fiel ein Tippfehler lautlos auf `situation`
+#: zurueck, wurde als der Tippfehler nach `config.json` geschrieben und machte zwei Sweep-Arme
+#: heimlich zu demselben Lauf.
+BALANCE_MODES = ("none", "situation", "session", "class", "piece")
+
+
+def check_balance(value: str) -> str:
+    if value not in BALANCE_MODES:
+        raise ValueError(f"--balance {value!r} is not one of {', '.join(BALANCE_MODES)}")
+    return value
 
 
 def _photometry_of(policy, photometric) -> dict:
@@ -439,6 +449,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # GPU precondition (Stage 0 validation path) — mandatory, otherwise abort. This check
     # is torch-free safe and runs BEFORE any torch import, so a missing/broken
     # build is reported clearly here instead of as an ImportError stacktrace.
+    check_balance(balance)
     if compile_batch_aug and not batch_aug:
         raise ValueError('--compile-batch-aug requires --batch-aug')
     if compile_mode and not compile_model:
@@ -990,9 +1001,6 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     # Platzierungen, jede 131-fach je Epoche. Gleiche Ziehungsmasse je Situation laesst die
     # Lichtvariation der Frames drin und nimmt nur die Schieflage raus.
     situation_w = None
-    # TODO: `--balance` ist Freitext ohne Pruefung — ein Tippfehler faellt lautlos auf
-    # `situation` zurueck, wird als der Tippfehler nach `config.json` geschrieben und macht
-    # zwei Sweep-Arme heimlich zu demselben Lauf. Eine Liste gueltiger Werte fehlt.
     if balance != "none":
         import collections
 

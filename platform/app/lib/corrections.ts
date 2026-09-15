@@ -118,7 +118,12 @@ async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
   const bySession: BySession = new Map();
   const changes: LedgerChange[] = [];
   let seq = 0;
-  const text = await readFile(file, "utf8").catch(() => "");
+  // Nur ein fehlendes Ledger ist "noch keine Urteile". Jeder andere Lesefehler waere sonst als
+  // leere Datei durchgereicht, und die Lane zeigt geloeschte Urteile als "nie gefaellt".
+  const text = await readFile(file, "utf8").catch((e) => {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    return "";
+  });
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {

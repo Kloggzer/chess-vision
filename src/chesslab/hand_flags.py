@@ -65,11 +65,19 @@ def session_flags(reads: list[dict], measured: dict[tuple[str, str], float], *,
 
 
 def write_flags(path: Path, rows: list[dict], header: dict) -> Path:
+    """Atomar, weil das der GLOBALE Bericht ist: ein abgebrochener Lauf beschaedigte sonst die
+    Strittig-Lane fuer ALLE Sessions, und `present: true` verbirgt genau das."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
-        fh.write(json.dumps(header) + "\n")
-        for row in rows:
-            fh.write(json.dumps(row) + "\n")
+    temp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with temp.open("w", encoding="utf-8") as fh:
+            fh.write(json.dumps(header) + "\n")
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    temp.replace(path)
     return path
 
 

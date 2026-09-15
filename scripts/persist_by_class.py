@@ -21,7 +21,7 @@ for session in sys.argv[1:]:
         r = json.loads(line)
         if "square" not in r or not r["probs"]:
             continue
-        rows[r["frame"]][r["square"]] = (max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("cov") or 0.0)
+        rows[r["frame"]][r["square"]] = (max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
     frames = sorted(rows)
     board = {f: tuple(sorted((s, v[1]) for s, v in rows[f].items())) for f in frames}
     iv, last, ivid = {}, None, -1

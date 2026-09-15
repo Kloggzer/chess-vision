@@ -127,16 +127,18 @@ class SessionWriter:
                 corners: list[list[float]] | None = None,
                 labels: dict[str, str] | None = None) -> str:
 
-        # TODO: beide `imwrite` unten geben ihren Rueckgabewert nicht her — verschwindet das
-        # Verzeichnis unter dem Schreiber (derselbe Fall, den `_write_session_yaml` behandelt),
-        # bekommt `log.jsonl` eine Zeile auf eine Datei, die es nie gab.
+        # LAUT, nicht uebersprungen: `session.yaml` kann ausfallen, weil es nichts mehr zu
+        # beschreiben gibt — ein Frame ist die Aufnahme selbst. Eine Log-Zeile auf eine Datei, die
+        # es nie gab, faellt erst Wochen spaeter beim Schneiden auf (`realgames.write_board`).
         if self.jpeg_quality is None:
             rel = f"frames/{self._frame_idx:04d}.png"
-            cv2.imwrite(str(self.dir / rel), frame)
+            ok = cv2.imwrite(str(self.dir / rel), frame)
         else:
             rel = f"frames/{self._frame_idx:04d}.jpg"
-            cv2.imwrite(str(self.dir / rel), frame,
-                        [int(cv2.IMWRITE_JPEG_QUALITY), int(self.jpeg_quality)])
+            ok = cv2.imwrite(str(self.dir / rel), frame,
+                             [int(cv2.IMWRITE_JPEG_QUALITY), int(self.jpeg_quality)])
+        if not ok:
+            raise OSError(f"session {self.session_id}: could not write frame {rel}")
         size = (int(frame.shape[1]), int(frame.shape[0]))
         if self._frame_idx == 0 and size != self.frame_size:
             # The FILES decide what `frame_size` means. A high-resolution snapshot source

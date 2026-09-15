@@ -70,7 +70,10 @@ export async function listGames(): Promise<string[]> {
   try {
     const entries = await readdir(path.join(dataDir(), "recordings"), { withFileTypes: true });
     return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
-  } catch {
+  } catch (e) {
+    // Eine fehlende Wurzel ist ein frisches Projekt. Ein kaputtes `CHESSLAB_DATA_DIR` ist es
+    // nicht — als leere Liste sieht es genauso aus, und niemand sucht dann nach dem Pfad.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return [];
   }
 }

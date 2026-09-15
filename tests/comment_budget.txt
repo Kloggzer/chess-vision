@@ -16,7 +16,7 @@ src/chesslab/meshprep.py 15
 src/chesslab/occluded_model.py 20
 src/chesslab/realgames.py 17
 src/chesslab/recording.py 11
-src/chesslab/scan_discover.py 12
+src/chesslab/scan_discover.py 11
 src/chesslab/serving.py 19
 src/chesslab/session_writer.py 7
 src/chesslab/sessions.py 20

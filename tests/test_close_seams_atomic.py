@@ -59,6 +59,9 @@ def test_a_refused_run_leaves_the_alpha_exactly_as_it_was(tmp_path, monkeypatch)
     assert alpha.read_bytes() == before, (
         "die geschlossenen Pixel liegen auf der Platte, obwohl der Lauf abgebrochen hat — "
         "ein zweiter Lauf findet `gained == 0` und repariert die Coverage nie")
+    assert not list((sdir / "mattes").glob("*.tmp.webp")), (
+        "die gestapelten Pixel blieben liegen — `.tmp.webp` liest zwar niemand als Frame, aber "
+        "sie sind Gigabytes, die kein Lauf je wieder anfasst")
 
 
 def test_a_clean_run_still_closes_the_seam(tmp_path, monkeypatch):

@@ -17,7 +17,7 @@ def measure(session):
         if "square" not in r or not r["probs"]:
             continue
         probs = r["probs"]
-        rows[r["frame"]][r["square"]] = (max(probs, key=probs.get), r["fen_label"], r.get("cov") or 0.0)
+        rows[r["frame"]][r["square"]] = (max(probs, key=probs.get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
     frames = sorted(rows)
     board_of = {f: tuple(sorted((s, v[1]) for s, v in rows[f].items())) for f in frames}
     interval, last, iv = [], None, -1

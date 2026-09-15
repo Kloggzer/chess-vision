@@ -44,7 +44,10 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
-  } catch {
+  } catch (e) {
+    // `present: false` heisst "der Produzent lief nie" und die Lane schreibt `—` statt `0`. Ein
+    // Lesefehler darf das nicht behaupten, sonst ist eine unlesbare Datei eine Aussage.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     const missing: PositionFlags = { rows: [], present: false };
     cache.set(file, { key, value: missing });
     return missing;

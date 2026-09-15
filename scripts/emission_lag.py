@@ -26,7 +26,7 @@ def main():
             if "square" not in r or not r["probs"]:
                 continue
             rows[int(r["frame"])][r["square"]] = (
-                max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("cov") or 0.0)
+                max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
         frames = sorted(rows)
         board = {f: tuple(sorted((sq, v[1]) for sq, v in rows[f].items())) for f in frames}
         err = defaultdict(dict)                 # square -> frame -> 0/1

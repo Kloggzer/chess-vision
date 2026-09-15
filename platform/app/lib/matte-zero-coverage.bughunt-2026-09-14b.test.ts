@@ -20,7 +20,7 @@ async function fixture(coverage: Record<string, number>): Promise<string> {
   const name = "2026-09-14-10-00-00";
   const dir = path.join(root, "recordings", name);
   await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "candidate.json"), '{"moves":[]}', "utf8");
+  await writeFile(path.join(dir, "candidate.json"), '{"clock":{"fps":25},"moves":[]}', "utf8");
   await writeFile(
     path.join(dir, "log.jsonl"),
     JSON.stringify({

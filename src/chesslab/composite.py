@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Queue
+from queue import Full, Queue
 from threading import Event, Thread
 
 import cv2
@@ -216,26 +216,40 @@ def read_forward(video: Path, stride: int, depth: int = 3) -> Iterator[tuple[int
     `cap.set`, 39 so. Auch warum die Hardware verliert, misst `docs/ingest-speed.md`.
     """
     q: Queue = Queue(maxsize=depth)
+    stop = Event()
+
+    def offer(item) -> bool:
+        # Ein blockierendes `q.put` hielt den Strang fuer immer fest, wenn der Verbraucher den
+        # Generator vorzeitig verliess — das `VideoCapture` kam nie zurueck. Wie in `tile_stream`.
+        while not stop.is_set():
+            try:
+                q.put(item, timeout=0.2)
+                return True
+            except Full:
+                continue
+        return False
 
     def pump() -> None:
         cap = cv2.VideoCapture(str(video))
         idx = 0
         try:
-            while cap.grab():
-                if idx % stride == 0:
-                    ok, frame = cap.retrieve()
-                    if ok:
-                        q.put((idx, frame))
+            while not stop.is_set() and cap.grab():
+                ok, frame = cap.retrieve() if idx % stride == 0 else (False, None)
+                if ok and not offer((idx, frame)):
+                    break
                 idx += 1
         finally:
             cap.release()
-            q.put(None)
+            offer(None)
 
-    # TODO: Kein Stop-Event wie in `tile_stream`: wird der Generator vorzeitig verlassen, haengt
-    #  der Pump-Thread fuer immer in `q.put` und gibt sein `VideoCapture` nie frei.
     Thread(target=pump, daemon=True).start()
-    while (item := q.get()) is not None:
-        yield item
+    try:
+        while (item := q.get()) is not None:
+            yield item
+    finally:
+        stop.set()
+        while not q.empty():
+            q.get_nowait()
 
 
 def tile_stream(tiles: list[Path], per_frame: tuple[int, int], seed: int, stride: int,

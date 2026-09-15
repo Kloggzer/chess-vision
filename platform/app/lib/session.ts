@@ -125,7 +125,10 @@ export async function loadSession(name: string): Promise<Session> {
   // no successor has no known end; its interval is left open and every frame in it reads `after`.
   const commit = new Map(candidate.moves.map((m) => [m.ply, m.frame]));
   const closes = new Map(candidate.moves.map((m, i) => [m.ply, candidate.moves[i + 1]?.frame]));
-  const fps = candidate.clock?.fps ?? 30;
+  // Keine Vorgabe: die Aufnahmen auf dieser Platte laufen zwischen 14,8 und 30,0 fps, eine
+  // erfundene 30 verdoppelt `sinceS`/`toS` und die Sekundenangabe sieht dabei normal aus.
+  const fps = candidate.clock?.fps;
+  if (!fps) throw new Error(`${name}: candidate.json nennt keine clock.fps — ohne sie sind die Sekunden geraten`);
 
   const rows: SessionRow[] = [];
   for (const line of (await readFile(log, "utf8")).split("\n")) {

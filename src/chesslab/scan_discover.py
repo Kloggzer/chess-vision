@@ -92,14 +92,9 @@ def pick_mesh(d: Path) -> Path | None:
     Callers must NOT use ``sorted()[0]`` — that picks ``mesh_Model_*.obj``
     (capital M) before ``mesh_bauer2.obj`` on stale RealityScan folders.
 
-    A user-cropped ``cropped.obj`` (written by /api/scan/crop) ALWAYS wins —
-    it's the deliberate manual isolation and must not be overridden by the raw
-    ``.glb`` still lying in the folder.
+    The old ``cropped.obj`` rule is gone: it was written by the deleted FastAPI layer, nothing
+    writes it any more, and `collect_scans` went past it anyway — two rules for one question.
     """
-    cropped = d / "cropped.obj"
-    if cropped.exists():
-        return cropped
-
     glbs = sorted([*d.glob("*.glb"), *d.glob("*.gltf")])
     if glbs:
         return glbs[0]
@@ -159,16 +154,13 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
                 f"{d.name}: not a piece name (P/N/B/R/Q/K, optional w/b prefix, "
                 "optional variant suffix) — the renderer won't find this template")
         canonical, variant = parsed if parsed else (d.name, "v1")
-        # TODO: dieser Zweig geht an `pick_mesh` vorbei, dessen Regel "cropped.obj gewinnt IMMER"
-        # damit nie greift — und `cropped.obj` schrieb die geloeschte FastAPI-Schicht, es schreibt
-        # sie heute niemand mehr. Entweder `pick_mesh` hier benutzen oder die Regel loeschen.
         if glbs:                                     # preferred: RealityScan-simplified .glb
             if len(glbs) > 1:
                 warnings.append(f"{d.name}: multiple .glb — taking {glbs[0].name}")
             # RealityScan .glb often references the texture EXTERNALLY
             # (_diffuse.png next to it) — pass the fallback; embedded textures win
             # automatically in prepare_scan().
-            items.append(ScanItem(name=canonical, obj=glbs[0], tex=_pick_texture(d),
+            items.append(ScanItem(name=canonical, obj=pick_mesh(d), tex=_pick_texture(d),
                                   variant=variant))
             continue
         tex = _pick_texture(d)

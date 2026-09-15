@@ -1,11 +1,11 @@
 /**
  * The ladder from a transferred recording to the labelling stream, as a STATE, not a procedure.
  *
- * The chain is five steps with a human in the middle (`docs/phone-transfer.md`): the tracker
- * proposes a move list, a person judges it, the confirmed intervals become a session, SAM cuts the
- * hand out of its occluded frames, and a model reads it. Each step's input is the previous file,
- * so the next step is not a decision — it is READ OFF THE DISK. The UI therefore offers exactly one
- * button, and never one whose input does not exist yet.
+ * Seven rungs with a human in the middle (`docs/phone-transfer.md`): the tracker proposes a move
+ * list, a person judges it, the confirmed intervals become a session, SAM cuts the hand out of its
+ * occluded frames, the three-frame sensor catches what SAM missed, and a model reads it. Each
+ * step's input is the previous file, so the next step is not a decision — it is READ OFF THE DISK.
+ * The UI therefore offers exactly one button, and never one whose input does not exist yet.
  */
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat, writeFile } from "node:fs/promises";

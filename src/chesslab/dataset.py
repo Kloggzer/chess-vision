@@ -449,6 +449,10 @@ def validate_split(split: dict, rows: list[dict],
     # only check occluded if present globally
     check_classes = [c for c in CLASSES if c != "occluded" or "occluded" in global_present]
 
+    # Was hier schon ein Fehler ist, IN DEN WORTEN VON `make_split`: beide formulieren denselben
+    # Befund verschieden, `w not in errors` konnte deshalb nie greifen, und jeder dieser Funde
+    # stand zweimal da — einmal als Fehler, einmal als Warnung.
+    said: set[str] = set()
     for c in check_classes:
         n_sessions = len(class_sessions[c])
         if n_sessions == 0:
@@ -460,18 +464,17 @@ def validate_split(split: dict, rows: list[dict],
                 "record a new session with random piece-line assignment, "
                 "or set --allow-degenerate."
             )
+            said.add(f"Class {c} only in one session -> clean evaluation impossible.")
 
     # Test/Val empty
-    if split["counts"]["test"] == 0:
-        errors.append("Test split is empty — at least 3 sessions needed (session-based split).")
-    if split["counts"]["val"] == 0:
-        errors.append("Val split is empty — at least 3 sessions needed (session-based split).")
+    for name in ("test", "val"):
+        if split["counts"][name] == 0:
+            errors.append(f"{name.capitalize()} split is empty — at least 3 sessions needed "
+                          "(session-based split).")
+            said.add(f"{name} split is empty (too few sessions).")
 
     # Adopt warnings from make_split (class missing in Val/Test)
-    # TODO: der Filter kann nie greifen — `make_split` und diese Funktion formulieren denselben
-    # Befund mit verschiedenen Saetzen, also steht er zweimal da, einmal als Fehler, einmal als
-    # Warnung.
-    warnings.extend(w for w in split.get("warnings", []) if w not in errors)
+    warnings.extend(w for w in split.get("warnings", []) if w not in said)
 
     return errors, warnings
 

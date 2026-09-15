@@ -73,15 +73,17 @@ def work_size(cap: cv2.VideoCapture) -> tuple[int, int]:
 
 
 def _sample(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int]) -> np.ndarray:
-    idx = np.linspace(0, n_frames - 1, PLATE_FRAMES).astype(int)
-    stack = np.empty((len(idx), size[1], size[0], 3), np.uint8)
-    for k, i in enumerate(idx):
+    # A failed decode is NO evidence about the backdrop; it used to enter as a black frame and
+    # pull the plate's median down. `chroma_cut_of` skips the same step, this one now too.
+    frames = []
+    for i in np.linspace(0, n_frames - 1, PLATE_FRAMES).astype(int):
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(i))
         ok, f = cap.read()
-        # TODO: ein fehlgeschlagener Dekodierschritt legt ein SCHWARZES Bild in den Median und
-        # zieht die Platte nach unten; `chroma_cut_of` macht an derselben Stelle `continue`.
-        stack[k] = cv2.resize(f, size, interpolation=cv2.INTER_AREA) if ok else 0
-    return stack
+        if ok:
+            frames.append(cv2.resize(f, size, interpolation=cv2.INTER_AREA))
+    if not frames:
+        raise ValueError("plate: no frame decoded — the clip is unreadable")
+    return np.stack(frames)
 
 
 def read_plate(cap: cv2.VideoCapture, n_frames: int, size: tuple[int, int] | None = None) -> np.ndarray:
@@ -256,9 +258,9 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
     out_dir.mkdir(parents=True, exist_ok=True)
     kept: list[np.ndarray] = []
     written = skipped_thin = skipped_dup = 0
-    # TODO: `scale` bleibt 1.0, wenn keine Kachel geschrieben wurde — `tile` im Bericht steht dann
-    # in MASKEN-Koordinaten und behauptet trotzdem, "was WIRKLICH geschrieben wurde".
-    scale = 1.0
+    # Aus der Quelle, nicht erst aus der ersten geschriebenen Kachel: sonst blieb `scale` auf 1.0,
+    # wenn jede Pose verworfen wurde, und `tile` stand in MASKEN-Koordinaten.
+    scale = cap_w / size[0]
     src = (blurred_pairs(cap, n, stride, size) if pair_blur and fps > 45
            else _plain(cap, n, stride, size))
     for i, (frame, full) in enumerate(src):

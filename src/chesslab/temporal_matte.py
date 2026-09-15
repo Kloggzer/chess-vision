@@ -156,9 +156,12 @@ def bracketing(rows, target, *, max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S,
     def index(row):
         return int(row["frame"].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].split(".")[0])
 
+    # Eine Zeile OHNE Brett ist der gewoehnliche Fall (nichts zu bezeugen), ein kaputtes `ts` oder
+    # ein fehlendes `ply` ist es nicht: beides fiel in dieselbe stille `None`-Antwort, und eine
+    # beschaedigte Zeile sah damit aus wie eine, fuer die es einfach keinen Nachbarn gab.
     try:
         here = index(target)
-        clean = [r for r in rows if r["board"].replace("\\", "/").rsplit("/", 2)[-2] == "boards"]
+        clean = [r for r in rows if Path(str(r.get("board", ""))).parent.name == "boards"]
         before = [r for r in clean if index(r) < here]
         after = [r for r in clean if index(r) > here]
         if not before or not after:
@@ -176,9 +179,8 @@ def bracketing(rows, target, *, max_gap_s=config.TEMPORAL_MATTE_MAX_GAP_S,
             same = [r for r in side if (r["ply"], r["fen"]) == (anchor["ply"], anchor["fen"])]
             same.sort(key=lambda r: abs(index(r) - index(anchor)))
             sides.append(same[:max(1, peers)])
-    # TODO: This broad fallback hides corrupt frame metadata as ordinary missing evidence.
-    except (KeyError, TypeError, ValueError):
-        return None
+    except (KeyError, TypeError, ValueError) as e:
+        raise ValueError(f"frame {target.get('frame')}: corrupt metadata ({e})") from e
     return tuple(sides)
 
 

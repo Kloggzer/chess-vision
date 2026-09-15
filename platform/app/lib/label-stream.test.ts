@@ -18,7 +18,7 @@ async function fixture(frames: number): Promise<void> {
   process.env.CHESSLAB_DATA_DIR = root;
   await mkdir(path.join(root, "recordings", NAME), { recursive: true });
   await mkdir(path.join(root, "recordings", NAME), { recursive: true });
-  await writeFile(path.join(root, "recordings", NAME, "candidate.json"), '{"moves":[]}', "utf8");
+  await writeFile(path.join(root, "recordings", NAME, "candidate.json"), '{"clock":{"fps":25},"moves":[]}', "utf8");
   const rows = Array.from({ length: frames }, (_, i) =>
     JSON.stringify({ frame: `${String(i).padStart(6, "0")}.png`, ply: 1, fen: FEN, corners: [] }),
   );

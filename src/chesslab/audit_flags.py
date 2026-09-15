@@ -100,7 +100,8 @@ def session_flags(rows: list[dict], judged: dict[Cell, str], *, model: str, ts: 
             "prob": round(prob, 4),
             # Die 14. Spalte des Modells — ein EIGENER Sigmoid, keine Klasse. Die Matte bleibt
             # das Mass (`--visible`); dies ist die zweite Meinung, wo SAM eine Hand uebersah.
-            **({"model_cov": row["model_cov"]} if row.get("model_cov") is not None else {}),
+            # `cov` ist die Schreibweise vor 2026-09-16; die Reads liegen auf der Platte.
+            **({"model_cov": model_cov} if (model_cov := row.get("model_cov", row.get("cov"))) is not None else {}),
             # Das Wort des MENSCHEN, wo es eines gibt: die Lane zeigt sonst die FEN und
             # verschweigt, dass hier schon jemand widersprochen hat.
             **({"judged": label} if cell in judged else {}),

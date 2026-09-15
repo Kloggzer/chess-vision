@@ -330,21 +330,28 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
     from .recording import Recording
 
     out.mkdir(parents=True, exist_ok=True)
-    # TODO: erst alles loeschen, dann neu dekodieren — bricht der Dekoder ab, ist der alte
-    # Review-Satz weg und kein neuer da. Neben `_write_candidate` steht das os.replace-Muster.
-    for old in out.glob("*.webp"):
-        old.unlink()
     wanted: dict[int, int] = {}
     for i, p in enumerate(plies):
         for k in range(-REVIEW_CONTEXT, REVIEW_CONTEXT + 1):
             wanted.setdefault((p.frame_review if p.frame_review is not None else p.frame) + k, i)
     size = profile.board_size
-    written = 0
     last = max(wanted)
-    for idx, frame in Recording(video).take(wanted, rotate):
-        if idx > last:
-            break
-        padded = warp_padded(frame, profile, corners_of[wanted[idx]], pad)
-        if cv2.imwrite(str(out / f"{idx:06d}.webp"), padded[pad:pad + size, pad:pad + size], encode):
-            written += 1
-    return written
+    # Neben die alten, umgehaengt wird ZULETZT (wie `_write_candidate`): erst alles zu loeschen und
+    # dann neu zu dekodieren liess einen Dekoder-Abbruch ohne jeden Review-Satz zurueck.
+    staged: list[tuple[Path, Path]] = []
+    try:
+        for idx, frame in Recording(video).take(wanted, rotate):
+            if idx > last:
+                break
+            padded = warp_padded(frame, profile, corners_of[wanted[idx]], pad)
+            tmp = out / f"{idx:06d}.webp.tmp"
+            if cv2.imwrite(str(tmp), padded[pad:pad + size, pad:pad + size], encode):
+                staged.append((tmp, out / f"{idx:06d}.webp"))
+        for old in out.glob("*.webp"):
+            old.unlink()
+        for tmp, dst in staged:
+            os.replace(tmp, dst)
+    finally:
+        for tmp, _dst in staged:
+            tmp.unlink(missing_ok=True)
+    return len(staged)

@@ -322,9 +322,6 @@ def _persistent(quiet: list[dict], ref, change_thr: float,
     return hit, kept
 
 
-# TODO: `white_pov` sieht nie einen anderen Wert als True — `realgames.plan_scanned` hat kein
-# Profil zur Hand. Unter `white_pov=False` faellt `next_touches` damit auf die um 180 Grad
-# gespiegelten Felder, derselbe Fehler, den `cell_sharpness` schon hatte.
 def classify(segment: dict, scan: list[dict], *, person_thr: float = PERSON_THR,
              change_thr: float = CHANGE_THR, ref_frames: int = 3,
              white_pov: bool = True) -> dict[int, str]:
