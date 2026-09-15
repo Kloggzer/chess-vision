@@ -143,3 +143,19 @@ sie daran haengt und nicht an der Messung.
 **Die Frage:** zusammenlegen auf `pOccludedThr`? Das verschiebt den Phantom-Veto und braucht den
 Regressionssatz, nicht eine Codeaenderung im Vorbeigehen. Meine Empfehlung: erst messen, was die
 0,15 heute an Zellen anders entscheidet als die 0,25 — das ist eine Replay-Auswertung, kein Umbau.
+
+## 13. `eval_*.json` traegt sichtbar-gemessene Zahlen unter korpusweiten Namen
+
+`evaluate.run_eval` rechnet `bd` aus `vis_trues`/`vis_preds`, also nur ueber
+`classification_eligible`. Das Summary schreibt daraus **beides**: `visible_piece_acc` UND
+`piece_acc`, `visible_occupied_acc` UND `occupied_acc` — bitgleich dieselbe Zahl. `board_acc` im
+selben Dict ist dagegen korpusweit (`engine.py:161` laeuft ueber `every`). Und `eval_test.json`
+geht woertlich in `model_card.json["metrics"]`.
+
+Fuer Laufvergleiche ist das harmlos (beide Seiten messen sichtbar), fuer einen Leser nicht: wer
+`piece_acc` als korpusweit liest, liegt falsch — und das ist genau der Fehler, den CLAUDE.md
+2026-08-26 schon einmal korrigiert hat.
+
+**Die Frage:** die unqualifizierten Namen wegwerfen, oder sie korpusweit ausrechnen? Beides
+aendert, was `model_card.json` bedeutet, und damit die Vergleichbarkeit mit jedem archivierten
+Lauf. Deshalb nicht nachts entschieden — die Stelle ist inline markiert.

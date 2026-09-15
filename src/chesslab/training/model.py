@@ -55,15 +55,23 @@ class PrimitiveBatchNorm2d(nn.BatchNorm2d):
             if self.track_running_stats:
                 n = xf.numel() / xf.shape[1]
                 with torch.no_grad():
-                    m = self.momentum if self.momentum is not None else 0.1
+                    self.num_batches_tracked += 1
+                    # `momentum=None` ist bei `nn.BatchNorm2d` der KUMULATIVE Mittelwert
+                    # (1/num_batches_tracked) — genau wofuer der Zaehler da ist. Als 0.1 gelesen
+                    # war er ein Feld, das niemand braucht, und der Lauf wich still ab.
+                    m = self.momentum if self.momentum is not None else 1.0 / float(self.num_batches_tracked)
                     self.running_mean.mul_(1 - m).add_(m * mean.flatten())
                     # Running variance is the UNBIASED estimate, as `nn.BatchNorm2d` stores it.
                     self.running_var.mul_(1 - m).add_(m * var.flatten() * n / (n - 1))
-                    self.num_batches_tracked += 1
-        else:
+        elif self.track_running_stats:
             mean = self.running_mean.view(1, -1, 1, 1).float()
             var = self.running_var.view(1, -1, 1, 1).float()
+        else:
+            # Ohne laufende Statistik misst auch die Auswertung am Batch — `nn.BatchNorm2d` tut das.
+            var, mean = torch.var_mean(xf, dim=(0, 2, 3), unbiased=False, keepdim=True)
         y = (xf - mean) * torch.rsqrt(var + self.eps)
+        if self.weight is None:
+            return y.to(x.dtype)
         out = y * self.weight.view(1, -1, 1, 1).float() + self.bias.view(1, -1, 1, 1).float()
         return out.to(x.dtype)
 

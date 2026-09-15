@@ -55,8 +55,6 @@ def _interpolate(lum: torch.Tensor, lut: torch.Tensor, tile: int) -> torch.Tenso
     x0 = torch.floor(xs).clamp(0, tile - 1).long()
     y1 = (y0 + 1).clamp(max=tile - 1)
     x1 = (x0 + 1).clamp(max=tile - 1)
-    wy = (ys - torch.floor(ys)).clamp(0, 1).view(h, 1)
-    wx = (xs - torch.floor(xs)).clamp(0, 1).view(1, w)
     # Aussen keine Extrapolation: dort, wo geklemmt wurde, muss das Gewicht auf die Kachel fallen.
     wy = torch.where((ys < 0) | (ys > tile - 1), torch.zeros_like(ys), ys - torch.floor(ys)).view(h, 1)
     wx = torch.where((xs < 0) | (xs > tile - 1), torch.zeros_like(xs), xs - torch.floor(xs)).view(1, w)

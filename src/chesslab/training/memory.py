@@ -40,6 +40,9 @@ def check_ram(reserve_gb: float) -> None:
 def guarded_batches(loader):
     """Check before fetching and after constructing each host batch."""
     reserve = getattr(getattr(loader, "dataset", None), "ram_reserve_gb", 0)
+    # Die Pruefung VOR `iter` ist nicht dieselbe wie die danach: `iter` forkt die Worker, und genau
+    # da springt der Speicher (4-7 GB je Prozess). Wer sie als doppelt ansieht, entfernt die einzige
+    # Messung vor dem Sprung.
     check_ram(reserve)
     iterator = iter(loader)
     while True:

@@ -287,6 +287,10 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
                "visible_piece_acc": bd["piece_acc"],
                "visible_occupied_acc": bd["occupied_acc"],
                "visible_type_err": bd["type_err"],
+               # TODO: dieselbe Zahl unter zwei Namen. `bd` kommt aus `vis_trues`/`vis_preds`, also
+               # sind `piece_acc` und `visible_piece_acc` bitgleich — waehrend `board_acc` daneben
+               # korpusweit ist. `model_card.json` uebernimmt das woertlich. Umbenennen macht neue
+               # Laeufe mit dem Archiv unvergleichbar, deshalb Punkt 13 in offene-entscheidungen.md.
                "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
                "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
                "per_session": per_session, "session_spread": spread}
