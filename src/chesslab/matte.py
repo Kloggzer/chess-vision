@@ -34,10 +34,10 @@ CONCEPTS = (
     "wristwatch",
 )
 
-# `zone` steht als ZAHL in jeder Zeile, ist aber keine Grenze mehr: bis 2026-09-16 verwarf
-# `MAX_ZONE_FRAC = 0.60` jede Maske darueber. Gemessen ist sie im ganzen Korpus nie gefeuert
-# (8 328 Zeilen, null Absagen) — sie hat nichts gefangen und wartete auf das erste wirklich
-# schwere Material. Was SAM findet, wird geglaubt (Nutzer, 2026-09-16).
+# `zone` steht als ZAHL in jeder Zeile, ist aber keine Grenze mehr. `MAX_ZONE_FRAC = 0.60` trennte
+# nach FLAECHE, nicht nach Irrtum: eine Fehlerkennung bei 20 % rutschte durch, eine echte schwere
+# Verdeckung bei 70 % flog raus. Im ganzen Korpus nie gefeuert (8 328 Zeilen, null Absagen). Wer
+# der Matte nur unter einer Flaeche traut, traut ihr nicht (Nutzer, 2026-09-16).
 
 
 
