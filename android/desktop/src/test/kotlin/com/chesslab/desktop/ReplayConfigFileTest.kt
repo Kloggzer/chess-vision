@@ -1,8 +1,8 @@
 package com.chesslab.desktop
 
+import com.chesslab.desktop.testutil.StillSource
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.geometry.BoardGeometry
-import com.chesslab.tracker.camera.DeliveredSize
 import com.chesslab.tracker.settings.CONFIG_SCHEMA_VERSION
 import com.chesslab.tracker.settings.ConfigCodec
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import org.opencv.core.Mat
 import java.io.File
 
 /**
@@ -111,17 +110,18 @@ class ReplayConfigFileTest {
 
     /** The signature's non-config inputs are fixed here; only the config under test varies. */
     private fun signatureOf(config: TrackerConfig): String =
-        visualCacheSignature(config, geometry, FloatArray(8) { it.toFloat() }, StillSource, stride = 1, lens = false, model = "m")
-
-    private object StillSource : FrameSource {
-        override fun next(): Mat? = null
-
-        override val delivered = DeliveredSize(1920, 1080, 0)
-
-        override val fps = 30.0
-
-        override fun close() = Unit
-    }
+        visualCacheSignature(
+            config,
+            geometry,
+            FloatArray(8) { it.toFloat() },
+            StillSource,
+            stride = 1,
+            lens = false,
+            model = "m",
+            startFrame = 0L,
+            limitFrames = null,
+            recordedFrames = null,
+        )
 
     @Test
     fun `a raw envelope loads the same as a settings file`() {

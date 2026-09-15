@@ -449,7 +449,18 @@ internal fun replayRun(
                     File(path.replace('~', ' ')),
                     video,
                     options.model,
-                    visualCacheSignature(config, geometry, quad, source, stride, options.lens, desktopModelSignature(options.model)),
+                    visualCacheSignature(
+                        config,
+                        geometry,
+                        quad,
+                        source,
+                        stride,
+                        options.lens,
+                        desktopModelSignature(options.model),
+                        replayStartFrame,
+                        options.limitFrames,
+                        recorded?.size,
+                    ),
                 )
             }
         val parallelVisual =

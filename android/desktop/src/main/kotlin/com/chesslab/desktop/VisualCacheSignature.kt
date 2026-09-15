@@ -20,6 +20,9 @@ internal fun visualCacheSignature(
     stride: Int,
     lens: Boolean,
     model: String,
+    startFrame: Long,
+    limitFrames: Int?,
+    recordedFrames: Int?,
 ): String =
     listOf(
         "observer=${config.cnnVerify},${config.observerIntervalS}",
@@ -31,9 +34,12 @@ internal fun visualCacheSignature(
         "stride=$stride",
         "lens=$lens",
         "model=$model",
-        // TODO: `replayStartFrame`, `limitFrames` und das Recorded-Frame-Gate fehlen hier,
-        //  obwohl die Cache-Zeilen an der RELATIVEN Sequenznummer haengen. Ein Cache aus
-        //  `start=0` wird von `start=5` akzeptiert und liefert die Beobachtungen fremder Bilder.
+        // Die Cache-Zeilen haengen an der RELATIVEN Sequenznummer, also gehoert der
+        // Ausschnitt in die Signatur: ein Cache aus `start=0` wurde von `start=5` akzeptiert
+        // und antwortete mit den Beobachtungen fremder Bilder — still, in einer Messung.
+        "start=$startFrame",
+        "limit=${limitFrames ?: -1}",
+        "recorded=${recordedFrames ?: -1}",
     ).joinToString("|")
 
 /**
