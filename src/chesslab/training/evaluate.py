@@ -67,6 +67,29 @@ def _frozen_hit(rows: list[dict]) -> set[str]:
     return frozen & {r["session_id"] for r in rows}
 
 
+def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
+                 split_name: str, ds_name: str) -> dict:
+    """Was in `eval_<split>.json` steht — und woertlich in `model_card.json["metrics"]` landet.
+
+    Ein unqualifizierter Name ist KORPUSWEIT, ein `visible_*` misst nur, was der Verlust lernt.
+    Bis 2026-09-15 kam beides aus derselben sichtbar-gefilterten Rechnung und war bitgleich,
+    waehrend `board_acc` daneben schon korpusweit war (`docs/offene-entscheidungen.md` 13).
+    """
+    from .data import occupancy_piece_breakdown
+
+    every = occupancy_piece_breakdown(classes, res["trues"], res["preds"])
+    return {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
+            "square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
+            "occupied_board_acc": occ_bacc,
+            "visible_piece_acc": bd["piece_acc"],
+            "visible_occupied_acc": bd["occupied_acc"],
+            "visible_type_err": bd["type_err"],
+            "piece_acc": every["piece_acc"], "type_err": every["type_err"],
+            "color_err": every["color_err"],
+            "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
+            "per_session": per_session, "session_spread": spread}
+
+
 def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
              dataset: str | None = None, split_file: str | None = None,
              sessions: list[str] | None = None, boards_only: bool = False,
@@ -281,19 +304,8 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     print(f"Square-Accuracy ({split_name}): {res['square_acc']:.4f}  (nur Kontext)")
     print(f"[OK] Confusion gespeichert: {run_dir / ('confusion_' + stem + '.txt')} (+ .png)")
 
-    summary = {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
-               "square_acc": res["square_acc"], "occupied_acc": bd["occupied_acc"],
-               "occupied_board_acc": occ_bacc,
-               "visible_piece_acc": bd["piece_acc"],
-               "visible_occupied_acc": bd["occupied_acc"],
-               "visible_type_err": bd["type_err"],
-               # TODO: dieselbe Zahl unter zwei Namen. `bd` kommt aus `vis_trues`/`vis_preds`, also
-               # sind `piece_acc` und `visible_piece_acc` bitgleich — waehrend `board_acc` daneben
-               # korpusweit ist. `model_card.json` uebernimmt das woertlich. Umbenennen macht neue
-               # Laeufe mit dem Archiv unvergleichbar, deshalb Punkt 13 in offene-entscheidungen.md.
-               "piece_acc": bd["piece_acc"], "type_err": bd["type_err"], "color_err": bd["color_err"],
-               "recall": {c: float(r) for c, r in zip(classes, recall, strict=False)},
-               "per_session": per_session, "session_spread": spread}
+    summary = eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread,
+                           split_name=split_name, ds_name=ds_name)
     (run_dir / f"eval_{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"[OK] {run_dir / f'eval_{stem}.json'}")
     return 0

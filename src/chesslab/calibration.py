@@ -715,6 +715,10 @@ class MarkerTracker:
     def update(self, detected: dict[int, list[float]]) -> dict[int, list[float]]:
         for i in self.pos:                                     # first let all age
             self.age[i] = self.age.get(i, 0) + 1
+            # `jump_confirm_frames` meint AUFEINANDERFOLGENDE Bilder: ohne das hier ueberlebte ein
+            # Kandidat eine 500-Bild-Luecke und wurde auf ein einziges Wiedersehen bestaetigt.
+            if i not in detected:
+                self._pending.pop(i, None)
         for i, q in detected.items():
             p = [float(q[0]), float(q[1])]
             prev = self.pos.get(i)

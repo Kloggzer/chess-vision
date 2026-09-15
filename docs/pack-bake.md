@@ -66,3 +66,11 @@ würde auf dem Gerät ohne CLAHE inferieren und wäre ein anderes Modell als das
 - der Pack gebacken ist und der Lauf ohne CLAHE trainieren will (die Pixel tragen ihn trotzdem),
 - die CLAHE-Werte des Packs nicht denen des Laufs entsprechen,
 - `--input-size` nicht der Packgröße entspricht.
+
+## CLAHE auf der GPU nachzubauen lohnt nicht (gemessen 2026-09-07, Modul geloescht 2026-09-15)
+
+`training/clahe_gpu.py` war ein Nachbau von `cv::CLAHE` als Batch-Operation. Er traf cv2 auf
+**einer** Graustufe im Kern und auf **80 von 256** im ganzen Operator: bei `clipLimit` 2,0 kippt
+ein Rundungsfehler die LUT der Kachel. Das Geraet rechnet ohnehin `Imgproc.createCLAHE`, und
+gebacken wird im Pack — es gab nie einen Aufrufer. Das Modul ist geloescht; wer es wieder
+anfangen will, faengt bei dieser Messung an.
