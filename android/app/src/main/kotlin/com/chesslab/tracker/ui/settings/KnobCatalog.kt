@@ -9,7 +9,7 @@ import com.chesslab.tracker.ui.settings.KnobGroup.SCORING
 import com.chesslab.tracker.ui.settings.KnobGroup.VETOES
 
 // The knobs a person at a real board turns, grouped, with their range and one line of why. The
-// help text is condensed from the comments in `src/chesslab/config.py` — those comments carry the
+// help text was condensed from the comments the Python tracker carried — they carry the
 // live-tuning history (why censusThr is 40 and not 160, why occlusionColorThr is 3.0 and not the
 // historic 1.5), which is exactly what someone tuning on a strange board under a strange lamp
 // needs. Numbers live HERE and nowhere else; no composable carries a literal.
@@ -29,8 +29,8 @@ private val BY_KEY = KNOBS.associateBy { it.key }
  * None of these is a preference. Each is either a measurement the app makes for itself, a seam the
  * clip harness needs, or a value whose usable range is empty. Offering them as sliders invited a
  * user to spend an evening on a knob that at best does nothing and at worst quietly stops the
- * tracker. They stay in `TrackerConfig` because `TRACK_DEFAULTS` parity and the parity fixtures
- * depend on the field set, not because anyone should move them.
+ * tracker. They stay in `TrackerConfig` because the parity fixtures depend on the field set,
+ * not because anyone should move them.
  */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
@@ -56,8 +56,9 @@ val NOT_A_SETTING: Map<String, String> =
         "pOccludedThr" to
             "Measured, not chosen: the coverage above which a square stops counting as a witness follows from " +
             "the MODEL's accuracy there, so each model brings its own as `coverage_gate` and the app applies " +
-            "it on attach. Measured at loss ratio 2 against the SAM mattes, `comp13` carries 0.02 where the " +
-            "real13 runs carry 0.15 — a slider here would overwrite a measurement with a guess.",
+            "it on attach. Measured 2026-09-14 against the SAM mattes over 104 337 reads, at lambda 3 " +
+            "because phantoms are the veto: the shipped default carries 0.25, the 128 px runs 0.35 — a " +
+            "slider here would overwrite a measurement with a guess.",
         "commitHoldS" to
             "Not a preference but the measured commit hold: 0.067 s (two quiet frames at 15 fps) against the " +
             "0.20 s motion hold, with the sight series as the evidence that replaces the wait. Measured " +
@@ -68,8 +69,8 @@ val NOT_A_SETTING: Map<String, String> =
             "verify ladder refuses everywhere else; more only costs frames.",
         "sightCoverageMax" to
             "Not a preference but a measurement: hand-free squares read 0.001–0.02 coverage, covered ones " +
-            "0.87–1.0, so 0.05 separates them. pOccludedThr (0.15) is where the model still has a chance " +
-            "at the piece, not where no hand is.",
+            "0.87–1.0, so 0.05 separates them. pOccludedThr (0.25 on the shipped default) is where the " +
+            "model still has a chance at the piece, not where no hand is.",
         "verifyObserveNow" to
             "Not a preference but the observer's cadence: a fresh candidate gets its observation on the same " +
             "frame instead of waiting for the next scheduled one. Measured 2026-09-12: 133 ms less per commit, " +

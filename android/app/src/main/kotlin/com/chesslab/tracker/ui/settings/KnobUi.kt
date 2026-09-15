@@ -26,11 +26,10 @@ enum class KnobGroup(
 /**
  * One row of the settings screen: a [Knob] (which owns the get/set and the live-vs-restart
  * classification) plus what a person needs to tune it — where it sits, how far it may travel, and
- * one line of why, lifted from `src/chesslab/config.py:590-646`.
+ * one line of why.
  *
- * The Python default is never re-declared here. It is read back off `TrackerConfig()`, whose
- * defaults ARE `TRACK_DEFAULTS` verbatim (entry.md invariant 12), so the number beside the value
- * cannot drift from the number the engine falls back to.
+ * The default is never re-declared here. It is read back off `TrackerConfig()`, so the number
+ * beside the value cannot drift from the number the engine falls back to.
  */
 class KnobUi(
     val knob: Knob,

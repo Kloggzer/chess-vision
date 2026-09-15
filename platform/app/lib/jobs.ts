@@ -839,8 +839,10 @@ export async function jobHistory(name: string, limit = 20): Promise<Job[]> {
         /* a half-written line is not a job */
       }
     }
-  } catch {
-    /* no job has ever run */
+  } catch (e) {
+    // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
+    // oder unlesbare `jobs.jsonl` die GESAMTE Fehlerhistorie als erfolgsfoermige Leere.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
   }
   return rows.reverse().slice(0, limit);
 }
@@ -977,8 +979,10 @@ async function ledger(key: (row: Job) => string): Promise<Map<string, Job>> {
         /* a half-written line is not a job */
       }
     }
-  } catch {
-    /* no job has ever run */
+  } catch (e) {
+    // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
+    // oder unlesbare `jobs.jsonl` die GESAMTE Fehlerhistorie als erfolgsfoermige Leere.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
   }
   return seen;
 }

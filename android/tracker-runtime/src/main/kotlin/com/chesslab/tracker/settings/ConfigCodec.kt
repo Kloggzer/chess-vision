@@ -6,10 +6,9 @@ import kotlinx.serialization.json.Json
 
 // `TrackerConfig` <-> JSON, driven entirely by the [KNOBS] table.
 //
-// Defaults are NEVER re-declared here: they are `TrackerConfig`'s own, which are
-// `src/chesslab/config.py TRACK_DEFAULTS` verbatim (entry.md invariant 12). A missing key
-// therefore decodes to the Python default, and an unknown key from a future build is ignored
-// rather than fatal.
+// Defaults are NEVER re-declared here: they are `TrackerConfig`'s own. They once had to match
+// `config.py TRACK_DEFAULTS`; that constant went with the Python tracker, so `TrackerConfig` is
+// the authority. A missing key decodes to it, an unknown key from a future build is ignored.
 
 /**
  * Bump when a knob's MEANING changes; an unreadable version resets to defaults with a note.
@@ -67,8 +66,8 @@ object ConfigCodec {
         }
 
     /**
-     * `TRACK_DEFAULTS` verbatim (entry.md invariant 12) — and therefore also the reference the
-     * settings screen calls "the Python default" and that `resetToDefaults` restores.
+     * The reference the settings screen shows beside every value, and what `resetToDefaults`
+     * restores. `TrackerConfig`'s own defaults — Python's `TRACK_DEFAULTS` is gone.
      *
      * NOTE for whoever reaches for this as a place to tune Android: `observerIntervalS = 0.0`
      * (free-running CNN) is measurably wrong for a phone — every observation drags a 1640x1640

@@ -174,7 +174,12 @@ class LiveGame(
         if (ucis.size == 1) return listOf(fenAfter)
         val board = Board().apply { loadFromFen(currentFen) }
         return ucis.mapIndexed { i, uci ->
-            runCatching { board.doMove(Move(uci, board.sideToMove)) }
+            // Erzeugen statt `doMove` versuchen: chesslib wendet `e2e5` auch unter `fullValidation`
+            // an (gemessen 2026-08-03) und schrieb den teleportierten Bauern als Zwischenstellung in
+            // den Record. `GameView.replay` fuehrt dieselbe Pruefung aus demselben Grund.
+            if (MoveGenerator.generateLegalMoves(board).any { it.toString() == uci }) {
+                board.doMove(Move(uci, board.sideToMove))
+            }
             if (i == ucis.lastIndex) fenAfter else board.fen
         }
     }

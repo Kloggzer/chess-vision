@@ -642,10 +642,10 @@ private fun ConfirmResetAll(
     onDismiss: () -> Unit,
 ) {
     ConfirmDialog(
-        title = "Reset all to Python defaults?",
+        title = "Reset all to engine defaults?",
         body =
             "$modified ${if (modified == 1) "setting is" else "settings are"} away from " +
-                "src/chesslab/config.py TRACK_DEFAULTS and go back to it. Tuning done for this board " +
+                "the engine defaults (TrackerConfig) and go back to them. Tuning done for this board " +
                 "is lost and cannot be undone.",
         verb = "Reset all",
         onConfirm = onConfirm,

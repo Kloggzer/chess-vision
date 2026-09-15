@@ -19,8 +19,9 @@ data class TrackerConfig(
     // Lies, sobald das Brett einrastet, statt wenn die Uhr es erlaubt: 304/90/7 gegen 302/92/9,
     // und der 2-s-Latenzschwanz faellt weg (`docs/emission-correlation.md`).
     val cnnEvalOnSettle: Boolean = true,
-    // Nur der Default: die Schwelle folgt aus der Modellguete und reist als `coverage_gate`
-    // im Modell (0.02 fuer comp13, 0.15 fuer real13 — `docs/occlusion-gate.md`).
+    // Nur der Default, und fuer JEDES ausgelieferte Modell zu locker: die Schwelle folgt aus der
+    // Modellguete und reist als `coverage_gate` im Modell (gemessen 2026-09-14 bei lambda 3,
+    // 0.05 bis 0.35 — `docs/occlusion-gate.md`).
     val pOccludedThr: Double = 0.5,
     // Nach so vielen identischen Ablehnungen darf die CNN sehen, auch wenn kein anderes Tor
     // aufgeht — wiederholtes Scheitern hielt sie bisher AUS (`docs/refused-streak.md`).
@@ -56,8 +57,8 @@ data class TrackerConfig(
     // observations in which the move's squares were unoccluded and already showed the post-move
     // occupancy: evidence instead of the physical hold (2026-09-13). 0 = the hold alone.
     val earlyCommitObs: Int = 2,
-    // "Seen" for the sight series: no hand at all, not `pOccludedThr` (0.15 is where the model still
-    // has a chance at the piece). Hand-free squares read 0.001–0.02, covered ones 0.87–1.0.
+    // "Seen" for the sight series: no hand at all, not `pOccludedThr` (where the model still has a
+    // chance at the piece). Hand-free squares read 0.001–0.02, covered ones 0.87–1.0.
     val sightCoverageMax: Double = 0.05,
     // A pending verify warps and observes the CURRENT frame on top of the observer's request/serve
     // alternation (every 2nd frame). 333 → 267 ms median at 15 fps, no score change on 12 recordings.

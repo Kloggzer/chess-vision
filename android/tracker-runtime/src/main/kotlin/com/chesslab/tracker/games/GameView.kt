@@ -84,15 +84,18 @@ fun StoredGame.reviewView(): GameView =
  * board stays on the last position the record can actually justify.
  */
 private fun GameSegment.replay(): ReviewSegment {
-    val board = Board().apply { runCatching { loadFromFen(startFen) } }
+    // Ein unlesbarer Start laesst `Board` LEER zurueck, nicht auf der Grundstellung: das Erzeugen
+    // darunter warf dann aus dem Review-Screen heraus. Ohne lesbaren Start ist keine einzige
+    // Folgestellung zu rechtfertigen, also bleibt jede auf dem, was der Record behauptet.
+    val board = Board().takeIf { runCatching { it.loadFromFen(startFen) }.isSuccess }
     return ReviewSegment(
         startFen = startFen,
         plies =
             moves.map { move ->
-                if (MoveGenerator.generateLegalMoves(board).any { it.toString() == move.uci }) {
+                if (board != null && MoveGenerator.generateLegalMoves(board).any { it.toString() == move.uci }) {
                     runCatching { board.doMove(Move(move.uci, board.sideToMove)) }
                 }
-                ReviewPly(move.ply, move.san, move.uci, board.fen, move.provenance?.decider)
+                ReviewPly(move.ply, move.san, move.uci, board?.fen ?: startFen, move.provenance?.decider)
             },
         enteredBy = enteredBy,
     )

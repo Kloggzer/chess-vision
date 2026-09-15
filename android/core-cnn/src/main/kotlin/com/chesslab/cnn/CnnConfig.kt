@@ -1,7 +1,7 @@
 package com.chesslab.cnn
 
-// Port of `cnn_recovery.py:125 CnnRecovery.__init__` defaults, cross-checked against
-// `config.py TRACK_DEFAULTS` (which wins on conflict).
+// Ported from `cnn_recovery.py` when Python still carried the tracker. Both it and
+// `TRACK_DEFAULTS` are deleted, so these values stand on their own and on the parity fixtures.
 data class CnnConfig(
     // cnn_conf_thr
     val confThr: Double = 0.85,

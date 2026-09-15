@@ -38,7 +38,7 @@ enum class InputRepr(
 }
 
 /**
- * `config.py:18-23 CLASSES`. Used ONLY to assert the order of the class list read from the
+ * `config.py CLASSES`. Used ONLY to assert the order of the class list read from the
  * model asset's `config.json` — the runtime source of truth is that asset, never this list.
  */
 val EXPECTED_CLASSES: List<String> =
@@ -59,7 +59,7 @@ val EXPECTED_CLASSES: List<String> =
         "occluded",
     )
 
-/** `config.py:286-287 NORMALIZE_MEAN / NORMALIZE_STD` (ImageNet). */
+/** `config.py NORMALIZE_MEAN / NORMALIZE_STD` (ImageNet). */
 val IMAGENET_MEAN: List<Float> = listOf(0.485f, 0.456f, 0.406f)
 val IMAGENET_STD: List<Float> = listOf(0.229f, 0.224f, 0.225f)
 

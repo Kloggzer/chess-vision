@@ -503,17 +503,32 @@ private fun selectRows(
     }
 }
 
-private fun correctionMap(
+/**
+ * Das Korrekturen-Ledger als `frame -> square -> label`, in Zeilenreihenfolge.
+ *
+ * `retract: true` ist ein GRABSTEIN und traegt sein altes `label` weiter: wer nur `square -> label`
+ * sammelt, packt ein zurueckgenommenes Label ins Trainingsmaterial (`labeling.load_corrections`).
+ */
+internal fun correctionMap(
     file: File,
     session: String,
-): Map<String, Map<String, String>> =
-    file
-        .readLines()
-        .mapNotNull { line ->
-            val row = Json.parseToJsonElement(line) as JsonObject
-            if (row["session_id"]?.jsonPrimitive?.content != session) null else row
-        }.groupBy { it["frame"]!!.jsonPrimitive.content }
-        .mapValues { (_, rows) -> rows.associate { it["square"]!!.jsonPrimitive.content to it["label"]!!.jsonPrimitive.content } }
+): Map<String, Map<String, String>> {
+    val out = linkedMapOf<String, MutableMap<String, String>>()
+    for (line in file.readLines()) {
+        if (line.isBlank()) continue
+        val row = Json.parseToJsonElement(line) as JsonObject
+        if (row["session_id"]?.jsonPrimitive?.content != session) continue
+        val frame = row["frame"]!!.jsonPrimitive.content
+        val square = row["square"]!!.jsonPrimitive.content
+        if (row["retract"]?.jsonPrimitive?.booleanOrNull == true) {
+            out[frame]?.remove(square)
+        } else {
+            out.getOrPut(frame) { linkedMapOf() }[square] = row["label"]!!.jsonPrimitive.content
+        }
+    }
+    out.entries.removeIf { it.value.isEmpty() }
+    return out
+}
 
 private fun JsonObject.frameStem(): String = File(getValue("frame").jsonPrimitive.content).nameWithoutExtension
 
