@@ -298,3 +298,21 @@ dokumentierte Falle ungeschuetzt). Vier Einzeiler, 2 h. **Naechster Schritt, wen
   verkettet ueber `__context__` ohnehin.
 - **`coverage_output` fehlt, 14-Spalten-Graph als 13 gelesen: faengt der Code laut**
   (`OnnxSquareClassifier.kt:219`).
+- **Die Fixture-Bauer lassen keinen Knopf fallen** (geprueft 2026-09-15 nach einer
+  Nachmeldung). Behauptet war, `ParityFixtures` und `SimClips` liessen `commitHoldS`,
+  `earlyCommitObs` und `sightCoverageMax` aus und fuehren damit einen anderen Commit-Pfad als das
+  Handy. Nachgerechnet: die drei stehen in **keiner** Fixture, weil der Python-Tracker sie nie
+  hatte — sie fallen also auf Kotlin-Defaults, und genau die faehrt das Handy auch. Umgekehrt
+  gepruefte Richtung: von 48 Schluesseln der `blender-capture`-Fixture liest kein Bauer vier
+  (`detSize`, `llK`, `reanchorLlFloor`, `reconnectGraceS`) — und jede dieser vier Auslassungen ist
+  an Ort und Stelle begruendet (`llK` wurde die Konstante `LL_K`, `reconnectGraceS` und
+  `reanchorLlFloor` sind keine `TrackerConfig`-Felder mehr, `detSize` ist in Kotlin abgeleitet).
+  Kein Drift.
+- **Kein `TrackerConfig`-Feld ist angenommen-aber-nie-gelesen** — alle 60 ausgezaehlt, die drei
+  duennsten (`sightCoverageMax` 3, `verifyObserveNow` 5, `earlyCommitObs` 7) haben je einen echten
+  Produktions-Leser.
+- **Drei von vier gemeldeten toten Symbolen in `core-geometry` leben.** Der Grep hatte
+  `core-geometry/src/main` ausgeschlossen und damit die Aufrufer weggefiltert. Nur `CropWarpNode`
+  war echt tot und ist raus (`7c92b3ef`). Merke: ein Ausschluss, der das DEFINIERENDE Verzeichnis
+  trifft, macht lebende Symbole tot — dieselbe Fehlerklasse wie die Phantom-Aufrufer aus
+  `tmp/worktrees/`, nur andersherum.
