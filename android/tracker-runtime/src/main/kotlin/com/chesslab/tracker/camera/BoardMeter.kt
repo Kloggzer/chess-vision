@@ -10,7 +10,8 @@ import com.chesslab.engine.api.BgrImage
  */
 fun meterBoard(board: BgrImage): ExposureReading {
     val cell = board.width / SIDE
-    require(cell > 0) { "Brett zu klein: ${board.width}x${board.height}" }
+    // Siehe `meterSharpness`: `cell` kommt aus der Breite, die Schleife liest ueber die Hoehe.
+    require(cell > 0 && board.height == board.width) { "Brett zu klein oder nicht quadratisch: ${board.width}x${board.height}" }
     val means = FloatArray(ExposureReading.CELLS)
     val hist = IntArray(LEVELS)
     var pixels = 0L

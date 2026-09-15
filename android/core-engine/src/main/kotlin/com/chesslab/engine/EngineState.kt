@@ -139,13 +139,18 @@ internal class EngineState(
     /** The full motion hold; `holdUntil` may open detection earlier (`commitHoldS`). */
     var refHoldUntil: Double = 0.0
 
+    // TODO: Weder `clearReferenceState`, noch `discardVisualReference`, noch `adoptPosition`
+    // setzen das zurueck, obwohl alle drei `refGray`/`refFen` raeumen. Nach einem fruehen Commit
+    // ueberlebt die Marke eine neue Grundlinie und laesst den naechsten ruhigen Frame die eben
+    // gesetzte Referenz als Commit-Referenz ueberschreiben (ohne `markGamutStale`, Invariante 6).
+
     /** > 0: the reference came from an early commit and is re-captured at this time. */
     var refProvisionalUntil: Double = 0.0
 
     /**
      * A commit that only `commitHoldS` makes possible: the motion hold has not run out AND the
-     * commit hold is the shorter one. At defaults this is never true, so the evidence gates in
-     * VerifySingle/VerifyPair leave the default behaviour bytewise alone (2026-09-13).
+     * commit hold is the shorter one. LIVE at the shipped defaults (0,067 gegen 0,20), also sind
+     * die Beweis-Riegel in VerifySingle/VerifyPair scharf — das Gegenteil stand hier bis 2026-09-15.
      */
     val earlyCommit: Boolean
         get() = (config.commitHoldS ?: config.motionHoldS) < config.motionHoldS && nowS < refHoldUntil

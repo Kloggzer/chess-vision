@@ -161,7 +161,7 @@ private fun evidenceOf(
     return LensEvidence(
         lines = usable.size,
         points = usable.sumOf { it.size },
-        axes = orientationsIn(lines, usable),
+        axes = orientationsIn(usable),
         coverage = cells.size.toDouble() / (COVERAGE_GRID * COVERAGE_GRID),
     )
 }
@@ -172,19 +172,14 @@ private fun evidenceOf(
  * Counted from the USABLE lines: a line nobody could measure proves nothing about its orientation,
  * and one family alone cannot separate a lens from a tilt.
  */
-private fun orientationsIn(
-    all: List<List<DoubleArray>>,
-    usable: List<List<DoubleArray>>,
-): Int {
+private fun orientationsIn(usable: List<List<DoubleArray>>): Int {
     // Magnitudes, not signed deltas: the sign is the direction the points happened to be sorted
     // in, so past 45 degrees in the frame both families answered alike and the fit saw one axis.
     val vertical = usable.count { line -> abs(line.first()[0] - line.last()[0]) < abs(line.first()[1] - line.last()[1]) }
-    return if (vertical > 0 && vertical < usable.size) {
-        2
-    } else if (all.isEmpty()) {
-        0
-    } else {
-        1
+    return when {
+        usable.isEmpty() -> 0
+        vertical > 0 && vertical < usable.size -> 2
+        else -> 1
     }
 }
 

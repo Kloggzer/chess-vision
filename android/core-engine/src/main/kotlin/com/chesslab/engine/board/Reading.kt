@@ -9,7 +9,6 @@ val BOARD_SQUARES: List<String> = (1..8).flatMap { rank -> "abcdefgh".map { "$it
 class Reading(
     val classes: List<String>,
     val rows: Array<DoubleArray>,
-    val coverage: DoubleArray,
 ) {
     companion object {
         /** Missing distributions yield null rather than a fabricated uniform guess. */
@@ -19,8 +18,7 @@ class Reading(
             if (classes.isEmpty()) return null
             val rows = Array(BOARD_SQUARES.size) { i -> obs.classProbs(BOARD_SQUARES[i]) }
             if (rows.any { it.size != classes.size }) return null
-            val coverage = DoubleArray(BOARD_SQUARES.size) { i -> obs.pOccluded(BOARD_SQUARES[i]) }
-            return Reading(classes, rows, coverage)
+            return Reading(classes, rows)
         }
     }
 }

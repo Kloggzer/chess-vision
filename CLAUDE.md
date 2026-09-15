@@ -118,6 +118,13 @@
   Aus demselben Grund kommen die Klassengewichte aus den sichtbaren Zeilen — Verdeckung trifft weiß 11–15 %, schwarz
   2–6 % (`occlusion-asymmetry`), die Gewichte in `split.json` liegen sonst bis zu 8 % daneben.
 - **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
+- **SAMs ABSAGE ist kein sauberes Brett (2026-09-15).** Eine `matte.jsonl`-Zeile mit `skipped`
+  (`zone too big`: Alpha über 60 % des Bretts) trägt WEDER `concepts` NOCH `coverage`. Zweimal
+  wurde das als "nichts gefunden" gelesen statt als "nicht gemessen": `hand_gate.gate_label`
+  lehrte dem Schüler damit die verdecktesten Bretter des Korpus als handfrei, und
+  `temporal_matte.adopt_proposals` zählte sie als "schon gemattet", so dass genau die Frames ohne
+  jedes Alpha ungefüllt blieben und mit `coverage = 0.0` ins Training gingen. `matte.matte_status`
+  filtert an derselben Stelle richtig — **wer `matte.jsonl` liest, prüft `coverage` auf `None`.**
 
 ### 2. Data & Splits
 - **Ohne Memmap kein Training (2026-08-24):** ein veralteter Pack fiel still auf den Datei-Loader

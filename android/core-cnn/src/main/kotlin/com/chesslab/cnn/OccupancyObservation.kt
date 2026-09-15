@@ -34,6 +34,11 @@ data class OccupancyObservation(
     /** `cnn_recovery.py:43` — strict `>`. */
     override fun occupied(square: String): Boolean = pOcc.getValue(square) > pEmpty.getValue(square)
 
+    // TODO: `1.0 - thr` haengt die Verdeckungsschwelle an den KLASSEN-Schwellwert, waehrend
+    // `Taint.kt` dieselbe Frage mit dem gemessenen `config.pOccludedThr` je Modell beantwortet
+    // (0,05 bis 0,35, `docs/occlusion-gate.md`). Zwei Schwellen fuer eine Frage, und `confThr` zu
+    // senken lockert hier die Verdeckung mit. Umbau nur mit dem Regressionssatz daneben.
+
     /**
      * `cnn_recovery.py:46` — occluded-dominant squares are NEVER confident and NEVER count
      * as occupied: a hand over the board must neither trigger recovery nor "occupy" squares.

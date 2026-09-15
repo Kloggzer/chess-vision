@@ -127,6 +127,15 @@ fun preprocessInto(
     require(out.size == crops.size * repr.channels * plane) {
         "out holds ${out.size} floats, expected ${crops.size * repr.channels * plane}"
     }
+    // `per_crop` und ein Nicht-RGB-Stapel schliessen sich aus, und Python lehnt das Paar ab
+    // (`training/train.py:505`). `ModelSpec` liest beide Schluessel unabhaengig, also KANN eine
+    // `config.json` es verlangen — dann wurde `perCrop` hier stillschweigend fallengelassen und
+    // das Modell bekam eine Normalisierung, unter der es nie trainiert hat.
+    require(!perCrop || repr == InputRepr.RGB) { "normalize.mode=per_crop is not defined for input_repr=${repr.id}" }
+    if (perCrop) {
+        standardisePerCrop(crops, outW, outH, out)
+        return
+    }
     if (repr != InputRepr.RGB) {
         // Python normalisiert hier NICHT mit den Werten des Laufs: `build_transform` haengt
         // `InputRepresentation` statt `Normalize` an, und die greift fest auf die
@@ -145,10 +154,6 @@ fun preprocessInto(
     val stdR = std[0]
     val stdG = std[1]
     val stdB = std[2]
-    if (perCrop) {
-        standardisePerCrop(crops, outW, outH, out)
-        return
-    }
     for ((index, crop) in crops.withIndex()) {
         require(crop.width == outW && crop.height == outH) {
             "crop $index is ${crop.width}x${crop.height}, expected ${outW}x$outH"

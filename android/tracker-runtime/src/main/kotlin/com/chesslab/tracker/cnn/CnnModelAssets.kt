@@ -107,6 +107,10 @@ class CnnModelAssets(
                     target.writeBytes(bytes)
                     recopied = true
                 }
+                // TODO: `available()` ist "ohne Blockieren lesbar", keine Dateilaenge. Trifft sie
+                // die Laenge der ALTEN Datei, bleibt der veraltete Graph liegen und `recopied`
+                // bleibt falsch, also bleibt auch der kompilierte QNN-Kontext stehen. Der
+                // `config.json`-Pfad direkt darueber vergleicht dafuer die Bytes.
             } else if (!target.isFile || target.length() != input.available().toLong()) {
                 target.outputStream().use { input.copyTo(it) }
                 recopied = true

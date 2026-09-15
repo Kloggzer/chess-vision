@@ -16,7 +16,7 @@ val ALL_SQUARES: List<String> = (1..RANKS).flatMap { rank -> FILES.map { file ->
 internal fun squareOf(square: String): Square = Square.fromValue(square.uppercase())
 
 /** `config.py label_from_piece` — 'P' -> "wP", 'n' -> "bN", null/empty -> "empty". */
-fun labelFromPiece(symbol: String?): String =
+private fun labelFromPiece(symbol: String?): String =
     if (symbol.isNullOrEmpty()) {
         "empty"
     } else {

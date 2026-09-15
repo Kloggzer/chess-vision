@@ -11,7 +11,11 @@ import com.chesslab.engine.api.BgrImage
  */
 fun meterSharpness(board: BgrImage): Float {
     val cell = board.width / SIDE
-    require(cell >= MIN_CELL_PX) { "Brett zu klein fuer die Schaerfe: ${board.width}x${board.height}" }
+    // Beide Kanten, nicht nur die Breite: die Zeilenschleife laeuft bis `8 * cell` und indiziert ein
+    // Raster der Hoehe `height` — die Meldung nannte schon immer beide, geprueft wurde eine.
+    require(cell >= MIN_CELL_PX && board.height == board.width) {
+        "Brett zu klein oder nicht quadratisch fuer die Schaerfe: ${board.width}x${board.height}"
+    }
     val luma = lumaOf(board)
     val values = FloatArray(CELLS)
     for (row in 0 until SIDE) {

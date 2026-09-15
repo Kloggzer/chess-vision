@@ -123,6 +123,9 @@ fun moveRows(
     startsWithBlack: Boolean = false,
 ): List<MoveRow> {
     val slots = if (startsWithBlack) listOf<ReviewPly?>(null) + plies else plies
+    // TODO: Faengt immer bei 1 an, waehrend `PgnBuilder` die Zugnummer aus Feld 5 der Start-FEN
+    // liest. Eine uebernommene Stellung (oder jedes Segment hinter einer Naht) steht damit auf dem
+    // Blatt als `1...` und im exportierten PGN als `12...` — dieselbe Halbzug, zwei Nummern.
     return slots.chunked(2).mapIndexed { index, pair ->
         MoveRow(number = index + 1, white = pair.getOrNull(0), black = pair.getOrNull(1))
     }

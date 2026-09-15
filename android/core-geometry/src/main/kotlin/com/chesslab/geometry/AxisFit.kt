@@ -94,8 +94,9 @@ private fun huberSolve(
     target: DoubleArray,
 ): Solution? {
     val n = design.size
-    val cols = if (n == 0) 0 else design[0].size
-    if (n < cols) return null
+    // `cols` aus `design[0]` zu lesen setzt eine Zeile voraus, und der leere Fall fiel mit 0 < 0
+    // genau durch den Riegel, der ihn abfangen sollte — weiter unten indiziert `design[0]` hart.
+    if (n == 0 || n < design[0].size) return null
     val w = DoubleArray(n) { 1.0 }
     var x: DoubleArray? = null
     repeat(HUBER_ITERS) {

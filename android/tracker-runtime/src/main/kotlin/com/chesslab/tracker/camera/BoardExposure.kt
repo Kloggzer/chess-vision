@@ -138,6 +138,9 @@ private fun desiredStepEv(
 ): Double {
     val headroom = evFor(ExposureReading.CLIP_LEVEL, reading.highlightLevel, policy)
     if (reading.darkFraction(policy.floor) <= policy.darkTarget) return minOf(0.0, headroom)
+    // TODO: `darkTarget` (0,05) und `DARK_PERCENTILE` (0,12) meinen verschiedene Punkte — bei 4 bis
+    // 8 dunklen Zellen ist die Ankerzelle selbst hell, `evFor` wird negativ, und die Regelung
+    // dunkelt ein Bild ab, das sie gerade als zu dunkel eingestuft hat.
     val at = reading.cellMeans.sorted()[(ExposureReading.CELLS * DARK_PERCENTILE).toInt()]
     return minOf(evFor(policy.floor, at, policy), headroom)
 }

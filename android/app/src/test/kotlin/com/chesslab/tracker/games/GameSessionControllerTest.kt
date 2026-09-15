@@ -216,7 +216,9 @@ class GameSessionControllerTest {
         val capture = capture(enabled = true)
         val controller = controller(capture)
         controller.onIdle(STARTPOS, "board-a")
-        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
+        // Ein sauberer Status, nicht `null`: ohne Status ist die Sauberkeit unbewiesen und das Foto
+        // wird aufgeschoben — hier soll es geschrieben werden.
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
         assertEquals(1, capture.recorder?.count)
         assertEquals("s", controller.state.value.recordingSessionId)
         // The published position went BACK to the one before the move, and STAYED there: that is an
@@ -277,9 +279,9 @@ class GameSessionControllerTest {
         val capture = capture(enabled = true)
         val controller = controller(capture)
         controller.onIdle(STARTPOS, "board-a")
-        controller.onEvent(move("e2e4", "e4", AFTER_E4), null)
-        controller.onEvent(move("e7e5", "e5", AFTER_E5), null)
-        controller.onEvent(pair(), null)
+        controller.onEvent(move("e2e4", "e4", AFTER_E4), idleTrackerStatus(AFTER_E4))
+        controller.onEvent(move("e7e5", "e5", AFTER_E5), idleTrackerStatus(AFTER_E5))
+        controller.onEvent(pair(), idleTrackerStatus(AFTER_PAIR))
         assertEquals(4, controller.state.value.moveCount, "a pair commit is two plies")
         assertEquals(3, capture.recorder?.count, "one photo per commit — the pair gets one, not two")
         val saved = controller.endAndSave()

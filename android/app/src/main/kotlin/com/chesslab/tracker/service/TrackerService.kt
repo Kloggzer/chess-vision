@@ -148,7 +148,7 @@ class TrackerService :
     // what it is for; the lambda is lazy, so the `lateinit` session parts are wired by then.
     private val stacks =
         StackSwitch {
-            val gridArm = modelSpec?.coverageOutput != true
+            val gridArm = gridArmFor(modelSpec)
             TrackerStack(
                 TrackerSeed(
                     engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
@@ -166,13 +166,7 @@ class TrackerService :
                     androidTrackerLogs,
                     { geo, cfg, store, frames, boards -> cameraStages(geo, cfg, store, frames, boards, gridArm = gridArm) },
                     runGridOcclusion = gridArm,
-                    // Aus der `config.json` des Modells, nicht aus einer Einstellung: ein mit
-                    // CLAHE trainiertes Modell ohne CLAHE zu bedienen ist eine stille
-                    // Train/Serve-Luecke, und die faellt niemandem auf.
-                    cropClahe =
-                        modelSpec?.takeIf { it.claheClip > 0.0 }?.let {
-                            CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean)
-                        },
+                    cropClahe = cropClaheFor(modelSpec),
                     nowMs = phoneEngineClock,
                     // Die Belichtungskorrektur nach dem BRETT. Der Startpunkt ist, was auf dem
                     // Schieber steht — die Regelung uebersteuert eine Einstellung des Nutzers
@@ -729,8 +723,25 @@ private fun onMeasuredBoard(
     geometry: BoardGeometry,
 ): TrackerConfig = if (stored.boardSize == geometry.boardSize) stored else stored.copy(boardSize = geometry.boardSize)
 
+/**
+ * Laeuft der MODELLFREIE Hand-Sensor mit? Nur, solange kein Modell seine eigene Coverage nennt.
+ *
+ * Das ist der Arm hinter dem 67/67-mit-0-erfundenen-Meilenstein: ein `== true` statt `!= true`
+ * schaltet den Phantom-Veto auf JEDEM ausgelieferten Modell ab, und nichts anderes merkt es.
+ */
+internal fun gridArmFor(spec: ModelSpec?): Boolean = spec?.coverageOutput != true
+
+/**
+ * Aus der `config.json` des Modells, nicht aus einer Einstellung: ein mit CLAHE trainiertes Modell
+ * ohne CLAHE zu bedienen ist eine stille Train/Serve-Luecke, und die faellt niemandem auf.
+ */
+internal fun claheSpecFor(spec: ModelSpec?): ModelSpec? = spec?.takeIf { it.claheClip > 0.0 }
+
+internal fun cropClaheFor(spec: ModelSpec?): CropClahe? =
+    claheSpecFor(spec)?.let { CropClahe(it.claheClip, it.claheTile, it.claheMinMean, it.claheMaxMean) }
+
 /** The three corrections between the STORED knobs and what the engine runs. One place, four callers. */
-private fun engineConfig(
+internal fun engineConfig(
     stored: TrackerConfig,
     geometry: BoardGeometry,
     spec: ModelSpec?,

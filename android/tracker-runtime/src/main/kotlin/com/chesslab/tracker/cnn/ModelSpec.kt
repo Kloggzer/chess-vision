@@ -147,8 +147,8 @@ data class ModelSpec(
                 outWidth = outWidth,
                 outHeight = outHeight,
                 padSide = padSide,
-                mean = normalize.floats("mean") ?: IMAGENET_MEAN,
-                std = normalize.floats("std") ?: IMAGENET_STD,
+                mean = normalize.statsOr("mean", IMAGENET_MEAN),
+                std = normalize.statsOr("std", IMAGENET_STD),
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
@@ -160,6 +160,18 @@ data class ModelSpec(
             )
         }
 
-        private fun JsonObject?.floats(key: String): List<Float>? = this?.get(key)?.jsonArray?.map { it.jsonPrimitive.content.toFloat() }
+        /**
+         * Der Alt-Pfad ist das FEHLENDE `normalize`, nicht ein halbes. Ein Block, der den Schluessel
+         * schreibt und einen Wert vergisst, wurde sonst still mit ImageNet bedient.
+         */
+        private fun JsonObject?.statsOr(
+            key: String,
+            legacy: List<Float>,
+        ): List<Float> {
+            if (this == null) return legacy
+            val raw = get(key)
+            require(raw != null) { "normalize declares no \"$key\" — ImageNet is not what such a run trained on" }
+            return raw.jsonArray.map { it.jsonPrimitive.content.toFloat() }
+        }
     }
 }

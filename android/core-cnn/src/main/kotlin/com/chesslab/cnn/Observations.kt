@@ -134,7 +134,10 @@ internal fun applyPrior(
     allowed: Set<String>?,
     lambda: Double,
 ): DoubleArray {
-    if (lambda <= 0.0 || allowed == null) return probs
+    // Immer eine Kopie: `observationFromProbs` legt das Ergebnis als `conditioned` ab, und wer den
+    // Rueckgabewert der Aufrufer-Zeile gibt, laesst eine spaetere Aenderung daran auch die ROHE
+    // Zeile umschreiben — genau die Trennung, wegen der `raw` ueberhaupt mitgefuehrt wird.
+    if (lambda <= 0.0 || allowed == null) return probs.copyOf()
     val penalty = exp(-lambda)
     val out = probs.copyOf()
     var sum = 0.0
@@ -142,7 +145,7 @@ internal fun applyPrior(
         if (classes[i] !in allowed && classes[i] != "occluded") out[i] = probs[i] * penalty
         sum += out[i]
     }
-    if (sum <= 0.0) return probs
+    if (sum <= 0.0) return probs.copyOf()
     for (i in classes.indices) out[i] /= sum
     return out
 }

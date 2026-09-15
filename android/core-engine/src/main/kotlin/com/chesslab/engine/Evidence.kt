@@ -3,9 +3,6 @@ package com.chesslab.engine
 import com.chesslab.engine.api.GrayImage
 import kotlin.math.max
 
-/** One decimal, HALF_EVEN (`Math.rint`), not half-up. */
-private const val ROUND_ONE_DECIMAL = 10.0
-
 /**
  * Step 2 — brightness (`absdiff` vs base truth, median-normalized so a global exposure jump dies) and
  * structure (census, illumination-invariant, which is why it sees the dark-on-dark moves the gray mean

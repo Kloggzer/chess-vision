@@ -146,6 +146,10 @@ class BoardMarkerDetector : AutoCloseable {
         foundIds.release()
     }
 
+    // TODO: `calibration.py:592-615` stellt drei `adaptiveThreshWinSize`-Werte (3, 53, 4) und
+    // verkleinert vorher auf `DETECT_LONG_SIDE = 1344`; beides fehlt hier. Python nennt dazu
+    // Messungen (Randmarker 2/30 gegen 21-25/30 Frames, 4K 135 ms gegen 27 ms). Nachziehen heisst
+    // die Kalibrierung neu vermessen, nicht die Konstanten kopieren.
     private fun detectorFor(dictName: String): ArucoDetector {
         if (dictionary != dictName || detector == null) {
             detector?.clear()

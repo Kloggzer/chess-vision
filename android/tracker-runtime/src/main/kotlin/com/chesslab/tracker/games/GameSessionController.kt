@@ -239,10 +239,12 @@ class GameSessionController(
      * depending on an engine internal it cannot see; naming the condition here makes the guarantee
      * local, and it costs nothing while the engine keeps its half of the bargain.
      */
-    private fun isClean(status: TrackerStatus?): Boolean =
-        status?.alarm == null &&
-            status?.occlusionVetoed.isNullOrEmpty() &&
-            status?.debug?.tainted.isNullOrEmpty()
+    private fun isClean(status: TrackerStatus?): Boolean {
+        // Ohne Status ist nichts ausgeschlossen. Mit `status?.x == null` sagten alle drei Terme ja,
+        // also las "wir wissen nichts" als "sauber" — und der Fluss startet auf `null`.
+        val known = status ?: return false
+        return known.alarm == null && known.occlusionVetoed.isNullOrEmpty() && known.debug?.tainted.isNullOrEmpty()
+    }
 
     private fun publish() {
         mutable.value =

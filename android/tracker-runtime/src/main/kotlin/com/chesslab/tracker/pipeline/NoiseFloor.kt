@@ -22,6 +22,7 @@ class NoiseFloor(
 ) {
     private var armed: ByteArray? = null
     private var armedCorners: FloatArray? = null
+    private var armedUntil = 0L
     private var due = 0L
 
     var busy = NOISE_UNMEASURED
@@ -33,6 +34,13 @@ class NoiseFloor(
         corners: FloatArray,
         board: (Int) -> BgrImage?,
     ) {
+        // Ein scharf gestelltes Bild setzt die Sperre aus, damit der Partner im Folgeframe kommen
+        // darf. Ohne Frist war das ein Freibrief: passen die Ecken nie zusammen — und `LiveAlign`
+        // misst den Quad genau so neu —, stellte jeder Frame neu scharf, ohne `due` zu drehen.
+        if (armed != null && seq > armedUntil) {
+            disarm()
+            due = seq + everyFrames
+        }
         if (armed == null && seq < due) return
         val gray = board(BOARD_PX)?.let(::grayBoard)
         if (gray == null) {
@@ -49,6 +57,7 @@ class NoiseFloor(
             due = seq + everyFrames
             return
         }
+        if (previous == null) armedUntil = seq + PAIR_WINDOW
         armed = gray
         armedCorners = corners.copyOf()
     }
@@ -62,5 +71,8 @@ class NoiseFloor(
     private companion object {
         /** One second at the phone's 15 fps, so the sample is fresh when the line is written. */
         const val DEFAULT_INTERVAL = 15L
+
+        /** Frames a scharf gestelltes Bild auf seinen Partner warten darf, bevor das Intervall neu laeuft. */
+        const val PAIR_WINDOW = 3L
     }
 }

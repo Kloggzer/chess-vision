@@ -34,8 +34,11 @@ class DeadEngineCodeTest {
                 "P_OCCLUDED_THR",
                 // board/Moves.kt: der benutzte `sansOf` ist der Namensvetter in `:app`.
                 "sansOf",
-                // board/Reading.kt: der Verdeckungspfad ging mit der Stillstands-Engine.
+                // board/Reading.kt: der Verdeckungspfad ging mit der Stillstands-Engine. `coverage`
+                // ist die zweite Haelfte derselben Entfernung — 64 `pOccluded`-Aufrufe je Lesung,
+                // die `fenOf` nie anfasst.
                 "coveredSquares",
+                "val coverage: DoubleArray",
             )
     }
 }

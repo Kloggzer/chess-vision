@@ -129,3 +129,17 @@ Das Werkzeug dafuer steht im Baum und funktioniert nachweislich in drei Sprachen
 133 Zeilen, **0 Aufrufer, 0 Tests**, 0 % Abdeckung, und der Docstring sagt selbst "UNBENUTZT
 (2026-09-07)". Nach der Hausregel "Code ohne Wirkung brauche ich nicht" ist das ein Kandidat —
 aber Loeschen braucht deinen Imperativ.
+
+## 12. Zwei Schwellen fuer eine Frage: die Verdeckung wird doppelt beantwortet
+
+`core-cnn/OccupancyObservation.kt:37` pinnt die Coverage-Grenze in `confident`/`labelConfident`
+auf `1.0 - confThr`, also **0,15**. `Taint.kt` beantwortet dieselbe Frage mit dem gemessenen,
+modell-eigenen `config.pOccludedThr` — seit 2026-09-14 zwischen 0,05 und 0,35, fuer das
+Standardmodell 0,25.
+
+Nebenwirkung, die niemand erwartet: **`confThr` zu senken lockert die Coverage-Grenze mit**, weil
+sie daran haengt und nicht an der Messung.
+
+**Die Frage:** zusammenlegen auf `pOccludedThr`? Das verschiebt den Phantom-Veto und braucht den
+Regressionssatz, nicht eine Codeaenderung im Vorbeigehen. Meine Empfehlung: erst messen, was die
+0,15 heute an Zellen anders entscheidet als die 0,25 — das ist eine Replay-Auswertung, kein Umbau.
