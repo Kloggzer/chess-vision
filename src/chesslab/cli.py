@@ -1638,7 +1638,8 @@ def occluders_status(
 
 @occluders_app.command("alpha-worker")
 def occluders_alpha_worker(
-    name: str | None = typer.Argument(None, help="Recording name under data/recordings/."),
+    names: Annotated[list[str] | None, typer.Argument(
+        help="Recording names under data/recordings/. Mehrere laufen in EINEM Prozess.")] = None,
     all_sessions: bool = typer.Option(False, "--all",
                                       help="Every exported session in ONE process — the weights "
                                            "load once instead of per session (6-10 min each)."),
@@ -1671,46 +1672,31 @@ def occluders_alpha_worker(
     config.cap_blas_threads()          # GPU path: the BLAS arenas are 3.2 GB of dead reservation
     matte_mod.exit_with_parent()
 
-    if bool(name) == all_sessions:
-        print("[ERR] name or --all, not both")
+    wanted_names = list(names or ())
+    if bool(wanted_names) == all_sessions:
+        print("[ERR] names or --all, not both")
         raise typer.Exit(1)
+    flags = {"reported": reported, "wanted": wanted, "temporal": temporal}
     if all_sessions:
         from .sessions import all_sessions
 
-        names = [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
-        res = matte_mod.alpha_worker_all(names, limit=limit or None, reason=reason)
+        wanted_names = [sid[3:] for sid, _ in all_sessions() if sid.startswith("rg-")]
+    if len(wanted_names) > 1:
+        # EIN Prozess: die Gewichte kosten 7-9 min, die Arbeit danach Sekunden je Frame.
+        resolver = (lambda n: matte_mod.flagged_frames(n, **flags)) if any(flags.values()) else None
+        res = matte_mod.alpha_worker_all(wanted_names, limit=limit or None, reason=reason,
+                                         frames_for=resolver)
         print(f"[OK] {res['alphas']} Alphas ueber {res['sessions']} Sessions "
               f"({res['already']} lagen schon vor)", flush=True)
         sys.stdout.flush()
         os._exit(0)
-    frames = None
-    if reported:
-        from .realgames import reported_dirty
-
-        frames = {f"{index:06d}" for index in reported_dirty(f"rg-{name}")}
+    name = wanted_names[0]
+    frames = matte_mod.flagged_frames(name, **flags)
+    if any(flags.values()):
         if not frames:
-            print(f"[OK] {name}: nothing reported dirty by hand")
+            print(f"[OK] {name}: nichts zu messen fuer diese Auswahl")
             raise typer.Exit(0)
-        print(f"[i] {len(frames)} frames reported, re-measuring those")
-    if wanted:
-        from .realgames import reported_dirty
-
-        frames = {f"{index:06d}" for index in reported_dirty(f"rg-{name}", verdict="matte-wanted")}
-        if not frames:
-            print(f"[OK] {name}: no frame routed to the matte by hand")
-            raise typer.Exit(0)
-        print(f"[i] {len(frames)} frames routed to the matte, measuring those")
-    if temporal:
-        import json
-
-        from .realgames import game_dir
-        path = game_dir(name) / "matte.jsonl"
-        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-        frames = {json.loads(s)["frame"] for s in lines if s.strip() and '"source": "temporal"' in s}
-        if not frames:
-            print(f"[OK] {name}: no temporal mattes to re-measure")
-            raise typer.Exit(0)
-        print(f"[i] {len(frames)} temporal frames, measuring those with SAM")
+        print(f"[i] {len(frames)} frames selected, measuring those")
     try:
         res = matte_mod.alpha_worker(name, limit=limit or None, reason=reason, frames=frames)
     except (FileNotFoundError, ValueError, KeyError) as e:

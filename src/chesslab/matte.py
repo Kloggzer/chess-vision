@@ -722,6 +722,26 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
             "crossed": crossed, "dry_run": dry_run}
 
 
+def flagged_frames(name: str, *, reported: bool = False, wanted: bool = False,
+                   temporal: bool = False) -> set[str] | None:
+    """Die Frames, die eine Fahne fuer DIESE Aufnahme meint; `None` heisst: der ganze Stapel.
+
+    Je Aufnahme aufgeloest, weil ein Stapellauf sonst der zweiten Session die Frames der ersten
+    gaebe. Die Reihenfolge ist die des CLI: die erste gesetzte Fahne gewinnt.
+    """
+    from .realgames import game_dir, reported_dirty
+
+    if reported:
+        return {f"{index:06d}" for index in reported_dirty(f"rg-{name}")}
+    if wanted:
+        return {f"{index:06d}" for index in reported_dirty(f"rg-{name}", verdict="matte-wanted")}
+    if temporal:
+        path = game_dir(name) / "matte.jsonl"
+        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+        return {json.loads(s)["frame"] for s in lines if s.strip() and '"source": "temporal"' in s}
+    return None
+
+
 def alpha_worker_all(
     names: list[str],
     *,

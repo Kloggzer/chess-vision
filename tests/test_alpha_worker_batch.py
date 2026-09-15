@@ -44,3 +44,19 @@ def test_without_a_resolver_it_stays_the_pile_run(worked):
     matte.alpha_worker_all(["a", "b"], limit=5, progress=False)
 
     assert worked == [("a", None), ("b", None)]
+
+
+def test_the_flag_resolver_answers_per_recording(monkeypatch, tmp_path):
+    # Die Naht, die dem Stapellauf gefehlt hat: `--reported` muss JE AUFNAHME aufloesen, sonst
+    # bekaeme die zweite Session die Frames der ersten.
+    from chesslab import realgames
+
+    monkeypatch.setattr(realgames, "reported_dirty",
+                        lambda sid, verdict="dirty-frame": {1} if sid == "rg-a" else {7, 8})
+
+    assert matte.flagged_frames("a", reported=True) == {"000001"}
+    assert matte.flagged_frames("b", reported=True) == {"000007", "000008"}
+
+
+def test_without_a_flag_the_resolver_means_the_whole_pile():
+    assert matte.flagged_frames("a") is None
