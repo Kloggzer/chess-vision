@@ -4,10 +4,10 @@ import path from "node:path";
 import { beforeEach, expect, test } from "vitest";
 
 /**
- * `matteStems` regexes `"frame"` out of EVERY line of `matte.jsonl`, `skipped` rows included —
- * while `usableStemsIn` ten lines above deliberately excludes them because no alpha is on disk.
- * A reported frame SAM refused therefore counts as matted, `reported` drops to 0, and
- * `jobs.ts:897` never pushes `--reported`: the frame is unreachable with no surface saying so.
+ * `matteCensus` once counted EVERY line of `matte.jsonl`, `skipped` rows included, where
+ * `usableStemsIn` excludes them because no alpha is on disk. A reported frame SAM refused counted
+ * as matted, `reported` dropped to 0, and `runChesslab` never pushed `--reported`: the frame was
+ * unreachable with no surface saying so. `usableStemsIn` decides since; pinned here.
  */
 let dir: string;
 

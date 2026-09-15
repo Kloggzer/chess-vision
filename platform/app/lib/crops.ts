@@ -22,6 +22,19 @@ const CACHE_MAX = 24;
 const decoded = new Map<string, Raster>();
 const inFlight = new Map<string, Promise<Raster>>();
 
+/** Ein Treffer wandert ans Ende. Ohne das verdraengt der Cache nach EINFUEGE-Reihenfolge, wirft
+ *  also den heissesten Eintrag zuerst weg — genau das Thrashing, gegen das er existiert. */
+export function keepHot<K, V>(cache: Map<K, V>, key: K, value: V): V {
+  cache.delete(key);
+  cache.set(key, value);
+  return value;
+}
+
+/** Aelteste Haelfte der Ordnung raus, sobald [max] ueberschritten ist. */
+export function evictOldest<K, V>(cache: Map<K, V>, max: number): void {
+  if (cache.size > max) cache.delete(cache.keys().next().value as K);
+}
+
 /**
  * The raster a cut reads: the session's STORED board, and nothing else.
  *
@@ -58,7 +71,7 @@ async function rasterOf(path_: string): Promise<Raster> {
   const stamp = await stat(path_).then((s) => s.mtimeMs, () => 0);
   const file = `${path_}|${stamp}`;
   const hit = decoded.get(file);
-  if (hit) return hit;
+  if (hit) return keepHot(decoded, file, hit);
   const pending = inFlight.get(file);
   if (pending) return pending;
 
@@ -69,10 +82,7 @@ async function rasterOf(path_: string): Promise<Raster> {
     .then(({ data, info }) => {
       const raster = { data, width: info.width, height: info.height, channels: info.channels };
       decoded.set(file, raster);
-      // TODO: FIFO, nicht LRU — ein Treffer stellt den Eintrag nicht hinten an (anders als
-      // `cellPngs` unten). Der heisseste Frame einer Seite fliegt damit zuerst raus, genau das
-      // Thrashing, gegen das dieser Cache existiert.
-      if (decoded.size > CACHE_MAX) decoded.delete(decoded.keys().next().value as string);
+      evictOldest(decoded, CACHE_MAX);
       return raster;
     })
     .finally(() => inFlight.delete(file));
@@ -123,16 +133,12 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   // changing the encoder without it served PNG under an `image/webp` header until a full restart.
   const key = `${name}|${stem}|${square}|${size}|${srcM}|${logM}|${CUT_MIME}`;
   const hit = cellPngs.get(key);
-  if (hit) {
-    cellPngs.delete(key);
-    cellPngs.set(key, hit);
-    return hit;
-  }
+  if (hit) return keepHot(cellPngs, key, hit);
   const { raster, h } = await cutSource(session, name, stem);
   const rgb = cellRgb(session, square, raster, h, size);
   const out = await encode(rgb, size, size);
   cellPngs.set(key, out);
-  if (cellPngs.size > CELL_PNGS_MAX) cellPngs.delete(cellPngs.keys().next().value!);
+  evictOldest(cellPngs, CELL_PNGS_MAX);
   return out;
 }
 

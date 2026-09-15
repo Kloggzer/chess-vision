@@ -102,9 +102,9 @@ export type LedgerChange = {
 type Parsed = { bySession: BySession; changes: LedgerChange[] };
 type LedgerCache = Map<string, { key: string; value: Parsed }>;
 /**
- * Pinned like `lib/jobs.ts:56`, mtime-keyed like `loadModelReads`. `/` asked for this file once per
- * game and split all of it every time — 36 full parses of a growing ledger for one page (REVIEW.md
- * S12). Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
+ * Pinned on `globalThis` like `lib/jobs.ts`'s `queue`, mtime-keyed like `loadModelReads`. `/`
+ * asked for this file once per game and split all of it every time — 36 full parses of a growing
+ * ledger for one page (REVIEW.md S12). Der Name traegt die FORM des Werts: der Cache ueberlebt einen Hot-Reload, also las die neue
  * Funktion sonst die alten Zeilen als halb leere Objekte.
  */
 const ledgers: LedgerCache = ((globalThis as { __chesslabLedgersV2?: LedgerCache }).__chesslabLedgersV2 ??= new Map());

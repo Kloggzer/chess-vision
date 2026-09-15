@@ -1,9 +1,9 @@
 /**
  * `/corpus` §7.3: quarantine share per training pack, dirty share per exported session.
  *
- * `training-pack/` ONLY — the canonical name `lib/jobs.ts:159` reads and the transfer chain writes.
- * A bundle can carry several packs of the same video under different sampling settings; they are
- * counted as variants and never summed, because summing them double-counts one recording.
+ * `training-pack/` ONLY — the canonical name `lib/jobs.ts` (`runPack`) writes. A bundle can
+ * carry several packs of the same video under different sampling settings; they count as
+ * variants and are never summed, because that double-counts one recording.
  */
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";

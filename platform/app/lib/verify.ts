@@ -40,6 +40,9 @@ export type VerifyFrame = {
   alpha: AlphaState;
 };
 
+/** Before the page knows which session index it lands under — `session` is set on the push. */
+type OpenFrame = Omit<VerifyFrame, "session">;
+
 export type VerifyStream = {
   sessions: VerifySession[];
   frames: VerifyFrame[];
@@ -86,7 +89,7 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
       matteStamp(name),
     ]);
 
-    const mine: VerifyFrame[] = [];
+    const mine: OpenFrame[] = [];
     for (const row of session.rows) {
       const alpha = matte.get(row.stem);
       if (!alpha || alpha.skipped || unusable.has(row.stem)) continue;
@@ -103,9 +106,6 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
         continue;
       }
       mine.push({
-        // TODO: Wird beim Anhaengen an `frames` sofort ueberschrieben — ein Pflichtfeld, das
-        // hier nie stimmt; der Index gehoert in den Typ erst, wenn es ihn gibt.
-        session: -1,
         stem: row.stem,
         ply: row.ply,
         fen: row.fen,

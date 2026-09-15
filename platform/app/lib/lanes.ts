@@ -174,8 +174,8 @@ export function keepPosition(positions: readonly number[], at: number): number {
 }
 
 /**
- * Cells of one lane, grouped BY SQUARE inside a session (`bucket.tsx:66-72`, REVIEW S10) while the
- * sessions stay sequential. Score order scattered a square's six crops over six pages ("ich sehe
+ * Cells of one lane, grouped BY SQUARE inside a session (REVIEW S10) while the sessions stay
+ * sequential. Score order scattered a square's six crops over six pages ("ich sehe
  * immer noch alte Bilder", 2026-08-09); the stream's session order is the outer key.
  */
 export function groupBySquare<T extends { session: number; square: string; stem: string }>(cells: T[]): T[] {
@@ -185,9 +185,9 @@ export function groupBySquare<T extends { session: number; square: string; stem:
 }
 
 /**
- * How far apart two crops may sit and still be "the same event" (`tinder.tsx:81`, kept for the
- * phone mode of CONCEPT.md 4.3). A resting hand produces forty identical cards otherwise, which is
- * the failure that killed the tinder band.
+ * How far apart two crops may sit and still be "the same event" (kept for the phone mode of
+ * CONCEPT.md 4.3). A resting hand produces forty identical cards otherwise, the failure that
+ * killed the tinder band.
  */
 export const GROUP_SPAN = 150;
 

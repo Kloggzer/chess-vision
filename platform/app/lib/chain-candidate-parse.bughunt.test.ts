@@ -5,9 +5,9 @@ import { beforeEach, expect, it } from "vitest";
 import { chainState } from "@/lib/chain";
 
 /**
- * `chain.ts:147` reads `candidate.json` with `.catch(() => null)` and then parses it UNGUARDED.
- * `queueRows` calls `chainState` once per recording inside one `Promise.all`, so a single
- * half-written candidate rejects the whole list and blanks every queue page.
+ * `chainState` once parsed `candidate.json` UNGUARDED after reading it with `.catch(() => null)`.
+ * `queueRows` calls it once per recording inside one `Promise.all`, so a single half-written
+ * candidate rejected the whole list and blanked every queue page. Guarded since; pinned here.
  */
 const NAME = "2026-08-13-12-10-55";
 let data: string;

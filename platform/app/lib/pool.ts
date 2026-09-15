@@ -34,14 +34,11 @@ export function dedupCorrections(lines: Iterable<string>): Map<string, string> {
 
 
 /**
- * Die BESETZTEN Felder einer FEN, in `config.CLASSES`-Schreibweise.
- *
- * Duenn, nicht dicht: der einzige Aufrufer zaehlt `Object.entries`, und die dichte Variante in
- * `lib/fen.ts` (gleicher Name bis 2026-09-15) haette jedes leere Feld mitgezaehlt. Die beiden
- * sind NICHT austauschbar — eine Autovervollstaendigung, die den falschen Import zieht, aendert
- * still ein Ergebnis.
+ * ALLE 64 Felder einer FEN, in `config.CLASSES`-Schreibweise, `empty` wo nichts steht — der Pool
+ * zaehlt Zellen, nicht Figuren. Hiess bis 2026-09-15 `occupiedLabels` und verschwieg damit die
+ * leeren Felder, die es mitliefert; `lib/fen.ts:fenLabels` fuellt dieselbe Tabelle anders auf.
  */
-export function occupiedLabels(fen: string): Record<string, string> {
+export function squareLabels(fen: string): Record<string, string> {
   const out: Record<string, string> = {};
   const ranks = fen.split(" ")[0].split("/");
   for (let i = 0; i < ranks.length && i < 8; i++) {
@@ -79,7 +76,7 @@ export function foldPool(sessions: SessionLog[], corrections: Map<string, string
     pool.occludedBySession[session.sessionId] ??= 0;
     for (const frame of session.frames) {
       pool.frames += 1;
-      for (const [square, fenLabel] of Object.entries(occupiedLabels(frame.fen))) {
+      for (const [square, fenLabel] of Object.entries(squareLabels(frame.fen))) {
         const corrected = corrections.get(cellKey(session.sessionId, frame.stem, square));
         if (corrected !== undefined) hits += 1;
         const label = corrected ?? fenLabel;

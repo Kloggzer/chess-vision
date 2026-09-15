@@ -157,7 +157,9 @@ async function storedCut(
     const raster = await storedRaster(session.dir, row.frame);
     return toPng(rgbOf(quad, raster), size);
   }
-  throw new Error(`no stored frame ${stem} in ${name}`);
+  // `code` statt nur einer Nachricht: die Route unterscheidet "nicht da" (404) von "wir haben
+  // es verbockt" (500), und eine Zeichenkette zu pruefen waere ein Test auf Prosa.
+  throw Object.assign(new Error(`no stored frame ${stem} in ${name}`), { code: "ENOENT" });
 }
 
 /**
