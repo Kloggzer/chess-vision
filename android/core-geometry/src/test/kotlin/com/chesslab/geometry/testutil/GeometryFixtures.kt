@@ -42,6 +42,9 @@ object GeometryFixtures {
     /** `_geometry/meta.json` — `squareRegions`, `cropBoxes`, `homographies`. */
     fun geometryMeta(): Map<String, Any?> = map(parser.load<Any>(File(parityDir, "_geometry/meta.json").readText()))
 
+    /** One JSON object below `parity/`, e.g. `_geometry/axis_fit.json`. */
+    fun jsonObject(path: String): Any? = parser.load<Any>(File(parityDir, path).readText())
+
     /** One JSON-lines fixture below `parity/`, e.g. `_geometry/resolve_corners.jsonl`. */
     fun jsonl(path: String): List<Map<String, Any?>> =
         File(parityDir, path)
