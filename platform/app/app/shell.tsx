@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { DrainTarget } from "@/lib/drain";
+import { visibleSteps } from "@/lib/step-lane";
 import { runDot, runState, useDrain, type Drain } from "./drain-status";
 
 export type NavCounts = { zuege: number; labeln: number; einpflegen: number };
@@ -153,9 +154,14 @@ function StepPanel({ drain, wide }: { drain: Drain; wide: boolean }) {
   }
   const { status, busy, stop, note } = drain;
   const stoppable = status !== null && (status.drain !== null || status.running !== null);
+  // Nur was etwas zu tun hat: acht Knoepfe, sechs davon auf 0, und dieselben Zahlen stehen in
+  // der Einpflegen-Ansicht als Filterleiste. Der einzelne Schritt ist seit der Kette die Ausnahme.
+  const lane = status
+    ? visibleSteps({ waiting: status.waiting, running: status.running?.step ?? null })
+    : ["chain" as DrainTarget];
   return (
     <div className={wide ? "space-y-1.5 px-2 pt-1.5" : "flex items-center gap-1.5 px-2 py-1.5"}>
-      {STEPS.map((entry) => (
+      {STEPS.filter((entry) => lane.includes(entry.step)).map((entry) => (
         <StepButton drain={drain} entry={entry} key={entry.step} wide={wide} />
       ))}
       {stoppable ? (
