@@ -160,15 +160,17 @@ Entschieden: jetzt, statt als Falle stehenzulassen. `occluded` ist jetzt auf BEI
 Kappe heraus. `tests/test_empty_cap_ignores_occluded.py` haelt beides fest — den Fall und den
 `pieces13`-Bau, an dem sich nichts aendert.
 
-## 12. `training/data.py:342` — toter `coverage_gate`-Parameter
+## 12. Toter `coverage_gate`-Parameter: GESTRICHEN 2026-09-16, Empfehlung war falsch
 
-Kein Aufrufer uebergibt ihn je; `evaluate.run_export` ist der einzige und laesst ihn weg.
-`scripts/stage_model_asset.py --gate` ist die Umgehung, die daraus entstand.
+Die Empfehlung hier war "verdrahten". Nachgesehen: der Export KANN das Gate nicht kennen. Es wird
+gegen die Aufnahmen gemessen, die das Modell zurueckgehalten hat, also **nach** dem Ablegen —
+`stage_model_asset.py` sagt das in seiner eigenen Hilfe, und zu sechs der sieben gebuendelten
+Modelle gibt es gar keinen Lauf-Ordner mehr.
 
-**Die Frage:** Parameter streichen und das Staging-Skript als den Weg bestaetigen, oder den
-Parameter verdrahten und das Skript zurueckbauen? **Empfehlung: verdrahten** — die Schwelle
-gehoert ins Modell, und ein Skript, das nachtraeglich in eine `config.json` schreibt, ist genau
-die Stelle, an der der Gate-Guard-Bug schon einmal beinahe alles entwertet hat.
+Der Parameter ist damit nicht aus Versehen tot, sondern weil an dieser Stelle nichts zu wissen
+ist. Gestrichen; das Staging-Skript ist bestaetigt als der Weg, und `ModelSpec` liest die
+`config.json` des Assets, nicht die Karte. Die Sorge der alten Empfehlung bleibt richtig —
+deshalb steht der Grund jetzt als Kommentar an der Stelle, an der der Schluessel fehlt.
 
 ## 13. Modellkarte und Normalisierung: GEBAUT 2026-09-16
 

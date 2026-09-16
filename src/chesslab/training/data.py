@@ -340,10 +340,6 @@ def build_model_card(
     exported_formats: list[str],
     infer_size: tuple[int, int] | None = None,
     normalize: dict | None = None,
-    # TODO: kein Aufrufer uebergibt das je — `evaluate.run_export` ist der einzige, und er
-    # laesst es weg. Der Zweig ist damit tot, und `scripts/stage_model_asset.py --gate` ist die
-    # Umgehung, die daraus entstand.
-    coverage_gate: float | None = None,
 ) -> dict:
     """`out_size` = the size the crops were built at; `infer_size` = the size the exported graph
     takes (specs/22). They are the same number for every run predating that pack, which is what
@@ -358,10 +354,9 @@ def build_model_card(
         "normalize": normalize or {"mean": list(config.NORMALIZE_MEAN),
                                    "std": list(config.NORMALIZE_STD), "mode": "fixed"},
         "backbone": backbone,
-        # Ab welcher Verdeckung ein Feld nicht mehr zaehlt (`ModelSpec.kt`). MESSEN, nicht raten:
-        # comp13 braucht 0,02, die real13-Laeufe 0,15 (docs/occlusion-gate.md). Ohne Messung
-        # bleibt der Schluessel weg, damit kein Default als gemessener Wert durchgeht.
-        **({"coverage_gate": float(coverage_gate)} if coverage_gate is not None else {}),
+        # Kein `coverage_gate`: es wird NACH dem Ablegen gemessen (`scripts/occlusion_gate.py`),
+        # der Export kann es also nicht wissen. Es steht in der `config.json` des Assets, die
+        # `ModelSpec` liest — `scripts/stage_model_asset.py --gate` schreibt es dorthin.
         "metrics": metrics,
         "torch_version": torch_version,
         "rocm_hip": hip_version,
