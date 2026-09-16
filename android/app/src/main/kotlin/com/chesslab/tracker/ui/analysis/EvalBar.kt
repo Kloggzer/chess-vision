@@ -1,5 +1,7 @@
 package com.chesslab.tracker.ui.analysis
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -135,21 +138,33 @@ internal fun EvalFill(
     paused: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val white = ((winWhite ?: 50.0) / 100.0).toFloat()
+    // `null` heisst NICHT bewertet und bleibt LEER: 50 % waeren die haeufigste Luege, die diese
+    // Flaeche erzaehlen kann, und `lastFen` wiederholt die Stellung nie.
+    val target = winWhite?.let { (it / 100.0).toFloat().coerceIn(0f, 1f) }
+    val white by animateFloatAsState(target ?: 0f, tween(FILL_MS), label = "evalFill")
     Column(
         modifier
             .clip(RoundedCornerShape(BAR_CORNER))
             .background(BoardDark),
     ) {
+        if (target == null) return@Column
         Spacer(Modifier.fillMaxWidth().weight(max(MIN_WEIGHT, 1f - white)))
         Spacer(
             Modifier
+                .testTag(EVAL_WHITE_TAG)
                 .fillMaxWidth()
                 .weight(max(MIN_WEIGHT, white))
                 .background(if (paused) OnSurfaceMuted else PieceWhite),
         )
     }
 }
+
+/** Nur fuer den Test: ohne ihn ist "kein weisser Anteil" von aussen nicht sagbar. */
+internal const val EVAL_WHITE_TAG = "evalWhite"
+
+/** Lang genug, dass die Bewegung die RICHTUNG zeigt, kurz genug, um dem naechsten Zug nicht
+ *  hinterherzulaufen — die Analyse liefert alle paar hundert Millisekunden eine Tiefe nach. */
+private const val FILL_MS = 260
 
 /** A zero weight is not a valid Compose weight, and a mate must still leave the bar visible. */
 private const val MIN_WEIGHT = 0.001f

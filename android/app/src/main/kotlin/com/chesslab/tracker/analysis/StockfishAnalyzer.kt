@@ -26,7 +26,6 @@ private const val RETRY_MS = 500L
 
 private const val WIN_MATING = 100.0
 private const val WIN_MATED = 0.0
-private const val WIN_EVEN = 50.0
 private const val WIN_ROUNDING = 10.0
 
 private const val TAG = "chesslab.analysis"
@@ -191,17 +190,16 @@ class StockfishAnalyzer(
 private fun gameOverResult(fen: String) =
     AnalysisResult(fen, gameOver = true, cp = null, mate = null, winWhite = null, lines = emptyList(), depth = 0)
 
-private fun winWhite(best: AnalysisLine?): Double {
+/** `null` heisst NICHT gemessen: eine Suche ohne `info`-Zeile hat nichts gesagt, und `lastFen`
+ *  wiederholt die Stellung nie — 50,0 stuende dann bis zum naechsten Zug als Messwert da. */
+private fun winWhite(best: AnalysisLine?): Double? {
     val mate = best?.mate
     val cp = best?.cp
     val win =
         when {
             mate != null -> if (mate > 0) WIN_MATING else WIN_MATED
             cp != null -> winChanceWhite(cp)
-            // TODO: eine Suche ohne `info`-Zeile hat NICHTS gemessen, 50,0 ist aber ein Messwert —
-            // und `lastFen` verhindert die Wiederholung. `winWhite` ist `Double?`, genau dafuer
-            // (`UnscoredPositionTest`, @Disabled: der Fix leert den Balken und ist UI-Verhalten).
-            else -> WIN_EVEN
+            else -> return null
         }
     return round(win * WIN_ROUNDING) / WIN_ROUNDING
 }

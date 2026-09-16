@@ -4,7 +4,6 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
 private const val OPENING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
@@ -14,11 +13,6 @@ private const val OPENING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w K
  * sagbar ist — der Endstellungs-Pfad nutzt es —, aber die Suche erfindet stattdessen 50,0.
  */
 class UnscoredPositionTest {
-    @Disabled(
-        "BUG: eine Suche ohne Bewertung wird als gemessenes Remis (50,0) veroeffentlicht und wegen " +
-            "lastFen nie wiederholt. Der Fix aendert Verhalten — der Balken leert sich, statt 50 % zu " +
-            "zeigen — und ist damit eine UI-Entscheidung, keine verhaltensgleiche Korrektur.",
-    )
     @Test
     fun aSearchWithoutAnyScoreIsNotPublishedAsAnEvenPosition() =
         runTest {
