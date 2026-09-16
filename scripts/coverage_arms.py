@@ -38,6 +38,18 @@ def curve(truth: np.ndarray, said: np.ndarray, name: str, thrs) -> None:
           f"auf sichtbaren {np.abs(said - truth)[~want].mean():.4f}")
 
 
+def cnn_coverage(reads: list[dict]) -> list[float]:
+    """Die Coverage-Spalte der Reads — oder eine Absage.
+
+    Ohne Occlusion-Kopf schreibt `all_reads` den Schluessel gar nicht. Als 0,0 gelesen entstand
+    die Kurve dieses Arms auf lauter Nullen und sah gemessen aus; `occlusion_gate.py` verweigert
+    denselben Fall seit jeher laut.
+    """
+    if not any("coverage" in r for r in reads):
+        raise SystemExit("[FAIL] der Lauf traegt keinen Occlusion-Kopf — hier ist nichts zu messen")
+    return [float(r.get("coverage") or 0.0) for r in reads]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", default="rg-2026-08-16-20-41-33")
@@ -81,9 +93,10 @@ def main():
                                          card["size"],
                                          borders=[int(r.get("board_border") or 0)])[0])
         m = matte[stem]
+        heads = cnn_coverage(reads)
         for j, sq in enumerate(squares):
             truth.append(float(m.get(sq, 0.0)))
-            cnn.append(float(reads[j].get("coverage") or 0.0))
+            cnn.append(heads[j])
             spec.append(float(said[1 + j]))
         if (i + 1) % 50 == 0:
             print(f"    {i + 1}/{len(rows)}", flush=True)
