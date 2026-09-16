@@ -2,6 +2,7 @@ import { expect, test } from "vitest";
 import { barPct } from "@/lib/chart";
 import { clampPage, turnPage } from "@/lib/page-turn";
 import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
+import { DEFAULT_WALL } from "@/lib/query";
 import { cursorSession, linkFilter } from "@/lib/stream-head";
 
 /**
@@ -62,8 +63,11 @@ test("ein Link ohne `min` stellt keine Frage, statt jede Zelle durchzulassen", (
     filter: { klass: "wK", min: 0.5 },
     phase: "after",
   });
-  expect(linkFilter("?class=wK"), "Number(null) waere 0").toBeNull();
-  expect(linkFilter("?class=wK&min="), 'Number("") waere 0').toBeNull();
+  // Nicht 0 und auch nicht "keine Frage": dieselbe Vorgabe, die `api/query` fuer denselben
+  // Link nimmt — sonst antworten die beiden Seiten verschieden.
+  for (const link of ["?class=wK", "?class=wK&min="]) {
+    expect(linkFilter(link)?.filter, link).toEqual({ klass: "wK", min: DEFAULT_WALL.min });
+  }
   expect(linkFilter("?min=0.5"), "ohne Klasse keine Frage").toBeNull();
   expect(linkFilter("?class=wK&min=abc")).toBeNull();
 });
