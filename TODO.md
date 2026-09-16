@@ -20,11 +20,11 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 
 ## Tracker / Engine
 
-- **Bug-Audit 2026-09-13 offen: `docs/bug-audit-2026-09-13.md`.** 32 Meldungen aus drei
-  Codex-Laeufen, davon **drei noch offen**: Temperatur wird ignoriert, `fenOf` immer Weiss am
-  Zug, `commitHoldS` erreicht Upgrades nicht. (Das fehlende `coverage_gate` ist seit 2026-09-14
-  erledigt — alle SIEBEN gebuendelten Modelle tragen einen gemessenen Wert, `docs/occlusion-gate.md`.)
-  Mehrere sind lasttragend — A/B auf dem Regressionssatz VOR jedem Fix.
+- **Bug-Audit 2026-09-13: `docs/bug-audit-2026-09-13.md` fuehrt den Stand je Meldung.** Von 32
+  sind **13 offen** (C2, C3, C4, C5, C7, C8, E1, E2, E11, E12, A3, A5, A7), der Rest gefixt,
+  widerlegt oder mit den zwei toten Engines gegenstandslos geworden. Zwei sind Produktfragen
+  (A3, A7), A5 und E1/E2 sind lasttragend — A/B auf dem Regressionssatz VOR dem Fix.
+  Diese Zeile nur aus dem Dokument nachfuehren, nie aus dem Gedaechtnis.
 
 - **Split ist Vorgabe (2026-09-13): 133 ms, 2 Frames.** Offen: Nachbarring in der Sicht-Serie
   EINZELN messen (Finger neben der Figur liest der Coverage-Kopf zu 24 % als frei), und eine
