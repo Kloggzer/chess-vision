@@ -21,6 +21,8 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 18 | `withCoverageGateOf` gattert ohne Coverage-Spalte | C | 2 h | braucht den Regressionssatz |
 | 19 | `recoveryConfig` weicht als einziger Rig-Bauer ab | A | 15 min | vermutlich versehentlich |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
+| 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
+| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 2 und 3 als naechstes |
 
 ## 17. `ALPHA_REASON` — welche Seite hat recht?
 
@@ -204,3 +206,51 @@ Destillation ist dann nicht mehr die Referenz.
 ob das Band je erreicht wurde) oder streichen? Nach der Hausregel "Code ohne Wirkung brauche ich
 nicht" ist Streichen die Vorgabe. **Empfehlung: in den Auftrag ziehen** — die Aufnahmen, die in
 Punkt 5 anstehen, sind genau die, bei denen "wurde das Band je erreicht" die Frage ist.
+
+## 20. `read_matte` verwirft die leere Messung, TypeScript behaelt sie
+
+`labeling.read_matte` filtert mit `if r.get("coverage")` — ein leeres Dict ist falsy, also faellt
+eine Zeile "gemessen, nichts verdeckt" heraus und das Frame gilt als ungemattet. `label-stream.ts`
+behaelt sie ausdruecklich ("Nullen BLEIBEN"). Gefunden vom gemeinsamen Fixture
+`parity/_matte/matte_states.json`, das beide Sprachen gegen dieselben fuenf Zustaende liest.
+
+**Latent, nicht akut:** ueber den ganzen Korpus gezaehlt 9 386 Zeilen mit Werten, **0 leere**,
+0 Absagen. Erst ein Lauf, der ein sauberes Brett tatsaechlich misst, macht die Abweichung sichtbar.
+
+**Warum nicht nachts gebaut:** `read_matte` haengt am Trainingsweg — wer die Zeile durchlaesst,
+schneidet 64 Zellen mit `coverage 0` mehr in den Datensatz. Das ist eine Rezept-Aenderung, keine
+Reparatur. Gepinnt als `xfail(strict=True)` in `tests/test_matte_state_parity.py`.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| C | 30 min plus ein Re-Slice | Python an TypeScript angleichen, aber mit dem naechsten Neubau |
+
+## 21. Fuenf Vertrags-Familien statt 19 Einzelformate
+
+Die Fehlerklasse, die in der Nacht vom 15. auf den 16.09. **zwoelf Mal** auftrat, ist immer
+dieselbe: *nicht gemessen* wird als *gemessener Normalwert* gelesen — SAMs Absage als sauberes
+Brett, eine fehlende Matte als `coverage 0.0`, ein leeres `settle_dev` als `0` statt `—`.
+
+Die tragende Grenze ist **Platte → Speicher**, nicht Python → TypeScript: die Sprachgrenze
+verdoppelt den Fehler, verursacht ihn aber nicht. Beide Seiten lesen JSONL mit `.get(key, default)`
+und der Default ist der Normalwert.
+
+Die 19 Formate zerfallen in fuenf Familien: **Messreihen** (`matte.jsonl`, `model-reads.jsonl`,
+`interval-check.jsonl`), **Laeufe** (`log.jsonl`, `pass.json`), **Karten** (`config.json`,
+`session.yaml`), **Urteile** (`review-notes.jsonl`) und **Packs** (`packed_meta.json`).
+Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert.
+
+**Empfohlene Reihenfolge, eine Naht je Mal:**
+
+1. `matte.jsonl` als `Measurement<Coverage>` mit drei Zustaenden (fehlt / abgesagt / gemessen),
+   Leser auf beiden Seiten gegen dasselbe Fixture. **Schritt eins ist gebaut** (Punkt 20).
+2. Ein gemeinsamer TS-Leser mit Missing/Corrupt/Tail-Politik — heute liest jede Route ihr JSONL
+   selbst, und jede entscheidet neu, was eine halbe letzte Zeile bedeutet.
+3. Eine Ratsche gegen neue Ad-hoc-Leser, wie die Routen-Ratsche.
+4. `ModelServingSpec`: was `train` in `config.json` schreibt und was das Serving daraus rechnen
+   muss (CLAHE steht drin, wird aber nicht gebacken).
+5. Versionierte Vertraege, Familie fuer Familie — zuletzt, weil es ohne 1–3 nichts haelt.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| B je Naht | 1 (fertig), 2 ≈ 3 h, 3 ≈ 1 h, 4–5 offen | 2 und 3 als naechstes, 4–5 erst nach dem Neubau |
