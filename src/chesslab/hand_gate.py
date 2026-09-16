@@ -150,9 +150,12 @@ class BoardSet:
         import torch
 
         row = self.rows[i]
-        image = _read_board(self.root / row["board"], self.size, row.get("border", 0))
+        path = self.root / row["board"]
+        image = _read_board(path, self.size, row.get("border", 0))
+        # Nullen hiessen "schwarzes Brett MIT diesem Label" — der Schueler lernte Bilder, die es
+        # nie gab. Gemessen 2026-09-16: 0 von 11 647 Brettern fehlen, Abweisen kostet nichts.
         if image is None:
-            image = np.zeros((self.size, self.size, 3), np.uint8)
+            raise FileNotFoundError(f"{path} laesst sich nicht als Brett lesen")
         if self.train:
             image = _augment(image, self.rng)
         # uint8 über die Prozessgrenze: als float32 sind das 4,9 MB je Brett bei 640 px, und die
