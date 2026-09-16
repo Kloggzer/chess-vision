@@ -144,10 +144,11 @@ Aufnahmen und des Modells, keine Hinweise auf eine Lösung.
 - **Das Brett hat einen Helligkeitsverlauf.** Über die Fläche liegen zwischen den Ecken rund 130
   Graustufen. Eine schwarze Figur auf dunklem Feld in der dunklen Ecke ist der schwierigste Fall.
 - **Modellwahl.** Die Arena serviert nur 13+1-Modelle: 13 Klassenwahrscheinlichkeiten plus eine
-  unabhängige Coverage-Spalte. Voreingestellt ist `real13-ms-s3-hn4-bn80` (`coverageGate` 0,15),
-  daneben liegen `real13-ms-s2-bn80-bs256-swa1e4` und `comp13-occ-bn-lr1e2-bs512` (Gate 0,02 —
-  das Gate folgt aus der Güte des Modells und unterscheidet sich zwischen den Familien um den
-  Faktor 7). Du darfst wechseln, und `frame.squares("<modell>")` liest ein zweites im selben Lauf;
+  unabhängige Coverage-Spalte. Serviert wird, was das APK bündelt (`cnn.BUNDLED_MODELS`, seit
+  2026-09-16 die eine Liste): heute die sieben `p4*`-Läufe, voreingestellt `p4a-80-clahe` mit
+  gemessenem `coverage_gate` 0,25. Das Gate folgt aus der Güte des Modells und reicht über die
+  sieben von 0,05 bis 0,35 (`docs/occlusion-gate.md`) — nie raten, es steht im Modell.
+  Du darfst wechseln, und `frame.squares("<modell>")` liest ein zweites im selben Lauf;
   jede Lesung wird je Modell gezählt. Sag dazu, welches du gemessen hast.
 - **Was das Modell über sich selbst weiss.** `arena models` zeigt die Kernzahlen, die vollen Karten
   liegen unter `data/models/<modell>/`: `model_card.json` und `eval_*.json` mit Recall je Klasse,
