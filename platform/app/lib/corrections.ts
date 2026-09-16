@@ -11,6 +11,7 @@ import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
+import { jsonlRows } from "@/lib/jsonl";
 
 /** Tombstone: deletes from `decidedKeys` so the board reopens; Python reads the label fallback (4.2.2). */
 export type Correction = {
@@ -124,31 +125,26 @@ async function ledgerRows(name: string, ledger: Ledger): Promise<Parsed> {
     if ((e as { code?: string })?.code !== "ENOENT") throw e;
     return "";
   });
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as CorrectionRow;
-      const session = bySession.get(row.session_id) ?? new Map<string, Standing>();
-      const cell = `${row.frame}|${row.square}`;
-      changes.push({
-        session_id: row.session_id,
-        frame: row.frame,
-        square: row.square,
-        label: row.label,
-        before: session.get(cell)?.label ?? null,
-        retract: row.retract === true,
-        ledger,
-        ts: row.ts ?? "",
-        seq: seq++,
-      });
-      // The tombstone of CONCEPT.md 4.2.2: the cell leaves the judged map, so the board reopens.
-      // Python still sees a normal last-wins row and takes `label`.
-      if (row.retract === true) session.delete(cell);
-      else session.set(cell, { label: row.label, ts: row.ts ?? "" });
-      bySession.set(row.session_id, session);
-    } catch {
-      /* a half-written line is not a verdict */
-    }
+  for (const line of jsonlRows(text)) {
+    const row = line as unknown as CorrectionRow;
+    const session = bySession.get(row.session_id) ?? new Map<string, Standing>();
+    const cell = `${row.frame}|${row.square}`;
+    changes.push({
+      session_id: row.session_id,
+      frame: row.frame,
+      square: row.square,
+      label: row.label,
+      before: session.get(cell)?.label ?? null,
+      retract: row.retract === true,
+      ledger,
+      ts: row.ts ?? "",
+      seq: seq++,
+    });
+    // The tombstone of CONCEPT.md 4.2.2: the cell leaves the judged map, so the board reopens.
+    // Python still sees a normal last-wins row and takes `label`.
+    if (row.retract === true) session.delete(cell);
+    else session.set(cell, { label: row.label, ts: row.ts ?? "" });
+    bySession.set(row.session_id, session);
   }
   ledgers.set(file, { key, value: { bySession, changes } });
   return { bySession, changes };

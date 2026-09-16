@@ -1,14 +1,14 @@
 # Stellen, die .jsonl selbst in Zeilen schneiden, statt lib/jsonl.ts zu nehmen.
-# Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber.
-# lib/matte.ts bleibt bewusst: es SCANNT 2-MB-Logs mit Regex, statt jede Zeile zu parsen.
-5 lib/matte.ts
-4 lib/jobs.ts
-3 lib/review-notes.ts
-2 lib/chain.ts
-2 lib/session-delete.ts
-1 lib/corrections.ts
-1 lib/frame-flag.ts
+# Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber. Testdateien zaehlen nicht:
+# ein Test zerlegt sein eigenes Fixture und erfindet dabei keine Lesepolitik.
+# Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
+5 lib/matte.ts  # SCANNT 2-MB-Logs mit Regex, statt jede Zeile zu parsen
+4 lib/jobs.ts  # manifestRows wirft mit Absicht; der Rest zerschneidet Log-TEXT, kein JSONL
+3 lib/review-notes.ts  # BEHAELT eine kaputte Zeile beim Umschreiben, statt sie zu verlieren
+2 lib/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
+2 lib/session-delete.ts  # zerschneidet die AUSGABE eines Werkzeugs, keine Datei
+1 lib/frame-flag.ts  # braucht den Zeilen-INDEX, um die Datei zurueckzuschreiben
 1 lib/ingest.ts
 1 lib/pool.ts
-1 lib/provenance.ts
-1 lib/session.ts
+1 lib/provenance.ts  # braucht die Zeilen-ZAHL und nur die Kopfzeile
+1 lib/session.ts  # wirft heute auf einer halben Zeile -- Tail-Politik, Punkt 22 der Vorlage

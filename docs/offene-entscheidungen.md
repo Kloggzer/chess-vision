@@ -22,6 +22,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
+| 22 | Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe Zeile | B | 2 h | **entscheiden** — eine Tail-Politik statt dreier |
 
 ## 17. `ALPHA_REASON` — welche Seite hat recht?
 
@@ -260,3 +261,33 @@ Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert
 | Kiste | Aufwand | Empfehlung |
 |---|---|---|
 | B je Naht | 1 (fertig), 2 ≈ 3 h, 3 ≈ 1 h, 4–5 offen | 2 und 3 als naechstes, 4–5 erst nach dem Neubau |
+
+## 22. Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe letzte Zeile
+
+`realgames.py:1537` oeffnet `log.jsonl` mit `"w"` und stroemt hinein — waehrend eines Exports ist
+die letzte Zeile also wirklich halb da, das ist kein Gedankenspiel.
+
+Wer sie liest, antwortet verschieden:
+
+| Leser | auf eine halbe Zeile |
+|---|---|
+| `lib/stored.ts` | ueberspringt sie, ausdruecklich: "ueber das `Promise.all` riss ein Wurf sonst die ganze Anfrage mit" |
+| `lib/pool.ts` | ueberspringt sie |
+| `lib/session.ts` (`loadSession`) | **wirft** — kein `try` |
+
+**Beide Antworten sind vertretbar**, und das ist der Punkt. Ueberspringen zeigt eine Sitzung, der
+waehrend des Exports Zeilen fehlen, ohne das zu sagen — genau die Fehlerklasse dieser Nacht.
+Werfen ist ehrlich, reisst aber ueber `Promise.all` Nachbarn mit, wofuer `stored.ts` schon einmal
+bezahlt hat.
+
+**Die eigentliche Frage ist enger:** die LETZTE Zeile ist "der Schreiber laeuft noch", jede andere
+kaputte Zeile ist Beschaedigung. Heute unterscheidet kein Leser die beiden. Ein gemeinsamer Leser
+mit einer ausdruecklichen Tail-Politik (Codex' Naht 2) kann das — `lib/jsonl.ts` ist dafuer der
+Platz, hat die Politik aber noch nicht.
+
+**Nicht nachts entschieden:** `loadSession` traegt jede Label-Seite; ob eine halbe Aufnahme
+angezeigt oder verweigert wird, ist eine Produktfrage.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| B | 2 h | Tail-Politik in `lib/jsonl.ts`, dann alle drei darauf — mit einer Entscheidung, nicht drei |
