@@ -57,7 +57,10 @@ def read_jsonl(path: Path) -> list[dict]:
     # Ein mitten im Anhaengen erschlagener Schreiber laesst eine halbe LETZTE Zeile zurueck; die
     # faellt weg. Eine kaputte Zeile MITTENDRIN ist Korruption und bleibt laut — deshalb wird der
     # Fehler erst geworfen, wenn doch noch eine Zeile folgt.
-    with p.open(encoding="utf-8") as fh:
+    # TODO: `newline=""`, sonst uebersetzt der Universal-Newline-Modus ein einzelnes CR in
+    # LF. Auf dieser Platte tragen 399 von 519 `.jsonl` CRLF, also endet ein abgerissener
+    # Schreiber oft genau dort, und die Schwanz-Regel meldete ihn als Beschaedigung.
+    with p.open(encoding="utf-8", newline="") as fh:
         for line in fh:
             if not line.strip():
                 continue
@@ -70,3 +73,15 @@ def read_jsonl(path: Path) -> list[dict]:
                     raise
                 broken = exc
     return rows
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Schreiben heisst hier: entweder ganz da oder gar nicht — Nebendatei, dann umhaengen."""
+    path = Path(path)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(path)

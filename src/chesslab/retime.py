@@ -329,6 +329,16 @@ def staged_name(out: Path, idx: int) -> Path:
     return out / f"{idx:06d}.tmp.webp"
 
 
+def stage_board(out: Path, idx: int, image, encode: list) -> tuple[Path, Path]:
+    # TODO: das False von `imwrite` fiel stumm aus `staged` — und die Aufraeumschleife loeschte
+    # dem Frame gleich darauf sein ALTES Bild. Die Confirm-Ansicht meldete dann "kein Bild",
+    # ohne dass irgendwo ein Fehler stand.
+    tmp = staged_name(out, idx)
+    if not cv2.imwrite(str(tmp), image, encode):
+        raise OSError(f"could not write review board: {tmp}")
+    return tmp, out / f"{idx:06d}.webp"
+
+
 def stale_boards(out: Path):
     """Die alten Bilder — ohne die gerade gestagten: `*.webp` trifft `<stem>.tmp.webp` mit."""
     return (p for p in out.glob("*.webp") if p.suffixes[-2:] != [".tmp", ".webp"])
@@ -357,9 +367,7 @@ def _write_boards(out: Path, video: Path, rotate, plies: list[Retimed], corners_
             if idx > last:
                 break
             padded = warp_padded(frame, profile, corners_of[wanted[idx]], pad)
-            tmp = staged_name(out, idx)
-            if cv2.imwrite(str(tmp), padded[pad:pad + size, pad:pad + size], encode):
-                staged.append((tmp, out / f"{idx:06d}.webp"))
+            staged.append(stage_board(out, idx, padded[pad:pad + size, pad:pad + size], encode))
         for old in stale_boards(out):
             old.unlink()
         for tmp, dst in staged:

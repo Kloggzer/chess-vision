@@ -29,6 +29,7 @@ from statistics import median
 import yaml
 
 from . import config
+from .ioutil import write_atomic
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -172,7 +173,9 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
         return 0
     lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     kept = [line for line in lines if str(json.loads(line).get("frame")) not in frame_stems]
-    path.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+    # TODO: war ungestagt, waehrend `_filter_jsonl` daneben ausdruecklich stagt. Die Coverage ist
+    # Trainingsziel: die Frames unter einer halben Datei gingen mit `coverage = 0.0` ins Training.
+    write_atomic(path, ("\n".join(kept) + "\n") if kept else "")
     return len(lines) - len(kept)
 
 
@@ -189,7 +192,7 @@ def _filter_jsonl_frames(path: Path, session_id: str, frame_stems: set[str]) -> 
             removed += 1
             continue
         kept.append(line)
-    path.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+    write_atomic(path, ("\n".join(kept) + "\n") if kept else "")
     return removed
 
 
@@ -385,15 +388,11 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
                 shutil.move(str(p), str(dst))
                 moved_files += 1
     if reject_dir is not None:
-        (reject_dir / "log.jsonl").write_text(
-            "\n".join(json.dumps(r, ensure_ascii=False) for r in removed_rows) + "\n",
-            encoding="utf-8",
-        )
+        _write_log(reject_dir, removed_rows)
 
-    log_path.write_text(
-        ("\n".join(json.dumps(r, ensure_ascii=False) for r in kept) + "\n") if kept else "",
-        encoding="utf-8",
-    )
+    # TODO: war ein blankes `write_text`, obwohl `_write_log` im selben Modul genau dafuer die
+    # Nebendatei haelt. Ein Abbruch kuerzte das Log, und der Schwanz lag da schon im Reject-Ordner.
+    _write_log(target, kept)
     removed_crops = _purge_crops_for_frames(sid, removed_stems, paths)
     removed_manifest_rows = 0
     for manifest in _manifest_files(paths):      # default + every `crops__<tag>.jsonl`
@@ -554,6 +553,14 @@ def session_profile(sdir: Path):
         white_pov=True,
         crop=calibration.CropParams.default(config.DEFAULT_BOARD_SIZE),
     )
+
+
+def write_interval_checks(sdir: Path, checks: list[dict]) -> None:
+    # TODO: war ungestagt. `position_flags.interval_flags` liest jede Zeile mit blankem
+    # `json.loads` und nahm bei einer halben Datei den Report ALLER Aufnahmen mit, nicht nur diese.
+    from .realgames import INTERVAL_FILE
+
+    write_atomic(sdir / INTERVAL_FILE, "".join(json.dumps(c) + "\n" for c in checks))
 
 
 def backup_log(log_path: Path) -> str:
@@ -880,7 +887,6 @@ def settle_scan_session(session_id: str) -> dict:
 
     from .labeling import _profile_for_session, read_matte, read_session_meta
     from .realgames import (
-        INTERVAL_FILE,
         POOL_WORKERS,
         SETTLE_MIN_FRAMES,
         interval_moves,
@@ -925,7 +931,7 @@ def settle_scan_session(session_id: str) -> dict:
                 r["settle_left"] = got["left"]
     fens = {int(ply): by_ply[ply][0]["fen"] for ply in plies if ply is not None}
     checks = interval_moves(refs, fens)
-    (sdir / INTERVAL_FILE).write_text("".join(json.dumps(c) + "\n" for c in checks), encoding="utf-8")
+    write_interval_checks(sdir, checks)
     backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
     return {"session_id": session_id, "scored": len(scored), "of": len(rows),

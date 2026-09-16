@@ -283,8 +283,7 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
         bx0, bx1 = int(round(x0 * scale)), int(round(x1 * scale))
         alpha = cv2.resize(a[y0:y1, x0:x1], (bx1 - bx0, by1 - by0), interpolation=cv2.INTER_LINEAR)
         rgba = np.dstack([full[by0:by1, bx0:bx1], (alpha * 255).astype(np.uint8)])
-        cv2.imwrite(str(out_dir / f"{video.stem}_{i:05d}.webp"), rgba,
-                    [cv2.IMWRITE_WEBP_QUALITY, 95])
+        write_tile(out_dir / f"{video.stem}_{i:05d}.webp", rgba)
         written += 1
     cap.release()
     return {"video": video.name, "frames": n, "fps": round(fps, 2), "written": written,
@@ -295,6 +294,14 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
             # In WELCHER Auflösung die Kachel geschnitten wurde. Deklariert, nicht geraten: der
             # Composite skalierte sie bisher blind um `WORK_SIZE` zurück.
             "source": [int(cap_w), int(cap_h)]}
+
+
+def write_tile(path: Path, rgba: np.ndarray) -> None:
+    # TODO: `cv2.imwrite` WIRFT NICHT, es gibt False zurueck. Ungelesen zaehlte `written` die
+    # Kachel trotzdem, und der Bericht las sich wie ein vollstaendiger Lauf ueber Dateien,
+    # die es nicht gibt.
+    if not cv2.imwrite(str(path), rgba, [cv2.IMWRITE_WEBP_QUALITY, 95]):
+        raise OSError(f"could not write occluder tile: {path}")
 
 
 def _plain(cap: cv2.VideoCapture, n_frames: int, stride: int,

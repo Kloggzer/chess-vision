@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from . import config, provenance
+from .ioutil import read_jsonl, write_atomic
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
 from .sessions import session_dir
 from .temporal_flags import load_flags, source_stamp
@@ -300,9 +301,16 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
     metadata = {"source": stamp, "max_gap_s": max_gap_s, "method": method, "peers": peers,
                 "refine": refine, "device": device, "low": low, "high": high,
                 "training_alpha_updated": False}
-    (directory / "proposals.meta.json").write_text(json.dumps(metadata), encoding="utf-8")
+    write_proposal_meta(directory / "proposals.meta.json", metadata)
     return {"path": report, "proposed": sum(r.get("alpha") is not None for r in result),
             "skipped": sum("skipped" in r for r in result), "requested": len(wanted)}
+
+
+def write_proposal_meta(path: Path, metadata: dict) -> None:
+    # TODO: ungestagt geschrieben, waehrend die `proposals.jsonl` daneben umgehaengt wird. Eine
+    # halbe Datei laesst `require_fresh_proposals` an einem JSONDecodeError sterben statt an dem
+    # "regenerate them", das genau dafuer dasteht.
+    write_atomic(path, json.dumps(metadata))
 
 
 def sam_matte(recording):
@@ -310,8 +318,9 @@ def sam_matte(recording):
     path = recording / "matte.jsonl"
     if not path.is_file():
         return {}
-    rows = (json.loads(s) for s in path.read_text(encoding="utf-8").splitlines() if s.strip())
-    return {r["frame"]: r["coverage"] for r in rows
+    # TODO: selbst gespalten, waehrend `labeling.read_matte` dieselbe Datei ueber `read_jsonl`
+    # liest — der Alpha-Worker HAENGT AN, eine halbe letzte Zeile ist dort der Normalfall.
+    return {r["frame"]: r["coverage"] for r in read_jsonl(path)
             if r.get("coverage") is not None and r.get("source") not in ("temporal", "upsert")}
 
 
@@ -465,8 +474,9 @@ def write_pass_report(session_id, report: dict) -> Path:
     recording, _ = session_dir(session_id)
     path = config.DATA.reports / "temporal-mattes" / recording.name / "pass.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({**report, "_source": provenance.source(recording)}),
-                    encoding="utf-8")
+    # TODO: `chain.ts` vergleicht den `_source` dieser Datei gegen die `log.jsonl`. Eine halbe
+    # Datei ist kein JSON, und die Sprosse laesst sich dann weder oeffnen noch schliessen.
+    write_atomic(path, json.dumps({**report, "_source": provenance.source(recording)}))
     return path
 
 
