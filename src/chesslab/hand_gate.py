@@ -270,9 +270,14 @@ class GateNet:
 
         from .training.model import _convert_bn_to_primitive
 
+        # `is_model_pretrained` gibt fuer einen UNBEKANNTEN Namen einfach False zurueck. Die
+        # Warnung darunter meldete deshalb "zufaellige Initialisierung" fuer ein Modell, das es
+        # gar nicht gibt, und `create_model` starb eine Zeile spaeter.
+        if not timm.is_model(backbone):
+            near = timm.list_models(f"*{backbone.replace('_', '')[:10]}*")[:5]
+            raise ValueError(f"{backbone} ist kein timm-Modell" + (f" — vielleicht {near}" if near else ""))
         # `mobilenetv4_conv_small_035` und andere schmale Varianten liefern KEINE Gewichte; ohne
-        # den Rückfall stirbt der Lauf erst nach dem Datensatz-Aufbau. `_create_timm_model` fängt
-        # dasselbe für den Zell-Klassifikator ab.
+        # den Rückfall stirbt der Lauf erst nach dem Datensatz-Aufbau.
         if pretrained and not timm.is_model_pretrained(backbone):
             print(f"[WARN] {backbone} hat keine vortrainierten Gewichte — zufällige Initialisierung.")
             pretrained = False
@@ -381,7 +386,7 @@ def coverage_report(said: list, truth: list, visible_max: float | None = None) -
             "precision": round(float((hit & want).sum() / max(hit.sum(), 1)), 4)}
 
 
-def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs: int = 8,
+def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epochs: int = 8,
                holdout: int = 4, batch: int = 32, workers: int = 4, lr: float = 3e-4,
                seed: int = 0, tag: str = "", progress: bool = True,
                pinned_holdout: Sequence[str] | None = None) -> dict:

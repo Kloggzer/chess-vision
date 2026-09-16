@@ -1558,7 +1558,9 @@ def occluders_close_seams(
 
 @occluders_app.command("gate-train")
 def occluders_gate_train(
-    backbone: str = typer.Option("mobilenet_v3_small", "--backbone"),
+    backbone: str = typer.Option(
+        "mobilenetv3_small_100", "--backbone",
+        help="timm-Name. `mobilenet_v3_small` ist KEINER — diese Vorgabe war bis 2026-09-16 falsch und liess jeden Lauf ohne --backbone sterben."),
     size: int = typer.Option(320, "--size", help="Kantenlaenge, in der der Kopf das Brett sieht."),
     epochs: int = typer.Option(8, "--epochs"),
     holdout: int = typer.Option(4, "--holdout", help="GANZE Sessions, die nur geprueft werden."),
