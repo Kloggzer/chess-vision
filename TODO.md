@@ -21,9 +21,10 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 ## Tracker / Engine
 
 - **Bug-Audit 2026-09-13 offen: `docs/bug-audit-2026-09-13.md`.** 32 Meldungen aus drei
-  Codex-Laeufen, 4 selbst bestaetigt (`coverage_gate` fehlt in allen acht Modellen, Temperatur
-  wird ignoriert, `fenOf` immer Weiss am Zug, `commitHoldS` erreicht Upgrades nicht). Mehrere sind
-  lasttragend — A/B auf dem Regressionssatz VOR jedem Fix.
+  Codex-Laeufen, davon **drei noch offen**: Temperatur wird ignoriert, `fenOf` immer Weiss am
+  Zug, `commitHoldS` erreicht Upgrades nicht. (Das fehlende `coverage_gate` ist seit 2026-09-14
+  erledigt — alle SIEBEN gebuendelten Modelle tragen einen gemessenen Wert, `docs/occlusion-gate.md`.)
+  Mehrere sind lasttragend — A/B auf dem Regressionssatz VOR jedem Fix.
 
 - **Split ist Vorgabe (2026-09-13): 133 ms, 2 Frames.** Offen: Nachbarring in der Sicht-Serie
   EINZELN messen (Finger neben der Figur liest der Coverage-Kopf zu 24 % als frei), und eine
