@@ -145,8 +145,11 @@ async function headerOf(file: string): Promise<Provenance | null> {
  * Eine Datei OHNE Stempel gilt weiter als gueltig: alles, was heute auf der Platte liegt, hat
  * keinen, und sie ungueltig zu nennen risse jeder bestehenden Aufnahme die Kette auf.
  */
-function stillCurrent(source: Provenance | null, log: string | null, model: string | null): boolean {
-  if (source === null || source.log === undefined) return true;
+function stillCurrent(source: Provenance, log: string | null, model: string | null): boolean {
+  // `Provenance`, nicht `Provenance | null`: `null` heisst UNLESBAR und darf die Sprosse nicht
+  // schliessen. Hier stand der Fall mit drin und lieferte "gilt weiter" -- dieselbe Antwort wie
+  // fuer eine ungestempelte Datei, und genau der Unterschied, den `headerOf` trennt.
+  if (source.log === undefined) return true;
   if (model !== null && source.model !== undefined && path.basename(source.model) !== path.basename(model)) return false;
   return sameLog(source.log, log);
 }

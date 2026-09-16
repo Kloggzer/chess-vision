@@ -105,6 +105,25 @@ describe("Herkunftsstempel", () => {
     expect(Object.keys(state.outdated).sort()).toEqual(["model-read", "temporal"]);
   });
 
+  it("laesst eine LEERE model-reads.jsonl die Sprosse nicht schliessen", async () => {
+    await exported();
+    await pass({ log: await logStamp() });
+    // Was ein abgebrochener Lauf hinterlaesst. Die Datei existiert, traegt aber keine Kopfzeile:
+    // "nicht gemessen", nicht "ungestempelt". Der Mensch landete sonst auf `labeln` ohne eine
+    // einzige Lesart.
+    await writeFile(game("model-reads.jsonl"), "");
+
+    expect((await chainState(NAME)).step).toBe("model-read");
+  });
+
+  it("laesst eine halb geschriebene Kopfzeile die Sprosse nicht schliessen", async () => {
+    await exported();
+    await pass({ log: await logStamp() });
+    await writeFile(game("model-reads.jsonl"), '{"_model": "runs/p4a-80-cl');
+
+    expect((await chainState(NAME)).step).toBe("model-read");
+  });
+
   it("nennt einen Reads-Lauf eines ANDEREN Modells veraltet", async () => {
     await exported();
     await pass({ log: await logStamp() });
