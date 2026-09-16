@@ -1,13 +1,19 @@
-# Entscheidungsvorlage (Stand 2026-09-15, Nacht)
+# Entscheidungsvorlage (Stand 2026-09-16, Morgen)
 
 Jeder Punkt ist gemessen oder am Code belegt — es fehlt nicht die Analyse, sondern eine
 Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 
-**Heute gebaut und damit gestrichen:** `MarkerTracker`-Port, Achsen-Fit-Paritaet, die doppelte
-Verdeckungsschwelle, die korpusweiten `eval`-Namen, die vier `TrackerService`-Ableitungen, die
-drei Ketten-Punkte (`_source`, `settle-scan` als Sprosse, `nextStep` mit Grund), `position-flags`
-nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Gate-Wache samt Test (alt 18), `ALPHA_REASON` durch Messung entschieden (alt 17), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
-allen drei Sprachen (alt 9) und die ganze Namensdrift `cov`/`measured`/`pack` (alt 10).
+**In der Nacht auf den 16.09. gestrichen, weil gebaut:** `position-flags` nennt ungemessene
+Sessions (alt 3), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in allen drei
+Sprachen (alt 9), die Namensdrift `cov`/`measured`/`pack` (alt 10), `occluded` aus dem
+`empty_cap`-Maximum (alt 11), die Modellkarte und ihre Normalisierung (alt 13).
+
+**Gestrichen, weil die Empfehlung der Messung nicht standhielt:** `recoveryConfig` war kein
+Ausreisser, sondern der einzige produktionstreue Rig-Bauer (alt 19); der tote `coverage_gate`-
+Parameter war nicht aus Versehen tot, sondern weil der Export das Gate nicht kennen KANN (alt 12);
+`ALPHA_REASON` ist eine Reihenfolge und kein Widerspruch, 21 gegen 117 Frames auf einer einzigen
+Aufnahme (alt 17). **Gestrichen, weil laengst gebaut und nur nicht abgehakt:** die Gate-Wache
+(alt 18).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
 Verhalten oder Format — nie ohne A/B am Regressionssatz.
@@ -17,13 +23,14 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
 | 6 | `_persistent`: 532 Frames zu Unrecht im Vorrat, 947 zu bergen | C | Re-Export | mit dem naechsten Neubau |
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
-| 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
+| 14–15 | Zwei TODOs, deren Fix die ZUFALLSFOLGE verschiebt | C | s. u. | 15 ja (Faktor 4), 14 mitnehmen |
+| 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
 | 22 | Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe Zeile | B | 2 h | **entscheiden** — eine Tail-Politik statt dreier |
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
 | 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
-| 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | erst zaehlen |
+| 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | **ja** — gezaehlt: 14 von 804 Plys |
 
 ## 17. `ALPHA_REASON`: ENTSCHIEDEN 2026-09-16 — beide Seiten haben recht
 
@@ -342,10 +349,19 @@ Ein `dirty`-Frame, dessen Matte-Zeile SAMs Absage ist (oder das nie gemattet wur
 `SETTLE_CLEAR_MAX` als `0,0` und zaehlt in den Median, der die gesetzte Stellung definiert —
 genau das, wogegen die Konstante existiert ("eine Hand darin legt die Hand in den Median").
 
-**Warum nicht gebaut:** ungemessene dirty-Frames auszuschliessen kann einen Ply unter
-`SETTLE_MIN_FRAMES` druecken, und das aendert, WELCHE Zellen ueberhaupt eine Zahl bekommen.
-`xfail(strict)` in `tests/test_bug_hunt_20260916d.py`.
+**Gezaehlt 2026-09-16 (25 Aufnahmen, 804 Plys):** der strengere Median schliesst **138 Frames**
+aus, und **14 von 804 Plys (1,7 %)** fallen dadurch unter `SETTLE_MIN_FRAMES`. Ein Ply darunter
+liefert `{}` — die Lane zeigt dann "—" statt einer Zahl.
+
+Damit steht der Tausch fest: 14 Plys verlieren ihre Zahl, 790 bekommen einen Median, in dem
+keine ungemessene Hand mehr stecken kann. Und die 14 sind genau die, deren Beleg duenn war.
+Das ist die Regel, die das Projekt fuer ZELLEN schon durchsetzt ("ohne Messung ist eine Zelle
+nicht unstrittig, sie ist ungemessen"), nur eine Ebene hoeher.
+
+**Trotzdem nicht nachts gebaut:** es aendert die Strittig-Lane, in der der Mensch morgen
+arbeitet. Wer sie geaendert vorfindet, soll wissen warum. `xfail(strict)` in
+`tests/test_bug_hunt_20260916d.py`.
 
 | Kiste | Aufwand | Empfehlung |
 |---|---|---|
-| C | 1 h plus Messung am Korpus | erst zaehlen, wie viele Plys darunter fielen — dann entscheiden |
+| C | 1 h, Messung liegt vor | **ja** — 14 von 804 Plys sind der Preis, und sie sagen dann ehrlich "ungemessen" |
