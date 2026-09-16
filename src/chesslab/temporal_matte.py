@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from . import config, provenance
-from .ioutil import read_jsonl, write_atomic
+from .ioutil import read_jsonl, write_atomic, write_rows
 from .labeling import _profile_for_session, read_log, read_session_meta, usable_board
 from .sessions import session_dir
 from .temporal_flags import load_flags, source_stamp
@@ -295,9 +295,7 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
     if source_stamp(recording) != stamp:
         raise RuntimeError("Source changed during matting; proposals must be regenerated")
     report = directory / "proposals.jsonl"
-    temp = report.with_suffix(".jsonl.tmp")
-    temp.write_text("".join(json.dumps(r) + "\n" for r in result), encoding="utf-8")
-    temp.replace(report)
+    write_rows(report, result)
     metadata = {"source": stamp, "max_gap_s": max_gap_s, "method": method, "peers": peers,
                 "refine": refine, "device": device, "low": low, "high": high,
                 "training_alpha_updated": False}
@@ -376,9 +374,7 @@ def adopt_proposals(session_id, *, method="local"):
                                  "coverage": coverage,
                                  "cells_over_half": sum(v > .5 for v in coverage.values())}))
         adopted += 1
-    temp = matte_path.with_suffix(".jsonl.tmp")
-    temp.write_text("".join(s + "\n" for s in kept_lines + fresh), encoding="utf-8")
-    temp.replace(matte_path)
+    write_atomic(matte_path, "".join(s + chr(10) for s in kept_lines + fresh))
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
@@ -462,9 +458,7 @@ def upsert_proposals(session_id, *, method="local"):
                                  "coverage": coverage,
                                  "cells_over_half": sum(v > .5 for v in coverage.values())}))
         upserted += 1
-    temp = matte_path.with_suffix(".jsonl.tmp")
-    temp.write_text("".join(s + "\n" for s in kept_lines + fresh), encoding="utf-8")
-    temp.replace(matte_path)
+    write_atomic(matte_path, "".join(s + chr(10) for s in kept_lines + fresh))
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
@@ -503,7 +497,5 @@ def prune_dead_rows(session_id):
             if not (row.get("source") == "temporal" and row["frame"] in cut)
             and not (row.get("source") == "upsert" and row["frame"] in found)]
     if len(keep) != len(lines):
-        temp = matte_path.with_suffix(".jsonl.tmp")
-        temp.write_text("".join(line + "\n" for line in keep), encoding="utf-8")
-        temp.replace(matte_path)
+        write_atomic(matte_path, "".join(line + chr(10) for line in keep))
     return {"path": matte_path, "dropped": len(lines) - len(keep), "kept": len(keep)}

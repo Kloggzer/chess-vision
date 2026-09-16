@@ -21,6 +21,7 @@ import yaml
 
 from . import config
 from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
+from .ioutil import write_rows
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
 from .state import GameState
@@ -1534,9 +1535,7 @@ def write_session(session_dir: Path, name: str, candidate: dict, rows: list[dict
     session_dir.mkdir(parents=True, exist_ok=True)
     with (session_dir / "session.yaml").open("w", encoding="utf-8") as fh:
         yaml.safe_dump(meta, fh, sort_keys=False, allow_unicode=True)
-    with (session_dir / "log.jsonl").open("w", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    write_rows(session_dir / "log.jsonl", rows)
     return session_dir
 
 
@@ -1651,7 +1650,7 @@ def correction_ledger(name: str, prefer: set[int], rows: list[dict],
         out.append({"idx": idx, "kept": False, "why": why})
     path = config.DATA.reports / f"export-corrections-{name}.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(r) + chr(10) for r in out), encoding="utf-8")
+    write_rows(path, out)
     from collections import Counter
 
     lost = [r for r in out if not r["kept"]]

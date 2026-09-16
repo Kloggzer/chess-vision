@@ -8,6 +8,7 @@ import numpy as np
 
 from chesslab import matte
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography, crop_border_px
+from chesslab.ioutil import Contested
 from conftest import make_profile
 
 SIDE = 320
@@ -325,7 +326,7 @@ def test_a_recut_refuses_to_overwrite_the_running_worker(tmp_path, monkeypatch):
         return real(*a, **k)
 
     monkeypatch.setattr(matte, "coverage_of", touch_then_cut)
-    with pytest.raises(ValueError, match="changed while recutting"):
+    with pytest.raises(Contested, match="changed while recutting"):
         matte.recut_fixed("s1", progress=False)
 
     kept = (sdir / "matte.jsonl").read_text(encoding="utf-8").splitlines()

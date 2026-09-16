@@ -1,0 +1,25 @@
+# Stellen in src/chesslab, die eine .json/.jsonl selbst schreiben statt ueber chesslab.ioutil.
+# Darf nur SCHRUMPFEN - tests/test_json_doors.py wacht darueber.
+# Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
+#
+# Was hier NICHT mehr steht, weil es umgestellt wurde: matte.jsonl (drei Stellen, dazu der
+# Stempel-Riegel), proposals.jsonl, audit-flags, hand-flags, temporal-flags, model-reads,
+# log.jsonl in vier Modulen, corrections und der Label-Bericht.
+4 cli.py  # Berichte eines Laufs an --json/--out, ein Schreiber, nie angehaengt
+4 dataset_build.py  # manifest/split/stats eines Datensatz-Baus; Datensaetze sind Schnappschuesse
+4 synth_build.py  # dasselbe fuer den Synth-Bau
+4 training/pack.py  # packed_meta und der Fortschritt eines Packs, ein Prozess
+3 training/evaluate.py  # eval, config und model_card neben dem Lauf
+2 meshprep.py  # Scan-Berichte je Figur, ein Werkzeug, ein Aufruf
+2 realgames.py  # Kandidaten-Datei und Payload, beide schon tmp+replace von Hand
+2 training/train.py  # config.json des Laufs, vom Lauf selbst
+1 composite.py  # tmp+replace von Hand, Komposit-Index eines Baus
+1 dataset.py  # split.json eines Datensatzes
+1 hand_gate.py  # model_card neben dem Modell
+1 occluded_model.py  # STREAMT Zeile fuer Zeile in die tmp, weil die Inferenz Minuten laeuft
+1 retime.py  # tmp+replace von Hand, Kandidaten-Datei
+1 sensor_audit.py  # Bericht an --out, ein Aufruf
+1 training/pack_bake.py  # packed_meta des gebackenen Packs
+1 training/pack_session.py  # manifest eines Session-Packs; ein Pack ist unveraenderlich
+1 training/packs.py  # packed_meta eines Packs
+1 work_audit.py  # Bericht, ein Schreiber

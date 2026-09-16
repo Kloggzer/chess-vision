@@ -13,6 +13,7 @@ from pathlib import Path
 
 from . import config
 from .calibration import profile_path
+from .ioutil import write_rows
 from .labeling import MATTE_DIRTY, all_squares, read_log, read_matte, read_session_meta
 from .realgames import SETTLE_MIN_FRAMES
 from .sessions import session_dir
@@ -60,11 +61,7 @@ def scan_session(session_id: str, *, cut: float = config.TEMPORAL_AUDIT_CUT) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     header = {"_schema": 1, "_session_id": session_id, "_cut": cut,
               "_source": before, "_written_at": datetime.now(UTC).isoformat()}
-    temporary = path.with_suffix(".jsonl.tmp")
-    with temporary.open("w", encoding="utf-8") as output:
-        for row in [header, *rows]:
-            output.write(json.dumps(row, allow_nan=False) + "\n")
-    temporary.replace(path)
+    write_rows(path, [header, *rows])
     flags, _ = load_flags(recording, session_id, read_log(recording), read_matte(recording))
     return {"path": path, "cells": len(rows), "flags": len(flags)}
 

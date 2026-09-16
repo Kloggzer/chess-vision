@@ -15,6 +15,7 @@ from time import perf_counter, sleep
 import cv2
 import numpy as np
 
+from .ioutil import read_jsonl, write_rows_guarded
 from .labeling import (
     all_squares,
     crops_for_frame,
@@ -418,7 +419,6 @@ def recut_coverage(
     `docs/coverage-weight-2026-09-16.md`. SAM laeuft nicht, das ist reine Arithmetik.
     """
     from .calibration import load_profile
-    from .ioutil import read_jsonl
     from .realgames import game_dir
     from .training.occlusion import PIECE_VISIBLE_MAX  # lokal: das Modul zieht torch herein
 
@@ -459,15 +459,9 @@ def recut_coverage(
             print(f"[{_timestamp()}]   {recut} Zeilen neu geschnitten", flush=True)
 
     if recut:
-        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-            raise ValueError(f"{name}: matte.jsonl changed while recutting — the alpha worker "
-                             "is writing it. Let it finish and run this again.")
-        temp_path = path.with_suffix(path.suffix + ".tmp")
-        temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-            temp_path.unlink(missing_ok=True)
-            raise ValueError(f"{name}: matte.jsonl changed while recutting — nothing written.")
-        temp_path.replace(path)
+        write_rows_guarded(path, rows, stamp,
+                           what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
+                                "is writing it. Let it finish and run this again.")
     return {"name": name, "frames": len(rows), "recut": recut, "crossed": crossed}
 
 
@@ -481,7 +475,6 @@ def recut_fixed(
     The cut has one implementation — `coverage_of`, the same `crops_for_frame` call the image
     goes through. The UI paints pixels and hands them over, never a coverage number."""
     from .calibration import load_profile
-    from .ioutil import read_jsonl
     from .realgames import game_dir
 
     session_dir = game_dir(name)
@@ -574,47 +567,10 @@ def recut_fixed(
 
         rows.append(row)
 
-    # Size as well as mtime: an append inside the same filesystem tick can
-    # leave the timestamp equal.
-    if (
-        path.stat().st_mtime_ns,
-        path.stat().st_size,
-    ) != stamp:
-        raise ValueError(
-            f"{name}: matte.jsonl changed while recutting — "
-            "the alpha worker is writing it. "
-            "Let it finish and run this again; nothing was written."
-        )
-
-    # Write atomically so a killed recut cannot leave half a JSONL file.
-    temp_path = path.with_suffix(
-        path.suffix + ".tmp",
-    )
-
-    temp_path.write_text(
-        "".join(
-            json.dumps(row) + "\n"
-            for row in rows
-        ),
-        encoding="utf-8",
-    )
-
-    # Re-check immediately before replacing the source file.
-    if (
-        path.stat().st_mtime_ns,
-        path.stat().st_size,
-    ) != stamp:
-        temp_path.unlink(
-            missing_ok=True,
-        )
-
-        raise ValueError(
-            f"{name}: matte.jsonl changed while recutting — "
-            "the alpha worker is writing it. "
-            "Let it finish and run this again; nothing was written."
-        )
-
-    temp_path.replace(path)
+    write_rows_guarded(
+        path, rows, stamp,
+        what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
+             "is writing it. Let it finish and run this again; nothing was written.")
 
     return {
         "path": path,
@@ -629,7 +585,6 @@ def matte_status(name: str) -> dict:
     Niemand gleicht Export und `matte.jsonl` ab. Eine LUECKE ist die teure Haelfte: ein Crop ohne
     Matte bekommt Coverage 0 und sieht aus wie ein freies Feld ("Coverage Matte Trap").
     """
-    from .ioutil import read_jsonl
     from .labeling import read_log
     from .realgames import game_dir
 
@@ -665,7 +620,6 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     them and re-running SAM would cost hours to change the same pixels. A row a person corrected
     (`alpha: fixed`) is skipped whole: that alpha and that coverage are theirs."""
     from .calibration import load_profile
-    from .ioutil import read_jsonl
     from .realgames import game_dir
     from .training.occlusion import PIECE_VISIBLE_MAX  # local: the module pulls torch in
 
@@ -724,19 +678,14 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
                 print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
 
         if not dry_run and closed:
-            if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-                raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
-                                 "is writing it. Let it finish and run this again.")
-            temp_path = path.with_suffix(path.suffix + ".tmp")
-            temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-            if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-                temp_path.unlink(missing_ok=True)
-                raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
+            write_rows_guarded(
+                path, rows, stamp,
+                what=f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                     "is writing it. Let it finish and run this again.")
             # Nur noch Umbenennungen, also Millisekunden statt Minuten. Atomar ueber N+1 Dateien ist es
             # nicht — dafuer braeuchte es ein Journal —, aber das Fenster ist nicht mehr die Laufzeit.
             for tmp, final in staged:
                 tmp.replace(final)
-            temp_path.replace(path)
     except BaseException:
         _drop(staged)
         raise
@@ -759,8 +708,7 @@ def flagged_frames(name: str, *, reported: bool = False, wanted: bool = False,
         return {f"{index:06d}" for index in reported_dirty(f"rg-{name}", verdict="matte-wanted")}
     if temporal:
         path = game_dir(name) / "matte.jsonl"
-        lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-        return {json.loads(s)["frame"] for s in lines if s.strip() and '"source": "temporal"' in s}
+        return {r["frame"] for r in read_jsonl(path) if r.get("source") == "temporal"}
     return None
 
 
@@ -894,7 +842,6 @@ def alpha_worker(
     A kill loses at most the current frame. `limit` targets SUCCESSFUL alphas, not a batch size;
     `frames` re-measures exactly those stems and ignores the pile and `limit` alike."""
     from .calibration import load_profile
-    from .ioutil import read_jsonl
     from .realgames import game_dir
 
     session_dir = game_dir(name)

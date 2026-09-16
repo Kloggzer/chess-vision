@@ -11,6 +11,8 @@ import json
 import numpy as np
 import pytest
 
+from chesslab.ioutil import Contested
+
 cv2 = pytest.importorskip("cv2")
 
 from tests.test_geometry_bug_hunt import SIDE, _profile, _session  # noqa: E402
@@ -53,7 +55,7 @@ def test_a_refused_run_leaves_the_alpha_exactly_as_it_was(tmp_path, monkeypatch)
 
     monkeypatch.setattr(matte, "coverage_of", touch_then_measure)
 
-    with pytest.raises(ValueError, match="changed while closing seams"):
+    with pytest.raises(Contested, match="changed while closing seams"):
         matte.close_seams("s1", progress=False)
 
     assert alpha.read_bytes() == before, (

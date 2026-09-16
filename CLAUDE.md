@@ -240,6 +240,14 @@
   `platform/app/jsonl-readers.txt` listet die 24 Schnitte in 11 Dateien, die es noch tun, und darf
   nur SCHRUMPFEN (`lib/jsonl-ratchet.test.ts`); Testdateien zaehlen nicht mit, die zerlegen ihr
   eigenes Fixture. Erste Naht der Vertrags-Familien, Punkt 21 der Entscheidungsvorlage.
+- **Die Treuhand fuer JSON (2026-09-16):** jeder Schreib- und Lesevorgang auf `.json`/`.jsonl`
+  laeuft durch `chesslab.ioutil` — `read_jsonl` (halbe LETZTE Zeile faellt weg, eine kaputte
+  MITTENDRIN wirft, `newline=""` weil 1127 der 1329 Dateien CRLF tragen), `write_rows`/`write_json`
+  (Nebendatei, dann umhaengen), `append_rows` (repariert erst den abgerissenen Schwanz),
+  `update_rows`/`write_rows_guarded` (Stempel-Riegel, `Contested` statt stiller Ueberschreibung).
+  `tests/json_doors.txt` listet die Stellen, die noch daran vorbei schreiben, und darf nur
+  SCHRUMPFEN — `tests/test_json_doors.py` wacht darueber. Was drauf bleibt, sind Artefakte EINES
+  Laufs (Datensatz, Pack, Bericht); was Sessions teilen, ist umgestellt.
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)

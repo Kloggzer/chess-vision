@@ -15,6 +15,8 @@ from pathlib import Path
 import cv2
 import yaml
 
+from .ioutil import write_rows
+
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -172,9 +174,7 @@ class SessionWriter:
         fp = self.dir / last["frame"]
         if fp.exists():
             fp.unlink()
-        with self.log_path.open("w", encoding="utf-8") as fh:
-            for e in self.entries:
-                fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+        write_rows(self.log_path, self.entries)
         self._frame_idx = max(0, self._frame_idx - 1)
         return last
 

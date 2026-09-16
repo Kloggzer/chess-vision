@@ -7,11 +7,11 @@ ledger, since no FEN label is ever `occluded` and Eqn. 2 needs a support set."""
 from __future__ import annotations
 
 import json
-import os
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
+from .ioutil import write_json, write_rows
 from .labeling import load_corrections
 
 INTERIM_FOLD = 0  # No folds in the interim: the proposals rotate models per session instead.
@@ -134,26 +134,14 @@ def circularity_reason(model: str, session_id: str) -> str | None:
 def write_flags(path: Path, rows: list[dict]) -> Path:
     """One flag per line, in the order given. Atomic (tmp + `os.replace`) like the proposals."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        with tmp.open("w", encoding="utf-8") as fh:
-            for row in rows:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_rows(path, rows)
     return path
 
 
 def write_summary(path: Path, summary: dict) -> Path:
     """The sidecar the Audit lane and `/corpus` read instead of the whole flag file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        tmp.write_text(json.dumps(summary) + "\n", encoding="utf-8")
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    write_json(path, summary, indent=None)
     return path
 
 

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
+from .ioutil import write_rows
 
 FLAGS_FILE = "hand-flags.jsonl"
 #: Ab hier behauptet der Occlusion-Kopf eine Verdeckung. Tief angesetzt, weil ein verpasster
@@ -68,16 +69,7 @@ def write_flags(path: Path, rows: list[dict], header: dict) -> Path:
     """Atomar, weil das der GLOBALE Bericht ist: ein abgebrochener Lauf beschaedigte sonst die
     Strittig-Lane fuer ALLE Sessions, und `present: true` verbirgt genau das."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        with temp.open("w", encoding="utf-8") as fh:
-            fh.write(json.dumps(header) + "\n")
-            for row in rows:
-                fh.write(json.dumps(row) + "\n")
-    except BaseException:
-        temp.unlink(missing_ok=True)
-        raise
-    temp.replace(path)
+    write_rows(path, [header, *rows])
     return path
 
 

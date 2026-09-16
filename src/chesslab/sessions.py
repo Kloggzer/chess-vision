@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,7 +28,7 @@ from statistics import median
 import yaml
 
 from . import config
-from .ioutil import write_atomic
+from .ioutil import write_atomic, write_rows
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -582,10 +581,7 @@ def backup_log(log_path: Path) -> str:
 def _write_log(sdir: Path, rows: list[dict]) -> None:
     """Atomic replace: a crash mid-write must never leave a truncated log."""
     log_path = sdir / "log.jsonl"
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    tmp.write_text("".join(json.dumps(r, ensure_ascii=False, default=str) + "\n" for r in rows),
-                   encoding="utf-8")
-    os.replace(tmp, log_path)
+    write_rows(log_path, rows, default=str)
 
 
 def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,

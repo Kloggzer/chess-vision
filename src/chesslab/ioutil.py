@@ -1,12 +1,8 @@
-"""A single JSONL reader for all consumers in the project.
+"""Die Treuhand fuer JSON und JSONL — jeder Lese- und Schreibvorgang laeuft hier durch.
 
-``read_jsonl(path) -> list[dict]`` is the canonical counterpart to the scattered
-``[json.loads(l) for l in ...splitlines() if l.strip()]`` loops in labeling.py,
-dataset.py, training/data.py and web/app.py. Semantics: missing file → [], empty
-lines are skipped, every non-empty line must be valid JSON.
-
-Consumers that need to throw an exception on a missing file (e.g.
-``dataset.load_manifest``) retain a thin wrapper.
+Wer selbst schneidet oder schreibt, beantwortet die Leerzeile, den abgerissenen Schwanz und den
+gleichzeitigen zweiten Schreiber neu und lag dabei schon mehrfach daneben. Die Antwort steht hier
+einmal; `tests/test_json_doors.py` haelt die Liste der Stellen, die noch daran vorbei schreiben.
 """
 
 from __future__ import annotations
@@ -58,9 +54,8 @@ def read_jsonl(path: Path) -> list[dict]:
     # Ein mitten im Anhaengen erschlagener Schreiber laesst eine halbe LETZTE Zeile zurueck; die
     # faellt weg. Eine kaputte Zeile MITTENDRIN ist Korruption und bleibt laut — deshalb wird der
     # Fehler erst geworfen, wenn doch noch eine Zeile folgt.
-    # TODO: `newline=""`, sonst uebersetzt der Universal-Newline-Modus ein einzelnes CR in
-    # LF. Auf dieser Platte tragen 399 von 519 `.jsonl` CRLF, also endet ein abgerissener
-    # Schreiber oft genau dort, und die Schwanz-Regel meldete ihn als Beschaedigung.
+    # `newline=""` zeigt die ECHTEN Bytes: sonst uebersetzt der Universal-Modus ein abgerissenes
+    # CR in LF, und die halbe Schwanzzeile saehe ganz aus (1127 der 1329 Dateien tragen CRLF).
     with p.open(encoding="utf-8", newline="") as fh:
         for line in fh:
             if not line.strip():
@@ -87,6 +82,7 @@ def write_atomic(path: Path, text: str) -> None:
         raise
     tmp.replace(path)
 
+
 class Contested(RuntimeError):
     """Jemand anders hat die Datei geschrieben, waehrend wir sie geaendert haben."""
 
@@ -100,15 +96,40 @@ def stamp_of(path: Path) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
-def rows_text(rows: Iterable[dict]) -> str:
-    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+def rows_text(rows: Iterable[dict], *, default: Callable[[object], object] | None = None) -> str:
+    """Streng per Vorgabe: was `json` nicht kennt, ist ein Fehler und keine Zeichenkette."""
+    return "".join(json.dumps(r, ensure_ascii=False, default=default) + chr(10) for r in rows)
 
 
-def write_rows(path: Path, rows: Iterable[dict]) -> int:
+def write_rows(path: Path, rows: Iterable[dict], *,
+               default: Callable[[object], object] | None = None) -> int:
     """Eine ganze JSONL-Datei ersetzen. Gibt die Zahl der Zeilen zurueck."""
     rows = list(rows)
-    write_atomic(path, rows_text(rows))
+    write_atomic(path, rows_text(rows, default=default))
     return len(rows)
+
+
+def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, int] | None,
+                       *, what: str) -> int:
+    """Nur schreiben, solange die Datei die ist, an der die Arbeit begann.
+
+    Zweimal geprueft, davor und unmittelbar vor dem Umhaengen: das Neuschneiden dauert Minuten
+    und das Serialisieren noch Sekunden, und in beiden Fenstern haengt der Alpha-Worker an.
+    """
+    path = Path(path)
+    text = rows_text(list(rows))
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        if stamp_of(path) != stamp:
+            raise Contested(what)
+        tmp.write_text(text, encoding="utf-8")
+        if stamp_of(path) != stamp:
+            raise Contested(what)
+        tmp.replace(path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return text.count(chr(10))
 
 
 def write_json(path: Path, obj: object, *, indent: int | None = 2) -> None:

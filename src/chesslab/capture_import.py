@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from bisect import bisect_left
 from collections.abc import Iterator
 from contextlib import closing
@@ -18,6 +17,7 @@ from typing import Any
 import cv2
 
 from . import realgames
+from .ioutil import write_rows
 from .recording import Recording
 
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
@@ -184,15 +184,7 @@ def write_log(session_dir: Path, rows: list[dict]) -> Path:
     frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `sessions._write_log`.
     """
     log_path = session_dir / "log.jsonl"
-    tmp = log_path.with_suffix(".jsonl.tmp")
-    try:
-        with tmp.open("w", encoding="utf-8") as fh:
-            for row in rows:
-                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-    os.replace(tmp, log_path)
+    write_rows(log_path, rows)
     return log_path
 
 

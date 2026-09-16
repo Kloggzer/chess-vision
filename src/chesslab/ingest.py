@@ -19,7 +19,6 @@ own fixed-camera sessions).
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -27,6 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config, locks
+from .ioutil import write_rows
 from .work_audit import measure, span
 
 _FILES = "abcdefgh"
@@ -156,8 +156,8 @@ def synthesize_sessions(items: Iterable[ImportItem], *, tag: str, profile_name: 
             amb = it.meta.get("ambiguous_squares") if it.meta else None
             if amb:
                 entry["ambiguous_squares"] = [str(s) for s in amb]
-            lines.append(json.dumps(entry, ensure_ascii=False))
-        (sdir / "log.jsonl").write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+            lines.append(entry)
+        write_rows(sdir / "log.jsonl", lines)
         session_ids.append(sid)
     return session_ids
 
