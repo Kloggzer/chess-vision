@@ -29,7 +29,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 fallen mit 27 |
 | ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
-| 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
+| ~~23~~ | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | — | — | **gebaut 2026-09-16** |
 | ~~24~~ | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | — | — | **gebaut 2026-09-16** — leerer Balken, animiert |
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
 | ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
@@ -221,38 +221,21 @@ angezeigt oder verweigert wird, ist eine Produktfrage.
 |---|---|---|
 | B | 2 h | Tail-Politik in `lib/jsonl.ts`, dann alle drei darauf — mit einer Entscheidung, nicht drei |
 
-## 23. `UtteranceQueue`: die Meldung des unterbrochenen Spruchs raeumt den Platz des ALARMS
+## 23. `UtteranceQueue` — GEBAUT 2026-09-16, und das Geraet war doch nicht noetig
 
-`flush()` setzt `inFlight = 1` fuer den Alarm, aber der gerade unterbrochene Spruch hat noch einen
-offenen Callback (`onStop` ruft `onDone`). `done()` ist anonym und zaehlt herunter, was gerade in
-Flug ist — `queue.idle` meldet `true`, waehrend der Alarm noch spricht, und `SpeechEngine.emit`
-gibt den Audiofokus mitten in der einen Ansage zurueck, die der Latch garantieren soll.
+`flush()` setzte `inFlight = 1` fuer den Alarm, und die Meldung des gerade unterbrochenen
+Spruchs (`onStop` ruft `onDone`) zaehlte sie wieder herunter: `queue.idle` meldete `true`,
+waehrend der Alarm noch spricht, und `SpeechEngine.emit` gab den Audiofokus mitten in der einen
+Ansage zurueck, die der Latch garantieren soll.
 
-**Warum nicht gebaut:** der Fix braucht eine Generation je Spruch und dreht die Zusage von
-`UtteranceQueueTest.flushDropsTheBacklogAndInterrupts` um, der genau eine `done()`-Meldung als die
-des Alarms liest. Und er haengt an einem Plattformdetail (wann Android `onStop` liefert), das
-sich hier nicht messen laesst. `@Disabled` in `StaleUtteranceCallbackTest`.
+**Warum die Geraetemessung entfiel:** ich hatte sie verlangt, um die REIHENFOLGE zu klaeren —
+kommt die alte Meldung vor oder nach `inFlight = 1`? Eine Generation je Spruch ist unter BEIDEN
+Reihenfolgen richtig, also beantwortet der Fix die Frage, statt sie zu stellen. Beide Ausgaenge
+stehen als Test, und das ist strenger als eine Messung auf einem Geraet.
 
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| C | 2 h plus Geraetemessung | **ja**, aber am Geraet — der Alarm ist die eine Ansage, die halten muss |
-
-## 24. `StockfishAnalyzer`: keine Bewertung wird als gemessenes Remis veroeffentlicht
-
-Liefert die Suche keine `info`-Zeile, ist `best` null und `winWhite` wird **50,0** — obwohl das
-Feld `Double?` ist, genau damit "keine Bewertung" sagbar bleibt (der Endstellungs-Pfad nutzt
-`null`). Dazu setzt die Schleife `lastFen`, die Stellung wird also nie wiederholt: der Balken
-steht bis zum naechsten Zug auf ausgeglichen, daneben "depth 0".
-
-Dieselbe Fehlerklasse wie SAMs Absage — diesmal im Gesicht des Nutzers.
-
-**Warum nicht gebaut:** der Fix leert den Balken, statt 50 % zu zeigen. Wie ein leerer Balken
-aussieht, ist eine UI-Entscheidung. `@Disabled` in `UnscoredPositionTest`, rot verifiziert
-(`expected: <null> but was: <50.0>`).
-
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| C | 30 min plus eine UI-Entscheidung | **ja** — ein erfundenes Remis ist schlimmer als ein leerer Balken |
+**Und die zweite Annahme war auch falsch:** ich hatte geschrieben, der Fix drehe die Zusage von
+`UtteranceQueueTest.flushDropsTheBacklogAndInterrupts` um. Tut er nicht — der Test behaelt seine
+Bedeutung, er benennt jetzt nur, WELCHER Spruch fertig meldet.
 
 ## 25. `settle_for_ply`: eine leere Coverage geht in den Median der gesetzten Stellung
 

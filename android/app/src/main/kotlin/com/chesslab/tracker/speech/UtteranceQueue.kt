@@ -10,11 +10,15 @@ package com.chesslab.tracker.speech
 internal class UtteranceQueue(
     private val max: Int,
     private val summary: (Int) -> String,
-    private val out: (String, Boolean) -> Unit,
+    private val out: (String, Boolean, Int) -> Unit,
 ) {
     private val waiting = ArrayDeque<String>()
     private var inFlight = 0
     private var dropped = 0
+
+    /** Steigt bei jedem [clear]. Die Meldung eines abgeraeumten Spruchs traegt die alte Zahl
+     *  und darf den Platz seines Nachfolgers nicht freigeben. */
+    private var generation = 0
 
     val idle: Boolean get() = inFlight == 0 && waiting.isEmpty()
 
@@ -29,15 +33,15 @@ internal class UtteranceQueue(
 
     /** The alarm: it interrupts, and it invalidates everything behind it. */
     fun flush(text: String) {
-        // TODO: der unterbrochene Spruch meldet trotzdem fertig (`onStop` ruft `onDone`), und diese
-        // Meldung raeumt hier den Platz des ALARMS — der Fokus faellt mitten in der Ansage
-        // (`StaleUtteranceCallbackTest`, @Disabled).
         clear()
         inFlight = 1
-        out(text, true)
+        out(text, true, generation)
     }
 
-    fun done() {
+    /** [at] ist die Generation DIESES Spruchs. Der unterbrochene meldet trotzdem fertig
+     *  (`onStop` ruft `onDone`), und diese Meldung raeumte sonst den Platz des Alarms. */
+    fun done(at: Int) {
+        if (at != generation) return
         if (inFlight > 0) inFlight--
         pump()
     }
@@ -50,13 +54,14 @@ internal class UtteranceQueue(
     fun clear() {
         dropWaiting()
         inFlight = 0
+        generation++
     }
 
     private fun pump() {
         if (inFlight > 0) return
         val next = waiting.removeFirstOrNull() ?: summaryOrNull() ?: return
         inFlight++
-        out(next, false)
+        out(next, false, generation)
     }
 
     /** Spoken once, after the burst has drained — "and 7 more moves" mid-burst helps nobody. */

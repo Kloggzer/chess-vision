@@ -123,9 +123,10 @@ class SpeechEngine(
     private fun emit(
         text: String,
         flush: Boolean,
+        generation: Int,
     ) {
         tts?.speak(text, flush) {
-            queue.done()
+            queue.done(generation)
             // Never hold focus while idle: a ducked music player must come back up between moves.
             if (queue.idle) silence.abandonFocus()
         }

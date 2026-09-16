@@ -152,14 +152,22 @@ class SpeechEngineTest {
 /** The backlog policy, in isolation — it is the part that decides what a listener never hears. */
 class UtteranceQueueTest {
     private val out = mutableListOf<Pair<String, Boolean>>()
-    private val queue = UtteranceQueue(3, { "and $it more moves" }, { text, flush -> out += text to flush })
+    private val gen = mutableListOf<Int>()
+    private val queue =
+        UtteranceQueue(3, { "and $it more moves" }) { text, flush, at ->
+            out += text to flush
+            gen += at
+        }
+
+    /** Die Meldung des GERADE sprechenden Spruchs — der Normalfall. */
+    private fun done() = queue.done(gen.last())
 
     @Test
     fun queueIsBoundedToThree() {
         repeat(10) { queue.offer("m$it") }
         // Only the first is in flight; the rest of the burst is capped at two waiting.
         assertEquals(listOf("m0" to false), out.toList())
-        repeat(4) { queue.done() }
+        repeat(4) { done() }
         assertEquals(
             listOf("m0", "m8", "m9", "and 7 more moves"),
             out.map { it.first },
@@ -172,7 +180,7 @@ class UtteranceQueueTest {
     fun aQuietGameSpeaksEveryMove() {
         repeat(5) {
             queue.offer("m$it")
-            queue.done()
+            done()
         }
         assertEquals(List(5) { "m$it" }, out.map { it.first })
     }
@@ -182,7 +190,7 @@ class UtteranceQueueTest {
         repeat(10) { queue.offer("m$it") }
         queue.flush("Position mismatch")
         assertEquals("Position mismatch" to true, out.last())
-        queue.done()
+        done()
         // Nothing survives the alarm — not the waiting moves, not the "and N more" summary.
         assertEquals("Position mismatch" to true, out.last())
         assertTrue(queue.idle)
@@ -192,7 +200,7 @@ class UtteranceQueueTest {
     fun droppingWaitingKeepsWhatIsAlreadySpeaking() {
         repeat(10) { queue.offer("m$it") }
         queue.dropWaiting()
-        queue.done()
+        done()
         assertEquals(listOf("m0"), out.map { it.first })
         assertNull(out.map { it.first }.firstOrNull { it.startsWith("and") })
     }
