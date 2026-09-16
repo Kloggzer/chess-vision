@@ -10,13 +10,16 @@ import java.util.concurrent.atomic.AtomicLong
 class SessionByteBudget(
     private val sessions: SessionStore,
 ) {
-    // TODO: Der Zaehler waechst nur. `SessionStore.delete` (Einstellungen -> Aufnahmen) hat hier
-    // kein Gegenstueck, also zaehlt geloeschtes Material weiter gegen die Groessengrenze — und
-    // `SessionCapture.stoppedReason` rastet dauerhaft ein. Das vom Nutzer erwartete Mittel gegen
-    // "limit reached" wirkt bis zum Prozessneustart nicht (`SessionByteBudgetDeleteTest`, rot).
     private val bytes = AtomicLong(sessions.totalBytes())
+    private val seenDeletions = AtomicLong(sessions.deletions())
 
-    fun spent(): Long = bytes.get()
+    /** Nach einer LOESCHUNG einmal neu gehen, sonst nie: der Zaehler wuchs nur, also zaehlte
+     *  geloeschtes Material weiter gegen die Grenze — das einzige Mittel des Nutzers dagegen. */
+    fun spent(): Long {
+        val now = sessions.deletions()
+        if (seenDeletions.getAndSet(now) != now) bytes.set(sessions.totalBytes())
+        return bytes.get()
+    }
 
     /** Hung on `RecordingHooks.finished`: the session is written, so its directory counts now. */
     fun finished(result: SessionResult) {

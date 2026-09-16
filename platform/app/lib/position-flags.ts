@@ -12,8 +12,10 @@ export type PositionFlag = {
   fen_label: string;
   /** Abstand zum gesetzten Brett des Intervalls (`labeling.SETTLE_LIMIT` ist die Schwelle). */
   dev: number;
-  /** Was die Matte für dieses Feld gemessen hat — unter der Sichtbarkeitsgrenze, sonst kein Flag. */
-  matte_cov: number;
+  /** Was die Matte für dieses Feld gemessen hat — unter der Sichtbarkeitsgrenze, sonst kein Flag.
+   *  `null` heisst UNGEMESSEN: `timing`- und `temporal`-Zeilen tragen keine Matte, und eine 0
+   *  laese sich in der Lane als "die Matte sagt frei" (wie `lib/hand-flags.ts` es haelt). */
+  matte_cov: number | null;
   /** `changed` = das Bild ist ein anderes; `unreadable` = zu wenig Feld war überhaupt zu sehen. */
   reason: string;
   /** SAM-free residual relative to reference contrast; not a coverage fraction. */
@@ -72,9 +74,11 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
         square: o.square,
         fen_label: String(o.fen_label ?? ""),
         dev: o.dev,
-        // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
+        // `null` heisst UNGEMESSEN, wie `lib/hand-flags.ts` es daneben schon haelt: `timing_flags`
+        // und `candidate_flags` schreiben es ausdruecklich so, und eine 0 laese sich in der Lane
+        // als "die Matte sagt frei". `cov` ist die Schreibweise vor 2026-09-16.
         matte_cov: typeof o.matte_cov === "number" ? o.matte_cov
-          : typeof o.cov === "number" ? o.cov : 0,
+          : typeof o.cov === "number" ? o.cov : null,
         reason: String(o.reason ?? "changed"),
         ...(typeof o.temporal_score === "number" && Number.isFinite(o.temporal_score)
           ? { temporal_score: o.temporal_score } : {}),

@@ -117,6 +117,8 @@ export type MatteCensus = {
   /** Gemeldete Frames OHNE Matte. Nicht in `total`: die meisten sind `stale`, und der Stapel, den
    *  `--reason occluded` abarbeitet, kennt sie nicht — sichtbar wurden sie deshalb nie. */
   reported: number;
+  // TODO: zaehlt nur `dirty-frame`; ein `matte-wanted`-Zettel faellt hier raus, aus `openFrames`
+  // aber auch — und `alpha-worker --wanted` faehrt niemand. Das Frame ist weg und ungemattet.
   /** Davon die, auf die SAM noch gar nicht geantwortet hat — die Zahl, an der die Kette haengt.
    *  Ein abgelehntes Frame bleibt in `reported` sichtbar, haelt den Schritt aber nicht ein
    *  zweites Mal auf: SAM wuerde es wieder ablehnen. */
@@ -124,6 +126,9 @@ export type MatteCensus = {
   /** Meldungen auf Frames, die dieser Export nicht mehr fuehrt — ein Re-Export waehlt andere.
    *  Es gibt kein Brett zu schneiden, also ist es keine offene Arbeit, sondern ein altes Urteil. */
   reportedOrphan: number;
+  /** Vom Menschen ZUR MATTE geschickte Frames ohne Alpha (`alpha-worker --wanted`). Sie liegen
+   *  auf dem dirty-Stapel, aber nicht als `occluded` — kein gewoehnlicher Lauf sieht sie. */
+  wanted: number;
 };
 
 /** Frames per session one run brings the file to (`--limit`), as the overnight `--all` is driven. */
@@ -235,6 +240,11 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
   // Eine Meldung auf einen Frame, den dieser Export nicht fuehrt, ist unerreichbar: `--reported`
   // findet kein Brett. Sie bleibt sichtbar, haelt die Sprosse aber nicht ewig offen.
   const orphan = open.filter(([stem]) => !exported.has(stem));
+  // `openFrames` nimmt ein zur Matte geschicktes Frame aus der Lane. Ohne diese Zahl war es
+  // danach nirgends mehr sichtbar UND blieb ungemattet — die Sprosse schloss sich darueber.
+  const wanted = [...reviews].filter(
+    ([stem, r]) => r.wanted && !usable.has(stem) && exported.has(stem),
+  );
   return {
     done,
     total,
@@ -242,6 +252,7 @@ export async function matteCensus(name: string): Promise<MatteCensus> {
     reported: open.length,
     reportedOpen: open.filter(([stem]) => !skipped.has(stem) && exported.has(stem)).length,
     reportedOrphan: orphan.length,
+    wanted: wanted.length,
   };
 }
 

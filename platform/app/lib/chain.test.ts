@@ -35,7 +35,7 @@ describe("nextStep", () => {
     hasSession: false,
     hasSettle: true,
     outdated: {},
-    mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0 },
+    mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 },
     hasTemporalPass: false,
     hasModelReads: false,
     useless: null,
@@ -51,7 +51,7 @@ describe("nextStep", () => {
     expect(nextStep(base).step).toBe("label");
     expect(nextStep({ ...base, hasCandidate: true }).step).toBe("confirm");
     expect(nextStep({ ...base, hasCandidate: true, confirmed: true }).step).toBe("export");
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 12, target: 12 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("matte");
     // The temporal pass needs SAM's rows to know what SAM missed — so after matte, before the model.
     expect(nextStep(exported).step).toBe("temporal");
     expect(nextStep({ ...exported, hasTemporalPass: true }).step).toBe("model-read");
@@ -60,14 +60,14 @@ describe("nextStep", () => {
 
   it("mattes until the RUN'S TARGET is reached, not until the pile is empty", () => {
     const exported = { ...base, hasCandidate: true, confirmed: true, hasSession: true, hasTemporalPass: true };
-    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("matte");
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 40, total: 80, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 80, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("model-read");
     // 80 of 394 is the instruction carried out (`--all --limit 80`): the biggest sessions must
     // leave this rung, or the chain strands exactly the material it is here for.
-    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("model-read");
-    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("matte");
+    expect(nextStep({ ...exported, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 79, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("matte");
     // A session whose frames are all clean has no pile at all; it must not stall on an empty one.
-    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } }).step).toBe("model-read");
+    expect(nextStep({ ...exported, mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } }).step).toBe("model-read");
   });
 
   it("never offers export before a human confirmed — an unconfirmed candidate exports nothing", () => {
@@ -122,7 +122,7 @@ describe("chainState", () => {
     ].join("\n") + "\n");
     await writeFile(path.join(dir, "matte.jsonl"), JSON.stringify({ frame: "1", coverage: {} }) + "\n");
     const state = await chainState(NAME);
-    expect(state.mattes).toEqual({ done: 1, total: 2, target: 2 , reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+    expect(state.mattes).toEqual({ done: 1, total: 2, target: 2 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
     expect(state.step).toBe("matte");
   });
 

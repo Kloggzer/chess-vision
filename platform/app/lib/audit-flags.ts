@@ -16,6 +16,8 @@ export type AuditFlag = {
   frame: string;
   square: string;
   fen_label: string;
+  // TODO: `audit_flags` legt `judged` dazu, damit die Karte das Wort des Menschen statt der FEN
+  // nennt; hier faellt der Schluessel weg und die Lane behauptet weiter die FEN.
   /** What the out-of-fold model read there, and how sure it was — printed beside the FEN's word. */
   predicted: string;
   prob: number;

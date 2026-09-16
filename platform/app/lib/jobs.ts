@@ -943,7 +943,10 @@ async function runChesslab(
     // fuehrt, ist unerreichbar. Auf `reported` gestuetzt liefe `--reported` ins Leere und die
     // Aufnahme bekaeme ihren Stapel nie.
     const census = await matteCensus(job.name);
+    // `--wanted` ist der dritte Modus: der Mensch hat diese Frames ausdruecklich zur Matte
+    // geschickt, sie liegen aber nicht als `occluded` im Stapel — kein Standardlauf sieht sie.
     if (census.reportedOpen > 0) args.push("--reported");
+    else if (census.wanted > 0) args.push("--wanted");
     else args.push("--limit", String(matteTarget()));
   }
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);

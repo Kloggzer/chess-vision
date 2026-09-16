@@ -83,7 +83,7 @@ test("the census counts DISTINCT frames — a recut leaves the same stem twice",
     JSON.stringify({ frame: "f1", skipped: "zone too big" }),
     JSON.stringify({ frame: "f0", coverage: { a1: 0.8 }, alpha: "fixed" }),
   ]);
-  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3 , reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
 test("a session at the run's target is done, with the untouched pile still on the record", async () => {
@@ -93,19 +93,19 @@ test("a session at the run's target is done, with the untouched pile still on th
   await write(Array.from({ length: matteTarget() },
                          (_, i) => JSON.stringify({ frame: `f${i}`, coverage: { a1: 0.0 } })));
   // rg-2026-08-08-00-39-57: 80 of 394 by intent. The target caps the bar, the pile stays visible.
-  expect(await matteCensus("g")).toEqual({ done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
 test("only occluded rows are the pile, and a session nobody exported has none", async () => {
   const { matteCensus } = await import("@/lib/matte");
   const dir = path.join(process.env.CHESSLAB_DATA_DIR ?? "", "recordings", "g");
-  expect(await matteCensus("g")).toEqual({ done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
   await writeFile(path.join(dir, "log.jsonl"), [
     JSON.stringify({ frame: "1.png", dirty: true, dirty_reason: "occluded" }),
     JSON.stringify({ frame: "2.png", dirty: true, dirty_reason: "grid-late" }),
     JSON.stringify({ frame: "3.png" }),
   ].join("\n") + "\n", "utf8");
-  expect(await matteCensus("g")).toEqual({ done: 0, total: 1, target: 1 , reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 0, total: 1, target: 1 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
 test("gemeldete Frames zählen getrennt — der occluded-Stapel kennt sie nicht", async () => {
@@ -161,7 +161,7 @@ test("a matte for a frame the export no longer picks does not count as done", as
     JSON.stringify({ frame: "verwaist-2", coverage: { a1: 0.9 } }),
     JSON.stringify({ frame: "f0", coverage: { a1: 0.9 } }),
   ]);
-  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3, reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 3, target: 3, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
 test("the pile is read from the board path, extension and directory stripped", async () => {
@@ -170,7 +170,7 @@ test("the pile is read from the board path, extension and directory stripped", a
   const row = JSON.stringify({ board: "boards/000930.webp", dirty: true, dirty_reason: "occluded" });
   await writeFile(path.join(dir, "log.jsonl"), `${row}\n`, "utf8");
   await write([JSON.stringify({ frame: "000930", coverage: { a1: 0.9 } })]);
-  expect(await matteCensus("g")).toEqual({ done: 1, total: 1, target: 1, reported: 0, reportedOpen: 0, reportedOrphan: 0 });
+  expect(await matteCensus("g")).toEqual({ done: 1, total: 1, target: 1, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 });
 });
 
 test("a merge after the verdict reopens the frame; a verdict after the merge closes it", async () => {

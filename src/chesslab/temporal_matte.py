@@ -477,6 +477,8 @@ def prune_dead_rows(session_id):
         return {"path": matte_path, "dropped": 0, "kept": 0}
     lines = [s for s in matte_path.read_text(encoding="utf-8").splitlines() if s.strip()]
     rows = [json.loads(s) for s in lines]
+    # TODO: nennt `upsert` als nicht-ueberholend, loescht aber nur `temporal` — eine von SAM
+    # neu geschnittene Upsert-Zeile bleibt als zweite Zeile desselben Frames stehen.
     superseded = set()
     for row in rows:
         if row.get("source") not in ("temporal", "upsert") and row.get("coverage") is not None:

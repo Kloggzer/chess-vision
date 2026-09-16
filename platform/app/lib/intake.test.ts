@@ -14,7 +14,7 @@ const CHAIN: ChainState = {
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
-  mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0, reportedOrphan: 0 },
+  mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 },
   hasSettle: true,
   outdated: {},
   reason: "",

@@ -242,6 +242,8 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
         # Was `shutil.rmtree(dst)`. Archiving is the SAFE half of the API, and silently
         # destroying an existing archive of the same id is the one thing it must never do.
         raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
+    # TODO: die Zerstoerung laeuft VOR dem Move — scheitert der (Windows-Sharing-Violation), ist
+    # die Session aktiv und leer, und `_filter_jsonl` schreibt das geteilte Manifest nicht atomar.
     n_crops = _purge_crops(sid, paths)
     for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
         _filter_jsonl(manifest, sid)
@@ -1310,6 +1312,8 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
     A REVIEW action: this is a read-modify-write of the whole log, so doing it while the same
     session is actively being recorded could drop a concurrently appended line.
     """
+    # TODO: einzige Schreibfunktion des Abschnitts ohne `backup_log` — der Kopf oben verspricht
+    # das Gegenteil, und ohne Sicherung ist eine verlorene Zeile nicht mehr zu holen.
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     if idx < 0 or idx >= len(rows):

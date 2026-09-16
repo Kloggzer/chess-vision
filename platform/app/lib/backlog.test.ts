@@ -15,7 +15,7 @@ const CHAIN: ChainState = {
   hasCandidate: false,
   confirmed: false,
   hasSession: false,
-  mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0 },
+  mattes: { done: 0, total: 0, target: 0 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 },
   hasSettle: true,
   outdated: {},
   reason: "",
@@ -245,8 +245,8 @@ describe("waiting — what the step buttons's count and drain", () => {
 
   // The bar is the run's TARGET, not the pile — 80 of 394 is the instruction carried out.
   it("a matte session at its target waits on nothing; one below it waits", () => {
-    const settled: ChainState = { ...CHAIN, ...exported, hasTemporalPass: true, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } };
-    const open: ChainState = { ...settled, mattes: { done: 12, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0 } };
+    const settled: ChainState = { ...CHAIN, ...exported, hasTemporalPass: true, hasModelReads: true, mattes: { done: 80, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } };
+    const open: ChainState = { ...settled, mattes: { done: 12, total: 394, target: 80 , reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 } };
     expect(nextStep(settled).step).toBe("labeln");
     expect(nextStep(open).step).toBe("matte");
     const { waiting } = run([

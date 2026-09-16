@@ -547,6 +547,8 @@ def _target(y: int, row: dict) -> torch.Tensor:
 
     Ohne `brightness` gilt die Zelle als hell (255) — alte Packs ergeben Zahl fuer Zahl dasselbe.
     """
+    # TODO: ausgeschriebenes `null` crasht hier im Worker, waehrend `occlusion.py` es als hell
+    # und `train.py` es (ueber NaN) als dunkel liest — drei Bedeutungen desselben Wertes.
     return torch.tensor([float(y), float(row.get("coverage", 0.0)),
                          float(row.get("brightness", 255.0))])
 

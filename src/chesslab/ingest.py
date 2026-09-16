@@ -261,6 +261,8 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 90
     """Full pipeline: adapter → synthetic sessions → slice (variant manifest) → optional
     `build_dataset`. Returns a summary (sessions, crops, class distribution, paths)."""
     iter_items = _load_adapter(adapter)
+    # TODO: `skipped` ist beweisbar 0 — der Adapter `continue`t statt None zu yielden; die
+    # Fehlermeldung nennt die Zahl trotzdem als Tatsache.
     items: list[ImportItem] = []
     skipped = 0
     with span("Ingest.adapter"):

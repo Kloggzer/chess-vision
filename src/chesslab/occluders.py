@@ -150,6 +150,8 @@ def chroma_cut_of(cap: cv2.VideoCapture, n_frames: int, median: np.ndarray,
             continue
         d = chroma_distance(cv2.resize(f, size, interpolation=cv2.INTER_AREA), median)
         vals.append(d[on])
+    # TODO: kein dekodierter Frame ist keine Messung — `_sample` bricht daneben ab, hier wird
+    # der permissivste Schnitt erfunden.
     if not vals:
         return 0.05
     q = np.clip(np.concatenate(vals) * (255.0 / 0.8), 0, 255).astype(np.uint8)

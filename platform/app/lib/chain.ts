@@ -294,6 +294,7 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
   // erfuellt war, bot die Kette den Schritt nicht mehr an und sie blieben unerreichbar. Nur die
   // OFFENEN: ein von SAM abgelehntes Frame bliebe sonst fuer immer der Grund, hier zu stehen.
   if (state.mattes.reportedOpen > 0) return because("matte", `${state.mattes.reportedOpen} von Hand gemeldete Frames sind noch nicht gemattet`);
+  if (state.mattes.wanted > 0) return because("matte", `${state.mattes.wanted} von Hand zur Matte geschickte Frames sind noch nicht gemattet`);
   if (state.mattes.done < state.mattes.target) return because("matte", `${state.mattes.done} von ${state.mattes.target} verdeckten Frames sind gemattet`);
   // After SAM, never before: the pass adopts what SAM has not cut and upserts where SAM found
   // nothing, so it needs SAM's rows on disk to know which is which.

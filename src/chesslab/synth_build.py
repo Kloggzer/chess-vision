@@ -240,6 +240,8 @@ def build_synth_dataset(
         "rotations": list(rotations),
         "split": {"val_frac": val_frac, "test_frac": test_frac, "max_empty_ratio": max_empty_ratio,
                   "max_class_ratio": max_class_ratio, "seed": seed},
+        # TODO: `after_dedup` ist per Konstruktion `n_final` — die CLI druckt die Dedup-Wirkung
+        # und den pieces13-Collapse als eine Zahl; `len(train_rows + holdout)` waere die echte.
         "counts": {"raw": n_raw, "after_dedup": n_final, "final": n_final},
     }
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),

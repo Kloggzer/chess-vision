@@ -1,7 +1,6 @@
 package com.chesslab.tracker.record
 
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -14,7 +13,6 @@ class SessionByteBudgetDeleteTest {
     lateinit var root: File
 
     @Test
-    @Disabled("BUG: SessionByteBudget only ever grows — a deleted session keeps counting against the cap")
     fun `deleting a session gives its bytes back to the budget`() {
         File(root, "20260916-101010").apply { mkdirs() }.let { File(it, "video.mp4").writeText("x".repeat(4096)) }
         val store = SessionStore(root)

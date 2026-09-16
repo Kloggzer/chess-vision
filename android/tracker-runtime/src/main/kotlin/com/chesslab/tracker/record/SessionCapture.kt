@@ -226,6 +226,10 @@ class SessionCaptureController(
         // Zahlen wanderten dann als "Zug-Foto verloren" in eine Partie, die nichts verloren hat.
         failedWrites = 0
         supersededFrames = 0
+        // Der Riegel rastete dauerhaft ein: bis zum Prozessneustart nahm die App nichts mehr auf,
+        // auch nachdem der Nutzer Aufnahmen geloescht hatte — das einzige Mittel, das er hat.
+        // `capReached()` misst beim naechsten Versuch neu und setzt ihn sofort wieder, wenn noetig.
+        stoppedReason = null
         val active = recorder ?: return null
         recorder = null
         pending = null

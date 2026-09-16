@@ -186,6 +186,9 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
     errors.  Whether a mesh is good enough is ultimately decided by rendering /
     training results.
     """
+    # TODO: seit dem Verbatim-Umbau schreibt `prepare_scan` keinen dieser Schluessel mehr —
+    # alle Zweige unter `verts` sind unerreichbar, der Bericht meldet blind `ok`.
+
     msgs: list[str] = []
 
     # Nur ueber Zahlen urteilen, die der Bericht WIRKLICH traegt. Seit dem Verbatim-Umbau nennt

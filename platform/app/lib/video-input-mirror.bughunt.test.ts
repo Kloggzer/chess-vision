@@ -25,7 +25,7 @@ it("finds the same mirrored video the chain offered the label button for", async
   expect(nextStep({
     video: path.join(data, "recordings", NAME, "video.mp4"), videoBroken: null, offeredPgn: null,
     hasReference: false, hasPhoneRecord: false, hasCandidate: false, confirmed: false,
-    hasSession: false, mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0, reportedOrphan: 0 },
+    hasSession: false, mattes: { done: 0, total: 0, target: 0, reported: 0, reportedOpen: 0, reportedOrphan: 0, wanted: 0 },
     hasSettle: true, outdated: {}, hasTemporalPass: false, hasModelReads: false, useless: null,
   }).step).toBe("label");
 

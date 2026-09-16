@@ -64,6 +64,11 @@ def gate_rows(unclear: bool = False) -> list[dict]:
         boards = {Path(r["frame"]).stem: r.get("board") for r in log}
         borders = {Path(r["frame"]).stem: r.get("board_border") for r in log}
         for row in read_jsonl(path):
+            # NUR SAMs eigenes Urteil: die Karte schreibt `teacher: "sam3"`, und eine adoptierte
+            # `temporal`/`upsert`-Zeile stammt vom Drei-Bilder-Sensor. Sie als SAM zu lehren macht
+            # aus dem Lehrer einen zweiten Schueler (214 solche Zeilen lagen auf der Platte).
+            if row.get("source") in ("temporal", "upsert"):
+                continue
             hand = gate_label(row)
             rel = boards.get(row["frame"])
             if rel is None or (hand is None and not unclear):

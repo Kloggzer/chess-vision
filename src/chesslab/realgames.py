@@ -98,6 +98,8 @@ def frame_anchor(name: str, move: dict) -> str:
     """
     # `retime._write_boards` rewrites the review pictures around `frame_review` and deletes the
     # old set, so the entry frame names a file that is gone. `review-cards.ts` reads the same pair.
+    # TODO: `frame_review == 0` faellt durchs `or` auf `frame` zurueck — 0 ist ein Bild, kein
+    # fehlender Wert.
     stem = f"{int(move.get('frame_review') or move['frame']):06d}"
     frames = game_dir(name) / "frames"
     shot = next((p for ext in (".webp", ".png") if (p := frames / f"{stem}{ext}").is_file()),
