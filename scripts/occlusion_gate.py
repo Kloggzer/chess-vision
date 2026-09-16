@@ -51,6 +51,9 @@ def collect(reads_name, sessions):
             r = json.loads(line)
             if "square" not in r or not r["probs"] or r["fen_label"] == "empty":
                 continue
+            # Ein fehlendes Feld heisst "der Frame ist gar nicht gemessen", nie "dieses Feld
+            # nicht": `coverage_of` zippt alle 64 unter `strict=True`
+            # (`tests/test_coverage_is_dense.py`).
             if truth.get(r["frame"], {}).get(r["square"]) is None:
                 continue
             # Ohne Occlusion-Kopf schreibt `read_session` kein `cov`. Als 0,0 gelesen fiele
