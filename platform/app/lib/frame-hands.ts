@@ -4,6 +4,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type FrameHand = {
   /** Der Gate-Wert 0..1, oder `null` auf einem Scan von vor dem destillierten Kopf. */
@@ -48,23 +49,17 @@ export async function loadFrameHands(): Promise<FrameHands> {
 
   const rows = new Map<string, FrameHand>();
   const scanned = new Set<string>();
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const o = JSON.parse(line) as Record<string, unknown>;
-      // Die Kopfzeile traegt `_sessions` und kein `square`-loses `frame` — sie ist kein Flag.
-      if (Array.isArray(o._sessions)) {
-        for (const id of o._sessions) scanned.add(String(id));
-        continue;
-      }
-      if (typeof o.session_id !== "string" || o.frame === undefined) continue;
-      rows.set(handKey(o.session_id, String(o.frame)), {
-        gate: typeof o.gate === "number" ? o.gate : null,
-        grid: Array.isArray(o.grid) ? o.grid.map(String) : [],
-      });
-    } catch {
-      /* eine halb geschriebene Zeile ist kein Flag */
+  for (const o of jsonlRows(text)) {
+    // Die Kopfzeile traegt `_sessions` und kein `square`-loses `frame` — sie ist kein Flag.
+    if (Array.isArray(o._sessions)) {
+      for (const id of o._sessions) scanned.add(String(id));
+      continue;
     }
+    if (typeof o.session_id !== "string" || o.frame === undefined) continue;
+    rows.set(handKey(o.session_id, String(o.frame)), {
+      gate: typeof o.gate === "number" ? o.gate : null,
+      grid: Array.isArray(o.grid) ? o.grid.map(String) : [],
+    });
   }
   const value: FrameHands = { rows, scannedSessions: scanned, present: true };
   cache.set(file, { key, value });

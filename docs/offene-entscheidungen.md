@@ -21,7 +21,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 18 | `withCoverageGateOf` gattert ohne Coverage-Spalte | C | 2 h | braucht den Regressionssatz |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
-| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 2 und 3 als naechstes |
+| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
 
 ## 17. `ALPHA_REASON` — welche Seite hat recht?
 
@@ -244,9 +244,11 @@ Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert
 
 1. `matte.jsonl` als `Measurement<Coverage>` mit drei Zustaenden (fehlt / abgesagt / gemessen),
    Leser auf beiden Seiten gegen dasselbe Fixture. **Schritt eins ist gebaut** (Punkt 20).
-2. Ein gemeinsamer TS-Leser mit Missing/Corrupt/Tail-Politik — heute liest jede Route ihr JSONL
-   selbst, und jede entscheidet neu, was eine halbe letzte Zeile bedeutet.
-3. Eine Ratsche gegen neue Ad-hoc-Leser, wie die Routen-Ratsche.
+2. **Gebaut 2026-09-16:** `lib/jsonl.ts` ist der gemeinsame TS-Leser; fuenf Stellen sind
+   verhaltensgleich umgestellt (`audit-flags`, `correction-violations`, `frame-hands`,
+   `hand-flags`, `model-reads`). 39 Schnitte in 19 Dateien stehen noch aus.
+3. **Gebaut 2026-09-16:** `platform/app/jsonl-readers.txt` plus `lib/jsonl-ratchet.test.ts`.
+   Gegengeprobt — eine neue Ad-hoc-Lesestelle macht die Suite rot.
 4. `ModelServingSpec`: was `train` in `config.json` schreibt und was das Serving daraus rechnen
    muss (CLAHE steht drin, wird aber nicht gebacken).
 5. Versionierte Vertraege, Familie fuer Familie — zuletzt, weil es ohne 1–3 nichts haelt.

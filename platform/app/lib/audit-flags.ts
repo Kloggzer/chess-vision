@@ -10,6 +10,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { isIdentity } from "@/lib/classes";
 import { dataDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type AuditFlag = {
   session_id: string;
@@ -82,27 +83,21 @@ export async function loadAuditFlags(): Promise<AuditFlags> {
   }
 
   const rows: AuditFlag[] = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const o = JSON.parse(line) as Record<string, unknown>;
-      if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
-      // 11 088 of 36 891 rows read `occluded`, which the 14-class audit models still emit. That
-      // claim is measured now (`matte.jsonl` -> coverage) and unwritable, so agreeing with it
-      // would 400 the whole page — the lane keeps the identity pairs it can act on.
-      if (!isIdentity(String(o.predicted ?? ""))) continue;
-      rows.push({
-        session_id: o.session_id,
-        frame: String(o.frame),
-        square: o.square,
-        fen_label: String(o.fen_label ?? ""),
-        predicted: String(o.predicted ?? ""),
-        prob: num(o.prob, 0),
-        margin: num(o.margin, 0),
-      });
-    } catch {
-      /* a half-written line is not a flag */
-    }
+  for (const o of jsonlRows(text)) {
+    if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
+    // 11 088 of 36 891 rows read `occluded`, which the 14-class audit models still emit. That
+    // claim is measured now (`matte.jsonl` -> coverage) and unwritable, so agreeing with it
+    // would 400 the whole page — the lane keeps the identity pairs it can act on.
+    if (!isIdentity(String(o.predicted ?? ""))) continue;
+    rows.push({
+      session_id: o.session_id,
+      frame: String(o.frame),
+      square: o.square,
+      fen_label: String(o.fen_label ?? ""),
+      predicted: String(o.predicted ?? ""),
+      prob: num(o.prob, 0),
+      margin: num(o.margin, 0),
+    });
   }
   // Grouped by the CLAIMED label and INSIDE that by the model's word, biggest groups first: a page
   // then carries ONE claim ("FEN bP, Modell empty") and the eye only hunts the outlier (2026-08-15).

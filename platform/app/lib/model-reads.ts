@@ -14,6 +14,7 @@ import {
   topRead,
   DISAGREE,
 } from "@/lib/query";
+import { jsonlRows } from "@/lib/jsonl";
 
 export { acceptLabel, DISAGREE, matches, readKey, topRead };
 export type { ModelRead };
@@ -63,14 +64,7 @@ export async function loadModelReads(name: string): Promise<ModelReads> {
 
   const rows: ModelRead[] = [];
   let header = NO_HEADER;
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    let obj: Record<string, unknown>;
-    try {
-      obj = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      continue; // a half-written line is not a read (`lib/pool.ts:24-28`)
-    }
+  for (const obj of jsonlRows(text)) {
     if ("_model" in obj || "_classes" in obj) header = parseHeader(obj);
     else rows.push(obj as unknown as ModelRead);
   }

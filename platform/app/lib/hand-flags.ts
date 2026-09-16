@@ -4,6 +4,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type HandFlag = {
   session_id: string;
@@ -47,29 +48,23 @@ export async function loadHandFlags(): Promise<HandFlags> {
   }
 
   const rows: HandFlag[] = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const o = JSON.parse(line) as Record<string, unknown>;
-      // Die Kopfzeile trägt `_cut`/`_written_at` und kein `square` — sie ist kein Flag.
-      if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
-      // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
-      const modelCov = typeof o.model_cov === "number" ? o.model_cov : o.cov;
-      if (typeof modelCov !== "number") continue;
-      // `measured`: SERIALISIERT von `hand_flags.py` vor 2026-09-16 — der Schluessel auf der
-      // Platte bleibt, nur der TS-Name wanderte auf `matte_cov`.
-      const matteCov = typeof o.matte_cov === "number" ? o.matte_cov : o.measured;
-      rows.push({
-        session_id: o.session_id,
-        frame: String(o.frame),
-        square: o.square,
-        fen_label: String(o.fen_label ?? ""),
-        model_cov: modelCov,
-        matte_cov: typeof matteCov === "number" ? matteCov : null,
-      });
-    } catch {
-      /* eine halb geschriebene Zeile ist kein Flag */
-    }
+  for (const o of jsonlRows(text)) {
+    // Die Kopfzeile trägt `_cut`/`_written_at` und kein `square` — sie ist kein Flag.
+    if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
+    // `cov`: Schreibweise vor 2026-09-16, hiess im Nachbarbericht das Gegenteil.
+    const modelCov = typeof o.model_cov === "number" ? o.model_cov : o.cov;
+    if (typeof modelCov !== "number") continue;
+    // `measured`: SERIALISIERT von `hand_flags.py` vor 2026-09-16 — der Schluessel auf der
+    // Platte bleibt, nur der TS-Name wanderte auf `matte_cov`.
+    const matteCov = typeof o.matte_cov === "number" ? o.matte_cov : o.measured;
+    rows.push({
+      session_id: o.session_id,
+      frame: String(o.frame),
+      square: o.square,
+      fen_label: String(o.fen_label ?? ""),
+      model_cov: modelCov,
+      matte_cov: typeof matteCov === "number" ? matteCov : null,
+    });
   }
   rows.sort((a, b) => b.model_cov - a.model_cov);
   const value: HandFlags = { rows, present: true };

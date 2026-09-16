@@ -6,6 +6,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type CorrectionViolation = {
   session_id: string;
@@ -56,25 +57,19 @@ export async function loadCorrectionViolations(): Promise<CorrectionViolations> 
   }
 
   const rows: CorrectionViolation[] = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const o = JSON.parse(line) as Record<string, unknown>;
-      if (typeof o.session_id !== "string" || !Array.isArray(o.violations)) continue;
-      const corrections = labels(o.corrections);
-      // A row without a corrected square carries no verdict a human could rule on, and the board
-      // would land in the lane with nothing outlined.
-      if (o.violations.length === 0 || Object.keys(corrections).length === 0) continue;
-      rows.push({
-        session_id: o.session_id,
-        frame: String(o.frame),
-        ...(typeof o.ply === "number" ? { ply: o.ply } : {}),
-        violations: o.violations.map(String),
-        corrections,
-      });
-    } catch {
-      /* a half-written line is not a verdict */
-    }
+  for (const o of jsonlRows(text)) {
+    if (typeof o.session_id !== "string" || !Array.isArray(o.violations)) continue;
+    const corrections = labels(o.corrections);
+    // A row without a corrected square carries no verdict a human could rule on, and the board
+    // would land in the lane with nothing outlined.
+    if (o.violations.length === 0 || Object.keys(corrections).length === 0) continue;
+    rows.push({
+      session_id: o.session_id,
+      frame: String(o.frame),
+      ...(typeof o.ply === "number" ? { ply: o.ply } : {}),
+      violations: o.violations.map(String),
+      corrections,
+    });
   }
   const value: CorrectionViolations = { rows, present: true };
   cache.set(file, { key, value });
