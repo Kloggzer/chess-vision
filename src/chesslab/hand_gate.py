@@ -20,7 +20,9 @@ GATE_DIR = "hand-gate-bn"
 #: Der Lauf, den die Pipeline benutzt, wenn niemand einen anderen nennt. NICHT der namenlose
 #: Ordner: dort liegt der erste Versuch mit global gepooltem Kopf, den `GateNet` gar nicht laden
 #: kann — und ein leerer Vorgabewert hat genau deshalb einen ganzen Korpus-Rescan gekostet.
-DEFAULT_GATE = "mnv4-640"
+#: Auf der einzigen gemeinsam zurueckgehaltenen Sitzung 0 verpasste Haende gegen 1 und 4
+#: (`docs/offene-entscheidungen.md`, Punkt 15). Verschiedene Holdouts sagen dazu nichts.
+DEFAULT_GATE = "eff-b0-448-v2"
 CARD_FILE = "card.json"
 WEIGHTS_FILE = "gate.pt"
 

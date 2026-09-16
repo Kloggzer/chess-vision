@@ -109,11 +109,22 @@ lassen? **Empfehlung: liegen lassen, bis ohnehin ein Schnitt im Rezept ansteht**
 Vier Prozesse zogen dieselbe Helligkeits-Folge, die Augmentierung war ein Viertel so vielfaeltig
 wie sie aussah. Der RNG entsteht jetzt erst IM Worker, mit dessen Nummer versetzt.
 
-**Nachlauf, der noch aussteht:** die Zufallsfolge hat sich verschoben, die bestehende
-Destillation des Hand-Gate-Schuelers ist damit nicht mehr die Referenz. Der Lauf ist gestartet
-(`eff-b0-448-v2`, `efficientnet_b0` @ 448, 20 Epochen) — die alten Karten sind ausserdem auf einem
+**Neu destilliert 2026-09-16** als `eff-b0-448-v2`. Die alten Karten waren ausserdem auf einem
 Lehrer-Satz entstanden, der adoptierte und Temporal-Zeilen enthielt, obwohl die Karte
-`teacher: sam3` behauptet. Der neue Satz ist kleiner (9 084 statt 10 985) und sauber.
+`teacher: sam3` behauptet; der neue Satz ist kleiner (9 084 statt 10 985) und sauber.
+
+**Die Karten sind NICHT vergleichbar** — der Holdout ist ein anderer: 1 594 Val-Bretter mit nur
+315 sauberen gegen 2 641 mit 994. Gemessen auf `rg-2026-08-07-13-52-38`, der EINZIGEN Sitzung,
+die alle drei Laeufe zurueckgehalten haben (584 Bretter, 396 mit Hand):
+
+| Lauf | Recall | verpasste Haende | Fehlalarme |
+|---|---|---|---|
+| `eff-b0-448` | 0,9975 | 1 | 0/188 |
+| `mnv4-640` (bisherige Vorgabe) | 0,9899 | 4 | 0/188 |
+| **`eff-b0-448-v2`** | **1,0000** | **0** | 0/188 |
+
+`DEFAULT_GATE` steht seitdem auf `eff-b0-448-v2`. Basis ist EINE Sitzung — breiter geht es nicht,
+weil die alten Modelle alles andere im Training gesehen haben.
 
 ## 16. `p5`/`p95` im Aufnahme-Auftrag — GEBAUT 2026-09-16
 
@@ -275,3 +286,87 @@ Fenster, in dem eine geglaettete Figur wie verbatim aussaehe.
 
 Damit ist der Fix folgenlos fuer alles, was auf der Platte liegt: `_load_and_extract` nimmt jetzt
 `upright=`, und der verbatim-Weg laesst die Drehung aus. Gegenprobe haelt.
+
+## 27. Postgres statt 19 Dateiformate — ENTSCHIEDEN 2026-09-16 (Nutzer), Bau steht aus
+
+**Die Entscheidung:** Postgres in Docker, zwei Rollen mit `GRANT` je Tabelle. Begruendung des
+Nutzers: zwei Prozesse laufen wirklich parallel, und der Streit gehoert in die DB, nicht in eine
+Vereinbarung, an die sich jemand halten muss.
+
+Damit sind **Punkt 22 gegenstandslos** (keine halbe letzte Zeile mehr) und **Punkt 21 Naht 4 und 5
+erledigt** — die DB traegt den Vertrag, nicht ein versioniertes Dateiformat.
+
+### Was die DB loest, gemessen an der Nacht auf den 16.09.
+
+| Fehlerklasse | Faelle | loest die DB das? |
+|---|---|---|
+| "nicht gemessen" als gemessener Normalwert gelesen | ~19 | **nein** |
+| halb geschriebene Dateien, gleichzeitige Schreiber, Staging-Reste | ~9 | ja |
+| Waechter umgangen (Massstab, `usable_board`) | 4 | nein |
+| UI- und Logikfehler | ~8 | nein |
+
+**Die dominante Klasse ueberlebt die Migration.** Eine Spalte, die `NULL` sein darf und
+stattdessen `0.0` bekommt, ist genau dieselbe Falle wie `.get(k, 0.0)`. Gegenmittel im Schema:
+`NOT NULL` ueberall, wo ein Wert gemessen sein MUSS, und sonst echtes `NULL` — nie ein Default.
+`tests/test_matte_coverage_rule.py` und die JSONL-Ratsche bleiben bis zur letzten migrierten Stelle.
+
+### Schnitt
+
+- **In die DB:** die Messreihen (`matte`, `model-reads`, `log`, `interval-check`, `scan`) und die
+  Urteile (`review-notes`, `corrections`, `unusable-cells`, `ui-meta`, `useless`).
+- **Dateien bleiben Dateien:** `boards/*.webp`, die Alphas, die Packs. Die Zeile in der DB traegt
+  Pfad UND einen Inhaltsstempel (Mtime plus Groesse, wie `chesslab.provenance` es schon tut),
+  damit eine Abweichung zwischen DB und Platte auffaellt statt still zu sein. **Das ist die neue
+  Fehlerklasse, die die Migration einfuehrt** — sie braucht ihren eigenen Waechter.
+- **Rollen:** `chesslab_pipeline` schreibt die Messreihen und liest die Urteile,
+  `chesslab_web` umgekehrt. Kein Konto darf beides schreiben.
+- **Der Riegel bleibt:** `heavy-lock.ts` / `locks.py` sind auch RESSOURCEN-Sperren (GPU, Speicher),
+  nicht nur Daten-Sperren. Wer sie nach der Migration loescht, weil "die DB das jetzt macht",
+  laesst zwei Trainingslaeufe gleichzeitig los.
+
+### Reihenfolge
+
+1. Schema fuer EINE Familie — die Messreihen —, Python schreibt in beide (DB und JSONL).
+2. Die Web-App liest aus der DB statt aus der Datei. JSONL bleibt als abgeleitete Sicht stehen,
+   damit die ~12 000 Zeilen in `scripts/` unveraendert weiterlaufen.
+3. Urteile umziehen, dann `scripts/` Datei fuer Datei.
+4. JSONL abschalten, wenn niemand mehr liest.
+
+**Der Zeitpunkt ist der Export-Neubau** (Punkt 14): der Export IST der Schreiber, und man aendert
+ihn einmal.
+
+| Kiste | Aufwand | offen |
+|---|---|---|
+| C | Schritt 1–2 ein Tag, der Rest je Familie | Backup-Weg (`pg_dump`) — heute ist `data/` "ein Ordner, den man kopiert" |
+
+### Stand 2026-09-16, Mittag: Gerüst steht und ist bewiesen
+
+`compose.yaml` (Postgres 17-alpine, nur auf `127.0.0.1`, benanntes Volume) und `db/schema/`
+(`001_measurements.sql`, `002_roles.sql`, beim ersten Hochfahren automatisch angewandt).
+
+**Gegen die laufende Datenbank geprüft, jede Zusage einmal verletzt — alle sechs abgewiesen:**
+
+| Versuch | abgewiesen von |
+|---|---|
+| `matte`-Zeile ohne Absage UND ohne Messung | `matte_state` |
+| `matte`-Zeile mit `skipped` UND `coverage` | `matte_state` |
+| `coverage = '{}'` | `matte_dense` |
+| `coverage` mit 63 Feldern | `matte_dense` |
+| `board_path` ohne Inhaltsstempel | `frame_board_is_complete` |
+| Urteil mit `stem` UND `ply` | `review_note_target` |
+
+Die drei **gültigen** Zustände kommen sauber zurück: `abgelehnt`, `gemessen` (auch wenn überall
+null), und *keine Zeile* = nicht gemessen.
+
+**Die Rollentrennung hält, von der DB erzwungen:** `chesslab_web` auf `matte` → `permission
+denied`; `chesslab_pipeline` auf `review_note` → `permission denied`.
+
+**Beim `matte_dense` lauerte ein echtes Loch:** `array_length('{}', 1)` ist `NULL`, und eine
+CHECK-Bedingung, die zu `NULL` auswertet, GILT in Postgres. Ohne das `coalesce` wäre ein leeres
+Array als "gemessen, null Felder" durchgegangen — genau die Verwechslung, gegen die das Schema
+gebaut ist. Gefunden durch die Gegenprobe, nicht durch Nachdenken.
+
+**Nachgeholt 2026-09-16:** `tests/test_db_contract.py` faehrt genau diese neun Faelle gegen die
+laufende Datenbank und rollt jede Einfuegung zurueck; ohne Container ueberspringt er. Gegengeprobt:
+ohne `matte_state` fallen zwei der neun um. Einen Test ueber den SQL-TEXT hatte ich zuerst gebaut
+und wieder entfernt — er haette nur geprueft, dass der Satz dasteht.

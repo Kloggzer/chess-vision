@@ -90,6 +90,7 @@ chesslab = "chesslab.cli:main"
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "psycopg[binary]>=3.3.5",
     "pytest>=8.0",
     "ruff>=0.15.20",
     "vulture>=2.16",
