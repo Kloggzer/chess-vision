@@ -245,9 +245,14 @@
   MITTENDRIN wirft, `newline=""` weil 1127 der 1329 Dateien CRLF tragen), `write_rows`/`write_json`
   (Nebendatei, dann umhaengen), `append_rows` (repariert erst den abgerissenen Schwanz),
   `update_rows`/`write_rows_guarded` (Stempel-Riegel, `Contested` statt stiller Ueberschreibung).
-  `tests/json_doors.txt` listet die Stellen, die noch daran vorbei schreiben, und darf nur
-  SCHRUMPFEN — `tests/test_json_doors.py` wacht darueber. Was drauf bleibt, sind Artefakte EINES
-  Laufs (Datensatz, Pack, Bericht); was Sessions teilen, ist umgestellt.
+  `read_jsonl` liest `utf-8-sig`: PowerShells `Out-File` stempelt hier ein BOM, und eines liess
+  2026-08-16 jeden Datensatz-Bau am Vorflug sterben.
+  Zwei Ratschen, beide duerfen nur SCHRUMPFEN: `tests/json_doors.txt` (wer selbst SCHREIBT) und
+  `tests/jsonl_readers.txt` (wer selbst in Zeilen SCHNEIDET). Was drauf bleibt, sind Artefakte
+  EINES Laufs und drei Fehltreffer; was Sessions teilen, ist umgestellt. **Vor dem Umstellen
+  gemessen**: 40 000 Manifest- und alle 9 423 `matte.jsonl`-Zeilen ueberstehen
+  `read_jsonl` + `write_rows` BYTEGLEICH — erst danach durften die Aufrufer ihre rohen Zeilen
+  aufgeben.
   **Die Web-App hat denselben Treuhaender**: `lib/atomic.ts` mit `writeFileAtomic`,
   `writeFileAtomicGuarded` (Stempel-Riegel, `Contested`) und `appendRows`. Rohes `appendFile` an
   eine `.jsonl` mit halber letzter Zeile klebte die neue Zeile daran — aus dem von `lib/jsonl.ts`
