@@ -497,7 +497,7 @@ def capture_plan_cmd(
               f"`uv run python scripts/backfill_brightness.py`.")
         raise typer.Exit(1)
     bright = {sq: s["median"] for sq, s in stats.items()}
-    plan = shots(gaps, bright, limit=limit)
+    plan = shots(gaps, stats, limit=limit)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"generated_at": datetime.now(UTC).isoformat(), "dataset": dataset,
                                "gaps_from": str(gaps_file), "board_spread": board_spread(bright),

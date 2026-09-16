@@ -17,14 +17,16 @@
   "$defs": {
     "placement": {
       "type": "object",
-      "required": ["square", "piece", "band", "lo", "hi"],
-      "description": "Ein VORSCHLAG. `square` ist das freie Feld, dessen Median der Bandmitte am naechsten liegt; `lo`/`hi` sind das Band, gegen das die App live misst und, wenn noetig, umhaengt.",
+      "required": ["square", "piece", "band", "lo", "hi", "seen_lo", "seen_hi"],
+      "description": "Ein VORSCHLAG. `square` ist das freie Feld, dessen Median der Bandmitte am naechsten liegt — unter denen, deren Spannweite das Band ueberhaupt erreicht; `lo`/`hi` sind das Band, gegen das die App live misst und, wenn noetig, umhaengt.",
       "properties": {
         "square": {"type": "string"},
         "piece": {"type": "string"},
         "band": {"type": "string"},
         "lo": {"type": "integer"},
-        "hi": {"type": "integer"}
+        "hi": {"type": "integer"},
+        "seen_lo": {"type": "number", "description": "p5 der gemessenen Helligkeit DIESES Feldes. Der Median sagt, wo es ueblicherweise sitzt; erst die Spannweite sagt, ob es das Band je erreicht hat."},
+        "seen_hi": {"type": "number", "description": "p95, siehe `seen_lo`."}
       }
     },
     "gap": {

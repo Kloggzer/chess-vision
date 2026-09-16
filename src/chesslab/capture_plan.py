@@ -95,11 +95,13 @@ class Placement(TypedDict):
     band: str
     lo: int
     hi: int
+    #: Die p5/p95 DIESES Feldes. Der Median sagt, wo es ueblicherweise sitzt; erst die
+    #: Spannweite sagt, ob es das Band je erreicht hat — `a8` mass 6 bis 207.
+    seen_lo: float
+    seen_hi: float
 
 
 class SquareStat(TypedDict):
-    # TODO: `p5`/`p95` liest ausser dem Test niemand — `capture plan` nimmt nur `median`. Entweder
-    # die Spannweite in den Auftrag ziehen (sie sagt, ob das Band je erreicht wurde) oder streichen.
     color: str
     median: float
     p5: float
@@ -200,7 +202,7 @@ def bundles(gaps: Sequence[Gap], spread: float) -> list[list[Gap]]:
 
 
 def _assign(
-    group: Sequence[Gap], bright: dict[str, float],
+    group: Sequence[Gap], stats: dict[str, SquareStat],
 ) -> tuple[list[Placement], list[Gap]]:
     """Jede Luecke bekommt ihr EIGENES Feld — das der Bandmitte naechste, das noch frei ist.
     Ohne die Sperre stuenden zwoelf Figuren auf demselben `a8`. Zurueck kommt auch, wofuer kein
@@ -211,31 +213,37 @@ def _assign(
     for gap in group:
         lo, hi = band_range(gap["band"])
         mid = band_middle(gap["band"])
-        free = [sq for sq in bright
+        free = [sq for sq in stats
                 if square_colour(sq) == gap["square_color"] and sq not in taken]
         if not free:
             missed.append(gap)
             continue
-        square = min(free, key=lambda sq: abs(bright[sq] - mid))
+        # Erst die Felder, deren Spannweite das Band WIRKLICH erreicht: ein Vorschlag, der
+        # unter dieser Lampe nie eintritt, kostet eine ganze Aufnahme. Bleibt keines uebrig,
+        # entscheidet wieder der Median allein.
+        reaches = [sq for sq in free if stats[sq]["p5"] <= hi and stats[sq]["p95"] >= lo]
+        square = min(reaches or free, key=lambda sq: abs(stats[sq]["median"] - mid))
         taken.add(square)
-        out.append(Placement(square=square, piece=gap["piece"], band=gap["band"], lo=lo, hi=hi))
+        out.append(Placement(square=square, piece=gap["piece"], band=gap["band"], lo=lo, hi=hi,
+                             seen_lo=float(stats[square]["p5"]),
+                             seen_hi=float(stats[square]["p95"])))
     return out, missed
 
 
-def shots(gaps: Sequence[Gap], bright: dict[str, float], limit: int = 10) -> list[Shot]:
+def shots(gaps: Sequence[Gap], stats: dict[str, SquareStat], limit: int = 10) -> list[Shot]:
     """Luecken zu BUENDELN, in der Reihenfolge, die `coverage_gaps.gaps()` schon liefert.
 
     Nicht umsortieren — dort steht `fix="Stellung"` vor `fix="Licht"` und darin aufsteigend nach
     `have`. `limit` schneidet BUENDEL ab, nicht Luecken. Die Hoehe rotiert, damit ueber die
     Auftraege alle drei Stufen vorkommen: der Korpus kennt bisher genau eine."""
-    if not bright:
+    if not stats:
         raise ValueError("keine gemessene Helligkeit — erst scripts/backfill_brightness.py")
-    spread = board_spread(bright)
+    spread = board_spread({sq: s["median"] for sq, s in stats.items()})
     rest = list(gaps)
     out: list[Shot] = []
     while rest and len(out) < limit:
         group = bundles(rest, spread)[0]
-        place, missed = _assign(group, bright)
+        place, missed = _assign(group, stats)
         # Nichts platzierbar heisst: die Felder dieser Farbe sind alle. Ein leerer Auftrag waere
         # `id='01-'` und „0 Figuren" — er bestuende die Schema-Pruefung und hiesse nichts.
         if not place:

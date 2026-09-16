@@ -17,8 +17,12 @@ export type Gap = {
   corpus_in_band: number;
 };
 
-/** Ein Vorschlag: `lo`/`hi` sind das Band, gegen das die App live misst und ggf. umhaengt. */
-export type Placement = { square: string; piece: string; band: string; lo: number; hi: number };
+/** Ein Vorschlag: `lo`/`hi` sind das Band, gegen das die App live misst und ggf. umhaengt;
+ *  `seen_lo`/`seen_hi` die p5/p95 DIESES Feldes — ob es das Band je erreicht hat. */
+export type Placement = {
+  square: string; piece: string; band: string; lo: number; hi: number;
+  seen_lo?: number; seen_hi?: number;
+};
 
 export type Shot = {
   id: string;

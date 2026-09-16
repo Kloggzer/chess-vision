@@ -34,8 +34,17 @@ _spec.loader.exec_module(COVERAGE)
 
 #: Je Farbe drei Felder, eines in `hell`, `mittel` und `dunkel` der ZIELDOMAENE.
 #: Die Farben sind die des echten Bretts — a1 dunkel, b1 hell, a3 dunkel.
-BRIGHT = {"h3": 166.0, "b1": 110.0, "e4": 54.0,          # hell
-          "a1": 166.0, "a3": 110.0, "d4": 54.0}          # dunkel
+def _stat(median: float, *, p5: float | None = None, p95: float | None = None):
+    """Ein Feld mit Median UND Spannweite. Ohne Angabe ist die Spannweite weit genug, dass sie
+    keine Wahl beeinflusst — dann entscheidet der Median allein, wie vor 2026-09-16."""
+    return {"color": "light", "median": median, "n": 100,
+            "p5": median - 120 if p5 is None else p5,
+            "p95": median + 120 if p95 is None else p95}
+
+
+BRIGHT = {sq: _stat(v) for sq, v in
+          {"h3": 166.0, "b1": 110.0, "e4": 54.0,          # hell
+           "a1": 166.0, "a3": 110.0, "d4": 54.0}.items()}  # dunkel
 
 
 def _gap(piece="wQ", colour="light", band="hell", have=0, fix="Stellung") -> Gap:
@@ -74,7 +83,37 @@ def test_a_placement_carries_the_band_it_is_measured_against():
     machen den Vorschlag pruefbar."""
     got = shots([_gap(band="mittel")], BRIGHT, limit=1)[0]["place"]
 
-    assert got == [{"square": "b1", "piece": "wQ", "band": "mittel", "lo": 96, "hi": 124}]
+    assert got == [{"square": "b1", "piece": "wQ", "band": "mittel", "lo": 96, "hi": 124,
+                    "seen_lo": -10.0, "seen_hi": 230.0}]
+
+
+def test_a_square_that_never_reaches_the_band_loses_to_one_that_does():
+    """Der Median waehlt, die Spannweite schliesst aus.
+
+    `b1` liegt mit 110 naeher an der Mitte von `mittel` (110) als `e4` mit 54 — aber unter dieser
+    Lampe kam `b1` nie in das Band. Ein Vorschlag, der nicht eintreten kann, kostet eine ganze
+    Aufnahme.
+    """
+    # Nur die drei hellen Felder, damit die Wahl eindeutig ist: `h3` liegt 56 daneben, `e4` 20.
+    stats = {
+        "h3": _stat(166.0),                             # erreicht das Band, aber weit weg
+        "b1": _stat(110.0, p5=140.0, p95=200.0),        # Median MITTIG, war aber nie im Band
+        "e4": _stat(90.0, p5=100.0, p95=130.0),         # weiter weg, aber im Band gemessen
+    }
+
+    got = shots([_gap(band="mittel")], stats, limit=1)[0]["place"][0]
+
+    assert got["square"] == "e4", "das Feld, dessen Spannweite das Band wirklich erreicht"
+    assert (got["seen_lo"], got["seen_hi"]) == (100.0, 130.0)
+
+
+def test_without_any_reachable_square_the_median_still_decides():
+    """Sonst faende der Auftrag gar kein Feld — ein Vorschlag ist besser als keiner."""
+    stats = {sq: _stat(s["median"], p5=250.0, p95=255.0) for sq, s in BRIGHT.items()}
+
+    got = shots([_gap(band="mittel")], stats, limit=1)[0]["place"][0]
+
+    assert got["square"] == "b1", "b1 liegt mit 110 genau auf der Bandmitte"
 
 
 def test_the_field_is_the_one_nearest_the_band_middle_not_the_brightest():

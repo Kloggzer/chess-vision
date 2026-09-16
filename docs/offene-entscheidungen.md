@@ -25,7 +25,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 7 | `2026-08-15-23-01-43`: Export unvollstaendig, Scan ist es nicht | A | — | faellt mit 6 zusammen |
 | 14 | Spender-Pool ohne `neighbour_p > 0`-Schutz (verschiebt die Zufallsfolge) | C | 15 min | mit dem Export-Neubau |
 | ~~15~~ | RNG je Loader-Worker | — | — | **gebaut 2026-09-16** — Neu-Destillation laeuft |
-| 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
+| ~~16~~ | `p5`/`p95` in den Aufnahme-Auftrag | — | — | **gebaut 2026-09-16** |
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 fallen mit 27 |
 | ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
@@ -115,12 +115,18 @@ Destillation des Hand-Gate-Schuelers ist damit nicht mehr die Referenz. Der Lauf
 Lehrer-Satz entstanden, der adoptierte und Temporal-Zeilen enthielt, obwohl die Karte
 `teacher: sam3` behauptet. Der neue Satz ist kleiner (9 084 statt 10 985) und sauber.
 
-## 16. `capture_plan.py:101` — `p5`/`p95` liest ausser dem Test niemand
+## 16. `p5`/`p95` im Aufnahme-Auftrag — GEBAUT 2026-09-16
 
-`capture plan` nimmt nur `median`. **Die Frage:** die Spannweite in den Auftrag ziehen (sie sagt,
-ob das Band je erreicht wurde) oder streichen? Nach der Hausregel "Code ohne Wirkung brauche ich
-nicht" ist Streichen die Vorgabe. **Empfehlung: in den Auftrag ziehen** — die Aufnahmen, die in
-Punkt 5 anstehen, sind genau die, bei denen "wurde das Band je erreicht" die Frage ist.
+Der Median sagt, wo ein Feld ueblicherweise sitzt; er sagt NICHT, ob es das Band je erreicht hat.
+`a8` mass ueber den Korpus 6 bis 207 — seine Bandlage haengt an der Lampe. Ein Vorschlag, der
+unter dem heutigen Licht nie eintritt, kostet eine ganze Aufnahme.
+
+Jede `Placement` traegt jetzt `seen_lo`/`seen_hi` (die p5/p95 DIESES Feldes), und die Wahl
+bevorzugt Felder, deren Spannweite das Band wirklich erreicht. Bleibt keines uebrig, entscheidet
+wieder der Median allein — ein Vorschlag ist besser als keiner.
+
+`docs/capture-plan.schema.json` und `platform/app/lib/capture-plan.ts` ziehen mit; die beiden
+neuen Faelle stehen als Test (`test_capture_plan.py`).
 
 ## 20. `read_matte` verwirft die leere Messung, TypeScript behaelt sie
 
