@@ -269,6 +269,19 @@
   tolerierten Schwanz wurde damit Korruption MITTENDRIN, auf die danach JEDES Lesen wirft;
   `appendRows` schneidet vorher ab (`lib/append-tail.test.ts`). `platform/app/write-doors.txt`
   haelt die Ratsche: Stand 3 Stellen in 2 Dateien, beim Start der Arbeit 12 in 10.
+- **Der Beobachtungs-Cache des Replays schluesselt auf Graph UND `config.json` (2026-09-16).**
+  Er haelt WAHRSCHEINLICHKEITEN, und die haengen an beidem — `temperature`, `normalize`,
+  `clahe_*`, `input_repr` stehen in der Config. Ein Temperatur-A/B las deshalb 41 168 Antworten
+  des Laufs davor und meldete "kein Unterschied"; das einzige Zeichen war die halbierte
+  Laufzeit. **Wer ein A/B faehrt, prueft die Laufzeit** — ein warmer Cache sieht aus wie ein
+  sauberes Ergebnis. Der Engine-Knopf gehoert NICHT in den Schluessel: er wirkt hinter der
+  Softmax, und ein `set:`-Lauf darf den Cache zu Recht nutzen.
+- **Die `temperature` wird seit 2026-09-16 gelesen — und die 0,85 war nie 0,85.** Alle sieben
+  Modelle sind ueberkonfident (T 1,26–1,76), also forderte `cnnConfThr = 0.85` je Modell real
+  **48 bis 70 Prozent**. `calibratedConfThr` uebersetzt die Huerde durch die eigene Temperatur,
+  angewandt neben `coverage_gate` auf BEIDEN Wegen. Verhalten bleibt gleich (Regressionssatz
+  Ziffer fuer Ziffer). Bei echten 85 % lagen +9 Treffer und **+3 Phantome** — welche echte
+  Sicherheit das Gate fordern soll, ist eine offene Messung wie bei den `coverage_gate`s.
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
