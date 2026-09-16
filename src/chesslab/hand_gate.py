@@ -7,6 +7,7 @@ statt Sekunden antwortet. Warum die drei Scan-Sensoren das nicht können: `docs/
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -47,6 +48,15 @@ def gate_label(row: dict) -> bool | None:
     return None
 
 
+def human_verdicts() -> dict[tuple[str, str], str]:
+    """`(session_id, stem) -> Urteil` aus dem globalen Ledger. Leer, wenn es ihn nicht gibt."""
+    from .ioutil import read_jsonl
+
+    path = config.DATA.root / "labels" / "review-notes.jsonl"
+    return {(r["session_id"], str(r["frame"])): r["verdict"]
+            for r in read_jsonl(path) if "frame" in r and "session_id" in r} if path.is_file() else {}
+
+
 def gate_rows(unclear: bool = False) -> list[dict]:
     """`{session, stem, board, hand, coverage}` über jede Session mit Matte — der Lehrer-Datensatz.
 
@@ -57,6 +67,7 @@ def gate_rows(unclear: bool = False) -> list[dict]:
     from .labeling import all_squares, read_session_meta
 
     squares = all_squares()
+    verdicts = human_verdicts()
 
     out = []
     for path in sorted(config.DATA.recordings.glob("*/matte.jsonl")):
@@ -66,10 +77,15 @@ def gate_rows(unclear: bool = False) -> list[dict]:
         boards = {Path(r["frame"]).stem: r.get("board") for r in log}
         borders = {Path(r["frame"]).stem: r.get("board_border") for r in log}
         for row in read_jsonl(path):
-            # NUR SAMs eigenes Urteil: die Karte schreibt `teacher: "sam3"`, und eine adoptierte
-            # `temporal`/`upsert`-Zeile stammt vom Drei-Bilder-Sensor. Sie als SAM zu lehren macht
-            # aus dem Lehrer einen zweiten Schueler (214 solche Zeilen lagen auf der Platte).
-            if row.get("source") in ("temporal", "upsert"):
+            said = verdicts.get((session, str(row["frame"])))
+            # Das Wort des Menschen ist das letzte: `matte-bad` heisst "diese Matte ist falsch",
+            # und dann taugt weder ihr Ja noch ihr Nein als Lehre (22 SAM-Zeilen lehrten trotzdem).
+            if said == "matte-bad":
+                continue
+            # Sonst NUR SAMs eigenes Urteil — eine adoptierte `temporal`/`upsert`-Zeile stammt vom
+            # Drei-Bilder-Sensor und macht aus dem Lehrer einen zweiten Schueler. Ausser der Mensch
+            # hat sie ausdruecklich freigegeben; dann buergt er dafuer.
+            if row.get("source") in ("temporal", "upsert") and said != "matte-ok":
                 continue
             hand = gate_label(row)
             rel = boards.get(row["frame"])
@@ -83,13 +99,17 @@ def gate_rows(unclear: bool = False) -> list[dict]:
     return out
 
 
-def holdout_sessions(rows: list[dict], count: int) -> list[str]:
-    """Die `count` Sessions, die geprüft werden — GANZE Sessions, nie einzelne Frames.
-
-    Eine Session ist eine Beleuchtung und ein Aufbau. Frameweise geteilt misst man, ob der Kopf
-    dasselbe Brett wiedererkennt, nicht ob er eine Hand findet.
+def holdout_sessions(rows: list[dict], count: int, pinned: Sequence[str] | None = None) -> list[str]:
+    """Die geprüften Sessions — GANZE Sessions, nie einzelne Frames: eine Session ist eine
+    Beleuchtung und ein Aufbau. [pinned] nennt sie beim Namen; ohne das nimmt die Zahl jede n-te
+    und der Satz WANDERT mit dem Korpus, womit zwei Karten nicht mehr vergleichbar sind.
     """
     order = sorted({r["session"] for r in rows})
+    if pinned:
+        missing = [s for s in pinned if s not in order]
+        if missing:
+            raise ValueError(f"keine Zeile fuer {missing} — Holdout kann nicht gehalten werden")
+        return sorted(pinned)
     step = max(1, len(order) // max(count, 1))
     return order[::step][:count]
 
@@ -363,7 +383,8 @@ def coverage_report(said: list, truth: list, visible_max: float | None = None) -
 
 def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs: int = 8,
                holdout: int = 4, batch: int = 32, workers: int = 4, lr: float = 3e-4,
-               seed: int = 0, tag: str = "", progress: bool = True) -> dict:
+               seed: int = 0, tag: str = "", progress: bool = True,
+               pinned_holdout: Sequence[str] | None = None) -> dict:
     """Den Kopf auf SAMs Urteil trainieren und ihn auf ZURÜCKGEHALTENEN Sessions prüfen."""
     miopen_fast()
     import torch
@@ -373,7 +394,7 @@ def train_gate(*, backbone: str = "mobilenet_v3_small", size: int = 320, epochs:
     rows = gate_rows()
     if not rows:
         raise RuntimeError("keine Matte auf der Platte — `occluders alpha-worker` lief nie")
-    held = set(holdout_sessions(rows, holdout))
+    held = set(holdout_sessions(rows, holdout, pinned_holdout))
     train_rows = [r for r in rows if r["session"] not in held]
     val_rows = [r for r in rows if r["session"] in held]
     device = "cuda" if torch.cuda.is_available() else "cpu"

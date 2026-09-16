@@ -1562,6 +1562,10 @@ def occluders_gate_train(
     size: int = typer.Option(320, "--size", help="Kantenlaenge, in der der Kopf das Brett sieht."),
     epochs: int = typer.Option(8, "--epochs"),
     holdout: int = typer.Option(4, "--holdout", help="GANZE Sessions, die nur geprueft werden."),
+    pin: Annotated[list[str] | None, typer.Option(
+        "--holdout-session", help="Holdout beim NAMEN nennen (mehrfach). Ohne das waehlt --holdout "
+                                  "jede n-te und der Satz wandert, sobald der Korpus waechst — "
+                                  "zwei Karten sind dann nicht vergleichbar.")] = None,
     batch: int = typer.Option(32, "--batch"),
     workers: int = typer.Option(4, "--workers", help="Loader-Prozesse; 8 ist die Obergrenze."),
     lr: float = typer.Option(3e-4, "--lr"),
@@ -1576,7 +1580,7 @@ def occluders_gate_train(
     from . import hand_gate
 
     r = hand_gate.train_gate(backbone=backbone, size=size, epochs=epochs, holdout=holdout,
-                             batch=batch, workers=workers, lr=lr, tag=tag)
+                             batch=batch, workers=workers, lr=lr, tag=tag, pinned_holdout=pin)
     c = r["chosen"]
     print(f"[OK] {r['train_boards']} Bretter trainiert, {r['val_boards']} geprueft "
           f"({r['val_hands']} mit Hand) -> {r['path']}")
