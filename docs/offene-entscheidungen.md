@@ -6,7 +6,7 @@ Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 **Heute gebaut und damit gestrichen:** `MarkerTracker`-Port, Achsen-Fit-Paritaet, die doppelte
 Verdeckungsschwelle, die korpusweiten `eval`-Namen, die vier `TrackerService`-Ableitungen, die
 drei Ketten-Punkte (`_source`, `settle-scan` als Sprosse, `nextStep` mit Grund), `position-flags`
-nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
+nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Gate-Wache samt Test (alt 18), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
 allen drei Sprachen (alt 9) und die ganze Namensdrift `cov`/`measured`/`pack` (alt 10).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
@@ -18,7 +18,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 6 | `_persistent`: 532 Frames zu Unrecht im Vorrat, 947 zu bergen | C | Re-Export | mit dem naechsten Neubau |
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
 | 17 | `ALPHA_REASON`: Bericht und Worker meinen verschiedene Stapel | B | 1 h | **entscheiden** |
-| 18 | `withCoverageGateOf` gattert ohne Coverage-Spalte | C | 2 h | braucht den Regressionssatz |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
@@ -35,11 +34,14 @@ Luecke, die kein Standardlauf je schliesst, und `MatteCensus.reported` sammelt g
 Beide Seiten haben einen Test, der sie verteidigt; `dirty_pile` ist seit heute die eine Funktion,
 die Frage bleibt offen (`tests/test_matte_pile_agreement.py`, TODO am Symbol).
 
-## 18. `TrackerService.kt:779` — `coverage_gate` ohne `coverage_output`
+## 18. `coverage_gate` ohne `coverage_output`: ERLEDIGT, die Vorlage war veraltet
 
-`spec?.coverageGate?.let { copy(...) }` fragt die Spalte nie; der Null-Check haengt nur an der
-Warnung. Ein Modell ohne Coverage-Spalte hat `pOccluded = 0.0` — dagegen auf 0,25 zu gattern
-gattert gegen eine Zahl, die nie geliefert wurde. Kein ausgeliefertes Modell faellt heute hinein.
+Gebaut am 2026-09-15 (`if (spec?.coverageOutput != true) return this`), der Regressionssatz lief
+danach und stand auf 385/14/1/167 bei 6 Alarmen. Nur der Eintrag hier blieb stehen.
+
+Nachgetragen 2026-09-16: der eigentliche Fall hatte keinen Test. `coverageOutput = false` war
+geprueft, aber nur zusammen mit `coverageGate = null` — also ohne das, was der Fix abweist.
+`withCoverageGateOfIgnoresAGateWithoutTheColumn` haelt ihn jetzt fest.
 
 ## 19. `RecoveryFixtures.recoveryConfig` — erledigt, war keiner
 

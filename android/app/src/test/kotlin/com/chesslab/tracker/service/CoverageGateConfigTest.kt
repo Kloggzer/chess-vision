@@ -53,4 +53,17 @@ class CoverageGateConfigTest {
         assertTrue("no warning expected when coverageOutput=false", warnings.isEmpty())
         assertEquals("pOccludedThr should remain at default 0.5", 0.5, result.pOccludedThr, 0.01)
     }
+
+    /**
+     * Ohne die Spalte ist `pOccluded` immer 0,0 — eine Schwelle dagegen zu ziehen bewegt eine
+     * Zahl, gegen die nie etwas verglichen wird, und schaltet still den modellfreien Arm scharf.
+     */
+    @Test
+    fun withCoverageGateOfIgnoresAGateWithoutTheColumn() {
+        val spec = ModelSpec.parse(modelConfigJson(coverageOutput = false, coverageGate = 0.25))
+
+        val result = TrackerConfig().withCoverageGateOf(spec) { }
+
+        assertEquals("a gate without coverage_output gattert gegen 0,0", 0.5, result.pOccludedThr, 0.01)
+    }
 }
