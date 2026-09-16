@@ -27,13 +27,15 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~15~~ | RNG je Loader-Worker | — | — | **gebaut 2026-09-16** — Neu-Destillation laeuft |
 | ~~16~~ | `p5`/`p95` in den Aufnahme-Auftrag | — | — | **gebaut 2026-09-16** |
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
-| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 fallen mit 27 |
+| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut; 4–5 offen, jetzt ohne DB |
 | ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
 | ~~23~~ | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | — | — | **gebaut 2026-09-16** |
 | ~~24~~ | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | — | — | **gebaut 2026-09-16** — leerer Balken, animiert |
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
 | ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
-| **27** | **Postgres statt 19 Dateiformate** | C | Export-Neubau | **entschieden** — Schnitt steht unten |
+| ~~27~~ | Postgres statt 19 Dateiformate | — | — | **verworfen 2026-09-16** — Messungen bleiben |
+| **28** | Python und TypeScript uneinig: Messung, dann Absage | B | 1 h | **entscheiden** — heute latent |
+| **29** | `recut_coverage` liest womoeglich das falsche Alpha | ? | erst messen | **messen** — moeglicher Datenfehler |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
@@ -310,108 +312,69 @@ Fenster, in dem eine geglaettete Figur wie verbatim aussaehe.
 Damit ist der Fix folgenlos fuer alles, was auf der Platte liegt: `_load_and_extract` nimmt jetzt
 `upright=`, und der verbatim-Weg laesst die Drehung aus. Gegenprobe haelt.
 
-## 27. Postgres statt 19 Dateiformate — ENTSCHIEDEN 2026-09-16 (Nutzer), Bau steht aus
+## 27. Postgres — VERWORFEN 2026-09-16 (Nutzer), nachdem der Preis sichtbar war
 
-**Die Entscheidung:** Postgres in Docker, zwei Rollen mit `GRANT` je Tabelle. Begruendung des
-Nutzers: zwei Prozesse laufen wirklich parallel, und der Streit gehoert in die DB, nicht in eine
-Vereinbarung, an die sich jemand halten muss.
+Am Vormittag entschieden, am Nachmittag verworfen: *"ich habe da nun laenger drueber nachgedacht,
+das funktioniert so echt schon gut mit den jsons, lass uns einfach die Fehler beheben."*
 
-Damit sind **Punkt 22 gegenstandslos** (keine halbe letzte Zeile mehr) und **Punkt 21 Naht 4 und 5
-erledigt** — die DB traegt den Vertrag, nicht ein versioniertes Dateiformat.
+**Die Entscheidung ist gut belegt, und der Weg dorthin war nicht umsonst.** Was wir dabei
+gemessen haben, gilt unabhaengig von der Datenbank:
 
-### Was die DB loest, gemessen an der Nacht auf den 16.09.
+- **Das Schema traegt den echten Bestand.** 25 Aufnahmen, 11 647 Frames, 9 423 Matte-Zeilen,
+  null Abweisungen — die drei Zustaende (fehlt / abgesagt / gemessen) lassen sich sauber
+  ausdruecken.
+- **1 657 der 9 423 Matte-Zeilen (17,6 %) sind ueberholt.** `matte.jsonl` ist ein Anhaenge-Log
+  mit *last wins*; fast ein Fuenftel ist totes Gewicht. Das bleibt wahr.
+- **Python und TypeScript sind sich uneinig, was der Zustand eines Frames ist**, wenn auf eine
+  Messung eine Absage folgt: `read_matte` filtert `coverage is None` VOR dem Last-wins und behaelt
+  die alte Messung, `lib/matte.ts` laesst die Absage gewinnen. Heute latent (null Absagen im
+  Korpus), aber ein echter Widerspruch — siehe Punkt 28.
+- **`recut_coverage` liest moeglicherweise das falsche Alpha**: es filtert nicht nach `source` und
+  nimmt fuer jede Zeile `mattes/<stem>.webp`, waehrend SAMs Original nach einem Upsert unter
+  `.sam.webp` liegt. Moeglicher bestehender Datenfehler — siehe Punkt 29.
 
-| Fehlerklasse | Faelle | loest die DB das? |
+**Warum es der Preis nicht wert war**, beziffert: neben den neun Schreibern und rund 38 Lesern
+haetten **41 Testdateien** (25 Python, 16 vitest) umgebaut werden muessen, die heute
+`matte.jsonl` als Vorgabe schreiben. Dazu kam Sols Review mit neun Befunden der Klasse "reisst
+Daten auseinander", die alle aus einer Stelle folgten: Datei und Alpha-Bilder liegen ausserhalb
+jeder Transaktion.
+
+**Was liegen bleibt, geparkt statt geloescht:** `compose.yaml`, `db/schema/`,
+`tests/test_db_contract.py` (springt ohne Container ab, kostet also nichts) und
+`docs/spec-pg-matte.md`. Wer die Frage neu stellt, findet die Vorarbeit und die Messungen — und
+diesen Absatz, damit sie nicht zum dritten Mal gestellt wird.
+
+`data/pgdata` (47 MB, leeres Cluster) kann weg, sobald jemand es sagt.
+
+## 28. Messung, dann Absage: Python und TypeScript sagen Verschiedenes
+
+`labeling.read_matte` baut sein Dict aus den Zeilen, die eine Coverage tragen — eine spaetere
+Zeile mit `skipped` faellt schon im Filter heraus und ueberschreibt die fruehere Messung NICHT.
+`lib/matte.ts` `loadMatte` setzt dagegen JEDE Zeile in die Map; dort gewinnt die Absage.
+
+Fuer einen Frame, der gemessen und danach von SAM abgelehnt wurde, sieht das Training also die
+alte Messung und die Lane die Absage.
+
+**Heute latent, gezaehlt 2026-09-16: 9 423 Matte-Zeilen im Korpus, NULL Absagen.** Gefunden von
+Sol beim Review der (verworfenen) Datenbank-Spec — der Befund ueberlebt sie.
+
+**Die Frage ist eng:** wenn SAM einen Frame zuerst misst und spaeter ablehnt ("zone too big"),
+welche Aussage gilt? Die Absage ist die JUENGERE Information und sagt "nicht mehr messbar"; die
+Messung ist die einzige Zahl, die es gibt.
+
+| Kiste | Aufwand | Empfehlung |
 |---|---|---|
-| "nicht gemessen" als gemessener Normalwert gelesen | ~19 | **nein** |
-| halb geschriebene Dateien, gleichzeitige Schreiber, Staging-Reste | ~9 | ja |
-| Waechter umgangen (Massstab, `usable_board`) | 4 | nein |
-| UI- und Logikfehler | ~8 | nein |
+| B | 1 h | die spaetere Zeile gewinnt, auf BEIDEN Seiten — sonst haengt die Antwort an der Sprache |
 
-**Die dominante Klasse ueberlebt die Migration.** Eine Spalte, die `NULL` sein darf und
-stattdessen `0.0` bekommt, ist genau dieselbe Falle wie `.get(k, 0.0)`. Gegenmittel im Schema:
-`NOT NULL` ueberall, wo ein Wert gemessen sein MUSS, und sonst echtes `NULL` — nie ein Default.
-`tests/test_matte_coverage_rule.py` und die JSONL-Ratsche bleiben bis zur letzten migrierten Stelle.
+## 29. `recut_coverage` liest moeglicherweise das falsche Alpha
 
-### Schnitt
+`recut_coverage` filtert nicht nach `source` und nimmt fuer jede Zeile `mattes/<stem>.webp`. Nach
+einem `upsert` liegt SAMs Original aber unter `mattes/<stem>.sam.webp`, und `<stem>.webp` ist das
+Alpha des Drei-Bilder-Sensors. Die SAM-Zeile bekaeme dann eine Coverage aus dem Temporal-Alpha.
 
-- **In die DB:** die Messreihen (`matte`, `model-reads`, `log`, `interval-check`, `scan`) und die
-  Urteile (`review-notes`, `corrections`, `unusable-cells`, `ui-meta`, `useless`).
-- **Dateien bleiben Dateien:** `boards/*.webp`, die Alphas, die Packs. Die Zeile in der DB traegt
-  Pfad UND einen Inhaltsstempel (Mtime plus Groesse, wie `chesslab.provenance` es schon tut),
-  damit eine Abweichung zwischen DB und Platte auffaellt statt still zu sein. **Das ist die neue
-  Fehlerklasse, die die Migration einfuehrt** — sie braucht ihren eigenen Waechter.
-- **Rollen:** `chesslab_pipeline` schreibt die Messreihen und liest die Urteile,
-  `chesslab_web` umgekehrt. Kein Konto darf beides schreiben.
-- **Der Riegel bleibt:** `heavy-lock.ts` / `locks.py` sind auch RESSOURCEN-Sperren (GPU, Speicher),
-  nicht nur Daten-Sperren. Wer sie nach der Migration loescht, weil "die DB das jetzt macht",
-  laesst zwei Trainingslaeufe gleichzeitig los.
+Ebenfalls von Sol gefunden. **Erst messen, dann entscheiden:** wie viele Aufnahmen haben
+ueberhaupt `.sam.webp`-Dateien, und wurde auf ihnen seitdem `recut-coverage` gefahren?
 
-### Reihenfolge
-
-1. Schema fuer EINE Familie — die Messreihen —, Python schreibt in beide (DB und JSONL).
-2. Die Web-App liest aus der DB statt aus der Datei. JSONL bleibt als abgeleitete Sicht stehen,
-   damit die ~12 000 Zeilen in `scripts/` unveraendert weiterlaufen.
-3. Urteile umziehen, dann `scripts/` Datei fuer Datei.
-4. JSONL abschalten, wenn niemand mehr liest.
-
-**Der Zeitpunkt ist der Export-Neubau** (Punkt 14): der Export IST der Schreiber, und man aendert
-ihn einmal.
-
-| Kiste | Aufwand | offen |
+| Kiste | Aufwand | Empfehlung |
 |---|---|---|
-| C | Schritt 1–2 ein Tag, der Rest je Familie | Backup-Weg (`pg_dump`) — heute ist `data/` "ein Ordner, den man kopiert" |
-
-### Stand 2026-09-16, Mittag: Gerüst steht und ist bewiesen
-
-`compose.yaml` (Postgres 17-alpine, nur auf `127.0.0.1`, benanntes Volume) und `db/schema/`
-(`001_measurements.sql`, `002_roles.sql`, beim ersten Hochfahren automatisch angewandt).
-
-**Gegen die laufende Datenbank geprüft, jede Zusage einmal verletzt — alle sechs abgewiesen:**
-
-| Versuch | abgewiesen von |
-|---|---|
-| `matte`-Zeile ohne Absage UND ohne Messung | `matte_state` |
-| `matte`-Zeile mit `skipped` UND `coverage` | `matte_state` |
-| `coverage = '{}'` | `matte_dense` |
-| `coverage` mit 63 Feldern | `matte_dense` |
-| `board_path` ohne Inhaltsstempel | `frame_board_is_complete` |
-| Urteil mit `stem` UND `ply` | `review_note_target` |
-
-Die drei **gültigen** Zustände kommen sauber zurück: `abgelehnt`, `gemessen` (auch wenn überall
-null), und *keine Zeile* = nicht gemessen.
-
-**Die Rollentrennung hält, von der DB erzwungen:** `chesslab_web` auf `matte` → `permission
-denied`; `chesslab_pipeline` auf `review_note` → `permission denied`.
-
-**Beim `matte_dense` lauerte ein echtes Loch:** `array_length('{}', 1)` ist `NULL`, und eine
-CHECK-Bedingung, die zu `NULL` auswertet, GILT in Postgres. Ohne das `coalesce` wäre ein leeres
-Array als "gemessen, null Felder" durchgegangen — genau die Verwechslung, gegen die das Schema
-gebaut ist. Gefunden durch die Gegenprobe, nicht durch Nachdenken.
-
-**Nachgeholt 2026-09-16:** `tests/test_db_contract.py` faehrt genau diese neun Faelle gegen die
-laufende Datenbank und rollt jede Einfuegung zurueck; ohne Container ueberspringt er. Gegengeprobt:
-ohne `matte_state` fallen zwei der neun um. Einen Test ueber den SQL-TEXT hatte ich zuerst gebaut
-und wieder entfernt — er haette nur geprueft, dass der Satz dasteht.
-
-### Probelauf mit dem ECHTEN Korpus, 2026-09-16
-
-Das Schema war an sechs erfundenen Zeilen geprueft. Jetzt am ganzen Bestand: **25 Aufnahmen,
-11 647 Frames, 9 423 Matte-Zeilen — keine einzige Abweisung.** Die Zahlen decken sich Zeile fuer
-Zeile mit der Platte, es wurde nichts still uebersprungen.
-
-**Der Fund dabei: 1 657 der 9 423 Matte-Zeilen (17,6 %) sind UEBERHOLT** — derselbe Frame und
-dieselbe Quelle mehrfach geschrieben. `matte.jsonl` ist ein Anhaenge-Log mit *last wins*; der
-Primaerschluessel macht daraus eine Zeile. Das ist der bezifferte Teil des Arguments, das bisher
-nur eine Behauptung war.
-
-**Und die Warnung fuer den echten Importeur:** mein erster Lader nutzte `on conflict do nothing`
-und behielt damit die ERSTE, also die ueberholte Zeile — waehrend er "keine Abweisungen" meldete,
-weil ein verschluckter Konflikt keine Abweisung ist. Dieselbe Form wie jede Fehlerklasse dieses
-Projekts. **Der Importeur MUSS `on conflict ... do update` fahren** und die Zahl der
-Ueberschreibungen melden (`returning (xmax = 0)`), sonst importiert er stillschweigend Messungen
-von vorgestern.
-
-**Was der Probelauf schon zeigt**, als eine Abfrage statt eines Skripts: 117 dirty-Frames sind nie
-gemessen, 7 766 Frames tragen eine Messung, 2 267 davon sind voellig frei, und 214 Frames tragen
-zwei Quellen.
+| ? | erst messen | zaehlen, bevor irgendetwas geaendert wird |
