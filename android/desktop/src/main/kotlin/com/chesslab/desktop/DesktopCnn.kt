@@ -1,10 +1,12 @@
 package com.chesslab.desktop
 
+import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.cnn.ASSET_ROOT_DIR
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnModelAssets
 import com.chesslab.tracker.cnn.DEFAULT_MODEL
+import com.chesslab.tracker.cnn.MODEL_CONFIG_FILE
 import com.chesslab.tracker.cnn.MODEL_FP32_FILE
 import com.chesslab.tracker.cnn.ModelSpec
 import com.chesslab.tracker.log.TrackerLog
@@ -76,7 +78,9 @@ fun openDesktopCnn(
         ?.let { assets ->
             {
                 val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads)
-                val cacheDir = obsCacheDir(File(OBS_CACHE), model, File(File(ASSET_SOURCE, model), MODEL_FP32_FILE))
+                val assetDir = File(ASSET_SOURCE, model)
+                val cacheDir =
+                    obsCacheDir(File(OBS_CACHE), model, File(assetDir, MODEL_FP32_FILE), File(assetDir, MODEL_CONFIG_FILE))
                 Attached(
                     if (cache) CachingClassifier(attached.classifier, cacheDir) else attached.classifier,
                     attached.backend,
@@ -91,29 +95,36 @@ private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
 /** Staged copies. Under tmp/, which is not the corpus. */
 private const val STAGING = "../../tmp/cnn-staging"
 
-/** Der Ordner traegt die GEWICHTE, nicht nur den Namen: dasselbe Modell neu abgelegt wurde sonst
- *  aus dem Lauf davor beantwortet — ein stilles A/B ohne Unterschied (`ObsCacheKeyTest`). */
+/** Der Ordner traegt alles, was die WAHRSCHEINLICHKEITEN formt: Gewichte und `config.json`
+ *  (temperature, normalize, clahe_*, input_repr). Nur der Name war ein stilles A/B
+ *  (`ObsCacheKeyTest`), nur die Gewichte auch — ein Temperatur-Lauf las 41 168 alte Antworten. */
 internal fun obsCacheDir(
     root: File,
     model: String,
     graph: File,
-): File = File(root, "$model-${graphStamp(graph)}")
+    config: File,
+): File = File(root, "$model-${stampOf(graph, config)}")
 
-private fun graphStamp(graph: File): String {
-    if (!graph.isFile) return NO_GRAPH_STAMP
+private fun stampOf(vararg files: File): String {
     val digest = MessageDigest.getInstance("MD5")
-    val buffer = ByteArray(STAMP_CHUNK)
-    graph.inputStream().buffered().use { input ->
-        while (true) {
-            val read = input.read(buffer)
-            if (read <= 0) break
-            digest.update(buffer, 0, read)
+    var seen = false
+    for (file in files) {
+        if (!file.isFile) continue
+        seen = true
+        val buffer = ByteArray(STAMP_CHUNK)
+        file.inputStream().buffered().use { input ->
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
         }
     }
+    if (!seen) return NO_GRAPH_STAMP
     return digest.digest().joinToString("") { "%02x".format(it) }.take(STAMP_CHARS)
 }
 
-/** Ein fehlender Graph ist kein Cache-Schluessel — dann traegt der Ordner, dass nichts gemessen wurde. */
+/** Ohne eine einzige lesbare Datei ist nichts zu schluesseln — der Ordner sagt das dann. */
 private const val NO_GRAPH_STAMP = "nograph"
 
 private const val STAMP_CHUNK = 64 * 1024
@@ -160,5 +171,9 @@ fun TrackerConfig.withCoverageGateOf(
                 "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
         )
     }
-    return spec?.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+    if (spec == null) return this
+    // Dieselbe Bewegung wie oben, eine Achse weiter: die Konfidenz-Huerde bedeutete je Modell
+    // etwas anderes, weil jedes anders ueberkonfident ist (`calibratedConfThr`).
+    val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+    return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
 }

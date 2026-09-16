@@ -3,6 +3,7 @@ package com.chesslab.cnn
 import com.chesslab.engine.api.BgrImage
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.ln
 
 private const val CHANNELS = 3
 private const val BYTE_MASK = 0xFF
@@ -208,6 +209,7 @@ fun softmaxAt(
  * The occlusion head's coverage unit (`training/occlusion.py` regresses it with `BCEWithLogits`).
  * It is an INDEPENDENT sigmoid, never part of [softmax] — see `ModelSpec.coverageOutput`.
  */
+
 fun sigmoid(logit: Float): Float = (1.0 / (1.0 + exp(-logit.toDouble()))).toFloat()
 
 /**
@@ -373,4 +375,20 @@ private fun sobelInto(
             out[base + mid + x] = (abs(gx) + abs(gy) - SOBEL_MEAN) / SOBEL_STD
         }
     }
+}
+
+/** Dieselbe Forderung in den Zahlen DIESES Modells: 0,85 auf ueberkonfidenten Werten ist eine
+ *  andere Huerde als auf kalibrierten. Gleichmaessiger Rest angenommen; am Satz deckungsgleich. */
+fun calibratedConfThr(
+    engineThr: Double,
+    temperature: Double,
+    classes: Int,
+): Double {
+    if (temperature == 1.0 || classes < 2) return engineThr
+    val rest = (1.0 - engineThr) / (classes - 1)
+    val logs = DoubleArray(classes) { if (it == 0) ln(engineThr) else ln(rest) }
+    val scaled = DoubleArray(classes) { logs[it] / temperature }
+    val top = scaled.max()
+    val exps = DoubleArray(classes) { exp(scaled[it] - top) }
+    return exps[0] / exps.sum()
 }

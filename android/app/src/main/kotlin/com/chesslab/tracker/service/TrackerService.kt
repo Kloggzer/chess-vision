@@ -11,6 +11,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import com.chesslab.cnn.calibratedConfThr
 import com.chesslab.engine.api.EngineAction
 import com.chesslab.engine.api.STARTPOS
 import com.chesslab.engine.api.TrackerConfig
@@ -795,7 +796,10 @@ internal fun TrackerConfig.withCoverageGateOf(
     // haengt am modellfreien Arm — die Schwelle zu ziehen bewegt dann eine Zahl, gegen die nie
     // etwas verglichen wird. Kein ausgeliefertes Modell faellt hinein (gefunden 2026-09-15).
     if (spec?.coverageOutput != true) return this
-    return spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+    // Dieselbe Bewegung wie oben, eine Achse weiter: die Konfidenz-Huerde bedeutete je Modell
+    // etwas anderes, weil jedes anders ueberkonfident ist (`calibratedConfThr`).
+    val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
+    return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
 }
 
 /**
