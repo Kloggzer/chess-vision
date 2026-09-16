@@ -14,6 +14,9 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/frame/[name
         "cache-control": "public, max-age=3600",
       },
     });
+    // TODO: hier faellt JEDER Fehler auf 404 — ein `..` im Stem (checkName), ein unlesbares File,
+    // ein kaputtes Verzeichnis. `api/cell` und `api/verify` trennen ENOENT (404) von allem anderen
+    // (500), weil das `<img>` beide gleich zeigt und nur der Rumpf den Unterschied traegt.
   } catch {
     return new Response("no such frame", { status: 404 });
   }

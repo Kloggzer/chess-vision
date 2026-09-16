@@ -477,14 +477,20 @@ def prune_dead_rows(session_id):
         return {"path": matte_path, "dropped": 0, "kept": 0}
     lines = [s for s in matte_path.read_text(encoding="utf-8").splitlines() if s.strip()]
     rows = [json.loads(s) for s in lines]
-    # TODO: nennt `upsert` als nicht-ueberholend, loescht aber nur `temporal` — eine von SAM
-    # neu geschnittene Upsert-Zeile bleibt als zweite Zeile desselben Frames stehen.
-    superseded = set()
-    for row in rows:
-        if row.get("source") not in ("temporal", "upsert") and row.get("coverage") is not None:
-            superseded.add(row["frame"])
+    # Zwei Regeln, weil die zwei Quellen verschieden entstehen:
+    # `temporal` ist ein Frame, den SAM nachtraeglich schneidet — seine Zeile gewinnt, auch leer.
+    # `upsert` existiert, WEIL SAM nichts fand; ein leerer SAM-Schnitt ueberholt ihn also nicht,
+    # ein Schnitt MIT Verdeckung schon (sonst blieben zwei Zeilen, und `read_matte` nimmt die letzte).
+    def sam_rows(only_found: bool) -> set[str]:
+        return {row["frame"] for row in rows
+                if row.get("source") not in ("temporal", "upsert")
+                and row.get("coverage") is not None
+                and (not only_found or any(row["coverage"].values()))}
+
+    cut, found = sam_rows(False), sam_rows(True)
     keep = [line for line, row in zip(lines, rows, strict=True)
-            if not (row.get("source") == "temporal" and row["frame"] in superseded)]
+            if not (row.get("source") == "temporal" and row["frame"] in cut)
+            and not (row.get("source") == "upsert" and row["frame"] in found)]
     if len(keep) != len(lines):
         temp = matte_path.with_suffix(".jsonl.tmp")
         temp.write_text("".join(line + "\n" for line in keep), encoding="utf-8")

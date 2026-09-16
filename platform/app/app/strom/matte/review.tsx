@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { commitPage, type MatteVerdict } from "@/lib/matte-page";
 import { verifyFrameKey } from "@/lib/position-carry";
 import type { ReviewNote } from "@/lib/review-notes";
 import type { VerifyStream } from "@/lib/verify";
@@ -12,7 +13,7 @@ import { MATTE_PAGE, MatteGrid } from "./grid";
 
 const TOUCH = "max-sm:h-11 max-sm:px-3";
 
-export type MatteVerdict = "matte-ok" | "matte-bad" | "matte-clean";
+export type { MatteVerdict };
 
 /** Ab hier wird nachgeladen: drei Seiten Vorrat reichen, damit niemand auf den Nachschub wartet. */
 const REFILL_AT = MATTE_PAGE * 3;
@@ -143,26 +144,20 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
    */
   const commit = useCallback(async () => {
     if (slice.length === 0) return;
-    const rows: ReviewNote[] = [];
-    const done: Record<string, MatteVerdict> = {};
-    for (const frame of slice) {
-      const key = verifyFrameKey(frame);
-      const verdict: MatteVerdict = clean.has(key)
-        ? "matte-clean"
-        : marked.has(key)
-          ? "matte-bad"
-          : "matte-ok";
-      rows.push({ session_id: loaded.sessions[frame.session].sessionId, frame: frame.stem, verdict });
-      done[key] = verdict;
-    }
+    const plan = commitPage(slice.map(verifyFrameKey), marked, clean);
+    const rows: ReviewNote[] = slice.map((frame) => ({
+      session_id: loaded.sessions[frame.session].sessionId,
+      frame: frame.stem,
+      verdict: plan.verdicts[verifyFrameKey(frame)],
+    }));
     try {
       for (const frame of slice.filter((f) => clean.has(verifyFrameKey(f)))) {
         await post(`/api/matte/${loaded.sessions[frame.session].name}/${frame.stem}`, { clear: true });
       }
       await post("/api/review-notes", { rows });
-      setAnswered((a) => ({ ...a, ...done }));
-      setMarked(new Set<string>());
-      setClean(new Set<string>());
+      setAnswered((a) => ({ ...a, ...plan.verdicts }));
+      setMarked(plan.marked);
+      setClean(plan.clean);
     } catch (e) {
       setError(String(e));
     }

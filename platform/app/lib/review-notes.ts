@@ -55,6 +55,10 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
  * Eine Meldung wieder wegnehmen. Anhängen kann das nicht: `realgames.reported_dirty` sammelt jede
  * `dirty-frame`-Zeile ein und kennt keinen Widerruf, also muss die Zeile verschwinden.
  */
+
+// TODO: lesen-aendern-schreiben ohne Riegel — zwei gleichzeitige Widerrufe lesen denselben Text,
+// der zweite Schreibvorgang holt die Zeile des ersten zurueck, beide melden Erfolg
+// (`lib/ingest.ts:serialize`).
 export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
   if (rows.length === 0) return 0;
   const file = reviewNotesPath();

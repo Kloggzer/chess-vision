@@ -179,6 +179,12 @@ def discover_scans(root: Path) -> tuple[list[ScanItem], list[str]]:
     return items, warnings
 
 
+#: Die Zahlen, ueber die `assess_report` urteilt. Welche ein Scan-Bericht tragen SOLL, ist eine
+#: offene Entscheidung (`docs/offene-entscheidungen.md`) — hier steht nur, was heute geprueft wird.
+_JUDGED = ("verts", "boundary_edges", "nonmanifold_edges", "height_ratio",
+           "target_tris", "tris_after", "center_component_frac")
+
+
 def assess_report(report: dict) -> tuple[str, list[str]]:
     """Assess a quality report from ``prepare_scan()`` → ``('ok'|'warn', hints)``.
 
@@ -186,9 +192,11 @@ def assess_report(report: dict) -> tuple[str, list[str]]:
     errors.  Whether a mesh is good enough is ultimately decided by rendering /
     training results.
     """
-    # TODO: seit dem Verbatim-Umbau schreibt `prepare_scan` keinen dieser Schluessel mehr —
-    # alle Zweige unter `verts` sind unerreichbar, der Bericht meldet blind `ok`.
-
+    # TODO: `prepare_scan` schreibt seit dem Verbatim-Umbau KEINE der Zahlen in `_JUDGED` (es
+    # schreibt `piece`, `variant`, `verbatim`, `smooth_iters`, `tris`) — null Ueberlappung, also
+    # kann diese Wache nur `ok` liefern. Hinter `ok` zu warnen war 2026-09 ausdruecklich falsch
+    # (`test_a_clean_verbatim_import_is_not_reported_as_suspicious`), welche Zahlen ein Bericht
+    # tragen soll ist deshalb eine Entscheidung (`docs/offene-entscheidungen.md`).
     msgs: list[str] = []
 
     # Nur ueber Zahlen urteilen, die der Bericht WIRKLICH traegt. Seit dem Verbatim-Umbau nennt

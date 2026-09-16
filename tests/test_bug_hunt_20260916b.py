@@ -124,18 +124,21 @@ def _report_keys_written(module) -> set[str]:
     return keys
 
 
-@pytest.mark.xfail(reason="Spur 5: prepare_scan schreibt keine der geprueften Zahlen mehr",
-                   strict=True)
-def test_assess_report_only_judges_numbers_prepare_scan_writes():
+@pytest.mark.xfail(reason="die Wache kann nur `ok` liefern — welche Zahlen ein Scan-Bericht "
+                          "tragen soll, ist eine offene Entscheidung", strict=True)
+def test_assess_report_judges_numbers_the_report_actually_carries():
+    """Null Ueberlappung: `assess_report` beurteilt sieben Zahlen, `prepare_scan` schreibt
+    fuenf andere. Hinter `ok` zu WARNEN war 2026-09 ausdruecklich falsch — die Wache ist
+    damit wirkungslos, und das aufzuloesen heisst entscheiden, was ein Bericht tragen soll.
+    """
     from chesslab import meshprep, scan_discover
 
     judged = _report_keys_read(scan_discover.assess_report)
     written = _report_keys_written(meshprep)
 
     assert judged, "der Selbsttest selbst muss etwas finden"
-    assert judged <= written, (
-        f"unerreichbare Zweige ueber nie geschriebene Schluessel: {sorted(judged - written)}")
-
+    assert judged & written, (
+        f"keine der geprueften Zahlen wird geschrieben: {sorted(judged)} gegen {sorted(written)}")
 
 # --- 6. hand_gate.gate_rows --------------------------------------------------------------
 
@@ -169,8 +172,6 @@ def test_gate_rows_teaches_only_what_sam_measured(tmp_path, monkeypatch):
 
 # --- 7. temporal_matte.prune_dead_rows ---------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 7: prune kennt `upsert`, loescht aber nur `temporal`",
-                   strict=True)
 def test_prune_drops_an_upsert_row_sam_has_re_cut(tmp_path, monkeypatch):
     from chesslab import temporal_matte
 
