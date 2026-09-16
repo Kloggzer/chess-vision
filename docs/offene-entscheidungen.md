@@ -385,6 +385,20 @@ die geschlossene Naht in der Ruecksicherung landet, ist RICHTIG — `upsert_prop
 `.sam.webp` beim naechsten Lauf als SAMs Alpha zurueck, und eine geschlossene Naht ist dort eine
 Verbesserung, kein Schaden.
 
-**Offen bleibt:** die 68 Zeilen auf der Platte tragen weiter die falsche Zahl. Ein
-`occluders recut-coverage` ueber die 20 betroffenen Aufnahmen repariert sie jetzt richtig — es
-schreibt aber 20 `matte.jsonl` neu, also erst auf Zuruf.
+**REPARIERT 2026-09-16 (Nutzer: "Okay go").** `occluders recut-coverage` ueber die 15
+Aufnahmen, deren Zeilen die Zahlen des Sensors trugen. Vorher gesichert nach
+`data/_parked/matte-backup-20260916-202553/` (15 Dateien, 6,4 MB).
+
+**Nachgemessen statt angenommen:** alle **139 gefaehrdeten Zeilen** tragen jetzt die Zahl IHRES
+eigenen Alphas, 0 Abweichungen. Die 139 sind dieselbe Zahl wie bei der Erstmessung; meine
+Reparatur-Sonde meldete zwischendurch 235 und danach 12 Reste — beides Fehltreffer: sie zaehlte
+`alpha: fixed`, doppelte Zeilen derselben Frames, und Zeilen, bei denen BEIDE Alphas dieselbe
+Zahl liefern (Coverage 0) und die deshalb gar nicht unterscheidbar sind.
+
+**Der Lauf tat mehr als die 139:** 471 Zeilen wurden insgesamt neu geschnitten und **395 Zellen
+wechselten die Seite von `PIECE_VISIBLE_MAX`** — das ist die dokumentierte Geometrie-Drift
+(`docs/coverage-weight-2026-09-16.md`), die nach jedem Re-Export faellig ist.
+
+**Damit offen:** gebaute Datensaetze tragen `coverage` in ihrem eigenen Manifest. Jeder Satz, der
+diese 15 Aufnahmen enthaelt und vor heute gebaut wurde, fuehrt weiter die alten Zahlen — die 395
+gewechselten Zellen wirken erst nach einem Neubau.
