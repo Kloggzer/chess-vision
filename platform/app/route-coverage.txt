@@ -1,11 +1,8 @@
-# Routen ohne einen einzigen Test, Stand 2026-09-16. Diese Liste darf nur SCHRUMPFEN:
+# Routen ohne einen einzigen Test. LEER seit 2026-09-16 -- jede Route hat einen.
+# Die Liste darf nur SCHRUMPFEN:
 # `lib/route-coverage.test.ts` schlaegt an, sobald eine neue ungetestete Route dazukommt oder
 # eine getestete ihren Test verliert. Wer eine Zeile streicht, hat den Test geschrieben.
 #
 # Warum die Routen und nicht die Gesamtabdeckung (Entscheidung 5, 2026-09-16): die Hoehe sagt
 # wenig — `core-engine` stand bei 92 % und trug trotzdem vier Stellungs-Fehler. Die Routen sind
 # die duennste Stelle (18,6 %) UND die, an der der Handy-Weg haengt.
-api/drain
-api/ingest/session/[name]/label
-api/matte/[name]
-api/matte/[name]/[stem]

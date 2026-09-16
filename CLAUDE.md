@@ -232,7 +232,8 @@
   eine Route zeigt, die es nicht mehr gibt. Ein Test zaehlt, wenn er `@/app/<pfad>/route`
   importiert. Bewusst die ROUTEN und nicht die Gesamtabdeckung: die Hoehe sagt wenig
   (`core-engine` stand bei 92 % und trug vier Stellungs-Fehler), die Routen sind die duennste
-  Stelle und tragen den Handy-Weg. Stand: 18 von 29 ohne Test.
+  Stelle und tragen den Handy-Weg. **Stand 2026-09-16: 0 von 29 ohne Test** — die Liste ist leer,
+  und die Ratsche haelt sie so. Sie hielt an dem Tag 18.
 - **JSONL-Ratsche (2026-09-16):** `lib/jsonl.ts` ist der eine Leser fuer `.jsonl` in der Web-App
   — Leerzeile ueberspringen, halb geschriebene letzte Zeile ueberspringen, nur Objekte. Wer selbst
   in Zeilen schneidet, beantwortet diese drei Fragen neu und lag dabei schon mehrfach daneben;
