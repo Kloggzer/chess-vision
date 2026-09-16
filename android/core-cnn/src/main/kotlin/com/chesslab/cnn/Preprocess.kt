@@ -182,9 +182,24 @@ fun preprocessInto(
  * so applying softmax to the ONNX output is CORRECT — do not "optimise" it to `exp()`.
  * Max-subtracting stable form.
  */
-fun softmax(logProbs: FloatArray): FloatArray {
-    val top = if (logProbs.isEmpty()) 0.0f else logProbs.max()
-    val exps = FloatArray(logProbs.size) { exp((logProbs[it] - top).toDouble()).toFloat() }
+fun softmax(logProbs: FloatArray): FloatArray = softmaxAt(logProbs, 1.0)
+
+/**
+ * Mit der gefitteten `temperature` des Modells (`training/data.py fit_temperature`, Guo 2017).
+ * Der Argmax bleibt; nur die Konfidenz wird ehrlich, gegen die `cnnConfThr` misst.
+ */
+fun softmaxAt(
+    logProbs: FloatArray,
+    temperature: Double,
+): FloatArray {
+    val scaled =
+        if (temperature == 1.0) {
+            logProbs
+        } else {
+            FloatArray(logProbs.size) { (logProbs[it] / temperature).toFloat() }
+        }
+    val top = if (scaled.isEmpty()) 0.0f else scaled.max()
+    val exps = FloatArray(scaled.size) { exp((scaled[it] - top).toDouble()).toFloat() }
     val sum = exps.sum()
     return FloatArray(exps.size) { exps[it] / sum }
 }

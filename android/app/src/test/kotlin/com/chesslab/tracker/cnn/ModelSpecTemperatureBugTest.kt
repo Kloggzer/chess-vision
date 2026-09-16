@@ -4,15 +4,14 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import java.io.File
 import kotlin.math.abs
 
-/** Bug-Audit C3: die gefittete `temperature` wird nie gelesen, also gattert jede Konfidenz
- *  schaerfer als kalibriert (`docs/bug-audit-2026-09-13.md`). */
-@Disabled("BUG: C3 — `ModelSpec` parst die gefittete `temperature` nicht, das Serving softmaxt rohe Logits")
+/** Die gefittete `temperature` muss bis in die Wahrscheinlichkeiten durchkommen: ungelesen
+ *  gatterte jede Konfidenz schaerfer als kalibriert (Bug-Audit C3). */
 class ModelSpecTemperatureBugTest {
     @Test
     fun everyBundledModelsFittedTemperatureReachesTheRuntime() {
@@ -28,6 +27,17 @@ class ModelSpecTemperatureBugTest {
             "models declaring a fitted temperature that ModelSpec never reads: " +
                 fitted.joinToString(", ") { it.name },
         )
+    }
+
+    /** Ein Getter allein waere die halbe Zusage — hier zaehlt, dass die Zahl ANKOMMT. */
+    @Test
+    fun theFittedTemperatureReachesTheProbabilities() {
+        for (dir in bundledAssetDirs()) {
+            val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+            val root = Json.parseToJsonElement(File(dir, MODEL_CONFIG_FILE).readText()).jsonObject
+            val declared = root["temperature"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+            assertEquals(declared, spec.temperature, TOLERANCE, dir.name)
+        }
     }
 
     private companion object {

@@ -5,13 +5,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 
 /** Bug-Audit C8: `startedMs = now + 1000`, gelesen als `now - startedMs >= intervalMs` — die
  *  Pause ist damit eine Sekunde PLUS ein Beobachtungsintervall, nicht eine Sekunde. */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Disabled("BUG: C8 — die Pause ist 1000 ms PLUS ein Beobachtungsintervall, nicht eine Sekunde")
 class CnnObserverBackoffBugTest {
     private val scheduler = TestCoroutineScheduler()
     private var now = 0L

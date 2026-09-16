@@ -99,6 +99,10 @@ class CnnObserver(
     @Volatile
     private var startedMs = 0L
 
+    /** Nach einem Fehlschlag: eine Sekunde, und zwar NUR sie. In `startedMs`
+     *  geschrieben addierte sie sich zum Intervall, weil `wantsFrame` dasselbe Feld misst. */
+    private var pausedUntilMs = 0L
+
     @Volatile
     private var intervalMs = 0L
 
@@ -122,7 +126,8 @@ class CnnObserver(
     val counters: String
         get() =
             "attempts=$attempts noClassifier=$noClassifier noCrops=$noCrops emitted=$emitted " +
-                "gateOff=$gateOff gateBusy=$gateBusy gateInterval=$gateInterval gateUnwanted=$gateUnwanted"
+                "gateOff=$gateOff gateBusy=$gateBusy gatePaused=$gatePaused " +
+                "gateInterval=$gateInterval gateUnwanted=$gateUnwanted"
 
     private var attempts = 0L
     private var noClassifier = 0L
@@ -138,6 +143,11 @@ class CnnObserver(
         private set
     var gateBusy = 0L
         private set
+
+    /** Abgewiesen, weil eine gescheiterte Beobachtung noch pausiert. */
+    var gatePaused = 0L
+        private set
+
     var gateInterval = 0L
         private set
 
@@ -152,7 +162,13 @@ class CnnObserver(
      * always says yes and this reads exactly as before; an engine that knows it is blind says no
      * and saves a whole inference, which is the only way the observer can ever read less.
      */
-    fun wantsFrame(): Boolean = enabled && state.value is CnnState.Ready && !busy && nowMs() - startedMs >= intervalMs && demand()
+    fun wantsFrame(): Boolean =
+        enabled &&
+            state.value is CnnState.Ready &&
+            !busy &&
+            nowMs() >= pausedUntilMs &&
+            nowMs() - startedMs >= intervalMs &&
+            demand()
 
     /** Called per frame from the analyzer thread; returns immediately. */
     fun onFrameAvailable() {
@@ -164,6 +180,7 @@ class CnnObserver(
             when {
                 !enabled || state.value !is CnnState.Ready -> gateOff += 1
                 busy -> gateBusy += 1
+                nowMs() < pausedUntilMs -> gatePaused += 1
                 nowMs() - startedMs < intervalMs -> gateInterval += 1
                 else -> gateUnwanted += 1
             }
@@ -263,9 +280,7 @@ class CnnObserver(
         runCatching { runObservation(startFen) }
             .onFailure {
                 log.warn("CNN observation failed", it)
-                // TODO(C8): das ergibt `BACKOFF_MS + intervalMs`, nicht eine Sekunde — `wantsFrame`
-                // misst gegen dasselbe Feld (`CnnObserverBackoffBugTest`).
-                startedMs = nowMs() + BACKOFF_MS
+                pausedUntilMs = nowMs() + BACKOFF_MS
             }
         busy = false
     }

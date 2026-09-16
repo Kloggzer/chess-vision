@@ -5,25 +5,26 @@ package com.chesslab.tracker.camera
  *
  * Was 20 s ("das video erst festhalten wenn mindestens ein Zug erkannt wurde, und dann ab 20 s vor
  * dem Zug"). Raised 2026-08-16: the desktop replay needs board BEFORE the first move, and twenty
- * transferred recordings carried 4-19.6 s of it. [PRE_ROLL_MAX_BYTES] stays the heap bound.
+ * transferred recordings carried 4-19.6 s of it. [preRollMaxBytes] is the heap bound.
  */
 const val PRE_ROLL_SECONDS: Long = 45L
 
 /**
- * The hard heap cap on the buffered samples.
- *
- * The time cap alone is not a byte bound: the encoder is CONFIGURED for 20 Mbit/s (~50 MB per
- * 20 s) but a bitrate spike — torch flicker, a hand sweeping the frame — can overshoot it, and a
- * ring that follows the spike eats the app's heap. 80 MB is the nominal 50 plus headroom for the
- * spike, and beyond it whole GOPs are dropped from the front: a shorter pre-roll is a loss, an
- * OOM inside a running game is the recording AND the game.
+ * Der Byte-Deckel, ABGELEITET aus dem Bild: ein fester war das Fenster, nicht seine Grenze —
+ * 80 MB hielten 21 s von 1440p/15 und 5 s von 4K/30. Ueber [PRE_ROLL_CEILING_BYTES] hinaus
+ * tauscht hoehere Aufloesung Fenster gegen Heap, statt die App zu tauschen.
  */
-const val PRE_ROLL_MAX_BYTES: Long = 80L * 1024L * 1024L
+fun preRollMaxBytes(
+    width: Int,
+    height: Int,
+    fps: Int,
+): Long = minOf(PRE_ROLL_CEILING_BYTES, PRE_ROLL_SECONDS * bitRateFor(width, height, fps) / 8L)
 
-// TODO: Die 20 Mbit/s oben sind seit `BITS_PER_PIXEL = 0.54` (2026-09-13) ueberholt: 1440p/15,
-// die Vorgabe, verlangt 29,9 Mbit/s. 80 MB halten damit ~21 s, bei 30 fps ~11 s — die Byte-
-// Grenze IST das Fenster, und `PRE_ROLL_WINDOW_NS` haelt 45 s Zeilen ohne Bild dazu.
-// `PreRollRingTest` verdrahtet 83 kB je Sample (`PreRollWindowAtShippedBitRateTest`, rot).
+/** Das volle Fenster der VORGABE (1440p/15); an keinem Geraet gemessen, kein `largeHeap`. */
+val PRE_ROLL_CEILING_BYTES: Long =
+    PRE_ROLL_SECONDS * bitRateFor(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_PRE_ROLL_FPS) / 8L
+
+private const val DEFAULT_PRE_ROLL_FPS = 15
 
 /**
  * One encoded AVC sample. Plain bytes and numbers — no `android.media` type reaches this file, so

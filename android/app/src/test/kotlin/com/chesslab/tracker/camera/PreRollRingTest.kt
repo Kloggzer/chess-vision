@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+private const val DEFAULT_FPS = 15
 private const val SECOND_US = 1_000_000L
 
 /**
@@ -83,7 +84,7 @@ class PreRollRingTest {
         // ~83 kB a sample (20 Mbit/s), fed for a minute. At that bitrate the BYTE cap binds before
         // the 45 s window does (80 MB ≈ 32 s), and the assertion that matters is the floor:
         // whatever the trim drops, half a minute of board must survive it.
-        val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, PRE_ROLL_MAX_BYTES)
+        val ring = PreRollRing(PRE_ROLL_SECONDS * SECOND_US, preRollMaxBytes(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS))
         val frameUs = SECOND_US / 30
         for (frame in 0 until 30 * 60) {
             ring.add(sample(frame * frameUs, sync = frame % 30 == 0, bytes = 83_000))
@@ -93,7 +94,7 @@ class PreRollRingTest {
             "the ring held ${ring.durationUs / SECOND_US}s of a ${PRE_ROLL_SECONDS}s window",
         )
         assertTrue(ring.durationUs <= PRE_ROLL_SECONDS * SECOND_US, "and never more than the window")
-        assertTrue(ring.bytes <= PRE_ROLL_MAX_BYTES)
+        assertTrue(ring.bytes <= preRollMaxBytes(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, DEFAULT_FPS))
         assertTrue(ring.flush().first().sync, "a flush that starts on a P-frame decodes to nothing")
     }
 

@@ -25,6 +25,8 @@ private const val VIDEO_MIME = MediaFormat.MIMETYPE_VIDEO_AVC
  */
 const val BITS_PER_PIXEL = 0.54
 
+private const val MB_BYTES = 1024L * 1024L
+
 /**
  * The floor, so an implausibly small delivered frame cannot produce an unusable file. It is where
  * the weakest recording on disk already sits, and that one is borderline (`docs/camera-video-encoder.md`).
@@ -239,7 +241,8 @@ class CameraVideo : AutoCloseable {
         kept = false
         preRollUs = 0L
         lastArmedLogMs = 0L
-        ring = PreRollRing(PRE_ROLL_SECONDS * US_PER_SECOND, PRE_ROLL_MAX_BYTES)
+        val cap = preRollMaxBytes(size.width, size.height, frameRate)
+        ring = PreRollRing(PRE_ROLL_SECONDS * US_PER_SECOND, cap)
         return runCatching {
             val encoder = MediaCodec.createEncoderByType(VIDEO_MIME)
             val agreed = agreedProfile(encoder, size)
@@ -260,7 +263,8 @@ class CameraVideo : AutoCloseable {
             Log.i(
                 TAG,
                 "armed at ${size.width}x${size.height} @ $frameRate fps, $agreed bit/s " +
-                    "(formula $requestedBitRate): ${PRE_ROLL_SECONDS}s pre-roll buffering in memory, no file yet",
+                    "(formula $requestedBitRate): pre-roll ${cap / MB_BYTES} MB = " +
+                    "${cap * 8L / maxOf(1, agreed)}s of a ${PRE_ROLL_SECONDS}s window, no file yet",
             )
             true
         }.onFailure { fail("QHD video start failed", it) }.getOrDefault(false)

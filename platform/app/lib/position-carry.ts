@@ -19,11 +19,11 @@ function sameLabels(a: Labels, b: Labels): boolean {
   return aKeys.every((key) => a[key] === b[key]);
 }
 
-// TODO(Produktfrage, unverdrahtet): `board-paint` verarbeitet `prefilled` bis in `planBoard`,
-// nur reicht es niemand hinein. Offen ist NICHT das Anschliessen, sondern: soll eine gemalte
-// Korrektur ungefragt auf jedes spaetere Frame desselben Ply wandern, oder erst auf Zuruf? Der
-// erste Weg schreibt Labels, die kein Mensch gesehen hat. `carry-unwired.bughunt.test.ts` haelt
-// den Zustand fest, bis das entschieden ist (in docs/offene-entscheidungen.md nicht gelistet).
+// ENTSCHIEDEN 2026-09-16 (Nutzer: "natuerlich nicht ungefragt"): bleibt UNVERDRAHTET.
+// `planBoard` legt ein `prefilled` in `corrections` und damit auf den Bestaetigen-Knopf — wer
+// schnell bestaetigt, schriebe Labels, die er nie angesehen hat. Die Gegenseite steht bereit,
+// das Anschliessen ist ein Aufruf; es braucht dann aber einen eigenen Knopf.
+// `carry-unwired.bughunt.test.ts` haelt den Zustand fest.
 export function carryPositionCorrections(input: {
   frames: readonly CarryFrame[];
   from: number;

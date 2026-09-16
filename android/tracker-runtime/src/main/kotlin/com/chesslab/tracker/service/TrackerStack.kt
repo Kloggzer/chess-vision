@@ -189,7 +189,8 @@ class TrackerStack<T>(
      */
     fun dropLine(): String =
         "dropped[markers=${pipeline.skippedWaitingMarkers} dark=${pipeline.skippedDark} " +
-            "obsOff=${observer.gateOff} obsBusy=${observer.gateBusy} obsInterval=${observer.gateInterval} " +
+            "obsOff=${observer.gateOff} obsBusy=${observer.gateBusy} obsPaused=${observer.gatePaused} " +
+            "obsInterval=${observer.gateInterval} " +
             "obsUnwanted=${observer.gateUnwanted} " +
             "cropOverwritten=${cropStore.overwritten} snapQueue=${host.snapshotsDropped} actionQueue=${host.actionsDropped}]"
 

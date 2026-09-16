@@ -366,6 +366,22 @@ prueft ausserdem gegen die ECHTE `loadMatte` statt gegen eine Kopie ihrer Regeln
 
 **Wirkung heute: null** — 0 Absagen im Korpus. Die Regel greift beim naechsten SAM-Lauf.
 
+## 30. Gemalte Korrektur auf spaetere Frames — ENTSCHIEDEN 2026-09-16: nicht ungefragt
+
+`carryPositionCorrections` traegt eine gemalte Stellung auf die spaeteren Frames DESSELBEN Plys,
+und `board-paint` nimmt das `prefilled` bis in `planBoard`. Verdrahtet war nie eine Seite.
+
+**Warum es nicht harmlos ist:** `planBoard` legt eine Zeile, die von der Datei abweicht, in
+`corrections` — und damit auf den Bestaetigen-Knopf. Wer einen Bogen schnell durchbestaetigt,
+schriebe Labels, die er nie angesehen hat.
+
+**Nicht zu verwechseln mit der Matten-Lane.** Dort urteilt der Mensch ueber SAMs MASKE, und ein
+Urteil dort ist abgesegnet. Hier geht es um gemalte FIGUREN auf der Strittig-Lane — eine andere
+Lane und eine andere Frage.
+
+**Entscheidung (Nutzer): nicht ungefragt.** Bleibt unverdrahtet. Wer es will, baut einen eigenen
+Knopf; das Anschliessen selbst ist ein Aufruf.
+
 ## 29. `recut_coverage` las das falsche Alpha — GEMESSEN und GEFIXT 2026-09-16
 
 `upsert_proposals` schiebt SAMs Datei nach `mattes/<stem>.sam.webp` und schreibt das Alpha des

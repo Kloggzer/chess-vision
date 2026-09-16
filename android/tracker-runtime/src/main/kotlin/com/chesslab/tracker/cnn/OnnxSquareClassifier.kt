@@ -5,7 +5,7 @@ import com.chesslab.cnn.ALL_SQUARES
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.preprocessInto
 import com.chesslab.cnn.sigmoid
-import com.chesslab.cnn.softmax
+import com.chesslab.cnn.softmaxAt
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.perf.WorkOperation
 import com.chesslab.engine.perf.WorkProfiler
@@ -222,7 +222,7 @@ class OnnxSquareClassifier internal constructor(
         // stops at `classCount` and the class probabilities still sum to 1.
         return Array(batch) { row ->
             val start = row * width
-            val probs = softmax(logits.copyOfRange(start, start + classCount))
+            val probs = softmaxAt(logits.copyOfRange(start, start + classCount), spec.temperature)
             if (width == classCount) probs else probs + sigmoid(logits[start + classCount])
         }
     }

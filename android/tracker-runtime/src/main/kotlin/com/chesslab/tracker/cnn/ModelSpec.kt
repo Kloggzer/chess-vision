@@ -83,6 +83,9 @@ data class ModelSpec(
      * verschieden, weil die Schwelle aus seiner Guete folgt (`docs/occlusion-gate.md`).
      */
     val coverageGate: Double? = null,
+    /** Der auf val gefittete Skalar (Guo 2017): alle sieben Modelle liegen ueber 1, ungelesen
+     *  sah `cnnConfThr` schaerfere Werte als seine Eichung. Der Argmax bleibt unberuehrt. */
+    val temperature: Double = 1.0,
     /**
      * `clahe_*` — lokaler Kontrast je Crop, VOR der Normalisierung, wie im Training.
      *
@@ -152,9 +155,8 @@ data class ModelSpec(
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
-                // TODO(C3): `temperature` bleibt ungelesen — jede Konfidenzschwelle sieht schaerfere
-                // Werte als die Kalibrierung, gegen die sie geeicht wurde (`ModelSpecTemperatureBugTest`).
                 coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
+                temperature = root["temperature"]?.jsonPrimitive?.double ?: 1.0,
                 claheClip = root["clahe_clip"]?.jsonPrimitive?.double ?: 0.0,
                 claheTile = root["clahe_tile"]?.jsonPrimitive?.content?.toInt() ?: DEFAULT_CLAHE_TILE,
                 claheMinMean = root["clahe_min_mean"]?.jsonPrimitive?.double ?: 0.0,
