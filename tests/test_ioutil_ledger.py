@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from chesslab import ledger
+from chesslab import ioutil as ledger
 from chesslab.ioutil import read_jsonl
 
 
@@ -20,10 +20,11 @@ def test_a_replaced_file_is_never_half_there(tmp_path, monkeypatch):
     path = tmp_path / "matte.jsonl"
     ledger.write_rows(path, [{"a": 1}])
 
-    def boom(src, dst):
+    def boom(self, target):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(ledger.os, "replace", boom)
+    # `write_atomic` haengt die Nebendatei mit `Path.replace` um — genau dort schlagen wir zu.
+    monkeypatch.setattr("pathlib.Path.replace", boom)
     with pytest.raises(KeyboardInterrupt):
         ledger.write_rows(path, [{"b": 2}])
 

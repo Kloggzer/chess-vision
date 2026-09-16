@@ -90,7 +90,7 @@ def test_the_scan_is_written_whole_or_not_at_all(tmp_path):
     """Ein Abbruch mitten im Schreiben liesse sonst eine halbe Datei zurueck, die `resume` fuer
     vollstaendig haelt — und der naechste Export plante auf ihr."""
     target = tmp_path / "scan.jsonl"
-    fs._write_atomic(target, "eine zeile\n")
+    fs.write_atomic(target, "eine zeile\n")
     assert target.read_text(encoding="utf-8") == "eine zeile\n"
     assert not list(tmp_path.glob("*.tmp")), "die Nebendatei bleibt nicht liegen"
 

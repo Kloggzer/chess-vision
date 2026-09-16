@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 
 from . import config
+from .ioutil import write_atomic
 from .work_audit import measure, span
 
 #: Every third frame — 0.1 s at 30 fps. A hand needs longer than that to arrive or to leave, and
@@ -278,18 +279,11 @@ def scan_video(name: str, *, stride: int = SCAN_STRIDE, resume: bool = True,
     score()
     # Erst nach dem letzten Batch, und ueber eine Nebendatei: ein Abbruch mittendrin liesse sonst
     # eine halbe Datei zurueck, die `resume` fuer vollstaendig haelt.
-    _write_atomic(path, "".join(json.dumps(r) + "\n" for r in rows))
-    _write_atomic(scan_meta_path(name),
+    write_atomic(path, "".join(json.dumps(r) + "\n" for r in rows))
+    write_atomic(scan_meta_path(name),
                   json.dumps(scan_provenance(name, stride=stride, extra=extra, tag=tag), indent=2))
     return {"path": path, "frames": len(rows), "stride": stride, "gate": card["backbone"],
             "hands": sum(occupied(r) for r in rows), "resumed": False, "stale": stale}
-
-
-def _write_atomic(path: Path, text: str) -> None:
-    """Schreiben heisst hier: entweder ganz da oder gar nicht."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    tmp.replace(path)
 
 
 #: Board files, for naming the square a deviating cell sits on.
