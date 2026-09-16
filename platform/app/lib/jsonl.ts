@@ -1,18 +1,37 @@
 /**
- * Der eine Leser fuer `.jsonl`. Drei Fragen, die jede Stelle bisher selbst beantwortete:
- * eine Leerzeile ist keine Zeile, eine halb geschriebene letzte Zeile ist keine Zeile (ein
- * Schreiber laeuft gerade), und der Aufrufer bekommt Objekte, keine Strings.
+ * Der eine Leser fuer `.jsonl` — und die eine Antwort auf die halb geschriebene Zeile: der
+ * ZEILENUMBRUCH entscheidet. Drei Leser derselben Datei antworteten bis 2026-09-16 verschieden.
  */
-export function jsonlRows(text: string): Record<string, unknown>[] {
+export type JsonlRead = {
+  rows: Record<string, unknown>[];
+  /** Die letzte Zeile war unvollstaendig. Erwartbar, kein Defekt. */
+  tail: boolean;
+  /** Kaputte Zeilen, die NICHT die letzte waren. Die kann kein Schreiber erklaeren. */
+  corrupt: number;
+};
+
+export function readJsonl(text: string): JsonlRead {
+  const lines = text.split(/\r?\n/);
+  // Der ZEILENUMBRUCH entscheidet: wer mitten in einer Zeile steht, hat ihn noch nicht
+  // geschrieben. Eine kaputte Zeile, die auf einen Umbruch endet, ist kein laufender Schreiber.
+  const open = lines.length > 0 && lines[lines.length - 1] !== "";
   const rows: Record<string, unknown>[] = [];
-  for (const line of text.split(/\r?\n/)) {
+  let tail = false;
+  let corrupt = 0;
+  for (const [i, line] of lines.entries()) {
     if (!line.trim()) continue;
     try {
       const obj = JSON.parse(line) as unknown;
       if (obj && typeof obj === "object" && !Array.isArray(obj)) rows.push(obj as Record<string, unknown>);
     } catch {
-      /* eine halb geschriebene Zeile ist keine Zeile */
+      if (open && i === lines.length - 1) tail = true;
+      else corrupt += 1;
     }
   }
-  return rows;
+  return { rows, tail, corrupt };
+}
+
+/** Nur die Zeilen — fuer Leser, die eine kaputte Zeile ohnehin nur ueberspringen wuerden. */
+export function jsonlRows(text: string): Record<string, unknown>[] {
+  return readJsonl(text).rows;
 }

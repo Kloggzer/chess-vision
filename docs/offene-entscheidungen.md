@@ -28,7 +28,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~16~~ | `p5`/`p95` in den Aufnahme-Auftrag | — | — | **gebaut 2026-09-16** |
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut; 4–5 offen, jetzt ohne DB |
-| ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
+| ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gebaut 2026-09-16** — ohne Datenbank |
 | ~~23~~ | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | — | — | **gebaut 2026-09-16** |
 | ~~24~~ | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | — | — | **gebaut 2026-09-16** — leerer Balken, animiert |
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
@@ -227,35 +227,24 @@ Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert
 |---|---|---|
 | B je Naht | 1 (fertig), 2 ≈ 3 h, 3 ≈ 1 h, 4–5 offen | 2 und 3 als naechstes, 4–5 erst nach dem Neubau |
 
-## 22. Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe letzte Zeile
+## 22. Drei Antworten auf die halbe letzte Zeile — GEBAUT 2026-09-16, ohne Datenbank
 
-`realgames.py:1537` oeffnet `log.jsonl` mit `"w"` und stroemt hinein — waehrend eines Exports ist
-die letzte Zeile also wirklich halb da, das ist kein Gedankenspiel.
+`realgames.py:1537` oeffnet `log.jsonl` mit `"w"` und stroemt hinein — die halbe letzte Zeile gibt
+es wirklich. `stored.ts` und `pool.ts` uebersprangen sie, `loadSession` WARF: eine Labeln-Seite,
+waehrend ein Export laeuft, kostete damit einen Fehler statt einer Seite.
 
-Wer sie liest, antwortet verschieden:
+**Die Regel, die vorher niemand ausgesprochen hatte: der ZEILENUMBRUCH entscheidet.** Wer mitten
+in einer Zeile steht, hat ihn noch nicht geschrieben. Eine kaputte Zeile, die auf einen Umbruch
+endet, ist damit kein laufender Schreiber, sondern Beschaedigung. `readJsonl` gibt beides getrennt
+zurueck (`tail`, `corrupt`), und `loadSession` toleriert das eine und meldet das andere.
 
-| Leser | auf eine halbe Zeile |
-|---|---|
-| `lib/stored.ts` | ueberspringt sie, ausdruecklich: "ueber das `Promise.all` riss ein Wurf sonst die ganze Anfrage mit" |
-| `lib/pool.ts` | ueberspringt sie |
-| `lib/session.ts` (`loadSession`) | **wirft** — kein `try` |
+**Diese Schaerfung stammt nicht von mir, sondern von einem bestehenden Test.** Mein erster Entwurf
+nahm "letzte nicht-leere Zeile" und haette damit eine wirklich kaputte Datei als laufenden
+Schreiber durchgewunken — `route-audit-bugs.test.ts` verlangt fuer genau diesen Fall einen Fehler
+und ist umgefallen.
 
-**Beide Antworten sind vertretbar**, und das ist der Punkt. Ueberspringen zeigt eine Sitzung, der
-waehrend des Exports Zeilen fehlen, ohne das zu sagen — genau die Fehlerklasse dieser Nacht.
-Werfen ist ehrlich, reisst aber ueber `Promise.all` Nachbarn mit, wofuer `stored.ts` schon einmal
-bezahlt hat.
-
-**Die eigentliche Frage ist enger:** die LETZTE Zeile ist "der Schreiber laeuft noch", jede andere
-kaputte Zeile ist Beschaedigung. Heute unterscheidet kein Leser die beiden. Ein gemeinsamer Leser
-mit einer ausdruecklichen Tail-Politik (Codex' Naht 2) kann das — `lib/jsonl.ts` ist dafuer der
-Platz, hat die Politik aber noch nicht.
-
-**Nicht nachts entschieden:** `loadSession` traegt jede Label-Seite; ob eine halbe Aufnahme
-angezeigt oder verweigert wird, ist eine Produktfrage.
-
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| B | 2 h | Tail-Politik in `lib/jsonl.ts`, dann alle drei darauf — mit einer Entscheidung, nicht drei |
+**Das war der Punkt, der zur Datenbank-Frage gefuehrt hat** ("die Anwendung streitet sich"). Er
+brauchte keine.
 
 ## 23. `UtteranceQueue` — GEBAUT 2026-09-16, und das Geraet war doch nicht noetig
 

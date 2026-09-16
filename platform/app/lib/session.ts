@@ -9,6 +9,7 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, loadCandidate } from "@/lib/data";
 import { type CropParams, type GridMesh, type Mat3, meshFromLines } from "@/lib/warp";
+import { readJsonl } from "@/lib/jsonl";
 
 /**
  * Where a frame sits between the two commits that bound its interval — the labeling context.
@@ -131,9 +132,14 @@ export async function loadSession(name: string): Promise<Session> {
   if (!fps) throw new Error(`${name}: candidate.json nennt keine clock.fps — ohne sie sind die Sekunden geraten`);
 
   const rows: SessionRow[] = [];
-  for (const line of (await readFile(log, "utf8")).split("\n")) {
-    if (!line.trim()) continue;
-    const row = JSON.parse(line) as {
+  // Die halbe LETZTE Zeile ist ein laufender Export und darf die Seite nicht kosten; jede
+  // andere kaputte Zeile kann kein Schreiber erklaeren und wird gemeldet, nicht verschluckt.
+  const read = readJsonl(await readFile(log, "utf8"));
+  if (read.corrupt > 0) {
+    throw new Error(`${log}: ${read.corrupt} beschaedigte Zeile(n) — nicht das Ende einer laufenden Ausfuhr`);
+  }
+  for (const line of read.rows) {
+    const row = line as unknown as {
       frame: string;
       ply: number;
       fen: string;
