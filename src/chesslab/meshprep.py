@@ -76,10 +76,10 @@ def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
     """
     import trimesh
 
-    # TODO: `_load_and_extract` dreht ueber `_ensure_z_up` still auf — der verbatim-Zweig tut das
-    # nicht. Die Ausrichtung einer Figur haengt damit an `--smooth-iters`, obwohl `prepare_scan`
-    # verbatim verspricht (tests/test_bug_hunt_20260916e.py, xfail).
-    mesh, tex_img = _load_and_extract(item)
+    # `upright=False`: dieser Zweig ist der VERBATIM-Weg mit entspannten Punkten, und
+    # `prepare_scan` verspricht "no uprighting". Sonst haengt die Ausrichtung einer Figur an
+    # einem Glaettungsschalter. Gezaehlt 2026-09-16: null der zwoelf Meshes sind so entstanden.
+    mesh, tex_img = _load_and_extract(item, upright=False)
     tris = len(mesh.faces)
     _log.info("smoothing %s/%s: %d tris, taubin x%d", item.name, stem, tris, iters)
     # Smooth on a WELDED copy, then map positions back to the original (UV-split) vertices.
@@ -176,8 +176,12 @@ def _copy_obj_verbatim(src: Path, dst: Path, stem: str) -> None:
 # ==============================================================================
 # Internal helpers
 # ==============================================================================
-def _load_and_extract(item: ScanItem):
-    """Load mesh via trimesh; extract texture from .glb if needed."""
+def _load_and_extract(item: ScanItem, *, upright: bool = True):
+    """Load mesh via trimesh; extract texture from .glb if needed.
+
+    [upright] dreht Y-up nach Z-up. Der verbatim-Weg laesst es aus — er verspricht, die Datei
+    nicht anzufassen, und eine stille Drehung waere genau das.
+    """
     import trimesh
 
     obj_path = str(item.obj)
@@ -197,8 +201,8 @@ def _load_and_extract(item: ScanItem):
 
     # Normalise Y-up → Z-up (RealityScan exports are Y-up)
     # trimesh by default does NOT auto-convert, so we apply the transform manually.
-    # Z-up = Y-up rotated -90° around X
-    mesh = _ensure_z_up(mesh)
+    if upright:
+        mesh = _ensure_z_up(mesh)
 
     # Extract texture. An EXPLICIT *_diffuse.png in the scan folder ALWAYS wins over the
     # .glb reference: RealityScan GLBs sometimes reference *_unwrap.png (UV debug pattern,

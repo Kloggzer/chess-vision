@@ -139,9 +139,6 @@ def test_run_ingest_keeps_its_profile_inside_the_given_paths(tmp_path, monkeypat
 
 # --- 5. meshprep: `--smooth-iters` richtet die Figur still auf ------------------------------
 
-@pytest.mark.xfail(strict=True, reason="Die Drehung wegzunehmen aendert die GEOMETRIE jeder so "
-                                       "importierten Figur (und damit jeden Render, der sie "
-                                       "nutzt) — eine Entscheidung, kein stiller Fix.")
 def test_smoothing_does_not_secretly_upright_the_mesh(tmp_path):
     """`prepare_scan` verspricht verbatim; der geglaettete Zweig dreht ueber `_load_and_extract`.
 

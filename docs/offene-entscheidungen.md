@@ -31,7 +31,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
 | 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
-| 26 | `--smooth-iters` dreht die Figur, verbatim nicht | C | 30 min | erst zaehlen, welche Meshes betroffen sind |
+| ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
 | **27** | **Postgres statt 19 Dateiformate** | C | Export-Neubau | **entschieden** — Schnitt steht unten |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
@@ -269,102 +269,18 @@ arbeitet. Wer sie geaendert vorfindet, soll wissen warum. `xfail(strict)` in
 |---|---|---|
 | C | 1 h, Messung liegt vor | **ja** — 14 von 804 Plys sind der Preis, und sie sagen dann ehrlich "ungemessen" |
 
-## 26. `--smooth-iters` dreht die Figur, der verbatim-Zweig nicht
+## 26. `--smooth-iters` dreht die Figur — GEBAUT 2026-09-16, gezaehlt und folgenlos
 
-`meshprep._import_smoothed` laeuft ueber `_load_and_extract` -> `_ensure_z_up` und dreht die Figur
-um -90 Grad um X, sobald Y die dominante Achse ist. Der verbatim-Zweig daneben dreht nicht, und
-`prepare_scan` verspricht im Docstring ausdruecklich "no uprighting".
+`_import_smoothed` lief ueber `_load_and_extract` -> `_ensure_z_up` und drehte die Figur um
+-90 Grad um X, sobald Y die dominante Achse ist. Der verbatim-Zweig daneben dreht nicht, und
+`prepare_scan` verspricht im Docstring ausdruecklich "no uprighting" — die AUSRICHTUNG einer
+Figur hing damit an einem Glaettungsschalter.
 
-Damit haengt die AUSRICHTUNG einer importierten Figur an einem Glaettungsschalter — zwei Importe
-derselben Datei mit und ohne `--smooth-iters` stehen verschieden im Raum.
+**"Erst zaehlen" stand als Empfehlung; gezaehlt, rein lesend ueber die `*_report.json`:
+null von zwoelf Meshes sind mit `--smooth-iters` entstanden, alle zwoelf verbatim.** Kein
+`synth_pieces/`-Mesh angefasst. Die Zahl traegt, weil der geglaettete Zweig und der
+`smooth_iters`-Schluessel im Bericht aus DEMSELBEN Commit stammen (`1371cfd7`) — es gibt kein
+Fenster, in dem eine geglaettete Figur wie verbatim aussaehe.
 
-**Warum nicht gebaut:** die Drehung wegzunehmen aendert die Geometrie jeder so importierten Figur
-und jeden Render, der sie nutzt. `synth_pieces/` ist Ground Truth ohne Backup. `xfail(strict=True)`
-in `tests/test_bug_hunt_20260916e.py`.
-
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| C | 30 min plus eine Sichtprobe je betroffener Figur | erst zaehlen, welche Meshes mit `--smooth-iters` entstanden |
-
-## 27. Postgres statt 19 Dateiformate — ENTSCHIEDEN 2026-09-16 (Nutzer), Bau steht aus
-
-**Die Entscheidung:** Postgres in Docker, zwei Rollen mit `GRANT` je Tabelle. Begruendung des
-Nutzers: zwei Prozesse laufen wirklich parallel, und der Streit gehoert in die DB, nicht in eine
-Vereinbarung, an die sich jemand halten muss.
-
-Damit sind **Punkt 22 gegenstandslos** (keine halbe letzte Zeile mehr) und **Punkt 21 Naht 4 und 5
-erledigt** — die DB traegt den Vertrag, nicht ein versioniertes Dateiformat.
-
-### Was die DB loest, gemessen an der Nacht auf den 16.09.
-
-| Fehlerklasse | Faelle | loest die DB das? |
-|---|---|---|
-| "nicht gemessen" als gemessener Normalwert gelesen | ~19 | **nein** |
-| halb geschriebene Dateien, gleichzeitige Schreiber, Staging-Reste | ~9 | ja |
-| Waechter umgangen (Massstab, `usable_board`) | 4 | nein |
-| UI- und Logikfehler | ~8 | nein |
-
-**Die dominante Klasse ueberlebt die Migration.** Eine Spalte, die `NULL` sein darf und
-stattdessen `0.0` bekommt, ist genau dieselbe Falle wie `.get(k, 0.0)`. Gegenmittel im Schema:
-`NOT NULL` ueberall, wo ein Wert gemessen sein MUSS, und sonst echtes `NULL` — nie ein Default.
-`tests/test_matte_coverage_rule.py` und die JSONL-Ratsche bleiben bis zur letzten migrierten Stelle.
-
-### Schnitt
-
-- **In die DB:** die Messreihen (`matte`, `model-reads`, `log`, `interval-check`, `scan`) und die
-  Urteile (`review-notes`, `corrections`, `unusable-cells`, `ui-meta`, `useless`).
-- **Dateien bleiben Dateien:** `boards/*.webp`, die Alphas, die Packs. Die Zeile in der DB traegt
-  Pfad UND einen Inhaltsstempel (Mtime plus Groesse, wie `chesslab.provenance` es schon tut),
-  damit eine Abweichung zwischen DB und Platte auffaellt statt still zu sein. **Das ist die neue
-  Fehlerklasse, die die Migration einfuehrt** — sie braucht ihren eigenen Waechter.
-- **Rollen:** `chesslab_pipeline` schreibt die Messreihen und liest die Urteile,
-  `chesslab_web` umgekehrt. Kein Konto darf beides schreiben.
-- **Der Riegel bleibt:** `heavy-lock.ts` / `locks.py` sind auch RESSOURCEN-Sperren (GPU, Speicher),
-  nicht nur Daten-Sperren. Wer sie nach der Migration loescht, weil "die DB das jetzt macht",
-  laesst zwei Trainingslaeufe gleichzeitig los.
-
-### Reihenfolge
-
-1. Schema fuer EINE Familie — die Messreihen —, Python schreibt in beide (DB und JSONL).
-2. Die Web-App liest aus der DB statt aus der Datei. JSONL bleibt als abgeleitete Sicht stehen,
-   damit die ~12 000 Zeilen in `scripts/` unveraendert weiterlaufen.
-3. Urteile umziehen, dann `scripts/` Datei fuer Datei.
-4. JSONL abschalten, wenn niemand mehr liest.
-
-**Der Zeitpunkt ist der Export-Neubau** (Punkt 14): der Export IST der Schreiber, und man aendert
-ihn einmal.
-
-| Kiste | Aufwand | offen |
-|---|---|---|
-| C | Schritt 1–2 ein Tag, der Rest je Familie | Backup-Weg (`pg_dump`) — heute ist `data/` "ein Ordner, den man kopiert" |
-
-### Stand 2026-09-16, Mittag: Gerüst steht und ist bewiesen
-
-`compose.yaml` (Postgres 17-alpine, nur auf `127.0.0.1`, benanntes Volume) und `db/schema/`
-(`001_measurements.sql`, `002_roles.sql`, beim ersten Hochfahren automatisch angewandt).
-
-**Gegen die laufende Datenbank geprüft, jede Zusage einmal verletzt — alle sechs abgewiesen:**
-
-| Versuch | abgewiesen von |
-|---|---|
-| `matte`-Zeile ohne Absage UND ohne Messung | `matte_state` |
-| `matte`-Zeile mit `skipped` UND `coverage` | `matte_state` |
-| `coverage = '{}'` | `matte_dense` |
-| `coverage` mit 63 Feldern | `matte_dense` |
-| `board_path` ohne Inhaltsstempel | `frame_board_is_complete` |
-| Urteil mit `stem` UND `ply` | `review_note_target` |
-
-Die drei **gültigen** Zustände kommen sauber zurück: `abgelehnt`, `gemessen` (auch wenn überall
-null), und *keine Zeile* = nicht gemessen.
-
-**Die Rollentrennung hält, von der DB erzwungen:** `chesslab_web` auf `matte` → `permission
-denied`; `chesslab_pipeline` auf `review_note` → `permission denied`.
-
-**Beim `matte_dense` lauerte ein echtes Loch:** `array_length('{}', 1)` ist `NULL`, und eine
-CHECK-Bedingung, die zu `NULL` auswertet, GILT in Postgres. Ohne das `coalesce` wäre ein leeres
-Array als "gemessen, null Felder" durchgegangen — genau die Verwechslung, gegen die das Schema
-gebaut ist. Gefunden durch die Gegenprobe, nicht durch Nachdenken.
-
-**Offen:** der automatische Test. `psycopg` liess sich nicht nachinstallieren, solange der
-Destillations-Lauf das venv haelt (`chesslab.exe` gesperrt). Die Zusagen sind damit **von Hand**
-belegt, nicht von der Suite — das kommt nach, sobald der Lauf durch ist.
+Damit ist der Fix folgenlos fuer alles, was auf der Platte liegt: `_load_and_extract` nimmt jetzt
+`upright=`, und der verbatim-Weg laesst die Drehung aus. Gegenprobe haelt.
