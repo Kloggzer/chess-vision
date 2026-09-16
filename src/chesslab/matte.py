@@ -331,6 +331,19 @@ def alpha_sam3(
     return filled.astype(np.float32) / 255.0, hits
 
 
+def alpha_for(session_dir: Path, row: dict) -> Path:
+    """Das Alpha, das ZU DIESER ZEILE gehoert — nach einem Upsert liegt SAMs unter `.sam.webp`,
+    und `<stem>.webp` ist das des Drei-Bilder-Sensors. Fuer jede Zeile `<stem>.webp` zu nehmen gab
+    SAMs Zeile die Zahlen des Sensors: 68 Zeilen im Korpus (gemessen 2026-09-16).
+    """
+    mattes = session_dir / "mattes"
+    if (row.get("source") or "sam") == "sam":
+        own = mattes / f"{row['frame']}.sam.webp"
+        if own.is_file():
+            return own
+    return mattes / f"{row['frame']}.webp"
+
+
 def coverage_of(
     alpha: np.ndarray,
     entry: dict,
@@ -420,7 +433,7 @@ def recut_coverage(
     rows: list[dict] = []
     recut = crossed = 0
     for row in read_jsonl(path):
-        alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+        alpha_path = alpha_for(session_dir, row)
         entry = entries.get(row["frame"])
         # `alpha: fixed` gehoert dem Menschen, und eine Zeile ohne Coverage ist SAMs Absage.
         if (row.get("coverage") is None or row.get("alpha") == "fixed" or entry is None
@@ -676,6 +689,9 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     # dann auch noch gerade.
     try:
         for row in read_jsonl(path):
+            # TODO: dieselbe Form wie in `recut_coverage` (dort gefixt) — nach einem Upsert
+            # ist das nicht SAMs Alpha. Hier ungemessen, und der Schritt SCHREIBT zurueck,
+            # also nicht blind mitziehen (`docs/offene-entscheidungen.md`, Punkt 29).
             alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
             entry = entries.get(row["frame"])
             image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None

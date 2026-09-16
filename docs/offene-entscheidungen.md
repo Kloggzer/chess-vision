@@ -35,7 +35,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
 | ~~27~~ | Postgres statt 19 Dateiformate | — | — | **verworfen 2026-09-16** — Messungen bleiben |
 | **28** | Python und TypeScript uneinig: Messung, dann Absage | B | 1 h | **entscheiden** — heute latent |
-| **29** | `recut_coverage` liest womoeglich das falsche Alpha | ? | erst messen | **messen** — moeglicher Datenfehler |
+| ~~29~~ | `recut_coverage` las das falsche Alpha | — | — | **gefixt** — 68 Zeilen auf der Platte noch falsch |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
@@ -366,15 +366,23 @@ Messung ist die einzige Zahl, die es gibt.
 |---|---|---|
 | B | 1 h | die spaetere Zeile gewinnt, auf BEIDEN Seiten — sonst haengt die Antwort an der Sprache |
 
-## 29. `recut_coverage` liest moeglicherweise das falsche Alpha
+## 29. `recut_coverage` las das falsche Alpha — GEMESSEN und GEFIXT 2026-09-16
 
-`recut_coverage` filtert nicht nach `source` und nimmt fuer jede Zeile `mattes/<stem>.webp`. Nach
-einem `upsert` liegt SAMs Original aber unter `mattes/<stem>.sam.webp`, und `<stem>.webp` ist das
-Alpha des Drei-Bilder-Sensors. Die SAM-Zeile bekaeme dann eine Coverage aus dem Temporal-Alpha.
+`upsert_proposals` schiebt SAMs Datei nach `mattes/<stem>.sam.webp` und schreibt das Alpha des
+Drei-Bilder-Sensors unter `<stem>.webp`. `recut_coverage` nahm fuer JEDE Zeile `<stem>.webp` und
+gab SAMs Zeile damit die Zahlen des Sensors — unter SAMs Namen.
 
-Ebenfalls von Sol gefunden. **Erst messen, dann entscheiden:** wie viele Aufnahmen haben
-ueberhaupt `.sam.webp`-Dateien, und wurde auf ihnen seitdem `recut-coverage` gefahren?
+**Gemessen, nicht vermutet:** 20 von 25 Aufnahmen tragen `.sam.webp`-Sicherungen, 139 SAM-Zeilen
+waren gefaehrdet, und bei **68** ist es passiert: ihre gespeicherte Coverage laesst sich exakt
+(Abstand 0,0000) aus dem Temporal-Alpha nachrechnen, nicht aus SAMs. Die uebrigen 71 sind sauber.
 
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| ? | erst messen | zaehlen, bevor irgendetwas geaendert wird |
+Besonders unangenehm, weil diese 68 wie SAMs eigenes Urteil aussehen und damit den Hand-Gate-
+Schueler mitlehren — genau das, was am selben Tag fuer `source: upsert` repariert wurde.
+
+**Gefixt:** `matte.alpha_for(session_dir, row)` waehlt das Alpha, das zur Zeile gehoert.
+
+**Offen bleibt zweierlei:**
+1. Die 68 Zeilen auf der Platte tragen weiter die falsche Zahl. Ein `occluders recut-coverage`
+   ueber die 20 Aufnahmen repariert sie jetzt richtig — es schreibt aber 20 `matte.jsonl` neu.
+2. `close_seams` hat DIESELBE Form (`matte.py:679`), ungemessen, und es SCHREIBT das Alpha
+   zurueck. Nicht blind mitgezogen; TODO steht an der Stelle.
