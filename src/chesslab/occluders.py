@@ -150,10 +150,11 @@ def chroma_cut_of(cap: cv2.VideoCapture, n_frames: int, median: np.ndarray,
             continue
         d = chroma_distance(cv2.resize(f, size, interpolation=cv2.INTER_AREA), median)
         vals.append(d[on])
-    # TODO: kein dekodierter Frame ist keine Messung — `_sample` bricht daneben ab, hier wird
-    # der permissivste Schnitt erfunden.
+    # Kein dekodierter Frame ist keine Messung: die 0.05 war die untere Klemmgrenze, also der
+    # PERMISSIVSTE Schnitt — erfunden genau dort, wo nichts zu sehen war. `_sample` bricht ab.
     if not vals:
-        return 0.05
+        raise ValueError(f"kein Frame von {samples} Stichproben dekodiert — "
+                         f"der Chroma-Schnitt waere geraten")
     q = np.clip(np.concatenate(vals) * (255.0 / 0.8), 0, 255).astype(np.uint8)
     cut, _ = cv2.threshold(q, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return float(np.clip(cut * 0.8 / 255.0, 0.05, 0.40))

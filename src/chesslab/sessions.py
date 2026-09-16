@@ -110,7 +110,15 @@ def _filter_jsonl(path: Path, session_id: str) -> None:
         return
     kept = [line for line in path.read_text(encoding="utf-8").splitlines()
             if line.strip() and json.loads(line).get("session_id") != session_id]
-    path.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+    # Atomar: das Manifest ist GETEILT, ein Abbruch mitten im Schreiben traefe jede Session
+    # darin, nicht nur die archivierte.
+    temp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        temp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    temp.replace(path)
 
 
 def _purge_crops(session_id: str, paths: config.Paths) -> int:
@@ -242,12 +250,12 @@ def archive_session(session_id: str, reason: str, paths: config.Paths = config.D
         # Was `shutil.rmtree(dst)`. Archiving is the SAFE half of the API, and silently
         # destroying an existing archive of the same id is the one thing it must never do.
         raise FileExistsError(f"'{sid}' is already archived — remove or rename it first.")
-    # TODO: die Zerstoerung laeuft VOR dem Move — scheitert der (Windows-Sharing-Violation), ist
-    # die Session aktiv und leer, und `_filter_jsonl` schreibt das geteilte Manifest nicht atomar.
+    # Der MOVE zuerst: scheitert er (unter Windows reicht ein offener Datei-Handle), war die
+    # Session sonst schon leergeraeumt und lag weiter aktiv da — mit ihren Crops im Nichts.
+    shutil.move(str(src), str(dst))
     n_crops = _purge_crops(sid, paths)
     for manifest in _manifest_files(paths):     # default + `crops__<tag>.jsonl` (ingested)
         _filter_jsonl(manifest, sid)
-    shutil.move(str(src), str(dst))
     _record_archive_reason(dst, sid, reason, n_crops, paths)
     return {"session_id": sid, "archived": True, "removed_crops": n_crops, "reason": reason}
 
@@ -1312,12 +1320,13 @@ def flag_frame(session_id: str, idx: int, unusable: bool) -> dict:
     A REVIEW action: this is a read-modify-write of the whole log, so doing it while the same
     session is actively being recorded could drop a concurrently appended line.
     """
-    # TODO: einzige Schreibfunktion des Abschnitts ohne `backup_log` — der Kopf oben verspricht
-    # das Gegenteil, und ohne Sicherung ist eine verlorene Zeile nicht mehr zu holen.
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
     if idx < 0 or idx >= len(rows):
         raise ValueError(f"Index {idx} out of range (0-{len(rows) - 1}).")
     rows[idx]["unusable"] = bool(unusable)
+    # Gesichert wie jede andere Schreibfunktion dieses Abschnitts: es ist ein
+    # Lesen-Aendern-Schreiben des GANZEN Logs, und eine dabei verlorene Zeile ist sonst weg.
+    backup = backup_log(sdir / "log.jsonl")
     _write_log(sdir, rows)
-    return {"session_id": session_id, "index": idx, "unusable": bool(unusable)}
+    return {"session_id": session_id, "index": idx, "unusable": bool(unusable), "backup": backup}

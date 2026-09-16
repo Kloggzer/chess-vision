@@ -98,9 +98,9 @@ def frame_anchor(name: str, move: dict) -> str:
     """
     # `retime._write_boards` rewrites the review pictures around `frame_review` and deletes the
     # old set, so the entry frame names a file that is gone. `review-cards.ts` reads the same pair.
-    # TODO: `frame_review == 0` faellt durchs `or` auf `frame` zurueck — 0 ist ein Bild, kein
-    # fehlender Wert.
-    stem = f"{int(move.get('frame_review') or move['frame']):06d}"
+    # `is None`, nicht `or`: Frame 0 ist ein Bild, kein fehlender Wert.
+    review = move.get("frame_review")
+    stem = f"{int(move['frame'] if review is None else review):06d}"
     frames = game_dir(name) / "frames"
     shot = next((p for ext in (".webp", ".png") if (p := frames / f"{stem}{ext}").is_file()),
                 frames / f"{stem}.webp")
@@ -230,21 +230,26 @@ def say_progress(progress, done: int, line: str) -> None:
 YIELD_HEADER = f"{'population':10} {'rows':>6} {'crops':>8} {'cells':>6} {'cap4':>7} {'cap16':>7}"
 
 
-# TODO: 30.0 ist geraten. `capture_import.container_fps` bricht bei genau dieser Lage ab und
-# nennt den Grund: die Aufnahmen laufen mit 28,63, die Erfassung mit 15. Der Wert steuert
-# `margin_frames`, das letzte Intervall und jedes `ts` — falsch, ohne dass etwas es meldet.
 def video_fps(candidate: dict) -> float:
-    return float((candidate.get("clock") or {}).get("fps") or 30.0)
+    """Die Bildrate der Aufnahme. NICHT geraten: sie steuert `margin_frames`, das letzte
+    Intervall und jedes `ts`, und die Aufnahmen laufen zwischen 14,8 und 30,0."""
+    fps = (candidate.get("clock") or {}).get("fps")
+    if not fps:
+        raise ValueError("candidate.json nennt keine clock.fps — ohne sie waeren Marge und "
+                         "Zeitstempel geraten (`capture_import.container_fps` bricht ebenso ab)")
+    return float(fps)
 
 
 def base_time(candidate: dict) -> datetime:
     """The recording's wall clock — row timestamps are video time counted off it, not export time."""
     try:
         return datetime.fromisoformat(str(candidate.get("created_at", "")).replace("Z", "+00:00"))
-    except ValueError:
-        # TODO: das IST die Exportzeit, die der Docstring ausschliesst. Sie landet als `ts`
-        # jeder Zeile und als `created_at` der session.yaml, nicht als abgeleitet erkennbar.
-        return datetime.now(UTC)
+    except ValueError as exc:
+        # JETZT ist die Exportzeit, die der Docstring ausschliesst — sie landet als `ts` jeder
+        # Zeile und ist am Ergebnis nicht als abgeleitet zu erkennen. Zwei Exporte derselben
+        # Aufnahme ergaeben zwei verschiedene Aufnahmeuhren.
+        raise ValueError("candidate.json nennt kein lesbares `created_at` — die Zeitstempel "
+                         "waeren die Exportzeit, nicht die der Aufnahme") from exc
 
 
 def video_path(name: str) -> Path:

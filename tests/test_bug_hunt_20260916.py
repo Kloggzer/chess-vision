@@ -66,8 +66,6 @@ def test_timing_flags_do_not_report_an_unmeasured_cell_as_matte_free():
     assert rows[0]["matte_cov"] is None, "ohne Matte ist die Coverage ungemessen, nicht 0.0"
 
 
-@pytest.mark.xfail(reason="_frame_count macht aus einem unlesbaren Container 0 Frames",
-                   strict=True)
 def test_an_unreadable_segment_is_not_counted_as_zero_frames(tmp_path):
     """`_locate` addiert diese 0 auf `base` — jeder spaetere Frame-Index zeigt auf die falsche Zeile."""
     from chesslab.recording import _frame_count
@@ -78,8 +76,6 @@ def test_an_unreadable_segment_is_not_counted_as_zero_frames(tmp_path):
         _frame_count(broken)
 
 
-@pytest.mark.xfail(reason="video_fps raet 30.0, wo capture_import.container_fps abbricht",
-                   strict=True)
 def test_a_candidate_without_a_clock_does_not_get_an_invented_frame_rate():
     """28,63 ist gemessen, 15 bei der Erfassung — 30,0 verschiebt jedes Intervall lautlos."""
     from chesslab.realgames import video_fps
@@ -88,8 +84,6 @@ def test_a_candidate_without_a_clock_does_not_get_an_invented_frame_rate():
         video_fps({"moves": []})
 
 
-@pytest.mark.xfail(reason="base_time faellt auf JETZT zurueck — genau die Exportzeit, die der "
-                          "Docstring ausschliesst", strict=True)
 def test_a_candidate_without_created_at_gets_no_invented_wall_clock():
     """Der Rueckfall landet als `ts` jeder Log-Zeile und als `created_at` der session.yaml."""
     from chesslab.realgames import base_time

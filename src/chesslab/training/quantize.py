@@ -74,9 +74,9 @@ def _calibration_rows(cfg: dict, limit: int) -> list[dict]:
 
     manifest = load_manifest(manifest_path)
     split = load_split(split_path)
-    # TODO: das `or` schiebt bei leerem Train-Split still den VAL-Satz unter die Kalibrierung —
-    # genau der Eval-Leak, den der Docstring ausschliesst.
-    rows = filter_rows_by_split(manifest, split, "train") or filter_rows_by_split(manifest, split, "val")
+    # NUR der Trainings-Split: das `or` schob bei leerem Train-Satz still den Val-Satz unter die
+    # Kalibrierung — genau der Eval-Leak, den der Docstring ausschliesst.
+    rows = filter_rows_by_split(manifest, split, "train")
     if not rows:
         return []
 

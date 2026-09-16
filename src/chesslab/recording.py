@@ -111,15 +111,20 @@ class Recording:
             base += count
         return len(self.segments) - 1, base
 
-# TODO: ein unlesbarer oder atomloser Container liefert 0.0, und `max(0, ...)` macht daraus
-# eine gueltig aussehende Laenge. `_locate` addiert die 0 nicht auf `base`, also zeigt jeder
-# spaetere Index auf die falsche Log-Zeile — ein falsches FEN, kein fehlender Frame.
 def _frame_count(path: Path) -> int:
+    """Wie `frames()`: ein unlesbarer Container ist ein Fehler, keine Laenge 0.
+
+    Als 0 durchgereicht verschob sich `base` in `_locate` nicht, und JEDER spaetere Index zeigte
+    auf die falsche Log-Zeile — ein falsches FEN, kein fehlender Frame.
+    """
     cap = cv2.VideoCapture(str(path))
     try:
-        return max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+        count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     finally:
         cap.release()
+    if count <= 0:
+        raise FileNotFoundError(f"{path}: kein lesbarer Frame-Zaehler — abgeschnitten oder kein Atom")
+    return count
 
 
 def _combined_rotation(cap, rotate: int | None) -> int | None:

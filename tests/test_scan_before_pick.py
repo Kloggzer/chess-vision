@@ -148,9 +148,12 @@ START_FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
 
 def _candidate():
     """Ein bestaetigter Kandidat mit EINEM Intervall — mehr braucht `plan_scanned` nicht."""
+    # `clock.fps` und `created_at` wie jeder echte Kandidat (29 von 29 auf der Platte): beide
+    # werden nicht mehr geraten, weil sie Marge, letztes Intervall und jedes `ts` steuern.
     return {"geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
             "moves": [{"frame": 0, "ply": 1, "fen_after": START_FEN}],
-            "reviewed_plies": [1], "frames": 120, "fps": 30}
+            "reviewed_plies": [1], "frames": 120,
+            "clock": {"fps": 30}, "created_at": "2026-09-16T05:00:00+00:00"}
 
 
 def _seg_scan(hands=(), stale_from=None, end=120, stride=3, extra=()):

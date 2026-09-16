@@ -236,7 +236,8 @@ def test_no_dirty_reaches_the_path_every_export_actually_takes():
     candidate = {"geometry": {"corners": [[0, 0], [1, 0], [1, 1], [0, 1]]},
                  "moves": [{"frame": 0, "ply": 1,
                             "fen_after": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"}],
-                 "reviewed_plies": [1], "frames": 120, "fps": 30}
+                 "reviewed_plies": [1], "frames": 120,
+                 "clock": {"fps": 30}, "created_at": "2026-09-16T05:00:00+00:00"}
     scan = [{"idx": i, "gate": 0.9 if i < 36 else 0.1, "grid": [], "cells": [200.0] * 64}
             for i in range(0, 120, 3)]
     assert any(r.get("dirty") for r in rg.plan_scanned(candidate, scan, margin_frames=0))

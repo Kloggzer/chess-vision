@@ -25,7 +25,6 @@ def _paths(tmp_path: Path) -> config.Paths:
 
 # --- 1. sessions.archive_session ---------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 1: Crops und Manifestzeilen fallen VOR shutil.move", strict=True)
 def test_archive_keeps_the_crops_when_the_move_fails(tmp_path, monkeypatch):
     from chesslab import sessions
 
@@ -51,7 +50,6 @@ def test_archive_keeps_the_crops_when_the_move_fails(tmp_path, monkeypatch):
 
 # --- 2. sessions.flag_frame --------------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 2: flag_frame schreibt log.jsonl ohne backup_log", strict=True)
 def test_flag_frame_backs_the_log_up_like_every_other_writer(tmp_path, monkeypatch):
     from chesslab import sessions
 
@@ -87,7 +85,6 @@ def test_ingest_reports_how_many_renders_the_adapter_dropped(tmp_path):
 
 # --- 4. realgames.frame_anchor -----------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 4: `frame_review or frame` verwirft die 0", strict=True)
 def test_frame_anchor_uses_review_frame_zero(tmp_path, monkeypatch):
     from chesslab import realgames
 
@@ -202,8 +199,6 @@ class _DeadCap:
         return False, None
 
 
-@pytest.mark.xfail(reason="Spur 8: unlesbarer Clip erfindet den permissivsten Schnitt",
-                   strict=True)
 def test_chroma_cut_refuses_an_unreadable_clip():
     from chesslab.occluders import chroma_cut_of
 
@@ -242,7 +237,6 @@ def test_fused_counts_separate_dedup_from_the_class_collapse(tmp_path):
 
 # --- 10. training/quantize ---------------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 10: leerer Train-Split kalibriert still auf Val", strict=True)
 def test_calibration_never_falls_back_to_the_val_split(tmp_path, monkeypatch):
     from chesslab.training.quantize import _calibration_rows
 
