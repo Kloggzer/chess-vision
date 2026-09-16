@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import cv2
@@ -37,8 +38,11 @@ def main() -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    found = checked = 0
-    with out.open("w", encoding="utf-8") as sink:
+    found = checked = noboard = 0
+    # TODO: `open("w")` KUERZT den veroeffentlichten Bericht sofort beim Start; ein abgebrochener
+    # Lauf liess ihn halb da, und `matte_audit_montage.py` liest ihn mit `json.loads` je Zeile.
+    tmp = out.with_name(out.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as sink:
         for rec in sorted(Path(args.recordings).iterdir()):
             mj = rec / "matte.jsonl"
             if mj.is_dir() or not mj.exists():
@@ -51,7 +55,10 @@ def main() -> int:
             hits = 0
             for r in blind:
                 p = board_path(rec, r["frame"])
+                # TODO: ungezaehlt uebersprungen — `checked` sank dadurch stumm, und `von
+                # {len(blind)}` eine Zeile tiefer nannte weiter die volle Zahl.
                 if p is None:
+                    noboard += 1
                     continue
                 gray = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2GRAY)
                 squares = sorted(hand_squares(missing_edges(gray, board_size=gray.shape[0], pad=0)))
@@ -64,7 +71,13 @@ def main() -> int:
             if blind:
                 print(f"  {rec.name:26s} {hits:4d} von {len(blind):4d} blinden Matten "
                       f"melden Rillen-Felder", flush=True)
-    print(f"\n{found} von {checked} blinden Matten werden vom Rillen-Sensor widersprochen -> {out}")
+    os.replace(tmp, out)
+    if not checked:
+        # TODO: "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.
+        print(f"\nkeine blinde Matte geprueft (ohne Brett: {noboard}) — nichts gemessen -> {out}")
+        return 1
+    print(f"\n{found} von {checked} blinden Matten werden vom Rillen-Sensor widersprochen"
+          + (f" ({noboard} ohne Brett uebersprungen)" if noboard else "") + f" -> {out}")
     return 0
 
 

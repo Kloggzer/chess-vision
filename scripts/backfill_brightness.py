@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -50,28 +51,44 @@ def main() -> int:
     if args.dry_run:
         return 0
 
-    done = 0
+    done = gaps = 0
     for name, group in sorted(by_pack.items()):
         d = Path("data/packs") / name
         meta = json.loads((d / "packed_meta.json").read_text(encoding="utf-8"))
         n, h, w = int(meta["n"]), int(meta["h"]), int(meta["w"])
         at = {p: i for i, p in enumerate(meta["paths"])}
         mm = np.memmap(d / "packed_images.u8", dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+        missed = 0
         for r in group:
             key = f"mm://{name}/{r['frame']}/{r['square']}"
             i = at.get(key)
+            # TODO: dieser Sprung fiel ungezaehlt aus — die Zeile behaelt `brightness: None`, und
+            # `{len(group)} Zeilen` plus `[OK]` lasen sich wie ein vollstaendiger Nachtrag.
             if i is None:
+                missed += 1
                 continue
             r["brightness"] = round(float((mm[i].astype(np.float32) @ GRAY).mean()), 2)
             done += 1
         del mm
-        print(f"  {name}: {len(group)} Zeilen", flush=True)
+        print(f"  {name}: {len(group)} Zeilen"
+              + (f", {missed} nicht im Pack" if missed else ""), flush=True)
+        gaps += missed
 
     out = Path(args.out) if args.out else dd / "manifest.jsonl"
-    with out.open("w", encoding="utf-8") as fh:
-        for r in rows:
-            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
-    print(f"[OK] {done} Zeilen nachgetragen -> {out}")
+    # TODO: `open("w")` KUERZT das GETEILTE Manifest; ein Abbruch liess es halb da, und ein
+    # toleranter Leser verwirft die halbe letzte Zeile stumm — der Datensatz ist dann kuerzer,
+    # ohne dass etwas meckert. Nebendatei plus `os.replace` laesst das alte bis zuletzt stehen.
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            for r in rows:
+                fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, out)
+    print(f"[OK] {done} Zeilen nachgetragen"
+          + (f", {gaps} ohne Eintrag im Pack" if gaps else "") + f" -> {out}")
     return 0
 
 

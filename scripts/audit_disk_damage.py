@@ -13,17 +13,30 @@ from pathlib import Path
 
 from chesslab import config
 
+#: Kaputte Zeilen, die KEINE halbe letzte sind — je Datei. Der Schadensbericht liest sie selbst.
+BROKEN_LINES: dict[str, int] = {}
+
 
 def _rows(path: Path) -> list[dict]:
     if not path.is_file():
         return []
-    out = []
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        if line.strip():
-            try:
-                out.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+    # TODO: Der Schadens-Auditor verschluckte genau den Schaden, den er zaehlen soll — eine
+    # kaputte Zeile MITTEN in einer `.jsonl` ist Beschaedigung und wurde stumm uebersprungen,
+    # der Bericht meldete "nichts gefunden". Nur die halbe LETZTE Zeile ist erwartbar.
+    out, broken = [], 0
+    text = path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+    open_tail = bool(text) and not text.endswith("\n")
+    for i, line in enumerate(lines):
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            if not (open_tail and i == len(lines) - 1):
+                broken += 1
+    if broken:
+        BROKEN_LINES[str(path)] = broken
     return out
 
 
@@ -136,6 +149,10 @@ def main() -> None:
         for row in found:
             print("  " + ", ".join(f"{k}={v}" for k, v in row.items()))
         print(f"  -> {len(found)} Aufnahmen betroffen")
+    print("\n== kaputte JSONL-Zeilen, die nicht die letzte waren ==")
+    for path, n in sorted(BROKEN_LINES.items()):
+        print(f"  {path}: {n}")
+    print(f"  -> {sum(BROKEN_LINES.values())} Zeilen in {len(BROKEN_LINES)} Dateien")
 
 
 if __name__ == "__main__":

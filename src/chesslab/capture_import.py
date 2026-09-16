@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from bisect import bisect_left
 from collections.abc import Iterator
 from contextlib import closing
@@ -48,14 +49,32 @@ def video_syncs(bundle: Path) -> list[tuple[int, int]]:
     path = bundle / "timeline.jsonl"
     if not path.is_file():
         raise FileNotFoundError(f"{path} fehlt — ohne sie ist `elapsed_ns` keine Videozeit")
-    out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        row = json.loads(line) if line.strip() else {}
-        if row.get("kind") == "video_sync" and row.get("durationNs") is not None:
-            out.append((int(row["elapsedNs"]), int(row["durationNs"])))
+    # TODO: Der ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`): das
+    # Telefon STROEMT in `timeline.jsonl`, eine abgebrochene Aufnahme laesst also eine halbe LETZTE
+    # Zeile zurueck. `json.loads` darauf brach den ganzen Import ab, statt sie zu verwerfen.
+    out = [(int(row["elapsedNs"]), int(row["durationNs"])) for row in _timeline_rows(path)
+           if row.get("kind") == "video_sync" and row.get("durationNs") is not None]
     if not out:
         raise ValueError(f"{path}: keine `video_sync`-Zeile — die Geraeteuhr hat keinen Anker")
     return sorted(out)
+
+
+def _timeline_rows(path: Path) -> list[dict]:
+    """Jede Zeile — ausser einer halben LETZTEN. Eine kaputte Zeile MIT Umbruch bleibt laut."""
+    rows, broken = [], None
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            if broken is not None:
+                raise broken
+            try:
+                rows.append(json.loads(line))
+            except ValueError as exc:
+                if line.endswith("\n"):
+                    raise
+                broken = exc
+    return rows
 
 
 def video_ns_at(elapsed_ns: int, syncs: list[tuple[int, int]]) -> float:
@@ -159,6 +178,24 @@ def write_capture_meta(session_dir: Path, bundle: Path, name: str, profile: str,
     return session_dir / "session.yaml"
 
 
+def write_log(session_dir: Path, rows: list[dict]) -> Path:
+    """TODO: `open("w")` KUERZTE die kanonische Datei der Aufnahme; ein Abbruch liess sie halb da,
+    und `provenance.session_stamp` stempelt auch eine halbe, womit `chain.ts` die Sprosse fuer
+    frisch haelt. Derselbe tmp+`os.replace`-Riegel wie in `sessions._write_log`.
+    """
+    log_path = session_dir / "log.jsonl"
+    tmp = log_path.with_suffix(".jsonl.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, log_path)
+    return log_path
+
+
 def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
     """Ein Buendel mit `capture.json` wird zu Brettern und dem `log.jsonl`, das `slice` liest."""
     from .calibration import load_profile
@@ -187,8 +224,6 @@ def import_capture(name: str, profile: str = realgames.EXPORT_PROFILE) -> dict:
 
     if (session_dir / "log.jsonl").is_file():
         backup_log(session_dir / "log.jsonl")
-    with (session_dir / "log.jsonl").open("w", encoding="utf-8") as fh:
-        for row in rows:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    write_log(session_dir, rows)
     return {"session_dir": session_dir, "bundle": bundle, "rows": rows,
             "fps": fps, "fit": fit, **made}

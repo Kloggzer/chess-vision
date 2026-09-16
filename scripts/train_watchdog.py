@@ -72,12 +72,34 @@ def verdict(run: list[dict], base: list[dict], e: int) -> str | None:
     return None
 
 
+def _epochs(path: Path) -> list[dict]:
+    """TODO: `metrics.jsonl` waechst WAEHREND des Laufs (`train.py` haengt je Epoche an), und ein
+    Treffer mitten im Schreiben toetete die Wache mit `JSONDecodeError` — sie sollte gerade dann
+    da sein. Der ZEILENUMBRUCH entscheidet wie in `ioutil.read_jsonl`: halbe letzte Zeile weg,
+    eine kaputte MIT Umbruch bleibt laut.
+    """
+    rows, broken = [], None
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            if broken is not None:
+                raise broken
+            try:
+                rows.append(json.loads(line))
+            except ValueError as exc:
+                if line.endswith("\n"):
+                    raise
+                broken = exc
+    return rows
+
+
 def check(base: list[dict], dry: bool) -> None:
     for d in sorted(Path("data/models/_reg").iterdir()):
         p = d / "metrics.jsonl"
         if not p.is_file() or d.name.endswith(".abgebrochen"):
             continue
-        ms = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()]
+        ms = _epochs(p)
         if len(ms) < MIN_EPOCH + STREAK or len(ms) >= 60:
             continue
         why = [verdict(ms, base, e) for e in range(len(ms) - STREAK + 1, len(ms) + 1)]
@@ -108,7 +130,7 @@ def replay(base: list[dict], dirs: list[Path]) -> None:
         p = d / "metrics.jsonl"
         if not p.is_file():
             continue
-        ms = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines()]
+        ms = _epochs(p)
         if len(ms) < MIN_EPOCH + STREAK:
             continue
         hit = None
@@ -138,7 +160,7 @@ def main() -> int:
     ap.add_argument("--replay", action="store_true",
                     help="Rueckwirkend ueber alle fertigen Laeufe statt live.")
     a = ap.parse_args()
-    base = [json.loads(x) for x in Path(a.base).read_text(encoding="utf-8").splitlines()]
+    base = _epochs(Path(a.base))
     print(f"[i] Waechter laeuft, Basis {a.base}. Abbruch nur wenn occ_acc oder macro_recall "
           f"6 sd unter der Basis am GLEICHEN Epochenstand liegen, {STREAK} Epochen in Folge, "
           f"fruehestens ab Epoche {MIN_EPOCH}.")

@@ -43,7 +43,10 @@ def compare(predicted, measured, threshold, matte_threshold):
 
 def audit_session(directory, thresholds, matte_threshold):
     # Bound memory to one recording's small matte index and one model-read frame.
-    mattes = {str(row["frame"]): row.get("coverage", {})
+    # TODO: SAMs ABSAGE (`skipped`, "zone too big") traegt `coverage: null`, und `.get(k, {})`
+    # gibt dann `None` zurueck — `complete(None)` starb an `None.keys()` und riss den ganzen Audit
+    # mit. Leer statt `None` faellt bei `complete` durch und landet als `unknown` — ungemessen.
+    mattes = {str(row["frame"]): (row.get("coverage") or {})
               for row in rows(directory / "matte.jsonl") if "frame" in row}
     result = {str(t): Counter() for t in thresholds}
     current = None

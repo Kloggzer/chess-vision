@@ -7,6 +7,8 @@ statt Sekunden antwortet. Warum die drei Scan-Sensoren das nicht können: `docs/
 from __future__ import annotations
 
 import json
+import os
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -57,15 +59,16 @@ def human_verdicts() -> dict[tuple[str, str], str]:
             for r in read_jsonl(path) if "frame" in r and "session_id" in r} if path.is_file() else {}
 
 
-def gate_rows(unclear: bool = False) -> list[dict]:
+def gate_rows(unclear: bool = False, skipped: Counter | None = None) -> list[dict]:
     """`{session, stem, board, hand, coverage}` über jede Session mit Matte — der Lehrer-Datensatz.
 
-    `coverage` sind SAMs 64 Werte in `all_squares()`-Reihenfolge; `board` der Pfad relativ zu
-    `config.DATA.recordings`, damit eine Zeile allein reicht.
+    `coverage` sind SAMs 64 Werte in `all_squares()`-Reihenfolge, `board` relativ zu
+    `config.DATA.recordings`. `skipped` zaehlt, was je Grund WEGFAELLT — 318 von 9 423.
     """
     from .ioutil import read_jsonl
     from .labeling import all_squares, read_session_meta
 
+    tally = Counter() if skipped is None else skipped
     squares = all_squares()
     verdicts = human_verdicts()
 
@@ -81,15 +84,21 @@ def gate_rows(unclear: bool = False) -> list[dict]:
             # Das Wort des Menschen ist das letzte: `matte-bad` heisst "diese Matte ist falsch",
             # und dann taugt weder ihr Ja noch ihr Nein als Lehre (22 SAM-Zeilen lehrten trotzdem).
             if said == "matte-bad":
+                tally["matte_bad"] += 1
                 continue
             # Sonst NUR SAMs eigenes Urteil — eine adoptierte `temporal`/`upsert`-Zeile stammt vom
             # Drei-Bilder-Sensor und macht aus dem Lehrer einen zweiten Schueler. Ausser der Mensch
             # hat sie ausdruecklich freigegeben; dann buergt er dafuer.
             if row.get("source") in ("temporal", "upsert") and said != "matte-ok":
+                tally["not_sams_own"] += 1
                 continue
             hand = gate_label(row)
             rel = boards.get(row["frame"])
-            if rel is None or (hand is None and not unclear):
+            if rel is None:
+                tally["no_board_in_log"] += 1
+                continue
+            if hand is None and not unclear:
+                tally["unclear"] += 1
                 continue
             cover = row.get("coverage") or {}
             out.append({"session": session, "stem": row["frame"],
@@ -396,9 +405,13 @@ def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epoc
     from torch.utils.data import DataLoader
 
     torch.manual_seed(seed)
-    rows = gate_rows()
+    dropped = Counter()
+    rows = gate_rows(skipped=dropped)
     if not rows:
         raise RuntimeError("keine Matte auf der Platte — `occluders alpha-worker` lief nie")
+    if dropped and progress:
+        print(f"  Lehrer-Satz: {len(rows)} Bretter, verworfen {dict(sorted(dropped.items()))}",
+              flush=True)
     held = set(holdout_sessions(rows, holdout, pinned_holdout))
     train_rows = [r for r in rows if r["session"] not in held]
     val_rows = [r for r in rows if r["session"] in held]
@@ -542,6 +555,21 @@ def read_boards(model, device, boards: list, size: int, batch: int = 16) -> list
     return _forward(model, device, images, batch)
 
 
+def write_gate(path: Path, lines: list[str]) -> Path:
+    """TODO: `write_text` KUERZT zuerst — ein abgebrochener Scan liess den vorigen, vollstaendigen
+    Gate halb da, und ein toleranter Leser (`ioutil.read_jsonl`) verwirft die halbe letzte Zeile
+    stumm: ein halber Lauf liest sich dann als ganzer, ohne `veto` fuer die fehlenden Frames.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, path)
+    return path
+
+
 def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
     """Eine Session durch den Schüler -> `gate.jsonl` neben `matte.jsonl`.
 
@@ -568,8 +596,7 @@ def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
             "hand": round(got[0], 4), "veto": got[0] >= thr,
             "coverage": {sq: round(v, 4) for sq, v in zip(squares, got[1:], strict=True) if v > 0.01},
         }))
-    path = session_dir / "gate.jsonl"
-    path.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
+    path = write_gate(session_dir / "gate.jsonl", lines)
     # Ein unlesbares Brett FEHLT in der Datei, und das ist richtig — aber der Bericht muss es
     # sagen, sonst liest sich ein halber Lauf wie ein ganzer.
     return {"path": path, "frames": len(lines), "unreadable": sum(1 for x in said if x is None),

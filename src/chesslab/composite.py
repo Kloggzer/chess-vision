@@ -341,11 +341,21 @@ PROVENANCE_FILE = "composite.json"
 def _write_provenance(out_root: Path, clip: str, entry: dict) -> None:
     """Eine Zeile je Clip im Pool — mehrere Clips teilen sich einen Pool."""
     import json
+    import os
 
     path = out_root / PROVENANCE_FILE
     all_of = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     all_of[clip] = entry
-    path.write_text(json.dumps(all_of, indent=1), encoding="utf-8")
+    # TODO: Lesen-aendern-schreiben auf EINE Datei — `write_text` kuerzte sie zuerst, ein Abbruch
+    # nahm also die Herkunft JEDES frueheren Clips im Pool mit und `read_provenance` wirft danach.
+    # Der Pool-Riegel haelt zwar zwei Laeufe auseinander, nicht aber einen getoeteten.
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(all_of, indent=1), encoding="utf-8")
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    os.replace(tmp, path)
 
 
 def read_provenance(pool: Path) -> dict:
