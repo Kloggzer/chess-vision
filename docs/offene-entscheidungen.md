@@ -246,6 +246,16 @@ und ist umgefallen.
 **Das war der Punkt, der zur Datenbank-Frage gefuehrt hat** ("die Anwendung streitet sich"). Er
 brauchte keine.
 
+**NACHGEZOGEN 2026-09-16: eine Treuhand, durch die alles laeuft.** Die Regel allein reicht nicht,
+solange jede Stelle sie selbst beantwortet. `src/chesslab/ioutil.py` und `platform/app/lib/atomic.ts`
+sind jetzt die beiden Tueren; `tests/json_doors.txt` (18 Stellen) und `platform/app/write-doors.txt`
+(3) zaehlen, was noch daneben schreibt, und duerfen nur schrumpfen.
+
+Dabei fiel ein Fehler auf, den die Regel nicht abdeckte: rohes `appendFile` an eine `.jsonl` mit
+halber letzter Zeile KLEBT die neue daran. Aus dem tolerierten Schwanz wird damit Beschaedigung
+mittendrin — genau das, worauf `loadSession` seit Punkt 22 wirft, nur jetzt dauerhaft. Fuenf
+Stellen der Web-App taten das (`lib/append-tail.test.ts`), die Python-Seite hatte sie schon.
+
 ## 23. `UtteranceQueue` — GEBAUT 2026-09-16, und das Geraet war doch nicht noetig
 
 `flush()` setzte `inFlight = 1` fuer den Alarm, und die Meldung des gerade unterbrochenen
