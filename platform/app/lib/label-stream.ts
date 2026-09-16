@@ -149,7 +149,7 @@ export type LabelStream = {
    * and a crop can both print it. A stem missing from the map has no alpha at all, which is a
    * different statement from "nothing is covered" and reads as `—`. Squares at 0 are dropped.
    */
-  coverage: Record<string, Record<string, number>>[];
+  coverage: Record<string, Record<string, number> | undefined>[];
   /** Per session, `stem -> Grund`, wo SAM ABGELEHNT hat. Eine Absage ist keine Messung: es liegt
    *  kein Alpha da, also bleibt das Frame eine offene Frage (CLAUDE.md, dieselbe Falle). */
   skipped: Record<string, string>[];
@@ -201,7 +201,7 @@ export async function loadLabelStream(): Promise<LabelStream> {
   const cells: StreamCell[] = [];
   const recent: StreamRecent[] = [];
   const decided: Record<string, string>[] = [];
-  const coverage: Record<string, Record<string, number>>[] = [];
+  const coverage: Record<string, Record<string, number> | undefined>[] = [];
   const skipped: Record<string, string>[] = [];
   const frameHands: Record<string, FrameHand>[] = [];
   const unusableCell: string[][] = [];
@@ -311,9 +311,8 @@ export async function loadLabelStream(): Promise<LabelStream> {
     ));
     coverage.push(Object.fromEntries([...matte].map(([stem, frame]) => [
       stem,
-      // Nullen BLEIBEN: eine geleerte Matte ist "gemessen, nichts verdeckt", und ohne sie las
-      // `reachesPool` das Brett als ungemattet und liess es fallen — waehrend Python seine 64
-      // Zellen ins Training schneidet.
+      // Nullen BLEIBEN: eine geleerte Matte ist "gemessen, nichts verdeckt". Bei SAMs Absage
+      // fehlt `coverage` ganz — `reachesPool` liest das Brett dann als ungemattet, was es ist.
       frame.coverage,
     ])));
     frameHands.push(Object.fromEntries(

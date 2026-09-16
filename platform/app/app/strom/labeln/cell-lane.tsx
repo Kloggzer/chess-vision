@@ -18,7 +18,7 @@ export type CellLaneProps = {
   sessions: StreamSession[];
   decided: Record<string, string>[];
   /** Per session, `stem -> {square: coverage}` — a page mixes frames, so the lookup is per cell. */
-  coverage: Record<string, Record<string, number>>[];
+  coverage: Record<string, Record<string, number> | undefined>[];
   /** Per session, `stem -> Hand am BRETT` — die Marke, die dem Crop nicht anzusehen ist. */
   frameHands: Record<string, FrameHand>[];
   /** Je Aufnahme: lief der Hand-Scan ueberhaupt? Ohne ihn ist ein fehlender Stem keine Aussage. */

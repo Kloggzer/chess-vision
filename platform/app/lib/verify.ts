@@ -92,7 +92,7 @@ export async function loadVerifyStream(skip = 0): Promise<VerifyStream> {
     const mine: OpenFrame[] = [];
     for (const row of session.rows) {
       const alpha = matte.get(row.stem);
-      if (!alpha || alpha.skipped || unusable.has(row.stem)) continue;
+      if (!alpha?.coverage || alpha.skipped || unusable.has(row.stem)) continue;
       // Ein Alpha, das nirgends etwas behauptet, hat nichts zu pruefen: die Frage der Review ist
       // "stimmt SAMs Maske", und eine leere Maske behauptet keine. Die MESSUNG bleibt in
       // `matte.jsonl` — sie unterscheidet "gemessen, frei" von "nie angesehen" (`hand_flags.py`).

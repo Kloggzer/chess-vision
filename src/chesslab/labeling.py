@@ -387,16 +387,21 @@ def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
 
-    The mattes are written per frame (`chesslab occluders matte-session`); a quiet frame simply
-    has no entry, and 0.0 is then the right answer rather than a missing one.
+    Ein stilles Frame hat schlicht keinen Eintrag. Eine Zeile OHNE `coverage` ist SAMs Absage und
+    keine Messung — folgt sie auf eine Messung, gewinnt sie: sie sagt "nicht mehr messbar", und
+    das ist die juengere Information. `lib/matte.ts` haelt es seit je so (Punkt 28).
     """
     from .ioutil import read_jsonl
 
     path = Path(session_dir) / "matte.jsonl"
-    if not path.exists():
-        return {}
-    return {r["frame"]: r["coverage"] for r in read_jsonl(path)
-            if r.get("coverage") is not None}
+    out: dict[str, dict[str, float]] = {}
+    for row in read_jsonl(path):
+        cover = row.get("coverage")
+        if cover is None:
+            out.pop(row["frame"], None)
+        else:
+            out[row["frame"]] = cover
+    return out
 
 
 def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationProfile,

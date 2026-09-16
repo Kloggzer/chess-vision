@@ -3,19 +3,86 @@
   "_states": {
     "missing": "kein Eintrag fuer diesen Stem — nicht bearbeitet, KEINE Aussage",
     "refused": "SAM hat abgelehnt (`skipped`) — gemessen wurde NICHTS, das Brett ist das verdeckteste, nicht das freieste",
-    "measured": "erfolgreich gemessen; alle Werte 0 heisst gemessen UND frei, nicht ungemessen"
+    "measured": "erfolgreich gemessen; alle Werte 0 heisst gemessen UND frei, nicht ungemessen",
+    "refused-after-measured": "erst gemessen, spaeter abgesagt: die JUENGERE Zeile gilt. Sie sagt 'nicht mehr messbar', und das ist die neuere Information."
   },
   "rows": [
-    {"frame": "000010", "coverage": {"e5": 0.82, "d4": 0.03}, "concepts": {"hand": 0.9}},
-    {"frame": "000020", "coverage": {}, "concepts": {}},
-    {"frame": "000030", "skipped": "zone too big"},
-    {"frame": "000040", "coverage": {"a1": 0.0}, "concepts": {}}
+    {
+      "frame": "000010",
+      "coverage": {
+        "e5": 0.82,
+        "d4": 0.03
+      },
+      "concepts": {
+        "hand": 0.9
+      }
+    },
+    {
+      "frame": "000020",
+      "coverage": {},
+      "concepts": {}
+    },
+    {
+      "frame": "000030",
+      "skipped": "zone too big"
+    },
+    {
+      "frame": "000040",
+      "coverage": {
+        "a1": 0.0
+      },
+      "concepts": {}
+    },
+    {
+      "frame": "000050",
+      "coverage": {
+        "b2": 0.5
+      },
+      "concepts": {}
+    },
+    {
+      "frame": "000050",
+      "skipped": "zone too big"
+    }
   ],
   "expect": [
-    {"stem": "000010", "state": "measured", "covered_over_visible_max": ["e5"], "max": 0.82},
-    {"stem": "000020", "state": "measured", "covered_over_visible_max": [], "max": 0.0},
-    {"stem": "000030", "state": "refused", "covered_over_visible_max": [], "max": null},
-    {"stem": "000040", "state": "measured", "covered_over_visible_max": [], "max": 0.0},
-    {"stem": "000099", "state": "missing", "covered_over_visible_max": [], "max": null}
+    {
+      "stem": "000010",
+      "state": "measured",
+      "covered_over_visible_max": [
+        "e5"
+      ],
+      "max": 0.82
+    },
+    {
+      "stem": "000020",
+      "state": "measured",
+      "covered_over_visible_max": [],
+      "max": 0.0
+    },
+    {
+      "stem": "000030",
+      "state": "refused",
+      "covered_over_visible_max": [],
+      "max": null
+    },
+    {
+      "stem": "000040",
+      "state": "measured",
+      "covered_over_visible_max": [],
+      "max": 0.0
+    },
+    {
+      "stem": "000099",
+      "state": "missing",
+      "covered_over_visible_max": [],
+      "max": null
+    },
+    {
+      "stem": "000050",
+      "state": "refused",
+      "covered_over_visible_max": [],
+      "max": null
+    }
   ]
 }

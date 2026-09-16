@@ -14,7 +14,8 @@ export type MatteFrame = {
   /** Which `dirty_reason` the alpha was cut for; only `occluded` frames carry one. */
   reason?: string;
   concepts: Record<string, number>;
-  coverage: Record<string, number>;
+  /** Fehlt bei SAMs Absage: dort wurde NICHTS gemessen, und `{}` hiesse "gemessen und frei". */
+  coverage?: Record<string, number>;
   /** SAM 3 refused this frame (zone too big, board unreadable) — there is no alpha on disk. */
   skipped?: string;
   /** `"fixed"` once `occluders recut` has read a hand-corrected alpha into these numbers. */
@@ -94,7 +95,7 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
         ply: row.ply,
         reason: row.reason,
         concepts: row.concepts ?? {},
-        coverage: row.coverage ?? {},
+        ...(row.coverage ? { coverage: row.coverage } : {}),
         ...(row.alpha ? { alpha: row.alpha } : {}),
         ...(row.skipped ? { skipped: row.skipped } : {}),
         ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),

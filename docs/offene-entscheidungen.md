@@ -164,7 +164,7 @@ wieder der Median allein — ein Vorschlag ist besser als keiner.
 `docs/capture-plan.schema.json` und `platform/app/lib/capture-plan.ts` ziehen mit; die beiden
 neuen Faelle stehen als Test (`test_capture_plan.py`).
 
-## 20. `read_matte` verwirft die leere Messung, TypeScript behaelt sie
+## 20. `read_matte` verwarf die leere Messung — GEBAUT, Vorlage war veraltet
 
 `labeling.read_matte` filtert mit `if r.get("coverage")` — ein leeres Dict ist falsy, also faellt
 eine Zeile "gemessen, nichts verdeckt" heraus und das Frame gilt als ungemattet. `label-stream.ts`
@@ -272,7 +272,7 @@ stehen als Test, und das ist strenger als eine Messung auf einem Geraet.
 `UtteranceQueueTest.flushDropsTheBacklogAndInterrupts` um. Tut er nicht — der Test behaelt seine
 Bedeutung, er benennt jetzt nur, WELCHER Spruch fertig meldet.
 
-## 25. `settle_for_ply`: eine leere Coverage geht in den Median der gesetzten Stellung
+## 25. Leere Coverage im Median — GEBAUT (Commit 0929769b), Vorlage war veraltet
 
 Ein `dirty`-Frame, dessen Matte-Zeile SAMs Absage ist (oder das nie gemattet wurde), passiert
 `SETTLE_CLEAR_MAX` als `0,0` und zaehlt in den Median, der die gesetzte Stellung definiert —
@@ -345,25 +345,26 @@ diesen Absatz, damit sie nicht zum dritten Mal gestellt wird.
 
 `data/pgdata` (47 MB, leeres Cluster) kann weg, sobald jemand es sagt.
 
-## 28. Messung, dann Absage: Python und TypeScript sagen Verschiedenes
+## 28. Messung, dann Absage — GEBAUT 2026-09-16, die juengere Zeile gewinnt
 
-`labeling.read_matte` baut sein Dict aus den Zeilen, die eine Coverage tragen — eine spaetere
-Zeile mit `skipped` faellt schon im Filter heraus und ueberschreibt die fruehere Messung NICHT.
-`lib/matte.ts` `loadMatte` setzt dagegen JEDE Zeile in die Map; dort gewinnt die Absage.
+`labeling.read_matte` baute sein Dict aus den Zeilen MIT Coverage — eine spaetere Absage fiel
+schon im Filter heraus und liess die alte Messung stehen. `lib/matte.ts` setzte jede Zeile in die
+Map, dort gewann die Absage. Fuer ein Frame, das gemessen und danach abgelehnt wurde, sah das
+Training also die alte Zahl und die Lane die Absage.
 
-Fuer einen Frame, der gemessen und danach von SAM abgelehnt wurde, sieht das Training also die
-alte Messung und die Lane die Absage.
+**Entschieden (Nutzer, 2026-09-16): die JUENGERE Zeile gilt, auf beiden Seiten.** Sie sagt "nicht
+mehr messbar", und das ist die neuere Information.
 
-**Heute latent, gezaehlt 2026-09-16: 9 423 Matte-Zeilen im Korpus, NULL Absagen.** Gefunden von
-Sol beim Review der (verworfenen) Datenbank-Spec — der Befund ueberlebt sie.
+Die Regel steht jetzt im gemeinsamen Fixture `parity/_matte/matte_states.json` als fuenfter
+Zustand, und beide Sprachen lesen dieselbe Datei. Python war rot, TypeScript gruen — nur Python
+musste nachziehen.
 
-**Die Frage ist eng:** wenn SAM einen Frame zuerst misst und spaeter ablehnt ("zone too big"),
-welche Aussage gilt? Die Absage ist die JUENGERE Information und sagt "nicht mehr messbar"; die
-Messung ist die einzige Zahl, die es gibt.
+**Zweite Haelfte, beim Bauen gefunden:** `lib/matte.ts` schrieb `coverage: row.coverage ?? {}` —
+aus SAMs Absage wurde damit "gemessen, nichts verdeckt", genau die Fehlerklasse aus Punkt 21, in
+der Lesestelle selbst. `coverage` ist jetzt OPTIONAL: fehlt es, wurde nichts gemessen. Der TS-Test
+prueft ausserdem gegen die ECHTE `loadMatte` statt gegen eine Kopie ihrer Regeln.
 
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| B | 1 h | die spaetere Zeile gewinnt, auf BEIDEN Seiten — sonst haengt die Antwort an der Sprache |
+**Wirkung heute: null** — 0 Absagen im Korpus. Die Regel greift beim naechsten SAM-Lauf.
 
 ## 29. `recut_coverage` las das falsche Alpha — GEMESSEN und GEFIXT 2026-09-16
 

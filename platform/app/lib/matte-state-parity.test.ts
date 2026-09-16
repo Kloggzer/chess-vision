@@ -5,9 +5,11 @@
  * Die Zustaende zu verwechseln war am 2026-09-15/16 vier Mal ein Bug: SAMs Absage als sauberes
  * Brett, eine fehlende Matte als `coverage 0`.
  */
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
+import { loadMatte } from "@/lib/matte";
+import { tempDataRoot } from "@/lib/test-fixtures";
 
 const FIXTURE = path.join(
   __dirname,
@@ -21,27 +23,27 @@ async function fixture(): Promise<Case> {
   return JSON.parse(await readFile(FIXTURE, "utf8")) as Case;
 }
 
-/** Wie `lib/matte.ts` es liest: eine Zeile mit `skipped` traegt keine Messung. */
-function decode(rows: Record<string, unknown>[]) {
-  const out = new Map<string, { skipped?: string; coverage: Record<string, number> }>();
-  for (const row of rows) {
-    const stem = String(row.frame);
-    out.set(stem, {
-      ...(row.skipped ? { skipped: String(row.skipped) } : {}),
-      coverage: (row.coverage ?? {}) as Record<string, number>,
-    });
-  }
-  return out;
+/** Die ECHTE Lesefunktion, nicht eine Kopie ihrer Regeln — sonst prueft der Test sich selbst. */
+async function decode(rows: Record<string, unknown>[]) {
+  const dir = await tempDataRoot("matte-states");
+  const sdir = path.join(dir, "recordings", "s");
+  await mkdir(sdir, { recursive: true });
+  await writeFile(path.join(sdir, "matte.jsonl"),
+    rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
+  return loadMatte("s");
 }
 
 test("die Absage ist als solche erkennbar, die fehlende Zeile als fehlend", async () => {
   const { rows, expect: want } = await fixture();
-  const matte = decode(rows);
+  const matte = await decode(rows);
 
   for (const w of want) {
     const seen = matte.get(w.stem);
     if (w.state === "missing") expect(seen, w.stem).toBeUndefined();
-    if (w.state === "refused") expect(seen?.skipped, w.stem).toBeTruthy();
+    if (w.state === "refused") {
+      expect(seen?.skipped, w.stem).toBeTruthy();
+      expect(seen?.coverage, `${w.stem}: eine Absage ist keine leere Messung`).toBeUndefined();
+    }
     if (w.state === "measured") expect(seen?.skipped, w.stem).toBeUndefined();
   }
 });
@@ -51,15 +53,15 @@ test("eine leere Messung ist eine Messung — hier weicht Python ab", async () =
   // es ausdruecklich (`label-stream.ts`: "Nullen BLEIBEN"). Die Divergenz steht als `xfail` in
   // `tests/test_matte_state_parity.py` und in der Entscheidungsvorlage.
   const { rows } = await fixture();
-  expect(decode(rows).get("000020")).toBeDefined();
+  expect((await decode(rows)).get("000020")?.coverage).toBeDefined();
 });
 
 test("die Zahlen sind auf beiden Seiten dieselben", async () => {
   const { rows, expect: want } = await fixture();
-  const matte = decode(rows);
+  const matte = await decode(rows);
 
   for (const w of want.filter((x) => x.state === "measured")) {
-    const cover = matte.get(w.stem)!.coverage;
+    const cover = matte.get(w.stem)!.coverage!;
     const over = Object.entries(cover).filter(([, v]) => v > 0.15).map(([sq]) => sq).sort();
     expect(over, w.stem).toEqual(w.covered_over_visible_max);
     expect(Math.max(0, ...Object.values(cover)), w.stem).toBe(w.max);

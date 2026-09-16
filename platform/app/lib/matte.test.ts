@@ -32,7 +32,7 @@ test("a frame's coverage comes back keyed by stem, a skipped one without an alph
     '{"frame": "000160", "cov',
   ]);
   const matte = await loadMatte("g");
-  expect(matte.get("000144")?.coverage.h4).toBe(0.94);
+  expect(matte.get("000144")?.coverage?.h4).toBe(0.94);
   expect(matte.get("000144")?.reason).toBe("occluded");
   expect(matte.get("000150")?.skipped).toBe("zone too big");
   // A half-written trailing line is not a matte; it must not take the readable ones down with it.

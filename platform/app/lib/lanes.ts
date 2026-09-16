@@ -200,7 +200,7 @@ export const GROUP_SPAN = 150;
  * printing", because a card has no room to tell those apart — the lane head's chip does.
  */
 export function cellCoverage(
-  coverage: Record<string, Record<string, number>>[],
+  coverage: Record<string, Record<string, number> | undefined>[],
   cell: { session: number; stem: string; square: string },
 ): string | null {
   const value = coverage[cell.session]?.[cell.stem]?.[cell.square];
@@ -214,7 +214,7 @@ export function cellCoverage(
  */
 export function handBeside(
   hands: Record<string, FrameHand>[],
-  coverage: Record<string, Record<string, number>>[],
+  coverage: Record<string, Record<string, number> | undefined>[],
   cell: { session: number; stem: string; square: string },
 ): FrameHand | null {
   const hand = hands[cell.session]?.[cell.stem];
@@ -528,7 +528,7 @@ export function laneOpen(board: StreamBoard, id: LaneId, decided: Record<string,
  * nur noch da, wo ein Mensch etwas benannt hat. Fehlende `phase` heißt NICHT dirty — sonst
  * blendet ein ungemessenes Brett sich selbst aus.
  */
-export function reachesPool(board: StreamBoard, coverage: Record<string, Record<string, number>>[]): boolean {
+export function reachesPool(board: StreamBoard, coverage: Record<string, Record<string, number> | undefined>[]): boolean {
   if (board.phase !== "after" && board.phase !== "before") return true;
   const cover = coverage[board.session]?.[board.stem];
   if (cover === undefined || Object.keys(cover).length === 0) return false;
