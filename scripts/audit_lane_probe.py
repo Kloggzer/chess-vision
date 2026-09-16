@@ -58,7 +58,7 @@ def main():
     dr = ImageDraw.Draw(sheet)
     squares = all_squares()
     cache: dict[str, tuple] = {}
-    n_hand = 0
+    n_hand = n_blind = n_shown = 0
     for i, f in enumerate(picked):
         sess = f["session_id"]
         sdir = config.DATA.recordings / sess.replace("rg-", "", 1)
@@ -82,7 +82,12 @@ def main():
         cells = (crops_for_frame(None, row["corners"], profile, board=img) if stored
                  else crops_for_frame(img, row["corners"], profile))
         crop = cells[squares.index(f["square"])]
-        cov = float((matte.get(f["frame"]) or {}).get(f["square"], 0.0))
+        # TODO(bug-hunt 2026-09-16f): ein Frame ohne Matte-Zeile ist nicht gemessen; als 0,0
+        # gelesen sank die Quote, die hier die Frage "fast nur Haende?" beantworten soll.
+        cells = matte.get(f["frame"])
+        n_blind += cells is None
+        n_shown += 1
+        cov = float((cells or {}).get(f["square"], 0.0))
         n_hand += cov > 0.0
         x = PAD + (i % cols) * (CELL + PAD)
         y = PAD + (i // cols) * (CELL + BAR + PAD)
@@ -94,7 +99,8 @@ def main():
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     sheet.save(args.out)
     print(f"[OK] {len(picked)} Flags aus {len(by_sess)} Sessions -> {args.out}")
-    print(f"     davon mit Matte > 0: {n_hand} ({100 * n_hand / max(1, len(picked)):.0f} %)")
+    print(f"     davon mit Matte > 0: {n_hand} von {n_shown} gezeichneten "
+          f"({100 * n_hand / max(1, n_shown):.0f} %), ohne Matte: {n_blind}")
 
 
 if __name__ == "__main__":

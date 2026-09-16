@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import statistics as st
 import sys
 from pathlib import Path
@@ -27,14 +28,14 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
     by_index = {int(r["index"]): r for r in rows}
     print(f"{name}: {len(rows)} frames, thr {thr}")
     print("ply   san      truth  quiet  lag_s  frames>thr  board>thr  roi-only>thr  stuck")
-    lags, board_only, roi_only = [], 0, 0
+    lags, board_only, roi_only, unmeasured = [], 0, 0, 0
     fps = float(cand["clock"]["fps"])
     for m in plies:
         truth = m["frame"]
         quiet = next((i for i in range(truth, truth + 600) if i in by_index and by_index[i]["state"] == "waiting"), None)
         if quiet is None:
             continue
-        over = board = roi_alone = 0
+        over = board = roi_alone = blind = 0
         stucks = set()
         for i in range(truth, quiet):
             r = by_index.get(i)
@@ -44,10 +45,14 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
                 combined = float(r["motion"])
             except ValueError:
                 continue
-            roi_i = roi.get(int(r["frame"]), 0.0)
+            # TODO(bug-hunt 2026-09-16f): ein Frame ohne ROI-Zeile ist NICHT GEMESSEN; als 0,0
+            # gelesen fiel er auf die Seite des Bretts — die Achse, die hier entschieden wird.
+            roi_i = roi.get(int(r["frame"]))
             if combined > thr:
                 over += 1
-                if combined - roi_i > 1e-9 and combined > roi_i:
+                if roi_i is None:
+                    blind += 1
+                elif combined - roi_i > 1e-9:
                     board += 1
                 elif roi_i > thr:
                     roi_alone += 1
@@ -57,10 +62,14 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
         lags.append(lag)
         board_only += board
         roi_only += roi_alone
+        unmeasured += blind
         print(f"{m['ply']:>3}   {m['san']:<7} {truth:>6} {quiet:>6} {lag:6.2f}  {over:>10}  {board:>9}  {roi_alone:>12}  {','.join(sorted(stucks))}")
     if lags:
         s = sorted(lags)
-        print(f"\nlag to quiet: median {st.median(s):.2f} s · p90 {s[int(len(s) * 0.9)]:.2f} s · frames over thr: board-led {board_only}, roi-only {roi_only}")
+        # p90 wie in `commit_lag.py`: `int(n * 0.9)` ist bei n = 10 der Index 9, also das Maximum.
+        print(f"\nlag to quiet: median {st.median(s):.2f} s · "
+              f"p90 {s[max(0, math.ceil(0.9 * len(s)) - 1)]:.2f} s · frames over thr: "
+              f"board-led {board_only}, roi-only {roi_only}, ohne ROI-Messung {unmeasured}")
     return 0
 
 

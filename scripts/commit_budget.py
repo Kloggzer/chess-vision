@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import statistics as st
 import sys
@@ -56,7 +57,10 @@ def main(name: str, dump: str, log: str) -> int:
         print(f"{m['ply']:>3}  {m['san']:<7} {t:>6}  {q:>6}  {d:>8}  {c:>6}   {s:6.2f}  {dd:8.2f}  {v:6.2f}  {tot:6.2f}")
     if parts["total"]:
         print("\nmedian s:  " + "  ".join(f"{k} {st.median(v):.2f}" for k, v in parts.items()))
-        print("p90 s:     " + "  ".join(f"{k} {sorted(v)[int(len(v) * 0.9)]:.2f}" for k, v in parts.items()))
+        # Dieselbe Formel wie `commit_lag.py`: `int(0.9 * n)` ist bei n = 10 der Index 9 und
+        # damit das MAXIMUM, nicht das p90.
+        print("p90 s:     " + "  ".join(
+            f"{k} {sorted(v)[max(0, math.ceil(0.9 * len(v)) - 1)]:.2f}" for k, v in parts.items()))
     return 0
 
 

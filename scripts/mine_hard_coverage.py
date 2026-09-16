@@ -52,7 +52,12 @@ def main():
             pc = rd.get("coverage")
             if pc is None:
                 continue
-            tc = float(r.get("coverage") or 0.0)
+            # TODO(bug-hunt 2026-09-16f): fehlende `coverage` heisst UN-MATTET, nicht frei
+            # ("Coverage Matte Trap"); als 0,0 gelesen wurde jede Modellmeldung ein Phantom.
+            if r.get("coverage") is None:
+                stat["ohne Matte"] += 1
+                continue
+            tc = float(r["coverage"])
             # Zwei getrennte Baender statt eines symmetrischen Randes: die Schwelle liegt bei
             # 0,15, ein symmetrischer Rand klemmt die Untergrenze auf 0 und trifft dann nie.
             if pc > args.high and tc < args.clear:

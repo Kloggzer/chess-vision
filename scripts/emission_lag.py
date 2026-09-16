@@ -16,6 +16,7 @@ LAGS = [1, 2, 3, 5, 8, 12, 20, 30, 45]     # in Frames; 21 Frames = 0,7 s
 
 def main():
     pairs = defaultdict(lambda: [0, 0, 0, 0])   # lag -> a,b,c,d
+    with_cov = 0
     for s in sys.argv[1:]:
         p = ROOT / s / "model-reads.jsonl"
         if not p.is_file():
@@ -25,8 +26,14 @@ def main():
             r = json.loads(line)
             if "square" not in r or not r["probs"]:
                 continue
+            # TODO(bug-hunt 2026-09-16f): ohne Occlusion-Kopf fehlt der Schluessel; als 0,0
+            # gelesen galt jede verdeckte Zelle als sichtbar und ging in die Korrelation ein.
+            cov = r.get("model_cov", r.get("cov"))
+            if cov is None:
+                continue
+            with_cov += 1
             rows[int(r["frame"])][r["square"]] = (
-                max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
+                max(r["probs"], key=r["probs"].get), r["fen_label"], cov)
         frames = sorted(rows)
         board = {f: tuple(sorted((sq, v[1]) for sq, v in rows[f].items())) for f in frames}
         err = defaultdict(dict)                 # square -> frame -> 0/1
@@ -44,6 +51,10 @@ def main():
                         continue
                     pairs[lag][series[f] * 2 + series[g]] += 1
 
+    if not with_cov:
+        print("[FAIL] keine Zeile traegt `model_cov` — der Lauf hat keinen Occlusion-Kopf, "
+              "und verdeckte Zellen waeren nicht auszunehmen.")
+        return
     print(f"{'Abstand':>10} {'Sekunden':>9} {'Paare':>9} {'P(err|err)':>11} {'P(err|ok)':>10} {'rho':>7}")
     for lag in LAGS:
         a, b, c, d = pairs[lag]

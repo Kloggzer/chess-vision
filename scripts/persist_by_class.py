@@ -21,7 +21,12 @@ for session in sys.argv[1:]:
         r = json.loads(line)
         if "square" not in r or not r["probs"]:
             continue
-        rows[r["frame"]][r["square"]] = (max(r["probs"], key=r["probs"].get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
+        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle
+        # als sichtbar. Dieselbe Stelle wie in `emission_lag.py`.
+        cov = r.get("model_cov", r.get("cov"))
+        if cov is None:
+            continue
+        rows[r["frame"]][r["square"]] = (max(r["probs"], key=r["probs"].get), r["fen_label"], cov)
     frames = sorted(rows)
     board = {f: tuple(sorted((s, v[1]) for s, v in rows[f].items())) for f in frames}
     iv, last, ivid = {}, None, -1

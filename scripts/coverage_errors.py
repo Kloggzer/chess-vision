@@ -47,6 +47,7 @@ def main():
     sessions = sys.argv[2:] or ["2026-08-08-11-55-19", "2026-08-08-00-39-57"]
     thr = 0.15
     per_frame = collections.defaultdict(lambda: {"fp": set(), "fn": set(), "tp": set()})
+    seen_frames = set()
     for s in sessions:
         rp, mp = ROOT / s / reads, ROOT / s / "matte.jsonl"
         if not rp.is_file() or not mp.is_file():
@@ -66,8 +67,14 @@ def main():
             t = truth[r["frame"]].get(r["square"])
             if t is None:
                 continue
-            pred, real = (r.get("model_cov", r.get("cov")) or 0.0) > thr, t > thr
+            # TODO(bug-hunt 2026-09-16f): `or 0.0` machte aus "kein Occlusion-Kopf" ein
+            # gemessenes "nicht verdeckt" — null FP bei null TP sieht wie makellose Precision aus.
+            cov = r.get("model_cov", r.get("cov"))
+            if cov is None:
+                continue
+            pred, real = cov > thr, t > thr
             key = (s, r["frame"])
+            seen_frames.add(key)
             if pred and not real:
                 per_frame[key]["fp"].add(r["square"])
             elif real and not pred:
@@ -75,6 +82,10 @@ def main():
             elif pred and real:
                 per_frame[key]["tp"].add(r["square"])
 
+    if not seen_frames:
+        print(f"[FAIL] {reads}: keine Zeile traegt `model_cov` — der Lauf hat keinen "
+              f"Occlusion-Kopf, hier ist nichts zu messen.")
+        return
     tot_fp = sum(len(v["fp"]) for v in per_frame.values())
     tot_tp = sum(len(v["tp"]) for v in per_frame.values())
     frames_with_fp = [v for v in per_frame.values() if v["fp"]]
@@ -83,11 +94,11 @@ def main():
                    if any(len(c) >= 2 for c in clusters(v["fp"])) and not v["tp"]]
     sizes = collections.Counter(len(v["fp"]) for v in frames_with_fp)
 
-    print(f"{reads}: {len(per_frame)} Frames mit Matte")
+    print(f"{reads}: {len(seen_frames)} Frames mit Matte")
     print(f"  richtig verdeckt erkannt (TP): {tot_tp}")
     print(f"  falsch geflaggt (FP):          {tot_fp}   auf {len(frames_with_fp)} Frames")
     print(f"  davon HAND-FOERMIG auf sonst sauberem Frame: {len(hand_shaped)} Frames "
-          f"({100 * len(hand_shaped) / max(len(per_frame), 1):.2f} % aller Frames)")
+          f"({100 * len(hand_shaped) / max(len(seen_frames), 1):.2f} % aller Frames)")
     print("\n  FP je betroffenem Frame:")
     for k in sorted(sizes):
         print(f"    {k:>3} Felder: {sizes[k]:>4} Frames")

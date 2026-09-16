@@ -27,8 +27,10 @@ def tail_mean(run: Path, metric: str, tail: int, epochs: int) -> float | None:
     if not p.exists():
         return None
     rows = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
-    seen = {r["epoch"] for r in rows if "epoch" in r}
-    if seen != set(range(epochs)):
+    # TODO(bug-hunt 2026-09-16f): eine MENGE schluckt die Wiederholung, die der Docstring
+    # ausschliessen will — ein fortgesetzter Lauf kam damit als vollstaendig durch.
+    seen = sorted(r["epoch"] for r in rows if "epoch" in r)
+    if seen != list(range(epochs)):
         return None
     vals = [r[metric] for r in rows[-tail:] if metric in r]
     return statistics.fmean(vals) if vals else None

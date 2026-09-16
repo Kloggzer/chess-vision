@@ -17,7 +17,12 @@ def measure(session):
         if "square" not in r or not r["probs"]:
             continue
         probs = r["probs"]
-        rows[r["frame"]][r["square"]] = (max(probs, key=probs.get), r["fen_label"], r.get("model_cov", r.get("cov")) or 0.0)
+        # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle
+        # als sichtbar. Dieselbe Stelle wie in `emission_lag.py`.
+        cov = r.get("model_cov", r.get("cov"))
+        if cov is None:
+            continue
+        rows[r["frame"]][r["square"]] = (max(probs, key=probs.get), r["fen_label"], cov)
     frames = sorted(rows)
     board_of = {f: tuple(sorted((s, v[1]) for s, v in rows[f].items())) for f in frames}
     interval, last, iv = [], None, -1
