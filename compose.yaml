@@ -12,7 +12,10 @@ services:
       # Nur auf localhost: die DB ist kein Netzdienst, sie liegt neben dem Rechner, der misst.
       - "127.0.0.1:5432:5432"
     volumes:
-      - chesslab-pgdata:/var/lib/postgresql/data
+      # IN data/, nicht in einem benannten Volume: "den Ordner kopieren und es klappt" ist die
+      # Eigenschaft, die diese Ablage tragen muss (Nutzer, 2026-09-16). Geprueft auf diesem
+      # Rechner — PG 17 laeuft auf dem Windows-Bind-Mount. ZUM KOPIEREN den Container STOPPEN.
+      - ./data/pgdata:/var/lib/postgresql/data
       # Wird beim ERSTEN Hochfahren in alphabetischer Reihenfolge ausgefuehrt.
       - ./db/schema:/docker-entrypoint-initdb.d:ro
     healthcheck:
@@ -21,5 +24,3 @@ services:
       timeout: 3s
       retries: 20
 
-volumes:
-  chesslab-pgdata:
