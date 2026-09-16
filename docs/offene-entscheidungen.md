@@ -6,7 +6,7 @@ Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 **Heute gebaut und damit gestrichen:** `MarkerTracker`-Port, Achsen-Fit-Paritaet, die doppelte
 Verdeckungsschwelle, die korpusweiten `eval`-Namen, die vier `TrackerService`-Ableitungen, die
 drei Ketten-Punkte (`_source`, `settle-scan` als Sprosse, `nextStep` mit Grund), `position-flags`
-nennt ungemessene Sessions (alt 3), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
+nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
 allen drei Sprachen (alt 9) und die ganze Namensdrift `cov`/`measured`/`pack` (alt 10).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
@@ -19,7 +19,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
 | 17 | `ALPHA_REASON`: Bericht und Worker meinen verschiedene Stapel | B | 1 h | **entscheiden** |
 | 18 | `withCoverageGateOf` gattert ohne Coverage-Spalte | C | 2 h | braucht den Regressionssatz |
-| 19 | `recoveryConfig` weicht als einziger Rig-Bauer ab | A | 15 min | vermutlich versehentlich |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 2 und 3 als naechstes |
@@ -38,11 +37,12 @@ die Frage bleibt offen (`tests/test_matte_pile_agreement.py`, TODO am Symbol).
 Warnung. Ein Modell ohne Coverage-Spalte hat `pOccluded = 0.0` — dagegen auf 0,25 zu gattern
 gattert gegen eine Zahl, die nie geliefert wurde. Kein ausgeliefertes Modell faellt heute hinein.
 
-## 19. `RecoveryFixtures.recoveryConfig`
+## 19. `RecoveryFixtures.recoveryConfig` — erledigt, war keiner
 
-Der einzige Rig-Bauer, der `minGridLineCoverage` beim ausgelieferten 0,5 laesst, waehrend
-`testConfig`, `detectConfig` und `seamConfig` es alle auf 0,0 zwingen. Sieht versehentlich aus —
-es zu aendern verschiebt aber Verhalten, also liegt es unangetastet.
+Gemessen 2026-09-16: mit `minGridLineCoverage = 0,0` bleibt die ganze `core-engine`-Suite gruen.
+Das Gatter feuert auf diesen Fixtures also ohnehin nie, und die 0,5 traegt dort nichts. Damit ist
+`recoveryConfig` nicht der Ausreisser, sondern der EINZIGE der vier Rig-Bauer, der den
+ausgelieferten Wert behaelt — die anderen drei zwingen ihn auf 0,0. Bleibt wie es ist.
 
 ---
 

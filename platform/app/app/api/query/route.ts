@@ -8,7 +8,10 @@ import { DEFAULT_WALL } from "@/lib/query";
  */
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
-  const min = Number(params.get("min") ?? DEFAULT_WALL.min);
+  // `?min=` ist leer, nicht null: `??` greift nicht und `Number("")` ist 0 — die Wand fiele still
+  // auf "alles zaehlt" zurueck.
+  const raw = params.get("min")?.trim();
+  const min = raw ? Number(raw) : DEFAULT_WALL.min;
   try {
     if (!Number.isFinite(min)) throw new Error(`bad min: ${params.get("min")}`);
     const filter = { klass: params.get("class") ?? DEFAULT_WALL.klass, min };

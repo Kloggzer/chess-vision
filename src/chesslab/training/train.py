@@ -335,6 +335,21 @@ def _live_train_locks() -> list[tuple[Path, dict]]:
     return live
 
 
+def started_at(raw) -> float:
+    """`startedAt` als Zeitpunkt, nicht als Zeichenkette — beide Schreiber teilen sich die Datei.
+
+    `locks.acquire` schreibt ORTSZEIT ohne Zone (`datetime.now().isoformat()`), die Web-App
+    schreibt UTC mit `Z` (`new Date().toISOString()`) in denselben `heavy*.lock`-Satz. Als Text
+    verglichen lag die Reihenfolge um den UTC-Versatz daneben, und der spaeteste trat nicht
+    zurueck. Ohne Stempel ist ein Lock UNBEKANNT, nicht der aelteste.
+    """
+    try:
+        ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return float("inf")
+    return ts.timestamp() if ts.tzinfo else ts.astimezone().timestamp()
+
+
 def _trainings_ahead_of_us() -> list[dict]:
     """Die Laeufe, die vor uns dran waren, falls wir ueber der Grenze liegen — sonst leer.
 
@@ -351,7 +366,7 @@ def _trainings_ahead_of_us() -> list[dict]:
     live = _live_train_locks()
     if len(live) <= cap:
         return []
-    order = sorted(live, key=lambda item: (str(item[1].get("startedAt", "")),
+    order = sorted(live, key=lambda item: (started_at(item[1].get("startedAt")),
                                            int(item[1].get("childPid") or item[1].get("pid") or 0)))
     ours = _train_lock_path()
     rank = next((i for i, (path, _) in enumerate(order) if path == ours), None)

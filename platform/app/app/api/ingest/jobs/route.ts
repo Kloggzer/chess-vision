@@ -6,6 +6,12 @@ export const dynamic = "force-dynamic";
 
 /** What the transfers page polls: what arrived, what is still in flight, what the packs did. */
 export async function GET() {
-  const [rows, inFlight, queue] = await Promise.all([transfers(), pending(), jobs()]);
-  return Response.json({ transfers: rows, pending: inFlight, jobs: queue });
+  try {
+    const [rows, inFlight, queue] = await Promise.all([transfers(), pending(), jobs()]);
+    return Response.json({ transfers: rows, pending: inFlight, jobs: queue });
+  } catch (error) {
+    // TODO: `jobs()` wirft auf einer unlesbaren `jobs.jsonl` — ohne Fang bekam die Seite eine
+    // nackte 500 ohne Grund und zeigte gar nichts (2026-09-16).
+    return Response.json({ error: String(error) }, { status: 500 });
+  }
 }

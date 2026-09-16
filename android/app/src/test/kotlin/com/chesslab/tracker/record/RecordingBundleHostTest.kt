@@ -22,7 +22,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -237,10 +236,9 @@ class RecordingBundleHostTest {
     }
 
     /**
-     * Der Zwilling zu [aFrameDeliveredWhileTheSessionChangesOverIsNotLost] auf dem Schluss-Pfad:
-     * `closeCurrent` schliesst die Timeline OHNE die Sperre, die `frame` nimmt.
+     * Nicht verloren heisst ZWEI erlaubte Ausgaenge: die endende Sitzung oder der Vorlauf der
+     * naechsten. Verboten ist nur der dritte — senden in den schon geschlossenen Kanal.
      */
-    @Disabled("BUG: closeCurrent/finalizeVideo schliessen die Timeline ausserhalb der frame-Sperre")
     @Test
     fun aFrameDeliveredWhileTheSessionFinishesIsNotLost() {
         val blocked = CountDownLatch(1)
@@ -256,17 +254,19 @@ class RecordingBundleHostTest {
                 writers.asCoroutineDispatcher(),
             )
 
+        val second = File(sessionsRoot, "s2").also(File::mkdirs)
         host.opened(SessionRecorder(sessionDir, SessionMeta("s1", "default", 2560, 1440)))
         val ending = thread { host.finished() }
         Thread.sleep(HANDOVER_WAIT_MS)
         host.frame(frameAt(7_000_000_000L, OPENING_FEN))
         ending.join()
+        host.opened(SessionRecorder(second, SessionMeta("s2", "default", 2560, 1440)))
         blocked.countDown()
         host.close()
         writers.shutdown()
         writers.awaitTermination(DRAIN_GUARD_S, TimeUnit.SECONDS)
 
-        val rows = File(sessionDir, "timeline.jsonl").readLines()
+        val rows = listOf(sessionDir, second).flatMap { File(it, "timeline.jsonl").readLines() }
         assertTrue(rows.any { it.contains("7000000000") }, "the frame fell into the closed timeline: $rows")
     }
 

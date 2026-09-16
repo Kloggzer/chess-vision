@@ -303,9 +303,14 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
         raise ValueError(f"--like: dataset '{donor}' has no dataset.yaml at {p}")
     cfg = _read_yaml(p)
     d, s = cfg.get("dedup") or {}, cfg.get("split") or {}
+    # TODO: ein Spender ohne `split:`/`dedup:` (4 liegen so auf der Platte, z.B.
+    # `turntable-13bn-80-v2`) liefert hier ueberall `None`, und `build_dataset` liest das als
+    # "nicht gesetzt" — `per_cell_cap`/`phash` fallen auf HEUTIGE Vorgaben zurueck und
+    # `seed=None` macht die Dedup-Ziehung nicht reproduzierbar. Genau der Unterschied, den
+    # `--like` verhindern soll; wer nichts sagen kann, muss verweigern statt Vorgaben zu erben.
     return {
         "from_packs": bool(cfg.get(packs.PACKS_KEY)),
-        "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor)),
+        "pack_size": _donor_pack_size(paths.datasets / _safe_name(donor), paths),
         "per_cell_cap": d.get("per_cell_cap"),
         "phash_enabled": d.get("phash_enabled"),
         "phash_hamming": d.get("phash_hamming"),
@@ -319,18 +324,42 @@ def _donor_policy(donor: str, paths: config.Paths) -> dict:
     }
 
 
-def _donor_pack_size(ds: Path) -> tuple[int, int] | None:
+def _donor_pack_size(ds: Path, paths: config.Paths | None = None) -> tuple[int, int] | None:
     """(W, H) of the donor's rows — `dataset.yaml` names its packs but not their size, and a
-    128 px donor silently produced an 80 px twin under a name that said otherwise."""
+    128 px donor silently produced an 80 px twin under a name that said otherwise.
+
+    Eine `mm://`-Zeile fuehrt das `out_size` ihres POOLS weiter, nicht das des Packs: jede
+    `-80`-Aufnahme auf der Platte traegt `[128, 128]`, weil `write_pool_pack` die Pool-Zeile
+    uebernimmt. Fuer die gilt das Meta des Packs, sonst baut `--like real13-mix-v6-80` den
+    Zwilling aus 128er Packs.
+    """
     manifest = ds / "manifest.jsonl"
     if not manifest.exists():
         return None
     with manifest.open(encoding="utf-8") as fh:
         for line in fh:
-            if line.strip():
-                size = json.loads(line).get("out_size")
-                return (int(size[0]), int(size[1])) if size else None
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            from_pack = _pack_row_size(str(row.get("path", "")), paths)
+            if from_pack is not None:
+                return from_pack
+            size = row.get("out_size")
+            return (int(size[0]), int(size[1])) if size else None
     return None
+
+
+def _pack_row_size(path: str, paths: config.Paths | None) -> tuple[int, int] | None:
+    """(W, H) des Packs, zu dem eine `mm://`-Zeile gehoert — oder None fuer jede andere Zeile."""
+    from .training import packs
+
+    if not path.startswith(packs.MM_PREFIX):
+        return None
+    meta = packs.pack_dir(packs.pack_name_of(path), paths or config.DATA) / "packed_meta.json"
+    if not meta.is_file():
+        return None
+    m = json.loads(meta.read_text(encoding="utf-8"))
+    return (int(m["w"]), int(m["h"]))
 
 
 def _split_from(donor: str, have: set[str], paths: config.Paths,

@@ -8,6 +8,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gameDir } from "@/lib/data";
+import { serialize } from "@/lib/serialize";
 
 export type UselessFlag = {
   at: string;
@@ -53,16 +54,21 @@ export async function setUseless(
   useless: boolean,
   reason?: string,
 ): Promise<UselessFlag | null> {
-  const current = await readUseless(name);
-  let next: UselessFlag | null;
-  if (useless) {
-    const text = (reason ?? "").trim();
-    if (text.length > REASON_MAX) throw new Error(`reason longer than ${REASON_MAX} characters`);
-    next = { at: now(), ...(text ? { reason: text } : {}) };
-  } else {
-    if (!current) return null;
-    next = { ...current, undone_at: now() };
-  }
-  await writeFile(path.join(gameDir(name), FILE), JSON.stringify(next, null, 2) + "\n", "utf8");
-  return next;
+  const file = path.join(gameDir(name), FILE);
+  // TODO: lesen-aendern-schreiben ohne Riegel — ein Widerruf, der gleichzeitig mit dem Setzen
+  // laeuft, sah noch die leere Datei und fiel lautlos aus, mit 200 (2026-09-16).
+  return serialize(file, async () => {
+    const current = await readUseless(name);
+    let next: UselessFlag | null;
+    if (useless) {
+      const text = (reason ?? "").trim();
+      if (text.length > REASON_MAX) throw new Error(`reason longer than ${REASON_MAX} characters`);
+      next = { at: now(), ...(text ? { reason: text } : {}) };
+    } else {
+      if (!current) return null;
+      next = { ...current, undone_at: now() };
+    }
+    await writeFile(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+    return next;
+  });
 }

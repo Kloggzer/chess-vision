@@ -78,8 +78,15 @@ def eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread, *,
     from .data import occupancy_piece_breakdown
 
     every = occupancy_piece_breakdown(classes, res["trues"], res["preds"])
+    # `res["square_acc"]` ist die SICHTBARE Zahl (`evaluate_dataset` maskiert sie an der Zeile).
+    # Unter dem unqualifizierten Namen gehoert die korpusweite hin, wie bei `piece_acc` daneben.
+    hits = [t == p for t, p in zip(res["trues"], res["preds"], strict=False)]
+    # TODO: `recall` kommt aus `run_eval`s Konfusion ueber die SICHTBAREN Zellen und steht hier
+    # trotzdem unqualifiziert — dieselbe Luege, die oben fuer `square_acc` behoben ist. Der
+    # Aufrufer muesste eine zweite Matrix rechnen, darum hier nur benannt.
     return {"split": split_name, "dataset": ds_name, "board_acc": res["board_acc"],
-            "square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
+            "square_acc": (sum(hits) / len(hits)) if hits else 0.0,
+            "visible_square_acc": res["square_acc"], "occupied_acc": every["occupied_acc"],
             "occupied_board_acc": occ_bacc,
             "visible_piece_acc": bd["piece_acc"],
             "visible_occupied_acc": bd["occupied_acc"],

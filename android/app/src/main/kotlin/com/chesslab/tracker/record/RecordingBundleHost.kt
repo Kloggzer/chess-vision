@@ -227,8 +227,7 @@ class RecordingBundleHost(
                 camera.videoBitRate,
             ),
         )
-        timeline?.close()
-        timeline = null
+        detach()?.close()
         session = null
         videoStarted = false
         // Deliberately no re-arm: this runs for EVERY stop — the cap, the disabled toggle, the
@@ -236,14 +235,17 @@ class RecordingBundleHost(
         // [finished] is what re-arms for the next game.
     }
 
-    // TODO: schliesst die Timeline OHNE die Sperre, die `frame` nimmt — wie `finalizeVideo`. Ein
-    //  Frame nimmt waehrend des blockierenden Drains den freien Monitor, sieht die noch gesetzte
-    //  Timeline und sendet in einen geschlossenen Kanal. `adopt` hat genau das schon gefixt.
+    /**
+     * Abhaengen unter der Sperre, schliessen ausserhalb: `close` schliesst den Kanal SOFORT und
+     * wartet erst dann auf den Drain — ein Frame in diesem Fenster ging ungezaehlt verloren.
+     */
     private fun closeCurrent() {
-        timeline?.close()
-        timeline = null
+        detach()?.close()
         session = null
     }
+
+    @Synchronized
+    private fun detach(): SessionTimeline? = timeline.also { timeline = null }
 }
 
 /** The bundle's video name — segment 0; later segments derive from it (`CameraVideo.segmentFile`). */

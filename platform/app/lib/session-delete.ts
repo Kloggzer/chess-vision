@@ -21,9 +21,11 @@ export function parseCost(stdout: string): DeletionCost | null {
     const text = line.trim();
     if (!text.startsWith("{")) continue;
     try {
-      const row = JSON.parse(text) as Partial<DeletionCost>;
-      if (typeof row.session_id === "string" && typeof row.corrections === "number") {
-        found = { session_id: row.session_id, frames: row.frames ?? 0, crops: row.crops ?? 0, corrections: row.corrections };
+      const { session_id: id, frames, crops, corrections } = JSON.parse(text) as Partial<DeletionCost>;
+      // TODO: `frames ?? 0` machte aus einer halben Zeile "0 Frames, 0 Crops" — der Dialog
+      // versprach eine kostenlose Loeschung. Nicht gemessen ist nicht null (2026-09-16).
+      if (typeof id === "string" && [frames, crops, corrections].every((v) => typeof v === "number")) {
+        found = { session_id: id, frames: Number(frames), crops: Number(crops), corrections: Number(corrections) };
       }
     } catch {
       /* not the line we came for */

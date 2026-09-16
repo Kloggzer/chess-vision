@@ -10,6 +10,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gameDir } from "@/lib/data";
+import { serialize } from "@/lib/serialize";
 
 export type UiMeta = { title?: string; archived?: boolean };
 
@@ -30,20 +31,25 @@ export async function loadMeta(name: string): Promise<UiMeta> {
 
 /** Merge [patch] into the stored meta. An empty title deletes it — the dir name is the fallback. */
 export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
-  const next: UiMeta = { ...(await loadMeta(name)) };
-  if ("title" in patch) {
-    const title = (patch.title ?? "").trim();
-    if (title.length > TITLE_MAX) throw new Error(`title longer than ${TITLE_MAX} characters`);
-    if (title) next.title = title;
-    else delete next.title;
-  }
-  if ("archived" in patch) {
-    if (typeof patch.archived !== "boolean") throw new Error("archived must be a boolean");
-    if (patch.archived) next.archived = true;
-    else delete next.archived;
-  }
-  await writeFile(path.join(gameDir(name), FILE), JSON.stringify(next, null, 2) + "\n", "utf8");
-  return next;
+  const file = path.join(gameDir(name), FILE);
+  // TODO: lesen-aendern-schreiben ohne Riegel — Titel und Archiv-Haken gleichzeitig gesetzt liess
+  // den Zweiten den Ersten zurueckdrehen, beide mit 200 (2026-09-16).
+  return serialize(file, async () => {
+    const next: UiMeta = { ...(await loadMeta(name)) };
+    if ("title" in patch) {
+      const title = (patch.title ?? "").trim();
+      if (title.length > TITLE_MAX) throw new Error(`title longer than ${TITLE_MAX} characters`);
+      if (title) next.title = title;
+      else delete next.title;
+    }
+    if ("archived" in patch) {
+      if (typeof patch.archived !== "boolean") throw new Error("archived must be a boolean");
+      if (patch.archived) next.archived = true;
+      else delete next.archived;
+    }
+    await writeFile(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+    return next;
+  });
 }
 
 /**

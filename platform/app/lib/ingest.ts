@@ -160,6 +160,9 @@ export async function appendChunk(
     const have = Math.max(0, await sizeOf(partial));
     if (offset !== have) throw Object.assign(new Error(`offset ${offset} != ${have}`), { have, conflict: true });
     await mkdir(path.dirname(partial), { recursive: true });
+    // TODO: ohne Rumpf entstand die Datei nie, also blieb eine erklaerte 0-Byte-Datei bei -1 und
+    // `complete` verweigerte die Sitzung auf jedem Versuch (2026-09-16).
+    await appendFile(partial, "");
     if (body) await pipeline(Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]), createWriteStream(partial, { flags: "a" }));
     return { have: await sizeOf(partial) };
   });

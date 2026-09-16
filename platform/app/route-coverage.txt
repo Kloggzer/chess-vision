@@ -6,15 +6,6 @@
 # wenig — `core-engine` stand bei 92 % und trug trotzdem vier Stellungs-Fehler. Die Routen sind
 # die duennste Stelle (18,6 %) UND die, an der der Handy-Weg haengt.
 api/drain
-api/ingest/jobs
-api/ingest/session
-api/ingest/session/[name]/chunk
-api/ingest/session/[name]/complete
 api/ingest/session/[name]/label
 api/matte/[name]
 api/matte/[name]/[stem]
-api/meta/[name]
-api/query
-api/session/[id]
-api/useless/[name]
-api/zuege/[name]/note
