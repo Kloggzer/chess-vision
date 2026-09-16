@@ -381,8 +381,11 @@ Schueler mitlehren — genau das, was am selben Tag fuer `source: upsert` repari
 
 **Gefixt:** `matte.alpha_for(session_dir, row)` waehlt das Alpha, das zur Zeile gehoert.
 
-**Offen bleibt zweierlei:**
-1. Die 68 Zeilen auf der Platte tragen weiter die falsche Zahl. Ein `occluders recut-coverage`
-   ueber die 20 Aufnahmen repariert sie jetzt richtig — es schreibt aber 20 `matte.jsonl` neu.
-2. `close_seams` hat DIESELBE Form (`matte.py:679`), ungemessen, und es SCHREIBT das Alpha
-   zurueck. Nicht blind mitgezogen; TODO steht an der Stelle.
+`close_seams` trug dieselbe Form und ist mitgezogen. Meine Zurueckhaltung dort war zu gross: dass
+die geschlossene Naht in der Ruecksicherung landet, ist RICHTIG — `upsert_proposals` spielt
+`.sam.webp` beim naechsten Lauf als SAMs Alpha zurueck, und eine geschlossene Naht ist dort eine
+Verbesserung, kein Schaden.
+
+**Offen bleibt:** die 68 Zeilen auf der Platte tragen weiter die falsche Zahl. Ein
+`occluders recut-coverage` ueber die 20 betroffenen Aufnahmen repariert sie jetzt richtig — es
+schreibt aber 20 `matte.jsonl` neu, also erst auf Zuruf.

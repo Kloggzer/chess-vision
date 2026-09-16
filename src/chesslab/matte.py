@@ -689,10 +689,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     # dann auch noch gerade.
     try:
         for row in read_jsonl(path):
-            # TODO: dieselbe Form wie in `recut_coverage` (dort gefixt) — nach einem Upsert
-            # ist das nicht SAMs Alpha. Hier ungemessen, und der Schritt SCHREIBT zurueck,
-            # also nicht blind mitziehen (`docs/offene-entscheidungen.md`, Punkt 29).
-            alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+            alpha_path = alpha_for(session_dir, row)
             entry = entries.get(row["frame"])
             image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
             # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
