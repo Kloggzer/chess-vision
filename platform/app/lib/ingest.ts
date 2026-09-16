@@ -18,6 +18,7 @@ import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { checkName, dataDir } from "@/lib/data";
+import { serialize } from "@/lib/serialize";
 
 /** 8 MiB. Big enough that the per-request overhead disappears, small enough to lose little on a drop. */
 export const CHUNK_BYTES = 8 * 1024 * 1024;
@@ -139,22 +140,6 @@ async function resumePoint(partial: string, bytes: number): Promise<number> {
   return 0;
 }
 
-/**
- * One writer per staged file: two runs that raced here appended the same chunk twice (2026-08-16).
- * On `globalThis` for the same reason the job queue is — a hot reload must not hand out a second
- * lock for a chunk that is still being written.
- */
-const writers: Map<string, Promise<unknown>> = ((globalThis as { __chesslabWriters?: Map<string, Promise<unknown>> }).__chesslabWriters ??= new Map());
-
-function serialize<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const run = (writers.get(key) ?? Promise.resolve()).then(work, work);
-  const settled = run.catch(() => {});
-  writers.set(key, settled);
-  void settled.then(() => {
-    if (writers.get(key) === settled) writers.delete(key);
-  });
-  return run;
-}
 
 async function loadManifest(name: string): Promise<Manifest> {
   return validateManifest(JSON.parse(await readFile(path.join(stagingDir(name), "manifest.json"), "utf8")));

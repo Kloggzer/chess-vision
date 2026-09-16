@@ -20,7 +20,7 @@ const note = (frame: string) => ({ session_id: "rg-a", frame, verdict: "unusable
 const notes = (body: unknown) =>
   REVIEW_NOTES(new Request("http://h/api/review-notes", { method: "POST", body: JSON.stringify(body) }));
 
-test.fails("zwei gleichzeitige Widerrufe nehmen BEIDE Zeilen aus dem Ledger", async () => {
+test("zwei gleichzeitige Widerrufe nehmen BEIDE Zeilen aus dem Ledger", async () => {
   await tempDataRoot("review-notes-race");
   await notes({ rows: [note("000100"), note("000200")] });
 
@@ -35,7 +35,7 @@ test.fails("zwei gleichzeitige Widerrufe nehmen BEIDE Zeilen aus dem Ledger", as
 
 // ---- 2. Der Seiten-Commit der Matte-Lane leert die Marken ALLER Seiten -------------------------
 
-test.fails("ein Seiten-Commit laesst die Marken der anderen Seiten stehen", () => {
+test("ein Seiten-Commit laesst die Marken der anderen Seiten stehen", () => {
   const seite1 = ["a|000100", "a|000200"];
   const seite2 = ["a|000300"];
   const marked = new Set([...seite1, ...seite2]);

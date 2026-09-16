@@ -1,6 +1,7 @@
 /** UI-only ledger: verdicts on unusable boards and bad intervals (not training input). */
 import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
 
 /**
@@ -45,10 +46,14 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
   if (rows.length === 0) return 0;
   const ts = new Date().toISOString().replace(/\.\d+Z$/, "+00:00");
   const file = reviewNotesPath();
-  await mkdir(path.dirname(file), { recursive: true });
-  await appendFile(file, rows.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
-  cache.delete(file);
-  return rows.length;
+  // Unter demselben Riegel wie der Widerruf: der liest die GANZE Datei und schreibt sie neu,
+  // ein Anhaengen dazwischen waere danach weg.
+  return serialize(file, async () => {
+    await mkdir(path.dirname(file), { recursive: true });
+    await appendFile(file, rows.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
+    cache.delete(file);
+    return rows.length;
+  });
 }
 
 /**
@@ -56,11 +61,15 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
  * `dirty-frame`-Zeile ein und kennt keinen Widerruf, also muss die Zeile verschwinden.
  */
 
-// TODO: lesen-aendern-schreiben ohne Riegel — zwei gleichzeitige Widerrufe lesen denselben Text,
-// der zweite Schreibvorgang holt die Zeile des ersten zurueck, beide melden Erfolg
-// (`lib/ingest.ts:serialize`).
 export async function dropReviewNotes(rows: ReviewNote[]): Promise<number> {
   if (rows.length === 0) return 0;
+  // Lesen-aendern-schreiben auf der GLOBALEN Datei: zwei gleichzeitige Widerrufe lasen denselben
+  // Text, der zweite holte die Zeile des ersten zurueck, und beide meldeten Erfolg. Der Aufrufer
+  // erzeugt genau das (`stream.tsx::markPaintedDirty` feuert je Frame ohne `await`).
+  return serialize(reviewNotesPath(), () => dropUnlocked(rows));
+}
+
+async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   const file = reviewNotesPath();
   const text = await readFile(file, "utf8").catch(() => "");
   if (!text) return 0;

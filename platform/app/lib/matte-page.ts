@@ -10,10 +10,13 @@ export type PageCommit = {
   clean: ReadonlySet<string>;
 };
 
-// TODO: `marked`/`clean` werden GANZ geleert, obwohl nur [page] geschrieben wurde. Wer auf Seite 1
-// markiert und mit → auf Seite 2 committet, verliert die Marken der Seite 1 lautlos — dieselben
-// Frames werden beim naechsten ⏎ als `matte-ok` geschrieben, obwohl der Mensch "taugt nichts"
-// gesagt hat. Richtig waere, nur die Schluessel aus [page] zu entfernen.
+/** Nur die Schluessel DIESER Seite fallen aus der Menge — `marked`/`clean` sind seitenuebergreifend. */
+const without = (set: ReadonlySet<string>, page: readonly string[]): Set<string> => {
+  const rest = new Set(set);
+  for (const key of page) rest.delete(key);
+  return rest;
+};
+
 export function commitPage(
   page: readonly string[],
   marked: ReadonlySet<string>,
@@ -23,5 +26,7 @@ export function commitPage(
   for (const key of page) {
     verdicts[key] = clean.has(key) ? "matte-clean" : marked.has(key) ? "matte-bad" : "matte-ok";
   }
-  return { verdicts, marked: new Set<string>(), clean: new Set<string>() };
+  // Ganz zu leeren verlor die Marken jeder ANDEREN Seite lautlos — und dieselben Frames gingen
+  // beim naechsten Commit als `matte-ok` durch, obwohl der Mensch "taugt nichts" gesagt hatte.
+  return { verdicts, marked: without(marked, page), clean: without(clean, page) };
 }
