@@ -13,6 +13,7 @@ import { correctionsPath } from "@/lib/corrections";
 import { dataDir } from "@/lib/data";
 import { sameSession, type CorpusIndex, type Split } from "@/lib/corpus";
 import { sessionId } from "@/lib/session";
+import { jsonlRows } from "@/lib/jsonl";
 
 const cellKey = (sessionId: string, frame: string | number, square: string) =>
   `${sessionId}|${String(frame)}|${square}`;
@@ -167,14 +168,9 @@ async function keyedLogs(): Promise<Cached<SessionLog[]>> {
   for (const [i, name] of names.entries()) {
     if (stats[i] === "none") continue;
     const frames: LogFrame[] = [];
-    for (const line of (await readFile(files[i], "utf8")).split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const row = JSON.parse(line) as { frame: string; fen: string; dirty?: boolean };
-        frames.push({ stem: path.basename(row.frame, ".png"), fen: row.fen, dirty: row.dirty === true });
-      } catch {
-        /* a half-written line carries no FEN */
-      }
+    for (const line of jsonlRows(await readFile(files[i], "utf8"))) {
+      const row = line as unknown as { frame: string; fen: string; dirty?: boolean };
+      frames.push({ stem: path.basename(row.frame, ".png"), fen: row.fen, dirty: row.dirty === true });
     }
     value.push({ sessionId: sessionId(name), frames });
   }

@@ -4,6 +4,7 @@
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type PositionFlag = {
   session_id: string;
@@ -60,32 +61,26 @@ export async function loadPositionFlags(): Promise<PositionFlags> {
 
   const rows: PositionFlag[] = [];
   let unmeasured: string[] = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const o = JSON.parse(line) as Record<string, unknown>;
-      // Die Kopfzeile trägt die Schwellen und kein `square` — sie ist kein Flag.
-      if (Array.isArray(o._unmeasured)) unmeasured = o._unmeasured.map(String);
-      if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
-      if (typeof o.dev !== "number") continue;
-      rows.push({
-        session_id: o.session_id,
-        frame: String(o.frame),
-        square: o.square,
-        fen_label: String(o.fen_label ?? ""),
-        dev: o.dev,
-        // `null` heisst UNGEMESSEN, wie `lib/hand-flags.ts` es daneben schon haelt: `timing_flags`
-        // und `candidate_flags` schreiben es ausdruecklich so, und eine 0 laese sich in der Lane
-        // als "die Matte sagt frei". `cov` ist die Schreibweise vor 2026-09-16.
-        matte_cov: typeof o.matte_cov === "number" ? o.matte_cov
-          : typeof o.cov === "number" ? o.cov : null,
-        reason: String(o.reason ?? "changed"),
-        ...(typeof o.temporal_score === "number" && Number.isFinite(o.temporal_score)
-          ? { temporal_score: o.temporal_score } : {}),
-      });
-    } catch {
-      /* eine halb geschriebene Zeile ist kein Flag */
-    }
+  for (const o of jsonlRows(text)) {
+    // Die Kopfzeile trägt die Schwellen und kein `square` — sie ist kein Flag.
+    if (Array.isArray(o._unmeasured)) unmeasured = o._unmeasured.map(String);
+    if (typeof o.session_id !== "string" || typeof o.square !== "string") continue;
+    if (typeof o.dev !== "number") continue;
+    rows.push({
+      session_id: o.session_id,
+      frame: String(o.frame),
+      square: o.square,
+      fen_label: String(o.fen_label ?? ""),
+      dev: o.dev,
+      // `null` heisst UNGEMESSEN, wie `lib/hand-flags.ts` es daneben schon haelt: `timing_flags`
+      // und `candidate_flags` schreiben es ausdruecklich so, und eine 0 laese sich in der Lane
+      // als "die Matte sagt frei". `cov` ist die Schreibweise vor 2026-09-16.
+      matte_cov: typeof o.matte_cov === "number" ? o.matte_cov
+        : typeof o.cov === "number" ? o.cov : null,
+      reason: String(o.reason ?? "changed"),
+      ...(typeof o.temporal_score === "number" && Number.isFinite(o.temporal_score)
+        ? { temporal_score: o.temporal_score } : {}),
+    });
   }
   rows.sort((a, b) => b.dev - a.dev);
   const value: PositionFlags = { rows, present: true, unmeasured };

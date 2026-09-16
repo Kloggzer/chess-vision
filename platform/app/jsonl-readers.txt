@@ -2,20 +2,12 @@
 # Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber.
 6 lib/jobs.ts
 5 lib/matte.ts
-4 lib/frame-flag.test.ts
 3 lib/review-notes.ts
 2 lib/chain.ts
-2 lib/corpus.test.ts
-2 lib/corrections.test.ts
-2 lib/pool.ts
 2 lib/session-delete.ts
-2 lib/unusable-cells.test.ts
 1 lib/corrections.ts
 1 lib/frame-flag.ts
-1 lib/frame-verdict-reason.bughunt.test.ts
 1 lib/ingest.ts
-1 lib/position-flags.ts
+1 lib/pool.ts
 1 lib/provenance.ts
 1 lib/session.ts
-1 lib/stored.ts
-1 lib/unusable-cells.ts

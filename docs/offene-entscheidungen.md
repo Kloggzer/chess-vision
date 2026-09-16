@@ -246,7 +246,8 @@ Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert
    Leser auf beiden Seiten gegen dasselbe Fixture. **Schritt eins ist gebaut** (Punkt 20).
 2. **Gebaut 2026-09-16:** `lib/jsonl.ts` ist der gemeinsame TS-Leser; fuenf Stellen sind
    verhaltensgleich umgestellt (`audit-flags`, `correction-violations`, `frame-hands`,
-   `hand-flags`, `model-reads`). 39 Schnitte in 19 Dateien stehen noch aus.
+   `hand-flags`, `model-reads`, `pool`, `position-flags`, `stored`, `unusable-cells`).
+   24 Schnitte in 11 Dateien stehen noch aus.
 3. **Gebaut 2026-09-16:** `platform/app/jsonl-readers.txt` plus `lib/jsonl-ratchet.test.ts`.
    Gegengeprobt — eine neue Ad-hoc-Lesestelle macht die Suite rot.
 4. `ModelServingSpec`: was `train` in `config.json` schreibt und was das Serving daraus rechnen

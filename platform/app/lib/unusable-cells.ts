@@ -7,6 +7,7 @@ import { appendFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
+import { jsonlRows } from "@/lib/jsonl";
 
 export type UnusableCell = { session_id: string; frame: string; square: string; unusable: boolean };
 type Row = UnusableCell & { ts: string };
@@ -60,17 +61,12 @@ export async function unusableCells(name: string): Promise<Set<string>> {
   const id = sessionId(name);
   const value = new Set<string>();
   const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as Row;
-      if (row.session_id !== id) continue;
-      const cell = `${row.frame}|${row.square}`;
-      if (row.unusable === false) value.delete(cell);
-      else value.add(cell);
-    } catch {
-      /* a half-written line is not a verdict */
-    }
+  for (const line of jsonlRows(text)) {
+    const row = line as unknown as Row;
+    if (row.session_id !== id) continue;
+    const cell = `${row.frame}|${row.square}`;
+    if (row.unusable === false) value.delete(cell);
+    else value.add(cell);
   }
   cache.set(file, { key, value });
   return value;

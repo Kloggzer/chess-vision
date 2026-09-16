@@ -36,7 +36,8 @@ async function handRolled(): Promise<Map<string, number>> {
   for (const dir of ["lib", "app"]) {
     for (const file of await sources(path.join(ROOT, dir))) {
       const rel = path.relative(ROOT, file).split(path.sep).join("/");
-      if (ALLOWED.includes(rel)) continue;
+      // Ein Test zerlegt sein eigenes Fixture; das ist kein Leser.
+      if (ALLOWED.includes(rel) || /\.test\.tsx?$/.test(rel)) continue;
       const text = await readFile(file, "utf8");
       if (!text.includes("JSON.parse")) continue;
       const n = cuts(text);

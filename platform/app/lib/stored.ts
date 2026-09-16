@@ -7,6 +7,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { checkName, gameDir } from "@/lib/data";
+import { jsonlRows } from "@/lib/jsonl";
 import {
   boardToImage,
   type GridMesh,
@@ -73,16 +74,8 @@ async function loadStored(name: string, dir: string, id: string): Promise<Stored
   if (hit?.key === key) return hit.value;
 
   const rows: StoredRow[] = [];
-  for (const line of (await readFile(log, "utf8")).split("\n")) {
-    if (!line.trim()) continue;
-    // Eine halb geschriebene Zeile kostet ihre eigene Zeile: ueber das `Promise.all` in
-    // `storedSessions` riss ein Wurf hier sonst die ganze Anfrage mit.
-    let row: StoredRow & { dirty?: boolean };
-    try {
-      row = JSON.parse(line) as StoredRow & { dirty?: boolean };
-    } catch {
-      continue;
-    }
+  for (const line of jsonlRows(await readFile(log, "utf8"))) {
+    const row = line as unknown as StoredRow & { dirty?: boolean };
     // `selectStoredRows` drops a dirty row before it is ever packed, so nobody may be asked about it.
     if (row.dirty === true) continue;
     const stem = path.basename(row.frame, path.extname(row.frame));
