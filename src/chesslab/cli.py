@@ -1606,7 +1606,9 @@ def occluders_gate_scan(
         raise typer.BadParameter("Name oder --all angeben.")
     for one in names:
         r = hand_gate.gate_scan(one, tag=tag)
-        print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto -> {r['path']}", flush=True)
+        lost = f", {r['unreadable']} Bretter NICHT lesbar" if r["unreadable"] else ""
+        print(f"[OK] {one}: {r['frames']} Bretter, {r['veto']} mit Veto{lost} -> {r['path']}",
+              flush=True)
 
 
 @occluders_app.command("status")

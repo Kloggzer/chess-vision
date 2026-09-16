@@ -528,4 +528,7 @@ def gate_scan(name: str, *, tag: str = "", batch: int = 24) -> dict:
         }))
     path = session_dir / "gate.jsonl"
     path.write_text("".join(x + "\n" for x in lines), encoding="utf-8")
-    return {"path": path, "frames": len(lines), "veto": sum(1 for x in lines if '"veto": true' in x)}
+    # Ein unlesbares Brett FEHLT in der Datei, und das ist richtig — aber der Bericht muss es
+    # sagen, sonst liest sich ein halber Lauf wie ein ganzer.
+    return {"path": path, "frames": len(lines), "unreadable": sum(1 for x in said if x is None),
+            "veto": sum(1 for x in lines if '"veto": true' in x)}
