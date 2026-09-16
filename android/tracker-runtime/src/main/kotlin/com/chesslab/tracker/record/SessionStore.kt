@@ -1,7 +1,6 @@
 package com.chesslab.tracker.record
 
 import java.io.File
-import java.util.concurrent.atomic.AtomicLong
 
 data class SessionInfo(
     val id: String,
@@ -19,8 +18,6 @@ data class SessionInfo(
 class SessionStore(
     private val root: File,
 ) {
-    private val deleted = AtomicLong(0)
-
     fun dir(id: String): File = File(root, id)
 
     fun list(): List<SessionInfo> =
@@ -33,11 +30,12 @@ class SessionStore(
     /** ONE session's cost. [totalBytes] walks the whole tree; the size cap adds finished games this way. */
     fun bytesOf(id: String): Long = dir(id).walkBottomUp().sumOf(File::length)
 
-    /** Wie oft geloescht wurde. Der Groessen-Zaehler haengt daran: er darf den Baum nicht je
-     *  Aufnahme laufen, aber nach einer Loeschung ist sein Stand ueberholt. */
-    fun deletions(): Long = deleted.get()
+    /** Wie viele Aufnahmen auf der Platte liegen. Von der PLATTE, nicht aus einem Zaehler je
+     *  Instanz: jeder Bildschirm baut sich seinen eigenen Store, und der Groessen-Etat haelt
+     *  wieder einen anderen — eine Loeschung dort erreichte ihn nie. */
+    fun count(): Int = root.list()?.size ?: 0
 
-    fun delete(id: String): Boolean = dir(id).deleteRecursively().also { if (it) deleted.incrementAndGet() }
+    fun delete(id: String): Boolean = dir(id).deleteRecursively()
 
     /** A fresh session directory. `collect.py::generate_session_id` is `%Y%m%d-%H%M%S`. */
     fun create(sessionId: String): File = dir(sessionId).also { it.mkdirs() }

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.record
 
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -11,13 +12,14 @@ class SessionByteBudget(
     private val sessions: SessionStore,
 ) {
     private val bytes = AtomicLong(sessions.totalBytes())
-    private val seenDeletions = AtomicLong(sessions.deletions())
+    private val seen = AtomicInteger(sessions.count())
 
-    /** Nach einer LOESCHUNG einmal neu gehen, sonst nie: der Zaehler wuchs nur, also zaehlte
-     *  geloeschtes Material weiter gegen die Grenze — das einzige Mittel des Nutzers dagegen. */
+    /** Neu gehen, wenn Aufnahmen VERSCHWUNDEN sind — sonst nie. Der Zaehler wuchs nur, also
+     *  zaehlte Geloeschtes weiter gegen die Grenze, und das ist das einzige Mittel des Nutzers
+     *  dagegen. Von der Platte gelesen, weil jeder Bildschirm seinen eigenen Store haelt. */
     fun spent(): Long {
-        val now = sessions.deletions()
-        if (seenDeletions.getAndSet(now) != now) bytes.set(sessions.totalBytes())
+        val now = sessions.count()
+        if (seen.getAndSet(now) > now) bytes.set(sessions.totalBytes())
         return bytes.get()
     }
 

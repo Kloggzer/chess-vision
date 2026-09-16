@@ -315,10 +315,13 @@ class BoardFocusGovernor(
      * ohne erkannte Brettecken passiert hier nichts.
      */
     private fun armAutoLock(): Boolean {
-        armed = false
         byUser = false
         before = look.value
+        // Erst NACH der Zusage entwaffnen: ein abgelehnter Versuch (Kamera noch nicht gebunden,
+        // Region verweigert) toetete sonst den einen Vorgabe-Lock bis zum Prozessende, und der
+        // Regler ueberlebt einen Tracker-Neustart. Den Erfolg haelt `canArm`s `locked == null`.
         if (!askDevice()) return false
+        armed = false
         locking = true
         seedWaiting = MAX_SEED_FRAMES
         phase.value = FocusState.Seeking

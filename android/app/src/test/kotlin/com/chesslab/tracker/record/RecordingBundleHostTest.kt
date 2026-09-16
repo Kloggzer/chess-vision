@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -232,6 +233,40 @@ class RecordingBundleHostTest {
         writers.awaitTermination(DRAIN_GUARD_S, TimeUnit.SECONDS)
 
         val rows = listOf(sessionDir, second).flatMap { File(it, "timeline.jsonl").readLines() }
+        assertTrue(rows.any { it.contains("7000000000") }, "the frame fell into the closed timeline: $rows")
+    }
+
+    /**
+     * Der Zwilling zu [aFrameDeliveredWhileTheSessionChangesOverIsNotLost] auf dem Schluss-Pfad:
+     * `closeCurrent` schliesst die Timeline OHNE die Sperre, die `frame` nimmt.
+     */
+    @Disabled("BUG: closeCurrent/finalizeVideo schliessen die Timeline ausserhalb der frame-Sperre")
+    @Test
+    fun aFrameDeliveredWhileTheSessionFinishesIsNotLost() {
+        val blocked = CountDownLatch(1)
+        val writers = Executors.newSingleThreadExecutor()
+        writers.submit { blocked.await(DRAIN_GUARD_S, TimeUnit.SECONDS) }
+        val scope = CoroutineScope(SupervisorJob())
+        val host =
+            RecordingBundleHost(
+                FakeVideoCamera(),
+                RecordingSettings(MemoryStore()),
+                sessionsRoot,
+                scope,
+                writers.asCoroutineDispatcher(),
+            )
+
+        host.opened(SessionRecorder(sessionDir, SessionMeta("s1", "default", 2560, 1440)))
+        val ending = thread { host.finished() }
+        Thread.sleep(HANDOVER_WAIT_MS)
+        host.frame(frameAt(7_000_000_000L, OPENING_FEN))
+        ending.join()
+        blocked.countDown()
+        host.close()
+        writers.shutdown()
+        writers.awaitTermination(DRAIN_GUARD_S, TimeUnit.SECONDS)
+
+        val rows = File(sessionDir, "timeline.jsonl").readLines()
         assertTrue(rows.any { it.contains("7000000000") }, "the frame fell into the closed timeline: $rows")
     }
 

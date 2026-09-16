@@ -23,4 +23,19 @@ class SessionByteBudgetDeleteTest {
 
         assertEquals(store.totalBytes(), budget.spent(), "spent() still charges $before bytes that are no longer on disk")
     }
+
+    /**
+     * Wie der Nutzer wirklich loescht: `GamesViewModel` und `RecordingViewModel` halten je einen
+     * EIGENEN `SessionStore` auf dasselbe Verzeichnis, der Etat den des Dienstes.
+     */
+    @Test
+    fun `a deletion through the screens own store reaches the budget`() {
+        File(root, "20260916-101010").apply { mkdirs() }.let { File(it, "video.mp4").writeText("x".repeat(4096)) }
+        val budget = SessionByteBudget(SessionStore(root))
+        val before = budget.spent()
+
+        SessionStore(root).delete("20260916-101010")
+
+        assertEquals(0L, budget.spent(), "spent() still charges $before bytes the games screen deleted")
+    }
 }

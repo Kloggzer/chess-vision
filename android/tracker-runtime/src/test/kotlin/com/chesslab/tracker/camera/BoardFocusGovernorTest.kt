@@ -446,6 +446,27 @@ class BoardFocusGovernorTest {
         assertEquals(0.3f, (state as FocusState.Locked).focus, 0.05f)
     }
 
+    /**
+     * `armAutoLock` setzt `armed = false`, BEVOR `askDevice()` gefragt hat. Sagt die Kamera nein
+     * (noch nicht gebunden, Region abgelehnt), kommt der eine Vorgabe-Lock nie wieder.
+     */
+    @Test
+    fun `a refused auto lock may be tried again once the camera answers`() {
+        val port = FakePort(able)
+        val g = BoardFocusGovernor(port, settleFrames = 0)
+        val region = FocusRegion(0.5f, 0.5f, 0.4f)
+        // Die Kamera ist noch nicht gebunden: `focusOn` sagt nein.
+        port.deviceFocus = null
+        g.onBoard(0, true, region) { boardFor(0f) }
+        assertEquals(FocusState.Idle, g.state.value)
+
+        port.deviceFocus = 0.3f
+        var seq = 1L
+        repeat(60) { g.onBoard(seq++, true, region) { boardFor(port.look.value.focus) } }
+
+        assertTrue(g.state.value is FocusState.Locked, "der Vorgabe-Lock kam nie wieder, war ${g.state.value}")
+    }
+
     @Test
     fun `without a region nothing is asked of the camera and the sweep runs straight away`() {
         val port = FakePort(able)

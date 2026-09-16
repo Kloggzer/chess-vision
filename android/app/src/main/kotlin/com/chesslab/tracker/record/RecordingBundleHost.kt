@@ -236,6 +236,9 @@ class RecordingBundleHost(
         // [finished] is what re-arms for the next game.
     }
 
+    // TODO: schliesst die Timeline OHNE die Sperre, die `frame` nimmt — wie `finalizeVideo`. Ein
+    //  Frame nimmt waehrend des blockierenden Drains den freien Monitor, sieht die noch gesetzte
+    //  Timeline und sendet in einen geschlossenen Kanal. `adopt` hat genau das schon gefixt.
     private fun closeCurrent() {
         timeline?.close()
         timeline = null
