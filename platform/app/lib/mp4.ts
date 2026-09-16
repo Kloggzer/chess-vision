@@ -50,7 +50,7 @@ export async function checkMp4(file: string): Promise<Mp4Check> {
  * jedes `video-NNN.mp4` daneben (`src/chesslab/recording.py:22`). Die Suche endet an der ersten
  * Luecke, genau wie dort: `video-004` ohne `video-003` gehoert nicht mehr zu diesem Strom.
  */
-export async function recordingSegments(head: string): Promise<string[]> {
+async function recordingSegments(head: string): Promise<string[]> {
   const dir = path.dirname(head);
   const stem = path.basename(head, path.extname(head));
   const out = [head];

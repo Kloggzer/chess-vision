@@ -29,6 +29,9 @@ internal class UtteranceQueue(
 
     /** The alarm: it interrupts, and it invalidates everything behind it. */
     fun flush(text: String) {
+        // TODO: der unterbrochene Spruch meldet trotzdem fertig (`onStop` ruft `onDone`), und diese
+        // Meldung raeumt hier den Platz des ALARMS — der Fokus faellt mitten in der Ansage
+        // (`StaleUtteranceCallbackTest`, @Disabled).
         clear()
         inFlight = 1
         out(text, true)

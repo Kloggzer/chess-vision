@@ -9,7 +9,7 @@ import { checkName, dataDir } from "@/lib/data";
  * NOT one of them: that square sits under a hand and the loss drops it by itself. `dirty-frame` is
  * the hand the scan missed — `plan_scanned` moves that frame to the dirty pile as `occluded`.
  */
-export const FRAME_VERDICTS =
+const FRAME_VERDICTS =
   ["unusable-board", "matte-ok", "matte-bad", "matte-clean", "position-ok", "dirty-frame",
    "matte-wanted"] as const;
 export type FrameVerdict = (typeof FRAME_VERDICTS)[number];

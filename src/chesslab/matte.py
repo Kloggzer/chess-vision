@@ -671,58 +671,62 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     # `gained == 0` und reparierte es nie, obwohl die Meldung dazu aufforderte.
     staged: list[tuple[Path, Path]] = []
     closed = crossed = added = 0
-    for row in read_jsonl(path):
-        alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
-        entry = entries.get(row["frame"])
-        image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
-        # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
-        # from SAM's own matte would replace their numbers while the row keeps claiming theirs.
-        if (image is None or entry is None or row.get("alpha") == "fixed"
-                or not usable_board(entry, profile)):
+    # TODO: nur die zwei eigenen `raise` raeumten auf — ein Ctrl-C oder ein Fehler in der
+    # Schleife liess die gestapelten `*.tmp.webp` liegen, und `straighten_boards` zog sie
+    # dann auch noch gerade.
+    try:
+        for row in read_jsonl(path):
+            alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
+            entry = entries.get(row["frame"])
+            image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
+            # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
+            # from SAM's own matte would replace their numbers while the row keeps claiming theirs.
+            if (image is None or entry is None or row.get("alpha") == "fixed"
+                    or not usable_board(entry, profile)):
+                rows.append(row)
+                continue
+            filled = solid(image)
+            gained = int((filled > 127).sum() - (image > 127).sum())
+            if gained == 0:
+                rows.append(row)
+                continue
+            coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
+            was = row.get("coverage") or {}
+            # The only change that can move a LABEL: a cell stepping over the threshold the piece loss
+            # masks on. Counted and reported, because `coverage` is training input, not a picture.
+            crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
+                           for sq, v in coverage.items())
+            closed += 1
+            added += gained
+            if not dry_run:
+                # `.tmp.webp`, nicht `.webp.tmp`: `imwrite` waehlt den Codec ueber die ENDUNG.
+                alpha_tmp = alpha_path.with_name(f"{alpha_path.stem}.tmp{alpha_path.suffix}")
+                if not cv2.imwrite(str(alpha_tmp), filled):
+                        raise OSError(f"{name}: could not write {alpha_tmp}")
+                staged.append((alpha_tmp, alpha_path))
+                row = row | {"coverage": coverage,
+                             "cells_over_half": sum(v > 0.5 for v in coverage.values())}
             rows.append(row)
-            continue
-        filled = solid(image)
-        gained = int((filled > 127).sum() - (image > 127).sum())
-        if gained == 0:
-            rows.append(row)
-            continue
-        coverage = coverage_of(filled.astype(np.float32) / 255.0, entry, profile)
-        was = row.get("coverage") or {}
-        # The only change that can move a LABEL: a cell stepping over the threshold the piece loss
-        # masks on. Counted and reported, because `coverage` is training input, not a picture.
-        crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
-                       for sq, v in coverage.items())
-        closed += 1
-        added += gained
-        if not dry_run:
-            # `.tmp.webp`, nicht `.webp.tmp`: `imwrite` waehlt den Codec ueber die ENDUNG.
-            alpha_tmp = alpha_path.with_name(f"{alpha_path.stem}.tmp{alpha_path.suffix}")
-            if not cv2.imwrite(str(alpha_tmp), filled):
-                _drop(staged)
-                raise OSError(f"{name}: could not write {alpha_tmp}")
-            staged.append((alpha_tmp, alpha_path))
-            row = row | {"coverage": coverage,
-                         "cells_over_half": sum(v > 0.5 for v in coverage.values())}
-        rows.append(row)
-        if progress and closed % 25 == 0:
-            print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
+            if progress and closed % 25 == 0:
+                print(f"[{_timestamp()}]   {closed} alphas closed", flush=True)
 
-    if not dry_run and closed:
-        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-            _drop(staged)
-            raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
-                             "is writing it. Let it finish and run this again.")
-        temp_path = path.with_suffix(path.suffix + ".tmp")
-        temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-        if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
-            temp_path.unlink(missing_ok=True)
-            _drop(staged)
-            raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
-        # Nur noch Umbenennungen, also Millisekunden statt Minuten. Atomar ueber N+1 Dateien ist es
-        # nicht — dafuer braeuchte es ein Journal —, aber das Fenster ist nicht mehr die Laufzeit.
-        for tmp, final in staged:
-            tmp.replace(final)
-        temp_path.replace(path)
+        if not dry_run and closed:
+            if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+                raise ValueError(f"{name}: matte.jsonl changed while closing seams — the alpha worker "
+                                 "is writing it. Let it finish and run this again.")
+            temp_path = path.with_suffix(path.suffix + ".tmp")
+            temp_path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+            if (path.stat().st_mtime_ns, path.stat().st_size) != stamp:
+                temp_path.unlink(missing_ok=True)
+                raise ValueError(f"{name}: matte.jsonl changed while closing seams — nothing written.")
+            # Nur noch Umbenennungen, also Millisekunden statt Minuten. Atomar ueber N+1 Dateien ist es
+            # nicht — dafuer braeuchte es ein Journal —, aber das Fenster ist nicht mehr die Laufzeit.
+            for tmp, final in staged:
+                tmp.replace(final)
+            temp_path.replace(path)
+    except BaseException:
+        _drop(staged)
+        raise
     return {"name": name, "frames": len(rows), "closed": closed, "px": added,
             "crossed": crossed, "dry_run": dry_run}
 

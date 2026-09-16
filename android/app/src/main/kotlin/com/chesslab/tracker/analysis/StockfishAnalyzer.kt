@@ -169,7 +169,13 @@ class StockfishAnalyzer(
             error("no stockfish binary")
         }
         val settings = options()
-        fresh.start(settings.threads, settings.hashMb)
+        // Der Prozess laeuft ab `start`, die Zuweisung kommt danach: warf der Handshake, hielt ihn
+        // niemand mehr und `closeEngine` fand nichts — `recover` startete alle 500 ms den naechsten.
+        runCatching { fresh.start(settings.threads, settings.hashMb) }
+            .onFailure { failure ->
+                runCatching { fresh.close() }
+                throw failure
+            }
         engine = fresh
         return fresh
     }
@@ -192,6 +198,9 @@ private fun winWhite(best: AnalysisLine?): Double {
         when {
             mate != null -> if (mate > 0) WIN_MATING else WIN_MATED
             cp != null -> winChanceWhite(cp)
+            // TODO: eine Suche ohne `info`-Zeile hat NICHTS gemessen, 50,0 ist aber ein Messwert —
+            // und `lastFen` verhindert die Wiederholung. `winWhite` ist `Double?`, genau dafuer
+            // (`UnscoredPositionTest`, @Disabled: der Fix leert den Balken und ist UI-Verhalten).
             else -> WIN_EVEN
         }
     return round(win * WIN_ROUNDING) / WIN_ROUNDING

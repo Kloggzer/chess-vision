@@ -23,6 +23,9 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
 | 22 | Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe Zeile | B | 2 h | **entscheiden** — eine Tail-Politik statt dreier |
+| 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
+| 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
+| 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | erst zaehlen |
 
 ## 17. `ALPHA_REASON` — welche Seite hat recht?
 
@@ -291,3 +294,50 @@ angezeigt oder verweigert wird, ist eine Produktfrage.
 | Kiste | Aufwand | Empfehlung |
 |---|---|---|
 | B | 2 h | Tail-Politik in `lib/jsonl.ts`, dann alle drei darauf — mit einer Entscheidung, nicht drei |
+
+## 23. `UtteranceQueue`: die Meldung des unterbrochenen Spruchs raeumt den Platz des ALARMS
+
+`flush()` setzt `inFlight = 1` fuer den Alarm, aber der gerade unterbrochene Spruch hat noch einen
+offenen Callback (`onStop` ruft `onDone`). `done()` ist anonym und zaehlt herunter, was gerade in
+Flug ist — `queue.idle` meldet `true`, waehrend der Alarm noch spricht, und `SpeechEngine.emit`
+gibt den Audiofokus mitten in der einen Ansage zurueck, die der Latch garantieren soll.
+
+**Warum nicht gebaut:** der Fix braucht eine Generation je Spruch und dreht die Zusage von
+`UtteranceQueueTest.flushDropsTheBacklogAndInterrupts` um, der genau eine `done()`-Meldung als die
+des Alarms liest. Und er haengt an einem Plattformdetail (wann Android `onStop` liefert), das
+sich hier nicht messen laesst. `@Disabled` in `StaleUtteranceCallbackTest`.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| C | 2 h plus Geraetemessung | **ja**, aber am Geraet — der Alarm ist die eine Ansage, die halten muss |
+
+## 24. `StockfishAnalyzer`: keine Bewertung wird als gemessenes Remis veroeffentlicht
+
+Liefert die Suche keine `info`-Zeile, ist `best` null und `winWhite` wird **50,0** — obwohl das
+Feld `Double?` ist, genau damit "keine Bewertung" sagbar bleibt (der Endstellungs-Pfad nutzt
+`null`). Dazu setzt die Schleife `lastFen`, die Stellung wird also nie wiederholt: der Balken
+steht bis zum naechsten Zug auf ausgeglichen, daneben "depth 0".
+
+Dieselbe Fehlerklasse wie SAMs Absage — diesmal im Gesicht des Nutzers.
+
+**Warum nicht gebaut:** der Fix leert den Balken, statt 50 % zu zeigen. Wie ein leerer Balken
+aussieht, ist eine UI-Entscheidung. `@Disabled` in `UnscoredPositionTest`, rot verifiziert
+(`expected: <null> but was: <50.0>`).
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| C | 30 min plus eine UI-Entscheidung | **ja** — ein erfundenes Remis ist schlimmer als ein leerer Balken |
+
+## 25. `settle_for_ply`: eine leere Coverage geht in den Median der gesetzten Stellung
+
+Ein `dirty`-Frame, dessen Matte-Zeile SAMs Absage ist (oder das nie gemattet wurde), passiert
+`SETTLE_CLEAR_MAX` als `0,0` und zaehlt in den Median, der die gesetzte Stellung definiert —
+genau das, wogegen die Konstante existiert ("eine Hand darin legt die Hand in den Median").
+
+**Warum nicht gebaut:** ungemessene dirty-Frames auszuschliessen kann einen Ply unter
+`SETTLE_MIN_FRAMES` druecken, und das aendert, WELCHE Zellen ueberhaupt eine Zahl bekommen.
+`xfail(strict)` in `tests/test_bug_hunt_20260916d.py`.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| C | 1 h plus Messung am Korpus | erst zaehlen, wie viele Plys darunter fielen — dann entscheiden |

@@ -13,7 +13,7 @@ export type UnusableCell = { session_id: string; frame: string; square: string; 
 type Row = UnusableCell & { ts: string };
 
 const SQUARE = /^[a-h][1-8]$/;
-export const UNUSABLE_CELLS = "unusable-cells.jsonl";
+const UNUSABLE_CELLS = "unusable-cells.jsonl";
 
 export function unusableCellsPath(name: string): string {
   return path.join(gameDir(name), UNUSABLE_CELLS);

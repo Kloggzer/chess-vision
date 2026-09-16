@@ -23,7 +23,7 @@ export type HandFlags = {
   present: boolean;
 };
 
-export function handFlagsPath(): string {
+function handFlagsPath(): string {
   return path.join(dataDir(), "reports", "hand-flags.jsonl");
 }
 

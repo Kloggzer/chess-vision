@@ -89,6 +89,8 @@ class CropFrameStore(
         val geometry: BoardGeometry,
     )
 
+    /** [wantsFrame] und [idle] lesen es ohne die Sperre, unter der der Observer es raeumt. */
+    @Volatile
     private var pending: Pending? = null
 
     /** Warps built for the observer that it never took — overwritten by a newer one, counted. */

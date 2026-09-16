@@ -84,6 +84,10 @@ class DiagnosticsLog(
 
     private var header: RunStart? = null
 
+    /** Produzentenseite: der Kopf ist der aelteste Eintrag der Schlange und faellt als erster. */
+    @Volatile
+    private var announced: RunStart? = null
+
     init {
         scope.launch(context) {
             for (entry in queue) write(entry)
@@ -109,7 +113,9 @@ class DiagnosticsLog(
 
     /** Once per built tracker stack, from whichever thread learns the execution provider. */
     fun runStart(row: RunStart) {
-        queue.trySend(Entry.Start(row.copy(seq = seq.getAndIncrement())))
+        val stamped = row.copy(seq = seq.getAndIncrement())
+        announced = stamped
+        queue.trySend(Entry.Start(stamped))
     }
 
     override fun close() {
@@ -126,11 +132,21 @@ class DiagnosticsLog(
         // A full disk, a revoked directory, a device that unmounted mid-game: none of them are
         // worth taking the tracker down for. The gap in `seq` records that something was lost.
         try {
-            target().appendText(line + "\n")
+            val file = target()
+            if (entry !is Entry.Start) restoreHeaderInto(file)
+            file.appendText(line + "\n")
         } catch (_: IOException) {
             return
         }
         if (entry is Entry.Start) header = entry.row
+    }
+
+    /** Der Kopf fiel aus der Schlange, bevor ihn jemand schrieb — sonst traegt ihn keine Datei. */
+    private fun restoreHeaderInto(file: File) {
+        val start = announced ?: return
+        if (header != null) return
+        file.appendText(DIAGNOSTICS_JSON.encodeToString(RunStart.serializer(), start) + "\n")
+        header = start
     }
 
     /**

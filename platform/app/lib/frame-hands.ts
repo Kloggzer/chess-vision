@@ -22,7 +22,7 @@ export type FrameHands = {
   present: boolean;
 };
 
-export function frameHandsPath(): string {
+function frameHandsPath(): string {
   return path.join(dataDir(), "reports", "frame-hands.jsonl");
 }
 

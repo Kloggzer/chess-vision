@@ -9,7 +9,7 @@ import path from "node:path";
 import { onTestFinished } from "vitest";
 
 export const BOARD_SIZE = 928;
-export const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 /** Eine Wurzel je Test, `CHESSLAB_DATA_DIR` gesetzt, und wieder weg — 45 von 55 Dateien liessen
  *  ihre Temp-Verzeichnisse stehen. Aufruf aus `beforeEach` oder aus dem Test selbst. */
@@ -62,7 +62,7 @@ export function sessionRow(spec: RowSpec): Record<string, unknown> {
   return { ...row, ...spec.extra };
 }
 
-export function logText(rows: RowSpec[]): string {
+function logText(rows: RowSpec[]): string {
   return rows.length === 0 ? "" : rows.map((r) => JSON.stringify(sessionRow(r))).join("\n") + "\n";
 }
 

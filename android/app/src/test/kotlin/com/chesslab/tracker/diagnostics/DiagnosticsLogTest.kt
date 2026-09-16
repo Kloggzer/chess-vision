@@ -127,6 +127,20 @@ class DiagnosticsLogTest {
             }
         }
 
+    /** Der Kopf ist der AELTESTE Eintrag der DROP_OLDEST-Schlange: ein Rueckstand wirft ihn zuerst weg. */
+    @Test
+    fun theRunHeaderSurvivesAFullQueue() =
+        runTest {
+            val log = log()
+            log.runStart(runStart())
+            repeat(300) { log.offer(decision(ply = it)) }
+            runCurrent()
+            log.close()
+            advanceUntilIdle()
+
+            assertEquals(KIND_RUN_START, lines().first().str("kind"), "der Lauf-Kopf fiel aus der Schlange")
+        }
+
     /**
      * `motionRecencyS` and the model directory by NAME, not "some config".
      *

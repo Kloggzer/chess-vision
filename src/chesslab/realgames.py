@@ -712,6 +712,8 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
     decode was in the way. An empty file counts as absent so a truncated write still repairs.
     """
     out_dir.mkdir(parents=True, exist_ok=True)
+    for orphan in out_dir.glob("tmp-*.png"):
+        orphan.unlink(missing_ok=True)
     have = {i for i in wanted if (f := out_dir / f"{i:06d}.png").is_file() and f.stat().st_size > 0}
     todo = wanted - have
     if have:
@@ -735,9 +737,17 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
     if len(recording.segments) > 1:
         print(f"  recording is {len(recording.segments)} segments: "
               f"{', '.join(p.name for p in recording.segments)}")
+    # TODO: `st_size > 0` war der ganze Resume-Test, aber ein abgebrochener Encode hinterlaesst ein
+    # HALBES PNG, das ihn besteht und nie wieder geschrieben wird. Die Pixel gehen deshalb neben
+    # den Zielnamen und werden erst umgehaengt, wenn sie ganz da sind. `tmp-<idx>.png`, nicht
+    # `<idx>.png.tmp`: `imwrite` waehlt den Codec an der ENDUNG, und `static_quad` globt `[0-9]*`.
     with closing(recording.frames(wanted=todo, rotate=rotate)) as stream:
         for idx, frame in stream:
-            cv2.imwrite(str(out_dir / f"{idx:06d}.png"), frame)
+            staged = out_dir / f"tmp-{idx:06d}.png"
+            if not cv2.imwrite(str(staged), frame):
+                staged.unlink(missing_ok=True)
+                raise OSError(f"could not write frame {out_dir / f'{idx:06d}.png'}")
+            os.replace(staged, out_dir / f"{idx:06d}.png")
             decoded.add(idx)
             # The card reads this out of the log (`lib/progress.ts`): a step that prints
             # nothing for half an hour is indistinguishable from a hung one.
@@ -971,6 +981,10 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
         if board is not None:
             cells[stem] = np.stack([crop_square(board, s, profile, out) for s in squares]).astype(np.float32)
 
+    # TODO: eine LEERE Coverage heisst hier "nie gemessen", nicht "keine Hand" — ein dirty-Frame
+    # ohne Matte geht als `clear` in den Median, und genau dagegen steht `SETTLE_CLEAR_MAX`
+    # (tests/test_bug_hunt_20260916d.py, xfail). Der Ausschluss kann ein Ply unter
+    # `SETTLE_MIN_FRAMES` druecken, also ist es kein verhaltensgleicher Fix.
     clear = [s for s in stems if s in cells
              and max((mattes.get(s) or {}).values(), default=0.0) <= SETTLE_CLEAR_MAX]
     step = max(1, len(clear) // SETTLE_MEDIAN_MAX)
@@ -1324,7 +1338,10 @@ def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None,
         # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
         # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
         # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
-        for matte in (sorted((session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")) if mattes else ()):
+        # TODO: `<stem>.*` sammelte auch `close_seams`' gestapelte `<stem>.tmp.webp` ein — die zog
+        # es gerade und zaehlte sie als Matte. Was danach umgehaengt wird, waere zweimal gezogen.
+        for matte in (sorted(p for p in (session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")
+                             if p.suffixes[-2:] != [".tmp", ".webp"]) if mattes else ()):
             alpha = cv2.imread(str(matte), cv2.IMREAD_UNCHANGED)
             if alpha is not None:
                 if not cv2.imwrite(str(matte), straighten_board(alpha, mesh, bs, border),
