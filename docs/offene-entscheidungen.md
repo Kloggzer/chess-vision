@@ -25,13 +25,14 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
 | 14–15 | Zwei TODOs, deren Fix die ZUFALLSFOLGE verschiebt | C | s. u. | 15 ja (Faktor 4), 14 mitnehmen |
 | 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
-| 20 | Acht Leser, fuenf pruefen `coverage` truthy (latent, 0 Faelle) | C | 30 min | Skripte umgestellt, Pipeline mit dem Neubau |
-| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
-| 22 | Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe Zeile | B | 2 h | **entscheiden** — eine Tail-Politik statt dreier |
+| ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
+| 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 fallen mit 27 |
+| ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
 | 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
-| 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | **ja** — gezaehlt: 14 von 804 Plys |
+| ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
 | 26 | `--smooth-iters` dreht die Figur, verbatim nicht | C | 30 min | erst zaehlen, welche Meshes betroffen sind |
+| **27** | **Postgres statt 19 Dateiformate** | C | Export-Neubau | **entschieden** — Schnitt steht unten |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
@@ -266,3 +267,55 @@ in `tests/test_bug_hunt_20260916e.py`.
 | Kiste | Aufwand | Empfehlung |
 |---|---|---|
 | C | 30 min plus eine Sichtprobe je betroffener Figur | erst zaehlen, welche Meshes mit `--smooth-iters` entstanden |
+
+## 27. Postgres statt 19 Dateiformate — ENTSCHIEDEN 2026-09-16 (Nutzer), Bau steht aus
+
+**Die Entscheidung:** Postgres in Docker, zwei Rollen mit `GRANT` je Tabelle. Begruendung des
+Nutzers: zwei Prozesse laufen wirklich parallel, und der Streit gehoert in die DB, nicht in eine
+Vereinbarung, an die sich jemand halten muss.
+
+Damit sind **Punkt 22 gegenstandslos** (keine halbe letzte Zeile mehr) und **Punkt 21 Naht 4 und 5
+erledigt** — die DB traegt den Vertrag, nicht ein versioniertes Dateiformat.
+
+### Was die DB loest, gemessen an der Nacht auf den 16.09.
+
+| Fehlerklasse | Faelle | loest die DB das? |
+|---|---|---|
+| "nicht gemessen" als gemessener Normalwert gelesen | ~19 | **nein** |
+| halb geschriebene Dateien, gleichzeitige Schreiber, Staging-Reste | ~9 | ja |
+| Waechter umgangen (Massstab, `usable_board`) | 4 | nein |
+| UI- und Logikfehler | ~8 | nein |
+
+**Die dominante Klasse ueberlebt die Migration.** Eine Spalte, die `NULL` sein darf und
+stattdessen `0.0` bekommt, ist genau dieselbe Falle wie `.get(k, 0.0)`. Gegenmittel im Schema:
+`NOT NULL` ueberall, wo ein Wert gemessen sein MUSS, und sonst echtes `NULL` — nie ein Default.
+`tests/test_matte_coverage_rule.py` und die JSONL-Ratsche bleiben bis zur letzten migrierten Stelle.
+
+### Schnitt
+
+- **In die DB:** die Messreihen (`matte`, `model-reads`, `log`, `interval-check`, `scan`) und die
+  Urteile (`review-notes`, `corrections`, `unusable-cells`, `ui-meta`, `useless`).
+- **Dateien bleiben Dateien:** `boards/*.webp`, die Alphas, die Packs. Die Zeile in der DB traegt
+  Pfad UND einen Inhaltsstempel (Mtime plus Groesse, wie `chesslab.provenance` es schon tut),
+  damit eine Abweichung zwischen DB und Platte auffaellt statt still zu sein. **Das ist die neue
+  Fehlerklasse, die die Migration einfuehrt** — sie braucht ihren eigenen Waechter.
+- **Rollen:** `chesslab_pipeline` schreibt die Messreihen und liest die Urteile,
+  `chesslab_web` umgekehrt. Kein Konto darf beides schreiben.
+- **Der Riegel bleibt:** `heavy-lock.ts` / `locks.py` sind auch RESSOURCEN-Sperren (GPU, Speicher),
+  nicht nur Daten-Sperren. Wer sie nach der Migration loescht, weil "die DB das jetzt macht",
+  laesst zwei Trainingslaeufe gleichzeitig los.
+
+### Reihenfolge
+
+1. Schema fuer EINE Familie — die Messreihen —, Python schreibt in beide (DB und JSONL).
+2. Die Web-App liest aus der DB statt aus der Datei. JSONL bleibt als abgeleitete Sicht stehen,
+   damit die ~12 000 Zeilen in `scripts/` unveraendert weiterlaufen.
+3. Urteile umziehen, dann `scripts/` Datei fuer Datei.
+4. JSONL abschalten, wenn niemand mehr liest.
+
+**Der Zeitpunkt ist der Export-Neubau** (Punkt 14): der Export IST der Schreiber, und man aendert
+ihn einmal.
+
+| Kiste | Aufwand | offen |
+|---|---|---|
+| C | Schritt 1–2 ein Tag, der Rest je Familie | Backup-Weg (`pg_dump`) — heute ist `data/` "ein Ordner, den man kopiert" |
