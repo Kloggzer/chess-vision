@@ -56,7 +56,9 @@ def read_jsonl(path: Path) -> list[dict]:
     # Fehler erst geworfen, wenn doch noch eine Zeile folgt.
     # `newline=""` zeigt die ECHTEN Bytes: sonst uebersetzt der Universal-Modus ein abgerissenes
     # CR in LF, und die halbe Schwanzzeile saehe ganz aus (1127 der 1329 Dateien tragen CRLF).
-    with p.open(encoding="utf-8", newline="") as fh:
+    # `utf-8-sig`: PowerShells `Out-File`/`Set-Content` stempeln hier per Vorgabe ein BOM, und
+    # ein einziges liess 2026-08-16 jeden Datensatz-Bau am Vorflug sterben. Ohne BOM aendert es nichts.
+    with p.open(encoding="utf-8-sig", newline="") as fh:
         for line in fh:
             if not line.strip():
                 continue
@@ -77,10 +79,10 @@ def write_atomic(path: Path, text: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     try:
         tmp.write_text(text, encoding="utf-8")
+        tmp.replace(path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
-    tmp.replace(path)
 
 
 class Contested(RuntimeError):

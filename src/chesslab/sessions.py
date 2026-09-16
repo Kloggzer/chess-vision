@@ -28,7 +28,7 @@ from statistics import median
 import yaml
 
 from . import config
-from .ioutil import write_atomic, write_rows
+from .ioutil import read_jsonl, write_rows
 
 log = logging.getLogger("chesslab.sessions")
 
@@ -53,7 +53,7 @@ def _log_count(session_dir: Path) -> int:
     p = session_dir / "log.jsonl"
     if not p.exists():
         return 0
-    return sum(1 for line in p.read_text(encoding="utf-8").splitlines() if line.strip())
+    return len(read_jsonl(p))
 
 
 def _manifest_path(paths: config.Paths) -> Path:
@@ -108,17 +108,10 @@ def _filter_jsonl(path: Path, session_id: str) -> None:
     """Alle Zeilen dieser Session aus einer JSONL-Datei entfernen (idempotent)."""
     if not path.exists():
         return
-    kept = [line for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and json.loads(line).get("session_id") != session_id]
+    kept = [r for r in read_jsonl(path) if r.get("session_id") != session_id]
     # Atomar: das Manifest ist GETEILT, ein Abbruch mitten im Schreiben traefe jede Session
     # darin, nicht nur die archivierte.
-    temp = path.with_suffix(path.suffix + ".tmp")
-    try:
-        temp.write_text(("\n".join(kept) + "\n") if kept else "", encoding="utf-8")
-    except BaseException:
-        temp.unlink(missing_ok=True)
-        raise
-    temp.replace(path)
+    write_rows(path, kept)
 
 
 def _purge_crops(session_id: str, paths: config.Paths) -> int:
@@ -170,29 +163,22 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
     path = sdir / "matte.jsonl"
     if not path.exists() or not frame_stems:
         return 0
-    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    kept = [line for line in lines if str(json.loads(line).get("frame")) not in frame_stems]
+    rows = read_jsonl(path)
+    kept = [r for r in rows if str(r.get("frame")) not in frame_stems]
     # TODO: war ungestagt, waehrend `_filter_jsonl` daneben ausdruecklich stagt. Die Coverage ist
     # Trainingsziel: die Frames unter einer halben Datei gingen mit `coverage = 0.0` ins Training.
-    write_atomic(path, ("\n".join(kept) + "\n") if kept else "")
-    return len(lines) - len(kept)
+    write_rows(path, kept)
+    return len(rows) - len(kept)
 
 
 def _filter_jsonl_frames(path: Path, session_id: str, frame_stems: set[str]) -> int:
     if not path.exists() or not frame_stems:
         return 0
-    kept: list[str] = []
-    removed = 0
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
-        if row.get("session_id") == session_id and str(row.get("frame")) in frame_stems:
-            removed += 1
-            continue
-        kept.append(line)
-    write_atomic(path, ("\n".join(kept) + "\n") if kept else "")
-    return removed
+    rows = read_jsonl(path)
+    kept = [r for r in rows
+            if not (r.get("session_id") == session_id and str(r.get("frame")) in frame_stems)]
+    write_rows(path, kept)
+    return len(rows) - len(kept)
 
 
 def list_sessions(paths: config.Paths = config.DATA) -> list[dict]:
@@ -324,12 +310,11 @@ def deletion_cost(session_id: str, paths: config.Paths = config.DATA) -> dict:
     sid = _safe_id(session_id)
     target, _ = session_dir(sid, paths)
     log = target / "log.jsonl"
-    frames = len([x for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]) if log.exists() else 0
+    frames = len(read_jsonl(log))
     crops = sum(1 for m in _manifest_files(paths) if m.exists() for line in
                 m.read_text(encoding="utf-8").splitlines() if f'"session_id": "{sid}"' in line)
     own = target / "corrections.jsonl"
-    rows = own.read_text(encoding="utf-8").splitlines() if own.exists() else []
-    corrections = len([x for x in rows if x.strip()])
+    corrections = len(read_jsonl(own))
     return {"session_id": sid, "frames": frames, "crops": crops, "corrections": corrections}
 
 
@@ -357,7 +342,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     log_path = target / "log.jsonl"
     if not log_path.exists():
         raise FileNotFoundError(f"Session '{sid}' has no log.jsonl.")
-    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = read_jsonl(log_path)
     keep = max(0, min(int(keep_frames), len(rows)))
     kept, removed_rows = rows[:keep], rows[keep:]
     removed_stems = {_frame_stem(r) for r in removed_rows if _frame_stem(r)}
@@ -501,8 +486,7 @@ def read_log(sdir: Path) -> list[dict]:
     log_path = sdir / "log.jsonl"
     if not log_path.exists():
         raise FileNotFoundError(f"Session '{sdir.name}' has no log.jsonl.")
-    rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()
-            if line.strip()]
+    rows = read_jsonl(log_path)
     if not rows:
         raise FileNotFoundError(f"Session '{sdir.name}' has no captured frames.")
     return rows
@@ -559,7 +543,7 @@ def write_interval_checks(sdir: Path, checks: list[dict]) -> None:
     # `json.loads` und nahm bei einer halben Datei den Report ALLER Aufnahmen mit, nicht nur diese.
     from .realgames import INTERVAL_FILE
 
-    write_atomic(sdir / INTERVAL_FILE, "".join(json.dumps(c) + "\n" for c in checks))
+    write_rows(sdir / INTERVAL_FILE, checks)
 
 
 def backup_log(log_path: Path) -> str:

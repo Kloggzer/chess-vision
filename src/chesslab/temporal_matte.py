@@ -341,17 +341,16 @@ def adopt_proposals(session_id, *, method="local"):
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"
-    lines = matte_path.read_text(encoding="utf-8").splitlines() if matte_path.is_file() else []
-    kept_lines = [s for s in lines if s.strip() and json.loads(s).get("source") != "temporal"]
-    ours = {json.loads(s)["frame"] for s in lines if s.strip()} - {json.loads(s)["frame"] for s in kept_lines}
+    rows_before = read_jsonl(matte_path)
+    kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
+    ours = {r["frame"] for r in rows_before} - {r["frame"] for r in kept_rows}
     # Wie `matte.matte_status`: eine Zeile ohne `coverage` ist SAMs Absage, keine Matte. Als eine
     # gezaehlt blieben genau die Frames ohne jedes Alpha ungefuellt — die Coverage-Matte-Falle.
-    have = {r["frame"] for r in map(json.loads, kept_lines)
-            if r.get("coverage") is not None}
+    have = {r["frame"] for r in kept_rows if r.get("coverage") is not None}
     (recording / "mattes").mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
-    for row in (json.loads(s) for s in report.read_text(encoding="utf-8").splitlines() if s.strip()):
+    for row in read_jsonl(report):
         stem, entry = row["frame"], entries.get(row["frame"])
         if not row.get("alpha") or entry is None:
             continue
@@ -368,13 +367,13 @@ def adopt_proposals(session_id, *, method="local"):
             continue
         if not cv2.imwrite(str(target), alpha):
             raise OSError(f"Cannot write matte for {stem}")
-        fresh.append(json.dumps({"frame": stem, "ply": entry.get("ply"),
-                                 "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
-                                 "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                                 "coverage": coverage,
-                                 "cells_over_half": sum(v > .5 for v in coverage.values())}))
+        fresh.append({"frame": stem, "ply": entry.get("ply"),
+                      "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
+                      "concepts": {"temporal": round(row["fraction_above_half"], 4)},
+                      "coverage": coverage,
+                      "cells_over_half": sum(v > .5 for v in coverage.values())})
         adopted += 1
-    write_atomic(matte_path, "".join(s + chr(10) for s in kept_lines + fresh))
+    write_rows(matte_path, kept_rows + fresh)
     return {"path": matte_path, "adopted": adopted, "empty": empty, "kept_sam": kept,
             "replaced": len(ours)}
 
@@ -416,21 +415,20 @@ def upsert_proposals(session_id, *, method="local"):
     profile = load_profile(read_session_meta(recording)["profile"])
     entries = {Path(r["frame"]).stem: r for r in read_log(recording)}
     matte_path = recording / "matte.jsonl"
-    lines = [s for s in (matte_path.read_text(encoding="utf-8").splitlines()
-                         if matte_path.is_file() else []) if s.strip()]
-    kept_lines = [s for s in lines if json.loads(s).get("source") not in ("upsert", "merged")]
-    replaced = len(lines) - len(kept_lines)
+    rows_before = read_jsonl(matte_path)
+    kept_rows = [r for r in rows_before if r.get("source") not in ("upsert", "merged")]
+    replaced = len(rows_before) - len(kept_rows)
     mattes = recording / "mattes"
     for backup in mattes.glob("*.sam.webp"):
         backup.replace(mattes / backup.name.replace(".sam.webp", ".webp"))
     sam = {}
-    for row in (json.loads(s) for s in kept_lines):
+    for row in kept_rows:
         if row.get("coverage") is not None and row.get("source") != "temporal":
             sam[row["frame"]] = row
     stamp_now = datetime.now(UTC).isoformat()
     upserted, found, fixed = 0, 0, 0
     fresh = []
-    for row in (json.loads(s) for s in report.read_text(encoding="utf-8").splitlines() if s.strip()):
+    for row in read_jsonl(report):
         stem, entry = row["frame"], entries.get(row["frame"])
         if not row.get("alpha") or entry is None or stem not in sam:
             continue
@@ -451,14 +449,14 @@ def upsert_proposals(session_id, *, method="local"):
             target.replace(mattes / f"{stem}.sam.webp")
         if not cv2.imwrite(str(target), alpha):
             raise OSError(f"Cannot write matte for {stem}")
-        fresh.append(json.dumps({"frame": stem, "ply": entry.get("ply"),
-                                 "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
-                                 "merged_at": stamp_now,
-                                 "concepts": {"temporal": round(row["fraction_above_half"], 4)},
-                                 "coverage": coverage,
-                                 "cells_over_half": sum(v > .5 for v in coverage.values())}))
+        fresh.append({"frame": stem, "ply": entry.get("ply"),
+                      "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
+                      "merged_at": stamp_now,
+                      "concepts": {"temporal": round(row["fraction_above_half"], 4)},
+                      "coverage": coverage,
+                      "cells_over_half": sum(v > .5 for v in coverage.values())})
         upserted += 1
-    write_atomic(matte_path, "".join(s + chr(10) for s in kept_lines + fresh))
+    write_rows(matte_path, kept_rows + fresh)
     return {"path": matte_path, "upserted": upserted, "sam_found": found, "fixed": fixed,
             "replaced": replaced}
 
@@ -480,8 +478,7 @@ def prune_dead_rows(session_id):
     matte_path = recording / "matte.jsonl"
     if not matte_path.is_file():
         return {"path": matte_path, "dropped": 0, "kept": 0}
-    lines = [s for s in matte_path.read_text(encoding="utf-8").splitlines() if s.strip()]
-    rows = [json.loads(s) for s in lines]
+    rows = read_jsonl(matte_path)
     # Zwei Regeln, weil die zwei Quellen verschieden entstehen:
     # `temporal` ist ein Frame, den SAM nachtraeglich schneidet — seine Zeile gewinnt, auch leer.
     # `upsert` existiert, WEIL SAM nichts fand; ein leerer SAM-Schnitt ueberholt ihn also nicht,
@@ -493,9 +490,9 @@ def prune_dead_rows(session_id):
                 and (not only_found or any(row["coverage"].values()))}
 
     cut, found = sam_rows(False), sam_rows(True)
-    keep = [line for line, row in zip(lines, rows, strict=True)
+    keep = [row for row in rows
             if not (row.get("source") == "temporal" and row["frame"] in cut)
             and not (row.get("source") == "upsert" and row["frame"] in found)]
-    if len(keep) != len(lines):
-        write_atomic(matte_path, "".join(line + chr(10) for line in keep))
-    return {"path": matte_path, "dropped": len(lines) - len(keep), "kept": len(keep)}
+    if len(keep) != len(rows):
+        write_rows(matte_path, keep)
+    return {"path": matte_path, "dropped": len(rows) - len(keep), "kept": len(keep)}

@@ -6,12 +6,11 @@ Nicht die Audit-Lane: die entscheidet Figurenklassen.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
-from .ioutil import write_rows
+from .ioutil import read_jsonl, write_rows
 
 FLAGS_FILE = "hand-flags.jsonl"
 #: Ab hier behauptet der Occlusion-Kopf eine Verdeckung. Tief angesetzt, weil ein verpasster
@@ -25,10 +24,7 @@ def measured_coverage(session_dir: Path) -> dict[tuple[str, str], float]:
     if not path.is_file():
         return {}
     out: dict[tuple[str, str], float] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    for row in read_jsonl(path):
         stem = str(row.get("frame", ""))
         for square, value in (row.get("coverage") or {}).items():
             out[(stem, square)] = float(value)
@@ -81,7 +77,7 @@ def hand_flags(cut: float = DEFAULT_CUT) -> dict:
     rows, per_session, without = [], {}, []
     for reads_path in sorted(config.DATA.recordings.glob(f"*/{READS_FILE}")):
         session_dir = reads_path.parent
-        lines = [json.loads(x) for x in reads_path.read_text(encoding="utf-8").splitlines() if x.strip()]
+        lines = read_jsonl(reads_path)
         reads = [r for r in lines if r.get("square")]
         if not any("model_cov" in r or "cov" in r for r in reads):
             without.append(session_dir.name)

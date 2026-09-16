@@ -6,14 +6,13 @@ to it. Humans miss things: 2026-08-16, 59 rows vouched for `d8=bQ` where the pie
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from pathlib import Path
 
 import chess
 
 from . import config
-from .ioutil import write_rows
+from .ioutil import read_jsonl, write_rows
 from .labeling import all_squares, load_corrections
 
 #: Only the violations OCCLUSION CANNOT CAUSE. A hidden square lowers a count, never raises one, so
@@ -74,10 +73,7 @@ def audit_corrections(paths: config.Paths | None = None) -> dict:
         log = session_dir / "log.jsonl"
         if not log.is_file():
             continue
-        for line in log.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            entry = json.loads(line)
+        for entry in read_jsonl(log):
             stem = Path(entry["frame"]).stem
             applied = {sq: corrections[(sid, stem, sq)] for sq in squares
                        if (sid, stem, sq) in corrections}

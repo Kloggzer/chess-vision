@@ -6,12 +6,12 @@ Der Mensch benennt dort die Figur, die wirklich dasteht. Zahlen: `realgames.sett
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
 from .hand_flags import write_flags
+from .ioutil import read_jsonl
 from .labeling import (
     MATTE_DIRTY,
     SETTLE_LIMIT,
@@ -121,9 +121,7 @@ def position_flags() -> dict:
         found = [flag for entry in entries
                  for flag in frame_flags(entry, matte.get(Path(entry["frame"]).stem), session_id)
                  ] if (session_dir / "matte.jsonl").is_file() else []
-        intervals = [json.loads(line) for line in
-                     (session_dir / INTERVAL_FILE).read_text(encoding="utf-8").splitlines()
-                     if line.strip()] if (session_dir / INTERVAL_FILE).is_file() else []
+        intervals = read_jsonl(session_dir / INTERVAL_FILE)
         timing = timing_flags(entries, intervals, matte, session_id)
         temporal, stale = load_flags(session_dir, session_id, entries, matte)
         if stale:
@@ -160,8 +158,7 @@ def interval_flags() -> dict:
     rows = []
     for path in sorted(config.DATA.recordings.glob(f"*/{INTERVAL_FILE}")):
         session_id = read_session_meta(path.parent)["session_id"]
-        rows += [{"session_id": session_id, **json.loads(line)}
-                 for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows += [{"session_id": session_id, **r} for r in read_jsonl(path)]
     header = {"_written_at": datetime.now(UTC).isoformat()}
     out = write_flags(config.DATA.reports / INTERVAL_REPORT, rows, header)
     return {"path": out, "plies": len(rows), "unseen": sum(1 for r in rows if not r["seen"])}

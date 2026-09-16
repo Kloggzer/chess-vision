@@ -6,14 +6,13 @@ and matte coverage remain authoritative; this module never writes either.
 
 from __future__ import annotations
 
-import json
 import math
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
 from .calibration import profile_path
-from .ioutil import write_rows
+from .ioutil import read_jsonl, write_rows
 from .labeling import MATTE_DIRTY, all_squares, read_log, read_matte, read_session_meta
 from .realgames import SETTLE_MIN_FRAMES
 from .sessions import session_dir
@@ -99,7 +98,7 @@ def load_flags(recording, session_id, entries, matte):
     path = report_path(recording)
     if not path.is_file():
         return [], False
-    lines = [json.loads(s) for s in path.read_text(encoding="utf-8").splitlines() if s.strip()]
+    lines = read_jsonl(path)
     header = lines[0] if lines else {}
     if (header.get("_schema") != 1 or header.get("_session_id") != session_id
             or header.get("_source") != source_stamp(recording)):

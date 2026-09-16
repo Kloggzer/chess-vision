@@ -21,7 +21,7 @@ import yaml
 
 from . import config
 from .calibration import MESH_CURV_LIMIT, MESH_TILT_LIMIT, load_profile
-from .ioutil import write_rows
+from .ioutil import read_jsonl, write_rows
 from .labeling import all_squares, crops_for_frame
 from .recording import Recording
 from .state import GameState
@@ -428,7 +428,6 @@ def reported_dirty(session_id: str, verdict: str = "dirty-frame") -> set[int]:
     reached over the markers. The human sees it, and the honest word for the frame is the same one
     the scan would have used: the board is unchanged, so the FEN still holds.
     """
-    import json
 
     from .config import DATA
 
@@ -436,10 +435,7 @@ def reported_dirty(session_id: str, verdict: str = "dirty-frame") -> set[int]:
     out = set()
     if not path.exists():
         return out
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    for row in read_jsonl(path):
         if (row.get("session_id") == session_id and row.get("verdict") == verdict
                 and str(row.get("frame", "")).isdigit()):
             out.add(int(row["frame"]))
@@ -779,11 +775,7 @@ def carry_repaired_geometry(session_dir: Path, rows: list[dict]) -> int:
     log = session_dir / "log.jsonl"
     if not log.is_file():
         return 0
-    old = {}
-    for line in log.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            row = json.loads(line)
-            old[Path(row["frame"]).stem] = row
+    old = {Path(r["frame"]).stem: r for r in read_jsonl(log)}
     carried = 0
     for row in rows:
         previous = old.get(Path(row["frame"]).stem)
@@ -2087,7 +2079,7 @@ def stored_session_dirs(name: str) -> list[Path]:
 def stored_rows(session_dir: Path) -> list[dict]:
     """The logged rows in frame order — every row, since the sidecar is keyed per frame."""
     log = session_dir / "log.jsonl"
-    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = read_jsonl(log)
     return sorted((r for r in rows if r.get("frame") and r.get("corners")),
                   key=lambda r: Path(r["frame"]).stem)
 

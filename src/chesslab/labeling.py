@@ -36,6 +36,7 @@ from .calibration import (
     warp_board_for_crops,
 )
 from .imgops import resize_keep_aspect
+from .ioutil import read_jsonl
 from .state import GameState
 from .work_audit import current as current_work_audit
 from .work_audit import measure
@@ -323,10 +324,7 @@ def load_corrections(path: Path, into: Corrections | None = None) -> Corrections
     p = Path(path)
     if not p.exists():
         return out
-    for line in p.read_text(encoding="utf-8-sig").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    for row in read_jsonl(p):
         key = (row["session_id"], str(row["frame"]), row["square"])
         if row.get("retract") is True:
             out.pop(key, None)
@@ -377,10 +375,7 @@ def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
     if not path.exists():
         return set()
     out: set[tuple[str, str, str]] = set()
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
-        if not line.strip():
-            continue
-        row = json.loads(line)
+    for row in read_jsonl(path):
         key = (row["session_id"], str(row["frame"]), row["square"])
         if row.get("unusable") is False:
             out.discard(key)

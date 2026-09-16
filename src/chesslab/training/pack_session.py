@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
+from ..ioutil import read_jsonl
 from . import packs
 from .pack import decode_crop
 
@@ -128,8 +129,7 @@ def import_pack(src: Path, *, paths: config.Paths = config.DATA) -> dict:
     Its rows name the pack — a Kotlin one says `mm://<session_id>/…` and keeps the plain id here.
     Validated at the SOURCE, so a truncated image is refused before anything moves."""
     src = Path(src)
-    text = (src / "manifest.jsonl").read_text(encoding="utf-8")
-    rows = [json.loads(line) for line in text.splitlines() if line.strip()]
+    rows = read_jsonl(src / "manifest.jsonl")
     if not rows:
         raise ValueError(f"{src} has no manifest rows — not a pack")
     name = packs.pack_name_of(rows[0]["path"])

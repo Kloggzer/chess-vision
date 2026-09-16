@@ -1,0 +1,8 @@
+# Stellen in src/chesslab, die eine Datei selbst in Zeilen schneiden, statt read_jsonl zu nehmen.
+# Darf nur SCHRUMPFEN - tests/test_jsonl_readers.py wacht darueber.
+# Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
+#
+# Beim Bau der Ratsche waren es 30 Schnitte in 12 Dateien.
+2 cli.py  # eine .fen-Liste und die Ausgabe eines Subprozesses, kein JSONL
+1 meshprep.py  # schneidet eine .obj-Datei
+1 sessions.py  # ZAEHLT per Substring in 190-MB-Manifesten; parsen kostete 465k Zeilen je Aufruf
