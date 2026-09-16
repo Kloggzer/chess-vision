@@ -170,6 +170,21 @@ def test_sam_matte_tolerates_the_tail_its_neighbours_tolerate(tmp_path):
     assert sam_matte(tmp_path) == {"000001": {"a1": 0.2}}
 
 
+def test_sam_matte_lets_a_later_refusal_win(tmp_path):
+    """Dieselbe Regel wie `read_matte` und `lib/matte.ts` seit Punkt 28: die JUENGERE
+    Zeile gilt. Eine Absage danach sagt "nicht mehr messbar" und darf die alte Zahl nicht
+    stehen lassen — sonst behandelt `propose_session` das Brett als schon gemattet.
+    """
+    from chesslab.temporal_matte import sam_matte
+
+    (tmp_path / "matte.jsonl").write_text(
+        json.dumps({"frame": "000001", "coverage": {"a1": 0.2}}) + chr(10)
+        + json.dumps({"frame": "000001", "skipped": "zone too big"}) + chr(10),
+        encoding="utf-8")
+
+    assert sam_matte(tmp_path) == {}
+
+
 # --- 6./7./8. sessions: drei Schreiber ohne Nebendatei ----------------------------------------
 
 

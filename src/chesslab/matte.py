@@ -638,7 +638,7 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     # `gained == 0` und reparierte es nie, obwohl die Meldung dazu aufforderte.
     staged: list[tuple[Path, Path]] = []
     closed = crossed = added = 0
-    # TODO: nur die zwei eigenen `raise` raeumten auf — ein Ctrl-C oder ein Fehler in der
+    # nur die zwei eigenen `raise` raeumten auf — ein Ctrl-C oder ein Fehler in der
     # Schleife liess die gestapelten `*.tmp.webp` liegen, und `straighten_boards` zog sie
     # dann auch noch gerade.
     try:

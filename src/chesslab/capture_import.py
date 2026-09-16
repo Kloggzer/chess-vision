@@ -49,7 +49,7 @@ def video_syncs(bundle: Path) -> list[tuple[int, int]]:
     path = bundle / "timeline.jsonl"
     if not path.is_file():
         raise FileNotFoundError(f"{path} fehlt — ohne sie ist `elapsed_ns` keine Videozeit")
-    # TODO: Der ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`): das
+    # Der ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`): das
     # Telefon STROEMT in `timeline.jsonl`, eine abgebrochene Aufnahme laesst also eine halbe LETZTE
     # Zeile zurueck. `json.loads` darauf brach den ganzen Import ab, statt sie zu verwerfen.
     out = [(int(row["elapsedNs"]), int(row["durationNs"])) for row in _timeline_rows(path)

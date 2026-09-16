@@ -15,8 +15,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
   const { name } = await ctx.params;
   try {
     const body = (await request.json()) as { ply?: unknown; reason?: unknown };
-    // TODO: `Number(null)` ist 0 und `Number(true)` ist 1 — ein Koerper ohne `ply` landete als
-    // Urteil ueber Halbzug 0 (2026-09-16).
+    // `Number(null)` ist 0 und `Number(true)` ist 1: ein Koerper ohne `ply` landete sonst als
+    // Urteil ueber Halbzug 0.
     const given = typeof body.ply === "number" || (typeof body.ply === "string" && body.ply.trim());
     const ply = given ? Number(body.ply) : Number.NaN;
     if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${String(body.ply)}`);

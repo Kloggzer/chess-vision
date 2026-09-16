@@ -171,7 +171,9 @@ export async function listFrameStems(name: string): Promise<FrameStem[]> {
 
 export async function framePng(name: string, stem: string): Promise<Buffer> {
   const file = await reviewFramePath(name, stem);
-  if (file === null) throw new Error(`no review frame ${stem} for ${name}`);
+  // `ENOENT` wie `readFile` selbst: die Route trennt "nicht da" (404) von "unlesbar" (500) am
+  // Code, und ein blanker Error zwaenge sie dazu, den Satz zu lesen.
+  if (file === null) throw Object.assign(new Error(`no review frame ${stem} for ${name}`), { code: "ENOENT" });
   return readFile(file);
 }
 

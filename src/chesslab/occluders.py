@@ -297,7 +297,7 @@ def extract(video: Path, out_dir: Path, stride: int = 2, max_iou: float = 0.85,
 
 
 def write_tile(path: Path, rgba: np.ndarray) -> None:
-    # TODO: `cv2.imwrite` WIRFT NICHT, es gibt False zurueck. Ungelesen zaehlte `written` die
+    # `cv2.imwrite` WIRFT NICHT, es gibt False zurueck. Ungelesen zaehlte `written` die
     # Kachel trotzdem, und der Bericht las sich wie ein vollstaendiger Lauf ueber Dateien,
     # die es nicht gibt.
     if not cv2.imwrite(str(path), rgba, [cv2.IMWRITE_WEBP_QUALITY, 95]):

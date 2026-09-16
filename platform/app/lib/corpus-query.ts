@@ -29,8 +29,8 @@ function evidence(row: ModelRead, f: Filter): number {
 const PHASES: ReadonlySet<string> = new Set(["any", "settled", "before", "after"]);
 
 export async function queryCorpus(filter: Filter, phase = "any"): Promise<QueryAnswer> {
-  // TODO: Ein Tippfehler filterte jede Zeile weg und die Antwort meldete 0 Treffer als Ergebnis —
-  // dieselbe Behauptung, die die Klassen-Absage darunter verhindert (2026-09-16).
+  // Eine unbekannte Phase filtert jede Zeile weg, und 0 Treffer waeren dann eine Behauptung statt
+  // einer Antwort — dieselbe Absage wie fuer eine unbekannte Klasse darunter.
   if (!PHASES.has(phase)) throw new Error(`${phase} ist keine Phase: ${[...PHASES].join(", ")}`);
   // Refused, not answered with an empty set: `occluded` was an askable class until 2026-08-18 and
   // a bookmark still carries it. Zero hits would read as "nothing covered", which is a claim.

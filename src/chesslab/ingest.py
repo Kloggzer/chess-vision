@@ -239,7 +239,7 @@ def debug_overlay(session_id: str, n: int, out_dir: Path, *, profile,
                 cv2.putText(warped, txt, (int(cx) - 8, int(cy) + 8), cv2.FONT_HERSHEY_SIMPLEX,
                             0.8, (0, 0, 255), 2, cv2.LINE_AA)
         dst = out_dir / f"{session_id}_{Path(entry['frame']).stem}.png"
-        # TODO: `cv2.imwrite` wirft nicht, es gibt False zurueck — die Liste nannte Dateien, die
+        # `cv2.imwrite` wirft nicht, es gibt False zurueck — die Liste nannte Dateien, die
         # nie entstanden, und der visuelle Check gegen vertauschte Labels fiel lautlos aus.
         if not cv2.imwrite(str(dst), warped):
             raise RuntimeError(f"debug overlay not written: {dst}")
@@ -283,7 +283,7 @@ def run_ingest(adapter: str, root: str | Path, *, tag: str, board_size: int = 90
 
     prof = ingestion_profile(tag, board_size, out_size)
     # Persist the profile so later re-slices (CLI/web) can load it like any other profile.
-    # TODO: stand als `profile_path(tag)` da und haengt damit an `config.DATA` — ein Lauf auf
+    # stand als `profile_path(tag)` da und haengt damit an `config.DATA` — ein Lauf auf
     # einer anderen Wurzel legte sein Profil trotzdem in die echte Datenwurzel, waehrend Sessions
     # und Crops unter `paths` lagen. Bei `paths is config.DATA` ist es derselbe Pfad.
     out_prof = paths.calibration / f"{tag}.yaml"

@@ -197,9 +197,9 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     [judgeOne, loaded.sessions, open],
   );
 
-  // TODO: `setMarked(allMarked())` ERSETZTE die Menge, also verlor ein Druck auf `a` die Marken
-  // jeder anderen Seite — und `was.size === slice.length` schlug nie an, sobald eine Karte
-  // vorgemerkt leer war, so dass "alle" sich nicht mehr abraeumen liess (`lib/matte-select.ts`).
+  // Seitenweise, nicht ersetzend (`lib/matte-select.ts`): `setMarked(allMarked())` verlor die
+  // Marken jeder anderen Seite, und "alle" liess sich nicht mehr abraeumen, sobald eine Karte
+  // vorgemerkt leer war.
   const pageKeys = useMemo(() => slice.map(verifyFrameKey), [slice]);
   const allOn = pageAllMarked(pageKeys, marked, clean);
   const toggleAll = useCallback(

@@ -29,9 +29,8 @@ export async function readUseless(name: string): Promise<UselessFlag | null> {
   try {
     return JSON.parse(await readFile(path.join(gameDir(name), FILE), "utf8")) as UselessFlag;
   } catch (e) {
-    // TODO(5): NUR "nicht da" ist leer, wie `loadMeta`. Alles zu fangen las eine kaputte Datei als
-    // "nie geflaggt" — die Kette lief wieder an, und `setUseless(false)` fiel auf `!current`
-    // lautlos aus, mit 200. Ein Fehler beim Nachsehen ist kein Urteil.
+    // Ein Fehler beim Nachsehen ist kein Urteil: alles zu fangen las eine kaputte Datei als "nie
+    // geflaggt", die Kette lief wieder an, und `setUseless(false)` fiel auf `!current` lautlos aus.
     if ((e as { code?: string })?.code === "ENOENT") return null;
     throw e;
   }
@@ -60,8 +59,8 @@ export async function setUseless(
   reason?: string,
 ): Promise<UselessFlag | null> {
   const file = path.join(gameDir(name), FILE);
-  // TODO: lesen-aendern-schreiben ohne Riegel — ein Widerruf, der gleichzeitig mit dem Setzen
-  // laeuft, sah noch die leere Datei und fiel lautlos aus, mit 200 (2026-09-16).
+  // Riegel um lesen-aendern-schreiben: ein Widerruf gleichzeitig mit dem Setzen sah noch die leere
+  // Datei und fiel lautlos aus, mit 200.
   return serialize(file, async () => {
     const current = await readUseless(name);
     let next: UselessFlag | null;

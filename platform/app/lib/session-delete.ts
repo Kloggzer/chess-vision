@@ -22,8 +22,8 @@ export function parseCost(stdout: string): DeletionCost | null {
     if (!text.startsWith("{")) continue;
     try {
       const { session_id: id, frames, crops, corrections } = JSON.parse(text) as Partial<DeletionCost>;
-      // TODO: `frames ?? 0` machte aus einer halben Zeile "0 Frames, 0 Crops" — der Dialog
-      // versprach eine kostenlose Loeschung. Nicht gemessen ist nicht null (2026-09-16).
+      // Nicht gemessen ist nicht null: `frames ?? 0` machte aus einer halben Zeile
+      // "0 Frames, 0 Crops", und der Dialog versprach eine kostenlose Loeschung.
       if (typeof id === "string" && [frames, crops, corrections].every((v) => typeof v === "number")) {
         found = { session_id: id, frames: Number(frames), crops: Number(crops), corrections: Number(corrections) };
       }

@@ -26,11 +26,13 @@ test("the threshold is the one the loss uses, and it is exclusive", () => {
 
 test("a frame's coverage comes back keyed by stem, a skipped one without an alpha", async () => {
   const { loadMatte } = await import("@/lib/matte");
-  await write([
+  // OHNE abschliessenden Umbruch: der Umbruch entscheidet, ob die letzte Zeile ein laufender
+  // Schreiber oder Beschaedigung ist (`lib/jsonl.ts`).
+  await writeFile(path.join(dir, "recordings", "g", "matte.jsonl"), [
     JSON.stringify({ frame: "000144", ply: 1, reason: "occluded", concepts: { hand: 0.9 }, coverage: { a1: 0.0, h4: 0.94 } }),
     JSON.stringify({ frame: "000150", ply: 1, reason: "occluded", skipped: "zone too big" }),
     '{"frame": "000160", "cov',
-  ]);
+  ].join("\n"), "utf8");
   const matte = await loadMatte("g");
   expect(matte.get("000144")?.coverage?.h4).toBe(0.94);
   expect(matte.get("000144")?.reason).toBe("occluded");

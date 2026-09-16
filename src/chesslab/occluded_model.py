@@ -136,7 +136,7 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     From the stored BOARD, like `slice_session`: a session has kept no source stills since the
     board store landed (2026-08-17). A row that has none falls back to its frame, warped.
     """
-    # TODO: `usable_board` ist die Wache, an der JEDER andere Brettleser haengt (matte,
+    # `usable_board` ist die Wache, an der JEDER andere Brettleser haengt (matte,
     # temporal_matte, sensor_audit, slice_session) — hier stand nur `row.get("board")`. Das Brett
     # traegt seine eigenen `board_size`/`board_border`; mit dem gerade geladenen Profil geschnitten
     # sind das bis zu 59 px daneben, still (CLAUDE.md, Board store).
@@ -193,7 +193,7 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
             for n, row in enumerate(rows, 1):
                 cells = frame_cells(session_dir, row, profile)
                 reads = all_reads(model_dir, cells, device, weights)
-                # TODO: der Filter oben laesst Zeilen OHNE `frame` durch (`board` reicht),
+                # der Filter oben laesst Zeilen OHNE `frame` durch (`board` reicht),
                 # `row["frame"]` warf dort KeyError. Brett und Frame teilen den Stamm.
                 stem = Path(row.get("frame") or row["board"]).stem
                 labels = GameState(row["fen"]).labels()

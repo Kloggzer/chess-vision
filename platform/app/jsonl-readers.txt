@@ -2,10 +2,9 @@
 # Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber. Testdateien zaehlen nicht:
 # ein Test zerlegt sein eigenes Fixture und erfindet dabei keine Lesepolitik.
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
-5 lib/matte.ts  # SCANNT 2-MB-Logs mit Regex, statt jede Zeile zu parsen
 4 lib/jobs.ts  # manifestRows wirft mit Absicht; der Rest zerschneidet Log-TEXT, kein JSONL
-3 lib/review-notes.ts  # BEHAELT eine kaputte Zeile beim Umschreiben, statt sie zu verlieren
-2 lib/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
+2 lib/review-notes.ts  # BEHAELT eine kaputte Zeile beim Umschreiben, statt sie zu verlieren
 2 lib/session-delete.ts  # zerschneidet die AUSGABE eines Werkzeugs, keine Datei
+1 lib/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
 1 lib/frame-flag.ts  # braucht den Zeilen-INDEX, um die Datei zurueckzuschreiben
 1 lib/provenance.ts  # braucht die Zeilen-ZAHL und nur die Kopfzeile

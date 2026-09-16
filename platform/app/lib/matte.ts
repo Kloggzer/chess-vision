@@ -5,6 +5,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { checkName } from "@/lib/data";
+import { readJsonl } from "@/lib/jsonl";
 import { frameReviews } from "@/lib/review-notes";
 import { sessionDir, sessionId } from "@/lib/session";
 
@@ -82,27 +83,26 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
 
   const value: SessionMatte = new Map();
   const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as {
-        frame: string; ply?: number; reason?: string; skipped?: string; alpha?: string;
-        concepts?: Record<string, number>; coverage?: Record<string, number>;
-        merged_at?: string;
-      };
-      value.set(row.frame, {
-        stem: row.frame,
-        ply: row.ply,
-        reason: row.reason,
-        concepts: row.concepts ?? {},
-        ...(row.coverage ? { coverage: row.coverage } : {}),
-        ...(row.alpha ? { alpha: row.alpha } : {}),
-        ...(row.skipped ? { skipped: row.skipped } : {}),
-        ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),
-      });
-    } catch {
-      /* a half-written line carries no alpha */
-    }
+  // Eine kaputte Zeile MITTENDRIN still zu ueberspringen nimmt einem gemessenen Frame sein Alpha,
+  // und die Lane liest es danach als "nie gemattet" — der Schwanz eines laufenden Laufs nicht.
+  const read = readJsonl(text);
+  if (read.corrupt > 0) throw new Error(`${file}: ${read.corrupt} beschaedigte Zeile(n)`);
+  for (const line of read.rows) {
+    const row = line as unknown as {
+      frame: string; ply?: number; reason?: string; skipped?: string; alpha?: string;
+      concepts?: Record<string, number>; coverage?: Record<string, number>;
+      merged_at?: string;
+    };
+    value.set(row.frame, {
+      stem: row.frame,
+      ply: row.ply,
+      reason: row.reason,
+      concepts: row.concepts ?? {},
+      ...(row.coverage ? { coverage: row.coverage } : {}),
+      ...(row.alpha ? { alpha: row.alpha } : {}),
+      ...(row.skipped ? { skipped: row.skipped } : {}),
+      ...(typeof row.merged_at === "string" ? { mergedAt: row.merged_at } : {}),
+    });
   }
   cache.set(file, { key, value });
   return value;
@@ -118,8 +118,6 @@ export type MatteCensus = {
   /** Gemeldete Frames OHNE Matte. Nicht in `total`: die meisten sind `stale`, und der Stapel, den
    *  `--reason occluded` abarbeitet, kennt sie nicht — sichtbar wurden sie deshalb nie. */
   reported: number;
-  // TODO: zaehlt nur `dirty-frame`; ein `matte-wanted`-Zettel faellt hier raus, aus `openFrames`
-  // aber auch — und `alpha-worker --wanted` faehrt niemand. Das Frame ist weg und ungemattet.
   /** Davon die, auf die SAM noch gar nicht geantwortet hat — die Zahl, an der die Kette haengt.
    *  Ein abgelehntes Frame bleibt in `reported` sichtbar, haelt den Schritt aber nicht ein
    *  zweites Mal auf: SAM wuerde es wieder ablehnen. */

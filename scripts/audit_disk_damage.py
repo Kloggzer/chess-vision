@@ -20,7 +20,7 @@ BROKEN_LINES: dict[str, int] = {}
 def _rows(path: Path) -> list[dict]:
     if not path.is_file():
         return []
-    # TODO: Der Schadens-Auditor verschluckte genau den Schaden, den er zaehlen soll — eine
+    # Der Schadens-Auditor verschluckte genau den Schaden, den er zaehlen soll — eine
     # kaputte Zeile MITTEN in einer `.jsonl` ist Beschaedigung und wurde stumm uebersprungen,
     # der Bericht meldete "nichts gefunden". Nur die halbe LETZTE Zeile ist erwartbar.
     out, broken = [], 0

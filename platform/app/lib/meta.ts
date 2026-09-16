@@ -33,8 +33,8 @@ export async function loadMeta(name: string): Promise<UiMeta> {
 /** Merge [patch] into the stored meta. An empty title deletes it — the dir name is the fallback. */
 export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
   const file = path.join(gameDir(name), FILE);
-  // TODO: lesen-aendern-schreiben ohne Riegel — Titel und Archiv-Haken gleichzeitig gesetzt liess
-  // den Zweiten den Ersten zurueckdrehen, beide mit 200 (2026-09-16).
+  // Riegel um lesen-aendern-schreiben: Titel und Archiv-Haken gleichzeitig gesetzt liessen den
+  // Zweiten den Ersten zurueckdrehen, beide mit 200.
   return serialize(file, async () => {
     const next: UiMeta = { ...(await loadMeta(name)) };
     if ("title" in patch) {

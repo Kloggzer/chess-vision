@@ -45,7 +45,7 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     stats = Counter()
     per_session: Counter = Counter()
-    # TODO: `open("w")` KUERZT den veroeffentlichten Bericht beim Start; ein abgebrochener Lauf
+    # `open("w")` KUERZT den veroeffentlichten Bericht beim Start; ein abgebrochener Lauf
     # liess ihn halb da, und `sensor_montage.py` liest ihn zeilenweise mit `json.loads`.
     tmp = out.with_name(out.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as sink:
@@ -93,7 +93,7 @@ def main() -> int:
     os.replace(tmp, out)
     for k, v in stats.most_common():
         print(f"  {k:22s} {v:7d}")
-    # TODO: `max(1, …)` machte aus "nichts gemessen" ein gemessenes 0,0 % — dieselbe Zeile
+    # `max(1, …)` machte aus "nichts gemessen" ein gemessenes 0,0 % — dieselbe Zeile
     # erschien, ob nie ein Feld geflaggt wurde oder jedes Flag seine Coverage hatte.
     if not stats["Flags gesamt"]:
         print("\n  kein Feld vom Rillen-Sensor geflaggt — nichts gemessen")

@@ -734,7 +734,7 @@ def decode_frames(video: Path, wanted: set[int], out_dir: Path, rotate: int | No
     if len(recording.segments) > 1:
         print(f"  recording is {len(recording.segments)} segments: "
               f"{', '.join(p.name for p in recording.segments)}")
-    # TODO: `st_size > 0` war der ganze Resume-Test, aber ein abgebrochener Encode hinterlaesst ein
+    # `st_size > 0` war der ganze Resume-Test, aber ein abgebrochener Encode hinterlaesst ein
     # HALBES PNG, das ihn besteht und nie wieder geschrieben wird. Die Pixel gehen deshalb neben
     # den Zielnamen und werden erst umgehaengt, wenn sie ganz da sind. `tmp-<idx>.png`, nicht
     # `<idx>.png.tmp`: `imwrite` waehlt den Codec an der ENDUNG, und `static_quad` globt `[0-9]*`.
@@ -1331,7 +1331,7 @@ def straighten_boards(session_dir: Path, rows: list[dict], checkpoint=None,
         # A matte IS the board raster (952x952 for a 928 board), and `coverage_of` cuts it with the
         # very geometry the crop uses. Leaving it bowed would measure a straight cell against a
         # curved alpha — and the corrected ones are hand-made, so they are pulled, never redone.
-        # TODO: `<stem>.*` sammelte auch `close_seams`' gestapelte `<stem>.tmp.webp` ein — die zog
+        # `<stem>.*` sammelte auch `close_seams`' gestapelte `<stem>.tmp.webp` ein — die zog
         # es gerade und zaehlte sie als Matte. Was danach umgehaengt wird, waere zweimal gezogen.
         for matte in (sorted(p for p in (session_dir / MATTE_DIR).glob(f"{Path(rel).stem}.*")
                              if p.suffixes[-2:] != [".tmp", ".webp"]) if mattes else ()):

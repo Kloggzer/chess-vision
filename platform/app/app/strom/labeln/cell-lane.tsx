@@ -157,8 +157,8 @@ export function CellLane(props: CellLaneProps) {
     setCursor(0);
   };
 
-  // TODO: Ueberspringen setzte nur `setPage` — `pick` ist aber nach dem Index INNERHALB der Seite
-  // gekeyt, also stand die Farbe der alten Seite auf den neuen Zellen und ⏎ schrieb sie.
+  // `pick` ist nach dem Index INNERHALB der Seite gekeyt: nur `setPage` zu setzen liess die Farbe
+  // der alten Seite auf den neuen Zellen stehen, und ⏎ schrieb sie.
   const goPage = (delta: number) => {
     const next = turnPage({ page: safePage, picks: pick, cursor }, delta, pages);
     setPage(next.page);

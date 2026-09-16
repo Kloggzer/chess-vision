@@ -347,7 +347,7 @@ def _write_provenance(out_root: Path, clip: str, entry: dict) -> None:
     path = out_root / PROVENANCE_FILE
     all_of = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     all_of[clip] = entry
-    # TODO: Lesen-aendern-schreiben auf EINE Datei — `write_text` kuerzte sie zuerst, ein Abbruch
+    # Lesen-aendern-schreiben auf EINE Datei — `write_text` kuerzte sie zuerst, ein Abbruch
     # nahm also die Herkunft JEDES frueheren Clips im Pool mit und `read_provenance` wirft danach.
     # Der Pool-Riegel haelt zwar zwei Laeufe auseinander, nicht aber einen getoeteten.
     tmp = path.with_name(path.name + ".tmp")

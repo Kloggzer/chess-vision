@@ -203,9 +203,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   // A shared link carries a query the server's default answer is not. Scheduled, not called: the
   // fetch is the external system this effect talks to, and the render must not wait on it.
-  // TODO: `Number(url.get("min"))` machte aus einem fehlenden `min` die Schwelle 0 — die laesst
-  // jede Zelle mit `probs` durch, und der Client schrieb die 0 auch noch in die URL zurueck, so
-  // dass die Huerde in `app/api/query/route.ts` nichts mehr zu halten hatte.
+  // Ein fehlendes `min` ist nicht die Schwelle 0: die laesst jede Zelle mit `probs` durch, der
+  // Client schrieb sie auch noch in die URL zurueck, und die Huerde in `app/api/query/route.ts`
+  // hatte danach nichts mehr zu halten.
   useEffect(() => {
     const link = linkFilter(window.location.search);
     if (!link) return;
@@ -575,8 +575,8 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     handler.current = onKey;
   });
 
-  // TODO: `here?.session ?? 0` nannte im Kopf die ERSTE Aufnahme, sobald nichts unter dem Zeiger
-  // lag — eine Aufnahme, die mit der leeren Lane nichts zu tun hat.
+  // `?? 0` nannte im Kopf die ERSTE Aufnahme, sobald nichts unter dem Zeiger lag — eine Aufnahme,
+  // die mit der leeren Lane nichts zu tun hat.
   const session = cursorSession(stream.sessions, here);
   const counts = useMemo(() => LANES.map((l) => laneCount(stream, l.id, wallLane)), [stream, wallLane]);
   const seconds = median(gaps);

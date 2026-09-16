@@ -165,7 +165,7 @@ def _filter_matte_frames(sdir: Path, frame_stems: set[str]) -> int:
         return 0
     rows = read_jsonl(path)
     kept = [r for r in rows if str(r.get("frame")) not in frame_stems]
-    # TODO: war ungestagt, waehrend `_filter_jsonl` daneben ausdruecklich stagt. Die Coverage ist
+    # war ungestagt, waehrend `_filter_jsonl` daneben ausdruecklich stagt. Die Coverage ist
     # Trainingsziel: die Frames unter einer halben Datei gingen mit `coverage = 0.0` ins Training.
     write_rows(path, kept)
     return len(rows) - len(kept)
@@ -374,7 +374,7 @@ def trim_session(session_id: str, keep_frames: int, paths: config.Paths = config
     if reject_dir is not None:
         _write_log(reject_dir, removed_rows)
 
-    # TODO: war ein blankes `write_text`, obwohl `_write_log` im selben Modul genau dafuer die
+    # war ein blankes `write_text`, obwohl `_write_log` im selben Modul genau dafuer die
     # Nebendatei haelt. Ein Abbruch kuerzte das Log, und der Schwanz lag da schon im Reject-Ordner.
     _write_log(target, kept)
     removed_crops = _purge_crops_for_frames(sid, removed_stems, paths)
@@ -539,7 +539,7 @@ def session_profile(sdir: Path):
 
 
 def write_interval_checks(sdir: Path, checks: list[dict]) -> None:
-    # TODO: war ungestagt. `position_flags.interval_flags` liest jede Zeile mit blankem
+    # war ungestagt. `position_flags.interval_flags` liest jede Zeile mit blankem
     # `json.loads` und nahm bei einer halben Datei den Report ALLER Aufnahmen mit, nicht nur diese.
     from .realgames import INTERVAL_FILE
 

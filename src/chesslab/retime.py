@@ -330,7 +330,7 @@ def staged_name(out: Path, idx: int) -> Path:
 
 
 def stage_board(out: Path, idx: int, image, encode: list) -> tuple[Path, Path]:
-    # TODO: das False von `imwrite` fiel stumm aus `staged` — und die Aufraeumschleife loeschte
+    # das False von `imwrite` fiel stumm aus `staged` — und die Aufraeumschleife loeschte
     # dem Frame gleich darauf sein ALTES Bild. Die Confirm-Ansicht meldete dann "kein Bild",
     # ohne dass irgendwo ein Fehler stand.
     tmp = staged_name(out, idx)

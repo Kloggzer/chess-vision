@@ -10,8 +10,8 @@ import { reviewNotesPath } from "@/lib/review-notes";
 import { tempDataRoot, writeSession } from "@/lib/test-fixtures";
 
 /**
- * Vier Funde in der `app/`-Schicht, die `vitest.config.mts` nicht einsammelt. Jeder ist ein
- * `test.fails` — der Fix steht aus, der Fund ist gepinnt.
+ * Vier Funde in der `app/`-Schicht, die `vitest.config.mts` nicht einsammelt. Alle vier sind
+ * gefixt (2026-09-16); die Tests halten sie fest.
  */
 
 // ---- 1. Zwei Widerrufe gleichzeitig, einer ueberlebt nicht -------------------------------------
@@ -53,7 +53,7 @@ const frame = (name: string, stem: string) =>
     params: Promise.resolve({ name, stem }),
   } as never);
 
-test.fails("ein unlesbares Review-Frame ist 500, kein 404", async () => {
+test("ein unlesbares Review-Frame ist 500, kein 404", async () => {
   const root = await tempDataRoot("frame-status");
   const dir = await writeSession({ root, name: "g" });
   // Ein Verzeichnis unter dem Namen des Frames: `stat` sagt "da", `readFile` wirft EISDIR.
@@ -62,7 +62,7 @@ test.fails("ein unlesbares Review-Frame ist 500, kein 404", async () => {
   expect((await frame("g", "000100")).status).toBe(500);
 });
 
-test.fails("ein Pfad-Segment, das `checkName` verwirft, ist 400 — nicht 'no such frame'", async () => {
+test("ein Pfad-Segment, das `checkName` verwirft, ist 400 — nicht 'no such frame'", async () => {
   await tempDataRoot("frame-name");
   expect((await frame("g", "..")).status).toBe(400);
 });
@@ -80,14 +80,14 @@ async function corruptReports(prefix: string): Promise<void> {
   }
 }
 
-test.fails("ein halber capture-plan.json wird als {error} beantwortet, nicht geworfen", async () => {
+test("ein halber capture-plan.json wird als {error} beantwortet, nicht geworfen", async () => {
   await corruptReports("capture-plan");
   const res = await PLAN(paired());
   expect(res.status).toBe(500);
   expect((await res.json()).error).toBeTruthy();
 });
 
-test.fails("ein halber coverage-gaps.json wird als {error} beantwortet, nicht geworfen", async () => {
+test("ein halber coverage-gaps.json wird als {error} beantwortet, nicht geworfen", async () => {
   await corruptReports("capture-coverage");
   const res = await COVERAGE(paired());
   expect(res.status).toBe(500);

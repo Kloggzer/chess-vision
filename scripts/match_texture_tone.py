@@ -28,7 +28,7 @@ def match(dst_path: Path, ref_path: Path) -> None:
         rm, rs = r[..., c].mean(), r[..., c].std() + 1e-6
         d[..., c] = (d[..., c] - dm) * (rs / ds) + rm
     out = cv2.cvtColor(np.clip(d, 0, 255).astype(np.uint8), cv2.COLOR_LAB2BGR)
-    # TODO: `cv2.imwrite` WIRFT NICHT, es gibt `False` zurueck — und geschrieben wird hier die
+    # `cv2.imwrite` WIRFT NICHT, es gibt `False` zurueck — und geschrieben wird hier die
     # Textur SELBST. Ein stiller Fehlschlag meldete "angeglichen" auf eine unveraenderte Datei.
     if not cv2.imwrite(str(dst_path), out):
         raise SystemExit(f"{dst_path}: nicht geschrieben")

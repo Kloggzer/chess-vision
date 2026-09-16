@@ -305,7 +305,7 @@ def propose_session(session_id, *, low=config.TEMPORAL_MATTE_LOW,
 
 
 def write_proposal_meta(path: Path, metadata: dict) -> None:
-    # TODO: ungestagt geschrieben, waehrend die `proposals.jsonl` daneben umgehaengt wird. Eine
+    # ungestagt geschrieben, waehrend die `proposals.jsonl` daneben umgehaengt wird. Eine
     # halbe Datei laesst `require_fresh_proposals` an einem JSONDecodeError sterben statt an dem
     # "regenerate them", das genau dafuer dasteht.
     write_atomic(path, json.dumps(metadata))
@@ -316,10 +316,16 @@ def sam_matte(recording):
     path = recording / "matte.jsonl"
     if not path.is_file():
         return {}
-    # TODO: selbst gespalten, waehrend `labeling.read_matte` dieselbe Datei ueber `read_jsonl`
-    # liest — der Alpha-Worker HAENGT AN, eine halbe letzte Zeile ist dort der Normalfall.
-    return {r["frame"]: r["coverage"] for r in read_jsonl(path)
-            if r.get("coverage") is not None and r.get("source") not in ("temporal", "upsert")}
+    out: dict[str, dict[str, float]] = {}
+    for row in read_jsonl(path):
+        if row.get("source") in ("temporal", "upsert"):
+            continue
+        # Punkt 28: die juengere Zeile gilt, auch wenn sie SAMs Absage ist.
+        if row.get("coverage") is None:
+            out.pop(row["frame"], None)
+        else:
+            out[row["frame"]] = row["coverage"]
+    return out
 
 
 def adopt_proposals(session_id, *, method="local"):
@@ -466,7 +472,7 @@ def write_pass_report(session_id, report: dict) -> Path:
     recording, _ = session_dir(session_id)
     path = config.DATA.reports / "temporal-mattes" / recording.name / "pass.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    # TODO: `chain.ts` vergleicht den `_source` dieser Datei gegen die `log.jsonl`. Eine halbe
+    # `chain.ts` vergleicht den `_source` dieser Datei gegen die `log.jsonl`. Eine halbe
     # Datei ist kein JSON, und die Sprosse laesst sich dann weder oeffnen noch schliessen.
     write_atomic(path, json.dumps({**report, "_source": provenance.source(recording)}))
     return path

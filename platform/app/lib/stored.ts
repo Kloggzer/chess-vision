@@ -62,9 +62,9 @@ export type StoredQuad = {
   mesh?: GridMesh;
 };
 
-// TODO(6): `mtimeMs:size` wie ueberall sonst in dieser App. Die mtime ALLEIN liess zwei
-// Schreibungen in derselben Millisekunde — und jede Kopie mit erhaltenen Zeitstempeln — als
-// unveraendert gelten, und der Cache servierte die alten Ecken weiter.
+// Gekeyt auf `mtimeMs:size` wie ueberall sonst: die mtime ALLEIN liess zwei Schreibungen in
+// derselben Millisekunde — und jede Kopie mit erhaltenen Zeitstempeln — als unveraendert gelten,
+// und der Cache servierte die alten Ecken weiter.
 const cache = new Map<string, { key: string; value: StoredSession }>();
 type FitCache = Map<string, { key: string; value: QuadFit }>;
 const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());

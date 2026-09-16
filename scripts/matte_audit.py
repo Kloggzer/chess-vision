@@ -40,7 +40,7 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     found = checked = noboard = 0
-    # TODO: `open("w")` KUERZT den veroeffentlichten Bericht sofort beim Start; ein abgebrochener
+    # `open("w")` KUERZT den veroeffentlichten Bericht sofort beim Start; ein abgebrochener
     # Lauf liess ihn halb da, und `matte_audit_montage.py` liest ihn mit `json.loads` je Zeile.
     tmp = out.with_name(out.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as sink:
@@ -56,7 +56,7 @@ def main() -> int:
             hits = 0
             for r in blind:
                 p = board_path(rec, r["frame"])
-                # TODO: ungezaehlt uebersprungen — `checked` sank dadurch stumm, und `von
+                # ungezaehlt uebersprungen — `checked` sank dadurch stumm, und `von
                 # {len(blind)}` eine Zeile tiefer nannte weiter die volle Zahl.
                 if p is None:
                     noboard += 1
@@ -74,7 +74,7 @@ def main() -> int:
                       f"melden Rillen-Felder", flush=True)
     os.replace(tmp, out)
     if not checked:
-        # TODO: "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.
+        # "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.
         print(f"\nkeine blinde Matte geprueft (ohne Brett: {noboard}) — nichts gemessen -> {out}")
         return 1
     print(f"\n{found} von {checked} blinden Matten werden vom Rillen-Sensor widersprochen"

@@ -12,6 +12,7 @@ import { open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
+import { readJsonl } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus } from "@/lib/matte";
 import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
@@ -93,15 +94,10 @@ async function videoOf(name: string): Promise<string | null> {
  */
 async function exportedSession(name: string): Promise<{ exported: boolean; settled: boolean }> {
   const text = await readFile(path.join(sessionDir(name), "log.jsonl"), "utf8").catch(() => null);
-  const rows: { board?: unknown; ply?: unknown; settle_dev?: unknown }[] = [];
-  for (const line of text?.split("\n") ?? []) {
-    if (!line.trim()) continue;
-    try {
-      rows.push(JSON.parse(line));
-    } catch {
-      /* a half-written line says nothing about the export */
-    }
-  }
+  // Hier wird NICHT geworfen, anders als in `loadSession` auf derselben Datei: die Kette ist die
+  // Seite, die den naechsten Knopf zeigt, und eine kaputte Zeile darf die ganze Aufnahmeliste
+  // nicht 500en (dieselbe Entscheidung wie beim `candidate.json`-Parse unten).
+  const rows = readJsonl(text ?? "").rows as { board?: unknown; ply?: unknown; settle_dev?: unknown }[];
   if (rows.length === 0 || !("board" in rows[0])) return { exported: false, settled: false };
   const perPly = new Map<unknown, number>();
   for (const row of rows) if (row.board) perPly.set(row.ply, (perPly.get(row.ply) ?? 0) + 1);

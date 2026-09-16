@@ -4,6 +4,7 @@ import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
+import { readJsonl } from "@/lib/jsonl";
 
 /**
  * Is SAM's alpha right, is the interval's FEN what the board shows. "I cannot read this square" is
@@ -83,8 +84,8 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
       return true;
     }
   });
-  // TODO(2): tmp+rename. Ein blankes `writeFile` kuerzt zuerst — ein Abbruch dazwischen liess die
-  // Urteile ALLER Sitzungen halb da, und dies ist die einzige Datei, die sie traegt.
+  // tmp+rename: ein blankes `writeFile` kuerzt zuerst, und dies ist die einzige Datei, die die
+  // Urteile ALLER Sitzungen traegt.
   await writeFileAtomic(file, kept.length > 0 ? kept.join("\n") + "\n" : "");
   cache.delete(file);
   // Die ENTFERNTEN, nicht der Rest: ein Widerruf, der nichts trifft, meldete sonst die Groesse
@@ -122,25 +123,25 @@ async function bySession(): Promise<BySession> {
 
   const value: BySession = new Map();
   const text = await readFile(file, "utf8").catch(() => "");
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as ReviewNoteRow;
-      const entry = value.get(row.session_id)
-        ?? { boards: new Set<string>(), plies: new Set<number>(), frames: new Map<string, FrameReview>() };
-      if (row.verdict === "bad-interval") entry.plies.add(row.ply);
-      else if (row.verdict === "unusable-board") entry.boards.add(row.frame);
-      else {
-        const seen = entry.frames.get(row.frame) ?? {};
-        if (row.verdict === "position-ok") entry.frames.set(row.frame, { ...seen, position: "ok" });
-        else if (row.verdict === "dirty-frame") entry.frames.set(row.frame, { ...seen, dirty: true });
-        else if (row.verdict === "matte-wanted") entry.frames.set(row.frame, { ...seen, wanted: true });
-        else entry.frames.set(row.frame, { ...seen, matte: MATTE[row.verdict], matteAt: row.ts });
-      }
-      value.set(row.session_id, entry);
-    } catch {
-      /* a half-written line is not a verdict */
+  // Eine kaputte Zeile MITTENDRIN zu ueberspringen verliert ein Urteil lautlos: das Frame, das ein
+  // Mensch weggeworfen hat, steht danach wieder in der Lane. Der Schwanz eines laufenden
+  // Anhaengens ist dagegen erwartbar und kostet nichts.
+  const read = readJsonl(text);
+  if (read.corrupt > 0) throw new Error(`${file}: ${read.corrupt} beschaedigte Zeile(n)`);
+  for (const line of read.rows) {
+    const row = line as unknown as ReviewNoteRow;
+    const entry = value.get(row.session_id)
+      ?? { boards: new Set<string>(), plies: new Set<number>(), frames: new Map<string, FrameReview>() };
+    if (row.verdict === "bad-interval") entry.plies.add(row.ply);
+    else if (row.verdict === "unusable-board") entry.boards.add(row.frame);
+    else {
+      const seen = entry.frames.get(row.frame) ?? {};
+      if (row.verdict === "position-ok") entry.frames.set(row.frame, { ...seen, position: "ok" });
+      else if (row.verdict === "dirty-frame") entry.frames.set(row.frame, { ...seen, dirty: true });
+      else if (row.verdict === "matte-wanted") entry.frames.set(row.frame, { ...seen, wanted: true });
+      else entry.frames.set(row.frame, { ...seen, matte: MATTE[row.verdict], matteAt: row.ts });
     }
+    value.set(row.session_id, entry);
   }
   cache.set(file, { key, value });
   return value;

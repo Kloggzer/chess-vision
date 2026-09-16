@@ -62,7 +62,7 @@ def main() -> int:
         for r in group:
             key = f"mm://{name}/{r['frame']}/{r['square']}"
             i = at.get(key)
-            # TODO: dieser Sprung fiel ungezaehlt aus — die Zeile behaelt `brightness: None`, und
+            # dieser Sprung fiel ungezaehlt aus — die Zeile behaelt `brightness: None`, und
             # `{len(group)} Zeilen` plus `[OK]` lasen sich wie ein vollstaendiger Nachtrag.
             if i is None:
                 missed += 1
@@ -75,7 +75,7 @@ def main() -> int:
         gaps += missed
 
     out = Path(args.out) if args.out else dd / "manifest.jsonl"
-    # TODO: `open("w")` KUERZT das GETEILTE Manifest; ein Abbruch liess es halb da, und ein
+    # `open("w")` KUERZT das GETEILTE Manifest; ein Abbruch liess es halb da, und ein
     # toleranter Leser verwirft die halbe letzte Zeile stumm — der Datensatz ist dann kuerzer,
     # ohne dass etwas meckert. Nebendatei plus `os.replace` laesst das alte bis zuletzt stehen.
     tmp = out.with_name(out.name + ".tmp")

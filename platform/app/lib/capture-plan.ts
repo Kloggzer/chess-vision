@@ -81,7 +81,13 @@ export async function loadCoverage(): Promise<Coverage | EmptyPlan> {
 
 async function guarded(request: Request, load: () => Promise<unknown>): Promise<Response> {
   if (!(await authorized(request))) return Response.json({ error: "unpaired" }, { status: 401 });
-  return Response.json(await load());
+  try {
+    return Response.json(await load());
+  } catch (error) {
+    // Ein halber Bericht darf das Handy nicht auf Next' HTML-500 werfen: es liest `{error}` und
+    // haette sonst nur "Netzwerkfehler" zu zeigen.
+    return Response.json({ error: String(error) }, { status: 500 });
+  }
 }
 
 export function planResponse(request: Request): Promise<Response> {
