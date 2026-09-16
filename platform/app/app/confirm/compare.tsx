@@ -10,6 +10,7 @@ import {
 
 import type { FrameStem } from "@/lib/data";
 import type { MoveSquares } from "@/lib/review-cards";
+import { readSticky } from "@/lib/sticky";
 
 /**
  * Vorher gegen Nachher — die Kamera steht fest, also ist der Unterschied zweier Frames GENAU der
@@ -54,7 +55,7 @@ function useSticky<T>(key: string, fallback: T): [T, (next: T) => void] {
     () => null,
   );
   return [
-    raw ? (JSON.parse(raw) as T) : fallback,
+    readSticky(raw, fallback),
     (next: T) => {
       localStorage.setItem(key, JSON.stringify(next));
       for (const notify of listeners) notify();

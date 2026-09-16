@@ -1,6 +1,7 @@
 /** UI-only ledger: verdicts on unusable boards and bad intervals (not training input). */
-import { appendFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
 
@@ -82,7 +83,9 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
       return true;
     }
   });
-  await writeFile(file, kept.length > 0 ? kept.join("\n") + "\n" : "", "utf8");
+  // TODO(2): tmp+rename. Ein blankes `writeFile` kuerzt zuerst — ein Abbruch dazwischen liess die
+  // Urteile ALLER Sitzungen halb da, und dies ist die einzige Datei, die sie traegt.
+  await writeFileAtomic(file, kept.length > 0 ? kept.join("\n") + "\n" : "");
   cache.delete(file);
   // Die ENTFERNTEN, nicht der Rest: ein Widerruf, der nichts trifft, meldete sonst die Groesse
   // des globalen Ledgers als Erfolg.

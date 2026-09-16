@@ -24,6 +24,10 @@ export async function flagFrame(name: string, stem: string, unusable: boolean): 
   checkName(stem, "frame");
   const file = path.join(sessionDir(name), "log.jsonl");
   const text = await readFile(file, "utf8");
+  // TODO(1): Der ZEILENUMBRUCH entscheidet (`lib/jsonl.ts`). Endet die Datei mitten in einer Zeile,
+  // stroemt der Export gerade hinein; der Treffer steht meist davor, die Schleife brach ab, und das
+  // Zurueckschreiben setzte ein "\n" hinter die halbe Zeile — aus `tail` wurde dauerhaft `corrupt`.
+  if (text !== "" && !text.endsWith("\n")) throw new Error(`${name}/log.jsonl endet mitten in einer Zeile`);
   const lines = text.split("\n");
   let hit = -1;
   for (const [i, line] of lines.entries()) {

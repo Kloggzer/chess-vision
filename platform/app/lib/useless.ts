@@ -5,8 +5,9 @@
  * undo stamps `undone_at` instead of removing the file and the two timestamps stay as the record
  * of what was judged when. Nothing on the Python side reads this; it only silences the chain.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { gameDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -27,8 +28,12 @@ const now = () => new Date().toISOString().replace(/\.\d+Z$/, "Z");
 export async function readUseless(name: string): Promise<UselessFlag | null> {
   try {
     return JSON.parse(await readFile(path.join(gameDir(name), FILE), "utf8")) as UselessFlag;
-  } catch {
-    return null;
+  } catch (e) {
+    // TODO(5): NUR "nicht da" ist leer, wie `loadMeta`. Alles zu fangen las eine kaputte Datei als
+    // "nie geflaggt" — die Kette lief wieder an, und `setUseless(false)` fiel auf `!current`
+    // lautlos aus, mit 200. Ein Fehler beim Nachsehen ist kein Urteil.
+    if ((e as { code?: string })?.code === "ENOENT") return null;
+    throw e;
   }
 }
 
@@ -68,7 +73,7 @@ export async function setUseless(
       if (!current) return null;
       next = { ...current, undone_at: now() };
     }
-    await writeFile(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n");
     return next;
   });
 }

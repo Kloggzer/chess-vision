@@ -62,13 +62,16 @@ export type StoredQuad = {
   mesh?: GridMesh;
 };
 
-const cache = new Map<string, { key: number; value: StoredSession }>();
-type FitCache = Map<string, { key: number; value: QuadFit }>;
+// TODO(6): `mtimeMs:size` wie ueberall sonst in dieser App. Die mtime ALLEIN liess zwei
+// Schreibungen in derselben Millisekunde — und jede Kopie mit erhaltenen Zeitstempeln — als
+// unveraendert gelten, und der Cache servierte die alten Ecken weiter.
+const cache = new Map<string, { key: string; value: StoredSession }>();
+type FitCache = Map<string, { key: string; value: QuadFit }>;
 const fits: FitCache = ((globalThis as { __chesslabQuadFits?: FitCache }).__chesslabQuadFits ??= new Map());
 
 async function loadStored(name: string, dir: string, id: string): Promise<StoredSession | null> {
   const log = path.join(dir, "log.jsonl");
-  const key = await stat(log).then((s) => s.mtimeMs, () => null);
+  const key = await stat(log).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
   if (key === null) return null;
   const hit = cache.get(log);
   if (hit?.key === key) return hit.value;
@@ -101,7 +104,7 @@ export async function storedSessions(name: string): Promise<StoredSession[]> {
 /** The sidecar of one session, mtime-keyed — `null` while the fit has not run over it. */
 export async function storedFit(dir: string): Promise<QuadFit | null> {
   const file = path.join(dir, QUAD_FIT);
-  const key = await stat(file).then((s) => s.mtimeMs, () => null);
+  const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
   if (key === null) return null;
   const hit = fits.get(file);
   if (hit?.key === key) return hit.value;

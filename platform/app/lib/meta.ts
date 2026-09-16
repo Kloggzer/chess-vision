@@ -7,8 +7,9 @@
  * the Python side reads this file; archiving here hides a game from the UI's lists, it moves no
  * data (that is `data/_parked/`'s job, and a human decision).
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { gameDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -47,7 +48,7 @@ export async function saveMeta(name: string, patch: UiMeta): Promise<UiMeta> {
       if (patch.archived) next.archived = true;
       else delete next.archived;
     }
-    await writeFile(file, JSON.stringify(next, null, 2) + "\n", "utf8");
+    await writeFileAtomic(file, JSON.stringify(next, null, 2) + "\n");
     return next;
   });
 }
