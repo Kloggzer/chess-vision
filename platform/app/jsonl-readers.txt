@@ -1,7 +1,8 @@
 # Stellen, die .jsonl selbst in Zeilen schneiden, statt lib/jsonl.ts zu nehmen.
 # Darf nur SCHRUMPFEN - lib/jsonl-ratchet.test.ts wacht darueber.
-6 lib/jobs.ts
+# lib/matte.ts bleibt bewusst: es SCANNT 2-MB-Logs mit Regex, statt jede Zeile zu parsen.
 5 lib/matte.ts
+4 lib/jobs.ts
 3 lib/review-notes.ts
 2 lib/chain.ts
 2 lib/session-delete.ts

@@ -19,6 +19,7 @@ import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
+import { jsonlRows } from "@/lib/jsonl";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
 type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read";
@@ -862,14 +863,9 @@ export async function jobHistory(name: string, limit = 20): Promise<Job[]> {
   const rows: Job[] = [];
   try {
     const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const row = JSON.parse(line) as Job;
-        if (row.name === name) rows.push(row);
-      } catch {
-        /* a half-written line is not a job */
-      }
+    for (const line of jsonlRows(text)) {
+      const row = line as unknown as Job;
+      if (row.name === name) rows.push(row);
     }
   } catch (e) {
     // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
@@ -1012,14 +1008,9 @@ async function ledger(key: (row: Job) => string): Promise<Map<string, Job>> {
   const seen = new Map<string, Job>();
   try {
     const text = await readFile(path.join(inboxDir(), "jobs.jsonl"), "utf8");
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const row = JSON.parse(line) as Job;
-        seen.set(key(row), row);
-      } catch {
-        /* a half-written line is not a job */
-      }
+    for (const line of jsonlRows(text)) {
+      const row = line as unknown as Job;
+      seen.set(key(row), row);
     }
   } catch (e) {
     // NUR "nicht da" heisst "noch nichts gelaufen". Unbedingt geschluckt rendert eine gesperrte
