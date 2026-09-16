@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
+from .ioutil import write_json
 
 #: Ab dieser Fläche (in Feldern) ist SAMs Fund eine Hand und kein Maskenrand. Darunter liegt ein
 #: unklarer Streifen von 125 der 11.110 Bretter — der taugt als Prüfung, nicht als Lehrer.
@@ -483,7 +484,7 @@ def train_gate(*, backbone: str = "mobilenetv3_small_100", size: int = 320, epoc
     # unter Epoche 4, und ein Lauf, der dort endet, verschenkt sein eigenes Ergebnis.
     torch.save(best["weights"], out / WEIGHTS_FILE)
     torch.save(model.state_dict(), out / "last.pt")
-    (out / CARD_FILE).write_text(json.dumps(card, indent=2), encoding="utf-8")
+    write_json(out / CARD_FILE, card)
     return {"path": out, **{k: card[k] for k in
             ("train_boards", "val_boards", "val_hands", "chosen", "perfect_recall",
              "ms_per_board", "coverage")}}

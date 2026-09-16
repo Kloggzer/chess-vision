@@ -28,6 +28,7 @@ import numpy as np
 from PIL import Image
 
 from .. import config
+from ..ioutil import write_json
 from ..work_audit import measure
 
 log = logging.getLogger("chesslab.pack")
@@ -370,7 +371,7 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
             "paths": [r["path"] for r in rows]}
     if fingerprint is not None:
         meta["crop_fingerprint"] = fingerprint
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    write_json(meta_path, meta, indent=None)
     progress_path.unlink(missing_ok=True)              # complete -> sidecar no longer needed
     gb = n * h * w * 3 / 1e9
     print(f"[OK] packed {n} crops -> {img_path} ({gb:.1f} GB, {workers} workers)")
@@ -581,7 +582,7 @@ def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
     # A link has no memmap of its own, so without the owner's reference every staleness check
     # would fall back to the owner FILE's mtime — the unreliable one.
     link.update({k: ometa[k] for k in ("started_at", "crop_fingerprint") if k in ometa})
-    meta_path.write_text(json.dumps(link), encoding="utf-8")
+    write_json(meta_path, link, indent=None)
     freed = img_path.stat().st_size if img_path.exists() else 0
     img_path.unlink(missing_ok=True)
     print(f"[OK] '{name}' now reads '{owner}' ({freed / 1e9:.2f} GB freed)")

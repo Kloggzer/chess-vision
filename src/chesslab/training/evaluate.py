@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
+from ..ioutil import write_json
 from .data import crop_of_rows, filter_rows_by_split, load_manifest, load_split
 from .model import stock_batchnorm
 
@@ -313,7 +314,7 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
 
     summary = eval_summary(res, classes, recall, bd, occ_bacc, per_session, spread,
                            split_name=split_name, ds_name=ds_name)
-    (run_dir / f"eval_{stem}.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    write_json(run_dir / f"eval_{stem}.json", summary)
     print(f"[OK] {run_dir / f'eval_{stem}.json'}")
     return 0
 

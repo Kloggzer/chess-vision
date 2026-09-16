@@ -17,6 +17,7 @@ import cv2
 import numpy as np
 
 from .calibration import CalibrationProfile, GridMesh, mesh_from_lines
+from .ioutil import write_json
 from .labeling import _replace_session_in_manifest, all_squares, crops_for_frame
 from .occluders import WORK_SIZE
 from .realgames import measured_board_size
@@ -351,7 +352,7 @@ def _write_provenance(out_root: Path, clip: str, entry: dict) -> None:
     # Der Pool-Riegel haelt zwar zwei Laeufe auseinander, nicht aber einen getoeteten.
     tmp = path.with_name(path.name + ".tmp")
     try:
-        tmp.write_text(json.dumps(all_of, indent=1), encoding="utf-8")
+        write_json(tmp, all_of, indent=1)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise

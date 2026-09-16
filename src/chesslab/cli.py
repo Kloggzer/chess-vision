@@ -19,6 +19,7 @@ from . import dataset as dataset_mod
 from . import doctor as doctor_mod
 from . import hand_flags as hand_flags_mod
 from . import labeling as labeling_mod
+from .ioutil import write_json
 
 app = typer.Typer(
     name="chesslab",
@@ -1008,10 +1009,9 @@ def realgames_retime(
         print(f"[ERR] {e}")
         raise typer.Exit(1) from e
     if json_out:
-        import json as _json
 
         _Path(json_out).parent.mkdir(parents=True, exist_ok=True)
-        _Path(json_out).write_text(_json.dumps(res, indent=2), encoding="utf-8")
+        write_json(_Path(json_out), res)
     if res.get("refused"):
         print(f"refused: {res['refused']}")
         raise typer.Exit(1)
@@ -1435,7 +1435,6 @@ def occluders_extract(
     No green screen and no clean plate needed: the backdrop is the clip's own temporal median, and
     the matte keys on chroma against it. Shadow is treated as background on purpose — a shaded
     square stays readable, and counting it would rebuild the over-flagging this replaces."""
-    import json
     from pathlib import Path
 
     from . import occluders as occ
@@ -1451,7 +1450,7 @@ def occluders_extract(
         total += s.get("written", 0)
         print(f"  {s['video']:<28} {s.get('written', 0):>4} Kacheln  "
               f"(dünn {s.get('skipped_thin', 0)}, doppelt {s.get('skipped_duplicate', 0)})")
-    (Path(out) / "occluders.json").write_text(json.dumps(summaries, indent=2), encoding="utf-8")
+    write_json(Path(out) / "occluders.json", summaries)
     print(f"[OK] {total} Kacheln in {out}")
 
 

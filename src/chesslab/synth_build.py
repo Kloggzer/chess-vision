@@ -28,6 +28,7 @@ from pathlib import Path
 from . import config
 from . import dataset as dataset_mod
 from .dataset_build import _safe_name, class_list_for, collapse_labels, dataset_dir, dedup_metadata
+from .ioutil import write_json
 
 _FILES = "abcdefgh"
 
@@ -227,7 +228,7 @@ def build_synth_dataset(
             shutil.rmtree(ds, ignore_errors=True)
             raise ValueError("\n".join(errors))
         split["degenerate_errors"] = errors
-    (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(ds / "split.json", split)
     (ds / "stats.json").write_text(
         json.dumps(dataset_mod.compute_stats(rows, classes=classes), ensure_ascii=False),
         encoding="utf-8")

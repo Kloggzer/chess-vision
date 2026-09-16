@@ -14,6 +14,7 @@ import numpy as np
 from PIL import Image
 
 from .. import config
+from ..ioutil import write_json
 from .pack import _packed_paths
 
 #: Wie viele Crops auf einmal durch den Speicher gehen. 4096 * 80 * 80 * 3 = 79 MB je Puffer.
@@ -107,7 +108,7 @@ def bake_pack(src: str, dst: str, params: dict, paths: config.Paths = config.DAT
     # Wachhund in `_rewritten_since_pack` ist der einzige, der das merkt.
     new = dict(meta)
     new["baked"] = {"op": "clahe", **params, "from": src, "at": time.time()}
-    dst_meta_path.write_text(json.dumps(new), encoding="utf-8")
+    write_json(dst_meta_path, new, indent=None)
     gb = n * h * w * 3 / 1e9
     print(f"[OK] {n} Crops gebacken -> {dst_img} ({gb:.1f} GB, {time.time() - started:.0f} s, "
           f"{touched} von CLAHE veraendert, {len(folds)} Folds mitkopiert)")

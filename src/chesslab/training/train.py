@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .. import config, doctor, locks
+from ..ioutil import write_json
 from ..work_audit import current as current_work_audit
 from .data import (
     checkpoint_metrics,
@@ -1244,7 +1245,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         if metrics_path.exists():
             raise ValueError(f"{run_dir} has metrics but no {STATE_FILE}; choose a new --out.")
         print(f"[continue] kein {STATE_FILE} in {run_dir} — Lauf beginnt bei Epoche 0.")
-    (run_dir / "config.json").write_text(json.dumps(cfg_written, indent=2), encoding="utf-8")
+    write_json(run_dir / "config.json", cfg_written)
     print(f"[OK] GPU ready ({device}); run directory: {run_dir}")
     for epoch in range(start_epoch, epochs):
         t_epoch = time.perf_counter()
@@ -1433,7 +1434,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         cfg_path = run_dir / "config.json"
         cfg_now = json.loads(cfg_path.read_text(encoding="utf-8"))
         cfg_now["temperature"] = round(temp, 4)
-        cfg_path.write_text(json.dumps(cfg_now, indent=2), encoding="utf-8")
+        write_json(cfg_path, cfg_now)
         print(f"[OK] Temperatur {temp:.3f} auf val angepasst -> config.json "
               f"(conf auf Fehlern {cal['conf_wrong']:.3f})")
     except Exception as e:  # noqa: BLE001 — Kalibrierung darf keinen Lauf kippen

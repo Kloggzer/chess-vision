@@ -29,6 +29,7 @@ from pathlib import Path
 
 from . import config, locks
 from . import dataset as dataset_mod
+from .ioutil import write_json
 
 log = logging.getLogger("chesslab.dataset_build")
 
@@ -661,9 +662,9 @@ def build_dataset(
             shutil.rmtree(ds, ignore_errors=True)   # no half-finished zombie dataset
             raise ValueError("\n".join(errors))
         split["degenerate_errors"] = errors          # intentionally allowed -> document in split
-    (ds / "split.json").write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(ds / "split.json", split)
     stats = dataset_mod.compute_stats(rows, classes=classes)
-    (ds / "stats.json").write_text(json.dumps(stats, ensure_ascii=False), encoding="utf-8")
+    write_json(ds / "stats.json", stats, indent=None)
 
     cfg = {
         "name": name,
@@ -872,7 +873,7 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
         raise ValueError("\n".join(errors))
     if not dry_run:
         for out, split in pending:
-            out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+            write_json(out, split)
 
 
     seen = [s for f in folds for g in f for s in members[g]]

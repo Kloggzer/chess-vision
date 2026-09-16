@@ -14,7 +14,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import config
-from .ioutil import read_jsonl
+from .ioutil import read_jsonl, write_json
 
 CLASSES = config.CLASSES
 
@@ -581,7 +581,7 @@ def run_split(val_frac: float, test_frac: float, max_empty_ratio: float, seed: i
             return 1
     out = config.DATA.reports / "split.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(out, split)
     write_augment_yaml(config.DATA.reports / "augment.yaml")
     print(f"[OK] split.json: train={split['counts']['train']} (balanced) val={split['counts']['val']} test={split['counts']['test']}")
     print(f"     Sessions: train={len(split['splits']['train'])} val={len(split['splits']['val'])} test={len(split['splits']['test'])}")
