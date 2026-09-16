@@ -3,8 +3,9 @@
  * `corrections.jsonl`, weil dort jede Zeile eine der 13 Identitaeten ist. Schluessel und Regel
  * sind dieselben: letzte Zeile gewinnt, `unusable: false` nimmt zurueck.
  */
-import { appendFile, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { appendRows } from "@/lib/atomic";
 import { checkName, gameDir, requireRecording } from "@/lib/data";
 import { recordingName, sessionId } from "@/lib/session";
 import { jsonlRows } from "@/lib/jsonl";
@@ -42,7 +43,7 @@ export async function appendUnusableCells(rows: UnusableCell[]): Promise<number>
   for (const [session_id, mine] of bySession) {
     const file = unusableCellsPath(recordingName(session_id));
     await requireRecording(path.dirname(file), session_id);
-    await appendFile(file, mine.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
+    await appendRows(file, mine.map((r) => ({ ...r, ts })));
     cache.delete(file);
   }
   return rows.length;

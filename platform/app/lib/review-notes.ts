@@ -1,7 +1,7 @@
 /** UI-only ledger: verdicts on unusable boards and bad intervals (not training input). */
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { writeFileAtomic } from "@/lib/atomic";
+import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
 
@@ -51,7 +51,7 @@ export async function appendReviewNotes(rows: ReviewNote[]): Promise<number> {
   // ein Anhaengen dazwischen waere danach weg.
   return serialize(file, async () => {
     await mkdir(path.dirname(file), { recursive: true });
-    await appendFile(file, rows.map((r) => JSON.stringify({ ...r, ts })).join("\n") + "\n", "utf8");
+    await appendRows(file, rows.map((r) => ({ ...r, ts })));
     cache.delete(file);
     return rows.length;
   });

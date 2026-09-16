@@ -248,6 +248,12 @@
   `tests/json_doors.txt` listet die Stellen, die noch daran vorbei schreiben, und darf nur
   SCHRUMPFEN — `tests/test_json_doors.py` wacht darueber. Was drauf bleibt, sind Artefakte EINES
   Laufs (Datensatz, Pack, Bericht); was Sessions teilen, ist umgestellt.
+  **Die Web-App hat denselben Treuhaender**: `lib/atomic.ts` mit `writeFileAtomic`,
+  `writeFileAtomicGuarded` (Stempel-Riegel, `Contested`) und `appendRows`. Rohes `appendFile` an
+  eine `.jsonl` mit halber letzter Zeile klebte die neue Zeile daran — aus dem von `lib/jsonl.ts`
+  tolerierten Schwanz wurde damit Korruption MITTENDRIN, auf die danach JEDES Lesen wirft;
+  `appendRows` schneidet vorher ab (`lib/append-tail.test.ts`). `platform/app/write-doors.txt`
+  haelt die Ratsche: Stand 3 Stellen in 2 Dateien, beim Start der Arbeit 12 in 10.
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)

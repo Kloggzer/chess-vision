@@ -3,9 +3,10 @@
  *
  * Nothing here imports or shells out to chesslab (specs/53 entry.md, ownership registry).
  */
-import { readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import { writeFileAtomic } from "@/lib/atomic";
 import { lcsReport, reviewedPlies } from "@/lib/lcs";
 import { parseReference, type Reference } from "@/lib/pgn";
 
@@ -217,8 +218,6 @@ export async function writeConfirmation(name: string, kept: number[], drop: numb
   doc.reviewed_plies = plies;
   if (struck.length > 0) doc.struck_plies = struck;
 
-  const tmp = `${file}.tmp`;
-  await writeFile(tmp, JSON.stringify(doc, null, 2) + "\n", "utf8");
-  await rename(tmp, file);
+  await writeFileAtomic(file, JSON.stringify(doc, null, 2) + "\n");
   return plies;
 }

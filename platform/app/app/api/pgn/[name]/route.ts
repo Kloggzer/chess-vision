@@ -1,13 +1,9 @@
 import { constants } from "node:fs";
-import { copyFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { Chess } from "chess.js";
+import { Contested, stampOf, writeFileAtomicGuarded } from "@/lib/atomic";
 import { gameDir } from "@/lib/data";
-
-type Stamp = string | null;
-
-const stampOf = (file: string): Promise<Stamp> =>
-  stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => null);
 
 function backupName(stamp: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
@@ -62,16 +58,13 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
       return Response.json({ error: "reference.pgn exists — replace must be explicit" }, { status: 409 });
     }
     const backup = before === null ? null : await keepCopy(file);
-    await writeFile(`${file}.tmp`, text.endsWith("\n") ? text : text + "\n", "utf8");
     // Revisionswaechter: der Set oben sieht nur Schreiber DIESES Prozesses, ein Terminal daneben
     // nicht. Was sich seit der Pruefung bewegt hat, wird nicht ueberrannt.
-    if ((await stampOf(file)) !== before) {
-      await rm(`${file}.tmp`, { force: true });
-      return Response.json({ error: "reference.pgn changed under this write" }, { status: 409 });
-    }
-    await rename(`${file}.tmp`, file);
+    await writeFileAtomicGuarded(file, text.endsWith("\n") ? text : text + "\n", before,
+      "reference.pgn changed under this write");
     return Response.json({ plies, replaced: before !== null, backup });
   } catch (error) {
+    if (error instanceof Contested) return Response.json({ error: error.message }, { status: 409 });
     return Response.json({ error: String(error) }, { status: 400 });
   } finally {
     if (held !== null) writing.delete(held);

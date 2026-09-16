@@ -3,8 +3,9 @@
  * dem Browser. Sicherung, dann tmp+rename wie `sessions._write_log`: `data/` ist unwiederbringlich.
  */
 import { constants } from "node:fs";
-import { copyFile, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { copyFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { checkName } from "@/lib/data";
 import { sessionDir } from "@/lib/session";
 
@@ -50,8 +51,6 @@ export async function flagFrame(name: string, stem: string, unusable: boolean): 
     backup = `${base}-${n}`;
   }
   await copyFile(file, path.join(sessionDir(name), backup), constants.COPYFILE_EXCL);
-  const body = lines.filter((l) => l.trim()).join("\n") + "\n";
-  await writeFile(`${file}.tmp`, body, "utf8");
-  await rename(`${file}.tmp`, file);
+  await writeFileAtomic(file, lines.filter((l) => l.trim()).join("\n") + "\n");
   return { stem, unusable, backup };
 }

@@ -17,6 +17,7 @@ import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { checkName, dataDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -119,7 +120,7 @@ export async function declare(manifest: Manifest): Promise<{ name: string; have:
   const name = transferName(manifest.sessionId);
   const staging = stagingDir(name);
   await mkdir(staging, { recursive: true });
-  await writeFile(path.join(staging, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  await writeFileAtomic(path.join(staging, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   const have: Record<string, number> = {};
   for (const file of manifest.files) {
     const landed = await sizeOf(path.join(targetDir(name), file.path));
@@ -214,7 +215,7 @@ export async function complete(name: string): Promise<TransferRow> {
     status: exists ? "held" : "landed",
     target: exists ? staging : target,
   };
-  await appendFile(ledgerPath(), JSON.stringify(row) + "\n", "utf8");
+  await appendRows(ledgerPath(), [row]);
   return row;
 }
 

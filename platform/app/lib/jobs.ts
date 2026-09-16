@@ -13,8 +13,9 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { appendFile, mkdir, open, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { appendRows } from "@/lib/atomic";
 import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
@@ -300,7 +301,7 @@ async function appendRow(job: Job): Promise<void> {
   await mkdir(jobsDir(), { recursive: true });
   // `pid` is what lets a SECOND server tell "a job died with its process" from "another process is
   // running this right now" — without it every foreign row read as a corpse (see `restartedRows`).
-  await appendFile(path.join(inboxDir(), "jobs.jsonl"), JSON.stringify({ ...job, pid: process.pid }) + "\n", "utf8");
+  await appendRows(path.join(inboxDir(), "jobs.jsonl"), [{ ...job, pid: process.pid }]);
 }
 
 async function record(job: Job): Promise<void> {

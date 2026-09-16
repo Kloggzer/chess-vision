@@ -7,9 +7,10 @@
  * this app writes may land inside one (docs/data-pipeline.md §8).
  */
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { IDENTITY_CLASSES, isIdentity, LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir } from "@/lib/ingest";
@@ -145,12 +146,9 @@ async function readIndex(file: string): Promise<CorpusIndex | null> {
   }
 }
 
-/** tmp + rename, like every other write here: a half-written index would be read as a whole one. */
 async function writeIndex(file: string, index: CorpusIndex): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  await writeFile(tmp, JSON.stringify(index) + "\n", "utf8");
-  await rename(tmp, file);
+  await writeFileAtomic(file, JSON.stringify(index) + "\n");
 }
 
 /** The group-by, from the index when the manifest has not moved, rebuilt and rewritten when it has. */

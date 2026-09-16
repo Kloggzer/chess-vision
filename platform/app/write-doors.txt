@@ -1,0 +1,6 @@
+# Stellen, die .json/.jsonl selbst schreiben, statt lib/atomic.ts zu nehmen.
+# Darf nur SCHRUMPFEN - lib/write-doors.test.ts wacht darueber. Testdateien zaehlen nicht:
+# ein Test legt sein eigenes Fixture an und erfindet dabei keine Schreibpolitik.
+# Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
+2 lib/test-fixtures.ts  # legt Fixtures fuer die Suite an, keine Datei aus data/
+1 lib/heavy-lock.ts  # `flag: "wx"` IST die Sperre - ein rename wuerde sie ueberrennen

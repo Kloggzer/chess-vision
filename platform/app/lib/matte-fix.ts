@@ -3,8 +3,9 @@
  * The board is shown STRAIGHTENED, the file has to be the raw raster SAM cut — so a stroke goes
  * back through the mesh and homography `mattePng` used. No coverage here: `occluders recut` cuts it.
  */
-import { readFile, rename, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import sharp from "sharp";
+import { writeFileAtomic } from "@/lib/atomic";
 import { forgetRaster } from "@/lib/crops";
 import { checkName } from "@/lib/data";
 import { busy, runChesslabCapture } from "@/lib/jobs";
@@ -91,8 +92,7 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
   });
 
   const file = fixedMattePath(name, stem);
-  await writeFile(`${file}.tmp`, await encodeAlpha(fixed, alpha.width, alpha.height));
-  await rename(`${file}.tmp`, file);
+  await writeFileAtomic(file, await encodeAlpha(fixed, alpha.width, alpha.height));
   forgetRaster(file);
   return file;
 }
@@ -110,8 +110,7 @@ export async function clearAlpha(name: string, stem: string): Promise<string> {
   if (!width || !height) throw new Error(`frame ${stem} carries no alpha`);
 
   const file = fixedMattePath(name, stem);
-  await writeFile(`${file}.tmp`, await encodeAlpha(Buffer.alloc(width * height), width, height));
-  await rename(`${file}.tmp`, file);
+  await writeFileAtomic(file, await encodeAlpha(Buffer.alloc(width * height), width, height));
   forgetRaster(file);
   return file;
 }

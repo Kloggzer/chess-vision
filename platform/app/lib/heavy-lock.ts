@@ -1,7 +1,8 @@
 // Non-wire-format state: one lock serializes heavy jobs across processes (no Python side).
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { readFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { readFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/lib/atomic";
 import { inboxDir } from "@/lib/ingest";
 
 /** Written while a heavy job runs: pid, what it is, since when (CONCEPT §5.5). */
@@ -90,7 +91,7 @@ export async function claimHeavyLock(job: string, name: string): Promise<{ held:
 export async function stampHeavyLockChild(childPid: number): Promise<void> {
   const current = await readHeavyLock();
   if (!current || current.pid !== process.pid) return;
-  await writeFile(heavyLockPath(), JSON.stringify({ ...current, childPid }, null, 2) + "\n", "utf8");
+  await writeFileAtomic(heavyLockPath(), JSON.stringify({ ...current, childPid }, null, 2) + "\n");
 }
 
 /** Only ever removes OUR lock — another process's file is not this process's to delete. */

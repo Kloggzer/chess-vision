@@ -51,12 +51,12 @@ describe("POST /api/pgn/[name] data-safety regressions", () => {
     ).toEqual([200, 409]);
   });
 
-  it("uses a sibling temporary file and atomic rename rather than writing the live truth in place", async () => {
+  it("schreibt ueber den Treuhaender statt die lebende Wahrheit an Ort und Stelle", async () => {
     const source = await readFile(path.join(process.cwd(), "app", "api", "pgn", "[name]", "route.ts"), "utf8");
 
     expect(
       source,
       "BUG: a kill during writeFile(reference.pgn) can leave the only human reference half-written",
-    ).toMatch(/writeFile\([^,]*\.tmp[\s\S]*rename\(/);
+    ).toMatch(/writeFileAtomicGuarded\(/);
   });
 });
