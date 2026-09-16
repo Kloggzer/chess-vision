@@ -53,7 +53,9 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
 
     out = []
     for session in sorted(config.DATA.recordings.glob("*/")):
-        rows = [r for r in _rows(session / "matte.jsonl") if r.get("coverage") and r.get("alpha") != "fixed"]
+        # `is not None`: eine geleerte Matte ist gemessen, SAMs Absage nicht.
+        rows = [r for r in _rows(session / "matte.jsonl")
+                if r.get("coverage") is not None and r.get("alpha") != "fixed"]
         if not rows:
             continue
         try:

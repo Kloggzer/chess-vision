@@ -5,6 +5,8 @@ import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { commitPage, type MatteVerdict } from "@/lib/matte-page";
+import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
+import { clampPage } from "@/lib/page-turn";
 import { verifyFrameKey } from "@/lib/position-carry";
 import type { ReviewNote } from "@/lib/review-notes";
 import type { VerifyStream } from "@/lib/verify";
@@ -195,10 +197,14 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     [judgeOne, loaded.sessions, open],
   );
 
-  /** "Alle" laesst die Vorgemerkten in Ruhe — sonst schriebe ein Tastendruck sie als `bad`. */
-  const allMarked = useCallback(
-    () => new Set(slice.map(verifyFrameKey).filter((k) => !clean.has(k))),
-    [clean, slice],
+  // TODO: `setMarked(allMarked())` ERSETZTE die Menge, also verlor ein Druck auf `a` die Marken
+  // jeder anderen Seite — und `was.size === slice.length` schlug nie an, sobald eine Karte
+  // vorgemerkt leer war, so dass "alle" sich nicht mehr abraeumen liess (`lib/matte-select.ts`).
+  const pageKeys = useMemo(() => slice.map(verifyFrameKey), [slice]);
+  const allOn = pageAllMarked(pageKeys, marked, clean);
+  const toggleAll = useCallback(
+    () => setMarked((was) => toggleAllOnPage(pageKeys, was, clean)),
+    [clean, pageKeys],
   );
 
   useEffect(() => {
@@ -210,9 +216,9 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
       const hit: Record<string, () => void> = {
         Enter: () => void commit(),
         m: () => setAlpha((v) => !v),
-        a: () => setMarked((was) => (was.size === slice.length ? new Set<string>() : allMarked())),
-        ArrowLeft: () => setPage((p) => Math.max(0, p - 1)),
-        ArrowRight: () => setPage((p) => p + 1),
+        a: () => toggleAll(),
+        ArrowLeft: () => setPage((p) => clampPage(p, -1, pages)),
+        ArrowRight: () => setPage((p) => clampPage(p, 1, pages)),
       };
       const run = hit[event.key] ?? (slice[digit] ? () => toggle(verifyFrameKey(slice[digit])) : undefined);
       if (!run) return;
@@ -221,7 +227,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [allMarked, commit, detail, slice, toggle]);
+  }, [commit, detail, pages, slice, toggleAll, toggle]);
 
   const frame = detail === null ? undefined : open.find((f) => verifyFrameKey(f) === detail);
   if (frame) {
@@ -279,12 +285,12 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
         </Tooltip>
         <Button
           className={TOUCH}
-          onClick={() => setMarked((was) => (was.size === slice.length ? new Set<string>() : allMarked()))}
+          onClick={toggleAll}
           size="sm"
           variant="outline"
         >
           <span className="text-muted-foreground mr-1 font-mono">a</span>
-          {marked.size === slice.length ? "keins" : "alle"}
+          {allOn ? "keins" : "alle"}
         </Button>
         <span className="ml-auto flex items-center gap-2">
           <Button
@@ -298,10 +304,10 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
           >
             <span className="mr-1 font-mono">m</span> Alpha
           </Button>
-          <Button className={TOUCH} onClick={() => setPage((p) => Math.max(0, p - 1))} size="sm" variant="outline">
+          <Button className={TOUCH} onClick={() => setPage((p) => clampPage(p, -1, pages))} size="sm" variant="outline">
             ←
           </Button>
-          <Button className={TOUCH} onClick={() => setPage((p) => p + 1)} size="sm" variant="outline">
+          <Button className={TOUCH} onClick={() => setPage((p) => clampPage(p, 1, pages))} size="sm" variant="outline">
             →
           </Button>
         </span>

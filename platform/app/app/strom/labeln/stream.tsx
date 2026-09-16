@@ -40,6 +40,7 @@ import {
   type LaneCell,
 } from "@/lib/lanes";
 import { queryText, type Filter, type QueryAnswer } from "@/lib/query";
+import { cursorSession, linkFilter } from "@/lib/stream-head";
 import { addRows, emptyTally } from "@/lib/session-tally";
 import { BoardLane } from "./board-lane";
 import { FrameLane, type FrameVerdict } from "./frame-lane";
@@ -202,14 +203,18 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
 
   // A shared link carries a query the server's default answer is not. Scheduled, not called: the
   // fetch is the external system this effect talks to, and the render must not wait on it.
+  // TODO: `Number(url.get("min"))` machte aus einem fehlenden `min` die Schwelle 0 — die laesst
+  // jede Zelle mit `probs` durch, und der Client schrieb die 0 auch noch in die URL zurueck, so
+  // dass die Huerde in `app/api/query/route.ts` nichts mehr zu halten hatte.
   useEffect(() => {
-    const url = new URLSearchParams(window.location.search);
-    const klass = url.get("class");
-    const min = Number(url.get("min"));
-    const phase = url.get("phase") ?? "any";
-    const same = klass === wall.filter.klass && min === wall.filter.min && phase === wall.phase;
-    if (!klass || !Number.isFinite(min) || same) return;
-    const timer = setTimeout(() => void ask({ klass, min }, phase), 0);
+    const link = linkFilter(window.location.search);
+    if (!link) return;
+    const same =
+      link.filter.klass === wall.filter.klass &&
+      link.filter.min === wall.filter.min &&
+      link.phase === wall.phase;
+    if (same) return;
+    const timer = setTimeout(() => void ask(link.filter, link.phase), 0);
     return () => clearTimeout(timer);
   }, [ask, wall]);
 
@@ -570,7 +575,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     handler.current = onKey;
   });
 
-  const session = stream.sessions[here?.session ?? 0];
+  // TODO: `here?.session ?? 0` nannte im Kopf die ERSTE Aufnahme, sobald nichts unter dem Zeiger
+  // lag — eine Aufnahme, die mit der leeren Lane nichts zu tun hat.
+  const session = cursorSession(stream.sessions, here);
   const counts = useMemo(() => LANES.map((l) => laneCount(stream, l.id, wallLane)), [stream, wallLane]);
   const seconds = median(gaps);
   const open = renderer === "board"

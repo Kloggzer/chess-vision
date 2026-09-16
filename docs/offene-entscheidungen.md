@@ -25,7 +25,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
 | 14–15 | Zwei TODOs, deren Fix die ZUFALLSFOLGE verschiebt | C | s. u. | 15 ja (Faktor 4), 14 mitnehmen |
 | 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
-| 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
+| 20 | Acht Leser, fuenf pruefen `coverage` truthy (latent, 0 Faelle) | C | 30 min | Skripte umgestellt, Pipeline mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
 | 22 | Drei Leser derselben `log.jsonl`, drei Antworten auf die halbe Zeile | B | 2 h | **entscheiden** — eine Tail-Politik statt dreier |
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
@@ -238,6 +238,18 @@ behaelt sie ausdruecklich ("Nullen BLEIBEN"). Gefunden vom gemeinsamen Fixture
 
 **Latent, nicht akut:** ueber den ganzen Korpus gezaehlt 9 386 Zeilen mit Werten, **0 leere**,
 0 Absagen. Erst ein Lauf, der ein sauberes Brett tatsaechlich misst, macht die Abweichung sichtbar.
+
+**Es ist nicht EINE Stelle, sondern acht.** Gezaehlt 2026-09-16 ueber `src/` und `scripts/`:
+fuenf Dateien pruefen `coverage` truthy, drei andere richtig auf `None` — die CLAUDE.md-Regel wird
+zur Haelfte befolgt. Die drei Mess-Skripte (`occlusion_gate`, `coverage_errors`,
+`audit_disk_damage`) sind sofort umgestellt: sie erzeugen Zahlen und gehoeren in keinem Fall auf
+eine halbe Wahrheit. **`occlusion_gate` ist die heikelste** — aus ihm stammt jede ausgelieferte
+`coverage_gate`, und truthy haette die Schwelle nur auf Frames abgeleitet, auf denen SAM etwas
+fand.
+
+Die uebrigen fuenf (`labeling` 1, `matte` 2, `temporal_matte` 3) liegen im Pipeline-Weg und
+brauchen diese Entscheidung. `tests/test_matte_coverage_rule.py` haelt die Liste fest und laesst
+sie nur schrumpfen.
 
 **Warum nicht nachts gebaut:** `read_matte` haengt am Trainingsweg — wer die Zeile durchlaesst,
 schneidet 64 Zellen mit `coverage 0` mehr in den Datensatz. Das ist eine Rezept-Aenderung, keine

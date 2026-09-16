@@ -55,7 +55,9 @@ def main():
         for line in mp.read_text(encoding="utf-8").splitlines():
             if line.strip():
                 r = json.loads(line)
-                if r.get("coverage"):
+                # Eine LEERE Coverage ist "gemessen, nichts verdeckt" und gehoert als
+                # Wahrheit dazu; truthy warf sie mit SAMs Absage in denselben Topf.
+                if r.get("coverage") is not None:
                     truth[r["frame"]] = r["coverage"]
         for line in rp.read_text(encoding="utf-8").splitlines():
             r = json.loads(line)

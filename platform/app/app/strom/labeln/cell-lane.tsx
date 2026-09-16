@@ -10,6 +10,7 @@ import type { FrameHand } from "@/lib/frame-hands";
 import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
+import { turnPage } from "@/lib/page-turn";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
@@ -154,6 +155,15 @@ export function CellLane(props: CellLaneProps) {
   const clear = () => {
     setPick({});
     setCursor(0);
+  };
+
+  // TODO: Ueberspringen setzte nur `setPage` — `pick` ist aber nach dem Index INNERHALB der Seite
+  // gekeyt, also stand die Farbe der alten Seite auf den neuen Zellen und ⏎ schrieb sie.
+  const goPage = (delta: number) => {
+    const next = turnPage({ page: safePage, picks: pick, cursor }, delta, pages);
+    setPage(next.page);
+    setPick(next.picks);
+    setCursor(next.cursor);
   };
 
   const counts = useMemo(() => {
@@ -364,7 +374,7 @@ export function CellLane(props: CellLaneProps) {
         >
           ← zurück
         </Button>
-        <Button className={TOUCH} disabled={safePage + 1 >= pages} onClick={() => setPage(safePage + 1)} size="sm" variant="outline">
+        <Button className={TOUCH} disabled={safePage + 1 >= pages} onClick={() => goPage(1)} size="sm" variant="outline">
           Seite überspringen
         </Button>
       </div>
