@@ -23,13 +23,14 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
 | 6 | `_persistent`: **1 797 zu Unrecht im Vorrat, 3 241 zu bergen** (gemessen) | C | Re-Export | mit dem naechsten Neubau |
 | 7 | `2026-08-15-23-01-43`: Export unvollstaendig, Scan ist es nicht | A | — | faellt mit 6 zusammen |
-| 14–15 | Zwei TODOs, deren Fix die ZUFALLSFOLGE verschiebt | C | s. u. | 15 ja (Faktor 4), 14 mitnehmen |
+| 14 | Spender-Pool ohne `neighbour_p > 0`-Schutz (verschiebt die Zufallsfolge) | C | 15 min | mit dem Export-Neubau |
+| ~~15~~ | RNG je Loader-Worker | — | — | **gebaut 2026-09-16** — Neu-Destillation laeuft |
 | 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 fallen mit 27 |
 | ~~22~~ | Drei Antworten auf die halbe letzte Zeile | — | — | **gegenstandslos durch 27** |
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
-| 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
+| ~~24~~ | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | — | — | **gebaut 2026-09-16** — leerer Balken, animiert |
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
 | ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
 | **27** | **Postgres statt 19 Dateiformate** | C | Export-Neubau | **entschieden** — Schnitt steht unten |
@@ -103,15 +104,16 @@ Zufallsfolge**. Laeufe davor und danach sind nicht mehr bitgleich vergleichbar.
 **Die Frage:** Startzeit sparen und die Vergleichbarkeit mit dem Archiv aufgeben, oder liegen
 lassen? **Empfehlung: liegen lassen, bis ohnehin ein Schnitt im Rezept ansteht** — dann mit.
 
-## 15. `hand_gate.py:134` — jeder Loader-Worker forkt denselben RNG
+## 15. RNG je Loader-Worker — GEBAUT 2026-09-16
 
-Vier Prozesse ziehen dieselbe Helligkeits-/Versatz-Folge. Die Augmentierung ist ein Viertel so
-vielfaeltig, wie sie aussieht, und gegen `seed` nicht reproduzierbar.
+Vier Prozesse zogen dieselbe Helligkeits-Folge, die Augmentierung war ein Viertel so vielfaeltig
+wie sie aussah. Der RNG entsteht jetzt erst IM Worker, mit dessen Nummer versetzt.
 
-Derselbe Haken wie 14: der Fix verschiebt die Zufallsfolge. Hier ist der Schaden aber **real und
-gemessen gross** (Faktor 4 auf die Vielfalt), nicht nur Startzeit.
-**Empfehlung: fixen, und den Hand-Gate-Schueler danach einmal neu destillieren** — die alte
-Destillation ist dann nicht mehr die Referenz.
+**Nachlauf, der noch aussteht:** die Zufallsfolge hat sich verschoben, die bestehende
+Destillation des Hand-Gate-Schuelers ist damit nicht mehr die Referenz. Der Lauf ist gestartet
+(`eff-b0-448-v2`, `efficientnet_b0` @ 448, 20 Epochen) — die alten Karten sind ausserdem auf einem
+Lehrer-Satz entstanden, der adoptierte und Temporal-Zeilen enthielt, obwohl die Karte
+`teacher: sam3` behauptet. Der neue Satz ist kleiner (9 084 statt 10 985) und sauber.
 
 ## 16. `capture_plan.py:101` — `p5`/`p95` liest ausser dem Test niemand
 
