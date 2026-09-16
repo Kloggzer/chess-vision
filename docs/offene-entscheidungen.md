@@ -33,52 +33,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | **ja** — gezaehlt: 14 von 804 Plys |
 | 26 | `--smooth-iters` dreht die Figur, verbatim nicht | C | 30 min | erst zaehlen, welche Meshes betroffen sind |
 
-## 17. `ALPHA_REASON`: ENTSCHIEDEN 2026-09-16 — beide Seiten haben recht
-
-Die Frage war, ob `alpha_worker` per Vorgabe den ganzen dirty-Stapel matten soll statt nur
-`occluded`. **Gemessen ueber den ganzen Korpus:** 3 366 Frames sind gemattet, offen sind
-**21 im Standard-Stapel und 117 im uebrigen** — und beide Zahlen stehen auf EINER Aufnahme
-(`2026-09-15-16-54-44`, der neuesten). Jede andere Aufnahme ist bei null.
-
-Damit ist es keine systemische Luecke, sondern der Rest einer Aufnahme. Und die beiden Seiten
-widersprechen sich gar nicht: `matte_status` MELDET den ganzen Stapel (die Zelle entscheidet),
-`alpha_worker` ARBEITET den Standard-Stapel zuerst ab — eine Reihenfolge, keine Behauptung.
-
-Falsch war nur, dass der Bericht die beiden nicht auseinanderhielt. Das ist seit dem
-`missing`/`missing_other`-Split erledigt, und `occluders status` schreibt "nur mit --reason all"
-dazu. **Keine Code-Aenderung; der Vorgabewert bleibt `occluded`.**
-
-## 18. `coverage_gate` ohne `coverage_output`: ERLEDIGT, die Vorlage war veraltet
-
-Gebaut am 2026-09-15 (`if (spec?.coverageOutput != true) return this`), der Regressionssatz lief
-danach und stand auf 385/14/1/167 bei 6 Alarmen. Nur der Eintrag hier blieb stehen.
-
-Nachgetragen 2026-09-16: der eigentliche Fall hatte keinen Test. `coverageOutput = false` war
-geprueft, aber nur zusammen mit `coverageGate = null` — also ohne das, was der Fix abweist.
-`withCoverageGateOfIgnoresAGateWithoutTheColumn` haelt ihn jetzt fest.
-
-## 19. `RecoveryFixtures.recoveryConfig` — erledigt, war keiner
-
-Gemessen 2026-09-16: mit `minGridLineCoverage = 0,0` bleibt die ganze `core-engine`-Suite gruen.
-Das Gatter feuert auf diesen Fixtures also ohnehin nie, und die 0,5 traegt dort nichts. Damit ist
-`recoveryConfig` nicht der Ausreisser, sondern der EINZIGE der vier Rig-Bauer, der den
-ausgelieferten Wert behaelt — die anderen drei zwingen ihn auf 0,0. Bleibt wie es ist.
-
----
-
-## 3. `position-flags` nennt ungemessene Sessions nicht
-
-`position_flags()` (`position_flags.py:102`) gibt `per_session` zurueck — aber nur fuer Sessions
-**mit** Flags. Eine Aufnahme ohne `settle_dev` liefert null Flags und ist im Bericht nicht von
-einer zu unterscheiden, auf der wirklich nichts strittig war.
-
-Auf ZELL-Ebene setzt das Projekt die Regel schon durch (die Lane schreibt `—` statt `0`). Auf
-SESSION-Ebene fehlt sie.
-
-**Der Vorschlag:** `unmeasured: [session_id, …]` in die Rueckgabe und in die Kopfzeile, genau wie
-`stale_temporal` daneben schon steht. Eine Stunde, verhaltensgleich fuer alles ausser der Anzeige.
-**Empfehlung: ja.**
-
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
 Inzwischen **siebenmal** gefahren, jedes Mal **385 / 14 / 1 / 167 bei 6 Alarmen**, Ziffer fuer
@@ -115,93 +69,10 @@ lohnt der Rest; ist er einstellig, nicht.
 Die anderen 22 sind vollstaendig. Beide sind winzig — Testexporte? **Nachscannen oder parken**,
 beides zehn Minuten.
 
-## 8. Die Kommentar-Ratsche steht bei 8, das Ziel ist 3
-
-`CommentBudgetTest` feuert erst ab 8 aufeinanderfolgenden Kommentarzeilen; CLAUDE.md nennt 3 als
-Ziel und 5 als Obergrenze. Python und TS sind bei harten 5.
-
-**Die Frage:** Kotlin auf 5 ziehen? Handarbeit an den Dateien, die heute darueber liegen.
-**Empfehlung: spaeter** — es ist Aufraeumen ohne Fund, und die Ratsche verhindert schon, dass es
-schlimmer wird.
-
-## 9. Ein Fixture-Baukasten je Sprache — Python-Haelfte gebaut
-
-**Python ist erledigt (2026-09-15).** `tests/conftest.py` gab es nicht; jetzt traegt es
-`make_profile` (die 30 Handbauten in 22 Dateien gehen darueber) und `write_session`/`slice_fixture`,
-das per Vorgabe eine Session **mit `boards/`** schreibt und dabei **kein** `frames/` anlegt — ein
-stiller Rueckfall auf den Fallback findet damit keine Datei mehr. Der Altfall ist `boards=False`
-und hat in `test_board_store.py` einen eigenen Test.
-
-**Gemessen war es 13 von 14, nicht 12**: nur `test_mesh_crop.py` erreichte den Brett-Zweig
-ueberhaupt. Fuenf Suiten sind umgezogen (`dirty`, `settle`, `unknown`, `unusable_cells`,
-`framescan`); die uebrigen bleiben bewusst auf dem Frame-Weg, weil dort der Frame das THEMA ist
-(Marker-Detektion, `SessionWriter`, die Pixel-Hashes in `test_session_pack.py`).
-
-**Der Fund dabei:** eine Zeile mit Brett, aber ohne `corners`, stuerzte in `iter_session_crops` ab
-— der Marker-Fallback lief auf dem Frame, den das Brett gerade ueberfluessig gemacht hatte
-(`frame = None`), und seine Antwort wurde nie benutzt. Behoben, Regressionstest in
-`test_board_store.py`.
-
-**Offen bleiben `lib/test-fixtures.ts` und der Kotlin-Bauer** (`session.ts:164`, `ModelSpecTest`).
-
-## 10. Namensdrift ueber die Schichten
-
-Drei Faelle, sehr unterschiedlich teuer:
-
-- **`cov` heisst in zwei Geschwister-Berichten das Gegenteil.** In `hand_flags.py` ist `cov` die
-  **Modell**-Sigmoid, in `position_flags.py` die **SAM**-Messung. Beide landen in `data/reports/`,
-  beide liest die Strittig-Lane. Seit heute schreibt der Erzeuger `model_cov`; die alten Dateien
-  auf der Platte tragen noch `cov`, und der Leser kennt beide.
-  **Empfehlung: `cov` als Schluessel verbieten, sobald die Berichte einmal neu gerechnet sind.**
-- **`measured` bedeutet drei Dinge**, zwei davon 35 Zeilen auseinander (`session.ts:52` = traegt
-  `settle_dev`; `label-stream.ts:89` = SAM-Coverage als Zahl; `frame-hands.ts:19` = ueberhaupt
-  gescannt). Ausgerechnet das Wort, mit dem das Projekt "ungemessen ist nicht 0" durchsetzt.
-  **Empfehlung: umbenennen, wenn die Datei ohnehin angefasst wird — nicht als eigener Lauf.**
-- **`pack` ist vier Artefakte** mit je eigener `manifest.jsonl`. **Erledigt 2026-09-15:**
-  `docs/pack-arten.md` benennt die vier (Datensatz-Pack, Session-Pack, Kotlin-Pack, Crop-Pool) und
-  sagt, woran man sie auf der Platte unterscheidet; `pack.py` und `packs.py` nennen sich in Zeile 1
-  selbst. Kein Modul umbenannt. Einzige Code-Umbenennung: `build_dataset(pack=…)` heisst
-  `write_pack=…`, weil es neben `from_packs=…` stand und das Gegenteil meinte.
-
----
-
 # Die sechs TODOs, die Verhalten oder Zufallsfolge aendern
 
 Alle sechs stehen inline im Code als `# TODO:` mit dem Warum. Keiner ist gebaut, weil jeder eine
 Entscheidung braucht, die ich nicht treffen kann.
-
-## 11. `dataset.py:164` — `occluded` im Maximum: GEBAUT 2026-09-16
-
-`empty_cap` richtet sich nach `max(eff_piece.values())`. Auf einem 14-Klassen-Bau ist `occluded`
-die groesste Klasse — die Kappe fuer leere Felder haengt dann an der Verdeckung statt an der
-groessten echten Figurenklasse.
-
-Entschieden: jetzt, statt als Falle stehenzulassen. `occluded` ist jetzt auf BEIDEN Seiten der
-Kappe heraus. `tests/test_empty_cap_ignores_occluded.py` haelt beides fest — den Fall und den
-`pieces13`-Bau, an dem sich nichts aendert.
-
-## 12. Toter `coverage_gate`-Parameter: GESTRICHEN 2026-09-16, Empfehlung war falsch
-
-Die Empfehlung hier war "verdrahten". Nachgesehen: der Export KANN das Gate nicht kennen. Es wird
-gegen die Aufnahmen gemessen, die das Modell zurueckgehalten hat, also **nach** dem Ablegen —
-`stage_model_asset.py` sagt das in seiner eigenen Hilfe, und zu sechs der sieben gebuendelten
-Modelle gibt es gar keinen Lauf-Ordner mehr.
-
-Der Parameter ist damit nicht aus Versehen tot, sondern weil an dieser Stelle nichts zu wissen
-ist. Gestrichen; das Staging-Skript ist bestaetigt als der Weg, und `ModelSpec` liest die
-`config.json` des Assets, nicht die Karte. Die Sorge der alten Empfehlung bleibt richtig —
-deshalb steht der Grund jetzt als Kommentar an der Stelle, an der der Schluessel fehlt.
-
-## 13. Modellkarte und Normalisierung: GEBAUT 2026-09-16
-
-Ein Lauf mit `--crop-norm per-crop` rechnet mean/std gar nicht, die Karte behauptet trotzdem die
-festen ImageNet-Werte. `train.py` schreibt es in `config.json` richtig; wer die **Karte** liest,
-bekommt das Gegenteil des Rezepts.
-
-Entschieden: ja. `build_model_card` uebernimmt den `normalize`-Block WOERTLICH aus `config.json`,
-statt ihn neu zu behaupten. Fuer jeden bisherigen Lauf (`mode: fixed`) steht in der Karte
-dasselbe wie vorher, nur mit dem `mode` dabei — die Aenderung trifft allein den per-crop-Lauf,
-ueber den die Karte log.
 
 ## 14. `torch_data.py:657` — Spender-Pool ohne `neighbour_p > 0`-Schutz
 
