@@ -124,6 +124,9 @@ def test_coverage_arms_feeds_the_hand_student_a_board_without_its_border(tmp_pat
     monkeypatch.setattr(arms, "load_profile", lambda name: None)
     monkeypatch.setattr(arms, "read_matte", lambda d: {"000001": {}})
     monkeypatch.setattr(arms, "crops_for_frame", lambda *a, **k: [None] * 64)
+    # Wie das Profil und der Zuschnitt daneben: dieser Test isoliert den SCHUELER-Arm, nicht die
+    # Wahl der Quelle. Ohne den Stub braucht `board_source` ein echtes Profil.
+    monkeypatch.setattr(arms, "board_source", lambda row, _p: (row["board"], True))
     monkeypatch.setattr(hand_gate, "load_gate", lambda tag: (object(), {"size": 8}, "cpu"))
     seen = []
     monkeypatch.setattr(hand_gate, "_forward",
