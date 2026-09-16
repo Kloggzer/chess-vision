@@ -152,6 +152,8 @@ data class ModelSpec(
                 perCrop = normalize?.get("mode")?.jsonPrimitive?.content == "per_crop",
                 repr = root["input_repr"]?.jsonPrimitive?.content?.let(InputRepr::of) ?: InputRepr.RGB,
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
+                // TODO(C3): `temperature` bleibt ungelesen — jede Konfidenzschwelle sieht schaerfere
+                // Werte als die Kalibrierung, gegen die sie geeicht wurde (`ModelSpecTemperatureBugTest`).
                 coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
                 claheClip = root["clahe_clip"]?.jsonPrimitive?.double ?: 0.0,
                 claheTile = root["clahe_tile"]?.jsonPrimitive?.content?.toInt() ?: DEFAULT_CLAHE_TILE,

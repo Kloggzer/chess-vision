@@ -65,6 +65,8 @@ class DebugViewModel : ViewModel() {
 
     val config: TrackerConfig get() = session.config.value
 
+    private var decoded = NO_OBSERVATION
+
     fun attach(session: DebugSession) {
         if (this.session === session) return
         detach()
@@ -79,7 +81,7 @@ class DebugViewModel : ViewModel() {
 
     fun onTabSelected(selected: DebugTab) {
         tabFlow.value = selected
-        if (selected != DebugTab.CROPS) cropsFlow.value = emptyList()
+        if (selected != DebugTab.CROPS) dropCrops()
     }
 
     fun onToggleReadOrder() {
@@ -97,9 +99,18 @@ class DebugViewModel : ViewModel() {
     private fun detach() {
         jobs.forEach { it.cancel() }
         jobs.clear()
-        cropsFlow.value = emptyList()
+        dropCrops()
         assembler.reset()
         if (!pinned) session.setDebugEnabled(false)
+    }
+
+    /**
+     * Kacheln und ihre Beobachtung gehen zusammen — TODO: die Kennung lag als `seen` in der
+     * Schleife, ueberlebte das Leeren, und der Reiter blieb danach leer (`CropTabReturnTest`).
+     */
+    private fun dropCrops() {
+        cropsFlow.value = emptyList()
+        decoded = NO_OBSERVATION
     }
 
     /**
@@ -108,13 +119,12 @@ class DebugViewModel : ViewModel() {
      * [Dispatchers.Default].
      */
     private suspend fun pollCrops() {
-        var seen = -1L
         while (true) {
             runtimeFlow.value = session.cnnRuntime()
             if (tabFlow.value == DebugTab.CROPS) {
                 val latest = session.latestCrops()
-                if (latest != null && latest.seq != seen) {
-                    seen = latest.seq
+                if (latest != null && latest.seq != decoded) {
+                    decoded = latest.seq
                     cropsFlow.value = withContext(Dispatchers.Default) { cropTiles(latest) }
                 }
             }
@@ -130,3 +140,5 @@ class CropTile(
 )
 
 private val NO_RUNTIME = CnnRuntimeInfo(null, null, null, null, null, null, 0.0, 0)
+
+private const val NO_OBSERVATION = -1L

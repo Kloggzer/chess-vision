@@ -89,7 +89,10 @@ private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
 /** Staged copies. Under tmp/, which is not the corpus. */
 private const val STAGING = "../../tmp/cnn-staging"
 
-/** What the model said about crops it has seen, per model. Under tmp/, which is not the corpus. */
+/**
+ * What the model said about crops it has seen, per model. Under tmp/, not the corpus.
+ * TODO(C4): der Pfad traegt den NAMEN, nicht die Gewichte (`ObsCacheModelBytesBugTest`).
+ */
 private const val OBS_CACHE = "../../tmp/obs-cache"
 
 private const val DESKTOP_INTRA_OP_THREADS = 4

@@ -295,6 +295,8 @@ class LiveAlign(
             frame.release()
             return
         }
+        // TODO(C7): `frame.release()` und `inFlight = false` gehoeren in ein `finally` — wirft ein
+        // Verbraucher hinter der Detection, steht die Live-Ausrichtung (`LiveAlignWedgeBugTest`).
         inFlight = true
         val current = tracker
         val startedAt = generation

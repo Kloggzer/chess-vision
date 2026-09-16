@@ -263,6 +263,8 @@ class CnnObserver(
         runCatching { runObservation(startFen) }
             .onFailure {
                 log.warn("CNN observation failed", it)
+                // TODO(C8): das ergibt `BACKOFF_MS + intervalMs`, nicht eine Sekunde — `wantsFrame`
+                // misst gegen dasselbe Feld (`CnnObserverBackoffBugTest`).
                 startedMs = nowMs() + BACKOFF_MS
             }
         busy = false
