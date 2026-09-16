@@ -123,8 +123,31 @@ die alle drei Laeufe zurueckgehalten haben (584 Bretter, 396 mit Hand):
 | `mnv4-640` (bisherige Vorgabe) | 0,9899 | 4 | 0/188 |
 | **`eff-b0-448-v2`** | **1,0000** | **0** | 0/188 |
 
-`DEFAULT_GATE` steht seitdem auf `eff-b0-448-v2`. Basis ist EINE Sitzung — breiter geht es nicht,
-weil die alten Modelle alles andere im Training gesehen haben.
+### Das Urteil des Menschen zaehlt jetzt mit, und der Holdout laesst sich festnageln
+
+Zwei Funde beim Nachziehen: **22 SAM-Zeilen mit dem Urteil `matte-bad`** — "diese Matte ist
+falsch" — lehrten den Schueler trotzdem, weil `gate_rows` das Urteilsbuch nie ansah. Und von den
+214 adoptierten Temporal-Zeilen sind nur **43 ausdruecklich freigegeben**; 16 sind ABGELEHNT und
+60 ungeprueft. Pauschal aufzunehmen haette die sechzehn mitgebracht. Lehrer-Satz 9 084 -> 9 105.
+
+Ausserdem der Grund, warum keine zwei Karten je vergleichbar waren: `holdout_sessions` nimmt jede
+n-te Sitzung aus der sortierten Liste, der Pruefsatz WANDERT also mit dem Korpus.
+`--holdout-session` nennt ihn jetzt beim Namen.
+
+### Der erste saubere A/B (gleicher Holdout, 1 597 Bretter, 315 sauber)
+
+| Lauf | Recall | verpasste Haende | Fehlalarme | ms/Brett |
+|---|---|---|---|---|
+| `eff-b0-448-v2` | 0,9969 | 4 | 14 (4,4 %) | 4,28 |
+| **`mnv3s-448-v3`** | **0,9984** | **2** | **13 (4,1 %)** | **0,85** |
+
+Das KLEINERE Modell ist nicht schlechter und fuenfmal schneller — `DEFAULT_GATE` steht darauf.
+Die Einzelzahlen nicht ueberziehen: 2 gegen 4 und 13 gegen 14 auf 315 sauberen Brettern sind
+kleine Unterschiede. Belastbar ist "nicht schlechter", nicht "besser".
+
+**Nebenbei gefunden:** der Vorgabe-Backbone des Befehls (`mobilenet_v3_small`) ist gar kein
+timm-Name — jeder Lauf ohne `--backbone` starb, und die Wache meldete irrefuehrend "keine
+vortrainierten Gewichte" statt "gibt es nicht".
 
 ## 16. `p5`/`p95` im Aufnahme-Auftrag — GEBAUT 2026-09-16
 

@@ -21,9 +21,9 @@ GATE_DIR = "hand-gate-bn"
 #: Der Lauf, den die Pipeline benutzt, wenn niemand einen anderen nennt. NICHT der namenlose
 #: Ordner: dort liegt der erste Versuch mit global gepooltem Kopf, den `GateNet` gar nicht laden
 #: kann — und ein leerer Vorgabewert hat genau deshalb einen ganzen Korpus-Rescan gekostet.
-#: Auf der einzigen gemeinsam zurueckgehaltenen Sitzung 0 verpasste Haende gegen 1 und 4
-#: (`docs/offene-entscheidungen.md`, Punkt 15). Verschiedene Holdouts sagen dazu nichts.
-DEFAULT_GATE = "eff-b0-448-v2"
+#: Gegen `eff-b0-448-v2` auf DEMSELBEN Holdout: 2 statt 4 verpasste Haende, 13 statt 14
+#: Fehlalarme — und 0,85 statt 4,28 ms je Brett (`docs/offene-entscheidungen.md`, Punkt 15).
+DEFAULT_GATE = "mnv3s-448-v3"
 CARD_FILE = "card.json"
 WEIGHTS_FILE = "gate.pt"
 
