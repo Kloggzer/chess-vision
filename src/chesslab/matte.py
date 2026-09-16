@@ -423,7 +423,7 @@ def recut_coverage(
         alpha_path = session_dir / "mattes" / f"{row['frame']}.webp"
         entry = entries.get(row["frame"])
         # `alpha: fixed` gehoert dem Menschen, und eine Zeile ohne Coverage ist SAMs Absage.
-        if (not row.get("coverage") or row.get("alpha") == "fixed" or entry is None
+        if (row.get("coverage") is None or row.get("alpha") == "fixed" or entry is None
                 or not alpha_path.exists() or not usable_board(entry, profile)):
             rows.append(row)
             continue
@@ -630,7 +630,8 @@ def matte_status(name: str) -> dict:
     path = session_dir / "matte.jsonl"
     # Wie `read_matte`: eine Zeile ohne `coverage` (uebersprungen) ist keine Matte. Als eine
     # gezaehlt verschwieg dieser Bericht genau die Luecke, die er melden soll.
-    have = ({str(r["frame"]) for r in read_jsonl(path) if r.get("frame") and r.get("coverage")}
+    have = ({str(r["frame"]) for r in read_jsonl(path)
+             if r.get("frame") and r.get("coverage") is not None}
             if path.exists() else set())
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(standard - have),

@@ -14,13 +14,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-#: Datei -> wie viele truthy-Tests auf `coverage` sie noch traegt. Nur kleiner werden lassen.
-#: Alle drei liegen im Pipeline-Weg und brauchen eine Entscheidung (Vorlage, Punkt 20).
-BUDGET = {
-    "src/chesslab/labeling.py": 1,
-    "src/chesslab/matte.py": 2,
-    "src/chesslab/temporal_matte.py": 3,
-}
+#: LEER seit 2026-09-16: alle acht Leser pruefen auf `None`. Nur kleiner werden lassen — also
+#: bleibt sie leer, und jede neue truthy-Stelle macht die Suite rot.
+BUDGET: dict[str, int] = {}
 
 #: `or {}` ist eine VORGABE und kein Wahrheitstest; `is None` ist die richtige Frage.
 #: Erkannt wird das IDIOM (`if ... r.get("coverage")`), nicht jede denkbare Umschreibung -

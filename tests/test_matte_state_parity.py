@@ -10,8 +10,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from chesslab.labeling import read_matte
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
@@ -44,16 +42,12 @@ def test_a_refused_row_is_not_a_matte(tmp_path):
         assert stem not in matte, f"{stem}: {state} darf keine Matte sein"
 
 
-@pytest.mark.xfail(reason="Python verwirft `coverage: {}`, TypeScript behaelt es ausdruecklich "
-                          "(`label-stream.ts`: 'Nullen BLEIBEN')", strict=True)
 def test_an_empty_measurement_is_a_measurement(tmp_path):
-    """Gemessen UND frei ist nicht dasselbe wie ungemessen.
+    """Gemessen UND frei ist nicht dasselbe wie ungemessen — seit 2026-09-16 auf beiden Seiten.
 
-    `read_matte` filtert mit `if r.get("coverage")` — ein leeres Dict ist falsy, die Zeile faellt
-    weg. Die TS-Seite behaelt sie ausdruecklich und nennt den Grund: ohne sie las `reachesPool`
-    das Brett als ungemattet und liess es fallen, "waehrend Python seine 64 Zellen ins Training
-    schneidet". Heute null solche Zeilen auf der Platte, also latent — aber die Seiten sind sich
-    uneinig, und das aufzuloesen greift in den Trainingsweg (`docs/offene-entscheidungen.md`).
+    Python filterte mit `if r.get("coverage")`, ein leeres Dict ist falsy und die Zeile fiel weg;
+    die TS-Seite behielt sie ausdruecklich ("Nullen BLEIBEN"). Alle acht Leser pruefen jetzt auf
+    `None`, und `tests/test_matte_coverage_rule.py` haelt es so.
     """
     case = _case()
     matte = read_matte(_session(tmp_path, case["rows"]))

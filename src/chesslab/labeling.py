@@ -400,7 +400,8 @@ def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     path = Path(session_dir) / "matte.jsonl"
     if not path.exists():
         return {}
-    return {r["frame"]: r["coverage"] for r in read_jsonl(path) if r.get("coverage")}
+    return {r["frame"]: r["coverage"] for r in read_jsonl(path)
+            if r.get("coverage") is not None}
 
 
 def _session_flat_cells(session_dir: Path, log: list[dict], prof: CalibrationProfile,

@@ -312,7 +312,7 @@ def sam_matte(recording):
         return {}
     rows = (json.loads(s) for s in path.read_text(encoding="utf-8").splitlines() if s.strip())
     return {r["frame"]: r["coverage"] for r in rows
-            if r.get("coverage") and r.get("source") not in ("temporal", "upsert")}
+            if r.get("coverage") is not None and r.get("source") not in ("temporal", "upsert")}
 
 
 def adopt_proposals(session_id, *, method="local"):
@@ -339,7 +339,8 @@ def adopt_proposals(session_id, *, method="local"):
     ours = {json.loads(s)["frame"] for s in lines if s.strip()} - {json.loads(s)["frame"] for s in kept_lines}
     # Wie `matte.matte_status`: eine Zeile ohne `coverage` ist SAMs Absage, keine Matte. Als eine
     # gezaehlt blieben genau die Frames ohne jedes Alpha ungefuellt — die Coverage-Matte-Falle.
-    have = {r["frame"] for r in map(json.loads, kept_lines) if r.get("coverage")}
+    have = {r["frame"] for r in map(json.loads, kept_lines)
+            if r.get("coverage") is not None}
     (recording / "mattes").mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
@@ -419,7 +420,7 @@ def upsert_proposals(session_id, *, method="local"):
         backup.replace(mattes / backup.name.replace(".sam.webp", ".webp"))
     sam = {}
     for row in (json.loads(s) for s in kept_lines):
-        if row.get("coverage") and row.get("source") != "temporal":
+        if row.get("coverage") is not None and row.get("source") != "temporal":
             sam[row["frame"]] = row
     stamp_now = datetime.now(UTC).isoformat()
     upserted, found, fixed = 0, 0, 0
