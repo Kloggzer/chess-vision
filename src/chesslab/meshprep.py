@@ -76,6 +76,9 @@ def _import_smoothed(item: ScanItem, piece_dir: Path, stem: str, iters: int, *,
     """
     import trimesh
 
+    # TODO: `_load_and_extract` dreht ueber `_ensure_z_up` still auf — der verbatim-Zweig tut das
+    # nicht. Die Ausrichtung einer Figur haengt damit an `--smooth-iters`, obwohl `prepare_scan`
+    # verbatim verspricht (tests/test_bug_hunt_20260916e.py, xfail).
     mesh, tex_img = _load_and_extract(item)
     tris = len(mesh.faces)
     _log.info("smoothing %s/%s: %d tris, taubin x%d", item.name, stem, tris, iters)

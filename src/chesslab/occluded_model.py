@@ -30,7 +30,13 @@ import numpy as np
 
 from . import provenance
 from .calibration import load_profile
-from .labeling import all_squares, crops_for_frame, read_log, read_session_meta
+from .labeling import (
+    all_squares,
+    crops_for_frame,
+    read_log,
+    read_session_meta,
+    usable_board,
+)
 from .state import GameState
 
 
@@ -130,14 +136,19 @@ def frame_cells(session_dir: Path, row: dict, profile) -> list[np.ndarray]:
     From the stored BOARD, like `slice_session`: a session has kept no source stills since the
     board store landed (2026-08-17). A row that has none falls back to its frame, warped.
     """
-    path = session_dir / (row.get("board") or row["frame"])
+    # TODO: `usable_board` ist die Wache, an der JEDER andere Brettleser haengt (matte,
+    # temporal_matte, sensor_audit, slice_session) — hier stand nur `row.get("board")`. Das Brett
+    # traegt seine eigenen `board_size`/`board_border`; mit dem gerade geladenen Profil geschnitten
+    # sind das bis zu 59 px daneben, still (CLAUDE.md, Board store).
+    from_board = usable_board(row, profile)
+    path = session_dir / (row["board"] if from_board else row["frame"])
     image = cv2.imread(str(path))
     if image is None:
         raise FileNotFoundError(f"board not readable: {path}")
-    # A row without a stored board (`--no-fit`) names a RAW camera frame, and handing that in as
-    # `board=` cuts 64 board-coordinate boxes out of an unwarped picture. Its quad is on the row,
-    # so warp it — refusing would drop every such session's reads over geometry we have.
-    if row.get("board"):
+    # A row without a usable stored board (`--no-fit`, or one written at another scale) names a
+    # RAW camera frame, and handing that in as `board=` cuts 64 board-coordinate boxes out of an
+    # unwarped picture. Its quad is on the row, so warp it.
+    if from_board:
         return crops_for_frame(None, row["corners"], profile, board=image)
     return crops_for_frame(image, row["corners"], profile)
 
@@ -182,7 +193,9 @@ def read_session(name: str, model_dir: Path, *, device: str = "cpu",
             for n, row in enumerate(rows, 1):
                 cells = frame_cells(session_dir, row, profile)
                 reads = all_reads(model_dir, cells, device, weights)
-                stem = Path(row["frame"]).stem
+                # TODO: der Filter oben laesst Zeilen OHNE `frame` durch (`board` reicht),
+                # `row["frame"]` warf dort KeyError. Brett und Frame teilen den Stamm.
+                stem = Path(row.get("frame") or row["board"]).stem
                 labels = GameState(row["fen"]).labels()
                 for sq, read, crop in zip(squares, reads, cells, strict=True):
                     # `cov` rides along only where the run carries an occlusion head: `hand_flags`
