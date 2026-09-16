@@ -393,3 +393,25 @@ gebaut ist. Gefunden durch die Gegenprobe, nicht durch Nachdenken.
 laufende Datenbank und rollt jede Einfuegung zurueck; ohne Container ueberspringt er. Gegengeprobt:
 ohne `matte_state` fallen zwei der neun um. Einen Test ueber den SQL-TEXT hatte ich zuerst gebaut
 und wieder entfernt — er haette nur geprueft, dass der Satz dasteht.
+
+### Probelauf mit dem ECHTEN Korpus, 2026-09-16
+
+Das Schema war an sechs erfundenen Zeilen geprueft. Jetzt am ganzen Bestand: **25 Aufnahmen,
+11 647 Frames, 9 423 Matte-Zeilen — keine einzige Abweisung.** Die Zahlen decken sich Zeile fuer
+Zeile mit der Platte, es wurde nichts still uebersprungen.
+
+**Der Fund dabei: 1 657 der 9 423 Matte-Zeilen (17,6 %) sind UEBERHOLT** — derselbe Frame und
+dieselbe Quelle mehrfach geschrieben. `matte.jsonl` ist ein Anhaenge-Log mit *last wins*; der
+Primaerschluessel macht daraus eine Zeile. Das ist der bezifferte Teil des Arguments, das bisher
+nur eine Behauptung war.
+
+**Und die Warnung fuer den echten Importeur:** mein erster Lader nutzte `on conflict do nothing`
+und behielt damit die ERSTE, also die ueberholte Zeile — waehrend er "keine Abweisungen" meldete,
+weil ein verschluckter Konflikt keine Abweisung ist. Dieselbe Form wie jede Fehlerklasse dieses
+Projekts. **Der Importeur MUSS `on conflict ... do update` fahren** und die Zahl der
+Ueberschreibungen melden (`returning (xmax = 0)`), sonst importiert er stillschweigend Messungen
+von vorgestern.
+
+**Was der Probelauf schon zeigt**, als eine Abfrage statt eines Skripts: 117 dirty-Frames sind nie
+gemessen, 7 766 Frames tragen eine Messung, 2 267 davon sind voellig frei, und 214 Frames tragen
+zwei Quellen.
