@@ -154,13 +154,13 @@ def test_an_unexpected_abort_drops_the_staged_seam_pixels(tmp_path, monkeypatch)
         "die gestapelten Pixel blieben nach einem unerwarteten Abbruch liegen")
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "Ein DIRTY Frame ohne gemessene Coverage geht als `clear` in den Median der gesetzten "
-    "Stellung — `SETTLE_CLEAR_MAX` existiert genau dagegen ('a hand in it would put the hand "
-    "into the median'). Der Fix ist nicht verhaltensgleich: schliesst man die ungemessenen "
-    "dirty-Frames aus, faellt ein Ply unter `SETTLE_MIN_FRAMES` und wird gar nicht mehr "
-    "gemessen — das aendert, welche Zellen ueberhaupt eine Zahl bekommen.")) 
 def test_an_unmeasured_dirty_frame_must_not_enter_the_settled_reference(tmp_path):
+    """Ungemessen heisst ABWESEND aus der Matte, nicht `{}`.
+
+    Seit 2026-09-16 ist eine leere Coverage "gemessen, nichts verdeckt" (Punkt 20) — der
+    ungemessene Fall ist der Stem, den `read_matte` gar nicht kennt. Genau der darf nicht in den
+    Median der gesetzten Stellung, wogegen `SETTLE_CLEAR_MAX` existiert.
+    """
     from tests.test_settle_scan import CELL, SIDE, _profile, _write
 
     from chesslab.calibration import crop_border_px
@@ -172,9 +172,12 @@ def test_an_unmeasured_dirty_frame_must_not_enter_the_settled_reference(tmp_path
     side = SIDE + 2 * pad
     (tmp_path / "boards").mkdir()
     rows = []
-    for i in range(7):
+    #: Fuenf saubere Frames sind genau `SETTLE_MIN_FRAMES`, sechs Hand-Frames sind die MEHRHEIT
+    #: der elf. Beides muss stimmen: ohne die Mehrheit bliebe der Median auch ungefiltert sauber
+    #: und der Test bewiese nichts, ohne die fuenf faellt der Ply unter die Messgrenze.
+    for i in range(11):
         board = np.full((side, side, 3), 90, np.uint8)
-        hand = i >= 3                      # die Mehrheit: vier von sieben tragen eine Hand
+        hand = i >= 5
         if hand:
             # Halb, nicht ganz: `cell_deviations` nivelliert die Helligkeit weg, nur STRUKTUR bleibt.
             board[pad:pad + CELL, pad:pad + CELL // 2] = 200
@@ -182,8 +185,9 @@ def test_an_unmeasured_dirty_frame_must_not_enter_the_settled_reference(tmp_path
         rows.append({"frame": f"frames/{i:06d}.png", "board": f"boards/{i:06d}.png",
                      **({"dirty": True, "dirty_reason": "occluded"} if hand else {})})
 
-    # SAM hat diese Frames nie gemessen (`skipped`, oder der Lauf kam nie) — leer heisst UNGEMESSEN.
-    got = settle_for_ply((tmp_path, rows, prof, {f"{i:06d}": {} for i in range(7)}))
+    # SAM hat die Hand-Frames nie gemessen (`skipped`, oder der Lauf kam nie): sie fehlen in der
+    # Matte. Die sauberen sind gemessen und frei — ein leeres Dict, kein fehlender Schluessel.
+    got = settle_for_ply((tmp_path, rows, prof, {f"{i:06d}": {} for i in range(5)}))
 
     a8 = all_squares().index("a8")
     assert got["scores"]["000000"]["dev"][a8] < SETTLE_LIMIT, (

@@ -981,11 +981,11 @@ def settle_for_ply(job: tuple[Path, list[dict], object, dict]) -> dict:
         if board is not None:
             cells[stem] = np.stack([crop_square(board, s, profile, out) for s in squares]).astype(np.float32)
 
-    # TODO: eine LEERE Coverage heisst hier "nie gemessen", nicht "keine Hand" — ein dirty-Frame
-    # ohne Matte geht als `clear` in den Median, und genau dagegen steht `SETTLE_CLEAR_MAX`
-    # (tests/test_bug_hunt_20260916d.py, xfail). Der Ausschluss kann ein Ply unter
-    # `SETTLE_MIN_FRAMES` druecken, also ist es kein verhaltensgleicher Fix.
-    clear = [s for s in stems if s in cells
+    # Ein DIRTY Frame, den niemand gemessen hat, ist nicht "keine Hand", sondern ungemessen —
+    # und `SETTLE_CLEAR_MAX` existiert genau dagegen. Gemessen 2026-09-16 ueber 25 Aufnahmen:
+    # kostet 138 Frames und 14 von 804 Plys, die dann ehrlich "—" statt einer Zahl zeigen.
+    unmeasured = {Path(r["frame"]).stem for r in rows if r.get("dirty")} - set(mattes)
+    clear = [s for s in stems if s in cells and s not in unmeasured
              and max((mattes.get(s) or {}).values(), default=0.0) <= SETTLE_CLEAR_MAX]
     step = max(1, len(clear) // SETTLE_MEDIAN_MAX)
     reference = [cells[s] for s in clear[::step]]
