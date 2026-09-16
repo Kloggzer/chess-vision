@@ -13,6 +13,7 @@ import com.chesslab.tracker.service.openClassifier
 import com.chesslab.tracker.settings.AppSettings
 import java.io.File
 import java.io.InputStream
+import java.security.MessageDigest
 
 /**
  * The same classifier the phone runs, loaded from the repo instead of from an APK.
@@ -75,8 +76,9 @@ fun openDesktopCnn(
         ?.let { assets ->
             {
                 val attached = openClassifier(assets, AppSettings(), CnnRuntimeProbe(), log, intraOpThreads)
+                val cacheDir = obsCacheDir(File(OBS_CACHE), model, File(File(ASSET_SOURCE, model), MODEL_FP32_FILE))
                 Attached(
-                    if (cache) CachingClassifier(attached.classifier, File(OBS_CACHE, model)) else attached.classifier,
+                    if (cache) CachingClassifier(attached.classifier, cacheDir) else attached.classifier,
                     attached.backend,
                     attached.model,
                 )
@@ -89,10 +91,36 @@ private const val ASSET_SOURCE = "../app/src/main/assets/$ASSET_ROOT_DIR"
 /** Staged copies. Under tmp/, which is not the corpus. */
 private const val STAGING = "../../tmp/cnn-staging"
 
-/**
- * What the model said about crops it has seen, per model. Under tmp/, not the corpus.
- * TODO(C4): der Pfad traegt den NAMEN, nicht die Gewichte (`ObsCacheModelBytesBugTest`).
- */
+/** Der Ordner traegt die GEWICHTE, nicht nur den Namen: dasselbe Modell neu abgelegt wurde sonst
+ *  aus dem Lauf davor beantwortet — ein stilles A/B ohne Unterschied (`ObsCacheKeyTest`). */
+internal fun obsCacheDir(
+    root: File,
+    model: String,
+    graph: File,
+): File = File(root, "$model-${graphStamp(graph)}")
+
+private fun graphStamp(graph: File): String {
+    if (!graph.isFile) return NO_GRAPH_STAMP
+    val digest = MessageDigest.getInstance("MD5")
+    val buffer = ByteArray(STAMP_CHUNK)
+    graph.inputStream().buffered().use { input ->
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }.take(STAMP_CHARS)
+}
+
+/** Ein fehlender Graph ist kein Cache-Schluessel — dann traegt der Ordner, dass nichts gemessen wurde. */
+private const val NO_GRAPH_STAMP = "nograph"
+
+private const val STAMP_CHUNK = 64 * 1024
+
+private const val STAMP_CHARS = 12
+
+/** What the model said about crops it has seen, per model. Under tmp/, not the corpus. */
 private const val OBS_CACHE = "../../tmp/obs-cache"
 
 private const val DESKTOP_INTRA_OP_THREADS = 4

@@ -21,11 +21,11 @@ import org.opencv.imgproc.Imgproc
 import org.opencv.objdetect.Objdetect
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Bug-Audit C7: nur die Detection sitzt im `runCatching`, `frame.release()` und `inFlight` sind
- *  einfache Anweisungen — ein Wurf dahinter verkeilt das Alignment fuer den Rest der Sitzung
- *  (`docs/bug-audit-2026-09-13.md`). */
+/** Bug-Audit C7: ein Wurf hinter der Detection verkeilt das Alignment fuer den Rest der Sitzung.
+ *  Ein `finally` um Release und `inFlight` reicht NICHT — der Wurf bricht den Scope ab
+ *  (gemessen 2026-09-16, `docs/bug-audit-2026-09-13.md`). */
 @EnabledIf(WEDGE_OPENCV_GATE)
-@Disabled("BUG: C7 — nur die Detection sitzt im runCatching, ein Wurf dahinter verkeilt das Alignment")
+@Disabled("BUG: C7 — der Wurf bricht den Scope ab; ein `finally` allein macht diesen Test nicht gruen")
 class LiveAlignWedgeBugTest {
     @Test
     fun aConsumerThatThrowsDoesNotWedgeEveryLaterAlign() {

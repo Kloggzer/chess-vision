@@ -105,8 +105,8 @@ class DebugViewModel : ViewModel() {
     }
 
     /**
-     * Kacheln und ihre Beobachtung gehen zusammen — TODO: die Kennung lag als `seen` in der
-     * Schleife, ueberlebte das Leeren, und der Reiter blieb danach leer (`CropTabReturnTest`).
+     * Kacheln und ihre Kennung gehen zusammen: bleibt `decoded` stehen, haelt die Schleife die
+     * geleerte Liste fuer aktuell und der Reiter bleibt leer (`CropTabReturnTest`).
      */
     private fun dropCrops() {
         cropsFlow.value = emptyList()

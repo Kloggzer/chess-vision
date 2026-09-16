@@ -31,10 +31,6 @@ private const val ENGINE_BINARY = "libstockfish.so"
 
 private const val TOTAL_STAGE = "total"
 
-// TODO: Der Elvis greift NUR bei `getSystemService == null`. `getIntProperty` ist primitiv und
-// meldet genau diesen Fall als `Integer.MIN_VALUE` — der faellt bis `batteryPercent < 20` durch:
-// Analyse dauerhaft aus, Schuld beim Akku (`UnreadableBatteryGateTest`, rot).
-
 /** An unreadable battery must not gate analysis off, so the fallback is "full". */
 private const val BATTERY_UNKNOWN = 100
 

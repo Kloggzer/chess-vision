@@ -242,9 +242,9 @@ class TrackerService :
     @Volatile
     private var modelSpec: ModelSpec? = null
 
-    // TODO: Ohne @Volatile sieht der Analyse-Thread den auf dem Hauptthread geschriebenen
-    // Schnappschuss womoeglich nicht — `attachCnn` faellt dann auf die AKTUELLEN Einstellungen
-    // zurueck und oeffnet ein anderes Modell als die `modelSpec` daneben (`ModelSnapshotVisibilityTest`).
+    // Beide Haelften des Schnappschusses kreuzen den Thread: ohne `@Volatile` faellt `attachCnn`
+    // auf die AKTUELLEN Einstellungen zurueck und oeffnet ein anderes Modell als die `modelSpec`
+    // daneben, mit der die Crops geschnitten werden (`ModelSnapshotVisibilityTest`).
     @Volatile
     private var modelChoice: AppSettings? = null
 
