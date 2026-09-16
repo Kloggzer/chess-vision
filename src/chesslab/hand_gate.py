@@ -126,6 +126,14 @@ def _augment(image, rng):
     return np.clip(out, 0, 255)
 
 
+def worker_seed(seed: int) -> int:
+    """Der Seed DIESES Loader-Workers. Ohne den Versatz zieht jeder Prozess dieselbe Folge."""
+    from torch.utils.data import get_worker_info
+
+    info = get_worker_info()
+    return seed if info is None else seed + info.id + 1
+
+
 class BoardSet:
     """Die gespeicherten Bretter als Ja/Nein-Paare, von Platte gelesen.
 
@@ -133,14 +141,20 @@ class BoardSet:
     """
 
     def __init__(self, rows: list[dict], size: int, train: bool, seed: int = 0):
+        self.rows, self.size, self.train = rows, size, train
+        self.seed, self._rng = seed, None
+        self.root = config.DATA.recordings
+
+    @property
+    def rng(self):
+        """Erst im Worker gezogen: ein im Elternteil gebauter RNG wird mitgeforkt, und vier
+        Prozesse zogen dieselbe Helligkeits-Folge — ein Viertel der Vielfalt, die es zu sein
+        schien, und gegen `seed` nicht reproduzierbar."""
         import numpy as np
 
-        self.rows, self.size, self.train = rows, size, train
-        # TODO: jeder Dataloader-Worker forkt DIESEN rng — vier Prozesse ziehen dieselbe
-        # Helligkeits-/Versatz-Folge, die Augmentierung ist also ein Viertel so vielfaeltig wie
-        # sie aussieht und gegen `seed` nicht reproduzierbar.
-        self.rng = np.random.default_rng(seed)
-        self.root = config.DATA.recordings
+        if self._rng is None:
+            self._rng = np.random.default_rng(worker_seed(self.seed))
+        return self._rng
 
     def __len__(self) -> int:
         return len(self.rows)
