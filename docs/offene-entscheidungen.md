@@ -21,8 +21,8 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | # | Punkt | Kiste | Aufwand | Empfehlung |
 |---|---|---|---|---|
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
-| 6 | `_persistent`: 532 Frames zu Unrecht im Vorrat, 947 zu bergen | C | Re-Export | mit dem naechsten Neubau |
-| 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
+| 6 | `_persistent`: **1 797 zu Unrecht im Vorrat, 3 241 zu bergen** (gemessen) | C | Re-Export | mit dem naechsten Neubau |
+| 7 | `2026-08-15-23-01-43`: Export unvollstaendig, Scan ist es nicht | A | — | faellt mit 6 zusammen |
 | 14–15 | Zwei TODOs, deren Fix die ZUFALLSFOLGE verschiebt | C | s. u. | 15 ja (Faktor 4), 14 mitnehmen |
 | 16 | `p5`/`p95` in den Aufnahme-Auftrag ziehen | C | 1 h | ja, aber vor Augen — es aendert das Schema |
 | ~~20~~ | Acht Leser pruefen `coverage` truthy | — | — | **gebaut 2026-09-16** |
@@ -48,27 +48,45 @@ Evidenz traegt.
 Griffen ueber entscheidende Felder? Deckt sich mit dem, was ohnehin geplant ist.
 **Empfehlung: ja, und zwar vor dem naechsten Re-Cut der Coverage.**
 
-## 6. Der `_persistent`-Fix gilt nur fuer kuenftige Exporte
+## 6. Der `_persistent`-Fix gilt nur fuer kuenftige Exporte — GEMESSEN 2026-09-16
 
 `framescan._persistent` nahm die Vereinigung statt der Schnittmenge; `classify` erklaerte darauf
 den Rest des Intervalls zu `stale`/`changed`, und diese Frames fielen aus dem sauberen Vorrat.
 Behoben seit 2026-09-14 — aber was auf der Platte liegt, entstand unter der alten Regel.
 
-**Wie viele Frames es wirklich sind, ist NICHT gemessen.** Das ginge nur, indem man einen Satz
-zweimal exportiert und vergleicht (~28 s je Aufnahme).
+**Gemessen ohne einen einzigen Re-Export:** `classify` laeuft offline gegen `scan.jsonl`, also
+liessen sich beide Regeln ueber alle 18 Aufnahmen gegeneinander rechnen (`/tmp/probe_persistent.py`,
+die alte Regel als `all(off[j] ...)` nachgebaut). **5 083 Frames werden anders eingestuft:**
 
-**Empfehlung:** erst EINE Aufnahme doppelt exportieren und zaehlen. Ist der Gewinn zweistellig,
-lohnt der Rest; ist er einstellig, nicht.
+| Richtung (alt → neu) | Frames | Bedeutung |
+|---|---:|---|
+| `changed` → `clean` | 2 523 | liegt zu Unrecht ausserhalb des Vorrats |
+| `clean` → `changed` | 1 451 | liegt zu Unrecht IM Vorrat |
+| `changed` → `occluded` | 516 | zu bergen (behaelt seine FEN) |
+| `occluded` → `changed` | 346 | zu Unrecht im Vorrat |
+| `stale` → `occluded` / `clean` | 202 | zu bergen |
+| `stale` → `changed` | 45 | bleibt schmutzig, nur anders benannt |
 
-## 7. Zwei Aufnahmen sind unvollstaendig gescannt
+**Zusammengefasst: ~3 241 Frames zu bergen, ~1 797 zu Unrecht im Vorrat.** Drei Aufnahmen tragen
+die Haelfte: `2026-08-24-22-43-46` (3 005), `VID_20260802_222741` (816), `2026-08-08-00-39-57` (440).
 
-| Aufnahme | Zeilen | `grid_lines` | `hand_squares` |
-|---|---|---|---|
-| `2026-08-15-23-01-43` | 16 | ja | **nein** |
-| `2026-08-30-14-33-02` | 4 | **nein** | **nein** |
+**Vorbehalt:** das ist die EINSTUFUNG, nicht der Datensatz. Was davon wirklich ankommt, entscheidet
+`select()` mit `per_position` — die Zahlen sind also eine Obergrenze.
 
-Die anderen 22 sind vollstaendig. Beide sind winzig — Testexporte? **Nachscannen oder parken**,
-beides zehn Minuten.
+**Was ein Re-Export kostet:** er schreibt `log.jsonl` neu, damit verlieren `model-reads` und
+`pass.json` ihren Stempel (`chesslab.provenance`) und die Kette geht fuer JEDE der 18 Aufnahmen
+wieder auf. Dazu `occluders recut-coverage`, weil die gespeicherte Coverage gegen die neuen Ecken
+driftet. **Gehoert damit an den naechsten Neubau, nicht dazwischen.**
+
+## 7. Eine Aufnahme ist unvollstaendig exportiert — nicht zwei, und nicht ungescannt
+
+Nachgesehen 2026-09-16: `2026-08-30-14-33-02` ist erledigt (35 Zeilen, 31 mit `grid_lines`, 12 mit
+`hand_squares`) — die Neu-Ausfuhr in der Nacht hat sie geschlossen. Der Eintrag hier war veraltet.
+
+Bleibt `2026-08-15-23-01-43`, und die Diagnose war falsch: der SCAN ist vollstaendig
+(3 867 Zeilen), der EXPORT nicht — 16 Log-Zeilen bei 628 Brettern auf der Platte. Nachscannen
+hilft also nicht, es braucht eine Neu-Ausfuhr. Sie ist ausserdem eine der staerker betroffenen
+Aufnahmen aus Punkt 6 (166 anders eingestufte Frames). **Faellt mit 6 zusammen.**
 
 # Die sechs TODOs, die Verhalten oder Zufallsfolge aendern
 
