@@ -161,9 +161,6 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
             continue
         if piece_cap is not None and len(v) > piece_cap:
             v = rng.sample(sorted(v, key=lambda r: str(r.get("path"))), piece_cap)
-        # TODO: `occluded` ist aus dem MINIMUM heraus (Zeile darueber), steht aber im Maximum —
-        # auf einem 14-Klassen-Bau, wo es die groesste Klasse ist, richtet sich `empty_cap` danach
-        # statt nach der groessten echten Figurenklasse.
         eff_piece[c] = len(v)
         kept.extend(v)
 
@@ -171,7 +168,10 @@ def subsample_classes(rows: list[dict], max_empty_ratio: float | None = None,
     # leere Felder.
     empties = sorted(by_label.get("empty", []), key=lambda r: str(r.get("path")))
     if max_empty_ratio is not None and eff_piece:
-        empty_cap = int(round(max_empty_ratio * max(eff_piece.values())))
+        # `occluded` auch hier heraus: es ist auf einem 14-Klassen-Bau die groesste Klasse, und
+        # die Kappe fuer leere Felder gehoert an die groesste echte FIGURENklasse.
+        real = [n for c, n in eff_piece.items() if c != "occluded"] or list(eff_piece.values())
+        empty_cap = int(round(max_empty_ratio * max(real)))
         if len(empties) > empty_cap:
             if priority_paths:
                 hard = [r for r in empties if r.get("path") in priority_paths]

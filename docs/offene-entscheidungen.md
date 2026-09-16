@@ -150,15 +150,15 @@ Drei Faelle, sehr unterschiedlich teuer:
 Alle sechs stehen inline im Code als `# TODO:` mit dem Warum. Keiner ist gebaut, weil jeder eine
 Entscheidung braucht, die ich nicht treffen kann.
 
-## 11. `dataset.py:164` — `occluded` steht im Maximum statt im Minimum
+## 11. `dataset.py:164` — `occluded` im Maximum: GEBAUT 2026-09-16
 
 `empty_cap` richtet sich nach `max(eff_piece.values())`. Auf einem 14-Klassen-Bau ist `occluded`
 die groesste Klasse — die Kappe fuer leere Felder haengt dann an der Verdeckung statt an der
 groessten echten Figurenklasse.
 
-**Heute folgenlos** (`pieces13` ist die Vorgabe, `occluded` ist Regressionsziel). Scharf wird es,
-sobald wieder ein 14-Klassen-Satz gebaut wird. **Die Frage:** jetzt reparieren oder als Falle
-stehenlassen? **Empfehlung: jetzt** — es ist eine Zeile und aendert an `pieces13` nichts.
+Entschieden: jetzt, statt als Falle stehenzulassen. `occluded` ist jetzt auf BEIDEN Seiten der
+Kappe heraus. `tests/test_empty_cap_ignores_occluded.py` haelt beides fest — den Fall und den
+`pieces13`-Bau, an dem sich nichts aendert.
 
 ## 12. `training/data.py:342` — toter `coverage_gate`-Parameter
 
@@ -170,15 +170,16 @@ Parameter verdrahten und das Skript zurueckbauen? **Empfehlung: verdrahten** —
 gehoert ins Modell, und ein Skript, das nachtraeglich in eine `config.json` schreibt, ist genau
 die Stelle, an der der Gate-Guard-Bug schon einmal beinahe alles entwertet hat.
 
-## 13. `training/data.py:355` — die Modellkarte luegt ueber die Normalisierung
+## 13. Modellkarte und Normalisierung: GEBAUT 2026-09-16
 
 Ein Lauf mit `--crop-norm per-crop` rechnet mean/std gar nicht, die Karte behauptet trotzdem die
 festen ImageNet-Werte. `train.py` schreibt es in `config.json` richtig; wer die **Karte** liest,
 bekommt das Gegenteil des Rezepts.
 
-**Die Frage:** `mode` in die Karte aufnehmen? Das aendert `model_card.json` fuer jeden kuenftigen
-Lauf. **Empfehlung: ja** — eine falsche Doku ist teurer als keine, und hier steht sie im
-Auslieferungsartefakt.
+Entschieden: ja. `build_model_card` uebernimmt den `normalize`-Block WOERTLICH aus `config.json`,
+statt ihn neu zu behaupten. Fuer jeden bisherigen Lauf (`mode: fixed`) steht in der Karte
+dasselbe wie vorher, nur mit dem `mode` dabei — die Aenderung trifft allein den per-crop-Lauf,
+ueber den die Karte log.
 
 ## 14. `torch_data.py:657` — Spender-Pool ohne `neighbour_p > 0`-Schutz
 

@@ -504,7 +504,7 @@ def run_export(run: str, fmt: str = "torchscript",
         classes=classes, out_size=(out_w, out_h), infer_size=(in_w, in_h),
         backbone=cfg["backbone"], metrics=metrics,
         torch_version=torch.__version__, hip_version=getattr(torch.version, "hip", None),
-        exported_formats=written,
+        exported_formats=written, normalize=cfg.get("normalize"),
     )
     (run_dir / "model_card.json").write_text(json.dumps(card, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[OK] exportiert: {', '.join(written)} @ {in_w}x{in_h} + model_card.json -> {run_dir}")

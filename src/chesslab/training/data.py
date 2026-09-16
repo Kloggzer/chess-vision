@@ -339,6 +339,7 @@ def build_model_card(
     hip_version: str | None,
     exported_formats: list[str],
     infer_size: tuple[int, int] | None = None,
+    normalize: dict | None = None,
     # TODO: kein Aufrufer uebergibt das je — `evaluate.run_export` ist der einzige, und er
     # laesst es weg. Der Zweig ist damit tot, und `scripts/stage_model_asset.py --gate` ist die
     # Umgehung, die daraus entstand.
@@ -352,10 +353,10 @@ def build_model_card(
         "classes": list(classes),
         "out_size": [int(out_size[0]), int(out_size[1])],
         "infer_size": [int(size[0]), int(size[1])],
-        # TODO: `mode` fehlt — ein Lauf mit `--crop-norm per-crop` rechnet mean/std gar nicht,
-        # und die Karte behauptet trotzdem die festen ImageNet-Werte. `train.py` schreibt es in
-        # `config.json` richtig; wer die KARTE liest, bekommt das Gegenteil des Rezepts.
-        "normalize": {"mean": list(config.NORMALIZE_MEAN), "std": list(config.NORMALIZE_STD)},
+        # Woertlich aus `config.json`, nicht neu behauptet: `--crop-norm per-crop` rechnet
+        # mean/std gar nicht, und wer NUR die Karte liest, normalisierte danach falsch.
+        "normalize": normalize or {"mean": list(config.NORMALIZE_MEAN),
+                                   "std": list(config.NORMALIZE_STD), "mode": "fixed"},
         "backbone": backbone,
         # Ab welcher Verdeckung ein Feld nicht mehr zaehlt (`ModelSpec.kt`). MESSEN, nicht raten:
         # comp13 braucht 0,02, die real13-Laeufe 0,15 (docs/occlusion-gate.md). Ohne Messung
