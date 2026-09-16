@@ -163,6 +163,15 @@ def _require_pack(dataset: str | None, n_rows: int, allow_unpacked: bool) -> Non
         f"Repack: chesslab dataset pack {dataset} - absichtlich ohne Pack: --allow-unpacked.")
 
 
+def brightness_of(row: dict) -> float:
+    """Ausgeschriebenes `null` ist UNGEMESSEN, nicht dunkel — dieselbe Regel wie
+    `occlusion.classification_eligible`. `float(None)` starb im Worker, und
+    `np.array([None], dtype=float)` wurde zu `nan` und damit still zu einer zu dunklen Zelle.
+    """
+    value = row.get("brightness")
+    return 255.0 if value is None else float(value)
+
+
 def _checkpoint_rank(breakdown, auroc):
     """Rank actual weights by visible identity, then occupancy and error confidence."""
     return (breakdown["visible_piece_acc"], breakdown["visible_occupied_acc"],
@@ -257,7 +266,7 @@ def _occlusion_diagnostics(val: dict, val_rows: list[dict], classes: list[str],
     want, hit = cov_true > 0.5, cov_pred > 0.5
     # Zweiter Grund, dieselbe Zelle nicht zu benoten: zu dunkel zum Lesen. Die Metrik haengt an
     # der KONSTANTE, nicht am Lauf-Flag — sonst waeren zwei Laeufe nicht mehr vergleichbar.
-    bright = np.array([r.get("brightness", 255.0) for r in val_rows], dtype=float)
+    bright = np.array([brightness_of(r) for r in val_rows], dtype=float)
     visible = (cov_true <= visible_max) & (bright >= CELL_DARK_MIN)
     true_occ = true_cls != classes.index("empty")
     pred_occ = pred_cls != classes.index("empty")

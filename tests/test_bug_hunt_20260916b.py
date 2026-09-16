@@ -257,8 +257,6 @@ def test_calibration_never_falls_back_to_the_val_split(tmp_path, monkeypatch):
 
 # --- 11. training/torch_data._target -----------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 11: ausgeschriebenes `null` crasht statt hell zu gelten",
-                   strict=True)
 def test_target_reads_a_written_out_null_brightness_as_bright():
     from chesslab.training.torch_data import _target
 

@@ -160,18 +160,27 @@ test("api/ingest/jobs: ein unlesbares Ledger wird mit seinem Grund gemeldet", as
 });
 
 /**
- * 8) `lib/useless.ts:56` — lesen-aendern-schreiben ohne Riegel. Ein Widerruf, der neben dem
- * Setzen laeuft, sieht noch die leere Datei, schreibt nichts und meldet trotzdem 200.
+ * 8) `lib/useless.ts` — lesen-aendern-schreiben braucht einen Riegel: ein Widerruf, der neben dem
+ * Setzen lief, sah noch die leere Datei, schrieb nichts und meldete trotzdem 200.
+ *
+ * Gegen `Promise.all` geprueft war der Test FLAKY: wer von beiden zuerst in `serialize` laeuft,
+ * entscheidet der Scheduler, und "nichts zu widerrufen" ist dann das richtige Ergebnis. Geprueft
+ * wird deshalb, was der Riegel wirklich zusagt — der zweite sieht den ersten, und ein Widerruf
+ * ins Leere meldet `null` statt einer erfundenen Marke.
  */
-test("api/useless/[name]: ein Widerruf neben dem Setzen faellt nicht lautlos aus", async () => {
+test("api/useless/[name]: der Widerruf sieht das Setzen, und ins Leere meldet er null", async () => {
   const name = "rg-2026-09-01-00-00-00";
   await mkdir(path.join(root, "recordings", name), { recursive: true });
   const { POST } = await import("@/app/api/useless/[name]/route");
   const press = (useless: boolean) =>
     POST(new Request("http://h/u", { method: "POST", body: JSON.stringify({ useless }) }), params({ name }));
 
-  await Promise.all([press(true), press(false)]);
+  const empty = await (await press(false)).json();
+  expect(empty.flag, "ohne gesetzte Datei gibt es nichts zu widerrufen").toBeNull();
+
+  await press(true);
+  await press(false);
 
   const flag = JSON.parse(await readFile(path.join(root, "recordings", name, "useless.json"), "utf8"));
-  expect(flag.undone_at, "der zweite Druck hat die Datei des ersten nie gesehen").toBeTruthy();
+  expect(flag.undone_at, "der Widerruf hat die Datei des Setzens nie gesehen").toBeTruthy();
 });
