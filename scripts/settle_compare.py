@@ -21,6 +21,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from phone_vs_pc import ROOT, fps_of, pc_side, pts_table  # noqa: E402
 
+from chesslab.ioutil import read_jsonl  # noqa: E402
+
 MOTION_THR = 0.25
 
 
@@ -32,8 +34,7 @@ def main(name: str, dump: str, log: str) -> int:
     fps = fps_of(session, int(cand["frames"]))
     pc_commit, pc_settles = pc_side(Path(log), pts_table(name, session), float(cand["clock"]["fps"]))
     settles, decisions = [], {}
-    for line in (session / "timeline.jsonl").read_text(encoding="utf-8").splitlines():
-        row = json.loads(line)
+    for row in read_jsonl(session / "timeline.jsonl"):
         if row.get("kind") == "state" and row.get("to") == "waiting":
             settles.append(row["elapsedNs"])
         elif row.get("kind") == "decision" and row.get("accepted"):

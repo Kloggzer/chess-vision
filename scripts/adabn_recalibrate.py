@@ -88,7 +88,6 @@ No training, no export, no rendering. One process, one DataLoader-free loop.
 from __future__ import annotations
 
 import argparse
-import json
 import random
 import shutil
 import sys
@@ -105,6 +104,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import calibration, labeling, sessions  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.training.data import (  # noqa: E402
     filter_rows_by_split,
     load_manifest,
@@ -320,8 +320,7 @@ def write_run(src: Path, dst: Path, model: nn.Module, cfg: dict, size: int,
     out_cfg = dict(cfg)
     out_cfg["infer_size"] = [size, size]
     out_cfg["adabn"] = {"source_run": str(src), "size": size, "warp": warp}
-    (dst / "config.json").write_text(json.dumps(out_cfg, indent=2, ensure_ascii=False),
-                                     encoding="utf-8")
+    write_json(dst / "config.json", out_cfg)
     torch.save(model.state_dict(), dst / "best.pt")
     for extra in ("split.json", "classes.json"):
         if (src / extra).exists():

@@ -12,6 +12,8 @@ from pathlib import Path
 import chess
 import chess.pgn
 
+from chesslab.ioutil import write_json, write_rows
+
 ROOT = Path("data/recordings")
 DEC = re.compile(r"^decision: ply=(\d+) (\S+) decider=(\S+)")
 CONF = re.compile(r"^decision-conf: (.*)$")
@@ -83,7 +85,6 @@ if __name__ == "__main__":
         bad = len(commits) - len(hits)
         print(f"{session:<24} ref={len(ref):>3} ({kind:<9}) commits={len(commits):>3} "
               f"hit={len(hits):>3} erfunden={bad:>3}")
-    Path("tmp/calib/commits.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    Path("tmp/calib/refs.json").write_text(json.dumps(refs), encoding="utf-8")
+    write_rows(Path("tmp/calib/commits.jsonl"), rows)
+    write_json(Path("tmp/calib/refs.json"), refs, indent=None)
     print(f"\n{len(rows)} Commits nach tmp/calib/commits.jsonl")

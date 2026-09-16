@@ -3,10 +3,11 @@
 The chain can out-vote an error that resets; it cannot out-vote one that is a property of the
 piece. Persistence per true class says which of the two each class is.
 """
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 ROOT = Path("data/recordings")
 stat = defaultdict(lambda: [0, 0, 0, 0])   # class -> [seen, wrong, cross-move pairs, cross-move err|err]
@@ -17,8 +18,7 @@ for session in sys.argv[1:]:
     if not p.is_file():
         continue
     rows = defaultdict(dict)
-    for line in p.read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
+    for r in read_jsonl(p):
         if "square" not in r or not r["probs"]:
             continue
         # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte Zelle

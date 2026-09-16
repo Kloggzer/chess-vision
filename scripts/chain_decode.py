@@ -27,6 +27,8 @@ from pathlib import Path
 
 import chess
 
+from chesslab.ioutil import read_jsonl
+
 ROOT = Path("data/recordings")
 
 
@@ -50,8 +52,7 @@ def tempered(dist, temp):
 def load_reads(session, floor, use_coverage, temp, reads):
     """frame -> {square: {label: weighted log prob}} — the emission table, precomputed once."""
     table = defaultdict(dict)
-    for line in (ROOT / session / reads).read_text(encoding="utf-8").splitlines():
-        row = json.loads(line)
+    for row in read_jsonl(ROOT / session / reads):
         if "square" not in row:
             continue
         cov = row.get("model_cov", row.get("cov"))          # `cov`: Schreibweise vor 2026-09-16

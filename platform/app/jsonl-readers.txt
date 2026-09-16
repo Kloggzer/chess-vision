@@ -8,6 +8,4 @@
 2 lib/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
 2 lib/session-delete.ts  # zerschneidet die AUSGABE eines Werkzeugs, keine Datei
 1 lib/frame-flag.ts  # braucht den Zeilen-INDEX, um die Datei zurueckzuschreiben
-1 lib/ingest.ts
-1 lib/pool.ts
 1 lib/provenance.ts  # braucht die Zeilen-ZAHL und nur die Kopfzeile

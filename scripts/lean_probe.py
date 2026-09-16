@@ -11,7 +11,6 @@ Zeichnet das Zellraster auf ein rektifiziertes Brett und daneben dieselbe Zelle 
     uv run python scripts/lean_probe.py [--session ...] [--square d8]
 """
 import argparse
-import json
 from pathlib import Path
 
 import cv2
@@ -19,6 +18,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab.calibration import load_profile, square_to_crop_box
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import read_session_meta
 
 
@@ -33,8 +33,7 @@ def main():
     sdir = config.DATA.recordings / a.session.replace("rg-", "", 1)
     profile = load_profile(read_session_meta(sdir)["profile"])
     row = None
-    for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
+    for r in read_jsonl(sdir / "log.jsonl"):
         # Ein Brett aus der Grundstellung: da stehen alle hohen Figuren auf Reihe 1 und 8.
         if r.get("board") and not r.get("dirty") and str(r.get("ply", 0)) in ("0", "1", "2"):
             row = r

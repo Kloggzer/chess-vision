@@ -1,5 +1,6 @@
 package com.chesslab.tracker.sync
 
+import com.chesslab.tracker.io.writeAtomic
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -57,7 +58,7 @@ fun readMark(sessionDir: File): TransferMark? {
 fun writeMark(
     sessionDir: File,
     mark: TransferMark,
-) = File(sessionDir, TRANSFER_MARK).writeText(JSON.encodeToString(TransferMark.serializer(), mark))
+) = writeAtomic(File(sessionDir, TRANSFER_MARK), JSON.encodeToString(TransferMark.serializer(), mark))
 
 /**
  * The sessions worth sending, oldest first.

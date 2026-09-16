@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.tracker.io.Jsonl
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
 import com.github.bhlangonijr.chesslib.move.MoveGenerator
@@ -172,12 +173,7 @@ internal fun logMarks(
     log: File,
     preRollMs: Double,
 ): List<PlyMark> {
-    val rows =
-        log
-            .readLines()
-            .filter { it.isNotBlank() }
-            .map { Json.parseToJsonElement(it) as JsonObject }
-            .filter { it["ply"] != null && it["fen"] != null && it["ts"] != null }
+    val rows = Jsonl.rows(log).filter { it["ply"] != null && it["fen"] != null && it["ts"] != null }
     val first = rows.firstOrNull()?.let { Instant.parse(it.text("ts")) } ?: return emptyList()
     val board = Board()
     return rows.map { row ->

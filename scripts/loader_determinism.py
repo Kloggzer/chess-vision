@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.training.torch_data import SquareDataset, build_transform  # noqa: E402
 
 
@@ -27,7 +28,7 @@ def main():
     random.seed(seed)
 
     dd = dataset_dir(name)
-    rows = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(dd / "manifest.jsonl")
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))
     train_sessions = set(split["splits"]["train"])
     rows = [r for r in rows if r.get("session_id") in train_sessions][:20000]

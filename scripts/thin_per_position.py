@@ -12,10 +12,10 @@ ist: je Stellung die N saubersten UND die N verdecktesten Bretter.
 """
 import argparse
 import collections
-import json
 import shutil
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl, write_rows
 
 
 def main():
@@ -34,7 +34,7 @@ def main():
     if dst.exists() and not args.force:
         print(f"[FAIL] {dst} existiert bereits; zum Ersetzen --force angeben")
         return 1
-    rows = [json.loads(x) for x in (src / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(src / "manifest.jsonl")
 
     cover = collections.defaultdict(list)
     for r in rows:
@@ -68,8 +68,7 @@ def main():
         # gezogen. So variiert die HAEUFIGKEIT sauberer Zellen ohne ihre Vielfalt zu aendern.
         kept.extend([r] * (args.clean_repeat if k in clean_keys else 1))
     dst.mkdir(parents=True, exist_ok=True)
-    (dst / "manifest.jsonl").write_text(
-        "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in kept), encoding="utf-8")
+    write_rows(dst / "manifest.jsonl", kept)
     for name in ("split.json", "dataset.yaml", "stats.json"):
         if (src / name).is_file():
             shutil.copy2(src / name, dst / name)

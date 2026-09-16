@@ -13,7 +13,6 @@ T=1 statt 5, weil die Metrik bei 5 saettigt und dann nicht mehr trennt.
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -22,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 import chess  # noqa: E402
 from chain_decode import decode, lcs_score  # noqa: E402
+
+from chesslab.ioutil import write_json  # noqa: E402
 
 #: Fest. Siehe Modul-Docstring — nur aendern, wenn ALLE Vergleichszahlen neu erhoben werden.
 EVERY, BEAM, FLOOR, TEMP, P_MOVE = 4, 16, 0.08, 1.0, 0.06
@@ -74,8 +75,7 @@ def main() -> int:
     if out:
         tot = {k: sum(r[k] for r in out) for k in ("found", "missed", "invented", "plies")}
         print(f"  GESAMT: {tot['found']}/{tot['missed']}/{tot['invented']} von {tot['plies']} Plies")
-        (md / "chain_gate.json").write_text(
-            json.dumps({"runs": out, "total": tot}, indent=1), encoding="utf-8")
+        write_json(md / "chain_gate.json", {"runs": out, "total": tot}, indent=1)
         print(f"  -> {md / 'chain_gate.json'}")
     return 0
 

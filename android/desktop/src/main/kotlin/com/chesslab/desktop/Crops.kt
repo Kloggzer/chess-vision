@@ -12,9 +12,8 @@ import com.chesslab.geometry.straightenBoard
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.quadOf
+import com.chesslab.tracker.io.Jsonl
 import com.github.bhlangonijr.chesslib.Board
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.core.Mat
@@ -109,12 +108,7 @@ fun probeCrop(args: List<String>) {
     val stem = args[2]
     val square = args[3]
     val outDir = File(args[4].replace('~', ' ')).apply { mkdirs() }
-    val row =
-        log
-            .readLines()
-            .asSequence()
-            .map { Json.parseToJsonElement(it) as JsonObject }
-            .first { File(it.getValue("frame").jsonPrimitive.content).nameWithoutExtension == stem }
+    val row = Jsonl.rows(log).first { File(it.getValue("frame").jsonPrimitive.content).nameWithoutExtension == stem }
     val logged =
         row
             .getValue("corners")

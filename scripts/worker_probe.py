@@ -11,11 +11,12 @@ aendern. Duerfen ist keine Messung.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 #: Das Konsolenskript, nicht `python -m chesslab` - ein `__main__.py` gibt es nicht.
 CHESSLAB = str(Path(".venv/Scripts/chesslab.exe").resolve())
@@ -44,7 +45,7 @@ def run(workers: int, epochs: int, dataset: str, frac: float) -> list[dict]:
     if not m.exists():
         tail = log.read_text(encoding="utf-8", errors="replace").splitlines()[-6:]
         raise SystemExit(f"[FAIL] {workers} Worker: kein metrics.jsonl. " + chr(10).join(tail))
-    return [json.loads(x) for x in m.read_text(encoding="utf-8").splitlines() if x.strip()]
+    return read_jsonl(m)
 
 
 def main() -> int:

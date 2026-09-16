@@ -21,7 +21,6 @@ the same frames, and reports the distribution plus side-by-side pictures of the 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -32,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab import config, labeling  # noqa: E402
 from chesslab.calibration import CalibrationProfile, CropParams, compute_homography  # noqa: E402
+from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.recording import Recording  # noqa: E402
 
 STEM_DIGITS = 6
@@ -81,9 +81,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=None, help="where the pictures go (default: <kotlin_dir>/../vs)")
     args = ap.parse_args()
 
-    receipts = {int(json.loads(x)["frame"]): json.loads(x)
-                for x in (args.kotlin_dir / "crops.jsonl").read_text(encoding="utf-8").splitlines()
-                if x.strip()}
+    receipts = {int(r["frame"]): r for r in read_jsonl(args.kotlin_dir / "crops.jsonl")}
     wanted = set(receipts)
     print(f"{args.video.name}: {len(wanted)} frames from Kotlin's receipt")
 

@@ -21,6 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 from chesslab.capture_plan import BANDS, PIECES, THIN, UNKNOWN, UNREACHABLE, band_of, pose_of
+from chesslab.ioutil import write_json
 
 REC = Path("data/recordings")
 #: Stufen, in denen `foreshorten` und `edge_px` gebuendelt werden. Fein genug, dass eine zweite
@@ -166,7 +167,7 @@ def main() -> int:
             print(f"  {name:16s} " + "  ".join(f"{k}={v}" for k, v in top))
     out = Path(args.json)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=1), encoding="utf-8")
+    write_json(out, payload, indent=1)
     print(f"\n[OK] {out}")
     return 0
 

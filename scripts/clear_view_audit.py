@@ -12,6 +12,8 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 SQUARES = frozenset(f"{file}{rank}" for rank in range(1, 9) for file in "abcdefgh")
 
 
@@ -121,7 +123,7 @@ def main():
             totals[result["model"]][threshold].update(counts)
     report = {"matte_threshold": args.matte_threshold, "models": dict(totals), "sessions": sessions}
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    write_json(args.out, report)
     print(json.dumps({"sessions": len(sessions), "models": dict(totals)}, indent=2))
 
 

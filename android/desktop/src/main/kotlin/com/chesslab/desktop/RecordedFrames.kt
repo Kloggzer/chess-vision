@@ -1,7 +1,6 @@
 package com.chesslab.desktop
 
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
+import com.chesslab.tracker.io.Jsonl
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
@@ -23,10 +22,8 @@ internal object RecordedFrames {
         if (!timeline.isFile) return null
         val syncs = ArrayList<Pair<Long, Long>>()
         val frames = ArrayList<Long>()
-        timeline.forEachLine { line ->
-            if (line.isBlank()) return@forEachLine
-            val row = runCatching { Json.parseToJsonElement(line).jsonObject }.getOrNull() ?: return@forEachLine
-            val elapsed = row["elapsedNs"]?.jsonPrimitive?.longOrNull() ?: return@forEachLine
+        Jsonl.rows(timeline).forEach { row ->
+            val elapsed = row["elapsedNs"]?.jsonPrimitive?.longOrNull() ?: return@forEach
             when (row["kind"]?.jsonPrimitive?.content) {
                 "video_sync" -> row["durationNs"]?.jsonPrimitive?.longOrNull()?.let { syncs += elapsed to it }
                 "frame" -> frames += elapsed
@@ -69,15 +66,12 @@ internal object RecordedFrames {
      */
     fun startFen(timeline: File): String? {
         if (!timeline.isFile) return null
-        return timeline.useLines { lines ->
-            lines
-                .mapNotNull { line ->
-                    runCatching { Json.parseToJsonElement(line).jsonObject }.getOrNull()
-                }.firstOrNull { it["kind"]?.jsonPrimitive?.content == "frame" && it["fen"] != null }
-                ?.get("fen")
-                ?.jsonPrimitive
-                ?.content
-        }
+        return Jsonl
+            .rows(timeline)
+            .firstOrNull { it["kind"]?.jsonPrimitive?.content == "frame" && it["fen"] != null }
+            ?.get("fen")
+            ?.jsonPrimitive
+            ?.content
     }
 
     private const val NS_PER_MS = 1_000_000.0

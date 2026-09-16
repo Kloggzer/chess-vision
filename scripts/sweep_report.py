@@ -13,6 +13,8 @@ import argparse
 import json
 from pathlib import Path
 
+from chesslab.ioutil import read_jsonl
+
 #: Streuung einer einzelnen Val-Messung im flachen Kurventeil, aus 23 Laeufen in `_ab`.
 EPOCH_SD = 0.0157
 
@@ -21,13 +23,7 @@ def read_run(run: Path, axis: str) -> dict | None:
     metrics = run / "metrics.jsonl"
     if not metrics.is_file():
         return None
-    rows = []
-    for line in metrics.read_text(encoding="utf-8").splitlines():
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    rows = [r for r in rows if axis in r]
+    rows = [r for r in read_jsonl(metrics) if axis in r]
     if not rows:
         return None
     cfg = {}

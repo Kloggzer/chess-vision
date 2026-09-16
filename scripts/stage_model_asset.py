@@ -12,6 +12,8 @@ import json
 import shutil
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 ASSETS = Path("android/app/src/main/assets/cnn_model")
 
 
@@ -22,7 +24,7 @@ def stamp(asset: Path, gate: float) -> int:
         raise SystemExit(f"{asset} ist kein abgelegtes Asset (config.json + model.onnx)")
     cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
     cfg["coverage_gate"] = gate
-    cfg_path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    write_json(cfg_path, cfg)
     print(f"[OK] {asset.name}  coverage_gate={gate}")
     return 0
 
@@ -59,7 +61,7 @@ def main():
         print(f"[FAIL] {out} existiert bereits; zum Ersetzen --force angeben")
         return 1
     out.mkdir(parents=True, exist_ok=True)
-    (out / "config.json").write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    write_json(out / "config.json", cfg)
     shutil.copy2(onnx, out / "model.onnx")
     print(f"[OK] {out}  classes={len(cfg['classes'])} coverage_output={cfg['coverage_output']} "
           f"coverage_gate={args.gate}  ({(out/'model.onnx').stat().st_size/1e6:.1f} MB)")

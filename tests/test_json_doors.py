@@ -7,10 +7,11 @@ nur SCHRUMPFEN. Hinter jedem Pfad steht, WARUM die Stelle bleibt; ohne Grund geh
 from __future__ import annotations
 
 import re
+from itertools import chain
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LIB = ROOT / "src" / "chesslab"
+AREAS = (ROOT / "src" / "chesslab", ROOT / "scripts")
 LEDGER = Path(__file__).with_name("json_doors.txt")
 CUSTODIAN = "ioutil.py"
 
@@ -24,7 +25,7 @@ _NOT_JSON = re.compile(r"""\.(yaml|yml|txt|obj|mtl|src|log|csv)["']|yaml\.safe_d
 def doors() -> dict[str, int]:
     """Schreibaufruf UND JSON in derselben Sichtweite — das ist die Form, die die Politik neu erfindet."""
     found: dict[str, int] = {}
-    for file in sorted(LIB.rglob("*.py")):
+    for file in sorted(chain.from_iterable(a.rglob("*.py") for a in AREAS)):
         if file.name == CUSTODIAN:
             continue
         lines = file.read_text(encoding="utf-8").splitlines()
@@ -36,7 +37,7 @@ def doors() -> dict[str, int]:
             and _JSON.search("\n".join(lines[i:i + 6]))
         )
         if hits:
-            found[file.relative_to(LIB).as_posix()] = hits
+            found[file.relative_to(ROOT).as_posix()] = hits
     return found
 
 

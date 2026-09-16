@@ -15,6 +15,7 @@ import json
 import random
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl, write_json
 
 
 def main() -> int:
@@ -32,8 +33,7 @@ def main() -> int:
     print(f"[i] {len(train)} Trainings-Aufnahmen, Reihenfolge Seed {a.seed}")
 
     counts = {}
-    for line in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
+    for r in read_jsonl(dd / "manifest.jsonl"):
         counts[r["session_id"]] = counts.get(r["session_id"], 0) + 1
 
     for k in [int(x) for x in a.k.split(",")]:
@@ -42,7 +42,7 @@ def main() -> int:
         # Die Klassengewichte gehoeren zum Trainingssatz — `train` rechnet sie fuer
         # Occlusion-Laeufe ohnehin aus den sichtbaren Zeilen neu, also bleiben sie hier stehen.
         p = dd / f"split-lc{k}.json"
-        p.write_text(json.dumps(out, indent=1), encoding="utf-8")
+        write_json(p, out, indent=1)
         print(f"  k={k:>2}  {sum(counts.get(s, 0) for s in keep):>7} Crops  -> {p.name}")
     return 0
 

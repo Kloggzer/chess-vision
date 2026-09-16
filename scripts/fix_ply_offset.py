@@ -25,6 +25,7 @@ import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import load_corrections
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed
@@ -55,12 +56,12 @@ def main():
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
-    hits = [json.loads(x) for x in Path(args.hits).read_text(encoding="utf-8").splitlines()]
+    hits = read_jsonl(Path(args.hits))
     strong = {(h["session_id"], h["frame"]): h for h in hits
               if h["match_better"] - h["match_own"] >= 2 and h["better_at"] == h["ply"] + 1}
 
     dd = dataset_dir(args.dataset)
-    manifest = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    manifest = read_jsonl(dd / "manifest.jsonl")
     fen_of = {(r["session_id"], int(r["ply"])): r["fen"] for r in manifest}
     rows_of = collections.defaultdict(list)
     for r in manifest:

@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import json
 import sys
 from pathlib import Path
 
@@ -24,6 +23,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab.calibration import warp_board  # noqa: E402
+from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.recording import Recording  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,8 +38,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, default=Path("data/reports/parity/boards"))
     args = ap.parse_args()
 
-    receipts = {int(json.loads(x)["frame"]): json.loads(x)
-                for x in (args.crop_dir / "crops.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()}
+    receipts = {int(r["frame"]): r for r in read_jsonl(args.crop_dir / "crops.jsonl")}
     frames = {}
     with contextlib.closing(Recording(args.video).frames()) as stream:
         for i, f in stream:

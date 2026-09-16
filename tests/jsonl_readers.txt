@@ -1,8 +1,18 @@
-# Stellen in src/chesslab, die eine Datei selbst in Zeilen schneiden, statt read_jsonl zu nehmen.
-# Darf nur SCHRUMPFEN - tests/test_jsonl_readers.py wacht darueber.
+# Stellen in src/chesslab und scripts, die eine Datei selbst in Zeilen schneiden,
+# statt read_jsonl zu nehmen. Darf nur SCHRUMPFEN - tests/test_jsonl_readers.py wacht darueber.
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
 #
-# Beim Bau der Ratsche waren es 30 Schnitte in 12 Dateien.
-2 cli.py  # eine .fen-Liste und die Ausgabe eines Subprozesses, kein JSONL
-1 meshprep.py  # schneidet eine .obj-Datei
-1 sessions.py  # ZAEHLT per Substring in 190-MB-Manifesten; parsen kostete 465k Zeilen je Aufruf
+# Beim Bau der Ratsche waren es 30 Schnitte in src/chesslab und 61 in scripts.
+2 src/chesslab/cli.py  # eine .fen-Liste und die Ausgabe eines Subprozesses, kein JSONL
+1 src/chesslab/meshprep.py  # schneidet eine .obj-Datei
+1 src/chesslab/sessions.py  # ZAEHLT per Substring in 190-MB-Manifesten; parsen kostete 465k Zeilen je Aufruf
+1 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
+2 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
+3 scripts/phone_candidate_offset.py  # .log-Text mit Regex und Subprozess-Ausgabe
+1 scripts/commit_lag.py  # .log-Text
+1 scripts/commit_truth.py  # .log-Text
+1 scripts/mine_hard_empty.py  # braucht den Zeilen-INDEX beim Zurueckschreiben
+1 scripts/pack_parity.py  # vergleicht ZEILEN bytegleich, nicht Inhalte
+1 scripts/phone_vs_pc.py  # session.yaml
+1 scripts/sweep_infer_size.py  # zeilenweise geflushtes .log, damit ein Hang sichtbar ist WAEHREND er haengt
+1 scripts/sweep_warp_resolution.py  # dito

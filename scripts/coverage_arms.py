@@ -10,7 +10,6 @@ Figurenmodells, Holdout in der Karte des Schuelers).
     uv run python scripts/coverage_arms.py [--session rg-2026-08-16-20-41-33] [--run ...]
 """
 import argparse
-import json
 from pathlib import Path
 
 import cv2
@@ -18,6 +17,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab.calibration import load_profile
+from chesslab.ioutil import read_jsonl, write_json
 from chesslab.labeling import (
     all_squares,
     board_source,
@@ -71,8 +71,7 @@ def main():
     matte = read_matte(sdir)
     squares = all_squares()
     rows = []
-    for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
+    for r in read_jsonl(sdir / "log.jsonl"):
         stem = Path(str(r.get("frame") or "")).stem
         if (r.get("board") or r.get("frame")) and stem in matte:
             rows.append((stem, r))
@@ -115,11 +114,11 @@ def main():
     if not args.no_gate:
         curve(truth, spec, f"Hand-Schueler ({args.gate}, aus SAM destilliert)", thrs)
     out = Path("data/reports/coverage-arms.json")
-    out.write_text(json.dumps({"session": args.session, "run": args.run, "gate": args.gate,
-                               "cells": len(truth),
-                               "truth": truth.round(3).tolist(),
-                               "cnn": cnn.round(3).tolist(),
-                               "gate_said": spec.round(3).tolist()}), encoding="utf-8")
+    write_json(out, {"session": args.session, "run": args.run, "gate": args.gate,
+                     "cells": len(truth),
+                     "truth": truth.round(3).tolist(),
+                     "cnn": cnn.round(3).tolist(),
+                     "gate_said": spec.round(3).tolist()}, indent=None)
     print(f"\n[OK] {out}")
 
 

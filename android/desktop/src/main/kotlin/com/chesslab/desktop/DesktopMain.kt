@@ -22,6 +22,7 @@ import com.chesslab.tracker.geometry.rawQuadOf
 import com.chesslab.tracker.geometry.refinedQuad
 import com.chesslab.tracker.geometry.squareOffsetOf
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.io.Jsonl
 import com.chesslab.tracker.log.TrackerLog
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.OpenCvStages
@@ -37,9 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.opencv.core.Mat
 import java.awt.image.BufferedImage
@@ -850,11 +849,9 @@ private fun recordedQuad(
 ): FloatArray? {
     val log = File(sessionDirOf(options, video) ?: return null, "log.jsonl")
     if (!log.isFile) return null
-    val first = log.useLines { lines -> lines.firstOrNull { it.isNotBlank() } } ?: return null
+    val first = Jsonl.rows(log).firstOrNull() ?: return null
     return runCatching {
-        Json
-            .parseToJsonElement(first)
-            .jsonObject
+        first
             .getValue("corners")
             .jsonArray
             .flatMap { point -> point.jsonArray.map { it.jsonPrimitive.content.toFloat() } }

@@ -58,6 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.serving import apply_prior, invalid_mass  # noqa: E402
 from chesslab.state import possible_labels  # noqa: E402
 from chesslab.training.data import filter_rows_by_split, load_manifest, load_split  # noqa: E402
@@ -288,7 +289,7 @@ def main() -> None:
                "rows": len(rows), "prior_report": report, "results": results}
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_json(out, payload)
     print(f"wrote {out}")
 
 

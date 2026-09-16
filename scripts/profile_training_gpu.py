@@ -11,6 +11,8 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
@@ -231,7 +233,7 @@ def main():
         report["experiments"] = experiments
         torch.backends.cudnn.benchmark = False
         if args.compile_test:
-            Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+            write_json(Path(args.output), report)
             return
         # Measure the optimizer alone using identical states and gradients.
         opt_results = {}
@@ -289,7 +291,7 @@ def main():
                                    "gradients_equal": gradients_equal, "buffers_equal": buffers_equal})
         report["channels_last_validation"] = validation
         print("channels_last_validation", validation, flush=True)
-        Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+        write_json(Path(args.output), report)
         return
     try:
         with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU,
@@ -302,7 +304,7 @@ def main():
         report["profile_table"] = table
     except Exception as exc:
         report["profiler_error"] = str(exc)
-    Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_json(Path(args.output), report)
 
 
 if __name__ == "__main__":

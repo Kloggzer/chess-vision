@@ -9,10 +9,11 @@ das ist die Groesse, die zur Laufzeit vorliegt (`P_OCCLUDED_THR` in Taint.kt).
 
     uv run python scripts/occlusion_gate.py <reads-datei> [<sessions...>]
 """
-import json
 import math
 import sys
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 ROOT = Path("data/recordings")
 EDGES = [0.0, 0.02, 0.05, 0.10, 0.15, 0.25, 0.35, 0.50, 0.70, 1.01]
@@ -39,16 +40,13 @@ def collect(reads_name, sessions):
         if not reads.is_file() or not matte.is_file():
             continue
         truth = {}
-        for line in matte.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                # `is not None`, nicht truthy: eine LEERE Coverage ist "gemessen, nichts
-                # verdeckt" und gehoert als Wahrheit dazu — truthy warf sie heraus und die
-                # Schwelle entstuende nur auf Frames, auf denen SAM etwas fand.
-                if r.get("coverage") is not None:
-                    truth[r["frame"]] = r["coverage"]
-        for line in reads.read_text(encoding="utf-8").splitlines():
-            r = json.loads(line)
+        for r in read_jsonl(matte):
+            # `is not None`, nicht truthy: eine LEERE Coverage ist "gemessen, nichts
+            # verdeckt" und gehoert als Wahrheit dazu — truthy warf sie heraus und die
+            # Schwelle entstuende nur auf Frames, auf denen SAM etwas fand.
+            if r.get("coverage") is not None:
+                truth[r["frame"]] = r["coverage"]
+        for r in read_jsonl(reads):
             if "square" not in r or not r["probs"] or r["fen_label"] == "empty":
                 continue
             # Ein fehlendes Feld heisst "der Frame ist gar nicht gemessen", nie "dieses Feld

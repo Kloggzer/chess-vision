@@ -18,6 +18,7 @@ import { Readable } from "node:stream";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
+import { readJsonl } from "@/lib/jsonl";
 import { checkName, dataDir } from "@/lib/data";
 import { serialize } from "@/lib/serialize";
 
@@ -220,21 +221,13 @@ export async function complete(name: string): Promise<TransferRow> {
 }
 
 export async function transfers(limit = 50): Promise<TransferRow[]> {
-  try {
-    const text = await readFile(ledgerPath(), "utf8");
-    // Eine halb geschriebene Zeile faellt WEG, nicht die Seite: `appendFile` kann mitten im
-    // Schreiben stehen, und ein Wurf hier liess `transfers` leer zurueckkommen.
-    const rows = text.split("\n").filter((l) => l.trim()).flatMap((l) => {
-      try {
-        return [JSON.parse(l) as TransferRow];
-      } catch {
-        return [];
-      }
-    });
-    return rows.slice(-limit).reverse();
-  } catch {
-    return [];
-  }
+  // Nur das FEHLEN der Datei ist harmlos. Eine kaputte Zeile MITTENDRIN still zu
+  // ueberspringen verschwiege einen Transfer, den jemand wirklich angestossen hat —
+  // und ein `catch` um das ganze Lesen machte daraus "gar keine Transfers".
+  const text = await readFile(ledgerPath(), "utf8").catch(() => "");
+  const read = readJsonl(text);
+  if (read.corrupt > 0) throw new Error(`${read.corrupt} kaputte Zeile(n) im Transfer-Ledger`);
+  return (read.rows as unknown as TransferRow[]).slice(-limit).reverse();
 }
 
 /**

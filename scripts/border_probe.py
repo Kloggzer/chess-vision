@@ -9,7 +9,6 @@ Warpt EIN Frame aus dem Quellvideo mit grossem Rand und legt beide nebeneinander
     uv run python scripts/border_probe.py [--session 2026-08-08-00-39-57] [--pad 220]
 """
 import argparse
-import json
 from pathlib import Path
 
 import cv2
@@ -17,6 +16,7 @@ import numpy as np
 
 from chesslab import config
 from chesslab.calibration import load_profile, warp_padded
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import read_session_meta
 
 
@@ -29,7 +29,7 @@ def main():
 
     sdir = config.DATA.recordings / a.session
     profile = load_profile(read_session_meta(sdir)["profile"])
-    rows = [json.loads(x) for x in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(sdir / "log.jsonl")
     row = next((r for r in rows if r.get("board") and r.get("frame") and not r.get("dirty")), None)
     if row is None:
         raise SystemExit("kein sauberes Brett mit Frame-Nummer")

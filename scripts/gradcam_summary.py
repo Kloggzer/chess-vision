@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.training.evaluate import load_run
 from chesslab.training.gradcam import compute_cam, jet, last_conv
 from chesslab.training.torch_data import eval_transform_for
@@ -93,11 +94,8 @@ def main() -> int:
 
     dd = dataset_dir(a.dataset)
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))["splits"][a.split]
-    rows = []
-    for line in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
-        if r["session_id"] in split and r["label"] != "empty" and Path(r["path"]).exists():
-            rows.append(r)
+    rows = [r for r in read_jsonl(dd / "manifest.jsonl")
+            if r["session_id"] in split and r["label"] != "empty" and Path(r["path"]).exists()]
     step = max(1, len(rows) // a.n)
     rows = rows[::step][:a.n]
     print(f"[i] {len(rows)} besetzte Zellen aus {a.split} von {a.dataset}")

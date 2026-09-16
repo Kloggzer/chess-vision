@@ -53,6 +53,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset import load_manifest  # noqa: E402
+from chesslab.ioutil import read_jsonl, write_rows  # noqa: E402
 from chesslab.serving import observation_from_probs  # noqa: E402
 
 # Real capture sessions are timestamped `YYYYMMDD-HHMMSS`. Everything else in the crop
@@ -328,11 +329,9 @@ def main() -> None:
 
     # Merge, de-duplicated by path (re-running with a newer model updates pred/conf).
     merged: dict[str, dict] = {}
-    if out.exists() and not args.fresh:
-        for line in out.read_text(encoding="utf-8-sig").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                merged[r["path"]] = r
+    if not args.fresh:
+        for r in read_jsonl(out):
+            merged[r["path"]] = r
     for h in hard:
         merged[h["path"]] = h
     if not args.include_synthetic:
@@ -342,19 +341,14 @@ def main() -> None:
         if legacy:
             side = out.with_suffix(".synthetic.jsonl")
             existing = {}
-            if side.exists():
-                for line in side.read_text(encoding="utf-8-sig").splitlines():
-                    if line.strip():
-                        r = json.loads(line)
-                        existing[r["path"]] = r
+            for r in read_jsonl(side):
+                existing[r["path"]] = r
             existing.update(legacy)
-            side.write_text("\n".join(json.dumps(r, ensure_ascii=False)
-                                      for r in existing.values()) + "\n", encoding="utf-8")
+            write_rows(side, existing.values())
             merged = {p: r for p, r in merged.items() if p not in legacy}
             print(f"moved {len(legacy)} legacy synth-pool rows -> {side}")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in merged.values()) + "\n",
-                   encoding="utf-8")
+    write_rows(out, merged.values())
     print(f"wrote {len(merged)} rows -> {out}")
 
     # Visual probe: worst offenders annotated with what the model thinks it sees.

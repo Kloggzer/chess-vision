@@ -18,11 +18,12 @@ import collections
 import json
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl, write_json, write_rows
 
 
 def load(name: str) -> tuple[list[dict], dict]:
     dd = dataset_dir(name)
-    rows = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(dd / "manifest.jsonl")
     return rows, json.loads((dd / "split.json").read_text(encoding="utf-8"))
 
 
@@ -51,15 +52,13 @@ def main() -> int:
 
     dd = dataset_dir(a.out)
     dd.mkdir(parents=True, exist_ok=True)
-    with (dd / "manifest.jsonl").open("w", encoding="utf-8") as fh:
-        for r in hrows + grows:
-            fh.write(json.dumps(r) + "\n")
+    write_rows(dd / "manifest.jsonl", hrows + grows)
     split = {**hsplit, "splits": {**hsplit["splits"],
                                   "train": sorted(set(hsplit["splits"]["train"]) | set(gsess))}}
     # Die Klassengewichte des Hosts passen nicht mehr; `train --head occlusion` rechnet sie
     # ohnehin aus den sichtbaren Zeilen des Mischsatzes neu, also raus statt falsch stehen lassen.
     split.pop("class_weights", None)
-    (dd / "split.json").write_text(json.dumps(split, indent=1), encoding="utf-8")
+    write_json(dd / "split.json", split, indent=1)
 
     def combos(rows, keep):
         return {(r["label"], r["square"]) for r in rows

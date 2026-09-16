@@ -6,7 +6,6 @@ by the sensor. Pool membership is a sampling rule, never a human label.
 from __future__ import annotations
 
 import argparse
-import json
 import random
 from pathlib import Path
 
@@ -15,6 +14,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from chesslab.ioutil import read_jsonl, write_json
 from chesslab.labeling import _profile_for_session, crop_square, read_session_meta
 from chesslab.realgames import SETTLE_CELL_PX
 from chesslab.sessions import read_log, session_dir
@@ -44,8 +44,7 @@ def main():
     rec, _ = session_dir(args.session)
     profile = _profile_for_session(read_session_meta(rec), None)
     log = {Path(r['frame']).stem: r for r in read_log(rec)}
-    cells = [json.loads(x) for x in args.audit.read_text(encoding='utf-8-sig').splitlines()
-             if x.strip()]
+    cells = read_jsonl(args.audit)
     cells = [r for r in cells if r['session'] == rec.name and r['group'] == 'neither'
              and r['temporal_normalized'] is not None and r['reference_stock'] == 'boards']
     rng = random.Random(args.seed)
@@ -110,9 +109,8 @@ def main():
         output = args.out / f'{name}.png'
         sheet.save(output)
         print(f'{name}: {len(selected)} -> {output}')
-    (args.out / 'selection.json').write_text(json.dumps({
-        'seed': args.seed, 'audit': str(args.audit), 'pools': selection,
-    }, indent=2), encoding='utf-8')
+    write_json(args.out / 'selection.json',
+               {'seed': args.seed, 'audit': str(args.audit), 'pools': selection})
     return 0
 
 

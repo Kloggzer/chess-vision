@@ -1,7 +1,7 @@
 package com.chesslab.tracker.analysis
 
 import com.chesslab.tracker.games.GAMES_JSON
-import com.chesslab.tracker.games.writeAtomic
+import com.chesslab.tracker.io.writeAtomic
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.Serializable
 import java.io.File

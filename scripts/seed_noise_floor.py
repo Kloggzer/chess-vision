@@ -4,9 +4,10 @@ Liest die Laeufe unter `data/models/_noise/` (ein Verzeichnis je Seed, sonst ide
 und stellt die Metrik am BESTEN Checkpoint nebeneinander — nicht die letzte Epoche, denn die
 waehlt niemand aus.
 """
-import json
 import statistics as st
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 KEYS = ["val_checkpoint_score", "val_visible_acc", "val_piece_acc", "val_macro_recall",
         "val_occupied_board_acc", "val_conf_auroc"]
@@ -15,7 +16,7 @@ for d in sorted(Path("data/models/_noise").iterdir()):
     m = d / "metrics.jsonl"
     if not m.is_file():
         continue
-    rows = [json.loads(x) for x in m.read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(m)
     best = max(rows, key=lambda r: r["val_checkpoint_score"])
     runs[d.name.replace("s2-seed", "seed ")] = (best, len(rows))
 

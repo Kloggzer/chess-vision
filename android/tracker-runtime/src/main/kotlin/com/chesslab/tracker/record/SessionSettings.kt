@@ -1,6 +1,7 @@
 package com.chesslab.tracker.record
 
 import com.chesslab.engine.api.TrackerConfig
+import com.chesslab.tracker.io.writeAtomic
 import com.chesslab.tracker.settings.AppSettings
 import com.chesslab.tracker.settings.ConfigCodec
 import com.chesslab.tracker.settings.encodeAppSettings
@@ -92,7 +93,7 @@ class SessionSettingsWriter(
                 put("app", appJson)
                 put("history", JsonArray(history))
             }
-        File(dir, SETTINGS_FILE).writeText(JSON.encodeToString(JsonObject.serializer(), root))
+        writeAtomic(File(dir, SETTINGS_FILE), JSON.encodeToString(JsonObject.serializer(), root))
     }
 }
 

@@ -10,10 +10,10 @@ covering every square would maximize proxy recall without improving the matte.
 from __future__ import annotations
 
 import argparse
-import json
 
 import cv2
 
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import MATTE_DIRTY, SETTLE_SEEN_MIN, all_squares
 from chesslab.sessions import session_dir
 
@@ -43,10 +43,7 @@ def main() -> int:
     rec, _ = session_dir(args.session)
     profile = _profile_for_session(read_session_meta(rec), None)
     log = {}
-    for line in (rec / "log.jsonl").read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        r = json.loads(line)
+    for r in read_jsonl(rec / "log.jsonl"):
         if "settle_dev" in r:
             log[str(r.get("frame") or "").split("/")[-1].split(".")[0]] = r
 

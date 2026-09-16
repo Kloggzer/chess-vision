@@ -19,6 +19,7 @@ import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.training.pack import load_packed
 
 
@@ -33,7 +34,7 @@ def main():
     args = ap.parse_args()
 
     dd = dataset_dir(args.dataset)
-    man = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    man = read_jsonl(dd / "manifest.jsonl")
     packed = load_packed(args.dataset, manifest_rows=man)
     if packed is None:
         raise SystemExit(f"{args.dataset} hat keine Memmap — erst `dataset pack`")

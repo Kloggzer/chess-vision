@@ -19,6 +19,7 @@ import com.chesslab.geometry.straightenBoard
 import com.chesslab.geometry.warpBoardForCrops
 import com.chesslab.tracker.geometry.boardGeometryFor
 import com.chesslab.tracker.geometry.measuredBoardSize
+import com.chesslab.tracker.io.Jsonl
 import com.github.bhlangonijr.chesslib.Board
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -251,10 +252,9 @@ fun packOcclusionVideo(args: List<String>) {
             .filterValues { it.isNotEmpty() }
     require(targets.isNotEmpty()) { "no manually labelled occluded squares for $session" }
     val rows =
-        log
-            .readLines()
-            .mapNotNull { line ->
-                val row = Json.parseToJsonElement(line) as JsonObject
+        Jsonl
+            .rows(log)
+            .mapNotNull { row ->
                 row
                     .frameStem()
                     .takeIf { it in targets }
@@ -420,8 +420,7 @@ private fun selectStoredRows(
     log: File,
     occludedFrames: Set<String>,
 ): List<JsonObject> =
-    log.readLines().mapNotNull { line ->
-        val row = Json.parseToJsonElement(line) as JsonObject
+    Jsonl.rows(log).mapNotNull { row ->
         if (row["dirty"]?.jsonPrimitive?.booleanOrNull == true || row.frameStem() in occludedFrames) null else row
     }
 
@@ -490,8 +489,7 @@ private fun selectRows(
     occludedFrames: Set<String>,
 ): List<Pair<Int, JsonObject>> {
     var last = -every
-    return log.readLines().mapNotNull { line ->
-        val row = Json.parseToJsonElement(line) as JsonObject
+    return Jsonl.rows(log).mapNotNull { row ->
         val frame = row.frameStem()
         val number = frame.toInt()
         if (row["dirty"]?.jsonPrimitive?.booleanOrNull == true || frame in occludedFrames || number - last < every) {
@@ -514,9 +512,7 @@ internal fun correctionMap(
     session: String,
 ): Map<String, Map<String, String>> {
     val out = linkedMapOf<String, MutableMap<String, String>>()
-    for (line in file.readLines()) {
-        if (line.isBlank()) continue
-        val row = Json.parseToJsonElement(line) as JsonObject
+    for (row in Jsonl.rows(file)) {
         if (row["session_id"]?.jsonPrimitive?.content != session) continue
         val frame = row["frame"]!!.jsonPrimitive.content
         val square = row["square"]!!.jsonPrimitive.content

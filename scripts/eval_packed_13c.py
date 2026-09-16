@@ -10,6 +10,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from chesslab.ioutil import read_jsonl
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -23,9 +25,7 @@ def main() -> None:
 
     cfg = json.loads(args.config.read_text(encoding="utf-8"))
     meta = json.loads((args.pack / "packed_meta.json").read_text(encoding="utf-8"))
-    rows = [json.loads(line) for line in (args.pack / "manifest.jsonl").read_text(
-        encoding="utf-8"
-    ).splitlines() if line]
+    rows = read_jsonl(args.pack / "manifest.jsonl")
     classes = list(cfg["classes"])
     class_idx = {name: i for i, name in enumerate(classes)}
     shape = (int(meta["n"]), int(meta["h"]), int(meta["w"]), 3)

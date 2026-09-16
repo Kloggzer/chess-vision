@@ -1,10 +1,8 @@
 package com.chesslab.tracker.games
 
+import com.chesslab.tracker.io.writeAtomic
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
-import java.nio.file.AtomicMoveNotSupportedException
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 
 private const val INDEX = "index.json"
 
@@ -113,22 +111,4 @@ class GameStore(
             JSON.encodeToString(ListSerializer(GameSummary.serializer()), rows.sortedByDescending { it.startedAtEpochMs }),
         )
     }
-}
-
-/**
- * Temp file + move. If the move cannot be atomic on this filesystem we still never truncate the
- * destination first — a copy over a complete temp file is the next best guarantee.
- */
-fun writeAtomic(
-    file: File,
-    text: String,
-) {
-    val tmp = File(file.parentFile, "${file.name}.tmp")
-    tmp.writeText(text)
-    runCatching {
-        Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE)
-    }.recoverCatching { error ->
-        if (error !is AtomicMoveNotSupportedException) throw error
-        Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }.getOrThrow()
 }

@@ -12,12 +12,12 @@ Bretter hinweg stabil widerspricht — das ist ein Aufbaufehler, ein wackelndes 
 """
 import argparse
 import collections
-import json
 from pathlib import Path
 
 import cv2
 
 from chesslab import occluded_model
+from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 
 
@@ -46,7 +46,7 @@ def main():
     args = ap.parse_args()
 
     man = Path("data/crops") / args.tag / "manifest.jsonl"
-    rows = [json.loads(x) for x in man.read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(man)
     want = board_of(args.fen)
     boards = len({r.get("frame") for r in rows})
     # `composite` klebt synthetische Haende auf; unter denen kann das Modell nichts lesen.

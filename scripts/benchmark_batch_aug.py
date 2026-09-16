@@ -10,6 +10,8 @@ import types
 from dataclasses import replace
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 
@@ -108,7 +110,7 @@ def main():
         except Exception as exc:
             report['timing_ms'][name] = {**row, 'error': str(exc)}
         print(name, report['timing_ms'][name], flush=True)
-        args.output.write_text(json.dumps(report, indent=2), encoding='utf-8')
+        write_json(args.output, report)
 
 
 if __name__ == '__main__':

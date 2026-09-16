@@ -13,22 +13,21 @@ import { correctionsPath } from "@/lib/corrections";
 import { dataDir } from "@/lib/data";
 import { sameSession, type CorpusIndex, type Split } from "@/lib/corpus";
 import { sessionId } from "@/lib/session";
-import { jsonlRows } from "@/lib/jsonl";
+import { type JsonlRead, jsonlRows, readJsonl } from "@/lib/jsonl";
 
 const cellKey = (sessionId: string, frame: string | number, square: string) =>
   `${sessionId}|${String(frame)}|${square}`;
 
 /** Last line wins — an undo is a superseding row, never a deletion (`lib/corrections.ts`). */
-export function dedupCorrections(lines: Iterable<string>): Map<string, string> {
+export function dedupCorrections(read: JsonlRead): Map<string, string> {
+  // Eine kaputte Zeile MITTENDRIN ist kein laufender Schreiber. Sie still zu ueberspringen
+  // machte aus dem Urteil eines Menschen ein "gab es nie" — dieselbe Form wie die Absage,
+  // die als sauberes Brett gelesen wurde.
+  if (read.corrupt > 0) throw new Error(`${read.corrupt} kaputte Zeile(n) in corrections.jsonl`);
   const last = new Map<string, string>();
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const row = JSON.parse(line) as { session_id: string; frame: string | number; square: string; label: string };
-      last.set(cellKey(row.session_id, row.frame, row.square), row.label);
-    } catch {
-      /* a half-written line is not a verdict */
-    }
+  for (const row of read.rows) {
+    const r = row as { session_id: string; frame: string | number; square: string; label: string };
+    last.set(cellKey(r.session_id, r.frame, r.square), r.label);
   }
   return last;
 }
@@ -186,9 +185,14 @@ export async function loadPool(): Promise<Pool> {
   const key = `${names.map((name, i) => `${name}@${stats[i]}`).join(",")}|${logs.key}`;
   if (store.pool?.key === key) return store.pool.value;
 
-  const lines: string[] = [];
-  for (const file of files) lines.push(...(await readFile(file, "utf8").catch(() => "")).split("\n"));
-  const value = foldPool(logs.value, dedupCorrections(lines));
+  const reads = await Promise.all(
+    files.map(async (f) => readJsonl(await readFile(f, "utf8").catch(() => ""))));
+  const merged: JsonlRead = {
+    rows: reads.flatMap((r) => r.rows),
+    tail: reads.some((r) => r.tail),
+    corrupt: reads.reduce((n, r) => n + r.corrupt, 0),
+  };
+  const value = foldPool(logs.value, dedupCorrections(merged));
   store.pool = { key, value };
   return value;
 }

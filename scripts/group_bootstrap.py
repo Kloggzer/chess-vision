@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
+from chesslab.ioutil import write_json
+
 DUMPS = Path("data/reports/episodes")
 #: `rg-2026-09-06-20-27-33` und `rg-VID_20260906_202733` sind derselbe Aufnahmetag. Abgeleitete
 #: Kompositen tragen die Quelle im Namen und gehoeren zur Gruppe ihrer Quelle.
@@ -124,13 +126,12 @@ def main() -> int:
 
     out = Path(args.json)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"a": args.a, "b": args.b, "seeds": seeds, "unit": unit,
-                               "units": len(units), "groups": len(groups),
-                               "episodes": len(keys), "draws": args.draws,
-                               "observed": obs, "ci95": [lo, hi],
-                               "draws_le_zero": worse,
-                               "share_le_zero": worse / args.draws},
-                              indent=1), encoding="utf-8")
+    write_json(out, {"a": args.a, "b": args.b, "seeds": seeds, "unit": unit,
+                     "units": len(units), "groups": len(groups),
+                     "episodes": len(keys), "draws": args.draws,
+                     "observed": float(obs), "ci95": [lo, hi],
+                     "draws_le_zero": worse,
+                     "share_le_zero": worse / args.draws}, indent=1)
     print(f"[OK] {out}")
     return 0
 

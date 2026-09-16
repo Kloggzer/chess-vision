@@ -46,6 +46,7 @@ from chesslab.calibration import (  # noqa: E402
     pooled_mesh,
     straighten_board,
 )
+from chesslab.ioutil import read_jsonl  # noqa: E402
 from chesslab.realgames import detect_rotation, grid_line_fracs, video_path  # noqa: E402
 from chesslab.recording import Recording  # noqa: E402
 
@@ -92,9 +93,7 @@ def sample_rows(recording: Path, want: int) -> list[dict]:
     Hand frames are a sixth of a recording and the whole question here, so an even sweep would put
     two or three in the sample and decide nothing.
     """
-    rows = [json.loads(x) for x in
-            (recording / "log.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
-    rows = [r for r in rows if r.get("corners")]
+    rows = [r for r in read_jsonl(recording / "log.jsonl") if r.get("corners")]
     out: list[dict] = []
     for group in ([r for r in rows if r.get("hand_squares")],
                   [r for r in rows if not r.get("hand_squares")]):
@@ -190,8 +189,7 @@ def main() -> int:
     raw_pool, und_pool, und = {}, {}, {}
     # From EVERY clean row of the log, not just the sampled ones: the meshes are already in
     # `grid_lines`, so a neighbour costs a dict lookup rather than a decode.
-    for row in (json.loads(x) for x in
-                (args.recording / "log.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()):
+    for row in read_jsonl(args.recording / "log.jsonl"):
         if row.get("grid_lines") and not row.get("hand_squares"):
             raw_pool[frame_index(row)] = mesh_from_lines(row["grid_lines"])
     for idx in (sorted(frames) if lens_note is not None else []):

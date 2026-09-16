@@ -11,6 +11,8 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 
@@ -221,7 +223,7 @@ def main():
                     dl._iterator._shutdown_workers()
                 del dl
                 gc.collect()
-    Path(args.output).write_text(json.dumps(report, indent=2), encoding='utf-8')
+    write_json(Path(args.output), report)
     if args.gpu:
         # Exit before Python destroys the local GPU/loader objects. The isolated benchmark
         # has synchronized all work, joined workers and closed its report at this point.

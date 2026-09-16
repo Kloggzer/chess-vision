@@ -9,10 +9,11 @@ entscheidet das Auge, also zeigt das Blatt das Brett und nicht die Zelle.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+
+from chesslab.ioutil import read_jsonl
 
 TILE, PAD, BAR = 232, 6, 30
 FILES = "abcdefgh"
@@ -34,7 +35,7 @@ def main() -> int:
     ap.add_argument("--out", default="data/reports/matte-audit.png")
     args = ap.parse_args()
 
-    cases = [json.loads(x) for x in Path(args.audit).read_text(encoding="utf-8").splitlines() if x.strip()]
+    cases = read_jsonl(Path(args.audit))
     cases.sort(key=lambda c: -len(c["squares"]))
     cases = cases[:args.max]
     if not cases:

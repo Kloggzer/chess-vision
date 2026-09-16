@@ -1,3 +1,4 @@
+import { readJsonl } from "@/lib/jsonl";
 import { expect, test } from "vitest";
 import type { CorpusIndex, Split } from "@/lib/corpus";
 import { dedupCorrections, squareLabels, foldPool, occludedDiff, occludedFit, snapshotOccluded } from "@/lib/pool";
@@ -19,13 +20,12 @@ test("a FEN asserts 64 labels and never asserts occluded", () => {
 });
 
 test("the dedup is last-wins on (session_id, str(frame), square)", () => {
-  const last = dedupCorrections([
-    '{"session_id":"rg-a","frame":"000234","square":"e2","label":"occluded"}',
-    '{"session_id":"rg-a","frame":234,"square":"e2","label":"empty"}',
-    '{"session_id":"rg-a","frame":"000234","square":"e2","label":"wP"}',
-    "not json at all",
-    "",
-  ]);
+  const last = dedupCorrections(readJsonl(
+    '{"session_id":"rg-a","frame":"000234","square":"e2","label":"occluded"}\n'
+    + '{"session_id":"rg-a","frame":234,"square":"e2","label":"empty"}\n'
+    + '{"session_id":"rg-a","frame":"000234","square":"e2","label":"wP"}\n'
+    + "not json at all",
+  ));
   // `234` and `"000234"` are DIFFERENT keys — Python stringifies the value, it does not renumber it.
   expect(last.get("rg-a|000234|e2")).toBe("wP");
   expect(last.get("rg-a|234|e2")).toBe("empty");
@@ -35,11 +35,11 @@ test("the dedup is last-wins on (session_id, str(frame), square)", () => {
 test("the pool is the FEN with the ledger on top, and counts cells, not crops", () => {
   const pool = foldPool(
     SESSION,
-    dedupCorrections([
-      '{"session_id":"rg-2026-08-07","frame":"000234","square":"e2","label":"occluded"}',
-      '{"session_id":"rg-2026-08-07","frame":"000234","square":"e4","label":"occluded"}',
-      '{"session_id":"rg-fremd","frame":"000001","square":"a1","label":"occluded"}',
-    ]),
+    dedupCorrections(readJsonl(
+      '{"session_id":"rg-2026-08-07","frame":"000234","square":"e2","label":"occluded"}\n'
+      + '{"session_id":"rg-2026-08-07","frame":"000234","square":"e4","label":"occluded"}\n'
+      + '{"session_id":"rg-fremd","frame":"000001","square":"a1","label":"occluded"}\n',
+    )),
   );
   expect(pool.frames).toBe(2);
   expect(pool.cells).toBe(128);

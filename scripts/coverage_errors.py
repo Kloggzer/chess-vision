@@ -8,9 +8,10 @@ die SAM-Matte als Wahrheit.
     uv run python scripts/coverage_errors.py <reads-datei> [<sessions...>]
 """
 import collections
-import json
 import sys
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 ROOT = Path("data/recordings")
 FILES = "abcdefgh"
@@ -53,15 +54,12 @@ def main():
         if not rp.is_file() or not mp.is_file():
             continue
         truth = {}
-        for line in mp.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                r = json.loads(line)
-                # Eine LEERE Coverage ist "gemessen, nichts verdeckt" und gehoert als
-                # Wahrheit dazu; truthy warf sie mit SAMs Absage in denselben Topf.
-                if r.get("coverage") is not None:
-                    truth[r["frame"]] = r["coverage"]
-        for line in rp.read_text(encoding="utf-8").splitlines():
-            r = json.loads(line)
+        for r in read_jsonl(mp):
+            # Eine LEERE Coverage ist "gemessen, nichts verdeckt" und gehoert als
+            # Wahrheit dazu; truthy warf sie mit SAMs Absage in denselben Topf.
+            if r.get("coverage") is not None:
+                truth[r["frame"]] = r["coverage"]
+        for r in read_jsonl(rp):
             if "square" not in r or r["frame"] not in truth:
                 continue
             t = truth[r["frame"]].get(r["square"])

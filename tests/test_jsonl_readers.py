@@ -8,10 +8,11 @@ diese Liste sind die Stellen davor und darf nur SCHRUMPFEN. Der Zwilling der Web
 from __future__ import annotations
 
 import re
+from itertools import chain
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LIB = ROOT / "src" / "chesslab"
+AREAS = (ROOT / "src" / "chesslab", ROOT / "scripts")
 LEDGER = Path(__file__).with_name("jsonl_readers.txt")
 
 _CUT = re.compile(r"\.splitlines\(\)|\.split\(chr\(10\)\)")
@@ -20,7 +21,7 @@ _CUT = re.compile(r"\.splitlines\(\)|\.split\(chr\(10\)\)")
 def readers() -> dict[str, int]:
     """Zeilenschnitt UND `json.loads` in derselben Datei — das ist die Form, die die Politik neu erfindet."""
     found: dict[str, int] = {}
-    for file in sorted(LIB.rglob("*.py")):
+    for file in sorted(chain.from_iterable(a.rglob("*.py") for a in AREAS)):
         if file.name == "ioutil.py":
             continue
         text = file.read_text(encoding="utf-8")
@@ -28,7 +29,7 @@ def readers() -> dict[str, int]:
             continue
         hits = sum(1 for line in text.splitlines() if _CUT.search(line))
         if hits:
-            found[file.relative_to(LIB).as_posix()] = hits
+            found[file.relative_to(ROOT).as_posix()] = hits
     return found
 
 

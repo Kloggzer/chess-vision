@@ -15,11 +15,11 @@ import time
 from pathlib import Path
 
 from chesslab import calibration, realgames
+from chesslab.ioutil import read_jsonl
 
 
 def benchmark(name: str, limit: int = 0) -> dict:
-    rows = [json.loads(line) for line in
-            (realgames.game_dir(name) / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(realgames.game_dir(name) / "log.jsonl")
     if limit:
         rows = rows[:limit]
     if not rows:

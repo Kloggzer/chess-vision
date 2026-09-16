@@ -15,6 +15,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from chesslab.ioutil import read_jsonl
+
 CAND = Path("tmp/calib/commits.jsonl")
 
 
@@ -75,7 +77,7 @@ SCORES = {
 }
 
 if __name__ == "__main__":
-    rows = [json.loads(line) for line in CAND.read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(CAND)
     rows = [r for r in rows if r["session"] != "VID_20260726_155132"]  # Label ohne Zuege
     by_sess = defaultdict(list)
     for r in rows:

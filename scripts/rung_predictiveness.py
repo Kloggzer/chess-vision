@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import argparse
 import itertools
-import json
 import statistics
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 METRIC = "val_visible_piece_acc"
 DEFAULT_ROOTS = ("data/models/_arch/real13-mix-v4", "data/models/_arch/real13-mix-v4-128",
@@ -26,7 +27,7 @@ def _series(run: Path, metric: str) -> list[float] | None:
     p = run / "metrics.jsonl"
     if not p.exists():
         return None
-    rows = [json.loads(x) for x in p.read_text(encoding="utf-8").splitlines() if x.strip()]
+    rows = read_jsonl(p)
     return [r[metric] for r in rows if metric in r]
 
 

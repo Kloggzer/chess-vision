@@ -8,12 +8,13 @@ Architektur je Brett KOSTET. Die Graphen gehen nach `data/tmp/arch-bench/` und v
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn as nn
+
+from chesslab.ioutil import write_json
 
 ARCHS = {
     "boardnet-p4": "boardattn:cellnet_p4",
@@ -151,7 +152,7 @@ def main() -> int:
             print(f"[OK] {row['file']}: {row['mmac_per_crop']} MMAC/Crop, "
                   f"{row['params_m']} M Params, {row['onnx_mb']} MB", flush=True)
 
-    (out_dir / "index.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    write_json(out_dir / "index.json", rows)
     print(f"\n{len(rows)} Graphen -> {out_dir}")
     return 0
 

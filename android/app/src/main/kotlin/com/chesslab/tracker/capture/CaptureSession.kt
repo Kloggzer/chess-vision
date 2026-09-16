@@ -1,6 +1,7 @@
 package com.chesslab.tracker.capture
 
 import com.chesslab.tracker.camera.CaptureObserved
+import com.chesslab.tracker.io.writeAtomic
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -97,7 +98,7 @@ fun writeCaptureSession(
     session: CaptureSession,
 ): File =
     File(dir, CAPTURE_FILE).also {
-        it.writeText(CAPTURE_SESSION_JSON.encodeToString(CaptureSession.serializer(), session) + "\n")
+        writeAtomic(it, CAPTURE_SESSION_JSON.encodeToString(CaptureSession.serializer(), session) + "\n")
     }
 
 /** `explicitNulls = false` is load-bearing: the schema forbids keys it does not name, null included. */

@@ -15,6 +15,7 @@ import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed
 
@@ -47,7 +48,7 @@ def main():
     args = ap.parse_args()
 
     dd = dataset_dir(args.dataset)
-    man = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    man = read_jsonl(dd / "manifest.jsonl")
     packed = load_packed(args.dataset, manifest_rows=man)
     img, (n, h, w), p2i = packed
     index = p2i or {r["path"]: r["_packed_idx"] for r in man if "_packed_idx" in r}
@@ -61,7 +62,7 @@ def main():
     for run in sorted(Path(args.folds).iterdir()):
         if not (run / "metrics.jsonl").is_file():
             continue
-        if len((run / "metrics.jsonl").read_text(encoding="utf-8").splitlines()) < 60:
+        if len(read_jsonl(run / "metrics.jsonl")) < 60:
             print(f"[--] {run.name} laeuft noch, uebersprungen")
             continue
         fold = run.name.split("-")[-1]

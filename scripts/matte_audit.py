@@ -18,6 +18,7 @@ from pathlib import Path
 import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
+from chesslab.ioutil import read_jsonl
 
 
 def board_path(rec: Path, frame: str) -> Path | None:
@@ -47,7 +48,7 @@ def main() -> int:
             mj = rec / "matte.jsonl"
             if mj.is_dir() or not mj.exists():
                 continue
-            rows = [json.loads(x) for x in mj.read_text(encoding="utf-8").splitlines() if x.strip()]
+            rows = read_jsonl(mj)
             blind = [r for r in rows if r.get("dirty_reason") == args.reason
                      and not (r.get("concepts") or {}) and not (r.get("cells_over_half") or 0)]
             if args.limit:

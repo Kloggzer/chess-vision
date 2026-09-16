@@ -20,6 +20,7 @@ import numpy as np
 
 from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl, write_json
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed
 
@@ -37,7 +38,7 @@ def main():
     args = ap.parse_args()
 
     dd = dataset_dir(args.dataset)
-    man = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    man = read_jsonl(dd / "manifest.jsonl")
     packed = load_packed(args.dataset, manifest_rows=man)
     img, (n, h, w), p2i = packed
     index = p2i or {r["path"]: r["_packed_idx"] for r in man if "_packed_idx" in r}
@@ -51,7 +52,7 @@ def main():
     for run in sorted(Path(args.folds).iterdir()):
         if not (run / "metrics.jsonl").is_file():
             continue
-        if len((run / "metrics.jsonl").read_text(encoding="utf-8").splitlines()) < 60:
+        if len(read_jsonl(run / "metrics.jsonl")) < 60:
             continue
         fold = run.name.split("-")[-1]
         split = json.loads((dd / f"split-{fold}.json").read_text(encoding="utf-8"))
@@ -97,7 +98,7 @@ def main():
         print(f"{s:<34}{tot:>6}{d['richtig']:>9}{d['wackelig']:>10}"
               f"{d['verdaechtig']:>8} ({100 * d['verdaechtig'] / max(1, tot):>4.1f}%)")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps(report, indent=1), encoding="utf-8")
+    write_json(Path(args.out), report, indent=1)
     print(f"\n[OK] {args.out}")
 
 

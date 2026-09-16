@@ -15,6 +15,8 @@ import collections
 import json
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 OUT = Path("data/TEST-USED.json")
 
 #: Die Gruppe, die bis zur Abnahme niemand anfassen darf. Genau EINE Auswertung ist vorgesehen,
@@ -55,7 +57,7 @@ def main() -> int:
                        "`chesslab dataset folds` nimmt sie aus dem Schnitt (ausser mit "
                        "`--include-frozen`). Beide Ausnahmen sagen laut, was sie kosten.",
                "evals_scanned": sum(1 for _ in Path("data/models").rglob("eval_test*.json"))}
-    OUT.write_text(json.dumps(payload, indent=1, ensure_ascii=False), encoding="utf-8")
+    write_json(OUT, payload, indent=1)
     still = [s for s in FROZEN if s in used]
     print(f"[OK] {OUT}: {len(used)} verbrannte Aufnahmen aus {payload['evals_scanned']} Evals")
     if still:

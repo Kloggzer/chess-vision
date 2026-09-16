@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from chesslab import config  # noqa: E402
 from chesslab.dataset_build import dataset_dir  # noqa: E402
+from chesslab.ioutil import write_json  # noqa: E402
 from chesslab.training import packs  # noqa: E402
 from chesslab.training.data import load_manifest  # noqa: E402
 from chesslab.training.pack import (  # noqa: E402
@@ -79,7 +80,7 @@ def write_parity_split(name: str, paths: config.Paths) -> None:
     dd = dataset_dir(name, paths)
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))
     split["splits"]["val"] = list(split["splits"]["train"])
-    (dd / SPLIT_FILE).write_text(json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(dd / SPLIT_FILE, split)
 
 
 def row_parity(pool_rows: list[dict], pack_rows: list[dict]) -> tuple[set, dict]:

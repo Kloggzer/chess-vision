@@ -12,12 +12,12 @@ Seite rechnet, und die Behauptung ist, dass die andere Seite dasselbe rechnet.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import numpy as np
 
 from chesslab.alignment import MIN_BAND_SAMPLES, _fit_axis
+from chesslab.ioutil import write_json
 
 OUT = (Path(__file__).resolve().parents[1] / "android" / "core-engine" / "src" / "test"
        / "resources" / "parity" / "_geometry" / "axis_fit.json")
@@ -63,7 +63,7 @@ def main() -> None:
               nudge=lambda k, lev: (40.0 if lev > 0 else -40.0) if k == 6 else 0.0),
     ]
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps({"cases": cases}, indent=2) + "\n", encoding="utf-8")
+    write_json(OUT, {"cases": cases})
     for c in cases:
         print(f"  {c['name']}: {len(c['samples'])} Proben, {len(c['expect'])} Linien")
     print(f"[OK] {OUT}")

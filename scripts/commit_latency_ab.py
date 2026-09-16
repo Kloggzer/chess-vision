@@ -6,6 +6,8 @@ import re
 import statistics
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 SCORE_KEYS = ("found", "missed", "invented", "beyond", "reordered")
 
 
@@ -54,4 +56,4 @@ if __name__ == "__main__":
         mx = "-" if r["maxSavedMs"] is None else f"{r['maxSavedMs']:5.0f}"
         mn = "-" if r["minSavedMs"] is None else f"{r['minSavedMs']:5.0f}"
         print(f"{r['recording']:22} {fmt(r['base']):16} {fmt(r['cand']):16} {r['paired']:5} {med} {mx} {mn}")
-    print(json.dumps(rows, indent=1), file=open(args.cand / "ab.json", "w", encoding="utf-8"))
+    write_json(args.cand / "ab.json", rows, indent=1)

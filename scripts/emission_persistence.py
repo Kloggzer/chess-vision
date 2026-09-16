@@ -3,17 +3,17 @@
 Within an interval the reads are near-identical images, so a repeat is barely evidence. The
 question that decides whether aggregation helps at all is whether the error SURVIVES the move.
 """
-import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 ROOT = Path("data/recordings")
 
 def measure(session):
     rows = defaultdict(dict)
-    for line in (ROOT / session / "model-reads.jsonl").read_text(encoding="utf-8").splitlines():
-        r = json.loads(line)
+    for r in read_jsonl(ROOT / session / "model-reads.jsonl"):
         if "square" not in r or not r["probs"]:
             continue
         probs = r["probs"]

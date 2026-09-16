@@ -16,6 +16,8 @@ import sys
 import time
 from pathlib import Path
 
+from chesslab.ioutil import write_json
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
@@ -113,8 +115,7 @@ def main():
                 row["error"] = str(exc)[:200]
             rows.append(row)
             print(row, flush=True)
-        Path(args.output).write_text(json.dumps({"torch": torch.__version__, "aug": rows},
-                                                indent=2), encoding="utf-8")
+        write_json(Path(args.output), {"torch": torch.__version__, "aug": rows})
         return
 
     if args.variants:
@@ -168,9 +169,9 @@ def main():
                 row["error"] = str(exc)[:160]
             results.append(row)
             print(row, flush=True)
-        Path(args.output).write_text(json.dumps(
-            {"torch": torch.__version__, "batch_crops": int(x.shape[0]) * 64,
-             "variants": results}, indent=2), encoding="utf-8")
+        write_json(Path(args.output),
+                   {"torch": torch.__version__, "batch_crops": int(x.shape[0]) * 64,
+                    "variants": results})
         return
 
 
@@ -206,7 +207,7 @@ def main():
     print(json.dumps({k: v for k, v in report.items() if k not in ("top_ops", "scaling")}, indent=2))
     for row in report["top_ops"]:
         print(f"{row['per_step']:8.1f}x  {row['op']}")
-    Path(args.output).write_text(json.dumps(report, indent=2), encoding="utf-8")
+    write_json(Path(args.output), report)
     print(json.dumps({k: v for k, v in report.items() if k != "top_kernels"}, indent=2))
 
 

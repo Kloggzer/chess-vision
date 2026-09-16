@@ -16,7 +16,6 @@ a tolerance expressed in the same units. The `px/cell` column is what makes the 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -26,13 +25,11 @@ import numpy as np  # noqa: E402
 
 from chesslab import labeling, sessions  # noqa: E402
 from chesslab.alignment import worst_offset  # noqa: E402
+from chesslab.ioutil import read_jsonl  # noqa: E402
 
 
 def _rows(sdir: Path) -> list[dict]:
-    log = sdir / "log.jsonl"
-    if not log.exists():
-        return []
-    return [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines() if x.strip()]
+    return read_jsonl(sdir / "log.jsonl")
 
 
 def main() -> int:

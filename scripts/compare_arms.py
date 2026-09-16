@@ -8,9 +8,10 @@ Schwanz eines vollstaendig gelaufenen Cosine.
 from __future__ import annotations
 
 import argparse
-import json
 import statistics
 from pathlib import Path
+
+from chesslab.ioutil import read_jsonl
 
 METRICS = ("val_visible_piece_acc", "val_visible_occupied_board_acc",
            "val_coverage_precision", "val_loss")
@@ -26,7 +27,7 @@ def tail_mean(run: Path, metric: str, tail: int, epochs: int) -> float | None:
     p = run / "metrics.jsonl"
     if not p.exists():
         return None
-    rows = [json.loads(line) for line in p.read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = read_jsonl(p)
     # TODO(bug-hunt 2026-09-16f): eine MENGE schluckt die Wiederholung, die der Docstring
     # ausschliessen will — ein fortgesetzter Lauf kam damit als vollstaendig durch.
     seen = sorted(r["epoch"] for r in rows if "epoch" in r)

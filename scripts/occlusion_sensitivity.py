@@ -23,6 +23,7 @@ import torch
 from PIL import Image, ImageDraw
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.training.evaluate import load_run
 from chesslab.training.gradcam import jet
 from chesslab.training.torch_data import eval_transform_for
@@ -94,8 +95,7 @@ def main() -> int:
 
     dd = dataset_dir(a.dataset)
     split = json.loads((dd / "split.json").read_text(encoding="utf-8"))["splits"][a.split]
-    rows = [r for r in (json.loads(x) for x in
-                        (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines())
+    rows = [r for r in read_jsonl(dd / "manifest.jsonl")
             if r["session_id"] in split and r["label"] != "empty" and Path(r["path"]).exists()]
     rows = rows[::max(1, len(rows) // a.n)][:a.n]
     device = "cuda" if torch.cuda.is_available() else "cpu"

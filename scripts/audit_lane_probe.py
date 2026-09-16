@@ -9,7 +9,6 @@ ist statt geglaubt.
 """
 import argparse
 import collections
-import json
 from pathlib import Path
 
 import cv2
@@ -17,6 +16,7 @@ from PIL import Image, ImageDraw
 
 from chesslab import config
 from chesslab.calibration import load_profile
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import (
     all_squares,
     board_source,
@@ -37,7 +37,7 @@ def main():
     ap.add_argument("--out", default="data/reports/audit-lane-probe.png")
     args = ap.parse_args()
 
-    flags = [json.loads(x) for x in Path(args.flags).read_text(encoding="utf-8").splitlines()]
+    flags = read_jsonl(Path(args.flags))
     if args.label:
         flags = [f for f in flags if f["fen_label"] == args.label]
     # Ueber die Sessions streuen: 40 Flags aus einer Aufnahme beantworten die Frage nicht.
@@ -65,8 +65,7 @@ def main():
         if sess not in cache:
             meta = read_session_meta(sdir)
             log = {}
-            for line in (sdir / "log.jsonl").read_text(encoding="utf-8").splitlines():
-                r = json.loads(line)
+            for r in read_jsonl(sdir / "log.jsonl"):
                 key = Path(str(r.get("frame") or "")).stem
                 if key:
                     log[key] = r

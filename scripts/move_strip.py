@@ -10,13 +10,13 @@ Intervall-Check der Aufnahme nennt die bewegten Felder bereits (`moved`), hier w
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
 
 from chesslab.dataset_build import dataset_dir
+from chesslab.ioutil import read_jsonl
 from chesslab.training.pack import load_packed
 
 CELL, PAD, BAR = 104, 5, 26
@@ -33,7 +33,7 @@ def main() -> int:
 
     sid = f"rg-{args.session}"
     dd = dataset_dir(args.dataset)
-    manifest = [json.loads(x) for x in (dd / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    manifest = read_jsonl(dd / "manifest.jsonl")
     img, (n, h, w), p2i = load_packed(args.dataset, manifest_rows=manifest)
     index = p2i or {r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
     mm = np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
@@ -46,8 +46,8 @@ def main() -> int:
         print("[--] keine Zeilen fuer diese Kombination")
         return 1
 
-    iv = {r["ply"]: r for r in (json.loads(x) for x in
-          (Path("data/recordings") / args.session / "interval-check.jsonl").read_text(encoding="utf-8").splitlines() if x.strip())}
+    iv = {r["ply"]: r for r in
+          read_jsonl(Path("data/recordings") / args.session / "interval-check.jsonl")}
     moved = (iv.get(args.ply, {}).get("moved") or []) + (iv.get(args.ply + 1, {}).get("moved") or [])
     print(f"{len(rows)} Frames, Label {rows[0]['label']}, "
           f"moved({args.ply})={iv.get(args.ply, {}).get('moved')} "

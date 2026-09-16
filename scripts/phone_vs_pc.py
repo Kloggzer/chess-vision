@@ -20,6 +20,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from chesslab.ioutil import read_jsonl
+
 ROOT = Path(__file__).resolve().parents[1]
 FOUND = re.compile(r"^\s+(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)")
 STATE = re.compile(r"^state: (\w+) -> (\w+) at ([\d,.]+)s(?: frame=(\d+))?")
@@ -80,8 +82,7 @@ def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[
     `video_sync` elapsed − duration), looked up in the PTS table — not `frame_phone`: the candidate
     placed that with a decoder clock that lost one frame interval per segment seam (2026-09-07)."""
     settles, decisions, bases = [], {}, []
-    for line in (session / "timeline.jsonl").read_text(encoding="utf-8").splitlines():
-        row = json.loads(line)
+    for row in read_jsonl(session / "timeline.jsonl"):
         if row.get("kind") == "state" and row.get("to") == "waiting":
             settles.append(row["elapsedNs"])
         elif row.get("kind") == "decision" and row.get("accepted"):

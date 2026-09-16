@@ -11,6 +11,7 @@ import com.chesslab.tracker.games.segmentsOrOne
 import com.chesslab.tracker.geometry.GeometryScan
 import com.chesslab.tracker.geometry.ScannedGeometry
 import com.chesslab.tracker.geometry.withCropOf
+import com.chesslab.tracker.io.Jsonl
 import com.chesslab.tracker.settings.ConfigCodec
 import com.github.bhlangonijr.chesslib.Board
 import com.github.bhlangonijr.chesslib.move.Move
@@ -84,10 +85,8 @@ internal data class TimelineRows(
             val frames = ArrayList<FrameRow>()
             val decisions = ArrayList<DecisionRow>()
             val events = ArrayList<Pair<Long, Long>>()
-            timeline.forEachLine { line ->
-                if (line.isBlank()) return@forEachLine
-                val row = runCatching { Json.parseToJsonElement(line).jsonObject }.getOrNull() ?: return@forEachLine
-                val elapsed = row.long("elapsedNs") ?: return@forEachLine
+            Jsonl.rows(timeline).forEach { row ->
+                val elapsed = row.long("elapsedNs") ?: return@forEach
                 when (row["kind"]?.jsonPrimitive?.contentOrNull) {
                     "video_sync" -> row.long("durationNs")?.let { syncs += elapsed to it }
                     "frame" -> frames += FrameRow(elapsed, row.long("wallTsMs") ?: 0L, row.text("fen"), cornersOf(row["corners"]))
@@ -365,11 +364,9 @@ internal fun chooseQuad(
 /** The phone's own quad at the session's start — `log.jsonl`'s first photo row carries it. */
 private fun loggedQuad(sessionDir: File): FloatArray? {
     val log = File(sessionDir, "log.jsonl").takeIf { it.isFile } ?: return null
-    val first = log.useLines { lines -> lines.firstOrNull { it.isNotBlank() } } ?: return null
+    val first = Jsonl.rows(log).firstOrNull() ?: return null
     return runCatching {
-        Json
-            .parseToJsonElement(first)
-            .jsonObject
+        first
             .getValue("corners")
             .jsonArray
             .flatMap { point -> point.jsonArray.map { it.jsonPrimitive.content.toFloat() } }

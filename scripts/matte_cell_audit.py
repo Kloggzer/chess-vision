@@ -20,6 +20,7 @@ from pathlib import Path
 import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
+from chesslab.ioutil import read_jsonl
 from chesslab.labeling import (
     MATTE_DIRTY,
     _profile_for_session,
@@ -54,9 +55,7 @@ def main() -> int:
                 continue
             profile = _profile_for_session(read_session_meta(rec), None)
             log = {Path(r["frame"]).stem: r for r in read_log(rec)}
-            metadata = {r["frame"]: r for r in
-                        (json.loads(x) for x in mj.read_text(encoding="utf-8").splitlines()
-                         if x.strip())}
+            metadata = {r["frame"]: r for r in read_jsonl(mj)}
             rows = [{**metadata[stem], "frame": stem, "coverage": coverage}
                     for stem, coverage in read_matte(rec).items()]
             if args.limit:

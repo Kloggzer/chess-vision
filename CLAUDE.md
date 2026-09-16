@@ -253,6 +253,16 @@
   gemessen**: 40 000 Manifest- und alle 9 423 `matte.jsonl`-Zeilen ueberstehen
   `read_jsonl` + `write_rows` BYTEGLEICH — erst danach durften die Aufrufer ihre rohen Zeilen
   aufgeben.
+  **Auch `scripts/` faellt unter beide Ratschen** (2026-09-16): dort waren es 61 Leser und 36
+  Schreiber, jetzt 13 und 7.
+- **Drei Sprachen, dieselbe Politik (2026-09-16):** `src/chesslab/ioutil.py`,
+  `platform/app/lib/jsonl.ts` + `lib/atomic.ts`, `android/tracker-runtime/.../io/Jsonl.kt`.
+  Ueberall entscheidet der ZEILENUMBRUCH, ueberall wird ueber eine Nebendatei geschrieben und die
+  bei einem Abbruch geraeumt. **Kotlin braucht kein `appendRows`** — gemessen null Stellen, die an
+  eine fremde oder aeltere Datei anhaengen; `SessionTimeline` und `SessionRecorder` kuerzen ihre
+  Datei im Konstruktor. Der Bruch lag auf der LESE-Seite: die Desktop-Werkzeuge warfen auf die
+  halbe letzte Zeile, die das Telefon erwartbar hinterlaesst (`TornTailTest`), und `RecordedFrames`
+  verschluckte umgekehrt eine kaputte Zeile MITTENDRIN.
   **Die Web-App hat denselben Treuhaender**: `lib/atomic.ts` mit `writeFileAtomic`,
   `writeFileAtomicGuarded` (Stempel-Riegel, `Contested`) und `appendRows`. Rohes `appendFile` an
   eine `.jsonl` mit halber letzter Zeile klebte die neue Zeile daran — aus dem von `lib/jsonl.ts`
