@@ -6,7 +6,7 @@ Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
 **Heute gebaut und damit gestrichen:** `MarkerTracker`-Port, Achsen-Fit-Paritaet, die doppelte
 Verdeckungsschwelle, die korpusweiten `eval`-Namen, die vier `TrackerService`-Ableitungen, die
 drei Ketten-Punkte (`_source`, `settle-scan` als Sprosse, `nextStep` mit Grund), `position-flags`
-nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Gate-Wache samt Test (alt 18), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
+nennt ungemessene Sessions (alt 3), `recoveryConfig` als Nicht-Fund widerlegt (alt 19), die Gate-Wache samt Test (alt 18), `ALPHA_REASON` durch Messung entschieden (alt 17), die Kommentar-Ratsche auf 5 (alt 8), der Fixture-Baukasten in
 allen drei Sprachen (alt 9) und die ganze Namensdrift `cov`/`measured`/`pack` (alt 10).
 
 **Spalte "Kiste":** (A) klein und verhaltensgleich · (B) mittel, braucht neue Tests · (C) aendert
@@ -17,7 +17,6 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 5 | Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse | — | Aufnahmen | **ja** |
 | 6 | `_persistent`: 532 Frames zu Unrecht im Vorrat, 947 zu bergen | C | Re-Export | mit dem naechsten Neubau |
 | 7 | `2026-08-15-23-01-43` braucht einen Re-Export | A | — | faellt mit 6 zusammen |
-| 17 | `ALPHA_REASON`: Bericht und Worker meinen verschiedene Stapel | B | 1 h | **entscheiden** |
 | 11–16 | Sechs TODOs, die Verhalten oder Zufallsfolge aendern | s. u. | | s. u. |
 | 20 | `read_matte` verwirft die leere Messung (latent, 0 Faelle) | C | 30 min | mit dem Neubau |
 | 21 | Fuenf Vertrags-Familien statt 19 Einzelformate | B | je Naht | Naht 1–3 gebaut, 4–5 nach dem Neubau |
@@ -26,13 +25,20 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
 | 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | erst zaehlen |
 
-## 17. `ALPHA_REASON` — welche Seite hat recht?
+## 17. `ALPHA_REASON`: ENTSCHIEDEN 2026-09-16 — beide Seiten haben recht
 
-`matte_status` zaehlt JEDEN dirty-Frame als fehlende Matte (die ZELLE entscheidet, 2026-08-22),
-`alpha_worker` mattet per Vorgabe nur `occluded` (die Regel davor). Der Bericht meldet damit eine
-Luecke, die kein Standardlauf je schliesst, und `MatteCensus.reported` sammelt genau dort an.
-Beide Seiten haben einen Test, der sie verteidigt; `dirty_pile` ist seit heute die eine Funktion,
-die Frage bleibt offen (`tests/test_matte_pile_agreement.py`, TODO am Symbol).
+Die Frage war, ob `alpha_worker` per Vorgabe den ganzen dirty-Stapel matten soll statt nur
+`occluded`. **Gemessen ueber den ganzen Korpus:** 3 366 Frames sind gemattet, offen sind
+**21 im Standard-Stapel und 117 im uebrigen** — und beide Zahlen stehen auf EINER Aufnahme
+(`2026-09-15-16-54-44`, der neuesten). Jede andere Aufnahme ist bei null.
+
+Damit ist es keine systemische Luecke, sondern der Rest einer Aufnahme. Und die beiden Seiten
+widersprechen sich gar nicht: `matte_status` MELDET den ganzen Stapel (die Zelle entscheidet),
+`alpha_worker` ARBEITET den Standard-Stapel zuerst ab — eine Reihenfolge, keine Behauptung.
+
+Falsch war nur, dass der Bericht die beiden nicht auseinanderhielt. Das ist seit dem
+`missing`/`missing_other`-Split erledigt, und `occluders status` schreibt "nur mit --reason all"
+dazu. **Keine Code-Aenderung; der Vorgabewert bleibt `occluded`.**
 
 ## 18. `coverage_gate` ohne `coverage_output`: ERLEDIGT, die Vorlage war veraltet
 

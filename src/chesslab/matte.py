@@ -371,10 +371,9 @@ def coverage_of(
     }
 
 
-# TODO: `matte_status` zaehlt JEDEN dirty-Frame als fehlend (die ZELLE entscheidet, 2026-08-22),
-# dieser Lauf mattet nur `occluded` (Regel von davor) — der Bericht meldet damit eine Luecke, die
-# kein Standardlauf je schliesst, und `MatteCensus.reported` sammelt genau dort an. Eine der
-# beiden Seiten hat unrecht; welche, ist offen (`tests/test_matte_pile_agreement.py`).
+# Eine REIHENFOLGE, keine Behauptung: der Bericht meldet den ganzen dirty-Stapel (die Zelle
+# entscheidet, 2026-08-22), dieser Lauf arbeitet `occluded` zuerst ab. Entschieden 2026-09-16,
+# gemessen: 21 offen im Standard-Stapel, 117 im uebrigen — beides auf EINER Aufnahme.
 ALPHA_REASON = "occluded"
 
 

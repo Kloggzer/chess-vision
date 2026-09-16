@@ -1,11 +1,9 @@
-"""Der Bericht und der Standardlauf meinen NICHT denselben Stapel — festgehalten, nicht behoben.
+"""Der Bericht meldet den ganzen dirty-Stapel, der Standardlauf arbeitet `occluded` zuerst ab.
 
-`matte_status` zaehlt jeden dirty-Frame als fehlende Matte und begruendet das mit der Entscheidung
-vom 2026-08-22: die ZELLE entscheidet, `dirty_reason` steuert nur die Reihenfolge. `alpha_worker`
-filtert per Vorgabe auf `occluded` und begruendet das mit der Regel von davor
-(`test_the_worker_only_mattes_what_still_carries_its_fen` verteidigt sie). Gemessen auf
-`2026-08-30-14-33-02`: 15 von 24 Frames meldet der Bericht ewig als fehlend. Siehe das TODO an
-`ALPHA_REASON` — welche Seite recht hat, ist offen.
+Das ist eine Reihenfolge und kein Widerspruch — entschieden 2026-09-16, nachdem der Korpus
+gezaehlt war: 3 366 Frames gemattet, 21 offen im Standard-Stapel und 117 im uebrigen, und beide
+Zahlen auf EINER Aufnahme. Falsch war nur, beides als eine Zahl zu melden; das trennt
+`missing`/`missing_other` seit 2026-09-15. Diese Datei haelt die Trennung fest.
 """
 from __future__ import annotations
 
@@ -36,11 +34,11 @@ def test_a_named_reason_narrows_the_pile():
 
 
 def test_the_default_run_leaves_half_the_reported_gap_untouched():
-    # Der Befund selbst: was `occluders status` meldet, minus was ein Standardlauf anfasst.
+    # Was `occluders status` meldet, minus was ein Standardlauf anfasst.
     never = dirty_pile(ROWS, "all") - dirty_pile(ROWS, ALPHA_REASON)
     assert never == {"000020", "000030"}, (
-        "wenn diese Menge leer wird, ist der Widerspruch entschieden — dann faellt dieser Test "
-        "samt dem TODO an `ALPHA_REASON` weg")
+        "diese Menge erreicht nur `--reason all`; wird sie leer, hat jemand die Vorgabe "
+        "geaendert, und der Bericht muss es mitbekommen")
 
 
 def _rows_on_disk(tmp_path):
