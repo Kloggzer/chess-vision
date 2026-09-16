@@ -130,17 +130,22 @@ def _cut_session(task) -> int:
     import cv2
 
     from ..calibration import load_profile
-    from ..labeling import crop_square, read_log, read_session_meta
+    from ..labeling import crop_square, read_log, read_session_meta, usable_board
     from ..realgames import game_dir
 
     d = game_dir(sid[3:] if sid.startswith("rg-") else sid)
     profile = load_profile(read_session_meta(d)["profile"])
-    boards = {Path(x["frame"]).stem: x.get("board") for x in read_log(d)}
+    rows = {Path(x["frame"]).stem: x for x in read_log(d)}
 
     def cuts():
         for stem, wanted in frames.items():
-            rel = boards.get(stem)
-            board = cv2.imread(str(d / rel)) if rel else None
+            row = rows.get(stem) or {}
+            # Dieselbe Wache wie bei jedem anderen Brettleser: `crop_square` leitet den Rand aus
+            # dem PROFIL ab, ein Brett mit eigenem Massstab wird sonst bis zu 59 px daneben
+            # geschnitten — und das sind die Pixel, aus denen das Modell lernt.
+            if row.get("board") and not usable_board(row, profile):
+                raise ValueError(f"{sid}/{stem}: Brett hat einen anderen Massstab als sein Profil")
+            board = cv2.imread(str(d / row["board"])) if row.get("board") else None
             if board is None:
                 continue
             for square, idx in wanted:

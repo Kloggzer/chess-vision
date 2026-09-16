@@ -31,6 +31,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | 23 | `UtteranceQueue`: der Alarm meldet sich fertig, waehrend er spricht | C | 2 h | ja, am Geraet |
 | 24 | `StockfishAnalyzer` zeigt 50 % fuer "nicht bewertet" | C | 30 min | **ja** — UI-Entscheidung |
 | 25 | `settle_for_ply` nimmt ungemessene Frames in den Median | C | 1 h | **ja** — gezaehlt: 14 von 804 Plys |
+| 26 | `--smooth-iters` dreht die Figur, verbatim nicht | C | 30 min | erst zaehlen, welche Meshes betroffen sind |
 
 ## 17. `ALPHA_REASON`: ENTSCHIEDEN 2026-09-16 — beide Seiten haben recht
 
@@ -377,3 +378,20 @@ arbeitet. Wer sie geaendert vorfindet, soll wissen warum. `xfail(strict)` in
 | Kiste | Aufwand | Empfehlung |
 |---|---|---|
 | C | 1 h, Messung liegt vor | **ja** — 14 von 804 Plys sind der Preis, und sie sagen dann ehrlich "ungemessen" |
+
+## 26. `--smooth-iters` dreht die Figur, der verbatim-Zweig nicht
+
+`meshprep._import_smoothed` laeuft ueber `_load_and_extract` -> `_ensure_z_up` und dreht die Figur
+um -90 Grad um X, sobald Y die dominante Achse ist. Der verbatim-Zweig daneben dreht nicht, und
+`prepare_scan` verspricht im Docstring ausdruecklich "no uprighting".
+
+Damit haengt die AUSRICHTUNG einer importierten Figur an einem Glaettungsschalter — zwei Importe
+derselben Datei mit und ohne `--smooth-iters` stehen verschieden im Raum.
+
+**Warum nicht gebaut:** die Drehung wegzunehmen aendert die Geometrie jeder so importierten Figur
+und jeden Render, der sie nutzt. `synth_pieces/` ist Ground Truth ohne Backup. `xfail(strict=True)`
+in `tests/test_bug_hunt_20260916e.py`.
+
+| Kiste | Aufwand | Empfehlung |
+|---|---|---|
+| C | 30 min plus eine Sichtprobe je betroffener Figur | erst zaehlen, welche Meshes mit `--smooth-iters` entstanden |
