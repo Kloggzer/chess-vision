@@ -337,3 +337,34 @@ ihn einmal.
 | Kiste | Aufwand | offen |
 |---|---|---|
 | C | Schritt 1–2 ein Tag, der Rest je Familie | Backup-Weg (`pg_dump`) — heute ist `data/` "ein Ordner, den man kopiert" |
+
+### Stand 2026-09-16, Mittag: Gerüst steht und ist bewiesen
+
+`compose.yaml` (Postgres 17-alpine, nur auf `127.0.0.1`, benanntes Volume) und `db/schema/`
+(`001_measurements.sql`, `002_roles.sql`, beim ersten Hochfahren automatisch angewandt).
+
+**Gegen die laufende Datenbank geprüft, jede Zusage einmal verletzt — alle sechs abgewiesen:**
+
+| Versuch | abgewiesen von |
+|---|---|
+| `matte`-Zeile ohne Absage UND ohne Messung | `matte_state` |
+| `matte`-Zeile mit `skipped` UND `coverage` | `matte_state` |
+| `coverage = '{}'` | `matte_dense` |
+| `coverage` mit 63 Feldern | `matte_dense` |
+| `board_path` ohne Inhaltsstempel | `frame_board_is_complete` |
+| Urteil mit `stem` UND `ply` | `review_note_target` |
+
+Die drei **gültigen** Zustände kommen sauber zurück: `abgelehnt`, `gemessen` (auch wenn überall
+null), und *keine Zeile* = nicht gemessen.
+
+**Die Rollentrennung hält, von der DB erzwungen:** `chesslab_web` auf `matte` → `permission
+denied`; `chesslab_pipeline` auf `review_note` → `permission denied`.
+
+**Beim `matte_dense` lauerte ein echtes Loch:** `array_length('{}', 1)` ist `NULL`, und eine
+CHECK-Bedingung, die zu `NULL` auswertet, GILT in Postgres. Ohne das `coalesce` wäre ein leeres
+Array als "gemessen, null Felder" durchgegangen — genau die Verwechslung, gegen die das Schema
+gebaut ist. Gefunden durch die Gegenprobe, nicht durch Nachdenken.
+
+**Offen:** der automatische Test. `psycopg` liess sich nicht nachinstallieren, solange der
+Destillations-Lauf das venv haelt (`chesslab.exe` gesperrt). Die Zusagen sind damit **von Hand**
+belegt, nicht von der Suite — das kommt nach, sobald der Lauf durch ist.

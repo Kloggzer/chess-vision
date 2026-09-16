@@ -1,0 +1,25 @@
+# Postgres fuer chesslab. Nur die Messreihen und die Urteile liegen hier -- Bretter, Alphas und
+# Packs bleiben Dateien, die DB traegt ihren Pfad und einen Inhaltsstempel (siehe 001_*.sql).
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: chesslab-db
+    environment:
+      POSTGRES_DB: chesslab
+      POSTGRES_USER: chesslab
+      POSTGRES_PASSWORD: chesslab
+    ports:
+      # Nur auf localhost: die DB ist kein Netzdienst, sie liegt neben dem Rechner, der misst.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - chesslab-pgdata:/var/lib/postgresql/data
+      # Wird beim ERSTEN Hochfahren in alphabetischer Reihenfolge ausgefuehrt.
+      - ./db/schema:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chesslab -d chesslab"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  chesslab-pgdata:
