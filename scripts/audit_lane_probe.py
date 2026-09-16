@@ -17,7 +17,13 @@ from PIL import Image, ImageDraw
 
 from chesslab import config
 from chesslab.calibration import load_profile
-from chesslab.labeling import all_squares, crops_for_frame, read_matte, read_session_meta
+from chesslab.labeling import (
+    all_squares,
+    board_source,
+    crops_for_frame,
+    read_matte,
+    read_session_meta,
+)
 
 CELL, PAD, BAR = 104, 6, 26
 
@@ -69,10 +75,12 @@ def main():
         row = log.get(f["frame"])
         if row is None:
             continue
-        board = cv2.imread(str(sdir / (row.get("board") or row["frame"])))
-        if board is None:
+        rel, stored = board_source(row, profile)
+        img = cv2.imread(str(sdir / rel))
+        if img is None:
             continue
-        cells = crops_for_frame(None, row["corners"], profile, board=board)
+        cells = (crops_for_frame(None, row["corners"], profile, board=img) if stored
+                 else crops_for_frame(img, row["corners"], profile))
         crop = cells[squares.index(f["square"])]
         cov = float((matte.get(f["frame"]) or {}).get(f["square"], 0.0))
         n_hand += cov > 0.0

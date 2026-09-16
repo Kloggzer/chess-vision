@@ -155,6 +155,17 @@ def usable_board(entry: dict, profile: CalibrationProfile) -> bool:
             and entry.get("board_border") == crop_border_px(profile))
 
 
+def board_source(entry: dict, profile: CalibrationProfile) -> tuple[str, bool]:
+    """Welche Datei die Crops liefert, und ob sie schon das fertige Brett ist.
+
+    Die Verzweigung, die `iter_session_crops` fuehrt — als eigene Funktion, weil zwei Mess-Skripte
+    sie mit `row.get("board") or row["frame"]` nachgebaut und dabei den rohen Frame als `board=`
+    durchgereicht haben. Ein Frame ist kein entzerrtes Brett.
+    """
+    stored = usable_board(entry, profile)
+    return (entry["board"] if stored else entry["frame"]), stored
+
+
 def crop_square(board_warped, square: str, profile: CalibrationProfile, out_size: tuple[int, int]):
     """Extract one square-crop from the **bordered** board (`warp_board_for_crops`).
 

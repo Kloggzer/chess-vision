@@ -18,7 +18,13 @@ import numpy as np
 
 from chesslab import config
 from chesslab.calibration import load_profile
-from chesslab.labeling import all_squares, crops_for_frame, read_matte, read_session_meta
+from chesslab.labeling import (
+    all_squares,
+    board_source,
+    crops_for_frame,
+    read_matte,
+    read_session_meta,
+)
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 
 
@@ -80,10 +86,12 @@ def main():
 
     truth, cnn, spec = [], [], []
     for i, (stem, r) in enumerate(rows):
-        board = cv2.imread(str(sdir / (r.get("board") or r["frame"])))
+        rel, stored = board_source(r, profile)
+        board = cv2.imread(str(sdir / rel))
         if board is None:
             continue
-        cells = crops_for_frame(None, r["corners"], profile, board=board)
+        cells = (crops_for_frame(None, r["corners"], profile, board=board) if stored
+                 else crops_for_frame(board, r["corners"], profile))
         reads = occluded_model.all_reads(Path(args.run), cells)
         # Ueber `read_gate` mit dem Rand der ZEILE: `read_boards` schneidet ihn nicht ab, das
         # CNN daneben schneidet ihn sehr wohl — 12 px auf 952 sind ein Viertel Feld Versatz, und
