@@ -530,3 +530,33 @@ Der Weg war also immer da, er wurde nur nicht gegangen.
 **22 der 48 Aufnahmen** waren bei mindestens einem der vier v7-Folds draussen
 (`_fold0..3128v7/p4a-s42`, Split-Kopie in der jeweiligen `config.json`). Fuer die ist ein
 ehrlicher Audit moeglich; fuer die uebrigen 26 nicht, solange kein Fold sie auslaesst.
+
+## Die Brett-Vorschau zeigte den Vorfilter und nannte ihn die Hand (2026-09-17)
+
+Nutzer: "die belegten Kaestchen stimmen bei weitem nicht mit der echten Hand ueberein ... sind
+die Matten korrekt und die Anzeige kaputt?" — **Beides nicht.** Gemessen auf
+`2026-08-08-11-59-12`, 435 gemeinsame Frames:
+
+| | |
+|---|---|
+| Von allen gelben Zellen liegen auf einer Matte-Hand | **99,6 %** |
+| Von allen Matte-Hand-Zellen sind gelb | **53,8 %** |
+| Frames, in denen das Gelb ueberwiegend danebenliegt | **0 von 435** |
+
+Die Anzeige war nicht verschoben, sondern **halb blind**: `BoardPeek` zeichnete
+`frame-hands.jsonl`, also den RILLEN-Sensor (Precision 99,6 %, Recall 71 %), waehrend die
+gemessene Matte danebenlag und nur als Filter benutzt wurde. Ihr eigener Kommentar nannte den
+Vorfilter "die Hand, sichtbar".
+
+**Am Einzelfall belegt** (Frame `001413`): die Matte nennt 20 Felder — `b1`–`d6` plus `a4`/`a5`,
+ein Finger, der weit ins Brett reicht. Der Rillen-Sensor nannte davon **9**, den 3×3-Kern. Genau
+dieser Block sah aus wie "passt nicht zur Hand".
+
+**Gefixt:** `lib/hand-overlay.ts` waehlt die Messung — die Matte, wo es sie gibt, sonst der
+Vorfilter — und die Vorschau SAGT im Untertitel, welche sie zeigt (`Matte` / `nur Rillen (~71 %)`).
+Eine gemessene Matte OHNE Hand ist dabei eine Aussage und faellt nicht auf den Vorfilter zurueck.
+
+**Nebenbefund, nicht gefixt:** die gespeicherte `coverage` dieser Aufnahme weicht in **18 von
+1204** Frames vom eigenen Alpha ab, alle mit `alpha: fixed`. `recut_coverage` laesst die
+Handfassungen bewusst aus ("gehoert dem Menschen") — die Zahl bleibt damit stehen, waehrend die
+Pixel neu sind. Groesster Abstand 0,999.

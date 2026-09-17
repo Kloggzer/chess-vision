@@ -1,6 +1,7 @@
 "use client";
 
 import { SQUARES } from "@/components/board-paint";
+import type { HandOverlay } from "@/lib/hand-overlay";
 
 export type BoardPeekProps = {
   /** The rectified board this cell was cut from — `/api/board/<name>/<stem>`. */
@@ -9,8 +10,9 @@ export type BoardPeekProps = {
   square: string;
   /** Printed over the board so the panel says what it is showing. */
   caption: string;
-  /** Felder, die der Rillen-Sensor auf diesem Frame als verdeckt benennt — die Hand, sichtbar. */
-  hands?: string[];
+  /** Die verdeckten Felder UND woher sie kommen: die Matte misst, der Rillen-Sensor nennt nur
+   *  (Recall 71 %). Das zu verschweigen liess halbe Haende wie ganze aussehen. */
+  hands?: HandOverlay;
 };
 
 const SIZE = 384;
@@ -22,7 +24,7 @@ const SIZE = 384;
  */
 export function BoardPeek({ src, square, caption, hands }: BoardPeekProps) {
   const at = SQUARES.indexOf(square);
-  const covered = new Set(hands ?? []);
+  const covered = new Set(hands?.squares ?? []);
   return (
     <div className="border-border bg-background/95 pointer-events-none fixed right-4 bottom-4 z-50 rounded-lg border p-2 shadow-xl backdrop-blur">
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
@@ -46,7 +48,14 @@ export function BoardPeek({ src, square, caption, hands }: BoardPeekProps) {
           </div>
         ) : null}
       </div>
-      <div className="text-muted-foreground mt-1 text-center font-mono text-xs">{caption}</div>
+      <div className="text-muted-foreground mt-1 text-center font-mono text-xs">
+        {caption}
+        {hands && hands.source !== "none" ? (
+          <span className={hands.source === "matte" ? "ml-2 text-amber-300" : "ml-2 text-amber-500/70"}>
+            {hands.source === "matte" ? "Matte" : "nur Rillen (~71 %)"}
+          </span>
+        ) : null}
+      </div>
     </div>
   );
 }
