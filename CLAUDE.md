@@ -302,8 +302,19 @@
   **Aber der Grund ist ein Nebeneffekt**: `applyPrior` rechnet auf getemperten Wahrscheinlichkeiten,
   das effektive Lambda ist `lambda * T` = 5,98 statt 4,0. Der Gewinn kommt also vom staerkeren
   Legalitaets-Prior, nicht von der Kalibrierung — wer `priorLambda` liest, liest eine Zahl, die
-  um Faktor T falsch ist. **Wer das aufloest, setzt Lambda explizit und entkoppelt es von T**,
-  sonst wandert die Staerke mit jedem neuen Modell. `TemperatureParityTest` haelt vier Befunde
+  um Faktor T falsch ist.
+  **AUFGELOEST 2026-09-17** (Nutzer: "prior lagern dann auch beim Modell"): `priorOnTempered`
+  teilt die deklarierte Staerke, bevor sie auf die getemperten Zeilen trifft — auf den ROHEN
+  Logits landet damit die Zahl, die dasteht. Und sie reitet im MODELL (`prior_lambda` in
+  `config.json`), wie `coverage_gate`: **5,0412 bis 7,0204** ueber die sieben, je `4,0 x T`.
+  Das sind MIGRATIONSwerte — was jedes Modell vorher effektiv fuhr, keine gemessenen Optima.
+  Verhaltensgleich nachgewiesen: **396/3/0/171 bei 5**, Ziffer fuer Ziffer wie `prior=4` mit
+  Temperatur. Beim Verdrahten fiel auf, dass ZWEI Stellen die Staerke fragen — `possibleFor`
+  baut das Prior-Brett ueberhaupt erst und fragte weiter den Konstruktor-Wert, weshalb der
+  erste Bestaetigungslauf exakt auf der Referenz blieb. Ob 5,98 der RICHTIGE Wert ist, weiss
+  niemand; das waere eine Schwellenkurve wie bei den `coverage_gate`s, und die ist jetzt
+  moeglich, weil die Zahl an einer Stelle steht und nicht mehr mit T mitwandert.
+  `TemperatureParityTest` haelt vier Befunde
   derselben Wurzel (`applyPrior`, `invalidMass`, `PROMO_CNN_CONFIDENCE`, die Besetzt-Achse von
   `calibratedConfThr`) als `@Disabled` fest — **keine Zahl eicht beide Achsen gleich**:
   `pEmpty` ist eine Klasse, `pOcc` die Summe von zwoelf.
