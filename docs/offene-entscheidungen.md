@@ -600,3 +600,45 @@ Zellen, beide Folds lesen einen Bauern, wo das FEN einen Turm fuehrt.
 
 `2026-08-08-00-39-57` d4 (Fold B stimmt dem FEN zu 65 % zu), `2026-09-06-20-27-33` b4 (80 %) und
 f8 (80 %), `2026-09-06-21-29-35` d8 (75 %) und f4 (60 %), `VID_20260824_153751` c7 (94 %).
+
+## Je Partie gemittelt verschwindet ein Fehler, der zwischen zwei Zuegen sitzt (2026-09-17)
+
+Der Audit fasste je Feld ueber die GANZE Aufnahme zusammen. Ein Feld traegt aber ueber 99 Plies
+mehrere Figuren nacheinander: `2026-09-06-21-29-35` c2 stimmt in vier von fuenf Fenstern und liegt
+im fuenften 256 von 263 Mal daneben. `scripts/heldout_label_audit.py` schneidet jetzt je
+**Ply-Fenster konstanter FEN-Aussage**. Aus 32 Befunden wurden **35 Fenster**, und erst so war die
+zweite Stelle sichtbar.
+
+### Der Fall: ein Turm, den es auf dem Brett nicht gibt
+
+`2026-09-06-21-29-35`, weisse Turmspur laut FEN — beide Folds gegengeprueft:
+
+| Station | Ply | Fold A | Fold B | |
+|---|---|---|---|---|
+| c1 | 45-46 | `wR` 81 % | `wR` 63 % | ok |
+| c1 | 51-52 | `wR` 97 % | `wR` 81 % | ok |
+| **c2** | **57-74** | **`wP` 256/263** | **`wP` 195/263** | **263 Zellen, 252 offen** |
+| **c6** | **75-78** | **`wN` 53/59** | **`wN` 54/59** | **59 Zellen, 54 offen** |
+| **c8** | **79-80** | **`wN` 19/31** | **`wN` 18/31** | **31 Zellen** |
+
+**Und ab Ply 40 fuehrt das FEN gar keinen weissen Springer mehr** — beide gelten als geschlagen,
+waehrend beide Folds auf c6 und c8 einen lesen. Der Mitschnitt hat also eine Figur verwechselt
+oder eine Schlagung verbucht, die es nicht gab.
+
+**Das ist keine Label-Panne, sondern eine Divergenz zwischen Zugfolge und Brett.** Die
+Brett-Uebereinstimmung faellt im Fenster 60-79 auf 84 % gegen sonst ~90 % — ein Dip, kein
+Zusammenbruch, die Divergenz ist also LOKAL. Drei Felder zu korrigieren wuerde sie zudecken,
+nicht loesen.
+
+### Was die Methode dabei gelernt hat
+
+`c8` lag bei 61 % und fiel durch die Schwelle von 70 %. Gefunden wurde es, indem der SPUR der
+verdaechtigen Figur gefolgt wurde, Station fuer Station. **Eine Schwelle je Fenster findet den
+Anfang einer Kette, nicht ihr Ende** — wer einen Fund hat, verfolgt das Stueck.
+
+### Stand des Audits
+
+**35 Fenster** mit systematischem Widerspruch ueber 22 Aufnahmen, **5 davon vom zweiten Fold
+bestaetigt** (plus c8 ueber die Spur). `2026-08-16-20-41-33` traegt allein **11 Fenster** und hat
+KEINEN zweiten Zeugen — bei 60 % Fehlalarm je Einzelzeuge ist das nicht belastbar, solange kein
+Fold diese Aufnahme auslaesst.
