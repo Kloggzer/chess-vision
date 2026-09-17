@@ -843,3 +843,50 @@ gleich gut.
 
 Was fehlt, ist keine Menge, sondern eine BEDINGUNG: von Schwarz gespielt, dunkel, anderes Handy
 (`no-retrain-without-new-domain`, `dark-footage-is-a-stress-test`).
+
+## Ausduennen: kluge Auswahl verlor gegen den Zufall (2026-09-17, ein Seed)
+
+Aus der Redundanz-Messung (90,3 % Dubletten) folgte die Frage des Nutzers: bringt es etwas, je
+Standzeit die VERSCHIEDENSTEN Crops zu behalten statt der ersten? `scripts/thin_dataset.py` baut
+den Zwilling eines Datensatzes mit k Crops je Standzeit; Val und Test bleiben Zeile fuer Zeile.
+
+**Erster Anlauf war falsch aufgebaut.** Ich duennte nur die AUFNAHMEN aus und liess die Komposite
+ganz — damit kippte die Train-Mischung von **50,2 / 49,8** auf **8,5 / 91,5**, und der Val-Satz ist
+eine Aufnahme. Der Lauf mass also "schadet es, fast nur auf Kompositen zu trainieren".
+
+**Nebenbefund daraus:** bei 50/50 traegt das Modell 0,9718, bei 8/92 nur 0,90-0,92 — bei
+UNVERAENDERTER absoluter Komposit-Zahl. Komposite ersetzen echte Partien nicht.
+
+### Das Paar, gleiche Groesse und Mischung
+
+| Arm | Mittel letzte 20 Epochen |
+|---|---|
+| Farthest-Point | **0,8965** |
+| Zufall | **0,9166** |
+
+**Der Zufall gewinnt um 0,0201** — rund 2,8 sd des Seed-Rauschens der Basislinie (0,0073).
+**Ein Seed je Arm**, also ein Indiz, kein Beleg (`seed-variance-exceeds-the-effects`); drei Seeds
+je Arm laufen.
+
+Damit hat meine **Deckungskurve das Gegenteil vorhergesagt** (bei k=16: 4,5 gegen 2,3 zugunsten
+von Farthest-Point). Das Mass war ein schlechter Stellvertreter: Farthest-Point greift die
+EXTREME, und die Extreme einer Standzeit sind Haende, Wackler und Verdeckung.
+
+### Und ich bin in die Coverage Matte Trap gelaufen
+
+**49 % der Crops** von `2026-09-15-16-54-44` tragen `coverage: None` — nie gemattet. Mein Filter
+`float(cov or 0.0) <= PIECE_VISIBLE_MAX` las das als "voll sichtbar". Das steht woertlich in
+CLAUDE.md, und ich habe es in meinen eigenen Auswertungsskripten nachgebaut. Behoben.
+
+**Aber es erklaert die Haende nicht:** auch mit erzwungener Messung bleiben sie in der Auswahl.
+Die Hand-Crops tragen eine GEMESSENE Coverage unter der Schwelle — SAM sieht sie dort nicht. Ein
+Schaerfe-Filter hilft ebenso wenig: eine Hand ist nicht unscharf, sie ist ein anderes Objekt
+(von 416 Crops flogen 13 raus, die Haende blieben).
+
+### Was uebrig bleibt: erst den Rand abschneiden, dann spreizen
+
+Der dritte Arm (`--trim 0.25`) wirft die vom Median der Strecke entferntesten Crops weg, BEVOR
+Farthest-Point waehlt. In der Montage liefert das auf einer Standzeit genau das Gewuenschte —
+acht Licht- und Schattenlagen ohne Hand — auf einer anderen bleiben bei 10 % Beschnitt zwei
+Haende. Ob es dem Zufall schlaegt, entscheidet der Lauf, nicht das Auge: Farthest-Point sah in
+der Montage auch gut aus.
