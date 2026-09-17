@@ -426,7 +426,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
               no_amp: bool, seed: int, out: str | None, patience: int,
               num_workers: int | None = None, norm: str | None = None,
               eval_workers: int = 2, prefetch_factor: int = 2,
-              low_memory: bool = True, ram_reserve_gb: float = 4.0,
+              low_memory: bool = True, ram_reserve_gb: float = 0.0,
               per_crop: bool = False, input_repr: str = "rgb",
               dataset: str | None = None, resume: str | None = None,
               continue_run: bool = False, dark_min: float | None = None,
@@ -1165,6 +1165,10 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         # from its config: `lr` is where the cosine STARTS and `epochs` is its period, so two runs
         # with identical `lr` and different `epochs` never saw the same rate at the same step.
         "sched": sched, "sched_t_max": epochs if sched != "none" else None,
+        # Wann ein Lauf ENDET gehoert zur Rezeptur: ein Arm mit `patience 7` steigt nach 16
+        # Epochen aus, einer mit 60 faehrt durch, und der Unterschied haengt dann am Ausstieg
+        # statt am Verfahren. Stand bis 2026-09-17 in keiner config.json.
+        "patience": patience,
         "batch_aug": batch_aug,
         "channels_last": channels_last,
         "compile_model": compile_model, "compile_mode": compile_mode, "fused_adamw": fused_adamw,

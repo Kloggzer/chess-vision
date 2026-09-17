@@ -96,7 +96,8 @@ def test_cli_memory_stop_releases_lock_and_exits_with_failure(monkeypatch):
 
     def stop(**kwargs):
         assert kwargs["low_memory"] is True
-        assert kwargs["ram_reserve_gb"] == 4
+        # Vorgabe ist AUS: die Wache riss Laeufe an einem momentanen Einbruch ab.
+        assert kwargs["ram_reserve_gb"] == 0
         raise MemoryError("RAM reserve reached")
 
     def exit_process(code):
@@ -109,3 +110,21 @@ def test_cli_memory_stop_releases_lock_and_exits_with_failure(monkeypatch):
     assert result.exit_code == 1
     assert "RAM reserve reached" in result.output
     assert released == [True]
+
+
+def test_the_run_records_its_patience(tmp_path, monkeypatch):
+    """`patience` bestimmt, WANN ein Lauf endet — und stand in keiner config.json.
+
+    Gemessen 2026-09-17: alle Basislaeufe zeigen `patience: None`, und ob einer frueh ausstieg
+    liess sich nur daran ablesen, dass er 60 von 60 Epochen hatte. Bei einem Vergleich haengt der
+    Unterschied sonst am Ausstiegszeitpunkt statt am Verfahren (Nutzer: "bei solchen vergleichen
+    machen wir eigentlich immer patience 60").
+    """
+    import inspect
+
+    from chesslab.training import train
+
+    src = inspect.getsource(train.run_train)
+    start = src.index("cfg_written = {")
+    block = src[start:src.index("\n    }", start)]
+    assert '"patience"' in block, "die Rezeptur eines Laufs muss vollstaendig in der config.json stehen"

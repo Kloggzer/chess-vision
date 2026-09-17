@@ -67,6 +67,10 @@ def main() -> int:
     ap.add_argument("--like", required=True, help="Spender-Datensatz.")
     ap.add_argument("--name", required=True, help="Name des Zwillings.")
     ap.add_argument("--keep", type=int, default=16, help="Crops je Standzeit im TRAIN.")
+    ap.add_argument("--random", type=int, default=None,
+                    help="Statt Farthest-Point zufaellig waehlen, mit diesem Seed. Der GEGENARM: "
+                         "gleiche Groesse, gleiche Mischung, nur die Auswahl ist anders — erst so "
+                         "misst der Unterschied das Verfahren und nicht die Datenmenge.")
     args = ap.parse_args()
 
     donor = DATASETS / args.like
@@ -103,8 +107,13 @@ def main() -> int:
                 flat[j] = 0.0
                 continue
             flat[j] = mm[idx].reshape(THUMB, step, THUMB, step, 3).mean(axis=(1, 3, 4)).ravel()
-        dist = np.abs(flat[:, None, :] - flat[None, :, :]).mean(axis=2)
-        picked.extend(group[pick] for pick in farthest_point(dist, args.keep))
+        if args.random is not None:
+            rng = np.random.default_rng(args.random + done)
+            chosen = sorted(rng.choice(len(group), size=args.keep, replace=False).tolist())
+        else:
+            dist = np.abs(flat[:, None, :] - flat[None, :, :]).mean(axis=2)
+            chosen = farthest_point(dist, args.keep)
+        picked.extend(group[pick] for pick in chosen)
         if done % 200 == 0:
             print(f"   {done}/{len(runs)} Standzeiten", flush=True)
 
@@ -135,6 +144,7 @@ def main() -> int:
     cfg["name"] = args.name
     cfg["thinned_from"] = args.like
     cfg["thinned_keep"] = args.keep
+    cfg["thinned_how"] = "random" if args.random is not None else "farthest-point"
     cfg["counts"] = {"raw": len(rows), "after_dedup": len(final), "final": len(final)}
     (out / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                       encoding="utf-8")

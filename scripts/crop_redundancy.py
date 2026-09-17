@@ -27,7 +27,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chesslab.ioutil import read_jsonl
+from chesslab.ioutil import read_jsonl, write_rows
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 PACKS = Path("data/packs")
@@ -170,9 +170,9 @@ def main() -> int:
         print("\nje Zelle: Deckung `die ERSTEN k / k per Farthest-Point` (klein ist besser)")
         print(f"nicht-redundante Crops gesamt: {crops - dupes}")
     if args.json and got:
-        Path(args.json).write_text(
-            "".join(json.dumps({k: (list(v) if isinstance(v, np.ndarray) else v)
-                                for k, v in r.items()}) + "\n" for r in got), encoding="utf-8")
+        write_rows(Path(args.json),
+                   [{k: (list(v) if isinstance(v, np.ndarray) else v) for k, v in r.items()}
+                    for r in got])
     return 0
 
 

@@ -2081,8 +2081,11 @@ def train_cmd(
     ),
     low_memory: bool = typer.Option(True, "--low-memory/--no-low-memory",
                                    help="Direct pack reads, zero workers and no pinned RAM (default)."),
-    ram_reserve_gb: float = typer.Option(4.0, "--ram-reserve-gb", min=0,
-                                       help="Stop below this available RAM reserve in GiB; 0 disables."),
+    ram_reserve_gb: float = typer.Option(0.0, "--ram-reserve-gb", min=0,
+                                       help="Unter dieser freien RAM-Reserve (GiB) abbrechen; 0 ist AUS "
+                                            "und die Vorgabe. Die Wache prueft dreimal je Batch und riss "
+                                            "damit ganze Laeufe an einem MOMENTANEN Einbruch ab (Nutzer, "
+                                            "2026-09-17). Mit `--ram-reserve-gb 4` wieder an."),
     eval_workers: int = typer.Option(2, "--eval-workers", min=0,
                                     help="Persistent validation workers, separate from training."),
     channels_last: bool = typer.Option(False, "--channels-last",
