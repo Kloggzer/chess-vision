@@ -53,7 +53,10 @@ test("the index lands OUTSIDE the dataset and is keyed by the manifest's mtime",
   await expect(stat(path.join(datasetDir("d1"), "corpus-index.json"))).rejects.toThrow();
 
   // A rewritten manifest invalidates the index even when the cached one is still readable.
-  await writeFile(manifest, MANIFEST + '\n{"session_id":"rg-neu","label":"empty"}\n', "utf8");
+  // Angehaengt wird auf den REPARIERTEN Schwanz: `appendRows` schneidet die halbe letzte Zeile
+  // ab, bevor es schreibt — eine Zeile dahinter zu kleben macht daraus Schaden MITTENDRIN.
+  await writeFile(manifest, MANIFEST.split("\n").slice(0, -1).join("\n")
+    + '\n{"session_id":"rg-neu","label":"empty"}\n', "utf8");
   const later = new Date(Date.now() + 60_000);
   await utimes(manifest, later, later);
   const second = await corpusIndex("d1");
@@ -128,4 +131,23 @@ test("a variant prefix is not a different session", () => {
   expect(sameSession("rg-2026-08-07-13-52-38", "rg-2026-08-07")).toBe(false);
   expect(isRealGame("phone-20260808-220912")).toBe(false);
   expect(isRealGame("occ-rg-2026-08-07")).toBe(true);
+});
+
+test("der Korpus-Index verschweigt keine kaputte Zeile MITTENDRIN", async () => {
+  // Still uebersprungen zaehlte der Index zu wenig, und nichts sagte es — dieselbe Falle wie
+  // eine ungemessene Zahl als gemessene 0. Der ZEILENUMBRUCH entscheidet.
+  await expect(tallyLines([
+    JSON.stringify({ session_id: "s", label: "wP" }),
+    '{"session_id": "s", "lab',
+    JSON.stringify({ session_id: "s", label: "empty" }),
+  ])).rejects.toThrow(/not JSON/);
+});
+
+test("die halbe LETZTE Zeile faellt weg, weil dort ein Schreiber laeuft", async () => {
+  const tally = await tallyLines([
+    JSON.stringify({ session_id: "s", label: "wP" }),
+    '{"session_id": "s", "lab',
+  ]);
+
+  expect(tally.rows).toBe(1);
 });

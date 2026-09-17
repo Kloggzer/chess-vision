@@ -10,3 +10,4 @@
 1 lib/chain.ts  # liest nur die erste Zeile aus einem 4-KB-Puffer
 1 lib/frame-flag.ts  # braucht den Zeilen-INDEX, um die Datei zurueckzuschreiben
 1 lib/provenance.ts  # braucht die Zeilen-ZAHL und nur die Kopfzeile
+1 lib/corpus.ts  # stroemt ueber ein 57-MB-Manifest; lib/jsonl.ts liest den GANZEN Text - traegt die Schwanz-Politik seit 2026-09-17 selbst

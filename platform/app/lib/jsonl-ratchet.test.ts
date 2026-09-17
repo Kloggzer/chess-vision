@@ -14,9 +14,33 @@ const BS = String.fromCharCode(92);
 /** Die vier Schreibweisen, in denen diese App eine Datei in Zeilen schneidet. */
 const CUTS = [`.split("${BS}n")`, `.split('${BS}n')`, `.split(/${BS}r?${BS}n/)`,
   ".split(String.fromCharCode(10))"];
+/** Zeilenweise ITERATION ist derselbe Schnitt, nur unsichtbar fuer eine Textsuche: der
+ *  Python-Zwilling uebersah so drei handkopierte Nachbauten seines Lesers (2026-09-17). */
+const ITER = /for\s+(?:await\s+)?\(\s*const\s+(\w+)\s+of\s+([\w.]+)/g;
+
+/** Der Rumpf der Schleife, ueber die Klammern abgezaehlt — `JSON.parse` irgendwo SONST in
+ *  derselben Datei ist ein anderer Gueltigkeitsbereich und zaehlte zweimal falsch mit. */
+function loopBody(text: string, from: number): string {
+  const open = text.indexOf("{", from);
+  if (open < 0) return "";
+  let depth = 0;
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === "{") depth += 1;
+    else if (text[i] === "}" && (depth -= 1) === 0) return text.slice(open, i);
+  }
+  return text.slice(open);
+}
 
 function cuts(text: string): number {
-  return CUTS.reduce((n, needle) => n + text.split(needle).length - 1, 0);
+  const split = CUTS.reduce((n, needle) => n + text.split(needle).length - 1, 0);
+  let iter = 0;
+  for (const m of text.matchAll(ITER)) {
+    // Der Treuhaender selbst ist kein eigener Schnitt.
+    if (m[2].startsWith("jsonlRows")) continue;
+    const body = loopBody(text, (m.index ?? 0) + m[0].length);
+    if (new RegExp(String.raw`JSON\.parse\(\s*` + m[1] + String.raw`\b`).test(body)) iter += 1;
+  }
+  return split + iter;
 }
 
 async function sources(dir: string): Promise<string[]> {

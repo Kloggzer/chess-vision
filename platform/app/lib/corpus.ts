@@ -108,15 +108,23 @@ async function loadSplit(name: string): Promise<Split | null> {
 
 type Tally = { rows: number; sessions: Record<string, SessionCounts>; coverage: CoverageTally | null };
 
-/** One pass over manifest rows; a half-written line is skipped, never fatal. */
+/**
+ * One pass over manifest rows. Der ZEILENUMBRUCH entscheidet, wie in `lib/jsonl.ts` und
+ * `chesslab.ioutil`: die halbe LETZTE Zeile faellt weg, eine kaputte MITTENDRIN ist
+ * Beschaedigung und bleibt laut. Still zu ueberspringen hiess: der Index zaehlt zu wenig,
+ * und niemand erfaehrt es.
+ */
 export async function tallyLines(lines: AsyncIterable<string> | Iterable<string>): Promise<Tally> {
   const tally: Tally = { rows: 0, sessions: {}, coverage: null };
+  let broken: string | null = null;
   for await (const line of lines) {
     if (!line.trim()) continue;
+    if (broken !== null) throw new SyntaxError(broken);
     let row: { session_id?: unknown; label?: unknown; coverage?: unknown };
     try {
       row = JSON.parse(line) as { session_id?: unknown; label?: unknown; coverage?: unknown };
-    } catch {
+    } catch (err) {
+      broken = `manifest line is not JSON: ${(err as Error).message}`;
       continue;
     }
     const id = typeof row.session_id === "string" ? row.session_id : "?";
