@@ -11,30 +11,12 @@ import kotlin.math.ln
  * Beides ist Engine-Verhalten, also rot und `@Disabled` statt still gefixt.
  */
 class TemperatureParityTest {
-    /**
-     * `applyPrior` rechnet auf GETEMPERTEN Wahrscheinlichkeiten, sein KDoc verspricht aber
-     * `logProb + lambda * logPrior`. Effektiv ist es `lambda * T` — 4,0 x 1,495 = 5,98, und die
-     * verbotene Masse faellt dadurch von 0,0087 auf 0,0023.
+    /*
+     * Der applyPrior-Befund ist ERLEDIGT (2026-09-17): `priorOnTempered` teilt die deklarierte
+     * Staerke am Aufrufer, `applyPrior` nimmt sie per Bauart im getemperten Raum. Der Vertrag
+     * steht in `PriorStrengthTest`; ein @Disabled, das nie gruen werden kann, waere dieselbe
+     * Falle wie ein veralteter TODO.
      */
-    @Disabled("Engine-Verhalten: aendert die Legalitaets-Kondition, braucht den Regressionssatz")
-    @Test
-    fun `the legality prior is the same strength with and without the fitted temperature`() {
-        val classes = listOf("empty", "wP", "wN", "wB")
-        val allowed = setOf("empty", "wP")
-        val logProbs = doubleArrayOf(-0.1, -2.4, -5.0, -3.3)
-
-        // Was der Code tut: erst tempern, dann das Lambda auf die Wahrscheinlichkeiten.
-        val tempered = softmaxAt(FloatArray(4) { logProbs[it].toFloat() }, T_SHIPPED)
-        val onTempered = applyPrior(DoubleArray(4) { tempered[it].toDouble() }, classes, allowed, LAMBDA)
-
-        // Was das KDoc zusagt: das Lambda auf die Log-Wahrscheinlichkeiten, dann tempern.
-        val penalised = FloatArray(4) { (logProbs[it] - if (classes[it] in allowed) 0.0 else LAMBDA).toFloat() }
-        val onLogits = softmaxAt(penalised, T_SHIPPED)
-
-        for (i in classes.indices) {
-            assertEquals(onLogits[i].toDouble(), onTempered[i], TOLERANCE) { "Klasse ${classes[i]}" }
-        }
-    }
 
     /**
      * `calibratedConfThr` eicht EINE Spitzenklasse gegen gleichmaessigen Rest, also `pEmpty`.
