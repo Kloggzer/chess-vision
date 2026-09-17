@@ -425,3 +425,49 @@ wechselten die Seite von `PIECE_VISIBLE_MAX`** — das ist die dokumentierte Geo
 **Damit offen:** gebaute Datensaetze tragen `coverage` in ihrem eigenen Manifest. Jeder Satz, der
 diese 15 Aufnahmen enthaelt und vor heute gebaut wurde, fuehrt weiter die alten Zahlen — die 395
 gewechselten Zellen wirken erst nach einem Neubau.
+
+---
+
+## Die Leser-Ratsche sah nur die halbe Form (2026-09-17)
+
+`tests/jsonl_readers.txt` bewachte `splitlines()`. **`for line in fh:` ist derselbe
+Zeilenschnitt**, nur unsichtbar fuer eine Textsuche — **16 Stellen** liefen unentdeckt vorbei,
+und darunter waren **drei handkopierte Nachbauten von `read_jsonl`** samt Schwanz-Politik
+(`capture_import._timeline_rows`, `train_watchdog._epochs`, `phone_candidate_offset.rows_of`).
+Keiner trug `utf-8-sig` oder `newline=""`: ein BOM toetete sie, und ein zwischen CR und LF
+abgerissener Schwanz sah im Universal-Modus ganz aus.
+
+Die Ratsche sucht jetzt ueber den **Syntaxbaum**, sonst faellt `json.loads(p.read_text())` in
+einer Glob-Schleife als Fehltreffer hinein.
+
+**Zehn der Stellen stroemten mit Grund** — sie zaehlen ueber 465k-Zeilen-Manifeste oder brauchen
+nur die erste Zeile und wollten keine Liste bezahlen. Dafuer gibt es `ioutil.iter_jsonl`:
+dieselbe Politik, ohne die Liste. **Uebrig bleiben zwei**: `scripts/board_grid_probe.py`
+(Nutzer-Verbot) und `labeling.py`, das die ROHEN Zeilen weiterschreibt, die es liest.
+
+### Was die Ratsche daraus lernt
+
+Eine Ratsche, die auf eine SCHREIBWEISE zeigt statt auf die FORM, waechst nicht mit dem Code.
+Die Web-App traegt denselben Zwilling (`lib/jsonl-ratchet.test.ts`) und dieselbe Luecke —
+**nicht nachgemessen**, ob dort `for (const line of ...)` genauso durchlaeuft.
+
+## Drei Tests, die ihren eigenen Fund nicht mehr fingen (2026-09-17)
+
+Alle drei durch Mutation belegt: sie blieben gruen, waehrend der Fehler zurueckkam.
+
+- **Handy-Karte**: die Quelltext-Ratsche suchte `head.note` als Zeichenkette und uebersah, dass
+  genau die zwei Felder fehlen koennen, nach denen der Nutzer gefragt hatte. Sie prueft jetzt den
+  JSX-Ausdruck je Feld.
+- **SWA-Vergleich**: der Test hielt den HELFER, der Fehler sass am AUFRUFORT.
+- **Spender-Pack-Pin**: eine Tautologie — sein Fixture liess Zeile und Pack dasselbe sagen, also
+  passierte er beide Codepfade. Auf der Platte widersprechen sie sich.
+
+## Zwei gemeldete Zahlen, die nie gemessen wurden (2026-09-17)
+
+`run_ingest` nannte `skipped` in seiner Fehlermeldung als Tatsache; der Adapter `continue`te
+still, die Zahl war beweisbar 0. Und `after_dedup` stand NACH dem pieces13-Collapse, war also
+per Konstruktion `final` — Dedup-Wirkung und Collapse als eine Groesse unter zwei Namen.
+
+Beides Berichts-, keine Rezeptfragen, deshalb gebaut statt gepinnt. **Neun `xfail(strict)`
+bleiben**, jedes mit derselben Begruendung: der Fix aendert Verhalten, und das ist eine
+Entscheidung des Menschen.
