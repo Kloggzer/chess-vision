@@ -108,3 +108,29 @@ def test_the_inventory_only_counts_squares_that_are_themselves_a_finding():
     counted = audit.phantom_reads(votes, min_reads=8, min_share=0.7)
 
     assert counted == {1: {"wN": 1}, 2: {"wN": 1}}, "nur das belegte Fenster zaehlt mit"
+
+
+def test_the_coverage_comes_from_the_matte_not_from_the_read(tmp_path):
+    """Die Lesungs-Zeile traegt KEINE Coverage — der Filter griff nie.
+
+    Gemessen 2026-09-17: alle 209 962 gehaltenen Lesungen haben `coverage: None`, und der Audit
+    zaehlte damit verdeckte Zellen mit, auf denen das Modell zu 75 % irrt. Die Zahl steht in
+    `matte.jsonl`, je Frame eine Karte Feld -> Anteil.
+    """
+    import json
+
+    matte = tmp_path / "matte.jsonl"
+    matte.write_text(
+        json.dumps({"frame": "000100", "coverage": {"e4": 0.9, "d4": 0.01}}) + "\n"
+        + json.dumps({"frame": "000103", "skipped": "zone too big", "coverage": None}) + "\n",
+        encoding="utf-8")
+
+    cov = audit.coverage_of(tmp_path)
+
+    assert cov["000100"]["e4"] == 0.9
+    assert audit.covered(cov, "000100", "e4") is True
+    assert audit.covered(cov, "000100", "d4") is False
+    # SAMs Absage traegt keine Zahl: nicht gemessen ist nicht verdeckt (CLAUDE.md).
+    assert audit.covered(cov, "000103", "e4") is False
+    # Ein Frame ohne Matte-Zeile auch nicht — sonst faellt jede ungemattete Aufnahme weg.
+    assert audit.covered(cov, "999999", "e4") is False

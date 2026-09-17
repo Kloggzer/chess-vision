@@ -725,27 +725,36 @@ den Turm richtig (67 %) — und auf `c6` denselben Springer wie die Cellnets (55
 **Es ist auch kein Geometriefehler:** der Crop, den `frame_cells` schneidet, und der von
 `/api/cell` sind dasselbe Bild. Das Modell sieht genau, was der Mensch sieht.
 
-### Die Zahl, die alles einordnet
+### Die Zahl, die alles einordnet — und meine erste Fassung war falsch
 
-Ueber **209 962 sichtbare Figurenzellen** der 22 Aufnahmen weicht ein GEHALTENES Modell in
-**10,6 %** vom FEN ab. `wR -> wN` allein: **478 Zellen, 3,0 % aller weissen Tuerme**.
+Ich meldete "10,6 % Fehler auf SICHTBAREN Zellen". Der Filter hatte nie gegriffen: **alle 209 962
+gehaltenen Lesungen tragen `coverage: None`**, denn die Zahl steht in `matte.jsonl`, nicht in der
+Lesung. Richtig verbunden:
 
-| Figur | Zellen | falsch | | Figur | Zellen | falsch |
-|---|---|---|---|---|---|---|
-| `wN` | 10 847 | **22,0 %** | | `bN` | 9 269 | 15,5 % |
-| `wB` | 11 343 | **18,5 %** | | `bB` | 12 340 | 12,1 % |
-| `wR` | 15 916 | **16,4 %** | | `bR` | 14 560 | 6,8 % |
-| `wQ` | 6 187 | 14,2 % | | `bQ` | 6 125 | 7,7 % |
-| `wK` | 8 240 | 10,9 % | | `bK` | 8 240 | 5,3 % |
+| Lage | Zellen | falsch |
+|---|---|---|
+| **weiss verdeckt** | **13 237** | 74,6 % |
+| **schwarz verdeckt** | **7 120** | 75,8 % |
+| weiss sichtbar | 66 732 | **4,6 %** |
+| schwarz sichtbar | 71 140 | **3,4 %** |
 
-**Weiss wird durchgehend zwei- bis dreimal schlechter gelesen als Schwarz** — auf SICHTBAREN
-Zellen, also nicht allein durch Verdeckung erklaerbar (`occlusion-asymmetry-is-the-player-side`
-erklaert die Verdeckung, nicht das hier). Das ist ein eigener, ungeklaerter Befund.
+**Weiss liegt 1,86x so oft unter einer Hand** — der Mensch spielt Weiss
+(`occlusion-asymmetry-is-the-player-side`, hier erstmals in LESEFEHLERN gemessen). Auf verdeckten
+Zellen sind beide Farben gleich schlecht; dort ist nichts zu sehen. Auf sichtbaren schrumpft der
+Abstand von Faktor 2-3 auf **1,35**, und die Fehlerrate von 10,6 % auf **rund 4 %**.
+
+Nicht der Kontrast: weiss auf hell 13,5 % gegen weiss auf dunkel 12,7 %.
+
+**Derselbe Fehler steckte im Audit** (`scripts/heldout_label_audit.py`) und ist gefixt. Mit der
+echten Coverage findet er MEHR, nicht weniger: **41 Fenster statt 35, 8 bestaetigt statt 5** —
+verdeckte Zellen waren Rauschen in beide Richtungen, und ohne sie steigen die Anteile
+(`g1` von 78 % auf 99 %).
 
 ### Was der Audit damit wert ist
 
-Bei **10,6 % Grundfehlerrate** ist "ein Modell widerspricht" schwaches Indiz, und "drei Modelle
-widersprechen" auch — sie teilen Trainingsdaten und Fehlermuster. Die 35 Fenster sind ein
+Bei **4 % Grundfehlerrate auf sichtbaren Zellen** ist "ein Modell widerspricht" ein Indiz — aber
+`c6` steht im korrigierten Lauf mit **95 %** und zwei Zeugen da und ist trotzdem ein TURM. "Drei
+Modelle widersprechen" reicht also nicht — sie teilen Trainingsdaten und Fehlermuster. Die 35 Fenster sind ein
 Filter auf SYSTEMATISCHEN Widerspruch, und das ist richtig so; sie sind trotzdem nur eine
 Vorsortierung. **Entschieden wird am Crop, vom Menschen.** Heute haette der Audit ohne diesen
 Blick ~440 Zellen falsch gemacht.

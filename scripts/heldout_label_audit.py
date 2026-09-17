@@ -62,6 +62,7 @@ class Session:
         self.fen = {Path(str(r["frame"])).stem: r["fen"] for r in rows}
         self.ply = {Path(str(r["frame"])).stem: int(r["ply"]) for r in rows}
         self.judged = judged(session)
+        self.coverage = coverage_of(session)
         self._fens: dict[int, str] | None = None
 
     def windows(self, square: str) -> dict[int, tuple[int, int, str]]:
@@ -180,6 +181,22 @@ def station_disagrees(shares: dict[str, float], label: str, min_share: float) ->
     return top != label and shares[top] >= min_share
 
 
+def coverage_of(session_dir: Path) -> dict[str, dict[str, float]]:
+    """Frame -> (Feld -> Anteil), aus `matte.jsonl`. Eine Zeile OHNE `coverage` ist SAMs Absage
+    und faellt weg: nicht gemessen ist nicht verdeckt (CLAUDE.md, "Coverage Matte Trap")."""
+    out: dict[str, dict[str, float]] = {}
+    for row in read_jsonl(session_dir / "matte.jsonl"):
+        cells = row.get("coverage")
+        if cells:
+            out[str(row["frame"])] = cells
+    return out
+
+
+def covered(cov: dict[str, dict[str, float]], stem: str, square: str) -> bool:
+    """Liegt eine Hand darauf? Ohne Messung lautet die Antwort NEIN, nicht "vielleicht"."""
+    return float((cov.get(stem) or {}).get(square, 0.0)) > PIECE_VISIBLE_MAX
+
+
 def reads(session: Session, source: str) -> dict[tuple[str, int, int, str], Counter]:
     """Je (Feld, Fenster, Figur) die Lesungen des Modells — nur SICHTBARE Zellen."""
     cache: dict[str, dict[int, tuple[int, int, str]]] = {}
@@ -188,12 +205,12 @@ def reads(session: Session, source: str) -> dict[tuple[str, int, int, str], Coun
         probs = row.get("probs")
         if not probs:
             continue
-        coverage = row.get("coverage")
-        # `None` heisst NICHT gemessen (CLAUDE.md, "Coverage Matte Trap") — die Zelle zaehlt mit,
-        # denn eine fehlende Matte ist kein Beleg fuer eine Hand.
-        if coverage is not None and float(coverage) > PIECE_VISIBLE_MAX:
-            continue
         stem, square = str(row.get("frame")), str(row.get("square"))
+        # Die Coverage steht in `matte.jsonl`, NICHT in der Lesung: `row.get("coverage")` war bei
+        # allen 209 962 gehaltenen Lesungen `None`, der Filter griff also nie und der Audit zaehlte
+        # verdeckte Zellen mit, auf denen das Modell zu 75 % irrt (gemessen 2026-09-17).
+        if covered(session.coverage, stem, square):
+            continue
         ply = session.ply.get(stem)
         if ply is None:
             continue
