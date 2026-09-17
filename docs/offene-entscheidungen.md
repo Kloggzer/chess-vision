@@ -705,3 +705,47 @@ dasselbe Rezept irrt zweimal gleich.
 
 **Der Mensch bleibt die einzige Wahrheit.** Der Audit taugt zum SORTIEREN — er zeigt, wo
 hinzusehen lohnt — nie zum Entscheiden.
+
+## Der Turm auf c6 ist ein Turm — und drei Modelle lesen ihn falsch (2026-09-17, aufgeloest)
+
+Der Mensch hat den strittigen Crop neben einen Turm gelegt, den ALLE Modelle richtig lesen
+(`c1` auf Frame 008271, 81/97/67 %), und entschieden: **"hier sehe ich beides Tuerme."**
+
+**Die ganze Kette ist damit hinfaellig.** `d1`/`c2`/`c6`/`c8` (~440 Zellen) bleiben, wie sie sind.
+Es wurde nie etwas geschrieben.
+
+### Der dritte Zeuge hatte ein anderes Rezept und sagte dasselbe Falsche
+
+Der Nutzer hatte recht: unter `data/models` liegen **23 Aufnahmen, die von mindestens zwei
+wirklich verschiedenen Rezepten ausgelassen werden** — `cellnet_p4`, `cellnet_p8`, `mobilenetv3`,
+`mobilenetv4` in vier Groessen, Seeds 42 bis 48; zwei Aufnahmen sogar von 49. Fuer
+`2026-09-06-21-29-35` liest `ref-v5-s42` (`mobilenetv4_conv_small_035`, andere Familie) auf `c1`
+den Turm richtig (67 %) — und auf `c6` denselben Springer wie die Cellnets (55 von 59).
+
+**Es ist auch kein Geometriefehler:** der Crop, den `frame_cells` schneidet, und der von
+`/api/cell` sind dasselbe Bild. Das Modell sieht genau, was der Mensch sieht.
+
+### Die Zahl, die alles einordnet
+
+Ueber **209 962 sichtbare Figurenzellen** der 22 Aufnahmen weicht ein GEHALTENES Modell in
+**10,6 %** vom FEN ab. `wR -> wN` allein: **478 Zellen, 3,0 % aller weissen Tuerme**.
+
+| Figur | Zellen | falsch | | Figur | Zellen | falsch |
+|---|---|---|---|---|---|---|
+| `wN` | 10 847 | **22,0 %** | | `bN` | 9 269 | 15,5 % |
+| `wB` | 11 343 | **18,5 %** | | `bB` | 12 340 | 12,1 % |
+| `wR` | 15 916 | **16,4 %** | | `bR` | 14 560 | 6,8 % |
+| `wQ` | 6 187 | 14,2 % | | `bQ` | 6 125 | 7,7 % |
+| `wK` | 8 240 | 10,9 % | | `bK` | 8 240 | 5,3 % |
+
+**Weiss wird durchgehend zwei- bis dreimal schlechter gelesen als Schwarz** — auf SICHTBAREN
+Zellen, also nicht allein durch Verdeckung erklaerbar (`occlusion-asymmetry-is-the-player-side`
+erklaert die Verdeckung, nicht das hier). Das ist ein eigener, ungeklaerter Befund.
+
+### Was der Audit damit wert ist
+
+Bei **10,6 % Grundfehlerrate** ist "ein Modell widerspricht" schwaches Indiz, und "drei Modelle
+widersprechen" auch — sie teilen Trainingsdaten und Fehlermuster. Die 35 Fenster sind ein
+Filter auf SYSTEMATISCHEN Widerspruch, und das ist richtig so; sie sind trotzdem nur eine
+Vorsortierung. **Entschieden wird am Crop, vom Menschen.** Heute haette der Audit ohne diesen
+Blick ~440 Zellen falsch gemacht.
