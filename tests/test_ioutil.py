@@ -78,3 +78,32 @@ def test_append_repairs_a_torn_tail_without_mangling_the_other_line_ends(tmp_pat
     raw = p.read_bytes()
     assert b"\r\r\n" not in raw, raw
     assert read_jsonl(p) == [{"a": 1}, {"b": 2}, {"d": 4}]
+
+
+def test_iter_jsonl_stops_before_it_reads_the_whole_file(tmp_path):
+    """Der Grund, warum es `iter_jsonl` gibt: wer nur die erste Zeile braucht, zahlt keine Liste.
+
+    Eine kaputte Zeile HINTER dem Abbruch darf den Abbrecher nicht treffen — sonst steht jede
+    zaehlende Stelle wieder vor der Wahl zwischen Politik und Speicher.
+    """
+    from chesslab.ioutil import iter_jsonl
+
+    p = tmp_path / "big.jsonl"
+    p.write_text('{"n": 0}\n{"n": 1}\nKAPUTT\n', encoding="utf-8")
+    assert next(iter_jsonl(p)) == {"n": 0}
+
+
+def test_iter_jsonl_carries_the_same_tail_policy(tmp_path):
+    """Halbe LETZTE Zeile faellt weg, eine kaputte MITTENDRIN bleibt laut — wie `read_jsonl`."""
+    import pytest
+
+    from chesslab.ioutil import iter_jsonl
+
+    torn = tmp_path / "torn.jsonl"
+    torn.write_bytes(b'{"a": 1}\r\n{"b":')
+    assert list(iter_jsonl(torn)) == [{"a": 1}]
+
+    broken = tmp_path / "broken.jsonl"
+    broken.write_bytes(b'{"a": 1}\r\nKAPUTT\r\n{"b": 2}\r\n')
+    with pytest.raises(ValueError):
+        list(iter_jsonl(broken))

@@ -13,7 +13,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -21,6 +20,7 @@ from pathlib import Path
 import yaml
 
 from chesslab import config
+from chesslab.ioutil import iter_jsonl
 from chesslab.training import pack_session, packs
 
 
@@ -36,10 +36,8 @@ def pool_index(tags: list[str], paths: config.Paths) -> dict[str, str]:
         m = paths.crops / tag / "manifest.jsonl"
         if not m.exists():
             continue
-        with m.open(encoding="utf-8") as fh:
-            for line in fh:
-                if line.strip():
-                    at.setdefault(json.loads(line)["session_id"], tag)
+        for row in iter_jsonl(m):
+            at.setdefault(row["session_id"], tag)
     return at
 
 

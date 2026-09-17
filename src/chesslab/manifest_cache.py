@@ -11,10 +11,11 @@ per crop row, for a web UI that no longer exists. Nobody read them.
 
 from __future__ import annotations
 
-import json
 import threading
 from collections import Counter
 from pathlib import Path
+
+from .ioutil import iter_jsonl
 
 _LOCK = threading.Lock()
 _CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
@@ -22,10 +23,8 @@ _CACHE: dict[Path, tuple[tuple[int, int], dict]] = {}
 
 def _scan(path: Path) -> dict:
     crops: Counter = Counter()
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            if line.strip():
-                crops[json.loads(line).get("session_id")] += 1
+    for row in iter_jsonl(path):
+        crops[row.get("session_id")] += 1
     return {"crops_by_session": dict(crops)}
 
 

@@ -17,7 +17,7 @@ from typing import Any
 import cv2
 
 from . import realgames
-from .ioutil import write_rows
+from .ioutil import read_jsonl, write_rows
 from .recording import Recording
 
 #: Was eine Buendel-Zeile mitnimmt. `move_san` bleibt draussen: eine Erfassung hat keine Zuege.
@@ -52,29 +52,11 @@ def video_syncs(bundle: Path) -> list[tuple[int, int]]:
     # Der ZEILENUMBRUCH entscheidet (`ioutil.read_jsonl`, `platform/app/lib/jsonl.ts`): das
     # Telefon STROEMT in `timeline.jsonl`, eine abgebrochene Aufnahme laesst also eine halbe LETZTE
     # Zeile zurueck. `json.loads` darauf brach den ganzen Import ab, statt sie zu verwerfen.
-    out = [(int(row["elapsedNs"]), int(row["durationNs"])) for row in _timeline_rows(path)
+    out = [(int(row["elapsedNs"]), int(row["durationNs"])) for row in read_jsonl(path)
            if row.get("kind") == "video_sync" and row.get("durationNs") is not None]
     if not out:
         raise ValueError(f"{path}: keine `video_sync`-Zeile — die Geraeteuhr hat keinen Anker")
     return sorted(out)
-
-
-def _timeline_rows(path: Path) -> list[dict]:
-    """Jede Zeile — ausser einer halben LETZTEN. Eine kaputte Zeile MIT Umbruch bleibt laut."""
-    rows, broken = [], None
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            if broken is not None:
-                raise broken
-            try:
-                rows.append(json.loads(line))
-            except ValueError as exc:
-                if line.endswith("\n"):
-                    raise
-                broken = exc
-    return rows
 
 
 def video_ns_at(elapsed_ns: int, syncs: list[tuple[int, int]]) -> float:

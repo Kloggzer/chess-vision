@@ -6,12 +6,13 @@ bis 207. Der Plan schlaegt Felder nur vor, die App misst. `docs/capture-axes.md`
 
 from __future__ import annotations
 
-import json
 import math
 import statistics
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TypedDict
+
+from .ioutil import iter_jsonl
 
 #: Die ZIELDOMAENE des Zell-Mittelwerts, in fuenf gleich breite Gruppen. 92,8 % aller sichtbaren
 #: Figurenzellen liegen darin. Gleich breit und NICHT nach Quantilen: Quantilgrenzen verschoeben
@@ -144,15 +145,11 @@ def square_stats(manifest: Path | str) -> dict[str, SquareStat]:
     bis 207, seine Bandlage haengt an der Lampe. Zeilen ohne `brightness` zaehlen NICHT mit —
     376 640 von 979 363 haben keine, und eine Vorgabe waere eine erfundene Beleuchtung."""
     seen: dict[str, list[float]] = {}
-    with open(manifest, encoding="utf-8") as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            value = row.get("brightness")
-            if value is None:
-                continue
-            seen.setdefault(str(row["square"]), []).append(float(value))
+    for row in iter_jsonl(Path(manifest)):
+        value = row.get("brightness")
+        if value is None:
+            continue
+        seen.setdefault(str(row["square"]), []).append(float(value))
     out: dict[str, SquareStat] = {}
     for sq, values in seen.items():
         values.sort()

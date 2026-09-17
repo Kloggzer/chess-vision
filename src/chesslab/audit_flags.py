@@ -6,12 +6,11 @@ ledger, since no FEN label is ever `occluded` and Eqn. 2 needs a support set."""
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config
-from .ioutil import write_json, write_rows
+from .ioutil import read_jsonl, write_json, write_rows
 from .labeling import load_corrections
 
 INTERIM_FOLD = 0  # No folds in the interim: the proposals rotate models per session instead.
@@ -34,16 +33,11 @@ def read_proposals(path: Path) -> tuple[str | None, list[dict], list[str]]:
     Reads the old `_thresholds` header too: a session whose reads predate `realgames model-read`
     still audits, it just came from a producer that also guessed at occlusion.
     """
-    rows = []
-    with Path(path).open(encoding="utf-8") as fh:
-        head = json.loads(fh.readline() or "{}")
-        model = head.get("_model") or head.get("_thresholds", {}).get("model")
-        classes = list(head.get("_classes") or [])
-        for line in fh:
-            row = json.loads(line)
-            if "probs" in row:
-                rows.append(row)
-    return model, rows, classes
+    all_rows = read_jsonl(Path(path))
+    head = all_rows[0] if all_rows else {}
+    model = head.get("_model") or head.get("_thresholds", {}).get("model")
+    classes = list(head.get("_classes") or [])
+    return model, [r for r in all_rows if "probs" in r], classes
 
 
 def class_thresholds(cells: list[tuple[str, dict[str, float]]]) -> dict[str, float]:

@@ -21,7 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 from chesslab.capture_plan import BANDS, PIECES, THIN, UNKNOWN, UNREACHABLE, band_of, pose_of
-from chesslab.ioutil import write_json
+from chesslab.ioutil import iter_jsonl, read_jsonl, write_json
 
 REC = Path("data/recordings")
 #: Stufen, in denen `foreshorten` und `edge_px` gebuendelt werden. Fein genug, dass eine zweite
@@ -40,14 +40,12 @@ def tally(dataset: str, manifest: str = "") -> Counter:
     from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
     seen: Counter = Counter()
-    with manifest_of(dataset, manifest).open(encoding="utf-8") as fh:
-        for line in fh:
-            r = json.loads(line)
-            if r["label"] == "empty" or float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
-                continue
-            b = r.get("brightness")
-            seen[(r["label"], str(r.get("square_color") or "?"),
-                  band_of(None if b is None else float(b)))] += 1
+    for r in iter_jsonl(manifest_of(dataset, manifest)):
+        if r["label"] == "empty" or float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
+            continue
+        b = r.get("brightness")
+        seen[(r["label"], str(r.get("square_color") or "?"),
+              band_of(None if b is None else float(b)))] += 1
     return seen
 
 
@@ -91,14 +89,10 @@ def _session_facts(session_id: str) -> dict:
             out["by_ply"][int(step["ply"])] = str(step.get("orientation_deg", UNKNOWN))
     log = rec / "log.jsonl"
     if log.is_file():
-        with log.open(encoding="utf-8") as fh:
-            for line in fh:
-                if not line.strip():
-                    continue
-                row = json.loads(line)
-                if row.get("corners"):
-                    # Der Manifest-Frame ist der STAMM, das obere Log traegt `frames/000117.png`.
-                    out["pose"][Path(str(row["frame"])).stem] = pose_of(row["corners"])
+        for row in read_jsonl(log):
+            if row.get("corners"):
+                # Der Manifest-Frame ist der STAMM, das obere Log traegt `frames/000117.png`.
+                out["pose"][Path(str(row["frame"])).stem] = pose_of(row["corners"])
     return out
 
 
@@ -120,20 +114,18 @@ def axes(dataset: str, manifest: str = "") -> dict:
     fore: Counter = Counter()
     edge: Counter = Counter()
     rows = 0
-    with manifest_of(dataset, manifest).open(encoding="utf-8") as fh:
-        for line in fh:
-            r = json.loads(line)
-            rows += 1
-            sid = r["session_id"]
-            if sid not in facts:
-                facts[sid] = _session_facts(sid)
-            f = facts[sid]
-            height[f["height"]] += 1
-            ply = r.get("ply")
-            orient[f["by_ply"].get(int(ply), UNKNOWN) if ply is not None else UNKNOWN] += 1
-            pose = f["pose"].get(str(r.get("frame")))
-            fore[_bucket(pose["foreshorten"], FORESHORTEN_STEP) if pose else UNKNOWN] += 1
-            edge[_bucket(pose["edge_px"], EDGE_STEP) if pose else UNKNOWN] += 1
+    for r in iter_jsonl(manifest_of(dataset, manifest)):
+        rows += 1
+        sid = r["session_id"]
+        if sid not in facts:
+            facts[sid] = _session_facts(sid)
+        f = facts[sid]
+        height[f["height"]] += 1
+        ply = r.get("ply")
+        orient[f["by_ply"].get(int(ply), UNKNOWN) if ply is not None else UNKNOWN] += 1
+        pose = f["pose"].get(str(r.get("frame")))
+        fore[_bucket(pose["foreshorten"], FORESHORTEN_STEP) if pose else UNKNOWN] += 1
+        edge[_bucket(pose["edge_px"], EDGE_STEP) if pose else UNKNOWN] += 1
     return {"rows_counted": rows, "height": dict(height.most_common()),
             "orientation_deg": dict(orient.most_common()),
             "foreshorten": dict(fore.most_common()), "edge_px": dict(edge.most_common())}

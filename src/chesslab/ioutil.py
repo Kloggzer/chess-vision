@@ -10,7 +10,7 @@ from __future__ import annotations
 import itertools
 import json
 import os
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 
 # Der Pool haelt wiederholte Strings zusammen, der Deckel haelt EINMALIGE draussen: `path` ist
@@ -19,20 +19,16 @@ from pathlib import Path
 _STR_POOL_CAP = 200_000
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    """Read JSONL file, missing file → [], skip empty lines.
+def iter_jsonl(path: Path) -> Iterator[dict]:
+    """Dieselbe Politik wie `read_jsonl`, aber ohne die Liste — je Zeile ein Objekt.
 
-    Streams line by line on purpose: reading the whole file into one string and then splitting it
-    held ~3 extra copies of a multi-GB manifest in memory at once (whole text + list of lines +
-    parsed dicts) and hit MemoryError on the million-crop synthetic manifests.
-
-    Wiederholte Schluessel und Werte zeigen auf EIN Objekt: ein Manifest ist fast nur
-    Wiederholung, und `real13-mix-v4` kostet so 0,51 statt 1,12 GB (gemessen 2026-08-29) —
-    je LAUF, denn Prozesse teilen keine Python-Objekte, nur die Memmap des Packs.
+    Zehn Stellen schnitten selbst, weil sie ueber 465k-Zeilen-Manifeste ZAEHLEN oder nur die
+    erste Zeile brauchen und eine Liste nicht bezahlen wollen. Sie erfanden damit die Politik
+    neu und starben alle an derselben halben letzten Zeile.
     """
     p = Path(path)
     if not p.exists():
-        return []
+        return
     pool: dict[str, str] = {}
 
     def pooled(pairs: list[tuple[str, object]]) -> dict:
@@ -51,7 +47,6 @@ def read_jsonl(path: Path) -> list[dict]:
     # TextIO already yields Unicode. Calling the decoder directly avoids repeating the public
     # json.loads type/encoding dispatch for every line of large manifests.
     decode = json.JSONDecoder(object_pairs_hook=pooled).decode
-    rows: list[dict] = []
     broken: ValueError | None = None
     # Ein mitten im Anhaengen erschlagener Schreiber laesst eine halbe LETZTE Zeile zurueck; die
     # faellt weg. Eine kaputte Zeile MITTENDRIN ist Korruption und bleibt laut — deshalb wird der
@@ -67,12 +62,27 @@ def read_jsonl(path: Path) -> list[dict]:
             if broken is not None:
                 raise broken
             try:
-                rows.append(decode(line))
+                row = decode(line)
             except ValueError as exc:
                 if line.endswith("\n"):
                     raise
                 broken = exc
-    return rows
+                continue
+            yield row
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """Read JSONL file, missing file → [], skip empty lines.
+
+    Streams line by line on purpose: reading the whole file into one string and then splitting it
+    held ~3 extra copies of a multi-GB manifest in memory at once (whole text + list of lines +
+    parsed dicts) and hit MemoryError on the million-crop synthetic manifests.
+
+    Wiederholte Schluessel und Werte zeigen auf EIN Objekt: ein Manifest ist fast nur
+    Wiederholung, und `real13-mix-v4` kostet so 0,51 statt 1,12 GB (gemessen 2026-08-29) —
+    je LAUF, denn Prozesse teilen keine Python-Objekte, nur die Memmap des Packs.
+    """
+    return list(iter_jsonl(path))
 
 
 def _side_file(path: Path) -> Path:

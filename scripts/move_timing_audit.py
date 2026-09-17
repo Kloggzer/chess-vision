@@ -17,18 +17,14 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from chesslab.ioutil import iter_jsonl, read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
 
 
 def _jsonl(path: Path):
-    if not path.exists():
-        return
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            if line.strip():
-                yield json.loads(line)
+    return read_jsonl(path)
 
 
 def session_facts(sid: str, window: int) -> dict:
@@ -86,26 +82,24 @@ def main() -> int:
 
     per: dict[str, Counter] = defaultdict(Counter)
     examples: list[tuple] = []
-    with (dd / "manifest.jsonl").open(encoding="utf-8") as fh:
-        for line in fh:
-            r = json.loads(line)
-            sid = r["session_id"]
-            if sid not in facts:
-                continue
-            per[sid]["train_cells"] += 1
-            f, sq = str(r["frame"]), str(r["square"])
-            if sq not in facts[sid]["risky"].get(f, ()):
-                continue
-            per[sid]["im_fenster"] += 1
-            if float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
-                per[sid]["maskiert"] += 1
-                continue
-            if (f, sq) in facts[sid]["human"]:
-                per[sid]["gesichtet"] += 1
-                continue
-            per[sid]["RISIKO"] += 1
-            if len(examples) < args.examples:
-                examples.append((sid, f, sq, r.get("label"), r.get("ply")))
+    for r in iter_jsonl(dd / "manifest.jsonl"):
+        sid = r["session_id"]
+        if sid not in facts:
+            continue
+        per[sid]["train_cells"] += 1
+        f, sq = str(r["frame"]), str(r["square"])
+        if sq not in facts[sid]["risky"].get(f, ()):
+            continue
+        per[sid]["im_fenster"] += 1
+        if float(r.get("coverage") or 0.0) > PIECE_VISIBLE_MAX:
+            per[sid]["maskiert"] += 1
+            continue
+        if (f, sq) in facts[sid]["human"]:
+            per[sid]["gesichtet"] += 1
+            continue
+        per[sid]["RISIKO"] += 1
+        if len(examples) < args.examples:
+            examples.append((sid, f, sq, r.get("label"), r.get("ply")))
 
     tot = Counter()
     for c in per.values():

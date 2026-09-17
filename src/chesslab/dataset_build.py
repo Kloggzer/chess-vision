@@ -29,7 +29,7 @@ from pathlib import Path
 
 from . import config, locks
 from . import dataset as dataset_mod
-from .ioutil import write_json
+from .ioutil import iter_jsonl, write_json
 
 log = logging.getLogger("chesslab.dataset_build")
 
@@ -337,16 +337,12 @@ def _donor_pack_size(ds: Path, paths: config.Paths | None = None) -> tuple[int, 
     manifest = ds / "manifest.jsonl"
     if not manifest.exists():
         return None
-    with manifest.open(encoding="utf-8") as fh:
-        for line in fh:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            from_pack = _pack_row_size(str(row.get("path", "")), paths)
-            if from_pack is not None:
-                return from_pack
-            size = row.get("out_size")
-            return (int(size[0]), int(size[1])) if size else None
+    for row in iter_jsonl(manifest):
+        from_pack = _pack_row_size(str(row.get("path", "")), paths)
+        if from_pack is not None:
+            return from_pack
+        size = row.get("out_size")
+        return (int(size[0]), int(size[1])) if size else None
     return None
 
 

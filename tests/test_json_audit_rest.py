@@ -71,16 +71,21 @@ def test_a_broken_timeline_line_that_ends_in_a_newline_stays_loud(tmp_path):
 def test_the_watchdog_survives_a_metrics_file_that_is_still_being_written(tmp_path):
     """Prueflist 1. `train.py` haengt `metrics.jsonl` je Epoche an; die Wache liest sie WAEHREND
     des Laufs und starb an der halben letzten Zeile — genau dann, wenn sie da sein soll."""
+    from chesslab.ioutil import read_jsonl
+
     watchdog = _load("train_watchdog")
+    # Der Nachbau ist weg; was bleibt, ist der Name, den die Wache benutzt. Ein eigener Leser
+    # unter diesem Namen faellt hier auf — genau so kam der Nachbau ueberhaupt zustande.
+    assert watchdog.read_jsonl is read_jsonl
+
     path = tmp_path / "metrics.jsonl"
     path.write_text(json.dumps({"epoch": 1}) + "\n" + '{"epoch": 2, "macro', encoding="utf-8")
-
-    assert watchdog._epochs(path) == [{"epoch": 1}]
+    assert watchdog.read_jsonl(path) == [{"epoch": 1}]
 
     path.write_text('{"epoch": 1, "mac' + "\n" + json.dumps({"epoch": 2}) + "\n",
                     encoding="utf-8")
     with pytest.raises(ValueError):
-        watchdog._epochs(path)
+        watchdog.read_jsonl(path)
 
 
 # --- 2. Schreiben ohne Staging ------------------------------------------------------------

@@ -21,7 +21,7 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from chesslab.ioutil import read_jsonl
+from chesslab.ioutil import iter_jsonl, read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
@@ -89,33 +89,31 @@ def main() -> int:
 
     per: dict[str, Counter] = defaultdict(Counter)
     reasons: Counter = Counter()
-    with (dd / "manifest.jsonl").open(encoding="utf-8") as fh:
-        for line in fh:
-            r = json.loads(line)
-            sid = r["session_id"]
-            if sid not in facts:
-                continue
-            per[sid]["train"] += 1
-            f, sq = str(r["frame"]), str(r["square"])
-            fx = facts[sid]
-            row = fx["matte"].get(f)
-            reason = (row or {}).get("dirty_reason") or ("abgelegt" if f in fx["dirty"] else None)
-            if reason is None:
-                continue
-            cov = float(r.get("coverage") or 0.0)
-            if cov > PIECE_VISIBLE_MAX:
-                per[sid]["maskiert"] += 1
-                continue
-            lage = classify(row, reason, cov, sq)
-            if lage is None:
-                per[sid]["klar"] += 1
-                continue
-            if (f, sq) in fx["human"]:
-                per[sid]["gesichtet"] += 1
-                continue
-            per[sid]["RISIKO"] += 1
-            per[sid][lage] += 1
-            reasons[f"{lage} ({reason})"] += 1
+    for r in iter_jsonl(dd / "manifest.jsonl"):
+        sid = r["session_id"]
+        if sid not in facts:
+            continue
+        per[sid]["train"] += 1
+        f, sq = str(r["frame"]), str(r["square"])
+        fx = facts[sid]
+        row = fx["matte"].get(f)
+        reason = (row or {}).get("dirty_reason") or ("abgelegt" if f in fx["dirty"] else None)
+        if reason is None:
+            continue
+        cov = float(r.get("coverage") or 0.0)
+        if cov > PIECE_VISIBLE_MAX:
+            per[sid]["maskiert"] += 1
+            continue
+        lage = classify(row, reason, cov, sq)
+        if lage is None:
+            per[sid]["klar"] += 1
+            continue
+        if (f, sq) in fx["human"]:
+            per[sid]["gesichtet"] += 1
+            continue
+        per[sid]["RISIKO"] += 1
+        per[sid][lage] += 1
+        reasons[f"{lage} ({reason})"] += 1
 
     tot = Counter()
     for c in per.values():

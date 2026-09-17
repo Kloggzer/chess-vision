@@ -12,16 +12,13 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
-from chesslab.ioutil import write_json
+from chesslab.ioutil import read_jsonl, write_json
 
 SQUARES = frozenset(f"{file}{rank}" for rank in range(1, 9) for file in "abcdefgh")
 
 
 def rows(path):
-    with path.open(encoding="utf-8") as stream:
-        for line in stream:
-            if line.strip():
-                yield json.loads(line)
+    return read_jsonl(path)
 
 
 def complete(values):

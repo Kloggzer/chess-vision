@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import argparse
 import collections
-import json
 from pathlib import Path
+
+from chesslab.ioutil import iter_jsonl
 
 FILES = "abcdefgh"
 #: Ein normales Set, je Farbe. Der Engpass sind K und Q — davon gibt es genau eines.
@@ -34,8 +35,7 @@ def squares() -> list[str]:
 def coverage(manifest: Path) -> collections.Counter:
     """Wie oft kennt der Korpus (Klasse, Feld) als EIGENE Situation — nicht als Crop."""
     seen: set[tuple[str, str, str]] = set()
-    for line in manifest.open(encoding="utf-8"):
-        r = json.loads(line)
+    for r in iter_jsonl(manifest):
         seen.add((r["label"], r["square"], r["session_id"]))
     return collections.Counter((lab, sq) for lab, sq, _ in seen)
 

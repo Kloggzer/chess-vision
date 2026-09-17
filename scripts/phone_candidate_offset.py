@@ -22,6 +22,7 @@ from pathlib import Path
 import chess
 import cv2
 
+from chesslab.ioutil import read_jsonl
 from chesslab.recording import recording_segments
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -136,23 +137,19 @@ def rows_of(timeline: Path) -> Rows:
     frames: list[tuple[int, int, str | None]] = []
     decisions: list[tuple[int, int, str]] = []
     events: list[tuple[int, int]] = []
-    with timeline.open(encoding="utf-8") as handle:
-        for line in handle:
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            elapsed = row.get("elapsedNs")
-            kind = row.get("kind")
-            if elapsed is None:
-                continue
-            if kind == "video_sync" and row.get("durationNs") is not None:
-                syncs.append((elapsed, int(row["durationNs"])))
-            elif kind == "frame":
-                frames.append((elapsed, int(row.get("wallTsMs", 0)), row.get("fen")))
-            elif kind == "decision" and row.get("accepted"):
-                decisions.append((elapsed, int(row["ply"]), str(row.get("reason") or "")))
-            elif kind == "event":
-                events.append((elapsed, int(row.get("wallTsMs", 0))))
+    for row in read_jsonl(timeline):
+        elapsed = row.get("elapsedNs")
+        kind = row.get("kind")
+        if elapsed is None:
+            continue
+        if kind == "video_sync" and row.get("durationNs") is not None:
+            syncs.append((elapsed, int(row["durationNs"])))
+        elif kind == "frame":
+            frames.append((elapsed, int(row.get("wallTsMs", 0)), row.get("fen")))
+        elif kind == "decision" and row.get("accepted"):
+            decisions.append((elapsed, int(row["ply"]), str(row.get("reason") or "")))
+        elif kind == "event":
+            events.append((elapsed, int(row.get("wallTsMs", 0))))
     return Rows(sorted(syncs), sorted(frames), sorted(decisions), sorted(events))
 
 
