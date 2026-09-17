@@ -80,7 +80,12 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   const text = await readFile(file, "utf8").catch(() => "");
   if (!text) return 0;
   const drop = new Set(rows.map(noteKey));
-  const kept = text.split("\n").filter((line) => {
+  const lines = text.split("\n");
+  // Die LETZTE Zeile ohne Umbruch dahinter gehoert einem laufenden `appendRows`. Ihr hier einen
+  // zu geben machte aus dem geduldeten Schwanz Beschaedigung MITTENDRIN — und seit `bySession`
+  // darauf wirft, waere danach jedes Urteil JEDER Sitzung unerreichbar.
+  const tail = lines.length > 0 && lines[lines.length - 1] !== "" ? lines.pop() : null;
+  const kept = lines.filter((line) => {
     if (!line.trim()) return false;
     try {
       return !drop.has(noteKey(JSON.parse(line) as ReviewNote));
@@ -90,11 +95,12 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   });
   // tmp+rename: ein blankes `writeFile` kuerzt zuerst, und dies ist die einzige Datei, die die
   // Urteile ALLER Sitzungen traegt.
-  await writeFileAtomic(file, kept.length > 0 ? kept.join("\n") + "\n" : "");
+  const body = kept.length > 0 ? kept.join("\n") + "\n" : "";
+  await writeFileAtomic(file, tail == null ? body : body + tail);
   cache.delete(file);
   // Die ENTFERNTEN, nicht der Rest: ein Widerruf, der nichts trifft, meldete sonst die Groesse
   // des globalen Ledgers als Erfolg.
-  return text.split("\n").filter((line) => line.trim()).length - kept.length;
+  return lines.filter((line) => line.trim()).length - kept.length;
 }
 
 const noteKey = (r: ReviewNote): string =>

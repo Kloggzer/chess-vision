@@ -182,7 +182,26 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
           touch.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
         }}
       >
-        {broken.has(cropSrc) ? (
+        {board && broken.has(boardSrc) ? (
+          <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">
+            Brett fehlt — {head.stem}
+          </div>
+        ) : board ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element -- ein Brett, vom Server skaliert */}
+            <img
+              alt={`Brett zu ${head.square}`}
+              className="h-full w-full"
+              onError={() => setBroken((was) => new Set(was).add(boardSrc))}
+              src={boardSrc}
+            />
+            <div className="pointer-events-none absolute inset-0 grid grid-cols-8">
+              {BOARD_SQUARES.map((sq: string) => (
+                <div className={sq === head.square ? "ring-2 ring-fuchsia-400 ring-inset" : ""} key={sq} />
+              ))}
+            </div>
+          </>
+        ) : broken.has(cropSrc) ? (
           <div className="border-destructive/60 bg-destructive/10 text-destructive flex h-full w-full items-center justify-center border p-3 text-center font-mono text-sm">
             Crop fehlt — {head.square} @ {head.stem}
           </div>
@@ -199,17 +218,6 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
           />
         )}
       </div>
-      {board ? (
-        <div className="relative mx-auto aspect-square w-full max-w-[351px] overflow-hidden rounded">
-          {/* eslint-disable-next-line @next/next/no-img-element -- ein Brett, vom Server skaliert */}
-          <img alt={`Brett zu ${head.square}`} className="h-full w-full" src={boardSrc} />
-          <div className="pointer-events-none absolute inset-0 grid grid-cols-8">
-            {BOARD_SQUARES.map((sq: string) => (
-              <div className={sq === head.square ? "ring-2 ring-fuchsia-400 ring-inset" : ""} key={sq} />
-            ))}
-          </div>
-        </div>
-      ) : null}
       <p className="text-muted-foreground text-center text-[11px]">
         ← FEN stimmt · ↓ überspringen · lange drücken = ganzes Ereignis
       </p>

@@ -1,0 +1,70 @@
+"""Gegenlesen der Trainings-Aenderungen vom 2026-09-17 — drei Luecken, kein Fix.
+
+Die Null-Regel (`brightness`/`coverage` als UNGEMESSEN) wurde heute an vier Stellen gebraucht und
+an drei repariert. Die vierte steht in `run_train` und entscheidet die KLASSENGEWICHTE.
+Dazu: die gruenen Tests der beiden gepackten Loader rechnen den Ausdruck nach, statt die Loader
+zu bauen — ein Ruecknehmen des Fixes laesst sie gruen.
+"""
+from __future__ import annotations
+
+import inspect
+import re
+
+import pytest
+
+torch = pytest.importorskip("torch")
+
+from chesslab.training import train as train_mod  # noqa: E402
+from chesslab.training.occlusion import PIECE_VISIBLE_MAX  # noqa: E402
+from chesslab.training.torch_data import coverage_of  # noqa: E402
+
+NULL_ROW = {"label": "wP", "path": "p0", "coverage": None, "brightness": None}
+
+
+def test_the_class_weight_count_survives_a_null_coverage():
+    """Vierte Stelle derselben Null-Regel — und die einzige im REZEPT-Pfad.
+
+    `run_train` zaehlt damit die sichtbaren Zeilen fuer `compute_class_weights`, und die
+    Gewichte landen in `split.json`. Ein ausgeschriebenes `null` warf hier `TypeError` kurz
+    vor dem Training. Quelltext-Pruefung, weil die Schleife inline in `run_train` steht.
+    """
+    src = inspect.getsource(train_mod.run_train)
+    raw = re.search(r'r\.get\("coverage"[^)]*\) <= PIECE_VISIBLE_MAX', src)
+    assert raw is None, f"roher Zugriff zurueck: {raw.group(0)}"
+
+    assert re.search(r"coverage_of\(r\) <= PIECE_VISIBLE_MAX", src), (
+        "die Zaehlung muss durch dieselbe Regel wie die drei anderen Verbraucher")
+    assert coverage_of(NULL_ROW) <= PIECE_VISIBLE_MAX
+
+
+def test_the_packed_square_loader_itself_reads_a_null_row(monkeypatch):
+    """Diskriminierend, anders als `test_the_packed_loaders_build_their_columns_from_a_null_row`:
+    der Loader wird GEBAUT. Mit dem alten `float(r.get(...))` stirbt genau das hier.
+    """
+    import numpy as np
+
+    from chesslab.training import torch_data as td
+
+    monkeypatch.setattr(td, "_pack_index",
+                        lambda rows, packed: ([("f", (1, 1, 1, 3))],
+                                              np.zeros((len(rows), 2), dtype=np.int64)))
+    ds = td.PackedSquareDataset([NULL_ROW], ["wP", "empty"], None, packed=object())
+
+    assert float(ds.cover[0]) == 0.0
+    assert float(ds.bright[0]) == 255.0
+
+
+def test_the_packed_board_loader_itself_reads_a_null_row(monkeypatch):
+    import numpy as np
+
+    from chesslab.training import torch_data as td
+
+    rows = [dict(NULL_ROW, session_id="s", frame="1", square=f"{f}{r}")
+            for r in range(1, 9) for f in "abcdefgh"]
+    monkeypatch.setattr(td, "_pack_index",
+                        lambda r, packed: ([("f", (1, 1, 1, 3))],
+                                           np.zeros((len(r), 2), dtype=np.int64)))
+    ds = td.PackedBoardDataset(rows, ["wP", "empty"], None, packed=object())
+
+    assert float(ds.cover.flat[0]) == 0.0
+    assert float(ds.bright.flat[0]) == 255.0

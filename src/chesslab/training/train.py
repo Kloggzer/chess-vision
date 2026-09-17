@@ -908,10 +908,13 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
     if occluding:
         from ..dataset import compute_class_weights
         from .occlusion import PIECE_VISIBLE_MAX
+        from .torch_data import coverage_of
 
+        # Vierte Stelle derselben Regel: ein ausgeschriebenes `null` warf hier `TypeError` kurz
+        # vor dem Training — und diese Zaehlung IST das Rezept (die Gewichte in `split.json`).
         vis_counts: dict[str, int] = {}
         for r in train_rows:
-            if r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX:
+            if coverage_of(r) <= PIECE_VISIBLE_MAX:
                 vis_counts[r["label"]] = vis_counts.get(r["label"], 0) + 1
         split = {**split, "class_weights": compute_class_weights(vis_counts, classes, weight_cap)}
         if weight_cap is not None:

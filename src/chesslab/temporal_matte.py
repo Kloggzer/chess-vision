@@ -328,6 +328,21 @@ def sam_matte(recording):
     return out
 
 
+def matted_frames(rows: list[dict]) -> set[str]:
+    """Welche Frames eine MESSUNG tragen — Punkt 28: eine spaetere Absage loescht die fruehere.
+
+    Als blosser Filter (`coverage is not None` ueber alle Zeilen) blieb ein gemessen-dann-
+    abgesagtes Frame "gemattet", bekam kein Alpha und ging mit `coverage = 0.0` ins Training.
+    """
+    out: set[str] = set()
+    for row in rows:
+        if row.get("coverage") is None:
+            out.discard(row["frame"])
+        else:
+            out.add(row["frame"])
+    return out
+
+
 def adopt_proposals(session_id, *, method="local"):
     """Proposals with a hand become matte rows, the way SAM's do — for frames SAM never cut.
 
@@ -350,9 +365,10 @@ def adopt_proposals(session_id, *, method="local"):
     rows_before = read_jsonl(matte_path)
     kept_rows = [r for r in rows_before if r.get("source") != "temporal"]
     ours = {r["frame"] for r in rows_before} - {r["frame"] for r in kept_rows}
-    # Wie `matte.matte_status`: eine Zeile ohne `coverage` ist SAMs Absage, keine Matte. Als eine
-    # gezaehlt blieben genau die Frames ohne jedes Alpha ungefuellt — die Coverage-Matte-Falle.
-    have = {r["frame"] for r in kept_rows if r.get("coverage") is not None}
+    # Wie `sam_matte`, einschliesslich Punkt 28: eine Absage ist die JUENGERE Aussage und loescht
+    # die fruehere Messung. Als blosser Filter blieb ein gemessen-dann-abgesagtes Frame "gemattet",
+    # bekam kein Alpha und ging mit `coverage = 0.0` ins Training — die Coverage-Matte-Falle.
+    have = matted_frames(kept_rows)
     (recording / "mattes").mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []

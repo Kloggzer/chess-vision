@@ -596,11 +596,17 @@ def matte_status(name: str) -> dict:
     standard = dirty_pile(rows, ALPHA_REASON)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
-    # Wie `read_matte`: eine Zeile ohne `coverage` (uebersprungen) ist keine Matte. Als eine
-    # gezaehlt verschwieg dieser Bericht genau die Luecke, die er melden soll.
-    have = ({str(r["frame"]) for r in read_jsonl(path)
-             if r.get("frame") and r.get("coverage") is not None}
-            if path.exists() else set())
+    # Wie `read_matte`, einschliesslich Punkt 28: eine Zeile ohne `coverage` ist SAMs Absage und
+    # die JUENGERE Aussage — sie loescht die fruehere Messung. Als blosser Filter gelesen blieb ein
+    # gemessen-dann-abgesagtes Frame in `have`, und der Bericht verschwieg die Luecke, die er meldet.
+    have: set[str] = set()
+    for row in read_jsonl(path):
+        if not row.get("frame"):
+            continue
+        if row.get("coverage") is None:
+            have.discard(str(row["frame"]))
+        else:
+            have.add(str(row["frame"]))
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(standard - have),
             "missing_other": sorted((want - standard) - have),

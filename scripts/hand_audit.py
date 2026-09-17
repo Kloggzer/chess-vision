@@ -21,6 +21,7 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
@@ -40,12 +41,7 @@ def neighbours(square: str) -> list[str]:
 
 
 def _jsonl(path: Path):
-    if not path.exists():
-        return
-    with path.open(encoding="utf-8") as fh:
-        for line in fh:
-            if line.strip():
-                yield json.loads(line)
+    return read_jsonl(path)
 
 
 def session_facts(sid: str) -> dict:
@@ -63,9 +59,9 @@ def session_facts(sid: str) -> dict:
 def classify(row: dict | None, reason: str, cov: float, square: str) -> str | None:
     """Welche der vier Lagen - oder `None`, wenn die Zelle unverdaechtig ist."""
     cells = (row or {}).get("coverage") or {}
-    # `concepts` leer heisst GEMESSEN, nichts gefunden — 684 Zeilen mit Schmutzgrund tragen das
-    # im Korpus und galten geschlossen als blind. Ungemessen ist allein `coverage is None`
-    # (SAMs Absage, CLAUDE.md „SAMs ABSAGE ist kein sauberes Brett").
+    # `concepts` leer heisst GEMESSEN, nichts gefunden. 683 Zeilen mit Schmutzgrund tragen das;
+    # wirksam betroffen waren 514 Frames / 32 896 Zellen, weil die juengere Zeile je Stem gewinnt
+    # (nachgerechnet 2026-09-17). Ungemessen ist allein `coverage is None` — SAMs Absage.
     if row is None or row.get("coverage") is None:
         return "blind"
     if cov > 0.0:

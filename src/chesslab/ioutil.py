@@ -165,11 +165,12 @@ def append_rows(path: Path, rows: Iterable[dict]) -> int:
         # als Umbruch gelten, und der halbe Schwanz saehe ganz aus (1127 der 1329 Dateien sind CRLF).
         with path.open(encoding="utf-8", newline="") as fh:
             text = fh.read()
-        if text and not text.endswith("\n"):
-            # Je Zeile OHNE ihr `\r` zurueckschreiben: gelesen wird byte-treu, geschrieben wird
-            # uebersetzt. Den Rest samt seiner `\r\n` zurueckzugeben machte aus jedem davon ein
-            # `\r\r\n`, und jede weitere Reparatur haengte ein CR mehr an.
-            kept = [line.rstrip("\r") for line in text.split("\n")[:-1]]
+        if text and not text.endswith(("\n", "\r")):
+            # `splitlines(keepends=True)` schneidet, wo `read_jsonl` schneidet — auch am blanken
+            # `\r`. Gegen `\n` allein zu pruefen warf eine Zeile weg, die der Leser akzeptiert:
+            # ein zwischen CR und LF erschlagener Schreiber ist der haeufigste Abriss auf CRLF.
+            # Zurueckgeschrieben OHNE `\r`, weil byte-treu gelesen und uebersetzt geschrieben wird.
+            kept = [line.rstrip("\r\n") for line in text.splitlines(keepends=True)[:-1]]
             write_atomic(path, "".join(line + "\n" for line in kept))
     with path.open("a", encoding="utf-8") as fh:
         fh.write(rows_text(rows))
