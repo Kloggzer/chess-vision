@@ -474,3 +474,38 @@ per Konstruktion `final` — Dedup-Wirkung und Collapse als eine Groesse unter z
 Beides Berichts-, keine Rezeptfragen, deshalb gebaut statt gepinnt. **Neun `xfail(strict)`
 bleiben**, jedes mit derselben Begruendung: der Fix aendert Verhalten, und das ist eine
 Entscheidung des Menschen.
+
+## Ein vertauschter AUFBAU haengt am Feld, der Schutz der Lane an der Zelle (2026-09-17)
+
+`VID_20260802_222203` traegt Laeufer und Springer auf **b8/c8** vertauscht,
+`2026-08-08-11-59-12` dasselbe auf **f1/g1**. Beide seit dem 2026-08-19 korrigiert — und trotzdem
+schrieb die Lane auf ANDEREN Frames derselben Felder **65-mal das FEN-Wort**. Der Schutz vor der
+Vorbelegung greift je ZELLE ("eine schon beurteilte Zelle schreibt NICHTS"), der Tausch haengt
+aber am FELD.
+
+**Gemessen, nicht geraten.** Das Modell ist der unabhaengige Zeuge: c8 liest **45/45 `bN`**,
+g1 **97:7 `wB`**. Ein Scan ueber alle 48 Aufnahmen mit demselben Kriterium — systematischer
+Widerspruch auf SICHTBAREN Zellen, und **gegenseitig** — findet **genau ein** Paar, b8/c8.
+Ohne die Gegenseitigkeit meldet die Sonde jede verdeckte Ecke: drei Zwillinge
+(`2026-08-07-13-52-38` b8, `VID_20260802_222741` c8, `2026-08-08-00-39-57` d5/f5) sahen aus wie
+ein Tausch und waren keiner — das Partnerfeld las jeweils dasselbe wie das FEN.
+
+**Repariert (Nutzer: "Wache + die 240 direkt korrigieren"):** 239 Korrekturen geschrieben,
+vorher gesichert nach `data/_parked/setup-swap-backup-20260917-125427/`. Danach standen 454 der
+468 Zellen richtig; 14 trugen eine AELTERE, widersprechende Korrektur und blieben unangetastet.
+
+**Die Wache:** `lib/setup-swap.ts` nennt die Felder, die eine Aufnahme durchgehend anders fuehrt
+(>= 4 Zeilen, >= 80 % einig, `empty` zaehlt nicht — eine Hand raeumt ein Feld, sie tauscht es
+nicht). `⏎` belegt eine solche Zelle nicht mehr vor und sagt im Knopf, wie viele stehen bleiben.
+Live gemessen: auf der ERSTEN Seite 11 von 50.
+
+### Was offen bleibt
+
+Zwei einseitige Auffaelligkeiten, gemeldet und nicht beurteilt: `VID_20260726_233432` **e8** —
+FEN sagt schwarzer Koenig, das Modell liest in **232 von 234** sichtbaren Frames einen Turm; und
+`2026-08-08-11-59-12` **g7** — FEN `bB`, das Modell zu **98 %** `bP` ueber 765 Lesungen. Beides
+kann ein Label-Fehler oder eine Modell-Schwaeche sein; die Liste der einseitigen Faelle war von
+`wR` auf acht verschiedenen Feldern dominiert, was eher nach Modell aussieht als nach Aufbau.
+
+**Kein Aufbau-Check vor Zug 1.** Das bleibt der geparkte Plan — heute ist nur die Wache gebaut,
+die den Schaden nach dem Fund nicht mehr wachsen laesst.

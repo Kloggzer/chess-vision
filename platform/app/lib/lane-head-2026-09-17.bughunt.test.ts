@@ -82,3 +82,21 @@ describe("die Stellungs-Karten sind die, die kein Modellwort haben", () => {
     expect(modelPickable(c)).toBe(false);
   });
 });
+
+describe("ein Feld, das die Aufnahme anders nennt, ist keine Vorbelegung (2026-09-17)", () => {
+  // Gemessen: 65 Zellen trugen den getauschten Namen, weil die Korrektur auf ANDEREN Frames
+  // desselben Feldes lag. Der Schutz greift je Zelle, der Tausch haengt am FELD.
+  it("zaehlt eine strittige Zelle nicht als Vorbelegung", () => {
+    const counts = pageCounts([page({}), page({ contested: true })]);
+
+    expect(counts.taken).toBe(1);
+    expect(counts.contested).toBe(1);
+  });
+
+  it("eine bemalte Zelle bleibt bemalt — die Wache sperrt nur die Vorbelegung", () => {
+    const counts = pageCounts([page({ pick: "class", contested: true })]);
+
+    expect(counts.painted).toBe(1);
+    expect(counts.contested).toBe(0);
+  });
+});

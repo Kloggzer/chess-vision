@@ -11,6 +11,7 @@ import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
 import { turnPage } from "@/lib/page-turn";
+import { standingSquares } from "@/lib/setup-swap";
 import { modelPickable, pageClaim, pageCounts } from "./page-head";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
@@ -102,6 +103,19 @@ export function CellLane(props: CellLaneProps) {
     (c: LaneCell) => (decided[c.session] ?? {})[`${c.stem}|${c.square}`],
     [decided],
   );
+  /** Felder, die diese Aufnahme durchgehend anders nennt — dort ist die Vorbelegung falsch.
+   *  Gemessen 2026-09-17: 65 Zellen trugen so den getauschten Namen (b8/c8, f1/g1). */
+  const standing = useMemo(
+    () => new Map(Object.entries(decided).map(([s, d]) => [Number(s), standingSquares(d)])),
+    [decided],
+  );
+  const contested = useCallback(
+    (c: LaneCell) => {
+      const seen = standing.get(c.session)?.get(c.square);
+      return seen !== undefined && seen.label !== c.label;
+    },
+    [standing],
+  );
   const open = useMemo(
     () =>
       cells.filter((c) => {
@@ -173,11 +187,12 @@ export function CellLane(props: CellLaneProps) {
         slice.map((c, i) => ({
           pick: isClass(pick[i]) ? "class" : pick[i] === MODEL ? "model" : pick[i] === UNSURE ? "unsure" : undefined,
           judged: verdictOf(c) !== undefined,
+          contested: contested(c),
           useless: useless.has(keyOf(c)),
           hasModel: c.exception !== null,
         })),
       ),
-    [pick, slice, useless, verdictOf],
+    [contested, pick, slice, useless, verdictOf],
   );
 
   /**
@@ -194,7 +209,9 @@ export function CellLane(props: CellLaneProps) {
     // einem Label. Sonst schriebe die Vorbelegung genau das Label, das der Mensch verneint hat.
     const junk = slice.filter((c) => useless.has(keyOf(c)));
     const live = slice.filter((c) => !useless.has(keyOf(c)));
-    const taken = live.filter((c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined);
+    const taken = live.filter(
+      (c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined && !contested(c),
+    );
     const writes: Verdict[] = [
       {
         rows: rows([
@@ -224,7 +241,8 @@ export function CellLane(props: CellLaneProps) {
     setUseless((u) => new Set([...u].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setTrail((t) => [...t, slice.map(keyOf)]);
     clear();
-  }, [onDirtyCells, onFlush, onUnusable, pick, priorOf, remeasure, rows, shifted, slice, useless, verdictOf]);
+  }, [contested, onDirtyCells, onFlush, onUnusable, pick, priorOf, remeasure, rows, shifted, slice,
+      useless, verdictOf]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
   const discard = useCallback(() => {
@@ -372,6 +390,7 @@ export function CellLane(props: CellLaneProps) {
           {counts.painted > 0 ? ` · ${counts.painted} gemalt` : ""}
           {counts.model > 0 ? ` · ${counts.model}× Modell` : ""}
           {counts.unsure > 0 ? ` · ${counts.unsure} unsicher` : ""}
+          {counts.contested > 0 ? ` · ${counts.contested} bleiben offen (Feld steht anders)` : ""}
         </Button>
         <Button
           className={TOUCH}
