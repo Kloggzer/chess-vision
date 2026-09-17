@@ -144,13 +144,24 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
   const standing = (decided[head.session] ?? {})[`${head.stem}|${head.square}`];
   return (
     <div className="space-y-3">
-      <div className="text-muted-foreground flex items-baseline gap-2 font-mono text-[11px]">
-        <span>{head.stem}</span>
-        <span>{head.square}</span>
-        <span>FEN: {head.fen_label}</span>
-        {head.note ? <span className="text-amber-300">{head.note}</span> : null}
-        {standing ? <span className="text-fuchsia-300">✓ {standing}</span> : null}
-        <span className="ml-auto">{session.sessionId}</span>
+      <div className="space-y-1">
+        <div className="text-muted-foreground flex items-baseline gap-2 font-mono text-[11px]">
+          <span className="text-foreground text-sm">{head.square}</span>
+          <span>{head.stem}</span>
+          <span className="ml-auto truncate">{session.sessionId}</span>
+        </div>
+        <div className="flex items-baseline gap-4 text-sm">
+          <span>
+            <span className="text-muted-foreground text-[11px]">soll </span>
+            <span className="font-mono">{head.fen_label}</span>
+          </span>
+          <span>
+            <span className="text-muted-foreground text-[11px]">Modell </span>
+            <span className="font-mono text-amber-300">{head.exception ?? "—"}</span>
+          </span>
+          {standing ? <span className="font-mono text-fuchsia-300">✓ {standing}</span> : null}
+        </div>
+        {head.note ? <p className="text-amber-300/90 text-xs">{head.note}</p> : null}
       </div>
       {group.members.length > 1 ? (
         <p className="text-xs text-fuchsia-300">⟨ gleiches Ereignis: {group.members.length} ⟩</p>
