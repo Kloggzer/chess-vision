@@ -552,9 +552,13 @@ Vorfilter "die Hand, sichtbar".
 ein Finger, der weit ins Brett reicht. Der Rillen-Sensor nannte davon **9**, den 3×3-Kern. Genau
 dieser Block sah aus wie "passt nicht zur Hand".
 
-**Gefixt:** `lib/hand-overlay.ts` waehlt die Messung — die Matte, wo es sie gibt, sonst der
-Vorfilter — und die Vorschau SAGT im Untertitel, welche sie zeigt (`Matte` / `nur Rillen (~71 %)`).
-Eine gemessene Matte OHNE Hand ist dabei eine Aussage und faellt nicht auf den Vorfilter zurueck.
+**Gefixt, in zwei Schritten.** Zuerst die richtige QUELLE (Matte statt Vorfilter), dann auf
+Ansage des Nutzers die richtige FORM: die Vorschau zeigt jetzt das **Alpha selbst**
+(`/api/matte/<name>/<stem>`, dieselbe Darstellung wie die Matte-Lane) statt Kaesten je Feld — ein
+Finger sah als Block aus wie etwas, das er nicht ist. **Der Rillen-Sensor ist ganz raus**: kein
+Rueckfall, denn ein grober Vorfilter, der wie eine Messung aussieht, ist schlimmer als eine
+Leerstelle. Ein Frame ohne Matte sagt darum `keine Matte — ungemessen` in Rot, statt ein sauberes
+Brett zu zeigen (CLAUDE.md, "Coverage Matte Trap").
 
 **Nebenbefund, nicht gefixt:** die gespeicherte `coverage` dieser Aufnahme weicht in **18 von
 1204** Frames vom eigenen Alpha ab, alle mit `alpha: fixed`. `recut_coverage` laesst die

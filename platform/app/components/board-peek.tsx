@@ -1,7 +1,7 @@
 "use client";
 
 import { SQUARES } from "@/components/board-paint";
-import type { HandOverlay } from "@/lib/hand-overlay";
+import type { MatteOverlay } from "@/lib/hand-overlay";
 
 export type BoardPeekProps = {
   /** The rectified board this cell was cut from — `/api/board/<name>/<stem>`. */
@@ -10,9 +10,9 @@ export type BoardPeekProps = {
   square: string;
   /** Printed over the board so the panel says what it is showing. */
   caption: string;
-  /** Die verdeckten Felder UND woher sie kommen: die Matte misst, der Rillen-Sensor nennt nur
-   *  (Recall 71 %). Das zu verschweigen liess halbe Haende wie ganze aussehen. */
-  hands?: HandOverlay;
+  /** Die Verdeckung der MATTE-LANE, in ihrer eigenen Form. Kaesten je Feld liessen einen Finger
+   *  wie einen Block aussehen, und der Rillen-Sensor darunter zeigte nur die Haelfte davon. */
+  matte?: MatteOverlay;
 };
 
 const SIZE = 384;
@@ -22,37 +22,36 @@ const SIZE = 384;
  * the pointer — a panel under the cursor covers the cells the eye is crossing, which is why the
  * per-cell tooltip left the brush (2026-08-16).
  */
-export function BoardPeek({ src, square, caption, hands }: BoardPeekProps) {
+export function BoardPeek({ src, square, caption, matte }: BoardPeekProps) {
   const at = SQUARES.indexOf(square);
-  const covered = new Set(hands?.squares ?? []);
   return (
     <div className="border-border bg-background/95 pointer-events-none fixed right-4 bottom-4 z-50 rounded-lg border p-2 shadow-xl backdrop-blur">
       <div className="relative" style={{ width: SIZE, height: SIZE }}>
         {/* eslint-disable-next-line @next/next/no-img-element -- one board, sized by the panel */}
         <img alt={`Brett zu ${square}`} className="h-full w-full rounded" src={src} />
+        {matte?.src ? (
+          // Dieselbe Darstellung wie in der Matte-Lane (`app/strom/matte/frame.tsx`), damit ein
+          // Alpha hier und dort gleich aussieht und niemand zwei Bilder vergleichen muss.
+          // eslint-disable-next-line @next/next/no-img-element -- one alpha, sized by the panel
+          <img
+            alt={`Matte zu ${square}`}
+            className="pointer-events-none absolute inset-0 h-full w-full rounded opacity-70 mix-blend-screen"
+            src={matte.src}
+          />
+        ) : null}
         {at >= 0 ? (
           <div className="absolute inset-0 grid grid-cols-8">
             {SQUARES.map((sq, i) => (
-              <div
-                // Das gefragte Feld gewinnt den Ring: die Hand ist Kontext, nicht die Frage.
-                className={
-                  i === at
-                    ? "ring-primary ring-2 ring-inset"
-                    : covered.has(sq)
-                      ? "bg-amber-400/30 ring-1 ring-amber-400/70 ring-inset"
-                      : ""
-                }
-                key={sq}
-              />
+              <div className={i === at ? "ring-primary ring-2 ring-inset" : ""} key={sq} />
             ))}
           </div>
         ) : null}
       </div>
       <div className="text-muted-foreground mt-1 text-center font-mono text-xs">
         {caption}
-        {hands && hands.source !== "none" ? (
-          <span className={hands.source === "matte" ? "ml-2 text-amber-300" : "ml-2 text-amber-500/70"}>
-            {hands.source === "matte" ? "Matte" : "nur Rillen (~71 %)"}
+        {matte ? (
+          <span className={matte.measured ? "ml-2 text-amber-300" : "ml-2 text-red-400"}>
+            {matte.measured ? `Matte · ${matte.covered} verdeckt` : "keine Matte — ungemessen"}
           </span>
         ) : null}
       </div>

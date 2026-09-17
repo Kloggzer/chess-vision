@@ -11,7 +11,7 @@ import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
 import { turnPage } from "@/lib/page-turn";
-import { handOverlay } from "@/lib/hand-overlay";
+import { matteOverlay } from "@/lib/hand-overlay";
 import { standingSquares } from "@/lib/setup-swap";
 import { modelPickable, pageClaim, pageCounts } from "./page-head";
 import type { Flush, LaneActions, Verdict } from "./stream";
@@ -479,9 +479,9 @@ export function CellLane(props: CellLaneProps) {
       {peek && hover !== null && slice[hover] ? (
         <BoardPeek
           caption={`${slice[hover].square} · ${sessions[slice[hover].session].name} · ${slice[hover].stem}`}
-          hands={handOverlay(
+          matte={matteOverlay(
             coverage[slice[hover].session]?.[slice[hover].stem],
-            handBeside(frameHands, coverage, slice[hover])?.grid ?? [],
+            `/api/matte/${sessions[slice[hover].session].name}/${slice[hover].stem}?size=384`,
           )}
           square={slice[hover].square}
           src={`/api/board/${sessions[slice[hover].session].name}/${slice[hover].stem}?size=512`}
