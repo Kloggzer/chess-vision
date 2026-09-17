@@ -25,6 +25,10 @@ def iter_jsonl(path: Path) -> Iterator[dict]:
     Zehn Stellen schnitten selbst, weil sie ueber 465k-Zeilen-Manifeste ZAEHLEN oder nur die
     erste Zeile brauchen und eine Liste nicht bezahlen wollen. Sie erfanden damit die Politik
     neu und starben alle an derselben halben letzten Zeile.
+
+    Der Preis: solange der Generator LEBT, haelt er die Datei offen, und auf Windows scheitert
+    ein `write_rows` darauf mit `WinError 5`. In einer Schleife verbraucht oder mit `return`
+    verlassen ist er sofort zu; festgehalten nicht (`tests/test_ioutil.py`).
     """
     p = Path(path)
     if not p.exists():

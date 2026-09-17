@@ -107,3 +107,40 @@ def test_iter_jsonl_carries_the_same_tail_policy(tmp_path):
     broken.write_bytes(b'{"a": 1}\r\nKAPUTT\r\n{"b": 2}\r\n')
     with pytest.raises(ValueError):
         list(iter_jsonl(broken))
+
+
+def test_a_held_iter_jsonl_blocks_the_rewrite_on_windows(tmp_path):
+    """Der Preis des Stroemens: solange der Generator LEBT, haelt er die Datei offen.
+
+    Gemessen 2026-09-17: ein festgehaltener Generator laesst `write_rows` mit `WinError 5`
+    scheitern. Kein Aufrufer tut das heute — jeder verbraucht ihn in einer Schleife oder verlaesst
+    die Funktion, was ihn in CPython sofort schliesst. Der Test haelt die Falle sichtbar.
+    """
+    import sys
+
+    import pytest
+
+    from chesslab.ioutil import iter_jsonl, write_rows
+
+    # Nur Windows sperrt eine offene Datei gegen das Umhaengen; anderswo gaebe es nichts zu fangen.
+    if sys.platform != "win32":
+        pytest.skip("die Sperre gibt es nur auf Windows")
+
+    p = tmp_path / "m.jsonl"
+    write_rows(p, [{"n": i} for i in range(5)])
+
+    def first_only():
+        for row in iter_jsonl(p):
+            return row
+        return None
+
+    assert first_only() == {"n": 0}
+    # Abgebrochen und losgelassen: CPython schliesst den Generator sofort.
+    write_rows(p, [{"n": 99}])
+
+    held = iter_jsonl(p)
+    next(held)
+    with pytest.raises(OSError):
+        write_rows(p, [{"n": 1}])
+    held.close()
+    write_rows(p, [{"n": 1}])
