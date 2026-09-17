@@ -448,8 +448,11 @@ dieselbe Politik, ohne die Liste. **Uebrig bleiben zwei**: `scripts/board_grid_p
 ### Was die Ratsche daraus lernt
 
 Eine Ratsche, die auf eine SCHREIBWEISE zeigt statt auf die FORM, waechst nicht mit dem Code.
-Die Web-App traegt denselben Zwilling (`lib/jsonl-ratchet.test.ts`) und dieselbe Luecke —
-**nicht nachgemessen**, ob dort `for (const line of ...)` genauso durchlaeuft.
+Die Web-App trug denselben Zwilling und dieselbe Luecke. **Nachgemessen: eine Stelle** —
+`lib/corpus.ts` stroemt ueber ein 57-MB-Manifest und verschwieg eine kaputte Zeile MITTENDRIN
+still; der Index zaehlte dann zu wenig, und nichts sagte es. `tallyLines` traegt seit heute die
+Schwanz-Politik. Der Sucher liest die Schleife im BLOCK statt datei-weit, sonst waren
+`for (const line of jsonlRows(...))` und `read.rows` zwei Fehltreffer.
 
 ## Drei Tests, die ihren eigenen Fund nicht mehr fingen (2026-09-17)
 
