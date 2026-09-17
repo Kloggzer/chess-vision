@@ -21,7 +21,7 @@ vi.mock("@/lib/drain", () => ({
   stopDrain: async () => (drain.stopFail === null ? { stopped: true } : { error: drain.stopFail }),
 }));
 
-const matte = vi.hoisted(() => ({ recut: [] as string[], clears: [] as string[] }));
+const matte = vi.hoisted(() => ({ recut: [] as string[], clears: [] as string[], restores: [] as string[] }));
 vi.mock("@/lib/matte-fix", () => ({
   recutMatte: async (name: string) => {
     matte.recut.push(name);
@@ -29,6 +29,10 @@ vi.mock("@/lib/matte-fix", () => ({
   },
   clearAlpha: async (name: string, stem: string) => {
     matte.clears.push(`${name}|${stem}`);
+    return true;
+  },
+  restoreAlpha: async (name: string, stem: string) => {
+    matte.restores.push(`${name}|${stem}`);
     return true;
   },
   saveFixedAlpha: async () => true,
@@ -45,6 +49,7 @@ beforeEach(() => {
   drain.status = { running: null };
   matte.recut = [];
   matte.clears = [];
+  matte.restores = [];
 });
 
 const params = <T>(value: T) => ({ params: Promise.resolve(value) });
@@ -113,4 +118,15 @@ test("eine Maske, die keine ist, wird abgelehnt", async () => {
       params({ name: "2026-08-13-12-10-55", stem: "000010" }));
     expect(res.status, body).toBe(400);
   }
+});
+
+/** Ohne Rueckweg war eine versehentlich abgeschickte Seite endgueltig (Nutzer, 2026-09-17). */
+test("`restore` nimmt das geleerte Alpha zurueck und laesst `clear` in Ruhe", async () => {
+  const res = await strokePost(
+    new Request("http://x", { method: "POST", body: '{"restore":true}' }),
+    params({ name: "2026-08-13-12-10-55", stem: "000010" }));
+
+  expect(await res.json()).toEqual({ written: true, recut: false });
+  expect(matte.restores).toEqual(["2026-08-13-12-10-55|000010"]);
+  expect(matte.clears, "restore darf nicht auch noch leeren").toEqual([]);
 });

@@ -3,7 +3,7 @@
  * The board is shown STRAIGHTENED, the file has to be the raw raster SAM cut — so a stroke goes
  * back through the mesh and homography `mattePng` used. No coverage here: `occluders recut` cuts it.
  */
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import sharp from "sharp";
 import { writeFileAtomic } from "@/lib/atomic";
 import { forgetRaster } from "@/lib/crops";
@@ -111,6 +111,19 @@ export async function clearAlpha(name: string, stem: string): Promise<string> {
 
   const file = fixedMattePath(name, stem);
   await writeFileAtomic(file, await encodeAlpha(Buffer.alloc(width * height), width, height));
+  forgetRaster(file);
+  return file;
+}
+
+/** Den Rueckweg zu `clearAlpha`: die Handfassung faellt weg, SAMs Schnitt liegt daneben und
+ *  ist damit wieder der gueltige (`matte.alphaPath`). Fehlt sie schon, ist nichts zu tun. */
+export async function restoreAlpha(name: string, stem: string): Promise<string> {
+  checkName(name, "game name");
+  checkName(stem, "frame");
+  if (busy()) throw new Error("ein Job läuft gerade — der schreibt womöglich dieselben Dateien");
+
+  const file = fixedMattePath(name, stem);
+  await rm(file, { force: true });
   forgetRaster(file);
   return file;
 }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Notice } from "@/components/notice";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { commitPage, type MatteVerdict } from "@/lib/matte-page";
+import { commitPage, type MatteVerdict, type PageCommit, revertPage } from "@/lib/matte-page";
 import { pageAllMarked, toggleAllOnPage } from "@/lib/matte-select";
 import { clampPage } from "@/lib/page-turn";
 import { verifyFrameKey } from "@/lib/position-carry";
@@ -49,6 +49,7 @@ const KEYS: [string, string][] = [
   ["∅ / Rechtsklick", "als „keine Überlagerung“ vormerken — geschrieben wird mit ⏎"],
   ["m", "Alpha ein/aus"],
   ["← →", "Seite blättern"],
+  ["u", "letzte geschriebene Seite zurücknehmen"],
 ];
 
 async function post<T>(url: string, body: unknown): Promise<T> {
@@ -78,6 +79,8 @@ export function MatteReview({ stream }: { stream: VerifyStream }) {
   const [clean, setClean] = useState<ReadonlySet<string>>(new Set<string>());
   const [detail, setDetail] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Die geschriebenen Seiten, juengste zuletzt — ohne sie war ein Fehlgriff endgueltig. */
+  const [trail, setTrail] = useState<PageCommit[]>([]);
 
   /**
    * Beurteiltes faellt raus, der Seitenindex bleibt — so schieben sich die naechsten zehn nach,
@@ -160,10 +163,47 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
       setAnswered((a) => ({ ...a, ...plan.verdicts }));
       setMarked(plan.marked);
       setClean(plan.clean);
+      setTrail((t) => [...t, plan]);
     } catch (e) {
       setError(String(e));
     }
   }, [clean, loaded.sessions, marked, slice]);
+
+  /**
+   * Die zuletzt geschriebene Seite zurueck. Erst die Alphas, dann die Zeilen: andersherum waere
+   * der Frame schon wieder offen, waehrend seine Pixel noch die geleerten sind.
+   */
+  const undo = useCallback(async () => {
+    const plan = trail[trail.length - 1];
+    if (!plan) return;
+    const back = revertPage(plan);
+    try {
+      for (const key of back.restore) {
+        const frame = loaded.frames.find((f) => verifyFrameKey(f) === key);
+        if (!frame) continue;
+        await post(`/api/matte/${loaded.sessions[frame.session].name}/${frame.stem}`, { restore: true });
+      }
+      await post("/api/review-notes", {
+        rows: back.verdicts.flatMap(({ key, verdict }) => {
+          const frame = loaded.frames.find((f) => verifyFrameKey(f) === key);
+          return frame
+            ? [{ session_id: loaded.sessions[frame.session].sessionId, frame: frame.stem, verdict }]
+            : [];
+        }),
+        retract: true,
+      });
+      setAnswered((a) => {
+        const rest = { ...a };
+        for (const { key } of back.verdicts) delete rest[key];
+        return rest;
+      });
+      setMarked((was) => new Set([...was, ...back.marked]));
+      setClean((was) => new Set([...was, ...back.clean]));
+      setTrail((t) => t.slice(0, -1));
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [loaded.frames, loaded.sessions, trail]);
 
   /** Ein Urteil aus der Einzelansicht — dasselbe Ledger, nur eine Zeile statt zehn. */
   const judgeOne = useCallback(
@@ -217,6 +257,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
         Enter: () => void commit(),
         m: () => setAlpha((v) => !v),
         a: () => toggleAll(),
+        u: () => void undo(),
         ArrowLeft: () => setPage((p) => clampPage(p, -1, pages)),
         ArrowRight: () => setPage((p) => clampPage(p, 1, pages)),
       };
@@ -227,7 +268,7 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commit, detail, pages, slice, toggleAll, toggle]);
+  }, [commit, detail, pages, slice, toggleAll, toggle, undo]);
 
   const frame = detail === null ? undefined : open.find((f) => verifyFrameKey(f) === detail);
   if (frame) {
@@ -303,6 +344,15 @@ const drop = (key: string) => (was: ReadonlySet<string>) =>
             variant={alpha ? "default" : "outline"}
           >
             <span className="mr-1 font-mono">m</span> Alpha
+          </Button>
+          <Button
+            className={TOUCH}
+            disabled={trail.length === 0}
+            onClick={() => void undo()}
+            size="sm"
+            variant="outline"
+          >
+            <span className="mr-1 font-mono">u</span> ⟲ zurück
           </Button>
           <Button className={TOUCH} onClick={() => setPage((p) => clampPage(p, -1, pages))} size="sm" variant="outline">
             ←

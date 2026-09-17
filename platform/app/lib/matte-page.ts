@@ -30,3 +30,23 @@ export function commitPage(
   // beim naechsten Commit als `matte-ok` durch, obwohl der Mensch "taugt nichts" gesagt hatte.
   return { verdicts, marked: without(marked, page), clean: without(clean, page) };
 }
+
+export type PageRevert = {
+  /** Genau die Zeilen, die der Commit geschrieben hat — `retract: true` nimmt sie wieder weg. */
+  verdicts: { key: string; verdict: MatteVerdict }[];
+  /** Nur `matte-clean` hat ein Alpha GELEERT; SAMs Schnitt liegt daneben und kommt zurueck. */
+  restore: string[];
+  marked: ReadonlySet<string>;
+  clean: ReadonlySet<string>;
+};
+
+/** Der Rueckweg zu `commitPage`: aus seinem Plan allein, damit nichts zweimal geraten wird. */
+export function revertPage(plan: PageCommit): PageRevert {
+  const verdicts = Object.entries(plan.verdicts).map(([key, verdict]) => ({ key, verdict }));
+  return {
+    verdicts,
+    restore: verdicts.filter((v) => v.verdict === "matte-clean").map((v) => v.key),
+    marked: new Set(verdicts.filter((v) => v.verdict === "matte-bad").map((v) => v.key)),
+    clean: new Set(verdicts.filter((v) => v.verdict === "matte-clean").map((v) => v.key)),
+  };
+}

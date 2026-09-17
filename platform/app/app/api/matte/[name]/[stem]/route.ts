@@ -1,5 +1,5 @@
 import { CUT_MIME, mattePng } from "@/lib/crops";
-import { clearAlpha, saveFixedAlpha } from "@/lib/matte-fix";
+import { clearAlpha, restoreAlpha, saveFixedAlpha } from "@/lib/matte-fix";
 
 /** The frame's alpha as a greyscale field, aligned with `/api/board/<name>/<stem>` of the same size. */
 export async function GET(
@@ -35,9 +35,11 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
   const { name, stem } = await ctx.params;
   let write: () => Promise<string>;
   try {
-    const body = (await request.json()) as { mask?: unknown; clear?: unknown };
-    // `clear` ist derselbe Schreibvorgang mit leerem Alpha: der Fund war keiner.
-    if (body.clear === true) write = () => clearAlpha(name, stem);
+    const body = (await request.json()) as { mask?: unknown; clear?: unknown; restore?: unknown };
+    // `clear` ist derselbe Schreibvorgang mit leerem Alpha: der Fund war keiner. `restore`
+    // nimmt ihn zurueck — die Handfassung faellt weg, SAMs Schnitt darunter gilt wieder.
+    if (body.restore === true) write = () => restoreAlpha(name, stem);
+    else if (body.clear === true) write = () => clearAlpha(name, stem);
     else {
       if (typeof body.mask !== "string") throw new Error("mask must be a base64 PNG");
       const mask = Buffer.from(body.mask.replace(/^data:[^,]*,/, ""), "base64");
