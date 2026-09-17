@@ -592,9 +592,10 @@ Zeugen stehen damit unter Vorbehalt.
 | `2026-08-08-00-39-57` | d7 | `bR` | `bP` | 29 | 25 | 0 % |
 | `2026-09-06-20-57-45` | e5 | `wN` | `wB` | 16 | 13 | 12 % |
 
-`g1` ist der bereits reparierte f1/g1-Tausch — der Audit findet ihn eigenstaendig wieder, was die
-Methode stuetzt. **`2026-09-06-21-29-35` c2 ist der grosse offene Posten**: 252 unbeurteilte
-Zellen, beide Folds lesen einen Bauern, wo das FEN einen Turm fuehrt.
+`g1` ist der bereits reparierte f1/g1-Tausch — der Audit findet ihn eigenstaendig wieder.
+
+**ZURUECKGEZOGEN, siehe unten:** `c6` wurde vom Menschen als Turm bestaetigt, obwohl BEIDE Folds
+dort mit 97-99 % einen Springer lasen. Zwei Folds sind kein zweiter Zeuge.
 
 ### Widerlegt, und darum NICHT gemeldet
 
@@ -672,3 +673,35 @@ nichts. Sie stuetzt sich jetzt nur auf Fenster, die SELBST die Schwelle reissen,
 **26 der 48 Aufnahmen** hat kein Fold ausgelassen — fuer die gibt es kein ehrliches Urteil,
 solange kein Trainingslauf sie auslaesst. Und `2026-08-16-20-41-33` traegt allein **11 Fenster**
 ohne zweiten Zeugen; bei 60 % Fehlalarm je Einzelzeuge ist das nicht belastbar.
+
+## Zwei Folds sind KEIN zweiter Zeuge (2026-09-17, zurueckgezogen)
+
+Der Mensch hat `2026-09-06-21-29-35` c6 angesehen und entschieden: **`wR`, wie das FEN sagt.**
+Beide gehaltenen Folds lasen dort einen Springer, mit **97, 99 und 98 Prozent** auf drei Frames,
+und der Audit meldete das als **BESTAETIGT** — den staerksten Befund, den er kennt.
+
+**Beide waren sicher falsch.** Damit faellt die Annahme, auf der die ganze Auswertung stand.
+
+### Warum sie sich nicht widersprechen konnten
+
+`_fold0..3128v7/p4a-s42` teilen **Seed 42, Architektur, Epochen, Batch und Augmentierung**. Sie
+unterscheiden sich NUR im Split und trainieren auf rund 90 % derselben Aufnahmen. Gemessen ueber
+**352 320 gemeinsam gelesene Zellen**: sie lesen in **95,3 %** dasselbe. Das ist kein zweiter
+Zeuge, das ist dieselbe Stimme aus einem anderen Zimmer.
+
+**`--second` misst damit fast nichts.** Die "6 von 10 widerlegt" von heute frueh sagen, wo die
+zwei Faelle auseinanderlaufen — nicht, wo das Label falsch ist. Und "BESTAETIGT" heisst nur:
+dasselbe Rezept irrt zweimal gleich.
+
+### Was daraus folgt
+
+- **Nichts wurde geschrieben.** Die Kette d1/c2/c6/c8 (~440 Zellen) bleibt unberuehrt.
+- Der Bestands-Alarm auf dieser Aufnahme (`wN x1`) stand auf denselben Lesungen und ist mit
+  ihnen hinfaellig.
+- `c2` (57-74, gelesen `wP`) ist damit ebenfalls **unbeurteilt** — ein Mensch hat es nicht
+  angesehen, und der Leser ist als Zeuge entwertet.
+- Ein echter zweiter Zeuge braucht ein anderes REZEPT, nicht einen anderen Split: andere
+  Architektur, anderer Seed, andere Augmentierung. Sonst ist die Gegenprobe Theater.
+
+**Der Mensch bleibt die einzige Wahrheit.** Der Audit taugt zum SORTIEREN — er zeigt, wo
+hinzusehen lohnt — nie zum Entscheiden.
