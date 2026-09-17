@@ -509,3 +509,24 @@ kann ein Label-Fehler oder eine Modell-Schwaeche sein; die Liste der einseitigen
 
 **Kein Aufbau-Check vor Zug 1.** Das bleibt der geparkte Plan — heute ist nur die Wache gebaut,
 die den Schaden nach dem Fund nicht mehr wachsen laesst.
+
+## Der Auditor beurteilte sein eigenes Trainingsmaterial (2026-09-17)
+
+Die Auffaelligkeit `VID_20260726_233432` **e8** — FEN sagt schwarzer Koenig, das Modell las in
+**232 von 234** sichtbaren Frames einen Turm — war **keine**. Derselbe Frame, gelesen von
+`_fold2128v7/p4a-s42`, das diese Aufnahme nie gesehen hat: **`bK` 232/234**. Der Fehler lag am
+LESER, nicht am Label.
+
+Die kanonischen `model-reads.jsonl` stammen von `_folds/mnv3s128-f0` — andere Architektur,
+v4-Zeit, und fuer die meisten Aufnahmen ein Modell, das auf ihnen TRAINIERT hat. Ein Modell, das
+seine eigenen Trainingslabels bestaetigt, ist kein Zeuge; eines, das sie verfehlt, ist auch
+keiner. **Jede Zahl in diesem Dokument, die auf `model-reads.jsonl` beruht, steht unter diesem
+Vorbehalt** — auch die Bestaetigung der beiden Aufbau-Tausche (die aber zusaetzlich durch 215
+menschliche Korrekturen getragen wird).
+
+**`realgames model-read` verweigert von sich aus ein Modell, das die Aufnahme trainiert hat.**
+Der Weg war also immer da, er wurde nur nicht gegangen.
+
+**22 der 48 Aufnahmen** waren bei mindestens einem der vier v7-Folds draussen
+(`_fold0..3128v7/p4a-s42`, Split-Kopie in der jeweiligen `config.json`). Fuer die ist ein
+ehrlicher Audit moeglich; fuer die uebrigen 26 nicht, solange kein Fold sie auslaesst.
