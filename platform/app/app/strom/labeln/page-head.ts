@@ -29,14 +29,11 @@ export const modelPickable = (cell: Pick<LaneCell, "exception">): boolean => cel
 export type PageCell = {
   pick: "class" | "model" | "unsure" | undefined;
   judged: boolean;
-  /** Das FELD dieser Aufnahme steht auf einem anderen Wort (`lib/setup-swap.ts`). */
-  contested?: boolean;
   useless: boolean;
   hasModel: boolean;
 };
 
-export type PageCounts =
-  { painted: number; model: number; unsure: number; taken: number; useless: number; contested: number };
+export type PageCounts = { painted: number; model: number; unsure: number; taken: number; useless: number };
 
 /**
  * Was ⏎ wirklich schreibt. Eine als unbrauchbar markierte Zelle bekommt weder Vorbelegung noch
@@ -49,8 +46,7 @@ export function pageCounts(cells: readonly PageCell[]): PageCounts {
     painted: live.filter((c) => c.pick === "class").length,
     model: live.filter((c) => c.pick === "model" && c.hasModel).length,
     unsure: live.filter((c) => c.pick === "unsure").length,
-    taken: live.filter((c) => c.pick === undefined && !c.judged && !c.contested).length,
-    contested: live.filter((c) => c.pick === undefined && !c.judged && c.contested === true).length,
+    taken: live.filter((c) => c.pick === undefined && !c.judged).length,
     useless: cells.filter((c) => c.useless).length,
   };
 }

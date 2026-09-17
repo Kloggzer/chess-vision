@@ -110,6 +110,9 @@ export function CellLane(props: CellLaneProps) {
     () => new Map(Object.entries(decided).map(([s, d]) => [Number(s), standingSquares(d)])),
     [decided],
   );
+  /** ⏎ bestaetigt die Seite, wie sie dasteht (Nutzer, 2026-09-17: "alles andere ist ein extra
+   *  schritt"). Diese Felder werden darum GEZEIGT, nicht zurueckgehalten — eine Wache, die dem
+   *  Menschen nur Klicks abverlangt, wird umgangen und schuetzt dann gar nichts. */
   const contested = useCallback(
     (c: LaneCell) => {
       const seen = standing.get(c.session)?.get(c.square);
@@ -188,12 +191,16 @@ export function CellLane(props: CellLaneProps) {
         slice.map((c, i) => ({
           pick: isClass(pick[i]) ? "class" : pick[i] === MODEL ? "model" : pick[i] === UNSURE ? "unsure" : undefined,
           judged: verdictOf(c) !== undefined,
-          contested: contested(c),
           useless: useless.has(keyOf(c)),
           hasModel: c.exception !== null,
         })),
       ),
-    [contested, pick, slice, useless, verdictOf],
+    [pick, slice, useless, verdictOf],
+  );
+  /** Die Felder dieser Seite, die ihre Aufnahme sonst anders nennt — als WARNUNG, nicht als Sperre. */
+  const warned = useMemo(
+    () => [...new Set(slice.filter(contested).map((c) => c.square))].sort(),
+    [contested, slice],
   );
 
   /**
@@ -210,9 +217,7 @@ export function CellLane(props: CellLaneProps) {
     // einem Label. Sonst schriebe die Vorbelegung genau das Label, das der Mensch verneint hat.
     const junk = slice.filter((c) => useless.has(keyOf(c)));
     const live = slice.filter((c) => !useless.has(keyOf(c)));
-    const taken = live.filter(
-      (c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined && !contested(c),
-    );
+    const taken = live.filter((c) => pick[slice.indexOf(c)] === undefined && verdictOf(c) === undefined);
     const writes: Verdict[] = [
       {
         rows: rows([
@@ -242,7 +247,7 @@ export function CellLane(props: CellLaneProps) {
     setUseless((u) => new Set([...u].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setTrail((t) => [...t, slice.map(keyOf)]);
     clear();
-  }, [contested, onDirtyCells, onFlush, onUnusable, pick, priorOf, remeasure, rows, shifted, slice,
+  }, [onDirtyCells, onFlush, onUnusable, pick, priorOf, remeasure, rows, shifted, slice,
       useless, verdictOf]);
 
   /** Backspace — this page is not answerable here; it leaves without a row. */
@@ -386,12 +391,17 @@ export function CellLane(props: CellLaneProps) {
           Rechtsklick = Modell hat recht · Pinsel 🖐 setzt die Hand auf die ZELLE ·
           🖐 in der Crop-Ecke meldet das GANZE Frame
         </span>
+        {warned.length > 0 ? (
+          <span className="rounded border border-amber-500/60 px-2 py-0.5 text-amber-300">
+            ⚠ {warned.join(" · ")} — diese Aufnahme nennt das Feld sonst anders
+          </span>
+        ) : null}
         <Button className={`ml-auto ${TOUCH}`} onClick={() => void accept()} size="sm">
           ⏎ {counts.taken} bestätigen
           {counts.painted > 0 ? ` · ${counts.painted} gemalt` : ""}
           {counts.model > 0 ? ` · ${counts.model}× Modell` : ""}
           {counts.unsure > 0 ? ` · ${counts.unsure} unsicher` : ""}
-          {counts.contested > 0 ? ` · ${counts.contested} bleiben offen (Feld steht anders)` : ""}
+
         </Button>
         <Button
           className={TOUCH}
