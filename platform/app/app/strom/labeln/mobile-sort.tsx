@@ -251,7 +251,7 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
         </div>
       ) : null}
 
-      <div className="flex items-center gap-2 text-sm">
+      <div className="bg-background/95 sticky bottom-0 z-10 flex items-center gap-2 py-2 text-sm backdrop-blur">
         <Button className="h-11" onClick={undo} variant="outline">
           ⟲ zurück
         </Button>

@@ -222,6 +222,7 @@ core-cnn/src/test/kotlin/com/chesslab/cnn/ObservationTest.kt 3
 core-cnn/src/test/kotlin/com/chesslab/cnn/PlatformPurityTest.kt 1
 core-cnn/src/test/kotlin/com/chesslab/cnn/PreprocessTest.kt 9
 core-cnn/src/test/kotlin/com/chesslab/cnn/RecoveryTest.kt 2
+core-cnn/src/test/kotlin/com/chesslab/cnn/TemperatureParityTest.kt 3
 core-engine/src/main/kotlin/com/chesslab/engine/AdoptedFen.kt 3
 core-engine/src/main/kotlin/com/chesslab/engine/Alarm.kt 10
 core-engine/src/main/kotlin/com/chesslab/engine/Ambiguity.kt 2

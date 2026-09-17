@@ -35,6 +35,12 @@ def _neighbours(sq: str) -> list[str]:
             if (df or dr) and 0 <= f + df < 8 and 0 <= r + dr < 8]
 
 
+def _band(v) -> str:
+    if not len(v):
+        return "n=0 — nicht gemessen"
+    return f"mean {v.mean():.4f}  max {v.max():.4f}  n={len(v)}"
+
+
 def main() -> int:
     import numpy as np
     from sweep_infer_size import (
@@ -102,12 +108,16 @@ def main() -> int:
         print(f"{n:>20}{len(v):>9}{v.mean():13.4f}{np.percentile(v, 99):10.4f}{v.max():9.4f}"
               f"{int((v >= 0.5).sum()):>8}")
 
-    lonely = np.array(buckets.get(0) or [np.nan])
-    crowded = np.concatenate([np.array(buckets[n]) for n in sorted(buckets) if n >= 3]
-                             or [np.array([np.nan])])
-    print(f"\n  0 neighbours : mean {lonely.mean():.4f}  max {lonely.max():.4f}  n={len(lonely)}")
-    print(f"  3+ neighbours: mean {crowded.mean():.4f}  max {crowded.max():.4f}  n={len(crowded)}")
-    print(f"  ratio of means: {crowded.mean() / max(lonely.mean(), 1e-12):.1f}x")
+    # Ein leerer Bucket ist nicht gemessen. `[np.nan]` machte daraus n=1 mit mean nan, und das
+    # Verhaeltnis wurde still `nan` bzw. — gegen 1e-12 — eine astronomische Zahl.
+    lonely = np.array(buckets.get(0, []), dtype=float)
+    crowded = np.array([p for n in sorted(buckets) if n >= 3 for p in buckets[n]], dtype=float)
+    print(f"\n  0 neighbours : {_band(lonely)}")
+    print(f"  3+ neighbours: {_band(crowded)}")
+    if len(lonely) and len(crowded) and lonely.mean() > 0:
+        print(f"  ratio of means: {crowded.mean() / lonely.mean():.1f}x")
+    else:
+        print("  ratio of means: — (ein Bucket ist leer, nicht 0)")
     print("\nA ratio near 1 means the crop really is one square, and a start-position session is\n"
           "worth as much per crop as a mid-game one. A ratio that climbs means the neighbours reach\n"
           "these pixels, and a fixed layout only ever samples the part of the range it produces.")

@@ -1437,10 +1437,14 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                               batch_size=eval_batch, num_workers=0, keep_workers=False)
         sva = visible_confidence(score_rows, list(sv["trues"]), list(sv["preds"]),
                                  sv.get("conf") or [])
-        st, sbd = checkpoint_metrics(score_rows, classes, list(sv["trues"]), list(sv["preds"]),
-                                     auroc=confidence_auroc(*sva))
-        print(f"[OK] swa.pt: score {st[0]:.4f} piece {sbd['piece_acc']:.4f} "
-              f"auroc {sbd['calibration']:.4f} — gegen best.pt {best_score[0]:.4f} messen")
+        _, sbd = checkpoint_metrics(score_rows, classes, list(sv["trues"]), list(sv["preds"]),
+                                    auroc=confidence_auroc(*sva))
+        # Dasselbe Tupel wie `best_score`: der gewichtete Score aus `checkpoint_metrics` lag
+        # hier im Median 0,163 ueber `visible_piece_acc`, also gewann swa.pt jeden Vergleich.
+        srank = _checkpoint_rank(sbd, sbd["calibration"])
+        print(f"[OK] swa.pt: visible_piece_acc {srank[0]:.4f} "
+              f"(visible_occupied_acc {srank[1]:.4f}, auroc {srank[2]:.4f}) "
+              f"— gegen best.pt {best_score[0]:.4f} messen")
 
     # Temperatur auf val anpassen und mitschreiben: der Dekoder soll keine handgesetzte
     # Konstante brauchen, jedes Modell bringt seine eigene mit. Argmax und Genauigkeit

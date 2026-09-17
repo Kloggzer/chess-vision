@@ -69,10 +69,13 @@ def main() -> int:
                     base[seed] = v
                 elif seed in base:
                     deltas.append(v - base[seed])
-            paired = f"  gepaart {statistics.fmean(deltas):+.4f}" if deltas else ""
+            # Das gepaarte Mittel lief je Arm ueber die Seeds, die DIESER Arm hat — ein Arm mit
+            # einem Seed stand ohne Vermerk neben einem mit dreien. Die Paarzahl gehoert daneben.
+            paired = (f"  gepaart {statistics.fmean(deltas):+.4f} (n={len(deltas)}/{len(seeds)})"
+                      if deltas else ("  gepaart —" if arm != args.baseline else ""))
             spread = f" (min {min(deltas):+.4f} max {max(deltas):+.4f})" if len(deltas) > 1 else ""
             print(f"  {arm:6s} " + "  ".join(cells) + paired + spread)
-    print("\n* = Lauf hat keine 60 Epochen")
+    print(f"\n-- = Lauf hat keine {args.epochs} Epochen und wird nicht gerangt")
     return 0
 
 

@@ -26,6 +26,14 @@ from chesslab.ioutil import read_jsonl  # noqa: E402
 MOTION_THR = 0.25
 
 
+def share_line(over_share: list[float], plies: int) -> str:
+    """Jede Spanne leer (pc_q == ph_q) heisst NICHT ANTEIL 0, sondern nicht gemessen — und
+    `st.median([])` kippte den ganzen Lauf am Ende, nachdem die Tabelle schon stand."""
+    if not over_share:
+        return f"— (keine Spanne mit Frames, n=0 von {plies} Plies)"
+    return f"median {st.median(over_share):.2f} (n={len(over_share)})"
+
+
 def main(name: str, dump: str, log: str) -> int:
     rec = ROOT / "data" / "recordings" / name
     session = next(rec.glob("files/sessions/*"))
@@ -65,7 +73,7 @@ def main(name: str, dump: str, log: str) -> int:
     if gaps:
         s = sorted(gaps)
         print(f"\nphone quiet − PC quiet: median {st.median(s):.2f} s · p90 {p90(s):.2f} s · n={len(s)}")
-        print(f"share of gap frames the PC saw over {MOTION_THR}: median {st.median(over_share):.2f}")
+        print(f"share of gap frames the PC saw over {MOTION_THR}: {share_line(over_share, len(gaps))}")
     return 0
 
 

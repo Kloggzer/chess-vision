@@ -71,6 +71,18 @@ export function alphaState(row: MatteFrame, fixedAt: number | undefined, recutAt
   return row.alpha === "fixed" && fixedAt <= recutAt ? "fixed" : "pending";
 }
 
+/** Nur ein verschwundenes File ist leer. Jeder andere Lesefehler — EBUSY waehrend der Matte-Lauf
+ *  schreibt, EMFILE wenn die Stream-Seite ueber 40 Aufnahmen faechert — landete sonst als "nie
+ *  gemattet" unter dem ECHTEN Stempel und stand, bis sich die Datei bewegt. */
+async function readOnlyMissingIsEmpty(file: string): Promise<string> {
+  try {
+    return await readFile(file, "utf8");
+  } catch (e) {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    return "";
+  }
+}
+
 type Cache = Map<string, { key: string; value: SessionMatte }>;
 const cache: Cache = ((globalThis as { __chesslabMattes?: Cache }).__chesslabMattes ??= new Map());
 
@@ -82,7 +94,7 @@ export async function loadMatte(name: string): Promise<SessionMatte> {
   if (hit?.key === key) return hit.value;
 
   const value: SessionMatte = new Map();
-  const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
+  const text = key === "none" ? "" : await readOnlyMissingIsEmpty(file);
   // Eine kaputte Zeile MITTENDRIN still zu ueberspringen nimmt einem gemessenen Frame sein Alpha,
   // und die Lane liest es danach als "nie gemattet" — der Schwanz eines laufenden Laufs nicht.
   const read = readJsonl(text);
@@ -207,7 +219,7 @@ async function cachedSet(file: string, tag: string,
   const id = `${file}|${tag}`;
   const hit = sets.get(id);
   if (hit?.key === key) return hit.value;
-  const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
+  const text = key === "none" ? "" : await readOnlyMissingIsEmpty(file);
   const value = read(text);
   sets.set(id, { key, value });
   return value;

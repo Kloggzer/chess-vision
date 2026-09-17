@@ -184,3 +184,21 @@ def test_a_bom_does_not_kill_the_read(tmp_path):
     path.write_bytes(b"\xef\xbb\xbf" + b'{"a": 1}\n{"b": 2}\n')
 
     assert read_jsonl(path) == [{"a": 1}, {"b": 2}]
+
+
+def test_a_refused_writer_does_not_remove_the_running_ones_side_file(tmp_path):
+    """Zwei Schreiber auf DIESELBE Datei teilten sich eine Nebendatei `<name>.tmp`.
+
+    Wer abbricht, raeumt im `except` auf — und nahm damit die halb geschriebene Nebendatei des
+    anderen mit, der daraufhin sein Umhaengen mit FileNotFoundError verlor, obwohl er den
+    Riegel hielt. Gefunden 2026-09-17 in `lib/atomic.ts`, dieselbe Form hier.
+    """
+    path = tmp_path / "matte.jsonl"
+    ledger.write_rows(path, [{"a": 1}])
+    fremd = next(tmp_path.glob("*.jsonl")).with_suffix(".jsonl.tmp")
+    fremd.write_text("der andere schreibt gerade", encoding="utf-8")
+
+    with pytest.raises(ledger.Contested):
+        ledger.write_rows_guarded(path, [{"b": 2}], (0, 0), what="Probe")
+
+    assert fremd.is_file(), "die Nebendatei des laufenden Schreibers wurde weggeraeumt"

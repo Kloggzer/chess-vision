@@ -112,13 +112,17 @@ export async function cellPng(name: string, stem: string, square: string, size: 
   // BEIDE mtimes: ein Re-Export ändert die CORNERS im Log, nie die Brett-Datei — ein Schlüssel nur
   // über das Brett servierte nach dem Neuschnitt die alten, krummen Crops weiter (2026-08-15), und
   // `session boards` schreibt das Brett neu, ohne das Log anzufassen.
-  const [srcM, logM] = await Promise.all([
+  // Und `candidate.json`: `pad_side` und `board_size` schneiden die Box, stehen aber in KEINER der
+  // beiden anderen Dateien — ein neues Profil liess sie beide unberuehrt und der Cache servierte
+  // den Schnitt von vorher weiter.
+  const [srcM, logM, candM] = await Promise.all([
     rel ? stat(boardPath(name, rel)).then((s) => s.mtimeMs, () => 0) : Promise.resolve(0),
     stat(path.join(sessionDir(name), "log.jsonl")).then((s) => s.mtimeMs, () => 0),
+    stat(path.join(sessionDir(name), "candidate.json")).then((s) => `${s.mtimeMs}:${s.size}`, () => "none"),
   ]);
   // CUT_MIME too: this map holds ENCODED bytes and deliberately survives HMR on `globalThis`, so
   // changing the encoder without it served PNG under an `image/webp` header until a full restart.
-  const key = `${name}|${stem}|${square}|${size}|${srcM}|${logM}|${CUT_MIME}`;
+  const key = `${name}|${stem}|${square}|${size}|${srcM}|${logM}|${candM}|${CUT_MIME}`;
   const hit = cellPngs.get(key);
   if (hit) return hit;
   const { raster, h } = await cutSource(session, name, stem);

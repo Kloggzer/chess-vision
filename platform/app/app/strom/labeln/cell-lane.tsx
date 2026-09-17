@@ -11,6 +11,7 @@ import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
 import { turnPage } from "@/lib/page-turn";
+import { modelPickable, pageClaim, pageCounts } from "./page-head";
 import type { Flush, LaneActions, Verdict } from "./stream";
 
 export type CellLaneProps = {
@@ -166,15 +167,18 @@ export function CellLane(props: CellLaneProps) {
     setCursor(next.cursor);
   };
 
-  const counts = useMemo(() => {
-    const values = slice.map((_, i) => pick[i]);
-    return {
-      painted: values.filter(isClass).length,
-      model: values.filter((v) => v === MODEL).length,
-      unsure: values.filter((v) => v === UNSURE).length,
-      taken: slice.filter((c, i) => values[i] === undefined && verdictOf(c) === undefined).length,
-    };
-  }, [pick, slice, verdictOf]);
+  const counts = useMemo(
+    () =>
+      pageCounts(
+        slice.map((c, i) => ({
+          pick: isClass(pick[i]) ? "class" : pick[i] === MODEL ? "model" : pick[i] === UNSURE ? "unsure" : undefined,
+          judged: verdictOf(c) !== undefined,
+          useless: useless.has(keyOf(c)),
+          hasModel: c.exception !== null,
+        })),
+      ),
+    [pick, slice, useless, verdictOf],
+  );
 
   /**
    * Enter writes the page: what the brush painted, the exceptions the model won, and for every
@@ -266,6 +270,9 @@ export function CellLane(props: CellLaneProps) {
       });
       return;
     }
+    // Ohne Modellwort schreibt `accept` fuer diese Marke nichts — sie duerfte der Zelle sonst
+    // still ihre Vorbelegung nehmen und sie als beantwortet fuehren.
+    if (label === MODEL && !modelPickable(slice[i])) return;
     setPick((p) => {
       const next = { ...p };
       if (next[i] === label) delete next[i];
@@ -315,6 +322,7 @@ export function CellLane(props: CellLaneProps) {
 
   // The header counts in the LANE's order, so the position survives a switch to a board lane.
   const head = slice[0];
+  const claims = pageClaim(slice);
   useEffect(() => {
     if (head) onAt(cells.indexOf(head));
   }, [cells, head, onAt]);
@@ -346,14 +354,14 @@ export function CellLane(props: CellLaneProps) {
       <div className="border-border bg-muted/30 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm">
         {/* Die Behauptung der Seite, GROSS — pro Karte danach suchen war die Beschwerde (2026-08-15). */}
         <span className="bg-background rounded border px-2 py-0.5 font-mono text-lg font-bold">
-          FEN {[...new Set(slice.map((c) => c.fen_label))].join(" · ") || "—"}
+          FEN {claims.fen.join(" · ") || "—"}
         </span>
-        {head.exception !== null ? (
+        {claims.models.length > 0 ? (
           <span className="bg-background rounded border px-2 py-0.5 font-mono text-lg font-bold text-fuchsia-300">
-            Modell {[...new Set(slice.map((c) => c.exception ?? "—"))].join(" · ")}
+            Modell {slice.some((c) => c.exception === null) ? [...claims.models, "—"].join(" · ") : claims.models.join(" · ")}
           </span>
         ) : null}
-        <strong>{head.ledger === "reviewed" ? "Vorbelegung: FEN stimmt" : `Vorbelegung: ${head.label}`}</strong>
+        <strong>Vorbelegung: {claims.preselect}</strong>
         <span className="text-muted-foreground">
           {open.length} Zellen {showDone ? "(mit fertigen)" : "offen"} · Seite {safePage + 1}/{pages} · Klick malt den Pinsel ·
           Rechtsklick = Modell hat recht · Pinsel 🖐 setzt die Hand auf die ZELLE ·

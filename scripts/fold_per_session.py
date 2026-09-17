@@ -20,6 +20,14 @@ from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import load_packed
 
 
+def missing_sessions(expected, out):
+    """Die Zusage ist "jede Session genau einmal" — `duplicate_sessions` prueft nur die eine
+    Haelfte. Eine Test-Session ohne sichtbare Zeile fiel per `continue` aus der Tabelle, ohne
+    dass irgendwo eine Zahl kleiner wurde."""
+    have = {sess for sess, _fold in out}
+    return sorted((s, f) for s, f in expected if s not in have)
+
+
 def duplicate_sessions(out):
     """Zwei Folds mit derselben Test-Session waren stille Ueberschreibung — die Zusage "jede
     Session genau einmal" ist nirgends geprueft, also wird sie hier nachgewiesen statt geglaubt."""
@@ -58,7 +66,7 @@ def main():
         if r["path"] in index and float(r.get("coverage") or 0.0) <= VMAX:
             by_sess[r["session_id"]].append(r)
 
-    out = {}
+    out, expected = {}, []
     for run in sorted(Path(args.folds).iterdir()):
         if not (run / "metrics.jsonl").is_file():
             continue
@@ -68,6 +76,7 @@ def main():
         fold = run.name.split("-")[-1]
         split = json.loads((dd / f"split-{fold}.json").read_text(encoding="utf-8"))
         for sess in split["splits"]["test"]:
+            expected.append((sess, fold))
             rows = by_sess.get(sess, [])
             if not rows:
                 continue
@@ -86,6 +95,10 @@ def main():
             print(f"  {sess:<32} {fold}  n={len(rows):>6}  visible {ok/len(rows):.4f}  "
                   f"piece {ok_p/pieces if pieces else float('nan'):.4f}")
 
+    gone = missing_sessions(expected, out)
+    if gone:
+        print("[!] keine sichtbare Zeile, faellt aus der Tabelle: "
+              + ", ".join(f"{s} (Fold {f})" for s, f in gone))
     if out:
         dupes = duplicate_sessions(out)
         if dupes:

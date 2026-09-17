@@ -34,6 +34,20 @@ from chesslab.sessions import read_log
 COVERED = MATTE_DIRTY
 
 
+def share_line(stats: Counter) -> str:
+    """Der Zaehler kann nur aus Flags kommen, deren Coverage die Matte ueberhaupt kennt — ein
+    Flag ohne Eintrag ist strukturell ausgeschlossen. Es trotzdem in den Nenner zu nehmen
+    verduennt die Quote gegen eine Grundgesamtheit, aus der sie nie schoepfen konnte."""
+    total, unknown = stats["Flags gesamt"], stats["flags with unknown coverage"]
+    measured = total - unknown
+    if not measured:
+        return (f"kein geflaggtes Feld mit gemessener Coverage — nichts gemessen "
+                f"({total} Flags, davon {unknown} ohne Coverage-Eintrag)")
+    share = 100 * stats["Flags ohne Coverage"] / measured
+    return (f"{share:.1f} % der geflaggten Felder mit gemessener Coverage liegen in der Matte "
+            f"unter {COVERED} (n={measured} von {total} Flags)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--recordings", default="data/recordings")
@@ -95,11 +109,7 @@ def main() -> int:
         print(f"  {k:22s} {v:7d}")
     # `max(1, …)` machte aus "nichts gemessen" ein gemessenes 0,0 % — dieselbe Zeile
     # erschien, ob nie ein Feld geflaggt wurde oder jedes Flag seine Coverage hatte.
-    if not stats["Flags gesamt"]:
-        print("\n  kein Feld vom Rillen-Sensor geflaggt — nichts gemessen")
-    else:
-        share = 100 * stats["Flags ohne Coverage"] / stats["Flags gesamt"]
-        print(f"\n  {share:.1f} % der geflaggten Felder haben in der Matte keine Coverage")
+    print("\n  " + share_line(stats))
     print("  am staerksten: " + "  ".join(f"{k} {v}" for k, v in per_session.most_common(6)))
     print(f"  -> {out}")
     return 0

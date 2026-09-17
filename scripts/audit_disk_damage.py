@@ -16,6 +16,9 @@ from chesslab import config
 #: Kaputte Zeilen, die KEINE halbe letzte sind — je Datei. Der Schadensbericht liest sie selbst.
 BROKEN_LINES: dict[str, int] = {}
 
+#: Aufnahmen, deren Stichprobe KEINE einzige Zeile pruefen konnte — nicht sauber, sondern blind.
+UNMEASURED: dict[str, str] = {}
+
 
 def _rows(path: Path) -> list[dict]:
     if not path.is_file():
@@ -97,7 +100,11 @@ def coverage_disagrees_with_its_alpha(sample: int = 12) -> list[dict]:
                 # (ein Re-Export mit neuen Ecken), nicht der halb angewendete Lauf.
                 up += sum(d > 0 for d in deltas)
                 down += sum(d < 0 for d in deltas)
-        if off:
+        if not checked:
+            # 0 von 0 ist kein Befund. Ohne diese Liste meldete der Auditor "nichts gefunden"
+            # fuer eine Aufnahme, von der er keine einzige Zeile lesen konnte.
+            UNMEASURED[session.name] = f"0 von {len(rows)} Zeilen pruefbar"
+        elif off:
             out.append({"session": session.name, "rows_checked": checked, "disagree": off,
                         "cells_up": up, "cells_down": down})
     return out
@@ -149,6 +156,10 @@ def main() -> None:
         for row in found:
             print("  " + ", ".join(f"{k}={v}" for k, v in row.items()))
         print(f"  -> {len(found)} Aufnahmen betroffen")
+    print("\n== Aufnahmen ohne eine einzige pruefbare Coverage-Zeile (blind, nicht sauber) ==")
+    for name, why in sorted(UNMEASURED.items()):
+        print(f"  {name}: {why}")
+    print(f"  -> {len(UNMEASURED)} Aufnahmen nicht gemessen")
     print("\n== kaputte JSONL-Zeilen, die nicht die letzte waren ==")
     for path, n in sorted(BROKEN_LINES.items()):
         print(f"  {path}: {n}")

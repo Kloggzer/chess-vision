@@ -185,8 +185,11 @@ export async function loadPool(): Promise<Pool> {
   const key = `${names.map((name, i) => `${name}@${stats[i]}`).join(",")}|${logs.key}`;
   if (store.pool?.key === key) return store.pool.value;
 
+  // Nur ein FEHLENDES Ledger ist "noch keine Urteile" — `stats[i]` sagt das schon. Jeder andere
+  // Lesefehler als "" durchgereicht zeigte die Aufnahme als unkorrigiert, unter ihrem echten
+  // Stempel gecacht, bis die Datei sich bewegt.
   const reads = await Promise.all(
-    files.map(async (f) => readJsonl(await readFile(f, "utf8").catch(() => ""))));
+    files.map(async (f, i) => readJsonl(stats[i] === "none" ? "" : await readFile(f, "utf8"))));
   const merged: JsonlRead = {
     rows: reads.flatMap((r) => r.rows),
     tail: reads.some((r) => r.tail),

@@ -865,7 +865,7 @@ def settle_scan_session(session_id: str) -> dict:
     from collections import defaultdict
     from concurrent.futures import ProcessPoolExecutor
 
-    from .labeling import _profile_for_session, read_matte, read_session_meta
+    from .labeling import _profile_for_session, read_matte, read_session_meta, usable_board
     from .realgames import (
         POOL_WORKERS,
         SETTLE_MIN_FRAMES,
@@ -881,8 +881,11 @@ def settle_scan_session(session_id: str) -> dict:
             r.pop(key, None)
 
     by_ply: dict[object, list[dict]] = defaultdict(list)
+    # `usable_board`, nicht nur "Datei da": `settle_for_ply` schneidet mit `crop_square` unter der
+    # Skala des PROFILS, ein Brett in einer anderen tastet es an ganz anderen Stellen ab — und die
+    # Zahl landet als `settle_dev` im Log und steuert die Strittig-Lane.
     for r in rows:
-        if r.get("board") and (sdir / r["board"]).is_file():
+        if usable_board(r, prof) and (sdir / r["board"]).is_file():
             by_ply[r.get("ply")].append(r)
     # Eine leere Matte heisst NICHT "keine Hand", sondern "nie angesehen" — dann traegt jedes Brett
     # die Referenz, so wie die Messung es tat, bevor es Alphas gab.

@@ -28,6 +28,10 @@ from chesslab.labeling import (
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 
 
+def _num(v: float | None, width: int) -> str:
+    return "—".rjust(width) if v is None else f"{v:>{width}.3f}"
+
+
 def curve(truth: np.ndarray, said: np.ndarray, name: str, thrs) -> None:
     want = truth > VMAX
     print(f"\n  {name}  (Wahrheit: {want.sum()} von {len(want)} Zellen verdeckt, "
@@ -36,12 +40,16 @@ def curve(truth: np.ndarray, said: np.ndarray, name: str, thrs) -> None:
     for t in thrs:
         hit = said > t
         tp = int((want & hit).sum())
-        p = tp / max(1, hit.sum()); r = tp / max(1, want.sum())
-        f1 = 2 * p * r / max(1e-9, p + r)
-        print(f"    {t:>9.2f}{p:>11.3f}{r:>9.3f}{f1:>8.3f}{int(hit.sum()):>9}")
-    print(f"    MAE gesamt {np.abs(said - truth).mean():.4f}   "
-          f"auf verdeckten {np.abs(said - truth)[want].mean():.4f}   "
-          f"auf sichtbaren {np.abs(said - truth)[~want].mean():.4f}")
+        # `max(1, …)` machte aus "nichts geflaggt" / "nichts zu finden" eine GEMESSENE 0,000 —
+        # bei Flags=0 las sich die Zeile wie ein miserabler Arm statt wie eine leere Stichprobe.
+        p = tp / int(hit.sum()) if hit.any() else None
+        r = tp / int(want.sum()) if want.any() else None
+        f1 = 2 * p * r / (p + r) if p is not None and r is not None and p + r else None
+        print(f"    {t:>9.2f}{_num(p, 11)}{_num(r, 9)}{_num(f1, 8)}{int(hit.sum()):>9}")
+    err = np.abs(said - truth)
+    print(f"    MAE gesamt {err.mean():.4f}   "
+          f"auf verdeckten {_num(err[want].mean() if want.any() else None, 6)}   "
+          f"auf sichtbaren {_num(err[~want].mean() if (~want).any() else None, 6)}")
 
 
 def cnn_coverage(reads: list[dict]) -> list[float]:

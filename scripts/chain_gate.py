@@ -62,22 +62,30 @@ def main() -> int:
     a = ap.parse_args()
 
     md = Path(a.model)
-    out = []
+    out, skipped = [], []
     for s in [x.strip() for x in a.sessions.split(",") if x.strip()]:
         try:
             r = run(s, md, a.device, a.skip_read)
         except Exception as e:  # noqa: BLE001 — eine gesperrte Session darf den Rest nicht kippen
             print(f"  {s}: UEBERSPRUNGEN — {e}"[:200])
+            skipped.append(s)
             continue
         out.append(r)
         print(f"  {s}: gefunden {r['found']} / verpasst {r['missed']} / erfunden {r['invented']} "
               f"(von {r['plies']} Plies)")
+    # Uebersprungene Sessions fehlen in der GESAMT-Zeile; ohne sie daneben nennt sie eine
+    # Grundgesamtheit, die der Aufruf nie hatte — und ganz ohne Ergebnis schwieg das Skript.
+    tail = f" ({len(skipped)} uebersprungen: {', '.join(skipped)})" if skipped else ""
     if out:
         tot = {k: sum(r[k] for r in out) for k in ("found", "missed", "invented", "plies")}
-        print(f"  GESAMT: {tot['found']}/{tot['missed']}/{tot['invented']} von {tot['plies']} Plies")
-        write_json(md / "chain_gate.json", {"runs": out, "total": tot}, indent=1)
+        tot["sessions"], tot["skipped"] = len(out), len(skipped)
+        print(f"  GESAMT: {tot['found']}/{tot['missed']}/{tot['invented']} von {tot['plies']} "
+              f"Plies in {len(out)} Sessions{tail}")
+        write_json(md / "chain_gate.json", {"runs": out, "total": tot, "skipped": skipped}, indent=1)
         print(f"  -> {md / 'chain_gate.json'}")
-    return 0
+        return 0
+    print(f"  GESAMT: keine Session gemessen{tail}")
+    return 1 if skipped else 0
 
 
 if __name__ == "__main__":

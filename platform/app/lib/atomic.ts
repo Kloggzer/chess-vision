@@ -5,8 +5,14 @@
  */
 import { appendFile, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 
+/** Eigene Zwischendatei je Schreibvorgang: unter EINEM `${file}.tmp` raeumte der `catch` des
+ *  Abbrechers die halb geschriebene Datei eines anderen weg, und der verlor sein `rename` mit
+ *  ENOENT — auch dann, wenn er den Riegel hielt. */
+let tmpSeq = 0;
+const tmpFor = (file: string) => `${file}.${process.pid}-${tmpSeq++}.tmp`;
+
 export async function writeFileAtomic(file: string, body: string | Uint8Array): Promise<void> {
-  const tmp = `${file}.tmp`;
+  const tmp = tmpFor(file);
   try {
     await writeFile(tmp, body, "utf8");
     await rename(tmp, file);
@@ -32,7 +38,7 @@ export class Contested extends Error {}
 export async function writeFileAtomicGuarded(
   file: string, body: string, stamp: Stamp, what: string,
 ): Promise<void> {
-  const tmp = `${file}.tmp`;
+  const tmp = tmpFor(file);
   try {
     if ((await stampOf(file)) !== stamp) throw new Contested(what);
     await writeFile(tmp, body, "utf8");

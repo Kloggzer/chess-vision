@@ -7,7 +7,9 @@ einmal; `tests/test_json_doors.py` haelt die Liste der Stellen, die noch daran v
 
 from __future__ import annotations
 
+import itertools
 import json
+import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
@@ -73,10 +75,21 @@ def read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+def _side_file(path: Path) -> Path:
+    """Eine EIGENE Nebendatei je Schreiber: ein gemeinsamer Name liess den Abbrecher die
+
+    halb geschriebene Datei des laufenden wegraeumen, der sein Umhaengen dann verlor.
+    """
+    return path.with_suffix(f"{path.suffix}.{os.getpid()}.{next(_SIDE)}.tmp")
+
+
+_SIDE = itertools.count()
+
+
 def write_atomic(path: Path, text: str) -> None:
     """Schreiben heisst hier: entweder ganz da oder gar nicht — Nebendatei, dann umhaengen."""
     path = Path(path)
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = _side_file(path)
     try:
         tmp.write_text(text, encoding="utf-8")
         tmp.replace(path)
@@ -120,7 +133,7 @@ def write_rows_guarded(path: Path, rows: Iterable[dict], stamp: tuple[int, int] 
     """
     path = Path(path)
     text = rows_text(list(rows))
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = _side_file(path)
     try:
         if stamp_of(path) != stamp:
             raise Contested(what)
