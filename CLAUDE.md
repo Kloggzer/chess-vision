@@ -289,6 +289,24 @@
   angewandt neben `coverage_gate` auf BEIDEN Wegen. Verhalten bleibt gleich (Regressionssatz
   Ziffer fuer Ziffer). Bei echten 85 % lagen +9 Treffer und **+3 Phantome** — welche echte
   Sicherheit das Gate fordern soll, ist eine offene Messung wie bei den `coverage_gate`s.
+- **Der Regressionssatz fuhr bis 2026-09-17 mit `prior=0`, das Handy mit `4.0`.** Vier gruene
+  Laeufe deckten den Pfad nicht, auf dem `applyPrior` liegt — gemessen auf `prior=4`:
+
+  | Lauf | found | missed | invented | Alarme |
+  |---|---|---|---|---|
+  | Referenz, prior 0, ohne Temperatur | 385 | 14 | 1 | 6 |
+  | prior 4, OHNE Temperatur | 394 | 5 | 4 | 8 |
+  | **prior 4, MIT Temperatur** | **396** | **3** | **0** | **5** |
+
+  Auf dem Pfad, den das Geraet wirklich faehrt, nimmt die Temperatur **jedes Phantom** weg.
+  **Aber der Grund ist ein Nebeneffekt**: `applyPrior` rechnet auf getemperten Wahrscheinlichkeiten,
+  das effektive Lambda ist `lambda * T` = 5,98 statt 4,0. Der Gewinn kommt also vom staerkeren
+  Legalitaets-Prior, nicht von der Kalibrierung — wer `priorLambda` liest, liest eine Zahl, die
+  um Faktor T falsch ist. **Wer das aufloest, setzt Lambda explizit und entkoppelt es von T**,
+  sonst wandert die Staerke mit jedem neuen Modell. `TemperatureParityTest` haelt vier Befunde
+  derselben Wurzel (`applyPrior`, `invalidMass`, `PROMO_CNN_CONFIDENCE`, die Besetzt-Achse von
+  `calibratedConfThr`) als `@Disabled` fest — **keine Zahl eicht beide Achsen gleich**:
+  `pEmpty` ist eine Klasse, `pOcc` die Summe von zwoelf.
 - **Comment budget:** `CommentBudgetTest` (in `:app`) is a ratchet over all Kotlin modules — enforcement fires at **5** consecutive comment lines since 2026-09-15, the same hard limit TS and Python carry; target is still 3. Note that a Kotlin KDoc's `/**` and `*/` count, so 5 is three prose lines. `android/config/comment-budget.txt` may only shrink; after cleaning a file run `uv run python android/scripts/comment_budget.py`. TS and Python have twins (2026-08-15): `platform/app/lib/comment-budget.test.ts` with `platform/app/comment-budget.txt`, and `tests/test_comment_budget.py` with `tests/comment_budget.txt` — hard limit 5 lines for new files, budget entries may only shrink.
 
 ## Training: der Feed ist nicht mehr der Engpass (2026-09-07)
