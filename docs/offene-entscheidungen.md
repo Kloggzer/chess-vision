@@ -788,3 +788,58 @@ messbar, auch nicht im Prinzip.
 **Was trotzdem getan ist:** 17 Aufnahme-Packs neu geschnitten (257 s), die alten liegen in
 `data/_parked/packs-v7-20260917-172925/`. Fuenf blieben, weil ihre Differenz nachgewiesen NULL
 ist; die 138 Komposit-Packs haben keine Korrekturen. Wer v8 baut, hat die Packs schon.
+
+## 90 % des Aufnahme-Korpus ist dieselbe Figur zweimal (2026-09-17)
+
+Nutzer: "figuren aus einer partie die 20 FEN nicht bewegt wurden tragen wenig bei ... ansonsten
+ist das ja nur wie ein extra gewicht." **Gemessen, und die Vermutung stimmt.**
+
+Je STANDZEIT (Feld + Figur + ununterbrochene Ply-Strecke), verdeckte Zellen raus — eine Hand ist
+keine Licht-Variation und verdoppelte die Spannweite (95 statt 51). `scripts/crop_redundancy.py`.
+
+| | |
+|---|---|
+| sichtbare Crops, 24 Aufnahmen | **669 571** |
+| verdeckt, ausgelassen | 65 505 |
+| Standzeiten | 3 289 |
+| **Dubletten** (naechster Nachbar <= 2 Graustufen) | **90,3 %** |
+| **nicht-redundante Crops im GESAMTEN Aufnahme-Korpus** | **65 250** |
+
+Je Aufnahme streut es von **68,2 %** (`VID_20260727_233929`, Median-Standzeit 44 Frames) bis
+**96,2 %** (`2026-09-06-20-27-33`, Median 166) — je laenger eine Figur steht, desto mehr Dubletten.
+
+### Klug auswaehlen hilft — ab k = 4
+
+Zwei Masse, weil eines allein ein Selbstlob waere: Farthest-Point optimiert die SPANNWEITE direkt.
+Gemessen wird deshalb die DECKUNG — wie weit ein durchschnittlicher Crop noch vom naechsten
+BEHALTENEN entfernt ist, gewichtet nach Crops:
+
+| k | die ERSTEN k | Farthest-Point |
+|---|---|---|
+| 2 | 8,5 | 8,5 — Gleichstand |
+| 4 | 7,1 | **5,5** |
+| 8 | 5,7 | **3,6** |
+| 16 | 4,5 | **2,3** |
+
+### Der Haken, den die Montage zeigt
+
+`scripts/crop_redundancy_montage.py` legt acht aufeinanderfolgende Crops neben acht per
+Farthest-Point. Oben achtmal dasselbe Bild, unten sichtbar verschiedene — **aber mehrere der
+unteren sind Haende und Bewegungsunschaerfe**, trotz Coverage-Filter. Farthest-Point greift per
+Bauart die Extreme, und die Extreme einer Strecke sind oft nicht "anderes Licht", sondern "Finger
+davor". Das ist genau die Falle aus `occlusion-labels-precision-over-recall`.
+
+**Offen:** Farthest-Point auf VORGEFILTERTEN Crops (Schaerfe und Coverage zuerst, dann Spannweite).
+Nicht gemessen.
+
+### Und was das fuer "wie viele neue Spiele" heisst
+
+**Die Zahl der Spiele ist nicht die richtige Groesse.** Eine Partie traegt im Mittel rund **2 700**
+nicht-redundante Crops bei (65 250 / 24), die beste heute gemessene 8 249. Gegen einen Train-Split
+von ~685 000 Zeilen sind das **0,4 bis 1,2 %**. Fuer eine Aenderung ueber dem Seed-Rauschen
+braeuchte es **zweistellig viele Partien derselben Art** — und selbst dann waere es mehr vom
+Gleichen. Das deckt sich mit `corpus-is-threefold-redundant`: mit 3,9 % der Crops war das Modell
+gleich gut.
+
+Was fehlt, ist keine Menge, sondern eine BEDINGUNG: von Schwarz gespielt, dunkel, anderes Handy
+(`no-retrain-without-new-domain`, `dark-footage-is-a-stress-test`).
