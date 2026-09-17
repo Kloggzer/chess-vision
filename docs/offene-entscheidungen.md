@@ -642,3 +642,33 @@ Anfang einer Kette, nicht ihr Ende** — wer einen Fund hat, verfolgt das Stueck
 bestaetigt** (plus c8 ueber die Spur). `2026-08-16-20-41-33` traegt allein **11 Fenster** und hat
 KEINEN zweiten Zeugen — bei 60 % Fehlalarm je Einzelzeuge ist das nicht belastbar, solange kein
 Fold diese Aufnahme auslaesst.
+
+## Der Algorithmus prueft jedes Feld jeder Partie — drei Stufen (2026-09-17)
+
+`scripts/heldout_label_audit.py`, `tests/test_heldout_label_audit.py` haelt die Teile einzeln.
+
+1. **Schwelle je Ply-Fenster.** Jedes Feld, aufgeteilt in Fenster konstanter FEN-Aussage.
+   `2026-09-06-21-29-35` c2 stimmt in vier von fuenf Fenstern; ueber die Partie gemittelt
+   verschwand der Fund. **35 Fenster** ueber 22 Aufnahmen.
+2. **Der SPUR der Figur folgen**, mit gesenkter Schwelle (0,55 statt 0,70). Die Zuege kommen aus
+   dem UNTERSCHIED zweier FENs — es gibt keine Zugliste; bei einer Schlagung wird verfolgt, was
+   GEHT, nicht was verschwindet. **27 weitere Stellen**, darunter die ganze c2-Kette:
+   `d1` 29-34 (61 %), `c2` 57-74 (97 %), `c6` 75-78 (90 %), `c8` 79-80 (61 %) — **vier**
+   Stationen derselben Figur, drei davon unter der Einzel-Schwelle.
+3. **Bestand.** Figuren, die das Brett zeigt und der Mitschnitt nicht mehr fuehrt. Die
+   Gegenrichtung ist bewusst KEIN Befund: eine Figur, die in den Lesungen fehlt, steht meist
+   unter einer Hand.
+
+### Stufe 3 war zuerst eine Fehlalarm-Maschine
+
+Sie zaehlte JEDE Mehrheitslesung und schlug damit bei **18 von 22** Aufnahmen an — ein einzelnes
+fehlgelesenes Feld genuegte fuer eine Phantom-Figur. Ein Bestand, der immer anschlaegt, sagt
+nichts. Sie stuetzt sich jetzt nur auf Fenster, die SELBST die Schwelle reissen, und meldet
+**3 von 22**: `2026-08-16-20-41-33` (`wN`), `2026-09-06-21-12-56` (`wB`),
+`2026-09-06-21-29-35` (`wN`) — der Fall, der die Sonde ausgeloest hat, ist darunter.
+
+### Was der Algorithmus NICHT kann
+
+**26 der 48 Aufnahmen** hat kein Fold ausgelassen — fuer die gibt es kein ehrliches Urteil,
+solange kein Trainingslauf sie auslaesst. Und `2026-08-16-20-41-33` traegt allein **11 Fenster**
+ohne zweiten Zeugen; bei 60 % Fehlalarm je Einzelzeuge ist das nicht belastbar.

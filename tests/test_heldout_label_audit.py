@@ -1,0 +1,110 @@
+"""Der Label-Audit prueft jedes Feld jeder Partie — die drei Stufen einzeln festgehalten.
+
+Gemessen 2026-09-17 auf `2026-09-06-21-29-35`: Stufe 1 (Schwelle je Ply-Fenster) fand c2 und c6,
+Stufe 2 (der SPUR der Figur folgen) erst c8 bei 61 %, und Stufe 3 (Bestand) sah, dass das FEN ab
+Ply 40 keinen weissen Springer mehr fuehrt, waehrend beide Folds einen lesen.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _load(name: str):
+    spec = importlib.util.spec_from_file_location(f"_script_{name}", ROOT / "scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+audit = _load("heldout_label_audit")
+
+START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+def _after(*sans: str) -> str:
+    import chess
+
+    board = chess.Board(START)
+    for san in sans:
+        board.push_san(san)
+    return board.fen()
+
+
+def test_move_between_two_positions_is_read_off_the_board():
+    """Wir haben FENs je Ply, keine Zugliste — die Bewegung kommt aus dem Unterschied."""
+    moved = audit.moves_between(START, _after("e4"))
+
+    assert moved == [("wP", "e2", "e4")]
+
+
+def test_a_capture_names_the_taker_not_the_taken():
+    """Sonst folgt die Spur der geschlagenen Figur und endet sofort im Nichts."""
+    fen = _after("e4", "d5")
+    after = _after("e4", "d5", "exd5")
+
+    assert audit.moves_between(fen, after) == [("wP", "e4", "d5")]
+
+
+def test_the_path_follows_the_piece_through_its_stations():
+    """Stufe 2: ein Fund auf einer Station fragt nach allen anderen derselben Figur."""
+    fens = {
+        1: _after("Nf3"),
+        2: _after("Nf3", "d5"),
+        3: _after("Nf3", "d5", "Ne5"),
+        4: _after("Nf3", "d5", "Ne5", "e6"),
+        5: _after("Nf3", "d5", "Ne5", "e6", "Nc6"),
+    }
+
+    stations = audit.trace_path(fens, at_ply=3, square="e5")
+
+    assert [s.square for s in stations] == ["f3", "e5", "c6"]
+    assert stations[1].first == 3 and stations[1].last == 4
+
+
+def test_the_path_of_a_piece_that_never_moves_is_one_station():
+    fens = {1: _after("e4"), 2: _after("e4", "e5")}
+
+    assert [s.square for s in audit.trace_path(fens, at_ply=1, square="a1")] == ["a1"]
+
+
+def test_the_inventory_names_a_piece_the_record_lost_but_the_board_keeps():
+    """Stufe 3: das FEN fuehrt keinen `wN` mehr, das Modell liest einen — eine Schlagung zu viel."""
+    gap = audit.inventory_gap(fen_counts={"wR": 2, "wP": 5}, read_counts={"wR": 1, "wN": 1, "wP": 5})
+
+    assert gap == {"wN": 1}
+
+
+def test_the_inventory_ignores_what_the_record_merely_has_more_of():
+    """Eine verdeckte Figur fehlt in den Lesungen — das ist kein Befund, sondern eine Hand."""
+    assert audit.inventory_gap(fen_counts={"wR": 2}, read_counts={"wR": 1}) == {}
+
+
+@pytest.mark.parametrize("share", [0.0, 0.5])
+def test_a_station_below_the_follow_up_threshold_is_not_reported(share: float):
+    """Die Spur senkt die Schwelle, sie schafft sie nicht ab."""
+    assert not audit.station_disagrees({"wN": share, "wR": 1 - share}, "wR", min_share=0.55)
+
+
+def test_the_inventory_only_counts_squares_that_are_themselves_a_finding():
+    """Sonst schlaegt Stufe 3 bei 18 von 22 Aufnahmen an — ein fehlgelesenes Feld reicht.
+
+    Gemessen 2026-09-17: die erste Fassung meldete auf fast jeder Aufnahme eine Phantom-Figur,
+    weil sie jede Mehrheitslesung zaehlte. Ein Bestand, der immer anschlaegt, sagt nichts.
+    """
+    from collections import Counter
+
+    # Ein Feld mit klarem Widerspruch (wN, 9 von 10) und eines mit Rauschen (wN, 1 von 10).
+    votes = {("c6", 1, 2, "wR"): Counter({"wN": 9, "wR": 1}),
+             ("h7", 1, 2, "bP"): Counter({"wN": 1, "bP": 9})}
+
+    counted = audit.phantom_reads(votes, min_reads=8, min_share=0.7)
+
+    assert counted == {1: {"wN": 1}, 2: {"wN": 1}}, "nur das belegte Fenster zaehlt mit"
