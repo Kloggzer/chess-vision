@@ -54,7 +54,14 @@ Zwei Dinge folgen daraus:
 
 ## Klassenabdeckung je Session
 
-13 der 22 echten Aufnahmen haben volle Abdeckung (keine Figur unter 100 Beispielen). Kandidaten
+13 der 22 echten Aufnahmen haben volle Abdeckung (keine Figur unter 100 Beispielen) — Stand
+2026-09-10 auf `real13-mix-v5-80-clahe`. **Nachgemessen 2026-09-17 am Korpus statt am Datensatz**
+(Zellen je Figurenklasse aus den `fen` aller `data/recordings/*/log.jsonl`): **17 von 25**
+Aufnahmen halten jede der zwoelf Figurenklassen ueber 100 Beispielen. Die Zahlen sind NICHT
+direkt vergleichbar — der Datensatz filtert (Schaerfe, Dunkel, Ausduennung) und der Korpus nicht;
+vergleichbar ist nur die Richtung: der Nenner ist von 22 auf 25 gewachsen. Der Befund oben haelt
+trotzdem: `21-29-35` ist auch am ungefilterten Korpus die duennste grosse Aufnahme (seltenste
+Figurenklasse **8** Zellen auf 1 211 Brettern). Kandidaten
 für einen künftigen Val, ohne die beiden Testsessions:
 
 | Session | Bretter | seltenste | `empty` | Auflösung | Schärfe × Klasse |

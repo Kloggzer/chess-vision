@@ -61,7 +61,9 @@ export async function unusableCells(name: string): Promise<Set<string>> {
 
   const id = sessionId(name);
   const value = new Set<string>();
-  const text = key === "none" ? "" : await readFile(file, "utf8").catch(() => "");
+  // Ein Lesefehler ist keine Aussage: als "" gelesen kehrt jede Zelle, die ein Mensch als
+  // unlesbar abgehakt hat, in die Lane zurueck — gecacht bis zur naechsten mtime.
+  const text = key === "none" ? "" : await readFile(file, "utf8");
   for (const line of jsonlRows(text)) {
     const row = line as unknown as Row;
     if (row.session_id !== id) continue;

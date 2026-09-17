@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from chesslab.retime import (
     ADVANCE_COST,
@@ -104,3 +105,22 @@ def test_a_collapsed_ply_borrows_the_next_entered_ply_s_picture():
     path = np.array([0, 2, 2])
     plies = retime_plies(frames, path, phone=[2, 5], review=review_frames(frames, path, [0, 3, 1], _fits(path)))
     assert (plies[0].held, plies[0].frame, plies[0].frame_review) == (0, 3, 6)
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "`_emission` liest ein fehlendes `coverage` als gemessene 0.0 (`r.get('coverage', 0.0)`). "
+    "Ein Lauf OHNE Occlusion-Kopf (9 Modelle auf der Platte tragen `head: combined`, "
+    "`serving.predict_arrays` schreibt den Schluessel dann gar nicht) haelt damit JEDES Brett "
+    "fuer voll sichtbar: die Wache `visible.sum() < 64 - covered_max` feuert nie, ein Frame unter "
+    "einer Hand stimmt mit voller Staerke ab, und `covered_pictures` meldet []. Ob die Antwort "
+    "ein Abbruch vor dem Lauf ist (wie `check_not_circular`, `video_fps`) oder ein stummer Frame, "
+    "ist eine ENTSCHEIDUNG — hier steht nur, dass beides nicht dasselbe sein darf."))
+def test_a_missing_coverage_is_not_a_measured_zero():
+    from chesslab.retime import _emission
+
+    probs = [0.8, 0.1, 0.1]
+    absent = [{"probs": probs} for _ in range(64)]
+    measured_clear = [{"probs": probs, "coverage": 0.0} for _ in range(64)]
+    no_head, _ = _emission(absent, [[0] * 64], covered_max=12)
+    clear, _ = _emission(measured_clear, [[0] * 64], covered_max=12)
+    assert no_head.tolist() != clear.tolist()

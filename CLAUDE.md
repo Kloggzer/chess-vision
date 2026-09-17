@@ -1,6 +1,6 @@
 # CLAUDE.md — chesslab (Compressed)
 
-> **Status:** Project in maintenance. Original specs (`specs/`) are historical; current state in `README.md` & `docs/architecture-review/`.
+> **Status:** Project in maintenance. Original specs sind zurueckgezogen — `specs/` existiert nicht mehr (Commit `aacffaf7`, geprueft 2026-09-17); current state in `README.md` & `docs/architecture-review/`.
 
 ## Mission
 - **Goal:** Build an auto-labeled image dataset for recognizing physical chess pieces on a board (fixed camera). Labels derived from FEN (64 examples per photo). Trains a per-square classifier.
@@ -130,11 +130,12 @@
   `docs/coverage-weight-2026-09-16.md`.
 - **Die gespeicherte `coverage` driftet gegen ihre Crops (gemessen 2026-09-16).** Sie ist ein
   Schnappschuss vom Matten; ein Re-Export verschiebt die Ecken, `crop_square` schneidet mit den
-  neuen, die Zahl bleibt stehen. 13 von 24 Aufnahmen betroffen, 0,10 % der Zellen ueberqueren
+  neuen, die Zahl bleibt stehen. 13 von 24 Aufnahmen betroffen (der Nenner ist seitdem gewachsen:
+  2026-09-17 tragen **25** Aufnahmen eine `matte.jsonl`; die Drift selbst ist nicht nachgerechnet), 0,10 % der Zellen ueberqueren
   dabei `PIECE_VISIBLE_MAX` — fast alle auf der Grundreihe und als Totalkipper von 0,000 auf 1,000.
   `chesslab occluders recut-coverage --all` rechnet sie aus den Alphas neu (kein SAM, Minuten).
   **Nach jedem Re-Export faellig**, und nichts erinnert daran.
-- **Coverage Matte Trap:** `training/torch_data.py:422` defaults unmattered crops to `coverage = 0.0`, making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
+- **Coverage Matte Trap:** `training/torch_data.py` defaults unmattered crops to `coverage = 0.0` (`coverage_of`; die 2026-08 notierte Zeilennummer 422 zeigt seit 2026-09-17 in einen Docstring — Symbol statt Zeile zitieren), making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 - **SAMs ABSAGE ist kein sauberes Brett (2026-09-15).** Eine `matte.jsonl`-Zeile mit `skipped`
   (`zone too big`: Alpha über 60 % des Bretts) trägt WEDER `concepts` NOCH `coverage`. Zweimal
   wurde das als "nichts gefunden" gelesen statt als "nicht gemessen": `hand_gate.gate_label`
@@ -176,7 +177,10 @@
   41,4 und 16,2 GB), ihre Memmaps sind geloescht. Umgehaengt heisst: NUR die Spalte `path` wurde
   gedreht, damit Zeilen, Splits und jede alte `config.json` gueltig bleiben — ein `--like`-Zwilling
   trug 228 Zeilen mehr, weil der Brettweg live schneidet und der Pool ein Schnappschuss ist.
-  `-80-clahe` bleibt Monolith, `bake_pack` kennt keinen Session-Pack. **Ein Pack ist
+  `-80-clahe` bleibt Monolith (2026-09-17 nachgesehen: seine `manifest.jsonl` zeigt weiter auf
+  `data/crops/default/`, die der v6-Saetze auf `mm://<session>-<size>/`; die v6-Verzeichnisse messen
+  heute 916 bzw. 915 MB statt 617/616, weil `manifest.jsonl.mono` und `.before-prune` daneben
+  liegen geblieben sind — kein Memmap ist zurueck), `bake_pack` kennt keinen Session-Pack. **Ein Pack ist
   unveränderlich, aber nicht automatisch aktuell**: ein Pack vom 2026-09-05 trug 3 333 Zeilen zu
   viel und Pixel bis 68 Graustufen daneben, und nichts hütet das — nach einem Re-Slice die Packs
   der Aufnahme wegwerfen. Migration, Platzrechnung und was `-clahe` blockiert:
@@ -237,12 +241,14 @@
 - **JSONL-Ratsche (2026-09-16):** `lib/jsonl.ts` ist der eine Leser fuer `.jsonl` in der Web-App
   — Leerzeile ueberspringen, halb geschriebene letzte Zeile ueberspringen, nur Objekte. Wer selbst
   in Zeilen schneidet, beantwortet diese drei Fragen neu und lag dabei schon mehrfach daneben;
-  `platform/app/jsonl-readers.txt` listet die 24 Schnitte in 11 Dateien, die es noch tun, und darf
+  `platform/app/jsonl-readers.txt` listet die Schnitte, die es noch tun — 2026-09-16 waren es 24 in
+  11 Dateien, nachgezaehlt 2026-09-17 ueber die Eintragszeilen **11 in 6 Dateien** —, und darf
   nur SCHRUMPFEN (`lib/jsonl-ratchet.test.ts`); Testdateien zaehlen nicht mit, die zerlegen ihr
   eigenes Fixture. Erste Naht der Vertrags-Familien, Punkt 21 der Entscheidungsvorlage.
 - **Die Treuhand fuer JSON (2026-09-16):** jeder Schreib- und Lesevorgang auf `.json`/`.jsonl`
   laeuft durch `chesslab.ioutil` — `read_jsonl` (halbe LETZTE Zeile faellt weg, eine kaputte
-  MITTENDRIN wirft, `newline=""` weil 1127 der 1329 Dateien CRLF tragen), `write_rows`/`write_json`
+  MITTENDRIN wirft, `newline=""` weil 1127 der 1329 Dateien CRLF trugen; nachgemessen 2026-09-17 ueber alle
+  `.jsonl` unter dem Repo ohne `.git/node_modules/tmp/.venv/tools`: **1 139 von 1 368**, 217 nur-LF), `write_rows`/`write_json`
   (Nebendatei, dann umhaengen), `append_rows` (repariert erst den abgerissenen Schwanz),
   `update_rows`/`write_rows_guarded` (Stempel-Riegel, `Contested` statt stiller Ueberschreibung).
   `read_jsonl` liest `utf-8-sig`: PowerShells `Out-File` stempelt hier ein BOM, und eines liess
@@ -254,7 +260,8 @@
   `read_jsonl` + `write_rows` BYTEGLEICH — erst danach durften die Aufrufer ihre rohen Zeilen
   aufgeben.
   **Auch `scripts/` faellt unter beide Ratschen** (2026-09-16): dort waren es 61 Leser und 36
-  Schreiber, jetzt 13 und 7.
+  Schreiber, jetzt 13 und 7 — nachgezaehlt 2026-09-17 ueber die `scripts/`-Zeilen beider
+  Ratschen: **13 Leser, 8 Schreiber**.
 - **Drei Sprachen, dieselbe Politik (2026-09-16):** `src/chesslab/ioutil.py`,
   `platform/app/lib/jsonl.ts` + `lib/atomic.ts`, `android/tracker-runtime/.../io/Jsonl.kt`.
   Ueberall entscheidet der ZEILENUMBRUCH, ueberall wird ueber eine Nebendatei geschrieben und die

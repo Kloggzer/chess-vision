@@ -87,13 +87,13 @@ def main():
                   f"piece {ok_p/pieces if pieces else float('nan'):.4f}")
 
     if out:
+        dupes = duplicate_sessions(out)
+        if dupes:
+            print("[!] in mehreren Folds im Test: "
+                  + ", ".join(f"{s} ({'/'.join(f)})" for s, f in dupes.items()))
         print(f"\n{'Session':<34}{'Fold':>5}{'visible':>10}{'piece':>9}")
-        # TODO: `out[sess]` verschluckt eine Session, die zwei Folds zurueckhalten (die Zusage
-        #  "genau einmal" ist nirgends geprueft), und der Sortierschluessel ist `nan`, sobald ein
-        #  Testsatz keine sichtbare Figur traegt — `nan` vergleicht gegen alles False, die
-        #  Tabelle ist dann nicht mehr sortiert.
-        for s, (f, _n, a, p) in sorted(out.items(), key=lambda kv: kv[1][3]):
-            print(f"{s:<34}{f:>5}{a:>10.4f}{p:>9.4f}")
+        for sess, fold, _n, visible, piece in sorted_rows(out):
+            print(table_line(sess, fold, visible, piece))
 
 
 if __name__ == "__main__":

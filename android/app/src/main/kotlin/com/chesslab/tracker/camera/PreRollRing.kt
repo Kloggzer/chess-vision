@@ -18,7 +18,24 @@ fun preRollMaxBytes(
     width: Int,
     height: Int,
     fps: Int,
-): Long = minOf(PRE_ROLL_CEILING_BYTES, PRE_ROLL_SECONDS * bitRateFor(width, height, fps) / 8L)
+): Long = preRollMaxBytesAt(bitRateFor(width, height, fps))
+
+/** Derselbe Deckel, wenn die Rate schon feststeht. */
+fun preRollMaxBytesAt(bitRate: Int): Long = minOf(PRE_ROLL_CEILING_BYTES, PRE_ROLL_SECONDS * bitRate / 8L)
+
+/**
+ * Was der Deckel bei DIESER Rate wirklich haelt. [PRE_ROLL_SECONDS] ist die Zusage, der Deckel ist
+ * die Grenze: 1440p/24 traegt 28 s, 1440p/30 noch 22 — nur 15 fps erreicht die 45.
+ */
+fun preRollWindowSeconds(
+    requestedBitRate: Int,
+    acceptedBitRate: Int,
+): Long =
+    if (requestedBitRate <= 0 || acceptedBitRate <= 0) {
+        PRE_ROLL_SECONDS
+    } else {
+        minOf(PRE_ROLL_SECONDS, preRollMaxBytesAt(requestedBitRate) * 8L / acceptedBitRate)
+    }
 
 /** Das volle Fenster der VORGABE (1440p/15); an keinem Geraet gemessen, kein `largeHeap`. */
 val PRE_ROLL_CEILING_BYTES: Long =

@@ -12,10 +12,12 @@ export const dynamic = "force-dynamic";
  * token" — the two failures a user fixes in completely different places.
  */
 export async function GET(request: Request) {
-  return Response.json({
-    app: "chesslab-platform",
-    ingest: 1,
-    chunk: CHUNK_BYTES,
-    paired: await authorized(request),
-  });
+  // Der Token kann fehlschlagen (unlesbares Inbox-Verzeichnis, `CHESSLAB_DATA_DIR` ungesetzt), das
+  // ERKENNUNGSZEICHEN darf es nicht: ohne Fang bekam genau das Handy, das eine Kopfzeile schickt,
+  // Next' HTML-500 und konnte diesen Rechner von den 253 anderen nicht unterscheiden.
+  const paired = await authorized(request).then(
+    (ok) => ({ paired: ok }),
+    (error: unknown) => ({ paired: false, error: String(error) }),
+  );
+  return Response.json({ app: "chesslab-platform", ingest: 1, chunk: CHUNK_BYTES, ...paired });
 }

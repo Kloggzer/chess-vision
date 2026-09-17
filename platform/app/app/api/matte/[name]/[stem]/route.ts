@@ -15,7 +15,11 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    return new Response(String(error), { status: 404 });
+    // Wie `api/frame`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404 machte aus einem
+    // unlesbaren Alpha dieselbe Antwort wie aus einem fehlenden, und die Lane zeigt beides als
+    // "keine Matte" — der Mensch sucht dann eine Messung, die es gibt und die kaputt ist.
+    const missing = (error as { code?: string })?.code === "ENOENT";
+    return new Response(String(error), { status: missing ? 404 : 500 });
   }
 }
 
@@ -29,15 +33,25 @@ const MASK_MAX = 8 * 1024 * 1024;
  */
 export async function POST(request: Request, ctx: { params: Promise<{ name: string; stem: string }> }) {
   const { name, stem } = await ctx.params;
+  let write: () => Promise<string>;
   try {
     const body = (await request.json()) as { mask?: unknown; clear?: unknown };
     // `clear` ist derselbe Schreibvorgang mit leerem Alpha: der Fund war keiner.
-    if (body.clear === true) return Response.json({ written: await clearAlpha(name, stem), recut: false });
-    if (typeof body.mask !== "string") throw new Error("mask must be a base64 PNG");
-    const mask = Buffer.from(body.mask.replace(/^data:[^,]*,/, ""), "base64");
-    if (mask.length === 0 || mask.length > MASK_MAX) throw new Error(`mask is ${mask.length} bytes`);
-    return Response.json({ written: await saveFixedAlpha(name, stem, mask), recut: false });
+    if (body.clear === true) write = () => clearAlpha(name, stem);
+    else {
+      if (typeof body.mask !== "string") throw new Error("mask must be a base64 PNG");
+      const mask = Buffer.from(body.mask.replace(/^data:[^,]*,/, ""), "base64");
+      if (mask.length === 0 || mask.length > MASK_MAX) throw new Error(`mask is ${mask.length} bytes`);
+      write = () => saveFixedAlpha(name, stem, mask);
+    }
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });
+  }
+  try {
+    return Response.json({ written: await write(), recut: false });
+  } catch (error) {
+    // Ein gescheiterter Schreibvorgang ist nicht die Schuld der Maske: unter 400 schickte die Lane
+    // den Menschen zum Nachmalen, waehrend in Wahrheit nichts auf die Platte kam.
+    return Response.json({ error: String(error) }, { status: 500 });
   }
 }

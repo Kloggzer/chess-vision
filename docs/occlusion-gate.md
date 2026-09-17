@@ -60,7 +60,11 @@ erbten alle den Alt-Default 0,5, genau die Konstante, die dieses Dokument oben v
 `ModelSpecTest` stand deshalb rot und ist es seit der Messung nicht mehr.
 
 Gemessen auf den **12 Aufnahmen, die alle sieben herausgehalten haben**, 104 337 Figuren-Reads
-gegen die SAM-Matte, Wilson-Untergrenze.
+gegen die SAM-Matte, Wilson-Untergrenze. (Die 104 337 sind ohne Inferenzlauf nicht
+nachrechenbar und stehen unveraendert. **Gegengeprueft 2026-09-17**: die APK buendelt weiter
+genau sieben `p4*`-Verzeichnisse, und jedes `config.json` traegt das hier entschiedene
+`coverage_gate` — 0,35 / 0,35 / 0,25 / 0,15 / 0,05 / 0,05 / 0,05 in der Reihenfolge der Tabelle.
+Die Tabelle und die Artefakte stimmen also noch ueberein.)
 
 **λ = 3, nicht 2 (Nutzer, 2026-09-14: „das wichtigste ist keine phantome zu haben").** λ ist eine
 ENTSCHEIDUNG, keine Messung: es sagt, was eine Erfindung gegen einen Treffer kostet. Die

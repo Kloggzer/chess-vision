@@ -4,8 +4,9 @@ Ergaenzt `move_timing_audit.py`: dort geht es um den ZEITPUNKT des Zuges, hier u
 selbst. "Geflaggt" ist kein Verdacht - ein Frame mit Hand hat 50+ einwandfreie Felder. Verdacht
 sind diese vier Lagen, jeweils nach Abzug dessen, was ein Mensch bestaetigt hat:
 
-  blind    Frame gemeldet, aber SAM fand nichts. Ohne Matte liest JEDE Zelle 0.0 und ist von
-           einer freien nicht zu unterscheiden (CLAUDE.md, "Coverage Matte Trap").
+  blind    Frame gemeldet, aber NICHT gemessen (`coverage is None`, SAMs Absage). Ohne Matte
+           liest JEDE Zelle 0.0 und ist von einer freien nicht zu unterscheiden
+           (CLAUDE.md, "Coverage Matte Trap").
   saum     0 < coverage <= PIECE_VISIBLE_MAX: die Matte sieht etwas, der Verlust lernt trotzdem.
   nachbar  coverage 0, aber orthogonal neben einer Zelle ueber HAND_BODY - der Rand der Hand.
   spaet    dirty_reason `stale`/`changed`: die Stellung passt womoeglich nicht mehr zum FEN.
@@ -62,7 +63,10 @@ def session_facts(sid: str) -> dict:
 def classify(row: dict | None, reason: str, cov: float, square: str) -> str | None:
     """Welche der vier Lagen - oder `None`, wenn die Zelle unverdaechtig ist."""
     cells = (row or {}).get("coverage") or {}
-    if row is None or not row.get("concepts"):
+    # `concepts` leer heisst GEMESSEN, nichts gefunden — 684 Zeilen mit Schmutzgrund tragen das
+    # im Korpus und galten geschlossen als blind. Ungemessen ist allein `coverage is None`
+    # (SAMs Absage, CLAUDE.md „SAMs ABSAGE ist kein sauberes Brett").
+    if row is None or row.get("coverage") is None:
         return "blind"
     if cov > 0.0:
         return "saum"

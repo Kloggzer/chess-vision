@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import math
 import re
 import statistics as st
 import subprocess
@@ -104,11 +105,18 @@ def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[
     return commits, quiet
 
 
+def p90(values: list[float]) -> float:
+    """Dieselbe Formel wie `commit_lag.py`/`commit_budget.py`: `int(0,9 * n)` ist bei n = 10 der
+    Index 9 und damit das MAXIMUM — die Spalte log dann dieselbe Zahl wie `max` daneben."""
+    s = sorted(values)
+    return s[max(0, math.ceil(0.9 * len(s)) - 1)]
+
+
 def stats(values: list[float]) -> str:
     if not values:
         return "—"
     s = sorted(values)
-    return f"median {st.median(s):5.2f} s · p90 {s[int(len(s) * 0.9)]:5.2f} s · max {s[-1]:5.2f} s (n={len(s)})"
+    return f"median {st.median(s):5.2f} s · p90 {p90(s):5.2f} s · max {s[-1]:5.2f} s (n={len(s)})"
 
 
 def main(name: str, log: str) -> int:

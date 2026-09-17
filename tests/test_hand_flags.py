@@ -36,3 +36,15 @@ def test_measured_coverage_reads_every_frame_of_the_matte(tmp_path):
     assert measured_coverage(tmp_path) == {("000100", "a1"): 0.5, ("000100", "b1"): 0.0,
                                            ("000200", "a1"): 0.25}
     assert measured_coverage(tmp_path / "leer") == {}
+
+
+def test_a_later_refusal_by_sam_erases_the_earlier_measurement(tmp_path):
+    """Punkt 28, wie `labeling.read_matte` und `temporal_matte.sam_matte` es halten: eine Zeile
+    OHNE `coverage` ist SAMs Absage und die JUENGERE Information. Hier ueberlebte die alte
+    Messung, und die Lane las "die Matte hat nachgesehen und fand frei"."""
+    path = tmp_path / "matte.jsonl"
+    path.write_text(
+        json.dumps({"frame": "000100", "coverage": {"a1": 0.0}}) + "\n"
+        + json.dumps({"frame": "000100", "skipped": "zone too big"}) + "\n",
+        encoding="utf-8")
+    assert measured_coverage(tmp_path) == {}

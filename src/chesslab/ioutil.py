@@ -153,8 +153,11 @@ def append_rows(path: Path, rows: Iterable[dict]) -> int:
         with path.open(encoding="utf-8", newline="") as fh:
             text = fh.read()
         if text and not text.endswith("\n"):
-            keep = text.rsplit("\n", 1)[0]
-            write_atomic(path, keep + "\n" if keep else "")
+            # Je Zeile OHNE ihr `\r` zurueckschreiben: gelesen wird byte-treu, geschrieben wird
+            # uebersetzt. Den Rest samt seiner `\r\n` zurueckzugeben machte aus jedem davon ein
+            # `\r\r\n`, und jede weitere Reparatur haengte ein CR mehr an.
+            kept = [line.rstrip("\r") for line in text.split("\n")[:-1]]
+            write_atomic(path, "".join(line + "\n" for line in kept))
     with path.open("a", encoding="utf-8") as fh:
         fh.write(rows_text(rows))
     return len(rows)

@@ -4,8 +4,8 @@ import android.os.SystemClock
 import com.chesslab.engine.api.DebugDecision
 import com.chesslab.engine.api.TrackerEvent
 import com.chesslab.tracker.camera.DeliveredSize
-import com.chesslab.tracker.camera.PRE_ROLL_SECONDS
 import com.chesslab.tracker.camera.VideoRecorderPort
+import com.chesslab.tracker.camera.preRollWindowSeconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import java.io.File
@@ -117,7 +117,8 @@ class RecordingBundleHost(
             return
         }
         preRollFrames.addLast(frame)
-        while (frame.elapsedNs - preRollFrames.first().elapsedNs > PRE_ROLL_WINDOW_NS) preRollFrames.removeFirst()
+        val window = preRollWindowSeconds(camera.videoBitRateRequested, camera.videoBitRate) * NS_PER_S
+        while (frame.elapsedNs - preRollFrames.first().elapsedNs > window) preRollFrames.removeFirst()
     }
 
     /**
@@ -251,5 +252,8 @@ class RecordingBundleHost(
 /** The bundle's video name — segment 0; later segments derive from it (`CameraVideo.segmentFile`). */
 private const val VIDEO_FILE = "video.mp4"
 
-/** One window for both rings: a frame row the video has no footage for describes nothing. */
-private const val PRE_ROLL_WINDOW_NS = PRE_ROLL_SECONDS * 1_000_000_000L
+/**
+ * One window for both rings: a frame row the video has no footage for describes nothing. The
+ * video's own window is the BYTE cap, not the nominal 45 s — at 1440p/30 that is 22 s of 45.
+ */
+private const val NS_PER_S = 1_000_000_000L

@@ -64,3 +64,17 @@ def test_read_jsonl_pool_does_not_alter_values(tmp_path):
     got = read_jsonl(p)
     assert got == rows
     assert type(got[0]["b"]) is int and type(got[0]["d"]) is bool
+
+
+def test_append_repairs_a_torn_tail_without_mangling_the_other_line_ends(tmp_path):
+    """Der Schwanz-Reparatur las die ECHTEN Bytes (`newline=""`) und schrieb sie im
+    Uebersetzungsmodus zurueck: aus jedem `\r\n` der ueberlebenden Zeilen wurde `\r\r\n`.
+    1127 der 1329 Dateien tragen CRLF, und jede Reparatur haengt ein weiteres CR an."""
+    from chesslab.ioutil import append_rows
+
+    p = tmp_path / "torn.jsonl"
+    p.write_bytes(b'{"a": 1}\r\n{"b": 2}\r\n{"c":')
+    append_rows(p, [{"d": 4}])
+    raw = p.read_bytes()
+    assert b"\r\r\n" not in raw, raw
+    assert read_jsonl(p) == [{"a": 1}, {"b": 2}, {"d": 4}]

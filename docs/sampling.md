@@ -5,8 +5,13 @@ Was ein Datensatz aus einer Aufnahme mitnehmen soll. Code: `dataset_build.keep_p
 
 ## Der Befund
 
-Der Korpus besteht aus **246 verschiedenen Stellungen**, verteilt auf 9 386 Bretter — also
-durchschnittlich **38 Aufnahmen derselben Stellung**. Der Tracker nimmt alle **0,100 s** auf, und
+Der Korpus bestand aus **246 verschiedenen Stellungen**, verteilt auf 9 386 Bretter — also
+durchschnittlich **38 Aufnahmen derselben Stellung**. **Nachgemessen 2026-09-17** ueber alle
+`data/recordings/*/log.jsonl` (25 Aufnahmen mit Log), Stellung = Figurenteil der `fen`:
+**11 647 Brettzeilen, 713 verschiedene Stellungen, im Schnitt 16,3 Aufnahmen je Stellung.** Der
+Korpus ist also fast dreimal so stellungsreich wie damals und dabei WENIGER redundant je
+Stellung; der Befund unten (die zehnte Aufnahme je Sekunde ist eine Kopie) haengt daran nicht,
+der Zahlenwert 38 aber schon. Die Tabellen unten bleiben der Lauf von damals. Der Tracker nimmt alle **0,100 s** auf, und
 bei fester Kamera und ruhendem Brett ist die zehnte Aufnahme pro Sekunde eine Kopie der ersten.
 
 Am deutlichsten am König: 6 498 `wK`-Zellen verteilen sich auf **22** (Session, Feld)-Paare. Zehn

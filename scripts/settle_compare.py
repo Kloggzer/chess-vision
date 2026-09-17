@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from phone_vs_pc import ROOT, fps_of, pc_side, pts_table  # noqa: E402
+from phone_vs_pc import ROOT, fps_of, p90, pc_side, pts_table  # noqa: E402
 
 from chesslab.ioutil import read_jsonl  # noqa: E402
 
@@ -64,7 +64,7 @@ def main(name: str, dump: str, log: str) -> int:
         print(f"{ply:>3}  {m['san']:<7} {t:>6}  {pc_q:>7}  {ph_q:>7}  {gap:5.2f}  {over:>5}/{len(span):<6}  {max(span) if span else 0:.3f}")
     if gaps:
         s = sorted(gaps)
-        print(f"\nphone quiet − PC quiet: median {st.median(s):.2f} s · p90 {s[int(len(s) * 0.9)]:.2f} s · n={len(s)}")
+        print(f"\nphone quiet − PC quiet: median {st.median(s):.2f} s · p90 {p90(s):.2f} s · n={len(s)}")
         print(f"share of gap frames the PC saw over {MOTION_THR}: median {st.median(over_share):.2f}")
     return 0
 

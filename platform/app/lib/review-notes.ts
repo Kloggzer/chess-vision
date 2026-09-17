@@ -37,8 +37,12 @@ export function validateNote(row: unknown): ReviewNote {
     return { session_id: String(r.session_id), frame: String(r.frame), verdict: r.verdict as FrameVerdict, ...reason };
   }
   if (r.verdict === "bad-interval") {
-    const ply = Number(r.ply);
-    if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${r.ply}`);
+    // `Number(null)` ist 0, `Number(true)` ist 1, `Number("")` ist 0: ein Koerper ohne `ply`
+    // landete sonst als Urteil ueber Halbzug 0. `app/api/zuege/[name]/note` prueft das seit je,
+    // `app/api/review-notes` kommt ueber DIESE Tuer und tat es nicht.
+    const given = typeof r.ply === "number" || (typeof r.ply === "string" && r.ply.trim() !== "");
+    const ply = given ? Number(r.ply) : Number.NaN;
+    if (!Number.isInteger(ply) || ply < 0) throw new Error(`bad ply: ${String(r.ply)}`);
     return { session_id: String(r.session_id), ply, verdict: "bad-interval", ...reason };
   }
   throw new Error(`bad verdict: ${r.verdict}`);
@@ -122,7 +126,13 @@ async function bySession(): Promise<BySession> {
   if (hit?.key === key) return hit.value;
 
   const value: BySession = new Map();
-  const text = await readFile(file, "utf8").catch(() => "");
+  // Nur ein FEHLENDES Ledger ist "noch keine Urteile", wie `lib/corrections.ts` es haelt. Jeder
+  // andere Lesefehler als "" durchgereicht loescht jedes menschliche Urteil aller Sitzungen —
+  // und der Cache haelt die Luege, bis sich die mtime bewegt.
+  const text = await readFile(file, "utf8").catch((e) => {
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
+    return "";
+  });
   // Eine kaputte Zeile MITTENDRIN zu ueberspringen verliert ein Urteil lautlos: das Frame, das ein
   // Mensch weggeworfen hat, steht danach wieder in der Lane. Der Schwanz eines laufenden
   // Anhaengens ist dagegen erwartbar und kostet nichts.

@@ -60,8 +60,8 @@ def coverage_weight(cov: torch.Tensor, mode: str = "hard",
         return (cov <= visible_max).to(cov.dtype)
     if mode != "soft":
         raise ValueError(f"unknown coverage weight mode {mode!r} — hard or soft")
-    # TODO: `visible_max` wird hier nicht gelesen — `--visible-max` ist unter `soft` wirkungslos,
-    # waehrend `train.py` die Maske trotzdem meldet und in die config.json schreibt.
+    # `visible_max` wird hier bewusst nicht gelesen — die Kurve IST die Kante. `train.py` warnt
+    # darum bei `--visible-max` und schreibt unter `soft` `visible_max: null` (2026-09-17).
     s = ((cov + COVERAGE_SHIFT) / COVERAGE_ZERO_AT).clamp(0.0, 1.0)
     return 1.0 - (3 * s**2 - 2 * s**3)
 

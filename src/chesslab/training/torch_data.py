@@ -542,6 +542,15 @@ def paste_neighbour_strip(img: Image.Image, donor: Image.Image,
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
 
 
+def coverage_of(row: dict) -> float:
+    """`coverage` als Zahl — ausgeschriebenes `null` zaehlt wie ein fehlender Schluessel.
+
+    EINE Lesart mit `_target` und `occlusion.classification_eligible`. `float(r.get(..., 0.0))`
+    starb an einem `null`, waehrend der Datei-Loader daneben weiterrechnete.
+    """
+    return float(row.get("coverage") or 0.0)
+
+
 def _target(y: int, row: dict) -> torch.Tensor:
     """Klasse, Coverage und Helligkeit in EINEM Tensor, damit der Loader-Vertrag `(x, y)` bleibt.
 
@@ -549,7 +558,7 @@ def _target(y: int, row: dict) -> torch.Tensor:
     """
     from .train import brightness_of
 
-    return torch.tensor([float(y), float(row.get("coverage") or 0.0), brightness_of(row)])
+    return torch.tensor([float(y), coverage_of(row), brightness_of(row)])
 
 
 class SquareDataset(Dataset):
@@ -647,8 +656,10 @@ class PackedSquareDataset(Dataset):
         # file — the memmaps are mapped lazily inside the worker that reads them.
         self._files, self.idx = _pack_index(rows, packed)
         self.labels = np.array([c2i[r["label"]] for r in rows], dtype=np.int64)
-        self.cover = np.array([float(r.get("coverage", 0.0)) for r in rows], dtype=np.float32)
-        self.bright = np.array([float(r.get("brightness", 255.0)) for r in rows], dtype=np.float32)
+        from .train import brightness_of
+
+        self.cover = np.array([coverage_of(r) for r in rows], dtype=np.float32)
+        self.bright = np.array([brightness_of(r) for r in rows], dtype=np.float32)
         self._empty = c2i.get("empty", -1)
         self._mm: list | None = None
         # Spender sind BESETZTE Zellen: ihre zentrierte Figur ist das, was in den leeren Crop
@@ -758,9 +769,11 @@ class PackedBoardDataset(Dataset):
         step = self.idx[:, :, 1] - self.idx[:, :1, 1]
         self._run = same & (step == np.arange(CELLS)).all(axis=1)
         self.labels = np.array([c2i[r["label"]] for r in self.rows], dtype=np.int64).reshape(-1, CELLS)
-        self.bright = np.array([float(r.get("brightness", 255.0)) for r in self.rows],
+        from .train import brightness_of
+
+        self.bright = np.array([brightness_of(r) for r in self.rows],
                                dtype=np.float32).reshape(-1, CELLS)
-        self.cover = np.array([float(r.get("coverage", 0.0)) for r in self.rows],
+        self.cover = np.array([coverage_of(r) for r in self.rows],
                               dtype=np.float32).reshape(-1, CELLS)
         self._mm: list | None = None
 

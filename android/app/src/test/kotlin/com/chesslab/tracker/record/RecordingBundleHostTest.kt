@@ -8,6 +8,7 @@ import com.chesslab.tracker.camera.PRE_ROLL_SECONDS
 import com.chesslab.tracker.camera.VideoProgress
 import com.chesslab.tracker.camera.VideoRecorderPort
 import com.chesslab.tracker.camera.bitRateFor
+import com.chesslab.tracker.camera.preRollWindowSeconds
 import com.chesslab.tracker.settings.ConfigStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -201,6 +202,35 @@ class RecordingBundleHostTest {
         }
 
     /**
+     * Die Zusage ist der BYTE-Deckel, nicht die 45 s: bei 1440p/30 traegt der Ring 22 s Video, die
+     * Zeilen hielten aber weiter 45 — genau die Reihen ohne Footage, die das Fenster ausschliesst.
+     */
+    @Test
+    fun theFrameWindowFollowsTheVideoRingAtThirtyFps() =
+        runTest {
+            val camera = FakeVideoCamera(fps = 30)
+            val host =
+                RecordingBundleHost(
+                    camera,
+                    RecordingSettings(MemoryStore()),
+                    sessionsRoot,
+                    this,
+                    UnconfinedTestDispatcher(testScheduler),
+                )
+            val held = preRollWindowSeconds(camera.videoBitRateRequested, camera.videoBitRate)
+            assertTrue(held < PRE_ROLL_SECONDS, "1440p/30 cannot hold the full window under the byte cap")
+
+            host.frame(frameAt(0L, STARTPOS_FEN))
+            host.frame(frameAt((held + 1L) * 1_000_000_000L, OPENING_FEN))
+            host.opened(SessionRecorder(sessionDir, SessionMeta("s", "default", 2560, 1440)))
+            host.close()
+            advanceUntilIdle()
+
+            val rows = File(sessionDir, "timeline.jsonl").readLines()
+            assertEquals(1, rows.size, "a frame row the video has no footage for survived")
+        }
+
+    /**
      * `opened` was the only one of the three that was not `@Synchronized`, and `SessionTimeline.close`
      * BLOCKS while its writer drains. A frame delivered inside that window took the free monitor, saw
      * the old timeline and `trySend`ed into a closed channel: gone, and not even counted as evicted.
@@ -289,7 +319,9 @@ class RecordingBundleHostTest {
  */
 private const val FAKE_FPS = 15
 
-private class FakeVideoCamera : VideoRecorderPort {
+private class FakeVideoCamera(
+    private val fps: Int = FAKE_FPS,
+) : VideoRecorderPort {
     var arms = 0
         private set
 
@@ -303,9 +335,9 @@ private class FakeVideoCamera : VideoRecorderPort {
 
     override val videoPreRollNs = 0L
 
-    override val videoBitRateRequested = bitRateFor(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, FAKE_FPS)
+    override val videoBitRateRequested get() = bitRateFor(MIN_VIDEO_WIDTH, MIN_VIDEO_HEIGHT, fps)
 
-    override val videoBitRate = videoBitRateRequested
+    override val videoBitRate get() = videoBitRateRequested
 
     override fun startVideo(
         maxBytes: Long,

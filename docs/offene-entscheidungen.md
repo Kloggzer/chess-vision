@@ -320,9 +320,15 @@ das funktioniert so echt schon gut mit den jsons, lass uns einfach die Fehler be
 gemessen haben, gilt unabhaengig von der Datenbank:
 
 - **Das Schema traegt den echten Bestand.** 25 Aufnahmen, 11 647 Frames, 9 423 Matte-Zeilen,
-  null Abweisungen — die drei Zustaende (fehlt / abgesagt / gemessen) lassen sich sauber
+  null Abweisungen — **alle drei 2026-09-17 nachgezaehlt und unveraendert** (Aufnahmen mit
+  `matte.jsonl`: 25 von 48 Verzeichnissen; Frames = Zeilen aller `log.jsonl`; Matte-Zeilen =
+  nicht-leere Zeilen aller `matte.jsonl`), obwohl 16 der Dateien am 2026-09-15/16 neu geschnitten
+  wurden. Keine Zeile traegt `skipped`, keine `coverage: null` — die Absagen-Falle bleibt latent — die drei Zustaende (fehlt / abgesagt / gemessen) lassen sich sauber
   ausdruecken.
-- **1 657 der 9 423 Matte-Zeilen (17,6 %) sind ueberholt.** `matte.jsonl` ist ein Anhaenge-Log
+- **1 657 der 9 423 Matte-Zeilen (17,6 %) sind ueberholt** (Stand 2026-09-16);
+  **nachgemessen 2026-09-17 sind es 1 871 (19,9 %)** — je Aufnahme nach `frame` entdoppelt,
+  7 552 Frames bleiben. Das Neuschneiden hat die Gesamtzahl nicht bewegt, aber mehr Dubletten
+  hinterlassen. `matte.jsonl` ist ein Anhaenge-Log
   mit *last wins*; fast ein Fuenftel ist totes Gewicht. Das bleibt wahr.
 - **Python und TypeScript sind sich uneinig, was der Zustand eines Frames ist**, wenn auf eine
   Messung eine Absage folgt: `read_matte` filtert `coverage is None` VOR dem Last-wins und behaelt

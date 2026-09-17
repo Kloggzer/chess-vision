@@ -172,6 +172,19 @@ def brightness_of(row: dict) -> float:
     return 255.0 if value is None else float(value)
 
 
+def _occlusion_provenance(occluding: bool, vmax: float | None, dmin: float | None,
+                          coverage_weight: str) -> dict:
+    """Was der Verlust WIRKLICH maskiert hat — `hard` und `soft` sahen in der config.json gleich aus.
+
+    Unter `soft` liest `occlusion.coverage_weight` `visible_max` nicht; die Zahl dort zu nennen
+    behauptete eine Kante, die der Lauf nie hatte (`docs/coverage-weight-2026-09-16.md`).
+    """
+    if not occluding:
+        return {"visible_max": None, "dark_min": None, "coverage_weight": None}
+    return {"visible_max": vmax if coverage_weight == "hard" else None,
+            "dark_min": dmin, "coverage_weight": coverage_weight}
+
+
 def _checkpoint_rank(breakdown, auroc):
     """Rank actual weights by visible identity, then occupancy and error confidence."""
     return (breakdown["visible_piece_acc"], breakdown["visible_occupied_acc"],
@@ -942,13 +955,17 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                   f"{vmax:g} faellt weg, Gewicht 0 erst ab {COVERAGE_ZERO_AT:g} "
                   "(docs/coverage-weight-2026-09-16.md)")
         if dmin:
-            dark = sum(r.get("brightness", 255.0) < dmin for r in train_rows)
+            dark = sum(brightness_of(r) < dmin for r in train_rows)
             print(f"[occ] Trainingsmaske zusaetzlich bei Helligkeit < {dmin:g}: "
                   f"{dark} von {len(train_rows)} Zellen ({dark/max(len(train_rows),1)*100:.1f} %) "
                   f"zaehlen im KLASSENverlust nicht mehr — der Coverage-Kopf lernt sie weiter.")
-        if visible_max is not None:
+        if visible_max is not None and coverage_weight == "hard":
             print(f"[occ] Trainingsmaske bei coverage <= {vmax:g} "
                   f"(Bewertung weiterhin bei {PIECE_VISIBLE_MAX:g})")
+        elif visible_max is not None:
+            print(f"[WARN] --visible-max {visible_max:g} ist unter --coverage-weight "
+                  f"{coverage_weight} WIRKUNGSLOS — die Kurve liest die Kante nicht. "
+                  f"Die config.json traegt darum visible_max: null.")
     elif loss == "ce":
         criterion = nn.CrossEntropyLoss(weight=weights)
     elif loss == "focal":
@@ -1198,8 +1215,8 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
         "pretrained": want_pre,
         "no_empty_cap": no_empty_cap,
         "epoch_frac": epoch_frac,
-        "visible_max": vmax if occluding else None,
-        "dark_min": dmin if occluding else None,
+        **_occlusion_provenance(occluding, vmax if occluding else None,
+                                dmin if occluding else None, coverage_weight),
         "effective_class_weights": dict(zip(classes, [float(w) for w in weights.tolist()],
                                             strict=True)),
     }

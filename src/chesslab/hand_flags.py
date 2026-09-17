@@ -26,7 +26,15 @@ def measured_coverage(session_dir: Path) -> dict[tuple[str, str], float]:
     out: dict[tuple[str, str], float] = {}
     for row in read_jsonl(path):
         stem = str(row.get("frame", ""))
-        for square, value in (row.get("coverage") or {}).items():
+        cover = row.get("coverage")
+        # Punkt 28, wie `labeling.read_matte`: eine Zeile ohne `coverage` ist SAMs Absage und die
+        # juengere Information. Nur die neuen Werte drueberzuschreiben liess die alte Messung
+        # stehen, und `session_flags` las sie als "nachgesehen und frei".
+        if cover is None:
+            for key in [k for k in out if k[0] == stem]:
+                del out[key]
+            continue
+        for square, value in cover.items():
             out[(stem, square)] = float(value)
     return out
 
