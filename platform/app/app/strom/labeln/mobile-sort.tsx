@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { SQUARES as BOARD_SQUARES } from "@/components/board-paint";
 import { STREAM_PALETTE } from "@/components/board-paint";
 import { CROP } from "@/components/crop-grid";
 import type { Correction, Ledger } from "@/lib/corrections";
@@ -45,6 +46,7 @@ const BUCKETS: Bucket[] = [
 export function MobileSort({ cells, sessions, decided, showDone, tally, actionsRef, onFlush, onUndo, onThrow }: MobileSortProps) {
   const [done, setDone] = useState<ReadonlySet<string>>(new Set<string>());
   const [palette, setPalette] = useState(false);
+  const [board, setBoard] = useState(false);
   // Same as the grid's: a card whose crop 404s must not be judged as a dark square (2026-09-07).
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set<string>());
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -138,6 +140,7 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
   }
 
   const session = sessions[head.session];
+  const boardSrc = `/api/board/${session.name}/${head.stem}?size=512`;
   const standing = (decided[head.session] ?? {})[`${head.stem}|${head.square}`];
   return (
     <div className="space-y-3">
@@ -145,6 +148,7 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
         <span>{head.stem}</span>
         <span>{head.square}</span>
         <span>FEN: {head.fen_label}</span>
+        {head.note ? <span className="text-amber-300">{head.note}</span> : null}
         {standing ? <span className="text-fuchsia-300">✓ {standing}</span> : null}
         <span className="ml-auto">{session.sessionId}</span>
       </div>
@@ -184,6 +188,17 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
           />
         )}
       </div>
+      {board ? (
+        <div className="relative mx-auto aspect-square w-full max-w-[351px] overflow-hidden rounded">
+          {/* eslint-disable-next-line @next/next/no-img-element -- ein Brett, vom Server skaliert */}
+          <img alt={`Brett zu ${head.square}`} className="h-full w-full" src={boardSrc} />
+          <div className="pointer-events-none absolute inset-0 grid grid-cols-8">
+            {BOARD_SQUARES.map((sq: string) => (
+              <div className={sq === head.square ? "ring-2 ring-fuchsia-400 ring-inset" : ""} key={sq} />
+            ))}
+          </div>
+        </div>
+      ) : null}
       <p className="text-muted-foreground text-center text-[11px]">
         ← FEN stimmt · ↓ überspringen · lange drücken = ganzes Ereignis
       </p>
@@ -201,6 +216,9 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
             {bucket.label}
           </Button>
         ))}
+        <Button className="h-[88px] text-base" onClick={() => setBoard(!board)} variant="outline">
+          {board ? "Brett aus" : "Brett"}
+        </Button>
         <Button className="h-[88px] text-base" onClick={() => setPalette(!palette)} variant="outline">
           andere ▸
         </Button>
