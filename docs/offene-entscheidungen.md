@@ -864,9 +864,9 @@ UNVERAENDERTER absoluter Komposit-Zahl. Komposite ersetzen echte Partien nicht.
 | Farthest-Point | **0,8965** |
 | Zufall | **0,9166** |
 
-**Der Zufall gewinnt um 0,0201** — rund 2,8 sd des Seed-Rauschens der Basislinie (0,0073).
-**Ein Seed je Arm**, also ein Indiz, kein Beleg (`seed-variance-exceeds-the-effects`); drei Seeds
-je Arm laufen.
+**Mit einem Seed gewann der Zufall um 0,0201** — und diese Aussage ist ZURUECKGEZOGEN. Mit drei
+Seeds kehrt sich das Vorzeichen um (siehe unten). Genau der Fall, vor dem
+`seed-variance-exceeds-the-effects` warnt, und ich habe die Zahl trotzdem vorher gemeldet.
 
 Damit hat meine **Deckungskurve das Gegenteil vorhergesagt** (bei k=16: 4,5 gegen 2,3 zugunsten
 von Farthest-Point). Das Mass war ein schlechter Stellvertreter: Farthest-Point greift die
@@ -890,3 +890,37 @@ Farthest-Point waehlt. In der Montage liefert das auf einer Standzeit genau das 
 acht Licht- und Schattenlagen ohne Hand — auf einer anderen bleiben bei 10 % Beschnitt zwei
 Haende. Ob es dem Zufall schlaegt, entscheidet der Lauf, nicht das Auge: Farthest-Point sah in
 der Montage auch gut aus.
+
+## Drei Arme, drei Seeds: das Rauschen schluckt den Effekt (2026-09-18)
+
+Sieben Laeufe ueber Nacht, je 60 Epochen, `--patience 60`, gleiche Groesse und Mischung, nur das
+Auswahlverfahren und der Trainings-Seed variieren (`scripts/thin_arms_report.py`).
+
+| Arm | Seed 42 | Seed 43 | Seed 44 | Median | sd |
+|---|---|---|---|---|---|
+| Farthest-Point | 0,8965 | 0,8843 | 0,9263 | 0,8965 | 0,0216 |
+| Zufall | 0,9166 | 0,8820 | 0,8776 | 0,8820 | 0,0214 |
+| Kern (trim 25 %) | 0,9097 | 0,9252 | 0,9067 | **0,9097** | **0,0099** |
+
+Gepaart gegen den Zufall: Farthest-Point **-0,0201 / +0,0023 / +0,0487**, Kern **-0,0069 /
++0,0433 / +0,0291**. Bei Farthest-Point wechselt das Vorzeichen zwischen den Seeds.
+
+**Unterschied zwischen den Arm-Medianen: 0,0277. Groesste Spanne innerhalb eines Arms: 0,0420.**
+Das Rauschen ist groesser als der Effekt — **kein Arm ist von einem anderen unterscheidbar**.
+
+### Was trotzdem belastbar ist
+
+**Weniger Daten heisst instabiler, nicht nur schlechter.** Die Basislinie auf dem vollen v7 hat
+ueber SIEBEN Seeds eine sd von **0,0073**; die ausgeduennten Arme liegen bei **0,0214 und 0,0216**
+— dreimal so viel. Nur der Kern-Arm bleibt mit **0,0099** nahe an der Basislinie, was zu seiner
+Bauart passt: er wirft die Ausreisser weg, die die Laeufe auseinandertreiben.
+
+Das ist der einzige Unterschied, der ueber dem Rauschen liegt — und er betrifft die STREUUNG,
+nicht das Niveau.
+
+### Was es braucht, um die Frage zu entscheiden
+
+Bei einer Spanne von 0,042 innerhalb eines Arms und einem erwarteten Effekt um 0,03 braucht es
+grob **acht bis zehn Seeds je Arm**, nicht drei. Das sind rund 24 Laeufe zu je 25 Minuten, also
+zehn Stunden. Ob die Frage das wert ist, ist eine Entscheidung des Nutzers — der praktische
+Nutzen waere ein Trainingssatz, der zehnmal kleiner ist.
