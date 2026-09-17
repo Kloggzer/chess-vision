@@ -285,5 +285,6 @@
   },
   "temperature": 1.495,
   "coverage_output": true,
-  "coverage_gate": 0.25
+  "coverage_gate": 0.25,
+  "prior_lambda": 5.98
 }

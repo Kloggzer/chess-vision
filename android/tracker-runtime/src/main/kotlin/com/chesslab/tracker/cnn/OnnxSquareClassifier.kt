@@ -129,7 +129,7 @@ internal interface SessionRunner : AutoCloseable {
  * second copy here would be a parity fork.
  */
 class OnnxSquareClassifier internal constructor(
-    private val spec: ModelSpec,
+    val spec: ModelSpec,
     private val runner: SessionRunner,
 ) : SquareClassifier,
     AutoCloseable {

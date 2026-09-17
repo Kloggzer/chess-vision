@@ -3,6 +3,7 @@ package com.chesslab.tracker.cnn
 import com.chesslab.cnn.SquareClassifier
 import com.chesslab.cnn.observationFromProbs
 import com.chesslab.cnn.possibleLabels
+import com.chesslab.cnn.priorOnTempered
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnObservation
 import com.chesslab.engine.api.CnnSnapshot
@@ -64,6 +65,8 @@ class Attached(
     val classifier: SquareClassifier,
     val backend: String,
     val model: String,
+    /** Das Modell traegt seine eigene Eichung: Temperatur und Prior-Staerke (`ModelSpec`). */
+    val spec: ModelSpec? = null,
 )
 
 /**
@@ -92,6 +95,9 @@ class CnnObserver(
 
     @Volatile
     private var classifier: SquareClassifier? = null
+
+    @Volatile
+    private var attachedSpec: ModelSpec? = null
 
     @Volatile
     private var busy = false
@@ -272,9 +278,13 @@ class CnnObserver(
                 // Aufruf eine native Sitzung samt Arena stehen.
                 classifier?.let { old -> runCatching { old.close() } }
                 classifier = it.classifier
+                attachedSpec = it.spec
                 holder.ready(it.backend, it.model, it.classifier.classes.size)
             }.onFailure { holder.failed(it.message.orEmpty(), it) }
     }
+
+    /** Die deklarierte Staerke des Modells (sonst die der Engine), im Raum der getemperten Zeilen. */
+    private fun priorFor(spec: ModelSpec?): Double = priorOnTempered(spec?.priorLambda ?: priorLambda, spec?.temperature ?: 1.0)
 
     private fun observe(startFen: String?) {
         runCatching { runObservation(startFen) }
@@ -311,7 +321,7 @@ class CnnObserver(
 
     /** Null at lambda 0 (so no board is built) and on a cold start, where there is no prior to have. */
     private fun possibleFor(fen: String?): Map<String, Set<String>>? {
-        if (priorLambda <= 0.0 || fen == null) return null
+        if (priorFor(attachedSpec) <= 0.0 || fen == null) return null
         return runCatching { possibleLabels(fen) }.getOrNull()
     }
 
@@ -335,7 +345,12 @@ class CnnObserver(
             val started = nowMs()
             val observed =
                 frame.cachedObservation
-                    ?: observationFromProbs(cnn.classify(frame.crops), cnn.classes, possibleFor(startFen), priorLambda)
+                    ?: observationFromProbs(
+                        cnn.classify(frame.crops),
+                        cnn.classes,
+                        possibleFor(startFen),
+                        priorFor(attachedSpec),
+                    )
             val obs = if (priorSafety) observed else observed.withoutPriorSafety()
             val inferMs = (nowMs() - started).toDouble()
             logObservation(cnn, inferMs, frame.crops.size)

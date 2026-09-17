@@ -122,13 +122,20 @@ private fun argmaxFirst(
     return top
 }
 
+/** Multiplikativ auf `softmax(z/T)` landet die Staerke als `lambda*T` auf den rohen Logits:
+ *  4,0 lief so als 5,98 und waere mit jedem neuen Modell mitgewandert (gemessen 2026-09-17). */
+fun priorOnTempered(
+    lambda: Double,
+    temperature: Double,
+): Double = if (temperature <= 0.0) lambda else lambda / temperature
+
 /**
- * Reweight a square's classes by what chess allows, then renormalise. The head emits
- * log-probabilities, so this IS `logProb + lambda * logPrior` under the original softmax.
- * [lambda] stays FINITE: a wrong committed move must stay arguable by the pixels. `occluded`
+ * Reweight a square's classes by what chess allows, then renormalise. [lambda] ist die Staerke
+ * IN DIESEM Raum — wer eine Zahl auf den rohen Logits meint, reicht sie durch [priorOnTempered].
+ * Sie bleibt FINIT: a wrong committed move must stay arguable by the pixels. `occluded`
  * is never penalised — a hand is a statement about SIGHT, not about chess.
  */
-internal fun applyPrior(
+fun applyPrior(
     probs: DoubleArray,
     classes: List<String>,
     allowed: Set<String>?,

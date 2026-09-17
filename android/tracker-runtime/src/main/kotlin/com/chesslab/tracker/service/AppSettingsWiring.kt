@@ -44,7 +44,7 @@ fun openClassifier(
     probe.model = classifier.model
     probe.inputShape = classifier.inputShape
     probe.lastRunMs = classifier::lastRunMs
-    return Attached(classifier, classifier.backend, classifier.model)
+    return Attached(classifier, classifier.backend, classifier.model, classifier.spec)
 }
 
 /**

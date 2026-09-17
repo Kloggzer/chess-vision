@@ -85,6 +85,7 @@ fun openDesktopCnn(
                     if (cache) CachingClassifier(attached.classifier, cacheDir) else attached.classifier,
                     attached.backend,
                     attached.model,
+                    attached.spec,
                 )
             }
         }

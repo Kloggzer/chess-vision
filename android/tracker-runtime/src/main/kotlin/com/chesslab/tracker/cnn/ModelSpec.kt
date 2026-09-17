@@ -86,6 +86,8 @@ data class ModelSpec(
     /** Der auf val gefittete Skalar (Guo 2017): alle sieben Modelle liegen ueber 1, ungelesen
      *  sah `cnnConfThr` schaerfere Werte als seine Eichung. Der Argmax bleibt unberuehrt. */
     val temperature: Double = 1.0,
+    /** `prior_lambda` — die Legalitaets-Staerke auf den ROHEN Logits, je Modell (`docs/`). */
+    val priorLambda: Double? = null,
     /**
      * `clahe_*` — lokaler Kontrast je Crop, VOR der Normalisierung, wie im Training.
      *
@@ -157,6 +159,7 @@ data class ModelSpec(
                 coverageOutput = root["coverage_output"]?.jsonPrimitive?.boolean ?: false,
                 coverageGate = root["coverage_gate"]?.jsonPrimitive?.double,
                 temperature = root["temperature"]?.jsonPrimitive?.double ?: 1.0,
+                priorLambda = root["prior_lambda"]?.jsonPrimitive?.double,
                 claheClip = root["clahe_clip"]?.jsonPrimitive?.double ?: 0.0,
                 claheTile = root["clahe_tile"]?.jsonPrimitive?.content?.toInt() ?: DEFAULT_CLAHE_TILE,
                 claheMinMean = root["clahe_min_mean"]?.jsonPrimitive?.double ?: 0.0,

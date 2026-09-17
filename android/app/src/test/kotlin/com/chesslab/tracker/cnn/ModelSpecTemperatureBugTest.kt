@@ -5,6 +5,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -42,5 +43,19 @@ class ModelSpecTemperatureBugTest {
 
     private companion object {
         const val TOLERANCE = 1e-6
+        const val ENGINE_LAMBDA = 4.0
+    }
+
+    /** Die Prior-Staerke reitet im Modell wie `coverage_gate` — und sie ist die Zahl auf den
+     *  ROHEN Logits, nicht die auf den getemperten (`priorOnTempered`). */
+    @Test
+    fun everyBundledModelDeclaresItsPriorStrength() {
+        for (dir in bundledAssetDirs()) {
+            val spec = ModelSpec.parse(File(dir, MODEL_CONFIG_FILE).readText())
+            val declared = spec.priorLambda
+            assertNotNull(declared, dir.name)
+            // Migrationswert: was das Modell vor der Entkopplung effektiv fuhr (4,0 x T).
+            assertEquals(ENGINE_LAMBDA * spec.temperature, declared!!, 1e-3, dir.name)
+        }
     }
 }
