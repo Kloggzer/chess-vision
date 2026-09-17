@@ -758,3 +758,33 @@ Modelle widersprechen" reicht also nicht — sie teilen Trainingsdaten und Fehle
 Filter auf SYSTEMATISCHEN Widerspruch, und das ist richtig so; sie sind trotzdem nur eine
 Vorsortierung. **Entschieden wird am Crop, vom Menschen.** Heute haette der Audit ohne diesen
 Blick ~440 Zellen falsch gemacht.
+
+## Das neue Spiel bleibt Holdout — v8 ist aufgeschoben (2026-09-17)
+
+**`2026-09-15-16-54-44` ist gepackt** (`data/packs/rg-2026-09-15-16-54-44-128`, 100 099 Crops,
+4,92 GB, 39 s) und steht in **keinem** Datensatz. Es ist das einzige ganze Spiel, das kein Modell
+je gesehen hat — genau der Zeuge, der heute gefehlt hat.
+
+`tests/test_holdout_sessions.py` haelt das fest: kein Datensatz darf es in `train` oder `val`
+ziehen. `assign_sessions_to_splits` kennt `force_train`, aber kein Gegenstueck; ohne die Wache
+haelt die Entscheidung nur, solange niemand `--add-test` vergisst. Gegengeprobt mit einer
+Aufnahme, die wirklich im Train steht — sie schlaegt an.
+
+### Warum v8 NICHT gebaut und NICHT trainiert wird
+
+Der Nutzer hat es ausgerechnet, bevor ich es tat: v8 haette **keine neuen Trainingsdaten**.
+
+| Split | korrigierte Labels |
+|---|---|
+| train | **649** von ~685 000 Zeilen (**0,095 %**) |
+| test | 135 |
+| **val** | **0** |
+
+Im Val aendert sich **nichts** — jedes Checkpoint-Kriterium (`val_acc`, `macro_recall`, `score`)
+liefe auf einem bytegleichen Satz. Ein v8-Modell unterschiede sich von v7 um Seed-Rauschen, und
+`seed-variance-exceeds-the-effects` misst dafuer 0,33 auf `occ_board_acc`. Der Effekt waere nicht
+messbar, auch nicht im Prinzip.
+
+**Was trotzdem getan ist:** 17 Aufnahme-Packs neu geschnitten (257 s), die alten liegen in
+`data/_parked/packs-v7-20260917-172925/`. Fuenf blieben, weil ihre Differenz nachgewiesen NULL
+ist; die 138 Komposit-Packs haben keine Korrekturen. Wer v8 baut, hat die Packs schon.
