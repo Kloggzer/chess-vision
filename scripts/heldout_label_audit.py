@@ -28,6 +28,7 @@ from chesslab.training.occlusion import PIECE_VISIBLE_MAX
 
 REC = Path("data/recordings")
 HELDOUT = "model-reads.heldout.jsonl"
+SECOND = "model-reads.heldout2.jsonl"
 
 _BOARDS: dict[str, chess.Board] = {}
 

@@ -560,7 +560,43 @@ Rueckfall, denn ein grober Vorfilter, der wie eine Messung aussieht, ist schlimm
 Leerstelle. Ein Frame ohne Matte sagt darum `keine Matte — ungemessen` in Rot, statt ein sauberes
 Brett zu zeigen (CLAUDE.md, "Coverage Matte Trap").
 
-**Nebenbefund, nicht gefixt:** die gespeicherte `coverage` dieser Aufnahme weicht in **18 von
-1204** Frames vom eigenen Alpha ab, alle mit `alpha: fixed`. `recut_coverage` laesst die
-Handfassungen bewusst aus ("gehoert dem Menschen") — die Zahl bleibt damit stehen, waehrend die
-Pixel neu sind. Groesster Abstand 0,999.
+**Ein Nebenbefund von mir war FALSCH und ist zurueckgezogen (2026-09-17).** Ich meldete "18 von
+1204 Frames tragen eine `coverage`, die nicht zum eigenen Alpha passt". Meine Sonde verglich sie
+gegen `alpha_for` — und das liefert **nie** die Handfassung, sondern `.sam.webp` oder
+`<stem>.webp`. Eine handgemalte Zeile MUSS davon abweichen. Richtig gemessen (Handfassungen
+ausgenommen): **1164 Zeilen geprueft, 0 Abweichungen**.
+
+## Ein einzelner Zeuge irrt sich in 6 von 10 Faellen (2026-09-17)
+
+Der gehaltene Audit ueber **22 Aufnahmen** (`scripts/heldout_label_audit.py`, je ein v7-Fold, der
+die Aufnahme nie gesehen hat) meldet **32 systematische Widersprueche**. Sieben Aufnahmen waren
+bei ZWEI Folds draussen — dort laesst sich der Befund gegenpruefen, und das Ergebnis ist die
+wichtigste Zahl des Tages:
+
+| | |
+|---|---|
+| Kandidaten auf diesen sieben Aufnahmen | **10** |
+| Vom zweiten Fold BESTAETIGT | **4** |
+| Vom zweiten Fold WIDERLEGT | **6** |
+
+**Ein einzelner Zeuge liegt also in rund 60 % der Faelle daneben** — auch ein gehaltener. Wer die
+Liste ohne zweiten Fold liest, jagt mehrheitlich Modellrauschen. Die 15 Aufnahmen mit nur einem
+Zeugen stehen damit unter Vorbehalt.
+
+### Die vier, die zwei Zeugen tragen
+
+| Aufnahme | Feld | FEN | beide lesen | Zellen | offen | Zustimmung Fold B zum FEN |
+|---|---|---|---|---|---|---|
+| `2026-09-06-21-29-35` | c2 | `wR` | `wP` | 263 | **252** | 0 % |
+| `2026-08-08-11-59-12` | g1 | `wN` | `wB` | 130 | 0 | 5 % |
+| `2026-08-08-00-39-57` | d7 | `bR` | `bP` | 29 | 25 | 0 % |
+| `2026-09-06-20-57-45` | e5 | `wN` | `wB` | 16 | 13 | 12 % |
+
+`g1` ist der bereits reparierte f1/g1-Tausch — der Audit findet ihn eigenstaendig wieder, was die
+Methode stuetzt. **`2026-09-06-21-29-35` c2 ist der grosse offene Posten**: 252 unbeurteilte
+Zellen, beide Folds lesen einen Bauern, wo das FEN einen Turm fuehrt.
+
+### Widerlegt, und darum NICHT gemeldet
+
+`2026-08-08-00-39-57` d4 (Fold B stimmt dem FEN zu 65 % zu), `2026-09-06-20-27-33` b4 (80 %) und
+f8 (80 %), `2026-09-06-21-29-35` d8 (75 %) und f4 (60 %), `VID_20260824_153751` c7 (94 %).
