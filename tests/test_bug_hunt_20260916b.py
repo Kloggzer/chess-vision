@@ -68,8 +68,6 @@ def test_flag_frame_backs_the_log_up_like_every_other_writer(tmp_path, monkeypat
 
 # --- 3. ingest.run_ingest ----------------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 3: `skipped` zaehlt nichts, der Adapter yieldet nie None",
-                   strict=True)
 def test_ingest_reports_how_many_renders_the_adapter_dropped(tmp_path):
     from chesslab.ingest import run_ingest
 
@@ -212,7 +210,6 @@ def test_chroma_cut_refuses_an_unreadable_clip():
 
 # --- 9. synth_build counts ---------------------------------------------------------------
 
-@pytest.mark.xfail(reason="Spur 9: `after_dedup` ist per Konstruktion `final`", strict=True)
 def test_fused_counts_separate_dedup_from_the_class_collapse(tmp_path):
     import cv2
 

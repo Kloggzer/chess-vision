@@ -118,11 +118,11 @@ def test_iter_items_chunks_by_stem(tmp_path):
 
 
 def test_iter_items_skips_json_without_png(tmp_path):
-    """JSON without a matching PNG is skipped."""
+    """JSON without a matching PNG is skipped — und SAGT es: `None` ist die Absage."""
     (tmp_path / "000000.json").write_text(FIXTURE_JSON.read_text(encoding="utf-8"), encoding="utf-8")
     # kein PNG
     items = list(synthetic.iter_items(tmp_path))
-    assert len(items) == 0
+    assert items == [None]
 
 
 def test_iter_items_skips_corrupt_json(tmp_path):
@@ -135,8 +135,10 @@ def test_iter_items_skips_corrupt_json(tmp_path):
         json.dumps({"fen": _fixture_fen(), "corners": _fixture_corners()}), encoding="utf-8")
 
     items = list(synthetic.iter_items(tmp_path))
-    assert len(items) == 1  # nur das gute Item
-    assert items[0].image_path.stem == "000001"
+    good = [it for it in items if it is not None]
+    assert len(good) == 1  # nur das gute Item
+    assert good[0].image_path.stem == "000001"
+    assert items.count(None) == 1, "die verworfene Zeile zaehlt in `run_ingest`s `skipped`"
 
 
 def test_iter_items_skips_missing_corners(tmp_path):
@@ -144,7 +146,7 @@ def test_iter_items_skips_missing_corners(tmp_path):
     cv2.imwrite(str(tmp_path / "000000.png"), _synthetic_board(256))
     (tmp_path / "000000.json").write_text(json.dumps({"fen": _fixture_fen()}), encoding="utf-8")
     items = list(synthetic.iter_items(tmp_path))
-    assert len(items) == 0
+    assert items == [None]
 
 
 # =======================================================================================

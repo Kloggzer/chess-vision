@@ -158,7 +158,10 @@ def build_synth_dataset(
     crop = CropParams.default(board_size)
     out_size = tuple(crop.out_size)
 
-    items = list(iter_items(Path(renders_root)))
+    scanned = list(iter_items(Path(renders_root)))
+    items = [it for it in scanned if it is not None]
+    if scanned.count(None):
+        print(f"[fuse] {scanned.count(None)} Render ohne Bild oder Ecken verworfen", flush=True)
     if not items:
         raise ValueError(f"no render frames (json+jpg/png) found under {renders_root}")
 
@@ -193,6 +196,7 @@ def build_synth_dataset(
     holdout = [r for r in rows if split_of.get(r["session_id"]) in ("val", "test")]
     train_rows = dedup_metadata(train_raw, per_cell_cap, seed)
     rows = train_rows + holdout
+    n_after_dedup = len(rows)
     # Same contract as `dataset build`: collapse LAST, after dedup and the session split, so a
     # narrowed build keeps exactly the rows a `pieces` build at the same seed would keep.
     rows = collapse_labels(rows, class_mode)
@@ -241,9 +245,7 @@ def build_synth_dataset(
         "rotations": list(rotations),
         "split": {"val_frac": val_frac, "test_frac": test_frac, "max_empty_ratio": max_empty_ratio,
                   "max_class_ratio": max_class_ratio, "seed": seed},
-        # TODO: `after_dedup` ist per Konstruktion `n_final` — die CLI druckt die Dedup-Wirkung
-        # und den pieces13-Collapse als eine Zahl; `len(train_rows + holdout)` waere die echte.
-        "counts": {"raw": n_raw, "after_dedup": n_final, "final": n_final},
+        "counts": {"raw": n_raw, "after_dedup": n_after_dedup, "final": n_final},
     }
     (ds / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                      encoding="utf-8")

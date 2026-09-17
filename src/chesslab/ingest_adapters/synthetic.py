@@ -27,22 +27,27 @@ def _safe_sub(rel: str) -> str:
     return "".join(c if c.isalnum() or c in "-_" else "-" for c in rel)
 
 
-def iter_items(root: Path) -> Iterator[ImportItem]:
+def iter_items(root: Path) -> Iterator[ImportItem | None]:
     root = Path(root)
     for jf in sorted(root.rglob("*.json")):
         # Neuere Renders sind JPEG (q90, ~5x kleiner + Webcam-Domaene); Alt-Renders PNG.
         img = jf.with_suffix(".jpg")
         if not img.exists():
             img = jf.with_suffix(".png")
+        # `None` heisst VERWORFEN. Stilles `continue` machte `run_ingest`s `skipped` beweisbar
+        # zu 0, und die Fehlermeldung nannte die Null als gemessene Tatsache.
         if not img.exists():
+            yield None
             continue
         try:
             d = json.loads(jf.read_text(encoding="utf-8"))
             corners = d["corners"]
             fen = d["fen"]
         except (ValueError, OSError, KeyError):
+            yield None
             continue
         if not corners or len(corners) != 4:
+            yield None
             continue
         try:
             block = int(jf.stem) // CHUNK
