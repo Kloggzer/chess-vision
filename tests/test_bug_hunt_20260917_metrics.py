@@ -64,3 +64,25 @@ def test_the_swa_line_is_measured_against_the_same_quantity_as_best_pt():
 
     assert rank[0] != pytest.approx(weighted)
     assert rank[0] == pytest.approx(bd["visible_piece_acc"])
+
+
+def test_the_swa_block_ranks_with_the_same_function_best_pt_does():
+    """Der Test darueber haelt den HELFER, nicht den Aufrufort — dort sass der Fehler.
+
+    `checkpoint_metrics(...)[0]` neben `best_score` zu stellen, blieb gruen, solange
+    `_checkpoint_rank` irgendwo im Modul vorkam. Ueber den Syntaxbaum, damit ein Kommentar,
+    der die Funktion nur ERWAEHNT, nicht als Aufruf durchgeht.
+    """
+    import ast
+    import inspect
+
+    from chesslab.training import train as train_mod
+
+    tree = ast.parse(inspect.getsource(train_mod))
+    block = next(n for n in ast.walk(tree)
+                 if isinstance(n, ast.If)
+                 and any(isinstance(c, ast.Name) and c.id == "update_bn" for c in ast.walk(n)))
+    called = {c.func.id for c in ast.walk(block)
+              if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)}
+
+    assert "_checkpoint_rank" in called, "swa.pt wird gegen eine andere Groesse gemessen als best.pt"

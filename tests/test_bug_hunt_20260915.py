@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from chesslab import config, dataset, dataset_build
+from chesslab.ioutil import read_jsonl, write_rows
 from chesslab.training import packs
 from conftest import make_profile
 
@@ -60,10 +61,16 @@ def test_like_adopts_the_donors_pack_size(tmp_path):
     dataset_build.build_dataset("donor", sids, rotations=(0,), phash_enabled=False,
                                 val_frac=0.0, test_frac=0.0, paths=paths, pack_size=(12, 12),
                                 allow_degenerate=True, from_packs=True, write_pack=False)
+    # Der Pin war tautologisch: sagten Zeile und Pack dasselbe, passierte er BEIDE Codepfade.
+    # Auf der Platte tun sie das nicht — eine `mm://`-Zeile fuehrt das `out_size` ihres POOLS
+    # weiter. Erst der Widerspruch trennt "liest den Pack" von "liest die Zeile".
+    donor_manifest = paths.datasets / "donor" / "manifest.jsonl"
+    lying = [{**r, "out_size": [80, 80]} for r in read_jsonl(donor_manifest)]
+    write_rows(donor_manifest, lying)
+
     dataset_build.build_dataset("twin", sids, rotations=(0,), phash_enabled=False,
                                 paths=paths, like="donor", allow_degenerate=True, write_pack=False)
-    rows = [json.loads(x) for x in
-            (paths.datasets / "twin" / "manifest.jsonl").read_text(encoding="utf-8").splitlines()]
+    rows = read_jsonl(paths.datasets / "twin" / "manifest.jsonl")
     assert {tuple(r["out_size"]) for r in rows} == {(12, 12)}
 
 
