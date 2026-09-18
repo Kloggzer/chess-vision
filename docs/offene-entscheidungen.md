@@ -1169,3 +1169,36 @@ Batch nur teilen, wenn sie ihn gleich vorverarbeitet haetten. `tests/test_bench_
 das mit elf Tests, darunter einer, der per Quelltext-Probe prueft, dass JEDES Feld, das
 `eval_transform_for` aus der Config liest, auch in der Signatur steht — sonst faellt ein neues
 Feld still durch.
+
+## Ich habe 15 menschliche Urteile ueberschrieben (2026-09-18)
+
+Vier Modelle verfehlten auf `test-v1` dieselben 26 Zellen, 24 davon einstimmig als `empty`, wo die
+Aufzeichnung eine Figur fuehrt. Ich habe Crops vorgelegt, der Nutzer sah "scheint als haetten die
+Modelle recht", und ich habe 15 Zellen auf `empty` geschrieben.
+
+**Jede einzelne dieser 15 Zellen trug bereits ein Urteil des Nutzers — und zwar das
+Gegenteil.** Elf standen in `corrections.jsonl` (er hatte sie AKTIV auf wP/wN/wR/bK/bN korrigiert),
+vier in `reviewed.jsonl`. Ich habe nicht nachgesehen und die Ledger stumpf ueberschrieben.
+Zurueckgestellt aus `data/_parked/empty-fix-20260918-110031/`, nachgeprueft.
+
+**Dasselbe gilt fuer die drei, die ich als "offen" zurueckgelegt hatte:** `c6` = bN, `e5` = wN,
+`c5` = wK stehen alle im Ledger, alle als FEN-Label bestaetigt. Die Modelle liegen dort falsch.
+
+### Was das ueber die Modelle sagt
+
+Von den 106 strittigen Zellen (ohne `rot-s46`, das mit 378 gegen 58 Fehlern 330 der 436 Karten
+allein erzeugte) sind **105 bereits menschlich beurteilt, und der Mensch gab jedesmal dem FEN
+recht**. Genau EINE Zelle ist ungeurteilt: `rg-2026-09-15-16-54-44` Frame 005331 f2, FEN `wQ`
+gegen Modell `wR`, Coverage 0,0005.
+
+Damit ist die Ausgangsfrage beantwortet, nur andersherum als gedacht: **die Labels von test-v1
+sind gut, die Fehler gehoeren den Modellen.** Der Testsatz ist bereits durchgesehen — er ist
+deshalb ein guter Massstab und ein schlechter Ort, um Labelfehler zu suchen.
+
+### Der Defekt und die Regel
+
+`audit_flags.ledger_labels` existiert genau dafuer — "the cells no view may ask again". Mein
+Korrekturskript hat sie nie gefragt. **Wer Labels schreibt, liest zuerst `corrections.jsonl` UND
+`reviewed.jsonl` und bricht bei jedem Treffer ab**, statt zu ueberschreiben. Ein Modellkonsens
+ist kein Zeuge gegen einen Menschen, der dieselbe Zelle schon angesehen hat — vier Modelle
+derselben Familie irren gleich, und hier taten sie es nachweislich.
