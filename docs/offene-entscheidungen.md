@@ -1285,3 +1285,37 @@ Der Weg dahin war `scripts/sync_labels.py`, nicht der Fold.
 nicht rendern, und nach 733:0 auf den Aufnahmen ist die Erwartung niedrig. Ein Komposit-Fund waere
 ausserdem an seiner QUELLE zu korrigieren — `a8 bR -> bP` taucht in fuenf Schnitten desselben
 Videos auf, das waere ein Fehler, nicht fuenf.
+
+## Training auf den abgeglichenen Labels: kein messbarer Effekt (2026-09-18)
+
+Drei Seeds, `rot`-Rezept, `real13-mix-v7-128` nach dem Label-Abgleich, gegen `CONTROL-rot-s42/43/44`
+mit denselben Seeds und demselben Rezept. **Der Val ist Zeile fuer Zeile unveraendert** (0 der 260
+Korrekturen liegen dort), der Vergleich ist also gepaart und misst nur die Trainingslabels.
+
+| Seed | Val CONTROL | Val SYNC | Delta | test-v1 CONTROL | test-v1 SYNC | Delta |
+|---|---|---|---|---|---|---|
+| s42 | 0,9874 | 0,9929 | +0,0055 | 0,9934 (300) | 0,9874 (574) | -0,0060 |
+| s43 | 0,9978 | 0,9908 | -0,0071 | 0,9987 (58) | 0,9863 (625) | -0,0124 |
+| s44 | 0,9921 | 0,9966 | +0,0044 | 0,9935 (296) | 0,9939 (280) | +0,0004 |
+| **Median** | | | **+0,0044** | | | **-0,0060** |
+
+**Die beiden Massstaebe zeigen in ENTGEGENGESETZTE Richtungen**, und beide bleiben in ihrer eigenen
+Streuung (Val-sd 0,0070, test-v1-sd 0,0064). Das ist kein Effekt. 250 korrigierte von 979 361
+Zeilen sind 0,026 % — der Abgleich ist eine Korrektheits-Reparatur, kein Leistungshebel, und bleibt
+richtig, weil ein Modell mit `wB` auf f1 falsch ist, egal was der Val aufloest.
+
+**Nur 4 der 45 593 besetzten Zellen von test-v1 hat der Abgleich selbst veraendert** — ohne sie
+sind alle Zahlen auf sechs Stellen identisch. Der Benchmark misst also nicht seine eigene Korrektur.
+
+### Korrektur: die 58 Fehler von heute Vormittag waren eine Ziehung
+
+Ich hatte gemeldet, die drei Spitzenmodelle lagen bei 58/58/73 Fehlern und seien ununterscheidbar.
+Das stand auf `CONTROL-rot-s43`. Seine Geschwister mit demselben Rezept liegen bei **296 und 300** —
+**Faktor fuenf innerhalb einer Gruppe**. Wer EINEN Seed gegen test-v1 misst, misst die Ziehung.
+Die Gruppe ist: CONTROL Median 0,9935 (sd 0,0030), SYNC Median 0,9874 (sd 0,0041).
+
+### Zwischenstaende luegen
+
+`_sync/rot-s44` stand bei 49 von 60 Epochen auf -0,0004 und landete bei **+0,0044** — die letzten
+elf Epochen drehten das Vorzeichen. Ein Mittel der letzten 20 aus einem laufenden Lauf mittelt ein
+anderes Fenster und ist keine kleine Version des Endergebnisses.
