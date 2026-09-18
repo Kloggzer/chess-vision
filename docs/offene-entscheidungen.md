@@ -1241,3 +1241,47 @@ Fehlern, bei 80 px streuen drei Seeds zwischen 434 und 1 760 — **Faktor vier**
 derselbe Kontrast viel milder (sd 0,0085 gegen 0,0052). Halbe Aufloesung kostet also nicht nur
 Niveau, sie macht den Lauf unzuverlaessig, und das sieht man erst auf ungesehenem Material.
 Das ist dasselbe Muster wie beim Ausduennen — der Val aus EINER Aufnahme verschweigt Instabilitaet.
+
+## Die Fold-Durchsicht fand null Labelfehler auf den Aufnahmen (2026-09-18)
+
+Nach dem Label-Abgleich (1 002 Zellen, siehe oben) las `scripts/oof_review.py` **160 Sessions
+out-of-fold** — jede von dem Fold-Modell, das sie nie trainiert hat, gegen das letzte Wort des
+Menschen, und ohne die 122 727 Zellen, die schon ein Urteil tragen.
+
+**6 647 Widersprueche**, davon 6 421 auf gemessen sichtbaren Zellen. Aufgeteilt:
+
+| | Zellen |
+|---|---|
+| Komposite (die Lane kann sie nicht zeigen, kein `boards/`) | 5 908 |
+| Aufnahmen (`rg-*`) | 739 |
+
+**Der Nutzer hat 733 der 739 durchgesehen. Alle 733 bestaetigen das FEN.** Kein einziger
+Modellfund war ein Labelfehler.
+
+### Meine Heuristik hat nichts vorhergesagt
+
+Ich hatte die Funde nach der Aufbau-Tausch-Signatur sortiert — ein Feld, eine Aufnahme, dieselbe
+Richtung ueber mindestens acht Frames bei mindestens 80 % Einigkeit — und die als Labelverdacht
+ausgewiesen. Ergebnis:
+
+| | FEN bestaetigt | Modell hatte recht |
+|---|---|---|
+| "Muster auf dem Feld" | **452** | **0** |
+| einzeln | 281 | 0 |
+
+**452 vorhergesagt, 0 getroffen.** Die Signatur trennt nichts: ein Modell, das ein Feld falsch
+liest, liest es ueber den ganzen Standzeit-Lauf falsch — Konstanz ist deshalb die NORMALFORM eines
+Modellfehlers und kein Hinweis auf ein Label. Das ist dieselbe Wurzel wie
+`two-folds-are-not-a-second-witness`, nur eine Ebene tiefer: nicht nur zwei Modelle irren gleich,
+EIN Modell irrt gleich ueber die Zeit.
+
+### Was daraus folgt
+
+**Die Aufnahmen des Korpus sind sauber, soweit Modelle das zeigen koennen.** Was blieb, waren die
+1 002 veralteten Labels — ein SYNC-Problem zwischen Ledger, Pack und Datensatz, kein Urteilsproblem.
+Der Weg dahin war `scripts/sync_labels.py`, nicht der Fold.
+
+**Offen bleiben die 5 908 Komposit-Zellen.** Ob sie etwas tragen, ist unbekannt: die Lane kann sie
+nicht rendern, und nach 733:0 auf den Aufnahmen ist die Erwartung niedrig. Ein Komposit-Fund waere
+ausserdem an seiner QUELLE zu korrigieren — `a8 bR -> bP` taucht in fuenf Schnitten desselben
+Videos auf, das waere ein Fehler, nicht fuenf.
