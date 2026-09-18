@@ -1430,3 +1430,44 @@ gegen die Referenz 396/3/0/171 bei 5 Alarmen.
 jede Zeile mit `mm://` in einen eigenen Pack, und das Skript starb sofort. Es loest jetzt je Zeile
 ihren Shard auf — ein Werkzeug, das ein halbes Jahr Messungen tragen sollte und an einem
 Formatwechsel still verreckt ist.
+
+## `cnnConfThr`: keine Kurve, eine Kante — und 0,85 steht genau davor (2026-09-18)
+
+Gemessen am Regressionssatz, zehn Aufnahmen je Wert, Modell `p4a-80-clahe`. Die Referenz ohne
+`-Extra` reproduziert **396/3/0/171 bei 5 Alarmen**, Ziffer fuer Ziffer wie CLAUDE.md sie nennt.
+
+| `cnnConfThr` | found | missed | invented | beyond | Alarme |
+|---|---|---|---|---|---|
+| 0,50 | 396 | 3 | 0 | 171 | 5 |
+| 0,70 | 396 | 3 | 0 | 171 | 5 |
+| **0,85** (Vorgabe) | **396** | **3** | **0** | **171** | **5** |
+| 0,95 | 385 | 14 | **1** | 171 | 6 |
+| 0,99 | 388 | 11 | **1** | 171 | 5 |
+
+**Unterhalb von 0,85 entscheidet die Schwelle nichts.** Drei Werte von 0,50 bis 0,85 liefern
+identische Zahlen — die Huerde ist dort nie die bindende Bedingung. Die offene Frage aus CLAUDE.md
+("welche echte Sicherheit soll das Gate fordern?") hat damit fuer die untere Haelfte eine Antwort:
+**egal**.
+
+**Oberhalb faellt es ab, und ein Phantom kommt.** Bei 0,95 kostet es 11 Plies und bringt den ersten
+`invented` des Satzes — nach der Phantom-Regel ist das disqualifizierend. `0,99` ist nicht besser,
+nur anders daneben.
+
+**Der Mechanismus ist gemessen, nicht erzaehlt:** der CNN-Arm verstummt nicht (`cnn=run` 1 445 ->
+1 297), aber die Lesungen, die die Huerde nehmen, sinken von **219 174 auf 181 230 (-17 %)**. Die
+Verify-Leiter bekommt zu selten einen Schnappschuss.
+
+**Auffaellig, aber nicht als Ursache behauptet:** 385/14/1 bei 6 Alarmen ist exakt die alte
+Referenz aus CLAUDE.md, die von VOR dem Prior-Umbau (`prior=0`, ohne Temperatur). Bei 0,95 traegt
+der CNN also offenbar so wenig bei, dass das Ergebnis auf den modellfreien Weg zurueckfaellt.
+
+### Was daraus folgt
+
+**Die Vorgabe 0,85 bleibt — aber sie hat keine Luft nach oben.** Sie ist der letzte Wert vor der
+Kante, und das ist Zufall, kein Entwurf: die Zahl stand vor `calibratedConfThr` da und bedeutete
+je Modell etwas anderes. Wer sie anfasst, sollte nach UNTEN gehen (0,70 kostet nichts und haelt
+Abstand zur Kante) oder die Messung je Modell wiederholen — die sieben Modelle tragen
+Temperaturen von 1,26 bis 1,76, und die Kante liegt deshalb nicht bei allen an derselben Stelle.
+
+**Nicht gemessen:** ob die Kante bei den anderen sechs Modellen woanders sitzt. Das waeren sechs
+weitere Saetze zu je ~50 Minuten.
