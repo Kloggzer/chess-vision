@@ -6,8 +6,9 @@ Deshalb prueft dieses Skript die Herkunft selbst und verweigert jede Aufnahme, d
 `splits.train` stand, statt sich auf eine gepflegte Liste zu verlassen.
 
 Alle Zeilen landen im TEST-Split; der Satz hat weder Train noch Val und kann darum nicht
-versehentlich trainiert werden. Zusaetzlich wandern die Aufnahmen in `data/TEST-USED.json`
-unter `frozen`, wo `chesslab eval` sie ohne `--burn-frozen` verweigert.
+versehentlich trainiert werden. Die Aufnahmen werden in `data/TEST-USED.json` unter `benchmark`
+vermerkt — NICHT unter `frozen`: ein Benchmark wird wiederholt gemessen (Nutzer, 2026-09-18),
+und `frozen` verbietet genau das. Der Schutz ist `tests/test_holdout_sessions.py`.
 
     uv run python scripts/build_test_set.py --name test-v1 --size 128
 """
@@ -54,11 +55,11 @@ def candidates(size: int) -> list[str]:
     return out
 
 
-def freeze(sessions: list[str]) -> list[str]:
+def register(sessions: list[str]) -> list[str]:
     doc = json.loads(LEDGER.read_text(encoding="utf-8"))
-    frozen = set(doc.get("frozen", []))
-    fresh = [s for s in sessions if s not in frozen]
-    doc["frozen"] = sorted(frozen | set(sessions))
+    known = set(doc.get("benchmark", []))
+    fresh = [s for s in sessions if s not in known]
+    doc["benchmark"] = sorted(known | set(sessions))
     write_json(LEDGER, doc)
     return fresh
 
@@ -112,14 +113,18 @@ def main() -> int:
     (out / "dataset.yaml").write_text(yaml.safe_dump({
         "name": out.name, "created_at": datetime.now(UTC).isoformat(),
         "class_mode": "pieces13", "session_ids": sorted(want),
+        # Ohne `packs:` haelt `resolve_dataset_packs` den Satz fuer klassisch und `eval` bricht
+        # auf den mm://-Zeilen ab — sechs Laeufe scheiterten daran, bevor einer gemessen hatte.
+        "packs": [f"{s}-{args.size}" for s in sorted(want)],
         "purpose": "eval-only", "counts": {"raw": len(rows), "final": len(rows)},
     }, sort_keys=False, allow_unicode=True), encoding="utf-8")
     from chesslab import dataset as dataset_mod
     write_json(out / "stats.json", dataset_mod.compute_stats(rows))
 
-    fresh = freeze(want)
+    fresh = register(want)
     print(f"[OK] {out}")
-    print(f"[OK] eingefroren in {LEDGER}: {', '.join(fresh) if fresh else 'war schon drin'}")
+    print(f"[OK] als Benchmark vermerkt in {LEDGER}: "
+          f"{', '.join(fresh) if fresh else 'war schon drin'}")
     return 0
 
 

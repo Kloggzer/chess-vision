@@ -1118,3 +1118,54 @@ liest jetzt jede `split*.json`. Der Test dazu ist gegengeprueft: gegen die alte 
 `rg-2026-08-08-00-39-57` **33 Auswertungen** — danach trug die Aufnahme keine Entscheidung mehr.
 v1 ist fuer den Moment gedacht, in dem ein Auslieferungs-Kandidat feststeht, nicht fuer
 Methodik-Fragen.
+
+## test-v1 ist ein BENCHMARK, kein Einweg-Zeuge (2026-09-18)
+
+Korrektur meiner Auslegung: ich hatte die zwei Aufnahmen unter `frozen` eingetragen, was
+`chesslab eval` jede Messung verweigern laesst. Der Nutzer wollte das Gegenteil ("das ist kein
+burn") — wiederholt messbar, nur nie im Training. Sie stehen jetzt unter `benchmark` in
+`data/TEST-USED.json`; der Schutz ist `tests/test_holdout_sessions.py`, nicht die Eval-Sperre.
+Das loest die `frozen`-Entscheidung vom 2026-09-13 fuer `rg-2026-09-11-20-00-52` ab.
+
+### Sechs Modelle gegen test-v1 (26 124 sichtbare besetzte Zellen)
+
+| Modell | piece | falsche Zellen | board_acc |
+|---|---|---|---|
+| `_thin/CONTROL-rot-s43` | **0,998728** | 193 | 0,8095 |
+| `_thin/REPRO-archiv-s42` | **0,998728** | 193 | 0,8401 |
+| `_acc128v7/rot-s42` | 0,998399 | 243 | 0,8368 |
+| `_acc128v7/rot-s46` | 0,991709 | 1 257 | 0,7401 |
+| `p4a-80-clahe` (Champ) | 0,967320 | 4 957 | 0,4472 |
+| `_thin/rot-thin16-s42` | 0,967166 | 4 980 | 0,5177 |
+
+**1. Die Ausduennung bricht auf ungesehenem Material ein, und der Val zeigte es nicht.**
+`rot-thin16-s42` war auf dem Val die BESTE Ziehung aller neun Arme (0,9913) und liegt hier bei
+0,9672 — 4 980 falsche Zellen gegen 193. Ihre Spanne zwischen den zwei Aufnahmen betraegt
+**0,0460** (0,9476 gegen 0,9936), alle anderen bleiben unter 0,0058. Damit ist die
+Ausduennungsfrage beantwortet, ohne die acht bis zehn Seeds je Arm: der Val aus EINER Aufnahme
+hat den Schaden schlicht nicht gesehen.
+
+**2. Die drei Spitzenmodelle sind ununterscheidbar** (193/193/243 Fehler), obwohl sie aus drei
+verschiedenen Rezept-Diskussionen stammen. Die Flag-Jagd des Vormittags bewegt auf echtem
+Testmaterial nichts — was die Vermutung stuetzt, dass `CONTROL-rot-s42` schlicht ein Pechlauf war.
+
+**3. Der Champ liegt hinten, aber der Vergleich ist unfair:** 80 px auf `real13-mix-v4` gegen
+128 px auf v7, also halbe Aufloesung UND eine Datengeneration. Die Zahl taugt als Ausgangspunkt,
+nicht als Urteil.
+
+### Ein Loader, alle Modelle gleichzeitig (Idee des Nutzers)
+
+`scripts/bench_models.py` gruppiert Laeufe nach ihrer EINGABE (Groesse, CLAHE, Normalisierung,
+Kanalform, Klassenliste) und faehrt je Gruppe EINEN Durchgang, in dem jeder Batch durch alle
+Modelle der Gruppe geht. Bei 6,7 MMAC je Crop ist der Vorwaertspass der billigste Teil; die
+Platte und die Vorverarbeitung sind der Preis, und den zahlt man so einmal statt sechsmal.
+
+**Gemessen: 109 s statt 332 s** bei sechs Modellen in zwei Gruppen (5 x 128 px roh, 1 x 80 px
+CLAHE). **Bitgleich nachgewiesen** — alle sechs `visible_piece_acc` stimmen auf sechs
+Nachkommastellen mit den Einzellaeufen ueberein.
+
+Die Gruppierung ist die Sicherung, nicht die Bequemlichkeit: zwei Modelle duerfen sich einen
+Batch nur teilen, wenn sie ihn gleich vorverarbeitet haetten. `tests/test_bench_models.py` haelt
+das mit elf Tests, darunter einer, der per Quelltext-Probe prueft, dass JEDES Feld, das
+`eval_transform_for` aus der Config liest, auch in der Signatur steht — sonst faellt ein neues
+Feld still durch.
