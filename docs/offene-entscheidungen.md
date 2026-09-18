@@ -1202,3 +1202,42 @@ Korrekturskript hat sie nie gefragt. **Wer Labels schreibt, liest zuerst `correc
 `reviewed.jsonl` und bricht bei jedem Treffer ab**, statt zu ueberschreiben. Ein Modellkonsens
 ist kein Zeuge gegen einen Menschen, der dieselbe Zelle schon angesehen hat — vier Modelle
 derselben Familie irren gleich, und hier taten sie es nachweislich.
+
+## 80 px gegen 128 px, gleiches Rezept (2026-09-18)
+
+`real13-mix-v7-80` ist sauber gebaut (161 Session-Packs, keine eigene Memmap, identischer
+`split-pin.json` wie v7-128, 0 tote Zeilen). Drei Seeds, `rot`-Rezept, einzige Aenderung die
+Aufloesung.
+
+### Val (9 737 sichtbare besetzte Zellen)
+
+| Arm | s42 | s43 | s44 | Median | sd | falsche Zellen |
+|---|---|---|---|---|---|---|
+| 128 px | 0,9874 | 0,9978 | 0,9921 | **0,9921** | 0,0052 | **76** |
+| 80 px | 0,9737 | 0,9864 | 0,9701 | **0,9737** | 0,0085 | **256** |
+
+Gepaart verliert 80 px in allen drei Seeds (-0,0137 / -0,0115 / -0,0221).
+
+### test-v1 (45 593 sichtbare besetzte Zellen, nie trainiert)
+
+| Modell | px | piece | falsche Zellen |
+|---|---|---|---|
+| `CONTROL-rot-s43` | 128 | 0,9987 | **58** |
+| `REPRO-archiv-s42` | 128 | 0,9987 | **58** |
+| `rot80-s44` | 80 | 0,9905 | 434 |
+| `rot80-s43` | 80 | 0,9858 | 647 |
+| `p4a-80-clahe` (Champ) | 80 | 0,9673 | 1 490 |
+| `rot80-s42` | 80 | 0,9614 | 1 760 |
+
+**Die Aufloesung traegt den Abstand, nicht die Datengeneration.** Gleiches Rezept, gleiche Daten:
+58 -> 647 Fehler im Median, Faktor 11. Die aeltere v4-Basis des Champs kostet nochmal Faktor 2,3.
+
+**Der Champ war unfair beurteilt.** Seine 0,9673 liegen mitten im Band der neuen 80er
+(0,9614-0,9905); mit Seed 42 ist ein frisches v7-Modell sogar SCHLECHTER als er. Mein Satz von
+heute Vormittag ("liegt weit zurueck") verglich 80 gegen 128 px und war kein Qualitaetsurteil.
+
+**Der eigentliche Befund ist die Streuung.** Bei 128 px liegen zwei Laeufe punktgleich bei 58
+Fehlern, bei 80 px streuen drei Seeds zwischen 434 und 1 760 — **Faktor vier**. Auf dem Val war
+derselbe Kontrast viel milder (sd 0,0085 gegen 0,0052). Halbe Aufloesung kostet also nicht nur
+Niveau, sie macht den Lauf unzuverlaessig, und das sieht man erst auf ungesehenem Material.
+Das ist dasselbe Muster wie beim Ausduennen — der Val aus EINER Aufnahme verschweigt Instabilitaet.
