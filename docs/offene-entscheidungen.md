@@ -1004,3 +1004,32 @@ weil alle neun Arme dieselben Flags trugen.
 Kandidat (Faktor 15 in der Gewichtsspreizung), aber `loss: ce` lernt auf ALLEN Zellen und wird
 nur auf den sichtbaren benotet — das kann denselben Effekt machen. Das entscheidet eine Ablation
 mit vier Armen zu je drei Seeds, nicht das Nachdenken.
+
+### Alles nehmen, jetzt mit Streuung: es ist zuverlaessig besser (2026-09-18)
+
+Die Kontrolle hatte n=1, und ein Wert hat keine Streuung. Zwei Seeds nachgezogen, gleiches Rezept,
+`split-pin.json`, patience 60.
+
+| Arm | s42 | s43 | s44 | Median | sd | Boden |
+|---|---|---|---|---|---|---|
+| **Alles (volles v7)** | 0,9874 | 0,9978 | 0,9921 | **0,9921** | **0,0052** | **0,9874** |
+| Farthest-Point | 0,9913 | 0,9782 | 0,9770 | 0,9782 | 0,0079 | 0,9770 |
+| Zufall | 0,9873 | 0,9762 | 0,9862 | 0,9862 | 0,0061 | 0,9762 |
+| Kern (trim 25 %) | 0,9783 | 0,9678 | 0,9846 | 0,9783 | 0,0085 | 0,9678 |
+
+**Acht von neun gepaarten Vergleichen gehen an "alles nehmen"** (Vorzeichentest p = 0,0195
+einseitig), Median-Verlust ueber alle neun Paare **-0,0091**. Und der SCHLECHTESTE Lauf der
+Kontrolle (0,9874) schlaegt **acht der neun** ausgeduennten Laeufe.
+
+Damit ist die Vermutung des Nutzers bestaetigt und meine vorherige Formulierung zu optimistisch:
+die einzelnen Spitzen der ausgeduennten Arme (Farthest-Point s42: 0,9913) sind Ziehungen, kein
+Niveau. Der Boden faellt, und er faellt weiter als der Median.
+
+**Aber der Preis ist klein und der Rabatt gross:** die Arme tragen 8,5 % Aufnahme-Anteil und 16
+Crops je Standzeit. Dafuer knapp einen Punkt zu zahlen ist ein Angebot, das je nach Zweck gut
+aussieht — fuers Ausprobieren ja, fuer ein Auslieferungsmodell nein.
+
+**Die Streuung kippt NICHT mit.** Unter dem `p4a`-Rezept trugen die ausgeduennten Arme 0,0214 gegen
+0,0073 der Basislinie, also dreifach. Unter `rot` sind es 0,0061-0,0085 gegen 0,0052 — der
+Unterschied ist weg. Die verdreifachte Streuung war eine Eigenschaft des schwaecheren Rezepts, nicht
+des Ausduennens. Damit ist auch der einzige "belastbare" Befund der Nacht hinfaellig.
