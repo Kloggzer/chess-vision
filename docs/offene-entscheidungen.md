@@ -1033,3 +1033,43 @@ aussieht — fuers Ausprobieren ja, fuer ein Auslieferungsmodell nein.
 0,0073 der Basislinie, also dreifach. Unter `rot` sind es 0,0061-0,0085 gegen 0,0052 — der
 Unterschied ist weg. Die verdreifachte Streuung war eine Eigenschaft des schwaecheren Rezepts, nicht
 des Ausduennens. Damit ist auch der einzige "belastbare" Befund der Nacht hinfaellig.
+
+### Die Metrik ist ein ZAEHLWERK, und das aendert die ganze Deutung (2026-09-18)
+
+Der Nutzer legte eine Zeile vor: `"val_visible_piece_acc": 0.9998972989627195`. Das ist kein
+krummer Messwert, das ist **9736/9737** — genau EINE falsche Zelle. Der Val-Satz traegt 9 737
+sichtbare besetzte Zellen, eine Zelle ist 0,000103. Derselbe Wert steht woertlich in FUENF
+verschiedenen Laeufen, weil die Metrik gequantelt ist.
+
+In Fehlerzahlen statt Prozent (Mittel der letzten 20 Epochen, von 9 737):
+
+| Archiv (7 Seeds) | | Heute | |
+|---|---|---|---|
+| s42 | **12** | Kontrolle s42 | **123** |
+| s43 | 19 | Kontrolle s43 | **21** |
+| s44 | 54 | Kontrolle s44 | 76 |
+| s45 | 25 | Repro (Archiv-Flags) | **30** |
+| s46 | 61 | | |
+| s47 | 35 | | |
+| s48 | 48 | | |
+| **Mittel** | **36** | **Mittel Kontrolle** | **73** |
+
+**Kontrolle s43 (21) liegt mitten im Archivband (12-61), die Repro (30) ebenso.** Nur s42 faellt
+mit 123 heraus. Der "ganze Punkt Abstand", den ich gemeldet habe, ist der Unterschied zwischen
+36 und 73 falschen Zellen — auf einem Schwanz von Hunderteln, und das Archivband selbst spannt
+Faktor 5.
+
+**s42 hat nicht gezappelt, es ist schlechter KONVERGIERT.** Der Verlauf: Epoche 31-35 bei 3-66
+Fehlern, Epoche 41 springt auf 392, und die letzten zehn Epochen liegen flach bei 103-114. Mit
+auslaufender Cosine-Rate ist das kein Rauschen, das ist ein schlechteres Optimum, in dem der Lauf
+sitzen bleibt. Archiv s42 laeuft im selben Fenster auf 8-10 aus.
+
+**Was daraus folgt:** meine Kette von Behauptungen war dreimal zu stark. Erst "Code-Drift"
+(falsch, es waren Flags), dann "-4,6 sd" (auf dem schlechtesten von drei Seeds gerechnet), jetzt
+"ein Punkt Abstand" (zwei von drei Kontrollseeds liegen im Archivband). Belastbar ist nur:
+**ein Lauf von dreien konvergiert schlechter, und mit `--erase-p 0,25 --weight-cap 3` tat er es
+nicht.** Ein Seed ist kein Beweis — aber die Richtung passt zur Theorie, denn Regularisierung ist
+genau das, was solche Ausrutscher verhindert.
+
+**Naechster Schritt, falls die Frage es wert ist:** zwei Seeds der Repro nachziehen. Erst dann
+steht der Vergleich auf derselben Grundlage wie die Kontrolle.
