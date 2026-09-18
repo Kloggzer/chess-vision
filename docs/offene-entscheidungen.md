@@ -924,3 +924,51 @@ Bei einer Spanne von 0,042 innerhalb eines Arms und einem erwarteten Effekt um 0
 grob **acht bis zehn Seeds je Arm**, nicht drei. Das sind rund 24 Laeufe zu je 25 Minuten, also
 zehn Stunden. Ob die Frage das wert ist, ist eine Entscheidung des Nutzers — der praktische
 Nutzen waere ein Trainingssatz, der zehnmal kleiner ist.
+
+## Gegentest: das Rezept war der Hebel, nicht die Auswahl (2026-09-18)
+
+Die ganze Nacht lief gegen eine Basislinie aus dem ARCHIV (`p4a`, 7 Seeds, 0,9718 +- 0,0073).
+Der Gegentest auf dem vollen v7 mit dem besten Rezept (`--rot90 --hflip-p 0.5`) liefert unter
+HEUTIGEM Code **0,9874** — das Archiv meldet fuer dasselbe Rezept 0,9963 +- 0,0019, also
+**-4,6 sd**.
+
+**Vergleiche gegen Archivzahlen sind damit ungueltig**, die ganze Nacht gegen 0,9718 eingeschlossen.
+Der Code ist seitdem gedriftet, die `config.json` zeigt es Feld fuer Feld: `pretrained` False->True,
+`aug_erase_p` 0,25->0,0, `weight_cap` 3,0->None, `loss` ce->occlusion, `checkpoint_policy` v2->v3,
+`coverage_weight` None->hard, `metrics_schema` 2->3. Was gilt, ist die Kontrolle: **0,9874**, gleicher
+Code, gleicher Tag. Arme untereinander bleiben vergleichbar.
+
+### Dieselben drei Arme mit dem `rot`-Rezept
+
+| Arm | Seed 42 | Seed 43 | Seed 44 | Median | sd |
+|---|---|---|---|---|---|
+| Farthest-Point | 0,9913 | 0,9782 | 0,9770 | 0,9782 | 0,0079 |
+| Zufall | 0,9873 | 0,9762 | 0,9862 | **0,9862** | **0,0061** |
+| Kern (trim 25 %) | 0,9783 | 0,9678 | 0,9846 | 0,9783 | 0,0085 |
+
+Gepaart gegen den Zufall: Farthest-Point **+0,0040 / +0,0020 / -0,0092**, Kern **-0,0091 /
+-0,0084 / -0,0016**. Spanne zwischen den Arm-Medianen 0,0080, groesste Spanne innerhalb eines
+Arms 0,0168 — **wieder ist kein Arm von einem anderen unterscheidbar**, jetzt auf dem doppelt so
+engen Band.
+
+### Die zwei Befunde, die ueber dem Rauschen liegen
+
+**1. Das Rezept schlaegt die Datenmenge um Laengen.** Dieselben Daten, nur Rotation und Spiegelung
+dazu, heben die ausgeduennten Arme von 0,88-0,93 auf **0,968-0,991**. Der Abstand zwischen den
+Auswahlverfahren betraegt ein Zehntel davon.
+
+**2. Das Ausduennen kostet fast nichts — wenn das Rezept stimmt.** Die Arme tragen **8,5 %
+Aufnahme-Anteil** gegen 50 % der Kontrolle und **16 Crops je Standzeit** statt aller. Die Kontrolle
+steht bei 0,9874, die Arm-Mediane bei 0,9782-0,9862; der beste Einzellauf (Farthest-Point s42,
+0,9913) liegt UEBER der Kontrolle. Die Kontrolle ist aber **n=1** und traegt damit keine sd —
+sie sagt "in derselben Groessenordnung", nicht "gleich gut".
+
+Das ist die brauchbare Antwort auf die Ausgangsfrage: die 90,3 % Dubletten kosten offenbar kaum
+Signal. Wer den Trainingssatz zehnmal kleiner haben will, zahlt vor allem in STREUUNG, und die
+laesst sich mit dem besseren Rezept auf 0,006-0,0085 druecken — nahe an den 0,0073 der vollen
+Basislinie.
+
+**Offen bleibt**, welches Auswahlverfahren gewinnt. Die Antwort braucht acht bis zehn Seeds je Arm,
+und der Gegentest hat den erwarteten Effekt eher verkleinert als vergroessert. Meine Empfehlung:
+nicht weiter messen, sondern den Zufall nehmen — er ist der billigste Arm, hat hier die kleinste
+Streuung und niemand hat ihn je geschlagen.
