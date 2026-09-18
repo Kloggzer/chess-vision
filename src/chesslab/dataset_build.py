@@ -753,11 +753,17 @@ def delete_dataset(name: str, paths: config.Paths | None = None) -> dict:
 
 
 def _frozen_sessions(paths: config.Paths = config.DATA) -> list[str]:
-    """Aufnahmen, die genau einmal ausgewertet werden — `data/TEST-USED.json`, Schluessel `frozen`."""
+    """Aufnahmen, die kein Fold trainieren darf — `data/TEST-USED.json`.
+
+    BEIDE Listen: `frozen` misst genau einmal, `benchmark` beliebig oft — fuer den Fold ist das
+    dasselbe, er legt jede Aufnahme in k-1 Trainingssaetze und toetet sie als Massstab.
+    `test-v1` wanderte 2026-09-18 von der einen Liste in die andere und fiel dabei heraus.
+    """
     f = paths.root / "TEST-USED.json"
     if not f.is_file():
         return []
-    return list(json.loads(f.read_text(encoding="utf-8")).get("frozen") or [])
+    doc = json.loads(f.read_text(encoding="utf-8"))
+    return sorted({*(doc.get("frozen") or []), *(doc.get("benchmark") or [])})
 
 
 def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: float | None = None,
@@ -786,7 +792,7 @@ def make_folds(name: str, k: int = 4, *, seed: int | None = None, val_frac: floa
     frozen = set(_frozen_sessions(paths)) & {r["session_id"] for r in rows}
     if frozen and not include_frozen:
         rows = [r for r in rows if r["session_id"] not in frozen]
-        print(f"[i] {len(frozen)} eingefrorene Aufnahme(n) aus dem Fold-Schnitt genommen: "
+        print(f"[i] {len(frozen)} gesperrte Aufnahme(n) aus dem Fold-Schnitt genommen: "
               f"{', '.join(sorted(frozen))}")
     elif frozen:
         print(f"[WARN] --include-frozen: {', '.join(sorted(frozen))} landet im Training anderer "

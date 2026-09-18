@@ -56,7 +56,11 @@ _load_run = load_run
 
 
 def _frozen_hit(rows: list[dict]) -> set[str]:
-    """Eingefrorene Aufnahmen unter den Zeilen — `data/TEST-USED.json`, Schluessel `frozen`."""
+    """Eingefrorene Aufnahmen unter den Zeilen — `data/TEST-USED.json`, NUR `frozen`.
+
+    `benchmark` steht hier absichtlich nicht: so eine Aufnahme darf beliebig oft GEMESSEN werden,
+    sie darf nur nie trainieren. Das prueft `dataset_build._frozen_sessions`, das beide liest.
+    """
     import json
 
     from .. import config
