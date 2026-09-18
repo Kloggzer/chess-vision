@@ -9,6 +9,7 @@ import type { Correction } from "@/lib/corrections";
 import type { FrameHand } from "@/lib/frame-hands";
 import type { StreamSession } from "@/lib/label-stream";
 import { DIRTY_BRUSH, DIRTY_KEY, dirtyOnPage } from "@/lib/dirty-frames";
+import { pagesByClaim } from "@/lib/lane-pages";
 import { UNUSABLE_BRUSH, UNUSABLE_KEY, cellCoverage, handBeside, handsUnmeasured, type LaneCell } from "@/lib/lanes";
 import { turnPage } from "@/lib/page-turn";
 import { matteOverlay } from "@/lib/hand-overlay";
@@ -129,9 +130,11 @@ export function CellLane(props: CellLaneProps) {
       }),
     [cells, revived, showDone, skipped, verdictOf],
   );
-  const pages = Math.max(1, Math.ceil(open.length / PAGE));
+  // Eine Seite traegt EINE Klasse: der Schnitt faellt an der Klassengrenze, nicht alle 50 Karten.
+  const book = useMemo(() => pagesByClaim(open, PAGE), [open]);
+  const pages = Math.max(1, book.length);
   const safePage = Math.min(page, pages - 1);
-  const slice = useMemo(() => open.slice(safePage * PAGE, safePage * PAGE + PAGE), [open, safePage]);
+  const slice = useMemo(() => book[safePage] ?? [], [book, safePage]);
   /**
    * Die Behauptung dieser Seite. Wechselt sie, hält eine Sperre den Strom an: im Rhythmus klickt
    * man sonst die alte Antwort auf die neue Frage, und das schreibt Labels, die niemand meinte.
@@ -143,12 +146,12 @@ export function CellLane(props: CellLaneProps) {
   // Die nächste Seite wird vorgewärmt, während geurteilt wird: die Crops entstehen serverseitig,
   // und der Umblätter-Moment war die spürbare Wartezeit (User, 2026-08-15). 1-h-Cache trägt sie.
   useEffect(() => {
-    const next = open.slice((safePage + 1) * PAGE, (safePage + 2) * PAGE);
+    const next = book[safePage + 1] ?? [];
     for (const c of next) {
       const img = new window.Image();
       img.src = `/api/cell/${sessions[c.session].name}/${c.stem}/${c.square}?size=${CROP}`;
     }
-  }, [open, safePage, sessions]);
+  }, [book, safePage, sessions]);
 
   const rows = useCallback(
     (list: { cell: LaneCell; label: string }[]): Correction[] =>
