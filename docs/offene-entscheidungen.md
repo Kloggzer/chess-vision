@@ -972,3 +972,35 @@ Basislinie.
 und der Gegentest hat den erwarteten Effekt eher verkleinert als vergroessert. Meine Empfehlung:
 nicht weiter messen, sondern den Zufall nehmen — er ist der billigste Arm, hat hier die kleinste
 Streuung und niemand hat ihn je geschlagen.
+
+### KORREKTUR: es war keine Code-Drift, es war ein anderes Rezept (2026-09-18)
+
+Ich hatte den Abstand zum Archiv als Drift der Vorgabewerte erklaert. Das ist FALSCH. Die
+Feld-fuer-Feld-Probe ueber alle sieben Archiv-Seeds zeigt: sie tragen alle dieselben vier
+Einstellungen, und alle vier sind FLAGS, die ich schlicht nicht gesetzt habe.
+
+| Feld | Archiv (7 Seeds) | Meine Kontrolle |
+|---|---|---|
+| `weight_cap` | **3,0** | None |
+| `loss` | **ce** | occlusion |
+| `aug_erase_p` | **0,25** | 0,0 |
+| `pretrained` | **False** | True |
+
+Die Folge steht in den effektiven Klassengewichten: gedeckelt spreizen sie **3,0x**
+(`empty` 0,68 bis 2,04), ungedeckelt **45,8x** (`empty` 0,13 bis 6,03). Das ist eine andere
+Zielfunktion, kein anderer Datensatz.
+
+Auch die Metrik ist NICHT gewandert, obwohl `metrics_schema` von 2 auf 3 sprang: beide Laeufe
+schreiben dieselben 18 `val_*`-Felder, und `val_visible_occupied_acc` stimmt zwischen ihnen auf
+16 Stellen ueberein. Der Unterschied liegt auf der Figurenachse (0,9992 gegen 0,9886) und noch
+deutlicher auf `val_visible_board_acc` (**0,981 gegen 0,740**). Gemessen wird dasselbe.
+
+**Was damit gilt und was nicht:** die Zahl 0,9963 ist nicht verfallen, sie gehoert einem Rezept,
+das ich nie gefahren bin. Der Satz "Archivzahlen sind ungueltig" bleibt richtig, aber aus dem
+banaleren Grund — ich habe das falsche Rezept verglichen. Und die Nacht bleibt intern gueltig,
+weil alle neun Arme dieselben Flags trugen.
+
+**Offen:** welches der vier Flags den Punkt traegt. `--weight-cap 3` ist der plausibelste
+Kandidat (Faktor 15 in der Gewichtsspreizung), aber `loss: ce` lernt auf ALLEN Zellen und wird
+nur auf den sichtbaren benotet — das kann denselben Effekt machen. Das entscheidet eine Ablation
+mit vier Armen zu je drei Seeds, nicht das Nachdenken.
