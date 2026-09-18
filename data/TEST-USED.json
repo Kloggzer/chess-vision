@@ -27,11 +27,13 @@
     "comp-2026-08-09 20-48-50-04": 1,
     "comp-2026-08-09 20-48-50-05": 1
   },
-  "frozen": [
+  "frozen": [],
+  "frozen_at": "2026-09-13",
+  "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine eingefrorene Aufnahme beruehrt (ausser mit `--burn-frozen`), und `chesslab dataset folds` nimmt sie aus dem Schnitt (ausser mit `--include-frozen`). Beide Ausnahmen sagen laut, was sie kosten.",
+  "evals_scanned": 42,
+  "benchmark": [
     "rg-2026-09-11-20-00-52",
     "rg-2026-09-15-16-54-44"
   ],
-  "frozen_at": "2026-09-13",
-  "note": "Eine Aufnahme in `burned` hat schon Entscheidungen getragen und ist als Test wertlos. `frozen` wird genau EINMAL ausgewertet, nach Phase 3. Die Sperre ist mechanisch: `chesslab eval` verweigert jede Messung, die eine eingefrorene Aufnahme beruehrt (ausser mit `--burn-frozen`), und `chesslab dataset folds` nimmt sie aus dem Schnitt (ausser mit `--include-frozen`). Beide Ausnahmen sagen laut, was sie kosten.",
-  "evals_scanned": 42
+  "benchmark_note": "test-v1: wiederholt messbar (Nutzer, 2026-09-18 — 'das ist kein burn'). Der Schutz ist tests/test_holdout_sessions.py: nie in train oder val. Loest die frozen-Sperre von 2026-09-13 fuer rg-2026-09-11-20-00-52 ab."
 }
