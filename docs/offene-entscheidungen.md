@@ -1385,3 +1385,48 @@ steht jetzt als Test (`test_unmeasured_is_now_almost_empty`), damit sie nicht au
 
 `CROPS_SHA` in `test_session_pack.py` blieb unveraendert und `ROWS_SHA` wurde nachgezogen — der
 Beweis, dass nur die Zeile wuchs und kein Pixel wanderte.
+
+## Prior-Kurve gemessen: lambda 8 ist die erste phantomfreie Schwelle (2026-09-18)
+
+`prior_lambda` reitet seit 2026-09-17 im Modell, aber die Werte sind MIGRATIONSwerte (4,0 x T),
+keine gemessenen Optima — so steht es in CLAUDE.md. Jetzt gemessen, am ausgelieferten Champ
+`p4a-80-clahe` gegen `test-v1` (51 955 Zeilen, nie trainiert: das Modell ist aus der v4-Aera, die
+Aufnahmen sind vom September).
+
+| lambda | cell | board | **phantom** | miss | illegal |
+|---|---|---|---|---|---|
+| 0 | 0,9374 | 0,0395 | 17 | 29 | 3 219 |
+| 4 | 0,9777 | 0,4589 | 2 | 35 | 1 112 |
+| **5,98** (heute) | 0,9879 | 0,6234 | **1** | 38 | 575 |
+| **8** | 0,9933 | 0,7351 | **0** | 33 | 284 |
+| 10 | 0,9980 | 0,8918 | 0 | 32 | 43 |
+| 12 | 0,9985 | 0,9177 | 0 | 29 | 9 |
+
+**In diesem Bereich gibt es keinen Zielkonflikt.** Ueblicherweise kauft man Phantome mit Misses;
+hier sind es bei lambda 8 **33 Misses gegen 29** bei lambda 0, also unveraendert, waehrend die
+Phantome von 17 auf 0 fallen. Nach der Regel "Phantome sind das Veto, nimm die schaerfste
+phantomfreie Schwelle" ist **8** die Antwort, und der Champ steht mit 5,98 eine Stufe darunter.
+
+**Zwei Vorbehalte, bevor die Zahl ins Modell wandert:**
+
+1. **Die Skalen sind nicht nachgewiesen gleich.** Python legt den Prior auf die Softmax
+   (`p * exp(-lambda)`), Kotlin seit `priorOnTempered` auf die ROHEN Logits. Die FORM des Optimums
+   traegt, die absolute Zahl gehoert an `scripts/replay-regression.ps1` bestaetigt.
+2. **Ein starker Prior verdeckt Modellfehler.** Bei lambda 12 sinkt `illegal` auf 9 — die
+   Entscheidung faellt dann fast nur noch ueber die Legalitaet. Was das kostet, wenn die
+   Basis-FEN falsch ist, misst dieser Sweep nicht.
+
+### Die `cnnConfThr`-Kurve geht mit diesem Werkzeug NICHT
+
+Ueber alle Schwellen 0,0 bis 0,95 bleiben `cell`, `board`, `phantom`, `miss` und `illegal` Ziffer
+fuer Ziffer gleich; nur `invalid`/`dropped`/`rescued` bewegen sich. `cnnConfThr` ist ein
+ENGINE-Knopf — er entscheidet, ob ein Schnappschuss die Verify-Leiter erreicht, und das uebt nur
+der Kotlin-Replay aus. Die Kurve braucht `scripts/replay-regression.ps1 -Extra "set:cnnConfThr=…"`
+gegen die Referenz 396/3/0/171 bei 5 Alarmen.
+
+### Nebenbefund: der Sweep war seit den Session-Packs kaputt
+
+`sweep_prior_lambda.py` suchte ein `packed_meta.json` im DATENSATZ-Ordner. Seit 2026-09-11 zeigt
+jede Zeile mit `mm://` in einen eigenen Pack, und das Skript starb sofort. Es loest jetzt je Zeile
+ihren Shard auf — ein Werkzeug, das ein halbes Jahr Messungen tragen sollte und an einem
+Formatwechsel still verreckt ist.

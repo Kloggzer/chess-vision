@@ -123,21 +123,32 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
 
     from chesslab.serving import predict_arrays
 
-    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
-    shape = (int(meta["n"]), int(meta["h"]), int(meta["w"]), 3)
+    # Ein Datensatz aus Session-Packs hat keine eigene Memmap; seine Zeilen zeigen mit `mm://` in
+    # je einen Pack. Vorher starb der Sweep am fehlenden `packed_meta.json` des Datensatz-Ordners.
+    shards: dict[str, tuple[np.memmap, dict[str, int]]] = {}
+
+    def shard(path: str) -> tuple[np.memmap, int]:
+        name = path.removeprefix("mm://").split("/", 1)[0] if path.startswith("mm://") else ""
+        base = (pack.parent.parent / "packs" / name) if name else pack
+        if name not in shards:
+            meta = json.loads((base / "packed_meta.json").read_text(encoding="utf-8"))
+            mm = np.memmap(base / "packed_images.u8", dtype=np.uint8, mode="r",
+                           shape=(int(meta["n"]), int(meta["h"]), int(meta["w"]), 3))
+            shards[name] = (mm, {p: i for i, p in enumerate(meta["paths"])})
+        mm, index = shards[name]
+        at = index.get(path)
+        if at is None:
+            raise SystemExit(f"manifest row is not in its pack: {path}")
+        return mm, at
+
     # BGR on disk (`dataset_build` packs `cv2.imread` output) and BGR is what `predict_arrays`
     # documents as its input, so the memmap goes in untouched.
-    images = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=shape)
-    index = {p: i for i, p in enumerate(meta["paths"])}
-    missing = [r["path"] for r in rows if r["path"] not in index]
-    if missing:
-        raise SystemExit(f"{len(missing)} manifest rows are not in the pack, e.g. {missing[0]}")
-    order = [index[r["path"]] for r in rows]
+    order = [shard(str(r["path"])) for r in rows]
 
     out: list[list[float]] = []
     for start in range(0, len(order), batch_size):
         batch_order = order[start:start + batch_size]
-        crops = [np.asarray(images[i]) for i in batch_order]
+        crops = [np.asarray(mm[i]) for mm, i in batch_order]
         # Older ONNX exports have a static 64-row input. Padding the final partial batch is
         # numerically inert and lets the same sweep cover every manifest row instead of dying on
         # the last 1..63 crops after doing all expensive inference work.
