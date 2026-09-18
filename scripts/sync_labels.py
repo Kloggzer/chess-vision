@@ -67,6 +67,45 @@ def retag(path: Path, truth: dict[Cell, str], park: Path | None) -> collections.
     return changed
 
 
+def coverage_truth(session: str) -> dict[Cell, float]:
+    """Was `crops_for_frame` heute schreiben wuerde — dieselbe Regel, nur ohne die Pixel."""
+    from chesslab.labeling import clean_frames, read_matte
+
+    rec = RECORDINGS / session.removeprefix("rg-")
+    if not (rec / "log.jsonl").is_file():
+        return {}
+    matte = read_matte(rec)
+    clean = clean_frames(rec)
+    squares = [f"{f}{r}" for f in "abcdefgh" for r in range(1, 9)]
+    out: dict[Cell, float] = {}
+    # Wie `crops_for_frame`: ein gemattetes Feld ohne Eintrag ist 0.0, das war schon immer so.
+    for stem, cover in matte.items():
+        for square in squares:
+            out[(session, stem, square)] = float(cover.get(square, 0.0))
+    for stem in clean:
+        for square in squares:
+            out.setdefault((session, stem, square), 0.0)
+    return out
+
+
+def recover(path: Path, truth: dict[Cell, float],
+            park: Path | None) -> collections.Counter:
+    rows = read_jsonl(path)
+    changed: collections.Counter = collections.Counter()
+    for row in rows:
+        want = truth.get(key_of(row))
+        hatte = row.get("coverage")
+        if want is None or want == hatte:
+            continue
+        changed["None -> 0.0" if hatte is None and want == 0.0
+                else ("None -> Zahl" if hatte is None else "Zahl ueberschrieben")] += 1
+        row["coverage"] = want
+    if changed and park is not None:
+        shutil.copy2(path, park / f"cov--{path.parent.name}--{path.name}")
+        write_rows(path, rows)
+    return changed
+
+
 def pack_truth(pack: Path) -> dict[Cell, str]:
     manifest = pack / "manifest.jsonl"
     return {key_of(r): r["label"] for r in read_jsonl(manifest)} if manifest.is_file() else {}
@@ -76,6 +115,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--packs", action="store_true", help="Packs gegen das Ledger nachziehen.")
     ap.add_argument("--datasets", default="", help="Komma-Liste, gegen ihre Packs nachgezogen.")
+    ap.add_argument("--coverage", action="store_true",
+                    help="Auch die `coverage` nachziehen: gemessen aus `matte.jsonl`, 0.0 fuer "
+                         "einen vom Hand-Gate als sauber gemessenen Frame, sonst keine Zahl.")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -85,6 +127,19 @@ def main() -> int:
         park.mkdir(parents=True)
 
     total: collections.Counter = collections.Counter()
+    if args.coverage:
+        gesamt: collections.Counter = collections.Counter()
+        for pack in sorted(PACKS.iterdir()):
+            manifest = pack / "manifest.jsonl"
+            if not pack.is_dir() or not manifest.is_file() or not pack.name.startswith("rg-"):
+                continue
+            session = pack.name.rsplit("-", 1)[0]
+            hit = recover(manifest, coverage_truth(session), park)
+            if hit:
+                print(f"   {pack.name}: {sum(hit.values())}  {dict(hit)}")
+                gesamt.update(hit)
+        art = "geaendert" if args.apply else "WUERDEN sich aendern"
+        print(f"{sum(gesamt.values())} Coverage-Werte {art}: {dict(gesamt)}")
     if args.packs:
         truth = ledger()
         print(f"Ledger: {len(truth)} Zellen mit gueltigem Urteil")

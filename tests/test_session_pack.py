@@ -23,10 +23,11 @@ START_FEN = chess.Board().fen()
 #: Paritaets-Fixtures wich um 0,0 px ab (`docs/warp-resampling.md`). Davor, seit `feat/session-packs`:
 #: fccc9558548fc52072acbf33f56b065c9c1e4e98a77cd2a4abe480370f9a4418. `ts` faellt vorm Hashen weg.
 CROPS_SHA = "d3e9b05e7888b090bb56849579991384d2fe4e4fdd88af96c416e20497237b75"
-#: Nachgezogen 2026-09-14 aus ZWEI Gruenden, die sich hier ueberlagern: `pad_up` ist entfernt und
-#: steht nicht mehr in der Zeile, und `brightness` wird aus den jetzt kubisch geschnittenen Pixeln
-#: gerechnet. 2026-09-09 kam `brightness` dazu, ohne die Pixel zu bewegen.
-ROWS_SHA = "fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42"
+#: Nachgezogen 2026-09-18: ein Frame, den der Hand-Gate als sauber gemessen hat, traegt jetzt
+#: `coverage: 0.0` statt gar keine Spalte (`labeling.clean_frames`). Die PIXEL blieben — `CROPS_SHA`
+#: stimmt unveraendert, und das ist der Beweis, dass nur die Zeile wuchs. Davor, seit 2026-09-14:
+#: fa07f95118afdd94191cd6e5444832caeaf71d49282100a361a3b920fb755e42.
+ROWS_SHA = "e76970d4c0f810974909a2ac7178f048132496bf3b5408df737ef06c17140b53"
 
 
 def _identity_profile(board_size: int = 800) -> CalibrationProfile:

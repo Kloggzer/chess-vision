@@ -384,6 +384,23 @@ def read_unusable_cells(session_dir: Path) -> set[tuple[str, str, str]]:
     return out
 
 
+def clean_frames(session_dir: Path) -> set[str]:
+    """Die Stems, deren Coverage GEMESSEN null ist: kein `dirty_reason` im Log und keine
+    Matte-Zeile. Der Hand-Gate hat dort nichts gefunden, `boards/` ist sein sauberer Stapel —
+    das ist eine Aussage, waehrend SAMs Absage (Zeile ohne `coverage`) eine Luecke ist.
+    """
+    from .ioutil import read_jsonl
+
+    log = Path(session_dir) / "log.jsonl"
+    if not log.is_file():
+        return set()
+    hat_zeile = {str(row.get("frame"))
+                 for row in read_jsonl(Path(session_dir) / "matte.jsonl")}
+    return {Path(str(row.get("frame"))).stem for row in read_jsonl(log)
+            if not row.get("dirty_reason")
+            and Path(str(row.get("frame"))).stem not in hat_zeile}
+
+
 def read_matte(session_dir: Path) -> dict[str, dict[str, float]]:
     """`frame stem -> square -> coverage` from `matte.jsonl`, empty when the session has none.
 
@@ -450,6 +467,9 @@ def iter_session_crops(
     log = read_log(session_dir)
 
     matte = read_matte(session_dir)
+    # Gemessen NULL ist etwas anderes als ungemessen: ohne diese Menge hiess beides `None`, und
+    # `classification_eligible` las es ueber `or 0.0` als voll sichtbar — auch SAMs Absage.
+    clean = clean_frames(session_dir)
     label_overrides = read_corrections(session_dir)
     unlabelable = read_unusable_cells(session_dir)
     prof = effective_profile(profile, pad_side)
@@ -610,6 +630,8 @@ def iter_session_crops(
             # uebersprungenes Brett ist das verdeckteste des Korpus, nicht das freieste.
             if frame_stem in matte:
                 row["coverage"] = matte[frame_stem].get(square, 0.0)
+            elif frame_stem in clean:
+                row["coverage"] = 0.0
             n_crops += 1
             yield crops[i], row
 

@@ -1346,3 +1346,42 @@ sein `-52` weg und erfindet eine Aufnahme, die es nicht gibt.
 Labelfehler), 5 908 Komposit-Widersprueche strukturell auf 49 reduziert und ebenfalls verworfen.
 Der einzige echte Fund des Tages waren die 1 002 veralteten Labels — und die fand kein Modell,
 sondern der Abgleich Ledger -> Pack -> Datensatz.
+
+## `test-v1` brauchte kein Matten — es brauchte ein Wort (2026-09-18)
+
+Auftrag war "test-v1 fertig matten", weil der Benchmark 67,6 % ungemessene Coverage trug und v7
+0 %. **Gemessen: es fehlt keine einzige Matte.** Alle handbehafteten Frames sind geschnitten,
+841 von 841 und 790 von 790; der eine vermeintlich offene traegt `dirty_reason=changed`, und den
+mattet SAM per Bauart nicht (`ALPHA_REASON = "occluded"`).
+
+**Das Loch war ein Wortproblem.** `labeling.crops_for_frame` schrieb einem Frame ohne
+`matte.jsonl`-Zeile GAR KEINE `coverage` — und warf damit zwei Dinge zusammen:
+
+- **SAMs Absage** ("zone too big"): wirklich ungemessen, und laut CLAUDE.md das verdeckteste
+  Material des Korpus.
+- **Der Hand-Gate hat den Frame als sauber gemessen**: er liegt in `boards/`, dem sauberen Stapel,
+  ohne `dirty_reason`. Da ist nichts zu schneiden, und 0.0 ist eine AUSSAGE.
+
+`labeling.clean_frames` trennt sie jetzt (Entscheidung des Nutzers, 2026-09-18). Wirkung:
+
+| | vorher | nachher |
+|---|---|---|
+| `test-v1`, besetzte Zellen ohne Messung | 67,6 % | **0 %** |
+| alle `rg-`-Packs | — | **64 von 1 337 936** (0,005 %) |
+
+`scripts/sync_labels.py --coverage` zieht bestehende Packs nach, ohne Pixel anzufassen: 227 075
+Werte `None -> 0.0` und **17 525 ueberschriebene Zahlen**. Die zweite Zahl ist die dokumentierte
+Coverage-Drift, nicht ein Fehler — Stichprobe `2026-08-07-13-52-38` Frame 001770 g1: die
+`matte.jsonl` sagt heute 0.0, der Pack hielt 0.7217 vom Stand vor dem Re-Export. 328 Zellen
+kreuzen dabei `PIECE_VISIBLE_MAX`.
+
+### Was ich NICHT geaendert habe, und warum
+
+`classification_eligible` liest `None` weiter ueber `or 0.0` als sichtbar. Der Fix war geschrieben
+und ist zurueckgenommen: `test_null_reads_the_same_everywhere` haelt seit 2026-09-17 bewusst fest,
+dass `coverage_of` und `classification_eligible` `None` GLEICH lesen, und das Umstellen haette
+beide betroffen. Fuer **64 Zellen von 1 337 936** ist das den Bruch nicht wert. Die Entscheidung
+steht jetzt als Test (`test_unmeasured_is_now_almost_empty`), damit sie nicht aus Versehen kippt.
+
+`CROPS_SHA` in `test_session_pack.py` blieb unveraendert und `ROWS_SHA` wurde nachgezogen — der
+Beweis, dass nur die Zeile wuchs und kein Pixel wanderte.

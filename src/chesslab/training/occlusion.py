@@ -23,8 +23,10 @@ CELL_DARK_MIN = 25.0
 
 def classification_eligible(row: dict, visible_max: float = PIECE_VISIBLE_MAX,
                             dark_min: float = CELL_DARK_MIN) -> bool:
-    # `None` ist UNGEMESSEN, nicht dunkel — dieselbe Regel wie `capture_plan.band_of`. Der
-    # alte `or 0.0` warf jede Zeile mit ausgeschriebenem `null` aus jeder Klassenmetrik.
+    # `None` ist UNGEMESSEN, nicht dunkel — dieselbe Regel wie `capture_plan.band_of`.
+    # Dass `or 0.0` auch SAMs Absage als sichtbar liest, ist seit `labeling.clean_frames`
+    # (2026-09-18) fast leer: 64 von 1 337 936 Zellen bleiben `None`, keine davon in v7 oder
+    # test-v1. Umstellen hiesse `coverage_of` mitziehen — `test_clean_frame_coverage.py`.
     bright = row.get("brightness")
     return (float(row.get("coverage") or 0.0) <= visible_max
             and (255.0 if bright is None else float(bright)) >= dark_min)
