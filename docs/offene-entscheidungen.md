@@ -1073,3 +1073,48 @@ genau das, was solche Ausrutscher verhindert.
 
 **Naechster Schritt, falls die Frage es wert ist:** zwei Seeds der Repro nachziehen. Erst dann
 steht der Vergleich auf derselben Grundlage wie die Kontrolle.
+
+## Versionierte Testsaetze: `test-v1` steht, und der Korpus ist fast verbraucht (2026-09-18)
+
+Wunsch des Nutzers: ein groesserer Satz, gegen den kuenftige Modelle geprueft werden, benannt
+`test-v1`, `test-v2`, ... Gebaut als `data/datasets/real13-test-v1-128`,
+`scripts/build_test_set.py`.
+
+**Die ernuechternde Zahl zuerst:** von 24 Aufnahmen mit einem Pack standen **22 schon in einem
+Train-Split**. Als Testmaterial taugen exakt zwei. Ein groesserer Satz ist aus dem vorhandenen
+Korpus nicht zu bauen — er entsteht nur vorwaerts, indem jede NEUE Aufnahme zuerst in einen
+Testsatz geht und erst danach ins Training.
+
+| Aufnahme | Zeilen | sichtbar besetzt |
+|---|---|---|
+| `rg-2026-09-11-20-00-52` | 112 994 | 13 927 |
+| `rg-2026-09-15-16-54-44` | 100 099 | 12 197 |
+| **test-v1** | **213 093** | **26 124** (2,7x der jetzige Val) |
+
+Beide tragen alle 13 Klassen; duennste sind `wQ` mit 265 bzw. 321 sichtbaren Zellen.
+
+**Labels geprueft, bevor gebaut wurde.** 2 772 bzw. 2 709 Korrekturen des Nutzers stehen alle im
+Pack. Acht Zellen fehlten — alle acht sind in `unusable-cells.jsonl` als unbrauchbar markiert und
+damit zu Recht draussen. Vier scheinbare Abweichungen waren aeltere Korrekturen, die eine spaetere
+auf derselben Zelle ueberholt hat.
+
+### Drei Sperren, damit v1 nicht wie der Rest verbrennt
+
+1. **Der Satz hat weder Train noch Val** — `splits.train` und `splits.val` sind leer. Er kann nicht
+   versehentlich trainiert werden.
+2. **Beide Aufnahmen stehen in `data/TEST-USED.json` unter `frozen`.** `chesslab eval` verweigert
+   jede Messung ohne `--burn-frozen`, und das Flag sagt laut, was es kostet.
+3. **`build_test_set.py` prueft die Herkunft selbst** statt einer gepflegten Liste zu glauben: es
+   liest `splits.train` aus JEDER `split*.json` aller Datensaetze und lehnt eine trainierte
+   Aufnahme auch dann ab, wenn sie ausdruecklich mit `--sessions` genannt wird.
+
+### Ein Loch in der Wache, gefunden und geschlossen
+
+`tests/test_holdout_sessions.py` las nur `split.json` — ein Fold-Split `split-f0.json` haette den
+Zeugen still ins Training ziehen koennen, ohne dass die Wache anschlaegt. `holdout_in_training`
+liest jetzt jede `split*.json`. Der Test dazu ist gegengeprueft: gegen die alte Fassung faellt er.
+
+**Was `test-v1` NICHT ist:** ein Satz, den man bei jedem Lauf misst. Das Hauptbuch zaehlt fuer
+`rg-2026-08-08-00-39-57` **33 Auswertungen** — danach trug die Aufnahme keine Entscheidung mehr.
+v1 ist fuer den Moment gedacht, in dem ein Auslieferungs-Kandidat feststeht, nicht fuer
+Methodik-Fragen.
