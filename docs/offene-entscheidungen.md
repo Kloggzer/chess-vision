@@ -1319,3 +1319,30 @@ Die Gruppe ist: CONTROL Median 0,9935 (sd 0,0030), SYNC Median 0,9874 (sd 0,0041
 `_sync/rot-s44` stand bei 49 von 60 Epochen auf -0,0004 und landete bei **+0,0044** — die letzten
 elf Epochen drehten das Vorzeichen. Ein Mittel der letzten 20 aus einem laufenden Lauf mittelt ein
 anderes Fenster und ist keine kleine Version des Endergebnisses.
+
+## Ein Komposit ist EINE Stellung — und das erledigt 5 908 Widersprueche (2026-09-18)
+
+Nutzer: "bei komposit haben wir immer nur eine stellung und drehen das auf einen turntable und
+2.5d komposition wir die haende rein". Die Figuren bewegen sich also nie; gedreht wird die Kamera,
+und die Haende sind hineinkomponiert.
+
+**Nachgemessen, beides haelt:**
+
+- **0 von 8 832 (Komposit, Feld)-Paaren** wechseln ihr Label ueber die Frames.
+- **Alle 63 Quellen** tragen EINE Stellung ueber alle ihre Schnitte — `p-VID_…-01` bis `-05`
+  zeigen dasselbe Brett.
+
+Damit sind die 5 908 Komposit-Widersprueche der Fold-Durchsicht keine 5 908 Entscheidungen,
+sondern **49** (Quelle, Feld, Richtung) — und der Nutzer hat sie an der Montage als saemtlich
+richtig beurteilt. Ein Modell, das dasselbe Feld ueber hundert Frames falsch liest, liefert EINEN
+Widerspruch.
+
+`tests/test_composite_position.py` haelt die Invariante: waechst ein Label innerhalb eines
+Komposits oder zwischen den Schnitten einer Quelle, ist der Export kaputt. Der dritte Test fand
+dabei eine Falle im eigenen Helfer — `re.sub(r"-\d+$", …)` frisst einem `rg-2026-09-11-20-00-52`
+sein `-52` weg und erfindet eine Aufnahme, die es nicht gibt.
+
+**Bilanz der ganzen Korpus-Pruefung:** 739 Aufnahme-Widersprueche vom Nutzer durchgesehen (0
+Labelfehler), 5 908 Komposit-Widersprueche strukturell auf 49 reduziert und ebenfalls verworfen.
+Der einzige echte Fund des Tages waren die 1 002 veralteten Labels — und die fand kein Modell,
+sondern der Abgleich Ledger -> Pack -> Datensatz.
