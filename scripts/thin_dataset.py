@@ -67,6 +67,10 @@ def main() -> int:
     ap.add_argument("--like", required=True, help="Spender-Datensatz.")
     ap.add_argument("--name", required=True, help="Name des Zwillings.")
     ap.add_argument("--keep", type=int, default=16, help="Crops je Standzeit im TRAIN.")
+    ap.add_argument("--trim", type=float, default=0.0,
+                    help="Anteil der vom Median entferntesten Crops, der VOR dem Spreizen "
+                         "wegfaellt. Dort sitzen Haende und Wackler: reines Farthest-Point waehlt "
+                         "sie als 'Vielfalt' und verlor gegen den Zufall (2026-09-17).")
     ap.add_argument("--random", type=int, default=None,
                     help="Statt Farthest-Point zufaellig waehlen, mit diesem Seed. Der GEGENARM: "
                          "gleiche Groesse, gleiche Mischung, nur die Auswahl ist anders — erst so "
@@ -112,7 +116,16 @@ def main() -> int:
             chosen = sorted(rng.choice(len(group), size=args.keep, replace=False).tolist())
         else:
             dist = np.abs(flat[:, None, :] - flat[None, :, :]).mean(axis=2)
-            chosen = farthest_point(dist, args.keep)
+            if args.trim > 0:
+                to_median = dist.mean(axis=1)
+                core = np.flatnonzero(to_median <= np.quantile(to_median, 1.0 - args.trim))
+                if len(core) >= args.keep:
+                    sub = dist[np.ix_(core, core)]
+                    chosen = [int(core[i]) for i in farthest_point(sub, args.keep)]
+                else:
+                    chosen = farthest_point(dist, args.keep)
+            else:
+                chosen = farthest_point(dist, args.keep)
         picked.extend(group[pick] for pick in chosen)
         if done % 200 == 0:
             print(f"   {done}/{len(runs)} Standzeiten", flush=True)
@@ -144,7 +157,8 @@ def main() -> int:
     cfg["name"] = args.name
     cfg["thinned_from"] = args.like
     cfg["thinned_keep"] = args.keep
-    cfg["thinned_how"] = "random" if args.random is not None else "farthest-point"
+    cfg["thinned_how"] = ("random" if args.random is not None
+                          else f"farthest-point, trim {args.trim:.0%}")
     cfg["counts"] = {"raw": len(rows), "after_dedup": len(final), "final": len(final)}
     (out / "dataset.yaml").write_text(yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
                                       encoding="utf-8")

@@ -42,6 +42,10 @@ def main() -> int:
     ap.add_argument("--split", default="test")
     ap.add_argument("--runs", required=True, help="Komma-Liste von Lauf-Verzeichnissen.")
     ap.add_argument("--split-file", default=None)
+    ap.add_argument("--dump-preds", default=None,
+                    help="Zellweise Lesarten aller Modelle nach <pfad>.jsonl. Nur so laesst sich "
+                         "fragen, ob zwei Modelle DIESELBEN Zellen verfehlen — gleiche "
+                         "Fehlerzahl heisst das naemlich nicht.")
     args = ap.parse_args()
 
     import torch
@@ -71,6 +75,7 @@ def main() -> int:
     print(f"{len(loaded)} Modelle in {len(groups)} Eingabe-Gruppen")
 
     results: dict[str, dict] = {}
+    dumped: list[dict] = []
     for sig, runs in groups.items():
         cfg = loaded[runs[0]][1]
         packed = resolve_dataset_packs(args.dataset, manifest_rows=rows_all)
@@ -97,6 +102,14 @@ def main() -> int:
                 if i and i % 200 == 0:
                     print(f"   {i * loader.batch_size} Bretter", flush=True)
         vis = [i for i, r in enumerate(rows) if classification_eligible(r)]
+        if args.dump_preds:
+            names = cfg["classes"]
+            dumped.extend(
+                {"session_id": rows[i].get("session_id"), "frame": rows[i].get("frame"),
+                 "square": rows[i].get("square"), "label": names[trues[i]],
+                 "coverage": rows[i].get("coverage"),
+                 "reads": {run.split("/")[-1]: names[preds[run][i]] for run in runs}}
+                for i in vis)
         for run in runs:
             p = preds[run]
             bd = occupancy_piece_breakdown(cfg["classes"], [trues[i] for i in vis],
@@ -108,13 +121,29 @@ def main() -> int:
                     [rows[i] for i in vis], cfg["classes"],
                     [trues[i] for i in vis], [p[i] for i in vis]),
                 "visible_n": len(vis),
+                # `piece_acc` zaehlt nur BESETZTE Zellen. Mit `visible_n` (das die leeren
+                # mitnimmt) meldete die Spalte 193 statt 73 Fehler — Faktor 2,6 zu hoch.
+                "visible_occupied_n": sum(1 for i in vis
+                                          if cfg["classes"][trues[i]] != "empty"),
             }
 
     print(f"\n{'Lauf':46s}{'piece':>9}{'occ':>9}{'board':>9}{'Fehler':>9}")
     for run, m in sorted(results.items(), key=lambda kv: -kv[1]["visible_piece_acc"]):
-        wrong = (1 - m["visible_piece_acc"]) * m["visible_n"]
+        wrong = (1 - m["visible_piece_acc"]) * m["visible_occupied_n"]
         print(f"{run[-46:]:46s}{m['visible_piece_acc']:>9.4f}{m['visible_occupied_acc']:>9.4f}"
               f"{m['visible_occupied_board_acc']:>11.4f}{wrong:>9.0f}")
+    if args.dump_preds:
+        from chesslab.ioutil import write_rows
+        # Zwei Gruppen liefern dieselbe Zelle zweimal — je Zelle EINE Zeile, Lesarten vereinigt.
+        merged: dict[tuple, dict] = {}
+        for row in dumped:
+            key = (row["session_id"], row["frame"], row["square"])
+            if key in merged:
+                merged[key]["reads"].update(row["reads"])
+            else:
+                merged[key] = row
+        write_rows(Path(args.dump_preds), list(merged.values()))
+        print(f"[OK] {len(merged)} Zellen nach {args.dump_preds}")
     out = dd / METRIC_FILE.format(dataset=args.dataset)
     write_json(out, results)
     print(f"\n[OK] {out}")

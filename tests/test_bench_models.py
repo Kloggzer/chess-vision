@@ -52,3 +52,11 @@ def test_signature_covers_every_field_the_transform_reads():
     covered = set(re.findall(r'cfg(?:\.get\(|\[)"([a-z_]+)"', inspect.getsource(bm.signature)))
     missing = read - covered
     assert missing == set(), f"{missing} liest die Transformation, die Signatur nicht"
+
+
+def test_error_count_divides_by_the_occupied_cells():
+    """`piece_acc` ist auf BESETZTEN Zellen gerechnet. Wer mit `visible_n` multipliziert, zaehlt
+    die leeren mit und meldete 193 Fehler statt 73."""
+    src = inspect.getsource(bm.main)
+    line = next(ln for ln in src.splitlines() if "wrong =" in ln)
+    assert "visible_occupied_n" in line and "m[\"visible_n\"]" not in line
