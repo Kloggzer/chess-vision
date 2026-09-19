@@ -53,3 +53,37 @@ am Geraet: `sensor gap` und `fps=` im Perf-Log muessen danach bei 15 liegen.
 Der Code-Kommentar vermerkt, dass seine Rueckkamera "no locked range below 15" advertised; welche
 sie bei 1440p wirklich anbietet, steht erst im naechsten `AE target fps range pinned to ...`. Bietet
 sie keine, hilft nur 1080p — dort wurden 14-15 fps gemessen.
+
+## Nachgemessen am Geraet — und die Zuschreibung stimmt NICHT
+
+Nach dem Einspielen, gleiche Aufloesung (2560x1440), gleiche Einstellung (`FPS15`):
+
+| | vorher | nachher |
+|---|---|---|
+| `sensor gap` | 133,3 ms | **66,7 ms** |
+| `fps` | 7,5 | **15,3-15,6** |
+| `idle` | 109-116 ms | **41-46 ms** |
+| `luma` | 127-148 | 134-135 |
+
+    chesslabCamera: AE target fps range pinned to [15, 15]
+      (of [15, 15], [19, 19], [14, 21], [21, 21], [24, 24], [14, 25], [25, 25],
+          [14, 26], [26, 26], [14, 30], [25, 30], [30, 30])
+
+**Die Bildrate hat sich verdoppelt, aber NICHT wegen dieser Aenderung.** Das Geraet bietet
+`[15, 15]` an, und die ALTE Auswahl (`filter { upper == 15 }.maxByOrNull { lower }`) haette genau
+diese Spanne ebenfalls gefunden — sie ist die einzige mit `upper == 15`. Beide Fassungen sind auf
+diesem Geraet bei dieser Aufloesung verhaltensgleich.
+
+Der Gewinn kam also vom NEUEN BUILD, nicht vom neuen Code. Welcher Commit es war, ist nicht mehr
+feststellbar: die alte APK ist ueberschrieben, und seit dem 2026-09-14 hat nur dieser Commit
+`TrackerCamera.kt` angefasst — die eingespielte Fassung muss also aelter gewesen sein als der Baum.
+
+**Beide Aenderungen bleiben richtig, aber ungetestet im Feld:**
+- `chooseAeRange` beisst erst, wenn KEINE Spanne `upper == targetFps` erfuellt, aber eine mit
+  `lower >= targetFps` existiert. Auf diesem Geraet bei 1440p ist das nicht der Fall.
+- `effectiveFrameRate`/`retuneDue` haben nicht gefeuert und konnten nicht: 15,5 gegen 15,0 liegt
+  innerhalb der 15-%-Toleranz. Sie greifen nur, wenn der Sensor die Rate wirklich verfehlt.
+
+**Der EV-Vorbehalt hat sich nicht bestaetigt:** `luma` liegt mit 134-135 mitten im vorherigen Band
+(127-148). Die gedeckelte Belichtungszeit hat das Bild nicht dunkler gemacht, AE hat es ueber das
+ISO aufgefangen. `noise` steht bei 0,20-0,72 — was das kostet, ist nicht gemessen.
