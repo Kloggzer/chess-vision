@@ -34,7 +34,7 @@ export const STEP: Record<ChainStep, { label: string; what: string; hint: string
   matte: {
     label: "Hände matten",
     what: "SAM schneidet die Hand aus den verdeckten Bildern, damit die Zellen darunter nicht als Figur gelernt werden.",
-    hint: "schreibt mattes/ + matte.jsonl (~12 s pro Frame, der erste kostet Minuten)",
+    hint: "schreibt mattes/ + matte.jsonl (~2 s pro Frame, der erste kostet Minuten)",
   },
   temporal: {
     label: "Hände nachmatten",
