@@ -17,3 +17,23 @@ class ReplayTraceOptionsTest {
         assertThrows(IllegalArgumentException::class.java) { ReplayOptions.parse(listOf("trace=")) }
     }
 }
+
+/**
+ * `probe=<feld>` schreibt die drei Beweiskanaele EINES Feldes je Frame. Eines, nicht alle:
+ * 64 Felder mal 725 Frames waeren 139 200 Zahlen fuer eine Frage, die ein Feld beantwortet.
+ */
+class ProbeSquareOptionTest {
+    @Test
+    fun aProbedSquareIsParsedAndNormalised() {
+        assertEquals("c8", ReplayOptions.parse(listOf("probe=C8")).probeSquare)
+        assertNull(ReplayOptions.parse(emptyList()).probeSquare)
+    }
+
+    @Test
+    fun nonsenseIsRefusedRatherThanSilentlyIgnored() {
+        // Ein Tippfehler darf nicht als "keine Sonde" durchgehen: der Lauf ist teuer, und eine
+        // leere Spalte sieht aus wie ein Messergebnis.
+        assertThrows(IllegalArgumentException::class.java) { ReplayOptions.parse(listOf("probe=z9")) }
+        assertThrows(IllegalArgumentException::class.java) { ReplayOptions.parse(listOf("probe=")) }
+    }
+}

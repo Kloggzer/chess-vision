@@ -16,6 +16,7 @@ internal class ReplayTrace(
 ) : AutoCloseable {
     private val writer = file.apply { parentFile?.mkdirs() }.bufferedWriter()
     private val previous = mutableMapOf<String, Long>()
+    private val probeSq = options.probeSquare
 
     init {
         writer.appendLine(
@@ -82,6 +83,16 @@ internal class ReplayTrace(
                 put("stuck", status.stuckReason)
                 put("note", status.note)
                 put("fen", status.fen)
+                // Die zwei Kanaele GETRENNT, nicht nur das fusionierte `z = max(zGray, w*zCensus)`:
+                // sonst sieht man nur, DASS ein Feld stumm blieb, nie welcher Kanal einbrach.
+                probeSq?.let {
+                    put("probeSquare", it)
+                    put("probeZ", status.z[it])
+                    put("probeDiff", status.diffs[it])
+                    put("probeCensus", status.census[it])
+                    put("probeChanged", it in status.changed)
+                    put("probeOcclVetoed", it in status.occlusionVetoed)
+                }
                 putJsonObject("workMs") {
                     for (operation in probe.snapshot().operations) {
                         val key = operation.operation.id

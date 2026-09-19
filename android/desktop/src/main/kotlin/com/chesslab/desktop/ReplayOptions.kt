@@ -28,6 +28,9 @@ data class ReplayOptions(
     val cnn: Boolean = true,
     /** Which bundled graph, when [cnn] is on. */
     val model: String = DEFAULT_MODEL,
+    // EIN Feld, dessen drei Beweiskanaele (`z`, `diffs`, `census`) je Frame in die Trace gehen.
+    // Alle 64 waeren 139 200 Zahlen fuer eine Frage, die ein Feld beantwortet.
+    val probeSquare: String? = null,
     /** Experimental legal-placement prior weight; zero is off. */
     val priorLambda: Double = 0.0,
     /** New raw/invalid safety, or false to reproduce the historical conditioned-everywhere path. */
@@ -149,6 +152,15 @@ data class ReplayOptions(
                     )
                 word.startsWith("limit=") -> options.copy(limitFrames = word.removePrefix("limit=").toInt().also { require(it > 0) })
                 word.startsWith("trace=") -> options.copy(trace = word.removePrefix("trace=").also { require(it.isNotBlank()) })
+                word.startsWith("probe=") ->
+                    options.copy(
+                        probeSquare =
+                            word.removePrefix("probe=").lowercase().also {
+                                require(it.length == 2 && it[0] in 'a'..'h' && it[1] in '1'..'8') {
+                                    "probe=$it is not a square"
+                                }
+                            },
+                    )
                 word.startsWith("model=") -> options.copy(model = word.removePrefix("model="))
                 word.startsWith("prior=") ->
                     options.copy(

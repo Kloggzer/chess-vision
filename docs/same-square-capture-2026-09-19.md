@@ -146,3 +146,53 @@ gemessen ist es dieselbe Zeit — ein Modellwechsel waere hier Kosmetik.
 **Die Konstante, die bleibt:** die letzten zwei Zuege kosten in JEDEM Modell ~15 s. Ob das die
 Engine ist oder die Hand ueber dem Brett, trennen diese Daten nicht — die Referenzzeiten stammen
 aus der Erkennung selbst. Das braucht eine von Hand gesetzte Wahrheit, wann der Zug wirklich fiel.
+
+## Die Ursache: das Rauschmodell lernt die Aenderung weg (2026-09-19)
+
+`probe=<feld>` schreibt die drei Beweiskanaele EINES Feldes je Frame in die Replay-Trace
+(`ReplayOptions.probeSquare`, `ReplayTrace`). Fuer c8 ueber den Stillstand:
+
+| Frame | `diff` (grau, roh) | `census` (roh) | **`z` (fusioniert)** | changed | Veto |
+|---|---|---|---|---|---|
+| 204 | 76,91 | 97,61 | **0,00** | nein | nein |
+| 264 | 76,80 | 97,91 | **0,00** | nein | nein |
+| 360 | 76,96 | 99,96 | **0,00** | nein | ja |
+| 432 | 70,08 | 91,30 | **23,30** | **ja** | nein |
+
+**Beide Kanaele sehen die Aenderung die ganze Zeit — 77 und 99 — und das fusionierte `z` ist
+null.** Der Nutzer hatte also recht: die Helligkeit aendert sich enorm. Sie kommt nur nicht an.
+Und die Verdeckung ist es nicht: bei Frame 204-264 steht kein Veto und `z` trotzdem auf 0,00.
+
+### Die Rueckkopplung
+
+`SquareNoise` fuehrt je Feld einen EMA und misst daran:
+
+    mean[i] = (1-a) * mean[i] + a * diff          // a = 0,05, JEDEN Frame
+    std[i]  = max(3,0, (1-a) * std[i] + a * |d-m|)
+    z[i]    = (diff - mean[i]) / std[i]
+
+Eine Figur, die auf einem Feld STEHEN BLEIBT, liefert denselben `diff` Frame fuer Frame — der EMA
+holt ihn ein. Nachgerechnet fuer einen Sprung auf 77 bei den ausgelieferten Vorgaben:
+
+| Frame | 0 | 3 | **5** | 15 | 30 |
+|---|---|---|---|---|---|
+| `z` | **12,83** | 4,24 | **2,93** | 1,15 | 0,60 |
+
+**Nach fuenf Frames liegt `z` unter `zThr = 3,0` — bei 15 fps ein Drittel einer Sekunde.** So
+lange hat die Engine Zeit, eine bleibende Aenderung zu bemerken, bevor ihr eigenes Rauschmodell
+sie unter die Schwelle gelernt hat.
+
+Der Schutz dagegen EXISTIERT: `update(exclude = …)` faehrt fuer den Grau-Kanal Alpha 0, "Gray
+exclusions learn nothing". Er greift nur fuer Felder, die bereits als geaendert gelten — und das
+wurde c8 nie, weil sein `z` schon unter der Schwelle lag. **Der Kreis ist der Defekt**, nicht das
+Lernen selbst.
+
+`PersistentChangeLearnedAwayTest` haelt beides fest: den Verfall unter `zThr` in fuenf Frames und
+den Gegenbeweis, dass ein ausgeschlossenes Feld sichtbar bleibt.
+
+### Was das ueber die Modelle sagt
+
+Kein gebundeltes Modell aendert daran etwas — sie sitzen hinter dieser Stufe. Dass die 128er den
+Zug bei Frame 203 statt 431 committen, verschiebt nur, WELCHE der beiden Halbzuege wartet; die
+Gesamtzeit bleibt 44,1 s. **Das hier ist die Stelle, an der ein Fix ansetzen muesste**, nicht am
+Klassifikator.
