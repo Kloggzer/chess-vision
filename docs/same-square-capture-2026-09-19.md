@@ -98,3 +98,51 @@ Zwei Gruende, beide hart:
 `SimClips` ist auf echte Clips vorbereitet — `simClipDir` liest `-Pchesslab.sim.clips`, und der
 `margin`-Schluessel existiert ausdruecklich fuer sie ("a real clip's entry carries the profile's
 value, which is what makes its warp right"). **Was fehlt, ist der Paritaets-Eintrag.**
+
+## KORREKTUR und Replay-Befunde (2026-09-19, spaeter)
+
+### Meine Erklaerung war zur Haelfte falsch
+
+Ich hatte geschrieben, `c8` sei unsichtbar, weil Turm und Turm dieselbe Silhouette haben. Die
+Engine misst auf c8 aber sehr wohl: **13,4** bei Ply 2 (Qxc8), **23,3** bei Ply 4, **18,8** bei
+Ply 6. Nur waehrend des Stillstands zeigt c8 GAR NICHTS, waehrend c2 auf 29,1 bis 18,6 steht —
+und vetoiert war c8 bei den acht Wiederholungen nicht (nachgezaehlt: 12 Entscheidungen auf Ply 3,
+c8 im `occlVeto` nur bei dreien, keine davon eine der acht).
+
+Der Mechanismus steht in `Evidence.kt`: `z = max(zGray, censusZWeight * zCensus)`.
+
+- `zGray` ist der Absdiff gegen die Referenz, **medianormiert** ("so a global exposure jump dies").
+- `zCensus` ist Struktur und **ausdruecklich beleuchtungsinvariant** ("which is why it sees the
+  dark-on-dark moves the gray mean dilutes away").
+
+Turm gegen Turm trifft beide an ihrer schwachen Stelle: die Helligkeitsaenderung wird ueber die
+64 Felder weggemittelt, und der Kanal, der sonst einspringt, ist per Bauart farbenblind. Dass die
+Silhouette gleich ist, ist also der Grund fuer das Versagen des ZWEITEN Kanals — nicht fuer das
+Fehlen des Signals ueberhaupt. **Warum c8 im Stillstand auf ~0 faellt und bei Ply 4 auf 23,3
+springt, ist damit noch nicht erklaert.**
+
+### Der Clip laeuft im Replay — und findet alles
+
+`data/recordings/rxr-c8-20260919/` (Video + `candidate.json` + auf das Fenster zugeschnittene
+`timeline.jsonl`, aus der der Replay die Startstellung liest). Ergebnis: **6 gefunden, 0 verpasst,
+0 erfunden.** Die Korrektheit stimmt; der Fehler steckt in den FRAME-Nummern, und der Replay
+reproduziert ihn: Ply 3 bei Frame 139, Ply 4 erst bei 431 — 292 Frames = **19,5 s**, praktisch die
+19,7 s vom Geraet.
+
+### Kein gebundeltes Modell loest es
+
+Sechs Modelle ueber den Clip, Wartezeit je Zug in Sekunden:
+
+| Modell | cxd5 | Qxc8 | Rxc8 | **Rxc8+** | Qxc8 | Rxc8+ | Summe |
+|---|---|---|---|---|---|---|---|
+| p4a-128 / p4-128 / p4afull-128 / p4full-128 | 1,8 | 3,9 | 3,5 | **4,2** | 15,3 | 15,4 | **44,1** |
+| p4a-80 | 7,1 | 0,0 | 2,1 | **4,3** | 15,2 | 15,4 | **44,1** |
+| p4a-80-clahe (Champ) | 5,9 | 0,0 | 3,3 | **19,5** | 0,0 | 15,4 | **44,1** |
+
+**Die Summe ist bei allen sechs identisch.** Der Champ buendelt die Wartezeit auf einen Zug und
+bekommt den naechsten gratis; die anderen verteilen sie. Gefuehlt ist das ein grosser Unterschied,
+gemessen ist es dieselbe Zeit — ein Modellwechsel waere hier Kosmetik.
+
+**Die Konstante, die bleibt:** die letzten zwei Zuege kosten in JEDEM Modell ~15 s. Ob das die
+Engine ist oder die Hand ueber dem Brett, trennen diese Daten nicht — die Referenzzeiten stammen
+aus der Erkennung selbst. Das braucht eine von Hand gesetzte Wahrheit, wann der Zug wirklich fiel.
