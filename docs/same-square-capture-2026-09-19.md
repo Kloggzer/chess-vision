@@ -244,3 +244,56 @@ ist an Pythons aufgezeichnetes Verhalten gepinnt. Gesetzt wird der Wert deshalb 
 - **Das Rauschmodell.** `SquareNoise` lernt eine stehende Aenderung tatsaechlich in fuenf Frames
   unter `zThr` — nachgerechnet und als `PersistentChangeLearnedAwayTest` festgehalten. Es ist aber
   NICHT die Ursache hier: ein EMA liefert nie exakt 0,00, `applyTaints` schon.
+
+---
+
+## KORREKTUR (2026-09-19, spaeter Abend): der Fix verglich zwei verschiedene Formen
+
+Der oben beschriebene Fix war falsch implementiert, und alle Zahlen dieses Dokuments wurden mit
+der falschen Fassung gemessen. Gefunden beim Versuch, den Fix nachtraeglich zu testen — es gab
+keinen.
+
+**Der Fehler.** `identityDisagrees` verglich
+
+```kotlin
+val seen = obs.label(name)          // "bB" — Klassenform, w/b plus Grossbuchstabe
+val held = board.pieceCharAt(name)  // 'b'  — ein FEN-Zeichen
+return obs.labelConfident(name, thr) && seen != held.toString()
+```
+
+`"bB" != "b"` ist IMMER wahr. Die Funktion meldete also fuer jedes sicher gelesene besetzte Feld
+"Identitaet weicht ab", nicht nur dort, wo das Modell wirklich eine andere Figur liest. In
+`cnnOcclusionFilter` wird daraus `agrees == false` fuer jedes solche Feld — ein sicher gelesenes
+besetztes Feld konnte damit gar nicht mehr als Verdecker gelten. Statt "ein Schlagzug auf ein
+besetztes Feld ist kein Verdecker" stand dort faktisch "**kein** sicher gelesenes besetztes Feld
+ist ein Verdecker".
+
+**Behoben** durch den Vergleich in derselben Form (`board.labelAt(name)`, also ebenfalls `"bB"`).
+
+**Der Test, den es nie gab.** `TaintIdentityTest` haelt jetzt BEIDE Richtungen:
+
+| Fall | `thr = 0` | `thr = 0,5` |
+|---|---|---|
+| Modell liest eine ANDERE Figur als das Brett fuehrt | Verdecker | kein Verdecker (der Zug) |
+| Modell liest DIESELBE Figur (Hand darueber) | Verdecker | **weiter Verdecker** |
+
+Die zweite Zeile war rot und ist der eigentliche Fund; die erste war schon vorher gruen und hat
+den Fehler deshalb verdeckt. Ohne die Gegenprobe haette ein Test den Bug bestaetigt statt ihn zu
+zeigen.
+
+### Was jetzt ungeklaert ist
+
+- **Die 15,3 s bei c8** (Frame 431 -> 202) sind mit abgeschaltetem Verdeckungsschutz gemessen.
+  Ob der Gewinn den korrigierten Vergleich ueberlebt, ist offen.
+- **`396/3/0/171` bei 5 Alarmen, Ziffer fuer Ziffer wie die Referenz** — gemessen mit derselben
+  kaputten Fassung. Das ist die unangenehmere Zahl: der Regressionssatz hat nicht bemerkt, dass
+  der Verdeckungsschutz fuer sicher gelesene besetzte Felder ausgeschaltet war. Entweder tritt
+  dieser Fall dort kaum auf, oder der Satz misst die Achse nicht. **Das ist zu klaeren, bevor der
+  Satz wieder als Freigabe fuer eine Engine-Aenderung gilt.**
+- Beide Messungen sind zu wiederholen. Sie brauchen einen neuen `:desktop:installDist`, der nicht
+  laufen darf, waehrend ein Batch dieselbe Binary benutzt.
+
+**Nicht betroffen:** die Analyse der Doppelcommits (`docs/doppelcommits-2026-09-19.md`) ruht auf
+den Logs des REFERENZlaufs mit `taintIdentityThr = 0`; dort springt die Funktion in der ersten
+Zeile heraus. Der Vergleich ref-gegen-fix darin trug allerdings dieselbe kaputte Fassung — der
+dort gemeldete zweite Fund (`Raxd4`+`Rb1+`, 4,4 s frueher) steht unter demselben Vorbehalt.
