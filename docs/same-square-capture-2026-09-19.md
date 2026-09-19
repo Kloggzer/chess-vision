@@ -297,3 +297,31 @@ zeigen.
 den Logs des REFERENZlaufs mit `taintIdentityThr = 0`; dort springt die Funktion in der ersten
 Zeile heraus. Der Vergleich ref-gegen-fix darin trug allerdings dieselbe kaputte Fassung — der
 dort gemeldete zweite Fund (`Raxd4`+`Rb1+`, 4,4 s frueher) steht unter demselben Vorbehalt.
+
+### Nachgemessen mit dem korrigierten Vergleich (2026-09-20)
+
+Beide Messungen wiederholt, auf einem frischen `:desktop:installDist` mit `board.labelAt`:
+
+| | thr = 0 | thr = 0,5 |
+|---|---|---|
+| `Rxc8+` (ply 4) | Frame 432 | **202** |
+| `Qxc8` (ply 5) | Frame 432 | 432 |
+| Entscheider | `cnn_pair` | `cnn_occupancy` (beide) |
+
+Der Clip laeuft mit **14,94 fps**, die 230 Frames sind also **15,4 s**. Alle uebrigen Plies
+committen frameidentisch. Das Doppelcommit ist aufgeloest: aus einem `cnn_pair` auf Frame 432
+werden zwei einzelne Entscheidungen.
+
+**Der Gewinn kam also vom beabsichtigten Mechanismus, nicht vom Bug.** Die kaputte Fassung hat
+dasselbe Ergebnis geliefert und zusaetzlich den Verdeckungsschutz abgeraeumt — sie war schlechter,
+ohne besser auszusehen.
+
+Regressionssatz auf demselben Build: **396/3/0/171 bei 5 Alarmen**, Ziffer fuer Ziffer die
+Referenz. Die drei `missed` liegen wie immer alle in `VID_20260727_233929`.
+
+**Der Vorbehalt von gestern bleibt bestehen und ist jetzt zweifach belegt:** derselbe Satz liefert
+`396/3/0/171` mit intaktem UND mit abgeschaltetem Verdeckungsschutz. Er misst diese Achse nicht.
+Wer eine Engine-Aenderung mit "Regressionssatz unveraendert" freigibt, sagt damit weniger, als es
+klingt. Ein Satz, der diese Achse trifft, waere eine eigene Aufgabe — der Screening-Lauf
+(`scripts/screen_knobs.py`) zeigt dasselbe von der anderen Seite: `taintIdentityThr` bewegt auf
+vier Aufnahmen an beiden Raendern keine einzige Zahl.

@@ -86,8 +86,10 @@ private fun EngineState.identityDisagrees(
     if (thr <= 0.0) return false
     val name = Squares.ALL[i]
     val seen = obs.label(name) ?: return false
-    val held = board.pieceCharAt(name) ?: return false
-    return obs.labelConfident(name, thr) && seen != held.toString()
+    // BEIDE in der Klassenform ("wR"), nicht gegen `pieceCharAt` ('R'): der Vergleich ging sonst
+    // nie auf und nahm JEDEM sicher gelesenen Feld den Verdeckungsschutz (`TaintIdentityTest`).
+    val held = board.labelAt(name)
+    return held != "empty" && obs.labelConfident(name, thr) && seen != held
 }
 
 /**
