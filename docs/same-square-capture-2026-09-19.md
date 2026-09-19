@@ -61,3 +61,40 @@ Frame-Diff-z, nicht aus der CNN-Klasse; das CNN darf nur noch zustimmen oder nic
 der Pixelaenderung heranzieht, den Fall loest, ohne anderswo Phantome zu erzeugen. Das waere eine
 Engine-Aenderung und braucht `scripts/replay-regression.ps1` gegen 396/3/0/171 bei 5 Alarmen — und
 der Regressionssatz enthaelt genau diesen Fall vermutlich zu selten, um ihn zu bewerten.
+
+## Der Clip
+
+`data/testclips-real/real-c8-exchange.mp4` — 48,2 s, 2560x1440, 15 fps, aus der Partie selbst
+geschnitten (Session `20260919-162622`, Videozeit 205,0-253,2 s; Segment 003 ab 25 s plus
+Segment 004 bis 13 s, ohne Neukodierung). Daneben `real-c8-exchange.labels.json`:
+
+| Feld | Wert |
+|---|---|
+| `start_fen` | `2r1r1k1/5ppp/2p1qnb1/1p1P4/pB2P3/2Q2P2/P1R1B1PP/2R3K1 b - - 0 26` |
+| `san` | cxd5, **Qxc8, Rxc8, Rxc8+, Qxc8, Rxc8+** |
+| `corners` | Median-Quad ueber die 725 Frames des Fensters |
+| `margin` | 0,045 — ArUco-Ecken sitzen im Label-Rand, ohne den Wert ueberdehnt der Warp um 6-8 % |
+| `board_size` | 896 (aus der `settings.json` der Sitzung) |
+
+**Fuenf der sechs Halbzuege schlagen auf c8.** Die Zugfolge ist nicht abgetippt, sondern aus den
+sechs verschiedenen FENs der `timeline.jsonl` mit `python-chess` hergeleitet — inklusive der
+Stelle, an der ZWEI Halbzuege in einer einzigen Stellungsaenderung stecken, weil die Engine
+dazwischen 19,7 s hing.
+
+### Warum er NICHT in `tests/data/testclips/` liegt
+
+Zwei Gruende, beide hart:
+
+1. **Groesse.** 53 MB gegen 11 MB fuer die gesamte bestehende Suite. Die Blender-Clips sind
+   640x640 und board-only; herunterzuskalieren wuerde ausgerechnet das Signal zerstoeren, um das
+   es geht — bei 1280x720 faellt ein Feld von ~116 auf ~58 px, unter die 80 px des Modells.
+2. **Der Katalog haengt an `parity/index.json`.** `SimClips` liest die Clip-NAMEN und je Clip
+   eine `parity/<name>/meta.json` mit der `effectiveConfig`, die der PYTHON-Tracker wirklich fuhr
+   — Kotlins eigene Vorgaben weichen davon ab (`occlusionColorThr` 3,0 gegen 1,5), Vorgaben zu
+   nehmen wuerde einen Portierungsfehler vortaeuschen. Diese Fixtures erzeugt
+   `scripts/emit_parity_fixtures.py`; ohne sie einen Namen in den Index zu schreiben, faehrt
+   `ClipReplayParityTest` gegen nicht vorhandene Daten.
+
+`SimClips` ist auf echte Clips vorbereitet — `simClipDir` liest `-Pchesslab.sim.clips`, und der
+`margin`-Schluessel existiert ausdruecklich fuer sie ("a real clip's entry carries the profile's
+value, which is what makes its warp right"). **Was fehlt, ist der Paritaets-Eintrag.**
