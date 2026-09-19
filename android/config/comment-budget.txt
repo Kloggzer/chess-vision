@@ -45,7 +45,7 @@ app/src/main/kotlin/com/chesslab/tracker/service/TrackerBinder.kt 3
 app/src/main/kotlin/com/chesslab/tracker/service/TrackerClock.kt 1
 app/src/main/kotlin/com/chesslab/tracker/service/TrackerNotification.kt 2
 app/src/main/kotlin/com/chesslab/tracker/service/TrackerRun.kt 2
-app/src/main/kotlin/com/chesslab/tracker/service/TrackerService.kt 13
+app/src/main/kotlin/com/chesslab/tracker/service/TrackerService.kt 12
 app/src/main/kotlin/com/chesslab/tracker/settings/SettingsHost.kt 1
 app/src/main/kotlin/com/chesslab/tracker/spectate/GameSnapshot.kt 3
 app/src/main/kotlin/com/chesslab/tracker/spectate/SpectatorController.kt 4

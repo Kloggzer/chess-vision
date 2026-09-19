@@ -355,10 +355,8 @@ class TrackerCamera(
         info: CameraInfo?,
     ) {
         val available = info?.let { Camera2CameraInfo.from(it).getCameraCharacteristic(CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES) }
-        val range =
-            available
-                ?.filter { it.upper == target.targetFps }
-                ?.maxByOrNull { it.lower }
+        val picked = chooseAeRange(available.orEmpty().map { it.lower to it.upper }, target.targetFps)
+        val range = picked?.let { (lo, hi) -> available?.firstOrNull { it.lower == lo && it.upper == hi } }
         if (range == null) {
             // Loud, because the setting then reads 15 while the sensor runs at 30: the back camera
             // of a 24117RK2CG advertises no locked range below 15, and one it does not advertise
@@ -370,7 +368,7 @@ class TrackerCamera(
         }
         extender.setCaptureRequestOption(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, range)
         pinnedFpsRange = range.toString()
-        Log.i(TAG, "AE target fps range pinned to $range (of ${available.joinToString()})")
+        Log.i(TAG, "AE target fps range pinned to $range (of ${available?.joinToString()})")
     }
 
     /**

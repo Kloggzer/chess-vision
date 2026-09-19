@@ -136,6 +136,9 @@ class TrackerService :
     private val calibration by lazy { calibrationStore(this) }
 
     private val cameraRate = CameraRate()
+
+    /** Gelieferte Frames, nur fuer das einmalige Nachstimmen auf die echte Rate. */
+    private var deliveredFrames = 0L
     private val timings = StageTimings(logLine = AndroidTrackerLog(PERF_TAG)::debug)
     private val cnnProbe = CnnRuntimeProbe()
 
@@ -152,7 +155,7 @@ class TrackerService :
             val gridArm = gridArmFor(modelSpec)
             TrackerStack(
                 TrackerSeed(
-                    engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
+                    engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps),
                     ::geometry,
                     corners,
                     publisher.lastFen ?: STARTPOS,
@@ -386,7 +389,7 @@ class TrackerService :
             )
         settings.submit = {
             // The config the ENGINE gets, never the stored one — see [onMeasuredBoard].
-            val cfg = engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate)
+            val cfg = engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps)
             stacks.current?.host?.submit(EngineAction.UpdateConfig(cfg))
         }
         camera =
@@ -399,6 +402,12 @@ class TrackerService :
                     // Here, not in the coordinator: this is the last point that sees EVERY delivered
                     // frame, including the ones dropped below while a restart swaps the stack.
                     publisher.onCameraFrame()
+                    // `motionThr` ist ein Anteil gegen das VORHERIGE Bild und muss mit der
+                    // ECHTEN Periode skalieren, nicht der eingestellten (gemessen 7,5 statt 15).
+                    deliveredFrames += 1
+                    if (retuneDue(deliveredFrames, settings.appSettings.value.frameRate, cameraRate.fps)) {
+                        settings.submit(settings.config.value)
+                    }
                     // Dropped, not queued, while a restart swaps the stack: `StackSwitch` detaches
                     // before it closes, so this is the window in which there is nothing to run.
                     stacks.current?.coordinator?.onFrame(image, delivered)
@@ -472,7 +481,7 @@ class TrackerService :
                 { settings.appSettings.value },
                 // The config the ENGINE runs, measured boardSize included — the stored knobs
                 // alone would claim config.py's 1600 while the profile served something else.
-                { engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate) },
+                { engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps) },
             )
         settings.config
             .onEach { sessionSettings.configChanged(onMeasuredBoard(it, geometry)) }
@@ -599,7 +608,7 @@ class TrackerService :
                         // with nothing. See [onMeasuredBoard].
                         runStartOf(
                             settings.appSettings.value,
-                            engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate),
+                            engineConfig(settings.config.value, geometry, modelSpec, settings.appSettings.value.frameRate, cameraRate.fps),
                             modelSpec,
                             // The pads the crops are REALLY cut at, so a legacy model shows up as a
                             // profile value nobody chose rather than as an absent field (specs/45).
@@ -752,7 +761,36 @@ internal fun engineConfig(
     geometry: BoardGeometry,
     spec: ModelSpec?,
     rate: FrameRateMode,
-): TrackerConfig = onMeasuredBoard(stored, geometry).withCoverageGateOf(spec).withMotionThrFor(rate)
+    deliveredFps: Double? = null,
+): TrackerConfig =
+    onMeasuredBoard(stored, geometry)
+        .withCoverageGateOf(spec)
+        .atFrameRate(effectiveFrameRate(rate, deliveredFps))
+
+/** Unter diesem Anteil der eingestellten Rate gilt der Sensor als der Engpass, nicht als Jitter. */
+private const val RATE_SLACK = 0.85
+
+/** Rund acht Sekunden bei 7,5 fps — lang genug, dass der EMA der gelieferten Rate steht. */
+private const val RATE_WARMUP_FRAMES = 60L
+
+// Genau EINMAL, nach der Aufwaermzeit, und nur wenn der Sensor die Einstellung wirklich verfehlt:
+// bei jedem Bild zu stimmen liesse `motionThr` wandern und machte Laeufe unvergleichbar.
+internal fun retuneDue(
+    frames: Long,
+    rate: FrameRateMode,
+    delivered: Double,
+): Boolean = frames == RATE_WARMUP_FRAMES && effectiveFrameRate(rate, delivered) != rate.fps.toDouble()
+
+// Die Rate, mit der `motionThr` skalieren MUSS: die gelieferte, sobald der Sensor die eingestellte
+// deutlich verfehlt (gemessen 7,5 statt 15). Nach OBEN nie — die Obergrenze kappt `pinFrameRate`.
+internal fun effectiveFrameRate(
+    rate: FrameRateMode,
+    delivered: Double?,
+): Double {
+    val asked = rate.fps.toDouble()
+    if (delivered == null || !delivered.isFinite() || delivered <= 0.0) return asked
+    return if (delivered < asked * RATE_SLACK) delivered else asked
+}
 
 /**
  * The model's own declaration of the crop size it takes, through the one Kotlin reader
@@ -801,12 +839,3 @@ internal fun TrackerConfig.withCoverageGateOf(
     val gated = spec.coverageGate?.let { copy(pOccludedThr = it) } ?: this
     return gated.copy(cnnConfThr = calibratedConfThr(cnnConfThr, spec.temperature, spec.classes.size))
 }
-
-/**
- * `motionThr` scaled to the frame rate: it is a percent of pixels changed against the PREVIOUS
- * frame, so it silently means "motion per frame period".
- *
- * 273/55/102 at 15 fps against the baseline's 303/25/6, and 312/16/30 once scaled; 30 fps scales
- * by one, so every number measured there stands (`docs/battery.md`).
- */
-private fun TrackerConfig.withMotionThrFor(rate: FrameRateMode): TrackerConfig = atFrameRate(rate.fps.toDouble())
