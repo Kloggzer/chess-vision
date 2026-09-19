@@ -34,6 +34,11 @@ private val BY_KEY = KNOBS.associateBy { it.key }
  */
 val NOT_A_SETTING: Map<String, String> =
     linkedMapOf(
+        "taintIdentityThr" to
+            "Keine Vorliebe, sondern eine Korrektur: ein Schlagzug auf ein besetztes Feld aendert die " +
+            "BELEGUNG nicht und galt darum als Hand — gemessen 19,5 s Stillstand auf Rxc8 " +
+            "(`docs/same-square-capture-2026-09-19.md`). Die App setzt den Wert selbst; im Spiel gibt " +
+            "es daran nichts zu drehen.",
         "alarmDeferObs" to
             "Not a preference but headroom: the desync streak advances at observation rate so blitz stays " +
             "tracked, and the latch may wait this many observations beyond the threshold so an arriving hand " +

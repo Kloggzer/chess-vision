@@ -73,6 +73,7 @@ val KNOBS: List<Knob> =
         Knob("driftWindowS", DOUBLE, { it.driftWindowS }, { c, v -> c.copy(driftWindowS = v) }),
         Knob("maxChanged", INT, { it.maxChanged.toDouble() }, { c, v -> c.copy(maxChanged = v.toInt()) }),
         Knob("censusThr", DOUBLE, { it.censusThr }, { c, v -> c.copy(censusThr = v) }),
+        Knob("taintIdentityThr", DOUBLE, { it.taintIdentityThr }, { c, v -> c.copy(taintIdentityThr = v) }),
         Knob("censusZWeight", DOUBLE, { it.censusZWeight }, { c, v -> c.copy(censusZWeight = v) }),
         Knob("occlCensusThr", DOUBLE, { it.occlCensusThr }, { c, v -> c.copy(occlCensusThr = v) }),
         Knob("cnnConfThr", DOUBLE, { it.cnnConfThr }, { c, v -> c.copy(cnnConfThr = v) }),

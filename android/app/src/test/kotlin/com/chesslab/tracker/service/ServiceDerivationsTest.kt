@@ -62,12 +62,15 @@ class ServiceDerivationsTest {
     }
 
     @Test
-    fun `engineConfig leaves the stored values alone at the reference rate without a spec`() {
+    fun `engineConfig changes ONE thing at the reference rate without a spec`() {
+        // `taintIdentityThr` setzt die App selbst — sonst gilt ein Schlagzug auf ein besetztes Feld
+        // als Hand (gemessen 19,5 s Stillstand, `docs/same-square-capture-2026-09-19.md`).
         val stored = TrackerConfig(boardSize = 928, motionThr = 0.25)
 
         val out = engineConfig(stored, BoardGeometry(boardSize = 928), null, FrameRateMode.FPS30)
 
-        assertEquals(stored, out)
+        assertEquals(stored, out.copy(taintIdentityThr = stored.taintIdentityThr))
+        assertEquals(0.5, out.taintIdentityThr, 0.0)
     }
 
     @Test

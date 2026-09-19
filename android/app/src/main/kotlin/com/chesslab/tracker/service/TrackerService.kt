@@ -765,7 +765,12 @@ internal fun engineConfig(
 ): TrackerConfig =
     onMeasuredBoard(stored, geometry)
         .withCoverageGateOf(spec)
+        .copy(taintIdentityThr = TAINT_IDENTITY_THR)
         .atFrameRate(effectiveFrameRate(rate, deliveredFps))
+
+// Gemessen 2026-09-19: ohne das galt `Rxc8` als Hand und kostete 19,5 s. 0,5 loest es, 0,7 nicht
+// mehr. Hier und nicht in `TrackerConfig`, weil die Vorgabe dort jede Python-Paritaet umwirft.
+private const val TAINT_IDENTITY_THR: Double = 0.5
 
 /** Unter diesem Anteil der eingestellten Rate gilt der Sensor als der Engpass, nicht als Jitter. */
 private const val RATE_SLACK = 0.85

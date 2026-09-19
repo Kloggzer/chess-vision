@@ -66,7 +66,8 @@ internal fun EngineState.cnnOcclusionFilter(squares: Long): Long {
     var taint = 0L
     squares.forEachSquare { i ->
         val name = Squares.ALL[i]
-        if (!obs.confident(name, thr) || occupancyAgreesWithBoard(i, obs)) {
+        val agrees = occupancyAgreesWithBoard(i, obs) && !identityDisagrees(i, obs)
+        if (!obs.confident(name, thr) || agrees) {
             taint = taint.with(i)
         }
     }
@@ -74,9 +75,25 @@ internal fun EngineState.cnnOcclusionFilter(squares: Long): Long {
 }
 
 /**
+ * Das Modell liest dort SICHER eine andere Figur als das Brett fuehrt — dann ist das Feld kein
+ * Verdecker, sondern der Zug. Ueber `taintIdentityThr = 0` ist die Frage aus.
+ */
+private fun EngineState.identityDisagrees(
+    i: Int,
+    obs: CnnObservation,
+): Boolean {
+    val thr = config.taintIdentityThr
+    if (thr <= 0.0) return false
+    val name = Squares.ALL[i]
+    val seen = obs.label(name) ?: return false
+    val held = board.pieceCharAt(name) ?: return false
+    return obs.labelConfident(name, thr) && seen != held.toString()
+}
+
+/**
  * The observation's occupancy of square [i] matches the game state's — the one predicate the occlusion
  * filter and the count discount share, so the two cannot drift apart. Occupancy only, never identity:
- * a knight read as a pawn still agrees here, deliberately.
+ * `identityDisagrees` is the separate, switchable question.
  */
 private fun EngineState.occupancyAgreesWithBoard(
     i: Int,

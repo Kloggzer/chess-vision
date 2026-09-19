@@ -196,3 +196,51 @@ Kein gebundeltes Modell aendert daran etwas — sie sitzen hinter dieser Stufe. 
 Zug bei Frame 203 statt 431 committen, verschiebt nur, WELCHE der beiden Halbzuege wartet; die
 Gesamtzeit bleibt 44,1 s. **Das hier ist die Stelle, an der ein Fix ansetzen muesste**, nicht am
 Klassifikator.
+
+## Der Fix: die Verdeckungsfrage darf nicht nur die BELEGUNG kennen (2026-09-19)
+
+`Taint.cnnOcclusionFilter` entschied bisher allein ueber die Belegung:
+
+    if (!obs.confident(name, thr) || occupancyAgreesWithBoard(i, obs)) taint = taint.with(i)
+
+und `occupancyAgreesWithBoard` traegt den Kommentar "Occupancy only, never identity: a knight read
+as a pawn still agrees here, **deliberately**". Ein Schlagzug auf ein besetztes Feld aendert die
+Belegung nie — er galt damit als VERDECKER, und `applyTaints` nullt dessen `z`. Daher die exakten
+0,00 ueber 217 Frames, obwohl beide Rohkanaele 77 und 99 zeigten.
+
+`identityDisagrees` stellt die zweite Frage: liest das Modell dort SICHER eine andere Figur als das
+Brett fuehrt, ist es der Zug und kein Verdecker. Schwelle `taintIdentityThr`.
+
+| `taintIdentityThr` | `Rxc8+` committet bei | vetoierte Felder im Clip |
+|---|---|---|
+| 0 (Engine-Vorgabe) | Frame 431 | 22 |
+| **0,5** | **Frame 202** | **12** |
+| 0,7 | Frame 431 | — |
+
+**15,3 Sekunden frueher, und die Haelfte der Blendungen faellt weg** — der zweite Gewinn trifft
+genau den Fall "Hand liegt auf dem Zielfeld", denn fuer diesen Filter sind eine Hand und ein
+Schlagzug auf besetztes Feld ununterscheidbar gewesen.
+
+### Regressionssatz: keine einzige Abweichung
+
+    Referenz              396/3/0/171 bei 5 Alarmen (10 Aufnahmen)
+    taintIdentityThr=0.5  396/3/0/171 bei 5 Alarmen (10 Aufnahmen)
+
+Je Aufnahme verglichen: identisch. `invented` bleibt 0 — die Achse, vor der der Kommentar warnt.
+
+### Wo der Wert steht, und warum nicht in der Engine
+
+`TrackerConfig.taintIdentityThr` bleibt bei **0**. Die Vorgabe dort zu aendern riss alle sieben
+Python-Paritaetstests (`ClipReplayParityTest`, `EvidenceTest`, `NoiseLearningTest`, …) — die Engine
+ist an Pythons aufgezeichnetes Verhalten gepinnt. Gesetzt wird der Wert deshalb von der APP, in
+`TrackerService.engineConfig` neben den drei Korrekturen, die dort schon sassen
+(`TAINT_IDENTITY_THR = 0.5`). Der Knopf steht in `NOT_A_SETTING`: kein Regler im Spiel
+(Nutzer, 2026-09-19).
+
+### Zwei verworfene Spuren, damit sie niemand nochmal geht
+
+- **Die Silhouette.** "Turm sieht aus wie Turm" erklaert das Versagen des Census-Kanals, aber nicht
+  das fehlende Signal: `diff` stand die ganze Zeit auf 77.
+- **Das Rauschmodell.** `SquareNoise` lernt eine stehende Aenderung tatsaechlich in fuenf Frames
+  unter `zThr` — nachgerechnet und als `PersistentChangeLearnedAwayTest` festgehalten. Es ist aber
+  NICHT die Ursache hier: ein EMA liefert nie exakt 0,00, `applyTaints` schon.
