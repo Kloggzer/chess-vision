@@ -48,11 +48,8 @@ class DiscardVisualReferenceTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
-    /**
-     * Der WEICHERE Geometrie-Vorfall raeumt die offene Bruecken-Stimme (`cornersJumped` ->
-     * `clearStuck`), der haertere nicht. Stimme eins fiel damit durch die alte Rektifizierung und
-     * committete mit der ersten neuen zusammen einen Halbzug, den niemand zweimal sauber sah.
-     */
+    /** Der WEICHERE Vorfall raeumt die Bruecken-Stimme, der haertere nicht: Stimme eins fiel
+     *  durch die alte Rektifizierung und committete mit der ersten neuen einen Halbzug. */
     @Test
     fun `a discarded reference drops the open recovery vote`() {
         val state = recoveryState()

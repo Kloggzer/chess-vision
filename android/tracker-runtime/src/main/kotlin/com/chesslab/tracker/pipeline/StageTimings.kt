@@ -62,6 +62,7 @@ class StageTimings(
 
     private val ms = DoubleArray(Stage.entries.size)
     private val ran = BooleanArray(Stage.entries.size)
+    private val everRan = BooleanArray(Stage.entries.size)
     private var frameStart = 0L
     private var previous = 0L
     private var lastLog = 0L
@@ -104,23 +105,35 @@ class StageTimings(
         ran.fill(false)
     }
 
+    /**
+     * The feed stopped — the next frame starts a fresh rate measurement, like [CameraRate.reset]:
+     * a restart's gap between two [begin]s is no frame period, and the EMA read it as idle time.
+     */
+    fun onFeedStopped() {
+        lastBegin = 0L
+        lastEnd = 0L
+        fps = 0.0
+        idle = 0.0
+    }
+
     /** Time since the previous mark — except [Stage.TOTAL] and [Stage.FRAME], measured from [begin]. */
     fun mark(stage: Stage) {
         val now = nowNs()
         val from = if (stage == Stage.TOTAL || stage == Stage.FRAME) frameStart else previous
         ms[stage.ordinal] = (now - from) / NANOS_PER_MS
         ran[stage.ordinal] = true
+        everRan[stage.ordinal] = true
         previous = now
     }
 
     /**
-     * Immutable snapshot for `TrackerStatus.stageTimingsMs`.
+     * Immutable snapshot for `TrackerStatus.stageTimingsMs`, keys stable once a stage has run.
      *
-     * Carries the LAST KNOWN value of every stage, including ones that did not run this frame —
-     * the debug panel wants a stable set of keys, and a run of skipped frames blanking half of them
-     * would be unreadable. The honest per-frame view is the log line.
+     * The LAST KNOWN value of a stage that did not run THIS frame, because a run of skipped frames
+     * blanking half the panel would be unreadable — but a stage that never ran at all is ABSENT,
+     * never 0.0: `LENS` is off by default, and a zero there reads as a free full-frame remap.
      */
-    fun snapshot(): Map<String, Double> = Stage.entries.associate { it.name.lowercase() to ms[it.ordinal] }
+    fun snapshot(): Map<String, Double> = Stage.entries.filter { everRan[it.ordinal] }.associate { it.name.lowercase() to ms[it.ordinal] }
 
     /**
      * The frame is over — every stage, including the ones after the engine, has run.

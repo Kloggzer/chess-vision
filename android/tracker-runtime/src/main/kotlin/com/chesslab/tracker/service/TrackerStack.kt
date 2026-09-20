@@ -303,6 +303,7 @@ class TrackerStack<T>(
         // The timings object outlives the stack on the phone (the service owns it across
         // restarts); a closed stack's counters must not keep writing onto the next one's line.
         timings.extras = null
+        timings.onFeedStopped()
         scope.cancel()
         observer.close()
         pipeline.close()

@@ -313,11 +313,8 @@ class DecisionLogTest {
         assertTrue(payload.cnnReads.isEmpty(), "no observation has landed yet")
     }
 
-    /**
-     * `cnnSeq` und `cnnAgeMs` tragen die -1 des gemeinsamen Kommentars, `cnnInferMs` trug eine 0,0 —
-     * und der Debug-Schirm zeigt sie in DERSELBEN Zeile wie `cnnAgeMs`. "Noch nichts gesehen" las
-     * sich dort als "die Inferenz kostete null Millisekunden".
-     */
+    /** `cnnSeq` und `cnnAgeMs` tragen die -1, `cnnInferMs` trug eine 0,0 — und der Schirm zeigt
+     *  beide in DERSELBEN Zeile. "Noch nichts gesehen" las sich als "kostete null ms". */
     @Test
     fun debugPayloadReportsNoInferenceTimeUntilAnObservationLanded() {
         val state = detectState()

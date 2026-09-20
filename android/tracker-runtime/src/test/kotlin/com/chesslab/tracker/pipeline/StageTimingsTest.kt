@@ -1,6 +1,7 @@
 package com.chesslab.tracker.pipeline
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -24,6 +25,30 @@ class StageTimingsTest {
             timings.maybeLog()
         }
         assertEquals(2, lines.size)
+    }
+
+    /**
+     * The stack closes but `StageTimings` outlives it, so the pause between two stacks lands in
+     * the EMA as one enormous frame gap — a restart reported as "the sensor is the bottleneck".
+     */
+    @Test
+    fun `the pause between two stacks is not a frame period`() {
+        repeat(30) {
+            now += 45_000_000L
+            timings.begin()
+            now += 55_000_000L
+            timings.endFrame()
+        }
+        assertTrue(lines.last().contains("fps=10.0 idle=45.0"), lines.last())
+        timings.onFeedStopped()
+        now += 60_000_000_000L // a minute with the camera released
+        repeat(30) {
+            now += 45_000_000L
+            timings.begin()
+            now += 55_000_000L
+            timings.endFrame()
+        }
+        assertTrue(lines.last().contains("fps=10.0 idle=45.0"), lines.last())
     }
 
     /**
@@ -70,7 +95,7 @@ class StageTimingsTest {
     }
 
     @Test
-    fun `the snapshot carries every stage key`() {
+    fun `the snapshot carries every stage key that has run`() {
         timings.begin()
         now += 3_000_000L
         timings.mark(Stage.CONVERT)
@@ -79,15 +104,33 @@ class StageTimingsTest {
         now += 5_000_000L
         timings.mark(Stage.TOTAL)
         val snap = timings.snapshot()
-        assertEquals(
-            setOf("publish", "convert", "lens", "warp", "gray", "motion", "grid", "total", "engine", "post", "frame"),
-            snap.keys,
-        )
+        assertEquals(setOf("convert", "warp", "total"), snap.keys)
         assertEquals(3.0, snap.getValue("convert"))
         assertEquals(2.0, snap.getValue("warp"))
         // TOTAL is measured from begin(), not from the previous mark.
         assertEquals(10.0, snap.getValue("total"))
         assertTrue(lines.isEmpty())
+    }
+
+    /**
+     * No lens configured (the default) means `Stage.LENS` is never marked, and the panel read
+     * `lens 0.0 ms` for a full-frame remap nobody ran — as did gray/grid on an all-skipped feed.
+     */
+    @Test
+    fun `a stage that never ran is absent from the snapshot, not zero`() {
+        repeat(3) {
+            timings.begin()
+            now += 4_000_000L
+            timings.mark(Stage.CONVERT)
+            now += 1_000_000L
+            timings.mark(Stage.TOTAL)
+            timings.endFrame("frame too dark (6 < 18.0) — detection paused", luma = 6.4)
+        }
+        val snap = timings.snapshot()
+        assertFalse("lens" in snap, snap.toString())
+        assertFalse("gray" in snap, snap.toString())
+        assertFalse("grid" in snap, snap.toString())
+        assertTrue("convert" in snap, snap.toString())
     }
 }
 

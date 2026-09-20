@@ -156,11 +156,8 @@ class AnomalyPatcherTest {
         assertTrue(observed.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
     }
 
-    /**
-     * Dieselbe Wurzel auf dem Pfad, der die Referenz UND die Geometrie wegnimmt.
-     * `clearReferenceState` raeumt `anomalySince` ab, `discardVisualReference` nicht — ein gegen
-     * die alte Ebene gestarteter Timer war damit gegen die erste neue Referenz sofort faellig.
-     */
+    /** Dieselbe Wurzel auf dem Pfad, der Referenz UND Geometrie wegnimmt: ein gegen die alte
+     *  Ebene gestarteter Timer war gegen die erste NEUE Referenz sofort faellig. */
     @Test
     fun aDiscardedVisualReferenceRestartsTheAnomalyTimers() {
         val state = detectState(ref = grayFrame())
