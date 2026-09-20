@@ -66,6 +66,51 @@ Die Achsen sind **nicht unabhängig**: niedrige `gridCoverage` kommt nur zusamme
 `motion` vor — eine Hand, die die Linien verdeckt. Wer die Ränder einzeln zieht, baut Szenen, die
 es nicht gibt. `Envelope` hält vorerst nur die Ränder; die Kopplung ist notiert, nicht erzwungen.
 
+## Erster Lauf: 2 000 Ziehungen, 717 s
+
+Gegen die BASIS-Arme des Korpus (11 001 Frames). `max` ist die hoechste Haeufigkeit, die EINE
+Ziehung erreicht hat.
+
+| Zustand | Korpus | Fuzzer |
+|---|---:|---:|
+| `gate:dark` | **0** | **829** |
+| `gate:moving` | 5 991 | 876 |
+| `gate:detect` | 3 050 | 297 |
+| `gate:settling` | 1 936 | 268 |
+| `gate:occluded` | 24 | 119 |
+| `stuck:too_many_changed` | 311 | 577 |
+| `stuck:no_legal_move` | 1 048 | 276 |
+| `stuck:occluded` | 84 | 248 |
+| `stuck:cnn_desync` | 8 | 484 |
+| `verify:confirmed` | 5 283 | 533 |
+| `verify:resynced` | 4 856 | **0** |
+| `verify:ghost` | 397 | **0** |
+| `verify:verifying` | 181 | **0** |
+| `verify:shadow` | 58 | **0** |
+| `verify:overruled` | 0 | **0** |
+
+Zwei Luecken, in entgegengesetzte Richtungen.
+
+**Der Fuzzer erreicht einen Zustand, den der Korpus nie zeigt.** `gate:dark` feuert 829-mal; in
+1 066 309 echten Trace-Frames kommt er kein einziges Mal vor. Der Dunkelframe-Pfad ist erreichbar,
+nur nicht in diesem Material — und dunkles Material ist im Projekt ausdruecklich die
+Haerteprueffung, die Bedingung ist also keine Fantasie.
+
+**Wichtiger ist die Luecke andersherum: der Fuzzer erreicht `verify:resynced` nie, obwohl der
+Korpus 4 856 davon traegt** — es ist dort der zweithaeufigste Verify-Zustand ueberhaupt. Dasselbe
+fuer `ghost`, `verifying` und `shadow`. Damit ist der Treiber als Erreichbarkeits-Orakel **noch
+nicht gueltig**: seine Nullen sind kein Befund, sondern seine eigene Luecke. Solange er die
+Zustaende nicht reproduziert, die das echte Material nachweislich erzeugt, darf aus einer Null
+nichts geschlossen werden.
+
+Das ist zugleich das Abnahmekriterium: **die Zustands-Vokabel des Korpus ist die Eichung.** Erst
+wenn der Fuzzer sie trifft, taeugt ein Nicht-Erreichen als Aussage.
+
+Wo er heute schon traegt, traegt er deutlich: `stuck:cnn_desync` steht im Korpus bei 8 Frames und
+im Fuzzer bei 484, `gate:occluded` bei 24 gegen 119. Fuer genau diese Knoepfe — die stummen —
+liefert die synthetische Bahn also mehr Gelegenheiten als der ganze Screening-Satz, und das
+60-mal billiger.
+
 ## Was der Ansatz NICHT kann
 
 Fuzzing findet einen Pfad, es schließt ihn nie aus. Ein Zustand, den 2 000 Ziehungen nicht
