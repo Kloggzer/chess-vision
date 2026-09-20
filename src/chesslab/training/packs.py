@@ -57,12 +57,8 @@ def pack_dir(name: str, paths: config.Paths = config.DATA) -> Path:
 
 
 def mm_path(pack: str, *parts: str) -> str:
-    """`mm://<pack>/<teil>/…` — der eine Bauer fuer virtuelle Pfade.
-
-    Der Vertrag ist NUR das erste Segment; was dahinter steht, unterscheidet sich je Schreiber
-    (Synth: `<sid>/<frame>_<feld>.png`, Session und Kotlin: `<frame>/<feld>`). Genau darum gehoert
-    der Kopf an eine Stelle — gelesen wird er von [pack_name_of].
-    """
+    """`mm://<pack>/<teil>/…`. Vertrag ist NUR das erste Segment; der Rumpf unterscheidet sich je
+    Schreiber (`tests/test_mm_path_contract.py`). Gelesen wird der Kopf von [pack_name_of]."""
     if not pack or "/" in pack:
         raise ValueError(f"pack name must be one segment: {pack!r}")
     if not parts or any(not t for t in parts):
