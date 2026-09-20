@@ -400,10 +400,30 @@ nichts mehr — der Census saettigt, wer die Reserve zurueckholen will, muss DAR
 Der Regressionssatz zeigt davon nichts (396/3/0, Desync-Episoden 15 -> 8). Es ist eine schmaler
 gewordene Reserve, kein gemessener Schaden.
 
-**Zu entscheiden:** ob das reicht. Die fehlende Messung ist handreiches Material — die beiden
-neuen Partien tragen 645 und 477 Handframes und sind noch in keinem Satz. Solange die Frage offen
-ist, sollte kein weiterer Kandidat `motionPxThr` nach oben schieben; der beste der Budget-Suche
-brachte 21 Frames und wuerde die Schwelle auf 166 heben.
+**Zu entscheiden:** ob das reicht. Solange die Frage offen ist, sollte kein weiterer Kandidat
+`motionPxThr` nach oben schieben; der beste der Budget-Suche brachte 21 Frames und wuerde die
+Schwelle auf 166 heben.
+
+### Das Material fuer die fehlende Messung liegt schon da
+
+Die beiden Partien vom 2026-09-19 sind ungewoehnlich handreich — gezaehlt aus ihren
+`matte.jsonl` (alle Zeilen gemessen, keine `skipped`):
+
+| Aufnahme | Zeilen | mit Verdeckung > 0,15 |
+|---|---:|---:|
+| `2026-09-19-15-50-28` | 593 | **516** |
+| `2026-09-19-16-26-22` | 395 | **359** |
+
+875 von 988 Frames, also 89 %. Der Regressionssatz liegt bei 0,2 % (24 verdeckte Frames auf
+11 001). Genau der Satz, der die Schutz-Achse messen koennte.
+
+**Der Haken:** beide sind Handy-Sessions mit `frames/` und `boards/`, ohne `video.mp4`. Das Verb
+`desktop replay` braucht ein Video — die Messung geht also nur ueber den Stored-Session-Weg, oder
+die Aufnahmen brauchen ihr Quellvideo. Seit 2026-09-21 traegt der Replay-Trace `occlVetoed`,
+`shadowVetoed` und `changed`, die Zaehlung selbst ist damit fahrbar.
+
+Und es haengt an einer Entscheidung des Nutzers, die schon offen ist: ob die beiden nach
+`test-v2` gehen oder ins Trainingsmaterial. In einen Messsatz duerfen sie erst danach.
 
 ## 29. `recut_coverage` las das falsche Alpha — GEMESSEN und GEFIXT 2026-09-16
 
