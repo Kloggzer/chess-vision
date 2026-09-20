@@ -8,7 +8,6 @@ eine eigene Achse dafuer (`docs/engine-fuzz.md`).
 from __future__ import annotations
 
 import pytest
-
 from scripts import optimise_knobs as ok
 
 

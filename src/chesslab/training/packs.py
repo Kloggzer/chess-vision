@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from .. import config
-from .pack import _manifest_digest
+from .pack import _manifest_digest, write_packed_meta
 
 log = logging.getLogger("chesslab.packs")
 
@@ -146,9 +146,10 @@ def resolve_packs(rows: list[dict], paths: config.Paths = config.DATA) -> MultiP
 
 
 def write_meta(dir_: Path, rows: list[dict], h: int, w: int) -> None:
-    (dir_ / _META).write_text(json.dumps({"n": len(rows), "h": h, "w": w,
-                                          "digest": _manifest_digest(rows),
-                                          "paths": [r["path"] for r in rows]}), encoding="utf-8")
+    """Ohne `crop_fingerprint`, also bytegleich zu vorher. `synth_build` schreibt fuer dieselbe
+    Lage (`mm://`-Zeilen) ein leeres dict, weil FEHLEND "Altpack, nimm die Mtime" heisst — bei
+    reinen `mm://`-Zeilen liefern heute beide Zweige dasselbe, darum steht es in TODO.md."""
+    write_packed_meta(dir_ / _META, rows, h, w)
 
 
 def packed_shape(packed) -> tuple[int, int, int]:

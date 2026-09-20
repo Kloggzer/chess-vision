@@ -146,7 +146,7 @@ def build_synth_dataset(
 
     from .ingest import _safe_group, synthesize_sessions, to_full_fen
     from .ingest_adapters.synthetic import iter_items
-    from .training.pack import _manifest_digest
+    from .training.pack import _manifest_digest, write_packed_meta
 
     name = _safe_name(name)
     classes = class_list_for(class_mode)
@@ -281,9 +281,7 @@ def build_synth_dataset(
     digest = _manifest_digest(rows)
     # Empty fingerprint, not absent: `mm://` rows have no files to compare, and the absent case
     # means "legacy pack" and would send `_rewritten_since_pack` down the file-mtime path.
-    (ds / "packed_meta.json").write_text(
-        json.dumps({"n": n_final, "h": h, "w": w, "digest": digest, "crop_fingerprint": {},
-                    "paths": [r["path"] for r in rows]}), encoding="utf-8")
+    write_packed_meta(ds / "packed_meta.json", rows, h, w, digest=digest, crop_fingerprint={})
     gb = need / 1e9
     print(f"[OK] fused build '{name}': {n_final} crops -> {img_path} ({gb:.1f} GB, "
           f"{workers} workers, no crop PNGs)")

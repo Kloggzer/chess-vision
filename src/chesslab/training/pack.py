@@ -38,6 +38,26 @@ def _packed_paths(dd: Path) -> tuple[Path, Path]:
     return dd / "packed_images.u8", dd / "packed_meta.json"
 
 
+def write_packed_meta(meta_path: Path, rows: list[dict], h: int, w: int, *,
+                      digest: str | None = None,
+                      crop_fingerprint: dict[str, list] | None = None,
+                      started_at: float | None = None) -> None:
+    """Der EINE Schreiber von `packed_meta.json`.
+
+    `crop_fingerprint` unterscheidet drei Faelle, und der Unterschied steuert
+    `_rewritten_since_pack`: `None` heisst NICHT GERECHNET (Altpack, Mtime-Weg), ein leeres dict
+    heisst GERECHNET und nichts zu vergleichen (`mm://`-Zeilen haben keine Datei).
+    """
+    meta: dict = {"n": len(rows), "h": h, "w": w,
+                  "digest": _manifest_digest(rows) if digest is None else digest,
+                  "paths": [r["path"] for r in rows]}
+    if started_at is not None:
+        meta["started_at"] = started_at
+    if crop_fingerprint is not None:
+        meta["crop_fingerprint"] = crop_fingerprint
+    write_json(meta_path, meta, indent=None)
+
+
 def _manifest_digest(rows: list[dict]) -> str:
     """Fingerprint of a manifest: which crops, in which order, with which labels, are packed.
 
@@ -304,12 +324,8 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         # `boards/`, ihre Crop-Datei sagt also nichts ueber den Pack. Ein leerer Wachhund war
         # kein "nichts zu pruefen", sondern "nie wieder pruefen" — `_rewritten_since_pack`
         # lief durch eine leere Schleife und meldete jeden Re-Slice als frisch.
-        meta_path.write_text(json.dumps({"n": n, "h": h, "w": w,
-                                         "digest": _manifest_digest(rows),
-                                         "crop_fingerprint": _crop_fingerprint(
-                                             [path for _, path in files]),
-                                         "paths": [r["path"] for r in rows]}),
-                              encoding="utf-8")
+        write_packed_meta(meta_path, rows, h, w,
+                          crop_fingerprint=_crop_fingerprint([path for _, path in files]))
         progress_path.unlink(missing_ok=True)
         return {"n": n, "h": h, "w": w, "path": str(img_path),
                 "gb": round(total_bytes / 1e9, 2), "source": f"boards+files ({n - len(files)}/{len(files)})"}
@@ -357,9 +373,9 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         for start, c in pool.imap_unordered(_pack_chunk, tasks):
             done += c
             done_starts.add(start)
-            progress_path.write_text(json.dumps({"signature": signature, "started_at": started_at,
-                                                 "crop_fingerprint": fingerprint,
-                                                 "done": sorted(done_starts)}), encoding="utf-8")
+            write_json(progress_path, {"signature": signature, "started_at": started_at,
+                                       "crop_fingerprint": fingerprint,
+                                       "done": sorted(done_starts)}, indent=None)
             print(f"[pack] {done}/{n} crops ({100.0 * done / n:.1f}%)", flush=True)
 
     # Never publish meta for a partially written file: load_packed would happily serve it and the
@@ -367,11 +383,8 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
     if done != n:
         raise RuntimeError(f"pack incomplete: {done}/{n} crops written — refusing to write "
                            f"{meta_path.name}. Re-run to resume from {progress_path.name}.")
-    meta = {"n": n, "h": h, "w": w, "digest": digest, "started_at": started_at,
-            "paths": [r["path"] for r in rows]}
-    if fingerprint is not None:
-        meta["crop_fingerprint"] = fingerprint
-    write_json(meta_path, meta, indent=None)
+    write_packed_meta(meta_path, rows, h, w, digest=digest, started_at=started_at,
+                      crop_fingerprint=fingerprint)
     progress_path.unlink(missing_ok=True)              # complete -> sidecar no longer needed
     gb = n * h * w * 3 / 1e9
     print(f"[OK] packed {n} crops -> {img_path} ({gb:.1f} GB, {workers} workers)")

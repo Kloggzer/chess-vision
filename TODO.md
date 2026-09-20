@@ -136,8 +136,12 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   Auflösung je Skript, keine davon mehrpack-fähig; `torch_data._pack_index` ist die eine Stelle.
 - **Zwei `mm://`-Formate ohne gemeinsamen Bauer:** `synth_build._virtual_path` gegen die
   Kotlin-Schreiber; nur `packs.pack_name_of` liest beide.
-- **`packed_meta.json` wird an vier Python-Stellen von Hand geschrieben** (`pack.py:208` und `:274`,
-  `synth_build.py:278`, `packs.write_meta`) — kein Leser/Schreiber-Paar, die Schlüssel driften.
+- **`crop_fingerprint` fehlt in Session-Packs, `synth_build` schreibt dort `{}`.** FEHLEND heißt
+  im Leser „Altpack, nimm die Mtime", ein leeres dict heißt „gerechnet, nichts zu vergleichen".
+  Bei reinen `mm://`-Zeilen liefern beide Zweige heute dasselbe (beide `stat()` werfen), also
+  folgenlos — aber es ist der falsche Fall. Entscheiden, ob `write_meta` auf `{}` geht;
+  `tests/test_packs.py` pinnt die fünf Schlüssel. Schreiber sind seit 2026-09-20 EINER
+  (`pack.write_packed_meta`).
 - **Composite:** Pool 128 → 80 ist ein Resampling zu viel (1,54× Laplace direkt); Überblendung
   variieren (hart/Gauss/Poisson, ICCV 2017); Median-Mesh dreht mit dem Brett (r 0,87 zum Winkel).
   Alles Bildmessungen — Val-Wert gegen `comp13-occ-bn-lr1e2-bs512` ist der Gegentest.

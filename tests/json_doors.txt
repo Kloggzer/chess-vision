@@ -7,18 +7,16 @@
 # audit-flags, hand-flags, temporal-flags, model-reads, log.jsonl in vier Modulen, corrections,
 # der Label-Bericht, 29 Berichte in scripts und 16 Lauf-Artefakte (split, stats, config,
 # model_card, packed_meta).
-3 src/chesslab/synth_build.py  # manifest/stats/packed_meta eines Synth-Baus, mehrzeilige Aufrufe
+2 src/chesslab/synth_build.py  # manifest/stats eines Synth-Baus, mehrzeilige Aufrufe
 2 src/chesslab/cli.py  # zwei Berichte eines Laufs an --json/--out, mehrzeilige Aufrufe
 2 src/chesslab/meshprep.py  # Scan-Berichte je Figur, ein Werkzeug, ein Aufruf
 2 src/chesslab/realgames.py  # Kandidaten-Datei und Payload, beide schon tmp+replace von Hand
 2 src/chesslab/training/evaluate.py  # config und model_card neben dem Lauf, mehrzeilige Aufrufe
-2 src/chesslab/training/pack.py  # packed_meta und Fortschritt, mehrzeilige Aufrufe
 1 src/chesslab/dataset_build.py  # manifest.jsonl eines Baus, mehrzeiliger Aufruf
 1 src/chesslab/occluded_model.py  # STREAMT Zeile fuer Zeile in die tmp, weil die Inferenz Minuten laeuft
 1 src/chesslab/retime.py  # tmp+replace von Hand, Kandidaten-Datei
 1 src/chesslab/sensor_audit.py  # Bericht an --out, ein Aufruf
 1 src/chesslab/training/pack_session.py  # manifest eines Session-Packs; ein Pack ist unveraenderlich
-1 src/chesslab/training/packs.py  # packed_meta, mehrzeiliger Aufruf
 1 src/chesslab/work_audit.py  # Bericht, ein Schreiber
 1 scripts/backfill_brightness.py  # STREAMT in die tmp und haengt um; Streamen ist die Speicher-Entscheidung
 1 scripts/matte_audit.py  # dito, minutenlanger Lauf
