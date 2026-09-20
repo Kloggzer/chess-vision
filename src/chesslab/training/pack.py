@@ -23,6 +23,7 @@ import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from PIL import Image
@@ -32,6 +33,19 @@ from ..ioutil import write_json
 from ..work_audit import measure
 
 log = logging.getLogger("chesslab.pack")
+
+
+class PackedIndex(NamedTuple):
+    """Was `load_packed` zurueckgibt, mit Namen statt Positionen.
+
+    Bleibt ein Tupel, also packt jede aeltere Stelle es weiter positional aus. Fuer MEHRERE Packs
+    reicht es nicht — dafuer ist `resolve_dataset_packs`, und `load_packed` weist solche
+    Datensaetze beim Namen ab statt hier etwas hineinzuzwaengen.
+    """
+
+    image: str
+    shape: tuple[int, int, int]
+    path2idx: dict[str, int] | None
 
 
 def _packed_paths(dd: Path) -> tuple[Path, Path]:
@@ -511,9 +525,10 @@ def open_packed_rows(name: str, manifest_rows: list[dict],
     packed = load_packed(name, paths, manifest_rows=manifest_rows)
     if not packed:
         raise FileNotFoundError(f"{name} hat keine Memmap — erst `chesslab dataset pack`")
-    img, (n, h, w), path2idx = packed
-    index = path2idx or {r["path"]: r["_packed_idx"] for r in manifest_rows if "_packed_idx" in r}
-    return np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3)), index
+    n, h, w = packed.shape
+    index = (packed.path2idx
+             or {r["path"]: r["_packed_idx"] for r in manifest_rows if "_packed_idx" in r})
+    return np.memmap(packed.image, dtype=np.uint8, mode="r", shape=(n, h, w, 3)), index
 
 
 def _load_packed(name: str, paths: config.Paths = config.DATA,
@@ -573,7 +588,7 @@ def _load_packed(name: str, paths: config.Paths = config.DATA,
             row["_packed_idx"] = i
     else:
         path2idx = {p: i for i, p in enumerate(meta["paths"])}
-    return str(img_path), (n, h, w), path2idx
+    return PackedIndex(str(img_path), (n, h, w), path2idx)
 
 
 def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:

@@ -15,6 +15,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from chesslab.training.pack import PackedIndex
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -106,7 +108,7 @@ def test_fold_per_session_prints_its_summary_table(tmp_path, monkeypatch, capsys
     monkeypatch.setattr(fold_per_session, "dataset_dir", lambda name: dd)
     monkeypatch.setattr(fold_per_session, "read_jsonl", fake_read_jsonl)
     monkeypatch.setattr("chesslab.training.pack.load_packed",
-                        lambda name, *a, **k: (pack, (len(rows), 4, 4), None))
+                        lambda name, *a, **k: PackedIndex(str(pack), (len(rows), 4, 4), None))
     monkeypatch.setattr(fold_per_session.occluded_model, "all_reads",
                         lambda run, crops: [{"pred_label": "wP"} for _ in crops])
     monkeypatch.setattr(sys, "argv", ["fold", "--dataset", "ds", "--folds", str(folds)])
@@ -134,7 +136,7 @@ def test_fold_per_session_reports_a_session_two_folds_held_back(tmp_path, monkey
     monkeypatch.setattr(fold_per_session, "dataset_dir", lambda name: dd)
     monkeypatch.setattr(fold_per_session, "read_jsonl", fake_read_jsonl)
     monkeypatch.setattr("chesslab.training.pack.load_packed",
-                        lambda name, *a, **k: (pack, (len(rows), 4, 4), None))
+                        lambda name, *a, **k: PackedIndex(str(pack), (len(rows), 4, 4), None))
     monkeypatch.setattr(fold_per_session.occluded_model, "all_reads",
                         lambda run, crops: [{"pred_label": "wP"} for _ in crops])
     monkeypatch.setattr(sys, "argv", ["fold", "--dataset", "ds", "--folds", str(folds)])

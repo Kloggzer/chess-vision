@@ -130,8 +130,10 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   ungemessene Grenzen; `val_conf_auroc` ist als Entscheider unbrauchbar.
 - **Stored-Sessions v2:** 6 Packs mit Grid-Fit-Quad neu gepackt, 637 Hard-Empties geparkt. Offen:
   Dataset `real14-all-80-v2` bauen (Resolver muss die `-80-v2`-Verzeichnisse ziehen) und Retrain.
-- **`load_packed` gibt ein nacktes 3-Tupel zurück**, das an zehn Stellen positional ausgepackt wird
-  — mehrere Packs passen da nicht hinein, darum verweigert es Pack-Datensätze statt sie zu lesen.
+- **`load_packed` liest keine Pack-Datensätze.** Seit 2026-09-20 heisst sein Rückgabewert
+  `PackedIndex` (NamedTuple, weiter positional auspackbar), aber MEHRERE Packs passen weiterhin
+  nicht hinein — es weist sie beim Namen ab und verweist auf `resolve_dataset_packs`. Offen ist,
+  ob die Analyse-Skripte über `torch_data._pack_index` mehrpack-fähig werden sollen.
 - **`open_packed_rows` ist nicht mehrpack-fähig** (2026-09-20: die zehn wörtlichen Kopien in
   `scripts/` sind zu einer Stelle geworden). `load_packed` weist Pack-Datensätze beim Namen ab,
   die Skripte sehen also einen klaren Fehler statt falscher Indizes — lesen können sie sie
