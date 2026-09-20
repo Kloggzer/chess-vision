@@ -36,6 +36,11 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~27~~ | Postgres statt 19 Dateiformate | — | — | **verworfen 2026-09-16** — Messungen bleiben |
 | **28** | Python und TypeScript uneinig: Messung, dann Absage | B | 1 h | **entscheiden** — heute latent |
 | ~~29~~ | `recut_coverage` las das falsche Alpha | — | — | **gefixt** — 68 Zeilen auf der Platte noch falsch |
+| **30** | `gate:occluded` steht unter den neuen Vorgaben auf 0, das Veto feuert weiter | B | Messung | **entscheiden** |
+| **31** | Das Telefon holt den Champion nicht ab (`CONFIG_SCHEMA_VERSION`) | C | 5 min | **entscheiden** |
+| **32** | Die Alarmspalte der Regression zaehlt Entscheidungen, nicht Episoden | A | 20 min | Spalte ergaenzen, nie ersetzen |
+| 33 | `labeled-session-pack` koennte aus `row["board"]` schneiden | C | halber Tag | erst mit dem naechsten Export-Neubau |
+| 34 | Session-Packs ohne `crop_fingerprint` | A | 10 min | heute folgenlos - mit 33 zusammen |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
 
@@ -1471,3 +1476,38 @@ Temperaturen von 1,26 bis 1,76, und die Kante liegt deshalb nicht bei allen an d
 
 **Nicht gemessen:** ob die Kante bei den anderen sechs Modellen woanders sitzt. Das waeren sechs
 weitere Saetze zu je ~50 Minuten.
+
+## 30. `gate:occluded` steht unter den neuen Vorgaben auf 0 (2026-09-20)
+
+`desktop fuzz check` auf den promoteten Werten: `veto:shadow=466 veto:occlusion=520
+veto:changed=807 gate:occluded=0`. Das Verdeckungs-**Veto** ist also scharf, aber der
+Verdeckungs-**Zustand** wird in den Wach-Szenen nicht mehr betreten.
+
+Dasselbe sagt die Bisektion an `FrameLoopTest.coreOccludedStateExitsOnAQuietBoard`: der Test
+haelt einen Vorfall von 2026-08-07 fest (8 verlorene Halbzuege bei 50-ms-Holds) und wird erst
+mit `motionPxThr = 20.0` wieder gruen. Gemessen, dass genau dieser Knopf es ist - die anderen
+drei geaenderten Vorgaben stellen ihn nicht wieder her.
+
+**Kein Blocker:** der volle Satz steht auf 396/3/0 und die Desync-Episoden sind von 15 auf 8
+gefallen. Offen ist, ob die verschobene Empfindlichkeit dieses Tors irgendwo kostet - das
+misst weder der Regressionssatz noch der Fuzzer heute.
+
+## 31. Das Telefon holt den Champion nicht ab (2026-09-20)
+
+`ConfigCodec.encode` schreibt JEDEN Knopf in die gespeicherte Konfiguration, `decode` legt
+jeden gespeicherten Wert ueber die Vorgabe. Ein Geraet mit einmal gespeicherten Einstellungen
+behaelt nach dem APK-Update die alten sechs Werte.
+
+Ein `CONFIG_SCHEMA_VERSION`-Sprung erzwingt es, wirft aber jede Handeinstellung weg - und die
+Regel dort lautet ausdruecklich "bump when a knob's MEANING changes", was hier nicht zutrifft.
+Der Gegenvorschlag ist ein Handgriff am Geraet pro Kandidat. Bewusst offen gelassen.
+
+## 32. Die Alarmspalte der Regression zaehlt Entscheidungen, nicht Episoden (2026-09-20)
+
+`replay-regression.ps1` zaehlt `ALARM latched`-Zeilen, also abgelehnte Entscheidungen unter
+einem stehenden Latch. Der Champion sah damit mit 7 gegen 5 schlechter aus, waehrend seine
+Episoden von 15 auf 8 fielen und drei Anker-Ausfaelle verschwanden.
+
+`scripts/optimise_knobs.py` zaehlt seit 2026-09-20 die Episode (`board desynced`). Die Spalte
+im Skript **nicht** umdefinieren: jede im Projekt zitierte Referenzzahl haengt an ihr. Eine
+zweite Spalte danebenstellen.
