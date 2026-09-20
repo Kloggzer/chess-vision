@@ -60,6 +60,7 @@ fun main(args: Array<String>) {
             check(video.isFile) { "no such video: ${video.absolutePath}" }
             replay(openRecording(video), video.name, ReplayOptions.parse(args.drop(2)), video = video)
         }
+        "batchreplay" -> batchReplay(args.getOrNull(1) ?: usage(), args.drop(2))
         "calibrate" -> {
             val index = args.getOrNull(1)?.toIntOrNull() ?: usage()
             WebcamSource(index).use { calibrate(it) }
@@ -70,6 +71,28 @@ fun main(args: Array<String>) {
             replay(WebcamSource(index), "camera $index", ReplayOptions.parse(args.drop(2)), "webcam:$index")
         }
         else -> usage()
+    }
+}
+
+/**
+ * Mehrere Aufnahmen in EINEM Prozess — nur die Wiederholung spart, sonst nichts.
+ *
+ * Gemessen: JVM-Start und Modell-Ladung kosten 3,6 s, und die JIT-Aufwaermphase nochmal so viel
+ * (16,1 ms je Frame im Mittel gegen 7,8 im eingeschwungenen Zustand). Ein Optimierer-Versuch ueber
+ * fuenf Aufnahmen zahlte das FUENFMAL. Die Namen loesen nach `data/recordings/<name>/video.mp4`
+ * auf, und jeder Lauf bekommt sein `name=` selbst — sonst schriebe er in den Cache der Nachbarin.
+ */
+private fun batchReplay(
+    names: String,
+    rest: List<String>,
+) {
+    val namen = names.split(",").map(String::trim).filter(String::isNotEmpty)
+    check(namen.isNotEmpty()) { "batchreplay wants <name1,name2,...>" }
+    for (name in namen) {
+        val video = File(File(RECORDINGS_DIR, name), "video.mp4")
+        check(video.isFile) { "no such recording: ${video.absolutePath}" }
+        println("===== $name")
+        replay(openRecording(video), video.name, ReplayOptions.parse(rest + "name=$name"), video = video)
     }
 }
 
@@ -487,6 +510,16 @@ internal fun replayRun(
                 trace = trace,
             )
         stack.coordinator.applyCalibration(geometry, quad, "desktop", source.delivered)
+        // N weitere Konfigurationen im SELBEN Bilddurchgang; ohne `configs=` entsteht hier nichts
+        // und der Lauf ist Anweisung fuer Anweisung der alte (`MultiReplay.kt`).
+        val extras =
+            options.extraConfigs?.let { pfad ->
+                ExtraEngines.open(
+                    readExtraConfigs(File(pfad), config), geometry, optics, bus, publisher, cnn, scope,
+                    settings, { source.currentDecodedIndex }, frameClock::now,
+                    recordedStartFen(options, video), cropClaheOf(spec),
+                )?.also { it.calibrate(geometry, quad, source.delivered) }
+            }
         if (trace != null) {
             stack.host.submit(
                 com.chesslab.engine.api.EngineAction
@@ -522,6 +555,7 @@ internal fun replayRun(
                 recorded,
                 statusDump,
                 options.limitFrames,
+                extras,
                 trace,
             )
         statusDump?.close()
@@ -532,6 +566,17 @@ internal fun replayRun(
         println(stack.dropLine())
         val totals = RunTotals(publisher.status.value?.note, stack.observations.toInt(), frames, stack.dropLine())
         session?.finish(video, options, config, geometry, totals)
+        // Je Zusatz-Engine ein eigener Bewertungsblock, gegen DASSELBE Label wie der Hauptlauf.
+        extras?.let { e ->
+            sessionDirOf(options, video)?.let { dir -> File(dir, "candidate.json").takeIf(File::isFile) }?.let { cand ->
+                val label = labelPlies(cand)
+                e.tags.forEachIndexed { i, tag ->
+                    println("===== $tag")
+                    printScore(cand, label, e.plies[i], options.model)
+                }
+            }
+            e.close()
+        }
         training?.finish()
         stack.close()
         visualCache?.close()
@@ -698,6 +743,8 @@ private fun drive(
     recorded: RecordedFrameGate? = null,
     statusDump: java.io.Writer? = null,
     limitFrames: Int? = null,
+    // Weitere Engines auf demselben Bild; null ist der gewohnte Lauf.
+    extras: ExtraEngines? = null,
     trace: ReplayTrace? = null,
 ): Int {
     var frames = 0
@@ -719,6 +766,7 @@ private fun drive(
             frames += 1
             continue
         }
+        extras?.onFrame(frame, source.delivered)
         stack.coordinator.onFrame(frame, source.delivered)
         trace?.frame(source.currentDecodedIndex, source.timestampMs, stack.host.status())
         frameHook?.invoke(hookIndex(source.currentDecodedIndex, frames), frame, source.timestampMs)

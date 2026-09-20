@@ -83,6 +83,9 @@ data class ReplayOptions(
     val motionDump: String? = null,
     /** Build this cache when absent; consume it strictly by frame sequence when present. */
     val visualCache: String? = null,
+    /** `configs=<datei>` — je Zeile `<name> <knopf>=<wert> ...`: weitere Engines im SELBEN
+     *  Bilddurchgang. Sie teilen sich eine Pixel-Bahn (`MultiReplay.kt`). */
+    val extraConfigs: String? = null,
     /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
     val observationCache: Boolean = true,
     /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
@@ -185,6 +188,8 @@ data class ReplayOptions(
                             word.removePrefix("motiondump=").ifEmpty { error("motiondump= wants a file path") },
                     )
                 word.startsWith("visualcache=") -> options.copy(visualCache = word.removePrefix("visualcache="))
+                word.startsWith("configs=") ->
+                    options.copy(extraConfigs = word.removePrefix("configs=").ifEmpty { error("configs= wants a file") })
                 word.startsWith("visualworkers=") ->
                     options.copy(
                         visualWorkers =
@@ -289,7 +294,7 @@ private fun loadRecordedConfig(path: String): TrackerConfig {
  * `set:<knob>=<value>` through the settings catalog. Refusing an unknown key loudly is the point:
  * a typo that silently ran the defaults would be a measurement of nothing.
  */
-private fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
+internal fun TrackerConfig.withOverrides(overrides: Map<String, Double>): TrackerConfig =
     overrides.entries.fold(this) { config, (key, value) ->
         val knob = KNOBS.firstOrNull { it.key == key } ?: error("set: unknown knob '$key' — see ConfigKnobs.KNOBS")
         println("override: $key=$value")
