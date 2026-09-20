@@ -11,7 +11,9 @@ export type JsonlRead = {
 };
 
 export function readJsonl(text: string): JsonlRead {
-  const lines = text.split(/\r?\n/);
+  // `utf-8-sig` wie `chesslab.ioutil`: PowerShells `Out-File` stempelt ein BOM, und ohne diese
+  // Zeile war die erste Zeile "beschaedigt MITTENDRIN" — die Leser werfen darauf die ganze Datei weg.
+  const lines = (text.startsWith("﻿") ? text.slice(1) : text).split(/\r?\n/);
   // Der ZEILENUMBRUCH entscheidet: wer mitten in einer Zeile steht, hat ihn noch nicht
   // geschrieben. Eine kaputte Zeile, die auf einen Umbruch endet, ist kein laufender Schreiber.
   const open = lines.length > 0 && lines[lines.length - 1] !== "";

@@ -30,10 +30,12 @@ export async function loadHistory(limit: number): Promise<Change[]> {
     const fens = new Map((await loadSession(name)).rows.map((r) => [r.stem, r.fen]));
     // Erst filtern, dann schneiden: ein Re-Export schreibt Bretter neu, Labels sind global
     // gekeyt und ueberleben das — geschnitten wurde sonst auf Zeilen, die danach wegfielen.
+    const start = out.length;
     for (const row of rows.sort(newestFirst)) {
-      // Kein Deckel je Aufnahme: hatte die erste genug Zeilen, trug keine weitere mehr etwas bei.
-      // Geschnitten wird am Ende, ueber den ganzen Korpus sortiert.
-      if (out.length >= limit * GAMES_HEADROOM) break;
+      // Der Deckel gilt JE AUFNAHME: `liveGames` ordnet nach Aufnahmedatum, nicht danach, wann
+      // jemand gelabelt hat — global gezaehlt fuellte ihn die erste Aufnahme, und eine gestern
+      // gelabelte aeltere kam nie vor. Geschnitten wird am Ende ueber den ganzen Korpus.
+      if (out.length - start >= limit * GAMES_HEADROOM) break;
       const fen = fens.get(row.frame);
       if (fen === undefined) continue;
       out.push({

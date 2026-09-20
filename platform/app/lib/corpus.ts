@@ -108,6 +108,16 @@ async function loadSplit(name: string): Promise<Split | null> {
 
 type Tally = { rows: number; sessions: Record<string, SessionCounts>; coverage: CoverageTally | null };
 
+/** `utf-8-sig` wie `chesslab.ioutil` und `lib/jsonl.ts`: PowerShells `Out-File` stempelt ein BOM,
+ *  und ohne dies war Zeile 1 "kein JSON" — der ganze Datensatz-Blick warf darauf. */
+async function* withoutBom(lines: AsyncIterable<string> | Iterable<string>): AsyncIterable<string> {
+  let first = true;
+  for await (const line of lines) {
+    yield first ? line.replace(/^﻿/, "") : line;
+    first = false;
+  }
+}
+
 /**
  * One pass over manifest rows. Der ZEILENUMBRUCH entscheidet, wie in `lib/jsonl.ts` und
  * `chesslab.ioutil`: die halbe LETZTE Zeile faellt weg, eine kaputte MITTENDRIN ist
@@ -117,7 +127,7 @@ type Tally = { rows: number; sessions: Record<string, SessionCounts>; coverage: 
 export async function tallyLines(lines: AsyncIterable<string> | Iterable<string>): Promise<Tally> {
   const tally: Tally = { rows: 0, sessions: {}, coverage: null };
   let broken: string | null = null;
-  for await (const line of lines) {
+  for await (const line of withoutBom(lines)) {
     if (!line.trim()) continue;
     if (broken !== null) throw new SyntaxError(broken);
     let row: { session_id?: unknown; label?: unknown; coverage?: unknown };
