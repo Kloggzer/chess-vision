@@ -262,9 +262,10 @@ def main() -> int:
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=args.seed, constraints_func=constraints),
         storage=f"sqlite:///{(OUT / 'study.db').as_posix()}",
-        # Eigener Name: die Suche laeuft jetzt auf fuenf Aufnahmen, die Zielwerte des
-        # Zehn-Satzes sind damit nicht vergleichbar.
-        study_name="latenz5", load_if_exists=True,
+        # Der Name traegt die BEDINGUNGEN mit, nicht nur den Aufnahmesatz: ein Versuch, der unter
+        # zwei Bedingungen zulaessig hiess, sagt unter vier nichts — er wurde auf Wachen und Alarme
+        # nie geprueft. Ihn als zulaessig zurueckzuspielen wuerde TPE genau dorthin ziehen.
+        study_name="latenz5-w4", load_if_exists=True,
     )
     # Unzulaessige Versuche brauchen EINEN Zielwert. Die Strafe liegt weit ueber jedem echten
     # Ergebnis, damit sie die Verteilung nicht verzerrt — entschieden wird ueber `constraints`.
@@ -275,7 +276,10 @@ def main() -> int:
         # Die ganze Geschichte zurueckspielen, nicht nur die Besten: TPE lernt aus den
         # GESCHEITERTEN mit, und `trials.jsonl` haelt sie alle. Ein geleerter Studienspeicher
         # kostet damit nichts ausser dem Zurueckspielen.
-        alt = [x for x in done if x.get("kind") == "suche" and "config" in x]
+        # NUR Zeilen, die unter allen vier Bedingungen gemessen wurden. Aeltere fehlen bewusst:
+        # ihre Zulaessigkeit ist unbekannt, und "unbekannt als zulaessig" ist der teuerste Irrtum.
+        alt = [x for x in done if x.get("kind") == "suche" and "config" in x
+               and "extra_alarme" in x]
         for r in alt:
             study.add_trial(
                 optuna.trial.create_trial(
@@ -289,8 +293,12 @@ def main() -> int:
                     user_attrs={"fehlende_treffer": float(r.get("fehlt", 0)),
                                 "phantome": float(r.get("phantome", 0)),
                                 "entwaffnet": float(r.get("entwaffnet", 0)),
+                                "extra_alarme": float(r.get("extra_alarme", 0)),
                                 "nach": r.get("nach", 0), "status": r["status"]},
-                    system_attrs={"constraints": [float(r.get("fehlt", 0)), float(r.get("phantome", 0))]},
+                    system_attrs={"constraints": [float(r.get("fehlt", 0)),
+                                                  float(r.get("phantome", 0)),
+                                                  float(r.get("entwaffnet", 0)),
+                                                  float(r.get("extra_alarme", 0))]},
                 ),
             )
         if alt:
