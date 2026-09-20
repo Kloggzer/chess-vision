@@ -82,3 +82,30 @@ def test_eine_stumme_pruefung_nennt_stderr(monkeypatch):
 
     with pytest.raises(RuntimeError, match="unknown knob"):
         ok.wachen({"motionThr": 0.5})
+
+
+def _basis(alarme):
+    return {r: {"found": 10, "invented": 0, "alarme": a, "latency": -100}
+            for r, a in zip(ok.RECORDINGS, alarme, strict=True)}
+
+
+def test_alarme_sind_ein_budget_ueber_den_satz(monkeypatch):
+    # Der eigene Champion holt sich eine Episode in einer Aufnahme und spart acht in einer
+    # anderen. Eine Regel je Aufnahme haette ihn verworfen, obwohl er netto ruhiger ist.
+    laeufe = iter([1, 0, 0, 0, 0])
+    monkeypatch.setattr(ok, "replay", lambda rec, cfg, tag: {
+        "found": 10, "invented": 0, "alarme": next(laeufe), "latency": -120})
+
+    row = ok.race({}, _basis([0, 8, 0, 0, 0]), "t")
+
+    assert row["status"] == "ok", row
+
+
+def test_ueber_dem_budget_bricht_das_rennen_ab(monkeypatch):
+    laeufe = iter([3, 0, 0, 0, 0])
+    monkeypatch.setattr(ok, "replay", lambda rec, cfg, tag: {
+        "found": 10, "invented": 0, "alarme": next(laeufe), "latency": -120})
+
+    row = ok.race({}, _basis([1, 1, 0, 0, 0]), "t")
+
+    assert row["status"] == "alarm" and row["extra_alarme"] == 1, row
