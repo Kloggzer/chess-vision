@@ -65,6 +65,7 @@ fun openDesktopCnn(
     log: TrackerLog,
     cache: Boolean = true,
     intraOpThreads: Int = DESKTOP_INTRA_OP_THREADS,
+    recording: String = "unbenannt",
 ): (() -> Attached)? =
     runCatching { desktopCnnAssets(model) }
         .onFailure { println("no CNN: ${it.message}") }
@@ -82,7 +83,7 @@ fun openDesktopCnn(
                 val cacheDir =
                     obsCacheDir(File(OBS_CACHE), model, File(assetDir, MODEL_FP32_FILE), File(assetDir, MODEL_CONFIG_FILE))
                 Attached(
-                    if (cache) CachingClassifier(attached.classifier, cacheDir) else attached.classifier,
+                    if (cache) CachingClassifier(attached.classifier, cacheDir, recording) else attached.classifier,
                     attached.backend,
                     attached.model,
                     attached.spec,

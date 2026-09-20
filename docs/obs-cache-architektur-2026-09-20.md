@@ -62,3 +62,59 @@ Ein einmaliger sequenzieller Durchlauf durch das aktive Verzeichnis (~4 min) leg
 den Seiten-Cache des Betriebssystems; danach kosten Lesevorgaenge 0,22 ms statt 13. Bei 16 GB
 freiem RAM bleibt das stehen. **Das ist ein Pflaster** — es braucht keinen Code, hilft sofort und
 aendert nichts am Entwurf.
+
+---
+
+## KORREKTUR (2026-09-20, nach dem Umbau): die 70 % galten dem KALTEN Fall
+
+Der Umbau ist gefahren, der Regressionssatz bestaetigt ihn (**396/3/0/171 bei 5 Alarmen**, Ziffer
+fuer Ziffer). Die Beschleunigung eines normalen Laufs betraegt: **nichts.**
+
+| | vorher | nachher |
+|---|---|---|
+| `2026-08-08-11-55-19`, warmer Cache | 35,0 s | **34,9 s** |
+
+**Der Fehler in der Begruendung oben:** die 10–13 ms je Lesevorgang sind an Dateien gemessen, die
+NICHT im Seiten-Cache des Betriebssystems lagen, waehrend drei Replays die Platte belasteten. Der
+35-Sekunden-Lauf las dieselben Eintraege warm, also zu 0,22 ms. Eine kalte Einzelmessung wurde mit
+einem warmen Lauf verrechnet; „bis zu 70 % eines Replays sind Warten auf die Platte" gilt fuer
+einen KALTEN Lauf und nicht fuer den Normalfall.
+
+**Was der Umbau trotzdem bringt:**
+
+- Kalter Start: 981 zufaellige Zugriffe werden zu einem sequenziellen Lesevorgang.
+- Plattenplatz: das aktive Verzeichnis faellt von 354 MB auf **142 MB** (kein Cluster-Verschnitt:
+  eine 3,5-KB-Datei belegt auf NTFS 4 KB).
+- Der ganze Cache: **2 365 MB auf 142 MB**, 84 711 Dateien geloescht. Davon 1 743 MB in sieben
+  Verzeichnissen ohne Stempel, die seit Einfuehrung von `obsCacheDir` nie wieder treffbar waren.
+- „Das aktuelle Video vorladen" wird ueberhaupt erst moeglich.
+
+## Der eigentliche Engpass ist der START, nicht die Platte
+
+Dieselbe Messung, sauber zerlegt:
+
+```
+alignment-prepass: 324 frames on 8 workers in 2,3 s
+stetige Verarbeitung: 7,8 ms/Frame -> 15,1 s
+FESTER Aufwand (JVM, Modell, Vorlauf): 19,8 s von 34,9 s = 57 %
+```
+
+**57 % eines Laufs haben mit dem Video nichts zu tun.** Das ist der Grund, warum ein
+`multireplay` (N Konfigurationen in EINEM Durchlauf) so viel traegt: der Startaufwand faellt
+einmal statt N-mal an.
+
+| N | einzeln | multireplay | Faktor |
+|---|---|---|---|
+| 5 | 175 s | 44 s | 4,0x |
+| 10 | 350 s | 54 s | 6,5x |
+| 100 | 3 496 s | 237 s | 14,7x |
+
+Und die Engine-Arbeit ist groesstenteils ebenfalls teilbar: `perSquareCensusChange` und der
+Graukanal reduzieren **861 184 Pixel auf 64 Werte**, und sie haengen NUR an (Referenz, aktuelles
+Bild). Gemessen halten 95 Konfigurationen zu einem Zeitpunkt nur **fuenf verschiedene Referenzen**
+(Median, max 10) — der teure Teil ist also 19-fach teilbar. Was je Konfiguration bleibt
+(`normalizeDiffs`, `SquareNoise.z`, Taints, Zustandsautomat), rechnet auf 64 Zahlen.
+
+**Nicht gemessen:** wie sich die 0,85 ms Engine-Zeit in Millisekunden auf diese Teile verteilt.
+Die Aufteilung ist am Code abgelesen, nicht gestoppt. Und die fuenf Referenzen stammen aus dem
+Screening, wo je EIN Knopf variiert; ein Optimierer verstellt sechs und divergiert staerker.

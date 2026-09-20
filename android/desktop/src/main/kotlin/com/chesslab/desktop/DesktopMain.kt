@@ -349,7 +349,12 @@ internal fun replayRun(
         val publisher = StatusPublisher(scope)
         val cnn =
             if (options.cnn) {
-                openDesktopCnn(options.model, console("chesslabCnn"), cache = options.observationCache)
+                openDesktopCnn(
+                    options.model,
+                    console("chesslabCnn"),
+                    cache = options.observationCache,
+                    recording = options.name ?: video?.nameWithoutExtension ?: "unbenannt",
+                )
             } else {
                 null
             }

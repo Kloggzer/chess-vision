@@ -4,6 +4,7 @@ import com.chesslab.cnn.SquareClassifier
 import com.chesslab.engine.api.BgrImage
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
 import java.io.File
 import java.security.MessageDigest
 
@@ -21,30 +22,52 @@ import java.security.MessageDigest
  * Only sound because replays are deterministic end to end (one clock, inline inference, one
  * intra-op thread, the seed-synchronous cadence): the same file cuts byte-identical crops at the
  * same video times, run after run. Hashing 64 crops costs ~2 ms against the 47 ms it saves.
+ *
+ * **Eine Datei JE AUFNAHME, nicht je Eintrag** (2026-09-20). Vorher lagen 655 588 Dateien zu
+ * 3,5 KB in einem Verzeichnis: ein zufaelliger Zugriff kostete unter Last 10–13 ms, und bis zu
+ * 70 % eines Replays waren Warten auf die Platte. Jetzt liest der Konstruktor die Scherben der
+ * Aufnahme EINMAL sequenziell in eine Map, und jeder Treffer ist eine Suche im RAM.
+ * `docs/obs-cache-architektur-2026-09-20.md`.
  */
 internal class CachingClassifier(
     private val inner: SquareClassifier,
     private val dir: File,
+    private val recording: String,
 ) : SquareClassifier {
     override val classes: List<String> get() = inner.classes
 
     private var hits = 0
     private var misses = 0
+    private val memo: MutableMap<String, Array<FloatArray>> = HashMap()
+    private val shard = File(dir, "$recording.${ProcessHandle.current().pid()}.bin")
+    private var sink: DataOutputStream? = null
+
+    init {
+        // Alle Scherben der Aufnahme: der eigene Prozess schreibt in seine, liest aber jede.
+        // Doppelte Schluessel sind harmlos — der Wert ist eine reine Funktion des Schluessels.
+        dir
+            .listFiles { f -> f.name.startsWith("$recording.") && f.name.endsWith(".bin") }
+            ?.sortedBy { it.name }
+            ?.forEach { load(it) }
+    }
 
     override fun classify(crops: List<BgrImage>): Array<FloatArray> {
-        val file = File(dir, "${keyOf(crops)}.bin")
-        readProbs(file, crops.size)?.let {
+        val key = keyOf(crops)
+        memo[key]?.takeIf { it.size == crops.size }?.let {
             hits += 1
             return it
         }
         val probs = inner.classify(crops)
-        writeProbs(file, probs)
+        memo[key] = probs
+        append(key, probs)
         misses += 1
         return probs
     }
 
     override fun close() {
-        println("obs-cache: $hits hits, $misses misses (${dir.path})")
+        sink?.let { runCatching { it.flush() } }
+        sink?.let { runCatching { it.close() } }
+        println("obs-cache: $hits hits, $misses misses (${shard.path}, ${memo.size} im Speicher)")
         inner.close()
     }
 
@@ -58,37 +81,49 @@ internal class CachingClassifier(
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    /** `null` on absence or any shape mismatch — a broken file is a miss, never a wrong answer. */
-    private fun readProbs(
-        file: File,
-        rows: Int,
-    ): Array<FloatArray>? {
-        if (!file.isFile) return null
-        return runCatching {
+    /** Ein abgerissener letzter Satz faellt weg — dieselbe Regel wie bei `Jsonl` und `read_jsonl`. */
+    private fun load(file: File) {
+        runCatching {
             DataInputStream(file.inputStream().buffered()).use { input ->
-                val n = input.readInt()
-                val width = input.readInt()
-                // A coverage row is one wider than `classes`; the width is the file's, never
-                // `classes.size`, or a cached coverage column reads back as the next row's class.
-                if (n != rows || width !in classes.size..classes.size + 1) return null
-                Array(n) { FloatArray(width) { input.readFloat() } }
+                while (true) {
+                    val key = ByteArray(KEY_BYTES)
+                    try {
+                        input.readFully(key)
+                    } catch (_: EOFException) {
+                        return
+                    }
+                    val rows = input.readInt()
+                    val width = input.readInt()
+                    if (rows !in 1..MAX_ROWS || width !in classes.size..classes.size + 1) return
+                    val probs = Array(rows) { FloatArray(width) { input.readFloat() } }
+                    memo[key.joinToString("") { "%02x".format(it) }] = probs
+                }
             }
-        }.getOrNull()
+        }
     }
 
-    private fun writeProbs(
-        file: File,
+    private fun append(
+        key: String,
         probs: Array<FloatArray>,
     ) {
-        dir.mkdirs()
-        val tmp = File(dir, "${file.name}.tmp")
-        DataOutputStream(tmp.outputStream().buffered()).use { output ->
-            output.writeInt(probs.size)
-            output.writeInt(probs.firstOrNull()?.size ?: classes.size)
-            for (row in probs) for (p in row) output.writeFloat(p)
+        val out =
+            sink ?: run {
+                dir.mkdirs()
+                DataOutputStream(java.io.FileOutputStream(shard, true).buffered()).also { sink = it }
+            }
+        runCatching {
+            out.write(ByteArray(KEY_BYTES) { key.substring(it * 2, it * 2 + 2).toInt(RADIX).toByte() })
+            out.writeInt(probs.size)
+            out.writeInt(probs.firstOrNull()?.size ?: classes.size)
+            for (row in probs) for (p in row) out.writeFloat(p)
+            out.flush()
         }
-        if (!tmp.renameTo(file)) tmp.delete()
     }
 }
 
 private const val BYTE_BITS = 8
+private const val KEY_BYTES = 16
+private const val RADIX = 16
+
+/** Ein Brett hat 64 Felder; alles darueber ist ein kaputter Satz, kein Eintrag. */
+private const val MAX_ROWS = 64
