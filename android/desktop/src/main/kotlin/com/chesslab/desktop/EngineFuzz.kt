@@ -28,6 +28,10 @@ private const val TEXTURE = 24
 private const val FRAME_MS = 33L
 private const val PRIME = 1_000_003L
 
+/** Genug Hand, um den Zug zu verbergen, und genug Frames, damit die Engine ihn verpasst. */
+private const val HIDE_SQUARES = 20
+private const val HIDE_FRAMES = 24
+
 /** Die ausgelieferte Reihenfolge; `empty` zuerst, sonst liest `observationFromProbs` falsch. */
 private val CLASSES =
     listOf("empty", "wP", "wN", "wB", "wR", "wQ", "wK", "bP", "bN", "bB", "bR", "bQ", "bK")
@@ -59,6 +63,9 @@ internal data class Scene(
     val obsLagFrames: Int = 0,
     val obsWrong: Int = 0,
     val luma: Double = 120.0,
+    /** Jeder n-te Halbzug faellt UNTER die Hand: kein Bewegungsausschlag, die Engine sieht ihn
+     *  nie. Erst damit laufen Brett und Engine wirklich auseinander (`docs/engine-fuzz.md`). */
+    val hiddenEvery: Int = 0,
 )
 
 /** Welche Zustaende der Lauf erreicht hat — dieselben Achsen, die `ReplayTrace` schreibt. */
@@ -331,16 +338,39 @@ internal fun fuzzRun(
         tsMs += FRAME_MS
     }
 
-    for (ply in 0 until minOf(scene.plies, LINE.size)) {
-        repeat(scene.stillFrames) { tick(scene.motionFloor, emptySet(), 1.0) }
-        val hand = squares().take(scene.handSquares).toSet()
-        repeat(scene.handFrames) { tick(scene.motionPeak, hand, scene.handCoverage) }
-        repeat(scene.moveFrames) { tick(scene.motionPeak, emptySet(), 1.0) }
-        val uci = LINE[ply]
+    fun spiele(uci: String) {
         val from = uci.substring(0, 2)
         val to = uci.substring(2, 4)
         truth.remove(to)
         truth.remove(from)?.let { truth[to] = it }
+    }
+
+    var uebersprungen = -1
+    for (ply in 0 until minOf(scene.plies, LINE.size)) {
+        // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg; ohne diese Marke spielte die
+        // naechste Runde denselben Zug ein zweites Mal.
+        if (ply == uebersprungen) continue
+        repeat(scene.stillFrames) { tick(scene.motionFloor, emptySet(), 1.0) }
+        val hand = squares().take(scene.handSquares).toSet()
+        val verdeckt = scene.hiddenEvery > 0 && (ply + 1) % scene.hiddenEvery == 0
+        if (verdeckt) {
+            // Der Zug passiert UNTER der Hand und ohne Ausschlag; danach liegt eine Stellung da,
+            // die die Engine nie hat kommen sehen.
+            val decke = squares().take(maxOf(scene.handSquares, HIDE_SQUARES)).toSet()
+            repeat(maxOf(scene.handFrames, HIDE_FRAMES) / 2) { tick(scene.motionFloor, decke, scene.handCoverage) }
+            // ZWEI Halbzuege: einen holt die Engine nach der Hand einfach nach (gemessen 8 von 8
+            // committet), erst ein Abtausch laesst die Stellung nicht mehr als EIN Zug erklaeren.
+            spiele(LINE[ply])
+            if (ply + 1 < minOf(scene.plies, LINE.size)) {
+                spiele(LINE[ply + 1])
+                uebersprungen = ply + 1
+            }
+            repeat(maxOf(scene.handFrames, HIDE_FRAMES) / 2) { tick(scene.motionFloor, decke, scene.handCoverage) }
+            continue
+        }
+        repeat(scene.handFrames) { tick(scene.motionPeak, hand, scene.handCoverage) }
+        repeat(scene.moveFrames) { tick(scene.motionPeak, emptySet(), 1.0) }
+        spiele(LINE[ply])
     }
     repeat(scene.stillFrames) { tick(scene.motionFloor, emptySet(), 1.0) }
     return FuzzResult(seq.toInt(), reached, committed)

@@ -61,6 +61,7 @@ private val INTEGRAL =
  */
 internal data class Witness(
     val trials: Int,
+    val frames: Int,
     val hits: Int,
     val scene: Scene,
     val overrides: Map<String, Double>,
@@ -81,6 +82,9 @@ private fun sampleScene(rng: Random): Scene =
         obsLagFrames = rng.nextInt(0, Envelope.OBS_LAG_MAX + 1),
         obsWrong = if (rng.nextInt(2) == 0) rng.nextInt(1, 20) else 0,
         luma = rng.nextDouble(2.0, 240.0),
+        // Ohne verdeckte Zuege laufen Brett und Engine nie auseinander, und die Verify-Leiter
+        // endet praktisch immer auf `confirmed` (gemessen: 13 `resynced` in 5 000 Ziehungen).
+        hiddenEvery = if (rng.nextInt(2) == 0) rng.nextInt(2, 5) else 0,
     )
 
 private fun sampleOverrides(rng: Random): Map<String, Double> {
@@ -100,27 +104,31 @@ internal fun fuzzSearch(
     trials: Int,
     seed: Long,
     onProgress: (Int) -> Unit = {},
-): Map<String, Witness> {
+): Pair<Map<String, Witness>, Int> {
     val best = HashMap<String, Witness>()
     val rng = Random(seed)
+    var frames = 0
     for (trial in 0 until trials) {
         val scene = sampleScene(rng)
         val overrides = sampleOverrides(rng)
         val config = runCatching { TrackerConfig().withOverrides(overrides) }.getOrNull() ?: continue
         val out = runCatching { fuzzRun(config, scene, seed = rng.nextLong()) }.getOrNull() ?: continue
+        frames += out.frames
         for ((state, hits) in out.reached) {
             if (state.startsWith("note:")) continue
             val seen = best[state]
+            // `frames` summiert die Frames MIT diesem Zustand ueber alle Ziehungen — nur dieser
+            // Anteil ist mit dem Korpus vergleichbar, der ebenfalls Frames zaehlt.
             best[state] =
                 if (seen == null || hits > seen.hits) {
-                    Witness((seen?.trials ?: 0) + 1, hits, scene, overrides)
+                    Witness((seen?.trials ?: 0) + 1, (seen?.frames ?: 0) + hits, hits, scene, overrides)
                 } else {
-                    seen.copy(trials = seen.trials + 1)
+                    seen.copy(trials = seen.trials + 1, frames = seen.frames + hits)
                 }
         }
         onProgress(trial)
     }
-    return best
+    return best to frames
 }
 
 /**
@@ -161,13 +169,23 @@ internal fun fuzzVerb(args: List<String>) {
     val seed = args.getOrNull(1)?.toLongOrNull() ?: 1L
     val out = args.firstOrNull { it.startsWith("out=") }?.removePrefix("out=")
     val started = System.nanoTime()
-    val found = fuzzSearch(trials, seed) { if (it % PROGRESS_EVERY == 0) println("... $it/$trials") }
+    val (found, frames) = fuzzSearch(trials, seed) { if (it % PROGRESS_EVERY == 0) println("... $it/$trials") }
     val seconds = (System.nanoTime() - started) / 1e9
     println("$trials Laeufe in %.1f s (%.1f ms je Lauf)".format(seconds, seconds * 1000 / trials))
     println()
-    println("%-28s %8s %8s  %s".format("Zustand", "Treffer", "max", "noetig dafuer"))
-    for ((state, w) in found.entries.sortedByDescending { it.value.trials }) {
-        println("%-28s %7d/%d %8d  %s".format(state, w.trials, trials, w.hits, describe(w)))
+    println("$frames Frames insgesamt")
+    println("%-28s %9s %8s %8s  %s".format("Zustand", "Ziehungen", "Anteil", "max", "noetig dafuer"))
+    for ((state, w) in found.entries.sortedByDescending { it.value.frames }) {
+        println(
+            "%-28s %8d/%d %7.2f%% %8d  %s".format(
+                state,
+                w.trials,
+                trials,
+                100.0 * w.frames / maxOf(1, frames),
+                w.hits,
+                describe(w),
+            ),
+        )
     }
     out?.let { path ->
         File(path).writeText(

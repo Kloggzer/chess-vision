@@ -43,6 +43,17 @@ class EngineFuzzTest {
         assertTrue(out.hits("veto:shadow") > 0, "das Schatten-Veto muss feuern: ${out.reached}")
     }
 
+    /** Ein verdeckter Abtausch muss die Engine auf einen anderen WEG zwingen. Nicht auf weniger
+     *  Commits: sie leitet die Folge her und committet beide (gemessen 8 von 8). */
+    @Test
+    fun `ein verdeckter Abtausch oeffnet Zustaende, die der klare Lauf nie sieht`() {
+        val ohne = fuzzRun(TrackerConfig(), Scene(plies = 8))
+        val mit = fuzzRun(TrackerConfig(), Scene(plies = 8, hiddenEvery = 2))
+
+        val neu = mit.reached.keys - ohne.reached.keys
+        assertTrue(neu.isNotEmpty(), "kein neuer Zustand: ${mit.reached.keys} gegen ${ohne.reached.keys}")
+    }
+
     @Test
     fun `eine Hand erreicht den Verdeckungszustand`() {
         val out = fuzzRun(TrackerConfig(), Scene(plies = 4, handFrames = 30, handSquares = 12, handCoverage = 0.4))
