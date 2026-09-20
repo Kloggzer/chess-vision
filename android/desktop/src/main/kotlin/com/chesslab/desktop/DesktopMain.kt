@@ -52,7 +52,9 @@ import kotlin.system.exitProcess
  */
 fun main(args: Array<String>) {
     // Vor den Natives: der Erreichbarkeits-Fuzzer fasst kein Bild an und soll auch kein OpenCV laden.
-    if (args.firstOrNull() == "fuzz") return fuzzVerb(args.drop(1))
+    if (args.firstOrNull() == "fuzz") {
+        return if (args.getOrNull(1) == "check") fuzzCheck(args.drop(2)) else fuzzVerb(args.drop(1))
+    }
     NativeCv.require()
     when (args.firstOrNull()) {
         in FILE_TOOLS -> FILE_TOOLS.getValue(args.first())(args.drop(1))

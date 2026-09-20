@@ -70,6 +70,11 @@ SCHREIBEN = threading.Lock()
 FOUND = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)\s+\((\w+)\)", re.M)
 TALLY = re.compile(r"^  (invented|beyond) (\d+)", re.M)
 
+#: Alarme standen in KEINER Nebenbedingung, und der Champion vom 2026-09-20 kaufte 437 Frames
+#: Latenz mit zwei zusaetzlichen (5 -> 7 am vollen Satz). Ein Alarm haelt Commits an, bis er
+#: geloescht ist — das ist am Geraet sichtbar. `docs/engine-fuzz.md`.
+ALARM = re.compile(r"ALARM latched")
+
 
 def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     """Ein Lauf auf einer Aufnahme. Gibt Treffer, Phantome und die Summe der Latenzen zurueck."""
@@ -88,6 +93,7 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     return {
         "found": len(plies),
         "invented": tally.get("invented", 0),
+        "alarme": len(ALARM.findall(proc.stdout)),
         "latency": sum(int(run) - int(label) for _, label, run, _ in plies),
     }
 
@@ -106,14 +112,49 @@ def race(config: dict[str, float], base: dict[str, dict], tag: str,
         if run["found"] < base[rec]["found"]:
             return {"status": "verlust", "at": rec, "nach": i + 1, "sec": sec,
                     "fehlt": base[rec]["found"] - run["found"], "phantome": 0, "latency": 0}
+        if run["alarme"] > base[rec]["alarme"]:
+            return {"status": "alarm", "at": rec, "nach": i + 1, "sec": sec, "fehlt": 0,
+                    "phantome": 0, "latency": 0,
+                    "extra_alarme": run["alarme"] - base[rec]["alarme"]}
         latency += run["latency"]
     return {"status": "ok", "latency": latency, "nach": len(recs), "fehlt": 0, "phantome": 0,
-            "sec": round(time.time() - started, 1)}
+            "extra_alarme": 0, "sec": round(time.time() - started, 1)}
 
 
-def constraints(trial: optuna.trial.FrozenTrial) -> tuple[float, float]:
-    """<= 0 heisst zulaessig. Beide sind HART: kein verlorener Treffer, kein Phantom."""
-    return (trial.user_attrs.get("fehlende_treffer", 0.0), trial.user_attrs.get("phantome", 0.0))
+#: Die Netze, die der Regressionssatz NICHT misst: er lieferte 396/3/0/171 mit UND ohne
+#: Verdeckungsschutz. Latenz gewinnt man, indem man Tore aufmacht — also braucht die Freigabe eine
+#: eigene Achse dafuer. `desktop fuzz check` kostet Sekunden, ein Replay Minuten.
+WACHEN = ("veto:shadow", "veto:occlusion")
+
+#: Einmal je Lauf unter den Vorgabewerten gemessen; nur eine Wache, die HIER feuert, kann
+#: spaeter entwaffnet werden. Gesetzt in `main`, damit der Import nichts startet.
+WACHEN_BASIS: dict[str, int] = {}
+
+
+def wachen(config: dict[str, float]) -> dict[str, int]:
+    """Feuern die Vetos unter dieser Konfiguration noch? Synthetisch, ohne Aufnahme."""
+    words = [f"set:{k}={v}" for k, v in config.items()]
+    proc = subprocess.run([str(BINARY), "fuzz", "check", *words], cwd=DESKTOP,
+                          capture_output=True, text=True, errors="replace", check=False)
+    letzte = [z for z in proc.stdout.splitlines() if "veto:" in z]
+    if not letzte:
+        raise RuntimeError(f"fuzz check lieferte keine Achsen: {proc.stdout[-400:]}")
+    return {t.split("=")[0]: int(t.split("=")[1]) for t in letzte[-1].split()}
+
+
+def entwaffnet(config: dict[str, float], basis: dict[str, int]) -> list[str]:
+    """Welche Wache feuert unter der Basis, aber nicht mehr hier? Das ist ein stiller Rueckschritt."""
+    jetzt = wachen(config)
+    return [a for a in WACHEN if basis.get(a, 0) > 0 and jetzt.get(a, 0) == 0]
+
+
+def constraints(trial: optuna.trial.FrozenTrial) -> tuple[float, float, float]:
+    """<= 0 heisst zulaessig. Alle vier sind HART: kein verlorener Treffer, kein Phantom,
+    kein entwaffnetes Veto, kein zusaetzlicher Alarm."""
+    return (trial.user_attrs.get("fehlende_treffer", 0.0),
+            trial.user_attrs.get("phantome", 0.0),
+            trial.user_attrs.get("entwaffnet", 0.0),
+            trial.user_attrs.get("extra_alarme", 0.0))
 
 
 def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> float:
@@ -122,9 +163,17 @@ def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> floa
                else round(trial.suggest_float(name, lo, hi), 4))
         for name, (lo, hi) in SPACE.items()
     }
-    row = race(config, base, f"t{trial.number:03d}")
+    # VOR dem Racing: eine entwaffnete Wache spart fuenf Replays und ist ohnehin unzulaessig.
+    tot = entwaffnet(config, WACHEN_BASIS)
+    if tot:
+        row = {"status": "entwaffnet", "at": ",".join(tot), "nach": 0, "sec": 0.0,
+               "fehlt": 0, "phantome": 0, "latency": 0}
+    else:
+        row = race(config, base, f"t{trial.number:03d}")
+    trial.set_user_attr("entwaffnet", float(len(tot)))
     trial.set_user_attr("fehlende_treffer", float(row.get("fehlt", 0)))
     trial.set_user_attr("phantome", float(row.get("phantome", 0)))
+    trial.set_user_attr("extra_alarme", float(row.get("extra_alarme", 0)))
     trial.set_user_attr("nach", row["nach"])
     trial.set_user_attr("status", row["status"])
     with SCHREIBEN:
@@ -170,7 +219,9 @@ def main() -> int:
     args = ap.parse_args()
 
     done = list(read_jsonl(TRIALS)) if TRIALS.exists() else []
-    base = {r["rec"]: r for r in done if r.get("kind") == "basis"}
+    # Eine Basiszeile von VOR der Alarm-Bedingung traegt keine Alarmzahl. Sie stehen zu lassen
+    # haette die Bedingung lautlos abgeschaltet — also fallen sie raus und werden neu gemessen.
+    base = {r["rec"]: r for r in done if r.get("kind") == "basis" and "alarme" in r}
     # NACHEINANDER, vor den parallelen Versuchen: zwei Prozesse, die denselben Cache gleichzeitig
     # anlegen, streiten sich um dieselbe `.partial`-Datei.
     VISUAL.mkdir(parents=True, exist_ok=True)
@@ -194,6 +245,9 @@ def main() -> int:
                   f"lat={row['latency']:+}", flush=True)
     # NUR ueber die Suchaufnahmen: `base` traegt auch die fuenf, die erst `--voll` braucht, und
     # ein Massstab aus zehn Aufnahmen gegen ein Ergebnis aus fuenf waere schlicht falsch.
+    WACHEN_BASIS.update(wachen({}))
+    print("Wachen unter Vorgabe: "
+          + " ".join(f"{a}={WACHEN_BASIS.get(a, 0)}" for a in WACHEN), flush=True)
     basis_lat = sum(base[r]["latency"] for r in RECORDINGS)
     treffer = sum(base[r]["found"] for r in RECORDINGS)
     print(f"\nBasis: {treffer} Treffer, Latenz {basis_lat:+} Frames", flush=True)
@@ -213,12 +267,29 @@ def main() -> int:
     # Warmstart: die zulaessigen Konfigurationen des Zehn-Satz-Laufs sind teuer erkauft und
     # bleiben als Startpunkte gueltig, auch wenn ihre Zielwerte es nicht sind.
     if not study.trials:
-        warm = sorted((x for x in done if x.get("kind") in ("versuch", "suche")
-                       and x["status"] == "ok"), key=lambda x: x["latency"])[:5]
-        for r in warm:
-            study.enqueue_trial(r["config"])
-        if warm:
-            print(f"Warmstart mit {len(warm)} Kandidaten aus dem Zehn-Satz-Lauf", flush=True)
+        # Die ganze Geschichte zurueckspielen, nicht nur die Besten: TPE lernt aus den
+        # GESCHEITERTEN mit, und `trials.jsonl` haelt sie alle. Ein geleerter Studienspeicher
+        # kostet damit nichts ausser dem Zurueckspielen.
+        alt = [x for x in done if x.get("kind") == "suche" and "config" in x]
+        for r in alt:
+            study.add_trial(
+                optuna.trial.create_trial(
+                    params=r["config"],
+                    distributions={
+                        n: (optuna.distributions.IntDistribution(int(lo), int(hi)) if n in GANZZAHLIG
+                            else optuna.distributions.FloatDistribution(lo, hi))
+                        for n, (lo, hi) in SPACE.items()
+                    },
+                    value=r["latency"] if r["status"] == "ok" else strafe,
+                    user_attrs={"fehlende_treffer": float(r.get("fehlt", 0)),
+                                "phantome": float(r.get("phantome", 0)),
+                                "entwaffnet": float(r.get("entwaffnet", 0)),
+                                "nach": r.get("nach", 0), "status": r["status"]},
+                    system_attrs={"constraints": [float(r.get("fehlt", 0)), float(r.get("phantome", 0))]},
+                ),
+            )
+        if alt:
+            print(f"{len(alt)} fruehere Versuche zurueckgespielt", flush=True)
     offen = args.trials - len([t for t in study.trials if t.state.is_finished()])
     if offen > 0:
         study.optimize(lambda tr: objective(tr, base, strafe), n_trials=offen,

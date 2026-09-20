@@ -123,6 +123,38 @@ internal fun fuzzSearch(
     return best
 }
 
+/**
+ * Feste Szenen, die die Netze ansprechen: Hand ueber dem Brett, Schatten auf den Nachbarfeldern,
+ * schwache Beobachtung. Sie messen NICHT die Bewertung, sondern ob ein Veto noch scharf ist.
+ */
+private val WACHE =
+    listOf(
+        Scene(plies = 4, handFrames = 24, handSquares = 10, handCoverage = 0.6),
+        Scene(plies = 4, handFrames = 40, handSquares = 24, handCoverage = 0.3, obsConf = 0.55),
+        Scene(plies = 4, handFrames = 12, handSquares = 4, handCoverage = 0.9, obsWrong = 6),
+        Scene(plies = 6, handFrames = 30, handSquares = 16, handCoverage = 0.5, obsEvery = 5),
+    )
+
+/** `fuzz check <knopf>=<wert> ...` — sind die Netze noch scharf? Sekunden statt eines Replays. */
+internal fun fuzzCheck(args: List<String>) {
+    val overrides =
+        args.filter { it.contains('=') }.associate {
+            it.substringBefore('=') to (it.substringAfter('=').toDoubleOrNull() ?: error("kein Wert: $it"))
+        }
+    val config = TrackerConfig().withOverrides(overrides)
+    val total = HashMap<String, Int>()
+    for ((i, scene) in WACHE.withIndex()) {
+        for ((state, hits) in fuzzRun(config, scene, seed = (i + 1).toLong()).reached) {
+            total.merge(state, hits, Int::plus)
+        }
+    }
+    println(
+        WACHEN_ACHSEN.joinToString(" ") { "$it=${total[it] ?: 0}" },
+    )
+}
+
+private val WACHEN_ACHSEN = listOf("veto:shadow", "veto:occlusion", "veto:changed", "gate:occluded")
+
 /** `fuzz [trials] [seed] [out=<datei>]` — kein OpenCV, kein Modell, keine Aufnahme. */
 internal fun fuzzVerb(args: List<String>) {
     val trials = args.getOrNull(0)?.toIntOrNull() ?: DEFAULT_TRIALS

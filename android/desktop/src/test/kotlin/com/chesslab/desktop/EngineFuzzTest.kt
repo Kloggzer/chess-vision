@@ -34,6 +34,15 @@ class EngineFuzzTest {
         assertEquals(0, out.hits("gate:moving"), "ein stehendes Brett darf kein `moving` erzeugen")
     }
 
+    /** Zweimal still verloren: graues Brett, dann Textur am Helligkeitswert statt am Inhalt.
+     *  Beide Male stand `verify:shadow` auf null und sah aus wie ein toter Sensor. */
+    @Test
+    fun `eine Hand mit Schatten schaerft das Schatten-Veto`() {
+        val out = fuzzRun(TrackerConfig(), Scene(plies = 4, handFrames = 24, handSquares = 10, handCoverage = 0.6))
+
+        assertTrue(out.hits("veto:shadow") > 0, "das Schatten-Veto muss feuern: ${out.reached}")
+    }
+
     @Test
     fun `eine Hand erreicht den Verdeckungszustand`() {
         val out = fuzzRun(TrackerConfig(), Scene(plies = 4, handFrames = 30, handSquares = 12, handCoverage = 0.4))
