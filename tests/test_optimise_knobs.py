@@ -48,3 +48,37 @@ def test_constraints_tragen_veto_und_alarm():
                       "entwaffnet": 1.0, "extra_alarme": 2.0}
 
     assert ok.constraints(Trial()) == (0.0, 0.0, 1.0, 2.0)
+
+
+def test_wachen_uebergibt_blanke_knoepfe(monkeypatch):
+    # Mit `set:`-Praefix hiess der Knopf `set:motionThr` und der Katalog warf. Die Basispruefung
+    # uebergibt keinen Knopf und lief deshalb durch — der Fehler blieb bis zum ersten Versuch still.
+    gesehen = {}
+
+    class Proc:
+        stdout = "veto:shadow=1 veto:occlusion=2\n"
+        stderr = ""
+        returncode = 0
+
+    def fake_run(argv, **kwargs):
+        gesehen["argv"] = argv
+        return Proc()
+
+    monkeypatch.setattr(ok.subprocess, "run", fake_run)
+
+    assert ok.wachen({"motionThr": 0.5}) == {"veto:shadow": 1, "veto:occlusion": 2}
+    assert "motionThr=0.5" in gesehen["argv"]
+    assert not any(a.startswith("set:") for a in gesehen["argv"])
+
+
+def test_eine_stumme_pruefung_nennt_stderr(monkeypatch):
+    # Der .bat-Rahmen verschluckt den Exit-Code, also ist stderr die einzige Spur.
+    class Proc:
+        stdout = ""
+        stderr = "unknown knob 'set:motionThr'"
+        returncode = 0
+
+    monkeypatch.setattr(ok.subprocess, "run", lambda *a, **k: Proc())
+
+    with pytest.raises(RuntimeError, match="unknown knob"):
+        ok.wachen({"motionThr": 0.5})

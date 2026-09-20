@@ -133,12 +133,17 @@ WACHEN_BASIS: dict[str, int] = {}
 
 def wachen(config: dict[str, float]) -> dict[str, int]:
     """Feuern die Vetos unter dieser Konfiguration noch? Synthetisch, ohne Aufnahme."""
-    words = [f"set:{k}={v}" for k, v in config.items()]
+    # OHNE `set:` — das Verb nimmt blanke `<knopf>=<wert>`. Mit Praefix hiess der Knopf
+    # `set:motionThr`, und der Katalog warf; die Basispruefung uebergibt keinen und lief durch.
+    words = [f"{k}={v}" for k, v in config.items()]
     proc = subprocess.run([str(BINARY), "fuzz", "check", *words], cwd=DESKTOP,
                           capture_output=True, text=True, errors="replace", check=False)
     letzte = [z for z in proc.stdout.splitlines() if "veto:" in z]
     if not letzte:
-        raise RuntimeError(f"fuzz check lieferte keine Achsen: {proc.stdout[-400:]}")
+        # Der .bat-Rahmen verschluckt den Exit-Code einer geworfenen Ausnahme, also traegt die
+        # Meldung stderr mit: sonst steht hier eine leere Zeile und niemand weiss, warum.
+        raise RuntimeError(f"fuzz check lieferte keine Achsen (rc={proc.returncode}): "
+                           f"{proc.stdout[-200:]} | {proc.stderr[-400:]}")
     return {t.split("=")[0]: int(t.split("=")[1]) for t in letzte[-1].split()}
 
 
