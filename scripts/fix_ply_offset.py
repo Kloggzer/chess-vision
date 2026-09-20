@@ -28,7 +28,7 @@ from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.labeling import load_corrections
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
-from chesslab.training.pack import load_packed
+from chesslab.training.pack import open_packed_rows
 
 ROOT = Path("data/recordings")
 
@@ -67,10 +67,7 @@ def main():
     for r in manifest:
         rows_of[(r["session_id"], r["frame"])].append(r)
 
-    packed = load_packed(args.dataset, manifest_rows=manifest)
-    img_path, (n, h, w), path2idx = packed
-    index = path2idx or {r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
-    mm = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(args.dataset, manifest)
 
     human = {}
     for sess in {s for s, _ in strong}:

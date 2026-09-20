@@ -26,7 +26,7 @@ from chesslab import occluded_model
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
-from chesslab.training.pack import load_packed
+from chesslab.training.pack import open_packed_rows
 
 
 def board_of(fen: str) -> dict[str, str]:
@@ -55,12 +55,8 @@ def main():
 
     dd = dataset_dir(args.dataset)
     manifest = read_jsonl(dd / "manifest.jsonl")
-    packed = load_packed(args.dataset, manifest_rows=manifest)
-    if packed is None:
-        raise SystemExit(f"{args.dataset} hat keine nutzbare Memmap — erst `dataset pack`")
-    img_path, (n, h, w), path2idx = packed
-    index = path2idx or {r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
-    mm = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(args.dataset, manifest)
+    n, h, w = mm.shape[:3]
 
     # Die FEN je (Session, Ply) — alle Zeilen eines Ply teilen sie.
     fen_of = {(r["session_id"], int(r["ply"])): r["fen"] for r in manifest}

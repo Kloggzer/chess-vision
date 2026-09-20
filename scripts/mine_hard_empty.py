@@ -80,22 +80,14 @@ def training_rows_and_reader(name, split_name, which="train"):
     from chesslab.dataset import load_manifest
     from chesslab.dataset_build import dataset_dir
     from chesslab.training.data import filter_rows_by_split, load_split
-    from chesslab.training.pack import load_packed
+    from chesslab.training.pack import open_packed_rows
 
     dd = dataset_dir(name)
     manifest = load_manifest(dd / "manifest.jsonl")
     split = load_split(dd / (split_name or "split.json"))
     rows = filter_rows_by_split(manifest, split, which)
-    packed = load_packed(name, manifest_rows=manifest)
-    if packed is None:
-        raise SystemExit(f"[FAIL] '{name}' hat keine nutzbare Memmap — erst "
-                         f"`chesslab dataset pack {name}` laufen lassen.")
-    img_path, (n, h, w), path2idx = packed
-    # Bei uebergebenen Manifest-Zeilen markiert load_packed `_packed_idx` an der Zeile und baut
-    # kein Pfad-Woerterbuch — derselbe Weg, den PackedSquareDataset nimmt.
-    index = path2idx if path2idx is not None else {
-        r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
-    mm = np.memmap(img_path, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(name, manifest)
+    n, h, w = mm.shape[:3]
     print(f"[i] {len(rows)} Zeilen ({which}) aus {name} (Memmap {n} Zeilen @ {w}px)")
     return rows, (lambda path: (np.array(mm[index[path]])[:, :, ::-1]
                                 if path in index else None)), (w, h)

@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
-from chesslab.training.pack import load_packed
+from chesslab.training.pack import open_packed_rows
 
 CELL, PAD, BAR = 96, 6, 26
 
@@ -43,9 +43,7 @@ def main():
 
     dd = dataset_dir(args.dataset)
     man = read_jsonl(dd / "manifest.jsonl")
-    img, (n, h, w), p2i = load_packed(args.dataset, manifest_rows=man)
-    index = p2i or {r["path"]: r["_packed_idx"] for r in man if "_packed_idx" in r}
-    mm = np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(args.dataset, man)
     # Ein Beispielcrop je (Session, Feld, Label) — die Situation ist ueber die Frames dieselbe.
     pick: dict[tuple, str] = {}
     for r in man:

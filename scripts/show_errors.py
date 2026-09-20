@@ -20,7 +20,7 @@ from chesslab.dataset_build import dataset_dir
 from chesslab.training.boardnet import CELLS
 from chesslab.training.engine import evaluate_dataset
 from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
-from chesslab.training.pack import load_packed, resolve_dataset_packs
+from chesslab.training.pack import load_packed, open_packed_rows, resolve_dataset_packs
 from chesslab.training.torch_data import PackedBoardDataset, eval_transform_for
 
 CELL, PAD, BAR = 112, 6, 28
@@ -74,9 +74,7 @@ def main() -> int:
     ds = PackedBoardDataset(rows, classes, eval_transform_for(cfg), packed)
     rows = ds.rows
 
-    img, (n, h, w), p2i = load_packed(ds_name, manifest_rows=manifest)
-    index = p2i or {r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
-    mm = np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(ds_name, manifest)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model.to(device)

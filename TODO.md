@@ -132,8 +132,10 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   Dataset `real14-all-80-v2` bauen (Resolver muss die `-80-v2`-Verzeichnisse ziehen) und Retrain.
 - **`load_packed` gibt ein nacktes 3-Tupel zurück**, das an zehn Stellen positional ausgepackt wird
   — mehrere Packs passen da nicht hinein, darum verweigert es Pack-Datensätze statt sie zu lesen.
-- **Acht `scripts/*.py` kopieren `index = p2i or {r["path"]: r["_packed_idx"] …}` wörtlich** — eine
-  Auflösung je Skript, keine davon mehrpack-fähig; `torch_data._pack_index` ist die eine Stelle.
+- **`open_packed_rows` ist nicht mehrpack-fähig** (2026-09-20: die zehn wörtlichen Kopien in
+  `scripts/` sind zu einer Stelle geworden). `load_packed` weist Pack-Datensätze beim Namen ab,
+  die Skripte sehen also einen klaren Fehler statt falscher Indizes — lesen können sie sie
+  weiterhin nicht. Weg wäre `resolve_dataset_packs` plus `torch_data._pack_index`.
 - **Zwei `mm://`-Formate ohne gemeinsamen Bauer:** `synth_build._virtual_path` gegen die
   Kotlin-Schreiber; nur `packs.pack_name_of` liest beide.
 - **`crop_fingerprint` fehlt in Session-Packs, `synth_build` schreibt dort `{}`.** FEHLEND heißt

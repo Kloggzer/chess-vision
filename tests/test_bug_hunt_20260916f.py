@@ -90,7 +90,9 @@ def test_mine_hard_coverage_skips_rows_the_matte_never_measured(tmp_path, monkey
     img = tmp_path / "packed_images.u8"
     np.zeros((2, 4, 4, 3), np.uint8).tofile(img)
     monkeypatch.setattr(mine, "dataset_dir", lambda name: dd)
-    monkeypatch.setattr(mine, "load_packed",
+    # An `pack.load_packed`, nicht am Skript: so laeuft `open_packed_rows` mitsamt seiner
+    # `_packed_idx`-Rueckfallebene wirklich mit, statt wegpatcht zu werden.
+    monkeypatch.setattr("chesslab.training.pack.load_packed",
                         lambda *a, **k: (img, (2, 4, 4), {"a.webp": 0, "b.webp": 1}))
     monkeypatch.setattr(mine.occluded_model, "all_reads",
                         lambda run, cells: [{"coverage": 0.9} for _ in cells])

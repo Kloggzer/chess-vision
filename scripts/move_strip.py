@@ -17,7 +17,7 @@ from PIL import Image, ImageDraw
 
 from chesslab.dataset_build import dataset_dir
 from chesslab.ioutil import read_jsonl
-from chesslab.training.pack import load_packed
+from chesslab.training.pack import open_packed_rows
 
 CELL, PAD, BAR = 104, 5, 26
 
@@ -34,9 +34,7 @@ def main() -> int:
     sid = f"rg-{args.session}"
     dd = dataset_dir(args.dataset)
     manifest = read_jsonl(dd / "manifest.jsonl")
-    img, (n, h, w), p2i = load_packed(args.dataset, manifest_rows=manifest)
-    index = p2i or {r["path"]: r["_packed_idx"] for r in manifest if "_packed_idx" in r}
-    mm = np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, index = open_packed_rows(args.dataset, manifest)
 
     rows = sorted((r for r in manifest
                    if r["session_id"] == sid and r.get("ply") == args.ply

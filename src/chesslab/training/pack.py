@@ -500,6 +500,22 @@ def load_packed(name: str, paths: config.Paths = config.DATA,
         return _load_packed(name, paths, manifest_rows)
 
 
+def open_packed_rows(name: str, manifest_rows: list[dict],
+                     paths: config.Paths = config.DATA) -> tuple[np.memmap, dict[str, int]]:
+    """`(Memmap, {Crop-Pfad: Zeile})` fuer Analyse-Skripte — die EINE Aufloesung.
+
+    Zehn Skripte bauten sie woertlich nach (`p2i or {…"_packed_idx"…}` plus `np.memmap`), keines
+    mehrpack-faehig. NICHT fuer DataLoader-Worker: eine offene Memmap uebersteht das Pickling nach
+    Windows-Spawn nicht, dafuer ist [_load_packed] da.
+    """
+    packed = load_packed(name, paths, manifest_rows=manifest_rows)
+    if not packed:
+        raise FileNotFoundError(f"{name} hat keine Memmap — erst `chesslab dataset pack`")
+    img, (n, h, w), path2idx = packed
+    index = path2idx or {r["path"]: r["_packed_idx"] for r in manifest_rows if "_packed_idx" in r}
+    return np.memmap(img, dtype=np.uint8, mode="r", shape=(n, h, w, 3)), index
+
+
 def _load_packed(name: str, paths: config.Paths = config.DATA,
                  manifest_rows: list[dict] | None = None):
     """Return (packed_file_path, (N,H,W), {crop_path: index}) or None if not packed.
