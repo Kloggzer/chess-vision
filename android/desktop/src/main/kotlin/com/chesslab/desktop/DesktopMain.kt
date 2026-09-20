@@ -342,7 +342,7 @@ internal fun replayRun(
         val config =
             options
                 .trackerConfig(geometry, live = camera != null, emulatedFps = (source.fps / stride).takeIf { stride > 1 })
-                .withCoverageGateOf(spec)
+                .withCoverageGateOf(spec, options.overrides.keys)
         println("board located from its markers: ${geometry.boardSize} px warp  ·  $options")
         println("crops: ${cropLine(spec, geometry)}")
         if (camera == null) println("observer: synchronous and free-running on video time — runs repeat")

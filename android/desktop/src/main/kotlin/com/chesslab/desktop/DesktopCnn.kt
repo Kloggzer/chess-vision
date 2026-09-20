@@ -164,6 +164,7 @@ fun desktopModelSpec(model: String): ModelSpec? =
  */
 fun TrackerConfig.withCoverageGateOf(
     spec: ModelSpec?,
+    overridden: Set<String> = emptySet(),
     warn: (String) -> Unit = { println("warn: $it") },
 ): TrackerConfig {
     if (spec?.coverageOutput == true && spec.coverageGate == null) {
@@ -171,6 +172,10 @@ fun TrackerConfig.withCoverageGateOf(
             "model declares coverage_output but no measured coverage_gate — " +
                 "pOccludedThr falls back to the legacy default 0.5 (docs/occlusion-gate.md)",
         )
+    }
+    // Sonst misst ein A/B auf diesem Knopf zweimal dasselbe und nennt die Schwelle folgenlos.
+    if ("pOccludedThr" in overridden && spec?.coverageGate != null) {
+        warn("set:pOccludedThr wird vom coverage_gate des Modells (${spec.coverageGate}) verworfen")
     }
     if (spec == null) return this
     // Dieselbe Bewegung wie oben, eine Achse weiter: die Konfidenz-Huerde bedeutete je Modell
