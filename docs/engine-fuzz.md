@@ -91,10 +91,31 @@ Ziehung erreicht hat.
 
 Zwei Luecken, in entgegengesetzte Richtungen.
 
-**Der Fuzzer erreicht einen Zustand, den der Korpus nie zeigt.** `gate:dark` feuert 829-mal; in
-1 066 309 echten Trace-Frames kommt er kein einziges Mal vor. Der Dunkelframe-Pfad ist erreichbar,
-nur nicht in diesem Material — und dunkles Material ist im Projekt ausdruecklich die
-Haerteprueffung, die Bedingung ist also keine Fantasie.
+**Der Fuzzer erreicht einen Zustand, den der Korpus nie zeigt — und das ist ein TOTER PFAD
+(korrigiert 2026-09-20).** `gate:dark` feuert 829-mal im Fuzzer und in 1 066 309 echten
+Trace-Frames kein einziges Mal. Ich habe das zuerst als "erreichbar, nur nicht in diesem
+Material" gelesen. Falsch: die Bedingung steht ZWEIMAL, auf derselben Groesse und derselben
+Schwelle.
+
+| | Ort | Bedingung | Folge |
+|---|---|---|---|
+| zuerst | `FramePipeline.darkNote` | `config.darkLumaThr > 0 && luma < config.darkLumaThr` | `FrameResult.Skipped` — **kein `FrameInput`** |
+| danach | `FrameLoop` | `cfg.darkLumaThr > 0 && input.lumaPreClahe < cfg.darkLumaThr` | `Skip(SKIP_DARK)` = `gate:dark` |
+
+Beide messen `lumaPreClahe`, beide lesen dasselbe Konfigurationsfeld. Ein Frame, der die zweite
+Bedingung erfuellen wuerde, hat die erste schon getroffen und ist verworfen worden. **Das Tor der
+Engine kann im Produkt nicht feuern.** Der Fuzzer erreicht es nur, weil er die Engine-Naht direkt
+faehrt und die Pipeline umgeht.
+
+Damit ist `darkLumaThr` der erste belegte Fall der Kategorie, nach der die ganze Untersuchung
+suchte: nicht "seltene Situation", nicht "Tor davor loest zuerst auf", sondern **dieselbe Pruefung
+zweimal, die zweite unerreichbar**. Ob die redundante Wache bleiben soll, ist eine Entscheidung
+und keine Messung — sie kostet nichts und traegt, falls die Engine je aus einer anderen Quelle
+gefahren wird. Genau das tut der Fuzzer.
+
+**Was das ueber die Methode sagt:** Erreichbarkeit an der Naht ist NICHT Erreichbarkeit im
+Produkt. Ein Fuzzer, der unterhalb eines Filters ansetzt, findet Zustaende, die es im Betrieb
+nicht gibt. Jeder positive Fund gehoert deshalb gegen die vorgelagerte Kette geprueft.
 
 **Wichtiger ist die Luecke andersherum: der Fuzzer erreicht `verify:resynced` nie, obwohl der
 Korpus 4 856 davon traegt** — es ist dort der zweithaeufigste Verify-Zustand ueberhaupt. Dasselbe
@@ -168,3 +189,30 @@ desktop fuzz [laeufe] [seed] [out=<datei>]
 
 Lädt kein OpenCV und braucht keine Aufnahme. Ausgabe: je Engine-Zustand die höchste erreichte
 Häufigkeit und die Szene plus Konfiguration, die sie erzeugt hat.
+
+
+## Wo der Treiber gegenueber der echten Kette luegt (Review 2026-09-20)
+
+Eine unabhaengige Durchsicht hat Stellen gefunden, an denen der synthetische Treiber Eingaben
+erzeugt, die die reale Pipeline nie erzeugt — oder umgekehrt. Sie begrenzen, was ein Befund wert
+ist, und stehen hier, damit niemand mehr aus ihnen schliesst als drinsteckt.
+
+**Gemessen und bestaetigt:**
+
+- `motionRoiScore` ist vom Bild UND von `motionPxThr`/`motionMargin` entkoppelt. Die echte Kette
+  rechnet ihn in `RoiMotion` aus genau diesen zwei Knoepfen und dem Bild. Folge: `fuzz check`
+  kann die Wirkung von zwei der sechs Champion-Knoepfe auf den echten Sensor nicht pruefen, und
+  der Treiber kann bytegleiche Bilder mit beliebigem Ausschlag liefern.
+- Die "verdeckten" Halbzuege liegen groesstenteils NICHT unter der Hand: die Hand ist immer
+  `squares().take(n)`, also ein Block ab `a1`, waehrend die Zugfelder anderswo liegen. Der
+  Treiber erzeugt damit zwei sichtbare Stellungsaenderungen neben einer Hand, nicht einen Zug
+  unter ihr.
+- Die Schnappschuss-Reihenfolge ist umgedreht: `EngineHost` leert erst die Warteschlange und ruft
+  dann `onFrame`, der Treiber macht es andersherum.
+- `pOccludedThr` wird von 0,05 bis 0,98 durchsucht, aber die synthetische `pOccluded` ist nur
+  0,0 oder 1,0 — jeder Wert des Bereichs klassifiziert gleich.
+- `gridOccluded` ist immer 0, der modellfreie Verdeckungsarm also stumm.
+- `corners` steht fest, `timestampMs` steigt exakt um 33 ms: Ecken-Spruenge und Bildraten-Jitter
+  kommen nicht vor.
+- Die Prozentspalte mischt zwei Groessen: `gate:*`, `stuck:*` und `verify:*` sind Frames, `state:*`
+  sind UEBERGAENGE. Nur die ersten drei sind mit einem Korpus-Frame-Anteil vergleichbar.
