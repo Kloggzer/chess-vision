@@ -54,11 +54,19 @@ def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
     return out
 
 
+def open_pack(pack: Path) -> tuple[np.memmap, dict[str, int]]:
+    """`(Memmap, {Crop-Pfad: Zeile})` eines SESSION-Packs — das Gegenstueck zu
+    `training.pack.open_packed_rows`, das den DATENSATZ-Pack oeffnet (`docs/pack-arten.md`)."""
+    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
+    mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r",
+                   shape=(meta["n"], meta["h"], meta["w"], 3))
+    return mm, {p: i for i, p in enumerate(meta["paths"])}
+
+
 def thumbs(pack: Path, rows: list[dict]) -> np.ndarray:
     """Alle Crops als kleine Graustufen-Bilder, aus der Memmap gelesen."""
-    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
-    n, h, w = meta["n"], meta["h"], meta["w"]
-    mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, _ = open_pack(pack)
+    h = mm.shape[1]
     step = h // THUMB
     out = np.empty((len(rows), THUMB * THUMB), dtype=np.float32)
     for i, row in enumerate(rows):

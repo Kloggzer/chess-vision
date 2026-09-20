@@ -11,7 +11,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from chesslab.ioutil import write_json
+from chesslab.ioutil import iter_jsonl, write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
@@ -110,12 +110,10 @@ def main():
         tf = reference_transform(tf)
     train = set(cfg['split']['splits']['train'])
     rows = []
-    with (dd / 'manifest.jsonl').open(encoding='utf-8') as f:
-        for i, line in enumerate(f):
-            r = json.loads(line)
-            if r['session_id'] in train:
-                rows.append({**{k: r[k] for k in ('path', 'session_id', 'frame', 'square', 'label',
-                                                 'brightness', 'coverage') if k in r}, '_packed_idx': i})
+    for i, r in enumerate(iter_jsonl(dd / 'manifest.jsonl')):
+        if r['session_id'] in train:
+            rows.append({**{k: r[k] for k in ('path', 'session_id', 'frame', 'square', 'label',
+                                              'brightness', 'coverage') if k in r}, '_packed_idx': i})
     image = dd / 'packed_images.u8'
     ds = PackedBoardDataset(rows, cfg['classes'], tf,
                             (str(image), (image.stat().st_size // (80*80*3), 80, 80), None))

@@ -56,7 +56,13 @@ def load_reads(session, floor, use_coverage, temp, reads):
         if "square" not in row:
             continue
         cov = row.get("model_cov", row.get("cov"))          # `cov`: Schreibweise vor 2026-09-16
-        weight = (1.0 - (cov or 0.0)) if use_coverage else 1.0
+        # `or 0.0` gab der UNGEMESSENEN Zelle das volle Stimmgewicht — also gerade dort, wo die
+        # Lesung am wenigsten taugt. Laut abweisen wie `occlusion_gate.py`: ohne Occlusion-Kopf
+        # ist hier nichts zu daempfen, und eine Kette aus lauter Gewichten 1,0 sah gemessen aus.
+        if use_coverage and cov is None:
+            raise SystemExit(f"[FAIL] {session}/{reads}: Lesung ohne `model_cov` — der Lauf hat "
+                             f"keinen Occlusion-Kopf, `--coverage` hat hier nichts zu wiegen")
+        weight = (1.0 - cov) if use_coverage else 1.0
         dist = tempered(row["probs"], temp)
         cell = {lab: weight * math.log(max(dist.get(lab, floor), floor)) for lab in LABELS}
         table[row["frame"]][row["square"]] = cell

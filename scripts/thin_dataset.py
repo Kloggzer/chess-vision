@@ -15,13 +15,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
-import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 
-from chesslab.ioutil import read_jsonl, write_json, write_rows
+import numpy as np  # noqa: E402
+import yaml  # noqa: E402
+from crop_redundancy import farthest_point, open_pack  # noqa: E402
+
+from chesslab.ioutil import read_jsonl, write_json, write_rows  # noqa: E402
 
 PACKS = Path("data/packs")
 DATASETS = Path("data/datasets")
@@ -44,22 +48,6 @@ def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
             out[(session, square, here, run_id)].append(row)
             last = here
     return out
-
-
-def pack_index(name: str) -> tuple[np.memmap, dict[str, int]]:
-    meta = json.loads((PACKS / name / "packed_meta.json").read_text(encoding="utf-8"))
-    mm = np.memmap(PACKS / name / "packed_images.u8", dtype=np.uint8, mode="r",
-                   shape=(meta["n"], meta["h"], meta["w"], 3))
-    return mm, {p: i for i, p in enumerate(meta["paths"])}
-
-
-def farthest_point(dist: np.ndarray, k: int) -> list[int]:
-    chosen = [0]
-    while len(chosen) < min(k, dist.shape[0]):
-        near = dist[chosen].min(axis=0)
-        near[chosen] = -1.0
-        chosen.append(int(near.argmax()))
-    return chosen
 
 
 def main() -> int:
@@ -100,7 +88,7 @@ def main() -> int:
             continue
         pack = str(group[0]["path"]).removeprefix("mm://").split("/", 1)[0]
         if pack not in caches:
-            caches[pack] = pack_index(pack)
+            caches[pack] = open_pack(PACKS / pack)
         mm, at = caches[pack]
         h = mm.shape[1]
         step = h // THUMB
@@ -143,7 +131,7 @@ def main() -> int:
             continue
         pack = path.removeprefix("mm://").split("/", 1)[0]
         if pack not in caches:
-            caches[pack] = pack_index(pack)
+            caches[pack] = open_pack(PACKS / pack)
         if path in caches[pack][1]:
             alive.append(row)
         else:

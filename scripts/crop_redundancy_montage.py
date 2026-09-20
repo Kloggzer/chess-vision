@@ -14,7 +14,6 @@ Steht oben achtmal dasselbe Bild und unten acht verschiedene, ist die Frage bean
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import cv2
@@ -50,9 +49,7 @@ def sharpness(pack: Path, rows: list[dict]) -> np.ndarray:
     Nur INNERHALB einer Standzeit vergleichbar: die Zahl haengt an der Quelle (4K 1359, 1080p 521
     im Median, `sharpness nur je Aufloesungsklasse`), aber eine Standzeit hat nur eine Quelle.
     """
-    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
-    n, h, w = meta["n"], meta["h"], meta["w"]
-    mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, _ = base.open_pack(pack)
     out = np.empty(len(rows), dtype=np.float32)
     for i, row in enumerate(rows):
         grey = cv2.cvtColor(np.asarray(mm[row["_i"]]), cv2.COLOR_BGR2GRAY)
@@ -61,9 +58,7 @@ def sharpness(pack: Path, rows: list[dict]) -> np.ndarray:
 
 
 def crops(pack: Path, rows: list[dict], side: int) -> np.ndarray:
-    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
-    n, h, w = meta["n"], meta["h"], meta["w"]
-    mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=(n, h, w, 3))
+    mm, _ = base.open_pack(pack)
     out = np.empty((len(rows), side, side, 3), dtype=np.uint8)
     for i, row in enumerate(rows):
         out[i] = cv2.resize(np.asarray(mm[row["_i"]]), (side, side), interpolation=cv2.INTER_AREA)

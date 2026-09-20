@@ -30,10 +30,13 @@ def burned(models: Path = Path("data/models")) -> dict[str, int]:
     """session_id -> wie oft sie in einem `eval_test*.json` als Testmaterial auftaucht."""
     seen: collections.Counter[str] = collections.Counter()
     for p in models.rglob("eval_test*.json"):
+        # Ein `continue` machte aus "nicht lesbar" ein "nichts verbrannt", und `--check` gab
+        # danach Exit 0 fuer eine Aufnahme, die schon Entscheidungen getragen haben kann.
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
+        except (OSError, ValueError) as e:
+            raise SystemExit(f"[FAIL] {p} nicht lesbar ({e}) — die Herkunft ist damit "
+                             f"unbekannt, nicht sauber") from e
         seen.update((d.get("per_session") or {}).keys())
     return dict(seen.most_common())
 

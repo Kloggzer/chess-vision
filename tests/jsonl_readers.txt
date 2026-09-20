@@ -2,12 +2,16 @@
 # statt read_jsonl zu nehmen. Darf nur SCHRUMPFEN - tests/test_jsonl_readers.py wacht darueber.
 # Hinter dem Pfad steht, WARUM die Stelle bleibt - ohne Grund gehoert sie umgestellt.
 #
+# 2026-09-20: die Ratsche sieht jetzt auch `[json.loads(l) for l in fh]` und
+# `for i, line in enumerate(fh)` (Tupel-Ziel). Fuenf so gefundene Stellen sind umgestellt; die
+# zwei Zahlen, die dabei STEIGEN, sind alte Schnitte, die der Zaehler nie sah - kein neuer Nachbau.
+#
 # Beim Bau der Ratsche waren es 30 Schnitte in src/chesslab und 61 in scripts.
 2 src/chesslab/cli.py  # eine .fen-Liste und die Ausgabe eines Subprozesses, kein JSONL
 1 src/chesslab/meshprep.py  # schneidet eine .obj-Datei
 1 src/chesslab/sessions.py  # ZAEHLT per Substring in 190-MB-Manifesten; parsen kostete 465k Zeilen je Aufruf
-1 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
-2 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
+2 scripts/audit_disk_damage.py  # IST der Schadens-Auditor: braucht die rohe Zeile, ihren Index und das fehlende Umbruchzeichen
+3 scripts/check_alignment.py  # NICHT ANFASSEN (Nutzer-Verbot)
 3 scripts/phone_candidate_offset.py  # .log-Text mit Regex, Subprozess-Ausgabe und eine Glob-Schleife ueber ganze .json-Dateien
 1 scripts/commit_lag.py  # .log-Text
 1 scripts/commit_truth.py  # .log-Text

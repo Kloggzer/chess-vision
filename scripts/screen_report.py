@@ -99,6 +99,11 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
     def agg(key: str) -> int:
         return sum(v[key] for v in arm.values())
 
+    # `cache_hits`/`cache_misses` tragen `-1` fuer "das Log hat keine `obs-cache`-Zeile". Mit
+    # summiert loeschte ein ungemessenes Log einen echten Miss weg, und `neu` verschwieg genau
+    # den Fall, fuer den es da ist. Ungemessenes wird gezaehlt, nicht verrechnet.
+    unmeasured = sum(1 for v in arm.values() if v["cache_misses"] < 0)
+
     stuck: collections.Counter = collections.Counter()
     for v in arm.values():
         stuck.update(v["stuck"])
@@ -116,7 +121,8 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
         "alarms": agg("alarms"), "pairs": agg("pairs"),
         "recovery_plies": agg("recovery_plies"),
         "stuck": dict(stuck),
-        "cache_misses": agg("cache_misses"),
+        "cache_misses": sum(max(v["cache_misses"], 0) for v in arm.values()),
+        "cache_unmeasured": unmeasured,
     }
 
 

@@ -48,7 +48,7 @@ def score(rows: list[dict], correct: list[bool]) -> dict:
     clean = sum(1 for e in per_ep if e == 0)
     # Was eine zeitliche Mehrheit auf dem Geraet holen wuerde: die Episode zaehlt richtig, solange
     # mehr als die Haelfte ihrer sichtbaren Zellen stimmt.
-    majority = sum(1 for ep, e in zip(eps, per_ep, strict=True) if e * 2 <= len(ep))
+    majority = sum(1 for ep, e in zip(eps, per_ep, strict=True) if e * 2 < len(ep))
     top = sorted(per_ep, reverse=True)
     return {
         "cells": n_cells, "cell_acc": 1 - errs / n_cells if n_cells else 0.0, "errors": errs,

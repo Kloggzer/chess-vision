@@ -11,7 +11,7 @@ import time
 from dataclasses import replace
 from pathlib import Path
 
-from chesslab.ioutil import write_json
+from chesslab.ioutil import iter_jsonl, write_json
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
@@ -25,7 +25,8 @@ def main():
     from chesslab import config
     from chesslab.training.model import build_model
     from chesslab.training.occlusion import OcclusionLoss
-    from chesslab.training.torch_data import build_transform
+    from chesslab.training.torch_data import build_transform, coverage_of
+    from chesslab.training.train import brightness_of
 
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", default="data/models/p4a-v6-s42")
@@ -42,14 +43,12 @@ def main():
     random.seed(42)
     dd = Path("data/datasets") / cfg["dataset"]
     groups = {}
-    with (dd / "manifest.jsonl").open(encoding="utf-8") as f:
-        for index, line in enumerate(f):
-            row = json.loads(line)
-            if row["session_id"] in cfg["split"]["splits"]["train"]:
-                group = groups.setdefault((row["session_id"], row["frame"]), [])
-                group.append((index, row))
-                if sum(len(g) == 64 for g in groups.values()) >= 4:
-                    break
+    for index, row in enumerate(iter_jsonl(dd / "manifest.jsonl")):
+        if row["session_id"] in cfg["split"]["splits"]["train"]:
+            group = groups.setdefault((row["session_id"], row["frame"]), [])
+            group.append((index, row))
+            if sum(len(g) == 64 for g in groups.values()) >= 4:
+                break
     boards = [sorted(g, key=lambda item: (item[1]["square"][1], item[1]["square"][0]))
               for g in groups.values() if len(g) == 64][:4]
     assert len(boards) == 4
@@ -61,8 +60,10 @@ def main():
     tf = build_transform((80, 80), train=True, policy=policy)
     x = torch.stack([torch.stack([tf(Image.fromarray(np.array(mm[i]))) for i, _ in b])
                      for b in boards]).cuda()
-    y = torch.tensor([[cfg["classes"].index(r["label"]), r.get("coverage", 0),
-                       r.get("brightness", 255)] for b in boards for _, r in b], device="cuda")
+    # `r.get(k, default)` greift nur beim FEHLENDEN Schluessel: ein ausgeschriebenes `null`
+    # kam als `None` bei `torch.tensor` an. `coverage_of`/`brightness_of` sind die eine Lesart.
+    y = torch.tensor([[cfg["classes"].index(r["label"]), coverage_of(r), brightness_of(r)]
+                      for b in boards for _, r in b], device="cuda")
     fixture = torch.load(args.fixture, weights_only=True) if args.fixture else None
     if fixture is not None:
         x, y = fixture["x"].cuda(), fixture["y"].cuda()

@@ -1,19 +1,18 @@
 """A/B of commit latency from two `trace=` replay batches over the same recordings."""
 
 import argparse
-import json
 import re
 import statistics
 from pathlib import Path
 
-from chesslab.ioutil import write_json
+from chesslab.ioutil import read_jsonl, write_json
 
 SCORE_KEYS = ("found", "missed", "invented", "beyond", "reordered")
 
 
 def commits(trace):
-    # A trace still being written ends in a partial line.
-    rows = [json.loads(line) for line in trace.open(encoding="utf-8") if line.endswith("}" + chr(10))]
+    # A trace still being written ends in a partial line — `read_jsonl` drops exactly that.
+    rows = read_jsonl(trace)
     time_at = {row["index"]: row["timeMs"] for row in rows if row["kind"] == "frame"}
     # A decision fires inside the frame's step, before that frame's row is written.
     return {(row["ply"], row["uci"]): time_at[row["index"]]

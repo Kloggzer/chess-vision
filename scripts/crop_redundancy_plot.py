@@ -14,59 +14,23 @@
 from __future__ import annotations
 
 import argparse
-import json
-from collections import defaultdict
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # sibling scripts
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from crop_redundancy import farthest_point as farthest  # noqa: E402
+from crop_redundancy import runs_of, thumbs  # noqa: E402
 
-from chesslab.ioutil import read_jsonl
-from chesslab.training.occlusion import PIECE_VISIBLE_MAX
+from chesslab.ioutil import read_jsonl  # noqa: E402
+from chesslab.training.occlusion import PIECE_VISIBLE_MAX  # noqa: E402
 
 PACKS = Path("data/packs")
-THUMB = 16
-
-
-def runs_of(rows: list[dict]) -> dict[tuple, list[dict]]:
-    """Standzeit = (Feld, Figur, ununterbrochene Strecke). Ein Zug beendet sie."""
-    per_square: dict[str, list[dict]] = defaultdict(list)
-    for row in rows:
-        per_square[str(row.get("square"))].append(row)
-    out: dict[tuple, list[dict]] = defaultdict(list)
-    for square, group in per_square.items():
-        group.sort(key=lambda r: (int(r.get("ply") or 0), str(r.get("frame"))))
-        run_id, last = 0, None
-        for row in group:
-            here = str(row.get("label"))
-            if last is not None and here != last:
-                run_id += 1
-            out[(square, here, run_id)].append(row)
-            last = here
-    return out
-
-
-def thumbs(pack: Path, rows: list[dict]) -> np.ndarray:
-    meta = json.loads((pack / "packed_meta.json").read_text(encoding="utf-8"))
-    n, h, w = meta["n"], meta["h"], meta["w"]
-    mm = np.memmap(pack / "packed_images.u8", dtype=np.uint8, mode="r", shape=(n, h, w, 3))
-    step = h // THUMB
-    out = np.empty((len(rows), THUMB * THUMB), dtype=np.float32)
-    for i, row in enumerate(rows):
-        out[i] = mm[row["_i"]].reshape(THUMB, step, THUMB, step, 3).mean(axis=(1, 3, 4)).ravel()
-    return out
-
-
-def farthest(dist: np.ndarray, k: int) -> list[int]:
-    chosen = [0]
-    while len(chosen) < min(k, dist.shape[0]):
-        near = dist[chosen].min(axis=0)
-        near[chosen] = -1.0
-        chosen.append(int(near.argmax()))
-    return chosen
 
 
 def main() -> int:

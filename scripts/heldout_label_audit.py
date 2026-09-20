@@ -187,7 +187,9 @@ def coverage_of(session_dir: Path) -> dict[str, dict[str, float]]:
     out: dict[str, dict[str, float]] = {}
     for row in read_jsonl(session_dir / "matte.jsonl"):
         cells = row.get("coverage")
-        if cells:
+        if cells is None:
+            out.pop(str(row["frame"]), None)
+        else:
             out[str(row["frame"])] = cells
     return out
 

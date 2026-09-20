@@ -37,8 +37,10 @@ RUNS = [
 def trained_on_val(run: Path) -> bool:
     cfg = json.loads((run / "config.json").read_text(encoding="utf-8"))
     sp = Path("data/datasets") / str(cfg.get("dataset")) / (cfg.get("split_file") or "split.json")
+    # `return False` meldete UNBEKANNTE Herkunft als saubere — und zwar bei den aeltesten
+    # Laeufen, deren Datensatz am ehesten weg ist, also genau dort, wo der Wall gebraucht wird.
     if not sp.exists():
-        return False
+        raise SystemExit(f"[FAIL] {run}: {sp} fehlt — Herkunft nicht pruefbar")
     return VAL in set(json.loads(sp.read_text(encoding="utf-8"))["splits"].get("train") or [])
 
 

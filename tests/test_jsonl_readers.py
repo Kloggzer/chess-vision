@@ -35,19 +35,32 @@ def _loads_arg(node: ast.AST) -> str | None:
     return arg.id if isinstance(arg, ast.Name) else None
 
 
-def _iterated_lines(text: str) -> int:
-    """`for line in fh:` mit `json.loads(line)` darin.
+def _bound(target: ast.AST) -> set[str]:
+    """Die Namen, die EIN Schleifenkopf bindet — `line`, aber auch `i, line`."""
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return {n for e in target.elts for n in _bound(e)}
+    return set()
 
-    Dieselbe Politik-Erfindung wie `splitlines()`, nur unsichtbar fuer eine Textsuche — die
-    Ratsche uebersah so drei handkopierte Nachbauten von `read_jsonl`. Ueber den Syntaxbaum,
-    weil `json.loads(p.read_text())` in einer Glob-Schleife KEIN Zeilenschnitt ist.
+
+def _iterated_lines(text: str) -> int:
+    """`for line in fh:` mit `json.loads(line)` darin — Schleife WIE Comprehension.
+
+    Dieselbe Politik-Erfindung wie `splitlines()`, nur unsichtbar fuer eine Textsuche. Zwei
+    Schreibweisen rutschten trotzdem durch (2026-09-20): `[json.loads(l) for l in fh]`, weil nur
+    `ast.For` gesucht wurde, und `for i, line in enumerate(fh)`, weil das Ziel ein Tupel ist.
+    Ueber den Syntaxbaum, weil `json.loads(p.read_text())` in einer Glob-Schleife KEIN Schnitt ist.
     """
     hits = 0
     for node in ast.walk(ast.parse(text)):
-        if not isinstance(node, (ast.For, ast.AsyncFor)) or not isinstance(node.target, ast.Name):
+        if isinstance(node, (ast.For, ast.AsyncFor)):
+            bound = _bound(node.target)
+        elif isinstance(node, (ast.ListComp, ast.SetComp, ast.GeneratorExp, ast.DictComp)):
+            bound = {n for g in node.generators for n in _bound(g.target)}
+        else:
             continue
-        var = node.target.id
-        if any(_loads_arg(inner) == var for inner in ast.walk(node)):
+        if bound and any(_loads_arg(inner) in bound for inner in ast.walk(node)):
             hits += 1
     return hits
 

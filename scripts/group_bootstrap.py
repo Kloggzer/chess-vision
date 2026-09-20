@@ -11,14 +11,13 @@ und sagt das laut. Es rechnet nie ueber Zellen.
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import statistics as st
 from pathlib import Path
 
 import numpy as np
 
-from chesslab.ioutil import write_json
+from chesslab.ioutil import read_jsonl, write_json
 
 DUMPS = Path("data/reports/episodes")
 #: `rg-2026-09-06-20-27-33` und `rg-VID_20260906_202733` sind derselbe Aufnahmetag. Abgeleitete
@@ -35,7 +34,7 @@ def load(arm: str, seed: int) -> list[dict]:
     p = DUMPS / f"{arm}-s{seed}.jsonl"
     if not p.is_file():
         raise SystemExit(f"fehlt: {p} — erst `scripts/episode_eval.py --dump` laufen lassen")
-    return [json.loads(line) for line in p.open(encoding="utf-8") if line.strip()]
+    return read_jsonl(p)
 
 
 def episode_acc(eps: list[dict]) -> float:

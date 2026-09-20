@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 
+from chesslab.ioutil import read_jsonl
+
 #: BT.601, wie `cv2.COLOR_BGR2GRAY`. Der Pack haelt RGB, also die Gewichte umgekehrt anlegen.
 GRAY = np.array([0.299, 0.587, 0.114], dtype=np.float32)
 
@@ -38,7 +40,7 @@ def main() -> int:
     from chesslab.dataset_build import dataset_dir
 
     dd = dataset_dir(args.dataset)
-    rows = [json.loads(line) for line in (dd / "manifest.jsonl").open(encoding="utf-8")]
+    rows = read_jsonl(dd / "manifest.jsonl")
     todo = [r for r in rows if r.get("brightness") is None]
     print(f"{len(todo)} von {len(rows)} Zeilen ohne brightness")
     if not todo:

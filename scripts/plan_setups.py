@@ -16,6 +16,7 @@ import collections
 from pathlib import Path
 
 from chesslab.ioutil import iter_jsonl
+from chesslab.labeling import square_color
 
 FILES = "abcdefgh"
 #: Ein normales Set, je Farbe. Der Engpass sind K und Q — davon gibt es genau eines.
@@ -24,8 +25,8 @@ INVENTORY = {"K": 1, "Q": 1, "R": 2, "B": 2, "N": 2, "P": 8}
 RARE = ("K", "Q", "B", "N", "R")
 
 
-def square_color(sq: str) -> str:
-    return "dark" if (FILES.index(sq[0]) + int(sq[1])) % 2 == 0 else "light"
+# Der 1-basierte Rang drehte hier jede Feldfarbe um: a1 hiess "light", und die Abdeckungstabelle
+# meldete die dunklen Felder als helle. `labeling.square_color` ist die eine Definition (a1=dark).
 
 
 def squares() -> list[str]:

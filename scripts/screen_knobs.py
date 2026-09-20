@@ -81,9 +81,15 @@ def run_arm(tag: str, extra: list[str], jvms: int) -> dict:
     # Zwei JVMs sind ~12 GB; mehr lohnt nicht, weil vier Prozesse an derselben Platte anstehen.
     with ThreadPoolExecutor(max_workers=jvms) as pool:
         scores = list(pool.map(lambda r: run_one(tag, extra, r), RECORDINGS))
-    for score in scores:
+    for rec, score in zip(RECORDINGS, scores, strict=True):
+        # `max(value, 0)` addierte das `-1` fuer "kein Score im Log" als gemessene Null: der Arm
+        # landete mit 20 fehlenden Zuegen in `results.jsonl` und galt danach als erledigt.
+        missing = sorted(k for k, v in score.items() if v < 0)
+        if missing:
+            raise SystemExit(f"[FAIL] {tag}--{rec}: kein {', '.join(missing)} im Log — "
+                             f"der Lauf ist nicht gemessen, nicht null")
         for key, value in score.items():
-            total[key] += max(value, 0)
+            total[key] += value
     total["tag"] = tag
     total["sec"] = round(time.time() - started, 1)
     return total
