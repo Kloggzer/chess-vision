@@ -1,0 +1,4307 @@
+{
+ "kind": "square-geometry-parity",
+ "doc": "Square geometry across Python (calibration.py), Kotlin (CropBox.kt, SquareRegion.kt) and TS (lib/warp.ts). Production scales, so the endpoints are FRACTIONAL and the rounding is exercised; boardSize 80 puts pad*cell on exactly .5 to pin half-to-even. `boxExact` is the unrounded box TS carries.",
+ "inset": 0.16,
+ "cases": [
+  {
+   "square": "a1",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 12,
+   "box": [
+    0,
+    806,
+    122,
+    928
+   ],
+   "boxUnclamped": [
+    -6,
+    806,
+    122,
+    934
+   ],
+   "boxExact": [
+    -5.800000000000001,
+    806.2,
+    121.8,
+    933.8
+   ],
+   "center": [
+    58,
+    870
+   ],
+   "region": [
+    18,
+    830,
+    97,
+    909
+   ],
+   "regionExtendUp25": [
+    18,
+    801,
+    97,
+    909
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 12,
+   "box": [
+    0,
+    0,
+    122,
+    122
+   ],
+   "boxUnclamped": [
+    -6,
+    -6,
+    122,
+    122
+   ],
+   "boxExact": [
+    -5.800000000000001,
+    -5.800000000000001,
+    121.8,
+    121.8
+   ],
+   "center": [
+    58,
+    58
+   ],
+   "region": [
+    18,
+    18,
+    97,
+    97
+   ],
+   "regionExtendUp25": [
+    18,
+    0,
+    97,
+    97
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 12,
+   "box": [
+    806,
+    0,
+    928,
+    122
+   ],
+   "boxUnclamped": [
+    806,
+    -6,
+    934,
+    122
+   ],
+   "boxExact": [
+    806.2,
+    -5.800000000000001,
+    933.8,
+    121.8
+   ],
+   "center": [
+    870,
+    58
+   ],
+   "region": [
+    830,
+    18,
+    909,
+    97
+   ],
+   "regionExtendUp25": [
+    830,
+    0,
+    909,
+    97
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 12,
+   "box": [
+    806,
+    806,
+    928,
+    928
+   ],
+   "boxUnclamped": [
+    806,
+    806,
+    934,
+    934
+   ],
+   "boxExact": [
+    806.2,
+    806.2,
+    933.8,
+    933.8
+   ],
+   "center": [
+    870,
+    870
+   ],
+   "region": [
+    830,
+    830,
+    909,
+    909
+   ],
+   "regionExtendUp25": [
+    830,
+    801,
+    909,
+    909
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 12,
+   "box": [
+    458,
+    458,
+    586,
+    586
+   ],
+   "boxUnclamped": [
+    458,
+    458,
+    586,
+    586
+   ],
+   "boxExact": [
+    458.2,
+    458.2,
+    585.8,
+    585.8
+   ],
+   "center": [
+    522,
+    522
+   ],
+   "region": [
+    482,
+    482,
+    561,
+    561
+   ],
+   "regionExtendUp25": [
+    482,
+    453,
+    561,
+    561
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 12,
+   "box": [
+    342,
+    342,
+    470,
+    470
+   ],
+   "boxUnclamped": [
+    342,
+    342,
+    470,
+    470
+   ],
+   "boxExact": [
+    342.2,
+    342.2,
+    469.8,
+    469.8
+   ],
+   "center": [
+    406,
+    406
+   ],
+   "region": [
+    366,
+    366,
+    445,
+    445
+   ],
+   "regionExtendUp25": [
+    366,
+    337,
+    445,
+    445
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 12,
+   "box": [
+    110,
+    574,
+    238,
+    702
+   ],
+   "boxUnclamped": [
+    110,
+    574,
+    238,
+    702
+   ],
+   "boxExact": [
+    110.2,
+    574.2,
+    237.8,
+    701.8
+   ],
+   "center": [
+    174,
+    638
+   ],
+   "region": [
+    134,
+    598,
+    213,
+    677
+   ],
+   "regionExtendUp25": [
+    134,
+    569,
+    213,
+    677
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 12,
+   "box": [
+    690,
+    226,
+    818,
+    354
+   ],
+   "boxUnclamped": [
+    690,
+    226,
+    818,
+    354
+   ],
+   "boxExact": [
+    690.2,
+    226.2,
+    817.8,
+    353.8
+   ],
+   "center": [
+    754,
+    290
+   ],
+   "region": [
+    714,
+    250,
+    793,
+    329
+   ],
+   "regionExtendUp25": [
+    714,
+    221,
+    793,
+    329
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 12,
+   "box": [
+    226,
+    110,
+    354,
+    238
+   ],
+   "boxUnclamped": [
+    226,
+    110,
+    354,
+    238
+   ],
+   "boxExact": [
+    226.2,
+    110.2,
+    353.8,
+    237.8
+   ],
+   "center": [
+    290,
+    174
+   ],
+   "region": [
+    250,
+    134,
+    329,
+    213
+   ],
+   "regionExtendUp25": [
+    250,
+    105,
+    329,
+    213
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 12,
+   "box": [
+    574,
+    690,
+    702,
+    818
+   ],
+   "boxUnclamped": [
+    574,
+    690,
+    702,
+    818
+   ],
+   "boxExact": [
+    574.2,
+    690.2,
+    701.8,
+    817.8
+   ],
+   "center": [
+    638,
+    754
+   ],
+   "region": [
+    598,
+    714,
+    677,
+    793
+   ],
+   "regionExtendUp25": [
+    598,
+    685,
+    677,
+    793
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 12,
+   "box": [
+    806,
+    0,
+    928,
+    122
+   ],
+   "boxUnclamped": [
+    806,
+    -6,
+    934,
+    122
+   ],
+   "boxExact": [
+    806.2,
+    -5.800000000000001,
+    933.8,
+    121.8
+   ],
+   "center": [
+    870,
+    58
+   ],
+   "region": [
+    830,
+    18,
+    909,
+    97
+   ],
+   "regionExtendUp25": [
+    830,
+    0,
+    909,
+    97
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 12,
+   "box": [
+    806,
+    806,
+    928,
+    928
+   ],
+   "boxUnclamped": [
+    806,
+    806,
+    934,
+    934
+   ],
+   "boxExact": [
+    806.2,
+    806.2,
+    933.8,
+    933.8
+   ],
+   "center": [
+    870,
+    870
+   ],
+   "region": [
+    830,
+    830,
+    909,
+    909
+   ],
+   "regionExtendUp25": [
+    830,
+    801,
+    909,
+    909
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 12,
+   "box": [
+    0,
+    806,
+    122,
+    928
+   ],
+   "boxUnclamped": [
+    -6,
+    806,
+    122,
+    934
+   ],
+   "boxExact": [
+    -5.800000000000001,
+    806.2,
+    121.8,
+    933.8
+   ],
+   "center": [
+    58,
+    870
+   ],
+   "region": [
+    18,
+    830,
+    97,
+    909
+   ],
+   "regionExtendUp25": [
+    18,
+    801,
+    97,
+    909
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 12,
+   "box": [
+    0,
+    0,
+    122,
+    122
+   ],
+   "boxUnclamped": [
+    -6,
+    -6,
+    122,
+    122
+   ],
+   "boxExact": [
+    -5.800000000000001,
+    -5.800000000000001,
+    121.8,
+    121.8
+   ],
+   "center": [
+    58,
+    58
+   ],
+   "region": [
+    18,
+    18,
+    97,
+    97
+   ],
+   "regionExtendUp25": [
+    18,
+    0,
+    97,
+    97
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 12,
+   "box": [
+    342,
+    342,
+    470,
+    470
+   ],
+   "boxUnclamped": [
+    342,
+    342,
+    470,
+    470
+   ],
+   "boxExact": [
+    342.2,
+    342.2,
+    469.8,
+    469.8
+   ],
+   "center": [
+    406,
+    406
+   ],
+   "region": [
+    366,
+    366,
+    445,
+    445
+   ],
+   "regionExtendUp25": [
+    366,
+    337,
+    445,
+    445
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 12,
+   "box": [
+    458,
+    458,
+    586,
+    586
+   ],
+   "boxUnclamped": [
+    458,
+    458,
+    586,
+    586
+   ],
+   "boxExact": [
+    458.2,
+    458.2,
+    585.8,
+    585.8
+   ],
+   "center": [
+    522,
+    522
+   ],
+   "region": [
+    482,
+    482,
+    561,
+    561
+   ],
+   "regionExtendUp25": [
+    482,
+    453,
+    561,
+    561
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 12,
+   "box": [
+    690,
+    226,
+    818,
+    354
+   ],
+   "boxUnclamped": [
+    690,
+    226,
+    818,
+    354
+   ],
+   "boxExact": [
+    690.2,
+    226.2,
+    817.8,
+    353.8
+   ],
+   "center": [
+    754,
+    290
+   ],
+   "region": [
+    714,
+    250,
+    793,
+    329
+   ],
+   "regionExtendUp25": [
+    714,
+    221,
+    793,
+    329
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 12,
+   "box": [
+    110,
+    574,
+    238,
+    702
+   ],
+   "boxUnclamped": [
+    110,
+    574,
+    238,
+    702
+   ],
+   "boxExact": [
+    110.2,
+    574.2,
+    237.8,
+    701.8
+   ],
+   "center": [
+    174,
+    638
+   ],
+   "region": [
+    134,
+    598,
+    213,
+    677
+   ],
+   "regionExtendUp25": [
+    134,
+    569,
+    213,
+    677
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 12,
+   "box": [
+    574,
+    690,
+    702,
+    818
+   ],
+   "boxUnclamped": [
+    574,
+    690,
+    702,
+    818
+   ],
+   "boxExact": [
+    574.2,
+    690.2,
+    701.8,
+    817.8
+   ],
+   "center": [
+    638,
+    754
+   ],
+   "region": [
+    598,
+    714,
+    677,
+    793
+   ],
+   "regionExtendUp25": [
+    598,
+    685,
+    677,
+    793
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 928,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 12,
+   "box": [
+    226,
+    110,
+    354,
+    238
+   ],
+   "boxUnclamped": [
+    226,
+    110,
+    354,
+    238
+   ],
+   "boxExact": [
+    226.2,
+    110.2,
+    353.8,
+    237.8
+   ],
+   "center": [
+    290,
+    174
+   ],
+   "region": [
+    250,
+    134,
+    329,
+    213
+   ],
+   "regionExtendUp25": [
+    250,
+    105,
+    329,
+    213
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 14,
+   "box": [
+    0,
+    938,
+    142,
+    1080
+   ],
+   "boxUnclamped": [
+    -7,
+    938,
+    142,
+    1087
+   ],
+   "boxExact": [
+    -6.75,
+    938.25,
+    141.75,
+    1086.75
+   ],
+   "center": [
+    67,
+    1012
+   ],
+   "region": [
+    21,
+    966,
+    113,
+    1058
+   ],
+   "regionExtendUp25": [
+    21,
+    932,
+    113,
+    1058
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 14,
+   "box": [
+    0,
+    0,
+    142,
+    142
+   ],
+   "boxUnclamped": [
+    -7,
+    -7,
+    142,
+    142
+   ],
+   "boxExact": [
+    -6.75,
+    -6.75,
+    141.75,
+    141.75
+   ],
+   "center": [
+    67,
+    67
+   ],
+   "region": [
+    21,
+    21,
+    113,
+    113
+   ],
+   "regionExtendUp25": [
+    21,
+    0,
+    113,
+    113
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 14,
+   "box": [
+    938,
+    0,
+    1080,
+    142
+   ],
+   "boxUnclamped": [
+    938,
+    -7,
+    1087,
+    142
+   ],
+   "boxExact": [
+    938.25,
+    -6.75,
+    1086.75,
+    141.75
+   ],
+   "center": [
+    1012,
+    67
+   ],
+   "region": [
+    966,
+    21,
+    1058,
+    113
+   ],
+   "regionExtendUp25": [
+    966,
+    0,
+    1058,
+    113
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 14,
+   "box": [
+    938,
+    938,
+    1080,
+    1080
+   ],
+   "boxUnclamped": [
+    938,
+    938,
+    1087,
+    1087
+   ],
+   "boxExact": [
+    938.25,
+    938.25,
+    1086.75,
+    1086.75
+   ],
+   "center": [
+    1012,
+    1012
+   ],
+   "region": [
+    966,
+    966,
+    1058,
+    1058
+   ],
+   "regionExtendUp25": [
+    966,
+    932,
+    1058,
+    1058
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 14,
+   "box": [
+    533,
+    533,
+    682,
+    682
+   ],
+   "boxUnclamped": [
+    533,
+    533,
+    682,
+    682
+   ],
+   "boxExact": [
+    533.25,
+    533.25,
+    681.75,
+    681.75
+   ],
+   "center": [
+    607,
+    607
+   ],
+   "region": [
+    561,
+    561,
+    653,
+    653
+   ],
+   "regionExtendUp25": [
+    561,
+    527,
+    653,
+    653
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 14,
+   "box": [
+    398,
+    398,
+    547,
+    547
+   ],
+   "boxUnclamped": [
+    398,
+    398,
+    547,
+    547
+   ],
+   "boxExact": [
+    398.25,
+    398.25,
+    546.75,
+    546.75
+   ],
+   "center": [
+    472,
+    472
+   ],
+   "region": [
+    426,
+    426,
+    518,
+    518
+   ],
+   "regionExtendUp25": [
+    426,
+    392,
+    518,
+    518
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 14,
+   "box": [
+    128,
+    668,
+    277,
+    817
+   ],
+   "boxUnclamped": [
+    128,
+    668,
+    277,
+    817
+   ],
+   "boxExact": [
+    128.25,
+    668.25,
+    276.75,
+    816.75
+   ],
+   "center": [
+    202,
+    742
+   ],
+   "region": [
+    156,
+    696,
+    248,
+    788
+   ],
+   "regionExtendUp25": [
+    156,
+    662,
+    248,
+    788
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 14,
+   "box": [
+    803,
+    263,
+    952,
+    412
+   ],
+   "boxUnclamped": [
+    803,
+    263,
+    952,
+    412
+   ],
+   "boxExact": [
+    803.25,
+    263.25,
+    951.75,
+    411.75
+   ],
+   "center": [
+    877,
+    337
+   ],
+   "region": [
+    831,
+    291,
+    923,
+    383
+   ],
+   "regionExtendUp25": [
+    831,
+    257,
+    923,
+    383
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 14,
+   "box": [
+    263,
+    128,
+    412,
+    277
+   ],
+   "boxUnclamped": [
+    263,
+    128,
+    412,
+    277
+   ],
+   "boxExact": [
+    263.25,
+    128.25,
+    411.75,
+    276.75
+   ],
+   "center": [
+    337,
+    202
+   ],
+   "region": [
+    291,
+    156,
+    383,
+    248
+   ],
+   "regionExtendUp25": [
+    291,
+    122,
+    383,
+    248
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 14,
+   "box": [
+    668,
+    803,
+    817,
+    952
+   ],
+   "boxUnclamped": [
+    668,
+    803,
+    817,
+    952
+   ],
+   "boxExact": [
+    668.25,
+    803.25,
+    816.75,
+    951.75
+   ],
+   "center": [
+    742,
+    877
+   ],
+   "region": [
+    696,
+    831,
+    788,
+    923
+   ],
+   "regionExtendUp25": [
+    696,
+    797,
+    788,
+    923
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 14,
+   "box": [
+    938,
+    0,
+    1080,
+    142
+   ],
+   "boxUnclamped": [
+    938,
+    -7,
+    1087,
+    142
+   ],
+   "boxExact": [
+    938.25,
+    -6.75,
+    1086.75,
+    141.75
+   ],
+   "center": [
+    1012,
+    67
+   ],
+   "region": [
+    966,
+    21,
+    1058,
+    113
+   ],
+   "regionExtendUp25": [
+    966,
+    0,
+    1058,
+    113
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 14,
+   "box": [
+    938,
+    938,
+    1080,
+    1080
+   ],
+   "boxUnclamped": [
+    938,
+    938,
+    1087,
+    1087
+   ],
+   "boxExact": [
+    938.25,
+    938.25,
+    1086.75,
+    1086.75
+   ],
+   "center": [
+    1012,
+    1012
+   ],
+   "region": [
+    966,
+    966,
+    1058,
+    1058
+   ],
+   "regionExtendUp25": [
+    966,
+    932,
+    1058,
+    1058
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 14,
+   "box": [
+    0,
+    938,
+    142,
+    1080
+   ],
+   "boxUnclamped": [
+    -7,
+    938,
+    142,
+    1087
+   ],
+   "boxExact": [
+    -6.75,
+    938.25,
+    141.75,
+    1086.75
+   ],
+   "center": [
+    67,
+    1012
+   ],
+   "region": [
+    21,
+    966,
+    113,
+    1058
+   ],
+   "regionExtendUp25": [
+    21,
+    932,
+    113,
+    1058
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 14,
+   "box": [
+    0,
+    0,
+    142,
+    142
+   ],
+   "boxUnclamped": [
+    -7,
+    -7,
+    142,
+    142
+   ],
+   "boxExact": [
+    -6.75,
+    -6.75,
+    141.75,
+    141.75
+   ],
+   "center": [
+    67,
+    67
+   ],
+   "region": [
+    21,
+    21,
+    113,
+    113
+   ],
+   "regionExtendUp25": [
+    21,
+    0,
+    113,
+    113
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 14,
+   "box": [
+    398,
+    398,
+    547,
+    547
+   ],
+   "boxUnclamped": [
+    398,
+    398,
+    547,
+    547
+   ],
+   "boxExact": [
+    398.25,
+    398.25,
+    546.75,
+    546.75
+   ],
+   "center": [
+    472,
+    472
+   ],
+   "region": [
+    426,
+    426,
+    518,
+    518
+   ],
+   "regionExtendUp25": [
+    426,
+    392,
+    518,
+    518
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 14,
+   "box": [
+    533,
+    533,
+    682,
+    682
+   ],
+   "boxUnclamped": [
+    533,
+    533,
+    682,
+    682
+   ],
+   "boxExact": [
+    533.25,
+    533.25,
+    681.75,
+    681.75
+   ],
+   "center": [
+    607,
+    607
+   ],
+   "region": [
+    561,
+    561,
+    653,
+    653
+   ],
+   "regionExtendUp25": [
+    561,
+    527,
+    653,
+    653
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 14,
+   "box": [
+    803,
+    263,
+    952,
+    412
+   ],
+   "boxUnclamped": [
+    803,
+    263,
+    952,
+    412
+   ],
+   "boxExact": [
+    803.25,
+    263.25,
+    951.75,
+    411.75
+   ],
+   "center": [
+    877,
+    337
+   ],
+   "region": [
+    831,
+    291,
+    923,
+    383
+   ],
+   "regionExtendUp25": [
+    831,
+    257,
+    923,
+    383
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 14,
+   "box": [
+    128,
+    668,
+    277,
+    817
+   ],
+   "boxUnclamped": [
+    128,
+    668,
+    277,
+    817
+   ],
+   "boxExact": [
+    128.25,
+    668.25,
+    276.75,
+    816.75
+   ],
+   "center": [
+    202,
+    742
+   ],
+   "region": [
+    156,
+    696,
+    248,
+    788
+   ],
+   "regionExtendUp25": [
+    156,
+    662,
+    248,
+    788
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 14,
+   "box": [
+    668,
+    803,
+    817,
+    952
+   ],
+   "boxUnclamped": [
+    668,
+    803,
+    817,
+    952
+   ],
+   "boxExact": [
+    668.25,
+    803.25,
+    816.75,
+    951.75
+   ],
+   "center": [
+    742,
+    877
+   ],
+   "region": [
+    696,
+    831,
+    788,
+    923
+   ],
+   "regionExtendUp25": [
+    696,
+    797,
+    788,
+    923
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 1080,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 14,
+   "box": [
+    263,
+    128,
+    412,
+    277
+   ],
+   "boxUnclamped": [
+    263,
+    128,
+    412,
+    277
+   ],
+   "boxExact": [
+    263.25,
+    128.25,
+    411.75,
+    276.75
+   ],
+   "center": [
+    337,
+    202
+   ],
+   "region": [
+    291,
+    156,
+    383,
+    248
+   ],
+   "regionExtendUp25": [
+    291,
+    122,
+    383,
+    248
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 11,
+   "box": [
+    0,
+    619,
+    101,
+    720
+   ],
+   "boxUnclamped": [
+    -11,
+    619,
+    101,
+    731
+   ],
+   "boxExact": [
+    -10.799999999999999,
+    619.2,
+    100.8,
+    730.8
+   ],
+   "center": [
+    45,
+    675
+   ],
+   "region": [
+    14,
+    644,
+    75,
+    705
+   ],
+   "regionExtendUp25": [
+    14,
+    621,
+    75,
+    705
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 11,
+   "box": [
+    0,
+    0,
+    101,
+    101
+   ],
+   "boxUnclamped": [
+    -11,
+    -11,
+    101,
+    101
+   ],
+   "boxExact": [
+    -10.799999999999999,
+    -10.799999999999999,
+    100.8,
+    100.8
+   ],
+   "center": [
+    45,
+    45
+   ],
+   "region": [
+    14,
+    14,
+    75,
+    75
+   ],
+   "regionExtendUp25": [
+    14,
+    0,
+    75,
+    75
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 11,
+   "box": [
+    619,
+    0,
+    720,
+    101
+   ],
+   "boxUnclamped": [
+    619,
+    -11,
+    731,
+    101
+   ],
+   "boxExact": [
+    619.2,
+    -10.799999999999999,
+    730.8,
+    100.8
+   ],
+   "center": [
+    675,
+    45
+   ],
+   "region": [
+    644,
+    14,
+    705,
+    75
+   ],
+   "regionExtendUp25": [
+    644,
+    0,
+    705,
+    75
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 11,
+   "box": [
+    619,
+    619,
+    720,
+    720
+   ],
+   "boxUnclamped": [
+    619,
+    619,
+    731,
+    731
+   ],
+   "boxExact": [
+    619.2,
+    619.2,
+    730.8,
+    730.8
+   ],
+   "center": [
+    675,
+    675
+   ],
+   "region": [
+    644,
+    644,
+    705,
+    705
+   ],
+   "regionExtendUp25": [
+    644,
+    621,
+    705,
+    705
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 11,
+   "box": [
+    349,
+    349,
+    461,
+    461
+   ],
+   "boxUnclamped": [
+    349,
+    349,
+    461,
+    461
+   ],
+   "boxExact": [
+    349.2,
+    349.2,
+    460.8,
+    460.8
+   ],
+   "center": [
+    405,
+    405
+   ],
+   "region": [
+    374,
+    374,
+    435,
+    435
+   ],
+   "regionExtendUp25": [
+    374,
+    351,
+    435,
+    435
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 11,
+   "box": [
+    259,
+    259,
+    371,
+    371
+   ],
+   "boxUnclamped": [
+    259,
+    259,
+    371,
+    371
+   ],
+   "boxExact": [
+    259.2,
+    259.2,
+    370.8,
+    370.8
+   ],
+   "center": [
+    315,
+    315
+   ],
+   "region": [
+    284,
+    284,
+    345,
+    345
+   ],
+   "regionExtendUp25": [
+    284,
+    261,
+    345,
+    345
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 11,
+   "box": [
+    79,
+    439,
+    191,
+    551
+   ],
+   "boxUnclamped": [
+    79,
+    439,
+    191,
+    551
+   ],
+   "boxExact": [
+    79.2,
+    439.2,
+    190.8,
+    550.8
+   ],
+   "center": [
+    135,
+    495
+   ],
+   "region": [
+    104,
+    464,
+    165,
+    525
+   ],
+   "regionExtendUp25": [
+    104,
+    441,
+    165,
+    525
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 11,
+   "box": [
+    529,
+    169,
+    641,
+    281
+   ],
+   "boxUnclamped": [
+    529,
+    169,
+    641,
+    281
+   ],
+   "boxExact": [
+    529.2,
+    169.2,
+    640.8,
+    280.8
+   ],
+   "center": [
+    585,
+    225
+   ],
+   "region": [
+    554,
+    194,
+    615,
+    255
+   ],
+   "regionExtendUp25": [
+    554,
+    171,
+    615,
+    255
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 11,
+   "box": [
+    169,
+    79,
+    281,
+    191
+   ],
+   "boxUnclamped": [
+    169,
+    79,
+    281,
+    191
+   ],
+   "boxExact": [
+    169.2,
+    79.2,
+    280.8,
+    190.8
+   ],
+   "center": [
+    225,
+    135
+   ],
+   "region": [
+    194,
+    104,
+    255,
+    165
+   ],
+   "regionExtendUp25": [
+    194,
+    81,
+    255,
+    165
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": true,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 11,
+   "box": [
+    439,
+    529,
+    551,
+    641
+   ],
+   "boxUnclamped": [
+    439,
+    529,
+    551,
+    641
+   ],
+   "boxExact": [
+    439.2,
+    529.2,
+    550.8,
+    640.8
+   ],
+   "center": [
+    495,
+    585
+   ],
+   "region": [
+    464,
+    554,
+    525,
+    615
+   ],
+   "regionExtendUp25": [
+    464,
+    531,
+    525,
+    615
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 11,
+   "box": [
+    619,
+    0,
+    720,
+    101
+   ],
+   "boxUnclamped": [
+    619,
+    -11,
+    731,
+    101
+   ],
+   "boxExact": [
+    619.2,
+    -10.799999999999999,
+    730.8,
+    100.8
+   ],
+   "center": [
+    675,
+    45
+   ],
+   "region": [
+    644,
+    14,
+    705,
+    75
+   ],
+   "regionExtendUp25": [
+    644,
+    0,
+    705,
+    75
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 11,
+   "box": [
+    619,
+    619,
+    720,
+    720
+   ],
+   "boxUnclamped": [
+    619,
+    619,
+    731,
+    731
+   ],
+   "boxExact": [
+    619.2,
+    619.2,
+    730.8,
+    730.8
+   ],
+   "center": [
+    675,
+    675
+   ],
+   "region": [
+    644,
+    644,
+    705,
+    705
+   ],
+   "regionExtendUp25": [
+    644,
+    621,
+    705,
+    705
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 11,
+   "box": [
+    0,
+    619,
+    101,
+    720
+   ],
+   "boxUnclamped": [
+    -11,
+    619,
+    101,
+    731
+   ],
+   "boxExact": [
+    -10.799999999999999,
+    619.2,
+    100.8,
+    730.8
+   ],
+   "center": [
+    45,
+    675
+   ],
+   "region": [
+    14,
+    644,
+    75,
+    705
+   ],
+   "regionExtendUp25": [
+    14,
+    621,
+    75,
+    705
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 11,
+   "box": [
+    0,
+    0,
+    101,
+    101
+   ],
+   "boxUnclamped": [
+    -11,
+    -11,
+    101,
+    101
+   ],
+   "boxExact": [
+    -10.799999999999999,
+    -10.799999999999999,
+    100.8,
+    100.8
+   ],
+   "center": [
+    45,
+    45
+   ],
+   "region": [
+    14,
+    14,
+    75,
+    75
+   ],
+   "regionExtendUp25": [
+    14,
+    0,
+    75,
+    75
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 11,
+   "box": [
+    259,
+    259,
+    371,
+    371
+   ],
+   "boxUnclamped": [
+    259,
+    259,
+    371,
+    371
+   ],
+   "boxExact": [
+    259.2,
+    259.2,
+    370.8,
+    370.8
+   ],
+   "center": [
+    315,
+    315
+   ],
+   "region": [
+    284,
+    284,
+    345,
+    345
+   ],
+   "regionExtendUp25": [
+    284,
+    261,
+    345,
+    345
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 11,
+   "box": [
+    349,
+    349,
+    461,
+    461
+   ],
+   "boxUnclamped": [
+    349,
+    349,
+    461,
+    461
+   ],
+   "boxExact": [
+    349.2,
+    349.2,
+    460.8,
+    460.8
+   ],
+   "center": [
+    405,
+    405
+   ],
+   "region": [
+    374,
+    374,
+    435,
+    435
+   ],
+   "regionExtendUp25": [
+    374,
+    351,
+    435,
+    435
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 11,
+   "box": [
+    529,
+    169,
+    641,
+    281
+   ],
+   "boxUnclamped": [
+    529,
+    169,
+    641,
+    281
+   ],
+   "boxExact": [
+    529.2,
+    169.2,
+    640.8,
+    280.8
+   ],
+   "center": [
+    585,
+    225
+   ],
+   "region": [
+    554,
+    194,
+    615,
+    255
+   ],
+   "regionExtendUp25": [
+    554,
+    171,
+    615,
+    255
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 11,
+   "box": [
+    79,
+    439,
+    191,
+    551
+   ],
+   "boxUnclamped": [
+    79,
+    439,
+    191,
+    551
+   ],
+   "boxExact": [
+    79.2,
+    439.2,
+    190.8,
+    550.8
+   ],
+   "center": [
+    135,
+    495
+   ],
+   "region": [
+    104,
+    464,
+    165,
+    525
+   ],
+   "regionExtendUp25": [
+    104,
+    441,
+    165,
+    525
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 11,
+   "box": [
+    439,
+    529,
+    551,
+    641
+   ],
+   "boxUnclamped": [
+    439,
+    529,
+    551,
+    641
+   ],
+   "boxExact": [
+    439.2,
+    529.2,
+    550.8,
+    640.8
+   ],
+   "center": [
+    495,
+    585
+   ],
+   "region": [
+    464,
+    554,
+    525,
+    615
+   ],
+   "regionExtendUp25": [
+    464,
+    531,
+    525,
+    615
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 720,
+   "padSide": 0.12,
+   "whitePov": false,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 11,
+   "box": [
+    169,
+    79,
+    281,
+    191
+   ],
+   "boxUnclamped": [
+    169,
+    79,
+    281,
+    191
+   ],
+   "boxExact": [
+    169.2,
+    79.2,
+    280.8,
+    190.8
+   ],
+   "center": [
+    225,
+    135
+   ],
+   "region": [
+    194,
+    104,
+    255,
+    165
+   ],
+   "regionExtendUp25": [
+    194,
+    81,
+    255,
+    165
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 7,
+   "box": [
+    0,
+    500,
+    76,
+    576
+   ],
+   "boxUnclamped": [
+    -4,
+    500,
+    76,
+    580
+   ],
+   "boxExact": [
+    -3.6,
+    500.4,
+    75.6,
+    579.6
+   ],
+   "center": [
+    36,
+    540
+   ],
+   "region": [
+    11,
+    515,
+    60,
+    564
+   ],
+   "regionExtendUp25": [
+    11,
+    497,
+    60,
+    564
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 7,
+   "box": [
+    0,
+    0,
+    76,
+    76
+   ],
+   "boxUnclamped": [
+    -4,
+    -4,
+    76,
+    76
+   ],
+   "boxExact": [
+    -3.6,
+    -3.6,
+    75.6,
+    75.6
+   ],
+   "center": [
+    36,
+    36
+   ],
+   "region": [
+    11,
+    11,
+    60,
+    60
+   ],
+   "regionExtendUp25": [
+    11,
+    0,
+    60,
+    60
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 7,
+   "box": [
+    500,
+    0,
+    576,
+    76
+   ],
+   "boxUnclamped": [
+    500,
+    -4,
+    580,
+    76
+   ],
+   "boxExact": [
+    500.4,
+    -3.6,
+    579.6,
+    75.6
+   ],
+   "center": [
+    540,
+    36
+   ],
+   "region": [
+    515,
+    11,
+    564,
+    60
+   ],
+   "regionExtendUp25": [
+    515,
+    0,
+    564,
+    60
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 7,
+   "box": [
+    500,
+    500,
+    576,
+    576
+   ],
+   "boxUnclamped": [
+    500,
+    500,
+    580,
+    580
+   ],
+   "boxExact": [
+    500.4,
+    500.4,
+    579.6,
+    579.6
+   ],
+   "center": [
+    540,
+    540
+   ],
+   "region": [
+    515,
+    515,
+    564,
+    564
+   ],
+   "regionExtendUp25": [
+    515,
+    497,
+    564,
+    564
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 7,
+   "box": [
+    284,
+    284,
+    364,
+    364
+   ],
+   "boxUnclamped": [
+    284,
+    284,
+    364,
+    364
+   ],
+   "boxExact": [
+    284.4,
+    284.4,
+    363.6,
+    363.6
+   ],
+   "center": [
+    324,
+    324
+   ],
+   "region": [
+    299,
+    299,
+    348,
+    348
+   ],
+   "regionExtendUp25": [
+    299,
+    281,
+    348,
+    348
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 7,
+   "box": [
+    212,
+    212,
+    292,
+    292
+   ],
+   "boxUnclamped": [
+    212,
+    212,
+    292,
+    292
+   ],
+   "boxExact": [
+    212.4,
+    212.4,
+    291.6,
+    291.6
+   ],
+   "center": [
+    252,
+    252
+   ],
+   "region": [
+    227,
+    227,
+    276,
+    276
+   ],
+   "regionExtendUp25": [
+    227,
+    209,
+    276,
+    276
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 7,
+   "box": [
+    68,
+    356,
+    148,
+    436
+   ],
+   "boxUnclamped": [
+    68,
+    356,
+    148,
+    436
+   ],
+   "boxExact": [
+    68.4,
+    356.4,
+    147.6,
+    435.6
+   ],
+   "center": [
+    108,
+    396
+   ],
+   "region": [
+    83,
+    371,
+    132,
+    420
+   ],
+   "regionExtendUp25": [
+    83,
+    353,
+    132,
+    420
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 7,
+   "box": [
+    428,
+    140,
+    508,
+    220
+   ],
+   "boxUnclamped": [
+    428,
+    140,
+    508,
+    220
+   ],
+   "boxExact": [
+    428.4,
+    140.4,
+    507.6,
+    219.6
+   ],
+   "center": [
+    468,
+    180
+   ],
+   "region": [
+    443,
+    155,
+    492,
+    204
+   ],
+   "regionExtendUp25": [
+    443,
+    137,
+    492,
+    204
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 7,
+   "box": [
+    140,
+    68,
+    220,
+    148
+   ],
+   "boxUnclamped": [
+    140,
+    68,
+    220,
+    148
+   ],
+   "boxExact": [
+    140.4,
+    68.4,
+    219.6,
+    147.6
+   ],
+   "center": [
+    180,
+    108
+   ],
+   "region": [
+    155,
+    83,
+    204,
+    132
+   ],
+   "regionExtendUp25": [
+    155,
+    65,
+    204,
+    132
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 7,
+   "box": [
+    356,
+    428,
+    436,
+    508
+   ],
+   "boxUnclamped": [
+    356,
+    428,
+    436,
+    508
+   ],
+   "boxExact": [
+    356.4,
+    428.4,
+    435.6,
+    507.6
+   ],
+   "center": [
+    396,
+    468
+   ],
+   "region": [
+    371,
+    443,
+    420,
+    492
+   ],
+   "regionExtendUp25": [
+    371,
+    425,
+    420,
+    492
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 7,
+   "box": [
+    500,
+    0,
+    576,
+    76
+   ],
+   "boxUnclamped": [
+    500,
+    -4,
+    580,
+    76
+   ],
+   "boxExact": [
+    500.4,
+    -3.6,
+    579.6,
+    75.6
+   ],
+   "center": [
+    540,
+    36
+   ],
+   "region": [
+    515,
+    11,
+    564,
+    60
+   ],
+   "regionExtendUp25": [
+    515,
+    0,
+    564,
+    60
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 7,
+   "box": [
+    500,
+    500,
+    576,
+    576
+   ],
+   "boxUnclamped": [
+    500,
+    500,
+    580,
+    580
+   ],
+   "boxExact": [
+    500.4,
+    500.4,
+    579.6,
+    579.6
+   ],
+   "center": [
+    540,
+    540
+   ],
+   "region": [
+    515,
+    515,
+    564,
+    564
+   ],
+   "regionExtendUp25": [
+    515,
+    497,
+    564,
+    564
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 7,
+   "box": [
+    0,
+    500,
+    76,
+    576
+   ],
+   "boxUnclamped": [
+    -4,
+    500,
+    76,
+    580
+   ],
+   "boxExact": [
+    -3.6,
+    500.4,
+    75.6,
+    579.6
+   ],
+   "center": [
+    36,
+    540
+   ],
+   "region": [
+    11,
+    515,
+    60,
+    564
+   ],
+   "regionExtendUp25": [
+    11,
+    497,
+    60,
+    564
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 7,
+   "box": [
+    0,
+    0,
+    76,
+    76
+   ],
+   "boxUnclamped": [
+    -4,
+    -4,
+    76,
+    76
+   ],
+   "boxExact": [
+    -3.6,
+    -3.6,
+    75.6,
+    75.6
+   ],
+   "center": [
+    36,
+    36
+   ],
+   "region": [
+    11,
+    11,
+    60,
+    60
+   ],
+   "regionExtendUp25": [
+    11,
+    0,
+    60,
+    60
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 7,
+   "box": [
+    212,
+    212,
+    292,
+    292
+   ],
+   "boxUnclamped": [
+    212,
+    212,
+    292,
+    292
+   ],
+   "boxExact": [
+    212.4,
+    212.4,
+    291.6,
+    291.6
+   ],
+   "center": [
+    252,
+    252
+   ],
+   "region": [
+    227,
+    227,
+    276,
+    276
+   ],
+   "regionExtendUp25": [
+    227,
+    209,
+    276,
+    276
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 7,
+   "box": [
+    284,
+    284,
+    364,
+    364
+   ],
+   "boxUnclamped": [
+    284,
+    284,
+    364,
+    364
+   ],
+   "boxExact": [
+    284.4,
+    284.4,
+    363.6,
+    363.6
+   ],
+   "center": [
+    324,
+    324
+   ],
+   "region": [
+    299,
+    299,
+    348,
+    348
+   ],
+   "regionExtendUp25": [
+    299,
+    281,
+    348,
+    348
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 7,
+   "box": [
+    428,
+    140,
+    508,
+    220
+   ],
+   "boxUnclamped": [
+    428,
+    140,
+    508,
+    220
+   ],
+   "boxExact": [
+    428.4,
+    140.4,
+    507.6,
+    219.6
+   ],
+   "center": [
+    468,
+    180
+   ],
+   "region": [
+    443,
+    155,
+    492,
+    204
+   ],
+   "regionExtendUp25": [
+    443,
+    137,
+    492,
+    204
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 7,
+   "box": [
+    68,
+    356,
+    148,
+    436
+   ],
+   "boxUnclamped": [
+    68,
+    356,
+    148,
+    436
+   ],
+   "boxExact": [
+    68.4,
+    356.4,
+    147.6,
+    435.6
+   ],
+   "center": [
+    108,
+    396
+   ],
+   "region": [
+    83,
+    371,
+    132,
+    420
+   ],
+   "regionExtendUp25": [
+    83,
+    353,
+    132,
+    420
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 7,
+   "box": [
+    356,
+    428,
+    436,
+    508
+   ],
+   "boxUnclamped": [
+    356,
+    428,
+    436,
+    508
+   ],
+   "boxExact": [
+    356.4,
+    428.4,
+    435.6,
+    507.6
+   ],
+   "center": [
+    396,
+    468
+   ],
+   "region": [
+    371,
+    443,
+    420,
+    492
+   ],
+   "regionExtendUp25": [
+    371,
+    425,
+    420,
+    492
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 576,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 7,
+   "box": [
+    140,
+    68,
+    220,
+    148
+   ],
+   "boxUnclamped": [
+    140,
+    68,
+    220,
+    148
+   ],
+   "boxExact": [
+    140.4,
+    68.4,
+    219.6,
+    147.6
+   ],
+   "center": [
+    180,
+    108
+   ],
+   "region": [
+    155,
+    83,
+    204,
+    132
+   ],
+   "regionExtendUp25": [
+    155,
+    65,
+    204,
+    132
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 1,
+   "box": [
+    0,
+    70,
+    10,
+    80
+   ],
+   "boxUnclamped": [
+    0,
+    70,
+    10,
+    80
+   ],
+   "boxExact": [
+    -0.5,
+    69.5,
+    10.5,
+    80.5
+   ],
+   "center": [
+    5,
+    75
+   ],
+   "region": [
+    1,
+    71,
+    8,
+    78
+   ],
+   "regionExtendUp25": [
+    1,
+    69,
+    8,
+    78
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 1,
+   "box": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "boxUnclamped": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "boxExact": [
+    -0.5,
+    -0.5,
+    10.5,
+    10.5
+   ],
+   "center": [
+    5,
+    5
+   ],
+   "region": [
+    1,
+    1,
+    8,
+    8
+   ],
+   "regionExtendUp25": [
+    1,
+    0,
+    8,
+    8
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 1,
+   "box": [
+    70,
+    0,
+    80,
+    10
+   ],
+   "boxUnclamped": [
+    70,
+    0,
+    80,
+    10
+   ],
+   "boxExact": [
+    69.5,
+    -0.5,
+    80.5,
+    10.5
+   ],
+   "center": [
+    75,
+    5
+   ],
+   "region": [
+    71,
+    1,
+    78,
+    8
+   ],
+   "regionExtendUp25": [
+    71,
+    0,
+    78,
+    8
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 1,
+   "box": [
+    70,
+    70,
+    80,
+    80
+   ],
+   "boxUnclamped": [
+    70,
+    70,
+    80,
+    80
+   ],
+   "boxExact": [
+    69.5,
+    69.5,
+    80.5,
+    80.5
+   ],
+   "center": [
+    75,
+    75
+   ],
+   "region": [
+    71,
+    71,
+    78,
+    78
+   ],
+   "regionExtendUp25": [
+    71,
+    69,
+    78,
+    78
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 1,
+   "box": [
+    40,
+    40,
+    50,
+    50
+   ],
+   "boxUnclamped": [
+    40,
+    40,
+    50,
+    50
+   ],
+   "boxExact": [
+    39.5,
+    39.5,
+    50.5,
+    50.5
+   ],
+   "center": [
+    45,
+    45
+   ],
+   "region": [
+    41,
+    41,
+    48,
+    48
+   ],
+   "regionExtendUp25": [
+    41,
+    39,
+    48,
+    48
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 1,
+   "box": [
+    30,
+    30,
+    40,
+    40
+   ],
+   "boxUnclamped": [
+    30,
+    30,
+    40,
+    40
+   ],
+   "boxExact": [
+    29.5,
+    29.5,
+    40.5,
+    40.5
+   ],
+   "center": [
+    35,
+    35
+   ],
+   "region": [
+    31,
+    31,
+    38,
+    38
+   ],
+   "regionExtendUp25": [
+    31,
+    29,
+    38,
+    38
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 1,
+   "box": [
+    10,
+    50,
+    20,
+    60
+   ],
+   "boxUnclamped": [
+    10,
+    50,
+    20,
+    60
+   ],
+   "boxExact": [
+    9.5,
+    49.5,
+    20.5,
+    60.5
+   ],
+   "center": [
+    15,
+    55
+   ],
+   "region": [
+    11,
+    51,
+    18,
+    58
+   ],
+   "regionExtendUp25": [
+    11,
+    49,
+    18,
+    58
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 1,
+   "box": [
+    60,
+    20,
+    70,
+    30
+   ],
+   "boxUnclamped": [
+    60,
+    20,
+    70,
+    30
+   ],
+   "boxExact": [
+    59.5,
+    19.5,
+    70.5,
+    30.5
+   ],
+   "center": [
+    65,
+    25
+   ],
+   "region": [
+    61,
+    21,
+    68,
+    28
+   ],
+   "regionExtendUp25": [
+    61,
+    19,
+    68,
+    28
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 1,
+   "box": [
+    20,
+    10,
+    30,
+    20
+   ],
+   "boxUnclamped": [
+    20,
+    10,
+    30,
+    20
+   ],
+   "boxExact": [
+    19.5,
+    9.5,
+    30.5,
+    20.5
+   ],
+   "center": [
+    25,
+    15
+   ],
+   "region": [
+    21,
+    11,
+    28,
+    18
+   ],
+   "regionExtendUp25": [
+    21,
+    9,
+    28,
+    18
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": true,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 1,
+   "box": [
+    50,
+    60,
+    60,
+    70
+   ],
+   "boxUnclamped": [
+    50,
+    60,
+    60,
+    70
+   ],
+   "boxExact": [
+    49.5,
+    59.5,
+    60.5,
+    70.5
+   ],
+   "center": [
+    55,
+    65
+   ],
+   "region": [
+    51,
+    61,
+    58,
+    68
+   ],
+   "regionExtendUp25": [
+    51,
+    59,
+    58,
+    68
+   ]
+  },
+  {
+   "square": "a1",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 0,
+   "cropBorderPx": 1,
+   "box": [
+    70,
+    0,
+    80,
+    10
+   ],
+   "boxUnclamped": [
+    70,
+    0,
+    80,
+    10
+   ],
+   "boxExact": [
+    69.5,
+    -0.5,
+    80.5,
+    10.5
+   ],
+   "center": [
+    75,
+    5
+   ],
+   "region": [
+    71,
+    1,
+    78,
+    8
+   ],
+   "regionExtendUp25": [
+    71,
+    0,
+    78,
+    8
+   ]
+  },
+  {
+   "square": "a8",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 7,
+   "row": 7,
+   "cropBorderPx": 1,
+   "box": [
+    70,
+    70,
+    80,
+    80
+   ],
+   "boxUnclamped": [
+    70,
+    70,
+    80,
+    80
+   ],
+   "boxExact": [
+    69.5,
+    69.5,
+    80.5,
+    80.5
+   ],
+   "center": [
+    75,
+    75
+   ],
+   "region": [
+    71,
+    71,
+    78,
+    78
+   ],
+   "regionExtendUp25": [
+    71,
+    69,
+    78,
+    78
+   ]
+  },
+  {
+   "square": "h8",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 7,
+   "cropBorderPx": 1,
+   "box": [
+    0,
+    70,
+    10,
+    80
+   ],
+   "boxUnclamped": [
+    0,
+    70,
+    10,
+    80
+   ],
+   "boxExact": [
+    -0.5,
+    69.5,
+    10.5,
+    80.5
+   ],
+   "center": [
+    5,
+    75
+   ],
+   "region": [
+    1,
+    71,
+    8,
+    78
+   ],
+   "regionExtendUp25": [
+    1,
+    69,
+    8,
+    78
+   ]
+  },
+  {
+   "square": "h1",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 0,
+   "row": 0,
+   "cropBorderPx": 1,
+   "box": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "boxUnclamped": [
+    0,
+    0,
+    10,
+    10
+   ],
+   "boxExact": [
+    -0.5,
+    -0.5,
+    10.5,
+    10.5
+   ],
+   "center": [
+    5,
+    5
+   ],
+   "region": [
+    1,
+    1,
+    8,
+    8
+   ],
+   "regionExtendUp25": [
+    1,
+    0,
+    8,
+    8
+   ]
+  },
+  {
+   "square": "e4",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 3,
+   "row": 3,
+   "cropBorderPx": 1,
+   "box": [
+    30,
+    30,
+    40,
+    40
+   ],
+   "boxUnclamped": [
+    30,
+    30,
+    40,
+    40
+   ],
+   "boxExact": [
+    29.5,
+    29.5,
+    40.5,
+    40.5
+   ],
+   "center": [
+    35,
+    35
+   ],
+   "region": [
+    31,
+    31,
+    38,
+    38
+   ],
+   "regionExtendUp25": [
+    31,
+    29,
+    38,
+    38
+   ]
+  },
+  {
+   "square": "d5",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 4,
+   "row": 4,
+   "cropBorderPx": 1,
+   "box": [
+    40,
+    40,
+    50,
+    50
+   ],
+   "boxUnclamped": [
+    40,
+    40,
+    50,
+    50
+   ],
+   "boxExact": [
+    39.5,
+    39.5,
+    50.5,
+    50.5
+   ],
+   "center": [
+    45,
+    45
+   ],
+   "region": [
+    41,
+    41,
+    48,
+    48
+   ],
+   "regionExtendUp25": [
+    41,
+    39,
+    48,
+    48
+   ]
+  },
+  {
+   "square": "b3",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 6,
+   "row": 2,
+   "cropBorderPx": 1,
+   "box": [
+    60,
+    20,
+    70,
+    30
+   ],
+   "boxUnclamped": [
+    60,
+    20,
+    70,
+    30
+   ],
+   "boxExact": [
+    59.5,
+    19.5,
+    70.5,
+    30.5
+   ],
+   "center": [
+    65,
+    25
+   ],
+   "region": [
+    61,
+    21,
+    68,
+    28
+   ],
+   "regionExtendUp25": [
+    61,
+    19,
+    68,
+    28
+   ]
+  },
+  {
+   "square": "g6",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 1,
+   "row": 5,
+   "cropBorderPx": 1,
+   "box": [
+    10,
+    50,
+    20,
+    60
+   ],
+   "boxUnclamped": [
+    10,
+    50,
+    20,
+    60
+   ],
+   "boxExact": [
+    9.5,
+    49.5,
+    20.5,
+    60.5
+   ],
+   "center": [
+    15,
+    55
+   ],
+   "region": [
+    11,
+    51,
+    18,
+    58
+   ],
+   "regionExtendUp25": [
+    11,
+    49,
+    18,
+    58
+   ]
+  },
+  {
+   "square": "c7",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 5,
+   "row": 6,
+   "cropBorderPx": 1,
+   "box": [
+    50,
+    60,
+    60,
+    70
+   ],
+   "boxUnclamped": [
+    50,
+    60,
+    60,
+    70
+   ],
+   "boxExact": [
+    49.5,
+    59.5,
+    60.5,
+    70.5
+   ],
+   "center": [
+    55,
+    65
+   ],
+   "region": [
+    51,
+    61,
+    58,
+    68
+   ],
+   "regionExtendUp25": [
+    51,
+    59,
+    58,
+    68
+   ]
+  },
+  {
+   "square": "f2",
+   "boardSize": 80,
+   "padSide": 0.05,
+   "whitePov": false,
+   "col": 2,
+   "row": 1,
+   "cropBorderPx": 1,
+   "box": [
+    20,
+    10,
+    30,
+    20
+   ],
+   "boxUnclamped": [
+    20,
+    10,
+    30,
+    20
+   ],
+   "boxExact": [
+    19.5,
+    9.5,
+    30.5,
+    20.5
+   ],
+   "center": [
+    25,
+    15
+   ],
+   "region": [
+    21,
+    11,
+    28,
+    18
+   ],
+   "regionExtendUp25": [
+    21,
+    9,
+    28,
+    18
+   ]
+  }
+ ]
+}
