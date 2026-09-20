@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.opencv.opencv_java
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Disabled
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.condition.EnabledIf
 import org.opencv.core.CvType
@@ -25,7 +24,6 @@ import java.util.concurrent.atomic.AtomicInteger
  *  Ein `finally` um Release und `inFlight` reicht NICHT — der Wurf bricht den Scope ab
  *  (gemessen 2026-09-16, `docs/bug-audit-2026-09-13.md`). */
 @EnabledIf(WEDGE_OPENCV_GATE)
-@Disabled("BUG: C7 — der Wurf bricht den Scope ab; ein `finally` allein macht diesen Test nicht gruen")
 class LiveAlignWedgeBugTest {
     @Test
     fun aConsumerThatThrowsDoesNotWedgeEveryLaterAlign() {
@@ -33,12 +31,13 @@ class LiveAlignWedgeBugTest {
         val align =
             LiveAlign(
                 CoroutineScope(Dispatchers.Unconfined),
-                {
-                    aligns.incrementAndGet()
-                    BoardGeometry(boardSize = BOARD_SIZE)
-                },
+                { BoardGeometry(boardSize = BOARD_SIZE) },
                 { CONFIG },
-                { error("the consumer blew up") },
+                {
+                    // Der Verbraucher zaehlt, nicht `geometry()`: das ruft ein Align zweimal.
+                    aligns.incrementAndGet()
+                    error("the consumer blew up")
+                },
                 dispatcher = Dispatchers.Unconfined,
             )
         val delivered = DeliveredSize(MARKER_CANVAS, MARKER_CANVAS, 0)

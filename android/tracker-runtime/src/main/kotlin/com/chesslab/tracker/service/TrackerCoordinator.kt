@@ -295,29 +295,28 @@ class LiveAlign(
             frame.release()
             return
         }
-        // TODO(C7): ein Wurf hinter der Detection verkeilt die Live-Ausrichtung — und ein `finally`
-        // um Release und `inFlight` reicht NICHT (gemessen 2026-09-16): der Wurf verlaesst die
-        // Coroutine, bricht den Scope ab, und der naechste `launch` startet nie mehr
-        // (`LiveAlignWedgeBugTest`).
         inFlight = true
         val current = tracker
         val startedAt = generation
         scope.launch(dispatcher) {
-            val result =
+            // Die Verbraucher liegen MIT im `runCatching`: der Scope ist kein `SupervisorJob`, ein
+            // Wurf aus `onCorners` risse ihn ab und kein spaeterer `launch` startete je wieder
+            // (C7, `LiveAlignWedgeBugTest`). Release und Flag stehen im `finally`.
+            try {
                 runCatching {
-                    boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
-                }
-            result.onSuccess { corners ->
-                // Before `onGrid`, which would measure a correction against the pose that is gone.
-                corners?.takeIf { startedAt == generation }?.let {
-                    val corrected = cornersToFlat(onGrid(frame, it))
-                    onCorners(corrected)
-                    cornerSink?.invoke(alignedAfterFrame, corrected)
-                }
+                    val corners =
+                        boardCornersForFrame(frame, geometry(), current, detectScale = cfg.alignScale, detector = markerDetector)
+                    // Before `onGrid`, which would measure a correction against the pose that is gone.
+                    corners?.takeIf { startedAt == generation }?.let {
+                        val corrected = cornersToFlat(onGrid(frame, it))
+                        onCorners(corrected)
+                        cornerSink?.invoke(alignedAfterFrame, corrected)
+                    }
+                }.onFailure { log.warn("live align failed", it) }
+            } finally {
+                frame.release()
+                inFlight = false
             }
-            result.onFailure { log.warn("live align failed", it) }
-            frame.release()
-            inFlight = false
         }
     }
 
