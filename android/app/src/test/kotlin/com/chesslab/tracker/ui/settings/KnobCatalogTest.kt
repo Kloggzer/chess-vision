@@ -51,6 +51,16 @@ class KnobCatalogTest {
         }
     }
 
+    /** Ein abgeschriebener Vorgabewert veraltet lautlos: `commitHoldS` nannte noch 0.067 s / 0.20 s,
+     *  als die Knoepfe laengst auf 0.0632 / 0.1592 standen. Der Text liest sie jetzt aus der Config. */
+    @Test
+    fun withheldKnobsQuoteTheLiveDefaultsAndNotAStaleCopy() {
+        val defaults = TrackerConfig()
+        val why = NOT_A_SETTING.getValue("commitHoldS")
+        assertTrue("${defaults.commitHoldS} s" in why, "commitHoldS reason does not name the configured commit hold: $why")
+        assertTrue("${defaults.motionHoldS} s" in why, "commitHoldS reason does not name the configured motion hold: $why")
+    }
+
     @Test
     fun catalogAndPersistenceTableAgree() {
         assertEquals(KNOBS.map { it.key }.toSet(), KNOB_CATALOG.map { it.key }.toSet() + NOT_A_SETTING.keys)

@@ -1,5 +1,6 @@
 package com.chesslab.tracker.ui.settings
 
+import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.tracker.settings.KNOBS
 import com.chesslab.tracker.ui.settings.KnobGroup.CAMERA
 import com.chesslab.tracker.ui.settings.KnobGroup.CNN
@@ -22,6 +23,10 @@ import com.chesslab.tracker.ui.settings.KnobGroup.VETOES
 // in the persistence table.
 
 private val BY_KEY = KNOBS.associateBy { it.key }
+
+/** Hilfetexte lesen ihre Zahlen HIER, statt sie abzuschreiben: eine abgeschriebene Vorgabe
+ *  veraltete lautlos, als sechs Knoepfe am 2026-09-20 neue Werte bekamen. */
+private val DEFAULTS = TrackerConfig()
 
 /**
  * Persisted and settable in code, deliberately absent from the screen — with the reason.
@@ -65,9 +70,10 @@ val NOT_A_SETTING: Map<String, String> =
             "because phantoms are the veto: the shipped default carries 0.25, the 128 px runs 0.35 — a " +
             "slider here would overwrite a measurement with a guess.",
         "commitHoldS" to
-            "Not a preference but the measured commit hold: 0.067 s (two quiet frames at 15 fps) against the " +
-            "0.20 s motion hold, with the sight series as the evidence that replaces the wait. Measured " +
-            "2026-09-13 over 10 + 5 recordings score-identical, 67 ms earlier per commit. null = the motion hold.",
+            "Not a preference but the measured commit hold: ${DEFAULTS.commitHoldS} s against the " +
+            "${DEFAULTS.motionHoldS} s motion hold, with the sight series as the evidence that replaces the " +
+            "wait. Measured 2026-09-13 over 10 + 5 recordings score-identical, 67 ms earlier per commit. " +
+            "null = the motion hold.",
         "earlyCommitObs" to
             "Not a preference but the sight series' depth: two consecutive observations in which the move's " +
             "squares were unoccluded and already showed the post-move occupancy. One glance is what the " +
