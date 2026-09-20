@@ -61,9 +61,9 @@ internal data class Scene(
     val handSpeed: Int = 2,
     /** Wie stark die Hand ein Feld deckt. Abgestuft, sonst trennt `pOccludedThr` nichts. */
     val handCover: Double = 0.95,
-    /** Meldet der modellfreie Rillen-Arm die Hand mit? Am Geraet ist er bei Coverage-Modellen
-     *  AUS (`runGridOcclusion = coverageOutput != true`), im Replay laufen beide. */
-    val gridArm: Boolean = true,
+    /** Meldet der modellfreie Rillen-Arm die Hand mit? Vorgabe AUS wie am Geraet: dort gilt
+     *  `runGridOcclusion = coverageOutput != true`, und die Engine SUMMIERT beide Arme. */
+    val gridArm: Boolean = false,
     val handFrames: Int = 0,
     val handSquares: Int = 0,
     val handCoverage: Double = 1.0,
@@ -398,37 +398,41 @@ internal fun fuzzRun(
     }
 
     var uebersprungen = -1
+    try {
+        fun felderVon(vararg ucis: String): List<String> = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }
 
-    fun felderVon(vararg ucis: String): List<String> = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }
-
-    for (ply in 0 until minOf(scene.plies, LINE.size)) {
-        // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg; ohne diese Marke spielte die
-        // naechste Runde denselben Zug ein zweites Mal.
-        if (ply == uebersprungen) continue
-        repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
-        val zweiter = if (ply + 1 < minOf(scene.plies, LINE.size)) LINE[ply + 1] else LINE[ply]
-        val verdeckt = scene.hiddenEvery > 0 && (ply + 1) % scene.hiddenEvery == 0
-        if (verdeckt) {
-            // Die Hand liegt jetzt UEBER den Zugfeldern; vorher stand sie als Block ab `a1`,
-            // waehrend der Zug anderswo sichtbar blieb — der Lauf hiess nur "verdeckt".
-            val felder = felderVon(LINE[ply], zweiter)
-            val decke = maxOf(scene.handSquares, HIDE_SQUARES)
-            val takte = maxOf(scene.handFrames, HIDE_FRAMES) / 2
-            repeat(takte) { tick(handAt(it, decke, scene.handSpeed, felder), scene.handCoverage) }
-            spiele(LINE[ply])
-            if (ply + 1 < minOf(scene.plies, LINE.size)) {
-                spiele(LINE[ply + 1])
-                uebersprungen = ply + 1
+        for (ply in 0 until minOf(scene.plies, LINE.size)) {
+            // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg; ohne diese Marke spielte die
+            // naechste Runde denselben Zug ein zweites Mal.
+            if (ply == uebersprungen) continue
+            repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
+            val zweiter = if (ply + 1 < minOf(scene.plies, LINE.size)) LINE[ply + 1] else LINE[ply]
+            val verdeckt = scene.hiddenEvery > 0 && (ply + 1) % scene.hiddenEvery == 0
+            if (verdeckt) {
+                // Die Hand liegt jetzt UEBER den Zugfeldern; vorher stand sie als Block ab `a1`,
+                // waehrend der Zug anderswo sichtbar blieb — der Lauf hiess nur "verdeckt".
+                val felder = felderVon(LINE[ply], zweiter)
+                val decke = maxOf(scene.handSquares, HIDE_SQUARES)
+                val takte = maxOf(scene.handFrames, HIDE_FRAMES) / 2
+                repeat(takte) { tick(handAt(it, decke, scene.handSpeed, felder), scene.handCoverage) }
+                spiele(LINE[ply])
+                if (ply + 1 < minOf(scene.plies, LINE.size)) {
+                    spiele(LINE[ply + 1])
+                    uebersprungen = ply + 1
+                }
+                repeat(takte) { tick(handAt(takte - it, decke, scene.handSpeed, felder), scene.handCoverage) }
+                continue
             }
-            repeat(takte) { tick(handAt(takte - it, decke, scene.handSpeed, felder), scene.handCoverage) }
-            continue
+            val felder = felderVon(LINE[ply])
+            repeat(scene.handFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), scene.handCoverage) }
+            repeat(scene.moveFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), 1.0) }
+            spiele(LINE[ply])
         }
-        val felder = felderVon(LINE[ply])
-        repeat(scene.handFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), scene.handCoverage) }
-        repeat(scene.moveFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), 1.0) }
-        spiele(LINE[ply])
+        repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
+    } finally {
+        // `fuzzSearch` verschluckt jede Ausnahme und laeuft weiter; ohne `finally` sammelt
+        // ein langer Suchlauf den nativen Puffer jedes fehlgeschlagenen Versuchs an.
+        mat.release()
     }
-    repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
-    mat.release()
     return FuzzResult(seq.toInt(), reached, committed)
 }

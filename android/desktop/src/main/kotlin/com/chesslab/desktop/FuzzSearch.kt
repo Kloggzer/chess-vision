@@ -177,16 +177,15 @@ internal fun fuzzVerb(args: List<String>) {
     println("$frames Frames insgesamt")
     println("%-28s %9s %8s %8s  %s".format("Zustand", "Ziehungen", "Anteil", "max", "noetig dafuer"))
     for ((state, w) in found.entries.sortedByDescending { it.value.frames }) {
-        println(
-            "%-28s %8d/%d %7.2f%% %8d  %s".format(
-                state,
-                w.trials,
-                trials,
-                100.0 * w.frames / maxOf(1, frames),
-                w.hits,
-                describe(w),
-            ),
-        )
+        // `state:*` zaehlt UEBERGAENGE, nicht Frames. Ein Anteil daran waere keine Groesse, die
+        // mit dem Korpus vergleichbar ist -- darum ein Strich statt einer Zahl.
+        val anteil =
+            if (state.startsWith("state:")) {
+                "%8s".format("-")
+            } else {
+                "%7.2f%%".format(PROZENT * w.frames / maxOf(1, frames))
+            }
+        println("%-28s %8d/%d %s %8d  %s".format(state, w.trials, trials, anteil, w.hits, describe(w)))
     }
     out?.let { path ->
         File(path).writeText(
@@ -211,4 +210,5 @@ private fun describe(w: Witness): String {
 }
 
 private const val DEFAULT_TRIALS = 200
+private const val PROZENT = 100.0
 private const val PROGRESS_EVERY = 50
