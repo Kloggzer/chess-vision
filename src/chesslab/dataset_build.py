@@ -441,15 +441,23 @@ def _pack_manifests(session_ids: Sequence[str], pack_size: tuple[int, int],
     """
     from .training import packs
 
+    w, h = pack_size
+    wanted = set(session_ids)
     found: dict[str, Path] = {}
+    names: dict[str, str] = {}
     for ref in packs.list_packs(paths):
         if (ref.shape[2], ref.shape[1]) != tuple(pack_size):
             continue
         mp = packs.pack_dir(ref.name, paths) / "manifest.jsonl"
         rows = dataset_mod.load_manifest(mp) if mp.exists() else []
-        if rows:
-            found.setdefault(str(rows[0]["session_id"]), mp)
-    w, h = pack_size
+        sid = str(rows[0]["session_id"]) if rows else None
+        if sid not in wanted:
+            continue
+        # Sonst entschiede die Verzeichnis-SORTIERUNG, welche Pixel der Datensatz zitiert.
+        if sid in found:
+            raise ValueError(f"two {w}x{h} packs claim session {sid}: {names[sid]} and "
+                             f"{ref.name} — delete the one this build must not cite.")
+        found[sid], names[sid] = mp, ref.name
     missing = [s for s in session_ids if s not in found]
     if missing:
         raise ValueError(

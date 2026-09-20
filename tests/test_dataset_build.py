@@ -297,3 +297,18 @@ def test_from_packs_survives_a_like_on_a_classic_donor(tmp_path):
     cfg = yaml.safe_load((paths.datasets / "twin" / "dataset.yaml").read_text(encoding="utf-8"))
     assert cfg[packs.PACKS_KEY] == ["s1-80"], "--like overrode an explicit --from-packs"
     assert not (paths.datasets / "twin" / "packed_images.u8").exists()
+
+
+def test_build_from_packs_refuses_two_packs_of_one_session_at_one_size(tmp_path):
+    """`import_pack` legt einen Kotlin-Pack unter `<sid>` ab, `session pack` unter `<sid>-<W>`.
+
+    Liegen beide in derselben Groesse, entschied bisher die Verzeichnis-SORTIERUNG, welche Pixel
+    der Datensatz zitiert — und nichts sagte es.
+    """
+    import pytest
+
+    paths = config.Paths(root=tmp_path)
+    _pack(paths, "s1", "s1")
+    _pack(paths, "s1-80", "s1")
+    with pytest.raises(ValueError, match="s1"):
+        _build_from_packs(paths, "packed", ["s1"])

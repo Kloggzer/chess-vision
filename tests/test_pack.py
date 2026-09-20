@@ -598,3 +598,21 @@ def test_pack_dataset_refuses_a_pack_built_dataset(tmp_path, paths):
     (dd / "dataset.yaml").write_text(f"name: ds\n{packs.PACKS_KEY}: [s1-80]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="data/packs"):
         pack_mod.pack_dataset("ds", paths=paths, workers=1)
+
+
+def test_a_link_carries_the_owners_baked_recipe(tmp_path, paths):
+    """CLAHE steckt in den PIXELN, die der Link mitliest — sagt sein Meta das nicht, rechnet der
+    Loader den Operator ein ZWEITES Mal, und `skip_baked` bekommt es nie zu sehen."""
+    _, rows = _make_dataset(tmp_path, 6)
+    pack_mod.pack_dataset("ds", paths=paths, workers=1)
+    meta_path = tmp_path / "datasets" / "ds" / "packed_meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["baked"] = {"op": "clahe", "clip": 2.0, "tile": 8, "min_mean": 25.0,
+                     "max_mean": 40.0, "denoise": "off", "from": "raw", "at": 0.0}
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    _variant_of(tmp_path, rows, "ds-sub", [0, 1, 2])
+
+    pack_mod.link_pack("ds-sub", "ds", paths=paths)
+
+    from chesslab.training.pack_bake import baked_of
+    assert baked_of("ds-sub", paths) == meta["baked"]

@@ -624,8 +624,10 @@ def link_pack(name: str, owner: str, paths: config.Paths = config.DATA) -> dict:
     link = {"n": ometa["n"], "h": ometa["h"], "w": ometa["w"], "digest": _manifest_digest(rows),
             "paths": ometa["paths"], "packed_from": owner}
     # A link has no memmap of its own, so without the owner's reference every staleness check
-    # would fall back to the owner FILE's mtime — the unreliable one.
-    link.update({k: ometa[k] for k in ("started_at", "crop_fingerprint") if k in ometa})
+    # would fall back to the owner FILE's mtime — the unreliable one. `baked` travels for the same
+    # reason: the operator sits in the pixels this link reads, and a link that stays silent about
+    # it makes the loader compute CLAHE a second time.
+    link.update({k: ometa[k] for k in ("started_at", "crop_fingerprint", "baked") if k in ometa})
     write_json(meta_path, link, indent=None)
     freed = img_path.stat().st_size if img_path.exists() else 0
     img_path.unlink(missing_ok=True)

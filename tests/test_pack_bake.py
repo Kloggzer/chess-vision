@@ -122,3 +122,18 @@ def test_clahe_params_reads_a_run_config():
     assert clahe_params({"clahe_clip": 2.0, "clahe_tile": 8, "clahe_min_mean": 25.0,
                          "clahe_max_mean": 40.0, "clahe_denoise": "off"}) == PARAMS
     assert clahe_params({})["clip"] == 0.0
+
+
+def test_bake_carries_the_pinned_split(tmp_path, paths):
+    """Ohne den Pin faellt `train --dataset <gebacken>` still auf `split.json` zurueck.
+
+    Der Riegel in `train`/`run_eval` haengt an der EXISTENZ der Datei, also schweigt er beim
+    Zwilling — gemessen wird dann der Val, den der Pin gerade ersetzt hat.
+    """
+    sd = _dataset(tmp_path, "src", [_crop(0)])
+    (sd / "split-pin.json").write_text(json.dumps({"splits": {"val": ["s1"]}}), encoding="utf-8")
+
+    bake_pack("src", "dst", PARAMS, paths=paths)
+
+    assert (tmp_path / "datasets" / "dst" / "split-pin.json").read_bytes() == \
+        (sd / "split-pin.json").read_bytes()

@@ -22,7 +22,9 @@ CHUNK = 4096
 
 #: Was neben den Pixeln mitkommt: der abgeleitete Datensatz muss dieselben Zeilen und dieselben
 #: Folds haben, sonst vergleicht ein Lauf auf ihm nichts mehr mit einem Lauf auf dem Original.
-COPIED = ("manifest.jsonl", "dataset.yaml", "split.json")
+#: `split-pin.json` gehoert dazu, weil der Riegel in `train`/`run_eval` an der EXISTENZ der Datei
+#: haengt: fehlt sie beim Zwilling, schweigt er und der Lauf misst still den ersetzten Val.
+COPIED = ("manifest.jsonl", "dataset.yaml", "split.json", "split-pin.json")
 
 
 def baked_of(name: str, paths: config.Paths = config.DATA) -> dict | None:
