@@ -268,10 +268,10 @@ def main() -> int:
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=args.seed, constraints_func=constraints),
         storage=f"sqlite:///{(OUT / 'study.db').as_posix()}",
-        # Der Name traegt die BEDINGUNGEN mit, nicht nur den Aufnahmesatz: ein Versuch, der unter
-        # zwei Bedingungen zulaessig hiess, sagt unter vier nichts — er wurde auf Wachen und Alarme
-        # nie geprueft. Ihn als zulaessig zurueckzuspielen wuerde TPE genau dorthin ziehen.
-        study_name="latenz5-w4", load_if_exists=True,
+        # Der Name traegt die BEDINGUNGEN mit, nicht nur den Aufnahmesatz. `w4b`: dieselben vier
+        # Achsen, aber Alarme als Budget ueber den Satz statt als Veto je Aufnahme — was unter
+        # `w4` unzulaessig hiess, kann jetzt zulaessig sein, die Studien sind nicht mischbar.
+        study_name="latenz5-w4b", load_if_exists=True,
     )
     # Unzulaessige Versuche brauchen EINEN Zielwert. Die Strafe liegt weit ueber jedem echten
     # Ergebnis, damit sie die Verteilung nicht verzerrt — entschieden wird ueber `constraints`.
