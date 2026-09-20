@@ -4,7 +4,7 @@ import path from "node:path";
 import { appendRows, writeFileAtomic } from "@/lib/atomic";
 import { serialize } from "@/lib/serialize";
 import { checkName, dataDir } from "@/lib/data";
-import { readJsonl } from "@/lib/jsonl";
+import { readJsonl, stripBom } from "@/lib/jsonl";
 
 /**
  * Is SAM's alpha right, is the interval's FEN what the board shows. "I cannot read this square" is
@@ -80,7 +80,9 @@ async function dropUnlocked(rows: ReviewNote[]): Promise<number> {
   const text = await readFile(file, "utf8").catch(() => "");
   if (!text) return 0;
   const drop = new Set(rows.map(noteKey));
-  const lines = text.split("\n");
+  // Ohne `stripBom` scheiterte Zeile 1 am Parse, und der `catch` unten BEHAELT eine unlesbare
+  // Zeile: ein Urteil in der ersten Zeile liess sich damit nie widerrufen.
+  const lines = stripBom(text).split("\n");
   // Die LETZTE Zeile ohne Umbruch dahinter gehoert einem laufenden `appendRows`. Ihr hier einen
   // zu geben machte aus dem geduldeten Schwanz Beschaedigung MITTENDRIN — und seit `bySession`
   // darauf wirft, waere danach jedes Urteil JEDER Sitzung unerreichbar.

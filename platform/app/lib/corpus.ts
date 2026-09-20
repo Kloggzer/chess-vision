@@ -14,6 +14,7 @@ import { writeFileAtomic } from "@/lib/atomic";
 import { IDENTITY_CLASSES, isIdentity, LEGACY_LABEL, PIECE_VISIBLE_MAX } from "@/lib/classes";
 import { checkName, dataDir } from "@/lib/data";
 import { inboxDir } from "@/lib/ingest";
+import { stripBom } from "@/lib/jsonl";
 
 /** Read verbatim — every figure in §7.1 is one of these keys, none of them recomputed. */
 export type Split = {
@@ -113,7 +114,7 @@ type Tally = { rows: number; sessions: Record<string, SessionCounts>; coverage: 
 async function* withoutBom(lines: AsyncIterable<string> | Iterable<string>): AsyncIterable<string> {
   let first = true;
   for await (const line of lines) {
-    yield first ? line.replace(/^﻿/, "") : line;
+    yield first ? stripBom(line) : line;
     first = false;
   }
 }

@@ -20,7 +20,7 @@ import { alive, releaseHeavyLock, stampHeavyLockChild } from "@/lib/heavy-lock";
 import { checkName, dataDir, gameDir } from "@/lib/data";
 import { inboxDir, targetDir } from "@/lib/ingest";
 import { matteCensus, matteTarget } from "@/lib/matte";
-import { jsonlRows } from "@/lib/jsonl";
+import { jsonlRows, stripBom } from "@/lib/jsonl";
 
 type JobState = "queued" | "running" | "done" | "failed" | "skipped" | "stopped";
 type JobKind = "pack" | "phone-record" | "label" | "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read";
@@ -156,7 +156,7 @@ function count(row: Record<string, unknown>, key: string, where: string): number
 
 async function manifestRows(file: string): Promise<Record<string, unknown>[]> {
   const text = await readFile(file, "utf8");
-  return text
+  return stripBom(text)
     .split("\n")
     .filter((line) => line.trim())
     .map((line, index) => object(JSON.parse(line) as unknown, `${file}:${index + 1}`));

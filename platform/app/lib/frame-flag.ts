@@ -7,6 +7,7 @@ import { copyFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
 import { checkName } from "@/lib/data";
+import { stripBom } from "@/lib/jsonl";
 import { sessionDir } from "@/lib/session";
 
 export type FrameFlag = { stem: string; unusable: boolean; backup: string | null };
@@ -29,7 +30,9 @@ export async function flagFrame(name: string, stem: string, unusable: boolean): 
   // gerade hinein, und das Zurueckschreiben haengte seinen Umbruch hinter die halbe Zeile — aus
   // einem erwartbaren Schwanz wurde dauerhafte Beschaedigung.
   if (text !== "" && !text.endsWith("\n")) throw new Error(`${name}/log.jsonl endet mitten in einer Zeile`);
-  const lines = text.split("\n");
+  // Ohne `stripBom` warf Zeile 1 hier, und das Flag war auf einer PowerShell-geschriebenen
+  // log.jsonl gar nicht setzbar. Zurueckgeschrieben wird dann ohne BOM — wie Python es liest.
+  const lines = stripBom(text).split("\n");
   let hit = -1;
   for (const [i, line] of lines.entries()) {
     if (!line.trim()) continue;

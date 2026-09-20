@@ -8,6 +8,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { dataDir } from "@/lib/data";
+import { stripBom } from "@/lib/jsonl";
 
 export type Provenance = {
   name: string;
@@ -66,7 +67,7 @@ const store: Store = ((globalThis as { __chesslabProvenance?: Store }).__chessla
 
 async function parseFile(name: string, file: string): Promise<Provenance> {
   const text = await readFile(file, "utf8");
-  const lines = text.split("\n").filter((line) => line.trim());
+  const lines = stripBom(text).split("\n").filter((line) => line.trim());
   let model: string | null = null;
   let writtenAt: string | null = null;
   let rows = lines.length;

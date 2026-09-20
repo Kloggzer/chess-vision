@@ -12,7 +12,7 @@ import { open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
-import { readJsonl } from "@/lib/jsonl";
+import { readJsonl, stripBom } from "@/lib/jsonl";
 import { type MatteCensus, matteCensus } from "@/lib/matte";
 import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
@@ -126,7 +126,7 @@ async function headerOf(file: string): Promise<Provenance | null> {
   try {
     const buffer = Buffer.alloc(4096);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    const line = buffer.toString("utf8", 0, bytesRead).split("\n")[0];
+    const line = stripBom(buffer.toString("utf8", 0, bytesRead)).split("\n")[0];
     return (JSON.parse(line) as { _source?: Provenance })._source ?? {};
   } catch {
     return null;

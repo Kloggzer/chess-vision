@@ -10,10 +10,17 @@ export type JsonlRead = {
   corrupt: number;
 };
 
+/**
+ * `utf-8-sig` wie `chesslab.ioutil`: PowerShells `Out-File` stempelt ein BOM, und ohne dies zaehlt
+ * Zeile 1 als beschaedigt — die Leser werfen darauf die ganze Datei weg. Nur das FUEHRENDE
+ * Zeichen: ein U+FEFF mitten im Inhalt ist Inhalt und bleibt stehen.
+ */
+export function stripBom(text: string): string {
+  return text.startsWith("﻿") ? text.slice(1) : text;
+}
+
 export function readJsonl(text: string): JsonlRead {
-  // `utf-8-sig` wie `chesslab.ioutil`: PowerShells `Out-File` stempelt ein BOM, und ohne diese
-  // Zeile war die erste Zeile "beschaedigt MITTENDRIN" — die Leser werfen darauf die ganze Datei weg.
-  const lines = (text.startsWith("﻿") ? text.slice(1) : text).split(/\r?\n/);
+  const lines = stripBom(text).split(/\r?\n/);
   // Der ZEILENUMBRUCH entscheidet: wer mitten in einer Zeile steht, hat ihn noch nicht
   // geschrieben. Eine kaputte Zeile, die auf einen Umbruch endet, ist kein laufender Schreiber.
   const open = lines.length > 0 && lines[lines.length - 1] !== "";
