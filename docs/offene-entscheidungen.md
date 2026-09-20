@@ -36,7 +36,7 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~27~~ | Postgres statt 19 Dateiformate | — | — | **verworfen 2026-09-16** — Messungen bleiben |
 | **28** | Python und TypeScript uneinig: Messung, dann Absage | B | 1 h | **entscheiden** — heute latent |
 | ~~29~~ | `recut_coverage` las das falsche Alpha | — | — | **gefixt** — 68 Zeilen auf der Platte noch falsch |
-| **30** | `gate:occluded` steht unter den neuen Vorgaben auf 0, das Veto feuert weiter | B | Messung | **entscheiden** |
+| **30** | Der Champion halbiert das Verdeckungs-Veto (gemessen) | B | Aufnahmen | **entscheiden** |
 | **31** | Das Telefon holt den Champion nicht ab (`CONFIG_SCHEMA_VERSION`) | C | 5 min | **entscheiden** |
 | **32** | Die Alarmspalte der Regression zaehlt Entscheidungen, nicht Episoden | A | 20 min | Spalte ergaenzen, nie ersetzen |
 | 33 | `labeled-session-pack` koennte aus `row["board"]` schneiden | C | halber Tag | erst mit dem naechsten Export-Neubau |
@@ -377,21 +377,33 @@ prueft ausserdem gegen die ECHTE `loadMatte` statt gegen eine Kopie ihrer Regeln
 
 **Wirkung heute: null** — 0 Absagen im Korpus. Die Regel greift beim naechsten SAM-Lauf.
 
-## 30. Gemalte Korrektur auf spaetere Frames — ENTSCHIEDEN 2026-09-16: nicht ungefragt
+## 30. Der Champion halbiert das Verdeckungs-Veto (2026-09-21, gemessen)
 
-`carryPositionCorrections` traegt eine gemalte Stellung auf die spaeteren Frames DESSELBEN Plys,
-und `board-paint` nimmt das `prefilled` bis in `planBoard`. Verdrahtet war nie eine Seite.
+Der urspruengliche Eintrag fragte nach `gate:occluded = 0` im Fuzzer. **Das war ein Fehler im
+Treiber**, nicht im Produkt: die synthetische Hand lag als starrer Block ab `a1`, waehrend die
+Zuege anderswo stattfanden. Seit sie ueber den Zugfeldern wandert und die Bewegung mit dem echten
+`RoiMotion` gemessen wird, steht `gate:occluded` bei 115.
 
-**Warum es nicht harmlos ist:** `planBoard` legt eine Zeile, die von der Datei abweicht, in
-`corrections` — und damit auf den Bestaetigen-Knopf. Wer einen Bogen schnell durchbestaetigt,
-schriebe Labels, die er nie angesehen hat.
+Die Kopplung dahinter ist trotzdem real und jetzt beziffert. `FrameLoop` leitet die
+Baseline-Verdeckungsschwelle als `motionPxThr * BASELINE_ABS_THR_FACTOR` (4,0) ab. Gemessen mit
+`desktop fuzz check` auf denselben Szenen, nur dieser Knopf veraendert:
 
-**Nicht zu verwechseln mit der Matten-Lane.** Dort urteilt der Mensch ueber SAMs MASKE, und ein
-Urteil dort ist abgesegnet. Hier geht es um gemalte FIGUREN auf der Strittig-Lane — eine andere
-Lane und eine andere Frage.
+| `motionPxThr` | Schwelle | `veto:occlusion` | `veto:shadow` |
+|---|---:|---:|---:|
+| 20,0 (vor dem Champion) | 80 | **593** | 614 |
+| 34,544 (Champion) | 138 | **345** | 582 |
+| 41,5 (bester Kandidat der Budget-Suche) | 166 | 345 | 539 |
 
-**Entscheidung (Nutzer): nicht ungefragt.** Bleibt unverdrahtet. Wer es will, baut einen eigenen
-Knopf; das Anschliessen selbst ist ein Aufruf.
+**Das Verdeckungs-Veto feuert unter dem Champion 42 % seltener.** Oberhalb von 34,5 kostet es
+nichts mehr — der Census saettigt, wer die Reserve zurueckholen will, muss DARUNTER.
+
+Der Regressionssatz zeigt davon nichts (396/3/0, Desync-Episoden 15 -> 8). Es ist eine schmaler
+gewordene Reserve, kein gemessener Schaden.
+
+**Zu entscheiden:** ob das reicht. Die fehlende Messung ist handreiches Material — die beiden
+neuen Partien tragen 645 und 477 Handframes und sind noch in keinem Satz. Solange die Frage offen
+ist, sollte kein weiterer Kandidat `motionPxThr` nach oben schieben; der beste der Budget-Suche
+brachte 21 Frames und wuerde die Schwelle auf 166 heben.
 
 ## 29. `recut_coverage` las das falsche Alpha — GEMESSEN und GEFIXT 2026-09-16
 
