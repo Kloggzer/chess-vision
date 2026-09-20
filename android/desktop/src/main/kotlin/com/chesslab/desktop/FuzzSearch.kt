@@ -84,6 +84,8 @@ private fun sampleScene(rng: Random): Scene =
         // Ohne verdeckte Zuege laufen Brett und Engine nie auseinander, und die Verify-Leiter
         // endet praktisch immer auf `confirmed` (gemessen: 13 `resynced` in 5 000 Ziehungen).
         hiddenEvery = if (rng.nextInt(2) == 0) rng.nextInt(2, 5) else 0,
+        handCover = rng.nextDouble(0.2, 1.0),
+        gridArm = rng.nextInt(2) == 0,
     )
 
 private fun sampleOverrides(rng: Random): Map<String, Double> {

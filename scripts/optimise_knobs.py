@@ -60,6 +60,11 @@ SPACE: dict[str, tuple[float, float]] = {
 }
 GANZZAHLIG = {"maxChanged"}
 
+#: Die Regel, unter der eine Zeile gemessen wurde. Ein Versuch, den die ALTE Regel als
+#: unzulaessig verworfen hat, sagt unter der neuen nichts -- ihn zurueckzuspielen zoege TPE aus
+#: einer Region weg, die jetzt erlaubt ist. Hochzaehlen, wenn sich eine Nebenbedingung aendert.
+REGEL = "w4b-alarmbudget"
+
 #: So viele Kandidaten der Suche werden auf dem vollen Satz nachgefahren.
 BESTAETIGEN = 3
 
@@ -189,7 +194,7 @@ def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> floa
     trial.set_user_attr("status", row["status"])
     with SCHREIBEN:
         append_rows(TRIALS, [{"kind": "suche", "tag": f"t{trial.number:03d}",
-                             "config": config, **row}])
+                             "regel": REGEL, "config": config, **row}])
     return row["latency"] if row["status"] == "ok" else strafe
 
 
@@ -271,7 +276,7 @@ def main() -> int:
         # Der Name traegt die BEDINGUNGEN mit, nicht nur den Aufnahmesatz. `w4b`: dieselben vier
         # Achsen, aber Alarme als Budget ueber den Satz statt als Veto je Aufnahme — was unter
         # `w4` unzulaessig hiess, kann jetzt zulaessig sein, die Studien sind nicht mischbar.
-        study_name="latenz5-w4b", load_if_exists=True,
+        study_name=f"latenz5-{REGEL}", load_if_exists=True,
     )
     # Unzulaessige Versuche brauchen EINEN Zielwert. Die Strafe liegt weit ueber jedem echten
     # Ergebnis, damit sie die Verteilung nicht verzerrt — entschieden wird ueber `constraints`.
@@ -282,10 +287,11 @@ def main() -> int:
         # Die ganze Geschichte zurueckspielen, nicht nur die Besten: TPE lernt aus den
         # GESCHEITERTEN mit, und `trials.jsonl` haelt sie alle. Ein geleerter Studienspeicher
         # kostet damit nichts ausser dem Zurueckspielen.
-        # NUR Zeilen, die unter allen vier Bedingungen gemessen wurden. Aeltere fehlen bewusst:
-        # ihre Zulaessigkeit ist unbekannt, und "unbekannt als zulaessig" ist der teuerste Irrtum.
+        # NUR Zeilen derselben REGEL. Eine aeltere ist entweder ungeprueft (dann waere
+        # "unbekannt als zulaessig" der teuerste Irrtum) oder unter einer anderen Regel verworfen
+        # (dann zoege sie TPE aus einer Region weg, die jetzt offensteht).
         alt = [x for x in done if x.get("kind") == "suche" and "config" in x
-               and "extra_alarme" in x]
+               and x.get("regel") == REGEL]
         for r in alt:
             study.add_trial(
                 optuna.trial.create_trial(

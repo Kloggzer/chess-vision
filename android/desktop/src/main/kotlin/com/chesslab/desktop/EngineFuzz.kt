@@ -59,6 +59,11 @@ internal data class Scene(
     /** Wie weit die Hand je Frame wandert, in Feldern. Die Bewegung ENTSTEHT daraus; einen
      *  freien `motionRoiScore` gibt es nicht mehr, den misst `RoiMotion` aus den Pixeln. */
     val handSpeed: Int = 2,
+    /** Wie stark die Hand ein Feld deckt. Abgestuft, sonst trennt `pOccludedThr` nichts. */
+    val handCover: Double = 0.95,
+    /** Meldet der modellfreie Rillen-Arm die Hand mit? Am Geraet ist er bei Coverage-Modellen
+     *  AUS (`runGridOcclusion = coverageOutput != true`), im Replay laufen beide. */
+    val gridArm: Boolean = true,
     val handFrames: Int = 0,
     val handSquares: Int = 0,
     val handCoverage: Double = 1.0,
@@ -82,6 +87,13 @@ internal data class FuzzResult(
 }
 
 internal fun squares(): List<String> = buildList { for (r in 1..8) for (f in FILES) add("" + f + r) }
+
+/** Bit i steht fuer `squares()[i]` — dieselbe Reihenfolge, die `Squares.ALL` benutzt. */
+private fun maskeVon(felder: Set<String>): Long {
+    var maske = 0L
+    for ((i, sq) in squares().withIndex()) if (sq in felder) maske = maske or (1L shl i)
+    return maske
+}
 
 /** Die Hand wandert ueber das Brett, statt als Block zu stehen: nur so entsteht im Bild echte
  *  Bewegung, und nur so misst `RoiMotion` etwas. */
@@ -258,6 +270,7 @@ private fun pieceName(piece: Char): String = (if (piece.isUpperCase()) "w" else 
 private fun probsOf(
     truth: Map<String, Char>,
     hand: Set<String>,
+    shadow: Set<String>,
     scene: Scene,
     rng: Random,
 ): Map<String, DoubleArray> {
@@ -272,7 +285,14 @@ private fun probsOf(
         val name = if (sq in wrong) CLASSES.filter { it != truthName }.random(rng) else truthName
         val row = DoubleArray(CLASSES.size + 1) { (1.0 - scene.obsConf) / (CLASSES.size - 1) }
         row[CLASSES.indexOf(name)] = scene.obsConf
-        row[CLASSES.size] = if (sq in hand) 1.0 else 0.0
+        // ABGESTUFT, nicht 0/1: bei binaerer Deckung trennt `pOccludedThr` ueber seinen ganzen
+        // Suchbereich nichts, und der Knopf sieht folgenlos aus, obwohl er es nicht ist.
+        row[CLASSES.size] =
+            when {
+                sq in hand -> scene.handCover
+                sq in shadow -> scene.handCover / 2.0
+                else -> 0.0
+            }
         rows[sq] = row
     }
     return rows
@@ -349,8 +369,13 @@ internal fun fuzzRun(
         }
         engine.onFrame(FrameInput(seq, gray, bgr, corners, motion, coverage, scene.luma, tsMs))
         if (seq % scene.obsEvery == 0L) {
-            val obs = observationFromProbs(probsOf(truth, hand, scene, rng), CLASSES)
-            pending += (seq + scene.obsLagFrames) to CnnSnapshot(obs, seq, tsMs, 1.0, null, null, engine.fen())
+            val obs = observationFromProbs(probsOf(truth, hand, shadowOf(hand), scene, rng), CLASSES)
+            // Der modellfreie Verdeckungsarm war immer 0, also stumm — dabei liest ihn die Engine
+            // sowohl fuer die Handform als auch fuer die Sichtbarkeitsserie.
+            val gitter = if (scene.gridArm) maskeVon(hand) else 0L
+            pending +=
+                (seq + scene.obsLagFrames) to
+                CnnSnapshot(obs, seq, tsMs, 1.0, null, null, engine.fen(), gitter)
         }
         val status = engine.status()
         reached.merge("gate:" + (status.debug?.frameGate ?: "none"), 1, Int::plus)

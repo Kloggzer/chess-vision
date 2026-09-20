@@ -109,3 +109,18 @@ def test_ueber_dem_budget_bricht_das_rennen_ab(monkeypatch):
     row = ok.race({}, _basis([1, 1, 0, 0, 0]), "t")
 
     assert row["status"] == "alarm" and row["extra_alarme"] == 1, row
+
+
+def test_der_warmstart_nimmt_nur_zeilen_der_eigenen_regel():
+    # Ein Versuch, den die ALTE Regel verworfen hat, kann unter der neuen zulaessig sein.
+    zeilen = [
+        {"kind": "suche", "config": {}, "regel": ok.REGEL},
+        {"kind": "suche", "config": {}, "regel": "w4-veto-je-aufnahme"},
+        {"kind": "suche", "config": {}},
+        {"kind": "basis", "rec": "x", "regel": ok.REGEL},
+    ]
+
+    passend = [x for x in zeilen if x.get("kind") == "suche" and "config" in x
+               and x.get("regel") == ok.REGEL]
+
+    assert len(passend) == 1
