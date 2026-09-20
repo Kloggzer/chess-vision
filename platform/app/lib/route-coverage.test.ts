@@ -1,7 +1,7 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 
 /**
  * Eine Ratsche auf die API-Routen, das duennste Stueck des Baums (18,6 % am 2026-09-14) und der
@@ -62,6 +62,7 @@ test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
   // `mkdir` gibt bei `recursive` den ERSTEN angelegten Pfad zurueck oder undefined — der Ort
   // gehoert in eine eigene Variable, sonst haengt die Probe an diesem Detail.
   const base = path.join(tmpdir(), `rc-${Date.now()}`);
+  onTestFinished(() => rm(base, { recursive: true, force: true }));
   for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {
     await mkdir(path.join(base, rel), { recursive: true });
     await writeFile(path.join(base, rel, "x.test.ts"), '"@/app/api/erfunden/route"', "utf8");

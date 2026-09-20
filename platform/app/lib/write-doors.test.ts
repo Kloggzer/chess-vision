@@ -3,9 +3,10 @@
  * und beim Anhaengen den abgerissenen Schwanz. `lib/atomic.ts` ist die eine Antwort; diese Liste
  * sind die Stellen davor und darf nur SCHRUMPFEN. Der Zwilling zu `tests/test_json_doors.py`.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "write-doors.txt");
@@ -28,6 +29,13 @@ async function sources(dir: string): Promise<string[]> {
 }
 
 /** Schreibaufruf UND JSON in derselben Sichtweite — das ist die Form, die die Politik neu erfindet. */
+function doorsIn(text: string): number {
+  const lines = text.split("\n");
+  return lines.filter(
+    (line, i) => WRITE.test(line) && !NOT_JSON.test(line) && JSONISH.test(lines.slice(i, i + 6).join("\n")),
+  ).length;
+}
+
 async function doors(): Promise<Map<string, number>> {
   const found = new Map<string, number>();
   for (const dir of ["lib", "app"]) {
@@ -35,10 +43,7 @@ async function doors(): Promise<Map<string, number>> {
       const rel = path.relative(ROOT, file).split(path.sep).join("/");
       // Ein Test legt sein eigenes Fixture an; das ist keine Schreibpolitik.
       if (rel === CUSTODIAN || /\.test\.tsx?$/.test(rel)) continue;
-      const lines = (await readFile(file, "utf8")).split("\n");
-      const hits = lines.filter(
-        (line, i) => WRITE.test(line) && !NOT_JSON.test(line) && JSONISH.test(lines.slice(i, i + 6).join("\n")),
-      ).length;
+      const hits = doorsIn(await readFile(file, "utf8"));
       if (hits > 0) found.set(rel, hits);
     }
   }
@@ -71,4 +76,30 @@ test("die Liste traegt keine erledigte Zeile mehr", async () => {
   const seen = await doors();
   const stale = [...(await ledger())].filter(([f, n]) => (seen.get(f) ?? 0) < n);
   expect(stale, "schreib die Zahl herunter — die Ratsche darf nur schrumpfen").toEqual([]);
+});
+
+/** Gegenprobe: ohne einen eingepflanzten Fall weiss niemand, ob die Ratsche noch etwas sieht. */
+test("eine eingepflanzte Tuer wird gezaehlt, der Treuhaender nicht", () => {
+  expect(doorsIn(`await writeFile(file, JSON.stringify(rows));`)).toBe(1);
+  expect(doorsIn(`await appendFile(f, line + "\\n");\nconst s = JSON.stringify(row);`)).toBe(1);
+  expect(doorsIn(`writeFileSync(p, text);\n// Zeile\n// Zeile\nJSON.stringify(x);`)).toBe(1);
+
+  expect(doorsIn(`await writeFileAtomic(file, JSON.stringify(rows));`)).toBe(0);
+  expect(doorsIn(`await writeFile("run.log", JSON.stringify(x), "utf8");`)).toBe(0);
+  expect(doorsIn(`await writeFile(png, buffer);`)).toBe(0);
+});
+
+/** Gegenprobe auf den Gang: eine fremde Datei darf keine Tuer erfinden (`route-coverage.test.ts`). */
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+  const base = path.join(tmpdir(), `wd-${process.pid}-${Date.now()}`);
+  onTestFinished(() => rm(base, { recursive: true, force: true }));
+  for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {
+    await mkdir(path.join(base, rel), { recursive: true });
+    await writeFile(path.join(base, rel, "x.ts"), `writeFile(f, JSON.stringify(r));`, "utf8");
+  }
+
+  const gefunden = await sources(base);
+
+  expect(gefunden.map((f) => path.relative(base, f).split(path.sep).join("/")))
+    .toEqual(["lib/x.ts"]);
 });

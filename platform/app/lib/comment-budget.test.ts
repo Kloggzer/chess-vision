@@ -23,12 +23,17 @@ function sourceFiles(entry: string): string[] {
   }
 }
 
+/** `"files/games/*.pgn"` ist kein Blockanfang: ein `/*` in einem Text schaltete den Scanner um,
+ *  und der zaehlte danach CODE als Kommentar — `reference-chip.tsx` stand damit auf 5 von 5. */
+const withoutStrings = (line: string): string =>
+  line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""');
+
 function longestRun(text: string): number {
   let run = 0;
   let worst = 0;
   let inBlock = false;
   for (const raw of text.split("\n")) {
-    const line = raw.trim();
+    const line = withoutStrings(raw).trim();
     const comment =
       inBlock || line.startsWith("//") || line.startsWith("/*") || line.startsWith("{/*") || line.startsWith("*");
     if (line.includes("/*") && !line.includes("*/")) inBlock = true;
@@ -55,6 +60,14 @@ function budget(): Map<string, number> {
   }
   return out;
 }
+
+/** Gegenprobe: was die Ratsche fangen MUSS, und was sie nicht erfinden darf. */
+test("der Kommentar-Scanner zaehlt Kommentare, nicht Code hinter einem Glob", () => {
+  expect(longestRun('const why = "games/*.pgn";\ncode();\nmore();\nstill();')).toBe(0);
+  expect(longestRun("// a\n// b\n// c\ncode();\n// d")).toBe(3);
+  expect(longestRun("/**\n * a\n * b\n */\ncode();")).toBe(4);
+  expect(longestRun("code(); // kurz\ncode();")).toBe(0);
+});
 
 test(`no comment block over ${LIMIT} lines outside the shrinking budget`, () => {
   const allowed = budget();

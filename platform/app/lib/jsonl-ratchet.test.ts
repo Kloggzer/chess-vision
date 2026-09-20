@@ -3,17 +3,19 @@
  * letzte Zeile neu — und lag dabei schon mehrfach daneben. `lib/jsonl.ts` ist die eine Antwort;
  * diese Liste sind die Stellen davor und darf nur SCHRUMPFEN.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "jsonl-readers.txt");
 const ALLOWED = ["lib/jsonl.ts", "lib/jsonl.test.ts", "lib/jsonl-ratchet.test.ts"];
 const BS = String.fromCharCode(92);
-/** Die vier Schreibweisen, in denen diese App eine Datei in Zeilen schneidet. */
-const CUTS = [`.split("${BS}n")`, `.split('${BS}n')`, `.split(/${BS}r?${BS}n/)`,
-  ".split(String.fromCharCode(10))"];
+/** Die FORM, nicht vier Schreibweisen: ein `split` auf irgendetwas, das einen Umbruch enthaelt.
+ *  Vier Namen zu suchen liess `/\n/`, Backticks und `"\r\n"` durch — derselbe Fehler, an dem der
+ *  Python-Zwilling 16 Stellen uebersah. */
+const CUT = /\.split\(\s*(?:"[^"\n]*\\n[^"\n]*"|'[^'\n]*\\n[^'\n]*'|`[^`\n]*\\n[^`\n]*`|\/[^/\n]*\\n[^/\n]*\/[a-z]*|String\.fromCharCode\(10\))\s*\)/g;
 /** Zeilenweise ITERATION ist derselbe Schnitt, nur unsichtbar fuer eine Textsuche: der
  *  Python-Zwilling uebersah so drei handkopierte Nachbauten seines Lesers (2026-09-17). */
 const ITER = /for\s+(?:await\s+)?\(\s*const\s+(\w+)\s+of\s+([\w.]+)/g;
@@ -32,7 +34,7 @@ function loopBody(text: string, from: number): string {
 }
 
 function cuts(text: string): number {
-  const split = CUTS.reduce((n, needle) => n + text.split(needle).length - 1, 0);
+  const split = [...text.matchAll(CUT)].length;
   let iter = 0;
   for (const m of text.matchAll(ITER)) {
     // Der Treuhaender selbst ist kein eigener Schnitt.
@@ -97,4 +99,32 @@ test("die Liste traegt keine erledigte Zeile mehr", async () => {
   const seen = await handRolled();
   const stale = [...(await ledger())].filter(([f, n]) => (seen.get(f) ?? 0) < n);
   expect(stale, "schreib die Zahl herunter — die Ratsche darf nur schrumpfen").toEqual([]);
+});
+
+/** Gegenprobe auf die FORM: der Python-Zwilling suchte Schreibweisen und liess 16 Stellen durch. */
+test("jede Schreibweise des Zeilenschnitts zaehlt, nicht nur die vier bekannten", () => {
+  const N = BS + "n";
+  const planted = [
+    `text.split("${N}")`, `text.split('${N}')`, `text.split(\`${N}\`)`,
+    `text.split(/${BS}r?${N}/)`, `text.split(/${N}/)`, `text.split("${BS}r${N}")`,
+    `text.split(String.fromCharCode(10))`, `text.split( "${N}" )`,
+  ];
+  for (const form of planted) expect(cuts(form), form).toBeGreaterThan(0);
+  // Und ein Schnitt, der KEINE Zeilen macht, darf die Ratsche nicht fuellen.
+  expect(cuts(`stamped.split(":")`)).toBe(0);
+});
+
+/** Gegenprobe auf den Gang: eine fremde Datei darf keine Stelle erfinden (`route-coverage.test.ts`). */
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+  const base = path.join(tmpdir(), `jr-${process.pid}-${Date.now()}`);
+  onTestFinished(() => rm(base, { recursive: true, force: true }));
+  for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {
+    await mkdir(path.join(base, rel), { recursive: true });
+    await writeFile(path.join(base, rel, "x.ts"), `JSON.parse(t.split("${BS}n")[0])`, "utf8");
+  }
+
+  const gefunden = await sources(base);
+
+  expect(gefunden.map((f) => path.relative(base, f).split(path.sep).join("/")))
+    .toEqual(["lib/x.ts"]);
 });
