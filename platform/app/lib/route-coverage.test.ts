@@ -1,5 +1,6 @@
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
 
 /**
@@ -10,9 +11,13 @@ import { expect, test } from "vitest";
  */
 const APP = process.cwd();
 
+// Dieselbe Sperre wie in `jsonl-ratchet.test.ts`: ohne sie lief der Gang durch 3 961
+// Verzeichnisse, fand 452 Testdateien — 322 davon in `node_modules` — und eine fremde Datei
+// mit dem Muster haette eine unserer Routen als getestet ausgewiesen.
 async function filesUnder(dir: string, name: string): Promise<string[]> {
   const out: string[] = [];
   for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out.push(...(await filesUnder(full, name)));
     else if (entry.name === name || entry.name.endsWith(name)) out.push(full);
@@ -50,4 +55,20 @@ test("no route loses its test, and no new route arrives without one", async () =
 
   const gone = [...budget].filter((r) => !routes.includes(r));
   expect(gone, `Route existiert nicht mehr, Zeile streichen: ${gone.join(", ")}`).toEqual([]);
+});
+
+/** Gegenprobe: eine eingepflanzte Fremddatei darf die Abdeckung nicht erfinden. */
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+  // `mkdir` gibt bei `recursive` den ERSTEN angelegten Pfad zurueck oder undefined — der Ort
+  // gehoert in eine eigene Variable, sonst haengt die Probe an diesem Detail.
+  const base = path.join(tmpdir(), `rc-${Date.now()}`);
+  for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {
+    await mkdir(path.join(base, rel), { recursive: true });
+    await writeFile(path.join(base, rel, "x.test.ts"), '"@/app/api/erfunden/route"', "utf8");
+  }
+
+  const gefunden = await filesUnder(base, ".test.ts");
+
+  expect(gefunden.map((f) => path.relative(base, f).split(path.sep).join("/")))
+    .toEqual(["lib/x.test.ts"]);
 });
