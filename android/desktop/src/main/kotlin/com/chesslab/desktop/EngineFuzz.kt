@@ -323,6 +323,10 @@ internal fun fuzzRun(
         status.stuckReason?.let { reached.merge("stuck:" + it, 1, Int::plus) }
         status.verifyState?.let { reached.merge("verify:" + it, 1, Int::plus) }
         status.note?.let { reached.merge("note:" + it, 1, Int::plus) }
+        // Trennt "das Veto feuert nie" von "es feuert, aber die Leiter loest nie darauf auf".
+        if (status.shadowVetoed.isNotEmpty()) reached.merge("veto:shadow", 1, Int::plus)
+        if (status.occlusionVetoed.isNotEmpty()) reached.merge("veto:occlusion", 1, Int::plus)
+        if (status.changed.isNotEmpty()) reached.merge("veto:changed", 1, Int::plus)
         seq += 1
         tsMs += FRAME_MS
     }

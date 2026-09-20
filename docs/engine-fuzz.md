@@ -111,6 +111,29 @@ im Fuzzer bei 484, `gate:occluded` bei 24 gegen 119. Fuer genau diese Knoepfe �
 liefert die synthetische Bahn also mehr Gelegenheiten als der ganze Screening-Satz, und das
 60-mal billiger.
 
+## Der Sensor ist nicht die Sprosse (2026-09-20, gemessen)
+
+Nach der Korrektur blieb `verify:shadow` auch ueber **5 000 Ziehungen bei null**. Die naheliegende
+Lesart — der Schatten-Sensor sei tot — ist falsch. `TrackerStatus.shadowVetoed` trennt die beiden
+Faelle, und gemessen ueber 400 Ziehungen:
+
+| Achse | Treffer |
+|---|---:|
+| `veto:shadow` (das Veto feuert) | **51/400** |
+| `veto:occlusion` | 20/400 |
+| `verify:shadow` (die Leiter loest so auf) | **0/5000** |
+
+Das Veto ist also in jeder achten Ziehung aktiv; was nie passiert, ist dass die Verify-Leiter
+darauf ENDET. Der Korpus sagt dasselbe: 58 `verify:shadow` auf 11 001 Frames, waehrend Schatten
+dort alltaeglich sind.
+
+**Wer einen Sensor fuer tot erklaeren will, muss den Sensor messen, nicht seinen Ausgang.** Eine
+Sprosse der Leiter ist ein SELTENES ERGEBNIS, kein Sensor — sie bleibt leer, weil vorher etwas
+anderes aufloest. Genau die Klasse, die das Screening nicht von echter Stummheit trennen konnte.
+
+Offen bleibt `verify:overruled`: null im Korpus (ausser unter entschaerfter Bewegungserkennung,
+dort 332) und null in 5 000 synthetischen Ziehungen.
+
 ## Was der Ansatz NICHT kann
 
 Fuzzing findet einen Pfad, es schließt ihn nie aus. Ein Zustand, den 2 000 Ziehungen nicht
