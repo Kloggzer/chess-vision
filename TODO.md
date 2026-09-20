@@ -138,8 +138,10 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   `scripts/` sind zu einer Stelle geworden). `load_packed` weist Pack-Datensätze beim Namen ab,
   die Skripte sehen also einen klaren Fehler statt falscher Indizes — lesen können sie sie
   weiterhin nicht. Weg wäre `resolve_dataset_packs` plus `torch_data._pack_index`.
-- **Zwei `mm://`-Formate ohne gemeinsamen Bauer:** `synth_build._virtual_path` gegen die
-  Kotlin-Schreiber; nur `packs.pack_name_of` liest beide.
+- **Die Kotlin-Schreiber bauen `mm://` weiterhin selbst** (`Crops.kt`, `LabeledVideoPack.kt`,
+  vier Stellen `"mm://$id/$stem/$square"`). Python hat seit 2026-09-20 EINEN Bauer
+  (`packs.mm_path`), und `tests/test_mm_path_contract.py` haelt alle drei Formen samt der
+  Kotlin-Literale fest — der Vertrag ist nur das erste Segment. Ein Kotlin-Bauer waere der Rest.
 - **`crop_fingerprint` fehlt in Session-Packs, `synth_build` schreibt dort `{}`.** FEHLEND heißt
   im Leser „Altpack, nimm die Mtime", ein leeres dict heißt „gerechnet, nichts zu vergleichen".
   Bei reinen `mm://`-Zeilen liefern beide Zweige heute dasselbe (beide `stat()` werfen), also

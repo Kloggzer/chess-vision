@@ -56,6 +56,20 @@ def pack_dir(name: str, paths: config.Paths = config.DATA) -> Path:
     return paths.packs / name
 
 
+def mm_path(pack: str, *parts: str) -> str:
+    """`mm://<pack>/<teil>/…` — der eine Bauer fuer virtuelle Pfade.
+
+    Der Vertrag ist NUR das erste Segment; was dahinter steht, unterscheidet sich je Schreiber
+    (Synth: `<sid>/<frame>_<feld>.png`, Session und Kotlin: `<frame>/<feld>`). Genau darum gehoert
+    der Kopf an eine Stelle — gelesen wird er von [pack_name_of].
+    """
+    if not pack or "/" in pack:
+        raise ValueError(f"pack name must be one segment: {pack!r}")
+    if not parts or any(not t for t in parts):
+        raise ValueError(f"mm path needs a non-empty tail: {parts!r}")
+    return MM_PREFIX + "/".join((pack, *parts))
+
+
 def pack_name_of(mm_path: str) -> str:
     """`mm://<pack>/<rest>` -> `<pack>`. Anything else is not a packed row."""
     if not mm_path.startswith(MM_PREFIX):

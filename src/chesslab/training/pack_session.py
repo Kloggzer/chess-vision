@@ -96,7 +96,7 @@ def _write_rows(name: str, out_dir: Path, size: int, crops, what: str) -> dict:
     shape: tuple[int, int] | None = None
     with partial.open("wb") as fh:
         for crop, row in crops:
-            row["path"] = f"{packs.MM_PREFIX}{name}/{row['frame']}/{row['square']}"
+            row["path"] = packs.mm_path(name, str(row["frame"]), str(row["square"]))
             h, w = crop.shape[:2]
             # Der Pack veroeffentlicht EINE Geometrie fuer alle Zeilen. Zwei Formen gleicher
             # Pixelzahl (2x3 gegen 3x2) rutschen sonst durch und jede fruehere Zeile wird

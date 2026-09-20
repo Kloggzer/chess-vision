@@ -38,7 +38,9 @@ SYNTH_BOARD_SIZE = config.SYNTH.warp_board_size
 
 def _virtual_path(name: str, sid: str, frame: str, square: str) -> str:
     """Stable, unique, non-filesystem path for a packed crop (digest + path2idx key)."""
-    return f"mm://{name}/{sid}/{frame}_{square}.png"
+    from .training import packs
+
+    return packs.mm_path(name, sid, f"{frame}_{square}.png")
 
 
 def _rows_for_entry(name: str, sid: str, entry: dict, crop) -> list[dict]:
