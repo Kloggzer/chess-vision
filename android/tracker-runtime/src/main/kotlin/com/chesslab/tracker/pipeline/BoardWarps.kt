@@ -45,7 +45,7 @@ private const val BGR_CHANNELS = 3
  * that is what keeps the expensive warp off the per-frame path.
  */
 class CropFrameStore(
-    private val cachedVisual: ((Long) -> CachedVisual)? = null,
+    private val cachedVisual: ((Long) -> CachedVisual?)? = null,
 ) {
     class CachedVisual(
         val observation: CnnObservation,
@@ -139,7 +139,8 @@ class CropFrameStore(
         wanted = false
     }
 
-    /** Strict replay cache: a configured cache must contain every requested observation seq. */
+    /** `null` heisst: der Cache kennt diesen Frame nicht, also normal rechnen. Ob ein fehlender
+     *  Frame ein FEHLER ist, entscheidet der Cache selbst (`VisualObservationCache`). */
     fun cached(seq: Long): CachedVisual? = cachedVisual?.invoke(seq)
 }
 

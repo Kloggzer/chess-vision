@@ -74,14 +74,8 @@ fun main(args: Array<String>) {
     }
 }
 
-/**
- * Mehrere Aufnahmen in EINEM Prozess — nur die Wiederholung spart, sonst nichts.
- *
- * Gemessen: JVM-Start und Modell-Ladung kosten 3,6 s, und die JIT-Aufwaermphase nochmal so viel
- * (16,1 ms je Frame im Mittel gegen 7,8 im eingeschwungenen Zustand). Ein Optimierer-Versuch ueber
- * fuenf Aufnahmen zahlte das FUENFMAL. Die Namen loesen nach `data/recordings/<name>/video.mp4`
- * auf, und jeder Lauf bekommt sein `name=` selbst — sonst schriebe er in den Cache der Nachbarin.
- */
+/** Mehrere Aufnahmen in EINEM Prozess: JVM-Start und JIT kosten zusammen ~17 s und fielen bisher
+ *  je Aufnahme an. Namen loesen nach `data/recordings/<name>/video.mp4` auf. */
 private fun batchReplay(
     names: String,
     rest: List<String>,
@@ -423,6 +417,7 @@ internal fun replayRun(
                         options.limitFrames,
                         recorded?.size,
                     ),
+                    tolerant = options.visualCachePartial,
                 )
             }
         val parallelVisual =
@@ -514,11 +509,21 @@ internal fun replayRun(
         // und der Lauf ist Anweisung fuer Anweisung der alte (`MultiReplay.kt`).
         val extras =
             options.extraConfigs?.let { pfad ->
-                ExtraEngines.open(
-                    readExtraConfigs(File(pfad), config), geometry, optics, bus, publisher, cnn, scope,
-                    settings, { source.currentDecodedIndex }, frameClock::now,
-                    recordedStartFen(options, video), cropClaheOf(spec),
-                )?.also { it.calibrate(geometry, quad, source.delivered) }
+                ExtraEngines
+                    .open(
+                        readExtraConfigs(File(pfad), config),
+                        geometry,
+                        optics,
+                        bus,
+                        publisher,
+                        cnn,
+                        scope,
+                        settings,
+                        { source.currentDecodedIndex },
+                        frameClock::now,
+                        recordedStartFen(options, video),
+                        cropClaheOf(spec),
+                    )?.also { it.calibrate(geometry, quad, source.delivered) }
             }
         if (trace != null) {
             stack.host.submit(

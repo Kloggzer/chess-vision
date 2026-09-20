@@ -1,13 +1,14 @@
-"""Latenz minimieren, ohne einen Treffer zu verlieren — mit Racing ueber die zehn Aufnahmen.
+"""Latenz minimieren, ohne einen Treffer zu verlieren — Racing, dann Bestaetigung.
 
 Ziel des Nutzers (2026-09-20): "Minimiere Latenz, kein Treffer darf verloren gehen." Beides sind
 harte NEBENBEDINGUNGEN, keine Gewichte: ein Phantom oder ein verlorener Zug bricht den Versuch ab,
 statt gegen gewonnene Frames aufgerechnet zu werden.
 
-Racing macht den vollen Satz bezahlbar: die Aufnahmen laufen von der kuerzesten zur laengsten, und
-ein schlechter Versuch stirbt nach ~25 s statt nach ~20 min. Nur die Kandidaten, die durchhalten,
-kosten die vollen 81 110 Frames. Der Suchraum kommt aus `scripts/screen_knobs.py` — 4 von 47
-Knoepfen tragen die Groessenordnung (`docs/knopf-screening.md`).
+Zwei Stufen. GESUCHT wird auf fuenf Aufnahmen (20 572 Frames), BESTAETIGT auf allen zehn
+(`--voll`). Racing sortiert dabei nach Aussieben je Sekunde, nicht nach Laenge — gemessen erledigt
+`222741` sechs von sieben Fehlversuchen, und an siebter Stelle kostete ein Abbruch 37 072 Frames
+statt 9 576. Der Suchraum kommt aus `scripts/screen_knobs.py`: 4 von 47 Knoepfen tragen die
+Groessenordnung (`docs/knopf-screening.md`).
 
 **Ein gescheiterter Versuch wird nicht geprunet, sondern schliesst ab.** Optunas Constrained-TPE
 lernt die unzulaessige Region aus genau diesen Werten; ein `TrialPruned` wuerfe die teuerste
@@ -20,6 +21,7 @@ import argparse
 import logging
 import re
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -32,12 +34,19 @@ BINARY = ROOT / "android/desktop/build/install/desktop/bin/desktop.bat"
 DESKTOP = ROOT / "android/desktop"
 OUT = ROOT / "tmp/batch/optimise-knobs"
 TRIALS = OUT / "trials.jsonl"
+#: Die visuellen Beobachtungen EINER Aufnahme, einmal gebaut und von allen Versuchen gelesen.
+#: Gemessen 42,7 -> 12,5 s je Lauf (3,4x), 6 MB je Aufnahme. Der Kopf traegt Video, Modell und
+#: eine Signatur ueber Geometrie, Quad und Ausrichtung — ein fremder Cache kann nicht still
+#: gelesen werden. `docs/visual-cache-2026-09-20.md`.
+VISUAL = OUT / "visual"
 
-#: Von der kuerzesten zur laengsten — das ist die ganze Racing-Idee.
-RECORDINGS = ["2026-08-08-11-55-19", "VID_20260727_233929", "VID_20260726_233432",
-              "VID_20260824_153751", "VID_20260802_222203", "2026-08-07-13-52-38",
-              "VID_20260802_222741", "2026-08-08-00-39-57", "VID_20260824_154327",
-              "2026-08-08-11-59-12"]
+#: Racing sortiert nach AUSSIEBEN je Sekunde, nicht nach Laenge: `222741` erledigte 6 von 7
+#: Fehlversuchen, stand aber an siebter Stelle — ein Abbruch kostete 37 072 statt 9 576 Frames.
+#: Gesucht wird auf diesen fuenf (20 572 Frames), bestaetigt auf allen zehn (`--voll`).
+RECORDINGS = ["VID_20260802_222741", "2026-08-08-11-55-19", "VID_20260727_233929",
+              "VID_20260726_233432", "VID_20260824_153751"]
+VOLL = RECORDINGS + ["VID_20260802_222203", "2026-08-07-13-52-38", "2026-08-08-00-39-57",
+                     "VID_20260824_154327", "2026-08-08-11-59-12"]
 
 #: Die vier Knoepfe, die im Screening die Groessenordnung tragen, plus zwei aus dem Mittelfeld.
 #: Grenzen etwas weiter als die Screening-Raender, damit das Optimum nicht auf der Kante liegt.
@@ -51,6 +60,13 @@ SPACE: dict[str, tuple[float, float]] = {
 }
 GANZZAHLIG = {"maxChanged"}
 
+#: So viele Kandidaten der Suche werden auf dem vollen Satz nachgefahren.
+BESTAETIGEN = 3
+
+#: Zwei Threads haengen sonst beim Anhaengen ineinander. Der Lauf selbst ist ein Unterprozess,
+#: der das GIL freigibt — die Parallelitaet kostet also nichts ausser diesem Riegel.
+SCHREIBEN = threading.Lock()
+
 FOUND = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)\s+\((\w+)\)", re.M)
 TALLY = re.compile(r"^  (invented|beyond) (\d+)", re.M)
 
@@ -59,9 +75,12 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     """Ein Lauf auf einer Aufnahme. Gibt Treffer, Phantome und die Summe der Latenzen zurueck."""
     OUT.mkdir(parents=True, exist_ok=True)
     sets = [f"set:{k}={int(v) if k in GANZZAHLIG else v}" for k, v in config.items()]
+    # `visualcache-partial`: der Beobachter sieht hoechstens jeden zweiten Frame, ein Cache ist
+    # also nie lueckenlos — was fehlt, wird gerechnet statt zu werfen.
+    cache = ["visualcache=" + str(VISUAL / f"{rec}.visual"), "visualcache-partial"]
     proc = subprocess.run(
         [str(BINARY), "replay", str(ROOT / f"data/recordings/{rec}/video.mp4"),
-         "score", f"name={rec}", *sets],
+         "score", f"name={rec}", *cache, *sets],
         cwd=DESKTOP, capture_output=True, text=True, errors="replace", check=False)
     (OUT / f"{tag}--{rec}.log").write_text(proc.stdout, encoding="utf-8", newline="\n")
     plies = FOUND.findall(proc.stdout)
@@ -73,10 +92,12 @@ def replay(rec: str, config: dict[str, float], tag: str) -> dict:
     }
 
 
-def race(config: dict[str, float], base: dict[str, dict], tag: str) -> dict:
+def race(config: dict[str, float], base: dict[str, dict], tag: str,
+         recs: list[str] | None = None) -> dict:
     """Aufnahme fuer Aufnahme, Abbruch beim ersten Verstoss — die Werte bleiben aber erhalten."""
+    recs = recs or RECORDINGS
     latency, started = 0, time.time()
-    for i, rec in enumerate(RECORDINGS):
+    for i, rec in enumerate(recs):
         run = replay(rec, config, tag)
         sec = round(time.time() - started, 1)
         if run["invented"] > base[rec]["invented"]:
@@ -86,7 +107,7 @@ def race(config: dict[str, float], base: dict[str, dict], tag: str) -> dict:
             return {"status": "verlust", "at": rec, "nach": i + 1, "sec": sec,
                     "fehlt": base[rec]["found"] - run["found"], "phantome": 0, "latency": 0}
         latency += run["latency"]
-    return {"status": "ok", "latency": latency, "nach": len(RECORDINGS), "fehlt": 0, "phantome": 0,
+    return {"status": "ok", "latency": latency, "nach": len(recs), "fehlt": 0, "phantome": 0,
             "sec": round(time.time() - started, 1)}
 
 
@@ -106,20 +127,62 @@ def objective(trial: optuna.Trial, base: dict[str, dict], strafe: float) -> floa
     trial.set_user_attr("phantome", float(row.get("phantome", 0)))
     trial.set_user_attr("nach", row["nach"])
     trial.set_user_attr("status", row["status"])
-    append_rows(TRIALS, [{"kind": "versuch", "tag": f"t{trial.number:03d}", "config": config, **row}])
+    with SCHREIBEN:
+        append_rows(TRIALS, [{"kind": "suche", "tag": f"t{trial.number:03d}",
+                             "config": config, **row}])
     return row["latency"] if row["status"] == "ok" else strafe
+
+
+def bestaetige(done: list[dict], base: dict[str, dict]) -> int:
+    """Die besten Kandidaten der Suche auf ALLEN zehn Aufnahmen nachfahren.
+
+    Die Suche laeuft auf fuenf, weil das viermal billiger ist; ob ein Gewinn dort auch auf den
+    anderen fuenf traegt, ist eine eigene Frage und keine Rechnung.
+    """
+    fehlt = [r for r in VOLL if r not in base]
+    if fehlt:
+        print(f"Basis fehlt fuer {fehlt} — erst ohne --voll laufen lassen")
+        return 1
+    ok = sorted((r for r in done if r.get("kind") == "suche" and r["status"] == "ok"),
+                key=lambda r: r["latency"])[:BESTAETIGEN]
+    if not ok:
+        print("kein zulaessiger Kandidat aus der Suche")
+        return 1
+    basis = sum(base[r]["latency"] for r in VOLL)
+    print(f"Basis ueber alle zehn: {basis:+} Frames\n")
+    for i, kand in enumerate(ok):
+        row = race(kand["config"], base, f"voll{i:02d}", recs=VOLL)
+        append_rows(TRIALS, [{"kind": "bestaetigung", "config": kand["config"],
+                              "such_latenz": kand["latency"], **row}])
+        wert = f"{row['latency']:+} ({row['latency'] - basis:+} gegen Basis)" \
+            if row["status"] == "ok" else row["status"]
+        print(f"  Kandidat {i} (Suche {kand['latency']:+}): {wert} · {row['sec']}s", flush=True)
+    return 0
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--trials", type=int, default=60)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--jobs", type=int, default=3, help="Versuche gleichzeitig")
+    ap.add_argument("--voll", action="store_true",
+                    help="die besten Kandidaten auf ALLEN zehn Aufnahmen bestaetigen")
     args = ap.parse_args()
 
     done = list(read_jsonl(TRIALS)) if TRIALS.exists() else []
     base = {r["rec"]: r for r in done if r.get("kind") == "basis"}
+    # NACHEINANDER, vor den parallelen Versuchen: zwei Prozesse, die denselben Cache gleichzeitig
+    # anlegen, streiten sich um dieselbe `.partial`-Datei.
+    VISUAL.mkdir(parents=True, exist_ok=True)
+    for rec in (VOLL if args.voll else RECORDINGS):
+        if not (VISUAL / f"{rec}.visual").exists():
+            t0 = time.time()
+            replay(rec, {}, "CACHE")
+            print(f"  visueller Cache {rec}: {time.time() - t0:.0f}s", flush=True)
+    if args.voll:
+        return bestaetige(done, base)
     if len(base) < len(RECORDINGS):
-        print("Basis fehlt — einmal mit Vorgabewerten ueber den vollen Satz", flush=True)
+        print("Basis fehlt — einmal mit Vorgabewerten", flush=True)
         OUT.mkdir(parents=True, exist_ok=True)
         for rec in RECORDINGS:
             if rec in base:
@@ -129,26 +192,40 @@ def main() -> int:
             base[rec] = row
             print(f"   {rec:22s} found={row['found']} inv={row['invented']} "
                   f"lat={row['latency']:+}", flush=True)
-    basis_lat = sum(b["latency"] for b in base.values())
-    treffer = sum(b["found"] for b in base.values())
-    print(f"\nBasis: {treffer} Treffer, Latenz {basis_lat:+} Frames NL", flush=True)
+    # NUR ueber die Suchaufnahmen: `base` traegt auch die fuenf, die erst `--voll` braucht, und
+    # ein Massstab aus zehn Aufnahmen gegen ein Ergebnis aus fuenf waere schlicht falsch.
+    basis_lat = sum(base[r]["latency"] for r in RECORDINGS)
+    treffer = sum(base[r]["found"] for r in RECORDINGS)
+    print(f"\nBasis: {treffer} Treffer, Latenz {basis_lat:+} Frames", flush=True)
 
     optuna.logging.set_verbosity(logging.WARNING)
     study = optuna.create_study(
         direction="minimize",
         sampler=optuna.samplers.TPESampler(seed=args.seed, constraints_func=constraints),
         storage=f"sqlite:///{(OUT / 'study.db').as_posix()}",
-        study_name="latenz", load_if_exists=True,
+        # Eigener Name: die Suche laeuft jetzt auf fuenf Aufnahmen, die Zielwerte des
+        # Zehn-Satzes sind damit nicht vergleichbar.
+        study_name="latenz5", load_if_exists=True,
     )
     # Unzulaessige Versuche brauchen EINEN Zielwert. Die Strafe liegt weit ueber jedem echten
     # Ergebnis, damit sie die Verteilung nicht verzerrt — entschieden wird ueber `constraints`.
     strafe = abs(basis_lat) * 10 + 100_000.0
+    # Warmstart: die zulaessigen Konfigurationen des Zehn-Satz-Laufs sind teuer erkauft und
+    # bleiben als Startpunkte gueltig, auch wenn ihre Zielwerte es nicht sind.
+    if not study.trials:
+        warm = sorted((x for x in done if x.get("kind") in ("versuch", "suche")
+                       and x["status"] == "ok"), key=lambda x: x["latency"])[:5]
+        for r in warm:
+            study.enqueue_trial(r["config"])
+        if warm:
+            print(f"Warmstart mit {len(warm)} Kandidaten aus dem Zehn-Satz-Lauf", flush=True)
     offen = args.trials - len([t for t in study.trials if t.state.is_finished()])
     if offen > 0:
         study.optimize(lambda tr: objective(tr, base, strafe), n_trials=offen,
+                       n_jobs=args.jobs,
                        callbacks=[lambda _study, tr: print(
                            f"  [{tr.number:>3}] {tr.user_attrs.get('status','?'):<8s} "
-                           f"nach {tr.user_attrs.get('nach','?')}/10 "
+                           f"nach {tr.user_attrs.get('nach','?')}/{len(RECORDINGS)} "
                            f"{'Latenz ' + format(tr.value, '+.0f') if tr.user_attrs.get('status') == 'ok' else ''}",
                            flush=True)])
     zulaessig = [t for t in study.trials if t.user_attrs.get("status") == "ok"]

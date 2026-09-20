@@ -8,14 +8,8 @@ import com.chesslab.tracker.pipeline.FrameStages
 import com.chesslab.tracker.pipeline.RoiMotion
 import org.opencv.core.Mat
 
-/**
- * Die Pixelarbeit EINMAL fuer N Engines: der erste Aufrufer rechnet, die uebrigen lesen.
- *
- * Gemessen lohnt es sich, weil der Frame-Durchgang von der Konfiguration fast nicht abhaengt —
- * Warp, Grau, Grid und Brett folgen aus Geometrie und CLAHE. Nur die Bewegungsmessung haengt an
- * `motionMargin`/`motionPxThr`; sie wird darum je WERTEPAAR gehalten, nicht je Engine, denn zwei
- * Konfigurationen mit denselben beiden Zahlen bekommen dasselbe Ergebnis.
- */
+/** Die Pixelarbeit EINMAL fuer N Engines. Nur `roiMotion` haengt an der Konfiguration und wird
+ *  je WERTEPAAR gehalten (`docs/multireplay-2026-09-20.md`). */
 internal class SharedFrameWork(
     private val inner: FrameStages<Mat>,
 ) : AutoCloseable {
@@ -65,27 +59,22 @@ internal class SharedFrameWork(
     ): Double {
         val key = config.motionMargin to config.motionPxThr
         return scores.getOrPut(key) {
-            motions.getOrPut(key) { RoiMotion(key.first, key.second) }
+            motions
+                .getOrPut(key) { RoiMotion(key.first, key.second) }
                 .score(requireNotNull(current) { "roiMotion vor beginFrame" }, corners)
         }
     }
 
-    /**
-     * Nur bei echter Aenderung durchreichen: `onGeometryChanged` ruft `dropChain()`, und zehn
-     * Engines mit DERSELBEN Geometrie warfen die Kette zehnmal weg — die zweite riss danach mit
-     * "warpDetection must run first" ab, mitten im Frame der ersten.
-     */
+    /** Nur bei ECHTER Aenderung: `onGeometryChanged` ruft `dropChain()`, und zehn Engines warfen
+     *  die Kette zehnmal weg — die zweite riss mitten im Frame der ersten ab. */
     fun onGeometryChanged(geometry: BoardGeometry) {
         if (geometry == lastGeometry) return
         lastGeometry = geometry
         inner.onGeometryChanged(geometry)
     }
 
-    /**
-     * Die Crops haengen an (Frame, Ecken, Geometrie) — NICHT an der Konfiguration. Der
-     * Beobachtungs-Cache greift erst danach, weil sein Schluessel der Crop-INHALT ist; geschnitten
-     * wurde bisher je Engine. Gemessen sind Beobachtungen 56 % eines Laufs.
-     */
+    /** Crops haengen an (Frame, Ecken, Geometrie), nicht an der Konfiguration — geschnitten wurde
+     *  bisher je Engine. Das war der ganze Gewinn: 486 -> 199 s. */
     fun updateCropFrame(
         corners: FloatArray,
         seq: Long,

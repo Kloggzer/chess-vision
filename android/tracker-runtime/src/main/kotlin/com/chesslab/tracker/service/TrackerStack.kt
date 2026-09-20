@@ -97,7 +97,7 @@ class TrackerSeed<T>(
     /** Der Fokus-Sweep und die Schaerfe-Aufsicht — wie [exposure] nur am Geraet gesetzt. */
     val focus: FocusGovernor = FocusGovernor.NONE,
     /** Offline two-pass source; absence keeps the phone and ordinary replay path unchanged. */
-    val cachedVisual: ((Long) -> CropFrameStore.CachedVisual)? = null,
+    val cachedVisual: ((Long) -> CropFrameStore.CachedVisual?)? = null,
     /** Records emitted observations during the visual-cache build pass. */
     val observationSink: ((CnnSnapshot) -> Unit)? = null,
     /** Legal-placement prior selected by the confirmed-move video replay A/B. */

@@ -18,19 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import org.opencv.core.Mat
 import java.awt.image.BufferedImage
 
-/**
- * N zusaetzliche Konfigurationen im SELBEN Bilddurchgang — sie teilen sich eine Pixel-Bahn.
- *
- * Gemessen lohnt es doppelt: 57 % eines Laufs sind fester Aufwand (JVM, Modell, Vorlauf), und der
- * Frame-Durchgang haengt von den Engine-Knoepfen gar nicht ab. Der HAUPTstack bleibt unangetastet
- * — er faehrt seinen eigenen Weg wie bisher, die Zusatz-Engines teilen sich eine zweite Bahn. Bei
- * zehn Konfigurationen sind das zwei Durchgaenge statt elf.
- *
- * Bewusst KEIN Umbau von `buildStack`: der Hauptpfad traegt Regressionssatz, Clips und die
- * Paritaetstests, und eine Aenderung dort ist mit nichts zu belegen, was nicht selbst durch ihn
- * laeuft. Der Nachweis ist stattdessen: dieselbe Konfiguration hier und dort muss Ziffer fuer
- * Ziffer dasselbe liefern.
- */
+/** N Konfigurationen im SELBEN Bilddurchgang, gemessen 1,8x. Der Hauptstack bleibt unangetastet;
+ *  die Zusatz-Engines teilen sich eine zweite Bahn (`docs/multireplay-2026-09-20.md`). */
 internal class ExtraEngines private constructor(
     private val stacks: List<TrackerStack<Mat>>,
     private val shared: SharedFrameWork,
@@ -120,21 +109,14 @@ internal class ExtraEngines private constructor(
     }
 }
 
-/**
- * Die Datei hinter `configs=`: je Zeile ein Name und die Knoepfe, die er gegen [base] aendert.
- *
- * ```
- * t000 motionThr=0.31 commitHoldS=0.042
- * t001 motionThr=0.44
- * ```
- * Leerzeilen und `#`-Zeilen fallen weg. Die Knopfnamen laufen durch denselben Katalog wie `set:`,
- * ein Tippfehler bricht also hier ab und nicht erst nach zwanzig Minuten Rechnung.
- */
+/** `configs=`: je Zeile `<name> <knopf>=<wert> ...`, Leerzeilen und `#` fallen weg. Die Namen
+ *  laufen durch denselben Katalog wie `set:` — ein Tippfehler bricht hier ab, nicht nach 20 min. */
 internal fun readExtraConfigs(
     file: java.io.File,
     base: TrackerConfig,
 ): List<Pair<String, TrackerConfig>> =
-    file.readLines()
+    file
+        .readLines()
         .map(String::trim)
         .filter { it.isNotEmpty() && !it.startsWith("#") }
         .map { line ->

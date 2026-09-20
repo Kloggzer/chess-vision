@@ -86,6 +86,10 @@ data class ReplayOptions(
     /** `configs=<datei>` — je Zeile `<name> <knopf>=<wert> ...`: weitere Engines im SELBEN
      *  Bilddurchgang. Sie teilen sich eine Pixel-Bahn (`MultiReplay.kt`). */
     val extraConfigs: String? = null,
+    /** `visualcache-partial` — ein Frame, den der Bau-Lauf nicht sah, wird gerechnet statt zu
+     *  werfen. Der Beobachter sieht hoechstens jeden zweiten Frame, ein Cache kann also gar
+     *  nicht lueckenlos sein (gemessen 200 von 400). */
+    val visualCachePartial: Boolean = false,
     /** Benchmark/investigation arm: force the real graph even when identical crop hashes exist. */
     val observationCache: Boolean = true,
     /** Experimental bounded cross-frame visual prepass; zero keeps the established path. */
@@ -111,6 +115,7 @@ data class ReplayOptions(
                 "frames" to { it.copy(frames = true) },
                 "cleanonly" to { it.copy(cleanOnly = true) },
                 "noobscache" to { it.copy(observationCache = false) },
+                "visualcache-partial" to { it.copy(visualCachePartial = true) },
                 "workprofile" to { it.copy(workProfile = true) },
             )
 

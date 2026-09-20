@@ -16,15 +16,21 @@ internal class VisualObservationCache private constructor(
     private val file: File,
     private val reader: CachedRows?,
     private val output: DataOutputStream?,
+    private val tolerant: Boolean = false,
 ) : AutoCloseable {
     private var observations = 0
     private var alignments = 0
     private var lastSeq = 0L
     private var lastAlignmentFrame = 0L
 
-    val lookup: ((Long) -> CropFrameStore.CachedVisual)? =
+    /** Streng: ein fehlender Frame ist ein Fehler. TOLERANT: er wird gerechnet — noetig, weil der
+     *  Beobachter hoechstens jeden zweiten Frame sieht (`docs/visual-cache-2026-09-20.md`). */
+    val lookup: ((Long) -> CropFrameStore.CachedVisual?)? =
         reader?.let { rows ->
-            { seq -> rows.observations[seq] ?: error("visual cache ${file.absolutePath} has no observation for seq $seq") }
+            { seq ->
+                rows.observations[seq]
+                    ?: if (tolerant) null else error("visual cache ${file.absolutePath} has no observation for seq $seq")
+            }
         }
 
     /** Inspection seam for the bounded parallel visual prepass; absent while this cache is built. */
@@ -96,9 +102,10 @@ internal class VisualObservationCache private constructor(
             video: File,
             model: String,
             signature: String = "",
+            tolerant: Boolean = false,
         ): VisualObservationCache =
             if (file.isFile) {
-                VisualObservationCache(file, read(file, video, model, signature), null)
+                VisualObservationCache(file, read(file, video, model, signature), null, tolerant)
             } else {
                 file.parentFile?.mkdirs()
                 val partial = partialOf(file)
