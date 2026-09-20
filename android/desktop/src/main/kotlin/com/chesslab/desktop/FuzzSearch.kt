@@ -85,7 +85,9 @@ private fun sampleScene(rng: Random): Scene =
         // endet praktisch immer auf `confirmed` (gemessen: 13 `resynced` in 5 000 Ziehungen).
         hiddenEvery = if (rng.nextInt(2) == 0) rng.nextInt(2, 5) else 0,
         handCover = rng.nextDouble(0.2, 1.0),
-        gridArm = rng.nextInt(2) == 0,
+        // EXKLUSIV wie am Geraet: entweder Coverage-Modell (Rillen-Arm aus) oder keins
+        // (Rillen-Arm an). Beide gleichzeitig gibt es in keiner ausgelieferten Konfiguration.
+        coverageModel = rng.nextInt(2) == 0,
     )
 
 private fun sampleOverrides(rng: Random): Map<String, Double> {

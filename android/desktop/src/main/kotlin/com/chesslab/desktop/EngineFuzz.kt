@@ -61,9 +61,9 @@ internal data class Scene(
     val handSpeed: Int = 2,
     /** Wie stark die Hand ein Feld deckt. Abgestuft, sonst trennt `pOccludedThr` nichts. */
     val handCover: Double = 0.95,
-    /** Meldet der modellfreie Rillen-Arm die Hand mit? Vorgabe AUS wie am Geraet: dort gilt
-     *  `runGridOcclusion = coverageOutput != true`, und die Engine SUMMIERT beide Arme. */
-    val gridArm: Boolean = false,
+    /** Faehrt ein Coverage-Modell? Dann ist der Rillen-Arm AUS, sonst AN -- am Geraet gilt
+     *  `runGridOcclusion = coverageOutput != true`, die beiden Arme sind also EXKLUSIV. */
+    val coverageModel: Boolean = true,
     val handFrames: Int = 0,
     val handSquares: Int = 0,
     val handCoverage: Double = 1.0,
@@ -289,6 +289,7 @@ private fun probsOf(
         // Suchbereich nichts, und der Knopf sieht folgenlos aus, obwohl er es nicht ist.
         row[CLASSES.size] =
             when {
+                !scene.coverageModel -> 0.0
                 sq in hand -> scene.handCover
                 sq in shadow -> scene.handCover / 2.0
                 else -> 0.0
@@ -372,7 +373,7 @@ internal fun fuzzRun(
             val obs = observationFromProbs(probsOf(truth, hand, shadowOf(hand), scene, rng), CLASSES)
             // Der modellfreie Verdeckungsarm war immer 0, also stumm — dabei liest ihn die Engine
             // sowohl fuer die Handform als auch fuer die Sichtbarkeitsserie.
-            val gitter = if (scene.gridArm) maskeVon(hand) else 0L
+            val gitter = if (scene.coverageModel) 0L else maskeVon(hand)
             pending +=
                 (seq + scene.obsLagFrames) to
                 CnnSnapshot(obs, seq, tsMs, 1.0, null, null, engine.fen(), gitter)
