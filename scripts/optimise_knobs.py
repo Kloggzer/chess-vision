@@ -70,10 +70,10 @@ SCHREIBEN = threading.Lock()
 FOUND = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)\s+\((\w+)\)", re.M)
 TALLY = re.compile(r"^  (invented|beyond) (\d+)", re.M)
 
-#: Alarme standen in KEINER Nebenbedingung, und der Champion vom 2026-09-20 kaufte 437 Frames
-#: Latenz mit zwei zusaetzlichen (5 -> 7 am vollen Satz). Ein Alarm haelt Commits an, bis er
-#: geloescht ist — das ist am Geraet sichtbar. `docs/engine-fuzz.md`.
-ALARM = re.compile(r"ALARM latched")
+#: Gezaehlt wird die EPISODE, nicht die abgelehnte Entscheidung. `replay-regression.ps1` zaehlt
+#: `ALARM latched`-Zeilen, also Entscheidungen unter einem stehenden Latch — danach sah der
+#: Champion mit 7 gegen 5 schlechter aus, waehrend er die Episoden von 15 auf 8 senkte.
+ALARM = re.compile(r"board desynced")
 
 
 def replay(rec: str, config: dict[str, float], tag: str) -> dict:

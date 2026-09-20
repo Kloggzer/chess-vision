@@ -293,7 +293,18 @@ class FrameLoopTest {
      */
     @Test
     fun coreOccludedStateExitsOnAQuietBoard() {
-        val h = Harness(testConfig().copy(motionHoldS = 0.05, occluderHoldS = 0.05, settleFramesOverride = 2))
+        val h =
+            Harness(
+                testConfig().copy(
+                    // Der Vorfall haengt an der Empfindlichkeit von 2026-08-07; die Vorgabe ist
+                    // seit dem Optimierer 34.5 und betritt den Verdeckungszustand hier nicht mehr.
+                    motionHoldS = 0.05,
+                    occluderHoldS = 0.05,
+                    commitHoldS = 0.067,
+                    motionPxThr = 20.0,
+                    settleFramesOverride = 2,
+                ),
+            )
         var t = 0L
         repeat(3) {
             h.feed(tsMs = t)
@@ -317,7 +328,7 @@ class FrameLoopTest {
     /** `commitHoldS` opens detection early; the reference still waits for the full motion hold. */
     @Test
     fun commitHoldOpensDetectionButNotTheReference() {
-        val h = Harness(testConfig().copy(commitHoldS = 0.05, settleFramesOverride = 2))
+        val h = Harness(testConfig().copy(commitHoldS = 0.05, motionHoldS = 0.20, settleFramesOverride = 2))
         var t = 0L
         h.feed(tsMs = t, motionRoi = 1.0)
         val firstDetect =
@@ -341,7 +352,7 @@ class FrameLoopTest {
     /** An early commit's reference is replaced on the first quiet frame after the full hold, not before, and not after new motion. */
     @Test
     fun provisionalReferenceIsRecapturedAfterTheFullHold() {
-        val h = Harness(testConfig().copy(commitHoldS = 0.05, settleFramesOverride = 2))
+        val h = Harness(testConfig().copy(commitHoldS = 0.05, motionHoldS = 0.20, settleFramesOverride = 2))
         var t = 0L
         repeat(3) {
             h.feed(tsMs = t)

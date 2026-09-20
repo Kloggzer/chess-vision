@@ -25,15 +25,17 @@ class SettingsNavTest {
 
     @Test
     fun tuningValuesNameTheirHumanUnit() {
-        fun shown(key: String): String {
-            val knob = KNOB_CATALOG.first { it.key == key }
-            return knobDisplayValue(knob, knob.pythonDefault)
-        }
+        // FESTE Eingaben: geprueft wird die Einheit, nicht die Vorgabe -- sonst bricht der Test
+        // bei jeder Neujustierung, obwohl die Darstellung unveraendert stimmt.
+        fun shown(
+            key: String,
+            value: Double,
+        ): String = knobDisplayValue(KNOB_CATALOG.first { it.key == key }, value)
 
-        assertEquals("0.25 %", shown("motionThr"))
-        assertEquals("20 / 255", shown("motionPxThr"))
-        assertEquals("10 %", shown("motionMargin"))
-        assertEquals("0.2 s", shown("motionHoldS"))
+        assertEquals("0.25 %", shown("motionThr", 0.25))
+        assertEquals("20 / 255", shown("motionPxThr", 20.0))
+        assertEquals("10 %", shown("motionMargin", 0.10))
+        assertEquals("0.2 s", shown("motionHoldS", 0.20))
     }
 
     @Test

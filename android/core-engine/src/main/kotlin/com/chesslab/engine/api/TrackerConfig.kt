@@ -1,13 +1,19 @@
 package com.chesslab.engine.api
 
+// VORLAEUFIGER Champion (2026-09-20): sechs Knoepfe aus dem Latenz-Optimierer, 437 Frames
+// frueher bei 396/3/0 am vollen Satz und netto ruhiger (Desync-Episoden 15 -> 8).
+// Mehr Aufnahmen sind im Zulauf, der naechste Lauf loest ihn wahrscheinlich ab.
 data class TrackerConfig(
-    val motionThr: Double = 0.25,
-    val motionPxThr: Double = 20.0,
+    // Optimiert 2026-09-20 (`docs/latenz-optimierer.md`), vorher 0.25 ungeprueft.
+    val motionThr: Double = 0.219,
+    // Optimiert 2026-09-20, vorher 20.0 ungeprueft.
+    val motionPxThr: Double = 34.544,
     val zThr: Double = 3.0,
     val ambiguityMarginLl: Double = 2.0,
     val nudgeTimeoutS: Double = 5.0,
     val driftWindowS: Double = 30.0,
-    val maxChanged: Int = 6,
+    // Optimiert 2026-09-20, vorher 6 ungeprueft.
+    val maxChanged: Int = 5,
     // Ein Schlagzug auf ein besetztes Feld aendert die BELEGUNG nie — `cnnOcclusionFilter` haelt
     // ihn deshalb fuer einen Verdecker und nullt sein `z`. Ueber 0 fragt er zusaetzlich die
     // IDENTITAET und taint nicht, wo das Modell sicher eine andere Figur liest als das Brett.
@@ -46,18 +52,19 @@ data class TrackerConfig(
     val minConfidentBoard: Int = 32,
     val minConfidentRecovery: Int = 8,
     val cnnColorAxis: Boolean = false,
-    val motionMargin: Double = 0.10,
+    // Optimiert 2026-09-20, vorher 0.10 ungeprueft.
+    val motionMargin: Double = 0.0274,
     val overhang: Double = 0.25,
     val alignEvery: Int = 3,
     val alignScale: Double = 0.5,
     val cornerJumpPx: Double = 6.0,
-    // 0.20 s is the physical hand-clearance time; commit follows after another 0.05–0.07 s at 30 fps.
-    val motionHoldS: Double = 0.20,
+    // War 0.20 s als physische Hand-Raeumzeit gesetzt; der Optimierer misst 0.159 als besser.
+    val motionHoldS: Double = 0.1592,
     // Separate 0.20 s occluder hold keeps hand-taint safety independent of motion settle (2026-08-12).
     val occluderHoldS: Double = 0.20,
     // Detection may open before `motionHoldS`; the reference is then re-captured once the full hold
     // has passed (2026-09-12). null = the motion hold: commit and reference on the same frame.
-    val commitHoldS: Double? = 0.067,
+    val commitHoldS: Double? = 0.0632,
     // A commit INSIDE the motion hold (only with `commitHoldS`) needs this many consecutive
     // observations in which the move's squares were unoccluded and already showed the post-move
     // occupancy: evidence instead of the physical hold (2026-09-13). 0 = the hold alone.

@@ -94,7 +94,8 @@ class SessionSettingsTest {
                 .single()
                 .jsonObject
         assertEquals("motionThr", entry.getValue("key").jsonPrimitive.content)
-        assertEquals(0.25, entry.getValue("old").jsonPrimitive.double)
+        // Der VORIGE Wert ist die Vorgabe, nicht die Zahl von 2026-09: sonst bricht jede Neujustierung.
+        assertEquals(TrackerConfig().motionThr, entry.getValue("old").jsonPrimitive.double)
         assertEquals(0.30, entry.getValue("new").jsonPrimitive.double)
         assertEquals("t1", entry.getValue("at").jsonPrimitive.content)
         // `recorded_at` names the session OPEN, not the last rewrite — the rows carry their own clock.

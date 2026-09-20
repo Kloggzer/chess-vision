@@ -27,7 +27,14 @@ class EffectiveConfigJsonTest {
 
     @Test
     fun `each knob keeps its native JSON type`() {
-        val config = TrackerConfig().copy(confirmFramesOverride = 3, maxChanged = 7, cleanCommitsOnly = true)
+        // Die Werte stehen HIER, weil der Test den JSON-Typ prueft und nicht die Vorgabe.
+        val config =
+            TrackerConfig().copy(
+                motionThr = 0.25,
+                confirmFramesOverride = 3,
+                maxChanged = 7,
+                cleanCommitsOnly = true,
+            )
         val dump = effectiveConfigJson(config, cnnOn = true)
         assertEquals(0.25, dump.getValue("motionThr").jsonPrimitive.double)
         assertEquals(7, dump.getValue("maxChanged").jsonPrimitive.int)
