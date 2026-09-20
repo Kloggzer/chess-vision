@@ -11,7 +11,9 @@ import org.junit.jupiter.api.Assertions.assertArrayEquals
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import org.opencv.core.CvType
 import org.opencv.core.Mat
@@ -217,6 +219,25 @@ class LabeledSessionPackTest {
     }
 
     // --- the fixture ------------------------------------------------------------------------------
+
+    /** Eine exportierte Aufnahme traegt `frame` UND `board` in der Zeile, aber `frames/` liegt
+     *  nicht mehr auf der Platte — `boards/` ist der Vorrat, aus dem geschnitten wird. */
+    @Test
+    fun `eine exportierte Aufnahme wird mit Hinweis abgelehnt`() {
+        NativeCv.require()
+        val session = File(dir, "exportiert").apply { File(this, "boards").mkdirs() }
+        val zeile =
+            """{"frame":"frames/0000.png","board":"boards/0000.webp","ply":2,"fen":"$FEN",""" +
+                """"corners":${points(MARKER)}}"""
+        File(session, "log.jsonl").writeText(zeile + "\n")
+
+        val fehler =
+            assertThrows<IllegalArgumentException> {
+                packLabeledSession(listOf(session.absolutePath, File(dir, "raus").absolutePath, "id=x"))
+            }
+
+        assertTrue(fehler.message!!.contains("session pack"), fehler.message)
+    }
 
     /** A stored session of two frames of the same board, with a sidecar covering [fitted]. */
     private fun session(

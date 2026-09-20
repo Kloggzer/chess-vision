@@ -348,6 +348,12 @@ fun packLabeledSession(args: List<String>) {
     val occludedFrames = overrides.filterValues { values -> values.values.any { it == "occluded" } }.keys
     val rows = selectStoredRows(log, occludedFrames)
     require(rows.isNotEmpty()) { "no clean labeled rows in ${sessionDir.absolutePath}" }
+    // Eine EXPORTIERTE Aufnahme traegt `board` in der Zeile und hat kein `frames/` mehr; ohne
+    // diese Wache stirbt der Lauf am ersten Bild mit "could not decode .../frames/0000.png".
+    require(File(sessionDir, "frames").isDirectory || rows.none { it.containsKey("board") }) {
+        "${sessionDir.name} ist eine exportierte Aufnahme (boards/ statt frames/) — dafuer ist " +
+            "`chesslab session pack --session ${sessionDir.name}`"
+    }
     val fit = storedQuadFit(sessionDir)
     outDir.mkdirs()
     val partial = File(outDir, "packed_images.u8.partial")

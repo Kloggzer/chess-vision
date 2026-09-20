@@ -157,7 +157,11 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 - **Sampler:** Hände/Ply-Wechsel als eigene Strata (Sprung 17,97 gegen Median 0,72).
 - **Krümmung fehlt auf `2026-08-13-19-34-23` und `2026-08-14-20-48-55`** (5,4–5,5 px Bogen); der
   gerade Store kostet eine Interpolation (−22 % Laplace kubisch) — Mesh in den Warp komponieren.
-- **`labeled-session-pack` liest `frames/`, die es nicht mehr gibt** — aus `row["board"]` lesen.
+- **`labeled-session-pack` kann keine exportierte Aufnahme packen.** Es liest `row["frame"]`,
+  und `frames/` gibt es dort nicht mehr (`boards/` ist der Vorrat); seit 2026-09-20 lehnt es das
+  mit Hinweis auf `chesslab session pack` ab, statt am ersten Bild zu sterben. Offen bleibt, ob es
+  aus `row["board"]` schneiden SOLL — das Brett ist schon entzerrt und ggf. geradegezogen, der
+  Warp müsste also entfallen; der Python-Weg tut das bereits.
 - **`board_size` folgt nicht dem Quad** (96–125 px/Feld, 14 von 20 nicht 1:1); Labeling-UI skaliert
   1,5× hoch. Pro Aufnahme aus dem Quad ableiten, `233432`/`233929` neu exportieren.
 - **43 Aufnahmen in 22 Verzeichnisformen** — Zielform festlegen, migrieren, Ausweichpfade löschen.
