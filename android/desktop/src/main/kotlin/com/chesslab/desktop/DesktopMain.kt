@@ -51,8 +51,10 @@ import kotlin.system.exitProcess
  * no second clock. Why it is built this way, and what each decision cost: `docs/desktop-replay.md`.
  */
 fun main(args: Array<String>) {
-    // Vor den Natives: der Erreichbarkeits-Fuzzer fasst kein Bild an und soll auch kein OpenCV laden.
+    // Der Fuzzer misst die Bewegung seit 2026-09-20 mit dem ECHTEN `RoiMotion` auf seinen
+    // gerenderten Pixeln und braucht die Natives deshalb auch.
     if (args.firstOrNull() == "fuzz") {
+        NativeCv.require()
         return if (args.getOrNull(1) == "check") fuzzCheck(args.drop(2)) else fuzzVerb(args.drop(1))
     }
     NativeCv.require()

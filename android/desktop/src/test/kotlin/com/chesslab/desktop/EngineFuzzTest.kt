@@ -10,6 +10,11 @@ import org.junit.jupiter.api.Test
  * Frames nie einen Zug ergeben, meldet jeden Zustand als unerreichbar und sieht dabei gruen aus.
  */
 class EngineFuzzTest {
+    init {
+        // `RoiMotion` warpt mit OpenCV — der Treiber misst die Bewegung seit 2026-09-20 echt.
+        NativeCv.require()
+    }
+
     @Test
     fun `die Engine committet die synthetischen Zuege`() {
         val out = fuzzRun(TrackerConfig(), Scene(plies = 6))
@@ -27,9 +32,8 @@ class EngineFuzzTest {
 
     @Test
     fun `ohne Bewegung erreicht der Lauf nie den Bewegungszustand`() {
-        // `plies = 0`: die Engine sieht Bewegung AUCH aus den Pixeln, ein Zug erzeugt sie also
-        // selbst dann, wenn der Bewegungswert 0 ist. Geprueft wird die Ruhe, nicht der Zug.
-        val out = fuzzRun(TrackerConfig(), Scene(plies = 0, motionPeak = 0.0, motionFloor = 0.0))
+        // Ohne Zug und ohne Hand sind die Frames bytegleich, `RoiMotion` misst also 0.
+        val out = fuzzRun(TrackerConfig(), Scene(plies = 0, handSquares = 0))
 
         assertEquals(0, out.hits("gate:moving"), "ein stehendes Brett darf kein `moving` erzeugen")
     }

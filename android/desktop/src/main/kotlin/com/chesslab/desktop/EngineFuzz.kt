@@ -8,7 +8,10 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
+import com.chesslab.tracker.pipeline.RoiMotion
 import com.chesslab.tracker.service.cnnConfig
+import org.opencv.core.CvType
+import org.opencv.core.Mat
 import kotlin.random.Random
 
 // Erreichbarkeit OHNE Bilder: `FrameInput` traegt Bewegung, Deckung und Helligkeit als blanke
@@ -53,8 +56,9 @@ internal data class Scene(
     val plies: Int = 8,
     val stillFrames: Int = 20,
     val moveFrames: Int = 6,
-    val motionPeak: Double = 12.0,
-    val motionFloor: Double = 0.2,
+    /** Wie weit die Hand je Frame wandert, in Feldern. Die Bewegung ENTSTEHT daraus; einen
+     *  freien `motionRoiScore` gibt es nicht mehr, den misst `RoiMotion` aus den Pixeln. */
+    val handSpeed: Int = 2,
     val handFrames: Int = 0,
     val handSquares: Int = 0,
     val handCoverage: Double = 1.0,
@@ -78,6 +82,21 @@ internal data class FuzzResult(
 }
 
 internal fun squares(): List<String> = buildList { for (r in 1..8) for (f in FILES) add("" + f + r) }
+
+/** Die Hand wandert ueber das Brett, statt als Block zu stehen: nur so entsteht im Bild echte
+ *  Bewegung, und nur so misst `RoiMotion` etwas. */
+private fun handAt(
+    schritt: Int,
+    felder: Int,
+    tempo: Int,
+    ueber: List<String>,
+): Set<String> {
+    if (felder <= 0) return emptySet()
+    val alle = squares()
+    val mitte = alle.indexOf(ueber.first())
+    val start = ((mitte - felder / 2) + schritt * tempo).coerceIn(0, alle.size - felder)
+    return alle.subList(start, start + felder).toSet()
+}
 
 private fun startTruth(): MutableMap<String, Char> {
     val truth = HashMap<String, Char>(SQUARES)
@@ -303,6 +322,10 @@ internal fun fuzzRun(
     // Die Engine indiziert Felder auf `boardSize * detectScale`; eine eigene Groesse fliegt raus.
     val size = (config.boardSize * config.detectScale).toInt()
     val corners = cornersOf(size)
+    // Die ECHTE Messung auf den gerenderten Pixeln. Vorher war `motionRoiScore` eine freie Zahl,
+    // und damit konnten `motionPxThr` und `motionMargin` im Fuzzer gar nichts bewirken.
+    val roi = RoiMotion(config.motionMargin, config.motionPxThr)
+    val mat = Mat(size, size, CvType.CV_8UC3)
     val texture = Texture(size, seed * PRIME)
     val truth = startTruth()
     val rng = Random(seed)
@@ -311,19 +334,23 @@ internal fun fuzzRun(
     var tsMs = 0L
 
     fun tick(
-        motion: Double,
         hand: Set<String>,
         coverage: Double,
     ) {
         val gray = grayOf(truth, hand, shadowOf(hand), size, texture)
         val bgr = bgrOf(gray, truth, hand)
+        mat.put(0, 0, bgr.data)
+        val motion = roi.score(mat, corners)
+        // ZUERST die faelligen Schnappschuesse, DANN der Frame: `EngineHost` macht es so, und die
+        // umgekehrte Reihenfolge liefert eine Beobachtung aus dem Frame, den die Engine gerade
+        // erst gesehen hat — das kann die echte Kette nicht.
+        while (pending.isNotEmpty() && pending.first().first <= seq) {
+            engine.onCnnSnapshot(pending.removeFirst().second)
+        }
         engine.onFrame(FrameInput(seq, gray, bgr, corners, motion, coverage, scene.luma, tsMs))
         if (seq % scene.obsEvery == 0L) {
             val obs = observationFromProbs(probsOf(truth, hand, scene, rng), CLASSES)
             pending += (seq + scene.obsLagFrames) to CnnSnapshot(obs, seq, tsMs, 1.0, null, null, engine.fen())
-        }
-        while (pending.isNotEmpty() && pending.first().first <= seq) {
-            engine.onCnnSnapshot(pending.removeFirst().second)
         }
         val status = engine.status()
         reached.merge("gate:" + (status.debug?.frameGate ?: "none"), 1, Int::plus)
@@ -346,32 +373,37 @@ internal fun fuzzRun(
     }
 
     var uebersprungen = -1
+
+    fun felderVon(vararg ucis: String): List<String> = ucis.flatMap { listOf(it.substring(0, 2), it.substring(2, 4)) }
+
     for (ply in 0 until minOf(scene.plies, LINE.size)) {
         // Ein verdeckter Abtausch nimmt ZWEI Halbzuege vorweg; ohne diese Marke spielte die
         // naechste Runde denselben Zug ein zweites Mal.
         if (ply == uebersprungen) continue
-        repeat(scene.stillFrames) { tick(scene.motionFloor, emptySet(), 1.0) }
-        val hand = squares().take(scene.handSquares).toSet()
+        repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
+        val zweiter = if (ply + 1 < minOf(scene.plies, LINE.size)) LINE[ply + 1] else LINE[ply]
         val verdeckt = scene.hiddenEvery > 0 && (ply + 1) % scene.hiddenEvery == 0
         if (verdeckt) {
-            // Der Zug passiert UNTER der Hand und ohne Ausschlag; danach liegt eine Stellung da,
-            // die die Engine nie hat kommen sehen.
-            val decke = squares().take(maxOf(scene.handSquares, HIDE_SQUARES)).toSet()
-            repeat(maxOf(scene.handFrames, HIDE_FRAMES) / 2) { tick(scene.motionFloor, decke, scene.handCoverage) }
-            // ZWEI Halbzuege: einen holt die Engine nach der Hand einfach nach (gemessen 8 von 8
-            // committet), erst ein Abtausch laesst die Stellung nicht mehr als EIN Zug erklaeren.
+            // Die Hand liegt jetzt UEBER den Zugfeldern; vorher stand sie als Block ab `a1`,
+            // waehrend der Zug anderswo sichtbar blieb — der Lauf hiess nur "verdeckt".
+            val felder = felderVon(LINE[ply], zweiter)
+            val decke = maxOf(scene.handSquares, HIDE_SQUARES)
+            val takte = maxOf(scene.handFrames, HIDE_FRAMES) / 2
+            repeat(takte) { tick(handAt(it, decke, scene.handSpeed, felder), scene.handCoverage) }
             spiele(LINE[ply])
             if (ply + 1 < minOf(scene.plies, LINE.size)) {
                 spiele(LINE[ply + 1])
                 uebersprungen = ply + 1
             }
-            repeat(maxOf(scene.handFrames, HIDE_FRAMES) / 2) { tick(scene.motionFloor, decke, scene.handCoverage) }
+            repeat(takte) { tick(handAt(takte - it, decke, scene.handSpeed, felder), scene.handCoverage) }
             continue
         }
-        repeat(scene.handFrames) { tick(scene.motionPeak, hand, scene.handCoverage) }
-        repeat(scene.moveFrames) { tick(scene.motionPeak, emptySet(), 1.0) }
+        val felder = felderVon(LINE[ply])
+        repeat(scene.handFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), scene.handCoverage) }
+        repeat(scene.moveFrames) { tick(handAt(it, scene.handSquares, scene.handSpeed, felder), 1.0) }
         spiele(LINE[ply])
     }
-    repeat(scene.stillFrames) { tick(scene.motionFloor, emptySet(), 1.0) }
+    repeat(scene.stillFrames) { tick(emptySet(), 1.0) }
+    mat.release()
     return FuzzResult(seq.toInt(), reached, committed)
 }

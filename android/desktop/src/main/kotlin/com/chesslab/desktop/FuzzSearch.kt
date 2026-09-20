@@ -72,8 +72,7 @@ private fun sampleScene(rng: Random): Scene =
         plies = rng.nextInt(2, 9),
         stillFrames = rng.nextInt(2, 40),
         moveFrames = rng.nextInt(1, 20),
-        motionPeak = rng.nextDouble(0.0, Envelope.MOTION_MAX),
-        motionFloor = rng.nextDouble(0.0, 2.0),
+        handSpeed = rng.nextInt(0, 6),
         handFrames = if (rng.nextInt(3) == 0) rng.nextInt(1, 60) else 0,
         handSquares = rng.nextInt(0, Envelope.HAND_SQUARES_MAX + 1),
         handCoverage = rng.nextDouble(0.0, 1.0),
@@ -200,8 +199,8 @@ internal fun fuzzVerb(args: List<String>) {
 
 private fun describe(w: Witness): String {
     val knobs = w.overrides.entries.joinToString(" ") { "%s=%.4g".format(it.key, it.value) }
-    return "motionPeak=%.1f hand=%d/%d obsConf=%.2f | %s".format(
-        w.scene.motionPeak,
+    return "handSpeed=%d hand=%d/%d obsConf=%.2f | %s".format(
+        w.scene.handSpeed,
         w.scene.handSquares,
         w.scene.handFrames,
         w.scene.obsConf,

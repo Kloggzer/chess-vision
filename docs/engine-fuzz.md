@@ -216,3 +216,56 @@ ist, und stehen hier, damit niemand mehr aus ihnen schliesst als drinsteckt.
   kommen nicht vor.
 - Die Prozentspalte mischt zwei Groessen: `gate:*`, `stuck:*` und `verify:*` sind Frames, `state:*`
   sind UEBERGAENGE. Nur die ersten drei sind mit einem Korpus-Frame-Anteil vergleichbar.
+
+
+## Die Bewegung kommt jetzt aus den Pixeln (2026-09-20, nach dem Review)
+
+Der schwerste Vorwurf der Durchsicht war, dass `motionRoiScore` eine freie Zahl war: entkoppelt
+vom Bild UND von `motionPxThr`/`motionMargin`. Damit konnte `desktop fuzz check` zwei der sechs
+Champion-Knoepfe nicht pruefen — ausgerechnet die, an denen das Veto haengt.
+
+Behoben: der Treiber rendert in einen `Mat` und misst mit dem **echten** `RoiMotion`. Dafuer
+musste die Hand WANDERN statt als Block zu stehen — aus einem stehenden Bild entsteht keine
+Bewegung. `motionPeak`/`motionFloor` sind ersatzlos raus; ein Szenenparameter ohne Wirkung ist
+eine Luege. An ihrer Stelle steht `handSpeed`, die Felder je Frame.
+
+Nachgewiesen an `fuzz check`:
+
+| | `veto:shadow` | `veto:occlusion` | `gate:occluded` |
+|---|---:|---:|---:|
+| Vorgabe | 464 | 354 | 115 |
+| `motionPxThr=200` | 176 | 642 | 160 |
+
+Vorher bewegte derselbe Knopf **gar nichts**.
+
+### Und damit faellt eine zweite eigene Behauptung
+
+Ich hatte `gate:occluded = 0` gemeldet und auf die Kopplung `motionPxThr * 4` geschoben. Die
+Kopplung ist real (Schwelle 80 -> 138,176), aber die Null war **ueberwiegend mein Treiber**: die
+Hand lag als starrer Block ab `a1`, waehrend die Zuege anderswo stattfanden. Seit sie ueber den
+Zugfeldern liegt und wandert, steht `gate:occluded` bei 115 in den Wach-Szenen und bei 9,35 % der
+Frames in der Suche.
+
+Der Kostenpunkt: ein Lauf kostet jetzt 1,21 s statt 0,33 s, weil je Frame ein 160er-Warp
+dazukommt. Gegen ein Replay mit warmem Cache (12,5 s) bleiben das **10x**.
+
+### Stand der Verteilungen, mit echter Bewegung
+
+300 Ziehungen, 60 678 Frames. Anteile sind Frames MIT dem Zustand an allen gefahrenen Frames —
+`state:*` sind Uebergaenge und deshalb nicht vergleichbar.
+
+| Zustand | Fuzzer | Korpus |
+|---|---:|---:|
+| `gate:detect` | 53,5 % | 27,7 % |
+| `gate:settling` | 16,3 % | 17,6 % |
+| `gate:moving` | 15,0 % | 54,5 % |
+| `gate:occluded` | 9,4 % | 0,2 % |
+| `verify:confirmed` | 15,9 % | 48,0 % |
+| `verify:verifying` | 23,7 % | 1,6 % |
+| `verify:resynced` | 2,3 % | 44,1 % |
+| `verify:ghost` | 3,1 % | 3,6 % |
+| `gate:dark` | 5,9 % | 0 % (unerreichbar, s. o.) |
+
+`verify:ghost` trifft der Fuzzer jetzt fast genau. `resynced` bleibt um Faktor 19 zu selten und
+`moving` um Faktor 3,6 — die synthetischen Szenen sind kuerzer und ruhiger als eine echte Partie.
+Als Orakel fuer "tot" taugt der Treiber deshalb weiterhin nur dort, wo er die Korpuswerte trifft.
