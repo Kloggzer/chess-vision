@@ -203,19 +203,30 @@ ist, und stehen hier, damit niemand mehr aus ihnen schliesst als drinsteckt.
   rechnet ihn in `RoiMotion` aus genau diesen zwei Knoepfen und dem Bild. Folge: `fuzz check`
   kann die Wirkung von zwei der sechs Champion-Knoepfe auf den echten Sensor nicht pruefen, und
   der Treiber kann bytegleiche Bilder mit beliebigem Ausschlag liefern.
-- Die "verdeckten" Halbzuege liegen groesstenteils NICHT unter der Hand: die Hand ist immer
-  `squares().take(n)`, also ein Block ab `a1`, waehrend die Zugfelder anderswo liegen. Der
-  Treiber erzeugt damit zwei sichtbare Stellungsaenderungen neben einer Hand, nicht einen Zug
-  unter ihr.
-- Die Schnappschuss-Reihenfolge ist umgedreht: `EngineHost` leert erst die Warteschlange und ruft
-  dann `onFrame`, der Treiber macht es andersherum.
-- `pOccludedThr` wird von 0,05 bis 0,98 durchsucht, aber die synthetische `pOccluded` ist nur
-  0,0 oder 1,0 — jeder Wert des Bereichs klassifiziert gleich.
-- `gridOccluded` ist immer 0, der modellfreie Verdeckungsarm also stumm.
 - `corners` steht fest, `timestampMs` steigt exakt um 33 ms: Ecken-Spruenge und Bildraten-Jitter
-  kommen nicht vor.
-- Die Prozentspalte mischt zwei Groessen: `gate:*`, `stuck:*` und `verify:*` sind Frames, `state:*`
-  sind UEBERGAENGE. Nur die ersten drei sind mit einem Korpus-Frame-Anteil vergleichbar.
+  kommen nicht vor. Der Warp faellt nie aus, fehlende Marker gibt es nicht.
+- `board` bleibt `null`, die Rausch-, Fokus- und Belichtungsleser ausserhalb der Engine laufen
+  also nicht mit.
+
+### Behoben (2026-09-21)
+
+Was oben stand und inzwischen stimmt — mit dem Beleg, denn zweimal habe ich einen Fix behauptet,
+der nicht im Code stand:
+
+| Befund | Stand | Beleg |
+|---|---|---|
+| `motionRoiScore` frei gesetzt | misst mit dem echten `RoiMotion` | `motionPxThr=200` bewegt `veto:shadow` 464 -> 176 |
+| verdeckte Zuege nicht unter der Hand | Hand liegt ueber den Zugfeldern und wandert | `gate:occluded` 0 -> 115 |
+| Schnappschuesse nach dem Frame | vor dem Frame, wie `EngineHost` | — |
+| `pOccluded` binaer | abgestuft ueber `handCover` | `pOccludedThr=0.95` drueckt `veto:occlusion` 345 -> 162 |
+| `gridOccluded` immer 0 | beide Arme EXKLUSIV ueber `coverageModel` | wie am Geraet: `runGridOcclusion = coverageOutput != true` |
+| `state:*` als Frame-Anteil | Strich statt Zahl | in der Ausgabe geprueft |
+| nativer `Mat` leckte | im `finally` | — |
+
+**Die Lehre aus den zwei falschen Behauptungen:** eine Vorgabe zu aendern nuetzt nichts, wenn der
+Aufrufer sie ueberschreibt (`gridArm` wurde vom Sampler weiter auf `true` gezogen), und eine
+Ersetzung im Patch-Skript, die still nicht greift, wird zur Falschaussage im Protokoll. Beides
+kam aus der Durchsicht, nicht aus meinem eigenen Blick.
 
 
 ## Die Bewegung kommt jetzt aus den Pixeln (2026-09-20, nach dem Review)
