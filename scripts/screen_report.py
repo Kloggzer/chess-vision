@@ -23,6 +23,7 @@ RESULTS = LOGS / "results.jsonl"
 FOUND = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s+run frame\s+(\d+)\s+\((\w+)\)")
 MISSED = re.compile(r"^\s{4}(\S+)\s+label frame\s+(\d+)\s*$")
 CACHE = re.compile(r"obs-cache: (\d+) hits, (\d+) misses")
+TALLY = re.compile(r"^  (invented|beyond|reordered) (\d+)", re.M)
 
 
 def read_log(path: Path) -> dict:
@@ -45,9 +46,13 @@ def read_log(path: Path) -> dict:
         elif block == "missed" and (m := MISSED.match(line)):
             missed.append(m.group(1))
     cache = CACHE.search(text)
+    tally = {k: int(v) for k, v in TALLY.findall(text)}
     return {
         "found": found,
         "missed": missed,
+        "invented": tally.get("invented", 0),
+        "beyond": tally.get("beyond", 0),
+        "reordered": tally.get("reordered", 0),
         "stuck": collections.Counter(re.findall(r"stuck: (\w+)", text)),
         "recovery_plies": sum(int(n) for n in re.findall(r"\[move 1/(\d+) of recovery", text)),
         "pairs": len(re.findall(r"by=cnn_pair", text)) // 2,
@@ -100,6 +105,7 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
     return {
         "found": sum(len(v["found"]) for v in arm.values()),
         "missed": sum(len(v["missed"]) for v in arm.values()),
+        "invented": agg("invented"), "beyond": agg("beyond"), "reordered": agg("reordered"),
         "plies_shifted": len(shifts),
         "shifted_earlier": earlier,
         "shifted_later": later,
@@ -112,6 +118,12 @@ def summarise(arm: dict[str, dict], base: dict[str, dict]) -> dict:
         "stuck": dict(stuck),
         "cache_misses": agg("cache_misses"),
     }
+
+
+def _tally(r: dict) -> tuple[int, int, int, int]:
+    """Alle vier Achsen. `invented` ist das Veto, und `beyond` verschwieg drei verlorene
+    Commits — `recoveryMaxPlies=2` galt damit als wirkungslos, obwohl es 18 auf 15 drueckt."""
+    return r["found"], r["missed"], r["invented"], r["beyond"]
 
 
 def main() -> int:
@@ -128,23 +140,26 @@ def main() -> int:
     print(f"BASIS: found={b['found']} missed={b['missed']} "
           f"Latenz-Median={b['median_latency']} Frames, Alarme={b['alarms']}\n")
     print(f"{'Arm':30s} {'f/m':>7s} {'versch':>7s} {'frueher':>8s} {'spaeter':>8s} "
-          f"{'netto':>7s} {'max':>5s} {'Lat':>5s}")
+          f"{'netto':>7s} {'max':>5s} {'inv':>4s} {'bey':>4s}")
     for tag, r in report.items():
         if tag == "BASIS":
             continue
-        zaehlung = "=" if (r["found"], r["missed"]) == (b["found"], b["missed"]) else "*"
+        zaehlung = "=" if _tally(r) == _tally(b) else "*"
         if not r["plies_shifted"] and zaehlung == "=":
             continue
         print(f"{tag:30s} {r['found']}/{r['missed']:<3} {zaehlung:>3s} {r['plies_shifted']:>5} "
               f"{r['shifted_earlier']:>8} {r['shifted_later']:>8} {r['net_frames']:>+7} "
-              f"{r['max_abs_shift']:>5} {r['median_latency']:>5}")
+              f"{r['max_abs_shift']:>5} {r['invented']:>4} {r['beyond']:>4}")
     stumm = [t for t, r in report.items()
-             if t != "BASIS" and not r["plies_shifted"]
-             and (r["found"], r["missed"]) == (b["found"], b["missed"])]
+             if t != "BASIS" and not r["plies_shifted"] and _tally(r) == _tally(b)]
     print(f"\nvollstaendig wirkungslos ({len(stumm)}): {', '.join(stumm)}")
-    bad = [t for t, r in report.items() if r["cache_misses"] > 0]
-    if bad:
-        print(f"\n!! Cache-MISSES (Vergleich fragwuerdig): {bad}")
+    # Ein MISS ist hier richtig: wer aendert, welche Frames beobachtet oder wie sie geschnitten
+    # werden, schneidet neue Crops. Gefaehrlich ist der TREFFER trotz geaendertem Modell — den
+    # kann ein Engine-Knopf nicht ausloesen, aber ein Modellwechsel schon (`ObsCacheKeyTest`).
+    neu = [t for t, r in report.items() if r["cache_misses"] > 0]
+    if neu:
+        print(f"\nneue Crops gesehen ({len(neu)}, erwartet bei Zuschnitt- und Zeit-Knoepfen): "
+              f"{', '.join(neu)}")
     if args.json:
         write_json(Path(args.json), report)
     return 0
