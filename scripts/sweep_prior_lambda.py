@@ -47,6 +47,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections import defaultdict
@@ -111,18 +112,46 @@ def prior_by_ply(rows: list[dict], offset: int = 1, keep_unreachable: bool = Fal
     return out, report
 
 
-def cache_key(run_dir: Path) -> str:
-    """Mtime-plus-size of every file that decides the softmax — the graph AND `config.json`.
+def pack_base(path: str, pack: Path) -> tuple[str, Path]:
+    """Session-Pack einer Manifest-Zeile; leerer Name heisst die eigene Memmap des Datensatzes."""
+    name = path.removeprefix("mm://").split("/", 1)[0] if path.startswith("mm://") else ""
+    return name, (pack.parent.parent / "packs" / name) if name else pack
 
-    Same shape as the replay's observation cache: the numbers hang on the weights and on
-    `temperature`/`normalize`/`clahe_*`/`input_repr`, none of which a row count can tell apart.
+
+def _stamp(f: Path) -> str:
+    st = f.stat()
+    return f"{st.st_mtime_ns // 1_000_000}:{st.st_size}"
+
+
+def cache_key(run_dir: Path, rows: list[dict], pack: Path, device: str) -> str:
+    """Alles, was die Softmax entscheidet: Graph, `config.json`, Geraet UND die Zeilen selbst.
+
+    Der Replay-Cache schluesselt auf Graph und Config; hier kommen die DATEN dazu, weil sonst zwei
+    Splits mit GLEICHER Zeilenzahl sich den Cache teilen. Die Pixel werden nicht gehasht — ihr Pack
+    steht mit Mtime und Groesse dafuer; Lambda und `--conf-thr` bleiben draussen, sie wirken wie
+    der Engine-Knopf erst HINTER der Softmax.
     """
-    parts = [Path(run_dir).name]
-    for name in ("config.json", "model.onnx", "best.pt", "last.pt"):
+    parts = [Path(run_dir).name, f"device={device}"]
+    cfg = Path(run_dir) / "config.json"
+    if cfg.exists():
+        # Klein genug zum Lesen, und eine Temperatur-Aenderung laesst Groesse und Mtime-ms gleich.
+        parts.append("config.json=" + hashlib.sha256(cfg.read_bytes()).hexdigest()[:16])
+    for name in ("model.onnx", "best.pt", "last.pt"):
         f = Path(run_dir) / name
         if f.exists():
-            st = f.stat()
-            parts.append(f"{name}={st.st_mtime_ns // 1_000_000}:{st.st_size}")
+            parts.append(f"{name}={_stamp(f)}")
+    bases: dict[str, Path] = {}
+    for r in rows:
+        name, base = pack_base(str(r["path"]), Path(pack))
+        bases.setdefault(name, base)
+    for name in sorted(bases):
+        for fn in ("packed_meta.json", "packed_images.u8"):
+            f = bases[name] / fn
+            if f.exists():
+                parts.append(f"{name or '.'}/{fn}={_stamp(f)}")
+    # Die Reihenfolge ist Teil der Antwort: die Ausgabe steht in Manifest-Ordnung.
+    order = hashlib.sha256("\n".join(str(r["path"]) for r in rows).encode()).hexdigest()
+    parts.append(f"rows={len(rows)}:{order[:16]}")
     return "|".join(parts)
 
 
@@ -149,7 +178,7 @@ def cached_probs(cache: Path | None, key: str, n_rows: int) -> np.ndarray | None
 def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
                   batch_size: int, cache: Path | None) -> np.ndarray:
     """(len(rows), n_classes) softmax rows, read from the packed memmap in manifest order."""
-    key = cache_key(run_dir)
+    key = cache_key(run_dir, rows, pack, device)
     hit = cached_probs(cache, key, len(rows))
     if hit is not None:
         return hit
@@ -161,8 +190,7 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
     shards: dict[str, tuple[np.memmap, dict[str, int]]] = {}
 
     def shard(path: str) -> tuple[np.memmap, int]:
-        name = path.removeprefix("mm://").split("/", 1)[0] if path.startswith("mm://") else ""
-        base = (pack.parent.parent / "packs" / name) if name else pack
+        name, base = pack_base(path, pack)
         if name not in shards:
             meta = json.loads((base / "packed_meta.json").read_text(encoding="utf-8"))
             mm = np.memmap(base / "packed_images.u8", dtype=np.uint8, mode="r",

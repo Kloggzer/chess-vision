@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import sys
-from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -26,8 +25,9 @@ class _FakeCv2:
     """Kein Bild lesen, keine Rillen messen — geprueft wird allein der Nenner des Berichts."""
 
     COLOR_BGR2GRAY = 0
+    COLOR_BGR2RGB = 4
     imread = staticmethod(lambda _p: np.zeros((8, 8, 3), dtype=np.uint8))
-    cvtColor = staticmethod(lambda _img, _code: np.zeros((8, 8), dtype=np.uint8))
+    cvtColor = staticmethod(lambda _img, _code: np.zeros((8, 8, 3), dtype=np.uint8))
 
 
 def test_matte_audit_nennt_nur_die_geprueften_matten(tmp_path, monkeypatch, capsys):
@@ -53,26 +53,62 @@ def test_matte_audit_nennt_nur_die_geprueften_matten(tmp_path, monkeypatch, caps
     assert "von    2" in line and "von    3" not in line
 
 
-def test_scan_ply_offset_zaehlt_uebersprungene_frames_nicht_als_geprueft():
+def test_scan_ply_offset_meldet_den_nenner_der_GEPRUEFTEN_frames(tmp_path, monkeypatch, capsys):
     """Der Bericht nannte `len(per_frame)`, also auch Frames ohne 32 sichtbare Zellen."""
     import scan_ply_offset
 
-    full = [{"path": f"p{i}", "square": sq, "coverage": 0.0}
-            for i, sq in enumerate(f"{c}{r}" for r in "12345678" for c in "abcdefgh")]
-    per_frame = {("s", "f1", 1): full, ("s", "f2", 1): full[:3]}
-    boards = {("s", 0): {"a1": "empty"}, ("s", 1): {"a1": "empty"}}
-    pred = {r["path"]: "empty" for r in full}
+    dd = tmp_path / "ds"
+    fen = "8/8/8/8/8/8/8/8 w - - 0 1"
+    man = [{"path": f"{frame}-{sq}", "session_id": "s", "frame": frame, "ply": ply, "fen": fen,
+            "square": sq, "coverage": 0.0}
+           for frame, ply in (("f0", 0), ("f1", 1), ("f2", 1))
+           for sq in (f"{c}{r}" for r in "12345678" for c in "abcdefgh")]
+    # f0 und f2 tragen nur drei sichtbare Zellen: uebersprungen, also auch kein Nenner-Anteil.
+    for r in man:
+        if r["frame"] != "f1" and r["square"] not in ("a1", "b1", "c1"):
+            r["coverage"] = 1.0
+    _write(dd / "manifest.jsonl", man)
 
-    hits, checked = scan_ply_offset.offsets(per_frame, boards, pred)
-    assert (hits, checked) == ([], 1)
+    monkeypatch.setattr(scan_ply_offset, "dataset_dir", lambda _n: dd)
+    monkeypatch.setattr(scan_ply_offset, "open_packed_rows",
+                        lambda *a, **k: (np.zeros((len(man), 1, 1, 3), dtype=np.uint8),
+                                         {r["path"]: i for i, r in enumerate(man)}))
+    monkeypatch.setattr(scan_ply_offset.occluded_model, "all_reads",
+                        lambda _run, cells: [{"pred_label": "empty"}] * len(cells))
+    monkeypatch.setattr(sys, "argv", ["scan_ply_offset", "ds",
+                                      "--out", str(tmp_path / "ply.jsonl")])
+
+    scan_ply_offset.main()
+    out = capsys.readouterr().out
+    assert "1 von 3 Frames geprueft" in out
 
 
-def test_audit_lane_probe_teilt_durch_die_gemessenen_zellen():
+def test_audit_lane_probe_meldet_den_handanteil_auf_GEMESSENEN_zellen(tmp_path, monkeypatch,
+                                                                       capsys):
     """Der Handanteil lief durch `n_shown`; ein Frame ohne Matte-Zeile drueckte ihn auf die Haelfte."""
-    import audit_lane_probe
+    import audit_lane_probe as probe
 
-    line = audit_lane_probe.hand_line(n_hand=5, n_shown=10, n_blind=5)
-    assert "5 von 5 gemessenen (100 %)" in line
+    flags = [{"session_id": "rg-20-19", "frame": f, "square": "e4", "fen_label": "empty",
+              "predicted": "wP", "prob": 0.9} for f in ("f1", "f2")]
+    monkeypatch.setattr(probe, "read_jsonl",
+                        lambda p: flags if "audit-flags" in str(p)
+                        else [{"frame": f"{f}.png", "corners": []} for f in ("f1", "f2")])
+    monkeypatch.setattr(probe, "read_session_meta", lambda _d: {"profile": "p"})
+    monkeypatch.setattr(probe, "load_profile", lambda _p: object())
+    # Nur f1 ist gemattet; f2 hat keine Zeile und ist damit nicht gemessen, nicht handfrei.
+    monkeypatch.setattr(probe, "read_matte", lambda _d: {"f1": {"e4": 0.6}})
+    monkeypatch.setattr(probe, "board_source", lambda _r, _p: ("boards/f.webp", True))
+    monkeypatch.setattr(probe, "crops_for_frame",
+                        lambda *a, **k: [np.zeros((4, 4, 3), dtype=np.uint8)] * 64)
+    monkeypatch.setattr(probe, "cv2", _FakeCv2())
+    monkeypatch.setattr(sys, "argv", ["audit_lane_probe", "--flags",
+                                      str(tmp_path / "audit-flags.jsonl"),
+                                      "--out", str(tmp_path / "probe.png")])
+
+    probe.main()
+    out = capsys.readouterr().out
+    assert "1 von 1 gemessenen (100 %)" in out
+    assert "ohne Matte: 1 von 2 gezeichneten" in out
 
 
 def _fake_pack(pack: Path, paths: list[str]) -> None:
@@ -102,23 +138,94 @@ def test_sweep_prior_lambda_verwirft_den_cache_eines_ANDEREN_modells(tmp_path, m
 
     got = sweep.probabilities(run, rows, pack, "cpu", 2, cache)
     assert got.tolist() == [[1.0, 0.0], [1.0, 0.0]]
-    assert sweep.cached_probs(cache, sweep.cache_key(run), 2).tolist() == got.tolist()
-    assert sweep.cached_probs(cache, sweep.cache_key(tmp_path / "run-c"), 2) is None
+    key = sweep.cache_key(run, rows, pack, "cpu")
+    assert sweep.cached_probs(cache, key, 2).tolist() == got.tolist()
+    assert sweep.cached_probs(cache, sweep.cache_key(tmp_path / "run-c", rows, pack, "cpu"),
+                              2) is None
 
 
-def test_hand_audit_meldet_ohne_manifest_zeile_keine_quote():
+def test_sweep_prior_lambda_stempelt_gewichte_daten_und_geraet(tmp_path):
+    """Der Schluessel war nur Modell: zwei Splits GLEICHER Zeilenzahl teilten sich die Softmax."""
+    import sweep_prior_lambda as sweep
+
+    run = tmp_path / "run-b"
+    run.mkdir()
+    (run / "config.json").write_text(json.dumps({"temperature": 1.0}), encoding="utf-8")
+    (run / "model.onnx").write_bytes(b"graph")
+    pack = tmp_path / "packs" / "p"
+    _fake_pack(pack, ["a", "b", "c"])
+    rows = [{"path": "a"}, {"path": "b"}]
+    base = sweep.cache_key(run, rows, pack, "cpu")
+
+    # Gleiche Zeilenzahl, andere Zeilen — und dieselben Zeilen in anderer REIHENFOLGE.
+    assert sweep.cache_key(run, [{"path": "a"}, {"path": "c"}], pack, "cpu") != base
+    assert sweep.cache_key(run, list(reversed(rows)), pack, "cpu") != base
+    assert sweep.cache_key(run, rows, pack, "cuda") != base
+
+    (run / "config.json").write_text(json.dumps({"temperature": 1.4}), encoding="utf-8")
+    assert sweep.cache_key(run, rows, pack, "cpu") != base
+    (run / "config.json").write_text(json.dumps({"temperature": 1.0}), encoding="utf-8")
+
+    (run / "model.onnx").write_bytes(b"graph2")
+    assert sweep.cache_key(run, rows, pack, "cpu") != base
+    (run / "model.onnx").write_bytes(b"graph")
+
+    (run / "best.pt").write_bytes(b"w")
+    assert sweep.cache_key(run, rows, pack, "cpu") != base
+    (run / "best.pt").unlink()
+    (run / "last.pt").write_bytes(b"w")
+    assert sweep.cache_key(run, rows, pack, "cpu") != base
+    (run / "last.pt").unlink()
+
+    _fake_pack(pack, ["a", "b", "c", "d"])
+    assert sweep.cache_key(run, rows, pack, "cpu") != base
+
+
+def test_hand_audit_druckt_ohne_manifest_zeile_keine_quote(tmp_path, monkeypatch, capsys):
     """`max(1, tot["train"])` machte aus "nichts gemessen" ein gemessenes 0,000 %."""
     import hand_audit
 
-    assert "nichts gemessen" in hand_audit.share_line(Counter())
-    assert "0,000" not in hand_audit.share_line(Counter())
+    rec = tmp_path / "recordings"
+    (rec / "20-19").mkdir(parents=True)
+    dd = tmp_path / "ds"
+    dd.mkdir()
+    (dd / "split-pin.json").write_text(json.dumps({"splits": {"train": ["rg-20-19"]}}),
+                                       encoding="utf-8")
+    # Keine Manifest-Zeile dieser Aufnahme: der Nenner ist 0, nicht 1.
+    _write(dd / "manifest.jsonl", [{"session_id": "rg-andere", "frame": "f1", "square": "e4"}])
+
+    monkeypatch.setattr(hand_audit, "REC", rec)
+    monkeypatch.setattr("chesslab.dataset_build.dataset_dir", lambda _n: dd)
+    monkeypatch.setattr(sys, "argv", ["hand_audit", "--dataset", "ds"])
+
+    assert hand_audit.main() == 0
+    out = capsys.readouterr().out
+    assert "nichts gemessen" in out
+    assert "0,000" not in out
 
 
-def test_audit_sessions_meldet_ohne_situation_keine_quote():
+def test_audit_sessions_druckt_ohne_situation_keine_quote(tmp_path, monkeypatch, capsys):
     """Dieselbe Klammer je Aufnahme: 0 von 0 Situationen las sich als makellose 0,0 %."""
     import audit_sessions
 
-    leer = {"situations": 0, "richtig": 0, "wackelig": 0, "verdaechtig": 0}
-    assert audit_sessions.share_cells(leer).endswith("(   —)")
-    assert audit_sessions.share_cells({**leer, "situations": 4, "verdaechtig": 1}).endswith(
-        "(25.0%)")
+    dd = tmp_path / "ds"
+    man = [{"path": "a", "session_id": "rg-20-19", "square": "e4", "label": "wP", "coverage": 0.0}]
+    _write(dd / "manifest.jsonl", man)
+    (dd / "split-f1.json").write_text(json.dumps({"splits": {"test": ["rg-20-19"]}}),
+                                      encoding="utf-8")
+    folds = tmp_path / "_folds" / "run-f1"
+    _write(folds / "metrics.jsonl", [{"epoch": i} for i in range(60)])
+
+    monkeypatch.setattr(audit_sessions, "dataset_dir", lambda _n: dd)
+    monkeypatch.setattr(audit_sessions, "open_packed_rows",
+                        lambda *a, **k: (np.zeros((1, 1, 1, 3), dtype=np.uint8), {"a": 0}))
+    monkeypatch.setattr(audit_sessions.occluded_model, "all_reads",
+                        lambda _run, cells: [{"pred_label": "wP", "probs": [1.0]}] * len(cells))
+    monkeypatch.setattr(sys, "argv", ["audit_sessions", "--dataset", "ds",
+                                      "--folds", str(tmp_path / "_folds"),
+                                      "--out", str(tmp_path / "audit.json")])
+
+    audit_sessions.main()
+    # Eine einzige Zeile traegt die Gruppe: unter `--min-n`, also 0 beurteilte Situationen.
+    line = next(ln for ln in capsys.readouterr().out.splitlines() if ln.startswith("rg-20-19"))
+    assert line.endswith("(   —)")
