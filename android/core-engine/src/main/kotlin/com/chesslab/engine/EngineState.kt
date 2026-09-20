@@ -82,6 +82,12 @@ internal class EngineState(
         promoPending = null
         verifyState = null
         confirmer.reset()
+        // Die Bruecken-Stimme haengt an den Snapshots, die eine Zeile hoeher fallen — und der
+        // weichere Vorfall (`cornersJumped` -> `clearStuck`) raeumt sie laengst.
+        recoveryConfirmer.reset()
+        // Wie in `clearReferenceState`: ein gegen die alte Ebene gestarteter Zeitgeber waere gegen
+        // die erste neue Referenz sofort faellig und patchte sie, bevor sie je heiss war.
+        anomalySince = 0L
         state = STATE_WAITING
     }
 

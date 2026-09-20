@@ -193,7 +193,8 @@ internal fun EngineState.debugPayload(): DebugPayload {
         tainted = tainted.sortedSquareNames().toSet(),
         cnnSeq = snap?.seq ?: -1L,
         cnnAgeMs = if (snap == null) -1L else (nowS * MS_PER_SECOND).toLong() - snap.tsMs,
-        cnnInferMs = snap?.inferMs ?: 0.0,
+        // Dieselbe -1 wie die zwei Zeilen darueber: eine 0,0 las sich als gemessene Inferenzzeit.
+        cnnInferMs = snap?.inferMs ?: -1.0,
         gridCoverage = gridCoverage,
         motion = motion,
         maxChanged = config.maxChanged,

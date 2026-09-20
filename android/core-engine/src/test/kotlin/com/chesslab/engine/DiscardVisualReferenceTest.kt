@@ -48,6 +48,25 @@ class DiscardVisualReferenceTest {
         assertEquals(emptyList<String>(), state.history)
     }
 
+    /**
+     * Der WEICHERE Geometrie-Vorfall raeumt die offene Bruecken-Stimme (`cornersJumped` ->
+     * `clearStuck`), der haertere nicht. Stimme eins fiel damit durch die alte Rektifizierung und
+     * committete mit der ersten neuen zusammen einen Halbzug, den niemand zweimal sauber sah.
+     */
+    @Test
+    fun `a discarded reference drops the open recovery vote`() {
+        val state = recoveryState()
+        val cnn = RecoveryEvaluator(moves = listOf("e2e4"), agreement = 0.99)
+        val obs = obsForBoard(state.board)
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 1))
+        assertEquals(emptyList<String>(), state.history, "precondition: one vote stands, nothing committed")
+
+        state.discardVisualReference()
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = 2))
+
+        assertEquals(emptyList<String>(), state.history, "a vote taken through the old geometry may not count")
+    }
+
     @Test
     fun `a discarded reference takes the promotion prompt with it`() {
         val engine = TrackerEngine(detectConfig(), "8/P6k/8/8/8/8/7K/8 w - - 0 1")

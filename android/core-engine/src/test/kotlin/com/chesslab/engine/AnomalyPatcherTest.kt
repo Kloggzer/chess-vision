@@ -157,6 +157,28 @@ class AnomalyPatcherTest {
     }
 
     /**
+     * Dieselbe Wurzel auf dem Pfad, der die Referenz UND die Geometrie wegnimmt.
+     * `clearReferenceState` raeumt `anomalySince` ab, `discardVisualReference` nicht — ein gegen
+     * die alte Ebene gestarteter Timer war damit gegen die erste neue Referenz sofort faellig.
+     */
+    @Test
+    fun aDiscardedVisualReferenceRestartsTheAnomalyTimers() {
+        val state = detectState(ref = grayFrame())
+        state.armAnomaly("e4", since = 0.0)
+        state.nowS = 100.0
+
+        state.discardVisualReference()
+        val fresh = grayFrame()
+        state.refGray = fresh
+        state.refFen = state.board.fen()
+        state.tryDetect(grayFrame(listOf("e4")), null, seq = 1)
+
+        assertEquals(ofSquares("e4"), state.changed, "precondition: e4 is hot again against the new reference")
+        assertTrue(fresh.data.all { it == TEST_BASE_LEVEL.toByte() }, "the timer must restart with the reference")
+        assertEquals(STUCK_NO_LEGAL_MOVE, state.stuckReason, "and the refusal stands instead of being patched away")
+    }
+
+    /**
      * Der Zeitgeber wurde nur in den beiden Verweigerungs-Armen gepflegt. Ein Feld, das bei t=0
      * heiss war, ueber den Kandidaten-Pfad hundert Sekunden lang NICHT `changed` ist und dann wieder
      * auftaucht, kam mit dem alten Start zurueck -- und war damit sofort faellig.

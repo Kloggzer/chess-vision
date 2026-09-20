@@ -6,7 +6,7 @@ data class DebugPayload(
     val cnnReads: List<DebugCnnRead>,
     // Required to expose entry.md invariant 2: taint zeroes z while the shadow veto preserves it.
     val tainted: Set<String>,
-    // -1 when no observation has landed.
+    // -1 when no observation has landed — all three, `cnnInferMs` as -1.0.
     val cnnSeq: Long,
     val cnnAgeMs: Long,
     val cnnInferMs: Double,
