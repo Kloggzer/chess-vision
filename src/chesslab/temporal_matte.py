@@ -445,7 +445,14 @@ def upsert_proposals(session_id, *, method="local"):
         backup.replace(mattes / backup.name.replace(".sam.webp", ".webp"))
     sam = {}
     for row in kept_rows:
-        if row.get("coverage") is not None and row.get("source") != "temporal":
+        if row.get("source") == "temporal":
+            continue
+        # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
+        # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
+        # `sam_found` — ein Fund, den niemand gemessen hat.
+        if row.get("coverage") is None:
+            sam.pop(row["frame"], None)
+        else:
             sam[row["frame"]] = row
     stamp_now = datetime.now(UTC).isoformat()
     upserted, found, fixed = 0, 0, 0

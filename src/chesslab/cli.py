@@ -1496,12 +1496,13 @@ def occluders_recut_coverage(
         names = [sid[3:] for sid, _ in _all() if sid.startswith("rg-")]
     else:
         names = [name]
-    total = crossed = 0
+    total = crossed = failed = 0
     for one in names:
         try:
             res = matte_mod.recut_coverage(one, progress=len(names) == 1)
         except (FileNotFoundError, ValueError, KeyError) as e:
             print(f"[ERR] {one}: {e}")
+            failed += 1
             continue
         total += res["recut"]
         crossed += res["crossed"]
@@ -1509,7 +1510,10 @@ def occluders_recut_coverage(
             print(f"[OK] {one}: {res['recut']} von {res['frames']} Zeilen neu geschnitten, "
                   f"{res['crossed']} Zellen ueber PIECE_VISIBLE_MAX gekippt")
     print(f"[OK] {total} Zeilen neu geschnitten, {crossed} Zellen haben die Schwelle gewechselt "
-          f"({len(names)} Aufnahmen)")
+          f"({len(names) - failed} von {len(names)} Aufnahmen)")
+    # Wie `close-seams`: eine uebersprungene Aufnahme traegt ihre Drift weiter, und ein Exit 0
+    # sagt das Gegenteil.
+    _exit_on_bulk_failures(failed)
 
 
 @occluders_app.command("close-seams")

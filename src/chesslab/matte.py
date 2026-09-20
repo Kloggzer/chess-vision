@@ -654,8 +654,10 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
             image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
             # `alpha: fixed` means the coverage was cut from the person's `.fixed.webp`; recutting it
             # from SAM's own matte would replace their numbers while the row keeps claiming theirs.
+            # Und wie in `recut_coverage`: eine Zeile OHNE `coverage` ist SAMs Absage, keine Messung
+            # — ein Alpha auf der Platte machte daraus sonst eine (Punkt 28).
             if (image is None or entry is None or row.get("alpha") == "fixed"
-                    or not usable_board(entry, profile)):
+                    or row.get("coverage") is None or not usable_board(entry, profile)):
                 rows.append(row)
                 continue
             filled = solid(image)
