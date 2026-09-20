@@ -353,8 +353,10 @@ fun interface TrackerRestart {
     fun restartTracker()
 }
 
-/** The CNN-facing slice of [TrackerConfig]. Rebuilt with the stack, so a retuned threshold lands. */
-private fun cnnConfig(config: TrackerConfig) =
+/** The CNN-facing slice of [TrackerConfig]. Rebuilt with the stack, so a retuned threshold lands.
+ *  Sichtbar, weil der Erreichbarkeits-Fuzzer denselben Evaluator anhaengt — eine Kopie dort wuerde
+ *  bei jedem neuen Feld still auseinanderlaufen (`docs/engine-fuzz.md`). */
+fun cnnConfig(config: TrackerConfig) =
     CnnConfig(
         confThr = config.cnnConfThr,
         minAgreement = config.cnnMinAgreement,

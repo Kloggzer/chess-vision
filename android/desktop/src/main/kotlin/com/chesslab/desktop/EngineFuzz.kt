@@ -1,5 +1,6 @@
 package com.chesslab.desktop
 
+import com.chesslab.cnn.CnnRecovery
 import com.chesslab.cnn.observationFromProbs
 import com.chesslab.engine.api.BgrImage
 import com.chesslab.engine.api.CnnSnapshot
@@ -7,6 +8,7 @@ import com.chesslab.engine.api.FrameInput
 import com.chesslab.engine.api.GrayImage
 import com.chesslab.engine.api.TrackerConfig
 import com.chesslab.engine.api.TrackerEngine
+import com.chesslab.tracker.service.cnnConfig
 import kotlin.random.Random
 
 // Erreichbarkeit OHNE Bilder: `FrameInput` traegt Bewegung, Deckung und Helligkeit als blanke
@@ -17,6 +19,11 @@ private const val DARK_SQUARE = 85
 private const val WHITE_PIECE = 62
 private const val BLACK_PIECE = -48
 private const val HAND_LEVEL = 30
+private const val SHADOW_DROP = -35
+private const val CONTENT_GROUND = 0
+private const val CONTENT_WHITE = 1
+private const val CONTENT_BLACK = 2
+private const val CONTENT_HAND = 3
 private const val TEXTURE = 24
 private const val FRAME_MS = 33L
 private const val PRIME = 1_000_003L
@@ -99,9 +106,9 @@ private class Texture(
 ) {
     private val fields = HashMap<Int, IntArray>()
 
-    fun of(level: Int): IntArray =
-        fields.getOrPut(level) {
-            val rng = Random(seed + level * PRIME)
+    fun of(content: Int): IntArray =
+        fields.getOrPut(content) {
+            val rng = Random(seed + content * PRIME)
             IntArray(size * size) { rng.nextInt(TEXTURE) }
         }
 }
@@ -111,9 +118,8 @@ private fun paint(
     square: String,
     level: Int,
     size: Int,
-    texture: Texture,
+    noise: IntArray,
 ) {
-    val noise = texture.of(level)
     val r = rectOf(square, size)
     for (y in r[1] until r[3]) {
         val row = y * size
@@ -123,33 +129,102 @@ private fun paint(
     }
 }
 
-/** Die Textur haengt an (Feld, Fuellung), NICHT am Frame: ein ruhendes Brett muss bytegleiche
- *  Bilder liefern, sonst sieht die Engine in jedem Frame das ganze Brett wechseln. */
-private fun levelOf(
+/** Eine Hand wirft einen Schatten auf die Nachbarfelder: dunkler, aber gleiche Farbe. Genau das
+ *  trennt `ShadowVeto` von einer Verdeckung — ohne Schatten ist `verify:shadow` unerreichbar. */
+private fun shadowOf(hand: Set<String>): Set<String> {
+    if (hand.isEmpty()) return emptySet()
+    val out = HashSet<String>()
+    for (sq in hand) {
+        val col = FILES.indexOf(sq[0])
+        val rank = sq[1] - '0'
+        for (dc in -1..1) {
+            for (dr in -1..1) {
+                val c = col + dc
+                val r = rank + dr
+                if (c in 0..7 && r in 1..8) out += "" + FILES[c] + r
+            }
+        }
+    }
+    return out - hand
+}
+
+/** Der Schluessel der Textur ist der INHALT, nicht die Helligkeit: ein Schatten laesst das Muster
+ *  stehen und senkt nur den Wert — sonst faellt er durch Cucchiaras Farbton-Pruefung. */
+private fun contentOf(
     square: String,
     truth: Map<String, Char>,
     hand: Set<String>,
 ): Int {
+    if (square in hand) return CONTENT_HAND
+    val piece = truth[square] ?: return CONTENT_GROUND
+    return if (piece.isUpperCase()) CONTENT_WHITE else CONTENT_BLACK
+}
+
+private fun levelOf(
+    square: String,
+    truth: Map<String, Char>,
+    hand: Set<String>,
+    shadow: Set<String>,
+): Int {
     val ground = if ((FILES.indexOf(square[0]) + square[1].code) % 2 == 0) DARK_SQUARE else LIGHT_SQUARE
     if (square in hand) return HAND_LEVEL
-    val piece = truth[square] ?: return ground
-    return ground + if (piece.isUpperCase()) WHITE_PIECE else BLACK_PIECE
+    val drop = if (square in shadow) SHADOW_DROP else 0
+    val piece = truth[square] ?: return ground + drop
+    return ground + drop + if (piece.isUpperCase()) WHITE_PIECE else BLACK_PIECE
 }
+
+/** Die Textur haengt an (Feld, Fuellung), NICHT am Frame: ein ruhendes Brett muss bytegleiche
+ *  Bilder liefern, sonst sieht die Engine in jedem Frame das ganze Brett wechseln. */
 
 private fun grayOf(
     truth: Map<String, Char>,
     hand: Set<String>,
+    shadow: Set<String>,
     size: Int,
     texture: Texture,
 ): GrayImage {
     val data = ByteArray(size * size) { DARK_SQUARE.toByte() }
     for (sq in squares()) {
-        paint(data, sq, levelOf(sq, truth, hand), size, texture)
+        paint(data, sq, levelOf(sq, truth, hand, shadow), size, texture.of(contentOf(sq, truth, hand)))
     }
     return GrayImage(size, size, data)
 }
 
-private fun bgrOf(gray: GrayImage): BgrImage = BgrImage(gray.width, gray.height, ByteArray(gray.data.size * 3) { gray.data[it / 3] })
+/** Der Schatten-Veto und die Verdeckungs-Farbachse lesen Chroma. Ein graues Bild macht sie
+ *  konstruktiv tot — `verify:shadow` war deshalb unerreichbar, nicht selten. */
+private fun tintOf(
+    square: String,
+    truth: Map<String, Char>,
+    hand: Set<String>,
+): IntArray {
+    if (square in hand) return intArrayOf(-20, 5, 45)
+    val piece = truth[square] ?: return intArrayOf(0, 0, 0)
+    return if (piece.isUpperCase()) intArrayOf(-10, 0, 12) else intArrayOf(8, 0, -8)
+}
+
+private fun bgrOf(
+    gray: GrayImage,
+    truth: Map<String, Char>,
+    hand: Set<String>,
+): BgrImage {
+    val size = gray.width
+    val data = ByteArray(gray.data.size * 3)
+    for (sq in squares()) {
+        val tint = tintOf(sq, truth, hand)
+        val r = rectOf(sq, size)
+        for (y in r[1] until r[3]) {
+            for (x in r[0] until r[2]) {
+                val base = gray.data[y * size + x].toInt() and BYTE_MASK
+                for (c in 0 until 3) {
+                    data[(y * size + x) * 3 + c] = (base + tint[c]).coerceIn(0, BYTE_MASK).toByte()
+                }
+            }
+        }
+    }
+    return BgrImage(size, size, data)
+}
+
+private const val BYTE_MASK = 255
 
 private fun pieceName(piece: Char): String = (if (piece.isUpperCase()) "w" else "b") + piece.uppercaseChar()
 
@@ -166,7 +241,9 @@ private fun probsOf(
     for (sq in all) {
         val piece = truth[sq]
         val truthName = if (piece == null) "empty" else pieceName(piece)
-        val name = if (sq in wrong) CLASSES.first { it != truthName } else truthName
+        // Eine FESTE Fehlklasse ist kein Rauschen: der Resync-Pfad sucht eine Stellung, die die
+        // Beobachtung erklaert, und die gibt es zu immer derselben Verwechslung nie.
+        val name = if (sq in wrong) CLASSES.filter { it != truthName }.random(rng) else truthName
         val row = DoubleArray(CLASSES.size + 1) { (1.0 - scene.obsConf) / (CLASSES.size - 1) }
         row[CLASSES.indexOf(name)] = scene.obsConf
         row[CLASSES.size] = if (sq in hand) 1.0 else 0.0
@@ -212,6 +289,9 @@ internal fun fuzzRun(
             decisionSink = { if (it.san != null) committed += 1 },
             stateSink = { _, to, _ -> reached.merge("state:" + to, 1, Int::plus) },
         )
+    // OHNE Evaluator committet Verify den Kandidaten sofort, statt die Leiter zu fahren: der
+    // erste Lauf erreichte `resynced`/`ghost`/`shadow` deshalb nie, obwohl der Korpus sie traegt.
+    engine.attachCnn(CnnRecovery(cnnConfig(config)))
     engine.setDebugEnabled(true)
     // Die Engine indiziert Felder auf `boardSize * detectScale`; eine eigene Groesse fliegt raus.
     val size = (config.boardSize * config.detectScale).toInt()
@@ -228,8 +308,9 @@ internal fun fuzzRun(
         hand: Set<String>,
         coverage: Double,
     ) {
-        val gray = grayOf(truth, hand, size, texture)
-        engine.onFrame(FrameInput(seq, gray, bgrOf(gray), corners, motion, coverage, scene.luma, tsMs))
+        val gray = grayOf(truth, hand, shadowOf(hand), size, texture)
+        val bgr = bgrOf(gray, truth, hand)
+        engine.onFrame(FrameInput(seq, gray, bgr, corners, motion, coverage, scene.luma, tsMs))
         if (seq % scene.obsEvery == 0L) {
             val obs = observationFromProbs(probsOf(truth, hand, scene, rng), CLASSES)
             pending += (seq + scene.obsLagFrames) to CnnSnapshot(obs, seq, tsMs, 1.0, null, null, engine.fen())

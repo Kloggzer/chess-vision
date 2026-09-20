@@ -55,8 +55,12 @@ private val INTEGRAL =
         "refusedStreakForEval",
     )
 
-/** Ein Treffer: welcher Zustand, wie oft, und womit er erreicht wurde. */
+/**
+ * `trials` ist die Erreichbarkeits-Groesse, nicht `hits`: das Maximum haelt je EINE Extremszene
+ * und ist gegen alles zweiter Ordnung blind — ein Schatten-Rendering aenderte 17 Maxima um null.
+ */
 internal data class Witness(
+    val trials: Int,
     val hits: Int,
     val scene: Scene,
     val overrides: Map<String, Double>,
@@ -107,7 +111,12 @@ internal fun fuzzSearch(
         for ((state, hits) in out.reached) {
             if (state.startsWith("note:")) continue
             val seen = best[state]
-            if (seen == null || hits > seen.hits) best[state] = Witness(hits, scene, overrides)
+            best[state] =
+                if (seen == null || hits > seen.hits) {
+                    Witness((seen?.trials ?: 0) + 1, hits, scene, overrides)
+                } else {
+                    seen.copy(trials = seen.trials + 1)
+                }
         }
         onProgress(trial)
     }
@@ -124,9 +133,9 @@ internal fun fuzzVerb(args: List<String>) {
     val seconds = (System.nanoTime() - started) / 1e9
     println("$trials Laeufe in %.1f s (%.1f ms je Lauf)".format(seconds, seconds * 1000 / trials))
     println()
-    println("%-28s %8s  %s".format("Zustand", "max", "noetig dafuer"))
-    for ((state, w) in found.entries.sortedBy { it.key }) {
-        println("%-28s %8d  %s".format(state, w.hits, describe(w)))
+    println("%-28s %8s %8s  %s".format("Zustand", "Treffer", "max", "noetig dafuer"))
+    for ((state, w) in found.entries.sortedByDescending { it.value.trials }) {
+        println("%-28s %7d/%d %8d  %s".format(state, w.trials, trials, w.hits, describe(w)))
     }
     out?.let { path ->
         File(path).writeText(
