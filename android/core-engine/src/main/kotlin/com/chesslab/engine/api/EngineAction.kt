@@ -32,4 +32,10 @@ sealed interface EngineAction {
     data class SetDebugEnabled(
         val on: Boolean,
     ) : EngineAction
+
+    /** Der Evaluator haengt vor dem Modell; ohne diese Rueckmeldung blieb `cnnRun` nach einem
+     *  gescheiterten Attach an und Kandidaten warteten auf einen Verifizierer, den es nicht gab. */
+    data class CnnAvailability(
+        val on: Boolean,
+    ) : EngineAction
 }

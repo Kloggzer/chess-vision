@@ -13,6 +13,7 @@ import com.chesslab.tracker.camera.ExposureGovernor
 import com.chesslab.tracker.camera.FocusGovernor
 import com.chesslab.tracker.cnn.Attached
 import com.chesslab.tracker.cnn.CnnObserver
+import com.chesslab.tracker.cnn.CnnState
 import com.chesslab.tracker.log.NoTrackerLogs
 import com.chesslab.tracker.log.TrackerLogs
 import com.chesslab.tracker.pipeline.CropFrameStore
@@ -287,6 +288,7 @@ class TrackerStack<T>(
         // `set:cnnVerify=false` a tick after start (882 observations, `gateOff=0`).
         observer.setIntervalS(seed.config.observerIntervalS)
         observer.setEnabled(seed.config.cnnVerify)
+        wireCnnAvailability(observer, host, scope)
         // Attaching is asynchronous and LOUD on failure: a silent one once let the tracker run
         // diff-only for a whole session (MEMORY android-live-bringup-2607).
         observer.attach(openClassifier)
@@ -309,6 +311,24 @@ class TrackerStack<T>(
 }
 
 private const val MS_PER_S_D = 1000.0
+
+/** Der Evaluator haengt schon im Konstruktor, weil er auch `cnnRun` scharf stellt. Nur ein
+ *  gescheiterter Attach nimmt ihn zurueck — [CnnState.Attaching] darf es NICHT, sonst committen
+ *  die ersten Frames jeder Sitzung diff-only statt zu verifizieren (Bug-Audit C2). */
+fun wireCnnAvailability(
+    observer: CnnObserver,
+    host: EngineHost,
+    scope: CoroutineScope,
+) {
+    observer.state
+        .onEach {
+            when (it) {
+                is CnnState.Failed -> host.submit(EngineAction.CnnAvailability(false))
+                is CnnState.Ready -> host.submit(EngineAction.CnnAvailability(true))
+                else -> Unit
+            }
+        }.launchIn(scope)
+}
 
 /**
  * Owns the one live [TrackerStack] and performs the swap. The order IS the contract — **detach,

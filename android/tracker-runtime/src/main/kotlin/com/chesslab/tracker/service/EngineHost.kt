@@ -55,6 +55,8 @@ class EngineHooks(
 class TrackerEngineOps(
     private val engine: TrackerEngine,
     private val onConfigApplied: (TrackerConfig) -> Unit,
+    /** Was [EngineAction.CnnAvailability] wieder anhaengt, wenn ein Retry-Attach doch greift. */
+    private val cnn: CnnEvaluator? = null,
 ) : EngineOps {
     override fun onFrame(input: FrameInput): List<TrackerEvent> = engine.onFrame(input)
 
@@ -81,6 +83,10 @@ class TrackerEngineOps(
             is EngineAction.ResyncToBoard -> engine.resyncToBoard()
             is EngineAction.SetDebugEnabled -> {
                 engine.setDebugEnabled(action.on)
+                emptyList()
+            }
+            is EngineAction.CnnAvailability -> {
+                engine.attachCnn(if (action.on) cnn else null)
                 emptyList()
             }
             is EngineAction.UpdateConfig -> {
@@ -237,7 +243,7 @@ fun engineHost(
             stateSink = onState,
         )
     engine.attachCnn(cnn)
-    return EngineHost(TrackerEngineOps(engine, onConfigApplied))
+    return EngineHost(TrackerEngineOps(engine, onConfigApplied, cnn))
 }
 
 /** True when at least one older entry had to be displaced to make room. */
