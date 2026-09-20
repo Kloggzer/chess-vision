@@ -111,15 +111,48 @@ def prior_by_ply(rows: list[dict], offset: int = 1, keep_unreachable: bool = Fal
     return out, report
 
 
+def cache_key(run_dir: Path) -> str:
+    """Mtime-plus-size of every file that decides the softmax — the graph AND `config.json`.
+
+    Same shape as the replay's observation cache: the numbers hang on the weights and on
+    `temperature`/`normalize`/`clahe_*`/`input_repr`, none of which a row count can tell apart.
+    """
+    parts = [Path(run_dir).name]
+    for name in ("config.json", "model.onnx", "best.pt", "last.pt"):
+        f = Path(run_dir) / name
+        if f.exists():
+            st = f.stat()
+            parts.append(f"{name}={st.st_mtime_ns // 1_000_000}:{st.st_size}")
+    return "|".join(parts)
+
+
+def cached_probs(cache: Path | None, key: str, n_rows: int) -> np.ndarray | None:
+    """The stored softmax, or None when it belongs to another model or another row set.
+
+    Validated on the row count alone, a second sweep reusing the same `--probs-cache` path
+    reported the FIRST model's probabilities under the second model's name.
+    """
+    if cache is None or not cache.exists():
+        return None
+    stored = np.load(cache)
+    was = str(stored["key"]) if "key" in stored.files else ""
+    if was != key:
+        print(f"probs: {cache} carries {was or 'no model stamp'}, wanted {key} — recomputing")
+        return None
+    if len(stored["probs"]) != n_rows:
+        print(f"probs: {cache} holds {len(stored['probs'])} rows for {n_rows} — recomputing")
+        return None
+    print(f"probs: reusing {cache} ({n_rows} rows)")
+    return stored["probs"]
+
+
 def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
                   batch_size: int, cache: Path | None) -> np.ndarray:
     """(len(rows), n_classes) softmax rows, read from the packed memmap in manifest order."""
-    if cache is not None and cache.exists():
-        stored = np.load(cache)
-        if len(stored["probs"]) == len(rows):
-            print(f"probs: reusing {cache} ({len(rows)} rows)")
-            return stored["probs"]
-        print(f"probs: {cache} holds {len(stored['probs'])} rows for {len(rows)} — recomputing")
+    key = cache_key(run_dir)
+    hit = cached_probs(cache, key, len(rows))
+    if hit is not None:
+        return hit
 
     from chesslab.serving import predict_arrays
 
@@ -162,7 +195,7 @@ def probabilities(run_dir: Path, rows: list[dict], pack: Path, device: str,
     probs = np.asarray(out, dtype=np.float64)
     if cache is not None:
         cache.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(cache, probs=probs)
+        np.savez_compressed(cache, probs=probs, key=np.array(key))
         print(f"probs: wrote {cache}")
     return probs
 

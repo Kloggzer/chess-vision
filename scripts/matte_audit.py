@@ -53,25 +53,28 @@ def main() -> int:
                      and not (r.get("concepts") or {}) and not (r.get("cells_over_half") or 0)]
             if args.limit:
                 blind = blind[:args.limit]
-            hits = 0
+            hits = seen = 0
             for r in blind:
                 p = board_path(rec, r["frame"])
-                # ungezaehlt uebersprungen — `checked` sank dadurch stumm, und `von
-                # {len(blind)}` eine Zeile tiefer nannte weiter die volle Zahl.
+                # Ohne Brett ist nichts gemessen: die Zeile zaehlt weder in `seen` noch in
+                # `checked`, sonst nennt der Nenner Matten, die der Rillen-Sensor nie sah.
                 if p is None:
                     noboard += 1
                     continue
                 gray = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2GRAY)
                 squares = sorted(hand_squares(missing_edges(gray, board_size=gray.shape[0], pad=0)))
                 checked += 1
+                seen += 1
                 if squares:
                     hits += 1
                     found += 1
                     sink.write(json.dumps({"session": rec.name, "frame": r["frame"],
                                            "ply": r.get("ply"), "squares": squares}) + "\n")
             if blind:
-                print(f"  {rec.name:26s} {hits:4d} von {len(blind):4d} blinden Matten "
-                      f"melden Rillen-Felder", flush=True)
+                skipped = len(blind) - seen
+                print(f"  {rec.name:26s} {hits:4d} von {seen:4d} geprueften blinden Matten "
+                      f"melden Rillen-Felder"
+                      + (f" ({skipped} ohne Brett)" if skipped else ""), flush=True)
     os.replace(tmp, out)
     if not checked:
         # "0 von 0" las sich wie ein Ergebnis. Nichts gemessen ist kein Befund.

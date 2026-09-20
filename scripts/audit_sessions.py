@@ -25,6 +25,13 @@ from chesslab.training.occlusion import PIECE_VISIBLE_MAX as VMAX
 from chesslab.training.pack import open_packed_rows
 
 
+def share_cells(d: dict) -> str:
+    """Eine Aufnahme ohne beurteilte Situation ist nicht zu 0,0 % verdaechtig, sondern ungemessen."""
+    tot = d["situations"]
+    pct = f"{100 * d['verdaechtig'] / tot:>4.1f}%" if tot else "   —"
+    return f"{tot:>6}{d['richtig']:>9}{d['wackelig']:>10}{d['verdaechtig']:>8} ({pct})"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", default="real13-straight-80-v3-c8d1")
@@ -90,10 +97,9 @@ def main():
                   flush=True)
 
     print(f"\n{'Session':<34}{'Sit.':>6}{'richtig':>9}{'wackelig':>10}{'verdaechtig':>13}")
-    for s, d in sorted(report.items(), key=lambda kv: -kv[1]["verdaechtig"] / max(1, kv[1]["situationen"] if "situationen" in kv[1] else kv[1]["situations"])):
-        tot = d["situations"]
-        print(f"{s:<34}{tot:>6}{d['richtig']:>9}{d['wackelig']:>10}"
-              f"{d['verdaechtig']:>8} ({100 * d['verdaechtig'] / max(1, tot):>4.1f}%)")
+    for s, d in sorted(report.items(),
+                       key=lambda kv: -kv[1]["verdaechtig"] / max(1, kv[1]["situations"])):
+        print(f"{s:<34}" + share_cells(d))
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     write_json(Path(args.out), report, indent=1)
     print(f"\n[OK] {args.out}")

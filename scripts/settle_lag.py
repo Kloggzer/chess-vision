@@ -45,8 +45,8 @@ def main(name: str, dump: str, thr: float = 0.25) -> int:
                 combined = float(r["motion"])
             except ValueError:
                 continue
-            # TODO(bug-hunt 2026-09-16f): ein Frame ohne ROI-Zeile ist NICHT GEMESSEN; als 0,0
-            # gelesen fiel er auf die Seite des Bretts — die Achse, die hier entschieden wird.
+            # Ein Frame ohne ROI-Zeile ist NICHT GEMESSEN und zaehlt als `blind`; als 0,0 gelesen
+            # fiel er auf die Seite des Bretts — die Achse, die hier entschieden wird.
             roi_i = roi.get(int(r["frame"]))
             if combined > thr:
                 over += 1

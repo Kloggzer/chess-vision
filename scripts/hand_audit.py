@@ -71,6 +71,14 @@ def classify(row: dict | None, reason: str, cov: float, square: str) -> str | No
     return "spaet" if reason in ("stale", "changed") else None
 
 
+def share_line(tot: Counter) -> str:
+    """`max(1, tot["train"])` machte aus "keine Zeile im Manifest" eine gemessene 0,000 %."""
+    if not tot["train"]:
+        return "ungeprueft und unmaskiert: nichts gemessen — keine Manifest-Zeile dieser Aufnahmen"
+    return (f"ungeprueft und unmaskiert: {tot['RISIKO']} von {tot['train']} "
+            f"({100.0 * tot['RISIKO'] / tot['train']:.3f} %)")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dataset", default="real13-mix-v7-128")
@@ -123,8 +131,7 @@ def main() -> int:
     for sid, c in sorted(per.items(), key=lambda kv: -kv[1]["RISIKO"]):
         print(f"{sid:32s}" + "".join(f"{c[k]:10d}" for k in cols))
     print(f"{'GESAMT':32s}" + "".join(f"{tot[k]:10d}" for k in cols))
-    share = 100.0 * tot["RISIKO"] / max(1, tot["train"])
-    print(f"\nungeprueft und unmaskiert: {tot['RISIKO']} von {tot['train']} ({share:.3f} %)")
+    print("\n" + share_line(tot))
     for k, v in reasons.most_common(10):
         print(f"   {v:7d}  {k}")
     return 0

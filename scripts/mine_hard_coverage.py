@@ -48,8 +48,8 @@ def main():
             pc = rd.get("coverage")
             if pc is None:
                 continue
-            # TODO(bug-hunt 2026-09-16f): fehlende `coverage` heisst UN-MATTET, nicht frei
-            # ("Coverage Matte Trap"); als 0,0 gelesen wurde jede Modellmeldung ein Phantom.
+            # Fehlende `coverage` heisst UN-MATTET, nicht frei ("Coverage Matte Trap"); als
+            # 0,0 gelesen wurde jede Modellmeldung ein Phantom.
             if r.get("coverage") is None:
                 stat["ohne Matte"] += 1
                 continue

@@ -65,8 +65,8 @@ def main():
             t = truth[r["frame"]].get(r["square"])
             if t is None:
                 continue
-            # TODO(bug-hunt 2026-09-16f): `or 0.0` machte aus "kein Occlusion-Kopf" ein
-            # gemessenes "nicht verdeckt" — null FP bei null TP sieht wie makellose Precision aus.
+            # Ohne `model_cov` hat der Lauf keinen Occlusion-Kopf; als 0,0 gelesen sah das nach
+            # makelloser Precision aus (null FP bei null TP), statt nach nichts Gemessenem.
             cov = r.get("model_cov", r.get("cov"))
             if cov is None:
                 continue

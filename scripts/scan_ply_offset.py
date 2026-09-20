@@ -45,6 +45,33 @@ def board_of(fen: str) -> dict[str, str]:
     return out
 
 
+def offsets(per_frame: dict, boards: dict, pred: dict) -> tuple[list[dict], int]:
+    """Frames, die zu einem Nachbar-Ply besser passen — und wie viele WIRKLICH geprueft wurden.
+
+    Ein Frame ohne 32 sichtbare Zellen oder ohne Nachbar-FEN wird uebersprungen; als geprueft
+    gezaehlt schoenten diese Zeilen den Nenner der gemeldeten Quote.
+    """
+    hits, checked = [], 0
+    for (sess, frame, ply), rs in per_frame.items():
+        # Nur SICHTBARE Zellen: verdeckte kann das Modell nicht lesen, sie wuerden nur rauschen.
+        vis = [r for r in rs if float(r.get("coverage") or 0.0) <= VMAX]
+        if len(vis) < 32:
+            continue
+        score = {}
+        for d in (-1, 0, 1):
+            b = boards.get((sess, ply + d))
+            if b:
+                score[d] = sum(1 for r in vis if pred[r["path"]] == b.get(r["square"]))
+        if 0 not in score or len(score) < 2:
+            continue
+        checked += 1
+        best = max(score, key=score.get)
+        if best != 0 and score[best] > score[0]:
+            hits.append({"session_id": sess, "frame": frame, "ply": ply, "better_at": ply + best,
+                         "match_own": score[0], "match_better": score[best], "visible": len(vis)})
+    return hits, checked
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("dataset")
@@ -78,27 +105,13 @@ def main():
     for r in rows:
         per_frame[(r["session_id"], r["frame"], int(r["ply"]))].append(r)
 
-    hits, out = [], Path(args.out)
-    for (sess, frame, ply), rs in per_frame.items():
-        # Nur SICHTBARE Zellen: verdeckte kann das Modell nicht lesen, sie wuerden nur rauschen.
-        vis = [r for r in rs if float(r.get("coverage") or 0.0) <= VMAX]
-        if len(vis) < 32:
-            continue
-        score = {}
-        for d in (-1, 0, 1):
-            b = boards.get((sess, ply + d))
-            if b:
-                score[d] = sum(1 for r in vis if pred[r["path"]] == b.get(r["square"]))
-        if 0 not in score or len(score) < 2:
-            continue
-        best = max(score, key=score.get)
-        if best != 0 and score[best] > score[0]:
-            hits.append({"session_id": sess, "frame": frame, "ply": ply, "better_at": ply + best,
-                         "match_own": score[0], "match_better": score[best], "visible": len(vis)})
+    hits, checked = offsets(per_frame, boards, pred)
+    out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("".join(json.dumps(h) + "\n" for h in hits), encoding="utf-8")
 
-    print(f"\n{len(per_frame)} Frames geprueft, {len(hits)} passen zu einem NACHBAR-Ply besser")
+    print(f"\n{checked} von {len(per_frame)} Frames geprueft, "
+          f"{len(hits)} passen zu einem NACHBAR-Ply besser")
     if hits:
         d = collections.Counter(h["better_at"] - h["ply"] for h in hits)
         print(f"  Richtung: {dict(d)}   (+1 = Brett ist dem Label VORAUS)")

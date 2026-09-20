@@ -28,8 +28,8 @@ def tail_mean(run: Path, metric: str, tail: int, epochs: int) -> float | None:
     if not p.exists():
         return None
     rows = read_jsonl(p)
-    # TODO(bug-hunt 2026-09-16f): eine MENGE schluckt die Wiederholung, die der Docstring
-    # ausschliessen will — ein fortgesetzter Lauf kam damit als vollstaendig durch.
+    # Eine LISTE, keine Menge: die schluckte die Wiederholung, die der Docstring ausschliessen
+    # will, und ein fortgesetzter Lauf kam damit als vollstaendig durch.
     seen = sorted(r["epoch"] for r in rows if "epoch" in r)
     if seen != list(range(epochs)):
         return None

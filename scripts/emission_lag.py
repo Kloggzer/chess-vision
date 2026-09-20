@@ -26,8 +26,8 @@ def main():
         for r in read_jsonl(p):
             if "square" not in r or not r["probs"]:
                 continue
-            # TODO(bug-hunt 2026-09-16f): ohne Occlusion-Kopf fehlt der Schluessel; als 0,0
-            # gelesen galt jede verdeckte Zelle als sichtbar und ging in die Korrelation ein.
+            # Ohne Occlusion-Kopf fehlt der Schluessel; als 0,0 gelesen galt jede verdeckte
+            # Zelle als sichtbar und ging in die Korrelation ein.
             cov = r.get("model_cov", r.get("cov"))
             if cov is None:
                 continue

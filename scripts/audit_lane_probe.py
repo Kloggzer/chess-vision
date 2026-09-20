@@ -28,6 +28,18 @@ from chesslab.labeling import (
 CELL, PAD, BAR = 104, 6, 26
 
 
+def hand_line(n_hand: int, n_shown: int, n_blind: int) -> str:
+    """Nenner sind die GEMESSENEN Zellen, nicht die gezeichneten.
+
+    Ein Frame ohne Matte-Zeile ist nicht 0,0, sondern unbekannt; im Nenner drueckte er die Quote,
+    die hier die Frage "fast nur Haende?" beantworten soll.
+    """
+    measured = n_shown - n_blind
+    share = f"{100 * n_hand / measured:.0f} %" if measured else "nicht gemessen"
+    return (f"     davon mit Matte > 0: {n_hand} von {measured} gemessenen ({share}), "
+            f"ohne Matte: {n_blind} von {n_shown} gezeichneten")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--flags", default="data/reports/audit-flags.jsonl")
@@ -81,8 +93,7 @@ def main():
         cells = (crops_for_frame(None, row["corners"], profile, board=img) if stored
                  else crops_for_frame(img, row["corners"], profile))
         crop = cells[squares.index(f["square"])]
-        # TODO(bug-hunt 2026-09-16f): ein Frame ohne Matte-Zeile ist nicht gemessen; als 0,0
-        # gelesen sank die Quote, die hier die Frage "fast nur Haende?" beantworten soll.
+        # Ein Frame ohne Matte-Zeile ist nicht gemessen — er faellt aus dem Nenner (`hand_line`).
         cells = matte.get(f["frame"])
         n_blind += cells is None
         n_shown += 1
@@ -98,8 +109,7 @@ def main():
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     sheet.save(args.out)
     print(f"[OK] {len(picked)} Flags aus {len(by_sess)} Sessions -> {args.out}")
-    print(f"     davon mit Matte > 0: {n_hand} von {n_shown} gezeichneten "
-          f"({100 * n_hand / max(1, n_shown):.0f} %), ohne Matte: {n_blind}")
+    print(hand_line(n_hand, n_shown, n_blind))
 
 
 if __name__ == "__main__":
