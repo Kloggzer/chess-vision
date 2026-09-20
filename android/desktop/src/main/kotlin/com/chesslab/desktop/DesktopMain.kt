@@ -51,6 +51,8 @@ import kotlin.system.exitProcess
  * no second clock. Why it is built this way, and what each decision cost: `docs/desktop-replay.md`.
  */
 fun main(args: Array<String>) {
+    // Vor den Natives: der Erreichbarkeits-Fuzzer fasst kein Bild an und soll auch kein OpenCV laden.
+    if (args.firstOrNull() == "fuzz") return fuzzVerb(args.drop(1))
     NativeCv.require()
     when (args.firstOrNull()) {
         in FILE_TOOLS -> FILE_TOOLS.getValue(args.first())(args.drop(1))

@@ -1,0 +1,46 @@
+package com.chesslab.desktop
+
+import com.chesslab.engine.api.TrackerConfig
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+
+/**
+ * Der synthetische Treiber taugt nur, wenn die Engine seine Bilder LIEST. Ein Fuzzer, dessen
+ * Frames nie einen Zug ergeben, meldet jeden Zustand als unerreichbar und sieht dabei gruen aus.
+ */
+class EngineFuzzTest {
+    @Test
+    fun `die Engine committet die synthetischen Zuege`() {
+        val out = fuzzRun(TrackerConfig(), Scene(plies = 6))
+
+        assertTrue(out.committed >= 4, "nur ${out.committed} von 6 Halbzuegen committet: ${out.reached}")
+    }
+
+    @Test
+    fun `derselbe Seed liefert denselben Lauf`() {
+        val a = fuzzRun(TrackerConfig(), Scene(plies = 4), seed = 7)
+        val b = fuzzRun(TrackerConfig(), Scene(plies = 4), seed = 7)
+
+        assertEquals(a.reached, b.reached, "ohne Determinismus ist kein Befund wiederholbar")
+    }
+
+    @Test
+    fun `ohne Bewegung erreicht der Lauf nie den Bewegungszustand`() {
+        // `plies = 0`: die Engine sieht Bewegung AUCH aus den Pixeln, ein Zug erzeugt sie also
+        // selbst dann, wenn der Bewegungswert 0 ist. Geprueft wird die Ruhe, nicht der Zug.
+        val out = fuzzRun(TrackerConfig(), Scene(plies = 0, motionPeak = 0.0, motionFloor = 0.0))
+
+        assertEquals(0, out.hits("gate:moving"), "ein stehendes Brett darf kein `moving` erzeugen")
+    }
+
+    @Test
+    fun `eine Hand erreicht den Verdeckungszustand`() {
+        val out = fuzzRun(TrackerConfig(), Scene(plies = 4, handFrames = 30, handSquares = 12, handCoverage = 0.4))
+
+        assertTrue(
+            out.hits("gate:occluded") + out.hits("state:occluded") > 0,
+            "zwoelf verdeckte Felder muessen den Pfad erreichen: ${out.reached}",
+        )
+    }
+}
