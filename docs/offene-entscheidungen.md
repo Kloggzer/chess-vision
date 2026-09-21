@@ -1552,3 +1552,17 @@ sichtbar fest, statt sie in Prosa zu verstecken.
 
 `scripts/compare_regression.py` (`6c626891`) stellt die Episoden-Spalte NEBEN die alte, genau wie
 der Punkt es verlangte; `replay-regression.ps1:67` zaehlt unveraendert `ALARM latched`.
+
+## 36. Drei Wachen ohne Zeugen (2026-09-21, gemessen)
+
+Alle zehn booleschen Wachen der Engine einzeln abgeschaltet, jedes Mal der volle Satz
+(`docs/wachen-ablation-2026-09-21.md`). Vier bewegen KEINE Ziffer, und drei davon sind genau
+die Hand- und Verdeckungswachen: `baselineOcclusion`, `gridHandGate`, `modelHandGate`.
+
+Wer eine davon verschlechtert, kommt heute gruen durch. Das Material, das es messen koennte,
+liegt da (die zwei Partien vom 2026-09-19, 875 verdeckte Frames auf 988) und haengt an
+derselben Entscheidung wie Punkt 30: `test-v2` oder Trainingsmaterial.
+
+**Zu entscheiden:** ob der Satz um handreiches Material erweitert wird, oder ob diese drei
+Wachen bewusst ohne Zeugen laufen. Ein drittes "spaeter" gibt es nicht — heute ist es das
+zweite, nur unausgesprochen.
