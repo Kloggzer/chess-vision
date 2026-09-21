@@ -75,3 +75,16 @@ def test_a_frame_with_a_matte_row_is_never_clean(tmp_path):
     (tmp_path / "matte.jsonl").write_text(
         json.dumps({"frame": "000001"}) + "\n", encoding="utf-8")
     assert labeling.clean_frames(tmp_path) == {"000002"}
+
+
+def test_the_preflight_refuses_a_disk_that_cannot_hold_the_pack(monkeypatch, tmp_path):
+    """Der Verweigerungs-Zweig war von keinem Test gehalten — eine Mutationsprobe schaltete ihn
+    auf `if False` ab und die Zeile wanderte unbemerkt in Commit 6b431cf8."""
+    import shutil
+
+    from chesslab import config
+    from chesslab import dataset_build as db
+
+    monkeypatch.setattr(shutil, "disk_usage", lambda _p: type("U", (), {"free": 1_000})())
+    with pytest.raises(ValueError, match="GB are free"):
+        db._refuse_if_too_small(10_000, 50_000, config.Paths(root=tmp_path))
