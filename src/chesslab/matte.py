@@ -15,6 +15,7 @@ from time import perf_counter, sleep
 import cv2
 import numpy as np
 
+from . import provenance
 from .ioutil import read_jsonl, write_rows_guarded
 from .labeling import (
     all_squares,
@@ -446,7 +447,8 @@ def recut_coverage(
     stamp = (path.stat().st_mtime_ns, path.stat().st_size)
 
     rows: list[dict] = []
-    recut = crossed = 0
+    recut = crossed = restamped = 0
+    source = provenance.source(session_dir)
     for row in read_jsonl(path):
         alpha_path = alpha_for(session_dir, row)
         entry = entries.get(row["frame"])
@@ -461,19 +463,23 @@ def recut_coverage(
             continue
         fresh = coverage_of(image.astype(np.float32) / 255.0, entry, profile)
         was = row["coverage"]
+        # Auch eine unveraenderte Zahl ist damit gegen den HEUTIGEN Export nachgerechnet — ohne
+        # den neuen Stempel bliebe die Matte-Sprosse nach genau diesem Lauf fuer immer offen.
+        current = (row | {"_source": source}) if source else row
         if all(abs(fresh.get(sq, 0.0) - v) <= 1e-4 for sq, v in was.items()):
-            rows.append(row)
+            restamped += current != row
+            rows.append(current)
             continue
         # Nur was die Schwelle UEBERQUERT, aendert ein Label — der Rest ist Nachkommastelle.
         crossed += sum((was.get(sq, 0.0) > PIECE_VISIBLE_MAX) != (v > PIECE_VISIBLE_MAX)
                        for sq, v in fresh.items())
         recut += 1
-        rows.append(row | {"coverage": fresh,
-                           "cells_over_half": sum(v > 0.5 for v in fresh.values())})
+        rows.append(current | {"coverage": fresh,
+                               "cells_over_half": sum(v > 0.5 for v in fresh.values())})
         if progress and recut % 50 == 0:
             print(f"[{_timestamp()}]   {recut} Zeilen neu geschnitten", flush=True)
 
-    if recut:
+    if recut or restamped:
         write_rows_guarded(path, rows, stamp,
                            what=f"{name}: matte.jsonl changed while recutting — the alpha worker "
                                 "is writing it. Let it finish and run this again.")
@@ -524,6 +530,7 @@ def recut_fixed(
 
     rows: list[dict] = []
     redone = 0
+    source = provenance.source(session_dir)
 
     for row in read_jsonl(path):
         fixed = (
@@ -569,6 +576,9 @@ def recut_fixed(
                     value > 0.5
                     for value in coverage.values()
                 ),
+                # Frisch gegen die heutige Geometrie geschnitten, also traegt die Zeile auch
+                # den heutigen Export — dieselbe Herkunft, die `alpha_worker` schreibt.
+                **({"_source": source} if source else {}),
             }
 
             redone += 1
@@ -967,6 +977,7 @@ def alpha_worker(
 
     written = 0
     skipped: dict[str, int] = {}
+    stamp = provenance.source(session_dir)
 
     started = perf_counter()
 
@@ -1013,6 +1024,10 @@ def alpha_worker(
                 "dirty_reason": entry.get(
                     "dirty_reason",
                 ),
+                # Gegen WELCHEN Export dieses Alpha geschnitten wurde: ein Re-Export verschiebt die
+                # Ecken, und die gespeicherte `coverage` bleibt stehen (`docs/data-pipeline.md`).
+                # `chain.ts` vergleicht den Stempel und macht die Sprosse wieder auf.
+                **({"_source": stamp} if stamp else {}),
             }
 
             if board is None:

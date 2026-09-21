@@ -140,7 +140,11 @@
   2026-09-17 tragen **25** Aufnahmen eine `matte.jsonl`; die Drift selbst ist nicht nachgerechnet), 0,10 % der Zellen ueberqueren
   dabei `PIECE_VISIBLE_MAX` — fast alle auf der Grundreihe und als Totalkipper von 0,000 auf 1,000.
   `chesslab occluders recut-coverage --all` rechnet sie aus den Alphas neu (kein SAM, Minuten).
-  **Nach jedem Re-Export faellig**, und nichts erinnert daran.
+  **Nach jedem Re-Export faellig** — seit 2026-09-21 erinnert die Kette daran: jede neue
+  `matte.jsonl`-Zeile traegt denselben `_source`-Stempel wie `pass.json` und
+  `model-reads.jsonl` (`chesslab.provenance`), `chain.ts` haelt ihn gegen die `log.jsonl`
+  und macht die Matte-Sprosse wieder auf; `recut-coverage` zieht den Stempel mit. Zeilen
+  OHNE Stempel gelten weiter — alles, was heute auf der Platte liegt.
 - **Coverage Matte Trap:** `training/torch_data.py` defaults unmattered crops to `coverage = 0.0` (`coverage_of`; die 2026-08 notierte Zeilennummer 422 zeigt seit 2026-09-17 in einen Docstring — Symbol statt Zeile zitieren), making them indistinguishable from genuinely clear squares. Mixing matted and un-matted sessions into one occlusion-head build teaches the head that hands do not exist. Use matted sessions only.
 - **SAMs ABSAGE ist kein sauberes Brett (2026-09-15).** Eine `matte.jsonl`-Zeile mit `skipped`
   (`zone too big`: Alpha über 60 % des Bretts) trägt WEDER `concepts` NOCH `coverage`. Zweimal

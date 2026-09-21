@@ -13,7 +13,7 @@ import path from "node:path";
 import { gameDir } from "@/lib/data";
 import { dataDir } from "@/lib/data";
 import { readJsonl, stripBom } from "@/lib/jsonl";
-import { type MatteCensus, matteCensus } from "@/lib/matte";
+import { type MatteCensus, matteCensus, matteSources } from "@/lib/matte";
 import { firstUnfinalized } from "@/lib/mp4";
 import { sessionDir } from "@/lib/session";
 import { type UselessFlag, uselessFlag } from "@/lib/useless";
@@ -197,7 +197,7 @@ async function phonePgn(name: string): Promise<string | null> {
 export async function chainState(name: string): Promise<ChainState> {
   const dir = gameDir(name);
   const passFile = path.join(dataDir(), "reports", "temporal-mattes", name, "pass.json");
-  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, session, mattes, passSource, readsSource, logStamp, useless] = await Promise.all([
+  const [video, offeredPgn, hasReference, hasPhoneRecord, candidateText, session, mattes, matteStamps, passSource, readsSource, logStamp, useless] = await Promise.all([
     videoOf(name),
     phonePgn(name),
     exists(path.join(dir, "reference.pgn")),
@@ -205,6 +205,7 @@ export async function chainState(name: string): Promise<ChainState> {
     readFile(path.join(dir, "candidate.json"), "utf8").catch(() => null),
     exportedSession(name),
     matteCensus(name),
+    matteSources(name),
     // Der Parse GEHOERT in den Versuch: ein Wurf im ersten Arm riss das `Promise.all` mit, und
     // eine halb geschriebene Datei 500te die ganze Aufnahmeliste. Wie `candidate.json` daneben.
     readFile(passFile, "utf8")
@@ -231,7 +232,11 @@ export async function chainState(name: string): Promise<ChainState> {
   const freshReads = readsSource !== null && stillCurrent(readsSource, logStamp, model);
   const otherModel = model !== null && readsSource?.model !== undefined
     && path.basename(readsSource.model) !== path.basename(model);
+  // Die gespeicherte `coverage` ist ein Schnappschuss vom Matten, und `crop_square` schneidet
+  // danach mit den NEUEN Ecken — gemessen 13 von 24 Aufnahmen. Nichts erinnerte daran.
+  const staleMatte = matteStamps.some((stamp) => !sameLog(stamp, logStamp));
   const outdated: Partial<Record<ChainStep, string>> = {
+    ...(staleMatte ? { matte: RECUT } : {}),
     ...(passSource !== null && !freshPass ? { temporal: STALE } : {}),
     ...(readsSource !== null && !freshReads
       ? { "model-read": otherModel ? `die Lesarten stammen von ${path.basename(readsSource!.model!)}, gelesen wird mit ${path.basename(model!)}` : STALE }
@@ -264,6 +269,9 @@ export async function chainState(name: string): Promise<ChainState> {
 /** Was die Sprosse wieder aufgemacht hat — der eine Fall, den reine Dateiexistenz nie sieht. */
 const STALE = "der Lauf stammt von vor dem letzten Export — seine Zahlen gehoeren zu anderen Brettern";
 
+/** Die Matte hat einen eigenen Satz: hier hilft kein zweiter SAM-Lauf, sondern die Arithmetik. */
+const RECUT = "die Alphas wurden vor dem letzten Export geschnitten — `chesslab occluders recut-coverage` rechnet ihre Coverage gegen die heutige Geometrie neu";
+
 /**
  * The one step that can run now, and in einem Satz, warum.
  *
@@ -295,6 +303,9 @@ export function nextStep(state: Omit<ChainState, "step" | "reason">): { step: Ch
   if (state.mattes.reportedOpen > 0) return because("matte", `${state.mattes.reportedOpen} von Hand gemeldete Frames sind noch nicht gemattet`);
   if (state.mattes.wanted > 0) return because("matte", `${state.mattes.wanted} von Hand zur Matte geschickte Frames sind noch nicht gemattet`);
   if (state.mattes.done < state.mattes.target) return because("matte", `${state.mattes.done} von ${state.mattes.target} verdeckten Frames sind gemattet`);
+  // Die Zahl der Matten stimmt, ihre Herkunft nicht — sonst schloesse die Sprosse auf Alphas,
+  // die zu anderen Ecken gehoeren, und der Rest der Kette lernte die Drift als Wahrheit.
+  if (state.outdated.matte !== undefined) return { step: "matte", reason: state.outdated.matte };
   // After SAM, never before: the pass adopts what SAM has not cut and upserts where SAM found
   // nothing, so it needs SAM's rows on disk to know which is which.
   if (!state.hasTemporalPass) return because("temporal", "der Drei-Bilder-Sensor ist ueber diese Aufnahme noch nicht gelaufen");

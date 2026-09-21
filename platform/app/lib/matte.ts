@@ -148,7 +148,7 @@ export function matteTarget(): number {
   return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 80;
 }
 
-type Sets = Map<string, { key: string; value: Set<string> }>;
+type Sets = Map<string, { key: string; value: unknown }>;
 const sets: Sets = ((globalThis as { __chesslabMatteSets?: Sets }).__chesslabMatteSets ??= new Map());
 
 const FRAME_ONE = /"frame":\s*"([^"]+)"/;
@@ -213,16 +213,45 @@ const occludedStemsIn = (text: string): Set<string> => {
 };
 
 /** Mtime-keyed like `loadMatte` — a card must not parse two megabytes of log per render. */
-async function cachedSet(file: string, tag: string,
-                         read: (text: string) => Set<string>): Promise<Set<string>> {
+async function cachedSet<T>(file: string, tag: string,
+                            read: (text: string) => T): Promise<T> {
   const key = await stat(file).then((s) => `${s.mtimeMs}:${s.size}`, () => "none");
   const id = `${file}|${tag}`;
   const hit = sets.get(id);
-  if (hit?.key === key) return hit.value;
+  if (hit?.key === key) return hit.value as T;
   const text = key === "none" ? "" : await readOnlyMissingIsEmpty(file);
   const value = read(text);
   sets.set(id, { key, value });
   return value;
+}
+
+/** `chesslab.provenance.source` — der Export, gegen den das Alpha geschnitten wurde. */
+const SOURCE_LOG = /"_source":\s*\{[^}]*"log":\s*"([^"]+)"/;
+
+/** Je Stem der Stempel seiner WIRKSAMEN Zeile (Punkt 28), nur wo wirklich gemessen wurde: eine
+ *  spaetere Absage nimmt die fruehere Messung zurueck und mit ihr die Coverage, die driften kann. */
+const stampsIn = (text: string): Map<string, string> => {
+  const out = new Map<string, string>();
+  for (const line of text.split(String.fromCharCode(10))) {
+    const frame = line ? FRAME_ONE.exec(line) : null;
+    if (!frame) continue;
+    const stamp = line.includes('"coverage"') && !line.includes('"skipped"') ? SOURCE_LOG.exec(line) : null;
+    if (stamp) out.set(stemOf(frame[1]), stamp[1]);
+    else out.delete(stemOf(frame[1]));
+  }
+  return out;
+};
+
+/** Die Herkunft der Alphas, die heute noch zaehlen — `chain.ts` haelt sie gegen die `log.jsonl`.
+ *  Nur Stems, die dieser Export noch fuehrt (eine verwaiste Zeile hielte die Sprosse fuer immer
+ *  offen), und nur gestempelte: Altbestand hat keinen Stempel und gilt weiter. */
+export async function matteSources(name: string): Promise<string[]> {
+  const dir = sessionDir(name);
+  const [stamps, exported] = await Promise.all([
+    cachedSet(path.join(dir, "matte.jsonl"), "stamps", stampsIn),
+    cachedSet(path.join(dir, "log.jsonl"), "exported", exportedStemsIn),
+  ]);
+  return [...new Set([...stamps].filter(([stem]) => exported.has(stem)).map(([, s]) => s))];
 }
 
 /**

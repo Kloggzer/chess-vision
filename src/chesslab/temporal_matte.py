@@ -360,6 +360,8 @@ def adopt_proposals(session_id, *, method="local"):
     # die fruehere Messung. Als blosser Filter blieb ein gemessen-dann-abgesagtes Frame "gemattet",
     # bekam kein Alpha und ging mit `coverage = 0.0` ins Training — die Coverage-Matte-Falle.
     have = matted_frames(kept_rows)
+    # Dieselbe Herkunft wie SAMs Zeilen: diese Coverage ist gegen DIESEN Export geschnitten.
+    stamp = provenance.source(recording)
     (recording / "mattes").mkdir(exist_ok=True)
     adopted, empty, kept = 0, 0, 0
     fresh = []
@@ -382,6 +384,7 @@ def adopt_proposals(session_id, *, method="local"):
             raise OSError(f"Cannot write matte for {stem}")
         fresh.append({"frame": stem, "ply": entry.get("ply"),
                       "dirty_reason": entry.get("dirty_reason"), "source": "temporal",
+                      **({"_source": stamp} if stamp else {}),
                       "concepts": {"temporal": round(row["fraction_above_half"], 4)},
                       "coverage": coverage,
                       "cells_over_half": sum(v > .5 for v in coverage.values())})
@@ -439,6 +442,7 @@ def upsert_proposals(session_id, *, method="local"):
     # `sam_found` — ein Fund, den niemand gemessen hat.
     sam = measured_coverage(r for r in kept_rows if r.get("source") != "temporal")
     stamp_now = datetime.now(UTC).isoformat()
+    stamp = provenance.source(recording)
     upserted, found, fixed = 0, 0, 0
     fresh = []
     for row in read_jsonl(report):
@@ -465,6 +469,7 @@ def upsert_proposals(session_id, *, method="local"):
         fresh.append({"frame": stem, "ply": entry.get("ply"),
                       "dirty_reason": entry.get("dirty_reason"), "source": "upsert",
                       "merged_at": stamp_now,
+                      **({"_source": stamp} if stamp else {}),
                       "concepts": {"temporal": round(row["fraction_above_half"], 4)},
                       "coverage": coverage,
                       "cells_over_half": sum(v > .5 for v in coverage.values())})
