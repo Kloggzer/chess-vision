@@ -23,8 +23,8 @@ Pro Zelle, gegen die gesetzte Stellung des eigenen Ply-Intervalls:
 | Coverage | Abweichung | Urteil | Was passiert |
 |---|---|---|---|
 | > `MATTE_DIRTY` (0,15) | egal | verdeckt | FEN-Label bleibt, `coverage` nimmt die Zelle aus dem Klassifikations-Loss — das IST das Occlusion-Target |
-| ≤ 0,15, `settle_seen` ≥ 0,5 | < `SETTLE_LIMIT` (15) | unverändert | FEN-Label gilt, Zelle geht in den Pool |
-| ≤ 0,15, `settle_seen` ≥ 0,5 | ≥ 15 | strittig | Karte auf der `Strittig`-Lane |
+| ≤ 0,15, `settle_seen` ≥ 0,5 | < `SETTLE_LIMIT` (45, seit 2026-09-09) | unverändert | FEN-Label gilt, Zelle geht in den Pool |
+| ≤ 0,15, `settle_seen` ≥ 0,5 | ≥ 45 | strittig | Karte auf der `Strittig`-Lane |
 | ≤ 0,15, `settle_seen` < 0,5 | nicht messbar | strittig | dito — weder vergleichbar noch vom Loss ausgenommen |
 
 Damit hört die FRAME-Klasse auf zu entscheiden: `clean`, `occluded`, `stale` und `changed` steuern

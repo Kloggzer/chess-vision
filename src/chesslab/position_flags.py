@@ -49,6 +49,11 @@ def frame_flags(entry: dict, coverage: dict[str, float] | None, session_id: str)
     out = []
     for square in left:
         cov = coverage.get(square) if coverage is not None else None
+        # Verdeckt heisst kein Kaertchen (`docs/position-check.md`), wie in `timing_flags`:
+        # `departures` sah nur die Coverage von damals, ein Re-Matten und `recut-coverage` heben
+        # Zellen darueber. `None` ist UNGEMESSEN und bleibt eine Karte.
+        if cov is not None and float(cov) > MATTE_DIRTY:
+            continue
         i = index[square]
         short = i < len(seen) and seen[i] < SETTLE_SEEN_MIN
         out.append({"session_id": session_id, "frame": stem, "square": square,

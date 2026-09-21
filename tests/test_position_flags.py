@@ -39,8 +39,9 @@ def test_a_visible_cell_that_left_its_position_is_the_card():
 def test_a_covered_cell_is_never_asked():
     """Unter der Hand nimmt die Coverage die Zelle aus dem Loss — da ist nichts zu benennen.
 
-    `departures` nimmt sie schon aus `settle_left`; hier steht die Zeile deshalb ohne Urteil da,
-    obwohl die Abweichung riesig ist.
+    `departures` nimmt sie aus `settle_left` — aber nur mit der Coverage VON DAMALS; die Matte ist
+    juenger (2026-09-21: 4 335 von 4 678 `changed`-Karten lagen ueber 0,15), also filtert
+    `frame_flags` seit dann selbst.
     """
     flags = frame_flags(_entry(dev=_dev(E4, SETTLE_LIMIT + 10)), {"e4": MATTE_DIRTY + 0.1}, "rg-x")
 
