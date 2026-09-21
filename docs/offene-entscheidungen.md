@@ -1567,3 +1567,36 @@ derselben Entscheidung wie Punkt 30: `test-v2` oder Trainingsmaterial.
 **Zu entscheiden:** ob der Satz um handreiches Material erweitert wird, oder ob diese drei
 Wachen bewusst ohne Zeugen laufen. Ein drittes "spaeter" gibt es nicht — heute ist es das
 zweite, nur unausgesprochen.
+
+## 37. Die 80-px-Saetze tragen keine `brightness`-Spalte (2026-09-21, gemessen)
+
+`real13-mix-v7-80` fehlt sie bei **376 640 von 979 363 Zeilen (38,5 %)**, `real13-mix-v6-80-clahe`
+bei 44,8 % — jeweils alle 138 Komposit-Aufnahmen vollstaendig. Die 128-px-Saetze tragen sie
+luecklos.
+
+`brightness_of` liest ein fehlendes `brightness` bewusst als 255 ("ausgeschriebenes `null` ist
+UNGEMESSEN, nicht dunkel"), und das ist an der Funktion richtig. Die Folge eine Ebene hoeher kannte
+aber niemand: **auf den 80-px-Saetzen ist die Dunkel-Maske des Verlusts fuer 38,5 % der Zeilen
+wirkungslos, auf den 128-px-Saetzen fuer keine.** Die zwei Groessen lernen unter verschiedenen
+Verlustmasken, jeder 128-gegen-80-Vergleich ist davon betroffen — und der ausgelieferte Champion
+`p4a-80-clahe` ist auf so einem Satz trainiert.
+
+Keine Eigenschaft der Groesse: wo beide Saetze die Spalte tragen, stimmen die Werte auf 0,01
+ueberein. Es ist eine Luecke einer Slice-Generation.
+
+**Zu entscheiden:** die 80-px-Saetze neu schneiden (dann wieder vergleichbar), oder den Unterschied
+dokumentiert stehen lassen — dann muss ihn jeder Groessenvergleich nennen. Zahlen und Herleitung:
+`docs/klassengewichte-2026-09-21.md`.
+
+## 38. Klassengewichte gegen die Verlustmaske (2026-09-21, gemessen, Empfehlung: mitnehmen)
+
+Die Gewichte zaehlen ueber `coverage <= PIECE_VISIBLE_MAX`, der Verlust maskiert zusaetzlich auf
+`brightness < CELL_DARK_MIN`. Gemessen: groesster Einzelfehler **2,80 %** (bN), die Spreizung der
+Gewichte aendert sich um **1,3 %**. Alle sechs schwarzen Figurenklassen sind unterbewertet, alle
+sechs weissen ueberbewertet — schwarz auf dunklem Feld ist zu 6,70 % dunkel, weiss auf demselben
+Feldtyp zu 1,49 %.
+
+Der Fix ist ein Einzeiler (`vis_counts` auf `classification_eligible`), verschiebt aber die
+Gewichte und damit jedes kuenftige Training. **Empfehlung: beim naechsten ohnehin anstehenden
+Rezeptschnitt mitnehmen, nicht dafuer allein einen schneiden** — 2,80 % liegen unter dem
+8-%-Anker, der schon als Grenzfall galt.
