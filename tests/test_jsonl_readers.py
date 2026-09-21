@@ -65,17 +65,23 @@ def _iterated_lines(text: str) -> int:
     return hits
 
 
+def readers_in(text: str) -> int:
+    """Zeilenschnitt UND `json.loads` in derselben Datei — die Form, die die Politik neu erfindet.
+
+    Eigene Funktion fuer die eingepflanzte Gegenprobe in
+    `tests/test_ratchet_counterchecks.py` — der TS-Zwilling liess drei Schreibweisen durch.
+    """
+    if "json.loads(" not in text:
+        return 0
+    return sum(1 for line in text.splitlines() if _CUT.search(line)) + _iterated_lines(text)
+
+
 def readers() -> dict[str, int]:
-    """Zeilenschnitt UND `json.loads` in derselben Datei — das ist die Form, die die Politik neu erfindet."""
     found: dict[str, int] = {}
     for file in sorted(chain.from_iterable(a.rglob("*.py") for a in AREAS)):
         if file.name == "ioutil.py":
             continue
-        text = file.read_text(encoding="utf-8")
-        if "json.loads(" not in text:
-            continue
-        hits = sum(1 for line in text.splitlines() if _CUT.search(line))
-        hits += _iterated_lines(text)
+        hits = readers_in(file.read_text(encoding="utf-8"))
         if hits:
             found[file.relative_to(ROOT).as_posix()] = hits
     return found

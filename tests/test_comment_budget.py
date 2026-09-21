@@ -2,6 +2,8 @@
 fail unless listed in tests/comment_budget.txt, and a listed value may only shrink."""
 
 import ast
+import io
+import tokenize
 from pathlib import Path
 
 LIMIT = 5
@@ -11,13 +13,21 @@ SCAN = ROOT / "src" / "chesslab"
 
 
 def hash_runs(text: str) -> int:
-    worst = run = 0
-    for raw in text.splitlines():
-        if raw.strip().startswith("#"):
-            run += 1
+    """Aufeinanderfolgende Kommentarzeilen ueber `tokenize`, nicht ueber `startswith("#")`.
+
+    Zeilenweise gelesen zaehlte eine Zeile IN einem dreifach gequoteten String als Kommentar --
+    derselbe Fehler, den der TS-Zwilling mit `/*` im String trug (2026-09-21). `tokenize` trennt
+    COMMENT von STRING von Natur aus.
+    """
+    worst = run = vorige = 0
+    for tok in tokenize.generate_tokens(io.StringIO(text).readline):
+        if tok.type != tokenize.COMMENT:
+            continue
+        # Nur eine Zeile, die NUR den Kommentar traegt, ist eine Kommentarzeile.
+        if tok.line.strip().startswith("#"):
+            run = run + 1 if tok.start[0] == vorige + 1 else 1
             worst = max(worst, run)
-        else:
-            run = 0
+            vorige = tok.start[0]
     return worst
 
 

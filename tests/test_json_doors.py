@@ -22,20 +22,28 @@ _JSON = re.compile(r"""json\.dumps?\(|\.jsonl?["']""")
 _NOT_JSON = re.compile(r"""\.(yaml|yml|txt|obj|mtl|src|log|csv)["']|yaml\.safe_dump""")
 
 
+def doors_in(text: str) -> int:
+    """Schreibaufruf UND JSON in derselben Sichtweite — die Form, die die Politik neu erfindet.
+
+    Eigene Funktion, damit `tests/test_ratchet_counterchecks.py` einen Verstoss EINPFLANZEN kann:
+    eine Ratsche ohne Gegenprobe ist eine Behauptung.
+    """
+    lines = text.splitlines()
+    return sum(
+        1
+        for i, line in enumerate(lines)
+        if _WRITE.search(line)
+        and not _NOT_JSON.search(line)
+        and _JSON.search("\n".join(lines[i:i + 6]))
+    )
+
+
 def doors() -> dict[str, int]:
-    """Schreibaufruf UND JSON in derselben Sichtweite — das ist die Form, die die Politik neu erfindet."""
     found: dict[str, int] = {}
     for file in sorted(chain.from_iterable(a.rglob("*.py") for a in AREAS)):
         if file.name == CUSTODIAN:
             continue
-        lines = file.read_text(encoding="utf-8").splitlines()
-        hits = sum(
-            1
-            for i, line in enumerate(lines)
-            if _WRITE.search(line)
-            and not _NOT_JSON.search(line)
-            and _JSON.search("\n".join(lines[i:i + 6]))
-        )
+        hits = doors_in(file.read_text(encoding="utf-8"))
         if hits:
             found[file.relative_to(ROOT).as_posix()] = hits
     return found
