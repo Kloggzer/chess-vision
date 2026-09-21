@@ -220,11 +220,17 @@ data class ReplayOptions(
         }
     }
 
+    /** Ohne `prior=` gewinnt `prior_lambda` aus der `config.json` des Modells
+     *  (`CnnObserver.priorFor`: `spec?.priorLambda ?: priorLambda`). Die 0,0 hier ist dann der
+     *  UNGENUTZTE Rueckfall — sie als Laufzahl zu drucken meldet einen Prior, der nicht gilt. */
+    private val priorBanner: String
+        get() = if (priorLambda > 0.0) "$priorLambda" else "modell"
+
     @Suppress("CyclomaticComplexMethod")
     override fun toString(): String =
         "watch=$watch dump=${if (dumpEvery > 0) dumpEvery else "off"} " +
             "lens=$lens cnn=${if (cnn) model else "off"} motionGate=$motionGate" +
-            " prior=$priorLambda prior-mode=${if (priorSafety) "new" else "old"}" +
+            " prior=$priorBanner prior-mode=${if (priorSafety) "new" else "old"}" +
             (if (label) " label" else "") + (if (score) " score" else "") +
             (if (frames) " frames" else "") +
             (if (cleanOnly) " cleanonly" else "") +

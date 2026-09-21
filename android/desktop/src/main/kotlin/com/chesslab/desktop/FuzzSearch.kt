@@ -165,7 +165,7 @@ internal fun fuzzAblate(args: List<String>) {
     for (z in bewegt) println("  %-26s %8d %8d".format(z, an[z] ?: 0, ohne[z] ?: 0))
 }
 
-private fun wacheZustaende(config: TrackerConfig): Map<String, Int> {
+internal fun wacheZustaende(config: TrackerConfig): Map<String, Int> {
     val total = HashMap<String, Int>()
     for ((i, scene) in WACHE.withIndex()) {
         for ((state, hits) in fuzzRun(config, scene, seed = (i + 1).toLong()).reached) {

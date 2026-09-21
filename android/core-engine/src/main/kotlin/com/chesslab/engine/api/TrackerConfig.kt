@@ -102,13 +102,16 @@ data class TrackerConfig(
     val autoResyncObsN: Int = 0,
     val verifyObsVotes: Int = 2,
     // Window end accepts the diff only with BOTH endpoints readable (pairs: every touched square);
-    // one readable square on a dark board is an empty conflict set, not a clear view. The path never
-    // fires on the regression set (2026-09-05, 0 × diff_after_verify), so ON costs nothing measured.
+    // one readable square on a dark board is an empty conflict set, not a clear view. `VerifySingle`
+    // never fires it (2026-09-05, 0 × diff_after_verify) — but `VerifyPair` does: off, the set
+    // loses one desync episode (2026-09-21, `docs/wachen-ablation-2026-09-21.md`).
     val windowEndBothEnds: Boolean = true,
     val observerIntervalS: Double = 0.0,
     val darkLumaThr: Double = 18.0,
     val cnnVerify: Boolean = true,
     val liveAlign: Boolean = true,
+    // NOT the legality prior: this gates `Ambiguity.rerankWithPrior`. The prior that moved
+    // 385/14/1 → 396/3/0 is `priorLambda` in `:core-cnn`, and it rides in the model's config.json.
     val usePrior: Boolean = true,
     // Calibration supplies 320–1280 px; engine boxes and warp must share this size or frames are refused.
     val boardSize: Int = 1600,

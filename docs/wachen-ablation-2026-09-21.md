@@ -47,11 +47,12 @@ zwei Stellen gelesen (`VerifyPair.kt:128`, `VerifySingle.kt:208`) und bewegt ein
 
 ## Wie belastbar ist eine Episode?
 
-Vier Laeufe (`baselineOcclusion`, `gridHandGate`, `modelHandGate`, `usePrior`) reproduzieren den
-Bezug Ziffer fuer Ziffer. Das ist starkes Indiz fuer einen deterministischen Replay, also fuer
-echte Effekte bei +-1 — ein Beweis waere erst ein zweiter Lauf DERSELBEN Konfiguration.
-Bis dahin gilt eine bewegte Episode ohne bewegte Entscheidung als duenn, und `guard_ablation.py`
-meldet sie seit `a56162ae` getrennt statt als "gedeckt".
+**Gemessen, nicht vermutet.** Ein elfter Lauf mit der Bezugskonfiguration und ohne jeden Knopf
+(`abl-kontrolle`) reproduziert den Bezug Ziffer fuer Ziffer: +0/+0/+0/+0. Der Replay ist also
+lauf-zu-lauf stabil, und **die +-1 in dieser Tabelle sind echte Effekte, kein Rauschen**.
+
+Trotzdem bleibt eine bewegte Episode ohne bewegte Entscheidung ein duenner Nachweis, und
+`guard_ablation.py` meldet sie seit `a56162ae` getrennt statt als "gedeckt".
 
 ## Der Fuzzer sieht das Gegenteil
 
