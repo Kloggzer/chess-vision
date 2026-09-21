@@ -110,6 +110,45 @@ class AlarmLatchTest {
         assertEquals(8, state.desyncObs, "the streak still runs — only the raise is gated")
     }
 
+    /**
+     * Not before the first ply: the latch has no automatic way out, and `2026-08-15-22-48-04` alarmed
+     * at video t=0.8 s on the position it was HANDED, then replayed 0 of its 19 plies.
+     */
+    @Test
+    fun noAlarmBeforeTheFirstPlyIsOnTheRecord() {
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
+        val fresh = recoveryState(NF3_NO_CASTLING)
+        val obs = obsForBoard(fresh.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        for (seq in 1L..STANDOFF_SOAK) fresh.cnnTick(cnn, recoverySnap(fresh, obs, seq))
+        assertNull(fresh.alarm, "nothing on the record: the handed-in position may not be declared lost")
+        assertTrue(fresh.desyncObs >= fresh.config.desyncObsN, "the streak runs — only the latch is gated")
+        // The SAME evidence one ply later does latch, so this is the guard and not the setup.
+        val started = recoveryState(NF3_NO_CASTLING).underWay()
+        for (seq in 1L..3L) started.cnnTick(cnn, recoverySnap(started, obs, seq))
+        assertNotNull(started.alarm)
+    }
+
+    /**
+     * The hand triggers the alarm it explains (User, 2026-08-24) — it covers exactly the squares that
+     * then read wrong. The alarm path was the one place that never asked `handInFrame`.
+     */
+    @Test
+    fun aHandInFrameDefersTheLatch() {
+        val state = recoveryState(NF3_NO_CASTLING).underWay()
+        val cnn = RecoveryEvaluator(conflicts = listOf("e1", "g1"), guess = "e1g1")
+        val obs = obsForBoard(state.board, mapOf("e1" to LABEL_EMPTY, "g1" to "wK"))
+        for (seq in 1L..STANDOFF_SOAK) {
+            val hand = recoverySnap(state, obs, seq, tsMs = nowMs(state), gridOccluded = ofSquares("e1", "f1"))
+            state.cnnSnap = hand
+            state.cnnTick(cnn, hand)
+            assertNull(state.alarm, "a hand over the board must not latch (observation $seq)")
+        }
+        assertTrue(state.desyncObs >= state.config.desyncObsN, "blitz needs the streak — only the latch waits")
+        state.cnnSnap = null
+        state.cnnTick(cnn, recoverySnap(state, obs, seq = STANDOFF_SOAK + 1))
+        assertNotNull(state.alarm, "the hand leaves and the same evidence latches at once")
+    }
+
     @Test
     fun noAlarmWithoutCnn() {
         // `test_no_alarm_without_cnn`: a diff-only tracker stuck on no_legal_move never alarms.

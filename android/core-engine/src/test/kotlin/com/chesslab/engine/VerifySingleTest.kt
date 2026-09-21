@@ -124,6 +124,37 @@ class VerifySingleTest {
         assertEquals(listOf("exd5"), done.history)
     }
 
+    /**
+     * `Bxe4` (11-59-12, 2026-09-12): a capture's target is occupied before AND after, so the sights
+     * settle with the capturer still in the hand. Only the identity read on the target separates them.
+     */
+    @Test
+    fun aSettledCaptureStillWaitsForTheCapturerOnTheTarget() {
+        val fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+        val cnn = VerifyEvaluator(occAgree = 1.0, occN = 2)
+        val all = -1L
+        val d5 = 1L shl Squares.index("d5")
+        val endpoints = mapOf("e4" to false, "d5" to true)
+
+        fun settled(): EngineState =
+            pendingState(uci = "e4d5", fen = fen).also {
+                it.nowS = 10.0
+                it.refHoldUntil = 10.2
+                it.config = it.config.copy(commitHoldS = 0.05)
+                it.pending = it.pending!!.copy(startedS = it.nowS, lastTickS = it.nowS)
+                repeat(2) { i -> it.sights.addLast(SquareSight(i.toLong(), all, all, d5)) }
+            }
+
+        val victim = settled()
+        repeat(3) { victim.glance(cnn, VerifyObs(endpoints, endpoints, labels = mapOf("d5" to "bP"))) }
+        assertEquals(emptyList<String>(), victim.history, "d5 still reads BLACK — nothing has landed there")
+        assertNotNull(victim.pending, "the window keeps looking instead of committing the capture")
+
+        val landed = settled()
+        repeat(2) { landed.glance(cnn, VerifyObs(endpoints, endpoints, labels = mapOf("d5" to "wP"))) }
+        assertEquals(listOf("exd5"), landed.history, "the SAME settled sights commit once the capturer is read")
+    }
+
     /** gxh3 read 2/2 on its own squares while the CNN derived g3: local agreement is no confirmation. */
     @Test
     fun aConfidentDifferentDerivationBlocksTheOccupancyConfirm() {

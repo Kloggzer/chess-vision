@@ -146,11 +146,8 @@ private val WACHE =
         Scene(plies = 6, handFrames = 30, handSquares = 16, handCoverage = 0.5, obsEvery = 5),
     )
 
-/**
- * `fuzz ablate <knopf>` — dieselbe Frage wie `scripts/guard_ablation.ps1`, aber synthetisch:
- * welche Zustaende bewegt das Abschalten? Der Regressionssatz braucht dafuer 18 Minuten je Wache
- * und merkt bei `baselineOcclusion` NICHTS (`docs/baseline-occlusion-off.md`).
- */
+/** Dieselbe Ablation wie `scripts/guard_ablation.ps1`, aber synthetisch und in Sekunden statt
+ *  18 Minuten je Wache (`docs/baseline-occlusion-off.md`). */
 internal fun fuzzAblate(args: List<String>) {
     val knopf = args.firstOrNull() ?: error("fuzz ablate <knopf> [aus=0]")
     val aus = args.getOrNull(1)?.toDoubleOrNull() ?: 0.0
