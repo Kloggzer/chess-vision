@@ -11,9 +11,16 @@ er gezählt wird — und einen erlaubten Fall, der NICHT gezählt werden darf.
 
 from __future__ import annotations
 
-import test_comment_budget as budget
-import test_json_doors as doors
-import test_jsonl_readers as readers
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+
+import guard_ablation as ablation  # noqa: E402
+
+import test_comment_budget as budget  # noqa: E402
+import test_json_doors as doors  # noqa: E402
+import test_jsonl_readers as readers  # noqa: E402
 
 # --- Kommentar-Budget ---------------------------------------------------------------------
 
@@ -83,3 +90,15 @@ def test_jede_schreibweise_des_zeilenschnitts_wird_gesehen(tmp_path):
         p.write_text("import json\n" + quelle, encoding="utf-8")
 
         assert readers.readers_in(p.read_text(encoding='utf-8')) >= 1, quelle
+
+
+# --- Wachen-Ablation ------------------------------------------------------------------------
+
+
+def test_eine_bewegte_episode_ist_kein_nachweis():
+    """Sonst meldet die Sonde still als gedeckt, wogegen sie gebaut wurde."""
+    nur_episode = {"found": 0, "missed": 0, "invented": 0, "desync": 1}
+
+    assert "keine Entscheidung" in ablation.befund(nur_episode)
+    assert ablation.befund(dict.fromkeys(nur_episode, 0)) == "der Satz merkt NICHTS"
+    assert ablation.befund({**nur_episode, "found": -11}) == "gedeckt"

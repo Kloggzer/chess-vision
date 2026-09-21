@@ -46,6 +46,19 @@ def summe(tag: str) -> dict[str, int] | None:
     return out
 
 
+def befund(delta: dict[str, int]) -> str:
+    """Eine bewegte Episode ist kein Nachweis wie eine bewegte Entscheidung.
+
+    `verifyObserveNow` bewegt genau einen Desync und sonst nichts -- das als "gedeckt" zu melden
+    waere dieselbe stille Aufwertung, gegen die diese Sonde ueberhaupt gebaut wurde.
+    """
+    if all(v == 0 for v in delta.values()):
+        return "der Satz merkt NICHTS"
+    if all(delta[k] == 0 for k in ("found", "missed", "invented")):
+        return f"nur Episoden ({delta['desync']:+d}), keine Entscheidung"
+    return "gedeckt"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--bezug", default="baseline-an")
@@ -76,12 +89,10 @@ def main() -> int:
     print(f"{'Wache':24s} {'found':>7s} {'missed':>7s} {'inv':>5s} {'desync':>7s}  Befund")
     for wache, delta in zeilen:
         if delta is None:
-            print(f"{wache:24s} {'—':>7s} {'—':>7s} {'—':>5s} {'—':>7s}  unvollstaendig")
+            print(f"{wache:24s} {'-':>7s} {'-':>7s} {'-':>5s} {'-':>7s}  unvollstaendig")
             continue
-        blind = all(v == 0 for v in delta.values())
-        befund = "der Satz merkt NICHTS" if blind else "gedeckt"
         print(f"{wache:24s} {delta['found']:+7d} {delta['missed']:+7d} {delta['invented']:+5d} "
-              f"{delta['desync']:+7d}  {befund}")
+              f"{delta['desync']:+7d}  {befund(delta)}")
     return 0
 
 
