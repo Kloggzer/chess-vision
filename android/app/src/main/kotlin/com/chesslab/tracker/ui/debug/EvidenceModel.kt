@@ -20,7 +20,8 @@ enum class EvidenceRole {
 
 data class EvidenceCell(
     val square: String,
-    val value: Double,
+    /** Null when the selected channel produced NO value this frame — see [evidenceCells]. */
+    val value: Double?,
     val role: EvidenceRole,
     val tainted: Boolean,
 )
@@ -36,6 +37,10 @@ enum class EvidenceChannel {
  * The 8x8 grid, **a8 top-left** — corner order `[a8, h8, h1, a1]` (invariant 11). The 64-crop grid
  * uses `all_squares()` instead; rendering either one in the other's order is that invariant's
  * failure mode, so the two orders live in two functions that never meet.
+ *
+ * A cell's value is null where the channel carries nothing: census is an EMPTY map whenever
+ * `censusZWeight` is 0 or its own hot-square guard dropped the frame, and a board of 0.0 would
+ * report the disturbance this panel exists to show as a measured calm.
  */
 fun evidenceCells(
     status: TrackerStatus,
@@ -55,7 +60,7 @@ fun evidenceCells(
             square = square,
             // The occlusion veto zeroed z in the engine; rendering the raw channel here would put
             // the number back and hide exactly the invariant this panel exists to check.
-            value = if (role == EvidenceRole.OCCLUSION) 0.0 else values[square] ?: 0.0,
+            value = if (role == EvidenceRole.OCCLUSION) 0.0 else values[square],
             role = role,
             tainted = square in payload.tainted,
         )

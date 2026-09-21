@@ -51,6 +51,7 @@ private fun read(
 
 private fun status(
     z: Map<String, Double> = emptyMap(),
+    census: Map<String, Double> = emptyMap(),
     changed: Set<String> = emptySet(),
     shadow: Set<String> = emptySet(),
     occlusion: Set<String> = emptySet(),
@@ -59,6 +60,7 @@ private fun status(
 ): TrackerStatus =
     idleTrackerStatus().copy(
         z = z,
+        census = census,
         changed = changed,
         shadowVetoed = shadow,
         occlusionVetoed = occlusion,
@@ -121,6 +123,27 @@ class DebugStateTest {
         assertEquals(5.0, shadow.value)
         assertEquals(EvidenceRole.OCCLUSION, occluded.role)
         assertEquals(0.0, occluded.value)
+    }
+
+    /**
+     * `TrackerStatus.census` is an EMPTY map whenever the channel never produced values — weight 0,
+     * or its own hot-square guard dropped the frame. A 0.0 there is a measurement nobody made.
+     */
+    @Test
+    fun theCensusChannelSaysNothingRatherThanZeroWhenItNeverRan() {
+        val dropped = evidenceCells(status(z = mapOf("d4" to 5.0)), payload(), EvidenceChannel.CENSUS)
+        assertTrue(dropped.all { it.value == null }, "a dropped census channel must not read as a quiet board")
+        val measured = evidenceCells(status(census = mapOf("d4" to 2.0)), payload(), EvidenceChannel.CENSUS)
+        assertEquals(2.0, measured.single { it.square == "d4" }.value)
+    }
+
+    /** A DISABLED or FAILED attach has timed nothing; 0.0 ms there reads as a free inference. */
+    @Test
+    fun theInferTimeIsADashUntilSomethingHasBeenTimed() {
+        val idle = CnnRuntimeInfo(null, null, null, null, null, null, 0.0, 0)
+        assertEquals("-", inferLine(CnnState.Off, idle))
+        assertEquals("-", inferLine(CnnState.Failed("no execution provider"), idle))
+        assertEquals("9.0", inferLine(CnnState.Ready("CPU", "model.onnx"), idle.copy(lastRunMs = 9.0)))
     }
 
     @Test

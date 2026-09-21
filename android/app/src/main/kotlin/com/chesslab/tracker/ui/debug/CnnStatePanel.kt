@@ -87,6 +87,15 @@ internal fun modelLine(runtime: CnnRuntimeInfo): String {
 internal fun epTone(runtime: CnnRuntimeInfo): Color = if (epFellBack(runtime)) Busy else Accent
 
 /**
+ * `lastRunMs` encodes "never ran" as 0.0, so a DISABLED or FAILED attach reported an inference
+ * nobody paid for, beside neighbours that honestly say "-". Only ATTACHED has been timed.
+ */
+internal fun inferLine(
+    state: CnnState,
+    runtime: CnnRuntimeInfo,
+): String = if (state is CnnState.Ready) fmt(runtime.lastRunMs, 1) else "-"
+
+/**
  * The banner text, or null.
  *
  * It is a PURE function of the attach state and takes no "dismissed" input, so dismissal is not
@@ -121,7 +130,7 @@ fun CnnStatePanel(
         StatRow("model", modelLine(runtime), Accent)
         StatRow("graph", runtime.model ?: "-", OnSurface)
         StatRow("input shape", runtime.inputShape ?: "-", OnSurface)
-        StatRow("last infer ms (session only)", fmt(runtime.lastRunMs, 1), OnSurface)
+        StatRow("last infer ms (session only)", inferLine(state, runtime), OnSurface)
         StatRow("observations", runtime.observations.toString(), OnSurface)
         if (state is CnnState.Failed) {
             Text(state.reason, style = MaterialTheme.typography.bodyMedium, color = Danger)

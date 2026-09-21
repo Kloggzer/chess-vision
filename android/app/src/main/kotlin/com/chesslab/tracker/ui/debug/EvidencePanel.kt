@@ -46,7 +46,7 @@ private const val BOARD_N = 8
 fun EvidencePanel(state: DebugState) {
     var channel by remember { mutableStateOf(EvidenceChannel.FUSED_Z) }
     val cells = remember(state, channel) { evidenceCells(state.status, state.payload, channel) }
-    val peak = remember(cells) { cells.maxOfOrNull { it.value }?.coerceAtLeast(state.payload.zThr) ?: 1.0 }
+    val peak = remember(cells) { cells.mapNotNull { it.value }.maxOrNull()?.coerceAtLeast(state.payload.zThr) ?: 1.0 }
 
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -106,7 +106,7 @@ private fun EvidenceSquare(
     peak: Double,
     modifier: Modifier,
 ) {
-    val ramp = (cell.value / peak).coerceIn(0.0, 1.0).toFloat()
+    val ramp = ((cell.value ?: 0.0) / peak).coerceIn(0.0, 1.0).toFloat()
     Box(
         modifier
             .padding(Stroke.hairline)
@@ -126,7 +126,8 @@ private fun EvidenceSquare(
             textAlign = TextAlign.Center,
         )
         Text(
-            text = fmt(cell.value, 1),
+            // A dash, never 0.0: the channel had nothing to say here, which is not a quiet square.
+            text = cell.value?.let { fmt(it, 1) } ?: "-",
             style = MaterialTheme.typography.labelSmall,
             color = OnSurfaceMuted,
             modifier = Modifier.padding(top = Space.lg),
