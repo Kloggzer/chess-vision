@@ -347,6 +347,19 @@ class AlignmentTruthTest {
         assertTrue(!verdict.ok, "a featureless frame must never pass")
     }
 
+    /** PARTIALLY unread is the case that matters: a blank frame trips the empty-offsets rung,
+     *  while a sleeve over two files left 48 healthy squares reading `ok`. */
+    @Test
+    fun theVerdictFailsWhenOnlySomeLinesCouldNotBeFound() {
+        val geom = geometry()
+        val f = frame()
+        Imgproc.rectangle(f, Point(150.0, 120.0), Point(330.0, 1080.0), Scalar(150.0, 150.0, 150.0), -1)
+        val verdict = alignmentOf(f, TRUTH, geom)
+        f.release()
+        assertTrue(verdict.unread in 1..17, "teilweise unlesbar, gemessen ${verdict.unread}")
+        assertTrue(!verdict.ok, "nicht gemessen ist nicht bestanden: ${verdict.reason}")
+    }
+
     /**
      * A CONSISTENTLY wrong quad must fail. The script path's `quadSpread` scored exactly this case
      * at p90 0.93 px, because every frame carries the same displacement and they all agree with

@@ -378,13 +378,14 @@ private fun sobelInto(
 }
 
 /** Dieselbe Forderung in den Zahlen DIESES Modells: 0,85 auf ueberkonfidenten Werten ist eine
- *  andere Huerde als auf kalibrierten. Gleichmaessiger Rest angenommen; am Satz deckungsgleich. */
+ *  andere Huerde als auf kalibrierten. Gleichmaessiger Rest angenommen; am Satz deckungsgleich.
+ *  `temperature <= 0` ist keine Temperatur — ungeprueft wurde daraus 0,005 statt 0,85 (Phantome). */
 fun calibratedConfThr(
     engineThr: Double,
     temperature: Double,
     classes: Int,
 ): Double {
-    if (temperature == 1.0 || classes < 2) return engineThr
+    if (temperature <= 0.0 || temperature == 1.0 || classes < 2) return engineThr
     val rest = (1.0 - engineThr) / (classes - 1)
     val logs = DoubleArray(classes) { if (it == 0) ln(engineThr) else ln(rest) }
     val scaled = DoubleArray(classes) { logs[it] / temperature }
