@@ -27,8 +27,12 @@ eine Aussage ueber den SATZ: er traegt 24 verdeckte Frames auf 11 001 (0,2 %). D
 vom 2026-09-19 tragen 875 auf 988 (89 %) und liegen ungenutzt da
 (`docs/baseline-occlusion-off.md`, Punkt 30 der Entscheidungsvorlage).
 
-**Wer eine dieser drei Wachen anfasst, hat heute keinen Zeugen.** Ein Kandidat, der sie
-verschlechtert, kommt gruen durch.
+**Praeziser: ihnen fehlt der Zeuge am ECHTEN Material, nicht jeder Zeuge.** Alle drei tragen
+Unit-Tests — `baselineOcclusion` allein zehn in `BaselineOcclusionUnitTest` plus sechs weitere
+Dateien, `gridHandGate` in `VerifySingleTest`, `modelHandGate` in `TaintTest`. Die pruefen die
+Arithmetik auf gebauten Feldern. Was keiner von ihnen pruefen kann, ist das Zusammenspiel auf
+einer echten Aufnahme mit einer echten Hand — und genau dort kommt ein Kandidat, der diese
+Wachen verschlechtert, heute gruen durch.
 
 ## Zwei Korrekturen an dem, was ich vorher behauptet hatte
 

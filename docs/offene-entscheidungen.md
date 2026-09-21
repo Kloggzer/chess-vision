@@ -1559,7 +1559,8 @@ Alle zehn booleschen Wachen der Engine einzeln abgeschaltet, jedes Mal der volle
 (`docs/wachen-ablation-2026-09-21.md`). Vier bewegen KEINE Ziffer, und drei davon sind genau
 die Hand- und Verdeckungswachen: `baselineOcclusion`, `gridHandGate`, `modelHandGate`.
 
-Wer eine davon verschlechtert, kommt heute gruen durch. Das Material, das es messen koennte,
+Alle drei tragen Unit-Tests auf gebauten Feldern; was fehlt, ist der Zeuge am echten Material.
+Wer eine davon dort verschlechtert, kommt gruen durch. Das Material, das es messen koennte,
 liegt da (die zwei Partien vom 2026-09-19, 875 verdeckte Frames auf 988) und haengt an
 derselben Entscheidung wie Punkt 30: `test-v2` oder Trainingsmaterial.
 
