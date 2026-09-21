@@ -87,20 +87,95 @@ geht nur über den Stored-Session-Weg" war also falsch.
 | `2026-09-19-15-50-28` | 17 | 70 | 6 |
 | `2026-09-19-16-26-22` | **0** | 59 | 0 |
 
-**Das ist ein Werkzeug-Befund, kein Engine-Befund**, und es wird ausdrücklich nicht als Aussage
-über die Engine zitiert. Die Belege dagegen:
+**Das ist ein Werkzeug-Befund, kein Engine-Befund**, und er wird nicht als Aussage über die Engine
+zitiert.
 
-- Das **Telefon selbst** hat dieselbe Partie live getrackt, 59/59, und `retime` bestätigt jeden Zug
-  mit einem fremden Modell (Übereinstimmung 1,00).
-- Im Replay steht `motion=0.0000` über den **ganzen** Lauf — der Bewegungssensor schlägt nie an.
-- `cnnAgree=0.984` gegen die Grundstellung, `changed=[c4=3.1 b5=2.3 …]`: der Replay sieht ein
-  praktisch **statisches Brett**, während 59 Züge gespielt werden.
-- Jede Entscheidung bleibt bei `ply=0`, `why=STUCK no_legal_move`.
+### Drei erste Lesarten waren falsch — hier stehen die gemessenen
 
-Die Ursache ist offen. Kandidaten, in dieser Reihenfolge zu prüfen: ob `video.mp4` der Sitzung
-dasselbe Bild trägt wie der Analyse-Strom, aus dem die Ecken stammen; ob die Zeitachse
-(`timeline.jsonl` liegt ebenfalls verschachtelt) gebraucht wird und fehlt; ob die Geometrie aus
-`candidate.json` statt aus dem Label-Plan-Scan genommen werden muss. `markers_seen` nennt nur drei
-der vier Marker, Marker 1 nie.
+Der erste Durchgang las die Logzeilen falsch. Was davon nachgemessen wurde:
 
-**Bis das geklärt ist, misst `test-v2` nichts** — und die Zahlen oben gehören in keine Auswertung.
+- **`motion=0.0` ist die Stufenzeit in Millisekunden, nicht der Bewegungswert.** Der gesunde Lauf
+  zeigt dieselbe Null. Nachgerechnet erreicht der ROI-Wert auf diesem Video bis **19,98 %** — der
+  Bewegungssensor ist nicht tot.
+- **`markers_seen` ist ein Histogramm der Marker-ANZAHL, nicht der IDs.** `{"2": 3, "3": 161,
+  "4": 227}` heißt: 227 Stichproben sahen vier Marker. „Marker 1 nie gesehen" war eine Fehllesung.
+- **Die `settings.json` trägt sehr wohl einen `app`-Block** mit `orientation: WHITE_BOTTOM`. Die
+  Partie wird nicht verdreht gelesen.
+
+Ebenfalls korrigiert: die `log.jsonl` des Telefons trägt **37 der 59 Halbzüge**. „Das Telefon hat
+59/59 getrackt" belegt die Datei nicht — Zeuge der Zugfolge ist laut `note` der Mensch am Brett.
+
+### Ausgeschlossen, mit Messung
+
+- **Das Video passt.** `video.mp4` ist Segment 0 von fünf, zusammen 900+900+900+900+304 = **3904
+  Frames**, genau `geometry.frames`. Der Replay las 3903 davon, die Zeitachse läuft bis t≈260 s.
+- **Die Drehung stimmt.** Alle Segmente tragen `rotation=-90`, OpenCV liefert Portrait, gewarpt
+  wird nach `ROTATE_90_COUNTERCLOCKWISE` — und dann sitzt das Gitter pixelgenau. Bildbeweis auf
+  Frame 3880 gegen `reference.pgn` nach `Ne8`: Feld für Feld deckungsgleich.
+- **Die Geometrie-Quelle stimmt.** Der Export protokolliert selbst `scan 0.009 cells,
+  phone-log 0.009 cells` — etwa ein Pixel Unterschied. `align_pass_rate` trennt nicht: die gesunde
+  `VID_20260824_154327` steht bei 0,7684 gegen 0,8798 hier.
+
+### Die Ursache: ein Eckensprung in der Live-Ausrichtung
+
+Der Replay sieht ein **dauerhaft verdecktes Brett**: `occl=0` steht auf nur **63 von 1952**
+Beobachtungen (3,2 %). Jeder andere Lauf desselben Batches liegt bei 43–87 %.
+
+Datiert auf den Frame: bei **Frame 128, t=8,47 s — 36 Sekunden vor dem ersten Zug** — springt
+`occl` von 0 auf 4 und kehrt nie zurück. Im selben Atemzug steht die einzige Notiz
+`Board geometry shifted (marker/camera) — re-capturing reference`, aus `Guards.cornersJumped`
+(`cornerJumpPx = 6.0`). Sie kommt in keinem der zehn gesunden Logs vor.
+
+**Die Kamera hat sich nicht bewegt.** Die ArUco-Zentren über Frames 50–199 stehen subpixelstabil.
+Nur der ferne Marker an h8 flackert im Detektor: **38 von 100** bei voller Auflösung, 8 von 100 bei
+`alignScale = 0.5`. Der Sprung entsteht in der Live-Ausrichtung, nicht im Bild.
+
+Dass genau dieser Versatz diese Felder erzeugt, ist nachgemessen — `p4a-80-clahe` auf denselben
+Pixeln unter verschobenen Quads:
+
+| Quad | Zellen über `coverage_gate` 0,25 |
+|---|---|
+| Scan-Quad, ruhige Frames | **0** |
+| ganzer Quad um 48 px verschoben (0,42 Zellen) | 1 |
+| **eine Ecke** um 8 px | 1 (`g1`) |
+| **eine Ecke** um 24 px (0,21 Zellen) | **20** (`e1,f1,g1,h1,d2,f2,g2,h2…`) |
+
+Der Replay meldet `occlVeto=f1,g1,h1,h3` bzw. `d2,f1,g1,h1,h3`. Eine reine Verschiebung ist
+harmlos; ein **ecken-lokaler** Versatz von 10–25 px trifft exakt diese Familie.
+
+Getötet wird der Zug dann in `Hypothesis.tooMuchChangeGate`: der Replay lud keine `config=`, läuft
+also auf den Vorgaben mit **`maxChanged = 5`**, während das Telefon 6 fuhr. Mit vier bis fünf
+dauerhaft blockierten Zellen reißt jeder echte Zug (zwei geänderte Felder) die Decke — 202
+`Much change`-Notizen, 10 Entscheidungen, 0 Commits. Die letzte Entscheidung beweist es: Frame 674,
+`changed=[d4=8.4 d1=1.8]`, `cnnAgree=1.000`, `occlVeto=d2,…` — **d2, das Herkunftsfeld, ist
+vetoiert**, also erklärt kein legaler Zug die Änderung.
+
+### Bewiesen: derselbe Lauf ohne Live-Ausrichtung findet jeden Zug
+
+`replay-regression.ps1 -Satz v2 -Extra "set:liveAlign=0"`, sonst nichts geändert:
+
+| Aufnahme | mit `liveAlign` | ohne `liveAlign` |
+|---|---|---|
+| `2026-09-19-16-26-22` | **0**/59/0 | **59/0/0**, 0 Alarme |
+| `2026-09-19-15-50-28` | 17/70/6 | 17/70/6 — unverändert |
+
+Die Kette ist damit geschlossen: Marker-Flackern → Eckensprung → `Board geometry shifted` →
+dauerhaft vetoierte Grundreihe → `tooMuchChangeGate` bei `maxChanged = 5` → kein einziger Commit.
+Ein Knopf, eine Zeile, und aus null werden 59 von 59 ohne ein einziges Phantom.
+
+**`2026-09-19-15-50-28` ist davon unberührt** — Ziffer für Ziffer gleich. Deren Defekt ist ein
+anderer und noch offen; sechs Phantome sind dort das Dringende, nicht die 70 verfehlten Züge.
+
+Bemerkenswert: `liveAlign` galt nach der Wachen-Ablation als mild lasttragend (+3 gefunden,
+−3 verfehlt, +1 Episode über die zehn Aufnahmen). Auf dieser Aufnahme kostet dieselbe Wache
+**alle 59 Züge**. Ein Mittelwert über einen Satz, der eine Materialsorte nicht enthält, sagt über
+diese Sorte nichts — dieselbe Lehre wie bei den Hand-Wachen, nur diesmal mit einem Preisschild.
+
+### Der Fix sitzt an der Ausrichtung, nicht am Torwert
+
+Die Ausrichtung darf keinen Quad übernehmen, der aus **weniger Markern** gerechnet ist als die
+Referenzaufnahme hatte. Eine Ecke, deren Marker verschwindet, wird gehalten statt neu geschätzt —
+genau dieses Flackern (4 ↔ 3 Marker) ist gemessen. `maxChanged` hochzudrehen wäre das Gegenteil
+eines Fixes: es macht den Sensor blind statt die Geometrie richtig.
+
+**Bis das gebaut ist, misst `test-v2` nichts** — die Zahlen oben gehören in keine Auswertung.
