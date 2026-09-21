@@ -44,6 +44,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ name: stri
 /** The same door `startStep` uses, minus its step check: the chain has moved past `export` by then. */
 async function reexport(name: string): Promise<Response> {
   const lock = await claimHeavyLock("export", name);
+  // Wie `startStep`: eine unlesbare Sperre ist die halb geschriebene eines LAUFENDEN Prozesses.
+  if ("blocked" in lock) return Response.json({ error: lock.blocked }, { status: 409 });
   if ("foreign" in lock) {
     const { pid, job, name: holder } = lock.foreign;
     return Response.json({ error: `heavy.lock: pid ${pid} arbeitet an ${job} ${holder}` }, { status: 409 });

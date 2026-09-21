@@ -86,6 +86,10 @@ const unreadable = (): LockBlocked => ({
   blocked: `heavy.lock ist da, aber nicht deutbar — ein Lauf schreibt sie gerade, oder sie ist zerrissen: ${heavyLockPath()} pruefen und von Hand loeschen, wenn kein Prozess mehr laeuft`,
 });
 
+const contested = (): LockBlocked => ({
+  blocked: `heavy.lock wechselt gerade den Halter — noch einmal druecken: ${heavyLockPath()}`,
+});
+
 // Create-exclusive to avoid TOCTOU; retry once for stale locks (6 GB replay window).
 export async function claimHeavyLock(job: string, name: string): Promise<{ held: HeavyLock } | { foreign: HeavyLock } | LockBlocked> {
   await mkdir(inboxDir(), { recursive: true });
@@ -105,7 +109,10 @@ export async function claimHeavyLock(job: string, name: string): Promise<{ held:
   if (createLock(lock)) return { held: lock };
   const winner = readLockSync();
   if (winner === "unreadable") return unreadable();
-  return winner ? { foreign: winner } : { held: lock };
+  if (winner) return { foreign: winner };
+  // Zwischen unserem `wx` und diesem Lesen ist die Datei wieder weg. Gemeldet wird nur, was wir
+  // auch anlegen konnten: ein `{held}` OHNE Sperrdatei gibt den Slot per `O_EXCL` sofort weiter.
+  return createLock(lock) ? { held: lock } : contested();
 }
 
 /** The job's pid, once spawned — see `HeavyLock.childPid`. Silent if the lock is not ours. */

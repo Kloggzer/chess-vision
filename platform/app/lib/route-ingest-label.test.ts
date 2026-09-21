@@ -1,7 +1,8 @@
 /**
  * Die letzte Route ohne Test: der ausdrueckliche Rueckfall fuer eine Aufnahme, die ohne
  * Partie-Aufzeichnung ankam. Sie liegt unter `ingest/`, prueft aber bewusst KEIN Token — der
- * Browser drueckt sie (`app/transfers/board.tsx`), nicht das Handy.
+ * Browser drueckt sie (`app/transfers/board.tsx`), nicht das Handy. Den Heavy-Lock nimmt sie
+ * seit 2026-09-21 trotzdem — hier gemockt, gemessen in `chain-jobs-2026-09-21.bughunt.test.ts`.
  */
 import { beforeEach, expect, test, vi } from "vitest";
 
@@ -10,8 +11,13 @@ vi.mock("@/lib/jobs", () => ({
   enqueueLabel: async (name: string) => {
     if (jobs.fail !== null) throw new Error(jobs.fail);
     jobs.names.push(name);
-    return { name, state: "queued" };
+    return { name, kind: "label", state: "queued" };
   },
+}));
+
+vi.mock("@/lib/heavy-lock", () => ({
+  claimHeavyLock: async (job: string, name: string) => ({ held: { pid: process.pid, job, name, startedAt: "" } }),
+  releaseHeavyLock: async () => undefined,
 }));
 
 const { POST } = await import("@/app/api/ingest/session/[name]/label/route");
