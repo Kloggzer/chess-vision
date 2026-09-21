@@ -8,6 +8,7 @@ import path from "node:path";
 import { writeFileAtomic } from "@/lib/atomic";
 import { checkName } from "@/lib/data";
 import { stripBom } from "@/lib/jsonl";
+import { serialize } from "@/lib/serialize";
 import { sessionDir } from "@/lib/session";
 
 export type FrameFlag = { stem: string; unusable: boolean; backup: string | null };
@@ -25,6 +26,15 @@ function backupName(stamp: Date): string {
 export async function flagFrame(name: string, stem: string, unusable: boolean): Promise<FrameFlag> {
   checkName(stem, "frame");
   const file = path.join(sessionDir(name), "log.jsonl");
+  // Riegel um lesen-aendern-schreiben auf der GANZEN Datei: zwei Urteile kurz hintereinander lasen
+  // denselben Text, das erste Flag war nach dem zweiten Schreiben weg — und die Suche nach einem
+  // freien Sicherungsnamen lief in dasselbe Fenster und starb mit EEXIST.
+  return serialize(file, () => flagUnlocked(name, stem, unusable, file));
+}
+
+async function flagUnlocked(
+  name: string, stem: string, unusable: boolean, file: string,
+): Promise<FrameFlag> {
   const text = await readFile(file, "utf8");
   // Der ZEILENUMBRUCH entscheidet (`lib/jsonl.ts`): endet die Datei mittendrin, stroemt der Export
   // gerade hinein, und das Zurueckschreiben haengte seinen Umbruch hinter die halbe Zeile — aus

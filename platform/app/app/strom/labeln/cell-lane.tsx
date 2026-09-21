@@ -244,7 +244,7 @@ export function CellLane(props: CellLaneProps) {
     const wanted = slice.filter((c) => remeasure.has(keyOf(c)));
     if (wanted.length > 0) onDirtyCells(wanted);
     if (junk.length > 0) onUnusable(junk);
-    await onFlush(slice[0].pos, writes, priorOf(slice));
+    if (!(await onFlush(slice[0].pos, writes, priorOf(slice)))) return;
     setSkipped((s) => new Set([...s, ...slice.map(keyOf)]));
     setRemeasure((r) => new Set([...r].filter((k) => !slice.some((c) => keyOf(c) === k))));
     setUseless((u) => new Set([...u].filter((k) => !slice.some((c) => keyOf(c) === k))));

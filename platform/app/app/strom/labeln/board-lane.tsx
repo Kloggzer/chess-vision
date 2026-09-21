@@ -57,14 +57,16 @@ export function BoardLane(props: BoardLaneProps) {
         decided[`${board.stem}|${r.square}`],
       ]),
     );
-    await onFlush(
+    // `markCommitted` leert die Mal-Historie: ohne diese Pruefung war das Gemalte nach einem
+    // gescheiterten POST weg, und `onNext` blaetterte auf das naechste Brett weiter.
+    if (!(await onFlush(
       board.pos,
       [
         { rows: rows(what.corrections), ledger: "corrections" },
         { rows: rows(reviewed), ledger: "reviewed" },
       ],
       prior,
-    );
+    ))) return;
     paint.markCommitted([...what.committed, ...reviewed]);
     onNext(ply);
   };

@@ -87,10 +87,12 @@ export function MobileSort({ cells, sessions, decided, showDone, tally, actionsR
           (decided[c.session] ?? {})[`${c.stem}|${c.square}`],
         ]),
       );
+      // Erst schreiben, dann wegwischen: die Karte blieb sonst nach einem gescheiterten POST
+      // weg, und `undo` haette eine Zeile zurueckgenommen, die es nie gab.
+      if (!(await onFlush(group.head.pos, [{ rows, ledger }], before))) return;
       last.current = { keys: picked.map(keyOf), wrote: true };
       setDone((d) => new Set([...d, ...picked.map(keyOf)]));
       setPalette(false);
-      await onFlush(group.head.pos, [{ rows, ledger }], before);
     },
     [decided, group, onFlush, sessions],
   );

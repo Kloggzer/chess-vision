@@ -63,7 +63,7 @@ export type Flush = (
   pos: number,
   writes: Verdict[],
   prior: Record<string, string | undefined>,
-) => Promise<void>;
+) => Promise<boolean>;
 
 /** Everything the one key handler can ask of the active renderer. */
 export type LaneActions = {
@@ -328,7 +328,7 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   const flush = useCallback<Flush>(
     async (pos_, writes, prior) => {
       const real = writes.filter((w) => w.rows.length > 0);
-      if (real.length === 0) return;
+      if (real.length === 0) return true;
       try {
         for (const { rows, ledger } of real) {
           await post("/api/corrections", { rows, ledger });
@@ -345,8 +345,12 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
         }));
         setHistory((h) => [...h, { pos: pos_, revert }]);
         ticked();
+        return true;
       } catch (error) {
+        // Der Anrufer muss den Fehlschlag SEHEN: nur angezeigt, liess er die Lane weiterblaettern,
+        // und die Seite galt als geschrieben, obwohl keine Zeile auf der Platte steht.
         fail(error);
+        return false;
       }
     },
     [fail, overlay],
@@ -380,13 +384,17 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
   async function throwBoard() {
     if (!here) return;
     const session = stream.sessions[here.session];
-    setThrown((t) => new Set(t).add(`${here.session}|${here.stem}`));
+    const key = `${here.session}|${here.stem}`;
+    setThrown((t) => new Set(t).add(key));
     say(`${here.stem} raus — kein Label geschrieben, bleibt raus (review-notes.jsonl)`);
     try {
       await post("/api/review-notes", {
         rows: [{ session_id: session.sessionId, frame: here.stem, verdict: "unusable-board", reason: "Labeln-Strom: x" }],
       });
     } catch (error) {
+      // Ohne Zettel bleibt das Brett in der Lane: sonst ist es bis zum Neuladen weg, und auf der
+      // Platte steht nichts — dieselbe Ruecknahme wie in `ruleFrame`.
+      setThrown((t) => new Set([...t].filter((k) => k !== key)));
       fail(error);
     }
   }
@@ -453,6 +461,9 @@ export function LabelnStream({ stream, wall }: { stream: LabelStream; wall: Quer
     try {
       await post(`/api/useless/${session.name}`, { useless: true, reason: "Labeln-Strom: X" });
     } catch (error) {
+      // Eine GANZE Aufnahme lautlos aus der Lane zu nehmen, ohne dass `useless.json` steht, ist
+      // der teuerste Fall dieser Sorte.
+      setDropped((d) => new Set([...d].filter((i) => i !== index)));
       fail(error);
     }
   }

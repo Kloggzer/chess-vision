@@ -41,7 +41,11 @@ export async function loadHandFlags(): Promise<HandFlags> {
   let text: string;
   try {
     text = await readFile(file, "utf8");
-  } catch {
+  } catch (e) {
+    // `present: false` heisst "der Producer lief nie", und die Lane schreibt dafuer `—`.
+    // Ein Lesefehler darf das nicht behaupten (wie `lib/position-flags.ts`), sonst ist eine
+    // unlesbare Datei eine Aussage — und der Cache haelt sie bis zur naechsten mtime.
+    if ((e as { code?: string })?.code !== "ENOENT") throw e;
     const missing: HandFlags = { rows: [], present: false };
     cache.set(file, { key, value: missing });
     return missing;
