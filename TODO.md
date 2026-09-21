@@ -190,6 +190,14 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
   in einem 220-dp-Container ist jeder Aktionsknopf ≥ 48 dp. Robolectric + `compose-ui-test`.
 - **Schema 5** (2026-09-04) setzt die Tracker-Knöpfe auf dem Handy einmal zurück; `boardSize` misst
   sich neu. Beim nächsten Start prüfen.
+- **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21). Beim Partiestart wählbar: EINE Seite darf Hilfe
+  anfordern, mit einem Kontingent (sein Beispiel: Schwarz drei Mal). Angefordert wird per SPRACHE,
+  der Tipp kommt von der Engine — „XYZ ist der beste Zug", „pass auf deinen Turm auf", und bei
+  vorhandenem Matt „du hast Matt in n". Boden wird gerade erhoben (was an Stockfish, Review und
+  Audio schon da ist); Entwurf danach. Offen und wichtig: wie viel der Tipp verrät (ein Zug ist
+  eine andere Partie als ein Warnhinweis), ob das Kontingent pro Partie oder pro Phase gilt, und
+  ob das Mikrofon neben der Kamera läuft — die Kamera hat in diesem Projekt genau EINEN Besitzer,
+  ein zweites Binding fror den Feed ein.
 
 ## Offene Fragen
 
