@@ -72,6 +72,11 @@ def iter_jsonl(path: Path) -> Iterator[dict]:
                     raise
                 broken = exc
                 continue
+            # Nur Objekte, wie `lib/jsonl.ts` und `Jsonl.kt`: eine Zahl oder Liste ist gueltiges
+            # JSON, aber keine Zeile dieses Formats, und als `dict` deklariert wandert sie sonst
+            # bis zum ersten `row["x"]` mit und stirbt dort.
+            if not isinstance(row, dict):
+                continue
             yield row
 
 
@@ -179,12 +184,13 @@ def append_rows(path: Path, rows: Iterable[dict]) -> int:
         # als Umbruch gelten, und der halbe Schwanz saehe ganz aus (1127 der 1329 Dateien sind CRLF).
         with path.open(encoding="utf-8", newline="") as fh:
             text = fh.read()
-        if text and not text.endswith(("\n", "\r")):
-            # `splitlines(keepends=True)` schneidet, wo `read_jsonl` schneidet — auch am blanken
-            # `\r`. Gegen `\n` allein zu pruefen warf eine Zeile weg, die der Leser akzeptiert:
-            # ein zwischen CR und LF erschlagener Schreiber ist der haeufigste Abriss auf CRLF.
-            # Zurueckgeschrieben OHNE `\r`, weil byte-treu gelesen und uebersetzt geschrieben wird.
-            kept = [line.rstrip("\r\n") for line in text.splitlines(keepends=True)[:-1]]
+        if text and not text.endswith("\n"):
+            # Ein blankes `\r` am Ende ist ein zwischen CR und LF erschlagener Schreiber: die
+            # ZEILE ist ganz und bekommt nur ihren Umbruch. Dahinter anzuhaengen ergaebe eine,
+            # die `lib/jsonl.ts` und `Jsonl.kt` (Trenner `\r?\n`) als EINE und kaputt lesen.
+            kept = [line.rstrip("\r\n") for line in text.splitlines(keepends=True)]
+            if not text.endswith("\r"):
+                kept = kept[:-1]
             write_atomic(path, "".join(line + "\n" for line in kept))
     with path.open("a", encoding="utf-8") as fh:
         fh.write(rows_text(rows))

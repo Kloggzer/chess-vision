@@ -43,7 +43,7 @@ test("unbrauchbare Zellen anhaengen macht aus dem Schwanz keine Korruption", asy
   expect(readJsonl(await readFile(file, "utf8")).corrupt).toBe(0);
 });
 
-test("CRLF: ein abgerissenes \\r ist kein Umbruch", async () => {
+test("CRLF: das halbe \\r bekommt seinen Umbruch, die Zeile bleibt", async () => {
   const file = path.join(root, "recordings", "rec-1", "crlf.jsonl");
   await writeFile(file, '{"a":1}\r\n{"b":2}\r', "utf8");
 
@@ -51,7 +51,7 @@ test("CRLF: ein abgerissenes \\r ist kein Umbruch", async () => {
 
   const got = readJsonl(await readFile(file, "utf8"));
   expect([got.corrupt, got.tail]).toEqual([0, false]);
-  expect(got.rows).toEqual([{ a: 1 }, { c: 3 }]);
+  expect(got.rows, "die ganze Zeile vor dem halben CRLF flog weg").toEqual([{ a: 1 }, { b: 2 }, { c: 3 }]);
 });
 
 test("eine ganze Datei bleibt unangetastet, eine fehlende entsteht", async () => {

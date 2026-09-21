@@ -28,7 +28,9 @@ object Jsonl {
         file: File,
         text: String,
     ): List<JsonObject> {
-        val lines = text.split(NEWLINE)
+        // Fuehrendes BOM weg, wie `utf-8-sig` in `chesslab.ioutil` und `stripBom` in `lib/jsonl.ts`:
+        // PowerShells `Out-File` stempelt eines, und der Desktop liest dieselben Dateien wie Python.
+        val lines = text.removePrefix("\uFEFF").split(NEWLINE)
         // Wer mitten in einer Zeile erschlagen wurde, hat den Umbruch dahinter nicht mehr
         // geschrieben — die kaputte Zeile ist dann die LETZTE. Steht dort einer, war der
         // Schreiber fertig, und eine kaputte Zeile davor ist Beschaedigung.

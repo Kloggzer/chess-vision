@@ -65,7 +65,13 @@ export async function appendRows(file: string, rows: unknown[]): Promise<number>
   return serialize(file, async () => {
     const text = await readFile(file, "utf8").catch(() => "");
     if (text !== "" && !text.endsWith("\n")) {
-      await writeFileAtomic(file, text.slice(0, text.lastIndexOf("\n") + 1));
+      // Ein blankes `\r` am Ende ist ein zwischen CR und LF erschlagener Schreiber: die ZEILE ist
+      // ganz und `readJsonl` nimmt sie, also bekommt sie ihren Umbruch statt weggeworfen zu werden
+      // (wie `ioutil.append_rows`). Alles andere ist eine halbe Zeile und faellt weg.
+      const whole = text.endsWith("\r")
+        ? `${text.slice(0, -1)}\n`
+        : text.slice(0, text.lastIndexOf("\n") + 1);
+      await writeFileAtomic(file, whole);
     }
     await appendFile(file, rows.map((r) => JSON.stringify(r)).join("\n") + "\n", "utf8");
     return rows.length;
