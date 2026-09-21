@@ -53,8 +53,11 @@ def offsets(per_frame: dict, boards: dict, pred: dict) -> tuple[list[dict], int]
     """
     hits, checked = [], 0
     for (sess, frame, ply), rs in per_frame.items():
-        # Nur SICHTBARE Zellen: verdeckte kann das Modell nicht lesen, sie wuerden nur rauschen.
-        vis = [r for r in rs if float(r.get("coverage") or 0.0) <= VMAX]
+        # Nur GEMESSEN sichtbare: `coverage is None` heisst un-mattet, nicht frei. Als 0,0
+        # gelesen hob eine ungemattete Zelle den Frame ueber die 32er-Huerde, und der frisch
+        # korrigierte Nenner zaehlte ihn danach als WIRKLICH geprueft.
+        vis = [r for r in rs
+               if r.get("coverage") is not None and float(r["coverage"]) <= VMAX]
         if len(vis) < 32:
             continue
         score = {}

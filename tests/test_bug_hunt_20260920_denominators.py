@@ -53,6 +53,28 @@ def test_matte_audit_nennt_nur_die_geprueften_matten(tmp_path, monkeypatch, caps
     assert "von    2" in line and "von    3" not in line
 
 
+def test_scan_ply_offset_zaehlt_eine_UNGEMESSENE_zelle_nicht_als_sichtbar():
+    """`coverage is None` heisst UN-MATTET, nicht frei — die Coverage-Matte-Falle.
+
+    Der Sichtbarkeitsfilter las `r.get("coverage") or 0.0`, eine ungemessene Zelle kam damit als
+    0,0 durch. Ein ungemattetes Bild erreichte so 32 "sichtbare" Zellen und landete im frisch
+    korrigierten Nenner als WIRKLICH geprueft. Alles andere ist hier absichtlich in Ordnung —
+    Nachbar-Bretter und Vorhersagen stehen bereit, nur die Matte fehlt.
+    """
+    import scan_ply_offset
+
+    felder = [f"{c}{r}" for r in "12345678" for c in "abcdefgh"]
+    ohne_matte = [{"path": f"u-{sq}", "session_id": "s", "frame": "u", "ply": 1,
+                   "square": sq, "coverage": None} for sq in felder]
+    brett = dict.fromkeys(felder, "empty")
+    boards = {("s", 0): brett, ("s", 1): brett, ("s", 2): brett}
+    pred = {r["path"]: "empty" for r in ohne_matte}
+
+    _hits, checked = scan_ply_offset.offsets({("s", "u", 1): ohne_matte}, boards, pred)
+
+    assert checked == 0, "ein ungemattetes Bild hat keine GEMESSENE sichtbare Zelle"
+
+
 def test_scan_ply_offset_meldet_den_nenner_der_GEPRUEFTEN_frames(tmp_path, monkeypatch, capsys):
     """Der Bericht nannte `len(per_frame)`, also auch Frames ohne 32 sichtbare Zellen."""
     import scan_ply_offset
