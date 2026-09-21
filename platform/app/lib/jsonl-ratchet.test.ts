@@ -8,44 +8,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
+import { jsonlCutsIn } from "@/ratchet-detect";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "jsonl-readers.txt");
 const ALLOWED = ["lib/jsonl.ts", "lib/jsonl.test.ts", "lib/jsonl-ratchet.test.ts"];
 const BS = String.fromCharCode(92);
-/** Die FORM, nicht vier Schreibweisen: ein `split` auf irgendetwas, das einen Umbruch enthaelt.
- *  Vier Namen zu suchen liess `/\n/`, Backticks und `"\r\n"` durch — derselbe Fehler, an dem der
- *  Python-Zwilling 16 Stellen uebersah. */
-const CUT = /\.split\(\s*(?:"[^"\n]*\\n[^"\n]*"|'[^'\n]*\\n[^'\n]*'|`[^`\n]*\\n[^`\n]*`|\/[^/\n]*\\n[^/\n]*\/[a-z]*|String\.fromCharCode\(10\))\s*\)/g;
-/** Zeilenweise ITERATION ist derselbe Schnitt, nur unsichtbar fuer eine Textsuche: der
- *  Python-Zwilling uebersah so drei handkopierte Nachbauten seines Lesers (2026-09-17). */
-const ITER = /for\s+(?:await\s+)?\(\s*const\s+(\w+)\s+of\s+([\w.]+)/g;
-
-/** Der Rumpf der Schleife, ueber die Klammern abgezaehlt — `JSON.parse` irgendwo SONST in
- *  derselben Datei ist ein anderer Gueltigkeitsbereich und zaehlte zweimal falsch mit. */
-function loopBody(text: string, from: number): string {
-  const open = text.indexOf("{", from);
-  if (open < 0) return "";
-  let depth = 0;
-  for (let i = open; i < text.length; i += 1) {
-    if (text[i] === "{") depth += 1;
-    else if (text[i] === "}" && (depth -= 1) === 0) return text.slice(open, i);
-  }
-  return text.slice(open);
-}
-
-function cuts(text: string): number {
-  const split = [...text.matchAll(CUT)].length;
-  let iter = 0;
-  for (const m of text.matchAll(ITER)) {
-    // Der Treuhaender selbst ist kein eigener Schnitt.
-    if (m[2].startsWith("jsonlRows")) continue;
-    const body = loopBody(text, (m.index ?? 0) + m[0].length);
-    if (new RegExp(String.raw`JSON\.parse\(\s*` + m[1] + String.raw`\b`).test(body)) iter += 1;
-  }
-  return split + iter;
-}
-
 async function sources(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const e of await readdir(dir, { withFileTypes: true })) {
@@ -67,7 +35,7 @@ async function handRolled(): Promise<Map<string, number>> {
       if (ALLOWED.includes(rel) || /\.test\.tsx?$/.test(rel)) continue;
       const text = await readFile(file, "utf8");
       if (!text.includes("JSON.parse")) continue;
-      const n = cuts(text);
+      const n = jsonlCutsIn(text);
       if (n > 0) found.set(rel, n);
     }
   }
@@ -110,9 +78,9 @@ test("jede Schreibweise des Zeilenschnitts zaehlt, nicht nur die vier bekannten"
     `text.split(/${BS}r?${N}/)`, `text.split(/${N}/)`, `text.split("${BS}r${N}")`,
     `text.split(String.fromCharCode(10))`, `text.split( "${N}" )`,
   ];
-  for (const form of planted) expect(cuts(form), form).toBeGreaterThan(0);
+  for (const form of planted) expect(jsonlCutsIn(form), form).toBeGreaterThan(0);
   // Und ein Schnitt, der KEINE Zeilen macht, darf die Ratsche nicht fuellen.
-  expect(cuts(`stamped.split(":")`)).toBe(0);
+  expect(jsonlCutsIn(`stamped.split(":")`)).toBe(0);
 });
 
 /** Gegenprobe auf den Gang: eine fremde Datei darf keine Stelle erfinden (`route-coverage.test.ts`). */

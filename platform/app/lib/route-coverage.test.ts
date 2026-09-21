@@ -3,6 +3,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { expect, onTestFinished, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
+import { routeImportsIn } from "@/ratchet-detect";
 
 /**
  * Eine Ratsche auf die API-Routen, das duennste Stueck des Baums (18,6 % am 2026-09-14) und der
@@ -33,8 +34,7 @@ async function state() {
   const routes = (await filesUnder(path.join(APP, "app"), "route.ts")).map(slug).sort();
   const tested = new Set<string>();
   for (const file of await filesUnder(APP, ".test.ts")) {
-    const text = await readFile(file, "utf8");
-    for (const m of text.matchAll(/"@\/app\/(.+?)\/route"/g)) tested.add(m[1]);
+    for (const route of routeImportsIn(await readFile(file, "utf8"))) tested.add(route);
   }
   const budget = (await readFile(path.join(APP, "route-coverage.txt"), "utf8"))
     .split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));

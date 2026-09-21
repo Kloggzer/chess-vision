@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "vitest";
+import { commentRunIn } from "@/ratchet-detect";
 
 // The TS twin of android's CommentBudgetTest: blocks over LIMIT lines fail unless budgeted,
 // and a budget entry may only shrink (CLAUDE.md: default is NO comment, 5 lines is the ceiling).
 const LIMIT = 5;
 const ROOT = path.join(__dirname, "..");
 const BUDGET_FILE = path.join(ROOT, "comment-budget.txt");
-const SCAN = ["app", "lib", "components", "instrumentation.ts"];
+const SCAN = ["app", "lib", "components", "instrumentation.ts", "ratchet-detect.ts"];
 const SOURCE = /\.(ts|tsx)$/;
 
 function sourceFiles(entry: string): string[] {
@@ -21,31 +22,6 @@ function sourceFiles(entry: string): string[] {
   } catch {
     return SOURCE.test(entry) ? [full] : [];
   }
-}
-
-/** `"files/games/*.pgn"` ist kein Blockanfang: ein `/*` in einem Text schaltete den Scanner um,
- *  und der zaehlte danach CODE als Kommentar — `reference-chip.tsx` stand damit auf 5 von 5. */
-const withoutStrings = (line: string): string =>
-  line.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, '""');
-
-function longestRun(text: string): number {
-  let run = 0;
-  let worst = 0;
-  let inBlock = false;
-  for (const raw of text.split("\n")) {
-    const line = withoutStrings(raw).trim();
-    const comment =
-      inBlock || line.startsWith("//") || line.startsWith("/*") || line.startsWith("{/*") || line.startsWith("*");
-    if (line.includes("/*") && !line.includes("*/")) inBlock = true;
-    if (line.includes("*/")) inBlock = false;
-    if (comment && line.length > 0) {
-      run += 1;
-      worst = Math.max(worst, run);
-    } else {
-      run = 0;
-    }
-  }
-  return worst;
 }
 
 function budget(): Map<string, number> {
@@ -63,10 +39,10 @@ function budget(): Map<string, number> {
 
 /** Gegenprobe: was die Ratsche fangen MUSS, und was sie nicht erfinden darf. */
 test("der Kommentar-Scanner zaehlt Kommentare, nicht Code hinter einem Glob", () => {
-  expect(longestRun('const why = "games/*.pgn";\ncode();\nmore();\nstill();')).toBe(0);
-  expect(longestRun("// a\n// b\n// c\ncode();\n// d")).toBe(3);
-  expect(longestRun("/**\n * a\n * b\n */\ncode();")).toBe(4);
-  expect(longestRun("code(); // kurz\ncode();")).toBe(0);
+  expect(commentRunIn('const why = "games/*.pgn";\ncode();\nmore();\nstill();')).toBe(0);
+  expect(commentRunIn("// a\n// b\n// c\ncode();\n// d")).toBe(3);
+  expect(commentRunIn("/**\n * a\n * b\n */\ncode();")).toBe(4);
+  expect(commentRunIn("code(); // kurz\ncode();")).toBe(0);
 });
 
 test(`no comment block over ${LIMIT} lines outside the shrinking budget`, () => {
@@ -75,7 +51,7 @@ test(`no comment block over ${LIMIT} lines outside the shrinking budget`, () => 
   const over: string[] = [];
   for (const file of SCAN.flatMap(sourceFiles)) {
     const rel = path.relative(ROOT, file).replaceAll("\\", "/");
-    const worst = longestRun(readFileSync(file, "utf8"));
+    const worst = commentRunIn(readFileSync(file, "utf8"));
     const cap = allowed.get(rel);
     if (cap !== undefined) {
       seen.add(rel);

@@ -8,16 +8,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
 import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
+import { writeDoorsIn } from "@/ratchet-detect";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "write-doors.txt");
 const CUSTODIAN = "lib/atomic.ts";
-/** Die vier Schreibweisen, in denen diese App eine Datei anlegt — `writeFileAtomic(` faellt raus. */
-const WRITE = /\b(writeFile|appendFile|writeFileSync|appendFileSync)\(/;
-const JSONISH = /JSON\.stringify\(|\.jsonl?["'`]/;
-/** Ein Log, das nur ein Mensch liest, ist keine Datei, um die sich zwei Prozesse streiten. */
-const NOT_JSON = /\.(log|txt|pgn|csv|webp|png)["'`]/;
-
 async function sources(dir: string): Promise<string[]> {
   const out: string[] = [];
   for (const e of await readdir(dir, { withFileTypes: true })) {
@@ -29,14 +24,6 @@ async function sources(dir: string): Promise<string[]> {
   return out;
 }
 
-/** Schreibaufruf UND JSON in derselben Sichtweite — das ist die Form, die die Politik neu erfindet. */
-function doorsIn(text: string): number {
-  const lines = text.split("\n");
-  return lines.filter(
-    (line, i) => WRITE.test(line) && !NOT_JSON.test(line) && JSONISH.test(lines.slice(i, i + 6).join("\n")),
-  ).length;
-}
-
 async function doors(): Promise<Map<string, number>> {
   const found = new Map<string, number>();
   for (const dir of ["lib", "app"]) {
@@ -44,7 +31,7 @@ async function doors(): Promise<Map<string, number>> {
       const rel = path.relative(ROOT, file).split(path.sep).join("/");
       // Ein Test legt sein eigenes Fixture an; das ist keine Schreibpolitik.
       if (rel === CUSTODIAN || /\.test\.tsx?$/.test(rel)) continue;
-      const hits = doorsIn(await readFile(file, "utf8"));
+      const hits = writeDoorsIn(await readFile(file, "utf8"));
       if (hits > 0) found.set(rel, hits);
     }
   }
@@ -81,13 +68,13 @@ test("die Liste traegt keine erledigte Zeile mehr", { timeout: TREE_SCAN_TIMEOUT
 
 /** Gegenprobe: ohne einen eingepflanzten Fall weiss niemand, ob die Ratsche noch etwas sieht. */
 test("eine eingepflanzte Tuer wird gezaehlt, der Treuhaender nicht", { timeout: TREE_SCAN_TIMEOUT }, () => {
-  expect(doorsIn(`await writeFile(file, JSON.stringify(rows));`)).toBe(1);
-  expect(doorsIn(`await appendFile(f, line + "\\n");\nconst s = JSON.stringify(row);`)).toBe(1);
-  expect(doorsIn(`writeFileSync(p, text);\n// Zeile\n// Zeile\nJSON.stringify(x);`)).toBe(1);
+  expect(writeDoorsIn(`await writeFile(file, JSON.stringify(rows));`)).toBe(1);
+  expect(writeDoorsIn(`await appendFile(f, line + "\\n");\nconst s = JSON.stringify(row);`)).toBe(1);
+  expect(writeDoorsIn(`writeFileSync(p, text);\n// Zeile\n// Zeile\nJSON.stringify(x);`)).toBe(1);
 
-  expect(doorsIn(`await writeFileAtomic(file, JSON.stringify(rows));`)).toBe(0);
-  expect(doorsIn(`await writeFile("run.log", JSON.stringify(x), "utf8");`)).toBe(0);
-  expect(doorsIn(`await writeFile(png, buffer);`)).toBe(0);
+  expect(writeDoorsIn(`await writeFileAtomic(file, JSON.stringify(rows));`)).toBe(0);
+  expect(writeDoorsIn(`await writeFile("run.log", JSON.stringify(x), "utf8");`)).toBe(0);
+  expect(writeDoorsIn(`await writeFile(png, buffer);`)).toBe(0);
 });
 
 /** Gegenprobe auf den Gang: eine fremde Datei darf keine Tuer erfinden (`route-coverage.test.ts`). */
