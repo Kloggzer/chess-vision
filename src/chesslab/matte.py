@@ -6,7 +6,7 @@ import gc
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 from threading import Thread
@@ -345,6 +345,21 @@ def alpha_for(session_dir: Path, row: dict) -> Path:
     return mattes / f"{row['frame']}.webp"
 
 
+def effective_rows(rows: Iterable[dict]) -> dict[str, dict]:
+    """Je Frame die WIRKSAME Zeile — `matte.jsonl` ist eine HISTORIE, die juengste gilt.
+
+    Punkt 28 gilt je FRAME, nicht je ZEILE: wer roh ueber die Zeilen filtert, verarbeitet eine
+    Messung weiter, die eine spaetere Absage laengst zurueckgenommen hat.
+    """
+    return {row["frame"]: row for row in rows if row.get("frame")}
+
+
+def measured_coverage(rows: Iterable[dict]) -> dict[str, dict]:
+    """Die wirksamen Zeilen, die wirklich eine Messung tragen — `coverage is None` ist SAMs Absage."""
+    return {frame: row for frame, row in effective_rows(rows).items()
+            if row.get("coverage") is not None}
+
+
 def coverage_of(
     alpha: np.ndarray,
     entry: dict,
@@ -596,17 +611,9 @@ def matte_status(name: str) -> dict:
     standard = dirty_pile(rows, ALPHA_REASON)
     known = {Path(r[k]).stem for r in rows for k in ("board", "frame") if r.get(k)}
     path = session_dir / "matte.jsonl"
-    # Wie `read_matte`, einschliesslich Punkt 28: eine Zeile ohne `coverage` ist SAMs Absage und
-    # die JUENGERE Aussage — sie loescht die fruehere Messung. Als blosser Filter gelesen blieb ein
-    # gemessen-dann-abgesagtes Frame in `have`, und der Bericht verschwieg die Luecke, die er meldet.
-    have: set[str] = set()
-    for row in read_jsonl(path):
-        if not row.get("frame"):
-            continue
-        if row.get("coverage") is None:
-            have.discard(str(row["frame"]))
-        else:
-            have.add(str(row["frame"]))
+    # Wie `read_matte`, einschliesslich Punkt 28: ein gemessen-dann-abgesagtes Frame blieb als
+    # blosser Filter gelesen in `have`, und der Bericht verschwieg die Luecke, die er meldet.
+    have = {str(frame) for frame in measured_coverage(read_jsonl(path))}
     return {"session": name, "dirty": len(want), "matted": len(want & have),
             "missing": sorted(standard - have),
             "missing_other": sorted((want - standard) - have),
@@ -637,6 +644,12 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     entries = {Path(e["board"]).stem: e for e in read_log(session_dir) if e.get("board")}
     stamp = (path.stat().st_mtime_ns, path.stat().st_size)
 
+    raw = read_jsonl(path)
+    # Je Frame nur die WIRKSAME Zeile: eine ueberholte Messung nachzurechnen ersetzte das Alpha
+    # eines Frames, den die juengste Zeile ablehnt — und zwei gemessene Zeilen desselben Frames
+    # stapelten ZWEIMAL dieselbe `*.tmp.webp`, so dass das zweite `replace()` starb.
+    live_row = effective_rows(raw)
+
     rows: list[dict] = []
     # Die Pixel gehen in Nachbardateien und werden ZULETZT umgehaengt, zusammen mit dem Ledger.
     # Vorher landeten sie sofort auf der Platte: brach der Waechter danach ab, trugen N Alphas die
@@ -648,7 +661,10 @@ def close_seams(name: str, *, dry_run: bool = False, progress: bool = True) -> d
     # Schleife liess die gestapelten `*.tmp.webp` liegen, und `straighten_boards` zog sie
     # dann auch noch gerade.
     try:
-        for row in read_jsonl(path):
+        for row in raw:
+            if live_row.get(row.get("frame")) is not row:
+                rows.append(row)
+                continue
             alpha_path = alpha_for(session_dir, row)
             entry = entries.get(row["frame"])
             image = cv2.imread(str(alpha_path), cv2.IMREAD_GRAYSCALE) if alpha_path.exists() else None
@@ -901,12 +917,12 @@ def alpha_worker(
     }
 
     # --limit counts actual usable alpha labels rather than JSONL rows.
+    # Je FRAME die wirksame Zeile: eine Messung, die eine spaetere Absage zurueckgenommen hat,
+    # ist kein Erfolg und darf das Budget nicht kuerzen.
     successful = {
-        row["frame"]
-        for row in existing_rows
-        if row.get("frame")
-        and not row.get("skipped")
-        and row.get("coverage") is not None
+        frame
+        for frame, row in measured_coverage(existing_rows).items()
+        if not row.get("skipped")
     }
 
     # A named frame overrides BOTH filters. A hand the scan missed sits on a `clean` row, which

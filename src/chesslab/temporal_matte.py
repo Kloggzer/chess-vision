@@ -313,19 +313,14 @@ def write_proposal_meta(path: Path, metadata: dict) -> None:
 
 def sam_matte(recording):
     """`read_matte` without our own rows: coverage SAM (or the pen) measured, nothing else."""
+    from .matte import measured_coverage
+
     path = recording / "matte.jsonl"
     if not path.is_file():
         return {}
-    out: dict[str, dict[str, float]] = {}
-    for row in read_jsonl(path):
-        if row.get("source") in ("temporal", "upsert"):
-            continue
-        # Punkt 28: die juengere Zeile gilt, auch wenn sie SAMs Absage ist.
-        if row.get("coverage") is None:
-            out.pop(row["frame"], None)
-        else:
-            out[row["frame"]] = row["coverage"]
-    return out
+    # Punkt 28: die juengere Zeile gilt, auch wenn sie SAMs Absage ist.
+    return {frame: row["coverage"] for frame, row in measured_coverage(
+        r for r in read_jsonl(path) if r.get("source") not in ("temporal", "upsert")).items()}
 
 
 def matted_frames(rows: list[dict]) -> set[str]:
@@ -334,13 +329,9 @@ def matted_frames(rows: list[dict]) -> set[str]:
     Als blosser Filter (`coverage is not None` ueber alle Zeilen) blieb ein gemessen-dann-
     abgesagtes Frame "gemattet", bekam kein Alpha und ging mit `coverage = 0.0` ins Training.
     """
-    out: set[str] = set()
-    for row in rows:
-        if row.get("coverage") is None:
-            out.discard(row["frame"])
-        else:
-            out.add(row["frame"])
-    return out
+    from .matte import measured_coverage
+
+    return set(measured_coverage(rows))
 
 
 def adopt_proposals(session_id, *, method="local"):
@@ -424,7 +415,7 @@ def upsert_proposals(session_id, *, method="local"):
     """
     from .calibration import load_profile
     from .labeling import MATTE_DIRTY
-    from .matte import FIXED_SUFFIX, coverage_of
+    from .matte import FIXED_SUFFIX, coverage_of, measured_coverage
 
     recording, _ = session_dir(session_id)
     directory = config.DATA.reports / "temporal-mattes" / recording.name / method
@@ -443,17 +434,10 @@ def upsert_proposals(session_id, *, method="local"):
     mattes = recording / "mattes"
     for backup in mattes.glob("*.sam.webp"):
         backup.replace(mattes / backup.name.replace(".sam.webp", ".webp"))
-    sam = {}
-    for row in kept_rows:
-        if row.get("source") == "temporal":
-            continue
-        # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
-        # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
-        # `sam_found` — ein Fund, den niemand gemessen hat.
-        if row.get("coverage") is None:
-            sam.pop(row["frame"], None)
-        else:
-            sam[row["frame"]] = row
+    # Punkt 28, wie `sam_matte`: SAMs Absage ist die JUENGERE Aussage und nimmt die fruehere
+    # Messung zurueck. Als blosser Filter gelesen blieb die alte Zahl stehen und zaehlte als
+    # `sam_found` — ein Fund, den niemand gemessen hat.
+    sam = measured_coverage(r for r in kept_rows if r.get("source") != "temporal")
     stamp_now = datetime.now(UTC).isoformat()
     upserted, found, fixed = 0, 0, 0
     fresh = []
@@ -503,6 +487,8 @@ def write_pass_report(session_id, report: dict) -> Path:
 
 def prune_dead_rows(session_id):
     """Drop a `source: temporal` row once SAM has re-cut the frame: SAM's later row already wins."""
+    from .matte import measured_coverage
+
     recording, _ = session_dir(session_id)
     matte_path = recording / "matte.jsonl"
     if not matte_path.is_file():
@@ -512,11 +498,12 @@ def prune_dead_rows(session_id):
     # `temporal` ist ein Frame, den SAM nachtraeglich schneidet — seine Zeile gewinnt, auch leer.
     # `upsert` existiert, WEIL SAM nichts fand; ein leerer SAM-Schnitt ueberholt ihn also nicht,
     # ein Schnitt MIT Verdeckung schon (sonst blieben zwei Zeilen, und `read_matte` nimmt die letzte).
+    # Beides fragt die WIRKSAME SAM-Zeile: eine spaetere Absage ist kein Schnitt.
+    sam = measured_coverage(r for r in rows if r.get("source") not in ("temporal", "upsert"))
+
     def sam_rows(only_found: bool) -> set[str]:
-        return {row["frame"] for row in rows
-                if row.get("source") not in ("temporal", "upsert")
-                and row.get("coverage") is not None
-                and (not only_found or any(row["coverage"].values()))}
+        return {frame for frame, row in sam.items()
+                if not only_found or any(row["coverage"].values())}
 
     cut, found = sam_rows(False), sam_rows(True)
     keep = [row for row in rows
