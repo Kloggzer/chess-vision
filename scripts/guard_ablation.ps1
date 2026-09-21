@@ -12,10 +12,19 @@
 # vorhandenes Ergebnisverzeichnis wird uebersprungen, der Lauf ist also fortsetzbar.
 param(
     [string[]]$Nur = @(),
-    [string]$Praefix = "abl"
+    [string]$Praefix = "abl",
+    [string]$Bezug = "baseline-an"
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+
+# Fertig heisst: DIESELBEN Aufnahmen wie der Bezug. Die alte Probe war eine einzelne Datei, und
+# seit der Satz von zehn auf zwoelf Aufnahmen gewachsen ist, galt jedes alte Verzeichnis als
+# fertig -- die Auswertung stellte danach zehn gegen zwoelf und nannte das Delta "gedeckt".
+$bezugDir = Join-Path $root "tmp\batch\$Bezug"
+$soll = @(Get-ChildItem -Path $bezugDir -Filter *.log -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.BaseName } | Sort-Object)
+if ($soll.Count -eq 0) { throw "Bezugslauf '$Bezug' fehlt unter $bezugDir -- erst den fahren" }
 
 # Nur Wachen, die per Vorgabe AN sind — bei den anderen waere das Umlegen keine Ablation.
 $wachen = @(
@@ -27,9 +36,14 @@ if ($Nur.Count -gt 0) { $wachen = $wachen | Where-Object { $Nur -contains $_ } }
 foreach ($w in $wachen) {
     $tag = "$Praefix-$w"
     $dir = Join-Path $root "tmp\batch\$tag"
-    if (Test-Path (Join-Path $dir "VID_20260824_154327.log")) {
-        Write-Output "[$w] liegt schon vor, uebersprungen"
+    $ist = @(Get-ChildItem -Path $dir -Filter *.log -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.BaseName } | Sort-Object)
+    if ($ist.Count -gt 0 -and -not (Compare-Object $soll $ist)) {
+        Write-Output "[$w] liegt vollstaendig vor, uebersprungen"
         continue
+    }
+    if ($ist.Count -gt 0) {
+        Write-Output "[$w] $($ist.Count) von $($soll.Count) Aufnahmen -- wird neu gefahren"
     }
     Write-Output "[$w] laeuft ..."
     & (Join-Path $PSScriptRoot "replay-regression.ps1") -Tag $tag -Extra "set:$w=0" |

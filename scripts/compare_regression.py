@@ -27,20 +27,28 @@ MUSTER = {
 }
 
 
-def lies(log: Path) -> dict[str, int]:
+def lies(log: Path) -> dict[str, int | None]:
+    """Die Zahlen des Laufs -- `None`, wo er keine geschrieben hat.
+
+    Die `-1`, die hier vorher stand, war als Merkzeichen gedacht und lief danach ungeprueft in
+    die Summe: zwei abgestuerzte Laeufe verglichen sich als (-1, -1) und gingen ohne Marke als
+    unveraendert durch. `None` kann das nicht.
+    """
     text = log.read_text(encoding="utf-8", errors="replace")
-    out = {}
+    out: dict[str, int | None] = {}
     for name, muster in MUSTER.items():
         treffer = muster.search(text)
-        # None heisst: der Lauf hat die Zahl nicht geschrieben (Absturz, alter Binary) -- das ist
-        # NICHT null. Eine fehlende Zahl darf sich nicht als gemessene 0 in die Summe schleichen.
-        out[name] = int(treffer.group(1)) if treffer else -1
+        out[name] = int(treffer.group(1)) if treffer else None
     out["latched"] = len(re.findall(r"ALARM latched", text))
     out["desync"] = len(re.findall(r"board desynced", text))
     return out
 
 
-def satz(tag: str) -> dict[str, dict[str, int]]:
+def vollstaendig(zeile: dict[str, int | None]) -> bool:
+    return all(zeile[k] is not None for k in MUSTER)
+
+
+def satz(tag: str) -> dict[str, dict[str, int | None]]:
     d = ROOT / "tmp" / "batch" / tag
     return {p.stem: lies(p) for p in sorted(d.glob("*.log")) if not p.name.endswith(".err")}
 
@@ -63,8 +71,14 @@ def main() -> int:
 
     print(f"{'Aufnahme':22s} {'found':>13s} {'missed':>9s} {'inv':>7s} {'desync':>11s}")
     summe = {k: [0, 0] for k in ("found", "missed", "invented", "desync", "latched")}
+    gewertet, blind = 0, []
     for rec in gemeinsam:
         x, y = a[rec], b[rec]
+        if not (vollstaendig(x) and vollstaendig(y)):
+            blind.append(rec)
+            print(f"{rec:22s} {'unvollstaendig -- keine Bewertungszeile im Log':>45s}")
+            continue
+        gewertet += 1
         for k in summe:
             summe[k][0] += x[k]
             summe[k][1] += y[k]
@@ -73,10 +87,15 @@ def main() -> int:
               f"{x['invented']:2d} -> {y['invented']:<2d} {x['desync']:4d} -> {y['desync']:<4d}{marke}")
 
     print()
+    if not gewertet:
+        print(f"keine Aufnahme bewertbar ({len(blind)} unvollstaendig) -- nichts gemessen")
+        return 1
     for k in ("found", "missed", "invented", "desync", "latched"):
         vor, nach = summe[k]
         print(f"{k:10s} {vor:5d} -> {nach:<5d} ({nach - vor:+d})")
-    return 0
+    print(f"\nSumme ueber {gewertet} von {len(gemeinsam)} gemeinsamen Aufnahmen"
+          + (f"; unvollstaendig und AUSGELASSEN: {', '.join(blind)}" if blind else ""))
+    return 1 if blind else 0
 
 
 if __name__ == "__main__":

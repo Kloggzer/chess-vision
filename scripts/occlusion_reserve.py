@@ -49,11 +49,12 @@ def main() -> int:
 
     d = ROOT / args.dir
     je_arm: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    recs: dict[str, set[str]] = collections.defaultdict(set)
     for trace in sorted(d.glob("*.jsonl")):
-        arm, _, rest = trace.stem.partition("--")
+        arm, _, rec = trace.stem.partition("--")
         je_arm[arm].update(zaehle(trace))
         je_arm[arm]["aufnahmen"] += 1
-        del rest
+        recs[arm].add(rec)
 
     if not je_arm:
         print(f"keine Traces in {d}")
@@ -68,10 +69,17 @@ def main() -> int:
             print(f"  ! {c['occlVetoed_ungemessen']} Zeilen ohne die Achse — aelterer Binary?")
 
     if {"champion", "alt"} <= set(je_arm):
+        # Ein abgebrochener Replay laesst seinen Trace einfach fehlen. Zwei Arme ueber
+        # VERSCHIEDENE Aufnahmen ergeben trotzdem eine Prozentzahl, und die misst dann den
+        # fehlenden Lauf statt der Schwelle.
+        fehlt = recs["alt"] ^ recs["champion"]
         a, b = je_arm["alt"], je_arm["champion"]
         for achse in ("occlVetoed", "shadowVetoed"):
             vor, nach = a[f"{achse}_frames"], b[f"{achse}_frames"]
-            if vor:
+            if fehlt:
+                print(f"\n{achse}: {vor} -> {nach} Frames (nicht vergleichbar, die Arme haben "
+                      f"verschiedene Aufnahmen: {', '.join(sorted(fehlt))})")
+            elif vor:
                 print(f"\n{achse}: {vor} -> {nach} Frames ({100.0 * (nach - vor) / vor:+.1f} %)")
             else:
                 print(f"\n{achse}: {vor} -> {nach} Frames (kein Bezug, der alte Arm hat keine)")

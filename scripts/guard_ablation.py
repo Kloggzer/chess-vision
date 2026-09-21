@@ -26,7 +26,13 @@ MUSTER = {
 }
 
 
-def summe(tag: str) -> dict[str, int] | None:
+def summe(tag: str) -> dict | None:
+    """Die Summe des Laufs -- und unter `stems`, WORUEBER sie laeuft.
+
+    Die Zahl der Aufnahmen allein reichte nicht: der Bezug faehrt seit 2026-09-21 zwoelf
+    Aufnahmen, die abgelegten `abl-*` tragen zehn. Ein Delta gegen einen anderen Satz ist keine
+    Wirkung der Wache, wurde aber als "gedeckt" gemeldet.
+    """
     d = ROOT / "tmp" / "batch" / tag
     logs = [p for p in sorted(d.glob("*.log")) if not p.name.endswith(".err")]
     if not logs:
@@ -34,6 +40,7 @@ def summe(tag: str) -> dict[str, int] | None:
     out = dict.fromkeys(MUSTER, 0)
     out["desync"] = 0
     out["aufnahmen"] = len(logs)
+    out["stems"] = frozenset(p.stem for p in logs)
     for log in logs:
         text = log.read_text(encoding="utf-8", errors="replace")
         for name, muster in MUSTER.items():
@@ -76,8 +83,8 @@ def main() -> int:
     for d in sorted((ROOT / "tmp" / "batch").glob(f"{args.praefix}-*")):
         wache = d.name[len(args.praefix) + 1:]
         s = summe(d.name)
-        if s is None:
-            zeilen.append((wache, None))
+        if s is None or s["stems"] != basis["stems"]:
+            zeilen.append((wache, None if s is None else "satz"))
             continue
         delta = {k: s[k] - basis[k] for k in ("found", "missed", "invented", "desync")}
         zeilen.append((wache, delta))
@@ -88,8 +95,9 @@ def main() -> int:
 
     print(f"{'Wache':24s} {'found':>7s} {'missed':>7s} {'inv':>5s} {'desync':>7s}  Befund")
     for wache, delta in zeilen:
-        if delta is None:
-            print(f"{wache:24s} {'-':>7s} {'-':>7s} {'-':>5s} {'-':>7s}  unvollstaendig")
+        if not isinstance(delta, dict):
+            grund = "anderer Aufnahmesatz als der Bezug" if delta == "satz" else "unvollstaendig"
+            print(f"{wache:24s} {'-':>7s} {'-':>7s} {'-':>5s} {'-':>7s}  {grund}")
             continue
         print(f"{wache:24s} {delta['found']:+7d} {delta['missed']:+7d} {delta['invented']:+5d} "
               f"{delta['desync']:+7d}  {befund(delta)}")

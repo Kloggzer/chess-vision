@@ -91,7 +91,13 @@ def phone_side(session: Path, moves: list[dict], pts: np.ndarray) -> tuple[dict[
         elif row.get("kind") == "video_sync" and not row.get("final"):
             bases.append(row["elapsedNs"] - row["durationNs"])
     settles.sort()
-    base = float(np.median(bases)) if bases else 0.0
+    if not bases:
+        # Ohne `video_sync` gibt es keine Encoder-Basis. Die 0,0 war keine: sie verschob JEDEN
+        # Handy-Frame um die ganze Laufzeit der Aufnahme, und die Tabelle sagte es nirgends.
+        raise SystemExit(f"[FAIL] {session}: keine `video_sync`-Zeile ohne `final` — die "
+                         f"Zeitbasis des Encoders ist nicht gemessen, die Handy-Spalten waeren "
+                         f"erfunden")
+    base = float(np.median(bases))
     frame_at = lambda ns: int(np.searchsorted(pts, (ns - base) / 1e6))  # noqa: E731
     commits, quiet = {}, {}
     for move in moves:

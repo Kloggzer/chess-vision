@@ -117,8 +117,8 @@ foreach ($r in ($results | Sort-Object { $_.Run.Name })) {
     } else {
         "$plies plies"
     }
-    if ($alarms -gt 0) { $summary += " · $alarms alarm(s)" }
-    if ($cache) { $summary += " · cache $($cache.Matches[0].Groups[1].Value)/$($cache.Matches[0].Groups[2].Value)" }
+    if ($alarms -gt 0) { $summary += " | $alarms alarm(s)" }
+    if ($cache) { $summary += " | cache $($cache.Matches[0].Groups[1].Value)/$($cache.Matches[0].Groups[2].Value)" }
     Write-Host ("{0,-24} {1,5} {2,5}s   {3}" -f $r.Run.Name, $r.ExitCode, $r.Seconds, $summary)
 }
-Write-Host ("total: {0}s · logs: {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)
+Write-Host ("total: {0}s | logs: {1}" -f [int]((Get-Date) - $started).TotalSeconds, $logDir)
