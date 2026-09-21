@@ -107,7 +107,9 @@ dev = [
 # their side effect and then unused as a parameter; those are now `@pytest.mark.usefixtures`,
 # which says what they do instead of silencing what they look like.
 min_confidence = 80
-paths = ["src", "tests", "synth"]
+# `scripts` gehoert dazu: beide IO-Ratschen decken es ausdruecklich ab, die Suche nach totem
+# Code liess es aus. Nachgemessen 2026-09-21 — null Funde, die Aufnahme kostet also nichts.
+paths = ["src", "tests", "synth", "scripts"]
 
 [build-system]
 requires = ["hatchling"]
