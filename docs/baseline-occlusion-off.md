@@ -6,8 +6,15 @@ Tracker testweise **ohne** die engine-eigene laufen lassen — auch ohne Schatte
 ## Der Schalter
 
 `baselineOcclusion` (Vorgabe AN). AUS heißt: kein Nachschub für die Verdeckungs-Fristen und kein
-Schattenveto. Beides kommt aus demselben Aufruf `baselineOcclusionAndShadow`, ein Knopf deckt also
-beide Arme ab.
+Schattenveto.
+
+> **Korrektur 2026-09-21:** dieser Absatz stimmte nicht. Der Schalter deckte nur den Arm aus
+> `baselineOcclusionAndShadow`; das HSV-Census-Schattenveto in `Vetoes.applyVetoes` lief weiter und
+> setzte `shadowVetoed` in der Erkennung neu. Im Lauf mit Schalter AUS stand `shadowVeto=` noch
+> sechsmal im Log. Seitdem hängen beide Arme am selben Schalter
+> (`docs/schattenveto-2026-09-21.md`), und die Messung unten wurde mit dem reparierten Schalter
+> wiederholt: **396/3/0 bei 8 Desync-Episoden, unverändert.** Das Ergebnis gilt also weiter — aber
+> es galt vorher aus dem falschen Grund.
 
 ```
 desktop replay <video> score set:baselineOcclusion=0

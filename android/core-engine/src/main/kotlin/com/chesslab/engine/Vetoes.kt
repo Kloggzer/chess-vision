@@ -30,7 +30,10 @@ internal fun EngineState.applyVetoes(
     changed = hot
     var shadowVeto = 0L
     val ref = refBgr
-    if (curBgr != null && ref != null && hot != 0L) {
+    // `baselineOcclusion` heisst AUS wirklich aus: dieses Veto steht auf demselben Schalter wie
+    // der Baseline-Arm, sonst schaltet er nur die Haelfte ab, die niemanden interessiert
+    // (gemessen 2026-09-21, `docs/schattenveto-2026-09-21.md`).
+    if (config.baselineOcclusion && curBgr != null && ref != null && hot != 0L) {
         // Invariant 8: `censusThr` (40.0) was live-tuned on the RAW census channel. The normalized
         // channel serves scoring and noise learning; using it here lets normalization pull a
         // structurally changed destination square under the threshold, which is the

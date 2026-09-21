@@ -341,6 +341,28 @@ class VetoesTest {
     // -- scenario helpers ------------------------------------------------------------------------
 
     /**
+     * `baselineOcclusion=0` liess dieses Veto weiterlaufen: `FrameLoop` nullte `shadowVetoed`,
+     * `applyVetoes` setzte es neu (`docs/schattenveto-2026-09-21.md`).
+     */
+    @Test
+    fun theShadowVetoFollowsTheBaselineOcclusionSwitch() {
+        val an = shadowScenario()
+        an.computeEvidence(shadowGray())
+        val candidates = hotSquares(an.lastZ, an.config.zThr)
+        an.applyVetoes(shadowGray(), shadowBgr(), candidates)
+        assertEquals(candidates, an.shadowVetoed, "die Szene muss ueberhaupt vetoieren")
+
+        val aus = EngineState(testConfig(boardSize = BOARD).copy(baselineOcclusion = false), STARTPOS, whitePov = true)
+        aus.refGray = flatGray(LIGHT)
+        aus.refBgr = flatBgr(LIGHT)
+        aus.computeEvidence(shadowGray())
+        aus.applyVetoes(shadowGray(), shadowBgr(), candidates)
+
+        assertEquals(0L, aus.shadowVetoed, "mit dem Schalter AUS darf kein Feld schattenvetoiert sein")
+        assertEquals(candidates, aus.changed, "und die Kandidaten bleiben in `changed`")
+    }
+
+    /**
      * The two-rank hand shadow of `test_shadow_squares_not_learned_into_noise`: only the
      * top 100 rows darken, so median normalization leaves them hot instead of cancelling a global
      * exposure shift.
