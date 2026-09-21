@@ -89,3 +89,66 @@ so ruhig, dass kaum Spielraum bleibt.
 Der wahrscheinlichste Schluss: der Champion liegt nahe an einem Optimum **unter dem vollständigen
 Ziel**. Die früheren, größeren Latenzgewinne waren zum Teil mit Alarmen bezahlt, die niemand
 gezählt hat.
+
+---
+
+# Fortsetzung 2026-09-21, Tag — die Wächter selbst geprüft
+
+Die Frage war: gibt es mehr Fälle der Familie oben? Ja. Sie liegen auf vier Ebenen, und die
+Methode war jedes Mal dieselbe: **nicht die Prosa lesen, sondern den Erkenner einen
+eingepflanzten Verstoß vorlegen** — oder die Sperre neutralisieren und sehen, ob jemand schreit.
+
+## 1. Die Ratschen: derselbe Fehler in drei Sprachen
+
+Der Kommentarzähler prüft `startsWith` auf der getrimmten Zeile und hält damit eine Zeile
+INNERHALB eines String-Literals für einen Kommentar — TS an `/*`, Python an `#`, Kotlin an `//`
+im rohen String. Der TS-Zwilling stand deswegen auf 5 von 5, eine Codezeile von einem grundlosen
+roten Build. Gefunden nur, weil zu jeder Ratsche eine Gegenprobe geschrieben wurde; vorher hatte
+genau **eine** Ratsche im Projekt eine.
+
+Dazu in den Web-Ratschen fünf weitere Fehltreffer. Der schwerste: die Routen-Ratsche zählte
+**`describe.skip` als „getestet"** — also genau die Zusage, die CLAUDE.md mit „0 von 29 ohne
+Test" zitiert. Heute ist kein Routen-Test übersprungen, der Fund ist also latent; gedeckt war
+die Zusage trotzdem nicht.
+
+Jeder Fix ist verhaltensgleich belegt, indem alt gegen neu über den ganzen Baum gezählt wurde:
+Kotlin 724 Quellen, **null bewegte Zahlen**.
+
+## 2. Die Sperren im Code: Mutationsprobe
+
+| Bereich | Sperren | ungedeckt |
+|---|---:|---:|
+| `platform/app` | 31 | 6 |
+| `android/core-engine` | 26 | 3 |
+| `android/tracker-runtime` | 20 | 3 |
+| `src/chesslab` | 12 | 4 |
+
+Der teuerste Einzelfund: `pack._rewritten_since_pack` vergleicht `(mtime, size)`, aber alle fünf
+bestehenden Staleness-Tests ändern BEIDE Hälften. Ersetzt man die Bedingung durch reinen
+Größenvergleich, bleibt die Suite grün — und genau der in CLAUDE.md beschriebene Fall fällt weg.
+
+## 3. Die Dokumente, aus denen entschieden wird
+
+- Bug-Audit: **drei von acht „offenen" Befunden waren gebaut** (C2, C4, C7). C2 trug den Satz
+  „Kein roter Test: er braucht den Rücksignal-Pfad, den es nicht gibt" — den Pfad gibt es seit
+  `b7a9287d`, samt Test.
+- Entscheidungsvorlage: elf Einträge falsch, darunter ein **doppelt vergebener Punkt 30**, dessen
+  ältere Fassung von der neueren selbst widerrufen wird.
+- CLAUDE.md: drei Ratschen-Stände falsch; eine der Zahlen nannte ihre Basis nicht (Stellen oder
+  Dateien?), was den Fehler vermutlich erzeugt hat.
+
+## 4. Die Sonden, die das messen sollten, hatten den Fehler auch
+
+`scripts/guard_ablation.py` meldete „gedeckt", wenn sich EINE Desync-Episode bewegte und keine
+einzige Entscheidung. `fuzz ablate` fällte sein Urteil ohne jede Gegenprobe. Beides behoben.
+
+## Negatives Ergebnis, auch ein Ergebnis
+
+Die 15 `skip` und 11 `xfail` in Python sind sauber — jeder nennt seinen Grund, und bei allen elf
+`xfail` lautet er „Entscheidung des Nutzers, darum nur benannt". `vulture` findet nichts, auch
+nicht in `scripts/`, das bis heute gar nicht durchsucht wurde. Diese Achsen tragen keinen stillen
+Rückfall.
+
+## Und die Ausgangsfrage
+
+Alle zehn booleschen Wachen der Engine einzeln abgeschaltet: **`docs/wachen-ablation-2026-09-21.md`**.
