@@ -1,0 +1,107 @@
+"""Der Geberpool fuers Mesh und der Riegel gegen das zweite Geradeziehen.
+
+Gemessen 2026-09-21 ueber die 13 archivierten Logs: 315 von 1 228 Mesh-Gebern sind Zeilen, die
+ein Sensor als Hand fuehrt (212 davon `occluded`), und 28 von 475 Luecken wuerden ihr Mesh aus
+einer MEHRHEIT von Handframes erben. Der Marker `.export-running` hatte ausserhalb seiner eigenen
+Tests keinen Leser.
+"""
+from __future__ import annotations
+
+import json
+
+import cv2
+import numpy as np
+import pytest
+
+from chesslab import config, sessions
+from chesslab.realgames import EXPORT_MARKER, meshes_for_boards
+
+BS, BORDER, TILT, SHIFT = 400, 20, 0.04, 0.02
+EIGHTHS = [k / 8.0 for k in range(9)]
+
+
+def _lines(shift: float) -> dict:
+    return {"x": [e + shift for e in EIGHTHS], "y": list(EIGHTHS),
+            "tx": [TILT] * 9, "ty": [0.0] * 9}
+
+
+def _row(idx: int, shift: float | None, reason: str | None = None) -> dict:
+    row = {"frame": f"frames/{idx:06d}.png", "board": f"boards/{idx:06d}.webp",
+           "board_size": BS, "board_border": BORDER,
+           "corners": [[0, 0], [BS, 0], [BS, BS], [0, BS]]}
+    if shift is not None:
+        row["grid_lines"] = _lines(shift)
+    if reason is not None:
+        row["dirty"], row["dirty_reason"] = True, reason
+    return row
+
+
+def test_a_gate_flagged_frame_gives_no_mesh_to_the_pool():
+    """Die Rillen benennen Felder, das Gate benennt nur den Frame: eine `occluded`-Zeile traegt
+    kein `hand_squares` und kam damit als sauberer Geber durch."""
+    rows = ([_row(i, 0.0) for i in (0, 3, 6)]
+            + [_row(i, SHIFT, reason="occluded") for i in (9, 12, 15)])
+    assert meshes_for_boards(rows)[0].x == pytest.approx(EIGHTHS)
+
+
+def test_a_late_hand_gives_no_mesh_to_the_pool():
+    """`grid-late` ist der Fit-Befund selbst — die Zeile, bei der `skin_patch` die Hand sieht und
+    die Rillen kein Feld benennen (263 von 7 358 Frames, 2026-08-16)."""
+    rows = ([_row(i, 0.0) for i in (0, 3, 6)]
+            + [_row(i, SHIFT, reason="grid-late") for i in (9, 12, 15)])
+    assert meshes_for_boards(rows)[0].x == pytest.approx(EIGHTHS)
+
+
+def test_a_mesh_gap_is_filled_from_clean_frames_only():
+    """`_fill_mesh_gaps` nimmt die fuenf naechsten GEMESSENEN — gemessen heisst nicht sauber."""
+    rows = ([_row(i, 0.0) for i in range(5)]
+            + [_row(5 + i, SHIFT, reason="occluded") for i in range(5)]
+            + [_row(10, None)])
+    assert sessions._fill_mesh_gaps(rows) == 1
+    assert rows[-1]["grid_lines"]["x"] == pytest.approx(EIGHTHS)
+
+
+def _store(tmp_path, monkeypatch, rows: list[dict]):
+    monkeypatch.setattr(config, "DATA", config.Paths(root=tmp_path / "data"))
+    sdir = config.DATA.recordings / "rec"
+    (sdir / "boards").mkdir(parents=True)
+    for row in rows:
+        cv2.imwrite(str(sdir / row["board"]),
+                    np.zeros((BS + 2 * BORDER, BS + 2 * BORDER, 3), np.uint8))
+    (sdir / "session.yaml").write_text("session_id: rg-rec\nprofile: t\n", encoding="utf-8")
+    (sdir / "log.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    monkeypatch.setattr(sessions, "session_dir", lambda sid, paths=None: (sdir, False))
+    return sdir
+
+
+def test_an_interrupted_export_stops_the_straightening(tmp_path, monkeypatch):
+    """Der Marker sagt: Bretter neu, Log alt. Genau dann fehlt `board_straightened` auf Brettern,
+    die der Export schon gerade geschrieben hat — und dieser Aufruf zieht sie ein zweites Mal."""
+    rows = [_row(i * 3, 0.0) for i in range(3)]
+    sdir = _store(tmp_path, monkeypatch, rows)
+    (sdir / EXPORT_MARKER).write_text("export started\n", encoding="utf-8")
+
+    with pytest.raises(sessions.NothingToDo, match="export"):
+        sessions.straighten_boards_session("rg-rec")
+
+
+def test_a_killed_straightening_leaves_the_marker(tmp_path, monkeypatch):
+    """Ohne Marker sieht niemand mehr, dass das Log juenger sein muesste als die Bretter."""
+    from chesslab import calibration
+
+    rows = [_row(i * 3, 0.0) for i in range(3)]
+    sdir = _store(tmp_path, monkeypatch, rows)
+    monkeypatch.setattr(calibration, "straighten_board",
+                        lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt("killed")))
+    with pytest.raises(KeyboardInterrupt):
+        sessions.straighten_boards_session("rg-rec")
+    assert (sdir / EXPORT_MARKER).is_file()
+
+
+def test_a_row_without_corners_gets_no_carried_mesh():
+    """Mutationsprobe 2026-09-21: die Bedingung war ungedeckt. Ohne Ecken warpt nichts, ein Mesh
+    auf so einer Zeile beschriebe ein Brett, das es nicht gibt."""
+    rows = [_row(i, 0.0) for i in range(5)] + [_row(5, None)]
+    rows[-1].pop("corners")
+    assert sessions._fill_mesh_gaps(rows) == 0
+    assert "grid_lines" not in rows[-1]

@@ -1096,6 +1096,17 @@ def write_board(session_dir: Path, stem: str, frame, corners, profile,
     return keys if mesh is None else {**keys, "board_straightened": True}
 
 
+#: Was ein Sensor als Hand im Bild fuehrt. Die Rillen benennen Felder (`hand_squares`), das Gate
+#: des Scans nur den Frame (`framescan.classify` -> `occluded`, der Fit selbst -> `grid-late`) —
+#: gemessen 2026-09-21 sind 315 von 1 228 Mesh-Gebern so eine Zeile, 212 davon `occluded`.
+HAND_DIRTY_REASONS = ("occluded", "grid-late")
+
+
+def hand_seen(row: dict) -> bool:
+    """Sah irgendein Sensor auf diesem Frame eine Hand? Dann gibt er kein Mesh ab."""
+    return bool(row.get("hand_squares")) or row.get("dirty_reason") in HAND_DIRTY_REASONS
+
+
 def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
     """{frame index: the mesh its board must be straightened with} — ONE mesh for the recording.
 
@@ -1113,7 +1124,7 @@ def meshes_for_boards(rows: list[dict]) -> dict[int, Any]:
     from .calibration import mesh_from_lines, pooled_mesh, smooth_mesh_curvature
 
     clean = [smooth_mesh_curvature(mesh_from_lines(r["grid_lines"]))
-             for r in rows if r.get("grid_lines") and not r.get("hand_squares")]
+             for r in rows if r.get("grid_lines") and not hand_seen(r)]
     session = pooled_mesh([m for m in clean if m is not None])
     return {int(Path(row["frame"]).stem): session for row in rows}
 

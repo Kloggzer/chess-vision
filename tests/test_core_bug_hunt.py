@@ -170,7 +170,8 @@ def test_retime_crops_raw_frames_at_the_models_infer_size(tmp_path, monkeypatch)
     run.mkdir()
     classes = list(config.IDENTITY_CLASSES)
     (run / "config.json").write_text(
-        json.dumps({"classes": classes, "out_size": [128, 128], "infer_size": [80, 80]}),
+        json.dumps({"classes": classes, "out_size": [128, 128], "infer_size": [80, 80],
+                    "head": "occlusion"}),
         encoding="utf-8",
     )
     candidate = {

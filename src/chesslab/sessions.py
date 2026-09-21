@@ -792,8 +792,12 @@ def _fill_mesh_gaps(rows: list[dict]) -> int:
 
     Backwards for the rows before the first measurement: "the frames before" is the normal case,
     but a session that opens with a hand over the board has none, and the camera is the same one.
+    Gemessen heisst nicht sauber: 234 von 475 Luecken haetten sonst einen Handframe unter ihren
+    fuenf Gebern geerbt, 28 davon als Mehrheit (2026-09-21, 13 Logs).
     """
-    measured = [i for i, r in enumerate(rows) if r.get("grid_lines")]
+    from .realgames import hand_seen
+
+    measured = [i for i, r in enumerate(rows) if r.get("grid_lines") and not hand_seen(r)]
     if not measured:
         return 0
     carried = 0
@@ -949,6 +953,7 @@ def write_boards_session(session_id: str) -> dict:
         POOL_WORKERS,
         PROGRESS_EVERY,
         board_from_frame,
+        mark_export,
         straighten_boards,
     )
 
@@ -993,9 +998,10 @@ def write_boards_session(session_id: str) -> dict:
     backup = backup_log(sdir / "log.jsonl")
     # `mattes=False`: die Bretter sind frisch (gebogen) aus den Frames geschnitten, die Matten
     # daneben liegen vom vorigen Lauf schon gerade — sie ein zweites Mal zu ziehen verschiebt sie.
-    pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows),
-                               mattes=False)
-    _write_log(sdir, rows)
+    with mark_export(sdir):
+        pulled = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows),
+                                   mattes=False)
+        _write_log(sdir, rows)
     return {"session_id": session_id, "written": written, "of": len(rows),
             "missing": missing, "backup": backup, "straightened": pulled["straightened"]}
 
@@ -1012,7 +1018,14 @@ def rewarp_boards_session(session_id: str) -> dict:
 
     from .calibration import LensModel
     from .labeling import _profile_for_session, read_session_meta
-    from .realgames import detect_rotation, game_dir, rewarp_boards, stream_frames, video_path
+    from .realgames import (
+        detect_rotation,
+        game_dir,
+        mark_export,
+        rewarp_boards,
+        stream_frames,
+        video_path,
+    )
 
     sdir, _archived = session_dir(session_id)
     rows = read_log(sdir)
@@ -1032,8 +1045,11 @@ def rewarp_boards_session(session_id: str) -> dict:
     lens = LensModel.from_receipt(
         json.loads(receipt.read_text(encoding="utf-8")) if receipt.is_file() else None)
     backup = backup_log(sdir / "log.jsonl")
-    done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate), lens=lens)
-    _write_log(sdir, rows)
+    # Von hier bis zum Log-Schreiben sind die Bretter neu und das Log alt; der Marker ist das
+    # Einzige, was das danach noch sieht (`straighten_boards_session` liest ihn).
+    with mark_export(sdir):
+        done = rewarp_boards(sdir, todo, prof, frames=stream_frames(video, todo, rotate), lens=lens)
+        _write_log(sdir, rows)
     return {"session_id": session_id, "of": len(rows), "backup": backup,
             "lens": lens is not None, **done}
 
@@ -1046,15 +1062,23 @@ def straighten_boards_session(session_id: str) -> dict:
     are deliberately gone. Idempotent through `board_straightened`, so running it twice cannot
     correct twice.
     """
-    from .realgames import straighten_boards
+    from .realgames import EXPORT_MARKER, export_interrupted, mark_export, straighten_boards
 
     sdir, _archived = session_dir(session_id)
+    # Der Marker heisst: Bretter neu, Log alt. Dann fehlt `board_straightened` auf Brettern, die
+    # schon gerade auf der Platte liegen — und dieser Aufruf zoege sie ein zweites Mal (16 px auf
+    # 400). `session rewarp` schneidet sie aus dem Video neu und raeumt den Marker mit auf.
+    if export_interrupted(sdir):
+        raise NothingToDo(
+            f"{session_id}: an export was interrupted ({EXPORT_MARKER}) — the boards may already "
+            f"be straight while the log does not say so. Re-run the export or `session rewarp`.")
     rows = read_log(sdir)
     backup = backup_log(sdir / "log.jsonl")
     # Backed up FIRST and rewritten as it goes: the boards are being overwritten in place, and a
     # run that dies with the flags unwritten would leave a later run to correct them twice.
-    done = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
-    _write_log(sdir, rows)
+    with mark_export(sdir):
+        done = straighten_boards(sdir, rows, checkpoint=lambda: _write_log(sdir, rows))
+        _write_log(sdir, rows)
     return {"session_id": session_id, "of": len(rows), "backup": backup, **done}
 
 

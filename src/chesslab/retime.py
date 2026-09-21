@@ -152,6 +152,14 @@ def _labels(fen: str, squares: list[str]) -> list[str]:
     return [lab[s] for s in squares]
 
 
+def _visible(reads: list[dict]) -> np.ndarray:
+    """Welche Zellen die Figur wirklich zeigen. Ein Lauf ohne Occlusion-Kopf schreibt den
+    Schluessel gar nicht — ungemessen ist nicht null, so eine Zelle stimmt gar nicht erst mit.
+    """
+    return np.array([r.get("coverage") is not None and r["coverage"] <= PIECE_VISIBLE_MAX
+                     for r in reads])
+
+
 def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> tuple[np.ndarray, np.ndarray]:
     """Agreement of one frame's 64 reads with every position, twice over: the summed floored
     log-probability of each position's label (what the path is found with) and the number of cells
@@ -159,7 +167,7 @@ def _emission(reads: list[dict], targets: list[list[int]], covered_max: int) -> 
     mostly under a hand says nothing and contradicts nothing."""
     probs = np.array([r["probs"] for r in reads], dtype=np.float64)
     logs = np.maximum(np.log(np.clip(probs, 1e-9, 1.0)), LOG_FLOOR)
-    visible = np.array([r.get("coverage", 0.0) <= PIECE_VISIBLE_MAX for r in reads])
+    visible = _visible(reads)
     if visible.sum() < 64 - covered_max:
         return np.zeros(len(targets)), np.zeros(len(targets), dtype=np.int32)
     idx = np.arange(64)
@@ -196,6 +204,13 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
     phone = [int(m["frame"]) for m in moves]
     profile = load_profile(EXPORT_PROFILE)
     cfg = json.loads((model_dir / "config.json").read_text(encoding="utf-8"))
+    # Ohne Coverage-Kopf traegt keine Lesung ein `coverage`, und jede Zelle bliebe ungemessen:
+    # der Pfad haette keine Emission mehr. Laut abbrechen statt still auf null zu laufen.
+    if cfg.get("head") != "occlusion" and not cfg.get("coverage_output"):
+        raise ValueError(
+            f"{model_dir.name} has no occlusion head (head={cfg.get('head')!r}) — its reads carry "
+            f"no coverage, so retime could not tell a hand from a clear board. Use a "
+            f"`--head occlusion` run.")
     prof = effective_profile(profile, cfg.get("pad_side"))
     # Einmal auf die Groesse schneiden, die das Netz frisst: `serving` haette den Zuschnitt an
     # `out_size` sonst ein zweites Mal skaliert (specs/22).
@@ -226,7 +241,7 @@ def retime(name: str, model_dir: Path, *, device: str = "cpu", stride: int = STR
             row, dispute = _emission(reads, targets, COVERED_MAX)
             rows.append(row)
             disputed.append(dispute)
-            covered.append(sum(r.get("coverage", 0.0) > PIECE_VISIBLE_MAX for r in reads))
+            covered.append(int(64 - _visible(reads).sum()))
         pending.clear()
 
     # Nur die Vielfachen von `stride` in [lo, hi]: der Decoder baut die uebrigen gar nicht erst
