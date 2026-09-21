@@ -13,12 +13,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 from pathlib import Path
 
 import cv2
 
 from chesslab.grid_occlusion import hand_squares, missing_edges
 from chesslab.ioutil import read_jsonl
+from chesslab.labeling import read_log, usable_board
+from chesslab.sessions import _profile_for_session, read_session_meta
 
 
 def board_path(rec: Path, frame: str) -> Path | None:
@@ -53,8 +56,17 @@ def main() -> int:
                      and not (r.get("concepts") or {}) and not (r.get("cells_over_half") or 0)]
             if args.limit:
                 blind = blind[:args.limit]
+            # Das Brett traegt seinen Rand MIT: `gray.shape[0]` ist 952 bei `board_size` 928.
+            # Ohne die zwei Zahlen aus der Log-Zeile rastert der Sensor mit 119 statt 116 px und
+            # benennt Felder bis zu einer Viertelzelle daneben (gefunden 2026-09-21).
+            profile = _profile_for_session(read_session_meta(rec), None)
+            log = {pathlib.Path(x["frame"]).stem: x for x in read_log(rec)}
             hits = seen = 0
             for r in blind:
+                entry = log.get(r["frame"])
+                if entry is None or not usable_board(entry, profile):
+                    noboard += 1
+                    continue
                 p = board_path(rec, r["frame"])
                 # Ohne Brett ist nichts gemessen: die Zeile zaehlt weder in `seen` noch in
                 # `checked`, sonst nennt der Nenner Matten, die der Rillen-Sensor nie sah.
@@ -62,7 +74,10 @@ def main() -> int:
                     noboard += 1
                     continue
                 gray = cv2.cvtColor(cv2.imread(str(p)), cv2.COLOR_BGR2GRAY)
-                squares = sorted(hand_squares(missing_edges(gray, board_size=gray.shape[0], pad=0)))
+                squares = sorted(hand_squares(missing_edges(
+                    gray, board_size=entry["board_size"], pad=entry["board_border"],
+                    white_pov=profile.white_pov,
+                )))
                 checked += 1
                 seen += 1
                 if squares:
