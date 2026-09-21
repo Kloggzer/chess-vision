@@ -587,6 +587,10 @@ def write_corner_rows(sdir: Path, rows: list[dict], indices: list[int], quad, *,
         # without it the previous geometry only survives in a backup file nobody reads.
         if rows[i].get("corners"):
             rows[i]["corners_prev"] = rows[i]["corners"]
+        # Die Ausrichtung beschreibt EINEN Quad. Der neue ist hier nirgends gemessen worden, also
+        # bleibt keine Zahl stehen — sonst liest jeder Leser (Badge, `median`, `REPAIRED_KEYS`)
+        # die Messung des ERSETZTEN Quads als die dieser Zeile.
+        rows[i].pop("align_worst_px", None)
         rows[i]["corners"] = [[float(x), float(y)] for x, y in quad]
         rows[i]["corners_source"] = source
         rows[i]["corners_set_at"] = stamp
@@ -687,9 +691,13 @@ def scan_alignment(session_id: str) -> dict:
     measured = 0
     if (why := missing_source_frames(sdir, rows)):
         return {"session_id": session_id, "error": why}
+    # Erst raeumen, dann messen: eine Zeile, die diesmal nicht messbar ist (Hand auf den Rillen,
+    # Bild unlesbar), behielt sonst die Zahl des VORIGEN Laufs — und `median`/`max` mischten sie
+    # unter die frischen, waehrend `measured` nur die frischen zaehlte.
+    for r in rows:
+        r.pop("align_worst_px", None)
     for r in rows:
         if not r.get("corners"):
-            r.pop("align_worst_px", None)
             continue
         frame = cv2.imread(str(frame_path(sdir, r)))
         if frame is None:
@@ -887,12 +895,14 @@ def settle_scan_session(session_id: str) -> dict:
     for r in rows:
         if usable_board(r, prof) and (sdir / r["board"]).is_file():
             by_ply[r.get("ply")].append(r)
-    # Eine leere Matte heisst NICHT "keine Hand", sondern "nie angesehen" — dann traegt jedes Brett
-    # die Referenz, so wie die Messung es tat, bevor es Alphas gab.
     matte = read_matte(sdir)
     plies = [ply for ply, rs in by_ply.items() if len(rs) >= SETTLE_MIN_FRAMES]
+    # NUR die gemessenen Stems: ein `.get(stem, {})` gab jedem Frame einen Schluessel, womit
+    # `settle_for_ply`s `unmeasured` per Konstruktion leer war und ein nie gemattetes Hand-Brett
+    # als "gemessen, nichts verdeckt" in die gesetzte Stellung einging.
     jobs = [(sdir, by_ply[ply], prof,
-             {Path(r["frame"]).stem: matte.get(Path(r["frame"]).stem, {}) for r in by_ply[ply]},
+             {stem: matte[stem] for r in by_ply[ply]
+              if (stem := Path(r["frame"]).stem) in matte},
              next_touches_of(ply, by_ply))
             for ply in plies]
     short = sum(len(rs) for rs in by_ply.values() if len(rs) < SETTLE_MIN_FRAMES)
@@ -1255,6 +1265,9 @@ def autofix_corners(session_id: str, max_off: float = 9.0) -> dict:
         rows[i]["corners_prev"] = rows[i]["corners"]
         rows[i]["corners"] = quad
         rows[i]["corners_source"] = "auto-corrected"
+        # `after` ist an DIESEM Frame gegen den neuen Quad gemessen — dieselbe Groesse, die
+        # `fit_rows_to_grid` schreibt. Ohne sie behielt die Zeile die Zahl, die den Fix ausloeste.
+        rows[i]["align_worst_px"] = round(float(after), 2)
         changed.append(i)
         gains.append((round(before, 1), round(after, 1)))
     # ONE shape, whatever happened. The router version returned a shorter dict when nothing

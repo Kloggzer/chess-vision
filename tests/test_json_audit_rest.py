@@ -208,7 +208,9 @@ def test_the_gate_teacher_set_says_what_it_dropped(tmp_path, monkeypatch):
     (rec / "matte.jsonl").write_text("".join(json.dumps(r) + "\n" for r in [
         {"frame": "000001", "concepts": {"hand": 0.9}, "coverage": {"a1": 0.9}},
         {"frame": "000002", "concepts": {"hand": 0.9}, "coverage": {"a1": 0.9}},
-        {"frame": "000001", "source": "temporal", "concepts": {}, "coverage": {}},
+        # Eigener Frame, nicht noch einmal 000001: `gate_rows` liest die Datei seit 2026-09-21 als
+        # HISTORIE, und eine zweite Zeile ueberschriebe die erste, statt daneben zu stehen.
+        {"frame": "000003", "source": "temporal", "concepts": {}, "coverage": {}},
     ]), encoding="utf-8")
     monkeypatch.setattr(config, "DATA", paths)
 
