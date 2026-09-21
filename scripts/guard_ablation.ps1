@@ -28,7 +28,7 @@ foreach ($w in $wachen) {
     $tag = "$Praefix-$w"
     $dir = Join-Path $root "tmp\batch\$tag"
     if (Test-Path (Join-Path $dir "VID_20260824_154327.log")) {
-        Write-Output "[$w] liegt schon vor — uebersprungen"
+        Write-Output "[$w] liegt schon vor, uebersprungen"
         continue
     }
     Write-Output "[$w] laeuft ..."
