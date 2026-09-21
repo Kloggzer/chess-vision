@@ -12,7 +12,7 @@
  * fallback is the defect, not the failure.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { appendRows } from "@/lib/atomic";
@@ -517,13 +517,27 @@ function endState(name: string, code: number): { state: JobState; stopped: boole
   return { state: stopped ? "stopped" : code === 0 ? "done" : "failed", stopped };
 }
 
-async function runDesktop(binary: string, args: string[], running: Job, log: string): Promise<number> {
+/**
+ * Ein Log-Abschluss, nicht zwei. Ein gescheiterter Spawn feuert `error` UND danach `close`: das
+ * zweite `end` schrieb in einen geschlossenen Strom, dessen unbehandelter `error` den Server
+ * abriss — auf genau dem Weg, der "uv nicht auf PATH" melden soll.
+ */
+function logSink(log: string, first: string): { stream: WriteStream; end: (text: string) => void } {
+  const stream = createWriteStream(log, { flags: "a" });
+  // Eine volle Platte darf den Server nicht mitnehmen; der Job faellt ueber seinen Exit-Code auf.
+  stream.on("error", () => undefined);
+  stream.write(first);
+  let ended = false;
+  return { stream, end: (text) => { if (ended) return; ended = true; stream.end(text); } };
+}
+
+async function runDesktop(binary: string, args: string[], running: Job, log: string,
+                          cwd: string = desktopWorkDir()): Promise<number> {
   return new Promise<number>((resolve) => {
-    const sink = createWriteStream(log, { flags: "a" });
-    sink.write(`$ ${running.command}\n`);
+    const sink = logSink(log, `$ ${running.command}\n`);
     let child;
     try {
-      child = spawnTool(binary, args, desktopWorkDir());
+      child = spawnTool(binary, args, cwd);
     } catch (error) {
       // A job that cannot even start must say so — this is the exact failure that hid all day.
       sink.end(`\nspawn threw: ${error instanceof Error ? error.message : String(error)}\n`);
@@ -537,8 +551,8 @@ async function runDesktop(binary: string, args: string[], running: Job, log: str
       // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
       void stampHeavyLockChild(child.pid).catch(() => undefined);
     }
-    child.stdout.pipe(sink, { end: false });
-    child.stderr.pipe(sink, { end: false });
+    child.stdout.pipe(sink.stream, { end: false });
+    child.stderr.pipe(sink.stream, { end: false });
     child.on("error", (error) => {
       sink.end(`\nspawn failed: ${error.message}\n`);
       resolve(-1);
@@ -749,8 +763,12 @@ async function runPhoneRecord(job: Job): Promise<void> {
 
 /** `chesslab realgames retime <name>` appended to a running job's log; its exit code is the step's. */
 async function runRetime(name: string, running: Job, log: string): Promise<number> {
-  return appended(["run", "chesslab", "realgames", "retime", name], running, log);
+  return appended(retimeArgs(name), running, log);
 }
+
+/** Beide Nachlaeufe als eigene Zeilen, damit `cli-parity` auch sie gegen die CLI haelt. */
+export const retimeArgs = (name: string): string[] => ["run", "chesslab", "realgames", "retime", name];
+export const positionFlagsArgs = (): string[] => ["run", "chesslab", "realgames", "position-flags"];
 
 /**
  * Die Karten der Strittig-Lane neu rechnen, angehaengt an das Log des Schritts davor.
@@ -761,31 +779,34 @@ async function runRetime(name: string, running: Job, log: string): Promise<numbe
  * zaehlt NICHT als der des Schritts - eine fehlende Matte darf `model-read` nicht rot faerben.
  */
 function runPositionFlags(running: Job, log: string): Promise<number> {
-  return appended(["run", "chesslab", "realgames", "position-flags"], running, log);
+  return appended(positionFlagsArgs(), running, log);
 }
 
 function appended(args: string[], running: Job, log: string): Promise<number> {
   return new Promise<number>((resolve) => {
-    const sink = createWriteStream(log, { flags: "a" });
-    sink.write(`$ ${uvBinary()} ${args.join(" ")}
-`);
-    const child = spawnTool(uvBinary(), args, repoDir());
+    const sink = logSink(log, `$ ${uvBinary()} ${args.join(" ")}\n`);
+    let child;
+    try {
+      child = spawnTool(uvBinary(), args, repoDir());
+    } catch (error) {
+      sink.end(`\nspawn threw: ${error instanceof Error ? error.message : String(error)}\n`);
+      resolve(-1);
+      return;
+    }
     if (child.pid !== undefined) {
       running.childPid = child.pid;
       queue.live = { name: running.name, child };
       void record(running);
     }
-    child.stdout?.pipe(sink, { end: false });
-    child.stderr?.pipe(sink, { end: false });
+    child.stdout?.pipe(sink.stream, { end: false });
+    child.stderr?.pipe(sink.stream, { end: false });
     child.on("error", (error) => {
-      sink.end(`
-spawn failed: ${error.message}
-`);
+      sink.end(`\nspawn failed: ${error.message}\n`);
       resolve(-1);
     });
     child.on("close", (exit) => {
       if (queue.live?.child === child) queue.live = null;
-      sink.end();
+      sink.end(`\nexit ${exit}\n`);
       resolve(exit ?? 1);
     });
   });
@@ -933,37 +954,56 @@ export async function runChesslabCapture(args: string[]): Promise<ToolRun> {
   });
 }
 
-async function runChesslab(
-  job: Job,
-  step: "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read",
-): Promise<void> {
-  const verb = step === "export" ? "realgames export-session"
-    : step === "adopt-dirty" ? "realgames adopt-dirty"
-    : step === "settle-scan" ? "session settle-scan"
-    : step === "matte" ? "occluders alpha-worker"
-    : step === "temporal" ? "session temporal-pass" : "realgames model-read";
-  const binary = uvBinary();
+export type ChesslabStep = "export" | "adopt-dirty" | "settle-scan" | "matte" | "temporal" | "model-read";
+
+/** Das Verb je Sprosse — `cli-parity` haelt jedes davon gegen `src/chesslab/cli.py`. */
+const VERB: Record<ChesslabStep, string> = {
+  export: "realgames export-session",
+  "adopt-dirty": "realgames adopt-dirty",
+  "settle-scan": "session settle-scan",
+  matte: "occluders alpha-worker",
+  temporal: "session temporal-pass",
+  "model-read": "realgames model-read",
+};
+
+/**
+ * Die ganze Kommandozeile einer Sprosse, ohne Platte und ohne Prozess.
+ *
+ * Als eigene Funktion, weil ein falsch buchstabiertes Flag sonst erst im stundenlangen Lauf
+ * auffaellt: `cli-parity-2026-09-21.test.ts` prueft genau diese Zeilen gegen die CLI, die sie
+ * empfaengt. `--reported` schlaegt `--wanted` schlaegt `--limit` — der Mensch vor dem Stapel.
+ */
+export function chesslabArgs(
+  step: ChesslabStep,
+  names: string[],
+  opts: { model?: string | null; matte?: "reported" | "wanted" | "limit"; limit?: number } = {},
+): string[] {
   // `session` verbs take the SESSION id, and a recording keeps the `rg-` the directory dropped.
+  const args = ["run", "chesslab", ...VERB[step].split(" "),
+                ...(step === "settle-scan" ? [`rg-${names[0]}`] : names)];
+  if (step === "model-read" && opts.model) args.push("--model", opts.model);
+  if (step === "matte") {
+    if (opts.matte === "reported") args.push("--reported");
+    else if (opts.matte === "wanted") args.push("--wanted");
+    else args.push("--limit", String(opts.limit ?? matteTarget()));
+  }
+  return args;
+}
+
+async function runChesslab(job: Job, step: ChesslabStep): Promise<void> {
+  const verb = VERB[step];
+  const binary = uvBinary();
   const names = [job.name, ...(job.also ?? [])];
-  const args = ["run", "chesslab", ...verb.split(" "),
-                ...(step === "settle-scan" ? [`rg-${job.name}`] : names)];
-  const run = modelReadRun();
-  if (step === "model-read" && run) args.push("--model", run);
   // The same target the overnight `--all` is given, counted against the rows already there: one
   // press costs at most those frames, not the hour a 394-frame pile would be.
-  // `--reported` nimmt genau die gemeldeten Frames und ignoriert Stapel wie `--limit`: ein
-  // `stale`-Frame, auf dem ein Mensch Finger gesehen hat, ist sonst unerreichbar.
-  if (step === "matte") {
-    // `reportedOpen`, nicht `reported`: eine Meldung auf einen Frame, den dieser Export nicht mehr
-    // fuehrt, ist unerreichbar. Auf `reported` gestuetzt liefe `--reported` ins Leere und die
-    // Aufnahme bekaeme ihren Stapel nie.
-    const census = await matteCensus(job.name);
-    // `--wanted` ist der dritte Modus: der Mensch hat diese Frames ausdruecklich zur Matte
-    // geschickt, sie liegen aber nicht als `occluded` im Stapel — kein Standardlauf sieht sie.
-    if (census.reportedOpen > 0) args.push("--reported");
-    else if (census.wanted > 0) args.push("--wanted");
-    else args.push("--limit", String(matteTarget()));
-  }
+  // `reportedOpen`, nicht `reported`: eine Meldung auf einen Frame, den dieser Export nicht mehr
+  // fuehrt, ist unerreichbar — `--reported` liefe ins Leere und die Aufnahme bekaeme nie ihren
+  // Stapel. `--wanted` ist der dritte Modus: ausdruecklich geschickt, aber nicht `occluded`.
+  const census = step === "matte" ? await matteCensus(job.name) : null;
+  const args = chesslabArgs(step, names, {
+    model: modelReadRun(),
+    matte: !census ? undefined : census.reportedOpen > 0 ? "reported" : census.wanted > 0 ? "wanted" : "limit",
+  });
   const log = path.join(jobsDir(), `${job.name}.${step}.log`);
   await mkdir(jobsDir(), { recursive: true });
   const running: Job = {
@@ -975,34 +1015,9 @@ async function runChesslab(
   };
   await record(running);
 
-  const code = await new Promise<number>((resolve) => {
-    const sink = createWriteStream(log, { flags: "a" });
-    sink.write(`$ ${running.command}
-`);
-    const child = spawnTool(binary, args, repoDir());
-    if (child.pid !== undefined) {
-      running.childPid = child.pid;
-      queue.live = { name: running.name, child };
-      void record(running);
-      // The lock must name the JOB, not the server: a killed job then frees the slot by dying.
-      void stampHeavyLockChild(child.pid).catch(() => undefined);
-    }
-    child.stdout.pipe(sink, { end: false });
-    child.stderr.pipe(sink, { end: false });
-    child.on("error", (error) => {
-      sink.end(`
-spawn failed: ${error.message}
-`);
-      resolve(-1);
-    });
-    child.on("close", (value) => {
-      if (queue.live?.child === child) queue.live = null;
-      sink.end(`
-exit ${value}
-`);
-      resolve(value ?? -1);
-    });
-  });
+  // Dieselbe Senke wie der Desktop-Zweig, nur aus dem Repo heraus: die Kopie hier trug denselben
+  // Doppel-`end` und ausserdem keinen Fang fuer den synchronen Spawn-Wurf.
+  const code = await runDesktop(binary, args, running, log, repoDir());
 
   // Gelaufen ist gelaufen, aber nicht gelungen: der Exit fiel hier auf den Boden, und die
   // Sprosse meldete `done` ohne ein Wort — der naechste Schritt ist `labeln`.
@@ -1075,16 +1090,27 @@ const asFailed = (row: Job): Job => ({
  */
 export async function jobOf(name: string): Promise<Job | null> {
   const live = queue.jobs.get(name);
-  if (live) return live;
   const row = (await ledger((r) => r.name)).get(name) ?? null;
-  return row === null ? null : (restarted(row) ? asFailed(row) : row);
+  if (live && supersedes(row ?? undefined, live)) return live;
+  return row === null ? live ?? null : (restarted(row) ? asFailed(row) : row);
+}
+
+/**
+ * Die Speicher-Zeile gewinnt nur, wenn sie nicht AELTER ist als die im Ledger.
+ *
+ * `holdExport` schreibt am Slot vorbei direkt in den Ledger; ein fertiger Export derselben
+ * Aufnahme stand danach weiter im Speicher und verdeckte den Halt — der Picker sah kein
+ * `notBefore`, und `z` fand nichts zurueckzunehmen.
+ */
+function supersedes(row: Job | undefined, job: Job): boolean {
+  return row === undefined || row.queuedAt <= job.queuedAt;
 }
 
 /** In-memory state first, the ledger behind it — a job from before a restart is still a fact. */
 export async function jobs(limit = 25): Promise<Job[]> {
   const seen = await ledger((row) => row.name);
   for (const [name, row] of seen) if (restarted(row)) seen.set(name, asFailed(row));
-  for (const [name, job] of queue.jobs) seen.set(name, job);
+  for (const [name, job] of queue.jobs) if (supersedes(seen.get(name), job)) seen.set(name, job);
   return [...seen.values()].sort((a, b) => (a.queuedAt < b.queuedAt ? 1 : -1)).slice(0, limit);
 }
 
@@ -1098,6 +1124,9 @@ export async function jobs(limit = 25): Promise<Job[]> {
 export async function lastByStep(): Promise<Map<string, Job>> {
   const seen = await ledger((row) => `${row.name}|${row.kind ?? "job"}`);
   for (const [key, row] of seen) if (restarted(row)) seen.set(key, asFailed(row));
-  for (const job of queue.jobs.values()) seen.set(`${job.name}|${job.kind ?? "job"}`, job);
+  for (const job of queue.jobs.values()) {
+    const key = `${job.name}|${job.kind ?? "job"}`;
+    if (supersedes(seen.get(key), job)) seen.set(key, job);
+  }
   return seen;
 }
