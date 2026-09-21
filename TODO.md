@@ -186,8 +186,14 @@ frueh gestoppte Kamera. Der Satz ist gesättigt. Gezielt aufnehmen, mit der App 
 
 ## App
 
-- **Compose-Layouts sind unprüfbar** (zweimal dieselbe Karte, 2026-08-02 und -21). Zusicherung:
-  in einem 220-dp-Container ist jeder Aktionsknopf ≥ 48 dp. Robolectric + `compose-ui-test`.
+- **Compose-Layouts sind unprüfbar** (zweimal dieselbe Karte, 2026-08-02 und -21). Die Zusicherung
+  „in einem 220-dp-Container ist jeder Aktionsknopf ≥ 48 dp" steht jetzt zweimal: `AlarmCardLayoutTest`
+  für die Karte und `ActionTouchTargetTest` für die vier Primitive — letzterer fand `TextAction` bei
+  40 dp (Material-Vorgabe, als einziges ohne `Touch.min`), gefixt 2026-09-22. **Offen bleibt die Form**:
+  `CaptureSetupRoute`/`CaptureTurnRoute` stapeln wachsende Prosa, ein `aspectRatio`-Kind und die
+  Aktionen ZULETZT in einer `Column` ohne Scroll und ohne Prosa-Deckel — dieselbe Anordnung wie beide
+  Vorfälle. Nicht geprüft, weil `CaptureHost` ein `object` ohne Naht ist; testbar erst nach einem
+  `CaptureSetupContent(...)` mit reinen Parametern.
 - **Schema 5** (2026-09-04) setzt die Tracker-Knöpfe auf dem Handy einmal zurück; `boardSize` misst
   sich neu. Beim nächsten Start prüfen.
 - **Tipps auf Zuruf** (Nutzer-Idee, 2026-09-21). Entwurf liegt: `docs/tipps-auf-zuruf-entwurf.md`.
