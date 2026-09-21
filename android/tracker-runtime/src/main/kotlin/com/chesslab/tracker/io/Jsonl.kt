@@ -30,8 +30,8 @@ object Jsonl {
     ): List<JsonObject> {
         val lines = text.split(NEWLINE)
         // Wer mitten in einer Zeile erschlagen wurde, hat den Umbruch dahinter nicht mehr
-        // geschrieben. Steht dort einer, war der Schreiber fertig — dann ist es Beschaedigung.
-        val open = lines.last() != ""
+        // geschrieben — die kaputte Zeile ist dann die LETZTE. Steht dort einer, war der
+        // Schreiber fertig, und eine kaputte Zeile davor ist Beschaedigung.
         val rows = ArrayList<JsonObject>(lines.size)
         lines.forEachIndexed { index, line ->
             if (line.isBlank()) return@forEachIndexed
@@ -39,7 +39,7 @@ object Jsonl {
             val element: JsonElement? = parsed.getOrNull()
             when {
                 element != null -> (element as? JsonObject)?.let { rows += it }
-                open && index == lines.lastIndex -> Unit
+                index == lines.lastIndex -> Unit
                 else -> throw JsonlCorrupt(file, index + 1, parsed.exceptionOrNull()!!)
             }
         }
