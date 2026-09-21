@@ -1,4 +1,4 @@
-# Entscheidungsvorlage (Stand 2026-09-16, Morgen)
+# Entscheidungsvorlage (Stand 2026-09-21)
 
 Jeder Punkt ist gemessen oder am Code belegt — es fehlt nicht die Analyse, sondern eine
 Richtungsentscheidung. Erledigtes fliegt raus, diese Liste ist kein Archiv.
@@ -34,12 +34,12 @@ Verhalten oder Format — nie ohne A/B am Regressionssatz.
 | ~~25~~ | `settle_for_ply` nimmt ungemessene Frames in den Median | — | — | **gebaut 2026-09-16** |
 | ~~26~~ | `--smooth-iters` dreht die Figur | — | — | **gebaut 2026-09-16** — gezaehlt: 0 von 12 betroffen |
 | ~~27~~ | Postgres statt 19 Dateiformate | — | — | **verworfen 2026-09-16** — Messungen bleiben |
-| **28** | Python und TypeScript uneinig: Messung, dann Absage | B | 1 h | **entscheiden** — heute latent |
+| ~~28~~ | Python und TypeScript uneinig: Messung, dann Absage | — | — | **gebaut 2026-09-16** (`5c833c40`) |
 | ~~29~~ | `recut_coverage` las das falsche Alpha | — | — | **gefixt** — 68 Zeilen auf der Platte noch falsch |
 | **30** | Der Champion halbiert das Verdeckungs-Veto (gemessen) | B | Aufnahmen | **entscheiden** |
 | **31** | Das Telefon holt den Champion nicht ab (`CONFIG_SCHEMA_VERSION`) | C | 5 min | **entscheiden** |
 | **32** | Die Alarmspalte der Regression zaehlt Entscheidungen, nicht Episoden | A | 20 min | Spalte ergaenzen, nie ersetzen |
-| 33 | `labeled-session-pack` koennte aus `row["board"]` schneiden | C | halber Tag | erst mit dem naechsten Export-Neubau |
+| 33 | `labeled-session-pack` koennte aus `row["board"]` schneiden | C | halber Tag | erst mit dem naechsten Export-Neubau; seit `5b8e5e8b` lehnt `LabeledVideoPack` ab statt abzustuerzen |
 | 34 | Session-Packs ohne `crop_fingerprint` | A | 10 min | heute folgenlos - mit 33 zusammen |
 
 ## 5. Der Regressionssatz ist blind fuer die haeufigste Fehlerklasse
@@ -101,7 +101,7 @@ Aufnahmen aus Punkt 6 (166 anders eingestufte Frames). **Faellt mit 6 zusammen.*
 Alle sechs stehen inline im Code als `# TODO:` mit dem Warum. Keiner ist gebaut, weil jeder eine
 Entscheidung braucht, die ich nicht treffen kann.
 
-## 14. `torch_data.py:657` — Spender-Pool ohne `neighbour_p > 0`-Schutz
+## 14. `torch_data.py:669` — Spender-Pool ohne `neighbour_p > 0`-Schutz
 
 Jeder Val-Datensatz baut und zieht den Spender-Pool ueber hunderttausende Zeilen und liest ihn nie.
 `SquareDataset` daneben guardet.
@@ -191,13 +191,10 @@ Die uebrigen fuenf (`labeling` 1, `matte` 2, `temporal_matte` 3) liegen im Pipel
 brauchen diese Entscheidung. `tests/test_matte_coverage_rule.py` haelt die Liste fest und laesst
 sie nur schrumpfen.
 
-**Warum nicht nachts gebaut:** `read_matte` haengt am Trainingsweg — wer die Zeile durchlaesst,
-schneidet 64 Zellen mit `coverage 0` mehr in den Datensatz. Das ist eine Rezept-Aenderung, keine
-Reparatur. Gepinnt als `xfail(strict=True)` in `tests/test_matte_state_parity.py`.
-
-| Kiste | Aufwand | Empfehlung |
-|---|---|---|
-| C | 30 min plus ein Re-Slice | Python an TypeScript angleichen, aber mit dem naechsten Neubau |
+**GEBAUT (`5c833c40`)**, nachgesehen 2026-09-21: alle acht Leser sind umgestellt,
+`tests/test_matte_coverage_rule.py` traegt `BUDGET: dict[str, int] = {}`, und der
+`xfail(strict=True)` in `tests/test_matte_state_parity.py` ist weg. Der Absatz darunter stand
+noch auf dem Stand davor.
 
 ## 21. Fuenf Vertrags-Familien statt 19 Einzelformate
 
@@ -221,7 +218,7 @@ Nur die Messreihen tragen die Fehlerklasse — dort ist "fehlt" ein eigener Wert
 2. **Gebaut 2026-09-16:** `lib/jsonl.ts` ist der gemeinsame TS-Leser; fuenf Stellen sind
    verhaltensgleich umgestellt (`audit-flags`, `correction-violations`, `frame-hands`,
    `hand-flags`, `model-reads`, `pool`, `position-flags`, `stored`, `unusable-cells`).
-   24 Schnitte in 11 Dateien stehen noch aus.
+   Schnitte stehen noch aus — 2026-09-21 nachgezaehlt **11 in 7 Dateien** (alt: 24 in 11).
 3. **Gebaut 2026-09-16:** `platform/app/jsonl-readers.txt` plus `lib/jsonl-ratchet.test.ts`.
    Gegengeprobt — eine neue Ad-hoc-Lesestelle macht die Suite rot.
 4. `ModelServingSpec`: was `train` in `config.json` schreibt und was das Serving daraus rechnen
@@ -253,7 +250,7 @@ brauchte keine.
 
 **NACHGEZOGEN 2026-09-16: eine Treuhand, durch die alles laeuft.** Die Regel allein reicht nicht,
 solange jede Stelle sie selbst beantwortet. `src/chesslab/ioutil.py` und `platform/app/lib/atomic.ts`
-sind jetzt die beiden Tueren; `tests/json_doors.txt` (18 Stellen) und `platform/app/write-doors.txt`
+sind jetzt die beiden Tueren; `tests/json_doors.txt` (19 Zeilen, 24 Stellen) und `platform/app/write-doors.txt`
 (3) zaehlen, was noch daneben schreibt, und duerfen nur schrumpfen.
 
 Dabei fiel ein Fehler auf, den die Regel nicht abdeckte: rohes `appendFile` an eine `.jsonl` mit
@@ -394,11 +391,16 @@ Baseline-Verdeckungsschwelle als `motionPxThr * BASELINE_ABS_THR_FACTOR` (4,0) a
 | 34,544 (Champion) | 138 | **345** | 582 |
 | 41,5 (bester Kandidat der Budget-Suche) | 166 | 345 | 539 |
 
-**Das Verdeckungs-Veto feuert unter dem Champion 42 % seltener.** Oberhalb von 34,5 kostet es
-nichts mehr — der Census saettigt, wer die Reserve zurueckholen will, muss DARUNTER.
+**Das Verdeckungs-Veto feuert unter dem Champion 42 % seltener** — so der Fuzzer. Auf ECHTEM
+Material ist es mehr: ueber vier Regressionsaufnahmen faellt `occlVetoed` von 4 547 auf 1 423,
+also **68,7 % weniger Frames** (`ff09040a`). Oberhalb von 34,5 kostet es nichts mehr — der Census
+saettigt, wer die Reserve zurueckholen will, muss DARUNTER.
 
-Der Regressionssatz zeigt davon nichts (396/3/0, Desync-Episoden 15 -> 8). Es ist eine schmaler
-gewordene Reserve, kein gemessener Schaden.
+Der Regressionssatz zeigt davon nichts (396/3/0, Desync-Episoden 15 -> 8). **Das ist aber kein
+Freispruch:** mit BEIDEN engine-eigenen Verdeckungsarmen AUS kommt derselbe Satz Ziffer fuer
+Ziffer gleich heraus (`c7f3756b`, `docs/baseline-occlusion-off.md`). Er kann diese Achse also gar
+nicht beurteilen. Es ist eine schmaler gewordene Reserve, kein gemessener Schaden — und kein
+gemessenes Wohlbefinden.
 
 **Zu entscheiden:** ob das reicht. Solange die Frage offen ist, sollte kein weiterer Kandidat
 `motionPxThr` nach oben schieben; der beste der Budget-Suche brachte 21 Frames und wuerde die
@@ -1509,21 +1511,6 @@ Temperaturen von 1,26 bis 1,76, und die Kante liegt deshalb nicht bei allen an d
 **Nicht gemessen:** ob die Kante bei den anderen sechs Modellen woanders sitzt. Das waeren sechs
 weitere Saetze zu je ~50 Minuten.
 
-## 30. `gate:occluded` steht unter den neuen Vorgaben auf 0 (2026-09-20)
-
-`desktop fuzz check` auf den promoteten Werten: `veto:shadow=466 veto:occlusion=520
-veto:changed=807 gate:occluded=0`. Das Verdeckungs-**Veto** ist also scharf, aber der
-Verdeckungs-**Zustand** wird in den Wach-Szenen nicht mehr betreten.
-
-Dasselbe sagt die Bisektion an `FrameLoopTest.coreOccludedStateExitsOnAQuietBoard`: der Test
-haelt einen Vorfall von 2026-08-07 fest (8 verlorene Halbzuege bei 50-ms-Holds) und wird erst
-mit `motionPxThr = 20.0` wieder gruen. Gemessen, dass genau dieser Knopf es ist - die anderen
-drei geaenderten Vorgaben stellen ihn nicht wieder her.
-
-**Kein Blocker:** der volle Satz steht auf 396/3/0 und die Desync-Episoden sind von 15 auf 8
-gefallen. Offen ist, ob die verschobene Empfindlichkeit dieses Tors irgendwo kostet - das
-misst weder der Regressionssatz noch der Fuzzer heute.
-
 ## 31. Das Telefon holt den Champion nicht ab (2026-09-20)
 
 `ConfigCodec.encode` schreibt JEDEN Knopf in die gespeicherte Konfiguration, `decode` legt
@@ -1544,7 +1531,7 @@ Episoden von 15 auf 8 fielen und drei Anker-Ausfaelle verschwanden.
 im Skript **nicht** umdefinieren: jede im Projekt zitierte Referenzzahl haengt an ihr. Eine
 zweite Spalte danebenstellen.
 
-## 33. Die Kommentar-Ratsche zaehlt Bloecke, nicht ihre Laenge (2026-09-21)
+## 35. Die Kommentar-Ratsche zaehlt Bloecke, nicht ihre Laenge (2026-09-21)
 
 `CommentBudgetTest.commentBlocks` und sein Python-Zwilling `android/scripts/comment_budget.py`
 zaehlen, WIE VIELE Laeufe von 5+ Kommentarzeilen eine Datei traegt. Ein bereits gebuchter Block
@@ -1560,3 +1547,8 @@ Eintraege ausdruecklich nur SCHRUMPFEN. Ein Wechsel muss die Datei also einmal n
 dabei die Regel fuer diesen einen Commit aussetzen. Bewusst nicht nebenbei gemacht;
 `CommentBudgetCounterCheckTest.einWachsenderBlockBleibtEineEins` haelt die Blindstelle bis dahin
 sichtbar fest, statt sie in Prosa zu verstecken.
+
+## 32 ist gebaut (2026-09-21)
+
+`scripts/compare_regression.py` (`6c626891`) stellt die Episoden-Spalte NEBEN die alte, genau wie
+der Punkt es verlangte; `replay-regression.ps1:67` zaehlt unveraendert `ALARM latched`.
