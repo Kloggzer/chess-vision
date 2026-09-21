@@ -219,9 +219,20 @@ def run_eval(run: str, split_name: str = "test", input_size: int | None = None,
     packed = None
     if ds_name:
         from .pack import load_packed, resolve_dataset_packs
-        packed = resolve_dataset_packs(ds_name, manifest_rows=rows)
+        packed = resolve_dataset_packs(ds_name, config.DATA, manifest_rows=rows)
         if packed is None:
-            packed = load_packed(ds_name)
+            packed = load_packed(ds_name, config.DATA)
+    # Wie in `train`: traegt der Pack CLAHE schon in den Pixeln, darf der Loader ihn nicht noch
+    # einmal rechnen — zweimal CLAHE ist ein anderer Operator, und die Zahlen benoten dann ein
+    # Rezept, das der Lauf nie gefahren ist.
+    from .pack_bake import baked_of, clahe_params, skip_baked
+    from .packs import packed_shape
+
+    baked = baked_of(ds_name, config.DATA) if ds_name else None
+    if baked and packed is not None and skip_baked(baked, clahe_params(cfg), cfg["out_size"],
+                                                   packed_shape(packed)[1:]):
+        cfg = {**cfg, "clahe_clip": 0.0}
+        print(f"[bake] CLAHE steckt im Pack ({baked['from']}) — das Eval rechnet ihn nicht")
     tf = eval_transform_for(cfg)
     batch = 256
     # An occlusion run's last logit is the coverage sigmoid, not a class. `evaluate_dataset` only

@@ -56,6 +56,13 @@ def _photometry_of(policy, photometric) -> dict:
             **_geometry_of(policy, photometric)}
 
 
+def _aug_of(policy, photometric, neighbour_p) -> dict:
+    """Derselbe Quell-Vorrang wie `_photometry_of` — sonst nennt `config.json` denselben Regler
+    zweimal mit zwei Werten: mit `--batch-aug` steht `policy.erase_p` auf 0, gewuerfelt hat aber
+    `BatchPhotometric`."""
+    return {"erase_p": (photometric or policy).erase_p, "neighbour_p": neighbour_p or 0.0}
+
+
 def _geometry_of(policy, photometric) -> dict:
     """Dasselbe fuer die Geometrie: mit `--batch-aug` steht sie im Loader auf 0."""
     g = getattr(photometric, "geometry", None)
@@ -1206,7 +1213,7 @@ def run_train(backbone: str, epochs: int, batch_size: int, lr: float,
                       "mode": "per_crop" if per_crop else "fixed"},
         "input_repr": input_repr, "in_chans": in_chans,
         "scales": scales,
-        "aug": {"erase_p": policy.erase_p, "neighbour_p": neighbour_p or 0.0},
+        "aug": _aug_of(policy, photometric, neighbour_p),
         # Was WIRKLICH gerechnet wurde: unter `--head occlusion` ist das `OcclusionLoss`,
         # nicht `loss` — die Provenienz nannte sonst einen Verlust, den der Lauf nie anfasste.
         "loss": "occlusion" if occluding else loss,

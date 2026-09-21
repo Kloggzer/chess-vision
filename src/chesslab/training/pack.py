@@ -329,6 +329,9 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
                   for i in range(0, len(files), per)]
         kinds = len(at)
         procs = min(workers or config.DEFAULT_NUM_WORKERS, len(tasks))
+        # VOR dem Pixel-Durchlauf, wie im Zweig darunter: danach gestempelt beglaubigt der
+        # Wachhund genau den Re-Slice, der waehrend des Packens dazwischenfuhr.
+        fingerprint = _crop_fingerprint([path for _, path in files])
         with Pool(procs) as pool:
             got = sum(pool.imap_unordered(_cut_session, tasks[:kinds]))
             got += sum(pool.imap_unordered(_decode_chunk, tasks[kinds:]))
@@ -338,8 +341,7 @@ def pack_dataset(name: str, paths: config.Paths = config.DATA, workers: int | No
         # `boards/`, ihre Crop-Datei sagt also nichts ueber den Pack. Ein leerer Wachhund war
         # kein "nichts zu pruefen", sondern "nie wieder pruefen" — `_rewritten_since_pack`
         # lief durch eine leere Schleife und meldete jeden Re-Slice als frisch.
-        write_packed_meta(meta_path, rows, h, w,
-                          crop_fingerprint=_crop_fingerprint([path for _, path in files]))
+        write_packed_meta(meta_path, rows, h, w, crop_fingerprint=fingerprint)
         progress_path.unlink(missing_ok=True)
         return {"n": n, "h": h, "w": w, "path": str(img_path),
                 "gb": round(total_bytes / 1e9, 2), "source": f"boards+files ({n - len(files)}/{len(files)})"}
