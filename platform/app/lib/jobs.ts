@@ -106,8 +106,14 @@ export function runningJob(): Job | null {
  * A drain hangs off this: the next recording of the backlog starts the moment the last one is
  * done, and the heavy lock is released at the same moment.
  */
-export function whenIdle(): Promise<void> {
-  return queue.running.then(() => undefined);
+export async function whenIdle(): Promise<void> {
+  // Bis die Kette WIRKLICH steht, nicht nur bis der gerade laufende Schritt fertig ist: eine
+  // Sprosse haengt die naechste an und ersetzt dabei `queue.running`. Wer die alte Zusage
+  // abwartet, sieht den Nachfolger noch als `running` — daran flackerte ein Test.
+  for (let seen = queue.running; ; seen = queue.running) {
+    await seen;
+    if (queue.running === seen) return;
+  }
 }
 
 export function repoDir(): string {
@@ -742,8 +748,8 @@ async function runRetime(name: string, running: Job, log: string): Promise<numbe
  * Karten liegen, sonst labelt der Mensch an den zweifelhaften Zellen vorbei. Sein Exit-Code
  * zaehlt NICHT als der des Schritts - eine fehlende Matte darf `model-read` nicht rot faerben.
  */
-async function runPositionFlags(running: Job, log: string): Promise<void> {
-  await appended(["run", "chesslab", "realgames", "position-flags"], running, log);
+function runPositionFlags(running: Job, log: string): Promise<number> {
+  return appended(["run", "chesslab", "realgames", "position-flags"], running, log);
 }
 
 function appended(args: string[], running: Job, log: string): Promise<number> {
@@ -986,7 +992,10 @@ exit ${value}
     });
   });
 
-  if (step === "model-read" && code === 0) await runPositionFlags(running, log);
+  // Gelaufen ist gelaufen, aber nicht gelungen: der Exit fiel hier auf den Boden, und die
+  // Sprosse meldete `done` ohne ein Wort — der naechste Schritt ist `labeln`.
+  let flags: number | null = null;
+  if (step === "model-read" && code === 0) flags = await runPositionFlags(running, log);
 
   const end = endState(job.name, code);
   await record({
@@ -996,7 +1005,9 @@ exit ${value}
     reason: end.stopped
       ? STOPPED
       : code === 0
-        ? undefined
+        ? (flags !== null && flags !== 0
+            ? `die Lesarten stehen, aber "chesslab realgames position-flags" endete mit ${flags} — die Strittig-Lane liegt noch auf den alten Karten, siehe ${log}`
+            : undefined)
         : code === -1
           ? `could not start "${binary}" — is uv on PATH? Set CHESSLAB_UV to its full path.`
           : `chesslab ${verb} exited ${code} — see ${log}`,

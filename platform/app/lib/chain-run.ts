@@ -36,6 +36,7 @@ export async function startStep(name: string, step: string, lens?: boolean,
   // naming the step that refused would leave `phone-record` in `heavy.lock` while a replay runs.
   const requested = fallback ? "label" : state.step;
   const lock = await claimHeavyLock(requested, name);
+  if ("blocked" in lock) return { error: lock.blocked, state, status: 409 };
   if ("foreign" in lock) {
     const { pid, job, name: holder } = lock.foreign;
     return { error: `heavy.lock: pid ${pid} arbeitet an ${job} ${holder}`, state, status: 409 };

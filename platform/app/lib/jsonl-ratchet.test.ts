@@ -7,6 +7,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
+import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "jsonl-readers.txt");
@@ -81,28 +82,28 @@ async function ledger(): Promise<Map<string, number>> {
   );
 }
 
-test("keine neue Stelle schneidet JSONL selbst in Zeilen", async () => {
+test("keine neue Stelle schneidet JSONL selbst in Zeilen", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await handRolled();
   const known = await ledger();
   const fresh = [...seen.keys()].filter((f) => !known.has(f));
   expect(fresh, "nutzt `jsonlRows` aus lib/jsonl.ts").toEqual([]);
 });
 
-test("eine bekannte Stelle waechst nicht", async () => {
+test("eine bekannte Stelle waechst nicht", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await handRolled();
   for (const [file, budget] of await ledger()) {
     expect(seen.get(file) ?? 0, file).toBeLessThanOrEqual(budget);
   }
 });
 
-test("die Liste traegt keine erledigte Zeile mehr", async () => {
+test("die Liste traegt keine erledigte Zeile mehr", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await handRolled();
   const stale = [...(await ledger())].filter(([f, n]) => (seen.get(f) ?? 0) < n);
   expect(stale, "schreib die Zahl herunter — die Ratsche darf nur schrumpfen").toEqual([]);
 });
 
 /** Gegenprobe auf die FORM: der Python-Zwilling suchte Schreibweisen und liess 16 Stellen durch. */
-test("jede Schreibweise des Zeilenschnitts zaehlt, nicht nur die vier bekannten", () => {
+test("jede Schreibweise des Zeilenschnitts zaehlt, nicht nur die vier bekannten", { timeout: TREE_SCAN_TIMEOUT }, () => {
   const N = BS + "n";
   const planted = [
     `text.split("${N}")`, `text.split('${N}')`, `text.split(\`${N}\`)`,
@@ -115,7 +116,7 @@ test("jede Schreibweise des Zeilenschnitts zaehlt, nicht nur die vier bekannten"
 });
 
 /** Gegenprobe auf den Gang: eine fremde Datei darf keine Stelle erfinden (`route-coverage.test.ts`). */
-test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const base = path.join(tmpdir(), `jr-${process.pid}-${Date.now()}`);
   onTestFinished(() => rm(base, { recursive: true, force: true }));
   for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {

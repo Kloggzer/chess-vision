@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { expect, test } from "vitest";
+import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
 /**
  * No `"use client"` file may pull a filesystem module into the browser bundle.
@@ -33,7 +34,7 @@ async function walk(dir: string): Promise<string[]> {
   return out;
 }
 
-test("no client component imports a value from a filesystem-touching lib module", async () => {
+test("no client component imports a value from a filesystem-touching lib module", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const root = process.cwd();
   const files = (await Promise.all(ROOTS.map((r) => walk(path.join(root, r))))).flat();
   const text = new Map(await Promise.all(files.map(async (f) => [f, await readFile(f, "utf8")] as const)));

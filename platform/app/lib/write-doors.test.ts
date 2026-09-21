@@ -7,6 +7,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, onTestFinished, test } from "vitest";
+import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
 const ROOT = path.join(__dirname, "..");
 const LEDGER = path.join(ROOT, "write-doors.txt");
@@ -58,28 +59,28 @@ async function ledger(): Promise<Map<string, number>> {
   );
 }
 
-test("keine neue Tuer am Treuhaender vorbei", async () => {
+test("keine neue Tuer am Treuhaender vorbei", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await doors();
   const known = await ledger();
   const fresh = [...seen.keys()].filter((f) => !known.has(f)).sort();
   expect(fresh, "schreib ueber lib/atomic.ts").toEqual([]);
 });
 
-test("eine bekannte Tuer wird nicht breiter", async () => {
+test("eine bekannte Tuer wird nicht breiter", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await doors();
   for (const [file, budget] of await ledger()) {
     expect(seen.get(file) ?? 0, file).toBeLessThanOrEqual(budget);
   }
 });
 
-test("die Liste traegt keine erledigte Zeile mehr", async () => {
+test("die Liste traegt keine erledigte Zeile mehr", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const seen = await doors();
   const stale = [...(await ledger())].filter(([f, n]) => (seen.get(f) ?? 0) < n);
   expect(stale, "schreib die Zahl herunter — die Ratsche darf nur schrumpfen").toEqual([]);
 });
 
 /** Gegenprobe: ohne einen eingepflanzten Fall weiss niemand, ob die Ratsche noch etwas sieht. */
-test("eine eingepflanzte Tuer wird gezaehlt, der Treuhaender nicht", () => {
+test("eine eingepflanzte Tuer wird gezaehlt, der Treuhaender nicht", { timeout: TREE_SCAN_TIMEOUT }, () => {
   expect(doorsIn(`await writeFile(file, JSON.stringify(rows));`)).toBe(1);
   expect(doorsIn(`await appendFile(f, line + "\\n");\nconst s = JSON.stringify(row);`)).toBe(1);
   expect(doorsIn(`writeFileSync(p, text);\n// Zeile\n// Zeile\nJSON.stringify(x);`)).toBe(1);
@@ -90,7 +91,7 @@ test("eine eingepflanzte Tuer wird gezaehlt, der Treuhaender nicht", () => {
 });
 
 /** Gegenprobe auf den Gang: eine fremde Datei darf keine Tuer erfinden (`route-coverage.test.ts`). */
-test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const base = path.join(tmpdir(), `wd-${process.pid}-${Date.now()}`);
   onTestFinished(() => rm(base, { recursive: true, force: true }));
   for (const rel of ["node_modules/fremd", ".next/cache", "lib"]) {

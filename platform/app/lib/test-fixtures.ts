@@ -98,3 +98,10 @@ export async function writeSession(spec: SessionSpec): Promise<string> {
 export async function writeLog(dir: string, rows: RowSpec[]): Promise<void> {
   await writeFile(path.join(dir, "log.jsonl"), logText(rows), "utf8");
 }
+
+/**
+ * Fuer Proben, die den QUELLBAUM ablaufen (die vier Ratschen, Kodierung, Client-Grenze). Gemessen
+ * je unter 200 ms allein — sie sind nicht langsam, sie werden unter Last ausgehungert, und der
+ * 5-s-Vorgabewert ist fuer einen Baumlauf zu knapp. 30 s fangen ein echtes Haengen weiterhin.
+ */
+export const TREE_SCAN_TIMEOUT = 30_000;

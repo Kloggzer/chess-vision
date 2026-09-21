@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { expect, onTestFinished, test } from "vitest";
+import { TREE_SCAN_TIMEOUT } from "@/lib/test-fixtures";
 
 /**
  * Eine Ratsche auf die API-Routen, das duennste Stueck des Baums (18,6 % am 2026-09-14) und der
@@ -40,7 +41,7 @@ async function state() {
   return { routes, tested, budget: new Set(budget) };
 }
 
-test("no route loses its test, and no new route arrives without one", async () => {
+test("no route loses its test, and no new route arrives without one", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   const { routes, tested, budget } = await state();
   const untested = routes.filter((r) => !tested.has(r));
 
@@ -58,7 +59,7 @@ test("no route loses its test, and no new route arrives without one", async () =
 });
 
 /** Gegenprobe: eine eingepflanzte Fremddatei darf die Abdeckung nicht erfinden. */
-test("der Gang ueberspringt node_modules und Punktverzeichnisse", async () => {
+test("der Gang ueberspringt node_modules und Punktverzeichnisse", { timeout: TREE_SCAN_TIMEOUT }, async () => {
   // `mkdir` gibt bei `recursive` den ERSTEN angelegten Pfad zurueck oder undefined — der Ort
   // gehoert in eine eigene Variable, sonst haengt die Probe an diesem Detail.
   const base = path.join(tmpdir(), `rc-${Date.now()}`);

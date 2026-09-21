@@ -48,11 +48,23 @@ export function stale(lock: HeavyLock | null): boolean {
   return !alive(lock.childPid ?? lock.pid);
 }
 
-function readLockSync(): HeavyLock | null {
+/** `null` = keine Datei. `"unreadable"` = eine liegt da, die niemand deuten kann — und die ist
+ *  NICHT verwaist: Pythons `locks._claim` legt sie mit `O_EXCL` leer an und schreibt erst danach,
+ *  also ist das Fenster der Normalfall eines LAUFENDEN Prozesses, nicht der einer Leiche. */
+type LockRead = HeavyLock | null | "unreadable";
+
+function readLockSync(): LockRead {
+  let text: string;
   try {
-    return JSON.parse(readFileSync(heavyLockPath(), "utf8")) as HeavyLock;
+    text = readFileSync(heavyLockPath(), "utf8");
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? null : "unreadable";
+  }
+  try {
+    const row = JSON.parse(text) as HeavyLock;
+    return typeof row?.pid === "number" ? row : "unreadable";
   } catch {
-    return null;
+    return "unreadable";
   }
 }
 
@@ -67,13 +79,21 @@ function createLock(lock: HeavyLock): boolean {
   }
 }
 
+/** Eine Absage ohne deutbaren Halter — der Slot bleibt zu, und der Satz sagt, wo nachzusehen ist. */
+export type LockBlocked = { blocked: string };
+
+const unreadable = (): LockBlocked => ({
+  blocked: `heavy.lock ist da, aber nicht deutbar — ein Lauf schreibt sie gerade, oder sie ist zerrissen: ${heavyLockPath()} pruefen und von Hand loeschen, wenn kein Prozess mehr laeuft`,
+});
+
 // Create-exclusive to avoid TOCTOU; retry once for stale locks (6 GB replay window).
-export async function claimHeavyLock(job: string, name: string): Promise<{ held: HeavyLock } | { foreign: HeavyLock }> {
+export async function claimHeavyLock(job: string, name: string): Promise<{ held: HeavyLock } | { foreign: HeavyLock } | LockBlocked> {
   await mkdir(inboxDir(), { recursive: true });
   const lock: HeavyLock = { pid: process.pid, job, name, startedAt: new Date().toISOString() };
   if (createLock(lock)) return { held: lock };
 
   const current = readLockSync();
+  if (current === "unreadable") return unreadable();
   // Ours already: the slot is serialized, so re-stamping it would only lose the real start time.
   if (current && current.pid === process.pid) return { held: current };
   if (current && !stale(current)) return { foreign: current };
@@ -84,6 +104,7 @@ export async function claimHeavyLock(job: string, name: string): Promise<{ held:
   }
   if (createLock(lock)) return { held: lock };
   const winner = readLockSync();
+  if (winner === "unreadable") return unreadable();
   return winner ? { foreign: winner } : { held: lock };
 }
 
@@ -94,9 +115,11 @@ export async function stampHeavyLockChild(childPid: number): Promise<void> {
   await writeFileAtomic(heavyLockPath(), JSON.stringify({ ...current, childPid }, null, 2) + "\n");
 }
 
-/** Only ever removes OUR lock — another process's file is not this process's to delete. */
+/** Only ever removes OUR lock — another process's file is not this process's to delete. Eine
+ *  unlesbare zaehlt dabei als FREMD: sie kann die halb geschriebene eines laufenden Laufs sein. */
 export async function releaseHeavyLock(): Promise<void> {
-  const current = await readHeavyLock();
+  const current = readLockSync();
+  if (current === "unreadable") return;
   if (current && current.pid !== process.pid) return;
   await rm(heavyLockPath(), { force: true });
 }
