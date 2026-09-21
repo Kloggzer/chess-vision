@@ -10,9 +10,11 @@ import { recordingName } from "@/lib/session";
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { session_id?: unknown; frame?: unknown; verdict?: unknown };
-    const session_id = String(body.session_id);
+    // `String(undefined)` ist "undefined", und `checkName` laesst das Wort durch: ein Koerper ohne
+    // `session_id` schrieb so ein Urteil ueber Frame "undefined" der Sitzung "undefined" — mit 200.
+    const session_id = text(body.session_id, "session_id");
     const name = recordingName(session_id);
-    const frame = String(body.frame);
+    const frame = text(body.frame, "frame");
     if (body.verdict === "unusable") {
       return Response.json(await flagFrame(name, frame, true));
     }
@@ -24,4 +26,9 @@ export async function POST(request: Request) {
   } catch (error) {
     return Response.json({ error: String(error) }, { status: 400 });
   }
+}
+
+function text(value: unknown, what: string): string {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${what} fehlt im Rumpf`);
+  return value;
 }

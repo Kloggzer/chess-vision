@@ -30,6 +30,10 @@ export async function GET(
       headers: { "content-type": CUT_MIME, "cache-control": "public, max-age=3600" },
     });
   } catch (error) {
-    return new Response(String(error), { status: 404 });
+    // Wie `api/cell` und `api/frame`: "nicht da" ist 404, alles andere unser Fehler. Pauschal 404
+    // machte aus einem unlesbaren Brett dieselbe Antwort wie aus einem fehlenden — und der Mensch
+    // sucht dann eine Aufnahme, die es gibt und deren Pixel kaputt sind.
+    const missing = (error as { code?: string })?.code === "ENOENT";
+    return new Response(String(error), { status: missing ? 404 : 500 });
   }
 }

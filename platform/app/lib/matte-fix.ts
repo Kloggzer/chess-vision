@@ -9,7 +9,7 @@ import { writeFileAtomic } from "@/lib/atomic";
 import { forgetRaster } from "@/lib/crops";
 import { checkName } from "@/lib/data";
 import { busy, runChesslabCapture } from "@/lib/jobs";
-import { fixedMattePath, mattePath, matteStamp } from "@/lib/matte";
+import { alphaPath, fixedMattePath, mattePath, matteStamp } from "@/lib/matte";
 import { lastLine } from "@/lib/session-delete";
 import { boardToStored, loadSession } from "@/lib/session";
 import { applyMat, invertMat, type Mat3, meshPointInverse, type TiltedMesh } from "@/lib/warp";
@@ -83,7 +83,10 @@ export async function saveFixedAlpha(name: string, stem: string, maskPng: Buffer
   if (!board) throw new Error(`frame ${stem} carries no stored board`);
   // No mesh: the stroke is drawn on the straightened board, and the alpha is that same straight
   // raster (`realgames.straighten_boards` pulls both). Mapping back would undo the straightening.
-  const alpha = await grey(mattePath(name, stem));
+  // Die HANDFASSUNG ist die Grundlage, wenn es sie gibt (`alphaPath`, was die Lane auch zeigt):
+  // auf SAMs Rohalpha zu setzen warf jeden frueheren Strich weg — der Stift schickt nach
+  // `pen.reset()` nur noch den neuen. Zurueck zu SAM kommt man ueber `restore`.
+  const alpha = await grey(await alphaPath(name, stem));
   const fixed = applyAlphaMask({
     alpha,
     mask: await rgba(maskPng),

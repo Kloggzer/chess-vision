@@ -21,10 +21,12 @@ describe("GET /api/board/[name]/[stem] source integrity", () => {
       params: Promise.resolve({ name: "game", stem: "000001" }),
     });
 
+    // 500 seit 2026-09-21: die Route unterscheidet "nicht da" (404) von "kaputt" wie `api/cell`.
+    // Der Befund dieses Tests ist ein anderer — es duerfen keine Ersatzpixel geliefert werden.
     expect(
       response.status,
       "BUG: /api/board returned 200 with fallback pixels after the authoritative exported board failed",
-    ).toBe(404);
+    ).toBe(500);
     expect(mocks.storedBoardPng).not.toHaveBeenCalled();
   });
 });
